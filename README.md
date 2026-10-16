@@ -102,7 +102,7 @@ flowchart TB
         STATE["权威状态<br/>model · event · approval · contract · prompt"]
     end
 
-    subgraph L3["seelebridge/ 防腐层：运行时能力适配"]
+    subgraph L3["backend/engine/assemble/ 防腐层：运行时能力适配"]
         RT["Runtime 装配与关停"]
         TOOLS["tools：Router · RegistryState · PermissionGate"]
         ORCH["plan · node · fork · scheduler · task"]
@@ -111,7 +111,7 @@ flowchart TB
 
     CTX["seelexctx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
     PERSIST["store/ · session/ · workspace/"]
-    EXT["plugin/ · skill/ · mcpstack/"]
+    EXT["backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack"]
     SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
 
     TUI --> SVC
@@ -185,7 +185,7 @@ sequenceDiagram
     participant U as 用户
     participant F as TUI / GUI
     participant S as application.Service
-    participant R as seelebridge.Runtime
+    participant R as assemble.Runtime
     participant L as Seele ReActLoop
     participant T as tools.Registry + PermissionGate
 
@@ -242,7 +242,7 @@ flowchart LR
 └───────────────┬──────────────────────────┬──────────────────┘
                 │                          │
 ┌───────────────▼────────────┐  ┌──────────▼──────────────────┐
-│ seelebridge/               │  │ seelexctx/                  │
+│ assemble/                  │  │ seelexctx/                  │
 │ Runtime · Tools · Plan     │  │ Assemble · Compact · DAG    │
 │ Account · MCP · Security    │  │ Memory · Search · Merge     │
 └───────────────┬────────────┘  └──────────┬──────────────────┘
@@ -253,7 +253,7 @@ flowchart LR
 └─────────────────────────────────────────────────────────────┘
 
 Supporting modules:
-plugin/ · skill/ · store/ · workspace/ · session/ · mcpstack/
+backend/engine/plugin · backend/engine/skill · store/ · workspace/ · session/ · backend/engine/mcp/mcpstack
 ~~~
 
 ### Seelex 与 Seele 的边界
@@ -287,10 +287,10 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
 
 - <code>contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
-- 根目录 adapter、<code>seelebridge/</code> 和存储模块实现这些端口。
+- 根目录 adapter、<code>backend/engine/assemble/</code> 和存储模块实现这些端口。
 - TUI 与 GUI 只依赖 Application DTO、Snapshot 和 Event，不直接调用 Seele Engine、数据库或 Plugin Manager。
 
-这个决策把“模型如何执行”和“产品如何解释执行结果”分开。Seele 可以继续演进 Agent、Session、Tool Registry 和 WorkPlan 原语；Seelex 则保持 Task、Plan、审批、Workspace 和前端协议稳定。上游类型变化被限制在 **Anti-Corruption Layer** <code>seelebridge/</code> 内，而不是扩散到整个代码库。
+这个决策把“模型如何执行”和“产品如何解释执行结果”分开。Seele 可以继续演进 Agent、Session、Tool Registry 和 WorkPlan 原语；Seelex 则保持 Task、Plan、审批、Workspace 和前端协议稳定。上游类型变化被限制在 **Anti-Corruption Layer** <code>backend/engine/assemble/</code> 内，而不是扩散到整个代码库。
 
 ### 2. Application Snapshot 是权威状态，Event 只负责增量同步
 
@@ -654,7 +654,7 @@ permission:
 | 目录 | 职责 |
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>seelebridge/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
+| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>session/</code>](session/README.md) | 会话领域模型与投影 |
@@ -790,9 +790,9 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 |---|---|
 | 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](middle/protocol/model/README.md) · [event/](middle/protocol/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
-| 运行时适配 | [seelebridge/](backend/engine/assemble/README.md) · [security/](backend/limit/gate/README.md) · [tools/](backend/tool/registry/README.md) · [plan/](backend/tool/plan/README.md) · [node/](backend/tool/node/README.md) · [fork/](backend/tool/fork/README.md) · [session/](backend/multiagent/subagent/README.md) · [account/](backend/engine/account/README.md) · [mcp/](backend/engine/mcp/README.md) · [computer/](backend/tool/computer/README.md) |
+| 运行时适配 | [backend/engine/assemble/](backend/engine/assemble/README.md) · [backend/limit/gate/](backend/limit/gate/README.md) · [backend/tool/registry/](backend/tool/registry/README.md) · [backend/tool/plan/](backend/tool/plan/README.md) · [backend/tool/node/](backend/tool/node/README.md) · [backend/tool/fork/](backend/tool/fork/README.md) · [backend/multiagent/subagent/](backend/multiagent/subagent/README.md) · [backend/engine/account/](backend/engine/account/README.md) · [backend/engine/mcp/](backend/engine/mcp/README.md) · [backend/tool/computer/](backend/tool/computer/README.md) |
 | 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
-| 扩展与前端 | [plugin/](backend/engine/plugin/README.md) · [skill/](backend/engine/skill/README.md) · [mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
+| 扩展与前端 | [backend/engine/plugin/](backend/engine/plugin/README.md) · [backend/engine/skill/](backend/engine/skill/README.md) · [backend/engine/mcp/mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 
 README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭合、图类型、括号与引号配平、
@@ -805,7 +805,7 @@ README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭�
 项目当前仍主要由原作者维护；欢迎提交可复现 Issue、设计审查或 Pull Request，但仓库不会把自动化提交包装成外部贡献。开始修改前，请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[行为准则](CODE_OF_CONDUCT.md)、[AGENTS.md](AGENTS.md) 和目标模块的 README，并保持以下约束：
 
 - 前端只消费 Application DTO/Event，不复制业务状态机。
-- 上游 Seele 能力优先通过 <code>seelebridge/</code> 适配。
+- 上游 Seele 能力优先通过 <code>backend/engine/assemble/</code> 适配。
 - 新增工具必须经过 ProjectScope、权限和可见性边界。
 - 行为变化应同时更新测试和对应模块文档。
 - 不提交账号文件、API key、DSN、token 或本机绝对路径。

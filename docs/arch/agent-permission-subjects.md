@@ -31,7 +31,7 @@
 | 主体 id | 来源（`ClassForNodeScope` / `roleSessionClass`） | Linux 类比 |
 | --- | --- | --- |
 | `root` | 无节点作用域 / 主代理 / plan entry / goalplan 节点 / 未登记会话 | uid 0（sudo） |
-| `sub` | 调度 ctx 带 `NodeScope{NodeID, Role: RoleSubAgent}`（`node/agent_node.go` 注入） | 普通用户 |
+| `sub` | 调度 ctx 带 `NodeScope{NodeID, Role: RoleSubAgent}`（`backend/tool/node/agent_node.go` 注入） | 普通用户 |
 | `emp_ro` | 角色会话（员工）+ `RoleSpec.ToolsPolicy = readonly` | 受限用户（只读） |
 | `emp_rw` | 角色会话（员工）+ `RoleSpec.ToolsPolicy = readwrite` | 受限用户（可写项目） |
 

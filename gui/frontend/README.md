@@ -64,7 +64,7 @@ flowchart TB
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`mermaid/`（markdown ```mermaid 围栏的图表渲染，约 3.3MB，懒加载）、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记、按需加载通道见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js` **切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
+| `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）**切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
 | `dist/agent-team-retirement.test.mjs` | **Agent Team 退场守卫**（2026-10-12 J-1a）：退场最容易留下的不是报错而是**半条通道**（少了监听器的入口、作废不存在的缓存、指回已删模块的 import）。这里把"退场后的形状"钉成断言——退场资产不再存在、`app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、`index.html` 无 `#team-section`、空态/placeholder 不再提「`@` 手动召唤团队」；同时钉住**保留面**：团队看板（`#team-board-section` + `runtime.teamwork_board`）与角色会话只读观察面原样在场。 |
 | `dist/agent-team-css-retirement.test.mjs` | **退场样式回流闸**（2026-10-12 J-1a / wi-j1a-css）：面板删面后，`styles.css` 里那批面板选择器成了**永远匹配不到**的死规则（DOM 已不存在），本条目按"存活侧引用数 0"（`dist/**.js` / `index.html` / `dist/themes/*.css`）逐条证明后整块摘除，并用这个文件把"已退场前缀"钉成 **0 命中**（按**选择器里的类名 token** 匹配前缀，不做整文件子串匹配——`team-board-*` 是活体、`scheduled-*` 不是 `schedule-*`），覆盖基础段 / hover / `:focus-visible` / `[hidden]` / `@media` 与 `reduced-motion`；**同时钉住脚本侧不许让类名复活**，以及保留面：`team-board-*`（`team-board-view.js` 自带 `TEAM_BOARD_CSS`）、角色会话读面仍在用的 `team-block` / `team-floor-chip` / `team-member-name` / `team-view`、看板表格件 `team-table` / `team-kv*`。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
@@ -307,9 +307,9 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 `docs/devlog/2026-10-01-*` 各篇——下面不再复述一个已经不存在的界面。
 
 - **删掉的**：「状态」页的 Agent Team 折叠块（`#team-section` / `#team-view` / `#team-count`）；
-  渲染件 `dist/agent-team-view.js`（四块表格 + 冷加载面板 + `hirePanel` / `teamEditorPanel` /
-  `renderTeamMemberList` / `employeePool` 等）与它的两条测试（`agent-team-view.test.mjs` /
-  `agent-team-refresh.test.mjs`）；`app.js` 的面板状态族（`agentTeamView` / `agentTeamLibrary` /
+  渲染件 `dist/agent-team-view.js`（**已删除**：2026-10-12 J-1a）（四块表格 + 冷加载面板 + `hirePanel` / `teamEditorPanel` /
+  `renderTeamMemberList` / `employeePool` 等）与它的两条测试（`agent-team-view.test.mjs`（**已删除**） /
+  `agent-team-refresh.test.mjs`（**已删除**））；`app.js` 的面板状态族（`agentTeamView` / `agentTeamLibrary` /
   `agentTeamGlobal` / `agentTeamDirty` / `agentTeamError` / `agentTeamLoading` /
   `agentTeamSessionID`）与 `AgentTeam*` 面板调用（View / Library / GlobalConfig /
   MaterializeTeam / SaveTeam / SaveEmployee / InstantiateRole / SetOrder / DeleteRole /

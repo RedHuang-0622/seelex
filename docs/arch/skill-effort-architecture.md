@@ -53,13 +53,13 @@ newChatRequest(original, PromptStack.Layers())
 
 ## 3. System prompt 组装
 
-`application/app.go` 的 `buildSystemPrompt` 建立以下固定顺序：
+`application/core/prompt_layer/coordinator.go` 的 `BuildSystemPrompt`（原 `application/app.go` 的 `buildSystemPrompt` 已改名搬走） 建立以下固定顺序：
 
 ```text
 identity → plugin/base → effort → instructions
 ```
 
-`PromptStack` 也保存 `kind=skill` 的层，用于活动状态、状态栏描述和退栈。但 `application/prompt_stack.go` 的 `Render` 明确跳过所有 Skill layer。
+`PromptStack` 也保存 `kind=skill` 的层，用于活动状态、状态栏描述和退栈。但 `application/prompt/stack.go` 的 `Render` 明确跳过所有 Skill layer。
 
 系统能力说明只描述协议：模型会在用户消息中收到已选择 Skill。它不枚举 Skill Registry，也不注入 `Available Skills`。这避免了未选择 Skill 污染全局行为、system prompt 随注册表增长，以及用户需求被错误提升为系统指令。
 
@@ -78,7 +78,7 @@ identity → plugin/base → effort → instructions
 
 ## 5. 模型输入格式
 
-`application/skill_context.go` 生成版本化 Markdown envelope：
+`application/core/skill_context.go` 生成版本化 Markdown envelope：
 
 ```markdown
 <!-- seelex:skill-context:v1 display=I3JldmlldyDmo4Dmn6Xpl67popg -->

@@ -74,7 +74,7 @@ sequenceDiagram
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
-| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）已随 Agent Team 用户面退场（2026-10-12 J-1a）整份删除。 |
+| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）**已删除**（2026-10-12 J-1a 随 Agent Team 用户面退场，整份删除）。 |
 | `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
 | `backend/engine/assemble/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
@@ -158,7 +158,7 @@ A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 `AgentTeamView` 的回退），以及团队看板自己的读面（`TeammateSessionLive*`）。
 
 > **下面四段是退场前的面板口径（历史，2026-10-12 J-1a 起不再适用）**：其中提到的
-> `gui/frontend/dist/agent-team-view.js`、`#team-section`、`team.*` RPC、团队库
+> `gui/frontend/dist/agent-team-view.js`（**已删除**：2026-10-12 J-1a）、`#team-section`、`team.*` RPC、团队库
 > （`team/library.json`）与员工库/默认顺序母本（`team/employees.json`、`team/order.json`）
 > 读写面都已随退场删除；仍然适用的只有最后一段里的「角色会话只读观察面」。
 `sessionID` 传空 = 当前视图会话，
@@ -166,7 +166,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `lifecycle.order_policy`/`order_roles` 与角色注册表：前端只提交用户改动后的完整
 顺序表（拖拽落点/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
 定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
-动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
+动作转发在 `frontend/dist/agent-team-view.js`（**已删除**：2026-10-12 J-1a 随面板退场；只读那一半现为 `dist/role-session-view.js`），面板 DOM 挂在
 状态子页的 `#team-section`。
 
 注（2026-09-15 第二轮）：`AgentTeamSaveCurrentTeam` / `AgentTeamPublishToGlobal` /
@@ -179,11 +179,11 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
 负责建角色会话并回报执行者绑定），「删除员工」走 `AgentTeamDeleteRole`，顺序编辑走
 `AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
-（`application/core/agentteam/runtime.go`）：发言环成员（= `order_roles` − `user`）
+（`application/core/agentteam/runtime.go`，**已删除**：2026-10-15 A04/A15 随发言环退场）：发言环成员（= `order_roles` − `user`）
 → 下一个该发言的角色、轮次/上限与逃生状态
 （`round_limit`/`no_progress`/`no_automatic_turn`/`empty_ring`/`external_break`）。
 `user` 不在环里（它的发言机会是回合尾消息队列被整批提升为下一轮），所以面板的
-「下一个」永远不会指向用户；前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，
+「下一个」永远不会指向用户；前端 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）的「发言调度」块只渲染后端事实，
 不下发也不缓存顺序。
 
 **员工装配（提示词/权限）与团队库（2026-09-21）**：
@@ -209,7 +209,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   搭配到全局」，会话副本 → 员工库 + 默认顺序 + 团队库条目）。
 - **面板读侧口径（2026-09-15 第二轮）**：GUI 的「员工库」块展示的是**可用员工**——
   `TeamGlobalConfig.employees`（全局母本）∪ `TeamGlobalConfig.composition.employees`
-  ∪ `TeamView.members`（本会话在编），在 `agent-team-view.js` 的 `employeePool()`
+  ∪ `TeamView.members`（本会话在编），在 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）的 `employeePool()`
   里读侧合并、按 `role_name` 去重、母本优先，行上标 `库` / `本会话`。合并只发生在
   展示层：两份事实仍分属两个作用域，写动作也只写母本（`AgentTeamSaveEmployee`）。
   这样"会话里明明有人、员工库却是 0 人"不再出现，拖拽也能直接拿这些人进发言顺序
@@ -220,7 +220,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 面板不再渲染字段说明与底部作用域说明（原来那批 9.5px / 10px 小字），同一批事实改挂
 控件与提交键的 `title`（hover 才出现），下拉选项标签自己把话说完（"只读（不写文件 /
 不执行命令）"）；「优化提示词」的运行态回执改用独立类 `team-prompt-state`，不再借备注
-样式。面板因此可以被断言为"零备注"：`agent-team-view.test.mjs` 覆盖两种作用域 × 四个
+样式。面板因此可以被断言为"零备注"：`agent-team-view.test.mjs`（**已删除**：2026-10-12 J-1a）覆盖两种作用域 × 四个
 面板实例，`gui/bridge_test.go` 在嵌入产物上锁同一条不变量。**团队面板（新建 / 编辑
 团队）的同类小字本轮未动**，连同其它可优化项见
 [`docs/devlog/2026-09-15-agentteam-panel-optimization.md`](../docs/devlog/2026-09-15-agentteam-panel-optimization.md)。
@@ -347,7 +347,7 @@ go test ./gui -run TestRealAPIRoleSessionLiveProbe -v -count=1 -timeout 20m
 
 `team.*` headless RPC **已退场**（2026-10-12 J-1a）：`team.materialize` / `team.view` /
 `team.put_role` / `team.delete_role` / `team.set_order` / `team.instantiate_role`，连同
-`gui/headless_team.go` 与它的契约测试 `gui/headless_team_test.go` 一起删除。
+`gui/headless_team.go` 与它的契约测试 `gui/headless_team_test.go` **已删除**（2026-10-12 J-1a 同一轮）。
 要读角色会话/团队看板请用 `role.*`（`role.snapshot` 等）与团队看板读面（`TeammateSessionLive*`）。
 
 

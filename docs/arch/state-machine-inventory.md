@@ -55,7 +55,7 @@
 | 回执状态 `asyncPayload.Status`（accepted\|observed\|killed\|already_finished\|retired） | 同一个字段里还流着 Seele `jobs.Manager` 的词（progress\|finished）。把框架的词收进我们的契约 = 框架加词我们就报错。工具侧只写我们自己那五个词，门禁白名单逐条登记 |
 | 框架节点状态 `NodeBase.Status`（completed\|failed\|skipped\|…） | 框架 workplan 的词 |
 | 统一事件摘要 `SummaryEvent.Status`（failed\|completed） | 框架 Seele 的词 |
-| 视图/混合字段：`WorkItem.Status`（task 行 + 子代理行沿用 done 的显示映射）、`WorkTracePoint.Status`、`dto/teamwork_board.go:190` 的"开放取值" | 一个字段承载两格（或明确开放取值），是**展示投影**不是判定面；边界处 `.String()` 显式转换 |
+| 视图/混合字段：`WorkItem.Status`（task 行 + 子代理行沿用 done 的显示映射）、`WorkTracePoint.Status`、`contract/dto/teamwork_board.go:190` 的"开放取值" | 一个字段承载两格（或明确开放取值），是**展示投影**不是判定面；边界处 `.String()` 显式转换 |
 | 落盘 wire：`store` 的各状态字段 | store 在契约之下，存的是**词**；契约类型在上面，转换点逐格命名（如 `nodeStateOfRecord`）。同理 `store.ConversationToolCall.Status`（工具行）——它的名词是与契约互锁的 `ConversationToolCallStatusSuccess` |
 | git 类字段（porcelain XY、git 名状态）、`TaskPhase*`（plan\|tasklist\|task\|subagent） | 不是状态机：一个是外部工具的原始输出，一个是**类别**不是状态 |
 | 事件字段 `dto.PlanNodeEvent.Status` / `model.PlanNodeEventInfo.Status` | **混合面**：本格节点状态词 + 框架 workplan 词 + 我们自己的 worktree 收尾阶段词（`worktree_unmerged` / `merge_blocked`）混在同一个字段里。它不是"节点状态那一格"：认不得的词**不许覆盖节点状态**（旧写法 `default → pending` 会让跑完的节点显示成"待开始"，有回归用例 `plan_node_phase_word_test.go`）。阶段词本身登记在 `backend/tool/node/node_phase_words.go` |

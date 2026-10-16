@@ -206,9 +206,9 @@
 | 替换历史前清掉控制标记 | `seelexctx/history_safety.go:PrepareReplaceHistory` | `controller_test.go` / `history_safety_test.go` |
 | 软阈值：窗口内不压缩 | `seelexctx/controller.go` 注释 (after_assistant/after_tool) | `controller_test.go` |
 | Provider 拒绝空 content | `application/core/history_safety.go:prepareProviderHistory` | `error_presentation_test.go` |
-| SubagentMailbox 满则计数 + 丢弃 | `seelebridge/actor.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
+| SubagentMailbox 满则计数 + 丢弃 | `backend/engine/assemble/runtime_session.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
 | ToolHook 不重入 Service.mu | `taskRuntimeState.goalSkillActive` atomic.Bool | `TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility` |
-| Plan 节点级 cycle 拒绝 | `backend/tool/plan.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
+| Plan 节点级 cycle 拒绝 | `backend/tool/plan/graph.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
 | Plan 节点 budget 上限 | `backend/tool/plan/policy.go:ValidatePolicyLoad` (MaxNodeLoops/MaxNodeOutputTokens；原记录写 `seelebridge/plan_policy.go:validateLoad`，路径与符号都已在搬迁中改名) | `backend/tool/plan/policy_test.go:TestValidatePolicyLoadNodeBudgetGuard`（上限值放行 / 越界一档拒绝 / loops 先于 tokens）。注：原记录引用的 `backend/engine/assemble/plan_input_fuzz_test.go` **存在但只 fuzz `NormalizePlanLoadArguments`**，不触及本分支——该分支原先确实无覆盖，已由这条用例补上 |
 | Plan 节点事件时间线截断 | `application/core/chat.go:appendPlanNodeEvent` (limits.plan_node_events) | race_test / session_archive_test |
 | 流式 chunk 按 32 条 / 40ms 批 | `application/core/chat.go:newBatchedDeltaSink` | — |
@@ -231,7 +231,7 @@
 **设计**
 - 三层决策：Assembler（每次请求投影）→ Processor（超大工具结果）→ Compressor（结构化压缩）→ Controller（软/硬阈值 + 替换历史）。
 - 软阈值 75% / 硬阈值 90% / 压缩目标 60% 三个常量在 `controller.go:ContextWindowPolicy` 集中定义。
-- `seelexctx.Compressor` 的三级预算（200/499/全量）在 `compactor/compactor.go` 实现。
+- `seelexctx.Compressor` 的三级预算（200/499/全量）在 `seelexctx/compactor/compactor.go` 实现。
 - `history_safety.go` 统一负责"control block 清理 + 配对修复"。
 
 **Confirmed 优点**
@@ -261,7 +261,7 @@
 
 **Hypothesis / 风险**
 - H5：`store.Router.Save/Load/SaveCommit/LoadRange` 等约 15 处 `Repository` 方法，**全部使用 `context.Background()`**（`store/sessionstore.go` 中 15 处）。这意味着 caller 的 ctx（cancel、超时）无法传播到持久化层。建议在 Router 与底层 Repository 之间加 ctx 透传边界（虽然这与"切换后端"语义有冲突，但能透传 cancel 信号至少不会让 HTTP client 死等）。
-- H6：`mcpstack.TraceProvider` 通过 `provider.Compact` 路径（`mcpstack/provider.go:48`）直接构造 `ContextSnapshot` 副本，但绕过了 `seelexctx/provider.Provider` 接口——这是为了避免 import 循环而做的妥协。代价是 mcpstack 不在 seelexctx.Provider 命名空间下，可能在 `Merger.MergeBack` 时被遗漏。建议加 compile-time 接口断言 `var _ provider.Provider = (*mcpstack.TraceProvider)(nil)`（如果 import 关系允许重构）。
+- H6：`mcpstack.TraceProvider` 通过 `provider.Compact` 路径（`backend/engine/mcp/mcpstack/provider.go:48`）直接构造 `ContextSnapshot` 副本，但绕过了 `seelexctx/provider.Provider` 接口——这是为了避免 import 循环而做的妥协。代价是 mcpstack 不在 seelexctx.Provider 命名空间下，可能在 `Merger.MergeBack` 时被遗漏。建议加 compile-time 接口断言 `var _ provider.Provider = (*mcpstack.TraceProvider)(nil)`（如果 import 关系允许重构）。
 - H7：`SessionRecord` / `SessionContextStore` 的 state blob 与 `ProviderHistory` 是双写关系（`persistCurrentSession` 既写 framework history 也写 state blob）；但二者在落库失败时**只返回第一个错**，后续动作是否会回滚无显式事务。`store.WriteCommit` 显式接受一次 Commit（4 段），但 Commit 内部各段（ProviderHistory/Events/State/ToolResults）的失败一致性是 backend 决定的（JSON 后端是串行 `os.WriteFile` + `os.Rename`）。
 - H8：`RouterStorage.Append` 注释明确"基建期 O(n)"，并把增量优化（事件库 SaveCommit + 投影）列为后续切片。**当前若用作冷加载主路径，每次 Append 都是 read+merge+write 全量**——长会话下这是 O(n²) 的写入成本。一旦切到活跃生产，需要先把增量写做掉。
 
@@ -302,12 +302,12 @@
 - `pathgate.go` 接受 `seele.yaml` 的 path zone allow/ask/deny 规则。
 
 **Hypothesis / 风险**
-- H14：`mcpstack.MCPStack` 与项目其它 actor 模型**不同源**：seelexctx/lifecycle 用的是 `mailbox + 唯一 actor goroutine + 闭包状态`；mcpstack 用的是 `mu.RWMutex + slice append`。两套并发范式并存增加了评审负担。考虑到 MCPStack 范围小且已加锁保护，可接受但应在 `mcpstack/README.md` 显式说明。
+- H14：`mcpstack.MCPStack` 与项目其它 actor 模型**不同源**：seelexctx/lifecycle 用的是 `mailbox + 唯一 actor goroutine + 闭包状态`；mcpstack 用的是 `mu.RWMutex + slice append`。两套并发范式并存增加了评审负担。考虑到 MCPStack 范围小且已加锁保护，可接受但应在 `backend/engine/mcp/mcpstack/README.md` 显式说明。
 - H15：`mcpstack.ForPrompt` 的 `avgTokens` 来自 `s.averageTokenCount()`（每次调用扫描全部 Calls），token budget 评估成本 O(n)。长 MCP 会话下每次 LLM 请求都做一次 O(n) 扫描。值得做缓存。
 - H16：`mcpstack.MCPStack.Record` 每次都 `autoSave()`（`stack.go:169`），相当于同步写盘；`Undo/Redo` 也都 autosa ve。高频 MCP 调用下磁盘 IO 是瓶颈。考虑 batch autosave（与 `lifecycle.BatchPipeline` 同构，但 mcpstack 没有引入）。
 - H17：`SeelexAgentNode` 包装 `node.AgentFactory` 的 closure 解析 `scope/blocks` 是惰性的（`agent_node.go:newSeelexAgentNode`），但 `blocks` 是 `[]seelectx.PromptBlock`，在 `plan_run` 时被冻结——这里需要确认"在 `plan_run` 之前调用是否安全"。
 - H18：`stream_completer.go:streamCompleter` 是 "lease-until-EOF"——意味着账号与一条流绑定。如果流中途因网络断流但 EOF 未来，账号会一直被这个流占用。需要有 lease timeout。
-- H19：`subagent_audit_test.go:13` 演示"mailbox 容量=1 时 `enqueueSubagentContext` 阻塞不会发生"——但 `subagentDropped` 计数增加可观测。**生产代码（`actor.go:75`）没有看到 drop 计数被采样的位置**（如 telemetry、DiagnosticSnapshot）。需要确认"丢弃可观测"的承诺是否真的端到端实现。
+- H19：`subagent_audit_test.go:13` 演示"mailbox 容量=1 时 `enqueueSubagentContext` 阻塞不会发生"——但 `subagentDropped` 计数增加可观测。**生产代码（`backend/engine/assemble/runtime_session.go:137`（`subagentContextDropped`））没有看到 drop 计数被采样的位置**（如 telemetry、DiagnosticSnapshot）。需要确认"丢弃可观测"的承诺是否真的端到端实现。
 
 ### 5.5 Lifecycle 基建（seelexctx/lifecycle）
 
@@ -338,7 +338,7 @@
 
 **Confirmed 优点**
 - `Save` 写 .tmp + rename 原子；失败清理 .tmp。
-- `Snapshot` 深拷贝防止调用方修改内部状态——这是 `mcpstack/persist.go` 的核心承诺。
+- `Snapshot` 深拷贝防止调用方修改内部状态——这是 `backend/engine/mcp/mcpstack/persist.go` 的核心承诺。
 - 隐含的不变量："MCP stack 是不可变的；Record/Undo/Redo 都是栈操作"。
 
 **Hypothesis / 风险**
@@ -390,7 +390,7 @@
 | P3 | H7 | `SessionRecord` 双写无显式事务 | 持久化失败可能只回滚一段 | 在 `store.WriteCommit` 加跨段失败一致性测试 |
 | P3 | H12 | `ApprovalBroker` resolve timeout 后 late push 的 race | 双 Resolve race | 加 `tryResolve` 原子操作 |
 | P3 | H13 | `appendPlanNodeEvent` 30 条截断方向未明 | 节点开始信息可能丢失 | 确认截断方向并补测试 |
-| P3 | H14 | mcpstack 与 lifecycle 并发范式不同源 | 评审门槛 | 在 `mcpstack/README.md` 显式说明 |
+| P3 | H14 | mcpstack 与 lifecycle 并发范式不同源 | 评审门槛 | 在 `backend/engine/mcp/mcpstack/README.md` 显式说明 |
 | P3 | H17 | `SeelexAgentNode.blocks` 惰性解析，plan_run 之前调用不安全 | 提前解析可能拿到旧 plan 的 blocks | 加 test 覆盖"在 plan_run 之前调用" |
 | P3 | H20 | ContextActor storage 同步调用 | 慢 storage 阻塞 actor | 派生 goroutine + 自邮箱背压 |
 | P3 | H22 | MCPStack Record 持锁 + 持锁 autoSave | 磁盘 IO 拖慢 Record | 拆 RWMutex：state mu + save mu |

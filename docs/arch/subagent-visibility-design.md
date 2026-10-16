@@ -44,7 +44,7 @@ Claude Code 的 sub-agent 可视化工具有三个层次：
 |------|------|------|
 | WorkPlan DAG | `workplan/` 图引擎 | 已有 node/edge/runner，能产生活动图 |
 | TraceTree | `seelectx/tracer/` | span 树 + LLM call / tool dispatch 追踪 |
-| EventHub | `middle/protocol/event.go` | 已用于 snapshot/tool/chat 事件分发 |
+| EventHub | `middle/protocol/event/hub.go` | 已用于 snapshot/tool/chat 事件分发 |
 | Snapshot.Runtime | `application/state.go` | 已有显示子项可用 |
 
 ### 缺的

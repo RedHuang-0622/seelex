@@ -44,14 +44,14 @@ Seelex 的设计取舍就是逐条对着 F1–F5 来的。
 2. **上下文 = 账本前缀投影（不是"打包一段给它"）**：角色记录自切点 `C` 起算
    （`seq > C` 才属于它），`C` 由 `join_seq_id`（入伙那一回合）决定，compact 之后由
    `applied_seq` 抬高；**main 恒为 `C=0`**（主会话复用主会话自身，不受入伙闸门约束）。
-   - 装配与判据：`application/core/agentteam/runtime.go`、`store/role_session.go`
-   - 钉住判据的测试：`application/core/agentteam/prefix_test.go`、`store/role_session_test.go`
+   - 装配与判据：`store/role_session.go`（原 `application/core/agentteam/runtime.go` 已于 2026-10-15 A04/A15 退场）
+   - 钉住判据的测试：原 `application/core/agentteam/prefix_test.go`（已于 2026-10-15 A04/A15 退场；团队 spec 的用例见 `backend/multiagent/team/spec_plugins_test.go`）、`store/role_session_test.go`
 3. **两把尺子，别混用**：
    - `assembleRoleWire`（**喂模型**的那段）= "此刻的共享上下文"；
    - `RoleSnapshot`（**给人看**的那份）= "它入伙以来的账"。
    两者共用同一判据、内容不同。面板上渲染的占位（`—`）就是"它其实没看到这一帧"的
    诚实表达，而不是把主会话的历史伪装成它记得的上下文。
-   - 前端：`gui/frontend/dist/agent-team-view.js`（`renderRoleRecordTable`）
+   - 前端：`gui/frontend/dist/team-board-view.js`（`renderRoleRecordTable`）
 4. **目标可嵌套（活动栈）+ 回合制评审**：goal 不是单值，而是**活动栈**（嵌套压栈、
    栈顶为当前目标、栈下是被压栈暂停的目标）；ADVISOR(tl) 按回合制推进，指令与裁决
    也落在同一账本上（权威正文是 `tl_directive` 帧，进行中的只读近端是 `in_flight`）。
@@ -59,7 +59,7 @@ Seelex 的设计取舍就是逐条对着 F1–F5 来的。
    - 测试：`application/core/goal_team_wiring_test.go`、`goal_directive_visible_immediately_test.go`
 5. **角色有生命周期，不是"临时 spawn 一个"**：员工母本（全局）+ 本会话在编；
    团队只负责"装配/顺序/呼叫"；发言顺序 `order_roles` 拖拽即提交。
-   - `application/core/agentteam/{runtime,scheduler}.go`、`dto/agentteam.go`
+   - `backend/multiagent/team/spec.go`（`{runtime,scheduler}.go` 已于 2026-10-15 A04/A15 退场）、`contract/dto/agentteam.go`
 6. **人类控制面是一等公民**：会话粒度权限档（manual/edit/auto/full）、工具权责模型
    （主体 × 路由组 × 位 + sudo）、审批面板、员工在编/入库。
    - `docs/arch/agent-permission-subjects.md`、`gui/bridge.go`
@@ -129,7 +129,7 @@ merge 拼回一致性。
 | Go 测试函数 | **1985** 个（`func Test` 计数） |
 | Go 测试文件 | **486** 个 `_test.go` |
 | 前端测试文件 / 用例 | 36 / 316 |
-| team work 关键模块规模 | `gui/frontend/dist/agent-team-view.js` 927 行、`gui/bridge.go` 1099 行 |
+| team work 关键模块规模 | `gui/frontend/dist/team-board-view.js` 927 行、`gui/bridge.go` 1099 行 |
 | 机制文档面 | `application/core/README-agentteam.md` 16.3 KB、`application/core/README-goal.md` 21.6 KB、`gui/frontend/README.md` 53.8 KB |
 | 该机制的活体探针（需真实模型） | `gui/{team_live_probe_test.go, team_workcontent_live_probe_test.go, goal_team_wiring_live_probe_test.go, role_live_probe_test.go}` |
 
@@ -184,7 +184,7 @@ merge 拼回一致性。
 ## 7. 参考（代码与文档锚点）
 
 - 记录与数据流：`docs/2026-09-16-team-work-record-dataflow/README.md`
-- 团队运行时与调度：`application/core/README-agentteam.md`、`application/core/agentteam/{runtime,scheduler}.go`
+- 团队运行时与调度：`application/core/README-agentteam.md`、`backend/multiagent/team/spec.go`（`{runtime,scheduler}.go` 已于 2026-10-15 A04/A15 退场）
 - 目标与评审：`application/core/README-goal.md`、`application/core/goal_coordinator.go`
 - 权责模型：`docs/arch/agent-permission-subjects.md`
 - GUI 事实源：`gui/README.md`、`gui/frontend/README.md`

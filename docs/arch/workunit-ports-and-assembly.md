@@ -18,7 +18,7 @@
 | 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、变更信号 | 按能力切成的**四格 + 一个合成**：`JobSubmitter`（`Dispatch`=提交）/ `JobReader`（`Observe`=状态、`Peek`=增量读不推进游标、`Snapshot`=全量）/ `JobController`（`Kill` / `Done` / `Reclaim(ctx, Scope)` 按作用域）/ `JobSignals`（`Events()`）；`Jobs` = 四格的合成 | Seele `jobs.Manager`（teammate 现在）：**八格逐字对齐**，`contract.go` 的 `var _ Jobs = (jobs.Manager)(nil)`；`tools` 那张 async 表（subagent / `bash_bg` 现在）：今天只在 `JobSignals` 那一格同形（断言在 `backend/tool/registry/async_exec.go`） | 装配处（new） |
 | 2 | **现场** `SceneFace` | 一件活的现场：建、收尾合并、回收、重启认领 | `Begin(ctx, identity)(Scene,err)` / `Finish(ctx, scene, result, mergeErr)(Outcome,err)` / `Reclaim(ctx, scene)` / `Adopt/Restore(ctx)` | `*worktree.WorktreeManager`（已是一份实现） | 装配处（new） |
 | 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*store.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
-| 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `seelebridge/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
+| 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `backend/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
 | 5 | 编排闸门 | 屏障、依赖、在编校验 | —— | leader 侧（`teamwork.Coordinator`） | **不进 workunit**，以回调/端口接 |
 | 6 | 装配 | plugin / 系统提示词 / skill 前缀 | —— | `runtime_role_turn` 一侧 | **不进 workunit**，以回调/端口接 |
 | 7 | 账本/看板 | 谁的活、哪一件、终态归档 | —— | team plan + board | **不进 workunit**，以端口接 |
@@ -66,7 +66,7 @@
 
 ### ① 现在做：只定接口（不迁移）
 
-1. `seelebridge/workunit/contract.go`：把 `Jobs` 从"只有 `Reclaim`"扩成**完整作业面**（§2 第 1 行的方法面，
+1. `backend/workunit/contract.go`：把 `Jobs` 从"只有 `Reclaim`"扩成**完整作业面**（§2 第 1 行的方法面，
    只收现在真正用到的几家）；**保留** `var _ Jobs = (jobs.Manager)(nil)` 这条编译期断言。
 2. 给 `tools` 那张 async 作业表也补**结构上满足**的编译期断言，让"两个实现同形"从今天起就被
    编译器钉住；**不改**它的行为、**不动**迁移。
@@ -87,11 +87,11 @@
 
 | # | 落地物 | 位置 |
 |---|---|---|
-| 1 | 作业面四格 + 合成 `Jobs`；`var _ Jobs = (jobs.Manager)(nil)` 保留原处 | `seelebridge/workunit/contract.go` |
+| 1 | 作业面四格 + 合成 `Jobs`；`var _ Jobs = (jobs.Manager)(nil)` 保留原处 | `backend/workunit/contract.go` |
 | 2 | tools 自建表同形那一格的断言（只加断言行，行为零变化） | `backend/tool/registry/async_exec.go` |
 | 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `backend/engine/assemble/workunit_assembly.go` |
 | 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `backend/engine/assemble/workunit_parent.go` |
-| 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `seelebridge/workunit/progress.go` |
+| 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `backend/workunit/progress.go` |
 | 6 | 机械门禁（按层分支 + 具体类型 + 每个实现的编译期断言 + **契约包 import 实现包零命中**），带阴性对照 | `e2e/workunit_ports_test.go` |
 
 三处**文档口径更正**（仓库现状优先，按"先改文档并说明理由"处理）：
@@ -106,7 +106,7 @@
   （两层共用同一张记录表），所以落地版多两个入参：`kind`（这一层的读数标注）与 `owned`
   （归属过滤，可为 nil）——否则 `Read`/`List` 只能替调用方猜归属，那正是勘定 §U5 要避免的。
 
-**前置**：`seelebridge/workunit/contract.go` 当前由在做父实现重构的 `a1` 占用（分支 `seelex/lifecycle-parent`）。
+**前置**：`backend/workunit/contract.go` 当前由在做父实现重构的 `a1` 占用（分支 `seelex/lifecycle-parent`）。
 先确认那条分支已落地且工作区干净，再动这个文件——两个改动同时落在同一文件必冲突。
 
 ### ② 之后做：并掉剩余的本质重复（**不是**合表）
@@ -123,12 +123,12 @@
 
 | # | 重复 | 今天几份 | 并到哪 | 锚点 | 代价 |
 |---|---|---|---|---|---|
-| 1 | 「记录 → 进度」折算 | 3 份手写 | `workunit.ProgressOf`（① 已定形） | `session/subagent_sessions.go` 写侧/读侧、`workunit_team_records.go` | 改两条链的落盘/回读路径 = 行为迁移 |
+| 1 | 「记录 → 进度」折算 | 3 份手写 | `workunit.ProgressOf`（① 已定形） | `backend/multiagent/subagent/subagent_sessions.go` 写侧/读侧、`workunit_team_records.go` | 改两条链的落盘/回读路径 = 行为迁移 |
 | 2 | 阶段 JSON 编解码 | 2 份 | `workunit.EncodeStages`·`DecodeStages`（① 已定形） | 同上 | 同上 |
 | 3 | teammate 阶段打点恒单元素 | 1 处语义缺口 | 走同一套 `Stage` | `workunit_team_records.go` 的 `teamUnitStages` | 会改回灌文案（勘定 U3/U4 要复验） |
 | 4 | 恢复说明容器 | 2 份（已收一半） | `workunit.RecoveryNote`（已有） | `runtime_subagent_resume.go:386`、`workunit_team.go:383` | 小 |
 
-**登记为分层事实、不再当缺陷的两张表**（写进 `workunit/README.md` 的依赖方向段）：
+**登记为分层事实、不再当缺陷的两张表**（写进 `backend/workunit/README.md` 的依赖方向段）：
 
 - 表① 框架 `jobs.Manager` = **团队作业面**：`jobs_manage` 是框架 builtin
   （`runtime_teamwork.go:248`）、`Scope{Session,Subject}`、`Events()` 信号扇出；

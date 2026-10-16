@@ -25,7 +25,7 @@ flowchart TB
 
     subgraph IMPL["实现方（按端口落地）"]
         ENGINE["根目录 enginePort"]
-        RUNTIME["seelebridge.Runtime"]
+        RUNTIME["backend/engine/assemble.Runtime"]
         PLUGIN["plugin.Manager"]
         SKILL["skill.Registry"]
         SESSION["session.Manager / wiring/adapters"]
@@ -84,7 +84,7 @@ flowchart LR
 | 接口 | 责任 | 典型实现 |
 |---|---|---|
 | `ChatEngine` | 流式聊天、历史替换、session 生命周期、prompt/loop 配置 | 根目录 `enginePort` |
-| `RuntimePort` | Provider、Account、Tool、Plugin、项目根和 Plan branch binding | `seelebridge.Runtime` 适配器 |
+| `RuntimePort` | Provider、Account、Tool、Plugin、项目根和 Plan branch binding | `backend/engine/assemble` 的 `Runtime` 适配器 |
 | `PluginPort` | Plugin 列表、激活、停用 | `plugin.Manager` 适配器 |
 | `SkillPort` | Skill 查询 | `skill.Registry` 适配器 |
 | `SessionPort` | 会话保存、读取、分页、删除和 active workspace | `session.Manager` 适配器 |
@@ -98,7 +98,7 @@ flowchart LR
 |---|---|---|
 | `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `wiring/adapters.SessionPort`（同时实现 `SessionPort`） |
 | `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
-| `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `seelebridge.Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
+| `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `backend/engine/assemble` 的 `Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
 
 这些端口是**可选能力**：`application/core` 用类型断言在 `Deps.Sessions` 上发现前两者，
 `RoleTurnPort` 经 `Dependencies` 显式注入，

@@ -167,5 +167,5 @@ main chat boundary -> drain mailbox -> Engine.AppendHistory
 - `application/core/session_scope.go`：异步 session catalog 缓存与有界关闭等待。
 - `application/core/service_input.go`：回流邮箱 drain、Engine history 注入和可见消息更新。
 - `application/core/chat.go`：主聊天的开始前与结束后 drain 边界。
-- `seelebridge/actor.go`：Runtime 原子投影和非阻塞有界邮箱。
-- `seelebridge/agent_node.go`：子代理父证据读取、merge-back 和子会话锁边界。
+- `backend/engine/assemble/runtime.go`（Runtime 原子投影状态）与 `backend/engine/assemble/runtime_session.go`（非阻塞有界邮箱）。
+- `backend/tool/node/agent_node.go`：子代理父证据读取、merge-back 和子会话锁边界。

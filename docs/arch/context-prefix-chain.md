@@ -51,7 +51,7 @@ system → project → memory → compact → context(累积已定稿轮次) →
 - **system**：`prompt_layer` 的稳定层 identity → plugin → effort →
   instructions，**再追加插件级 skill 目录（`## Available Skills`）就到此为止**。
   system 里**没有** task 级 skill 内容段，也**没有** plan 政策段——这两段原先追加
-  在 system 尾部，已移出（`prompt_layer/coordinator.go` 的
+  在 system 尾部，已移出（`application/core/prompt_layer/coordinator.go` 的
   `SystemPromptForActiveTaskLockedFor` 注释把这条纪律写在函数头上：system 只放
   「与任务/会话无关」的稳定字节）。
   - **skill 的「使用」与 tool / command 是同一个生态位**：它落在 **context 下面**
@@ -143,7 +143,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 
 | 装配点 | 位置 | 内容 |
 |---|---|---|
-| T1 | `plugin/manager.go` `Load()`/`Activate()` → `runtime.DefinePlugin/ActivatePlugin` → `backend/engine/plugin/plugin.go` `Manager.Filter` | 激活插件的 include/exclude 通配过滤（可见性快照缓存） |
+| T1 | `backend/engine/plugin/manager.go` `Load()`/`Activate()` → `runtime.DefinePlugin/ActivatePlugin` → `backend/engine/plugin/plugin.go` `Manager.Filter` | 激活插件的 include/exclude 通配过滤（可见性快照缓存） |
 | T1b | `backend/engine/assemble/runtime.go:311-325` `seeltools.NewPolicy` + `bridge.NewRegistryRuntime(…, WithVisibilityPolicy(policy.Filter))` | 策略装配进 agent 工具运行时：子代理 NodeScope 排除全局状态工具 + plan 工具族仅在 goal skill 激活时可见（`backend/tool/registry/policy.go` `Policy.Filter`） |
 | T2 | `Seele v0.1.2 session/loop.go` `ReActLoop.visibleTools()` → agent bridge `RegistryRuntime.VisibleTools`（publicTools → policy） | **每轮**请求取可见工具集，进入 `AssemblyRequest.Tools` |
 
@@ -189,8 +189,8 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 
 **① 来源装配 S0：插件目录 = 技能目录（磁盘→插件定义）**
 
-- `plugin/loader.go:120` `loadPlugin` → `skill.LoadPluginDir(pluginRoot)`
-  （`skill/loader.go:202`）扫描 `plugins/<plugin>/<skill>/SKILL.md`；插件定义
+- `backend/engine/plugin/loader.go:120` `loadPlugin` → `skill.LoadPluginDir(pluginRoot)`
+  （`backend/engine/skill/loader.go:202`）扫描 `plugins/<plugin>/<skill>/SKILL.md`；插件定义
   `plugin.Plugin{Skills: []skill.Skill}` 自带技能表。
 - `main.go:473` `initSkillSystem` = `skill.NewRegistry()`（无全局技能 loader；
   注释明示 registry 由 plugin Load/Activate 的 `PublishPluginSkills` 填充）。
@@ -200,9 +200,9 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 - `main.go:145` `initPluginSystem`：`plugin.NewManager(loader, runtime, runtime, skillRegistry)`
   （ToolBackend/MCPBackend=runtime，SkillBackend=registry）→ `manager.Load()`：
   每插件 `skills.PublishPluginSkills(p.Name, p.Skills)`
-  （`skill/skill.go:188` → `pluginSkills[name]`）。
+  （`backend/engine/skill/skill.go:188` → `pluginSkills[name]`）。
 - `main.go:186` `activateDefaultPlugin` → `manager.Activate(default)` →
-  `skills.ActivatePluginSkills("default")`（`skill/skill.go:172` →
+  `skills.ActivatePluginSkills("default")`（`backend/engine/skill/skill.go:172` →
   `registry.activePlugin = "default"`）。
 - 运行期切换：`switch_plugin`/`switch_mode`（`main.go` `registerPluginSwitchTools`）
   → `adapters.PluginPort.Activate` → `plugin.Manager.Activate`（同一事务：工具
@@ -210,7 +210,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 
 **③ 可见性隔离（activePlugin ≠ "" 才生效）**
 
-- `skill/skill.go` `Get`(76)/`All`(93)：只返回 `pluginSkills[activePlugin]`
+- `backend/engine/skill/skill.go` `Get`(76)/`All`(93)：只返回 `pluginSkills[activePlugin]`
   → `wiring/adapters/session_workspace_ports.go:121` `SkillPort.Get/All` →
   `application/core/completion.go:33`（`#` 补全）与 `input.go:53`（`#<skill>`
   路由）只能看到当前插件技能（default→plan/code/review/…，freecad→cad-*）。
@@ -231,7 +231,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
   （`store/durable_history.go:205-218` 保持 `user` 角色回放、
   `wire_assembler.go:266-280` 以 `user` 回放且 `Internal: true`）→ resume 可回放、
   `search_history` 可回读。**system 不再渲染该段**：
-  `prompt_layer/coordinator.go` 的 `SystemPromptForActiveTaskLockedFor` 注释明确
+  `application/core/prompt_layer/coordinator.go` 的 `SystemPromptForActiveTaskLockedFor` 注释明确
   记载「激活技能正文已移出 system，改为 internal 事件 append 进 transcript」。
 - `seelexctx.RenderStablePrefixBlocks` 的 SkillStack 顶层帧渲染器已接线
   `PrefixStacks`，但主会话无生产 `PushSkill` 压栈（仅测试/恢复拷贝）→ 该帧
@@ -620,7 +620,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
    - **a-1) 注释措辞已修（2026-09-24）**：`ActiveSkillMarker` 的注释原写「事件**不落盘**」，
      与 store 侧 wire material 落盘/回放相矛盾。现按三问改写：
      「**落盘**（wire material，resume 回放、检索回读）／不进可见会话与「用户输入」视图／
-     **会被压缩裁掉**」；`context_runtime/coordinator.go` 的 `ActiveSkillPrefix` 注释同步补上
+     **会被压缩裁掉**」；`application/core/context_runtime/coordinator.go` 的 `ActiveSkillPrefix` 注释同步补上
      落盘与裁剪说明。`store/durable_history.go` 的 `providerRoleForEvent` 注释无歧义，未动。
    - **a-2) 缺口处理：定为 (iii) 接受现状（2026-09-24 决定）**。事实链：技能事件是独立协议
      单元（`plan_transcript.go` 的 `transcriptProtocolUnitList` 分支），压缩窗口裁剪后正文从 wire

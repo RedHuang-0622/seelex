@@ -73,7 +73,7 @@
 | [`2026-09-15-agentteam-panel-optimization.md`](devlog/2026-09-15-agentteam-panel-optimization.md) | Agent Team 面板与相邻面板的可优化之处：只读审计（带证据）+ 行业对照 + 分批建议；含员工面板去小字备注的落地记录 |
 | [`2026-09-15-frontend-render-and-memory.md`](devlog/2026-09-15-frontend-render-and-memory.md) | 前端渲染与内存减负（事件委托 / 共享提示气泡 / 拓扑单传 / tree-fork 统一树轨与泳道） |
 | [`2026-09-16-frontend-tables-and-chip-dropdown.md`](devlog/2026-09-16-frontend-tables-and-chip-dropdown.md) | Goal 活动栈与角色记录改专用表格（一行一帧 / 一行一车道一列一回合）、权限档 chip 就地下拉切换、Dev GUI 包归档根目录修正 |
-| [`2026-08-11-agent-self-review.md`](devlog/2026-08-11-agent-self-review.md) | Agent 自评：一次批量 fork 评测的复盘（含 CRLF 幻影脏检查根因等真实教训；2026-10-15 由 `docs/self_judgement.md` 迁入） |
+| [`2026-08-11-agent-self-review.md`](devlog/2026-08-11-agent-self-review.md) | Agent 自评：一次批量 fork 评测的复盘（含 CRLF 幻影脏检查根因等真实教训；2026-10-15 由 `docs/self_judgement.md`（**已删除**，内容迁入本目录）迁入） |
 | [`2026-10-15-legacy-capability-retirement-a04-a06.md`](devlog/2026-10-15-legacy-capability-retirement-a04-a06.md) | 遗留能力退场 A04–A06：发言环（`Runtime`/`TurnScheduler`）整条删除清单、旧顺序/调度字段的 read-compat 裁决与 `TeamSchedule` wire 兼容期限、角色注册表 legacy 数据兼容政策 |
 | [`2026-10-15-legacy-capability-retirement-a07-a10.md`](devlog/2026-10-15-legacy-capability-retirement-a07-a10.md) | 遗留能力退场 A07–A10：角色执行/权限保留裁决、提示词与插件读面标 legacy 可选能力、`goal.gov_snapshot` 只读观察面定性、旧 plan `stages` 与 `retire` 审计的冷读 fixture 及"计划阶段退场 ≠ 执行进度打点存活"区分 |
 | [`2026-10-15-legacy-capability-retirement-a11-a15.md`](devlog/2026-10-15-legacy-capability-retirement-a11-a15.md) | 遗留能力退场 A11–A15：历史报告/数据流工作包/产品片截图的"历史基线"标注与 GUI 权威文档纠偏、两个角色会话号派生的不合并裁决 + 跨实现一致性用例、恒空 TL 记录写路径的删除清单、workunit 唯一实现复核、架构文档状态矩阵收口 |

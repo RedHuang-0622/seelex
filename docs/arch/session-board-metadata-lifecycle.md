@@ -236,7 +236,7 @@
   `GoalBoardHistory` / `GoalBoardMeta`（active/history 分离）/ `TeamBoardMeta`（视图快照原样搬运）+
   `ValidateGoalBoardMeta` / `ValidateTeamBoardMeta` + `BoardRepository`（带 Key 的机械面）与
   `BoardsForSession`（Key 烘焙进实现，领域侧只知道 sessionID）。
-- **goal 写侧**：`application/core/goal/board_archive.go`（新）：`refreshGoalBoard`（Save 的唯一必经点）
+- **goal 写侧**：`backend/multiagent/goal/board_archive.go`（新）：`refreshGoalBoard`（Save 的唯一必经点）
   + `refreshBoardAfterAudit`（终态审计落账后，权威 Status/At/Reason）+ `planGoalBoard`（生命周期推进
   + 指纹节流）+ `mergeBoardHistory`（并集去重、只追加、id 复用让位）+ `closedInfo` / `activeFrame`；
   `sessionstore_store.go` 加存档面与 `Save` 末的扇出。
@@ -249,7 +249,7 @@
   （只恢复 `state=active`，标 `Recovered=true` + `Stale=true`）。
 - **可见面**：团队看板 `recovered` chip（与 `stale` 同屏，二者不互斥）；「目标」面板「历史目标」一节
   （账本与看板主体分开，§3.1）+ `recovered` 标记；TUI 同源同一份投影（`tui/goalteam.go`）。
-- **守卫**：`application/core/goal/board_archive_boundary_test.go`（I1 静态断言：只有
+- **守卫**：`backend/multiagent/goal/board_archive_boundary_test.go`（I1 静态断言：只有
   `board_archive.go` / `sessionstore_store.go` 可提到存档类型）+ `seelebridge` 的
   `TestEveryTeamworkMutationHandlerRefreshesBoardArchive`（5 个 team_* 动作都必须"失效缓存 + 刷存档"）
   + `gui/team_board_wiring_test.go` 的 `TestEmbeddedBoardArchiveVisibilityWiring`（recovered 与

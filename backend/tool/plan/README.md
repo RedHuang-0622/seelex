@@ -63,7 +63,7 @@ flowchart LR
 `newPlanRunner` 显式 `SetForkPolicy(forkexec.PolicyBestEffort)`：plan/fork 批次里的
 节点彼此独立（独立 worktree、独立账号、独立 goal），单点失败不该让整批归零，
 也不该连坐取消已经跑出结果的兄弟节点。框架 `ForkCoordinator` 的默认值是
-fail-fast（`forkexec.go` 的 `policy()`），不显式设置就会连坐。
+fail-fast（上游框架 `Seele/workplan/runtime/forkexec` 的 `Policy` 默认值），不显式设置就会连坐。
 
 配套的结果契约在 `planRunResultJSON`：best-effort 下框架不再回错误，因此整体状态
 改由节点终态派生——有 failed 节点 → `status:"failed"` + `error` 点名失败节点及其

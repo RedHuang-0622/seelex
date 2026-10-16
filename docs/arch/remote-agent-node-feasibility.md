@@ -29,7 +29,7 @@
 - 实现：`wiring/adapters/`、`seelebridge/`、`store/`、`workspace/`、`plugin/`。
 - 唯一装配点：`application/application.go` 的 `New(deps Dependencies) (*Service, error)`；
   组合根是 `main.go`。
-- 更严的一版：`seelebridge/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），
+- 更严的一版：`backend/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），
   唯一实现是 `backend/engine/assemble/workunit_assembly.go` 的 `hostPorts`，并有机械门禁
   `e2e/workunit_ports_test.go`（契约包 import 实现包零命中）。
 

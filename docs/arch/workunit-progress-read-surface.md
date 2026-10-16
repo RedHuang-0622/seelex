@@ -1,7 +1,7 @@
 # workunit 进度读面（后端接口形状）—— 只读勘定
 
 > 口径：**只读**。本次除本文件外未新增/修改/移动任何代码、测试或文档；未动桌面。
-> 相关：`seelebridge/workunit/README.md`（契约不变式）、
+> 相关：`backend/workunit/README.md`（契约不变式）、
 > [`workunit-duplication-inventory.md`](workunit-duplication-inventory.md)（同一件事几份实现的盘点）、
 > [`subagent-visibility-design.md`](subagent-visibility-design.md)、
 > [`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md)。
@@ -28,7 +28,7 @@
 | **阶段 / 打点**（"到哪一步"） | 引擎 telemetry `Before` 钩子按 `NodeScope` 逐次投影：`internal/telemetry/stage_hook.go:61` `record()` → `StageRecorder.RecordStage`；装配点 `backend/tool/node/agent_node.go:156`（spawn/注册）与 `:263`（收尾）；落点 `backend/multiagent/subagent/subagent_sessions.go:710` `RecordStage` → actor `:281` **append**（turn 递增，无上限） | 团队尾插三处**整条重写**：`backend/engine/assemble/workunit_team.go:181` `markTeamUnitRunning`（stage=`running`）、`:186` `recordTeamUnitRoundOutput`（stage=`round_output`）、`:193` `settleTeamUnitRecord`（stage=收尾 kind）；编码 `:176` `teamUnitStages` —— **恒为单元素数组**（每条 stage 覆盖前一条） |
 | **是否在跑** | 会话在册 ⇒ `running`，否则 `queued`：`backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（兜底分支 `subagent_sessions.go:515` 一带写死字面量） | 写方显式给 `running`/`done`/`failed`：`backend/engine/assemble/workunit_team.go:41` 常量；判"在跑"已转调契约 `backend/engine/assemble/workunit_team.go:50` `teamUnitInFlight` → `workunit.InFlight` |
 | **结论 / 错误** | `backend/multiagent/subagent/subagent_sessions.go:812` `NoteOutcome`（status/summary/errMsg）；由 `backend/tool/node/coordinator.go` `CompleteSubagentNode` 调用 | `settleTeamUnitRecord`（`workunit_team.go:193`）把 `workunit.Outcome` 折成记录终态 |
-| **现场** | `NoteWorktree`（`backend/multiagent/subagent/subagent_sessions.go:803`），唯一生产调用点 `seelebridge/runtime_plan.go:151` | `teamUnitWorktreeRecord`（`workunit_team.go`，取 worktree 注册表现值；**不落"曾经在哪"**） |
+| **现场** | `NoteWorktree`（`backend/multiagent/subagent/subagent_sessions.go:803`），唯一生产调用点 `backend/engine/assemble/runtime_plan.go:151` | `teamUnitWorktreeRecord`（`workunit_team.go`，取 worktree 注册表现值；**不落"曾经在哪"**） |
 | **时间戳** | 记录带 `StartedAt/EndedAt`（记录形状里有） | **刻意不写**：`workunit_team.go` 注释——"哪一刻开始/落定是计划 `item.StartedAt/FinishedAt` 的事实" |
 
 ### 1.2 中间层（持久化 + 契约端口）
@@ -36,14 +36,14 @@
 | 段 | 锚点 | 说明 |
 |---|---|---|
 | 记录形状（唯一一份） | `store/node_session_store.go:43` `NodeSessionRecord`（`Goal/Status/Summary/Error/History/ContextJSON/StagesJSON/ResultJSON/Worktree/StartedAt/EndedAt/UpdatedAt`） | 两条链共用同一个 `subagents/` 目录、同一张表 |
-| 契约持久化端口 | `seelebridge/workunit/session.go:52` `SessionLedger`（`Save/List`）+ 编译期断言 `var _ SessionLedger = (*store.NodeSessionStore)(nil)` | **不写适配器、不另立记录类型**——这是"复用"的落点 |
+| 契约持久化端口 | `backend/workunit/session.go:52` `SessionLedger`（`Save/List`）+ 编译期断言 `var _ SessionLedger = (*store.NodeSessionStore)(nil)` | **不写适配器、不另立记录类型**——这是"复用"的落点 |
 | subagent 写 | `backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（经 actor，`persistLocked`） | 读侧折算（`Status` 兜底）也在这一个函数里 |
 | teammate 写 | `backend/engine/assemble/workunit_team.go:134` `saveTeamUnitRecord`（**直写** `NodeSessionStore`） | 与 subagent 同一张表，但写入口是第二条（见"归类"①） |
 | subagent 读回 | `backend/multiagent/subagent/subagent_sessions.go:394` `restoreLocked`（解 `StagesJSON`/`ResultJSON`/`Worktree`/终态） | 读侧折算的第二份 |
 | teammate 读回 | `backend/engine/assemble/workunit_team.go:412` `teamUnitRecords`（`List` + 按现场名单过滤）+ `:331` `RecoverTeamworkUnits` | 读侧折算的第三份 |
-| 共用判据（已收口） | `seelebridge/workunit/session.go:60` `StatusQueued/StatusRunning` + `InFlight` | 子代理侧仍有两处字面量未转调（`runtime_subagent_resume.go:329`、`subagent_sessions.go:515`） |
-| 共用恢复说明 | `seelebridge/workunit/session.go` `RecoveryNote`（生产接线：`runtime_subagent_resume.go:386`、`workunit_team.go:383`） | 已是"同一族"，不是自造说明 |
-| 共用收尾分类 | `seelebridge/workunit/classify.go` `ClassifyFinish`（生产接线：`backend/tool/node/agent_node.go:191`、`seelebridge/teamwork/items.go:478`） | 三层唯一一份判据（已落地） |
+| 共用判据（已收口） | `backend/workunit/session.go:60` `StatusQueued/StatusRunning` + `InFlight` | 子代理侧仍有两处字面量未转调（`runtime_subagent_resume.go:329`、`subagent_sessions.go:515`） |
+| 共用恢复说明 | `backend/workunit/session.go` `RecoveryNote`（生产接线：`runtime_subagent_resume.go:386`、`workunit_team.go:383`） | 已是"同一族"，不是自造说明 |
+| 共用收尾分类 | `backend/workunit/classify.go` `ClassifyFinish`（生产接线：`backend/tool/node/agent_node.go:191`、`backend/multiagent/teamwork/items.go:478`） | 三层唯一一份判据（已落地） |
 
 ### 1.3 最终读面：谁读去画「面板 / 打点表 / 会话事件」
 
@@ -51,8 +51,8 @@
 |---|---|---|
 | **打点表**（注入上下文的请求尾部块） | `application/core/work_table_async.go:158` `asyncTraceLines`（句柄/kind/state/字节/有界摘要） | `application/core/work_table_async.go:232` `teamworkTraceLines`（**同一块**、另一行生成器：句柄/状态/归属），拼接点 `application/core/work_table.go:743`（`workTableTraceBlockFor`，`work_table.go:699`） |
 | **工作表格行**（GUI 台账） | `contract/dto/async_run.go:20` `AsyncRunRecord`（`Kind=subagent`）→ `asyncWorkItems`/`asyncRunToWorkItem`（`work_table_async.go`）+ 子代理树行 `syncSubagentTask`（`work_table.go`） | **没有**：teammate 作业不进工作表格（只在看板 `jobs[]` 与打点块） |
-| **执行树** | `contract/dto/subagent.go:24` `SubAgentTreeNode`（`ID/ParentID/Children/Status/Summary/Context`）；投影 `Engine.SubAgentTree()` → `view_state/coordinator.go` 的 `SubAgentTree` | 无对应物（teammate 不是树，是甘特） |
-| **编排看板** | 无（子代理不进 AgentTeam 名册） | `contract/dto/teamwork_board.go:23` `TeamworkBoardView`（`members/milestones/work_items/jobs/events`）← `backend/engine/assemble/runtime_teamwork_board.go:102` `TeamworkBoardSnapshot` ← `TeamworkBoardProjection`（`contract/ports.go`） ← `view_state/coordinator.go:163` `CollectRuntimeProjectionFor` |
+| **执行树** | `contract/dto/subagent.go:24` `SubAgentTreeNode`（`ID/ParentID/Children/Status/Summary/Context`）；投影 `Engine.SubAgentTree()` → `middle/view/state/coordinator.go` 的 `SubAgentTree` | 无对应物（teammate 不是树，是甘特） |
+| **编排看板** | 无（子代理不进 AgentTeam 名册） | `contract/dto/teamwork_board.go:23` `TeamworkBoardView`（`members/milestones/work_items/jobs/events`）← `backend/engine/assemble/runtime_teamwork_board.go:102` `TeamworkBoardSnapshot` ← `TeamworkBoardProjection`（`contract/ports.go`） ← `middle/view/state/coordinator.go:163` `CollectRuntimeProjectionFor` |
 | **会话事件 / 实时** | `Runtime.SubscribeSubagentLive(nodeID)`（`contract/ports.go:77`，实现 `backend/engine/assemble/runtime_live.go:87`）→ `dto.SubagentLiveEvent`（`subagent_live.go:9`：`stage`/`tool`/`assistant` 三类增量）+ 阶段实时通道 `node.Coordinator.StageEvents()`（`backend/tool/node/coordinator.go:208`） | 会话级事件 `teammate.tool.started/completed`：`dto.RoleToolActivity`（`contract/dto/role_tool_activity.go`）→ `Service.HandleRoleToolActivity`（`application/core/service.go:111`）；另 `TeammateSessionProjection.TeammateSessionLive`（`backend/engine/assemble/runtime_teammate_session_live.go:35`）→ `dto.TeammateSessionLiveView` |
 | **作业终态读数** | `AsyncRunRecord`（`State/ExitCode/LogBytes/Summary/Tail`） | `dto.TeamworkJobCompletionRecord`（`contract/dto/teamwork_jobs.go:13`）← `Runtime.TeamworkJobCompletions`（`backend/engine/assemble/runtime_teamwork_jobs.go:21`） |
 | **恢复态** | `dto.SubagentRecoveryView`（`subagent_recovery.go:11`：`Active/ConclusionFound/Resumable`）← `ListSubagentRecovery` | `workunit.Resume`（`Scenes/Sessions/Interrupted`）← `RecoverTeamworkUnits` |
@@ -68,11 +68,11 @@
    "低频权威刷新 + live 即时刷新双通道"）。
 3. **阶段是累积的**：`subagent_sessions.go:281` `append` + turn 自增 → `StagesJSON` 是一条**时间线**
    （`SubagentDetail.Stages` 直接用），不是一条被覆盖的状态。
-4. **进展有"真信号"**：`AsyncRunRecord.LogBytes`（"真实的进展信号"，`dto/async_run.go` 注释）+
+4. **进展有"真信号"**：`AsyncRunRecord.LogBytes`（"真实的进展信号"，`contract/dto/async_run.go` 注释）+
    `Tail` + `State`，界面与打点块据它判断"在不在动"，不靠墙钟猜。
 5. **行/树/详情三层各就各位**：行（工作表格 `async:<handle>`）→ 树（`subagent_tree` 快照键，
    `gui/frontend/dist/snapshot-shape.js:21`）→ 详情（`SubagentDetail` 的 7 个 tab：
-   会话记录/第一视角阶段/上下文/功能打点/事件时间线/工具活动/输出，`subagent_view/README.md`）。
+   会话记录/第一视角阶段/上下文/功能打点/事件时间线/工具活动/输出，`middle/view/subagent/README.md`）。
 
 ### 1.5 teammate 缺了什么才有"看不懂"
 
@@ -99,7 +99,7 @@
 
 | # | 长得像的两份 | 为什么不并（事实） |
 |---|---|---|
-| A1 | `AsyncRunRecord` ↔ `TeamworkJobCompletionRecord` | 文档明确"**两张不同的表**"：来源（tools 登记表 vs `jobs.Manager`）、取回工具（`job_manage` vs `jobs_manage`）、scope 模型都不同；合并会产出"正文指着一个取不到这条作业的工具"（`dto/teamwork_jobs.go` 注释） |
+| A1 | `AsyncRunRecord` ↔ `TeamworkJobCompletionRecord` | 文档明确"**两张不同的表**"：来源（tools 登记表 vs `jobs.Manager`）、取回工具（`job_manage` vs `jobs_manage`）、scope 模型都不同；合并会产出"正文指着一个取不到这条作业的工具"（`contract/dto/teamwork_jobs.go` 注释） |
 | A2 | `SubagentToolEvent` ↔ `RoleToolActivity` | DTO 注释明确"同一件事的两面，**不合并成一个结构**（合并会让每个消费方都要先判断'这条到底是哪个身份'，而字段名会说谎）"——身份轴不同：`NodeID` vs `(主会话, 角色名, 角色会话)` |
 | A3 | `SubAgentTreeNode` ↔ `TeamworkWorkItemView` | 一个是**执行树节点**（parent/children/depth），一个是**编排计划节点**（milestone/depends_on/role）——不同的图 |
 | A4 | `asyncTraceLine` ↔ `teamworkTraceLine` | 同一块里两个**行生成器**（列集不同：字节/末行 vs 归属/工作项）；这是"一张表两种行"，不是同一件事两份 |
@@ -255,16 +255,16 @@ function applyUnitProgress(event) {
 
 | 改动 | 文件 | 量级 |
 |---|---|---|
-| 后端：新增 `workunit/progress.go`（`Stage`/编解码/`ProgressOf`/`UnitReader`） | 新文件 | 小（~80 行纯函数 + 端口，无 I/O 新增） |
+| 后端：新增 `backend/workunit/progress.go`（`Stage`/编解码/`ProgressOf`/`UnitReader`） | 新文件 | 小（~80 行纯函数 + 端口，无 I/O 新增） |
 | 后端：subagent 读侧折算转调 `ProgressOf`（写侧仍各层） | `backend/multiagent/subagent/subagent_sessions.go`（`buildRecordLocked`/`restoreLocked`）、`backend/engine/assemble/workunit_node.go`（`ledgerRecord`） | 小（局部替换折算体） |
 | 后端：teammate 折算转调 `ProgressOf` + `UnitReader` | `backend/engine/assemble/workunit_team.go`（`saveTeamUnitRecord`/`teamUnitRecords`/`RecoverTeamworkUnits`） | 小-中 |
 | 后端：把两处实时投递点接到**同一条事件**（`subagent.tool.*` 与 `teammate.tool.*` 的发布点） | `backend/engine/assemble/runtime_live.go`、`backend/engine/assemble/runtime_role_turn.go`（`RoleToolCallback`）、`application/core/service.go:111`、`main.go:612` | **中-大**（跨 seelebridge→application→装配根三段；这是本次**不建议**与读面折算同批做的一步） |
-| 后端：让 `TeamworkWorkItemView` 增加进度格（`stage`/`preview`/`in_flight`），从 `ProgressOf` 取 | `contract/dto/teamwork_board.go`、`seelebridge/runtime_teamwork_board.go` | 小-中（**可选**，见下） |
+| 后端：让 `TeamworkWorkItemView` 增加进度格（`stage`/`preview`/`in_flight`），从 `ProgressOf` 取 | `contract/dto/teamwork_board.go`、`backend/engine/assemble/runtime_teamwork_board.go` | 小-中（**可选**，见下） |
 | 前端：新增 `applyUnitProgress`，替换 `applyTeammateToolActivity` 的分组缓存 + 子代理 live 的追加逻辑 | `gui/frontend/dist/app.js`、`team-board-view.js`（`renderTeammateLiveSession`）、`work-table.js`/`tree-fork.js`（子代理详情） | 中 |
 | 前端守卫 | `gui/frontend/dist/*.test.mjs`、`gui/team_board_wiring_test.go`、`e2e/dto_boundary_test.go`（wire 键名） | 小 |
 
 **分两批做的建议（重要）**：
-- **第一批（低风险、纯收口）**：只做 `workunit/progress.go` + 后端两份折算转调 + `UnitReader`。
+- **第一批（低风险、纯收口）**：只做 `backend/workunit/progress.go` + 后端两份折算转调 + `UnitReader`。
   前端零改动，两链行为不变（可用现有用例当回归网）。这一步就消灭 R1/R2。
 - **第二批（中-大、动前端）**：把两处实时投递点接到同一条事件 + 前端收敛为一个 hook。
   这一步才真正产生"同一套 hook"；先做第一批不会挡它，也不会与它抢同一批文件。
@@ -281,7 +281,7 @@ function applyUnitProgress(event) {
 
 - **U1（本次顺带回答，见 §5）**：`workunit.Unit` 有没有生产调用者。
 - **U2｜`Progress` 的 `StartedAt/EndedAt` 对 teammate 恒零值，会不会让"读面看起来缺了一格"？**
-  - 验证：在 `workunit/progress_test.go` 加一条断言——teammate 记录（不带时间戳）经 `ProgressOf`
+  - 验证：在 `backend/workunit/progress_test.go` 加一条断言——teammate 记录（不带时间戳）经 `ProgressOf`
     得到零值 `StartedAt/EndedAt`，且 `InFlight`/`Stages`/`Worktree` 与非零；并由看板消费方
     （`runtime_teamwork_board.go`）从计划 `item.StartedAt/FinishedAt` 取时间，**不**从 `Progress` 取。
 - **U3｜把 `subagent_sessions.go:474` 的写侧兜底（`running`/`queued`）改成转调 `ProgressOf`
@@ -335,7 +335,7 @@ subagent 走 `beginNodeWorktree`/`finishNodeWorktree`/`releaseNodeWorktree`
 
 | 符号 | 生产装配点 |
 |---|---|
-| `workunit.ClassifyFinish` | `backend/tool/node/agent_node.go:191`（subagent 节点收尾）、`seelebridge/teamwork/items.go:478/482`（teammate 尾插收尾） |
+| `workunit.ClassifyFinish` | `backend/tool/node/agent_node.go:191`（subagent 节点收尾）、`backend/multiagent/teamwork/items.go:478/482`（teammate 尾插收尾） |
 | `workunit.RecoveryNote` | `backend/engine/assemble/runtime_subagent_resume.go:386`（KindSubagent）、`backend/engine/assemble/workunit_team.go:383`（KindTeammate） |
 | `workunit.RecoveryNoteRole` | `backend/engine/assemble/runtime_subagent_resume.go:37`（`SubagentRecoveryNoteRole` 直接绑契约） |
 | `workunit.InFlight` | `backend/engine/assemble/workunit_team.go:50`（`teamUnitInFlight` 转调）——**子代理侧两处字面量仍未转调**（R3） |
