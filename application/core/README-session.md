@@ -122,6 +122,7 @@
 - `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
 - `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
 - `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
+- `func (service *Service) contentLimitSnapshotLocked(protect string) residency.ContentLimitSnapshot` — contentLimitSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
 - `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
 - `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
 - `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要
@@ -194,7 +195,6 @@
 - `func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T)`
 - `func TestSessionRecordStoresLargeContentByReference(t *testing.T)`
 - `func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T)`
-- `func TestToolResultPaginationMakesProgressAcrossUTF8Boundaries(t *testing.T)`
 - `func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T)`
 - `func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T)`
 - `func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T)`
@@ -294,6 +294,7 @@
 - `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
 - `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
 - `func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool` — isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
+- `func (service *Service) draftTargetLocked() switching.DraftTarget` — draftTargetLocked 把草稿归属判据的两个来源（进程单例草稿槽 + 共享视图镜像）装成
 - `func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error` — materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
 
 ### session_draft_context_attach_test.go
@@ -318,8 +319,7 @@
 - `func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
 - `func (service *Service) ForkSessionLatest(parentID string) (string, error)` — ForkSessionLatest 从父会话最新完整段落边界创建独立子会话并切换到子会话
 - `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
-- `func maxTranscriptEventSeq(events []model.TranscriptEvent) uint64` — maxTranscriptEventSeq 返回事件流中的最大 Seq（空流返回 0）。
-- `func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord` — deepCopyForkRecord 深拷贝 fork 子会话 record：Conversation 消息（含
+- `func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord` — deepCopyForkRecord 是 fork 深拷贝判据的**宿主转发**：判据在 `middle/switch.DeepCopyRecord`
 
 ### session_fork_store_regression_test.go
 
@@ -407,15 +407,7 @@
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 - `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (conversationPage, error)` — loadConversationPage 读回一段历史：record conversation 模块优先（长会话翻页不
 - `func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
-- `func replaceVisibleTail(pageRows, memoryRows []Message, memoryStart, memoryTotal, window int) ([]Message, int)` — replaceVisibleTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存
-- `func prependVisibleHistory(pageRows, memoryRows []Message, memoryStart, window int) ([]Message, int)` — prependVisibleHistory 组装「加载更早」的窗口：页里接缝（窗口首行）之前的可见行
 - `func (service *Service) visibleWindowFirstRow(sessionID string) Message` — visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
-- `func hasRowIdentity(message Message) bool` — hasRowIdentity 报告一行是否带得出身份（空行无法对位）。
-- `func sameByContent(left, right Message) bool` — sameByContent 按「角色 + 正文 + 思考」对位（没有稳定消息 ID 的行只能这样认）；
-- `func indexOfSameRow(rows []Message, want Message) int` — indexOfSameRow 返回 rows 里第一条与 want 同身份的行下标（-1 = 没找到）。先按
-- `func containsSameRow(rows []Message, want Message) bool` — containsSameRow 报告 rows 里有没有与 want 同身份的行。
-- `func lastRow(rows []Message) Message` — lastRow 返回最后一行（空序列返回零值行：与任何行都不是同一条）。
-- `func durableConversationRows(messages []Message) []Message` — durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
 - `func adaptEngineMessage(msg EngineMessage) Message`
 - `func isVisibleHistoryMessage(message EngineMessage) bool`
 
@@ -480,10 +472,7 @@
 - `func (service *Service) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — SessionInputIndex 返回目标会话的**全量**用户输入索引（含未加载的早期轮次）。
 - `func (service *Service) sessionInputIndexConversation(location session_runtime.Location, sessionID string) ([]model.Message, int, error)` — sessionInputIndexConversation 读取会话的完整可见会话（用户输入的事实源）。
 - `func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string)` — sessionInputWindowLoaded 返回目标会话的已加载窗口元数据与窗口内已加载的
-- `func buildSessionInputIndex(conversation []model.Message, loaded []string, limit int) []model.SessionInputIndexRow` — buildSessionInputIndex 从完整可见会话构建全量用户输入索引（纯函数）。
 - `func inputIndexUserText(message model.Message) string` — inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
-- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
-- `func alignLoadedInputTexts(texts, loaded []string) (int, int)` — alignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：
 
 ### session_input_index_test.go
 
@@ -495,13 +484,13 @@
 - `func TestSessionInputIndexTruncatesSummary(t *testing.T)` — TestSessionInputIndexTruncatesSummary 摘要长度有界（rune 截断 + 原文长度留痕）。
 - `func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T)` — TestSessionInputIndexSkipsNonUserAndInternalRows 只索引真正的用户输入：
 - `func TestSessionInputIndexFallsBackToRecord(t *testing.T)` — TestSessionInputIndexFallsBackToRecord 会话存储没有 message 行（旧布局）时
-- `func TestAlignLoadedInputTexts(t *testing.T)` — TestAlignLoadedInputTexts 对齐算法：尾部窗口整段命中；最新一条输入尚未进入
-- `func TestBuildSessionInputIndexMarksLoadedSection(t *testing.T)` — TestBuildSessionInputIndexMarksLoadedSection 纯函数口径：只有命中已加载段
 
 ### session_lifecycle.go
 
 - `func (service *Service) hotAttachSession(sessionID string) error` — hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
 - `func (service *Service) UnloadSession(sessionID string) error` — UnloadSession 卸载会话：先持久化（非活跃时），再释放内存态（引擎实例、
+- `func (service *Service) unloadDeps(sessionID string) switching.UnloadDeps` — unloadDeps 装配卸载用例的宿主面（判据在 `middle/switch.Unload`，M5-R6-unload 接收者转移）。
+- `func (service *Service) unloadGate(sessionID string) switching.UnloadGate` — unloadGate 在视图锁内取卸载门控的两轴读数，并带上宿主自己的忙碌错误值。
 - `func (service *Service) switchViewToFreshDraftLocked()` — switchViewToFreshDraftLocked 把视图切到一个**就地新建**的早分配草稿单元（调用方
 
 ### session_lifecycle_test.go
@@ -522,9 +511,11 @@
 
 ### session_meta.go
 
-- `func (service *Service) metaPort() (session.SessionMetaPort, bool)` — metaPort 返回会话端口的可选展示元数据扩展。
+- `func (service *Service) metaDeps() switching.MetaDeps` — metaDeps 装配展示元数据用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。
+- `func (service *Service) metaPort() session.SessionMetaPort` — metaPort 返回会话端口的可选展示元数据扩展（未装配 = 元数据恒为零值，不算失败）。
+- `func (service *Service) wakeCatalogRefresh()` — wakeCatalogRefresh 唤醒会话目录 worker 重拉（元数据/标题变化后让所有客户端看到新排序）。
 - `func (service *Service) SetSessionMeta(sessionID string, meta SessionMeta) error` — SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
-- `func (service *Service) SessionMeta(sessionID string) (SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回
+- `func (service *Service) SessionMeta(sessionID string) (SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
 
 ### session_parallel_test.go
 
@@ -560,8 +551,10 @@
 
 ### session_pending_tail.go
 
-- `func (service *Service) recoverPendingMessageTailAtLoad(sessionID string) string` — 草稿尾部（seq_draft）恢复的应用侧装配（A4）。
-- `func (service *Service) appendPendingTailNoticeLocked(sessionID, notice string)` — appendPendingTailNoticeLocked 把草稿尾恢复的结论作为一条 system 行补进目标会话
+- `func (service *Service) recoverPendingMessageTailAtLoad(sessionID string) string` — recoverPendingMessageTailAtLoad 在会话冷加载路径上探测/恢复草稿尾，返回要补进可见会话的
+- `func (service *Service) pendingTailDeps() switching.PendingTailDeps` — pendingTailDeps 装配草稿尾决策的宿主面（每次调用构造一次值语义的 Deps；无状态）。
+- `func (service *Service) pendingTailSessionRunning(sessionID string) bool` — pendingTailSessionRunning 报告目标会话是否正在跑（在飞写者）。
+- `func (service *Service) appendPendingTailNoticeLocked(sessionID, notice string)` — appendPendingTailNoticeLocked 把草稿尾恢复的结论作为一条 system 行补进目标会话的可见投影
 
 ### session_pending_tail_test.go
 
@@ -579,12 +572,19 @@
 
 ### session_permission_tier.go
 
-- `func (service *Service) settingPort() (session.SessionSettingPort, bool)` — settingPort 返回会话端口的可选"会话级用户设置"扩展（未装配 = 档位退回内存态，
-- `func (service *Service) persistPermissionTier(sessionID, tier string) error` — persistPermissionTier 把档位写进会话级设置（"" = 清除该会话的选择）。
-- `func (service *Service) readStoredPermissionTier(sessionID string) string` — readStoredPermissionTier 读取该会话持久化的权限档位（"" = 从未选择 / 未装配
-- `func (service *Service) applyStoredPermissionTier(sessionID, tier string)` — applyStoredPermissionTier 把持久化档位落到该会话的内存槽 + 执行门 + 审批自动
-- `func (service *Service) syncViewPermissionTierLocked(sessionID string)` — syncViewPermissionTierLocked 把 sessionID 的**生效档位**重算进进程快照，保证
+- `func (service *Service) tierDeps() tier.Deps` — tierDeps 装配档位用例的宿主面（每次调用构造一次值语义的 Deps；无状态、无锁）。
+- `func (service *Service) tierGate() tier.Gate` — tierGate 返回"把档位写进执行门"的闭包；宿主没装配运行面时整步 no-op（与迁移前同口径）。
+- `func (service *Service) settingPort() session.SessionSettingPort` — settingPort 返回会话端口的可选"会话级用户设置"扩展（未装配 = 档位退回内存态）。
+- `func (units serviceTierUnits) UnitPermissionTier(sessionID string) (string, bool)`
+- `func (units serviceTierUnits) SetUnitPermissionTier(sessionID, tier string)`
+- `func (view serviceTierView) ViewSessionID() string`
+- `func (view serviceTierView) SnapshotSessionID() string`
+- `func (view serviceTierView) WriteTier(sessionID, effective string)`
+- `func (service *Service) persistPermissionTier(sessionID, tierValue string) error` — persistPermissionTier 把档位写进会话级设置（"" = 清除该会话的选择）。
+- `func (service *Service) readStoredPermissionTier(sessionID string) string` — readStoredPermissionTier 读取该会话持久化的权限档位（"" = 从未选择 / 未装配 / 读失败）。
+- `func (service *Service) applyStoredPermissionTier(sessionID, storedTier string)` — applyStoredPermissionTier 把持久化档位落到该会话的内存槽 + 执行门 + 审批自动放行，
 - `func (service *Service) restorePermissionTierFor(sessionID string)` — restorePermissionTierFor 读回并落地该会话的档位（非锁内衔接场合的便捷入口）。
+- `func (service *Service) syncViewPermissionTierLocked(sessionID string)` — syncViewPermissionTierLocked 把 sessionID 的**生效档位**重算进进程快照，保证
 
 ### session_permission_tier_persist_test.go
 

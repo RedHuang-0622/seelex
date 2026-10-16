@@ -7,26 +7,20 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
-const draftSessionName = "新会话"
-
-// sessionIDPrefix 是宿主早分配会话 ID 的前缀。「草稿」是会话的**状态**
-// （Snapshot.Session.Draft / 会话记录的 Status=draft），不是会话的身份：这个 ID
-// 在首次提交物化后会继续当真实会话 ID 用——引擎 bundle、会话记录键、权限档位槽、
-// 工作区绑定全按它寻址，RoleSessionID 还拿它派生角色/子代理会话号。因此前缀必须
-// 读作"一个会话"。此前这里是 `draft_`，于是每一个经「新建会话」产生的会话终生带
-// draft 前缀，工作表格的「会话」列永远显示 draft_…（2026-10-01 现场：明明是 session，
-// draft 不代表 session）。
-const sessionIDPrefix = "seelex"
+const draftSessionName = switching.DraftSessionName
 
 // newDraftSessionIDLocked 生成早分配的会话 ID（调用方持有 Core.ViewMu）。
-// ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
-// BeginNewSession 也不会碰撞；引擎按该显式 ID 建 bundle（HasSession=false
-// 阶段不建，首次提交物化时经 ActivateSession 创建）。
+// 口径只有一份：`middle/switch.NewDraftSessionID`。
+// 序号自增也在该锁内，因此同一 tick 多次进入草稿不会撞号。
+//
+// 该 ID 是**真实会话 ID**而不是临时号：引擎按它建 bundle（HasSession=false 阶段不建，
+// 首次提交物化时经 ActivateSession 创建）。
 func (service *Service) newDraftSessionIDLocked() string {
 	service.draftSeq++
-	return fmt.Sprintf("%s-%d-%d", sessionIDPrefix, time.Now().UnixNano(), service.draftSeq)
+	return switching.NewDraftSessionID(time.Now(), service.draftSeq)
 }
 
 // BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
@@ -247,10 +241,21 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	if service.draft != nil && service.draft.ID == sessionID {
-		return true
+	return service.draftTargetLocked().Matches(sessionID)
+}
+
+// draftTargetLocked 把草稿归属判据的两个来源（进程单例草稿槽 + 共享视图镜像）装成
+// middle/switch 的 DraftTarget。调用方持有 Core.ViewMu；只读视图状态，不落盘、不换指针。
+func (service *Service) draftTargetLocked() switching.DraftTarget {
+	target := switching.DraftTarget{
+		ViewDraft: service.Core.Snapshot.Session.Draft,
+		ViewID:    service.Core.Snapshot.Session.ID,
 	}
-	return service.Core.Snapshot.Session.Draft && service.Core.Snapshot.Session.ID == sessionID
+	if service.draft != nil {
+		target.HasSlot = true
+		target.SlotID = service.draft.ID
+	}
+	return target
 }
 
 // materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
@@ -273,9 +278,7 @@ func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) 
 	transition.Lock()
 	defer transition.Unlock()
 	service.ViewMu.RLock()
-	mine := service.Core.Snapshot.Session.Draft &&
-		service.Core.Snapshot.Session.ID == sessionID &&
-		(service.draft == nil || service.draft.ID == sessionID)
+	mine := service.draftTargetLocked().InView(sessionID)
 	service.ViewMu.RUnlock()
 	if !mine {
 		return ErrDraftNotInView

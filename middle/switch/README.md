@@ -8,10 +8,11 @@
 `middle/switch` 是中间层"**会话切换与多会话运行**"的落点（plan §2.4：`middle/residency` 管 LRU 驻留、
 `middle/switch` 管多会话运行切换）。当前已有：
 
-- 本包（`switching`）：**会话展示元数据**的读写判据（`session_meta.go` 家族）；
+- 本包（`switching`）：**会话展示元数据**的读写判据（`session_meta.go` 家族）与**草稿会话的身份判据**
+  （`draft.go` 家族：草稿 SID 口径 + 草稿归属/物化闸门）；
 - 子域 [`history/`](history/README.md)：历史分页的**窗口装配判据**。
 
-生命周期 / 切换 / 队列 / 驻留调度器家族（`session_{lifecycle,release,draft,fork,ctx,pending_tail,queue_recover}`、
+生命周期 / 切换 / 队列 / 驻留调度器家族（`session_{lifecycle,release,fork,ctx,pending_tail,queue_recover}`、
 `service_{scheduler,queue,release_window}`、`async_completion`、`service_interaction`、`workspace_usecase`、
 顶层 `session/`）随 R6 续做搬入。
 
@@ -32,6 +33,11 @@
 6. 队列编辑面判据（`queue.go`，M5-R6-queue-edit 接收者转移）：`QueueEditGate`（关闭优先于排空；缺错误值
    响亮失败）、`QueueTargetSession` / `QueueTargetError`（空 = 视图会话；视图会话未注册按"没有回合在跑"）、
    以及两个越界文案构造器与三个哨兵（宿主侧保留旧名作为**同一错误值别名**）。
+7. 草稿会话的身份判据（`draft.go`，M5-R6-draft 接收者转移）：`DraftSessionName` / `DraftSessionIDPrefix` 两个
+   会被顺手改掉的常量（前缀是**持久化键口径**）、`NewDraftSessionID`（前缀 + UnixNano + 序号，同 tick 不撞）、
+   以及 `DraftTarget` 的两条真值表——`Matches`（廉价闸门：槽命中或视图命中）与 `InView`（物化闸门：视图必须
+   停在草稿上，槽空表示尚未物化）。草稿的**状态机**（进草稿清哪些字段、物化绑哪个工作区、发哪些事件）仍在宿主，
+   因为那是视图过渡锁下的编排而不是判据。
 
 **不做**：不做会话事实（谁在跑、绑定哪个工作区）；不持久化（元数据落在存储层的项目级 meta blob，
 由宿主端口 `MetaStore` 代劳）；不发布事件（目录刷新由宿主的 `Wake` 回调负责）。
@@ -56,6 +62,8 @@
 | `async_test.go` | 终态词表（done/failed 触发，killed/running 不触发）、两条正文的字段收窄与工具指向、窄端口读取与未装配降级 |
 | `releasewindow.go` | `ReleaseWindowDeps` + `SetReleaseWindow` / `ReleaseWindow`：会话驻留窗口可调面的次序（校验 → 落盘 → 改内存） |
 | `releasewindow_test.go` | 次序断言、校验/落盘失败即停与文案、无落盘口仍生效、缺 apply 口响亮失败、读当前值 |
+| `draft.go` | `DraftSessionName` / `DraftSessionIDPrefix` + `NewDraftSessionID`、`DraftTarget` 的 `Matches` / `InView`：草稿身份的两条判据 |
+| `draft_test.go` | 常量值钉住（持久化键口径）、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格真值表（含"视图切走但槽仍命中"的反例） |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
