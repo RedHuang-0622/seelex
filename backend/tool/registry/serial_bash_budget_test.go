@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/internal/promptassets"
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 )
 
 // 串行 bash 的时长预算：预算本身是 serialBashBudget，入口说明在三份工具描述里，

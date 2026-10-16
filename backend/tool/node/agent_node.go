@@ -21,13 +21,13 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
@@ -354,7 +354,7 @@ func NodePromptBlocksFromContext(ctx context.Context) []seelectx.PromptBlock {
 
 // NodeSubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
 // Role/Context/Task/Investigation/Constraints/Verification）。提示词正文
-// 收录在 internal/promptassets/assets/subagent/charter.md（不硬编码），
+// 收录在 backend/engine/prompt/assets/assets/subagent/charter.md（不硬编码），
 // Go 侧只提供运行时事实（goal/预算/节点 ID/父证据）。
 func NodeSubagentCharter(input plan.SeelexNodeInput, budget NodeBudgetInfo, evidence *snapshot.ContextSnapshot) string {
 	data := promptassets.SubagentData{

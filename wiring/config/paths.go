@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
-	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/store/root"
 )
 

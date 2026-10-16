@@ -94,7 +94,7 @@ sequenceDiagram
 
 ## 依赖方向
 
-`node` → `internal/model`、`plan`、`worktree`、`workunit`（收尾分类与恢复说明的契约）、`skill`、`seelexctx`、`internal/promptassets`。**禁止反向依赖 seelebridge 根包**（这是拆包打破循环依赖的硬约束）。
+`node` → `internal/model`、`plan`、`worktree`、`workunit`（收尾分类与恢复说明的契约）、`skill`、`seelexctx`、`backend/engine/prompt/assets`。**禁止反向依赖 seelebridge 根包**（这是拆包打破循环依赖的硬约束）。
 
 ## 并发、存储、安全或错误语义
 

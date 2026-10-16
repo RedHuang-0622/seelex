@@ -60,7 +60,7 @@ headless 宿主、测试基座），第二份"看起来差不多"的装配正是
 允许：标准库、`application`（含 core、console、`core/task_context`、`core/session_runtime`）、
 `backend/engine/assemble`（Runtime）、`backend/limit{,overlay,policy}`、
 `backend/multiagent/teamwork`、`backend/tool/{registry,search}`、`gui`、`tui`、
-`internal/{adapters,bootseed,promptassets}`、`plugin`、`session`、`skill`、`store{,/workspace}`、
+`internal/bootseed`、`backend/engine/prompt/assets`、`plugin`、`session`、`skill`、`store{,/workspace}`、
 `wiring`、`wiring/config`、`wiring/registry`、Seele 的 `session`/`types`/`tools/permission`。
 
 禁止：`wiring/bootstrap` 不得被 `application/*`、`backend/*`、`gui`、`tui` 反向依赖；它只被

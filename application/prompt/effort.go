@@ -5,9 +5,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
 
 // EffortManager 管理 Effort 等级及对应行为。
@@ -55,7 +55,7 @@ type effortProfile struct {
 func (p effortProfile) Prompt() string { return promptassets.Effort() }
 
 // effortProfiles maps user-selected levels to versioned prompt assets and
-// hard execution budgets. Prompt prose belongs in internal/promptassets, not
+// hard execution budgets. Prompt prose belongs in backend/engine/prompt/assets, not
 // in application code; 循环数字（轮数与工具预算）属于 `backend/limit/loop`。
 //
 // 每条记录仍然是**一个档位一条**：提示词、planPolicy、reasoningEffort、循环读数

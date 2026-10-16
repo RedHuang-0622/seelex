@@ -34,7 +34,8 @@ import (
 var promptToolFaces = []string{
 	filepath.Join("plugins", "default", "teamwork", "SKILL.md"),
 	filepath.Join("plugins", "default", "goal", "SKILL.md"),
-	filepath.Join("internal", "promptassets", "assets", "system", "instructions.md"),
+	// M5-R7h：提示词资产从 internal/promptassets 归位 backend/engine/prompt/assets（plan §2.5）。
+	filepath.Join("backend", "engine", "prompt", "assets", "assets", "system", "instructions.md"),
 }
 
 // leaderSkillFiles 是"leader 工具面必须被教到"的文件（方向 1 的判据面）。

@@ -123,7 +123,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
 	"github.com/RedHuang-0622/seelex/internal/frontmatter",
-	"github.com/RedHuang-0622/seelex/internal/promptassets",
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets",
 	// M5-R2：工具调用读数的内存累计从 `internal/toolrecord` 归位到 store 板块
 	// （plan §2.10 / §2.12.2）。同一份代码换落点，属等量替换，清单上限不变。
 	"github.com/RedHuang-0622/seelex/store/record",

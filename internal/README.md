@@ -8,7 +8,7 @@
 
 - [`buildinfo/`](buildinfo/README.md)：构建期注入的版本与默认前端。
 - [`frontmatter/`](frontmatter/README.md)：Markdown YAML front matter 解析。
-- [`promptassets/`](promptassets/README.md)：Seelex-owned 提示词资产（构建期嵌入）。
+- （`promptassets/` 已于 2026-10-16 随 M5-R7 归位 [`backend/engine/prompt/assets`](../backend/engine/prompt/assets/README.md)：Seelex-owned 提示词资产，构建期嵌入。）
 - [`testutil/`](testutil/README.md)：仅测试使用的共享桩（EmbeddedChatEngine 等）。
 - [`winhide/`](winhide/README.md)：Windows 子进程控制台窗口隐藏（非 Windows 空操作）。
 
@@ -21,7 +21,7 @@ flowchart LR
     OUT["仓库外代码"] -.->|禁止 import| INTERNAL["internal/"]
     INTERNAL --> B["buildinfo：版本注入"]
     INTERNAL --> F["frontmatter：front matter 解析"]
-    INTERNAL --> P["promptassets：嵌入提示词"]
+    INTERNAL --> P["backend/engine/prompt/assets：嵌入提示词"]
     INTERNAL --> T["testutil：测试桩"]
     INTERNAL --> W["winhide：子进程窗口隐藏"]
     P --> PROMPT["application/prompt / backend/tool/node"]

@@ -22,7 +22,7 @@
   需要新增 role"的最终答案是"不变"，记录见
   `docs/2026-10-12-frontend-consistency-and-fixes/README.md` §3 J-1b；
 - 这条口径必须让 agent 知道（否则出现"给了路径却没去读"的空转），提示词落在
-  `internal/promptassets/assets/system/instructions.md`。
+  `backend/engine/prompt/assets/assets/system/instructions.md`。
 
 ## 文件与函数索引
 

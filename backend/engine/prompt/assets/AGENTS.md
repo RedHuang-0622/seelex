@@ -1,7 +1,7 @@
 # Prompt Authoring Contract
 
 Read this file in full before adding or materially changing any file under
-`internal/promptassets/assets/`. Prompt assets are product behavior, not
+`backend/engine/prompt/assets/assets/`. Prompt assets are product behavior, not
 incidental prose. Their runtime facts must agree with the Go implementation
 and their user-facing claims must remain safe to display indirectly.
 
@@ -43,10 +43,10 @@ model could plausibly confuse a valid and invalid case.
 
 ## Change Checklist
 
-1. Read the affected asset, its caller, and `internal/promptassets/README.md`.
+1. Read the affected asset, its caller, and `backend/engine/prompt/assets/README.md`.
 2. Update the relevant prompt harness or add a focused asset test that locks
    the new positive and negative boundary.
-3. Run `go test ./internal/promptassets ./application/prompt -count=1` plus
+3. Run `go test ./backend/engine/prompt/assets ./application/prompt -count=1` plus
    the package owning any runtime behavior named in the prompt.
 4. If a prompt changes a user-visible workflow, update its module README or
    nearby design documentation in the same change.
