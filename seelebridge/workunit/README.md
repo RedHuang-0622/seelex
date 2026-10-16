@@ -55,7 +55,7 @@
 
 `docs/arch/workunit-ports-and-assembly.md` §2 把这一族端口与现场/会话/读面并列；生命周期实现
 （`seelebridge` 的 `lifecycleHost`）只持**三格宿主端口**（现场 / 编排账本 / 会话记录，见
-`seelebridge/README.md` 的 workunit 一节），作业面今天由编排那一格驱动（回收的唯一调用点在
+`backend/engine/assemble/README.md` 的 workunit 一节），作业面今天由编排那一格驱动（回收的唯一调用点在
 `Coordinator.reclaimStepsLocked` 步 1），宿主直接驱动它是步骤② 的落点。
 
 ## 二、文件

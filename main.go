@@ -28,6 +28,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
@@ -41,7 +42,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	mcpconfig "github.com/RedHuang-0622/seelex/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/plugin"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/session"
@@ -612,12 +612,12 @@ func run() error {
 	//
 	//   - `SetRolePluginsProvider`（RoleSpec.Plugins 的"角色自带插件装配"）：它的
 	//     唯一事实来源是团队角色注册表，注册表随本条目删除 ⇒ 读面没有来源。运行时
-	//     对"读面未注入"的口径就是**空集 = 不覆盖**（seelebridge/runtime_role_plugins.go
+	//     对"读面未注入"的口径就是**空集 = 不覆盖**（backend/engine/assemble/runtime_role_plugins.go
 	//     的 `rolePluginsFor`），因此退场后的行为与"注册表里没登记"逐字相同；能力轴
 	//     仍在：`team_plan members[].plugins` 的显式声明照旧生效（那条面在
 	//     seelebridge/teamwork，未动）。
 	//   - `SetRolePromptProvider`（已登记员工提示词 → ADVISOR 回合）：同上，读面未注入
-	//     时 ADVISOR 回退内置角色设定（seelebridge/runtime_role_prompt.go），输出契约
+	//     时 ADVISOR 回退内置角色设定（backend/engine/assemble/runtime_role_prompt.go），输出契约
 	//     不受影响。
 	//
 	// 两条注入点保留在 seelebridge 侧（它们是运行时的公开读面，不属于本条目要删的

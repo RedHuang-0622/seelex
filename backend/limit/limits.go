@@ -312,7 +312,7 @@ const DefaultTeamMaxTeammates = 6
 //
 // 与 TeamLimits 同族：都是"Seelex 自己掌控、框架不可替代"的那几个数字。这里的
 // 上限定的是**一个人身上挂几个能力包**——每多挂一个，代价不是零：技能目录每轮
-// 常驻 system prompt（见 seelebridge/runtime_role_plugins.go 的黄牌读数），工具面
+// 常驻 system prompt（见 backend/engine/assemble/runtime_role_plugins.go 的黄牌读数），工具面
 // 还要在权限面之外再做一层收窄求交。
 type PluginLimits struct {
 	// PerTeammate 是每个 teammate（每个角色会话）的插件数上限（默认 3）。

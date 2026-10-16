@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 )
 
 // TestPluginSelfTools 验证内置自迭代工具族（plugin_create / plugins_reload /

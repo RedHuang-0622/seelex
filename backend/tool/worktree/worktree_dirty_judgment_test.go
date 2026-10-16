@@ -3,7 +3,7 @@ package worktree
 // worktree_dirty_judgment_test.go — 钉住「脏判定」只有一份判据（③B）。
 //
 // 判据今天有三份拷贝：`w.pathDirty(path)`、`w.worktreeDirty(wt)`（函数体与前者逐字
-// 相同）、以及编排面 `seelebridge/runtime_teamwork.go` 里的包级 `worktreeDirty(root)`
+// 相同）、以及编排面 `backend/engine/assemble/runtime_teamwork.go` 里的包级 `worktreeDirty(root)`
 // ——三份都在跑同一句 `git status --porcelain` 再判非空。
 //
 // 判据重复的代价不在"多写了几行"，而在**修一处不够**：本仓库 `core.autocrlf=true`，

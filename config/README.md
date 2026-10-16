@@ -81,7 +81,7 @@ flowchart LR
   （整块缺失、或块在但没写 `enabled` 键，都按出厂档打开；只有显式
   `enabled: false` 才关），因为关掉时帧会退化成"元数据投影"、现场极难归因。
   钉子：`backend/limit/limits_test.go` 的 `TestLimitsCompactionSummaryDefaultsOpen`
-  （缺省/显式两臂）与 `seelebridge/runtime_compaction_switch_test.go` 的
+  （缺省/显式两臂）与 `backend/engine/assemble/runtime_compaction_switch_test.go` 的
   `TestShippedCompactionSummarySwitchShipsOpen`（出厂档那一行）。
 
 ## 启动期自愈（责任链 + 缺失即初始化）

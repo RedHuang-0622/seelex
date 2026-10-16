@@ -243,7 +243,7 @@
 - **goal 读侧**：`application/core/goal_coordinator.go`：活体给不出看板时用存档 active 帧重建并标
   `Recovered`（`recoveredGoalView`），`History` 与活体栈正交下发（`goalHistoryViews`）；存档读失败 /
   损坏 / 缺失一律按"没有存档"降级。
-- **team 写侧/读侧**：`seelebridge/runtime_teamwork_board_archive.go`（新）：`archiveTeamBoard`
+- **team 写侧/读侧**：`backend/engine/assemble/runtime_teamwork_board_archive.go`（新）：`archiveTeamBoard`
   （team_* 成功后用**与下发同一条组装路径** `buildTeamworkBoardView` 生成载荷）+ `nextTeamBoardMeta`
   （新开 / 版本递进先关旧版 `team.replan` / 同版本 seq+1 / 节流）+ `readTeamBoardArchive`
   （只恢复 `state=active`，标 `Recovered=true` + `Stale=true`）。

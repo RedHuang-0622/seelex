@@ -8,7 +8,7 @@
 - **作业面**归 Seele 的 `jobs` 根能力（契约 + `Manager` + `jobs_manage`）；
 - **硬编排**归本包：计划（谁、什么顺序）+ 派发 + 汇合 + 里程碑 + 退场 + 整队收口；
 - **执行体**（在角色会话里真跑一轮）与**工作区**（git worktree）是**端口**，由装配层
-  （`seelebridge/runtime_teamwork.go`）注入——本包因此能在没有引擎、没有 git 的测试里把
+  （`backend/engine/assemble/runtime_teamwork.go`）注入——本包因此能在没有引擎、没有 git 的测试里把
   编排语义（顺序、超员拒绝、作用域回收、退场四步）全部跑完。
 
 顺序的**唯一事实**是计划的顺序边：里程碑之间是 `milestones[].depends_on`（屏障），里程碑内是

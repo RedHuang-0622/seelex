@@ -12,7 +12,7 @@ import "errors"
 //
 // 恢复侧反过来是**策略模式**（按记录快照里的身份分派）：要读的东西、要恢复的内容确实不同
 // ——子代理恢复的是详情数据面 + 子代理树节点 + 现场登记，teammate 恢复的是团队现场
-// （见 `seelebridge/runtime_unit_recovery.go`）。
+// （见 `backend/engine/assemble/runtime_unit_recovery.go`）。
 
 // NodeSessionRecordLink 是写链上的一环：拿到记录、**增补**自己这一层知道的事实、交下一环。
 type NodeSessionRecordLink func(NodeSessionRecord) NodeSessionRecord

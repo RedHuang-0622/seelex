@@ -34,7 +34,7 @@
 |---|---|---|---|
 | 后台作业状态 | running\|done\|failed\|killed | `dto.AsyncState` | 登记表在内存（不落盘）；teammate 作业表复用同一格 |
 | plan_run 批次结果 | completed\|failed\|aborted | `dto.PlanRunStatus` | 跨 plan 写方 / core 读方的 JSON |
-| **单元身份**（这条记录属于哪一类执行单元） | subagent \| teammate | `workunit.Kind`（**不是新枚举**：契约里早有这一格，`KindJob` 是基线标注） | **落盘**：记录快照 `store.NodeUnitRecord.Kind`（契约之下的 wire，空 = subagent）。恢复链按它**分派策略**（唯一转换点 `seelebridge/runtime_unit_recovery.go` 的 `unitKindOf`；加固前的老记录按团队事实兜底）；写侧是责任链上的两环（子代理那一环只填空缺、teammate 那一环写自己这一层）。落地记录 `docs/2026-10-06-workunit-jobs-port/step-4-unit-record-identity.md` |
+| **单元身份**（这条记录属于哪一类执行单元） | subagent \| teammate | `workunit.Kind`（**不是新枚举**：契约里早有这一格，`KindJob` 是基线标注） | **落盘**：记录快照 `store.NodeUnitRecord.Kind`（契约之下的 wire，空 = subagent）。恢复链按它**分派策略**（唯一转换点 `backend/engine/assemble/runtime_unit_recovery.go` 的 `unitKindOf`；加固前的老记录按团队事实兜底）；写侧是责任链上的两环（子代理那一环只填空缺、teammate 那一环写自己这一层）。落地记录 `docs/2026-10-06-workunit-jobs-port/step-4-unit-record-identity.md` |
 | **记录状态**（子代理节点生命周期） | queued\|running\|done\|failed\|interrupted | `dto.SubAgentNodeStatus` | **落盘**：`store.NodeSessionRecord.Status` 仍是字符串（store 在契约之下），边界 `seelebridge` 的 `subagentNodeStatusDone/Failed`、`session.SubAgent*` 转调对外词；未知词 → `SubAgentUnknown`（**不是终态**） |
 | **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格 |
 | **工具调用视图词**（快照 / 事件 wire / 存档里的工具行） | running\|success\|error | `dto.ToolEventStatus`（**与工具事件状态同格**） | `model.ToolCall.Status` 从字符串换成枚举；**落盘**（`model.SessionArchive` 存档 + 事件 payload 的 JSON）读回经具名转换点 `model.ToolCallStatusOfRecord`（认不得的词与空词 → `ToolEventUnknown`，**不折成成功**）；store 那一侧的名词 `store.ConversationToolCallStatusSuccess` 由 `internal/adapters` 的 `TestToolCallStatusOfRecordLocksTheStoreVocabulary` 互锁。原来的漂移写点（子代理详情投影写 `completed`）已修正——这个词从来不在本格取值面里 |
@@ -81,7 +81,7 @@
 | `application/core/resume` 的 `UnitStatus` | **已收口**：`dto.UnitStatus`（由记录状态折一次） |
 | 工具调用视图词（`model.ToolCall.Status`） | **已收口 · 第三波**：与**工具事件状态**本来就是同格（取值面 `running \| success \| error`，不是"同词不同格"）；字段换成 `dto.ToolEventStatus`，落盘读回走 `model.ToolCallStatusOfRecord`，门禁加了这一格。原先记的 `running\|completed\|failed` 与代码事实不符（唯一写 `completed` 的地方就是子代理详情投影的一处漂移） |
 | todo 三态（`dto.TodoItemStatus`） | **刻意不动**（见 §2）：已在移除窗口内 |
-| teammate 人状态（`dto.TeamworkMemberView.Status`：`running`\|`free`） | **只登记，未动**：取值面只有"这个人此刻在不在干活"两值，`dto` 里没有对应枚举；两个写点常量在 `seelebridge/runtime_teamwork_board.go:305–306`（`teamworkMemberRunning` / `teamworkMemberFree`）。**归哪一格待定**（自成一格 `dto.TeamworkMemberStatus`，还是折进"记录状态"的读侧投影），登记在 U6 残留点那一批（`step-3-u6-residual-points.md` §6） |
+| teammate 人状态（`dto.TeamworkMemberView.Status`：`running`\|`free`） | **只登记，未动**：取值面只有"这个人此刻在不在干活"两值，`dto` 里没有对应枚举；两个写点常量在 `backend/engine/assemble/runtime_teamwork_board.go:305–306`（`teamworkMemberRunning` / `teamworkMemberFree`）。**归哪一格待定**（自成一格 `dto.TeamworkMemberStatus`，还是折进"记录状态"的读侧投影），登记在 U6 残留点那一批（`step-3-u6-residual-points.md` §6） |
 
 ## 4. 怎么继续（免得又变成"每格各写一套"）
 

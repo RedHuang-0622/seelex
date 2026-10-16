@@ -106,7 +106,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/winhide",
 	"github.com/RedHuang-0622/seelex/internal/jsonobj",
 	"github.com/RedHuang-0622/seelex/mcpstack",
-	"github.com/RedHuang-0622/seelex/seelebridge",
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble",
 	"github.com/RedHuang-0622/seelex/backend/engine/account",
 	"github.com/RedHuang-0622/seelex/backend/tool/fork",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs",
@@ -223,7 +223,7 @@ var frontendDirectImportAllowList = map[string][]string{
 		"github.com/RedHuang-0622/seelex/application",
 		// D-M1-7：console 尚未搬出 application/（plan §2.1 计划搬 console/），
 		// 搬迁时随 §2.10 的 seelebridge 解散一并收口。
-		"github.com/RedHuang-0622/seelex/seelebridge",
+		"github.com/RedHuang-0622/seelex/backend/engine/assemble",
 	},
 }
 
@@ -308,7 +308,7 @@ func TestGUIHasNoDirectBackendImports(t *testing.T) {
 		"github.com/RedHuang-0622/seelex/store",
 		"github.com/RedHuang-0622/seelex/seelexctx",
 		"github.com/RedHuang-0622/seelex/seelexctx/search",
-		"github.com/RedHuang-0622/seelex/seelebridge",
+		"github.com/RedHuang-0622/seelex/backend/engine/assemble",
 	}
 	imported := stringSet(goListDirectImports(t, "./gui"))
 	for _, path := range forbidden {

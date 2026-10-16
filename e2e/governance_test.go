@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
 
-// repoRoot 返回仓库根目录（e2e 测试包位于 <root>/e2e）。
+// repoRoot 返回仓库根目录。实现只有一处（`internal/testutil.RepoRoot`，向上找 go.mod），
+// 这里只保留 e2e 包内的旧名字，免得改十几个调用点。
 func repoRoot() string {
-	wd, _ := os.Getwd()
-	return filepath.Dir(wd)
+	return testutil.RepoRoot()
 }
 
 func TestGitHubConfigurationIsValidYAML(t *testing.T) {

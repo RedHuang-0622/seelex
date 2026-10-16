@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 )
 
 // backendApplication is the diagnostic console's narrow Application boundary.

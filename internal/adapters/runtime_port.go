@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application/model"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 )
 

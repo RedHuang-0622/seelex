@@ -241,7 +241,7 @@
 
 **Hypothesis / 风险**
 - H1：`seelexctx.Compressor.Compress` 在快照路径"预算不足以保留最小安全快照"时**静默回退**到 QuickChat（`compressor.go:60-67` 的注释里说"失败回退 QuickChat 路径"，但 `Compress` 并没有把这个回退以 warning 形式上报给 telemetry）。如果父会话的快照是模型继续推理的关键信号，回退 = 静默丢信息。建议把回退纳入 `presentedError` 或加 telemetry 计数。
-- H2：`ContextController` 的"after_assistant / after_tool 钩子"在新装配下没有看到接线代码（`controller.go` 注释假设有这两个钩子，但 `chat.go:1288 OnIterationComplete` 的注释明确"压缩决策移交 ContextController" + "配对修复由 chat 边界承担"——意味着真正的钩子移交可能尚未完成或被拆到了 history_safety 路径上）。这是"软阈值：窗口内不压缩"的关键路径，需要在 `seelebridge/runtime.go` 的 Hooks 注册里查证。
+- H2：`ContextController` 的"after_assistant / after_tool 钩子"在新装配下没有看到接线代码（`controller.go` 注释假设有这两个钩子，但 `chat.go:1288 OnIterationComplete` 的注释明确"压缩决策移交 ContextController" + "配对修复由 chat 边界承担"——意味着真正的钩子移交可能尚未完成或被拆到了 history_safety 路径上）。这是"软阈值：窗口内不压缩"的关键路径，需要在 `backend/engine/assemble/runtime.go` 的 Hooks 注册里查证。
 - H3：`seelexctx/bridge.go` 的 `Export` / `ExportWithGoal` / `ExportSnapshot` 全部使用 `context.TODO()`（5 处），且把 `provider.Export` 的 err 吞掉（`snap, _ := ...`）。这是兼容层，可以接受但需要明确标注"必须只在 chat 外调用"。
 - H4：`prepareExecutionContext` 里两次 `service.tokenCounter.CountRequest`（一次 rawTokens 决策，一次 fitted 估算），且最后仍可能触发 `errProviderContextBudgetExceeded`；这个错误码被 `error_codes.go` 定义为 `context.budget_exceeded`，但**没有证据**会触发 `presentUserError` 的特定分支。需要查 `error_presentation.go` 是否能命中。
 
@@ -375,7 +375,7 @@
 | P1 | H5 | `Repository` 全部走 `context.Background()` | 上游 ctx 取消无法传播 | 引入 ctx 透传边界；至少透传 cancel |
 | P1 | H26/H27 | `startChat` / `resumeSession` 启动的 goroutine 无 panic recovery | 进程崩溃 / goroutine leak | 加 `defer recover()` + 故障日志 |
 | P1 | H1 | Compressor 快照路径静默回退 QuickChat | 父会话关键信息可能丢失而无任何告警 | 在 `seelexctx.Compressor.Compress` 加 telemetry 计数；或把回退用 `presentedError` 上报 |
-| P1 | H2 | ContextController 的"after_assistant/after_tool"钩子未在新装配下接线 | 软阈值"窗口内不压缩"可能失效 | 查 `seelebridge/runtime.go` 的 Hooks 注册并补测试 |
+| P1 | H2 | ContextController 的"after_assistant/after_tool"钩子未在新装配下接线 | 软阈值"窗口内不压缩"可能失效 | 查 `backend/engine/assemble/runtime.go` 的 Hooks 注册并补测试 |
 | P2 | H15 | `mcpstack.ForPrompt` 每次 O(n) 扫描 | 高频 MCP 调用下 LLM 上下文组装变慢 | 加 token 估算缓存或增量聚合 |
 | P2 | H16 | `MCPStack` 每次 `Record`/`Undo`/`Redo` 都 autoSave | 高频 MCP 调用下 IO 成为瓶颈 | 引入 batch autosave |
 | P2 | H8 | `RouterStorage.Append` 是 O(n) 读-合-写 | 长会话下 O(n²) 写成本 | 实现增量 SaveCommit（事件库已就绪） |

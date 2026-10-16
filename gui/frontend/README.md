@@ -375,7 +375,7 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `has_more` 全是后端算的，前端只搬）；翻页走
   `Bridge.TeammateSessionLivePage(role_session_id, offset, limit)`，刷新键 / 实时重绘时
   **停在用户翻到的那一页**（在尾巴按默认页再读，新消息自然露出来）。判据只有一份
-  （`seelebridge/runtime_teammate_session_live.go` 的 `teammateSessionLiveSlice`），前端不
+  （`backend/engine/assemble/runtime_teammate_session_live.go` 的 `teammateSessionLiveSlice`），前端不
   推算"还有没有下一页"。
 
 **员工记录表：竖排（2026-10-03）**：`role-record-table` 从"车道当行、回合号当列"的横向

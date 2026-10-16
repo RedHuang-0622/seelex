@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // TestManualSmokeRealAccountScheduledPromptChain 是**真实 API** 上的定时任务链路

@@ -135,16 +135,16 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 
 | 装配点 | 位置 | 内容 |
 |---|---|---|
-| T0 | `main.go:141` `runtime.RegisterBuiltins()` → `seelebridge/runtime_tools.go:140` `RegisterBuiltins` | project-scoped 文件/shell 工具、fork、todo/task 工具族注入框架注册表 |
+| T0 | `main.go:141` `runtime.RegisterBuiltins()` → `backend/engine/assemble/runtime_tools.go:140` `RegisterBuiltins` | project-scoped 文件/shell 工具、fork、todo/task 工具族注入框架注册表 |
 | T0b | `main.go:185` `registerProductTools` | `get_time`、`websearch`、MCP 懒加载/`mcp_load`、`switch_plugin`/`switch_mode`、`plugins_reload`、`ask_approve` 等经 `runtime.RegisterTool` 注册 |
-| T0c | `seelebridge/runtime.go:305` `seeltools.NewRegistryState(...)` | 注册表本体（tool 事件 middleware/权限门/bash 诊断）；plan/task 终态工具在 `registerTaskTerminalTools`/`registerContextReadTools` 追加 |
+| T0c | `backend/engine/assemble/runtime.go:305` `seeltools.NewRegistryState(...)` | 注册表本体（tool 事件 middleware/权限门/bash 诊断）；plan/task 终态工具在 `registerTaskTerminalTools`/`registerContextReadTools` 追加 |
 
 **② 可见性过滤（装配点 T1，快照在切换/激活时更新；T2 在每轮求值）**
 
 | 装配点 | 位置 | 内容 |
 |---|---|---|
 | T1 | `plugin/manager.go` `Load()`/`Activate()` → `runtime.DefinePlugin/ActivatePlugin` → `backend/engine/plugin/plugin.go` `Manager.Filter` | 激活插件的 include/exclude 通配过滤（可见性快照缓存） |
-| T1b | `seelebridge/runtime.go:311-325` `seeltools.NewPolicy` + `bridge.NewRegistryRuntime(…, WithVisibilityPolicy(policy.Filter))` | 策略装配进 agent 工具运行时：子代理 NodeScope 排除全局状态工具 + plan 工具族仅在 goal skill 激活时可见（`backend/tool/registry/policy.go` `Policy.Filter`） |
+| T1b | `backend/engine/assemble/runtime.go:311-325` `seeltools.NewPolicy` + `bridge.NewRegistryRuntime(…, WithVisibilityPolicy(policy.Filter))` | 策略装配进 agent 工具运行时：子代理 NodeScope 排除全局状态工具 + plan 工具族仅在 goal skill 激活时可见（`backend/tool/registry/policy.go` `Policy.Filter`） |
 | T2 | `Seele v0.1.2 session/loop.go` `ReActLoop.visibleTools()` → agent bridge `RegistryRuntime.VisibleTools`（publicTools → policy） | **每轮**请求取可见工具集，进入 `AssemblyRequest.Tools` |
 
 **③ 请求注入（装配点 T2 下游）**
@@ -214,7 +214,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
   → `internal/adapters/session_workspace_ports.go:121` `SkillPort.Get/All` →
   `application/core/completion.go:33`（`#` 补全）与 `input.go:53`（`#<skill>`
   路由）只能看到当前插件技能（default→plan/code/review/…，freecad→cad-*）。
-- tools 侧的 goal skill 门同源：`seelebridge/runtime.go:314/361` 闭包读
+- tools 侧的 goal skill 门同源：`backend/engine/assemble/runtime.go:314/361` 闭包读
   `node.GoalSkillActive()`（应用发布的不可变可见性投影）。
 
 **④ 激活内容注入 S2/S3（下游，不是列表装配）**
@@ -444,7 +444,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 |---|---|
 | 保护区不截断 + 至少 1 单元 | `application/core/task_context/plan_transcript.go`（`TranscriptTailWindow`、`transcriptProtocolUnitList`） |
 | 保护区候选取小 | `seelexctx/window.go`（retained tokens 取 min） |
-| 帧只存指针 + 摘要 | `store.CompactFrame`、`seelexctx/dag.go`（`CompactionDAG` 的 merge 节点）、`seelebridge/runtime_compaction_index.go`（`PushCompactionFrame`） |
+| 帧只存指针 + 摘要 | `store.CompactFrame`、`seelexctx/dag.go`（`CompactionDAG` 的 merge 节点）、`backend/engine/assemble/runtime_compaction_index.go`（`PushCompactionFrame`） |
 | 回读检索 | `application/core/history_search.go` → `seelexctx/search` |
 | 分片事实源 | `store/message_rows.go`（`message_<from>_<to>.jsonl`） |
 | 重放（分片落点） | `seelexctx/replay.go`（`PrefixReplaySummarizer`） |
@@ -455,11 +455,11 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 |---|---|---|
 | 应用装配 | `application/core/context_runtime/coordinator.go` | `prepareExecutionContextFor`（判据 → 读数闸 → 装配 → 推帧 → 落记录）、`fitExecutionHistory`、`RetainedSystemHistory`、`planContextMessageLocked`、`TranscriptTailHistoryBy`、`CompactContextNow` |
 | 框架装配 | `seelexctx/assembler.go` | `AssemblerOptions{SystemPrompt, ProjectBlock, PrefixStacks, TailStacks, Memories, Window}`、`Assemble` 投影顺序、`RenderStablePrefixBlocks`（skill/compact）+ `RenderTailBlocks`（plan/task） |
-| 运行时接线 | `seelebridge/runtime_context.go` | `seelexAssembler`、`relatedMemoryBlocks`、`stackBlocks`、`projectBlock` |
+| 运行时接线 | `backend/engine/assemble/runtime_context.go` | `seelexAssembler`、`relatedMemoryBlocks`、`stackBlocks`、`projectBlock` |
 | 系统提示 | `application/core/prompt_layer/coordinator.go` | `SystemPromptForActiveTaskLockedFor` |
 | 会话上下文 | `store.SessionContextRecord` | `PlanStack` / `TaskStack` / `SkillStack` / `CompactStack` |
 | Fork | `application/core/session_runtime/fork.go` | `truncateForkRecord`（过滤 `kind=todo` 的 Tasks） |
-| 压缩帧 | `seelexctx/frame.go`、`seelexctx/dag.go`、`seelexctx/replay.go`、`seelebridge/runtime_compaction_index.go` | 两章节 Summary（Chapter 1 锚点 + Chapter 2 八小节骨架）、`LocalChapter2WithCarry`、压缩 DAG 的帧拼装、前缀重放厚摘要（`PrefixReplaySummarizer`）、`PushCompactionFrame` |
+| 压缩帧 | `seelexctx/frame.go`、`seelexctx/dag.go`、`seelexctx/replay.go`、`backend/engine/assemble/runtime_compaction_index.go` | 两章节 Summary（Chapter 1 锚点 + Chapter 2 八小节骨架）、`LocalChapter2WithCarry`、压缩 DAG 的帧拼装、前缀重放厚摘要（`PrefixReplaySummarizer`）、`PushCompactionFrame` |
 | 保护区窗口 | `seelexctx/window.go`、`application/core/task_context/plan_transcript.go` | 保留区候选取小、`TranscriptTailWindow`（按协议单元不截断、至少保 1 单元） |
 | 事实源与回读 | `store/message_rows.go`、`seelexctx/search`、`application/core/history_search.go` | 消息分片 `message_<from>_<to>.jsonl`、帧当语义索引 + `[From..To]` 读回真实记录 |
 | 模型 | `application/model` | `TokenAudit`（可加缓存命中观测）、`SessionRecord` |

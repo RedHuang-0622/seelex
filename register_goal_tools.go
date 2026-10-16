@@ -8,7 +8,7 @@ package main
 
 import (
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 )
 
 func registerGoalTools(runtime *seelebridge.Runtime, app *application.Service) {

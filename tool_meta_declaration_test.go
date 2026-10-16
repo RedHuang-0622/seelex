@@ -269,7 +269,7 @@ func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 		"read_file", "bash", "write_file", // backend/tool/registry/router.go
 		"todo_init", "task_add", // backend/tool/task/tools.go
 		"computer_click", "computer_screenshot", // backend/tool/computer/tools.go（别名形态）
-		"fork_subagents",              // seelebridge/runtime_plan.go
+		"fork_subagents",              // backend/engine/assemble/runtime_plan.go
 		"read_tool_result",            // main.go
 		"compact_context",             // main.go
 		"goal_begin",                  // register_goal_tools.go

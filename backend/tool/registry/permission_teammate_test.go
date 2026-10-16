@@ -16,7 +16,7 @@ import (
 //   - **位外提权**（越权）：位缺 / 未分封 → 走执行选择页面，由人类给口令（单次放行）；
 //   - **能力面断位**（ctl / adm / 共享外设）无论档位多高都不给员工——满档也不连带放行。
 //
-// 口径与 `seelebridge/runtime_role_turn.go` 的接线同源：
+// 口径与 `backend/engine/assemble/runtime_role_turn.go` 的接线同源：
 // `WithEmployeeGrant(ctx, role, toolsPolicy, permission_groups)`（逐格格子非空则以格子为准）。
 
 // teammateCtx 的口径见本文件头注：teammate 工具回合的调度 ctx = 角色名 + 权责档 +

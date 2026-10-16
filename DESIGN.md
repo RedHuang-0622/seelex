@@ -7,7 +7,7 @@
 > 见 [`docs/arch/seele-v2-runtime-architecture.md`](docs/arch/seele-v2-runtime-architecture.md)
 > 与 [`docs/2026-08-01-seele-v2-underlying-refactor/plan.md`](docs/2026-08-01-seele-v2-underlying-refactor/plan.md)。
 > 本文保留作为历史设计记录；其中关于 `engine`/`agent/core` 的代码示例不再反映当前实现，
-> 当前装配以 `main.go` 与 `seelebridge/README.md` 为准。
+> 当前装配以 `main.go` 与 `backend/engine/assemble/README.md` 为准。
 
 ## 概述
 

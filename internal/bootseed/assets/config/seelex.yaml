@@ -8,7 +8,7 @@
 # max_rounds 40）；rounds 显式配置时直接覆盖推导结果。
 # 轮数公式的实际生效面：框架上下文控制器（seelexctx Controller，有每轮 token 估算）。
 # 主会话冷恢复的读分片宽度只拿得到上下文窗口一个输入，推导分支不生效，恒等于
-# min_rounds（见 seelebridge/runtime_context.go 的 windowTailBudget）。轮数也不是压缩
+# min_rounds（见 backend/engine/assemble/runtime_context.go 的 windowTailBudget）。轮数也不是压缩
 # 保留前缀的口径：保留前缀只由下面的 min(token1, token2) token 规则决定。
 #
 # 压缩保留前缀窗口（软压缩）：保留前缀 token 预算 = min(token1, token2)，取两个
@@ -151,7 +151,7 @@ limits:
   #     一次模型调用都不发，不静默降级——这一个值就是回滚臂；
   #   · 直接构造 Limits{} 的宿主/测试 → 关（字段零值不变，WithDefaults 不补这一位）。
   # 出厂文件这一行有测试钉着
-  # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen；
+  # （backend/engine/assemble/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen；
   #   缺省语义由 backend/limit/limits_test.go 的 TestLimitsCompactionSummaryDefaultsOpen 钉住）。
   #
   # 打开一次失败的排障入口：帧正文 JSON 的 readback.note 与 Markdown 的
@@ -171,7 +171,7 @@ limits:
   # 缓存。回合内控制器路径的字节同源性尚未验证，暂不注入（会付全价却拿不到缓存）。
   # 接线（2026-09-29）：装配层压缩推帧这一跳现在真的会走这条 DAG
   # （application/core/context_runtime 的 pushCompactionFrame →
-  # seelebridge/runtime_compaction_index.go 的 PushCompactionFrame →
+  # backend/engine/assemble/runtime_compaction_index.go 的 PushCompactionFrame →
   # MainCompactionDAG），因此**打开就生效**：栈帧 summary_source=replay、帧正文原样
   # 嵌入该摘要；关闭恒本地压缩（summary_source=local）。
   # 两臂都有离线用例钉住（见上面那个测试文件）：关 → 摘要器 nil + 零付费调用 +

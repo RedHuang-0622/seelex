@@ -38,7 +38,7 @@ flowchart TB
 - `DiagnosticHook` / `StageHook`：bash 停滞诊断 / node 第一视角阶段日志
   （Wrapper 形态，由 Chain 组装）。
 - `SummaryHook` / `SummaryEvent`：B 类 llm/tool 脱敏摘要（统一事件库的
-  B 类摘要层，见 `seelebridge/events_unified.go`）。只记失败、超时或慢
+  B 类摘要层，见 `backend/engine/assemble/events_unified.go`）。只记失败、超时或慢
   调用（默认阈值 30s，`WithSlowThreshold` 可覆盖）；字段仅含
   kind/name/status/duration_ms/at/nodeID，绝不含参数、结果或正文。
 

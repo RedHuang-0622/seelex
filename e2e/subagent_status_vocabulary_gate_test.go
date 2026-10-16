@@ -65,8 +65,8 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		files: map[string]string{
 			"store/node_session_store.go":                      "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
 			"backend/multiagent/subagent/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
-			"seelebridge/workunit_team_records.go":             "写：teammate 那一环（写下自己这一层的身份）",
-			"seelebridge/runtime_unit_recovery.go":             "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
+			"backend/engine/assemble/workunit_team_records.go": "写：teammate 那一环（写下自己这一层的身份）",
+			"backend/engine/assemble/runtime_unit_recovery.go": "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
 		},
 		// 这一格的取值面 = workunit.Kind（subagent | teammate）：词表本来就在契约里，这里只钉
 		// "谁也不许再写一份字面量"。KindJob 是基线标注（job 层不实现 Unit），不属于这一格。
@@ -75,14 +75,14 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "记录状态",
 		files: map[string]string{
-			"backend/tool/node/coordinator.go":                 "写：节点结束 → Sessions.NoteOutcome 的终态词",
-			"backend/multiagent/subagent/subagent_sessions.go": "写：节点结束兜底终态（subagentOutcome.status）",
-			"backend/multiagent/subagent/subagent_tree.go":     "读：恢复时判「记录本身已终结」（restoredSubAgentStatus）",
-			"seelebridge/runtime_subagent_recovery.go":         "读：残留记录判终态（Locate/ensureConclusion）",
-			"seelebridge/runtime_subagent_resume.go":           "读+本层常量：子代理那一层的终态词表",
-			"seelebridge/workunit_team.go":                     "写：teammate 那一层的终态词表（收尾分类折成记录词）",
-			"seelebridge/workunit_team_records.go":             "写：teammate 单元记录的落盘写点",
-			"seelebridge/workunit_parent.go":                   "写：生命周期实现落盘时的记录状态",
+			"backend/tool/node/coordinator.go":                     "写：节点结束 → Sessions.NoteOutcome 的终态词",
+			"backend/multiagent/subagent/subagent_sessions.go":     "写：节点结束兜底终态（subagentOutcome.status）",
+			"backend/multiagent/subagent/subagent_tree.go":         "读：恢复时判「记录本身已终结」（restoredSubAgentStatus）",
+			"backend/engine/assemble/runtime_subagent_recovery.go": "读：残留记录判终态（Locate/ensureConclusion）",
+			"backend/engine/assemble/runtime_subagent_resume.go":   "读+本层常量：子代理那一层的终态词表",
+			"backend/engine/assemble/workunit_team.go":             "写：teammate 那一层的终态词表（收尾分类折成记录词）",
+			"backend/engine/assemble/workunit_team_records.go":     "写：teammate 单元记录的落盘写点",
+			"backend/engine/assemble/workunit_parent.go":           "写：生命周期实现落盘时的记录状态",
 		},
 		// 这一格的取值面 = dto.SubAgent* 的四个（"还在不在跑"那半份在 workunit.Status*）。
 		words: map[string]bool{"queued": true, "running": true, "done": true, "failed": true},
@@ -117,7 +117,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		name: "工具事件状态",
 		files: map[string]string{
 			"backend/multiagent/subagent/tool_events.go":    "写：工具调用事件的三种状态（发布/落态）",
-			"seelebridge/runtime_role_turn.go":              "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
+			"backend/engine/assemble/runtime_role_turn.go":  "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
 			"application/core/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
 			"application/core/subagent_view/coordinator.go": "读：详情投影判「在跑」",
 			"application/core/service.go":                   "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",

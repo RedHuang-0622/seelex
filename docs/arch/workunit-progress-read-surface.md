@@ -25,8 +25,8 @@
 
 | 读数 | subagent 链（产生点） | teammate 链（产生点） |
 |---|---|---|
-| **阶段 / 打点**（"到哪一步"） | 引擎 telemetry `Before` 钩子按 `NodeScope` 逐次投影：`internal/telemetry/stage_hook.go:61` `record()` → `StageRecorder.RecordStage`；装配点 `backend/tool/node/agent_node.go:156`（spawn/注册）与 `:263`（收尾）；落点 `backend/multiagent/subagent/subagent_sessions.go:710` `RecordStage` → actor `:281` **append**（turn 递增，无上限） | 团队尾插三处**整条重写**：`seelebridge/workunit_team.go:181` `markTeamUnitRunning`（stage=`running`）、`:186` `recordTeamUnitRoundOutput`（stage=`round_output`）、`:193` `settleTeamUnitRecord`（stage=收尾 kind）；编码 `:176` `teamUnitStages` —— **恒为单元素数组**（每条 stage 覆盖前一条） |
-| **是否在跑** | 会话在册 ⇒ `running`，否则 `queued`：`backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（兜底分支 `subagent_sessions.go:515` 一带写死字面量） | 写方显式给 `running`/`done`/`failed`：`seelebridge/workunit_team.go:41` 常量；判"在跑"已转调契约 `seelebridge/workunit_team.go:50` `teamUnitInFlight` → `workunit.InFlight` |
+| **阶段 / 打点**（"到哪一步"） | 引擎 telemetry `Before` 钩子按 `NodeScope` 逐次投影：`internal/telemetry/stage_hook.go:61` `record()` → `StageRecorder.RecordStage`；装配点 `backend/tool/node/agent_node.go:156`（spawn/注册）与 `:263`（收尾）；落点 `backend/multiagent/subagent/subagent_sessions.go:710` `RecordStage` → actor `:281` **append**（turn 递增，无上限） | 团队尾插三处**整条重写**：`backend/engine/assemble/workunit_team.go:181` `markTeamUnitRunning`（stage=`running`）、`:186` `recordTeamUnitRoundOutput`（stage=`round_output`）、`:193` `settleTeamUnitRecord`（stage=收尾 kind）；编码 `:176` `teamUnitStages` —— **恒为单元素数组**（每条 stage 覆盖前一条） |
+| **是否在跑** | 会话在册 ⇒ `running`，否则 `queued`：`backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（兜底分支 `subagent_sessions.go:515` 一带写死字面量） | 写方显式给 `running`/`done`/`failed`：`backend/engine/assemble/workunit_team.go:41` 常量；判"在跑"已转调契约 `backend/engine/assemble/workunit_team.go:50` `teamUnitInFlight` → `workunit.InFlight` |
 | **结论 / 错误** | `backend/multiagent/subagent/subagent_sessions.go:812` `NoteOutcome`（status/summary/errMsg）；由 `backend/tool/node/coordinator.go` `CompleteSubagentNode` 调用 | `settleTeamUnitRecord`（`workunit_team.go:193`）把 `workunit.Outcome` 折成记录终态 |
 | **现场** | `NoteWorktree`（`backend/multiagent/subagent/subagent_sessions.go:803`），唯一生产调用点 `seelebridge/runtime_plan.go:151` | `teamUnitWorktreeRecord`（`workunit_team.go`，取 worktree 注册表现值；**不落"曾经在哪"**） |
 | **时间戳** | 记录带 `StartedAt/EndedAt`（记录形状里有） | **刻意不写**：`workunit_team.go` 注释——"哪一刻开始/落定是计划 `item.StartedAt/FinishedAt` 的事实" |
@@ -38,9 +38,9 @@
 | 记录形状（唯一一份） | `store/node_session_store.go:43` `NodeSessionRecord`（`Goal/Status/Summary/Error/History/ContextJSON/StagesJSON/ResultJSON/Worktree/StartedAt/EndedAt/UpdatedAt`） | 两条链共用同一个 `subagents/` 目录、同一张表 |
 | 契约持久化端口 | `seelebridge/workunit/session.go:52` `SessionLedger`（`Save/List`）+ 编译期断言 `var _ SessionLedger = (*store.NodeSessionStore)(nil)` | **不写适配器、不另立记录类型**——这是"复用"的落点 |
 | subagent 写 | `backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（经 actor，`persistLocked`） | 读侧折算（`Status` 兜底）也在这一个函数里 |
-| teammate 写 | `seelebridge/workunit_team.go:134` `saveTeamUnitRecord`（**直写** `NodeSessionStore`） | 与 subagent 同一张表，但写入口是第二条（见"归类"①） |
+| teammate 写 | `backend/engine/assemble/workunit_team.go:134` `saveTeamUnitRecord`（**直写** `NodeSessionStore`） | 与 subagent 同一张表，但写入口是第二条（见"归类"①） |
 | subagent 读回 | `backend/multiagent/subagent/subagent_sessions.go:394` `restoreLocked`（解 `StagesJSON`/`ResultJSON`/`Worktree`/终态） | 读侧折算的第二份 |
-| teammate 读回 | `seelebridge/workunit_team.go:412` `teamUnitRecords`（`List` + 按现场名单过滤）+ `:331` `RecoverTeamworkUnits` | 读侧折算的第三份 |
+| teammate 读回 | `backend/engine/assemble/workunit_team.go:412` `teamUnitRecords`（`List` + 按现场名单过滤）+ `:331` `RecoverTeamworkUnits` | 读侧折算的第三份 |
 | 共用判据（已收口） | `seelebridge/workunit/session.go:60` `StatusQueued/StatusRunning` + `InFlight` | 子代理侧仍有两处字面量未转调（`runtime_subagent_resume.go:329`、`subagent_sessions.go:515`） |
 | 共用恢复说明 | `seelebridge/workunit/session.go` `RecoveryNote`（生产接线：`runtime_subagent_resume.go:386`、`workunit_team.go:383`） | 已是"同一族"，不是自造说明 |
 | 共用收尾分类 | `seelebridge/workunit/classify.go` `ClassifyFinish`（生产接线：`backend/tool/node/agent_node.go:191`、`seelebridge/teamwork/items.go:478`） | 三层唯一一份判据（已落地） |
@@ -52,9 +52,9 @@
 | **打点表**（注入上下文的请求尾部块） | `application/core/work_table_async.go:158` `asyncTraceLines`（句柄/kind/state/字节/有界摘要） | `application/core/work_table_async.go:232` `teamworkTraceLines`（**同一块**、另一行生成器：句柄/状态/归属），拼接点 `application/core/work_table.go:743`（`workTableTraceBlockFor`，`work_table.go:699`） |
 | **工作表格行**（GUI 台账） | `contract/dto/async_run.go:20` `AsyncRunRecord`（`Kind=subagent`）→ `asyncWorkItems`/`asyncRunToWorkItem`（`work_table_async.go`）+ 子代理树行 `syncSubagentTask`（`work_table.go`） | **没有**：teammate 作业不进工作表格（只在看板 `jobs[]` 与打点块） |
 | **执行树** | `contract/dto/subagent.go:24` `SubAgentTreeNode`（`ID/ParentID/Children/Status/Summary/Context`）；投影 `Engine.SubAgentTree()` → `view_state/coordinator.go` 的 `SubAgentTree` | 无对应物（teammate 不是树，是甘特） |
-| **编排看板** | 无（子代理不进 AgentTeam 名册） | `contract/dto/teamwork_board.go:23` `TeamworkBoardView`（`members/milestones/work_items/jobs/events`）← `seelebridge/runtime_teamwork_board.go:102` `TeamworkBoardSnapshot` ← `TeamworkBoardProjection`（`contract/ports.go`） ← `view_state/coordinator.go:163` `CollectRuntimeProjectionFor` |
-| **会话事件 / 实时** | `Runtime.SubscribeSubagentLive(nodeID)`（`contract/ports.go:77`，实现 `seelebridge/runtime_live.go:87`）→ `dto.SubagentLiveEvent`（`subagent_live.go:9`：`stage`/`tool`/`assistant` 三类增量）+ 阶段实时通道 `node.Coordinator.StageEvents()`（`backend/tool/node/coordinator.go:208`） | 会话级事件 `teammate.tool.started/completed`：`dto.RoleToolActivity`（`contract/dto/role_tool_activity.go`）→ `Service.HandleRoleToolActivity`（`application/core/service.go:111`）；另 `TeammateSessionProjection.TeammateSessionLive`（`seelebridge/runtime_teammate_session_live.go:35`）→ `dto.TeammateSessionLiveView` |
-| **作业终态读数** | `AsyncRunRecord`（`State/ExitCode/LogBytes/Summary/Tail`） | `dto.TeamworkJobCompletionRecord`（`contract/dto/teamwork_jobs.go:13`）← `Runtime.TeamworkJobCompletions`（`seelebridge/runtime_teamwork_jobs.go:21`） |
+| **编排看板** | 无（子代理不进 AgentTeam 名册） | `contract/dto/teamwork_board.go:23` `TeamworkBoardView`（`members/milestones/work_items/jobs/events`）← `backend/engine/assemble/runtime_teamwork_board.go:102` `TeamworkBoardSnapshot` ← `TeamworkBoardProjection`（`contract/ports.go`） ← `view_state/coordinator.go:163` `CollectRuntimeProjectionFor` |
+| **会话事件 / 实时** | `Runtime.SubscribeSubagentLive(nodeID)`（`contract/ports.go:77`，实现 `backend/engine/assemble/runtime_live.go:87`）→ `dto.SubagentLiveEvent`（`subagent_live.go:9`：`stage`/`tool`/`assistant` 三类增量）+ 阶段实时通道 `node.Coordinator.StageEvents()`（`backend/tool/node/coordinator.go:208`） | 会话级事件 `teammate.tool.started/completed`：`dto.RoleToolActivity`（`contract/dto/role_tool_activity.go`）→ `Service.HandleRoleToolActivity`（`application/core/service.go:111`）；另 `TeammateSessionProjection.TeammateSessionLive`（`backend/engine/assemble/runtime_teammate_session_live.go:35`）→ `dto.TeammateSessionLiveView` |
+| **作业终态读数** | `AsyncRunRecord`（`State/ExitCode/LogBytes/Summary/Tail`） | `dto.TeamworkJobCompletionRecord`（`contract/dto/teamwork_jobs.go:13`）← `Runtime.TeamworkJobCompletions`（`backend/engine/assemble/runtime_teamwork_jobs.go:21`） |
 | **恢复态** | `dto.SubagentRecoveryView`（`subagent_recovery.go:11`：`Active/ConclusionFound/Resumable`）← `ListSubagentRecovery` | `workunit.Resume`（`Scenes/Sessions/Interrupted`）← `RecoverTeamworkUnits` |
 
 ### 1.4 为什么 subagent 那条"好懂"（具体到字段与粒度）
@@ -256,9 +256,9 @@ function applyUnitProgress(event) {
 | 改动 | 文件 | 量级 |
 |---|---|---|
 | 后端：新增 `workunit/progress.go`（`Stage`/编解码/`ProgressOf`/`UnitReader`） | 新文件 | 小（~80 行纯函数 + 端口，无 I/O 新增） |
-| 后端：subagent 读侧折算转调 `ProgressOf`（写侧仍各层） | `backend/multiagent/subagent/subagent_sessions.go`（`buildRecordLocked`/`restoreLocked`）、`seelebridge/workunit_node.go`（`ledgerRecord`） | 小（局部替换折算体） |
-| 后端：teammate 折算转调 `ProgressOf` + `UnitReader` | `seelebridge/workunit_team.go`（`saveTeamUnitRecord`/`teamUnitRecords`/`RecoverTeamworkUnits`） | 小-中 |
-| 后端：把两处实时投递点接到**同一条事件**（`subagent.tool.*` 与 `teammate.tool.*` 的发布点） | `seelebridge/runtime_live.go`、`seelebridge/runtime_role_turn.go`（`RoleToolCallback`）、`application/core/service.go:111`、`main.go:612` | **中-大**（跨 seelebridge→application→装配根三段；这是本次**不建议**与读面折算同批做的一步） |
+| 后端：subagent 读侧折算转调 `ProgressOf`（写侧仍各层） | `backend/multiagent/subagent/subagent_sessions.go`（`buildRecordLocked`/`restoreLocked`）、`backend/engine/assemble/workunit_node.go`（`ledgerRecord`） | 小（局部替换折算体） |
+| 后端：teammate 折算转调 `ProgressOf` + `UnitReader` | `backend/engine/assemble/workunit_team.go`（`saveTeamUnitRecord`/`teamUnitRecords`/`RecoverTeamworkUnits`） | 小-中 |
+| 后端：把两处实时投递点接到**同一条事件**（`subagent.tool.*` 与 `teammate.tool.*` 的发布点） | `backend/engine/assemble/runtime_live.go`、`backend/engine/assemble/runtime_role_turn.go`（`RoleToolCallback`）、`application/core/service.go:111`、`main.go:612` | **中-大**（跨 seelebridge→application→装配根三段；这是本次**不建议**与读面折算同批做的一步） |
 | 后端：让 `TeamworkWorkItemView` 增加进度格（`stage`/`preview`/`in_flight`），从 `ProgressOf` 取 | `contract/dto/teamwork_board.go`、`seelebridge/runtime_teamwork_board.go` | 小-中（**可选**，见下） |
 | 前端：新增 `applyUnitProgress`，替换 `applyTeammateToolActivity` 的分组缓存 + 子代理 live 的追加逻辑 | `gui/frontend/dist/app.js`、`team-board-view.js`（`renderTeammateLiveSession`）、`work-table.js`/`tree-fork.js`（子代理详情） | 中 |
 | 前端守卫 | `gui/frontend/dist/*.test.mjs`、`gui/team_board_wiring_test.go`、`e2e/dto_boundary_test.go`（wire 键名） | 小 |
@@ -321,14 +321,14 @@ function applyUnitProgress(event) {
 
 | 符号 | 定义 | 全部调用点 |
 |---|---|---|
-| `newNodeWorkUnit` | `seelebridge/workunit_node.go:45` | **唯一一处**：`seelebridge/workunit_node_test.go:235` |
-| `newTeamUnit` | `seelebridge/workunit_team.go:493` | **唯一一处**：`seelebridge/workunit_team_test.go:591` |
-| `workunit.Unit`（形状断言） | `workunit_node.go:42`、`workunit_team.go:603`（`var _ ... = (*xUnit)(nil)`） | 编译期断言；另有 `seelebridge/workunit_chain_test.go:213` 的类型表 |
+| `newNodeWorkUnit` | `backend/engine/assemble/workunit_node.go:45` | **唯一一处**：`backend/engine/assemble/workunit_node_test.go:235` |
+| `newTeamUnit` | `backend/engine/assemble/workunit_team.go:493` | **唯一一处**：`backend/engine/assemble/workunit_team_test.go:591` |
+| `workunit.Unit`（形状断言） | `workunit_node.go:42`、`workunit_team.go:603`（`var _ ... = (*xUnit)(nil)`） | 编译期断言；另有 `backend/engine/assemble/workunit_chain_test.go:213` 的类型表 |
 | `FinishPolicy()` | `workunit_node.go:53`、`workunit_team.go:528` | 仅测试调用（`workunit_node_test.go:241/288`、`workunit_team_test.go:579`、`workunit_chain_test.go:62/181`） |
 
 即：真实装配里，两条链**仍然直接调既有函数**，**不**把 `Unit` 当门面用——
 subagent 走 `beginNodeWorktree`/`finishNodeWorktree`/`releaseNodeWorktree`
-（`seelebridge/runtime_plan.go`），teammate 走 `BindWorkspace`/`SettleWorkItemOutcome`/
+（`backend/engine/assemble/runtime_plan.go`），teammate 走 `BindWorkspace`/`SettleWorkItemOutcome`/
 `Coordinator.Reclaim`/`RecoverTeamworkUnits`。适配器是"已写好、已用测试钉住、但还没接进生产装配"的中间态。
 
 ### 5.2 契约的哪些部分**已经**在生产链上
@@ -336,10 +336,10 @@ subagent 走 `beginNodeWorktree`/`finishNodeWorktree`/`releaseNodeWorktree`
 | 符号 | 生产装配点 |
 |---|---|
 | `workunit.ClassifyFinish` | `backend/tool/node/agent_node.go:191`（subagent 节点收尾）、`seelebridge/teamwork/items.go:478/482`（teammate 尾插收尾） |
-| `workunit.RecoveryNote` | `seelebridge/runtime_subagent_resume.go:386`（KindSubagent）、`seelebridge/workunit_team.go:383`（KindTeammate） |
-| `workunit.RecoveryNoteRole` | `seelebridge/runtime_subagent_resume.go:37`（`SubagentRecoveryNoteRole` 直接绑契约） |
-| `workunit.InFlight` | `seelebridge/workunit_team.go:50`（`teamUnitInFlight` 转调）——**子代理侧两处字面量仍未转调**（R3） |
-| `workunit.SessionLedger` | `seelebridge/workunit_node.go`（`ledgerRecord` 用 `workunit.SessionLedger(store).List`）、`seelebridge/workunit_team.go`（`teamUnitLedger` 返回 `*NodeSessionStore`） |
+| `workunit.RecoveryNote` | `backend/engine/assemble/runtime_subagent_resume.go:386`（KindSubagent）、`backend/engine/assemble/workunit_team.go:383`（KindTeammate） |
+| `workunit.RecoveryNoteRole` | `backend/engine/assemble/runtime_subagent_resume.go:37`（`SubagentRecoveryNoteRole` 直接绑契约） |
+| `workunit.InFlight` | `backend/engine/assemble/workunit_team.go:50`（`teamUnitInFlight` 转调）——**子代理侧两处字面量仍未转调**（R3） |
+| `workunit.SessionLedger` | `backend/engine/assemble/workunit_node.go`（`ledgerRecord` 用 `workunit.SessionLedger(store).List`）、`backend/engine/assemble/workunit_team.go`（`teamUnitLedger` 返回 `*NodeSessionStore`） |
 | `workunit.Jobs` | 编译期断言 `var _ Jobs = (jobs.Manager)(nil)`（`contract.go`）；消费方是 `teamwork.Coordinator.Reclaim` |
 
 ### 5.3 对本次读面建议的含义

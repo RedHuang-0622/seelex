@@ -76,7 +76,7 @@ sequenceDiagram
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
 | `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）已随 Agent Team 用户面退场（2026-10-12 J-1a）整份删除。 |
 | `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
-| `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
+| `backend/engine/assemble/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
 ## Bridge 契约
@@ -105,10 +105,10 @@ Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话
 是**默认页**（最近若干条）；`Bridge.TeammateSessionLivePage(roleSessionID, offset, limit)`
 是同一份读数的**分页一页**（`offset/limit/total/has_more` 都由后端归一与计算，前端只搬、
 不自算；`limit<=0` → 后端默认页大小 40）。窗口/裁剪判据只有一份，在
-[`seelebridge/runtime_teammate_session_live.go`](../seelebridge/runtime_teammate_session_live.go)；
+[`backend/engine/assemble/runtime_teammate_session_live.go`](../backend/engine/assemble/runtime_teammate_session_live.go)；
 会话不在本进程 → `running=false`（调用方据此如实说明，而不是假装"看到的是空的当前会话"）。
 node 第一视角实时回放的**分页**读法同形落在
-[`seelebridge/runtime_live.go`](../seelebridge/runtime_live.go) 的
+[`backend/engine/assemble/runtime_live.go`](../backend/engine/assemble/runtime_live.go) 的
 `SubagentLiveHistoryPage`（窗口上限 `RuntimeConfig.SubagentLiveWindow`）。
 
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
@@ -193,7 +193,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   注册表。回读经 `TeamView.members` 的登记字段（前端编辑面板要回填，否则一次编辑会
   把提示词/权限清空）。
 - `AgentTeamRolePrompt(sessionID, roleName)` 是只读提示词查询（ADVISOR 回合用它取
-  已装配提示词，装配根注入的读面见 `seelebridge/runtime_role_prompt.go`）；
+  已装配提示词，装配根注入的读面见 `backend/engine/assemble/runtime_role_prompt.go`）；
   `AgentTeamOptimizePrompt(sessionID, request)` 跑一次有界 LLM 回合产出候选文本 +
   改动理由，**不落盘、不写会话消息**（落盘仍走入职/保存）。
 - 团队库（**全局** `team/library.json`）走 `AgentTeamLibrary`（列表）/

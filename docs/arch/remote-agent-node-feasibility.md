@@ -30,13 +30,13 @@
 - 唯一装配点：`application/application.go` 的 `New(deps Dependencies) (*Service, error)`；
   组合根是 `main.go`。
 - 更严的一版：`seelebridge/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），
-  唯一实现是 `seelebridge/workunit_assembly.go` 的 `hostPorts`，并有机械门禁
+  唯一实现是 `backend/engine/assemble/workunit_assembly.go` 的 `hostPorts`，并有机械门禁
   `e2e/workunit_ports_test.go`（契约包 import 实现包零命中）。
 
 ### 2.2 员工执行面本身就是可替换的（本次问题的正面回答）
 
 ```go
-// seelebridge/runtime_role_turn.go:52
+// backend/engine/assemble/runtime_role_turn.go:52
 // roleEngine 是一个角色会话的引擎最小面。*session.Session 满足它；
 // 测试可注入假实现（角色回合的验收不需要真实 LLM）。
 type roleEngine interface {
@@ -49,9 +49,9 @@ type roleEngine interface {
 }
 ```
 
-注入点：`seelebridge/runtime_role_turn.go:216`
+注入点：`backend/engine/assemble/runtime_role_turn.go:216`
 `func (r *Runtime) SetRoleEngineFactory(factory func(sessionID string) (roleEngine, error))`；
-`seelebridge/README.md` 自陈用途之一是"**更严隔离面**"。
+`backend/engine/assemble/README.md` 自陈用途之一是"**更严隔离面**"。
 
 **这就是"远程员工节点"最干净的落点**：写一个 `remoteRoleEngine` 把 `ChatStream` 转发到另一台
 机器上的 Seelex，一个员工的工作回合就从"本机进程内引擎"变成"远端节点"。该接口只有 6 个方法、
@@ -73,7 +73,7 @@ type roleEngine interface {
   `vendor/github.com/RedHuang-0622/Seele/tools/mcp/provider.go:108-114`
   `case "stdio": NewStdioMCPClient(...)` / `case "sse": NewSSEMCPClient(cfg.URL)`；
   配置面 `config/mcp.example.yaml` 的 `transport: stdio | sse` + `url`。
-- 装配闸门：`seelebridge/runtime_computer.go`（`bridgecomputer.Supported()` +
+- 装配闸门：`backend/engine/assemble/runtime_computer.go`（`bridgecomputer.Supported()` +
   `SEELEX_COMPUTER_USE`），因此"注册不注册这族工具"是一个显式开关。
 - 权威实测方法学与判据：`docs/2026-09-25-linux-vm-demo/computer-use.md`（含 `xev` / `xdotool` 独立裁判法）。
 
@@ -240,7 +240,7 @@ Virtualization.framework），跑三个判据：
 
 **已确认（有代码或文档锚点）**
 
-- 依赖倒置三处缝：`contract/ports.go`、`seelebridge/runtime_role_turn.go:52,216`、
+- 依赖倒置三处缝：`contract/ports.go`、`backend/engine/assemble/runtime_role_turn.go:52,216`、
   `docs/arch/workunit-ports-and-assembly.md` §3。
 - `computer-mcp` 是 stdio MCP 服务端；MCP 客户端支持 SSE 远端（vendor `provider.go:108-114`）。
 - Seelex 自己的包无网络服务端（`net.Listen` / `ListenAndServe` / `NewMCPServer` 零命中）。

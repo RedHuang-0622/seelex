@@ -5,7 +5,7 @@ package e2e
 // 它把 docs/arch/workunit-ports-and-assembly.md §4 的三条判据变成机器能查的事实，而不是"信我
 // 一句代码里没有"：
 //
-//	① 生命周期实现（seelebridge/workunit_parent.go）里**没有按层分支**（不出现 KindTeammate /
+//	① 生命周期实现（backend/engine/assemble/workunit_parent.go）里**没有按层分支**（不出现 KindTeammate /
 //	   KindSubagent 这类"按层判断"的证据）；
 //	② 生命周期实现里**没有 teamwork / worktree / store 的具体类型**（只有端口）；
 //	③ **每个作业面/生命周期实现都带编译期断言**（契约那份 Jobs 的实现、tools 自建表的同形那一格、
@@ -33,10 +33,10 @@ import (
 )
 
 // lifecycleImplementationFile 是"一份实现"的落点：生命周期实现（唯一一份）。
-const lifecycleImplementationFile = "seelebridge/workunit_parent.go"
+const lifecycleImplementationFile = "backend/engine/assemble/workunit_parent.go"
 
 // assemblyFile 是装配处：具体类型只允许出现在这里。
-const assemblyFile = "seelebridge/workunit_assembly.go"
+const assemblyFile = "backend/engine/assemble/workunit_assembly.go"
 
 // forbiddenPackages 是生命周期实现**不许 import** 的包（它们的具体类型只允许出现在装配处）。
 var forbiddenPackages = map[string]string{
@@ -242,7 +242,7 @@ func (h *lifecycleHost) broken(u workunit.Unit) {
 	}
 }
 `
-	violations := scanLifecycleImplementation("seelebridge/workunit_parent.go", branching)
+	violations := scanLifecycleImplementation("backend/engine/assemble/workunit_parent.go", branching)
 	if len(violations) == 0 {
 		t.Fatal("故意违规样例（按层分支 + teamwork 具体类型）没有被门禁逮住")
 	}
@@ -268,7 +268,7 @@ func (h *lifecycleHost) clean(u workunit.Unit) {
 }
 var _ workunit.Lifecycle = (*lifecycleHost)(nil)
 `
-	if violations := scanLifecycleImplementation("seelebridge/workunit_parent.go", clean); len(violations) != 0 {
+	if violations := scanLifecycleImplementation("backend/engine/assemble/workunit_parent.go", clean); len(violations) != 0 {
 		t.Fatalf("干净样例被误报：%+v", violations)
 	}
 

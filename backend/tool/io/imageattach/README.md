@@ -9,7 +9,7 @@
 什么时候多了一张图；在这里补一条带图的 user 消息，模型就能看到画面，同时不改动
 引擎的历史语义。
 
-主要调用方：`seelebridge/runtime_image.go`（截图落盘后 Add）与根包请求装配（Take）。
+主要调用方：`backend/engine/assemble/runtime_image.go`（截图落盘后 Add）与根包请求装配（Take）。
 
 ## 职责与非职责
 

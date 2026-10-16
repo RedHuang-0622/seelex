@@ -21,7 +21,7 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 ## 项目概览
 
-Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](seelebridge/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
+Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](backend/engine/assemble/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
 
 主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
 
@@ -654,7 +654,7 @@ permission:
 | 目录 | 职责 |
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
+| [<code>seelebridge/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>session/</code>](session/README.md) | 会话领域模型与投影 |
@@ -790,7 +790,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 |---|---|
 | 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](application/model/README.md) · [event/](application/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
-| 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](backend/limit/gate/README.md) · [tools/](backend/tool/registry/README.md) · [plan/](backend/tool/plan/README.md) · [node/](backend/tool/node/README.md) · [fork/](backend/tool/fork/README.md) · [session/](backend/multiagent/subagent/README.md) · [account/](backend/engine/account/README.md) · [mcp/](backend/engine/mcp/README.md) · [computer/](backend/tool/computer/README.md) |
+| 运行时适配 | [seelebridge/](backend/engine/assemble/README.md) · [security/](backend/limit/gate/README.md) · [tools/](backend/tool/registry/README.md) · [plan/](backend/tool/plan/README.md) · [node/](backend/tool/node/README.md) · [fork/](backend/tool/fork/README.md) · [session/](backend/multiagent/subagent/README.md) · [account/](backend/engine/account/README.md) · [mcp/](backend/engine/mcp/README.md) · [computer/](backend/tool/computer/README.md) |
 | 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
 | 扩展与前端 | [plugin/](plugin/README.md) · [skill/](skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |

@@ -14,7 +14,7 @@ package teamwork
 // 本文件钉住三条事实：① 派发建现场（`seelex/<role>`）+ 账本留行；④ 整队收口释放该角色
 // **全部**现场（角色级 + 每一件已派发的 Work Item）；⑤ 某一份现场释放失败时必须点明
 // 是哪一个、且不牵连同批其余（Runtime 侧的两条——真释放与脏现场报错——见
-// seelebridge/runtime_teamwork_items_test.go）。
+// backend/engine/assemble/runtime_teamwork_items_test.go）。
 
 import (
 	"context"

@@ -67,7 +67,7 @@ func (stub *archiverSessionsStub) commitCount() int {
 
 // productionArchiveIndexRuntime 按生产接线模拟压缩帧的推帧落点：跑完 DAG（这里以桩
 // 代替）后走**真实**的 CompressedTurnArchiver 归档原文，并把 ctx 原样转发——与
-// seelebridge/runtime_compaction_index.go 的第二步同形。
+// backend/engine/assemble/runtime_compaction_index.go 的第二步同形。
 type productionArchiveIndexRuntime struct {
 	runtimeWithContextLimits
 	archiver *CompressedTurnArchiver

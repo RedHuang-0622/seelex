@@ -577,7 +577,7 @@ func TestContextCacheDivergenceProbe_MemoryBlockPosition(t *testing.T) {
 	selectedTwo := memory.Select(queryTwo, candidates, options)
 	blockOne := memory.RenderMemoryBlock(selectedOne, options.MaxTokens)
 	blockTwo := memory.RenderMemoryBlock(selectedTwo, options.MaxTokens)
-	t.Logf("== memory block (seelebridge/runtime_context.go relatedMemoryBlocks 同款接线) ==")
+	t.Logf("== memory block (backend/engine/assemble/runtime_context.go relatedMemoryBlocks 同款接线) ==")
 	t.Logf("  query1 selected=%v memory_block=%d tok", probeSegmentIDs(selectedOne), probeBlockTokens(blockOne))
 	t.Logf("  query2 selected=%v memory_block=%d tok", probeSegmentIDs(selectedTwo), probeBlockTokens(blockTwo))
 	t.Logf("  selection_changed=%v block_changed=%v", !probeSameSegments(selectedOne, selectedTwo), probeBlockText(blockOne) != probeBlockText(blockTwo))

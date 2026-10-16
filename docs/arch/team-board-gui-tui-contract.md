@@ -174,9 +174,9 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 | 段 | 文件:符号 |
 |---|---|
 | 计划 / 审计读面 | `store/teamwork.go` `TeamworkRepository.ReadTeamworkPlan/ReadTeamworkEvents` |
-| 桥的存储端口 | `seelebridge/teamwork/teamwork.go` `PlanStore`；`seelebridge/runtime_teamwork.go` `TeamworkBackend{Store,KeyFor}` |
-| 作业行 | `jobs.Manager.Snapshot(jobs.Scope{Session: sessionID})`（内存态，`seelebridge/runtime_teamwork.go` 的 `r.teamworkJobs`） |
-| 组装 | `seelebridge/runtime_teamwork_board.go` `(*Runtime).TeamworkBoardSnapshot`（**已落地**） |
+| 桥的存储端口 | `seelebridge/teamwork/teamwork.go` `PlanStore`；`backend/engine/assemble/runtime_teamwork.go` `TeamworkBackend{Store,KeyFor}` |
+| 作业行 | `jobs.Manager.Snapshot(jobs.Scope{Session: sessionID})`（内存态，`backend/engine/assemble/runtime_teamwork.go` 的 `r.teamworkJobs`） |
+| 组装 | `backend/engine/assemble/runtime_teamwork_board.go` `(*Runtime).TeamworkBoardSnapshot`（**已落地**） |
 | 端口 | `contract/ports.go` `TeamworkBoardProjection`（**已落地**；窄可选接口，位置与 `RuntimePort` 同文件） |
 | 收集 | `application/core/view_state/coordinator.go` `Deps.Teamwork` + `CollectRuntimeProjectionFor`（**已落地**） |
 | 转发 | `application/core/teamwork_service.go` `(*Service).TeamworkBoardViewFor`（**已落地**：Deps.Teamwork 的接口名是「会话 → 视图」，由这一层类型断言到 Runtime 的 `TeamworkBoardSnapshot`） |

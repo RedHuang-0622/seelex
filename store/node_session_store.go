@@ -43,7 +43,7 @@ type NodeWorktreeRecord struct {
 }
 
 // NodeUnitRecord 是记录快照里的**身份**那一格：这条记录属于哪一类执行单元，以及这一类
-// 单元独有/可选的配置摘要。恢复链据此**分派策略**（见 `seelebridge/runtime_unit_recovery.go`），
+// 单元独有/可选的配置摘要。恢复链据此**分派策略**（见 `backend/engine/assemble/runtime_unit_recovery.go`），
 // 不再靠 nodeID 的形状去猜——记录文件与子代理节点记录共用同一个 `subagents/` 目录，
 // 光看文件名分不出"崩溃遗留的子代理节点"与"团队现场的正本"。
 //

@@ -17,7 +17,7 @@ package workunit
 // 步骤②的落点（本文件从"形状"转成**生产接线**）：
 //
 //	① 折算唯一：`ProgressOf` 是"记录 → 进度读数"的**唯一**一份实现。三条读侧的手写折算
-//	   转调它——生命周期的记录读面（`seelebridge/workunit_assembly.go` 的 hostPorts：
+//	   转调它——生命周期的记录读面（`backend/engine/assemble/workunit_assembly.go` 的 hostPorts：
 //	   Status / Readout / Clear）、子代理恢复定位（`runtime_subagent_resume.go` 的 Locate）、
 //	   teammate 会话级读回（`workunit_team_records.go` 的 teamUnitRecords）。
 //	② 编解码唯一：`EncodeStages` / `DecodeStages` 收掉 teammate 那份 `[]map[string]string`

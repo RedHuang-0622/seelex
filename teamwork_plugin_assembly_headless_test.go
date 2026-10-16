@@ -3,7 +3,7 @@ package main
 // teamwork_plugin_assembly_headless_test.go — 「装配 plugin 的 teammate」在**组合根装配**上跑一遍。
 //
 // 分工（两份证据各回答一半问题）：
-//   - `seelebridge/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
+//   - `backend/engine/assemble/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
 //     （不跑真回合、不开 worktree、不落计划）；
 //   - 本文件：把同一件事放到**真实装配**上跑——真 store / 真 workspace / 真插件根
 //     （`pluginRoots()` 解析到的那一份，与 main.go 的 initPluginSystem 同一条路）/ 真计划落盘 /
@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
@@ -287,7 +287,7 @@ func assemblyDispatchHandles(t *testing.T, receipts []string) []string {
 // attachRealSkills 把**真插件根**的技能装上 Runtime 的员工目录读面。
 //
 // 为什么要自己补这一跳：员工回合的技能目录读的是 `Runtime.skills`（见
-// seelebridge/runtime_role_plugins.go 的 skillRegistryFor），组合根在 main.go:609 经
+// backend/engine/assemble/runtime_role_plugins.go 的 skillRegistryFor），组合根在 main.go:609 经
 // `ApplyDeps(RuntimeDeps{SkillRegistry: …})` 把它装上；全链路 harness 只把 registry 交给
 // 插件系统与应用，**没有装上 Runtime**。少了这一跳，装配进来的目录段会**静默为零**
 // （skill_count=0、system prompt 里没有目录段），本用例就会把"基座缺一跳"误判成

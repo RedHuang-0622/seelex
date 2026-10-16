@@ -3,7 +3,7 @@ package core
 // 复现（一）：**压缩在持有 Core.ViewMu 的临界区里做推帧**——锁的持有时间 = 推帧
 // 的耗时。推帧在生产路径上不是纯计算：
 //
-//   - seelebridge/runtime_compaction_index.go 先跑 MainCompactionDAG：
+//   - backend/engine/assemble/runtime_compaction_index.go 先跑 MainCompactionDAG：
 //     DAG 的 chapter2 节点在 limits.context_compaction_summary.enabled 时做**前缀重放
 //     厚摘要**（整段历史重放的模型调用；溢出区超过片预算时逐片重放、多次调用）；
 //   - 再走归档器 CompressedTurnArchiver.StoreTurn（原文写盘）与 store.PushCompact

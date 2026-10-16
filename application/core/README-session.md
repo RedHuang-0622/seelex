@@ -100,7 +100,7 @@
 （防四栈串台）口径不变。
 
 复现与回归：`session_draft_context_attach_test.go`（三处挂接 + 运行中会话不解绑）、
-`seelebridge/runtime_compaction_unbound_test.go`（未绑定的确切报错文案）。
+`backend/engine/assemble/runtime_compaction_unbound_test.go`（未绑定的确切报错文案）。
 
 ## 文件与函数索引
 

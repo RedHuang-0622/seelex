@@ -12,7 +12,7 @@
 //
 // 本包是领域无关的：它不认识 subagent、goal、role draft 或任何具体存储，
 // 只认识 Unit（未完成单元）与 Port（可插拔端口）。subagent 是第一个使用者，
-// 见 seelebridge/runtime_subagent_resume.go。
+// 见 backend/engine/assemble/runtime_subagent_resume.go。
 //
 // 设计依据：docs/arch/a2a-agent-team-factory.md §5.1 与 §9 的 AT10。
 package resume

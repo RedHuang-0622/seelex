@@ -26,9 +26,9 @@
 **切分判据**：第 5–7 条是"编排内容"，不是两层的交集（§8）——它们通过**端口/回调**接进来，
 生命周期实现不许认识它们的类型。
 
-**① 落地版（2026-10-06）**：生命周期实现（`seelebridge/workunit_parent.go` 的 `lifecycleHost`）
+**① 落地版（2026-10-06）**：生命周期实现（`backend/engine/assemble/workunit_parent.go` 的 `lifecycleHost`）
 只持**三格宿主端口**——`sceneFace`（现场）/ `unitFace`（编排闸门 + 账本）/ `recordFace`
-（会话记录）；这三格的唯一实现是 `seelebridge/workunit_assembly.go` 的 `hostPorts`，`teamwork` /
+（会话记录）；这三格的唯一实现是 `backend/engine/assemble/workunit_assembly.go` 的 `hostPorts`，`teamwork` /
 `worktree` / `store` 的具体类型只允许出现在那个文件里（机械门禁：
 `e2e/workunit_ports_test.go`）。会话记录端口的**记录形状**仍是契约自己声明的
 `store.NodeSessionRecord` / `store.Key`（`session.go` 的 `SessionLedger` 就是它）
@@ -89,8 +89,8 @@
 |---|---|---|
 | 1 | 作业面四格 + 合成 `Jobs`；`var _ Jobs = (jobs.Manager)(nil)` 保留原处 | `seelebridge/workunit/contract.go` |
 | 2 | tools 自建表同形那一格的断言（只加断言行，行为零变化） | `backend/tool/registry/async_exec.go` |
-| 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `seelebridge/workunit_assembly.go` |
-| 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `seelebridge/workunit_parent.go` |
+| 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `backend/engine/assemble/workunit_assembly.go` |
+| 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `backend/engine/assemble/workunit_parent.go` |
 | 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `seelebridge/workunit/progress.go` |
 | 6 | 机械门禁（按层分支 + 具体类型 + 每个实现的编译期断言 + **契约包 import 实现包零命中**），带阴性对照 | `e2e/workunit_ports_test.go` |
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // —— 定时任务的执行参数（思考强度 / 循环次数）——

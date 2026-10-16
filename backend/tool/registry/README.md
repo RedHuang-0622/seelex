@@ -135,7 +135,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   `JobNamespaceOf` 识别 / `JobHandleSeq` 解析）。分隔符是文法的一部分——`bt` 是 `bteam` 的
   前缀，只有带上 `-` 匹配，`bteam-3` 才不会被判成 `bt-` 那一族。
 - **本域铸造**在 `async_exec.go` 的 `beginJob`（按 kind 取 token）；团队表由 Seelex 注入的
-  命名器给出（`seelebridge/teamwork_job_namer.go`）。
+  命名器给出（`backend/engine/assemble/teamwork_job_namer.go`）。
 - **跨表调用显式报错**：`bg_manage` 的 `requireOwnedJobHandles` 只认本表的两个 token（正向
   白名单，第三张表出现时默认拒绝），拒绝文案点名 `jobs_manage`。
 - 工作表格行 ID 仍是 `async:<handle>`（`async:` 是**行**命名空间，与句柄命名空间正交），

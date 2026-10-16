@@ -230,7 +230,7 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   工作区文件），而历史版本与工作区同名文件会是同一枚 chip——一次保存就能把某个历史
   版本写回工作区。那一层在提交记录面板内只读渲染，渲染分派仍共用
   `file-preview.renderReadOnlyContent`。
-  **Agent 驱动打开（J-2，前后端已落）**：主 agent 调 `show_files`（`seelebridge/review_files.go`）请求
+  **Agent 驱动打开（J-2，前后端已落）**：主 agent 调 `show_files`（`backend/engine/assemble/review_files.go`）请求
   "请 GUI 打开这些待审阅文件"，一次调用 = 一次批处理召唤、单次上限 10 份（超限显式报错）。它不是事件而是
   **会话作用域的可重放请求**（`Snapshot.ReviewRequest` / `SessionSnapshot.ReviewRequest`，契约
   `dto.ReviewRequest`），前端起来或切回该会话时按快照补放：**只有第一枚成为当前显示的详情**、其余只出
