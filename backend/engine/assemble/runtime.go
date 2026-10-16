@@ -116,14 +116,12 @@ type Runtime struct {
 	// （events_unified.go；形态见 06-unified-event-store-decision.md）。
 	summaryLog *SummaryLog
 
-	// servedRoutes 是每会话最近一次请求的**实际承接路由**（streamingAccount-
+	// servedRoute 是每会话最近一次请求的**实际承接路由注册表**（P21-3 下沉到
+	// `backend/engine/account.ServedRouteRegistry`；streamingAccount-
 	// Completer 的观察者覆盖写入；request/failover 事实都算数——最终承接账号
 	// 覆盖前面的尝试）。application 在回合收尾经 RuntimePort.TakeServedRoute
 	// 取走（读即清）并回填 assistant 消息真相源。主链路（NodeID 空）才记录。
-	servedRoutes map[string]dto.ServedRoute
-	// routingNoticeMu 保护 servedRoutes 与 unpinned 去重表。
-	routingNoticeMu   sync.Mutex
-	routingNoticeSeen map[string]bool
+	servedRoute *account.ServedRouteRegistry
 
 	model string
 	// startupWarnings 是启动期非致命配置警告（如 accounts.yaml 解析失败、
@@ -385,8 +383,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tracer:            tracer,
 		hook:              hook,
 		summaryLog:        NewSummaryLog(),
-		servedRoutes:      make(map[string]dto.ServedRoute),
-		routingNoticeSeen: make(map[string]bool),
 		bundles:           make(map[string]*sessionBundle),
 		sessionWorkspaces: make(map[string]string),
 		startupWarnings:   startupWarnings,
@@ -402,6 +398,15 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		DAG:        r.MainCompactionDAG,
 		Summarizer: r.compactionSummarizer,
 		Archiver:   r.getTurnArchiver,
+	})
+	// 路由事实注册表（域包 `backend/engine/account`）：只差一个摘要落点，
+	// 装配期把"写 B 类摘要"接上（`summaryLog` 可能为 nil ⇒ 域内判空后不记）。
+	r.servedRoute = account.NewServedRouteRegistry(account.ServedRouteDeps{
+		RecordSummary: func(event seeletelemetry.SummaryEvent) {
+			if r.summaryLog != nil {
+				r.summaryLog.RecordSummary(event)
+			}
+		},
 	})
 	// 实时流分发器（域包 `backend/multiagent/subagent`）：两个事件源走函数值端口，
 	// 窗口按域包的归一化判据取（配置读数仍是本层的 subagentLiveWindow）。

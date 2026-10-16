@@ -36,6 +36,13 @@ flowchart LR
 - `ForRole(pool, role)`：按角色（含回退链）筛选启用账号，无匹配回退任意
   启用账号。
 - `StableIndex(seed, size)`：FNV-1a 32 位稳定哈希索引（同 seed 恒等）。
+- `ServedRouteRegistry`（`served_route.go`，P21-3 从 `backend/engine/assemble/runtime_account.go` 归位）：
+  **每会话最近一次请求的实际承接路由**注册表。判据四条：① 只有 `request` / `failover` 才覆盖
+  （最终承接账号覆盖前面的尝试）；② 只有**主链路请求**（`NodeID` 空、会话非空）才记录——
+  子代理/plan 节点的路由归各自的节点视图，进程级请求无处回填；③ `unpinned_selection` 按
+  「会话+账号」只记一次摘要（主链路未固定账号时它每轮都发生），`failover` 不去重（每次都要可审计）；
+  ④ `Take` **读即清**（事实只服务「本轮 response 回填真相源」一次）。宿主面只差一个摘要落点
+  （`ServedRouteDeps.RecordSummary`）。
 
 ## 流式超时纪律（2026-09-29 事故）
 

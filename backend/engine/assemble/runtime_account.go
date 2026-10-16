@@ -14,7 +14,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/stream"
-	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // 账号路由状态已收敛为 account.Manager（选中账号/provider 过滤/限额/选择器）。
@@ -42,92 +41,25 @@ func (r *Runtime) assembleCompleters() error {
 	return nil
 }
 
-// observeRoutingNotice 是流式 completer 的路由事实观察者（租约路径上同步
-// 调用，必须非阻塞）：request 钩子与 failover 都覆盖该会话的 ServedRoute
-// 注册表（最终承接账号覆盖前面的尝试）；failover / unpinned_selection 另落
-// B 类摘要（durable）。不再投会话 system 消息——会话内通知已退役
-// （2026-10-10），路由元信息随 response 长在 assistant 消息上。
+// observeRoutingNotice 是流式 completer 的路由事实观察者（租约路径上同步调用，必须非阻塞）。
+//
+// 落点沿革（P21-3「域方法随类型走」）：注册表状态、三条判据（哪些原因覆盖、只有主链路才记、
+// unpinned 摘要去重）与摘要文案都搬进账号域
+// [`backend/engine/account/served_route.go`](../account/served_route.go) 的 `ServedRouteRegistry`；
+// 这里只留一行转发（`Runtime.servedRoute` 是装配点注入的句柄）。
 func (r *Runtime) observeRoutingNotice(notice stream.RoutingNotice) {
-	if r == nil {
+	if r == nil || r.servedRoute == nil {
 		return
 	}
-	if notice.Reason == stream.ReasonRequest || notice.Reason == stream.ReasonFailover {
-		r.recordServedRoute(notice)
-	}
-	// unpinned_selection 每个会话+账号 只记一次摘要：主链路未固定账号时它每轮
-	// 都会发生，重复记录是噪音；换号（failover）不去重——每一次都必须可审计。
-	if notice.Reason == stream.ReasonUnpinnedSelection {
-		key := notice.SessionID + "|" + notice.To
-		r.routingNoticeMu.Lock()
-		seen := r.routingNoticeSeen[key]
-		r.routingNoticeSeen[key] = true
-		r.routingNoticeMu.Unlock()
-		if seen {
-			return
-		}
-	}
-	if notice.Reason != stream.ReasonFailover && notice.Reason != stream.ReasonUnpinnedSelection {
-		return
-	}
-	if r.summaryLog != nil {
-		r.summaryLog.RecordSummary(seetelemetry.SummaryEvent{
-			Kind:   "route",
-			Name:   "reroute",
-			Status: "completed",
-			At:     notice.At,
-			NodeID: notice.NodeID,
-			Detail: r.routingNoticeMessage(notice),
-		})
-	}
+	r.servedRoute.Observe(notice)
 }
 
-// recordServedRoute 把一次路由事实覆盖进该会话的 ServedRoute 注册表。只有
-// 主链路请求（NodeID 空、会话可解析）才记录：子代理/plan 节点的路由归各自
-// 的节点视图，进程级请求（无会话归属）无处回填。
-func (r *Runtime) recordServedRoute(notice stream.RoutingNotice) {
-	if notice.SessionID == "" || notice.NodeID != "" {
-		return
-	}
-	r.routingNoticeMu.Lock()
-	r.servedRoutes[notice.SessionID] = dto.ServedRoute{
-		Role:     notice.Role,
-		Account:  notice.To,
-		Provider: notice.Provider,
-		Model:    notice.Model,
-		At:       notice.At,
-	}
-	r.routingNoticeMu.Unlock()
-}
-
-// TakeServedRoute 取出（并清掉）该会话最近一次请求的实际承接路由。读即清：
-// 事实只服务「本轮 response 回填真相源」一次，残留会让下一轮在没有请求真正
-// 派发时误用旧路由。无事实返回 ok=false。
+// TakeServedRoute 取出（并清掉）该会话最近一次请求的实际承接路由（读即清；见域包判据）。
 func (r *Runtime) TakeServedRoute(sessionID string) (dto.ServedRoute, bool) {
-	if r == nil || sessionID == "" {
+	if r == nil || r.servedRoute == nil {
 		return dto.ServedRoute{}, false
 	}
-	r.routingNoticeMu.Lock()
-	route, ok := r.servedRoutes[sessionID]
-	delete(r.servedRoutes, sessionID)
-	r.routingNoticeMu.Unlock()
-	return route, ok
-}
-
-// routingNoticeMessage 把内部路由事实翻成 B 类摘要的一句可读说明
-// （dto.RoutingNotice.Message 同源文案；只带非敏感路由属性）。
-func (r *Runtime) routingNoticeMessage(notice stream.RoutingNotice) string {
-	return dto.RoutingNotice{
-		SessionID:   notice.SessionID,
-		NodeID:      notice.NodeID,
-		At:          notice.At,
-		Reason:      notice.Reason,
-		Role:        notice.Role,
-		From:        notice.From,
-		To:          notice.To,
-		Model:       notice.Model,
-		Provider:    notice.Provider,
-		FailureKind: notice.FailureKind,
-	}.Message()
+	return r.servedRoute.Take(sessionID)
 }
 
 // bridgeAccountCompleter 构造同步 Completer（每次 Complete 恰好一次租赁）。

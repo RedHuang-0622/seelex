@@ -3,8 +3,10 @@ package assemble
 import (
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -22,10 +24,14 @@ func hasBundle(runtime *Runtime, sessionID string) bool {
 // 为什么这条用例重要：2026-10-14 之前 bundles 只增不删，application 侧的"驱逐"
 // 只丢引擎端口引用，本体（框架 Session + 上下文存储 + 主历史）活到进程结束。
 func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
+	// 路由残格现在住在账号域的注册表里（P21-3）：用例经它的公开面播种与断言，
+	// 摘要落点数出来即可判"去重表有没有被清"。
+	recorded := 0
 	runtime := &Runtime{
-		bundles:            map[string]*sessionBundle{},
-		servedRoutes:       map[string]dto.ServedRoute{},
-		routingNoticeSeen:  map[string]bool{},
+		bundles: map[string]*sessionBundle{},
+		servedRoute: account.NewServedRouteRegistry(account.ServedRouteDeps{
+			RecordSummary: func(event seeletelemetry.SummaryEvent) { recorded++ },
+		}),
 		teamworkCoords:     map[store.Key]*teamwork.Coordinator{},
 		teamworkBoardCache: map[store.Key]teamworkBoardSnapshotCache{},
 	}
@@ -35,9 +41,14 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 	if runtime.activeSessionID != "sess-b" {
 		t.Fatalf("activeSessionID = %q, want sess-b", runtime.activeSessionID)
 	}
-	runtime.servedRoutes["sess-a"] = dto.ServedRoute{}
-	runtime.routingNoticeSeen["sess-a|acct"] = true
-	runtime.routingNoticeSeen["sess-b|acct"] = true
+	// 承接路由（读即清）+ unpinned 去重表（键 = 会话|账号）：sess-a 两类残格都留，sess-b 只有去重键。
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonRequest, SessionID: "sess-a", To: "acct"})
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonUnpinnedSelection, SessionID: "sess-a", To: "acct"})
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonUnpinnedSelection, SessionID: "sess-a", To: "acct"})
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonUnpinnedSelection, SessionID: "sess-b", To: "acct"})
+	if recorded != 2 {
+		t.Fatalf("unpinned 摘要应每个会话各记一次（同会话第二次被去重）：recorded = %d, want 2", recorded)
+	}
 	runtime.teamworkCoords[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = nil
 	runtime.teamworkBoardCache[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = teamworkBoardSnapshotCache{}
 
@@ -47,14 +58,17 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 	if hasBundle(runtime, "sess-a") {
 		t.Fatal("sess-a 的会话本体仍在 bundles 注册表里")
 	}
-	if len(runtime.servedRoutes) != 0 {
-		t.Fatalf("servedRoutes 残格未清: %#v", runtime.servedRoutes)
+	if route, ok := runtime.TakeServedRoute("sess-a"); ok {
+		t.Fatalf("sess-a 的承接路由残格未清: %+v", route)
 	}
-	if runtime.routingNoticeSeen["sess-a|acct"] {
-		t.Fatal("routingNoticeSeen 中该会话的键未清")
+	// 去重表残格已清 ⇒ 同会话再来一条 unpinned 会**重新**记一次摘要（对比 sess-b 仍被去重）。
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonUnpinnedSelection, SessionID: "sess-a", To: "acct"})
+	if recorded != 3 {
+		t.Fatalf("去重表里 sess-a 的键未清（应重新记摘要）：recorded = %d, want 3", recorded)
 	}
-	if !runtime.routingNoticeSeen["sess-b|acct"] {
-		t.Fatal("别的会话的残格被误删")
+	runtime.servedRoute.Observe(dto.RoutingNotice{Reason: dto.RoutingReasonUnpinnedSelection, SessionID: "sess-b", To: "acct"})
+	if recorded != 3 {
+		t.Fatalf("别的会话的去重键被误删：recorded = %d, want 3", recorded)
 	}
 	if len(runtime.teamworkCoords) != 0 || len(runtime.teamworkBoardCache) != 0 {
 		t.Fatalf("teamwork 残格未清: coords=%d cache=%d",

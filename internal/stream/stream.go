@@ -20,6 +20,7 @@ import (
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // streamFailoverAttempts 是一次流式请求最多换几个账号。
@@ -29,39 +30,19 @@ import (
 // 而耗尽场景下第 3 次与第 30 次的结果没有区别。
 const streamFailoverAttempts = 3
 
-// RoutingNotice 是一次**路由事实**（换号回退 / 未固定账号的池内选定 / 请求
-// 派发钩子）的结构化投影。只带非敏感路由属性（账号名 / provider / model /
-// 角色 / 思考强度，与账号规格同源）；凭据与错误原文一律不进这里。消费方
-// （Runtime 装配层）决定呈现方式（B 类摘要事件 / CSP channel → application
-// 消息提示或 request.meta 事件）。
-type RoutingNotice struct {
-	// SessionID / NodeID 是请求的会话与节点定位（telemetry 上下文投影；空 = 主会话）。
-	SessionID string
-	NodeID    string
-	// At 是路由事实发生时间。
-	At time.Time
-	// Reason：ReasonRequest（每次模型请求发出前的派发钩子）|
-	// ReasonFailover（账号资格失败换号）| ReasonUnpinnedSelection
-	//（请求未固定账号，由池在多账号中选定）。
-	Reason string
-	// Role 是发起这次请求的角色（agent / subagent / goalplan）：主链路 = agent，
-	// 节点请求取 NodeScope.Role。前端 message 块用它标注「谁在说话」。
-	Role string
-	// From 是换号前的账号（仅 failover）；To 是实际承接的账号。
-	From string
-	To   string
-	// Model / Provider 是实际承接账号的路由属性。
-	Model    string
-	Provider string
-	// FailureKind 是触发换号的账号资格失败类别（account.FailureKind 的字符串）。
-	FailureKind string
-}
+// RoutingNotice 是一次**路由事实**（换号回退 / 未固定账号的池内选定 / 请求派发钩子）的结构化投影。
+//
+// 形状是**同身份别名**（P21-3）：唯一实现是 [`contract/dto.RoutingNotice`]——它带 `Message()`
+// 渲染与 JSON 标签，服务 B 类摘要、per-session ServedRoute 注册表与前端 message 块元信息条。
+// 搬之前本包自己又写了一份字段逐一相同的结构，装配层还得在两份形状之间来回转换（AGENTS §8.1）。
+// `Reason` 的三个取值同样以同值别名指向 `dto.RoutingReason*`，调用点零改动。
+type RoutingNotice = dto.RoutingNotice
 
-// RoutingNotice 的 Reason 取值。
+// RoutingNotice 的 Reason 取值（同值别名，词表定义在 contract/dto）。
 const (
-	ReasonRequest           = "request"
-	ReasonFailover          = "failover"
-	ReasonUnpinnedSelection = "unpinned_selection"
+	ReasonRequest           = dto.RoutingReasonRequest
+	ReasonFailover          = dto.RoutingReasonFailover
+	ReasonUnpinnedSelection = dto.RoutingReasonUnpinnedSelection
 )
 
 // RoutingObserver 接收路由事实（best-effort；nil 安全）。观察者不得阻塞：

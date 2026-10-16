@@ -36,6 +36,7 @@
 | R11-ports-zero | 收口片（契约 §2.3 第 3 条）：plan 端口的 `PrepareReplan`、历史检索端口的 `SearchHistory`、actor 边界的两个投影别名 + 两个 setter、包级常量 `mainAgentNodeID` 各回其域文件；**`ports.go` 删除（文件不存在）** | 本包 `runtime_plan.go` / `runtime_history.go` / `runtime_visibility.go` / `runtime.go`（状态由 `Runtime` 自有组件持有） |
 | P21-compaction-stack | **域方法随类型走**第一片：装配层压缩推帧接收侧（`PushCompactionFrame` / `ReadbackCompactionSummary` / `CompactionSummaryAvailable` + 两个帧降级助手 + 两个请求/回执类型）连同**判据**一起下沉 | [`backend/engine/context`](../../engine/context/README.md) 的 `CompactionStack`（`compaction_stack.go`）；本包只剩一行薄转发 + 同身份别名，公开方法名与签名逐字不变 |
 | P21-live-dispatch | **域方法随类型走**第二片：子代理第一视角实时流分发器（`live*` 字段组 + 广播循环 + 事件源接线 + 窗口归一化 + 分页读法 + 三个事件投影）连同**判据**一起下沉 | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `LiveDispatcher`（`live_dispatch.go`）；本包 `runtime_live.go` 只剩一行薄转发 + 同值常量别名，公开方法名与签名逐字不变 |
+| P21-served-route | **域方法随类型走**第三片：路由事实注册表（`servedRoutes` + `routingNoticeMu` + `routingNoticeSeen` 三个字段与四条判据：哪些原因覆盖、只有主链路才记、读即清、unpinned 摘要去重）下沉；顺带收敛一处**同形状两份实现**（`internal/stream.RoutingNotice` 与 `dto.RoutingNotice` 字段逐一相同，现为同身份别名） | [`backend/engine/account`](../../engine/account/README.md) 的 `ServedRouteRegistry`（`served_route.go`）；本包 `runtime_account.go` 只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发，公开面逐字不变 |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context`
 （→ `backend/engine/context`；同域的 `runtime_compaction_index` 已随 **P21-compaction-stack** 下沉）、
@@ -102,7 +103,7 @@ flowchart TB
 | `runtime_task.go` | task 台账域的薄转发面（M5-R11-task-forwarder 从 `ports.go` 原样搬来）：`ledger()` + 台账/清单/批次 20 个方法 + `SetSessionWorkspace` + `RegisterTaskTerminalTools` |
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
-| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档 |
+| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档。**路由事实注册表**（承接路由 / unpinned 去重 / 读即清）在 P21-3 下沉到 [`backend/engine/account.ServedRouteRegistry`](../../engine/account/README.md)，本文件只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发 |
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |

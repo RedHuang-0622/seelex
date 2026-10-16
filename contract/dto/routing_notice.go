@@ -16,6 +16,9 @@ import (
 //
 // 脱敏口径：只带账号名 / provider / model —— 这三者本就是账号池 Metadata 的
 // 非敏感路由属性（GUI 账号面板同源）；凭据、错误原文、消息内容一律不进本结构。
+//
+// 词表单源（P21-3）：`Reason` 的三个取值**早就有唯一一处定义**（见下面的 const 块），
+// `internal/stream` 现在以同值别名引用它，不再自带一份字面量。
 type RoutingNotice struct {
 	// SessionID 是发起这次模型请求的会话（telemetry session 上下文投影；
 	// 空 = 解析不到会话的进程级请求）。

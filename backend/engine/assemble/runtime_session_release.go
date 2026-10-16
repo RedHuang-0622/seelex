@@ -61,16 +61,11 @@ func (r *Runtime) ReleaseSessionBundle(sessionID string) bool {
 // 节点与主会话的映射不在本注册表里，映射错了会误删别的会话的回放窗口），
 // 以及角色回合面（roleTurns 自己有成套的 ReleaseRoleSessions 收口）。
 func (r *Runtime) dropSessionResidue(sessionID string) {
-	// 路由面：本会话最近一次承接路由 + unpinned 去重表（键是 sessionID|account）。
-	r.routingNoticeMu.Lock()
-	delete(r.servedRoutes, sessionID)
-	prefix := sessionID + "|"
-	for key := range r.routingNoticeSeen {
-		if strings.HasPrefix(key, prefix) {
-			delete(r.routingNoticeSeen, key)
-		}
+	// 路由面：本会话最近一次承接路由 + unpinned 去重表（键是 sessionID|account）——
+	// 注册表在账号域（`account.ServedRouteRegistry.Forget`），这里只转发。
+	if r.servedRoute != nil {
+		r.servedRoute.Forget(sessionID)
 	}
-	r.routingNoticeMu.Unlock()
 
 	// teamwork 编排面：按 (项目, 会话) 键控的协调器与看板缓存。下次采集按需重建
 	// （缓存本来就是加速层，不是事实源）。
