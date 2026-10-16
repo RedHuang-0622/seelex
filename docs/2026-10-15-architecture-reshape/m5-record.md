@@ -500,3 +500,70 @@ dirty 门、原因归一、`Load` 只增不减语义逐字保留。`internal/REA
 - R5b：`work_table.go` + `work_table_async.go` → `middle/view/worktable/`（终态触发回合段 → `middle/switch/`）。
 - R5c-2：`service_snapshot.go`（会话状态富化 + 目录行富化）→ `middle/view`，需要先定
   `SnapshotHost`（`ViewMu` 读锁下的 Snapshot / 会话单元 / 草稿槽 / restoring 集合）。
+
+## M5-R8a —— goal 域归位 `backend/multiagent/goal`（plan §2.7）
+
+提交：`39498a1e`（63 文件改动，`42 insertions / 39 deletions`）。分支仍是
+`refactor/architecture-reshape`。
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `application/core/goal/`（35 文件 6180 行：`controller` / `stack` / `techleader` / `gate` / `advisor` / `a2a` / `audit` / `board_archive` / `sessionstore_store` / `record` / `tl_*` / `headless` / `escape` / `store` + 各自用例） | `backend/multiagent/goal/`（同名同包） | `git mv` 保历史；**34 个 `.go` 全部 100% 相似度**（git rename 检测），README 只有两行测试命令随落点更新 |
+
+**取用侧（只改 import 路径，各 1 行）**
+
+| 文件组 | 数量 | 归属 |
+|---|---|---|
+| `application/core/goal_*.go` 与 `goal_*_test.go`（`goaldomain` 别名） | 16 | goal 协调器 / 记录器 / 工作摘要 + 各自用例 |
+| `backend/engine/assemble/runtime_goal_tl.go`、`runtime_role_turn.go`、`runtime_role_*_test.go` | 4 | 装配侧 TL 端口与角色回合 |
+| `gui/headless.go`、`gui/headless_goal_test.go` | 2 | headless RPC 透传 goal 形状 |
+
+**门禁与文档同步**
+
+- `e2e/subagent_status_vocabulary_gate_test.go` 的"写死路径表"7 条改指新落点
+  （**判据一字未动**，只换路径）。
+- `e2e/layout_test.go` 模块表登记 `backend/multiagent/goal`。
+- `e2e/facade_boundary_test.go` 门面闭包条目`application/core/goal` → `backend/multiagent/goal`
+  （**等量替换**，上限仍是 75）。
+- `application/README.md` / `application/core/README.md` 的 goal 导航链接改指新落点
+  （e2e 的 `TestRepositoryModuleReadmeLinks` 先报红、后即改——这条门禁确实抓得住搬迁漏改的链接）。
+- `backend/multiagent/goal/README.md` 的测试命令改指新落点；`application/core/agentteam/README.md`
+  一处 `application/core/goal/techleader.go` 的文件引用改指新落点。
+
+**顺带对齐的一处既有不一致**：`e2e/facade_boundary_test.go` 的**前端直接依赖允许清单**里本来就写着
+`backend/multiagent/goal`（注释标明 D-M1-6"随 headless 拆分（M5）收口"），而 `gui/headless.go` 实际
+import 的是 `application/core/goal`。本片之后两者一致——即"允许清单登记的落点"与"实际落点"重合。
+
+**保真证据（结构性，不是"测试绿了"）**
+
+```text
+git diff --cached -M --numstat（片内）
+  0	0	{application/core => backend/multiagent}/goal/a2a.go
+  0	0	{application/core => backend/multiagent}/goal/advisor.go
+  …（34 个 .go 全为 0/0）
+  2	2	{application/core => backend/multiagent}/goal/README.md
+```
+
+即：**被搬的代码一个字节没变**（`git mv` + rename 检测直接证明），改的只有取用侧 import 路径与
+登记表。历史记录（`docs/2026-*` 工作包、`CHANGELOG.md`）里的旧路径**刻意不改**——它们描述的是当时
+的事实，改了就篡改历史（`_scratch/find_goal_refs.py` 用来确认残留引用只剩这些历史记录）。
+
+**验证（本机实跑）**
+
+- `gofmt -l .` 空（搬迁把两处 import 对齐带偏，已 `gofmt -w` 修回）；`go build ./...` 绿；
+  `go build -tags "gui,desktop,production" ./...` 绿；`go vet ./...` 绿。
+- `go test ./backend/multiagent/goal/... -count=1` 绿（36 个文件的用例随包搬入，全过）；
+  `go test ./gui/... -count=1` 绿；`go test ./e2e/ -count=1` 绿。
+- 全量 `go test ./... -count=1 -timeout=900s` 的失败集合 = **基线 3 例** `application/core`
+  （`TestContextBudgetSkipsCompactionWithoutMargin`、`TestRunningSessionAccumulatesAllRoundsInOrderControl`、
+  `TestColdRestoreTailFirstRequestKeepsTranscriptOrder`）+ **1 例已取证的 Windows 环境性红**
+  （`backend/tool/registry.TestJobHandlesCarryTheirTableToken`，TempDir 句柄占用）。**无新增失败**。
+
+**下一步**
+
+- R8b：同口径搬 `application/core/agentteam/` → `backend/multiagent/team/`（包名 `agentteam` → `team`，
+  与后续 `role_session.go` 汇合）、`application/core/resume/` → `backend/multiagent/resume/`。
+- 之后按 plan §2.5 搬 `task_context` / `context_runtime` / `session_runtime` / `chat` / `prompt_layer` /
+  `input_router` / `context_control`（这些是**整包搬迁**，不涉及接收者转移）。
