@@ -1392,3 +1392,28 @@ case"两个工具缺陷后**重做成功**，见 §33。
 但前者作用在**落盘结构**（JSON 覆盖层形状）、后者作用在**活体裁决读面**，按 AGENTS §8.2
 "只是长得像的不并"。若要收敛成"一处判据 + 一处落盘"，需先改 `AccountWindowStore` 端口的
 输入形状（现为 `SaveAccountWindow(name, window)`），属契约变更 → 等裁决。
+
+## 36. P21 续片（2026-10-17 第四轮：P21-10 异步作业域）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-10 | **异步作业域**：`jobs_events.go`（作业生命周期事件流：状态记忆表 + 信号循环 + `drain` 增量语义 + 时间基序号的事件构造 + 状态映射）与 `runtime_async.go`（后台执行表的逐列投影）两面整文件 → 新建 `backend/tool/jobs`（`event_stream.go` / `projection.go`，plan §2.6 的目标落点）；装配层 `jobs_events.go` 删除、`runtime_async.go` 只剩两个薄转发、`currentEventPersister` 移到 `runtime_plan.go`、装配点改 `tooljobs.NewEventStream(...)`。端口取窄：事件流只吃 `Snapshot(Scope) []Record` 一格（`seelejobs.Manager` 结构满足 + 编译期断言）、投影只吃 `[]registry.AsyncRunInfo`。**顺带修掉一处停机隐患**：`Close` 在"从未 Start"时不再等永不关闭的 `done`。域级用例 6 条入新包，宿主级用例（真扇出 + 真 `jobs.Manager`）留在装配层 | `760c0ae8` |
+
+**过程登记（提交纪律）**：本片第一次 `git commit` 的 `git add` 因把**已删除**路径写进 pathspec 而整条
+失败（`fatal: pathspec ... did not match any files`），结果只提交了删除（提交体不完整、该 SHA 不可构建）。
+按"自做的坏提交不留在历史里"处理：对自己的这一条提交做 `git reset --soft HEAD~1` 后重新 `git add`
+（显式路径，排除已删路径）并原样重提，得到 `760c0ae8`。教训：**已 `git rm` 的路径不要再写进
+`git add` 的 pathspec**（一条 pathspec 失败会中止整条 add，但 commit 仍会照常执行）。
+
+**P13 后继项（登记，未做）**：`scripts/gen_core_readme_index.py` 的 `SETTLED_TREES` 只含
+`contract` / `e2e` / `wiring` / `store` / `internal` / `backend/{workunit,limit,multiagent}` +
+少数 `EXTRA_PACKAGES`，**不含 `backend/engine`、`backend/tool`、`middle` 的其余树**。M5 已收口，
+这些树静默，应按脚本自己的说明（"树静默后用 `--only` 一次补齐"）把它们并入 `SETTLED_TREES`
+并刷新索引；否则新包的「文件与函数索引」只能像本片这样手工按冻结格式落盘（`--check` 覆盖不到，
+有漂移也不会响）。
+
+**P21 剩余**：`runtime_teamwork*` + `runtime_role_*`（≈2.5k 行）、
+`runtime_subagent_{resume,recovery}.go`（793 行）、`workunit_*`（≈1k 行）、`runtime_context`、
+`runtime_session`/`role_host_session`、`runtime_plan`、`runtime_project_board*`、`runtime_tools`、
+`runtime_goal_tl`、`runtime_computer`/`runtime_mcp`/`runtime_plugin`/`runtime_schedule`/
+`runtime_history`/`runtime_node`/`runtime_task`/`runtime_visibility`/`runtime_bundle`/`runtime_deps`。
