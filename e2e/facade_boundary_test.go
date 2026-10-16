@@ -98,7 +98,12 @@ const (
 // `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 81。
 // M5-R6-session-meta：`middle/switch`（会话展示元数据判据 + 后续切换家族）同口径——从
 // `application/core` 抽成中间层模块（plan §2.4），因此是**一条进**的新模块，上限抬到 82。
-const facadeClosureAllowListMax = 82
+// P21-10（2026-10-17）：`backend/tool/jobs`（异步作业域：作业事件流 + 执行表投影）是**新建**的
+// 域包（plan §2.6 的目标落点），装配层（本就在闭包内，见下条 `backend/engine/assemble` 的登记理由）
+// 现在 import 它，因此闭包多这一条，上限抬到 83。它与既有登记项不同的一点是：它不是从
+// `application/core` 抽出来的，而是从**装配层**抽出来的——闭包里的装配层本来就在，抽出来的域包
+// 自然跟着进闭包。域包自身只依赖 Seele 的 `event`/`jobs`、`backend/tool/registry` 与 `contract/dto`。
+const facadeClosureAllowListMax = 83
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -211,6 +216,11 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/task",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
 	"github.com/RedHuang-0622/seelex/backend/tool/registry",
+	// P21-10：异步作业域（作业生命周期事件流 + 后台执行表投影），plan §2.6 的目标落点。
+	// **新增登记的理由**：该域的两面原在装配层（`backend/engine/assemble` 的 jobs_events /
+	// runtime_async），装配层已在闭包内 ⇒ 抽出来的域包跟着进闭包，属"一条进"的换落点；
+	// 域包自身是干净叶子（只依赖 Seele `event`/`jobs`、`backend/tool/registry`、`contract/dto`）。
+	"github.com/RedHuang-0622/seelex/backend/tool/jobs",
 	"github.com/RedHuang-0622/seelex/backend/tool/computer",
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree",
 	"github.com/RedHuang-0622/seelex/backend/workunit",
