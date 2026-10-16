@@ -7,7 +7,7 @@
 周期重复（minute/hour/day/week/month 或固定 Interval）与一次性定时（RunAt）。
 
 任务**定义**落在一个**全局** JSONL 里（默认 `<store>/scheduled-tasks.jsonl`，
-见 `persistence.go`）：一行一条变更、append-only、不按项目分区也不按会话分片。
+见 `store/schedule/`）：一行一条变更、append-only、不按项目分区也不按会话分片。
 触发产生的**会话记录**不在这里——那走会话自己的存储与读写纪律。
 
 主要调用方：
@@ -29,7 +29,7 @@
 flowchart LR
     RUNTIME["runtime/ports.go"] --> ST["scheduler.State<br/>单循环 goroutine（time.Ticker）"]
     MAIN["main.go：白名单 / 执行器 / JSONL 路径装配"] --> ST
-    ST --> STORE["Persistence（全局 JSONL）<br/>FileStore：register / cancel 变更行"]
+    ST --> STORE["contract.ScheduledTaskPersistence<br/>store/schedule.FileStore：register / cancel 变更行"]
     ST --> T1["command 任务<br/>白名单 argv 直传 + 环境清洗 + 超时"]
     T1 --> SEC["security.ScrubEnvironment"]
     ST --> T2["prompt 任务"]
@@ -130,8 +130,9 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
   档位空落 full、插件经 `dto.NormalizePlugins`、思考强度经 `dto.NormalizeWireReasoningEffort`、
   负的循环次数显式拒），后者把归一
   结果写进任务本体与状态快照（创建、编辑、冷启动重建三处共用，避免"编辑后某几格还是旧值"）。
-- `Persistence` / `FileStore`：任务定义的**全局 JSONL**。一行一条变更
-  （`ScheduledTaskRecord`：`deleted` 区分登记与取消墓碑），以 `O_APPEND` 追加
+- `contract.ScheduledTaskPersistence` / `store/schedule.FileStore`（2026-10-16 起；
+  plan §2.12.1 的持久化面拆分）：任务定义的**全局 JSONL**。一行一条变更
+  （`dto.ScheduledTaskRecord`：`deleted` 区分登记与取消墓碑），以 `O_APPEND` 追加
   一整行；`Load` 按 ID 后写覆盖先写重放，丢弃墓碑、读不动的行与未收尾的残尾。
   只存**定义与启用状态**，不存上次结果/日志尾部（那是运行期展示面，命令输出
   可能含敏感内容，不该因为"重启后想看见上次结果"而落盘）。
@@ -155,14 +156,14 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
 单循环 goroutine + 每任务独立执行 goroutine；环境变量经
 `security.ScrubEnvironment` 清洗；白名单命令 argv 固定直传不经 shell。
 
-JSONL 是 append-only 单写者通道（`FileStore.mu` 串行化）：崩溃只会留下未收尾的
+JSONL 是 append-only 单写者通道（`store/schedule.FileStore` 的 `mu` 串行化）：崩溃只会留下未收尾的
 残尾，读侧按"未提交"跳过；登记/取消在写失败时**不改内存**（登记失败 = 没登记，
 取消失败 = 没取消），避免"面板与磁盘劈叉"。
 
 ## 扩展方式
 
 新增任务类型：扩展 `Schedule` 校验与 `executeTask` 分支。
-换持久化介质：实现 `Persistence` 并改装配根注入的实现（调度器只认端口）。
+换持久化介质：实现 `contract.ScheduledTaskPersistence` 并改装配根注入的实现（调度器只认端口）。
 新增落点语义：改 `PromptExecutor` 契约并在装配根实现，不在调度器里按任务名分支。
 可编辑字段的扩展：加进 `normalizeSpec` 与 `applyDefinition`（判据与状态投影各一处），
 不要在 `Update` 里另开一段赋值。
@@ -197,9 +198,9 @@ go test ./seelebridge/scheduler/... -count=1
 ## 文件与函数索引
 
 - `scheduler.go`
-  - `type State struct`：定时任务的 actor 资源（自带锁，读写即消息进出；存储经 `Persistence` 注入）。
+  - `type State struct`：定时任务的 actor 资源（自带锁，读写即消息进出；存储经 `contract.ScheduledTaskPersistence` 注入）。
   - `func NewState() *State`：构造调度器状态（base ctx 用于停机时取消运行中任务）。
-  - `func NewStateWithStore(store Persistence) *State`：构造带全局 JSONL 任务定义的调度器状态。
+  - `func NewStateWithStore(store contract.ScheduledTaskPersistence) *State`：构造带全局 JSONL 任务定义的调度器状态。
   - `func (s *State) Start()`：惰启动 ticker 循环（首次创建任务时调用；重复调用幂等）。
   - `func (s *State) Schedule(ctx context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：校验入参并创建任务（创建后立即排期；observer 通知投影）。
   - `func (s *State) Update(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：用一份新定义覆盖既有任务（ID 不变、运行账目保留、下次运行重算）。
@@ -212,10 +213,6 @@ go test ./seelebridge/scheduler/... -count=1
   - `func (s *State) SetPromptExecutor(executor PromptExecutor)`：注入提示词任务执行器（nil = 禁用 prompt 任务）。
   - `func (s *State) SetObserver(observer func())`：注入状态变化通知（main 接 application 快照投影发布）。
   - `func (s *State) Stop()`：优雅停机：停 ticker、取消 base ctx（终止运行中任务），等待运行 goroutine 退出。
-- `persistence.go`
-  - `type ScheduledTaskRecord struct`：JSONL 里的一行：一条任务定义的一次变更。
-  - `type Persistence interface`：任务定义的全局持久化端口（Append 追加变更，Load 返回重放后的当前任务集）。
-  - `type FileStore struct`：Persistence 的全局 JSONL 实现（一个路径、一行 JSON、一个换行）。
   - `func NewFileStore(path string) *FileStore`：构造全局 JSONL 任务定义存储。
   - `func (store *FileStore) Path() string`：返回落盘路径（空 = 未配置，调度器此时不持久化）。
   - `func (store *FileStore) Append(record ScheduledTaskRecord) error`：追加一行变更（O_APPEND 写一整行，失败即本次变更不成立）。

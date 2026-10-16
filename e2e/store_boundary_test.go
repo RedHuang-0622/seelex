@@ -23,6 +23,13 @@ import (
 // 删掉后对应 scope 的允许清单归零、上限跟着降；除此之外只许减、不许加。
 
 // storeBoundaryScope 是一个受 I6 约束的包族。
+//
+// 为什么 `store/schedule`（2026-10-16 M4-C 抽出的定时任务全局 JSONL）**没有**登记在这里：
+// 它的**直接**依赖只有标准库 + `contract` / `contract/dto`（向下依赖契约层，不是反向），
+// 但 `go list -deps` 的**传递**闭包里会带进 `application/*`、`seelexctx/*`——那是
+// `contract` 自己的闭包污染，判据与上限已经由 `facade_boundary_test.go` 的
+// `contractClosureAllowList` 单独管着。在这里再抄一份等于把同一件事判两处。
+// 与其模板同款但同样未登记的是 `store/workspace`。
 type storeBoundaryScope struct {
 	// name 是报错文案里的可读名字。
 	name string

@@ -34,7 +34,7 @@ var repositoryModules = []string{
 	"internal/telemetry", "backend/tool/plan",
 	"backend/tool/search", "backend/limit/gate", "backend/tool/task", "backend/tool/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
-	"session", "skill", "store", "store/root", "store/workspace",
+	"session", "skill", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
 }
 

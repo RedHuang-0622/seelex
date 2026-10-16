@@ -45,6 +45,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
+	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )
 
 type RuntimeConfig struct {
@@ -363,7 +364,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		sandbox:      security.NewNativeProjectCWD(),
 		tasks:        task.NewTaskRegistry(),
 		// 定时任务定义走**全局** JSONL（与项目/会话存储分开；空路径 = 不持久化）。
-		scheduler:           scheduler.NewStateWithStore(scheduler.NewFileStore(cfg.ScheduledTasksPath)),
+		scheduler:           scheduler.NewStateWithStore(storeschedule.NewFileStore(cfg.ScheduledTasksPath)),
 		toolEvents:          subagentsession.NewToolEventState(),
 		subagentLiveWindow:  cfg.SubagentLiveWindow,
 		toolCallTimeout:     cfg.ToolCallTimeout,

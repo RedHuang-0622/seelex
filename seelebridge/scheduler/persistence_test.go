@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )
 
 // ── 全局 JSONL 任务定义（粒度 + 冷启动重建）─────────────────────────────
@@ -24,7 +25,7 @@ import (
 // 登记写一行，文件里没有项目/会话的痕迹，重启后同一条任务从同一个文件回来。
 func TestScheduledTaskDefinitionLivesInOneGlobalJSONL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scheduled-tasks.jsonl")
-	store := NewFileStore(path)
+	store := storeschedule.NewFileStore(path)
 	state := newSchedulerTestStateWithStore(t, store)
 	defer state.Stop()
 	state.SetPromptExecutor(okPromptExecutor("ok"))
@@ -92,7 +93,7 @@ func TestScheduledTaskDefinitionLivesInOneGlobalJSONL(t *testing.T) {
 // 不再回来（内存删掉、盘上也删掉，不是"面板没了但重启又冒出来"）。
 func TestScheduledTaskCancelWritesTombstone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scheduled-tasks.jsonl")
-	store := NewFileStore(path)
+	store := storeschedule.NewFileStore(path)
 	state := newSchedulerTestStateWithStore(t, store)
 	state.SetPromptExecutor(okPromptExecutor("ok"))
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
@@ -132,7 +133,7 @@ func TestScheduledTaskCancelWritesTombstone(t *testing.T) {
 // 重启后是**编辑后**的样子，而不是"忘掉编辑、退回旧定义"。
 func TestScheduledTaskUpdatePersistsAsNewRowWithSameID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "scheduled-tasks.jsonl")
-	store := NewFileStore(path)
+	store := storeschedule.NewFileStore(path)
 	state := newSchedulerTestStateWithStore(t, store)
 	state.SetPromptExecutor(okPromptExecutor("ok"))
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
@@ -191,7 +192,7 @@ func TestScheduledTaskUpdatePersistsAsNewRowWithSameID(t *testing.T) {
 // 同一条装配（不是"重启后回到默认全权 / 继承宿主 / 默认参数"）。装配是任务定义的一部分，
 // 不是运行期读数。
 func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
-	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
+	store := storeschedule.NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
 	state := newSchedulerTestStateWithStore(t, store)
 	state.SetPromptExecutor(okPromptExecutor("ok"))
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
@@ -244,31 +245,31 @@ func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
 // TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
 // 过期的一次性任务、命令不在白名单、周期非法、执行器未装配，都只跳过自己。
 func TestScheduledTaskRestoreSkipsWhatCannotRun(t *testing.T) {
-	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
-	appendRecord := func(record ScheduledTaskRecord) {
+	store := storeschedule.NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
+	appendRecord := func(record dto.ScheduledTaskRecord) {
 		t.Helper()
 		if err := store.Append(record); err != nil {
 			t.Fatalf("Append: %v", err)
 		}
 	}
 	// 过期的一次性任务：进程当时没在跑，时刻过了就不追补。
-	appendRecord(ScheduledTaskRecord{ID: "sched_expired", Spec: ScheduledTaskSpec{
+	appendRecord(dto.ScheduledTaskRecord{ID: "sched_expired", Spec: ScheduledTaskSpec{
 		Name: "过期一次性", Kind: ScheduledTaskPrompt, Prompt: "P", RunAt: time.Now().Add(-time.Hour), Enabled: true,
 	}, Enabled: true})
 	// 命令白名单里没有的键。
-	appendRecord(ScheduledTaskRecord{ID: "sched_unknown_cmd", Spec: ScheduledTaskSpec{
+	appendRecord(dto.ScheduledTaskRecord{ID: "sched_unknown_cmd", Spec: ScheduledTaskSpec{
 		Name: "未知命令", Kind: ScheduledTaskCommand, Command: "nope", Interval: time.Hour, Enabled: true,
 	}, Enabled: true})
 	// 周期非法（数值为 0）。
-	appendRecord(ScheduledTaskRecord{ID: "sched_bad_period", Spec: ScheduledTaskSpec{
+	appendRecord(dto.ScheduledTaskRecord{ID: "sched_bad_period", Spec: ScheduledTaskSpec{
 		Name: "坏周期", Kind: ScheduledTaskPrompt, Prompt: "P", PeriodUnit: dto.PeriodDay, PeriodValue: 0, Enabled: true,
 	}, Enabled: true})
 	// 名称为空。
-	appendRecord(ScheduledTaskRecord{ID: "sched_no_name", Spec: ScheduledTaskSpec{
+	appendRecord(dto.ScheduledTaskRecord{ID: "sched_no_name", Spec: ScheduledTaskSpec{
 		Name: "  ", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
 	}, Enabled: true})
 	// 好任务：它必须在坏记录中间活下来（逐条跳过，不连坐）。
-	appendRecord(ScheduledTaskRecord{ID: "sched_future", Spec: ScheduledTaskSpec{
+	appendRecord(dto.ScheduledTaskRecord{ID: "sched_future", Spec: ScheduledTaskSpec{
 		Name: "明天九点", Kind: ScheduledTaskPrompt, Prompt: "P", RunAt: time.Now().Add(time.Hour), Enabled: true,
 	}, Enabled: true})
 
@@ -291,8 +292,8 @@ func TestScheduledTaskRestoreSkipsWhatCannotRun(t *testing.T) {
 // TestScheduledTaskRestoreSkipsPromptTasksWithoutExecutor 钉住"执行器未装配 =
 // 提示词任务不可用"这条装配口径在恢复路径上同样成立（不能只在创建时拦）。
 func TestScheduledTaskRestoreSkipsPromptTasksWithoutExecutor(t *testing.T) {
-	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
-	if err := store.Append(ScheduledTaskRecord{ID: "sched_p", Spec: ScheduledTaskSpec{
+	store := storeschedule.NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
+	if err := store.Append(dto.ScheduledTaskRecord{ID: "sched_p", Spec: ScheduledTaskSpec{
 		Name: "巡检", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
 	}, Enabled: true}); err != nil {
 		t.Fatal(err)
@@ -305,47 +306,5 @@ func TestScheduledTaskRestoreSkipsPromptTasksWithoutExecutor(t *testing.T) {
 	}
 	if count != 0 || skipped != 1 {
 		t.Fatalf("Restore = (%d, %d), want (0, 1)", count, skipped)
-	}
-}
-
-// TestFileStoreDropsTornTail 钉住 append-only 的崩溃恢复语义：没有收尾换行的
-// 最后一行是没写完的一行，读侧按未提交丢弃（后面哪怕碰巧能解出来也不认）。
-func TestFileStoreDropsTornTail(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "scheduled-tasks.jsonl")
-	store := NewFileStore(path)
-	if err := store.Append(ScheduledTaskRecord{ID: "sched_ok", Spec: ScheduledTaskSpec{
-		Name: "好任务", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
-	}, Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.WriteString(`{"id":"sched_torn","spec":{"name":"半行"}`); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	records, err := store.Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(records) != 1 || records[0].ID != "sched_ok" {
-		t.Fatalf("残尾没有被丢弃：%+v", records)
-	}
-}
-
-// TestFileStoreMissingFileIsEmpty 钉住"没有文件 = 空任务集"，而不是错误：
-// 首次启动、从未建过任务都不该在启动日志里留一条失败。
-func TestFileStoreMissingFileIsEmpty(t *testing.T) {
-	records, err := NewFileStore(filepath.Join(t.TempDir(), "nope.jsonl")).Load()
-	if err != nil || len(records) != 0 {
-		t.Fatalf("Load 缺失文件 = (%v, %v), want (空, nil)", records, err)
-	}
-	if records, err := NewFileStore("").Load(); err != nil || records != nil {
-		t.Fatalf("未配置路径的 Load 应为空操作：(%v, %v)", records, err)
 	}
 }

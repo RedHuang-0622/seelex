@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
 )
@@ -98,7 +99,7 @@ type State struct {
 	// store 是任务定义的全局 JSONL（nil = 不持久化：任务只活在进程内）。
 	// 它是**全局**通道：任务列表不按项目分区、不按会话分片；触发产生的
 	// 会话记录才走会话自己的存储纪律。
-	store    Persistence
+	store    contract.ScheduledTaskPersistence
 	observer func() // 状态变化通知（main 注入 application 投影发布）
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -123,7 +124,7 @@ func NewState() *State { return NewStateWithStore(nil) }
 // NewStateWithStore 构造带全局 JSONL 任务定义的调度器状态（store 为 nil =
 // 关闭持久化）。已落盘的任务不在这里读回：冷启动由 Restore 显式触发，保证
 // "先装执行器与观察者、再恢复任务"的顺序不会反过来。
-func NewStateWithStore(store Persistence) *State {
+func NewStateWithStore(store contract.ScheduledTaskPersistence) *State {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &State{
 		commands: make(map[string]ScheduledCommand),
@@ -372,7 +373,7 @@ func (s *State) Update(_ context.Context, id string, spec ScheduledTaskSpec) (*S
 	if err != nil {
 		return nil, err
 	}
-	if err := s.persistRecord(ScheduledTaskRecord{
+	if err := s.persistRecord(dto.ScheduledTaskRecord{
 		ID: id, Spec: definition.spec, Enabled: definition.spec.Enabled,
 	}); err != nil {
 		return nil, fmt.Errorf("编辑定时任务落盘失败（未修改）: %w", err)
@@ -600,7 +601,7 @@ func (s *State) Restore() (int, int, error) {
 // 判据复用 normalizeSpec：周期搭配、白名单命令、执行器装配、一次性语义都在
 // 那一份里；这里只加一条恢复特有的口径——**执行时刻已过的一次性任务不恢复**
 // （进程当时没在跑，追补没有意义）。
-func (s *State) restoreRecord(record ScheduledTaskRecord, now time.Time) (bool, error) {
+func (s *State) restoreRecord(record dto.ScheduledTaskRecord, now time.Time) (bool, error) {
 	if strings.TrimSpace(record.ID) == "" {
 		return false, nil
 	}
@@ -625,7 +626,7 @@ func (s *State) restoreRecord(record ScheduledTaskRecord, now time.Time) (bool, 
 
 // persistRecord 把一行记录写进全局 JSONL（store 未装配时是空操作）。写失败
 // 返回错误——调用方据此决定"这次变更算不算成立"。
-func (s *State) persistRecord(record ScheduledTaskRecord) error {
+func (s *State) persistRecord(record dto.ScheduledTaskRecord) error {
 	if s == nil {
 		return nil
 	}
@@ -648,7 +649,7 @@ func (s *State) persistDefinition(t *task, deleted bool) error {
 		return nil
 	}
 	s.mu.Lock()
-	record := ScheduledTaskRecord{
+	record := dto.ScheduledTaskRecord{
 		ID: t.id, Spec: t.spec, Enabled: t.spec.Enabled, Deleted: deleted,
 	}
 	s.mu.Unlock()

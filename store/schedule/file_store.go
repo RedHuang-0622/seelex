@@ -1,4 +1,14 @@
-package scheduler
+// Package schedule 承载**定时任务定义**的全局 JSONL 落盘：一个路径、一条 append-only
+// 通道、一行 JSON、一个换行。写侧只做"追加一整行"，残尾修复留给读侧。
+//
+// 粒度的选择是这条通道的全部要点：**任务定义是全局资产，一行一变更**，落在进程级
+// JSONL 文件里（默认 `<store>/scheduled-tasks.jsonl`）。它刻意**不**按项目分区、
+// 也**不**按会话分片——同一份任务列表在任何工作区下都该是同一份。触发产生的会话
+// 记录仍走会话自己的存储与读写纪律，本包不碰会话正文。
+//
+// 物理位置：2026-10-16 按 plan §2.12.1 从 `seelebridge/scheduler/persistence.go` 归位
+// 到 `store/schedule/`（同一份实现，未新增第二份）。
+package schedule
 
 import (
 	"bytes"
@@ -9,48 +19,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// ── 定时任务的全局持久化（JSONL）────────────────────────────────────────
+// FileStore 是 contract.ScheduledTaskPersistence 的全局 JSONL 实现。
 //
-// 粒度的选择是这条通道的全部要点：**任务定义是全局资产，一行一变更**，
-// 落在一个进程级 JSONL 文件里（默认 `<store>/scheduled-tasks.jsonl`）。
-// 它刻意**不**按项目分区、也**不**按会话分片——同一份任务列表在任何工作区
-// 下都该是同一份（"每天九点巡检"不因为切了项目就换一套）。
-//
-// 与之相对的是**触发产生的会话记录**：那仍然走会话自己的存储与读写纪律
-// （按项目作用域分区、按会话隔离、按提交口径落盘）。本文件不碰会话正文，
-// 只存"有哪些任务、周期/锚点/工作区/启用状态是什么"。
-//
-// 形态是 append-only：登记写一行、取消写一行墓碑（`deleted`），读取时按
-// id 后写覆盖先写重放，得到当前任务集。因此没有整文件重写、也不需要把
-// 索引和正文凑成一次原子提交；崩溃只会留下**残尾**（未换行收尾的半行），
-// 读侧按"未收尾即未提交"跳过——与会话事件行的恢复语义同一口径。
-//
-// 只持久化**定义与启用状态**，不持久化上次运行结果（`LastResult` /
-// `LogTail` / `RunCount`）：那些是运行期展示面，且命令输出可能含敏感内容，
-// 不该因为"重启后还想看见上次结果"就落到盘上。
+// 端口由实现方自己钉住：装配处换了实现也改不动这条断言，接口漂移会在这里立刻编译失败。
+var _ contract.ScheduledTaskPersistence = (*FileStore)(nil)
 
-// ScheduledTaskRecord 是 JSONL 里的一行：一条任务定义的**一次变更**。
-// Deleted=true 时是墓碑行（取消），只认 ID。
-type ScheduledTaskRecord struct {
-	ID        string                `json:"id"`
-	Spec      dto.ScheduledTaskSpec `json:"spec"`
-	Enabled   bool                  `json:"enabled"`
-	Deleted   bool                  `json:"deleted,omitempty"`
-	UpdatedAt time.Time             `json:"updated_at"`
-}
-
-// Persistence 是任务定义的全局持久化端口（调度器只依赖它，不认识文件系统）。
-// Append 追加一次变更；Load 返回重放后的**当前任务集**（已丢弃墓碑与残尾）。
-type Persistence interface {
-	Append(record ScheduledTaskRecord) error
-	Load() ([]ScheduledTaskRecord, error)
-}
-
-// FileStore 是 Persistence 的全局 JSONL 实现：一个路径、一条 append-only
-// 通道、一行 JSON、一个换行。写侧只做"追加一整行"，把半行修复留给读侧。
 type FileStore struct {
 	mu   sync.Mutex
 	path string
@@ -69,7 +46,7 @@ func (store *FileStore) Path() string {
 
 // Append 追加一行变更：先补齐目录，再以 O_APPEND 追加一整行 JSON。
 // 失败返回错误——调用方据此决定"这次登记/取消算不算成立"。
-func (store *FileStore) Append(record ScheduledTaskRecord) error {
+func (store *FileStore) Append(record dto.ScheduledTaskRecord) error {
 	if store == nil || strings.TrimSpace(store.path) == "" {
 		return nil
 	}
@@ -100,7 +77,7 @@ func (store *FileStore) Append(record ScheduledTaskRecord) error {
 // Load 读回当前任务集：逐行解码，后写覆盖先写（按 ID），墓碑行删除该 ID。
 // 文件不存在 = 空集（不是错误）；半行残尾与解不动的行跳过（append-only
 // 的崩溃恢复语义：没有收尾换行的一行就是没提交完的一行）。
-func (store *FileStore) Load() ([]ScheduledTaskRecord, error) {
+func (store *FileStore) Load() ([]dto.ScheduledTaskRecord, error) {
 	if store == nil || strings.TrimSpace(store.path) == "" {
 		return nil, nil
 	}
@@ -122,14 +99,14 @@ func (store *FileStore) Load() ([]ScheduledTaskRecord, error) {
 			data = nil
 		}
 	}
-	latest := map[string]ScheduledTaskRecord{}
+	latest := map[string]dto.ScheduledTaskRecord{}
 	order := make([]string, 0, 8)
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		raw := strings.TrimSpace(string(line))
 		if raw == "" {
 			continue
 		}
-		var record ScheduledTaskRecord
+		var record dto.ScheduledTaskRecord
 		if err := json.Unmarshal(line, &record); err != nil {
 			continue // 读不动的行（残尾/手改）不进任务集
 		}
@@ -143,7 +120,7 @@ func (store *FileStore) Load() ([]ScheduledTaskRecord, error) {
 		record.ID = id
 		latest[id] = record
 	}
-	records := make([]ScheduledTaskRecord, 0, len(latest))
+	records := make([]dto.ScheduledTaskRecord, 0, len(latest))
 	for _, id := range order {
 		record := latest[id]
 		if record.Deleted {

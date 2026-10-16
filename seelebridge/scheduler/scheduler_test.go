@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -44,7 +45,7 @@ func newSchedulerTestState(t *testing.T) *State {
 
 // newSchedulerTestStateWithStore 是持久化用例的夹具：同样的 tick 下调 +
 // 显式注入全局 JSONL 存储。
-func newSchedulerTestStateWithStore(t *testing.T, store Persistence) *State {
+func newSchedulerTestStateWithStore(t *testing.T, store contract.ScheduledTaskPersistence) *State {
 	t.Helper()
 	oldTick, oldMin := schedulerTick, minScheduledInterval
 	schedulerTick = 15 * time.Millisecond

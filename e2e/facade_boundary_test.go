@@ -60,7 +60,10 @@ const (
 // 抽出成模块级叶子包（自身闭包 = 纯标准库），因此上限抬到 71。
 // 同一片里还删掉了 `seelebridge/internal/mapper`（plan §2.10 要求删；它唯一的函数内联进
 // 调用方 `runtime_live.go`）——闭包少一个包，上限**跟着降**回 70。
-const facadeClosureAllowListMax = 70
+// M4-C（调度器持久化面）：`store/schedule` 同口径——定时任务定义的全局 JSONL 从
+// `seelebridge/scheduler/persistence.go` 抽出成基座子包（直接依赖 = 标准库 + contract 系），
+// 因此上限抬到 71。
+const facadeClosureAllowListMax = 71
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -143,6 +146,7 @@ var facadeClosureAllowList = []string{
 	// Settings）从 store 抽出。同一份代码换落点，属"新模块可 +1"，且自身
 	// 闭包是纯标准库（`go list -deps ./store/root` 除自身外无带点的包）。
 	"github.com/RedHuang-0622/seelex/store/root",
+	"github.com/RedHuang-0622/seelex/store/schedule",
 }
 
 // contractClosureAllowList 是契约层传递闭包里的**全部非 stdlib** 包（2026-10-16 实测）。
