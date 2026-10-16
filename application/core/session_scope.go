@@ -255,24 +255,16 @@ func (service *Service) syncSessionReasoningEffort(level string) int {
 // permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
 // 未选择回退进程默认档位）。不持有 Core.ViewMu——Unit 自带锁，进程默认由
 // service.permissionTierDefault 提供。
+//
+// 判据本体在 `backend/limit/tier.Deps.EffectiveTier`（M5-R-limitc 接收者转移）；
+// 本方法只是 core 内部调用点的转发，不再自己写一份解析。
 func (service *Service) permissionTierForSession(sessionID string) string {
-	if unit := service.sessions.Unit(sessionID); unit != nil {
-		if tier, ok := unit.PermissionTier(); ok && tier != "" {
-			return tier
-		}
-	}
-	if service == nil {
-		return dto.PermissionTierManual
-	}
-	if service.permissionTierDefault != "" {
-		return service.permissionTierDefault
-	}
-	return dto.PermissionTierManual
+	return service.tierDeps().EffectiveTier(sessionID)
 }
 
 // fullAccessForSession 是档位的**兼容派生读面**：full 档 ⇔ 旧的全权开启。
 func (service *Service) fullAccessForSession(sessionID string) bool {
-	return dto.PermissionTierIsFullAccess(service.permissionTierForSession(sessionID))
+	return service.tierDeps().FullAccessFor(sessionID)
 }
 
 // syncFullAccessFor 按会话档位同步执行门（G4：chat 起点调用，保证每个
@@ -282,11 +274,10 @@ func (service *Service) fullAccessForSession(sessionID string) bool {
 // 目标会话那一格，不会覆盖别的会话已生效的档位——历史缺陷正是「进程级单布尔
 // + 起点同步」，B 会话起跑会把 A 会话的全权关掉，用户看到「点了全权仍弹审批/
 // 仍被拒」。
+//
+// 口径本体在 `backend/limit/tier.Deps.SyncGateFor`（M5-R-limitc）；本方法只转发。
 func (service *Service) syncFullAccessFor(sessionID string) {
-	if service == nil || service.Deps.Runtime == nil {
-		return
-	}
-	_ = service.Deps.Runtime.SetPermissionTierFor(sessionID, service.permissionTierForSession(sessionID))
+	service.tierDeps().SyncGateFor(sessionID)
 }
 
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行

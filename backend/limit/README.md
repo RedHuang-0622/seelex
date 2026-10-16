@@ -59,13 +59,19 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
 包名仍为 `security`——plan §2.8 点名的落点是 `gate/`，改名不是搬迁，包名是否统一到
 `gate` 留给用户裁决）。
 
-**不搬的一项（有意）**：`tier/`（权限档位）。档位词表与规整/校验已经**只有一份**，在
-`contract/dto/permission.go`（`PermissionTiers` / `NormalizePermissionTier` / …）——
-那是跨层共享形状层，前端与 limit 都消费它；把它搬进 `backend/limit/tier` 会让契约层与前端
-反向依赖 backend 包，违反 plan §1.2 的依赖方向。原 `application/core/session_permission_tier.go`
-里的内容是 **Service 的持久化与快照同步**（用例面），按 plan §5.9「先内核后域状态」留在
-core，等 M5 切分时随用例面走。
-本轮只搬了 `limits` 家族与进程级快照。
+`tier/`（权限档位）的沿革：**词表与规整/校验不动**——档位词表**只有一份**，在
+`contract/dto/permission.go`（`PermissionTiers` / `NormalizePermissionTier` / …），那是跨层共享
+形状层，前端与 limit 都消费它；把它搬进 `backend/limit/tier` 会让契约层与前端反向依赖 backend
+包，违反 plan §1.2 的依赖方向，**这条前提至今成立**。
+
+2026-10-16 M5-R-limitc 按 plan §2.8 收口了当时**有意延后**的那部分：`application/core` 里
+"生效档位解析 + 会话级持久化的读写/落地 + 视图快照重算"的**口径**（原
+`session_permission_tier.go`、`session_scope.go`、`service_interaction.go` 的三处散落实现）现在
+归位 `tier/`，宿主面（会话槽、视图锁、执行门、审批面、进程默认档位）经 `Deps` 的窄端口注入；
+门面只留 `service.tierDeps()` 适配与一行转发。M2 当时按 plan §5.9「先内核后域状态」延后，理由
+正是"等内容面在 M5 切分时一起走"——本次即那一步。
+
+本轮（M2-A）只搬了 `limits` 家族与进程级快照。
 
 ## 文件结构
 
@@ -75,6 +81,7 @@ core，等 M5 切分时随用例面走。
 | `approval/` | 异步审批 broker（等用户点头的那一格；端口形状在 `contract`，见 [`approval/README.md`](approval/README.md)）。 |
 | `overlay/` | 运行时上限覆盖层：界面改过的窗口/开关落成数据根的一份 JSON，启动时叠在 limits 之上（见 [`overlay/README.md`](overlay/README.md)）。 |
 | `accountwindow/` | 「每账号上下文窗口」的判据：界面挡位表 + 自定义值校验（见 [`accountwindow/README.md`](accountwindow/README.md)）。 |
+| `tier/` | 「主会话权限档位」的落点：生效档位解析 + 会话级持久化编排 + 执行门/审批面/视图快照的落地口径（宿主面经 `Deps` 注入，见 [`tier/README.md`](tier/README.md)）。 |
 | `limits.go` | `limits` 段类型（`Limits` / `SessionStorageLimits` / `AsyncExecLimits` / `ProjectBoardLimits` / `CompactionSummaryLimits` / `TeamLimits` / `RuntimeLimits` / `PluginLimits`）、出厂默认、`LoadLimits` 与启动期校验、窗口判据。 |
 | `active.go` | 进程级生效快照：`active atomic.Pointer[Limits]` + `Apply` / `Get` / `SetSessionReleaseWindow`。 |
 | `knobs.go` | 两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）；宿主能力经 `KnobsHost` 注入（M5-R-limitb 从 `application/core` 接收者转移而来）。 |

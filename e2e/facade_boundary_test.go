@@ -86,7 +86,9 @@ const (
 // 此前它们是 `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，
 // 上限抬到 76。同一片还把跨层判据（错误码 / provider 失败分类 / ReAct 预算哨兵）
 // 下沉到 `contract`：它本来就在清单里，闭包规模不变。
-const facadeClosureAllowListMax = 76
+// M5-R-limitc：`backend/limit/tier`（权限档位域）同口径——把 `application/core` 的三处散落
+// 实现抽成独立模块（plan §2.8），因此是**一条进**的新模块，上限抬到 77。
+const facadeClosureAllowListMax = 77
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -109,6 +111,10 @@ var facadeClosureAllowList = []string{
 	// 门面闭包里 `application/core` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，
 	// 闭包因此多了这一个包；同一片没有引入任何新的第三方/反向依赖（只依赖 contract 与 Seele/errors）。
 	"github.com/RedHuang-0622/seelex/middle/view/errors",
+	// M5-R-limitc：权限档位域归位 limit 板块（plan §2.8）。**新增登记的理由**：这是
+	// "把 application/core 三处散落实现抽成独立模块"的一次换落点 + 落点新建，门面闭包里
+	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
+	"github.com/RedHuang-0622/seelex/backend/limit/tier",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/backend/engine/task",

@@ -39,6 +39,9 @@ var repositoryModules = []string{
 	"middle/protocol/event", "middle/protocol/model", "application/prompt",
 	"application/console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
 	"backend/limit/loop",
+	// M5-R-limitc：权限档位域（原 application/core/{session_permission_tier,session_scope,
+	// service_interaction}.go 的三处散落实现）归位 limit 板块（plan §2.8）。
+	"backend/limit/tier",
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
