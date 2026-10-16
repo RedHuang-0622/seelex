@@ -65,4 +65,4 @@ root `plugin.Manager`（定义事实源）→ `ToolBackend` 单点推送
 
 ## 测试与验证
 
-`go test ./seelebridge/plugin/...`；根包可见性测试覆盖联动。
+`go test ./backend/engine/plugin/...`；根包可见性测试覆盖联动。

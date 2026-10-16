@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 )
 
 func faceToolsOf(names ...string) []types.Tool {

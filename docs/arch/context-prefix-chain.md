@@ -143,7 +143,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 
 | 装配点 | 位置 | 内容 |
 |---|---|---|
-| T1 | `plugin/manager.go` `Load()`/`Activate()` → `runtime.DefinePlugin/ActivatePlugin` → `seelebridge/plugin/plugin.go` `Manager.Filter` | 激活插件的 include/exclude 通配过滤（可见性快照缓存） |
+| T1 | `plugin/manager.go` `Load()`/`Activate()` → `runtime.DefinePlugin/ActivatePlugin` → `backend/engine/plugin/plugin.go` `Manager.Filter` | 激活插件的 include/exclude 通配过滤（可见性快照缓存） |
 | T1b | `seelebridge/runtime.go:311-325` `seeltools.NewPolicy` + `bridge.NewRegistryRuntime(…, WithVisibilityPolicy(policy.Filter))` | 策略装配进 agent 工具运行时：子代理 NodeScope 排除全局状态工具 + plan 工具族仅在 goal skill 激活时可见（`backend/tool/registry/policy.go` `Policy.Filter`） |
 | T2 | `Seele v0.1.2 session/loop.go` `ReActLoop.visibleTools()` → agent bridge `RegistryRuntime.VisibleTools`（publicTools → policy） | **每轮**请求取可见工具集，进入 `AssemblyRequest.Tools` |
 

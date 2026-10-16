@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
-	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 )
 
 func TestFrameworkMCPValidation(t *testing.T) {
