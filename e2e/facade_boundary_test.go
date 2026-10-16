@@ -114,7 +114,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/plan",
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin",
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler",
-	"github.com/RedHuang-0622/seelex/seelebridge/search",
+	"github.com/RedHuang-0622/seelex/backend/tool/search",
 	"github.com/RedHuang-0622/seelex/seelebridge/security",
 	"github.com/RedHuang-0622/seelex/seelebridge/session",
 	"github.com/RedHuang-0622/seelex/backend/tool/task",

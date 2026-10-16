@@ -750,7 +750,7 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 
 会话粒度的二进制媒体资产（截图、图片输入、其它非文本产物）落盘与取用通道。
 调用方是 Seelex 侧的工具实现（例如截屏工具）与多模态 wire 编码
-（`seelebridge/multimodal`）；`big_tool_result` 继续承载文本大结果，两者是同一套
+（`backend/tool/io/multimodal`）；`big_tool_result` 继续承载文本大结果，两者是同一套
 「会话旁路资产 + 引用 + GC」语义下的两个分区。
 
 ### 布局契约

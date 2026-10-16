@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/tools/websearch` 是 `web_search` 工具的**装配点（Assembler）**：
+`backend/tool/websearch` 是 `web_search` 工具的**装配点（Assembler）**：
 从独立的 `config/search_engine.yaml`（根级字段）加载配置，由 `search.Assemble` 装配出代理
 策略，再注册为 `web_search` 工具。主要调用方是 composition root（`main.go`）。
 
@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 本包只做「加载 → 装配 → 注册」，不实现搜索逻辑（归
-[`seelebridge/search`](../../search/README.md)），也不持有账号池生命周期。
+[`backend/tool/search`](../search/README.md)），也不持有账号池生命周期。
 
 ## 职责与非职责
 
@@ -31,7 +31,7 @@ flowchart LR
 
 刻意不做什么：
 
-- 不实现搜索逻辑、不解析响应（属于 `seelebridge/search`）；
+- 不实现搜索逻辑、不解析响应（属于 `backend/tool/search`）；
 - 不决定默认引擎、不维护策略实现（引擎无关由 search 域保证）。
 
 ## 核心实现
@@ -61,7 +61,7 @@ main.go ── websearch.Register(runtime, configPath)  ← 路径来自 bootsee
 
 ## 依赖方向
 
-- 允许依赖：`seelebridge/search`（仅通过 `Strategy` 接口消费）；
+- 允许依赖：`backend/tool/search`（仅通过 `Strategy` 接口消费）；
 - 禁止反向依赖：不依赖 `seelebridge` 根包、GUI、`application` 或 Engine。
 
 ## 并发、存储、安全或错误语义
@@ -76,7 +76,7 @@ main.go ── websearch.Register(runtime, configPath)  ← 路径来自 bootsee
 
 - 接入新搜索 API：只改 `config/search_engine.yaml` 的 `strategies`（标准协议端点），
   本包无需改动；
-- 新增内置厂商：在 `seelebridge/search` 新增 `builtin_xxx.go` 并
+- 新增内置厂商：在 `backend/tool/search` 新增 `builtin_xxx.go` 并
   `registerBuiltin`（装配逻辑零改动），本包仅更新占位提示文案（错误信息
   已动态列出可用厂商）与测试。
 
@@ -90,7 +90,7 @@ main.go ── websearch.Register(runtime, configPath)  ← 路径来自 bootsee
 ## 测试与验证
 
 ```text
-go test ./seelebridge/tools/websearch -count=1
+go test ./backend/tool/websearch -count=1
 ```
 
 关键测试文件：`websearch_test.go`（占位工具、自定义策略端到端、空 query、schema）。

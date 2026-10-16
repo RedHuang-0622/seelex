@@ -23,7 +23,7 @@
 被 gitignore，开关方式也就进不了版本库（它恰恰最该被评审）。
 
 路径一律由 Seelex composition root（`main.go`）经 `bootseed` 责任链解析后注入
-Runtime / 工具；叶子包（`seelebridge`、`mcpstack/config`、`seelebridge/search`）
+Runtime / 工具；叶子包（`seelebridge`、`mcpstack/config`、`backend/tool/search`）
 只收路径，不参与路径决策，也不互相认识。
 
 ## 数据流图
@@ -42,7 +42,7 @@ flowchart LR
     ROOT --> SEELEX
     MCP["config/mcp.yaml<br/>mcp_servers 列表"] --> MCPLOAD["mcpstack/config.Load"]
     MCPLOAD --> LAZY["Runtime：冷启动登记 MCP server"]
-    SEARCH["config/search_engine.yaml<br/>根级搜索字段"] --> SEARCHLOAD["seelebridge/search.Load"]
+    SEARCH["config/search_engine.yaml<br/>根级搜索字段"] --> SEARCHLOAD["backend/tool/search.Load"]
     SEARCHLOAD --> WEBSEARCH["web_search 工具装配 Strategy"]
     ROOT --> MCP
     ROOT --> SEARCH

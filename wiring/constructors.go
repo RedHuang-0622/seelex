@@ -12,8 +12,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/seelebridge/search"
 )
 
 // New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。

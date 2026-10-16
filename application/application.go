@@ -11,8 +11,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/seelebridge/search"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/store"
 )

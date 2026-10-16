@@ -1,24 +1,24 @@
-# seelebridge/search
+# backend/tool/search
 
 ## 生态位
 
-`seelebridge/search` 是 web_search 的**代理策略域**：提供引擎无关的统一
+`backend/tool/search` 是 web_search 的**代理策略域**：提供引擎无关的统一
 `Strategy` 接口、策略装配器（`Assemble`）、标准 websearch 协议策略与
 **内置厂商适配器**（tavily / bochaai / searxng…）。主要调用方是
-`seelebridge/tools/websearch`（工具侧装配点）与 `application` 门面（兼容
+`backend/tool/websearch`（工具侧装配点）与 `application` 门面（兼容
 转发）；它不直接对接 GUI/前端，也不管理账号池生命周期。
 
 设计遵循「引擎无关（配置驱动）+ 代理策略配置 + 内置厂商适配器 + 装配器
 模式」：工具层只依赖统一 `Strategy` 接口；厂商差异要么收敛到标准协议端点
 （自建网关零代码），要么收敛到内置适配器（注册式扩展，配置只需
 `type` 指定厂商名）。选型依据见
-[docs/research/websearch-provider-design-research-2026-08.md](../../docs/research/websearch-provider-design-research-2026-08.md)。
+[docs/research/websearch-provider-design-research-2026-08.md](../../../docs/research/websearch-provider-design-research-2026-08.md)。
 
 ## 架构图
 
 ```mermaid
 flowchart TB
-    CALLER["seelebridge/tools/websearch<br/>工具装配点"] --> STRATEGY["Strategy 统一接口"]
+    CALLER["backend/tool/websearch<br/>工具装配点"] --> STRATEGY["Strategy 统一接口"]
     CALLER2["application 门面（兼容转发）"] --> STRATEGY
 
     subgraph ASSEMBLE["Assemble：装配器"]
@@ -227,8 +227,8 @@ search_engine.yaml ──Load──▶ WebSearchConfig ──Assemble──▶ S
 ## 测试与验证
 
 ```text
-go test ./seelebridge/search/... -count=1
-go test ./seelebridge/tools/websearch/... -count=1
+go test ./backend/tool/search/... -count=1
+go test ./backend/tool/websearch/... -count=1
 go test ./seelexctx/... -count=1
 ```
 

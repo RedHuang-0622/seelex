@@ -1,7 +1,7 @@
 // Package websearch 提供 web_search 工具注册。
 //
 // 职责只保留两件事：从独立的 search_engine.yaml 加载搜索配置、把配置装配出的
-// 代理策略注册为 web_search 工具；策略装配本身由 seelebridge/search 提供。
+// 代理策略注册为 web_search 工具；策略装配本身由 backend/tool/search 提供。
 package websearch
 
 import (
@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/search"
+	"github.com/RedHuang-0622/seelex/backend/tool/search"
 )
 
 // ToolRegistrar 是 websearch 注册所需的运行时窄接口。

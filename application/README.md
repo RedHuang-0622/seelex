@@ -61,7 +61,7 @@
 `core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
 [`backend/limit/`](../backend/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
 同一处）；
-`application/search` 已于 2026-08-22 迁至 `seelebridge/search/`（后端能力归位）；
+`application/search` 已于 2026-08-22 迁至 `backend/tool/search/`（后端能力归位）；
 `application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口（薄转发）已于
 2026-10-16 随 M1-B 迁到 [`wiring/`](../wiring/README.md)，其终局是 `backend/tool/websearch`（M4）。
 
