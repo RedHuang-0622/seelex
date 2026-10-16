@@ -28,6 +28,7 @@
 | M4-J2a | 请求画像 + 会话遥测（`request_log.go`、`session_telemetry.go`） | [`backend/engine/obs`](../../engine/obs/README.md) |
 | M4-J2b | 会话媒体与随图（原 `assemble/runtime_image.go`，已删除：同一份实现换落点） | [`backend/tool/io/media`](../../tool/io/media/README.md) |
 | R11-task | task 台账域：跨会话工作表格读面 + 会话 scope 分区 + 会话级批次 + 清单面（`ports.go` 的 task/todolist 逐行委托与 `runtime.go` 的 `sessionTaskSnapshots`/`currentTaskSessionID`/`sessionBatches` 私有状态） | [`backend/engine/task`](../../engine/task/README.md) |
+| R11-schedule | 定时/周期任务域的宿主转发面：7 个 DTO 别名 + `RestoreScheduledTasks` / `RegisterScheduledCommand` / `ScheduledCommands` / `ScheduleTask` / `UpdateScheduledTask` / `CancelScheduledTask` / `ScheduledTasksSnapshot` / `SetScheduledPromptExecutor` / `SetSchedulerObserver` | 本包 `runtime_schedule.go`（**状态**早已在 [`backend/engine/schedule`](../../engine/schedule/README.md)，该域的 `Runtime` 面上没有可下沉的状态，故按任务书 S4/S5 条只搬转发面） |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context` /
 `runtime_compaction_index`（→ `backend/engine/context`）、`runtime_role_prompt`（→ `backend/engine/prompt`）、
@@ -37,8 +38,8 @@ tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_e
 `review_files`（→ `backend/tool/review`）；multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
 `runtime_subagent_*`（→ `backend/multiagent/subagent`）、`workunit_*`（→ `backend/multiagent/workunit`）、
 `runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
-（→ `middle/view/board`）。收口片 K 删 `ports.go`（R11-task 已收掉 task/todolist 两段，
-现 467 行；剩余 plan/子代理树/节点/MCP/plugin/调度器/历史检索等兼容别名）。
+（→ `middle/view/board`）。收口片 K 删 `ports.go`（R11-task 已收掉 task/todolist 两段、
+R11-schedule 已收掉调度器段，现 550 行；剩余 plan/子代理树/节点/MCP/plugin/历史检索等兼容别名）。
 
 每片的判据都是"行为零变化"：只动"文件在哪、包叫什么、谁持有状态"，不动判定、协议与持久化格式。
 
@@ -82,7 +83,8 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `runtime.go` | 组合根骨架：RuntimeConfig/Runtime 结构体 + NewRuntime（拓扑序装配链）+ Shutdown（生命周期逆序关停）+ 主会话装配 |
-| `ports.go` | contract 端口实现：plan/子代理树/节点/MCP/plugin/调度器/历史检索的逐行委托与兼容别名；**task 台账域**（含 todolist）已下沉 [`backend/engine/task`](../../engine/task/README.md)，这里只剩一行式薄转发（`func (r *Runtime) TaskSnapshot() … { return r.ledger().Snapshot() }`） |
+| `ports.go` | contract 端口实现：plan/子代理树/节点/MCP/plugin/历史检索的逐行委托与兼容别名；**task 台账域**（含 todolist）已下沉 [`backend/engine/task`](../../engine/task/README.md)，这里只剩一行式薄转发（`func (r *Runtime) TaskSnapshot() … { return r.ledger().Snapshot() }`） |
+| `runtime_schedule.go` | 定时/周期任务域的宿主转发面（M5-R11-schedule 从 `ports.go` 原样搬来）：7 个 DTO 别名 + 9 个 `Runtime` 公开方法，逐行委托 [`backend/engine/schedule.State`](../../engine/schedule/README.md)（`Runtime.scheduler` 即该装配点引用） |
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
 | `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档 |

@@ -12,6 +12,10 @@
 记录 → `contract/dto`），本包只认端口。
 周期重复（minute/hour/day/week/month 或固定 Interval）与一次性定时（RunAt）。
 
+宿主转发面：`Runtime` 的 9 个公开方法（`RestoreScheduledTasks` / `ScheduleTask` / `UpdateScheduledTask` /
+`CancelScheduledTask` / …）在 M5-R11-schedule 片从 `backend/engine/assemble/ports.go` 原样搬到该包的
+`runtime_schedule.go`，只做 nil 守卫 + 逐行委托，**判据与状态全在本包**。
+
 任务**定义**落在一个**全局** JSONL 里（默认 `<store>/scheduled-tasks.jsonl`，
 见 `store/schedule/`）：一行一条变更、append-only、不按项目分区也不按会话分片。
 触发产生的**会话记录**不在这里——那走会话自己的存储与读写纪律。
