@@ -256,10 +256,10 @@ go test ./... -count=1 -timeout=900s     → 失败集合 = 基线（application
 | R1 adapters → `wiring/adapters` | 已提交 `853f6b31` + 记录 `72b6082e` |
 | R3 model/event/state → `middle/protocol/*`、`kernel/state` | 已提交 `0853f297` |
 | R4 中间层三叶子 → `middle/view/*` | 已提交 `c64b37fe` |
-| R2 toolrecord → `store/record` | 未开始 |
+| R9 `plugin` / `skill` / `mcpstack` → `backend/engine/*` | 已提交 `4ab87318`（skill）、`e0a7665c`（plugin）、`fa28cbd7`（mcpstack） |
+| R2 toolrecord → `store/record` | 已提交 `88d349f0` |
 | R5/R6 `application/core` 根文件按域切分（view/switch/residency） | 未开始（需 §2 两段式切分） |
 | R7/R8 core 的 engine/tool/multiagent/limit 域归位 | 未开始（同上） |
-| R9 `plugin` / `skill` / `mcpstack` → `backend/engine/*` | 未开始 |
 | R10 `aliases.go` 删除 + 门面五组收窄 + I5 | 未开始 |
 | R11 `assemble/ports.go` 删除 + `Runtime` 按域下沉 | 未开始 |
 
@@ -267,3 +267,84 @@ go test ./... -count=1 -timeout=900s     → 失败集合 = 基线（application
 `backend/tool/registry`（`TestJobHandlesCarryTheirTableToken` 的 TempDir 清理、进程句柄未放）、
 `gui/terminal`（`TestManagerRealShellRoundTrip`）、`store`（`TestCommitNotBlockedByFullHistoryRead`）
 三类超时/清理失败；**逐条单跑必过**，与环境负载相关，与本次搬迁无关。
+
+### R9 —— 顶层叶子包归位 engine 板块（plan §2.5，`4ab87318` / `e0a7665c` / `fa28cbd7`）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `skill/`（4 Go + README） | `backend/engine/skill/` | 包名不变，25 个取用侧只改 import 字符串 |
+| `plugin/`（14 文件） | `backend/engine/plugin/` | 生命周期事实源，包名不变；15 个取用侧只改 import |
+| `backend/engine/plugin/plugin.go` | `backend/engine/plugin/visibility/visibility.go` | 包名 `plugin` → `visibility` |
+| `backend/engine/plugin/plugin_face_test.go` | `backend/engine/plugin/visibility/visibility_face_test.go` | 同上 |
+| `backend/engine/plugin/README.md` | `backend/engine/plugin/visibility/README.md` | 同上 |
+| `mcpstack/`（8 Go + README） | `backend/engine/mcp/mcpstack/` | 包名不变 |
+| `mcpstack/config/`（2 Go + README） | `backend/engine/mcp/mcpstack/config/` | 包名不变 |
+
+**为什么有这么两处改名（偏差登记）**
+
+plan §2.5 把顶层 `plugin/`（生命周期）与 `seelebridge/plugin`（Runtime 可见性投影缓存）
+都指向 `backend/engine/plugin`，`mcpstack` 与 `seelebridge/mcp` 同理都指向
+`backend/engine/mcp`——两处都是"两个概念、一个目录名"，而一个目录只能有一个 package。
+裁决：**plan 里更晚、更完整的那份概念拿裸名，另一份退一档做子包**。
+
+- `plugin` → 生命周期事实源（plan §2.5 第 317 行）拿 `backend/engine/plugin`；
+  可见性投影缓存退 `backend/engine/plugin/visibility`，包名随之 `plugin` → `visibility`
+  （4 个取用侧：`assemble/runtime.go`、`assemble/runtime_role_plugins.go`、
+  `registry/role_plugins_test.go`、e2e 闭包清单）。
+- `mcp` → M4 已把 `seelebridge/mcp` 落在 `backend/engine/mcp`，因此 `mcpstack`
+  退 `backend/engine/mcp/mcpstack`，**包名保持 `mcpstack`**（零改名）。
+
+两处都是"同一份代码换落点"，门面闭包清单因此是等量替换：`facadeClosureAllowListMax`
+保持 73 不变（只有条目内容变，条数不变）。
+
+**顺带修掉的陈旧引用**（搬迁暴露的文档漂移，不是新行为）：
+`backend/engine/mcp/mcpstack/README.md` 与它的 `config/README.md` 仍写着
+`seelebridge.Runtime` / `seelebridge.MCPServer` / `main.go` / `bootseed` 与
+`go test ./mcpstack`；`backend/engine/skill/README.md` 仍写 `seelebridge`；
+`backend/engine/plugin/README.md` 仍写 `main.go` 的 `pluginRootChain` /
+`requirePlugins`（现落在 `wiring/config`）与 `go test ./plugin/...`。逐处改指当前落点。
+
+**验证**：`gofmt -l .` 空、`go build ./...` 绿、`go vet ./...` 绿，
+`go test ./e2e/ ./backend/engine/plugin/... ./backend/engine/skill/ ./backend/engine/mcp/... ./backend/engine/assemble/ ./wiring/... ./test/ -count=1` 全绿。
+`git diff -U0` 逐行抽查：Go 侧改动只有 import 字符串（+ 4 处 qualifier 改名），
+其余是 e2e 模块表/闭包清单与文档。
+
+### R2 —— 工具记录读数归位 store 板块（plan §2.10 / §2.12.2，`88d349f0`）
+
+**删除清单**
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `internal/toolrecord/accumulator.go` | `store/record/accumulator.go` |
+| `internal/toolrecord/accumulator_test.go` | `store/record/accumulator_test.go` |
+| `internal/toolrecord/README.md` | `store/record/README.md` |
+
+包名 `toolrecord` → `record`（一个目录一个 package）；`Accumulator` 的方法签名、
+dirty 门、原因归一、`Load` 只增不减语义逐字保留。`internal/README.md` 的子模块清单与
+架构图删掉该条目（这是"目录消失"的证据面）。
+
+**本片不含的部分（如实登记）**：plan §2.12.2 还有一条"判据
+（`toolStatusFailed` / `toolRecordReason` / `recordToolOutcome`）→ `backend/tool/record/`"。
+这条要切 `application/core` 的单包跨文件类型（判据与三条工具链 `tool.completed` /
+`subagent.tool.completed` / `teammate.tool.completed` 耦合在同一 `Service` 上），
+归属 **R7/R8 的核心切分**，不在本片范围。会话级粒度与批次落盘
+（写放大 200×→1×，见本文件 §4.0 的 A/B）在此前切片已落地，本片只换落点。
+
+**验证**：`gofmt -l .` 空、`go build ./...` 绿；
+`go test ./store/... ./application/core/ ./e2e/ ./test/ -count=1` ——
+`store`、`store/record`、`store/root`、`store/schedule`、`store/workspace`、`e2e`、`test` 全绿；
+`application/core` 仍是基线 3 例既有红（`TestContextBudgetSkipsCompactionWithoutMargin`、
+`TestRunningSessionAccumulatesAllRoundsInOrderControl`、
+`TestColdRestoreTailFirstRequestKeepsTranscriptOrder`），与迁移前**逐条同名**。
+
+### 本轮的机械化工件（可复用）
+
+- `tmp/reshape/repath.py <old> <new>`：只改 Go **import 字符串**（要求结尾引号或斜杠，
+  因此 `plugin` 不会误伤 `plugins`），跳过 `vendor/dist/tmp/_scratch` 等非源码树。
+  文档一律手工改——历史/计划句里的旧路径**不跟着改**（见 R1 的教训）。
+- `tmp/reshape/r9b.py`：`plugin → visibility` 这类"路径 + 限定符"双改，逐文件打印
+  changed/unchanged 供复核。
+- 提交信息一律落盘成 `tmp/reshape/msg-*.txt` 再 `git commit -F`：PowerShell 没有 heredoc，
+  内联中文经 shell 管道会打坏文件（M4 期已出过一次事故，见 m4-record 的教训）。
