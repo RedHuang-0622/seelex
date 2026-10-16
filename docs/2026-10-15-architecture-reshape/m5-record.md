@@ -1344,3 +1344,21 @@ case"两个工具缺陷后**重做成功**，见 §33。
 （多智能体侧 ≈6.5k 行）、`runtime_context`、`runtime_account`、`runtime_session` /
 `role_host_session`、`runtime_plan`、`runtime_async` / `jobs_events`、`review_files`、
 `runtime_project_board*`。
+
+## 34. P21「域方法随类型走」续片（2026-10-17 后半轮）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-2 | **实时流分发器**：`Runtime` 上那组**真状态**（`live*` 七个字段）+ 广播循环 + 两条事件源接线 + 窗口归一化判据 + 分页读法 + 三个事件投影 → `backend/multiagent/subagent.LiveDispatcher`；装配层 `runtime_live.go` 只留一行薄转发 + 同值常量别名。**搬迁中当场修掉两个既有缺陷**：① `Broadcast` 把订阅通道复制到锁外再发、而取消订阅的 `close(ch)` 也在锁外 ⇒ 存在"复制后、发送前通道被关"的窗口（向已关闭通道发送会 panic）；② 回放窗口表原本只在 `Start` 里建 ⇒ `Start` 之前的 `Broadcast` 会向 nil map 赋值 panic。现在投递在临界区内（非阻塞）、取消路径摘表与 `close` 同一临界区、构造器就建表 | `ea873950` |
+| P21-3 | **路由事实注册表**：`Runtime.servedRoutes`/`routingNoticeMu`/`routingNoticeSeen` 三个字段 + 四条判据（哪些原因覆盖 / 只有主链路才记 / 读即清 / unpinned 摘要去重）→ `backend/engine/account.ServedRouteRegistry`；`dropSessionResidue` 改调 `Forget`。**顺带收敛一处同形状两份实现**：`internal/stream.RoutingNotice` 与 `dto.RoutingNotice` 字段逐一相同（装配层原本还在两份之间转换），现为同身份别名，三个 Reason 取值指向 `dto.RoutingReason*`——顺带解掉 `account ↔ internal/stream` 的 import 环 | `4873df11` |
+| P21-4 | **`show_files` 工具形状** → `backend/tool/review/show_files.go`；装配层只剩一句注册 + `ReviewFilesPort` 别名。**门禁当场抓到一处盲区**：注册点名字由字面量变成跨包常量后，`test` 的两条工具面门禁的扫描器只查本目录常量表 ⇒ 报"名字无法静态解析"；修法是给扫描器加**按声明包名索引**的常量表（`pkg.Const` 跨包解析），修完两条门禁回绿、"已分封工具"69 → **70**（`show_files` 重新可见） | `f4f60720` |
+
+**已知抖动（登记，未改）**：`test.TestTwoRunningViewThirdSwitchStress`（用例自述"把同一时序高频重复，
+配合 -race 放大竞争窗口"）在**并发跑多包/高负载**时偶发失败——今天 3 次全量 `./test/` 失败 1 次、
+独立连跑 4 次全过、`-race` 单独连跑 3 次全过（0 竞态）、全量 `./test/` 单跑 3 次里 1 失 2 过。
+判定：负载/时序抖动而非数据竞争；待办——用 `-count=N` + 并发负载拿到失败 dump 后按 P20 的姿势定位。
+
+**P21 剩余**：`runtime_teamwork*` + `runtime_role_*`（≈2.5k 行）、`runtime_subagent_*`（853 行，
+resume/recovery 有 22 个宿主读数，是本域里最大的一片）、`workunit_*`（≈1k 行）、`runtime_context`、
+`runtime_session`/`role_host_session`、`runtime_plan`、`runtime_async`/`jobs_events`、
+`runtime_project_board*`。
