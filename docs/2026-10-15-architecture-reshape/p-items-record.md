@@ -56,3 +56,34 @@
 
 **验证**：`go test ./backend/tool/plan/ -count=1` 绿（含新增 10 条子用例）；
 `go vet ./backend/tool/plan/` 绿；`gofmt -l .` 空。
+
+---
+
+## P9 —— 统一事件错误文案（`sessionstore` → `store`）
+
+提交：见本条记录的 commit（`fix(events): ...`）。
+
+**先更正位置**：提案表写的位置是 `backend/engine/obs`，`rg` 实测两处文案在
+`backend/engine/assemble/events_unified.go:209,232`（`obs` 包不含该字符串）。
+
+**改动（判据归一，不是简单改字）**
+
+原实现是**同一句文案写两份**（`UnifiedEvents` 与 `UnifiedEventsRange` 各一处）。本次没有只替换
+两个字符串，而是把它收成**一处**：
+
+```go
+var errUnifiedEventsRouterMissing = errors.New("unified events: store router is not attached")
+```
+
+两个入口共用该变量——按 AGENTS §8.3「同一判据一处」，两处各写一份下次改名还会漏一处（这正是
+D-M3-12 的成因：M3 改名 `sessionstore` → `store` 时文案没跟着走）。
+
+**用例钉住**（不是"删掉断言让它绿"）：`backend/engine/assemble/events_unified_test.go` 的
+`TestUnifiedEventsRequiresRouter` 由"只判 err != nil"加强为：
+
+- 两个入口**分别**断言错误逐字含 `unified events: store router is not attached`；
+- 并断言错误里**不含** `sessionstore`（防止旧包名回潮）。
+
+**验证**：`go test ./backend/engine/assemble/ -count=1 -run TestUnifiedEvents` 绿；
+`gofmt -l backend/engine/assemble/` 空；`rg 'sessionstore router is not attached' -g '*.go'` 无命中；
+`rg 'sessionstore'` 在现行生产代码里的残留另见 P8 清单（本片只负责这一句文案）。

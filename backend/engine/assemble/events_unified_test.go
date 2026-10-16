@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,12 +188,34 @@ func TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts(t *testing.T) {
 	}
 }
 
-// TestUnifiedEventsRequiresRouter 验证未装配 store Router 时统一
-// 查询返回可读错误（不 panic、不静默降级）。
+// TestUnifiedEventsRequiresRouter 验证未装配 store Router 时统一查询返回可读错误
+// （不 panic、不静默降级），并**逐字钉住文案**：包名口径随 M3 的
+// `sessionstore` → `store` 改名同步（D-M3-12 / P9），两个入口共用同一句。
 func TestUnifiedEventsRequiresRouter(t *testing.T) {
+	const want = "unified events: store router is not attached"
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	if _, err := runtime.UnifiedEvents(context.Background(), "session-x", "", 10); err == nil {
-		t.Fatal("want error when store router is not attached")
-	}
+
+	t.Run("UnifiedEvents", func(t *testing.T) {
+		_, err := runtime.UnifiedEvents(context.Background(), "session-x", "", 10)
+		if err == nil {
+			t.Fatalf("未装配 router 应返回错误（期望 %q）", want)
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误 = %q，期望含 %q", err.Error(), want)
+		}
+		if strings.Contains(err.Error(), "sessionstore") {
+			t.Fatalf("错误文案残留旧包名：%q", err.Error())
+		}
+	})
+
+	t.Run("UnifiedEventsRange", func(t *testing.T) {
+		_, err := runtime.UnifiedEventsRange(context.Background(), "session-x", "", 0, 10, 10)
+		if err == nil {
+			t.Fatalf("未装配 router 应返回错误（期望 %q）", want)
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误 = %q，期望含 %q", err.Error(), want)
+		}
+	})
 }

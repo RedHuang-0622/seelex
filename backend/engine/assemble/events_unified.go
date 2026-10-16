@@ -10,6 +10,7 @@ package assemble
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -23,6 +24,11 @@ import (
 // summaryEventSource 是 B 类摘要事件在统一事件库（store 事件库）中的
 // 稳定 Source 标识，与 A 类事实（workplan.runner / seelex.subagent）同库共存。
 const summaryEventSource = "seelex.telemetry.summary"
+
+// errUnifiedEventsRouterMissing 是"统一事件视图依赖的 store Router 未装配"的**唯一文案处**：
+// UnifiedEvents 与 UnifiedEventsRange 两个入口共用一句，避免两处各写一份而漂移。
+// 文案里的包名口径随 M3 的 `sessionstore` → `store` 改名同步（D-M3-12 / P9）。
+var errUnifiedEventsRouterMissing = errors.New("unified events: store router is not attached")
 
 // SummaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
 // 内存 append-only + 可选持久化钩子，形态镜像 plan.EventSink。
@@ -206,7 +212,7 @@ func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, l
 	}
 	router := r.HistoryRouter()
 	if router == nil {
-		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
+		return UnifiedEventView{}, errUnifiedEventsRouterMissing
 	}
 	reader := &UnifiedEventReader{
 		Load:      store.NewEventStore(router).Load,
@@ -229,7 +235,7 @@ func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID stri
 	}
 	router := r.HistoryRouter()
 	if router == nil {
-		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
+		return UnifiedEventView{}, errUnifiedEventsRouterMissing
 	}
 	st := store.NewEventStore(router)
 	reader := &UnifiedEventReader{
