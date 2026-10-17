@@ -27,6 +27,21 @@
 
 ---
 
+## plan_* / teamwork / fork 耦合审计（2026-10-17）
+
+**结论**：teamwork 的状态查看与 `plan_*` **不耦合**；`fork_subagents` 与 `plan_*` **耦合**。
+
+| 面 | 事实 | 处置 |
+|---|---|---|
+| teamwork 看板/状态 | 读自己的 `store.TeamworkPlan` + `TeamworkBoardView`（`middle/view/board`），不读 Seele `PlanState`，也不调 `plan_load/run` | 已有自己的方法，无需再造解耦层 |
+| fork_subagents | `runtime_plan.go` 的 `fork.Deps` 注入 `RunPlan: r.planExecutor.RunPlan` 与 `NodeFactory`；子代理经 Plan DAG 节点执行 | **删除 plan_* 的前置**：先给 fork 一条直接的子代理执行路径（按 `SubagentForkSpec` 建会话 + 作业回收） |
+| worktree 生命周期 | `workunit.Host` 已拥有 Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是 `SceneFace` 的 git 适配器 | plan 专用的 `Finish`/审批/dirty 判定随 plan 删除；workunit 需要的建/合并/认领/清理保留 |
+
+因此本轮**没有**删除 `plan_*`（删了 fork 会断）；在 fork 解耦完成后再删，顺序见
+[handoff-next-session.md](handoff-next-session.md) §8.1。
+
+---
+
 ## TL/ADVISOR 删除（2026-10-17 用户裁决）
 
 用户裁决：**P3 的 A-B 模型不要了，TL 删掉，teamwork 足够**。

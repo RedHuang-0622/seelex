@@ -260,6 +260,12 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。
+	//
+	// **暂不删除**（2026-10-17 复核）：fork_subagents 的执行体仍走
+	// `fork.Deps.RunPlan = plan.Executor.RunPlan` + `NodeFactory`（见 runtime_plan.go），
+	// 而 teamwork 的看板/状态读面用的是自己的 `store.TeamworkPlan` +
+	// `TeamworkBoardView`，与 plan_* **不耦合**。要删 plan_* 必须先给 fork 一条
+	// 不经过 Plan 执行器的子代理执行路径（见 handoff §8.1）。
 	if r.planExecutor != nil {
 		if err := r.registry.Registry.Register(r.planExecutor.Provider()); err != nil {
 			return

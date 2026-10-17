@@ -275,7 +275,23 @@ sequenceDiagram
 
 ## 8. 未完成项与继续改动的文件
 
-### 8.1 删除 Seele plan node / NodeScope（等你点头）
+### 8.1 删除 Seele plan node / NodeScope（先解 fork 的耦）
+
+**耦合审计结论（2026-10-17）**：
+
+- **teamwork 的状态查看不依赖 `plan_*`**：团队看板读的是自己的
+  `store.TeamworkPlan` + `TeamworkBoardView`（`middle/view/board`），与 Seele
+  workplan 的 `PlanState` / `plan_load` / `plan_run` 没有调用关系。因此"teamwork
+  自己的方法"已经存在，不需要再造一层解耦。
+- **fork_subagents 仍依赖 plan 执行器**：`runtime_plan.go` 的 `fork.Deps` 把
+  `RunPlan: r.planExecutor.RunPlan` 与 `NodeFactory: r.nodeFactory` 注入 fork；
+  子代理当前是经 Plan DAG 节点执行的。**这是删除 `plan_*` 的真正前置**——必须先给
+  fork 一条不经过 Plan 执行器的执行路径（直接按 `SubagentForkSpec` 起子代理会话 +
+  作业回收），否则 plan 一删 fork 就断。
+- **worktree 生命周期已在 workunit**：`workunit.Host`（`lifecycle.go`）拥有
+  Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是现场端口
+  （`SceneFace`）的 git 适配器。plan 节点专用的 `WorktreeManager.Finish`/审批/
+  dirty 判定随 plan 删除；workunit 需要的建/合并/认领/清理保留。
 
 ```text
 backend/tool/plan/**                 （plan_load/run/status/clear/validate/export）
@@ -288,7 +304,8 @@ application/core/plan_tools.go       （PlanState 投影；若产品 Plan 面板
 contract/dto/plan.go / plan_run.go
 ```
 
-删除前要把 teamwork 的 workunit 现场改成自己的 `SceneScope`：
+删除前要先把 fork 的执行面从 plan 执行器解耦，并把 workunit 的现场改成自己的
+`SceneScope`（不再借 `NodeScope`）：
 `backend/engine/assemble/workunit_assembly.go` 的 `beginNodeWorktree`/`resolvedNodeScope`。
 还要迁移 5 类读者（路径门 / 权限主体 / 账号选择 / stream 路由提示 / telemetry 摘要）。
 
@@ -309,6 +326,25 @@ application/core/workspace_usecase.go → middle/switch/workspace/
   `TestRunningSessionAccumulatesAllRoundsInOrderControl` /
   `TestColdRestoreTailFirstRequestKeepsTranscriptOrder`）：既有，未修。
 - FNV 原语三处：建议保持现状（见 `m5-record` §53）。
+
+### 8.4 FNV-1a 32 位原语：三处、三种冻结点
+
+三处实现完全相同（`hash/fnv` 的 `New32a`，逐字节 XOR 后乘 16777619）：
+
+| 位置 | 用途 | 换算法的后果 |
+|---|---|---|
+| `backend/tool/plan/branch_routing.go` 的 `StableHash` / `NodeSessionID` | 由节点提示词派生 `node-<hex>` 会话号 | 所有已存在的 nodeID 变化 → checkpoint/恢复定位失配 |
+| `backend/engine/account/account.go` 的 `StableIndex` | 账号池按 seed 确定性选号 | 同一会话/角色被钉到不同账号 → 限流与成本分布变化 |
+| `backend/tool/registry/permission_policy.go` 的 `employeeSubjectHash` | 非 ASCII 角色名归一后加 8 位短哈希 | 主体名变化 → 权限配置里的 `emp_*` 键全部失配 |
+
+**它不是加密哈希**：32 位、可碰撞、只保证"同输入同输出"。三处都靠"确定性"而不是
+"抗碰撞"工作（nodeID 还有完整 hex、主体名还有可读 slug 前缀）。
+
+**建议**：抽一个 `internal/stablehash.FNV1a32(string) uint32`（纯 stdlib）让三处共用
+**算法实现**，但保留三处各自的**语义契约**（对什么做哈希、结果怎么用），并加已知向量
+测试 + 文件头写明"这三处是持久兼容面，换算法必须迁移 nodeID/账号绑定/权限主体名"。
+这样满足"同一算法只有一份实现"，又不会把三个冻结点悄悄耦成一次不可见的全局变更。
+不建议把三处直接合并成一个业务函数——它们哈希的输入与消费方式不同。
 
 ---
 
