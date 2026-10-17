@@ -17,9 +17,9 @@
 - **状态 owner → 显示面已集成**：后台会话状态变化发进程级 `sessions.changed`，
   GUI 重拉权威 Snapshot、TUI 重取 Snapshot；目录行按会话单元重新富化。
 
-**唯一没做的结构项**：`session/` → `middle/switch/sessionusecase/` 与
-`workspace_usecase.go` → `middle/switch/workspace/` 的物理搬迁（前置是 `session.Manager`
-对 `store.Router` 的端口反转）。**NodeScope/Seele plan node 的删除**已确认性质，见 §4。
+**结构项剩余（2026-10-17 更新）**：`session/` 已迁入 `middle/switch/sessionusecase/`（`a71c2c7b`）；仍欠
+`workspace_usecase.go` → `middle/switch/workspace/` 的物理搬迁（端口反转已完成）。
+**内部 Plan 引擎与 NodeScope 的删除**顺序见 §8.1。
 
 ---
 
@@ -30,7 +30,7 @@
 
 | 状态面 | 权威 owner | 证据 |
 |---|---|---|
-| running / queued / 待批 / resident | `session.SessionUnit` | `session/ports.go:208` 的 `SessionUnit{Chat, approvalIDs, resident, ...}`；`sessionStatusLocked` 全部从单元读 |
+| running / queued / 待批 / resident | `session.SessionUnit` | `middle/switch/sessionusecase/ports.go` 的 `SessionUnit{Chat, approvalIDs, resident, ...}`；`sessionStatusLocked` 全部从单元读 |
 | status / checkpoint / binding | `store.Record` | `store/session_granular.go:44`；提交点落盘，重启恢复读它 |
 | 当前视图 | `kernel/state.Snapshot` | 只镜像 active 单元，不是 owner |
 | 目录行 | `Snapshot.Sessions` + `enrichDirectoryRowsLocked` | 逐行按会话单元补 running/queued/awaiting/resident |
@@ -275,6 +275,25 @@ sequenceDiagram
 
 ## 8. 未完成项与继续改动的文件
 
+### 8.0 当前实际剩余清单（2026-10-17 更新）
+
+按执行顺序排列；前置未完成时后面的项不单独开工。
+
+| # | 事项 | 范围 | 状态/前置 |
+|---|---|---|---|
+| 1 | 删内部 Plan 引擎 | `backend/tool/plan/**`、`backend/engine/assemble/runtime_plan.go`、`application/core/plan_tools.go`、Plan 投影与历史用例 | 模型工具面已退役（`920cad16`）；worktree 的 plan 专用收尾随本片删除 |
+| 2 | 删 `NodeScope` | 先把 workunit/fork 改成 `SceneScope`，再迁移路径门/权限/账号/stream/telemetry 五类读者 | 前置 #1 与 workunit 现场改造 |
+| 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | 生命周期判据留在 `backend/workunit/lifecycle.go` 的 `Host` |
+| 4 | `workspace_usecase` 搬迁 | `application/core/workspace_usecase.go` → `middle/switch/workspace/` | 端口反转已完成（见 §8.2） |
+| 5 | P21 剩余装配片 | `runtime_teamwork*`、`workunit_team_records`、`runtime_context` 等宿主动作与端口接线 | 判据已下沉；剩余主要是装配面，见 `m5-record` §45–§51 |
+| 6 | FNV 原语 | `internal/stablehash.FNV1a32` + 已知向量；三处保留各自语义契约 | 待裁决，建议按 §8.4 执行 |
+| 7 | 最终验收 | build ×2、vet、全量 test、前端 node test、README index/refs、`-race`、交接文档 | 基线 3 例红见 §8.3 |
+
+注意：`backend/tool/node` **不能整包删除**。`agent_node.go` 是 fork 单条子代理的执行器，
+P21 之后仍被 `runForkSubagent` 使用；本片只删 Plan 专用的 `coordinator.go`、
+`node_phase_words.go` 与 `scope.go` 别名，并把 `AgentNode` 的作用域参数换成 #2 的
+`SceneScope`。
+
 ### 8.1 删除 Seele plan node / NodeScope（先解 fork 的耦）
 
 **耦合审计结论（2026-10-17）**：
@@ -287,12 +306,12 @@ sequenceDiagram
   已换成 `RunSubagent`；`Runtime.runForkSubagent` 直接构造一个 AgentNode 执行
   单条子代理（worktree/NodeScope/prompt blocks/merge-back 全在 AgentNode 里），
   不再经过 Plan DAG。`plan_*` 剩下的只是用例面：16 个测试文件仍在钉工具入口/
-  节点/合并链，删完这些用例就可以移除 plan 注册并删 `backend/tool/plan`、
-  `backend/tool/node`。
+  节点/合并链，删完这些用例就可以移除 plan 注册并删 `backend/tool/plan`；
+  `backend/tool/node` 只删 Plan 专用的协调器/阶段词/作用域别名，`agent_node.go` 保留。
 - **plan_* 模型工具面已退役（2026-10-17）**：`plan_load/plan_run/plan_status/
   plan_clear/plan_validate/plan_export` 不再注册；历史用例改用
   `runPlanToolForTest` 直调 provider handler。**剩余**：删内部 `backend/tool/plan`
-  与 `backend/tool/node`（连同这些内部用例）、`runtime_plan.go` 的 Plan 段、
+  与 `backend/tool/node` 的 Plan 专用文件（连同这些内部用例）、`runtime_plan.go` 的 Plan 段、
   `application/core/plan_tools.go` 的 Plan 投影，最后删 `NodeScope`。
 - **worktree 生命周期已在 workunit**：`workunit.Host`（`lifecycle.go`）拥有
   Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是现场端口
@@ -301,13 +320,18 @@ sequenceDiagram
 
 ```text
 backend/tool/plan/**                 （plan_load/run/status/clear/validate/export）
-backend/tool/node/**                 （SeelexAgentNode + NodeScope 注入）
+backend/tool/node/coordinator.go     （Plan 节点协调器）
+backend/tool/node/node_phase_words.go（Plan 阶段词）
+backend/tool/node/scope.go           （NodeScope 别名；agent_node.go 保留给 fork）
 backend/engine/assemble/runtime_plan.go（plan executor / node deps / node factory）
 backend/engine/assemble/runtime.go    （planExecutor 构造与 Provider 注册）
 contract/dto/node_scope.go
 internal/model/node_scope.go
 application/core/plan_tools.go       （PlanState 投影；若产品 Plan 面板一起退场）
 contract/dto/plan.go / plan_run.go
+tui/plan.go                          （Plan 面板；工具面退役后再决定是否保留只读视图）
+wiring/bootstrap/permission.go       （plan_* 白名单条目）
+contract/ports.go                    （SetPlanPolicy/ReplanMetrics/PlanNodeEventChannel）
 ```
 
 删除前要先把 fork 的执行面从 plan 执行器解耦，并把 workunit 的现场改成自己的
@@ -315,16 +339,15 @@ contract/dto/plan.go / plan_run.go
 `backend/engine/assemble/workunit_assembly.go` 的 `beginNodeWorktree`/`resolvedNodeScope`。
 还要迁移 5 类读者（路径门 / 权限主体 / 账号选择 / stream 路由提示 / telemetry 摘要）。
 
-### 8.2 `session/` 与 `workspace_usecase` 物理搬迁
+### 8.2 `workspace_usecase` 物理搬迁
 
 ```text
-session/**                          → middle/switch/sessionusecase/
 application/core/workspace_usecase.go → middle/switch/workspace/
 ```
 
-前置：`session.Manager` 持 `*store.Router`、`session/ports.go` 别名 6 个 store 类型 →
-先做端口反转（`wiring/adapters/session_workspace_ports.go` 实现 `StoragePort`，
-`wiring/bootstrap/application.go` 注入），否则中间层直接 import store。
+`session/` 已迁入 `middle/switch/sessionusecase/`（`a71c2c7b`）；`session.Manager` 已改为
+`wiring/adapters.SessionManager`，端口反转已完成（`wiring/adapters/session_workspace_ports.go`
+实现 `StoragePort`，`wiring/bootstrap/application.go` 注入）。剩余只有 `workspace_usecase.go`。
 
 ### 8.3 其他
 
