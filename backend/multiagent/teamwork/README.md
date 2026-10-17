@@ -101,6 +101,8 @@ stateDiagram-v2
 | `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
 | `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
 | `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 `backend/engine/assemble/runtime_teamwork_schema.go` 整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
+| `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
+| `context_view_test.go` | 预算夹取与缺省、UTF-8 安全裁剪、最新作业行选取、空转与残边回读两条空闲形态、角色过滤归一 |
 | `tool_shapes_test.go` | 随实现搬入的断言（逐字）：team_plan schema 是**里程碑口径**（milestones 有 name/depends_on、`after` 整条退场、required 说明是角色声明）、**没有 stages**、description 讲里程碑词表、成员级 `max_turns` 既进 schema 也进 description |
 | `board_view_test.go` | 出图五份行齐与闭板三字段从计划搬、人状态两值、队列销项即出队、当前会话三段优先、主体反解、审计有界保序、过期提示位、编排判据 |
 | `teammate_live_test.go` | 域级用例：有界裁剪（条数 + 单条长度 + 如实标 Truncated）、只留 user/assistant、分页归一（负 offset / limit<=0 / 越界页）、默认页取尾部、执行面不在本进程时的空视图语义 |
@@ -259,6 +261,18 @@ go test ./backend/multiagent/... -count=1
 - `func TestEventViewsKeepsOnlyRecent(t *testing.T)` — TestEventViewsKeepsOnlyRecent 钉住审计投影的有界性：只取最近 BoardEventLimit 条，
 - `func TestProjectionStaleIsOnlyAHint(t *testing.T)` — TestProjectionStaleIsOnlyAHint：句柄过期提示位——计划里记着句柄、本进程作业表一个都查不到
 - `func TestPlanHasOrchestrationRequiresMilestones(t *testing.T)` — TestPlanHasOrchestrationRequiresMilestones：可看的编排 = 有里程碑（阶段口径已退场）。
+
+### context_view.go
+
+- `func BuildContextView(ctx context.Context, plan store.TeamworkPlan, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkContextView` — BuildContextView 把（计划 + 作业行 + 可选正文）组装成 `dto.TeamworkContextView`。
+- `func memberContext(ctx context.Context, plan store.TeamworkPlan, member store.TeamworkMember, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkMemberContextView` — memberContext 组装一个成员的工作上下文：先找它名下**最新**的作业行，再按需取正文。
+- `func attachEvictedBody(ctx context.Context, outputs MemberOutputsPort, role string, options ContextOptions, view *dto.TeamworkMemberContextView)` — attachEvictedBody 在"行不在册"时尝试从**产品自有文件**回读正文。
+- `func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool)` — latestRecordFor 取某主体名下**最新**的那条作业行：优先在跑的，否则取登记序号
+- `func RoleMilestone(plan store.TeamworkPlan, role string) string` — RoleMilestone 反解角色**当前归属的里程碑**：这个角色在哪个里程碑的工作项里出现过
+- `func roleFilter(roles []string) map[string]struct` — roleFilter 归一 roles 过滤：空 / 全空白 = 不过滤（全员）。
+- `func ContextBodyBudget(requested int) int` — ContextBodyBudget 把调用方给的预算夹到 [1, ContextMaxBodyBytes]；
+- `func TruncateContextBody(body string, limit int) (string, bool)` — TruncateContextBody 按**字节**预算裁剪，并保证不切碎一个 UTF-8 字符（正文是中文的
+- `func ReadOutputHead(path string, limit int) (string, error)` — ReadOutputHead 读一个产品自有输出文件的前 limit 字节（limit<=0 = 读全）。文件不存在 =
 
 ### coordinator.go
 

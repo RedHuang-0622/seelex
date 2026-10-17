@@ -28,7 +28,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -211,25 +210,9 @@ func (o *TeamworkJobOutputs) LatestJobOutputPath(ctx context.Context, role strin
 
 // readOutputHead 读一个产品自有输出文件的前 limit 字节（limit<=0 = 读全）。文件不存在 =
 // 空串（正文可能还没落盘，不是错误）。它只服务于读面的回读（§4.2 残边）：不消费、不改事实。
-func readOutputHead(path string, limit int) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	defer file.Close()
-	if limit <= 0 {
-		data, err := io.ReadAll(file)
-		return string(data), err
-	}
-	data, err := io.ReadAll(io.LimitReader(file, int64(limit)))
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
+//
+// 实现只有一份，在团队域（`teamwork.ReadOutputHead`，P21-22 归位）；本别名让本文件的调用点与
+// 既有用例零改动。
 
 // resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
 // （telemetry 的 SessionIDFromContext），不引入第二套"当前会话"判据。
