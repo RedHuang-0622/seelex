@@ -109,6 +109,8 @@ stateDiagram-v2
 | `worker_round.go` | **teammate 回合面的三条纯判据**（P21-29 从 `backend/engine/assemble/runtime_teamwork.go` 归位，plan §2.7）：`RoundsPerMember`（"一名 teammate 收口前最多派多少轮"的量级取用值 64）+ `JobRecordCeiling`（作业表记录槽上限：规模换算，**只抬不降**、永不低于框架缺省；计划侧"不限制"按一名成员算）、`TurnLimit`（成员级 `max_turns` 优先，否则回退宿主给的默认）、`RoundInput`（回合输入正文的组装：`<milestone>` 标签只认里程碑、正文 trim、没有正文时如实说明） |
 | `plan_query.go` | **计划查询的两条判据**（P21-33 从 `backend/engine/assemble/runtime_teamwork.go` 的两个遍历点搬进本域，与已有 `items.go` 的 `findItem` 同源）：`ItemRole(plan, id)`（按 id 查执行角色；入参 trim 后比较；查不到/空 id ⇒ 空串）与 `MemberOf(plan, role)`（按角色名查在编成员；trim 后比较；查不到/空角色 ⇒ false）。收口之前派发回执那边另写了一次"遍历里程碑找 item.Role"的循环——与 `findItem` 口径略不同，迟早漂移 |
 | `unit_record.go` | **teammate 单元记录的写侧口径**（P21-34 从 `backend/engine/assemble/workunit_team.go` 归位，plan §2.7）：`UnitStatusRunning` / `UnitStatusDone` / `UnitStatusFailed`（记录那一格的词表——"在跑"复用 workunit 契约、终态来自 `dto.SubAgent*`，记录词 = wire 词）、`UnitStatusFor`（收尾分类 → 记录终态：**只有判死那一类记 failed**；未提交 / 主工作区挡路都记 done，产出还在现场）、`UnitNodeID`（一轮作业的 nodeID：有独立现场就去前缀，降级共享工作区按 `<role>-<itemID>` 拼，连工作项都没有退到角色名）；（P21-35 补：`UnitRecordKey` / `UnitRecordKeyFor`（记录身份：nodeID 口径见 `UnitNodeID`、标量与插件集合搬运）+ `TeammateUnitRecordLink`（写链上 teammate 那一环：Kind=teammate / Role / Plugins / SystemPrompt 写进 `record.Unit`，其余字段一概不动；与 subagent 的身份环同形）） |
+| `unit_recovery.go` | **中断判定的判据面**（P21-36 从 `backend/engine/assemble/workunit_team_records.go` 的 `RecoverTeamworkUnits` 归位，plan §2.7）：`InterruptedUnits(index, progress, stored, ledgerInterrupted, surfaceAlive)` → `UnitRecovery{Interrupted, Notes}`——两条来源一次去重（记录侧：在跑且执行面不在；账本侧：状态说在跑、句柄不在册——**记录缺席**时也不漏），并按记录生成恢复说明（键 = 角色会话号，正文来自 `workunit.RecoveryNote` 唯一构建器）。`surfaceAlive == nil` 时保守判中断（可重派清单只会多不会少） |
+| `unit_recovery_test.go` | 在跑无执行面 ⇒ 中断 + 说明；执行面还在 / 终态记录 ⇒ 不中断；账本侧覆盖记录缺席、有执行面排除、名单外忽略；两来源去重保序 |
 | `unit_record_test.go` | 词表来自契约、收尾分类四支路（只有 failed 记 failed）、单元身份三形态与空输入 |
 | `plan_query_test.go` | 按 id 找执行角色（trim/查不到/空 id/空计划）、按角色找成员（trim/查不到/空角色） |
 | `worker_round_test.go` | 记录槽上限"只抬不降"两半（换算低于缺省取缺省、高于缺省照用）与"不限制"同解、回数上限优先与回退、输入正文（里程碑标签/正文 trim/task 点名角色/无正文与无里程碑两形态） |
@@ -727,6 +729,17 @@ go test ./backend/multiagent/... -count=1
 - `func TestUnitNodeIDFollowsTheSceneNaming(t *testing.T)` — TestUnitNodeIDFollowsTheSceneNaming：单元身份——有独立现场时取指派名去前缀；
 - `func TestUnitRecordKeyForFillsIdentity(t *testing.T)` — TestUnitRecordKeyForFillsIdentity：记录身份从作业载荷取——nodeID 口径见 UnitNodeID、
 - `func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T)` — TestTeammateUnitRecordLinkWritesTheIdentity：写链上 teammate 那一环把 Kind/Role/Plugins/
+
+### unit_recovery.go
+
+- `func InterruptedUnits( index []SceneEntry, progress map[string]workunit.Progress, stored map[string]store.NodeSessionRecord, ledgerInterrupted []string, surfaceAlive func(entry SceneEntry, roleSessionID string) bool, ) UnitRecovery` — InterruptedUnits 判定中断单元并生成恢复说明。
+
+### unit_recovery_test.go
+
+- `func recoveryRecord(status string) store.NodeSessionRecord`
+- `func TestInterruptedUnitsJudgesInFlightWithoutSurface(t *testing.T)` — TestInterruptedUnitsJudgesInFlightWithoutSurface：记录说在跑 + 执行面不在 ⇒ 中断并生成恢复说明；
+- `func TestInterruptedUnitsCoversLedgerSideWithoutRecord(t *testing.T)` — TestInterruptedUnitsCoversLedgerSideWithoutRecord：账本报"状态说在跑、句柄不在册"的工作项，
+- `func TestInterruptedUnitsDedupesAcrossSources(t *testing.T)` — TestInterruptedUnitsDedupesAcrossSources：记录侧与账本侧指向同一个单元 ⇒ 只列一次（保序：
 
 ### worker_round.go
 

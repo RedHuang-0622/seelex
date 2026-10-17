@@ -292,55 +292,16 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	if err != nil {
 		return recovery, err
 	}
-	// ③ 中断判定：记录说在跑（running/queued），而本进程里既没有它的角色会话句柄、
-	// 也没有它的作业句柄。
-	interrupted := make([]string, 0)
-	seen := make(map[string]bool, len(index))
-	addInterrupted := func(nodeID string) {
-		if nodeID == "" || seen[nodeID] {
-			return
-		}
-		seen[nodeID] = true
-		interrupted = append(interrupted, nodeID)
+	// ③ 中断判定 + ④ 恢复说明：判据（记录说在跑且执行面不在 / 账本侧同一条事实 / 去重保序）
+	// 与说明正文都在团队域（`InterruptedUnits`）；本层只给"执行面还在不在"那一格读数。
+	units := teamwork.InterruptedUnits(index, progress, stored, report.Interrupted,
+		func(entry teamwork.SceneEntry, roleSessionID string) bool {
+			return r.teamUnitSurfaceAlive(entry, roleSessionID, alive)
+		})
+	for roleSessionID, note := range units.Notes {
+		r.setTeamResumeNote(roleSessionID, note)
 	}
-	surface := func(entry teamSceneEntry, sessionID string) bool {
-		return r.teamUnitSurfaceAlive(entry, sessionID, alive)
-	}
-	for _, entry := range index {
-		unit, ok := progress[entry.NodeID]
-		if !ok || !unit.InFlight {
-			continue
-		}
-		if surface(entry, unit.SessionID) {
-			continue
-		}
-		addInterrupted(entry.NodeID)
-		// ④ 恢复说明：事实来自记录本身（不编造），注入该角色会话的下一次装配。
-		//    正文的构建器只有一份（workunit.RecoveryNote，收的是记录）；记录来自上面那
-		//    一次账本读（同一个读面的定位与归属过滤）。
-		if record, found := stored[entry.NodeID]; found {
-			r.setTeamResumeNote(unit.SessionID, workunit.RecoveryNote(workunit.KindTeammate, record))
-		}
-	}
-	// 账本侧的同一条事实（状态说在跑、句柄却不在册）也一并列出：**记录缺席**时不至于漏掉
-	// 这一件可重派的工作。有执行面的（角色会话还在跑）不算中断——它现在就在本进程里。
-	byItem := make(map[string]teamSceneEntry, len(index))
-	for _, entry := range index {
-		if entry.WorkItem != "" {
-			byItem[entry.WorkItem] = entry
-		}
-	}
-	for _, itemID := range report.Interrupted {
-		entry, ok := byItem[itemID]
-		if !ok {
-			continue
-		}
-		if unit, has := progress[entry.NodeID]; has && surface(entry, unit.SessionID) {
-			continue
-		}
-		addInterrupted(entry.NodeID)
-	}
-	recovery.Resume.Interrupted = interrupted
+	recovery.Resume.Interrupted = units.Interrupted
 	return recovery, nil
 }
 
