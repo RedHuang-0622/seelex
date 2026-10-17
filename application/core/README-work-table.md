@@ -90,7 +90,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   `WorkTableRowsFor` 才取得到行（不是该口径的会话取到空集 ⇒ I6 退场、什么都不落）。
 - **按需读取面（M4）**：插件技能条目 `plugins/default/project-board/SKILL.md`（只有 name +
   description 进技能目录）+ 只读工具 `project_board_read`（`registry.RegisterProjectBoardReadTool`，
-  **只在 enabled 时注册**；取数在 `backend/engine/assemble/runtime_project_board_read.go`，有界、越界显式报错）。
+  **只在 enabled 时注册**；取数在 `middle/view/board/read.go`（P21-11 归位），有界、越界显式报错）。
 
 契约：`docs/arch/seelex-project-board.md`。
 

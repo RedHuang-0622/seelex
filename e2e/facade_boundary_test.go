@@ -311,7 +311,7 @@ var frontendDirectImportAllowList = map[string][]string{
 		"github.com/RedHuang-0622/seelex/contract/dto",
 		"github.com/RedHuang-0622/seelex/tui/splash",
 	},
-	"./application/console": {
+	"./console": {
 		"github.com/RedHuang-0622/seelex/application",
 		// D-M1-7：console 尚未搬出 application/（plan §2.1 计划搬 console/），
 		// 搬迁时随 §2.10 的 seelebridge 解散一并收口。

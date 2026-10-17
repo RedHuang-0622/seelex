@@ -60,6 +60,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T)`
 - `func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T)`
+- `func TestReActBudgetFinalizationPromptSummarizesBudgetWork(t *testing.T)` — TestReActBudgetFinalizationPromptSummarizesBudgetWork 钉住用户裁决的 P2 语义：
 - `func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T)`
 - `func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T)`
 - `func TestChatPublishesSnapshotWithoutUI(t *testing.T)`

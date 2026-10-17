@@ -58,7 +58,7 @@
 | [`../middle/protocol/event/`](../middle/protocol/event/README.md) | 有序事件封装、订阅和 fan-out（M5-R3 迁出 `application/event/`）。 |
 | ~~`approval/`~~ | 异步审批已按 plan §2.8 归位到 [`backend/limit/approval/`](../backend/limit/approval/README.md)（M2-C）；端口形状在 [`contract/approval.go`](../contract/approval.go)。 |
 | [`prompt/`](prompt/README.md) | PromptStack 与 Effort 策略。 |
-| [`console/`](console/README.md) | backend 诊断前端共享的控制台输出与命令解析。 |
+| [`console/`](../console/README.md) | backend 诊断前端共享的控制台输出与命令解析（已顶层化为 `console/`，与 gui/tui 平级）。 |
 | [`core/`](core/README.md) | Service 用例、聊天状态机、命令、session/project 作用域和工具事件。 |
 
 契约层已于 2026-10-16 按

@@ -56,7 +56,7 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `BackfillAssistantReasoning` 的候选匹配对**工具轮事件**必须以「引擎侧正文」为准
 ——事件侧正文现在是归位来的说明文本，若仍要求内容相等，推理草稿会静默失配、
 跨轮字节在 msg#1 分叉（研究文档 §7.8）。同一「事后改写」家族的其他来源与收口进度以
-`context_runtime/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
+`backend/engine/context/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
 状态）。
 
 ## 冷加载会话的 `/compact`：当场压缩，不再只登记（2026-09-24）
@@ -73,7 +73,7 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 （伪造会把"有人在跑这个会话"写进可见面），但落成了"只登记"，等于把用户明确要求的
 压缩推迟到他自己再发一条消息。
 
-**改法**：新增**会话级维护身份**（`task_context/session_context_maintenance.go`）：
+**改法**：新增**会话级维护身份**（`backend/engine/task/session_context_maintenance.go`）：
 `BeginSessionContextMaintenanceLocked` 给这类会话开一个带前缀的维护 `RequestID`
 （`session-maintenance:<sessionID>`），没有任务状态时按会话自己的事实（最后一条真实
 用户输入作 objective）建一份上下文状态，状态标记 `idle`；`CompactContextNow` 用它跑

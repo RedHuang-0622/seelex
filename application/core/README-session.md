@@ -73,7 +73,7 @@
    `transitionForSession` 一律回退视图 key，所以「一次点击排在运行中会话之后」会连带
    冻住所有会话的 resume/unload 与 ambient 提交。审查生命周期方法时先问：锁内有没有
    可能等另一会话引擎的调用？
-5. 复现与回归：`session_running_idle_submit_test.go`（草稿显式提交物化、运行中会话
+5. 复现与回归：原 `session_running_idle_submit_test.go` 已删除，用例散在 `session_draft_*` 与 `service_test.go`（草稿显式提交物化、运行中会话
    不挡新建会话）+ `session_submit_restoring_test.go`（restoring 期延后提交）。
 
 ## 会话上下文存储的挂接（2026-10-04）

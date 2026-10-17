@@ -28,7 +28,7 @@
   `TestToolNarrationStaysWithOwningIteration`、`TestConcurrentSessionsKeepOwnContent`。
 - 空工具结果（`result == ""`）在 provider 投影里**保持为空**：wire 上本来就是空正文，
   补 `MissingHistoryContent` 会让下一轮重投影与已发出字节分叉（2026-09-12 修复；
-  见 `context_runtime/history.go` 的 `RepairEmptyHistoryContent` 与
+  见 `backend/engine/context/history.go` 的 `RepairEmptyHistoryContent` 与
   `TestContextPrefixInvariant_EmptyToolResult`）。
 - 快照截断链两端都在本卷：实时路径 `boundToolResultForSnapshot`（超
   `limits.snapshot_tool_output_chars`，默认 8000 字符、按 rune 边界安全切）只把预览

@@ -10,7 +10,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/console"
 	"github.com/RedHuang-0622/seelex/application/core"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
@@ -20,6 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
+	"github.com/RedHuang-0622/seelex/console"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
