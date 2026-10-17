@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 会话粒度持久化（thin-wrapper-session-design.md §2）：原子单位 = session，
@@ -20,80 +21,36 @@ import (
 // 注意：本包不得 import seelex/session（session 依赖本包，反向会成环）；
 // 本文件定义存储侧类型，seelex/session 以类型别名暴露为 StorePort 契约。
 
-// Kind 是会话种类（M2 K_i）。
-type Kind string
-
-const (
-	KindMain     Kind = "main"
-	KindSubagent Kind = "subagent"
+// 会话粒度形状的唯一事实源在 contract/dto（store 只做持久化与词表别名）。
+// 同一份形状被 store / session 域 / application / 前端读面消费；放在契约层
+// 让 session 域迁入中间层时不再被迫 import store。
+type (
+	Kind          = dto.SessionRecordKind
+	Status        = dto.SessionRecordStatus
+	Record        = dto.SessionRecord
+	Binding       = dto.SessionBinding
+	ToolResultRef = dto.SessionToolResultRef
+	ContextStack  = dto.SessionContextStack
+	SessionInfo   = dto.SessionInfo
 )
 
-// Status 是会话可见状态（M2 status_i；热/冷由 HasSession 驱动）。
-type Status string
-
 const (
-	StatusDraft            Status = "draft"
-	StatusIdle             Status = "idle"
-	StatusRunning          Status = "running"
-	StatusQueued           Status = "queued"
-	StatusAwaitingApproval Status = "awaiting_approval"
-	StatusArchived         Status = "archived"
+	KindMain     = dto.SessionRecordKindMain
+	KindSubagent = dto.SessionRecordKindSubagent
+
+	StatusDraft            = dto.SessionRecordStatusDraft
+	StatusIdle             = dto.SessionRecordStatusIdle
+	StatusRunning          = dto.SessionRecordStatusRunning
+	StatusQueued           = dto.SessionRecordStatusQueued
+	StatusAwaitingApproval = dto.SessionRecordStatusAwaitingApproval
+	StatusArchived         = dto.SessionRecordStatusArchived
 )
-
-// Record 是会话粒度记录（session:<id> → SessionRecord）。
-type Record struct {
-	ID         string    `json:"id"`
-	Kind       Kind      `json:"kind"`
-	ParentID   string    `json:"parent_id,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	Status     Status    `json:"status"`
-	Checkpoint string    `json:"checkpoint,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at,omitempty"`
-	Binding    Binding   `json:"binding,omitempty"`
-}
-
-// Binding 是会话绑定（B_i：workspaceID / parent / kind）。
-type Binding struct {
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
-	Kind        Kind   `json:"kind,omitempty"`
-}
 
 // TranscriptEvent 是会话事件日志条目（session:<id>:transcript）。
 type TranscriptEvent struct {
 	Seq     uint64          `json:"seq"`
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
-// ToolResultRef 是工具结果归档引用（session:<id>:toolresults）。
-type ToolResultRef struct {
-	Ref  string `json:"ref"`
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-}
-
-// ContextStack 是会话上下文四栈（session:<id>:context；C_i）。
-type ContextStack struct {
-	Plan    []string `json:"plan,omitempty"`
-	Task    []string `json:"task,omitempty"`
-	Skill   []string `json:"skill,omitempty"`
-	Compact []string `json:"compact,omitempty"`
-}
-
-// SessionInfo 是项目索引中的会话摘要（project:<p>:sessions）。
-type SessionInfo struct {
-	ID       string `json:"id"`
-	Title    string `json:"title,omitempty"`
-	Kind     Kind   `json:"kind"`
-	Status   Status `json:"status"`
-	ParentID string `json:"parent_id,omitempty"`
-	// UpdatedAt / TokenCount 取自会话 manifest（每次提交即刷新的权威时间与
-	// 计费面）。目录枚举摘要必须携带它们——侧栏/目录行据此渲染真实日期与
-	// token 数；一旦在此丢弃成零值，前端会把 0001-01-01T00:00:00Z 当占位
-	// 日期显示在每条会话上（9.3.2 粒度迁移回归）。
-	UpdatedAt  time.Time `json:"updated_at,omitempty"`
-	TokenCount int       `json:"token_count,omitempty"`
 }
 
 // SessionGranularStore 是会话粒度存储实现（消费端口定义在

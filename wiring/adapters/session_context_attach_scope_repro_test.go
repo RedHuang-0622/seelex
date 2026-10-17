@@ -9,7 +9,6 @@ import (
 	"time"
 
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -63,7 +62,7 @@ func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 		t.Fatalf("NewMainSessionWithID: %v", err)
 	}
 
-	port := SessionPort{Manager: session.NewManager().WithRouter(router), Runtime: runtime}
+	port := SessionPort{Manager: NewSessionManager().WithRouter(router), Runtime: runtime}
 	// wiring/bootstrap 装配点：会话 → 绑定项目的解析器（workspace.Repo，权威）。
 	port.SetWorkspaceResolver(func(sid string) string {
 		if sid == sessionID {

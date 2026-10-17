@@ -6,7 +6,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -33,7 +32,7 @@ func TestSessionPermissionTierRoundTrip(t *testing.T) {
 	}
 
 	port := SessionPort{
-		Manager: session.NewManager().WithRouter(router),
+		Manager: NewSessionManager().WithRouter(router),
 		Meta:    store.NewSessionMetaStore(router),
 	}
 	port.SetWorkspaceResolver(func(string) string { return projectID })

@@ -112,8 +112,8 @@ go test ./e2e/ -count=1
 
 ### application.go
 
-- `func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *session.Manager`
-- `func InitApplication( eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *session.Manager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval *application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
+- `func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *adapters.SessionManager`
+- `func InitApplication( eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *adapters.SessionManager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval *application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
 
 ### bootstrap.go
 

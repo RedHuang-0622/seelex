@@ -1,34 +1,10 @@
 package session
 
 import (
-	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
-
-	seelesession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
 )
-
-// 编译期断言：EnginePort 契约可被具体实现满足（接口先行）。
-var _ EnginePort = (*fakeEnginePort)(nil)
-
-// fakeEnginePort 是 EnginePort 的测试桩（空实现，仅供编译期契约断言）。
-type fakeEnginePort struct{}
-
-func (fakeEnginePort) HasSession(string) bool { return false }
-func (fakeEnginePort) NewMainSessionWithID(string, *seelesession.LoopHooks) (*seelesession.Session, error) {
-	return nil, errors.New("not implemented")
-}
-func (fakeEnginePort) NewSubagentSessionWithID(string, *seelesession.LoopHooks) (*seelesession.Session, error) {
-	return nil, errors.New("not implemented")
-}
-func (fakeEnginePort) ChatStreamFor(string, context.Context, string, func(string)) (string, error) {
-	return "", errors.New("not implemented")
-}
-func (fakeEnginePort) UnloadSession(string) error                             { return nil }
-func (fakeEnginePort) PrepareMainSessionHistory(string, []types.Message) bool { return false }
 
 // TestSessionUnitComponents（T2.1）：元组契约 S_i=(id,K,parent,E,V,Q,C,B,status)。
 func TestSessionUnitComponents(t *testing.T) {

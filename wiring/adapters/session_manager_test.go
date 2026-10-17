@@ -1,4 +1,4 @@
-package session
+package adapters
 
 import (
 	"errors"
@@ -11,16 +11,16 @@ import (
 // ── 装配薄壳测试（存储桥已迁移到 SessionGranularStore，见
 // store/session_granular_test.go）──────────────────────
 
-func TestNewManager(t *testing.T) {
-	m := NewManager()
+func TestNewSessionManager(t *testing.T) {
+	m := NewSessionManager()
 	if m == nil {
-		t.Fatal("NewManager returned nil")
+		t.Fatal("NewSessionManager returned nil")
 	}
 	if m.Router() != nil {
-		t.Fatal("fresh Manager must have nil router")
+		t.Fatal("fresh SessionManager must have nil router")
 	}
 	if m.Workspace() != "" {
-		t.Fatal("fresh Manager workspace must be empty")
+		t.Fatal("fresh SessionManager workspace must be empty")
 	}
 	// 默认未注入回调
 	if err := m.SaveCurrent("s1"); err == nil {
@@ -31,10 +31,10 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
-// TestSaveCommitWorkspaceRoundTrip 压缩归档写通道的端到端键一致性：经 Manager
+// TestSaveCommitWorkspaceRoundTrip 压缩归档写通道的端到端键一致性：经 SessionManager
 // 显式作用域写面落盘的 commit，必须能被读面按同一个 (项目, 会话, ref) 键读回来
 // （read_compressed_turn 走的就是 Router.LoadToolResultWorkspace）。此前装配方
-// 把 Manager 注给压缩归档器，但 Manager 没有这个写方法 → 类型断言失败 →
+// 把 SessionManager 注给压缩归档器，但 SessionManager 没有这个写方法 → 类型断言失败 →
 // 压缩原文一律写不出去（read_compressed_turn 永远读不到）。
 func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 	root := t.TempDir()
@@ -44,7 +44,7 @@ func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = router.Close() })
 
-	manager := NewManager().WithRouter(router)
+	manager := NewSessionManager().WithRouter(router)
 	// 真实顺序：会话先落盘（空 commit 建索引条目），压缩归档再追加原文。
 	if err := router.SaveCommitWorkspace("", "sess-1", store.Commit{}); err != nil {
 		t.Fatalf("init commit: %v", err)
@@ -68,7 +68,7 @@ func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 // TestSaveCommitWorkspaceWithoutRouterFailsLoud 未装配 Router 时显式报错：
 // 宁可失败，也不静默丢掉压缩原文。
 func TestSaveCommitWorkspaceWithoutRouterFailsLoud(t *testing.T) {
-	if err := NewManager().SaveCommitWorkspace("", "sess-1", store.Commit{}); err == nil {
+	if err := NewSessionManager().SaveCommitWorkspace("", "sess-1", store.Commit{}); err == nil {
 		t.Fatal("SaveCommitWorkspace without a router must fail loudly")
 	}
 }
@@ -81,7 +81,7 @@ func TestWithRouterAndWorkspace(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = router.Close() })
 
-	m := NewManager().WithRouter(router)
+	m := NewSessionManager().WithRouter(router)
 	if m.Router() == nil {
 		t.Fatal("WithRouter must install router")
 	}
@@ -95,7 +95,7 @@ func TestWithRouterAndWorkspace(t *testing.T) {
 }
 
 func TestInjectSaveLoad(t *testing.T) {
-	m := NewManager()
+	m := NewSessionManager()
 	saveCalled := false
 	loadCalled := false
 	m.InjectSaveLoad(
@@ -114,7 +114,7 @@ func TestInjectSaveLoad(t *testing.T) {
 }
 
 func TestSaveCurrent_WithoutInjection(t *testing.T) {
-	m := NewManager()
+	m := NewSessionManager()
 	err := m.SaveCurrent("s1")
 	if err == nil || err.Error() != "session: saveFn not injected" {
 		t.Fatalf("unexpected error: %v", err)
@@ -122,7 +122,7 @@ func TestSaveCurrent_WithoutInjection(t *testing.T) {
 }
 
 func TestResume_WithoutInjection(t *testing.T) {
-	m := NewManager()
+	m := NewSessionManager()
 	err := m.Resume("s1")
 	if err == nil || err.Error() != "session: loadFn not injected" {
 		t.Fatalf("unexpected error: %v", err)
@@ -130,7 +130,7 @@ func TestResume_WithoutInjection(t *testing.T) {
 }
 
 func TestSaveCurrent_SaveFnError(t *testing.T) {
-	m := NewManager()
+	m := NewSessionManager()
 	m.InjectSaveLoad(
 		func(id string) error { return errors.New("disk full") },
 		nil,
@@ -142,7 +142,7 @@ func TestSaveCurrent_SaveFnError(t *testing.T) {
 }
 
 func TestResume_LoadFnError(t *testing.T) {
-	m := NewManager()
+	m := NewSessionManager()
 	m.InjectSaveLoad(
 		nil,
 		func(id string) error { return errors.New("not found") },

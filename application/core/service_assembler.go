@@ -13,11 +13,11 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 	"time"
 )

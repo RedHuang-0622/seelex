@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	selexsession "github.com/RedHuang-0622/seelex/session"
+	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"testing"
 	"time"

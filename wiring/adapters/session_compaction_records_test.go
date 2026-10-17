@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -53,7 +52,7 @@ func TestSessionPortCompactionRecordsRoundTrip(t *testing.T) {
 			},
 		}},
 	}
-	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	port := SessionPort{Manager: NewSessionManager().WithRouter(router)}
 	port.SetWorkspaceResolver(func(string) string { return projectID })
 	if err := port.SaveSessionSnapshotWorkspace(projectID, sessionID, nil, record, nil, nil); err != nil {
 		t.Fatalf("SaveSessionSnapshotWorkspace: %v", err)
@@ -68,7 +67,7 @@ func TestSessionPortCompactionRecordsRoundTrip(t *testing.T) {
 	}
 
 	// ── 进程重启：同一份存储上重建端口 ────────────────────────────────────
-	restarted := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	restarted := SessionPort{Manager: NewSessionManager().WithRouter(router)}
 	restarted.SetWorkspaceResolver(func(string) string { return projectID })
 	facts, err := restarted.LoadCompactionRecordsWorkspace(projectID, sessionID)
 	if err != nil {

@@ -13,7 +13,7 @@ package core
 import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // metaDeps 装配展示元数据用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。

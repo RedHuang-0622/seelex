@@ -23,8 +23,8 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // SessionInputIndex 返回目标会话的**全量**用户输入索引（含未加载的早期轮次）。

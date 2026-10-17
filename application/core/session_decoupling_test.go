@@ -6,7 +6,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"reflect"
 	"testing"
 	"time"

@@ -7,7 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring"
@@ -15,8 +14,8 @@ import (
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
-func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *session.Manager {
-	manager := session.NewManager().WithRouter(router)
+func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *adapters.SessionManager {
+	manager := adapters.NewSessionManager().WithRouter(router)
 	manager.InjectSaveLoad(
 		func(sessionID string) error { return router.Save(sessionID, eng.RawHistory()) },
 		func(sessionID string) error {
@@ -32,7 +31,7 @@ func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *session
 
 func InitApplication(
 	eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager,
-	sessions *session.Manager, skills *skill.Registry,
+	sessions *adapters.SessionManager, skills *skill.Registry,
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,
 	// storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录

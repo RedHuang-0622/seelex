@@ -408,6 +408,33 @@ go test ./wiring/adapters -count=1
 - `func sessionScopeProjects(t *testing.T, storageRoot string) []string` — sessionScopeProjects 返回存储根下**含会话目录**的项目目录名（project-<hash>）。
 - `func sameStrings(a, b []string) bool`
 
+### session_manager.go
+
+- `func NewSessionManager() *SessionManager` — NewSessionManager 构造空装配薄壳（Router 经 WithRouter 装配）。
+- `func (m *SessionManager) WithRouter(router *store.Router) *SessionManager` — WithRouter 安装会话存储路由（原子、可配置仓库；生产装配点）。
+- `func (m *SessionManager) Router() *store.Router` — Router 返回底层存储路由（context 模块装配等用途；未装配时 nil）。
+- `func (m *SessionManager) SetWorkspace(workspaceID string)` — SetWorkspace 设置当前 workspace 写作用域。
+- `func (m *SessionManager) Workspace() string` — Workspace 返回当前 workspace 写作用域。
+- `func (m *SessionManager) StorageConfig() (store.Config, error)` — StorageConfig 返回当前存储配置。
+- `func (m *SessionManager) TestStorage(ctx context.Context, config store.Config) error` — TestStorage 试探一份存储配置。
+- `func (m *SessionManager) ConfigureStorage(ctx context.Context, config store.Config) error` — ConfigureStorage 切换存储配置。
+- `func (m *SessionManager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error)` — InjectSaveLoad 注入保存/加载回调（由 wiring/bootstrap 装配时传入）。
+- `func (m *SessionManager) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error` — SaveCommitWorkspace 在显式项目作用域下把一个 commit 追加进会话存储
+- `func (m *SessionManager) SaveCurrent(sessionID string) error` — SaveCurrent 持久化当前会话。
+- `func (m *SessionManager) Resume(sessionID string) error` — Resume 恢复历史会话。
+
+### session_manager_test.go
+
+- `func TestNewSessionManager(t *testing.T)`
+- `func TestSaveCommitWorkspaceRoundTrip(t *testing.T)` — TestSaveCommitWorkspaceRoundTrip 压缩归档写通道的端到端键一致性：经 SessionManager
+- `func TestSaveCommitWorkspaceWithoutRouterFailsLoud(t *testing.T)` — TestSaveCommitWorkspaceWithoutRouterFailsLoud 未装配 Router 时显式报错：
+- `func TestWithRouterAndWorkspace(t *testing.T)`
+- `func TestInjectSaveLoad(t *testing.T)`
+- `func TestSaveCurrent_WithoutInjection(t *testing.T)`
+- `func TestResume_WithoutInjection(t *testing.T)`
+- `func TestSaveCurrent_SaveFnError(t *testing.T)`
+- `func TestResume_LoadFnError(t *testing.T)`
+
 ### session_setting_ports_test.go
 
 - `func TestSessionPermissionTierRoundTrip(t *testing.T)` — TestSessionPermissionTierRoundTrip：会话级权限档位设置经适配层落到真实存储

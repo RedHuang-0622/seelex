@@ -6,7 +6,7 @@
 控制字符的转义），再取首个**括号平衡**的对象；不改字段名、不补字段、不猜 kind，
 语义校验仍在各自的域（例如 goal 域的 `TLDirective.Validate()`）。
 
-主要调用方：`seelebridge` 根包的 `runtime_goal_tl.go`（解析 ADVISOR 裁决）与
+主要调用方：角色提示词优化与历史 goal 裁决解析（TL 已删除，历史见 m5-record §58）与
 `runtime_role_prompt.go`（解析员工提示词优化结果）。
 
 物理位置：2026-10-16 按

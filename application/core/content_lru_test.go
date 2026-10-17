@@ -18,7 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"io/fs"
 	"sort"
 	"strings"

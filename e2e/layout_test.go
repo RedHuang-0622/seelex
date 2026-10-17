@@ -71,7 +71,7 @@ var repositoryModules = []string{
 	// 归位 tool 板块（plan §2.6）。
 	"backend/tool/reference",
 	"backend/engine/context/seelectx/merger", "backend/engine/context/seelectx/provider", "backend/engine/context/seelectx/search", "backend/engine/context/seelectx/snapshot",
-	"session", "store", "store/root", "store/schedule", "store/workspace",
+	"middle/switch/sessionusecase", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
 	"wiring/config",
 	"wiring/registry",

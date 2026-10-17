@@ -18,7 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // SubagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。

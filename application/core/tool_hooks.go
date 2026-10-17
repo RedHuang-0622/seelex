@@ -8,8 +8,8 @@ import (
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
-	selexsession "github.com/RedHuang-0622/seelex/session"
 	"sync"
 	"time"
 )

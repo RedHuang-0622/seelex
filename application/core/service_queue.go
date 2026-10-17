@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // 排队输入的编辑面（调换顺序 / 撤回到输入框）。

@@ -14,32 +14,30 @@ import (
 	"strings"
 	"sync"
 
-	seelesession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 会话粒度类型以 store 为单一事实源（存储模块定义，端口层别名；
 // store 不得反向依赖本包，见 session_granular.go 说明）。
 type (
-	SessionStatus  = store.Status
-	SessionRecord  = store.Record
-	ToolResultRef  = store.ToolResultRef
-	ContextStack   = store.ContextStack
-	SessionInfo    = store.SessionInfo
-	SessionBinding = store.Binding
+	SessionStatus  = dto.SessionRecordStatus
+	SessionRecord  = dto.SessionRecord
+	ToolResultRef  = dto.SessionToolResultRef
+	ContextStack   = dto.SessionContextStack
+	SessionInfo    = dto.SessionInfo
+	SessionBinding = dto.SessionBinding
 )
 
 const (
-	KindMain               = store.KindMain
-	KindSubagent           = store.KindSubagent
-	StatusDraft            = store.StatusDraft
-	StatusIdle             = store.StatusIdle
-	StatusRunning          = store.StatusRunning
-	StatusQueued           = store.StatusQueued
-	StatusAwaitingApproval = store.StatusAwaitingApproval
-	StatusArchived         = store.StatusArchived
+	KindMain               = dto.SessionRecordKindMain
+	KindSubagent           = dto.SessionRecordKindSubagent
+	StatusDraft            = dto.SessionRecordStatusDraft
+	StatusIdle             = dto.SessionRecordStatusIdle
+	StatusRunning          = dto.SessionRecordStatusRunning
+	StatusQueued           = dto.SessionRecordStatusQueued
+	StatusAwaitingApproval = dto.SessionRecordStatusAwaitingApproval
+	StatusArchived         = dto.SessionRecordStatusArchived
 )
 
 // EngineHandle 是引擎/loop 句柄（E_i，opaque：seelebridge bundle 持有
@@ -162,27 +160,6 @@ func (queue *InputQueue) Move(from, to int) bool {
 	return true
 }
 
-// EnginePort 是引擎/loop 能力端口（会话性归 Seele，seelebridge 实现）。
-// 热 = HasSession(id) 为真（bundle 存活，attach 视图即可）；冷 =
-// NewMainSessionWithID/NewSubagentSessionWithID 重建 bundle 并 seed。
-type EnginePort interface {
-	// HasSession 报告目标会话引擎是否已实例化（热/冷判定）。
-	HasSession(sessionID string) bool
-	// NewMainSessionWithID 以显式会话 ID 重建主会话 bundle。
-	NewMainSessionWithID(sessionID string, hooks *seelesession.LoopHooks) (*seelesession.Session, error)
-	// NewSubagentSessionWithID 以显式会话 ID 重建子代理会话 bundle
-	// （plan 节点 = 独立 SessionUnit，own loop/视图/历史）。
-	NewSubagentSessionWithID(sessionID string, hooks *seelesession.LoopHooks) (*seelesession.Session, error)
-	// ChatStreamFor 向指定会话引擎提交一次流式对话（显式 sid 路由，
-	// 防止切换串写）。
-	ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)
-	// UnloadSession 释放指定会话的引擎实例（unload 后重开走 cold_load）。
-	UnloadSession(sessionID string) error
-	// PrepareMainSessionHistory 把应用装配的 provider history 交给目标
-	// 会话的 DurableHistory（下次 ChatStream 装载）。
-	PrepareMainSessionHistory(sessionID string, messages []types.Message) bool
-}
-
 // SessionMetaPort 是会话端口的可选扩展：读写会话展示元数据（置顶/别名/排序位，
 // 持久化在项目级 meta blob）。未实现时应用层返回明确错误，目录照常枚举（元数据
 // 取零值），因此测试桩与最小宿主不受影响。
@@ -207,7 +184,7 @@ type SessionSettingPort interface {
 // 热/冷由 EnginePort.HasSession 判定（loaded），薄状态机只维护可见状态。
 type SessionUnit struct {
 	ID       string
-	Kind     store.Kind
+	Kind     dto.SessionRecordKind
 	ParentID string
 	Title    string
 
@@ -291,7 +268,7 @@ func NewDraftUnit() *SessionUnit {
 }
 
 // WithKind 设置会话种类（main/subagent）。
-func WithKind(kind store.Kind) func(*SessionUnit) {
+func WithKind(kind dto.SessionRecordKind) func(*SessionUnit) {
 	return func(unit *SessionUnit) {
 		unit.Kind = kind
 		unit.Binding.Kind = kind

@@ -237,7 +237,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search",
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot",
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens",
-	"github.com/RedHuang-0622/seelex/session",
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase",
 	"github.com/RedHuang-0622/seelex/store",
 	// M3-S2：会话存储的基座机制（数据根锁 / 进程存活 / 共享读 / 原子发布 / 残尾 /
 	// Settings）从 store 抽出。同一份代码换落点，属"新模块可 +1"，且自身

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -29,7 +28,7 @@ func TestSessionPortTitleRoundTrip(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	port := SessionPort{Manager: NewSessionManager().WithRouter(router)}
 	port.SetWorkspaceResolver(func(string) string { return projectID })
 	if err := port.SaveSessionTitle(sessionID, "适配器标题"); err != nil {
 		t.Fatalf("SaveSessionTitle: %v", err)
@@ -67,7 +66,7 @@ func TestSessionPortFirstUserInputs(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	port := SessionPort{Manager: NewSessionManager().WithRouter(router)}
 	port.SetWorkspaceResolver(func(string) string { return projectID })
 
 	inputs, hasLayout, err := port.FirstUserInputs(projectID, sessionID, store.FirstUserInputProbeRows)

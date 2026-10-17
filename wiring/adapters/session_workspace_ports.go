@@ -16,7 +16,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 )
@@ -179,7 +178,7 @@ func (port SkillPort) All() []model.SkillInfo {
 }
 
 type SessionPort struct {
-	Manager *session.Manager
+	Manager *SessionManager
 	Runtime *assemble.Runtime
 	// workspaceResolver 解析会话绑定的项目（workspace.Repo 装配注入；
 	// Delete/LoadHistory 等会话级操作按归属项目落键，避免删错/读错作用域）。
@@ -278,7 +277,7 @@ func (port *SessionPort) SetProjectSource(source func() []string) {
 }
 
 // granular 返回会话粒度存储入口（Router 为物理布局，暴露层为
-// session:<id> 五片 API；session.Manager 不再承担存储桥）。
+// session:<id> 五片 API；adapters.SessionManager 不再承担存储桥）。
 func (port SessionPort) granular() *store.SessionGranularStore {
 	st := store.NewSessionGranularStore(port.Manager.Router())
 	st.SetWorkspaceResolver(port.workspaceResolver)

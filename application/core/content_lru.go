@@ -29,7 +29,7 @@ package core
 import (
 	"fmt"
 	"github.com/RedHuang-0622/seelex/middle/residency"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
 )
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // P20 回归：超限收敛的**快照必须不别名**会话使用序的底层数组。
