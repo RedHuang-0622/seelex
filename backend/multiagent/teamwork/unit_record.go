@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 会话记录的 status 词表（`NodeSessionRecord.Status` 的取值面）。只有"在跑"与两种终态：
@@ -51,4 +52,48 @@ func UnitNodeID(request WorkerRequest) string {
 		return SceneNodeID(request.Role, itemID)
 	}
 	return strings.TrimSpace(request.Role)
+}
+
+// UnitRecordKey 是一个 teammate 单元的身份：现场 nodeID + 角色会话 + 这一轮的目标，
+// 以及记录快照里那一格身份要用的三件事（角色 / 插件装配 / 系统提示）。
+//
+// SystemPrompt 由**装配那一刻**填（宿主算出来的那一份，含中断恢复说明），不在
+// `UnitRecordKeyFor` 里拼：那是装配层的事实，不是派发载荷里的事实。
+type UnitRecordKey struct {
+	NodeID        string
+	RoleSessionID string
+	Goal          string
+	Role          string
+	Plugins       []string
+	SystemPrompt  string
+}
+
+// UnitRecordKeyFor 从一轮作业的载荷取出记录身份（NodeID 口径见 `UnitNodeID`）。
+// SystemPrompt 不在这里填（它由宿主的装配面在开跑前补上）。
+func UnitRecordKeyFor(request WorkerRequest) UnitRecordKey {
+	return UnitRecordKey{
+		NodeID:        UnitNodeID(request),
+		RoleSessionID: strings.TrimSpace(request.RoleSessionID),
+		Goal:          strings.TrimSpace(request.Goal),
+		Role:          strings.TrimSpace(request.Role),
+		Plugins:       append([]string(nil), request.Plugins...),
+	}
+}
+
+// TeammateUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
+// （Kind = teammate / Role / Plugins / SystemPrompt）。
+//
+// 它只写自己知道的事实，别的一概不动：子代理那一环在内层，看到身份已经有了就不再覆盖
+// （与 `subagent.SubagentUnitRecordLink` 同一种"责任链上的身份环"形状）。
+func TeammateUnitRecordLink(key UnitRecordKey) store.NodeSessionRecordLink {
+	identity := store.NodeUnitRecord{
+		Kind:         string(workunit.KindTeammate),
+		Role:         strings.TrimSpace(key.Role),
+		Plugins:      append([]string(nil), key.Plugins...),
+		SystemPrompt: key.SystemPrompt,
+	}
+	return func(record store.NodeSessionRecord) store.NodeSessionRecord {
+		record.Unit = identity
+		return record
+	}
 }

@@ -4,10 +4,12 @@ package teamwork
 // `backend/engine/assemble/workunit_team.go` 搬进本域）。
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestUnitStatusWordsComeFromTheContract：记录那一格的词只能来自对外契约（记录词 = wire 词）——
@@ -54,5 +56,49 @@ func TestUnitNodeIDFollowsTheSceneNaming(t *testing.T) {
 	}
 	if got := UnitNodeID(WorkerRequest{}); got != "" {
 		t.Fatalf("什么都没有时回空串：%q", got)
+	}
+}
+
+// TestUnitRecordKeyForFillsIdentity：记录身份从作业载荷取——nodeID 口径见 UnitNodeID、
+// 四个标量 trim、Plugins 拷贝（不共享底层切片）。
+func TestUnitRecordKeyForFillsIdentity(t *testing.T) {
+	request := WorkerRequest{
+		Role: " exec ", RoleSessionID: " role-exec ", Goal: " 实现渲染件 ",
+		WorkItemID: "wi-1", Worktree: WorkItemWorktreeName("exec", "wi-1"),
+		Plugins: []string{"cad"},
+	}
+	key := UnitRecordKeyFor(request)
+	if key.NodeID != "exec-wi-1" || key.RoleSessionID != "role-exec" || key.Goal != "实现渲染件" || key.Role != "exec" {
+		t.Fatalf("记录身份 = %+v", key)
+	}
+	if len(key.Plugins) != 1 || key.Plugins[0] != "cad" {
+		t.Fatalf("插件集合应当原样搬运：%+v", key.Plugins)
+	}
+	request.Plugins[0] = "mutated"
+	if key.Plugins[0] != "cad" {
+		t.Fatal("插件集合必须拷贝（不能与载荷共享底层切片）")
+	}
+	if key.SystemPrompt != "" {
+		t.Fatalf("SystemPrompt 由装配时刻补，不该在这里填：%q", key.SystemPrompt)
+	}
+}
+
+// TestTeammateUnitRecordLinkWritesTheIdentity：写链上 teammate 那一环把 Kind/Role/Plugins/
+// SystemPrompt 写进记录（其余字段原样）；身份块是拷贝（改 key 不影响已产出的 link 行为）。
+func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T) {
+	key := UnitRecordKey{Role: " exec ", Plugins: []string{"cad"}, SystemPrompt: "系统提示"}
+	link := TeammateUnitRecordLink(key)
+	record := store.NodeSessionRecord{NodeID: "exec-wi-1", Status: UnitStatusRunning}
+	got := link(record)
+	if got.NodeID != "exec-wi-1" || got.Status != UnitStatusRunning {
+		t.Fatalf("身份环不该动别的字段：%+v", got)
+	}
+	if got.Unit.Kind != string(workunit.KindTeammate) || got.Unit.Role != "exec" ||
+		got.Unit.SystemPrompt != "系统提示" || len(got.Unit.Plugins) != 1 || got.Unit.Plugins[0] != "cad" {
+		t.Fatalf("身份块 = %+v", got.Unit)
+	}
+	key.Plugins[0] = "mutated"
+	if strings.Join(got.Unit.Plugins, ",") != "cad" {
+		t.Fatal("身份块应当拷贝插件集合")
 	}
 }

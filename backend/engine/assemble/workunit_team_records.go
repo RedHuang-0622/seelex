@@ -104,22 +104,9 @@ func (r *Runtime) teamUnitRecordWriter(key teamUnitRecordKey) *store.NodeSession
 	return r.unitRecordWriter.With(teamUnitUnitRecordLink(key))
 }
 
-// teamUnitUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
-// （Kind = teammate / Role / Plugins / SystemPrompt）。
-//
-// 它只写自己知道的事实，别的一概不动：子代理那一环在内层，看到身份已经有了就不再覆盖。
-func teamUnitUnitRecordLink(key teamUnitRecordKey) store.NodeSessionRecordLink {
-	identity := store.NodeUnitRecord{
-		Kind:         string(workunit.KindTeammate),
-		Role:         strings.TrimSpace(key.Role),
-		Plugins:      append([]string(nil), key.Plugins...),
-		SystemPrompt: key.SystemPrompt,
-	}
-	return func(record store.NodeSessionRecord) store.NodeSessionRecord {
-		record.Unit = identity
-		return record
-	}
-}
+// teamUnitUnitRecordLink 是团队域 `TeammateUnitRecordLink` 的同身份别名：写链上 teammate
+// 那一环（把这一层的身份写进记录）只有一份实现。
+var teamUnitUnitRecordLink = teamwork.TeammateUnitRecordLink
 
 // teamUnitWorktreeRecord 从 worktree 注册表取现场（**四栏全取**）。没有现场（降级共享主工作区）
 // 时返回零值：记录里那一格为空 = 这件事没有独立现场。

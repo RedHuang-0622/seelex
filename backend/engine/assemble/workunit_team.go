@@ -36,34 +36,15 @@ var (
 	teamUnitStatusFor     = teamwork.UnitStatusFor
 )
 
-// teamUnitRecordKey 是一个 teammate 单元的身份：现场 nodeID + 角色会话 + 这一轮的目标，
-// 以及记录快照里那一格身份要用的三件事（角色 / 插件装配 / 系统提示）。
-//
-// SystemPrompt 由**装配那一刻**填（`workerRoleRoundSpec` 算出来的那一份，含中断恢复说明），
-// 不在 `teamUnitKeyFor` 里拼：那是装配层的事实，不是派发载荷里的事实。
-type teamUnitRecordKey struct {
-	NodeID        string
-	RoleSessionID string
-	Goal          string
-	Role          string
-	Plugins       []string
-	SystemPrompt  string
-}
+// teamUnitRecordKey 是团队域 `UnitRecordKey` 的**同身份别名**（记录身份的形状随域走，
+// 既有签名与用例零改动）。SystemPrompt 仍由装配时刻填（那是装配层的事实）。
+type teamUnitRecordKey = teamwork.UnitRecordKey
 
 // teamUnitNodeID 是团队域 `UnitNodeID` 的同身份别名（单元身份的口径只有一份实现）。
 var teamUnitNodeID = teamwork.UnitNodeID
 
-// teamUnitKeyFor 从一轮作业的载荷取出记录身份（NodeID 的口径见 teamUnitNodeID）。
-// SystemPrompt 不在这里填（它由装配层在开跑前补上，见 teamUnitRecordKey）。
-func teamUnitKeyFor(request teamwork.WorkerRequest) teamUnitRecordKey {
-	return teamUnitRecordKey{
-		NodeID:        teamUnitNodeID(request),
-		RoleSessionID: strings.TrimSpace(request.RoleSessionID),
-		Goal:          strings.TrimSpace(request.Goal),
-		Role:          strings.TrimSpace(request.Role),
-		Plugins:       append([]string(nil), request.Plugins...),
-	}
-}
+// teamUnitKeyFor 是团队域 `UnitRecordKeyFor` 的同身份别名（NodeID 口径也随域走）。
+var teamUnitKeyFor = teamwork.UnitRecordKeyFor
 
 // ── 注册点：teammate 层 = 在父实现上注册 ────────────────────────────────
 
