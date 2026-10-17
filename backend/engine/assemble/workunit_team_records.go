@@ -74,17 +74,7 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 	if !ok {
 		return
 	}
-	record := store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
-		NodeID:        key.NodeID,
-		SessionID:     key.RoleSessionID,
-		MainSessionID: scope.SessionID,
-		Goal:          key.Goal,
-		Status:        status,
-		Summary:       workunit.ClipPreview(summary),
-		StagesJSON:    workunit.EncodeStages([]workunit.Stage{{Stage: stage, Preview: summary}}),
-		Worktree:      r.teamUnitWorktreeRecord(key.NodeID),
-	}
+	record := teamwork.UnitRecord(key, scope.SessionID, status, summary, stage, r.teamUnitWorktreeRecord(key.NodeID))
 	// 身份（Unit：Kind/Role/Plugins/SystemPrompt）**不在这里拼**：它是写链上 teammate 那一环
 	// 的事实（`teamUnitUnitRecordLink`），子代理那一环只填空缺。
 	if err := writer.Save(scope.ProjectID, scope.SessionID, record); err != nil {

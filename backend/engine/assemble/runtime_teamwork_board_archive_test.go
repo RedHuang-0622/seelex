@@ -340,12 +340,23 @@ func TestEveryTeamworkMutationHandlerRefreshesBoardArchive(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s 未找到（守卫失效：handler 被改名或搬走了？）", handler)
 		}
-		if !strings.Contains(body, "invalidateTeamworkBoard()") {
-			t.Fatalf("%s 成功后没有失效看板缓存：面板会静默陈旧（要等到下一个 team_* 才刷新）", handler)
+		// 两步可以直写，也可以走唯一的那条组合（afterTeamworkMutation）。组合本身
+		// 由下面的断言钉住，所以"改调组合"不是漏焊。
+		if strings.Contains(body, "afterTeamworkMutation(ctx)") {
+			continue
 		}
-		if !strings.Contains(body, "archiveTeamBoard(ctx)") {
-			t.Fatalf("%s 成功后没有刷新看板存档：重启后的快照会停在上一次动作之前", handler)
+		if !strings.Contains(body, "invalidateTeamworkBoard()") ||
+			!strings.Contains(body, "archiveTeamBoard(ctx)") {
+			t.Fatalf("%s 成功后必须同时失效看板缓存并刷新存档（直写或调 afterTeamworkMutation）", handler)
 		}
+	}
+	helper, ok := teamworkHandlerBody(text, "afterTeamworkMutation")
+	if !ok {
+		t.Fatal("afterTeamworkMutation 未找到（守卫失效：组合被改名或搬走了？）")
+	}
+	if !strings.Contains(helper, "invalidateTeamworkBoard()") ||
+		!strings.Contains(helper, "archiveTeamBoard(ctx)") {
+		t.Fatal("afterTeamworkMutation 必须同时失效看板缓存并刷新存档")
 	}
 }
 

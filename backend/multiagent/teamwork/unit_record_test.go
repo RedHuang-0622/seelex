@@ -102,3 +102,25 @@ func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T) {
 		t.Fatal("身份块应当拷贝插件集合")
 	}
 }
+
+// TestUnitRecordCarriesTheRoundFacts：记录形状只在域内拼一次——作用域、身份、状态、
+// 摘要裁剪、阶段编码与现场四栏都必须落到同一条记录上。
+func TestUnitRecordCarriesTheRoundFacts(t *testing.T) {
+	key := UnitRecordKey{NodeID: " exec-wi-1 ", RoleSessionID: " role-1 ", Goal: " 目标 "}
+	worktree := store.NodeWorktreeRecord{Path: "G:/tmp/wt", Branch: "b", MainBranch: "main", BaseCommit: "abc"}
+	record := UnitRecord(key, " main-1 ", UnitStatusRunning, "  产出预览  ", "round_output", worktree)
+	if record.SchemaVersion != store.NodeSessionSchemaVersion || record.NodeID != "exec-wi-1" ||
+		record.SessionID != "role-1" || record.MainSessionID != "main-1" ||
+		record.Goal != "目标" || record.Status != UnitStatusRunning {
+		t.Fatalf("记录身份/作用域不对：%+v", record)
+	}
+	if record.Summary != "产出预览" {
+		t.Fatalf("摘要应当按 clip 口径裁剪：%q", record.Summary)
+	}
+	if !strings.Contains(record.StagesJSON, "round_output") {
+		t.Fatalf("阶段必须编码进 StagesJSON：%q", record.StagesJSON)
+	}
+	if record.Worktree != worktree {
+		t.Fatalf("现场四栏必须整份落进记录：%+v", record.Worktree)
+	}
+}

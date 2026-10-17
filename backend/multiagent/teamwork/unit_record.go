@@ -80,6 +80,25 @@ func UnitRecordKeyFor(request WorkerRequest) UnitRecordKey {
 	}
 }
 
+// UnitRecord 把一条 teammate 单元记录的形状收在本域：记录身份、摘要裁剪与阶段编码
+// 都是"这一份现场跑到哪"的判据，装配层只提供主会话作用域、状态词与现场四栏。
+//
+// 时间戳不在这里造：哪一刻开始/落定归计划里的 item 事实，记录只带存储写入的
+// UpdatedAt。
+func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord {
+	return store.NodeSessionRecord{
+		SchemaVersion: store.NodeSessionSchemaVersion,
+		NodeID:        strings.TrimSpace(key.NodeID),
+		SessionID:     strings.TrimSpace(key.RoleSessionID),
+		MainSessionID: strings.TrimSpace(mainSessionID),
+		Goal:          strings.TrimSpace(key.Goal),
+		Status:        status,
+		Summary:       workunit.ClipPreview(summary),
+		StagesJSON:    workunit.EncodeStages([]workunit.Stage{{Stage: stage, Preview: summary}}),
+		Worktree:      worktree,
+	}
+}
+
 // TeammateUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
 // （Kind = teammate / Role / Plugins / SystemPrompt）。
 //

@@ -239,6 +239,14 @@ func (r *Runtime) registerTeamworkTools() {
 
 // ── leader 工具：输入解析 + 转调 Coordinator ─────────────────────────────
 
+// afterTeamworkMutation 是"团队计划变过一次"之后的固定两步：失效看板缓存 + 推进存档
+// 元数据。判据只有一份——漏掉任何一处就是面板静默陈旧（契约 §5 的 update 时机）。
+// 收口路径不调它：Coordinator.Close 自己封板（见 teamCloseHandler）。
+func (r *Runtime) afterTeamworkMutation(ctx context.Context) {
+	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
+}
+
 func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string, error) {
 	// 入参形状与解码在团队域（与 TeamPlanSchema 同处一域，P21-37）；本层只留话术与编排。
 	plan, err := teamwork.DecodePlanRequest(argsJSON)
@@ -271,8 +279,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	if err := coordinator.SetPlan(ctx, plan); err != nil {
 		return "", fmt.Errorf("team_plan: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "team_id": plan.TeamID,
 		"members": len(plan.Members), "milestones": len(plan.Milestones),
@@ -347,8 +354,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 		if err != nil {
 			return "", fmt.Errorf("team_dispatch: %w", err)
 		}
-		r.invalidateTeamworkBoard()
-		r.archiveTeamBoard(ctx)
+		r.afterTeamworkMutation(ctx)
 		return jsonReceipt(map[string]any{
 			"ok": true, "handle": string(handle), "item": itemID,
 			// 装配读数：这一轮真的会按哪份装配跑（**失灵在这里被说出来**——plan 的回执
@@ -362,8 +368,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 	if err != nil {
 		return "", fmt.Errorf("team_dispatch: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "handle": string(handle),
 		"plugin_face": r.dispatchAssemblyReading(ctx, coordinator, role),
@@ -384,8 +389,7 @@ func (r *Runtime) teamWorkHandler(ctx context.Context, argsJSON string) (string,
 	if err := coordinator.PlanMilestone(ctx, milestone, specs); err != nil {
 		return "", fmt.Errorf("team_work: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "milestone": milestone, "items": len(specs)})
 }
 
@@ -402,8 +406,7 @@ func (r *Runtime) teamItemHandler(ctx context.Context, argsJSON string) (string,
 	if err := coordinator.AdjustItem(ctx, itemID, spec); err != nil {
 		return "", fmt.Errorf("team_item: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
@@ -420,8 +423,7 @@ func (r *Runtime) teamAcceptHandler(ctx context.Context, argsJSON string) (strin
 	if err := coordinator.AcceptItem(ctx, itemID, note); err != nil {
 		return "", fmt.Errorf("team_accept: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
@@ -438,8 +440,7 @@ func (r *Runtime) teamFailHandler(ctx context.Context, argsJSON string) (string,
 	if err := coordinator.FailItem(ctx, itemID, note); err != nil {
 		return "", fmt.Errorf("team_fail: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
@@ -459,8 +460,7 @@ func (r *Runtime) teamRecoverHandler(ctx context.Context, _ string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("team_recover: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "report": recovery.Report,
 		// 契约侧的读数：认领回来的现场数 / 回灌回来的会话数 / 中断清单（记录说在跑、
@@ -501,8 +501,7 @@ func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string,
 	// 汇合也是一次**审计追加**（Coordinator.Join 会记 join 事件），因此同样是看板的
 	// 一个 update 时机（契约 §5 的表里有它）：不在这里失效缓存，面板就要等到下一次
 	// team_plan/dispatch/milestone/retire 才看得到这次汇合（"漏一处就是静默陈旧"）。
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "jobs": records})
 }
 
@@ -518,8 +517,7 @@ func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (st
 	if err := coordinator.Milestone(ctx, milestoneID, content); err != nil {
 		return "", fmt.Errorf("team_milestone: %w", err)
 	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
+	r.afterTeamworkMutation(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "id": milestoneID})
 }
 
