@@ -38,21 +38,9 @@ func (r *Runtime) teamUnitLedger() workunit.SessionLedger {
 // 当前值（切会话会变、测试基座里可能为空），而"这支团队的记录放在哪"是派发那一刻就定下的
 // 事实。两处各算一次作用域，迟早算成两个目录——子代理记录那条路上就是这么漂的。
 func (r *Runtime) teamUnitScope(sessionID string) (store.Key, bool) {
-	sessionID = strings.TrimSpace(sessionID)
-	if r == nil || sessionID == "" {
-		return store.Key{}, false
-	}
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.KeyFor == nil {
-		return store.Key{}, false
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok || strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return store.Key{}, false
-	}
-	return key, true
+	// 与团队面其它读法共用同一份解析（runtime_teamwork_scope.go）；这里只保留这个读法的
+	// 名字——"单元记录落在哪个账本"与"团队计划落在哪"必须是同一个键。
+	return r.teamworkKeyFor(sessionID)
 }
 
 // saveTeamUnitRecord 落一条 teammate 单元的会话记录（整条写；端口只有 Save/List，
@@ -309,13 +297,11 @@ func (r *Runtime) teamUnitReader(sessionID string, index []teamSceneEntry) *work
 	if !ok {
 		return workunit.NewUnitReader(nil, "", "", workunit.KindTeammate, nil)
 	}
-	wanted := make(map[string]bool, len(index))
-	for _, entry := range index {
-		wanted[strings.TrimSpace(entry.NodeID)] = true
-	}
+	// 归属过滤的判据在团队域（名单 = `teamwork.SceneIndex` 的产物）：这里只把"这条记录
+	// 的 nodeID 在不在名单里"交给域包，不在装配层另建一份集合与比较口径。
 	return workunit.NewUnitReader(r.teamUnitLedger(), scope.ProjectID, scope.SessionID, workunit.KindTeammate,
 		func(record store.NodeSessionRecord) bool {
-			return wanted[strings.TrimSpace(record.NodeID)]
+			return teamwork.SceneOwnsNode(index, record.NodeID)
 		})
 }
 

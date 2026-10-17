@@ -89,3 +89,21 @@ func SceneNodeIDs(entries []SceneEntry) []string {
 	}
 	return nodeIDs
 }
+
+// SceneOwnsNode 报告一个 nodeID 是否在本会话团队的现场名单里（记录归属过滤的唯一判据）。
+//
+// 为什么需要它：teammate 的会话记录与子代理节点记录**共用**同一个 `subagents/` 目录，
+// 读回时必须按现场名单过滤——只有落在名单里的记录才属于本团队的单元。名单本身来自
+// `SceneIndex`（已去重、已 trim）；这里只回答"在不在这份名单里"，不另读持久事实。
+func SceneOwnsNode(entries []SceneEntry, nodeID string) bool {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
+}

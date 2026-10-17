@@ -144,19 +144,10 @@ var teamworkJobRecordCeiling = teamwork.JobRecordCeiling
 // 一个 Coordinator（共享作业表与计划），跨会话不串。作业句柄只在内存（jobs I-4），
 // 因此进程重启后缓存自然作废。
 func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, error) {
-	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
-	if sessionID == "" {
-		return nil, errors.New("teamwork: 当前调用没有会话归属（team_* 工具必须在会话回合内调用）")
-	}
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.KeyFor == nil {
-		return nil, errors.New("teamwork: leader 编排未装配（缺 SetTeamworkBackend）")
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok || strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return nil, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键（项目/会话）", sessionID)
+	// 会话号归一、装配检查与键完整性只有一份判据（runtime_teamwork_scope.go）。
+	_, _, key, err := r.resolveTeamworkScope(seeletelemetry.SessionIDFromContext(ctx))
+	if err != nil {
+		return nil, err
 	}
 	return r.coordinatorForKey(key)
 }

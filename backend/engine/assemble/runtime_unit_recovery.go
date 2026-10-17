@@ -83,14 +83,9 @@ func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessi
 		return
 	}
 	workunit.RestoreUnits(sessionID, records, workunit.RestoreDeps{
-		SceneNodes: func(sessionID string) []string {
-			index := r.teamSceneIndex(sessionID)
-			nodeIDs := make([]string, 0, len(index))
-			for _, entry := range index {
-				nodeIDs = append(nodeIDs, entry.NodeID)
-			}
-			return nodeIDs
-		},
+		// 名单投影只有一份（`teamwork.SceneNodeIDs`，经 `teamSceneNodeIDs` 转发）：
+		// 这里曾按 SceneEntry 手写一遍同形循环，与认领现场那条路各算一次。
+		SceneNodes: r.teamSceneNodeIDs,
 		Strategies: r.unitRecoveryStrategies(sessionID),
 		Log:        log.Printf,
 	})

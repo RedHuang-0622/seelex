@@ -15,9 +15,7 @@ package assemble
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
@@ -82,22 +80,13 @@ func (r *Runtime) teamworkContextHandler(ctx context.Context, argsJSON string) (
 //
 // 与 coordinatorFor 分开：读面**不建 Coordinator**——建它就要装配执行体，而读面只是读。
 func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, store.Key, error) {
-	if r == nil {
-		return nil, nil, store.Key{}, errors.New("teamwork: runtime 为空")
+	// 作用域解析只有一份判据（runtime_teamwork_scope.go）；读面额外要求作业表在册。
+	backend, manager, key, err := r.resolveTeamworkScope(seeletelemetry.SessionIDFromContext(ctx))
+	if err != nil {
+		return nil, nil, store.Key{}, err
 	}
-	r.teamworkMu.Lock()
-	backend, manager := r.teamworkBackend, r.teamworkJobs
-	r.teamworkMu.Unlock()
-	if backend == nil || manager == nil {
-		return nil, nil, store.Key{}, errors.New("teamwork: 读面未装配（缺 SetTeamworkBackend）")
-	}
-	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
-	if sessionID == "" {
-		return nil, nil, store.Key{}, errors.New("teamwork: 当前调用没有会话归属（team_* 工具必须在会话回合内调用）")
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok {
-		return nil, nil, store.Key{}, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
+	if manager == nil {
+		return nil, nil, store.Key{}, errTeamworkNotAssembled
 	}
 	return backend, manager, key, nil
 }

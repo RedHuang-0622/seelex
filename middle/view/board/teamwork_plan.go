@@ -53,9 +53,9 @@ func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (store.TeamworkPla
 		return store.TeamworkPlan{}, false
 	}
 	// 键的两个分量都必须齐全：投影落点是按 (项目, 会话) 分层的，半截键读出来的东西
-	// 归不到任何一个会话上（口径与 teamwork 域 coordinatorFor 的显式键校验一致，
-	// 不新写一份判据）。
-	if strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
+	// 归不到任何一个会话上。判据随 `store.Key` 走（`Key.Complete`），宿主的团队作用域
+	// 解析与这里问的是同一句，不各写一份。
+	if !key.Complete() {
 		return store.TeamworkPlan{}, false
 	}
 	plan, err := deps.ReadPlan(context.Background(), key)

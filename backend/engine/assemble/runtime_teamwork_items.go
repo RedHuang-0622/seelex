@@ -159,19 +159,11 @@ func (r *Runtime) coordinatorForSession(sessionID string) (*teamwork.Coordinator
 	if r == nil {
 		return nil, errors.New("teamwork: runtime 为空")
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil, errors.New("teamwork: 缺少宿主主会话号（尾插必须有归属）")
-	}
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.KeyFor == nil {
-		return nil, errors.New("teamwork: leader 编排未装配（缺 SetTeamworkBackend）")
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok {
-		return nil, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键（项目/会话）", sessionID)
+	// 会话号归一、装配检查与键完整性只有一份判据（runtime_teamwork_scope.go）；
+	// 这里此前只看 ok、不看键分量，半截键会带着空作用域建出 Coordinator。
+	_, _, key, err := r.resolveTeamworkScope(sessionID)
+	if err != nil {
+		return nil, err
 	}
 	return r.coordinatorForKey(key)
 }

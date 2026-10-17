@@ -260,6 +260,7 @@
 - `func retiredBackendError(backend Backend) error`
 - `func (config Config) Normalize(defaultPath string) (Config, error)`
 - `func (config Config) Safe() Config` — Safe returns a configuration suitable for the GUI. Credentials are never
+- `func (key Key) Complete() bool` — Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
 - `func EventKindOf(event Event) string` — EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
 - `func (key Key) validate() error`
 - `func validateProjectID(projectID string) error` — validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
@@ -377,6 +378,10 @@
 - `func containsValue(values []string, value string) bool`
 - `func loadConfig(path string) (Config, error)`
 - `func saveConfig(path string, config Config) error`
+
+### sessionstore_key_test.go
+
+- `func TestKeyComplete(t *testing.T)`
 
 ### sessionstore_test.go
 

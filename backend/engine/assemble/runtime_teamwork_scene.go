@@ -15,7 +15,6 @@ package assemble
 
 import (
 	"context"
-	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/store"
@@ -28,17 +27,10 @@ type teamSceneEntry = teamwork.SceneEntry
 //
 // 容错与迁移前一致：计划读不出来就当它为空（只认账本），账本读不出来同理。
 func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
-	if r == nil || strings.TrimSpace(sessionID) == "" {
-		return nil
-	}
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.Store == nil || backend.KeyFor == nil {
-		return nil
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok || strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
+	// 作用域解析只有一份判据（runtime_teamwork_scope.go）：会话号归一、装配检查与键完整性
+	// 都不在这里重写。
+	backend, _, key, err := r.resolveTeamworkScope(sessionID)
+	if err != nil || backend.Store == nil {
 		return nil
 	}
 	ctx := context.Background()

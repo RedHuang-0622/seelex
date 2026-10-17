@@ -14,7 +14,6 @@ package assemble
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
@@ -35,18 +34,9 @@ func (r *Runtime) CloseTeamBoard(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.Boards == nil || backend.KeyFor == nil {
-		return nil
-	}
-	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
-	if sessionID == "" {
-		return nil
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok {
+	// 作用域解析只有一份判据（runtime_teamwork_scope.go）；封板面额外要求 Boards。
+	backend, _, key, err := r.resolveTeamworkScope(seeletelemetry.SessionIDFromContext(ctx))
+	if err != nil || backend.Boards == nil {
 		return nil
 	}
 	// payload=nil：这一条路径不刷新快照，只关在册的那一版（收口瞬间计划还没标 closed，

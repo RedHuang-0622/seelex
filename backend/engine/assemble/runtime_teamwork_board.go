@@ -19,7 +19,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"strings"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
@@ -87,22 +86,14 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	if r == nil {
 		return nil
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
+	// 作用域解析只有一份判据（runtime_teamwork_scope.go）；看板快照额外要求 Store。
+	backend, manager, key, err := r.resolveTeamworkScope(sessionID)
+	if err != nil || backend.Store == nil {
 		return nil
 	}
-
 	r.teamworkMu.Lock()
-	backend, manager := r.teamworkBackend, r.teamworkJobs
 	cache := r.teamworkBoardCache
 	r.teamworkMu.Unlock()
-	if backend == nil || backend.Store == nil || backend.KeyFor == nil {
-		return nil
-	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok {
-		return nil
-	}
 
 	cached, hit := cache[key]
 	if !hit {

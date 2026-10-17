@@ -35,17 +35,6 @@ func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	})
 }
 
-// teamworkKeyFor 读当前装配的 teamwork 后端的作用域解析口（未装配 / 分量缺失 ⇒ ok = false）。
-func (r *Runtime) teamworkKeyFor(sessionID string) (store.Key, bool) {
-	r.teamworkMu.Lock()
-	backend := r.teamworkBackend
-	r.teamworkMu.Unlock()
-	if backend == nil || backend.KeyFor == nil {
-		return store.Key{}, false
-	}
-	return backend.KeyFor(sessionID)
-}
-
 // readTeamworkPlan 读当前装配的 teamwork 后端的计划读口（未装配 ⇒ 报错，与"读失败"同解）。
 func (r *Runtime) readTeamworkPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error) {
 	r.teamworkMu.Lock()

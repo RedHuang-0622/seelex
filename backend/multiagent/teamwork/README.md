@@ -107,7 +107,7 @@ stateDiagram-v2
 | `output_store.go` | **产品自有作业输出面**（P21-23 从 装配层同名文件（已删除）整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
 | `board_archive.go` | **看板存档的生命周期判据**（P21-24 从 `backend/engine/assemble/runtime_teamwork_board_archive.go` 与 `..._board_close.go` 归位，plan §2.7；契约 docs/arch/session-board-metadata-lifecycle.md §5/§6/§7/§8/§9）：`NextBoardMeta`（无档新开一版 / **换版本先关旧后开新**（`team.replan`）/ 同版本只推进 seq 与 updated_at / 指纹不变即节流；读失败与"没档案"同解）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑；`Recovered=true` 且 `Stale=true`）、`SealBoard`（把在册那一版关成 `team.close`，可顺带刷新快照；幂等，读失败上抛）、`BoardFingerprint`（§7 节流判据） |
 | `job_projection.go` | **作业完成投影**（P21-25 从 `backend/engine/assemble/runtime_teamwork_jobs.go` 归位，plan §2.7）：`ProjectJobCompletions`（按读取顺序搬运、空表归一 nil）+ `JobCompletionFrom`（"每一列都要到"的搬运口径：角色由 `emp_<role>` 反解、工作项取 `Node`）+ `AsyncStateFromJobs`（框架状态词 → 契约枚举，**只折一次**；认不得的词落 `AsyncStateUnknown`——"认不得"不许被折成"还在跑"） |
-| `scene.go` | **团队现场名单判据 + 指派名的反向换算**（P21-26 从 `backend/engine/assemble/runtime_teamwork_scene.go` 归位，plan §2.7）：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ `SceneEntry{NodeID, Role, WorkItem}`，按 nodeID 去重保序；刻意不经折叠读法——折叠以 work_item 为键会把 WorkItem 留空的 teammate 级行整行丢掉）、`SceneNodeIDs`（只取名字的投影）、`NodeIDFromWorktreeName`（`seelex/<nodeID>` → nodeID，**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——两个方向过去分居两包，现在一条命名只有一域） |
+| `scene.go` | **团队现场名单判据 + 指派名的反向换算**（P21-26 从 `backend/engine/assemble/runtime_teamwork_scene.go` 归位，plan §2.7）：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ `SceneEntry{NodeID, Role, WorkItem}`，按 nodeID 去重保序；刻意不经折叠读法——折叠以 work_item 为键会把 WorkItem 留空的 teammate 级行整行丢掉）、`SceneNodeIDs`（只取名字的投影）、`SceneOwnsNode`（记录归属过滤的唯一判据：teammate 记录与子代理记录共用目录，只有名单里的 nodeID 属于本团队）、`NodeIDFromWorktreeName`（`seelex/<nodeID>` → nodeID，**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——两个方向过去分居两包，现在一条命名只有一域） |
 | `worker_round.go` | **teammate 回合面的三条纯判据**（P21-29 从 `backend/engine/assemble/runtime_teamwork.go` 归位，plan §2.7）：`RoundsPerMember`（"一名 teammate 收口前最多派多少轮"的量级取用值 64）+ `JobRecordCeiling`（作业表记录槽上限：规模换算，**只抬不降**、永不低于框架缺省；计划侧"不限制"按一名成员算）、`TurnLimit`（成员级 `max_turns` 优先，否则回退宿主给的默认）、`RoundInput`（回合输入正文的组装：`<milestone>` 标签只认里程碑、正文 trim、没有正文时如实说明） |
 | `plan_query.go` | **计划查询的两条判据**（P21-33 从 `backend/engine/assemble/runtime_teamwork.go` 的两个遍历点搬进本域，与已有 `items.go` 的 `findItem` 同源）：`ItemRole(plan, id)`（按 id 查执行角色；入参 trim 后比较；查不到/空 id ⇒ 空串）与 `MemberOf(plan, role)`（按角色名查在编成员；trim 后比较；查不到/空角色 ⇒ false）。收口之前派发回执那边另写了一次"遍历里程碑找 item.Role"的循环——与 `findItem` 口径略不同，迟早漂移 |
 | `unit_record.go` | **teammate 单元记录的写侧口径**（P21-34 从 `backend/engine/assemble/workunit_team.go` 归位，plan §2.7）：`UnitStatusRunning` / `UnitStatusDone` / `UnitStatusFailed`（记录那一格的词表——"在跑"复用 workunit 契约、终态来自 `dto.SubAgent*`，记录词 = wire 词）、`UnitStatusFor`（收尾分类 → 记录终态：**只有判死那一类记 failed**；未提交 / 主工作区挡路都记 done，产出还在现场）、`UnitNodeID`（一轮作业的 nodeID：有独立现场就去前缀，降级共享工作区按 `<role>-<itemID>` 拼，连工作项都没有退到角色名）；（P21-35 补：`UnitRecordKey` / `UnitRecordKeyFor`（记录身份：nodeID 口径见 `UnitNodeID`、标量与插件集合搬运）+ `TeammateUnitRecordLink`（写链上 teammate 那一环：Kind=teammate / Role / Plugins / SystemPrompt 写进 `record.Unit`，其余字段一概不动；与 subagent 的身份环同形）） |
@@ -591,6 +591,7 @@ go test ./backend/multiagent/... -count=1
 - `func NodeIDFromWorktreeName(worktreeName string) string` — NodeIDFromWorktreeName 把 worktree 指派名折成 worktree 管理器的节点 id（去 `seelex/` 前缀；
 - `func SceneIndex(plan store.TeamworkPlan, bindings []store.TeamworkBinding) []SceneEntry` — SceneIndex 返回团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
 - `func SceneNodeIDs(entries []SceneEntry) []string` — SceneNodeIDs 是 SceneIndex 的只取名字的投影（认领现场只用得上名字）。
+- `func SceneOwnsNode(entries []SceneEntry, nodeID string) bool` — SceneOwnsNode 报告一个 nodeID 是否在本会话团队的现场名单里（记录归属过滤的唯一判据）。
 
 ### scene_test.go
 
@@ -598,6 +599,7 @@ go test ./backend/multiagent/... -count=1
 - `func scenePlanFixture() store.TeamworkPlan`
 - `func TestSceneIndexReadsPlanThenLedgerAndDedupes(t *testing.T)` — TestSceneIndexReadsPlanThenLedgerAndDedupes：名单 = 计划（成员 → 工作项）后账本（未释放的
 - `func TestSceneIndexEmptyInputs(t *testing.T)` — TestSceneIndexEmptyInputs：没有计划也没有账本 ⇒ 空名单（不猜、不扫目录）。
+- `func TestSceneOwnsNode(t *testing.T)` — TestSceneOwnsNode：记录归属过滤只认名单里的 nodeID（trim 后），空名字不归属任何人。
 
 ### store.go
 

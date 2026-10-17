@@ -106,6 +106,15 @@ type Key struct {
 	SessionID string
 }
 
+// Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
+//
+// 会话按 (project_id, session_id) 分区，半截键读不到任何一个会话的事实，因此这是
+// "这个键能不能指向一份会话"的**唯一**定义：装配层的团队作用域解析与看板域的取数判定
+// 都问这一句，不再各写一遍（P21 收尾：两处内联判据曾各自漏过一分量，见 m5-record §55）。
+func (key Key) Complete() bool {
+	return strings.TrimSpace(key.ProjectID) != "" && strings.TrimSpace(key.SessionID) != ""
+}
+
 type EventToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`

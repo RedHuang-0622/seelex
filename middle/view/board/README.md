@@ -34,7 +34,7 @@
 | `projection.go` | 纯函数映射（`BuildProjectBoardRows` 及其载荷/指纹助手）+ 触发装配表与档名词表 |
 | `syncer.go` | 写侧端口（`ProjectBoardStore`）、订阅口（`ProjectBoardSink`）、装配入参（`ProjectBoardDeps`）与同步器 `ProjectBoardSyncer` |
 | `read.go` | **按需读取面**（P21-11 从 `backend/engine/assemble` 归位）：`ProjectBoardReader` 窄端口 + `ProjectBoardReadRequest` / `ProjectBoardReadResult` + `ReadProjectBoard`（边界校验与取数，只读有界）+ 白名单文件名归一与稳定排序；缺省/硬上限常量 `ProjectBoardReadDefaultLimit` / `ProjectBoardReadMaxLimit` |
-| `teamwork_plan.go` | **取 teamwork 计划的那一跳**（P21-11 同上）：`TeamworkPlanDeps`（两格宿主读数）+ `TeamworkPlanFor(sessionID, deps)`；口径是"未装配 / 解析不出作用域 / 半截键 / 读失败 / 空计划 ⇒ (零值, false)"，调用方据此整块退场（I6） |
+| `teamwork_plan.go` | **取 teamwork 计划的那一跳**（P21-11 同上）：`TeamworkPlanDeps`（两格宿主读数）+ `TeamworkPlanFor(sessionID, deps)`；口径是"未装配 / 解析不出作用域 / 半截键 / 读失败 / 空计划 ⇒ (零值, false)"，调用方据此整块退场（I6）。键完整性判据随类型走——`store.Key.Complete`（与装配层团队作用域解析同一句） |
 | `projection_test.go` / `syncer_test.go` / `trigger_test.go` | 随代码搬入的用例（映射零判定、同步器语义、档名词表） |
 | `read_test.go` | 读取面验收（随实现搬入，断言逐字）：单会话折叠读 + 落点在项目目录、聚合读的有界与截断上抛、边界显式报错（未知 file / 超上限 limit / 没有项目根） |
 | `teamwork_plan_test.go` | 域级判据：两格读数缺一、空会话号（且不惊动宿主读数）、半截键（且不去读计划）、读失败与空计划同解、成功路径原样返回 + 键不重算 |

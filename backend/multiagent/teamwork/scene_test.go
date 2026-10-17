@@ -92,3 +92,26 @@ func TestSceneIndexEmptyInputs(t *testing.T) {
 		t.Fatalf("nodeID 投影必须与名单同序同量：%+v vs %+v", nodeIDs, entries)
 	}
 }
+
+// TestSceneOwnsNode：记录归属过滤只认名单里的 nodeID（trim 后），空名字不归属任何人。
+func TestSceneOwnsNode(t *testing.T) {
+	entries := SceneIndex(scenePlanFixture(), nil)
+	cases := []struct {
+		name   string
+		nodeID string
+		want   bool
+	}{
+		{"成员级在册", "pm", true},
+		{"工作项级在册", "exec-wi-1", true},
+		{"两侧留白仍认", "  exec-wi-2\t", true},
+		{"子代理记录不在团队名单里", "node-abc", false},
+		{"空名字不归属", "   ", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SceneOwnsNode(entries, c.nodeID); got != c.want {
+				t.Fatalf("SceneOwnsNode(%q) = %v, want %v", c.nodeID, got, c.want)
+			}
+		})
+	}
+}
