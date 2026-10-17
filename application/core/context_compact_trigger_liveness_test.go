@@ -107,7 +107,7 @@ func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, i
 	case <-runtime.entered:
 	case <-inFlight:
 		t.Fatalf("%s 在进入推帧之前就返回了，夹具没走到判定点", what)
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatalf("5s 内没有进入推帧（夹具失效）：%s", what)
 	}
 }
@@ -116,19 +116,19 @@ func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, i
 // 这条入口把慢活放进了临界区（或与 pushLock 互等）。
 func assertInteractionFaceLive(t *testing.T, service *Service, what string) {
 	t.Helper()
-	if !returnsWithin(time.Second, func() {
+	if !returnsWithin(testutil.Budget(time.Second), func() {
 		service.ViewMu.Lock()
 		service.ViewMu.Unlock()
 	}) {
 		t.Fatalf("%s：推帧期间 ViewMu 写锁拿不到（推帧落在临界区内 = 自锁/互等）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.Snapshot() }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Snapshot() }) {
 		t.Fatalf("%s：推帧期间快照取不到（会话切不动、列表与右栏不刷新）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.Submit(context.Background(), "hello") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Submit(context.Background(), "hello") }) {
 		t.Fatalf("%s：推帧期间提交入口不返回（消息连队列都进不去）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.resumeSession("session-other") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.resumeSession("session-other") }) {
 		t.Fatalf("%s：推帧期间切会话不返回", what)
 	}
 }
@@ -156,7 +156,7 @@ func TestAutoCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("释放推帧后自动装配失败：%v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后自动装配仍未返回")
 	}
 }
@@ -182,7 +182,7 @@ func TestMaintenanceCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("释放推帧后维护压缩失败：%v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后维护压缩仍未返回")
 	}
 }
@@ -220,7 +220,7 @@ func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T) {
 	release()
 	select {
 	case <-commandReturned:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后 /compact 仍未返回")
 	}
 }
@@ -261,7 +261,7 @@ func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testin
 	release()
 	select {
 	case <-commandDone:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testutil.Budget(10 * time.Second)):
 		t.Fatal("释放推帧后 /compact 仍未返回（显式与自动互等）")
 	}
 	select {
@@ -269,7 +269,7 @@ func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testin
 		if err != nil {
 			t.Fatalf("释放推帧后自动装配失败：%v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(testutil.Budget(10 * time.Second)):
 		t.Fatal("释放推帧后自动装配仍未返回")
 	}
 }
