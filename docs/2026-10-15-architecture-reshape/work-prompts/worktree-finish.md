@@ -1,5 +1,8 @@
 # 任务书：worktree 收尾判据归位
 
+> **状态：已完成并提交 `2c043125`。请勿重复认领。** 本文件保留为验收记录；
+> 如后续要改，先读该提交与 `backend/workunit/merge_retry.go`。
+
 ## 你的任务
 
 在 `refactor/architecture-reshape` 分支上，把 `backend/tool/worktree` 从“第二份生命周期”
