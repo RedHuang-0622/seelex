@@ -156,12 +156,6 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func TestJobHandleRoundTripsThroughItsNamespace(t *testing.T)` — TestJobHandleRoundTripsThroughItsNamespace 钉住"铸造与识别是同一份文法"：凡铸造出来的
 - `func TestJobNamespacesAreDisjoint(t *testing.T)` — TestJobNamespacesAreDisjoint 钉住整套命名空间互不相交：任何两个 token 铸造出来的句柄
 
-### scene_scope.go
-
-- `func WithSceneScope(ctx context.Context, scope SceneScope) context.Context` — 把现场作用域注入 ctx。
-- `func SceneScopeFromContext(ctx context.Context) (SceneScope, bool)` — 读取 ctx 中的现场作用域；无作用域时返回 (零值, false)。
-- `func SceneScopeFromContextOrEmpty(ctx context.Context) SceneScope` — 读取现场作用域；无作用域时返回空 SceneScope。
-
 ### node_status.go
 
 - `func (s NodeStatus) String() string` — String 给出对外词。
@@ -218,6 +212,12 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 
 - `func (n RoutingNotice) Message() string` — Message 把这条路由事实翻成一句给用户看的提示（B 类摘要 Detail 与文案同源）。
 - `func (n RoutingNotice) failureKindText() string` — failureKindText 把账号资格失败类别翻成一句中文（与 backend/engine/account 的
+
+### scene_scope.go
+
+- `func WithSceneScope(ctx context.Context, scope SceneScope) context.Context` — WithSceneScope 把现场作用域注入 ctx（子代理/后台工作单元执行请求）。
+- `func SceneScopeFromContext(ctx context.Context) (SceneScope, bool)` — SceneScopeFromContext 读取 ctx 中的现场作用域；无作用域时返回 (零值, false)。
+- `func SceneScopeFromContextOrEmpty(ctx context.Context) SceneScope` — SceneScopeFromContextOrEmpty 读取现场作用域；无作用域时返回空 SceneScope
 
 ### schedule_run_status.go
 

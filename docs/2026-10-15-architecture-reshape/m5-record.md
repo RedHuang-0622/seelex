@@ -2179,3 +2179,51 @@ Plan 执行器删除后，`NodeScope` 只剩“Plan 节点作用域”的名字�
 注意：当前工作树同时有其它会话的 worktree/P21/workspace WIP，本片提交边界需与
 这些文件分开；`gen_core_readme_index.py` 的 `workspace_host.go` 分卷归属由
 workspace 会话处理。
+
+## 62. P21 收尾：装配层端口接线去重（2026-10-17，`03efb22d`）
+
+本片不再下沉判据（P21-1…38 已把判据放到拥有它的域），只收口装配层剩余的**端口接线**。
+审计结论：`runtime_teamwork.go` / `workunit_team_records.go` / `runtime_teamwork_items.go` /
+`workunit_assembly.go` / `runtime_context.go` / `runtime_tools.go` 的其余代码都是宿主动作或
+设计文档明确保留的端口实现；唯一仍构成"同一判据第二份实现"的是**会话作用域键解析**与
+**现场名单投影/归属过滤**。
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-39 | **会话作用域键解析收成一份**：新增 `store.Key.Complete`（项目与会话两分量 trim 后非空）与装配层 `resolveTeamworkScope`（后端 / 作业表 / 键一次解析）。协调器、现场名单、单元记录、读面、存档、看板快照、封板与项目看板九处改问这一格；看板域的半截键判定改问 `Key.Complete`。**修掉两处漂移**：`coordinatorForSession` 与 `teamworkReadScope` 此前只看 `KeyFor` 的 ok，半截键会带着空作用域建 Coordinator / 读计划；旧 `teamworkKeyFor` 漏 trim。跨实现一致性用例（同一份 `KeyFor` 输入走宿主与 `board.TeamworkPlanFor`）钉住同解 | `03efb22d` |
+| P21-40 | **现场名单的两种宿主用法收成一份**：`restoreUnitRecords` 手写的 `SceneEntry → nodeID` 循环改走 `teamSceneNodeIDs`（域包 `SceneNodeIDs`）；`teamUnitReader` 手建的 `wanted` 集合改成域包新增的 `SceneOwnsNode`（记录归属过滤的唯一判据，teammate 记录与子代理记录共用目录） | 同上 |
+
+**删除清单（文件:行为 → 新唯一位置）**：
+
+- `runtime_teamwork.go` `coordinatorFor` 的 trim / 后端 / `KeyFor` / 键校验 → `runtime_teamwork_scope.go:resolveTeamworkScope`
+- `runtime_teamwork_items.go` `coordinatorForSession` 的同一段（此前只查 ok）→ 同上
+- `runtime_teamwork_scene.go` `teamSceneIndex` 的同一段 → 同上
+- `workunit_team_records.go` `teamUnitScope` 的同一段 → 同上（经 `teamworkKeyFor` 的 ok 形态）
+- `runtime_teamwork_context.go` `teamworkReadScope` 的同一段 → 同上
+- `runtime_teamwork_board_archive.go` `archiveTeamBoard` 的同一段 → 同上
+- `runtime_teamwork_board.go` `TeamworkBoardSnapshot` 的同一段 → 同上
+- `runtime_teamwork_board_close.go` `CloseTeamBoard` 的同一段 → 同上
+- `runtime_project_board.go` 旧 `teamworkKeyFor`（漏 trim）→ `runtime_teamwork_scope.go:teamworkKeyFor`
+- `middle/view/board/teamwork_plan.go` 内联的两个分量判空 → `store/sessionstore.go:Key.Complete`
+- `runtime_unit_recovery.go` `restoreUnitRecords` 手写循环 → `teamSceneNodeIDs`（域包 `SceneNodeIDs`）
+- `workunit_team_records.go` `teamUnitReader` 手建集合 → `teamwork.SceneOwnsNode`
+
+**仍是装配层宿主动作（按设计保留）**：`runtime_teamwork.go` 的 `RunWorker` /
+`workerRoleRoundSpec` / `bindWorkerProjectRoot` / `writeWorkerOutput` / `teamworkJobOutputs`；
+`workunit_team_records.go` 的存 / 删 / 回灌 I/O；`runtime_teamwork_items.go` 的
+`BindWorkspace` / `MergeWorkspace` / `ReleaseWorkspaceItem` / `EnqueueTeammateMessage`；
+`workunit_assembly.go` 的 `hostPorts` 三格适配器；`runtime_context.go` 组件工厂与
+`runtime_tools.go` 注册面。
+
+**验证（2026-10-17）**：
+
+```text
+go build ./...                                                                  0
+go vet ./...                                                                    0
+go test ./store/ ./middle/view/board/ ./backend/multiagent/teamwork/ ./backend/engine/assemble/ -count=1 -timeout 1200s
+                                                                               全部 ok
+go test ./backend/workunit/ -count=1 -timeout 600s                              ok
+```
+
+新增用例：`TestKeyComplete`（store）、`TestResolveTeamworkScopeJudgment`、
+`TestTeamworkKeyJudgmentMatchesBoardDomain`（跨实现一致性）、`TestSceneOwnsNode`（teamwork）。

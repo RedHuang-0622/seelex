@@ -141,7 +141,7 @@ go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 - `func PermissionConfigForShell(kind ShellKind) toolspermission.PermissionConfig` — PermissionConfigForShell 按**装配期解析出的实际壳**装配默认权责配置（组合根用它）。
 - `func SubjectForClass(class SubjectClass) toolspermission.Subject` — SubjectForClass 把主体类映射成框架授权主体 id（= 写入 ctx 的 engine id）。
 - `func ClassForToolsPolicy(policy string) SubjectClass` — ClassForToolsPolicy 把员工的 ToolsPolicy 口径映射成主体类：
-- `func ClassForNodeScope(scope dto.NodeScope) SubjectClass` — ClassForNodeScope 把工具调度 ctx 的节点作用域映射成主体类：带 NodeID 的
+- `func ClassForSceneScope(scope dto.SceneScope) SubjectClass` — ClassForSceneScope 把工具调度 ctx 的节点作用域映射成主体类：带 NodeID 的
 - `func RoutePermissionGroup(groups []toolspermission.PermissionGroup, toolName string) (toolspermission.PermissionGroup, bool)` — RoutePermissionGroup 按名字 glob 路由到路由组（LMRW：最后匹配胜出）。
 - `func matchToolGlob(pattern, name string) bool` — matchToolGlob 与框架 permission.matchGlob 同语义：只有 `*` 通配，整串匹配。
 
