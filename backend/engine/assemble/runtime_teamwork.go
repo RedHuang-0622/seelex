@@ -127,35 +127,16 @@ func (r *Runtime) teamworkEnabled() bool {
 	return r.teamworkBackend != nil && r.teamworkJobs != nil
 }
 
-// teamworkRoundsPerMember 是"一名 teammate 在整队收口前最多派多少轮"的量级取用值。
+// teamworkRoundsPerMember / teamworkJobRecordCeiling 是团队域 `RoundsPerMember` / `JobRecordCeiling`
+// 的**同值/同身份别名**（判据只有一份实现，P21-29 归位）。
 //
-// 它是**量级**而不是契约：一条 V 模型流水线里，一个角色通常只被派 1–3 轮（三层验证共用
-// 一个 test_case 时是 3 轮）。取 64 是为了让"记录槽上限"落在数量级正确的一侧，而不是
-// 精确预估——精确值要靠经验数据，而这不是一条需要精确的约束（下面那条只抬不降的钳制
-// 保证它永远不会把上限压到框架缺省之下）。
-const teamworkRoundsPerMember = 64
-
-// teamworkJobRecordCeiling 是 teamwork 作业表的记录槽上限（jobs.Limits.Records，S5「防 prune」）。
-//
-// 为什么产品要自己给这个数：框架缺省（jobs.DefaultLimits().Records = 256）是**进程级兜底**，
+// 为什么产品要自己给记录槽上限：框架缺省（jobs.DefaultLimits().Records = 256）是**进程级兜底**，
 // 与"一支团队从开工到收口能派多少次活"没有关系。prune 的判据是"表长 > 上限"、且只逐最老的
-// **终态**行（活着的行永不驱逐），所以撞上它时丢掉的恰好是"团队还开着、但某一轮已经跑完"
-// 的那些行——正是看板与 team_context 在收口之前要读的证据。
-//
-// 只抬不降：上限永不低于框架缺省。记录槽只保证"行**还在册**"，真正让正文不丢的是**输出归属**
-// （Spec.OutputPath：文件归产品，销项 / 驱逐 / Close 都不删）——两条独立的路，别把后者
-// 当成前者的替代（行被驱逐时读面就找不到那个句柄了）。
-func teamworkJobRecordCeiling(maxTeammates int) int {
-	if maxTeammates <= 0 {
-		// 计划侧"不限制"（<=0）：按一名成员算，最终仍被框架缺省下限托住。
-		maxTeammates = 1
-	}
-	ceiling := maxTeammates * teamworkRoundsPerMember
-	if floor := jobs.DefaultLimits().Records; ceiling < floor {
-		return floor
-	}
-	return ceiling
-}
+// **终态**行（活着的行永不驱逐），所以撞上它时丢掉的恰好是"团队还开着、但某一轮已经跑完"的那些行
+// ——正是看板与 team_context 在收口之前要读的证据。只抬不降：上限永不低于框架缺省。
+const teamworkRoundsPerMember = teamwork.RoundsPerMember
+
+var teamworkJobRecordCeiling = teamwork.JobRecordCeiling
 
 // coordinatorFor 取（必要时建）当前会话的 Coordinator。
 //
@@ -651,12 +632,9 @@ func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error
 // 0 = 没声明（不是"零轮"）；回退值是常量而不是 effort 档位派生的数——工作单元跑多少
 // 轮由单元自己（或装配层）决定，档位切换不许连带改变 teammate 的次数（2026-10-08 口径，
 // 与 fork 的 per-subagent max_loops 对称）。
-func workerTurnLimit(requested int) int {
-	if requested > 0 {
-		return requested
-	}
-	return roleTurnMaxLoops
-}
+// workerTurnLimit 是团队域 `TurnLimit` 的**同身份别名**：回退值仍是本层的角色回合默认
+// （那个常量属角色回合面，随 `runtime_role_turn.go` 的片一起走）。
+var workerTurnLimit = func(requested int) int { return teamwork.TurnLimit(requested, roleTurnMaxLoops) }
 
 // workerWorkItemDiscipline 是 teammate 回合的**作业纪律**：一件活的收尾动作写在系统提示里，
 // 而不只写在 leader 的 SKILL 里（2026-10-15 审计 D6）。
@@ -898,20 +876,8 @@ func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 
 // workerRoundInput 组装 worker 这一轮的工作正文：把 goal 包成有界的 round_input，
 // 明确"做完给结论与下一步"，与员工回合同一口径。
-func workerRoundInput(request teamwork.WorkerRequest) string {
-	goal := strings.TrimSpace(request.Goal)
-	if goal == "" {
-		goal = "（本轮没有新的工作正文）"
-	}
-	header := ""
-	// 归属标签只认里程碑（阶段口径已退场，2026-10-04）：worker 因此永远看得到
-	// "我这一轮是哪一步的活"，而不是一个已经不存在的阶段 id。
-	if milestone := strings.TrimSpace(request.Milestone); milestone != "" {
-		header = "<milestone>" + milestone + "</milestone>\n"
-	}
-	return header + "<round_input>\n" + goal + "\n</round_input>\n\n" +
-		"<task>\n以 " + request.Role + " 的身份完成这一轮：给出本轮的结论与下一步（≤800 字）。\n</task>"
-}
+// workerRoundInput 是团队域 `RoundInput` 的同身份别名（输入正文的组装只有一份实现）。
+var workerRoundInput = teamwork.RoundInput
 
 func jsonReceipt(value map[string]any) (string, error) {
 	encoded, err := json.Marshal(value)
