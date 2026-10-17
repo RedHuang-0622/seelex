@@ -22,7 +22,7 @@ import (
 )
 
 func TestDirtyJudgmentIsSingleAcrossEntries(t *testing.T) {
-	mgr, fake, _ := newTestWorktreeManager(t.TempDir())
+	mgr, fake := newTestWorktreeManager(t.TempDir())
 
 	// 同一份现场：porcelain 非空 = 脏，两条入口给同一个结论。
 	fake.reply["status --porcelain"] = " M a.txt\n"

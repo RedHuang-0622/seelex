@@ -2,30 +2,14 @@ package worktree
 
 import (
 	"context"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
-
-// approveGateStub 是测试审批门（approve/reject 可配）。
-type approveGateStub struct {
-	mu     sync.Mutex
-	choice string
-	asked  []string
-}
-
-func (g *approveGateStub) Ask(_ context.Context, q approve.Question) (any, error) {
-	g.mu.Lock()
-	g.asked = append(g.asked, q.ID)
-	choice := g.choice
-	g.mu.Unlock()
-	return choice, nil
-}
 
 // fakeGit 是可编程 git 执行器：按 args 前缀返回脚本化输出，并记录调用序列。
 type fakeGit struct {
@@ -70,8 +54,7 @@ func (f *fakeGit) snapshot() []string {
 	return append([]string(nil), f.calls...)
 }
 
-func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit, *approveGateStub) {
-	gate := &approveGateStub{choice: "approve"}
+func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit) {
 	var phases []string
 	mgr := NewWorktreeManager(WorktreeManagerDeps{
 		Root: func() string { return root },
@@ -81,11 +64,11 @@ func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit, *approveGa
 	})
 	fake := newFakeGit()
 	mgr.git = fake.run
-	return mgr, fake, gate
+	return mgr, fake
 }
 
 func TestWorktreeManagerBeginDegradesOutsideGit(t *testing.T) {
-	mgr, fake, _ := newTestWorktreeManager(filepath.Join(t.TempDir(), "plain"))
+	mgr, fake := newTestWorktreeManager(filepath.Join(t.TempDir(), "plain"))
 	fake.err["rev-parse --is-inside-work-tree"] = &gitTestErr{}
 	if wt := mgr.Begin(dto.SceneScope{SceneID: "x", Role: model.RoleSubAgent, BranchID: "x"}, "x"); wt != nil {
 		t.Fatalf("non-git project must degrade to nil, got %+v", wt)
@@ -101,7 +84,7 @@ func (*gitTestErr) Error() string { return "not a git repository" }
 
 func TestWorktreeManagerBeginRegistersAndInfo(t *testing.T) {
 	root := t.TempDir()
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 	wt := mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("worktree creation must succeed with fake git")
@@ -117,7 +100,7 @@ func TestWorktreeManagerBeginRegistersAndInfo(t *testing.T) {
 
 func TestWorktreeManagerFinishDirtyUncommittedPreservesScene(t *testing.T) {
 	root := t.TempDir()
-	mgr, fake, _ := newTestWorktreeManager(root)
+	mgr, fake := newTestWorktreeManager(root)
 	fake.reply["status --porcelain"] = " M produced.txt"
 	fake.reply["rev-list --count abc123..HEAD"] = "0"
 	fake.reply["rev-list --count"] = "0"
@@ -137,7 +120,7 @@ func TestWorktreeManagerFinishDirtyUncommittedPreservesScene(t *testing.T) {
 
 func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T) {
 	root := t.TempDir()
-	mgr, fake, _ := newTestWorktreeManager(root)
+	mgr, fake := newTestWorktreeManager(root)
 	fake.reply["rev-list --count"] = "0"
 	wt := mgr.Begin(dto.SceneScope{SceneID: "noop", Role: model.RoleSubAgent, BranchID: "noop"}, "noop")
 	if wt == nil {
@@ -154,7 +137,7 @@ func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T) {
 
 func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 	root := t.TempDir()
-	mgr, fake, _ := newTestWorktreeManager(root)
+	mgr, fake := newTestWorktreeManager(root)
 	wt := mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("begin must succeed")
@@ -173,7 +156,7 @@ func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 
 func TestWorktreeManagerReleaseRemovesRegistration(t *testing.T) {
 	root := t.TempDir()
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 	mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if _, ok := mgr.Info("impl"); !ok {
 		t.Fatal("expected registration before release")
@@ -186,7 +169,7 @@ func TestWorktreeManagerReleaseRemovesRegistration(t *testing.T) {
 
 func TestWorktreeManagerConcurrentRace(t *testing.T) {
 	root := t.TempDir()
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)

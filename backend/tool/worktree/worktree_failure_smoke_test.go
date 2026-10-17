@@ -44,8 +44,7 @@ func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mgr, fake, gate := newTestWorktreeManager(root)
-			gate.choice = "approve"
+			mgr, fake := newTestWorktreeManager(root)
 			tc.configure(mgr, fake)
 			wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 			if wt == nil {
@@ -65,8 +64,7 @@ func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T) {
 // TestWorktreeScenePreservedOnMergeConflict B4: 主工作区 merge 冲突。
 func TestWorktreeScenePreservedOnMergeConflict(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
-	mgr, fake, gate := newTestWorktreeManager(root)
-	gate.choice = "approve"
+	mgr, fake := newTestWorktreeManager(root)
 	fake.err["merge --no-edit seelex/n1"] = &gitTestErr{}
 	fake.reply["diff --name-only --diff-filter=U"] = "conflict.py"
 
@@ -88,8 +86,7 @@ func TestWorktreeScenePreservedOnMergeConflict(t *testing.T) {
 // Release 后 Info 不可查——证明「现场保留」确实是失败专属信号。
 func TestWorktreeSceneReleasedOnSuccess(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
-	mgr, fake, gate := newTestWorktreeManager(root)
-	gate.choice = "approve"
+	mgr, fake := newTestWorktreeManager(root)
 	wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
@@ -111,7 +108,7 @@ func TestWorktreeSceneReleasedOnSuccess(t *testing.T) {
 // 失败后未 Release，Info 持续可查；Release 后不可查。
 func TestWorktreeSceneSurvivesRelease(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
-	mgr, fake, _ := newTestWorktreeManager(root)
+	mgr, fake := newTestWorktreeManager(root)
 	fake.reply["status --porcelain"] = " M produced.txt"
 	fake.reply["rev-list --count abc123..HEAD"] = "0"
 	fake.reply["rev-list --count"] = "0"

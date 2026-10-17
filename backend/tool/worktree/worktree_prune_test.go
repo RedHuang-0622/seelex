@@ -20,7 +20,7 @@ func TestPruneRemovesOrphanWorktreesAndKeepsDirtyOnes(t *testing.T) {
 	orphanDirty := filepath.Join(filepath.Dir(root), "repo-seelex-orphan-dirty")
 	live := filepath.Join(filepath.Dir(root), "repo-seelex-live")
 
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 	var mu sync.Mutex
 	var removed []string
 	mgr.git = func(dir string, args ...string) (string, error) {
@@ -72,7 +72,7 @@ func TestPruneRemovesOrphanWorktreesAndKeepsDirtyOnes(t *testing.T) {
 // `.git/worktrees` 下留下永远没人清的条目。
 func TestPruneRunsGitWorktreePrune(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 	var calls []string
 	var mu sync.Mutex
 	mgr.git = func(dir string, args ...string) (string, error) {
@@ -99,7 +99,7 @@ func TestPruneRunsGitWorktreePrune(t *testing.T) {
 // team_close 收口步 2 会对着它跑 git status 而失败。
 func TestRestoreSkipsWorktreesThatNoLongerExist(t *testing.T) {
 	root := t.TempDir()
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 
 	alive := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "gone")

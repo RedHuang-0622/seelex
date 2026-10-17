@@ -20,7 +20,7 @@ import (
 
 func TestSceneNamingHasSingleSpelling(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
-	mgr, _, _ := newTestWorktreeManager(root)
+	mgr, _ := newTestWorktreeManager(root)
 
 	path := mgr.scenePath(root, "impl")
 	want := filepath.Join(filepath.Dir(root), sceneDirName(filepath.Base(root), "impl"))
@@ -39,7 +39,7 @@ func TestSceneNamingHasSingleSpelling(t *testing.T) {
 func TestSceneRegistrationAgreesAcrossPathSpellings(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "repo")
-	mgr, fake, _ := newTestWorktreeManager(root)
+	mgr, fake := newTestWorktreeManager(root)
 
 	local := filepath.Join(base, "repo-seelex-live") // 本地拼法（`\`）
 	adoptedLocal := mgr.scenePath(root, "adopted")
