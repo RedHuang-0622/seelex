@@ -105,6 +105,8 @@ stateDiagram-v2
 | `output_store.go` | **产品自有作业输出面**（P21-23 从 `backend/engine/assemble/runtime_teamwork_output.go` 整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
 | `board_archive.go` | **看板存档的生命周期判据**（P21-24 从 `backend/engine/assemble/runtime_teamwork_board_archive.go` 与 `..._board_close.go` 归位，plan §2.7；契约 docs/arch/session-board-metadata-lifecycle.md §5/§6/§7/§8/§9）：`NextBoardMeta`（无档新开一版 / **换版本先关旧后开新**（`team.replan`）/ 同版本只推进 seq 与 updated_at / 指纹不变即节流；读失败与"没档案"同解）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑；`Recovered=true` 且 `Stale=true`）、`SealBoard`（把在册那一版关成 `team.close`，可顺带刷新快照；幂等，读失败上抛）、`BoardFingerprint`（§7 节流判据） |
 | `job_projection.go` | **作业完成投影**（P21-25 从 `backend/engine/assemble/runtime_teamwork_jobs.go` 归位，plan §2.7）：`ProjectJobCompletions`（按读取顺序搬运、空表归一 nil）+ `JobCompletionFrom`（"每一列都要到"的搬运口径：角色由 `emp_<role>` 反解、工作项取 `Node`）+ `AsyncStateFromJobs`（框架状态词 → 契约枚举，**只折一次**；认不得的词落 `AsyncStateUnknown`——"认不得"不许被折成"还在跑"） |
+| `scene.go` | **团队现场名单判据 + 指派名的反向换算**（P21-26 从 `backend/engine/assemble/runtime_teamwork_scene.go` 归位，plan §2.7）：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ `SceneEntry{NodeID, Role, WorkItem}`，按 nodeID 去重保序；刻意不经折叠读法——折叠以 work_item 为键会把 WorkItem 留空的 teammate 级行整行丢掉）、`SceneNodeIDs`（只取名字的投影）、`NodeIDFromWorktreeName`（`seelex/<nodeID>` → nodeID，**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——两个方向过去分居两包，现在一条命名只有一域） |
+| `scene_test.go` | 反向换算与正向拼装互逆（含空白与无前缀输入）、名单次序（计划在前账本在后、去重保序、已释放不认领、空白指派名跳过）、teammate 级行 WorkItem 留空、空输入与 nodeID 投影 |
 | `job_projection_test.go` | 逐列搬运（含缺主体/缺状态）、状态折算（四词 + 空值 + 未知词）、顺序保持与空表归一 |
 | `board_archive_test.go` | 生命周期三规则 + 换版本写序（新开→刷新→关旧）+ 已退场不再续命 + 读失败按首次写；恢复只认 active（四种不恢复形态）；封板幂等与读失败上抛；指纹稳定 |
 | `output_store_test.go` | 随实现搬入的域级用例（逐字）：每次派发互不覆盖且落在会话目录、角色名折成安全片段、清目录= 删整目录 + 作废落点（迟到写丢弃、不复用）、非本面分配的路径拒绝写、按角色名取序号最大的一份、无会话归属显式报错、缺 store/keyFor 构造函数返回 nil |
@@ -562,6 +564,19 @@ go test ./backend/multiagent/... -count=1
 ### role_session_id_consistency_test.go
 
 - `func TestRoleSessionIDHelpersAgreeOnCanonicalInputs(t *testing.T)`
+
+### scene.go
+
+- `func NodeIDFromWorktreeName(worktreeName string) string` — NodeIDFromWorktreeName 把 worktree 指派名折成 worktree 管理器的节点 id（去 `seelex/` 前缀；
+- `func SceneIndex(plan store.TeamworkPlan, bindings []store.TeamworkBinding) []SceneEntry` — SceneIndex 返回团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
+- `func SceneNodeIDs(entries []SceneEntry) []string` — SceneNodeIDs 是 SceneIndex 的只取名字的投影（认领现场只用得上名字）。
+
+### scene_test.go
+
+- `func TestNodeIDFromWorktreeNameMatchesForwardNaming(t *testing.T)` — TestNodeIDFromWorktreeNameMatchesForwardNaming：反向换算（去前缀）与正向拼装**同一条**命名——
+- `func scenePlanFixture() store.TeamworkPlan`
+- `func TestSceneIndexReadsPlanThenLedgerAndDedupes(t *testing.T)` — TestSceneIndexReadsPlanThenLedgerAndDedupes：名单 = 计划（成员 → 工作项）后账本（未释放的
+- `func TestSceneIndexEmptyInputs(t *testing.T)` — TestSceneIndexEmptyInputs：没有计划也没有账本 ⇒ 空名单（不猜、不扫目录）。
 
 ### store.go
 

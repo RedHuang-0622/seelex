@@ -1,44 +1,32 @@
 package assemble
 
-// runtime_teamwork_scene.go — 团队现场（teammate / Work Item 级）的**认领**（重启恢复链的第三段）。
+// runtime_teamwork_scene.go — 团队现场（teammate / Work Item 级）**认领**的宿主面。
 //
-// 它补上 F4 那条链缺的一环：从**团队计划 + 绑定账本**得到 nodeID 列表，逐个把磁盘上
-// 既有的 worktree 现场认领回注册表。
+// 落点沿革（P21-26「域方法随类型走」）：**名单判据**（计划 + 账本 → nodeID 与归属，去重保序、
+// 指派名去前缀的换算）搬进团队域 [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md)
+// 的 `scene.go`（plan §2.7）；本文件只剩三件事：
 //
-// 为什么必须有这一段：
-//   - 子代理那条链的形状是 `beginNodeWorktree`（`Begin` → 立刻落持久节点记录）→ 宿主
-//     恢复时 `Restore(records)` 回灌注册表 → `Prune()` 在后清理（顺序是判据的一部分）；
-//   - teammate 现场走的却是 `BindWorkspace → WorktreeManager.BeginNamed`，**没有任何
-//     持久登记**进入子代理的恢复名单（`NoteWorktree` 的调用点全仓只有 `beginNodeWorktree`
-//     一处）。于是重启后它既不在册（`bindWorkerProjectRoot` 只能回退主会话根 = "去不了
-//     目标的 worktree"），又紧接着被 `Prune` 的"不在册 + 干净"判据当孤儿删掉——目录与
-//     `seelex/<nodeID>` 分支一起没了（F4 探针实测）。
+//   - `teamSceneIndex` / `teamSceneNodeIDs`：**读**哪两份持久事实（计划 + 账本原始行）——读法与
+//     容错（读不出来就当那一份为空）是宿主读数；
+//   - `adoptTeamworkScenes`：把名单逐个交给 worktree 管理器**认领**（宿主动作）。
 //
-// 持久事实 = **计划 + 账本**（leader 已定口径），不新造第二套目录扫描：计划里的
-// `item.Worktree` / `member.Worktree` 与账本里的绑定行存的都是**指派名**
-// （`seelex/<role>[-<item>]`），去前缀换回 worktree 管理器的注册键——换算只有
-// `workItemNodeID` 一处，这里只复用，不重新拼命名。
-//
-// 顺序（`RestoreSubagentAnchors` 内）：先 `Restore`（子代理锚点）、再**认领**（团队现场）、
+// 顺序提醒（`RestoreSubagentAnchors` 内）：先 `Restore`（子代理锚点）、再**认领**（团队现场）、
 // 最后 `Prune`。认领必须早于 `Prune`，否则认领之前现场就已经被当孤儿删掉了。
 
 import (
 	"context"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-// teamSceneEntry 是一个团队现场的名单项：nodeID（契约命名，`<role>[-<itemID>]`）+
-// 归属（角色 / 工作项）。归属只是**标注**（审计与契约侧定位要用），不是"该拆哪一级"的判据。
-type teamSceneEntry struct {
-	NodeID   string
-	Role     string
-	WorkItem string
-}
+// teamSceneEntry 是域包 `SceneEntry` 的**同身份别名**（既有调用点与用例零改动）。
+type teamSceneEntry = teamwork.SceneEntry
 
-// teamSceneIndex 返回本会话团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
+// teamSceneIndex 返回本会话团队现场的名单与归属（判据在域包；这里只读两份持久事实）。
 //
-// 契约侧（session 落盘 / 回灌）要按 nodeID 找记录、按角色回灌说明，因此需要归属；
-// `teamSceneNodeIDs` 是它的只取名字的投影（认领现场只用得上名字）。
+// 容错与迁移前一致：计划读不出来就当它为空（只认账本），账本读不出来同理。
 func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
 	if r == nil || strings.TrimSpace(sessionID) == "" {
 		return nil
@@ -54,62 +42,21 @@ func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
 		return nil
 	}
 	ctx := context.Background()
-	seen := make(map[string]bool, 4)
-	entries := make([]teamSceneEntry, 0, 4)
-	add := func(assigned, role, itemID string) {
-		nodeID := workItemNodeID(assigned)
-		if nodeID == "" || seen[nodeID] {
-			return
-		}
-		seen[nodeID] = true
-		entries = append(entries, teamSceneEntry{
-			NodeID: nodeID, Role: strings.TrimSpace(role), WorkItem: strings.TrimSpace(itemID),
-		})
+	plan, err := backend.Store.ReadPlan(ctx, key)
+	if err != nil {
+		// 计划读不出来就当它为空（只认账本），与迁移前的容错一致。
+		plan = store.TeamworkPlan{}
 	}
-	if plan, err := backend.Store.ReadPlan(ctx, key); err == nil {
-		for _, member := range plan.Members {
-			add(member.Worktree, member.Role, "")
-		}
-		for _, milestone := range plan.Milestones {
-			for _, item := range milestone.Items {
-				add(item.Worktree, item.Role, item.ID)
-			}
-		}
+	bindings, err := backend.Store.ReadBindings(ctx, key)
+	if err != nil {
+		bindings = nil
 	}
-	if rows, err := backend.Store.ReadBindings(ctx, key); err == nil {
-		// 用**原始行**而不经 `store.TeamworkBindings` 的折叠结果：折叠以
-		// work_item 为键，会把 WorkItem 留空的 teammate 级行（leader 定的账本行形状）
-		// 整行丢掉。
-		for _, row := range rows {
-			if row.Released {
-				continue
-			}
-			add(row.Worktree, row.Role, row.WorkItem)
-		}
-	}
-	return entries
+	return teamwork.SceneIndex(plan, bindings)
 }
 
-// teamSceneNodeIDs 返回本会话团队现场的全部 nodeID（计划 + 账本，去重保序）。
-//
-// 两个来源都要读，缺一不可：
-//   - **计划**：`item.Worktree`（派发时写进计划，是账本之外唯一的线索）与
-//     `member.Worktree`（teammate 级现场）；
-//   - **账本**：绑定流水（追加型 JSONL）。已释放（`Released`）的行表示这一份绑定已经
-//     结束，不再认领。
-//
-// 未装配 teamwork 后端 / 会话没有作用域键 → 返回空：不猜、不扫目录（"恢复链只据计划 +
-// 账本回灌注册表"）。
+// teamSceneNodeIDs 返回本会话团队现场的全部 nodeID（判据在域包；这里一行转发）。
 func (r *Runtime) teamSceneNodeIDs(sessionID string) []string {
-	entries := r.teamSceneIndex(sessionID)
-	if len(entries) == 0 {
-		return nil
-	}
-	nodeIDs := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		nodeIDs = append(nodeIDs, entry.NodeID)
-	}
-	return nodeIDs
+	return teamwork.SceneNodeIDs(r.teamSceneIndex(sessionID))
 }
 
 // adoptTeamworkScenes 把本会话团队现场里**磁盘上还有**的那些认领回注册表，返回认领

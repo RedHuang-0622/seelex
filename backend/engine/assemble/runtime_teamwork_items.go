@@ -137,14 +137,10 @@ func (r *Runtime) EnqueueTeammateMessage(ctx context.Context, message teamwork.T
 	return coordinator.AppendTeammateMessage(ctx, message)
 }
 
-// workItemNodeID 把 worktree 指派名折成 worktree 管理器的节点 id。
-//
-// 命名是**同一条**：指派名 `seelex/<role>-<item>` 去掉分支前缀就是节点 id
-// （worktree_manager 的 branch = "seelex/" + nodeID）。两处各算一次命名，迟早算成
-// 两个目录——所以这里只做"去前缀"，不重新拼。
-func workItemNodeID(worktreeName string) string {
-	return strings.TrimPrefix(strings.TrimSpace(worktreeName), "seelex/")
-}
+// workItemNodeID 是团队域 `NodeIDFromWorktreeName` 的**同身份别名**：命名是**同一条**
+// （指派名 `seelex/<role>-<item>` 去分支前缀就是节点 id），反向换算只有一处实现，且与正向拼装
+// （`WorkItemWorktreeName` / `TeammateWorktreeName`）同处一域；P21-26 归位。
+var workItemNodeID = teamwork.NodeIDFromWorktreeName
 
 // workspaceRootFor 返回某宿主会话的项目根（无 = 空串）。
 func (r *Runtime) workspaceRootFor(sessionID string) string {
