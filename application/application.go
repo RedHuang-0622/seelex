@@ -135,6 +135,7 @@ const (
 	EventResyncRequired        = event.EventResyncRequired
 	EventExitRequested         = event.EventExitRequested
 	EventViewSessionChanged    = event.EventViewSessionChanged
+	EventSessionsChanged       = event.EventSessionsChanged
 	// 上下文压缩的门禁进度：宿主按 kind 分流才能渲染它，因此事件名与载荷类型都
 	// 在门面上（与 MessageDelta 同理——前端/控制台都只消费这一份常量）。
 	EventCompactionProgress   = event.EventCompactionProgress
