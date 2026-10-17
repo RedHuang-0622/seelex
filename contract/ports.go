@@ -7,9 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-
-	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 type EngineMessage struct {
@@ -65,7 +62,7 @@ type ChatEngine interface {
 	// NodeContextSnapshot 返回节点子代理的结构化上下文快照（Goal/
 	// Findings/Decisions/TokenEstimate 等；运行中实时导出、结束后快照；
 	// 只读子代理 actor，安全）。
-	NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
+	NodeContextSnapshot(nodeID string) (*dto.ContextSnapshot, bool)
 	// NodeToolResult 读回节点子代理的工具结果原始内容（ref 带
 	// node:<nodeID>: 前缀；内存态，运行中/结束后可读；只读子代理归档器）。
 	NodeToolResult(nodeID, ref string) (string, bool)
@@ -257,7 +254,7 @@ type RuntimePort interface {
 	SetSubagentParentRepairer(fn func(sessionID string) error)
 	// SearchHistory 在会话压缩栈（语义索引）上检索历史聊天记录
 	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
-	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
+	SearchHistory(context.Context, string, int) (dto.SearchResult, error)
 }
 
 // TeamworkBoardProjection 是**窄可选**能力面：Runtime 提供某会话的团队看板只读投影
@@ -473,7 +470,7 @@ type RolePromptPort interface {
 //
 // RolePrompt 是「角色提示词一次性优化」的可选装配口（见 RolePromptPort）：组合根自
 // 2026-10-12 J-1a 起不再注入（员工入职面板退场）；nil 时应用层返回可展示错误，
-// ADVISOR 回合照旧回退内置提示词（见 backend/engine/assemble/runtime_role_prompt.go，A08）。
+// 角色回合回退内置提示词（见 backend/engine/assemble/runtime_role_prompt.go）。
 type Dependencies struct {
 	Engine     ChatEngine
 	Runtime    RuntimePort

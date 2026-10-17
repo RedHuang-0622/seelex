@@ -246,52 +246,23 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/store/schedule",
 }
 
-// contractClosureAllowList 是契约层传递闭包里的**全部非 stdlib** 包（2026-10-16 实测）。
-// plan 的目标是这张表最终清空（闭包 = stdlib）；D-M1-1 记录了为什么本轮达不到
-// （状态 owner、产品 A/B 模型与 scope 未裁决，见 plan §5.12）。
+// contractClosureAllowList 是契约层传递闭包里的**全部非 stdlib** 包（2026-10-17 实测）。
+//
+// P3 已把实现依赖清干净：引擎历史写面改用 `contract.EngineMessage`，
+// `SearchHistory` 改用 `dto.SearchResult`，`NodeContextSnapshot` 改用
+// `dto.ContextSnapshot`——`Seele/types`、`store`、`seelectx/*` 与全部第三方包
+// 都已离开闭包。剩下的 4 个全是**纯形状包**：协议词汇
+// `middle/protocol/{model,event}`（plan §1.3 I1 允许的零依赖协议层）与契约自身。
 //
 // 与 facadeClosureAllowListMax 同理：这张表**只许缩小**，契约层新增任何非 stdlib
 // 依赖都必须先删条旧条目（即先做减法），不允许直接顶到上限以上。
-// M2-C：`application/approval` 的形状搬进 contract 后，契约层闭包少了一个包
-// （29 → 28）——上限跟着降，把这次收缩钉住。
-//
-// M3-S2 的例外（记在 m3-record.md）：`store/root` 不是契约层新添的依赖，而是
-// `contract/ports.go → seelexctx/search → store → store/root` 这条**既有**
-// 污染链上多出的一个名字（D-M1-1 的闭包仍未收口，待裁决）。它是纯 stdlib 叶子，
-// 因此按"新模块可 +1"登记，上限 28 → 29；契约层闭包本身没有新增任何真实依赖。
-const contractClosureAllowListMax = 29
+const contractClosureAllowListMax = 4
 
 var contractClosureAllowList = []string{
-	"github.com/RedHuang-0622/Seele/errors",
-	"github.com/RedHuang-0622/Seele/event",
-	"github.com/RedHuang-0622/Seele/seelectx",
-	"github.com/RedHuang-0622/Seele/seelectx/cache",
-	"github.com/RedHuang-0622/Seele/seelectx/ctx_manager",
-	"github.com/RedHuang-0622/Seele/seelectx/storage",
-	"github.com/RedHuang-0622/Seele/telemetry",
-	"github.com/RedHuang-0622/Seele/types",
-	"github.com/RedHuang-0622/Seele/workplan/core/types",
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/model",
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/lifecycle",
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory",
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search",
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot",
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens",
-	"github.com/RedHuang-0622/seelex/store",
-	// M3-S2：见 contractClosureAllowListMax 的说明。
-	"github.com/RedHuang-0622/seelex/store/root",
-	"github.com/cespare/xxhash/v2",
-	"go.opentelemetry.io/otel/attribute",
-	"go.opentelemetry.io/otel/attribute/internal",
-	"go.opentelemetry.io/otel/attribute/internal/xxhash",
-	"go.opentelemetry.io/otel/codes",
-	"go.opentelemetry.io/otel/semconv/v1.41.0",
-	"go.opentelemetry.io/otel/trace",
-	"go.opentelemetry.io/otel/trace/embedded",
-	"go.opentelemetry.io/otel/trace/internal/telemetry",
 }
 
 // frontendDirectImportAllowList 是四个前端入口的**直接** import 允许清单（只许收缩）。

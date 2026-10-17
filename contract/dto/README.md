@@ -120,6 +120,21 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s AsyncState) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词，不是枚举的整数值。
 - `func (s *AsyncState) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词。认不得的词**报错**，不静默折成零值——那会把"读不懂"变成
 
+### context_snapshot.go
+
+- `func (snap *ContextSnapshot) Format() string` — Format 将快照格式化为可注入 system prompt 的结构化文本。
+- `func (snap *ContextSnapshot) SetGoal(goal string) *ContextSnapshot` — SetGoal 设置目标。
+- `func (snap *ContextSnapshot) AddDecision(what, why string) *ContextSnapshot` — AddDecision 追加一条关键决策。
+- `func (snap *ContextSnapshot) AddFinding(finding string) *ContextSnapshot` — AddFinding 追加一条重要发现。
+- `func (snap *ContextSnapshot) SetProgress(progress string) *ContextSnapshot` — SetProgress 设置已完成进度。
+- `func (snap *ContextSnapshot) AddConstraint(constraint string) *ContextSnapshot` — AddConstraint 追加一条约束。
+- `func (snap *ContextSnapshot) AddPendingWork(work string) *ContextSnapshot` — AddPendingWork 追加一条待完成工作。
+- `func (snap *ContextSnapshot) SetEscape(reason, message string, iterations int) *ContextSnapshot` — SetEscape 设置循环逃逸信息。
+- `func (snap *ContextSnapshot) SetParentGoal(parentGoal string) *ContextSnapshot` — SetParentGoal 设置父目标（无 escape 时不做事）。
+- `func (ve *ValidationError) Error() string`
+- `func (snap *ContextSnapshot) Validate() error` — Validate 检查必填字段。
+- `func Truncate(s string, maxLen int) string` — Truncate 截断字符串到指定长度。
+
 ### goal_status.go
 
 - `func (s GoalStatus) String() string` — String 给出对外词（视图 JSON 与存档 wire 都用它）。
@@ -154,13 +169,6 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s NodeStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词。
 - `func (s *NodeStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
 - `func NodeStatusFromFramework(word string) (NodeStatus, bool)` — NodeStatusFromFramework 把框架 workplan 的节点状态词折成这一格；第二个返回值报告
-
-### peer_state.go
-
-- `func (s PeerState) String() string` — String 给出对外词（治理投影的 peer_state）。
-- `func ParsePeerState(text string) (PeerState, bool)` — ParsePeerState 把对外词读回枚举；第二个返回值报告认不认得。
-- `func (s PeerState) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "detached" 这样的词。
-- `func (s *PeerState) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
 
 ### permission.go
 
@@ -252,7 +260,6 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func TestNodeStatusFromFrameworkFoldsStartedAndRejectsPhases(t *testing.T)` — 框架词折一次：框架的 "started" 与我们的 running 同态；**阶段词不是节点状态**
 - `func TestScheduleRunStatusEnumWire(t *testing.T)` — 格 I：定时任务上次运行结果（`ScheduledTaskStatus.LastStatus`；GUI 面板数据源）。
 - `func TestGoalStatusEnumWire(t *testing.T)` — 格 J：goal 状态（goal 栈每层一态；看板视图与 goal 存档同格）。
-- `func TestPeerStateEnumWire(t *testing.T)` — 格 K：评审者（b / ADVISOR）生命周期状态。
 - `func TestUnitStatusEnumWire(t *testing.T)` — 格 L：恢复单元状态（恢复模板里的粗分三桶；由记录状态折一次）。
 - `func TestRecordStatusReadsOldShapedRecords(t *testing.T)` — 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 
