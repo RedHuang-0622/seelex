@@ -103,7 +103,12 @@ const (
 // 现在 import 它，因此闭包多这一条，上限抬到 83。它与既有登记项不同的一点是：它不是从
 // `application/core` 抽出来的，而是从**装配层**抽出来的——闭包里的装配层本来就在，抽出来的域包
 // 自然跟着进闭包。域包自身只依赖 Seele 的 `event`/`jobs`、`backend/tool/registry` 与 `contract/dto`。
-const facadeClosureAllowListMax = 84
+// M5-R6-workspace（2026-10-17）：`middle/switch/workspace`（工作区用例）从
+// `application/core/workspace_usecase.go` 抽成中间层叶子模块（plan §2.4）。
+// 这是一条"从 core 抽出的落点新建"，装配层现在 import 它；新包只依赖
+// `contract`/`contract/dto`/`middle/protocol/model` 与窄端口，没有第三方或反向依赖。
+// 因此上限抬到 85。
+const facadeClosureAllowListMax = 85
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -196,6 +201,7 @@ var facadeClosureAllowList = []string{
 	// **新增登记的理由**：换落点 + 落点新建；新包只依赖 `middle/protocol/model`（已在清单内），
 	// 存储端口由宿主断言后注入，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/middle/switch",
+	"github.com/RedHuang-0622/seelex/middle/switch/workspace",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",
