@@ -1786,3 +1786,34 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 **四项待裁决**：`middle/view/state → backend/engine/assemble` 越层边（§37）、11 条 README 路径漂移批（§37）、
 FNV 原语三处（§39——本轮 P21-30 只搬位置、没有擅并）、`TestBackgroundCompletionWhileSwitchingToC`
 根因定位（§42，需要失败时刻的 goroutine dump + 引擎工作历史快照）。
+
+
+## 48. P21 续片（2026-10-17 第十六轮：P21-33 / P21-34）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-33 | **计划查询两条判据（一条遍历口径）** → `backend/multiagent/teamwork/plan_query.go`：`ItemRole`（按 id 查执行角色，trim 后交给已存在的 `findItem`——**删掉派发回执里那次独立的里程碑遍历**）、`MemberOf`（按角色找在编成员）。装配层 `dispatchItemRole` / `dispatchAssemblyReading` 只剩"取计划（host）+ 查一次（域包）"。域级 2 条新用例 | `89e81741` |
+| P21-34 | **teammate 单元记录写侧口径** → `backend/multiagent/teamwork/unit_record.go`：`UnitStatusRunning/Done/Failed`（记录词表来自契约）、`UnitStatusFor`（收尾分类 → 终态：**只有判死那类记 failed**）、`UnitNodeID`（单元身份三形态）。装配层五个符号改同身份/同值别名，`workunit_team.go` 去掉 `contract/dto` 直依赖。域级 3 条新用例 | `84e2230c` |
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/teamwork   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+1. `runtime_teamwork.go`（≈850 行）：几个 handler 的**入参口径**（`team_dispatch` / `team_work` /
+   `team_join` / `team_milestone` / `team_close` 的请求形状与默认值）与派发/汇合/收口的宿主动作；
+2. `workunit_team_records.go`（≈400 行）：记录写入/回灌的宿主动作（`UnitRecord` 写侧、恢复读数）；
+3. `runtime_teamwork_items.go` / `workunit_assembly.go`：端口实现与三格适配器——**按设计文档留在装配处**；
+4. `runtime_context.go` 组件工厂、`runtime_tools.go` 其余注册面——已判为装配面（§38 表）。
+
+**四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
+`TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
