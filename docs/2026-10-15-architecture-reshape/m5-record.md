@@ -1817,3 +1817,36 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 
 **四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
 `TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
+
+
+## 49. P21 续片（2026-10-17 第十七轮：P21-35）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-35 | **teammate 单元记录身份写侧** → `backend/multiagent/teamwork/unit_record.go`（plan §2.7）：`UnitRecordKey`（记录身份形状）、`UnitRecordKeyFor`（从作业载荷取身份：nodeID 口径复用 `UnitNodeID`、标量 trim、插件集合拷贝；SystemPrompt 由装配面补）、`TeammateUnitRecordLink`（写链上 teammate 那一环：只写 Kind/Role/Plugins/SystemPrompt 进 `record.Unit`，其余字段一概不动；与 `subagent.SubagentUnitRecordLink` 同形）。装配层类型别名 ×1 + 函数值别名 ×2（记录写侧与链用例零改动）。域级 2 条新用例 | `b32be035` |
+
+**装配层体积**：`workunit_team.go` 196 → 176 行；`workunit_team_records.go` 412 → 396 行。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/teamwork   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+1. `runtime_teamwork.go`（≈850 行）：几个 handler 的**入参口径**（`team_dispatch` / `team_work` /
+   `team_join` / `team_milestone` / `team_close` 的请求形状与默认值）与派发/汇合/收口的宿主动作；
+2. `workunit_team_records.go`（≈396 行）剩余：落盘/清理/恢复说明/重启回灌的宿主动作
+   （`RecoverTeamworkUnits` 的读面编排）；
+3. `runtime_teamwork_items.go` / `workunit_assembly.go`：端口实现与三格适配器——**按设计文档留在装配处**；
+4. `runtime_context.go` 组件工厂、`runtime_tools.go` 其余注册面——已判为装配面（§38 表）。
+
+**四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
+`TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
