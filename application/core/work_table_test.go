@@ -2,13 +2,14 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ── 工作表格投影（白盒功能测试；注册表为唯一 task 源）────────
@@ -17,26 +18,26 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 	queuedAt := time.Now().Add(-2 * time.Minute)
 	completedAt := time.Now().Add(-time.Minute)
 	toolAt := time.Now().Add(-30 * time.Second)
-	plan := &PlanState{
+	plan := &model.PlanState{
 		Status: PlanRunning,
-		Nodes: []PlanNode{
+		Nodes: []model.PlanNode{
 			{
 				ID: "n1", Label: "调研", Kind: "auto", Status: NodeCompleted, Output: "完成调研",
-				Events: []PlanNodeEventInfo{
+				Events: []model.PlanNodeEventInfo{
 					{Status: NodeQueued.String(), At: queuedAt, Output: "queued"},
 					{Status: NodeCompleted.String(), At: completedAt, Output: "ok"},
 				},
-				ToolEvents: []SubagentToolEvent{
+				ToolEvents: []model.SubagentToolEvent{
 					{ID: "t1", NodeID: "n1", Name: "read_file", Status: dto.ToolEventSuccess, StartedAt: toolAt, Result: "源码", Duration: 1500 * time.Millisecond},
 				},
 				Elapsed: "2m",
 			},
 			{
 				ID: "n2", Label: "实现", Status: NodeRunning,
-				Children: []PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
+				Children: []model.PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
 			},
 		},
-		Edges: []seelplan.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
+		Edges: []dto.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
 	}
 	tasks := []dto.TaskRecord{
 		{ID: "plan:n1", Key: "plan:n1", Phase: "plan", Task: "调研", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1", Elapsed: "2m"},
@@ -44,7 +45,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 		{ID: "plan:n2a", Key: "plan:n2a", Phase: "plan", Task: "子任务", Status: dto.TaskPending, Kind: "plan", SourceID: "n2a", Dependencies: []string{"plan:n2"}},
 	}
 
-	rows := buildWorkTable(plan, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 	if len(rows) != 3 {
 		t.Fatalf("rows = %d, want 3", len(rows))
 	}
@@ -73,15 +74,15 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 
 func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 	at := time.Now()
-	plan := &PlanState{
+	plan := &model.PlanState{
 		Status: PlanCompleted, // 非 running → tasklist 门禁模式
-		Nodes: []PlanNode{{
+		Nodes: []model.PlanNode{{
 			ID: "n1", Label: "步骤", Status: NodeCompleted,
-			Events: []PlanNodeEventInfo{{Status: NodeCompleted.String(), At: at, Output: "ok"}},
+			Events: []model.PlanNodeEventInfo{{Status: NodeCompleted.String(), At: at, Output: "ok"}},
 		}},
 	}
 	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}
-	rows := buildWorkTable(plan, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 	ops := make([]string, 0, len(rows[0].Trace))
 	for _, point := range rows[0].Trace {
 		ops = append(ops, point.Operation)
@@ -98,7 +99,7 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 		{ID: "todo:2", Phase: "tasklist", Task: "c", Status: dto.TaskCompleted, Kind: "todo"},
 		{ID: "todo:3", Phase: "tasklist", Task: "d", Status: dto.TaskCompleted, Kind: "todo"},
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != 4 {
 		t.Fatalf("rows = %d", len(rows))
 	}
@@ -118,13 +119,13 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 func TestBuildWorkTableBatches(t *testing.T) {
 	now := time.Now()
 	early := now.Add(-30 * time.Minute)
-	rows := []WorkItem{
+	rows := []model.WorkItem{
 		{ID: "todo:0", Kind: "todo", Phase: "tasklist", BatchID: "chat-2", CreatedAt: now.Add(-time.Minute)},
 		{ID: "task:1", Kind: "task", Phase: "task", BatchID: "chat-2", CreatedAt: now},
 		{ID: "plan:p1", Kind: "plan", Phase: "plan", BatchID: "chat-1", CreatedAt: early},
 		{ID: "subagent:s1", Kind: "subagent", Phase: "subagent", BatchID: "", CreatedAt: now.Add(-2 * time.Hour)},
 	}
-	batches := buildWorkTableBatches(rows)
+	batches := worktable.BuildWorkTableBatches(rows)
 	if len(batches) != 3 {
 		t.Fatalf("batches = %d, want 3: %+v", len(batches), batches)
 	}
@@ -151,12 +152,12 @@ func TestTaskRecordToWorkItemCarriesBatch(t *testing.T) {
 		ID: "task:1", Phase: "task", Task: "t", Status: dto.TaskPending, Kind: "task",
 		BatchID: "chat-9", CreatedAt: createdAt,
 	}
-	row := taskRecordToWorkItem(record)
+	row := worktable.TaskRecordToWorkItem(record, workTableBounds())
 	if row.BatchID != "chat-9" || row.CreatedAt != createdAt || row.BatchLabel == "" {
 		t.Fatalf("row = %+v", row)
 	}
-	if row.BatchLabel != batchLabel("chat-9", createdAt) {
-		t.Fatalf("batch label = %q, want %q", row.BatchLabel, batchLabel("chat-9", createdAt))
+	if row.BatchLabel != worktable.BatchLabel("chat-9", createdAt) {
+		t.Fatalf("batch label = %q, want %q", row.BatchLabel, worktable.BatchLabel("chat-9", createdAt))
 	}
 }
 
@@ -179,7 +180,7 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 			},
 		},
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != 2 {
 		t.Fatalf("rows = %d, want 2", len(rows))
 	}
@@ -206,16 +207,16 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 			Task: "t", Status: dto.TaskPending, Kind: "todo",
 		})
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != Limits().WorkTableRows {
 		t.Fatalf("rows = %d, want %d", len(rows), Limits().WorkTableRows)
 	}
 
 	long := strings.Repeat("x", Limits().EvidenceChars*2)
-	row := buildWorkTable(nil, []dto.TaskRecord{{
+	row := worktable.BuildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: "task", Task: long, Description: long, Kind: "task",
 		Trace: []dto.TaskTracePoint{{Status: dto.TaskPending, Operation: "task.add", Evidence: long}},
-	}}, nil, nil)[0]
+	}}, nil, nil, workTableBounds())[0]
 	if !strings.HasSuffix(row.Description, "…") || len([]rune(row.Description)) != Limits().EvidenceChars+1 {
 		t.Fatalf("description truncation = %d runes", len([]rune(row.Description)))
 	}
@@ -323,7 +324,7 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	}
 }
 
-func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEvent {
+func waitForWorkTableEvent(t testing.TB, subscription protocol_event.Subscription) model.WorkTableEvent {
 	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {
@@ -332,7 +333,7 @@ func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEve
 			if event.Kind != EventWorkTableChanged {
 				continue
 			}
-			var payload WorkTableEvent
+			var payload model.WorkTableEvent
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode worktable.changed: %v", err)
 			}

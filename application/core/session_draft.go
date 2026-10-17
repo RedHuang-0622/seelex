@@ -3,30 +3,25 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
-const draftSessionName = "新会话"
-
-// sessionIDPrefix 是宿主早分配会话 ID 的前缀。「草稿」是会话的**状态**
-// （Snapshot.Session.Draft / 会话记录的 Status=draft），不是会话的身份：这个 ID
-// 在首次提交物化后会继续当真实会话 ID 用——引擎 bundle、会话记录键、权限档位槽、
-// 工作区绑定全按它寻址，RoleSessionID 还拿它派生角色/子代理会话号。因此前缀必须
-// 读作"一个会话"。此前这里是 `draft_`，于是每一个经「新建会话」产生的会话终生带
-// draft 前缀，工作表格的「会话」列永远显示 draft_…（2026-10-01 现场：明明是 session，
-// draft 不代表 session）。
-const sessionIDPrefix = "seelex"
+const draftSessionName = switching.DraftSessionName
 
 // newDraftSessionIDLocked 生成早分配的会话 ID（调用方持有 Core.ViewMu）。
-// ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
-// BeginNewSession 也不会碰撞；引擎按该显式 ID 建 bundle（HasSession=false
-// 阶段不建，首次提交物化时经 ActivateSession 创建）。
+// 口径只有一份：`middle/switch.NewDraftSessionID`。
+// 序号自增也在该锁内，因此同一 tick 多次进入草稿不会撞号。
+//
+// 该 ID 是**真实会话 ID**而不是临时号：引擎按它建 bundle（HasSession=false 阶段不建，
+// 首次提交物化时经 ActivateSession 创建）。
 func (service *Service) newDraftSessionIDLocked() string {
 	service.draftSeq++
-	return fmt.Sprintf("%s-%d-%d", sessionIDPrefix, time.Now().UnixNano(), service.draftSeq)
+	return switching.NewDraftSessionID(time.Now(), service.draftSeq)
 }
 
 // BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
@@ -108,7 +103,7 @@ func (service *Service) BeginNewSession() error {
 	}
 	slot.UpdatedAt = time.Now()
 	draftID := slot.ID
-	var restoredWorkspace *WorkspaceInfo
+	var restoredWorkspace *model.WorkspaceInfo
 	if slot.Workspace != nil {
 		item := *slot.Workspace
 		restoredWorkspace = &item
@@ -132,37 +127,21 @@ func (service *Service) BeginNewSession() error {
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
 	service.ViewMu.Lock()
-	service.nextViewEpochLocked()
-	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-	service.sessions.SetActive(draftID)
-	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
-	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.HistoryOffset = 0
-	service.Core.Snapshot.TotalMessages = 0
-	service.Core.Snapshot.HasMoreHistory = false
-	// 进入草稿 = 换会话：上一会话留在快照里的**会话事实**必须一并清掉，否则新会话会
-	// 显示（并在首次提交时按会话落盘成自己的历史）上一个会话的任务面与已读文件。
-	//
-	// `Task` 是压缩记录（`ContextCompactions`）与任务状态的唯一投影面，`ReadFiles`
-	// 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——两者都归会话所有。
-	// 这一段与 `unloadSession` 的同名字段清理必须口径一致（2026-10-01 用户现场：
-	// 新建会话的右栏「上下文压缩」仍列着上一个会话的记录，就是这里漏了 Task）。
-	service.Core.Snapshot.Task = nil
-	service.Core.Snapshot.ReadFiles = nil
-	service.Core.Snapshot.Runtime.Plan = nil
-	service.Core.Snapshot.Interaction = nil
-	draftRuntime := service.sessionUnitLocked(draftID)
-	draftRuntime.SetChatState(ChatState{}, nil)
-	draftRuntime.SetCancel(nil)
-	draftRuntime.SetRequests(nil)
-	service.Core.Snapshot.Chat = draftRuntime.ChatState()
-	service.Core.Snapshot.Session.Composer = draftRuntime.ComposerText()
 	// 档位重算落在同一临界区里（会话单元已就位）：草稿自己的档位（会话槽或进程
 	// 默认）覆盖掉上一个会话留在快照里的那个值——否则新会话的 chip 显示的是**上一个
 	// 会话的档位**，而真正生效的是本会话的档位（见 syncViewPermissionTierLocked）。
-	service.applyStoredPermissionTier(draftID, storedTier)
-	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
-	service.components.tasks.ResetForNewSessionLocked()
+	// `/new` 是唯一要读盘取档位的路径（草稿槽可复用 ⇒ "这个会话之前选过档位"真实存在），
+	// 读盘已在锁外完成，这里只把值应用下去。
+	service.enterDraftShellLocked(draftShellOptions{
+		sessionID:          draftID,
+		workspace:          restoredWorkspace,
+		resetHistoryWindow: true,
+		composerFromUnit:   true,
+		resetTitle:         true,
+		tier: func(sessionID string) {
+			service.applyStoredPermissionTier(sessionID, storedTier)
+		},
+	})
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
@@ -174,6 +153,90 @@ func (service *Service) BeginNewSession() error {
 	service.refreshWorkTableFromSources()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", draftID, nil)
 	return nil
+}
+
+// draftShellOptions 是一次"把视图单例切到草稿壳"的**显式差异表**（M5-P18：三条路径的字段清理收成一处）。
+//
+// 草稿在系统里有三个角色（2026-10-17 用户裁决时点明）：
+//
+//  1. **`/new` 进草稿**（`BeginNewSession`）：可能复用保留的草稿槽——恢复它的展示绑定与档位，
+//     清掉上一个会话留在快照里的全部会话事实；
+//  2. **冷加载中断时恢复草稿内容**（`resetViewToDraftAfterRestoreFailure`）：冷恢复失败且无前一会话
+//     可回退时把视图退回草稿壳；**不做任何持久化**（避免空壳覆盖目标会话记录），因此保留窗口读数；
+//     但已读文件属于"未加载成功的那个会话"，草稿壳不继承（否则物化时会被写成新会话的 Execution）；
+//  3. **卸载/删掉正在看的会话**（`switchViewToFreshDraftLocked`）：视图单例必须始终有对应单元，
+//     就地新建一个早分配草稿单元；**不写槽位**（不进入会话树，与卸载前语义一致）。进程级交互
+//     （`SessionID` 为空）不随会话卸载失效，保留；会话级交互属于被卸下的会话，必须清掉。
+//
+// 三条 `keep*`/`reset*` 开关就是三条路径的**真实差异**（本片之前是三份手抄的清理清单，
+// 集合各不相同、看不出哪些是有意的）。差异矩阵与理由见 `session_draft_shell_test.go`。
+// 2026-10-17 用户裁决后，02 的 `ReadFiles` 与 03 的会话级 `Interaction` 两处漂移已收敛。
+type draftShellOptions struct {
+	// sessionID 是草稿的早分配 SID。
+	sessionID string
+	// workspace 写进 `Snapshot.CurrentWorkspace`；`keepWorkspace=true` 时整格不动。
+	workspace     *model.WorkspaceInfo
+	keepWorkspace bool
+	// resetHistoryWindow 把 `HistoryOffset` / `TotalMessages` / `HasMoreHistory` 归零。
+	resetHistoryWindow bool
+	// keepProcessInteraction 只保留**进程级**交互（`SessionID` 为空）；会话级交互随
+	// 被卸下的会话一起失效（03 就地换单元）。
+	keepProcessInteraction bool
+	// composerFromUnit 把草稿单元的 composer 文本写进快照（只有 01 写）。
+	composerFromUnit bool
+	// resetTitle 把该会话的标题清成空（01/02 清，03 不动）。
+	resetTitle bool
+	// tier 在临界区内重算本会话的生效档位：01 用**读盘值**，02/03 用会话单元的读数。
+	tier func(sessionID string)
+}
+
+// enterDraftShellLocked 把视图单例切到草稿壳（调用方持有 Core.ViewMu），返回草稿的会话单元。
+//
+// 公共部分只有一份：会话指针、会话事实（`Task` / `Runtime.Plan`）、对话、聊天运行态都在这里清，
+// 差异由 `draftShellOptions` 的开关显式表达。历史口径（2026-10-01 现场）：`Task` 是压缩记录与
+// 任务状态的唯一投影面、`ReadFiles` 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——
+// 两者都归会话所有，换视图指针就必须清，否则新会话会显示、并落盘成上一会话的历史。
+func (service *Service) enterDraftShellLocked(options draftShellOptions) *session.SessionUnit {
+	service.nextViewEpochLocked()
+	service.Core.Snapshot.Session = model.SessionState{
+		ID: options.sessionID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft,
+	}
+	service.sessions.SetActive(options.sessionID)
+	if !options.keepWorkspace {
+		service.Core.Snapshot.CurrentWorkspace = options.workspace
+	}
+	service.Core.Snapshot.Conversation = nil
+	if options.resetHistoryWindow {
+		service.Core.Snapshot.HistoryOffset = 0
+		service.Core.Snapshot.TotalMessages = 0
+		service.Core.Snapshot.HasMoreHistory = false
+	}
+	service.Core.Snapshot.Task = nil
+	service.Core.Snapshot.ReadFiles = nil
+	service.Core.Snapshot.Runtime.Plan = nil
+	if !options.keepProcessInteraction {
+		service.Core.Snapshot.Interaction = nil
+	} else if interaction := service.Core.Snapshot.Interaction; interaction != nil && interaction.SessionID != "" {
+		// 会话级交互（审批等）挂在被卸下的会话上，换单元后必须清；进程级交互
+		// （账号/计划重试）与会话无关，保留。
+		service.Core.Snapshot.Interaction = nil
+	}
+	runtime := service.sessionUnitLocked(options.sessionID)
+	runtime.SetChatState(model.ChatState{}, nil)
+	runtime.SetCancel(nil)
+	runtime.SetRequests(nil)
+	service.Core.Snapshot.Chat = runtime.ChatState()
+	if options.composerFromUnit {
+		service.Core.Snapshot.Session.Composer = runtime.ComposerText()
+	}
+	if options.tier != nil {
+		options.tier(options.sessionID)
+	}
+	if options.resetTitle {
+		service.components.sessions.SetSessionTitleLocked(options.sessionID, model.SessionTitle{})
+	}
+	service.components.tasks.ResetForNewSessionLocked()
+	return runtime
 }
 
 // materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
@@ -189,7 +252,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if service.draft != nil && service.draft.ID != "" {
 		draftID = service.draft.ID
 	}
-	var workspace *WorkspaceInfo
+	var workspace *model.WorkspaceInfo
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		item := *service.Core.Snapshot.CurrentWorkspace
 		workspace = &item
@@ -215,12 +278,12 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if err != nil {
 		return err
 	}
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 
 	service.ViewMu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
-	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
-	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
+	title := model.SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
+	service.Core.Snapshot.Session = model.SessionState{ID: newID, Name: title.Value}
 	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
 	// 步路径），否则流式增量会按 ActiveID="" 误判为后台，Snapshot 收不到增量。
 	service.sessions.SetActive(newID)
@@ -247,10 +310,21 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	if service.draft != nil && service.draft.ID == sessionID {
-		return true
+	return service.draftTargetLocked().Matches(sessionID)
+}
+
+// draftTargetLocked 把草稿归属判据的两个来源（进程单例草稿槽 + 共享视图镜像）装成
+// middle/switch 的 DraftTarget。调用方持有 Core.ViewMu；只读视图状态，不落盘、不换指针。
+func (service *Service) draftTargetLocked() switching.DraftTarget {
+	target := switching.DraftTarget{
+		ViewDraft: service.Core.Snapshot.Session.Draft,
+		ViewID:    service.Core.Snapshot.Session.ID,
 	}
-	return service.Core.Snapshot.Session.Draft && service.Core.Snapshot.Session.ID == sessionID
+	if service.draft != nil {
+		target.HasSlot = true
+		target.SlotID = service.draft.ID
+	}
+	return target
 }
 
 // materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
@@ -273,9 +347,7 @@ func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) 
 	transition.Lock()
 	defer transition.Unlock()
 	service.ViewMu.RLock()
-	mine := service.Core.Snapshot.Session.Draft &&
-		service.Core.Snapshot.Session.ID == sessionID &&
-		(service.draft == nil || service.draft.ID == sessionID)
+	mine := service.draftTargetLocked().InView(sessionID)
 	service.ViewMu.RUnlock()
 	if !mine {
 		return ErrDraftNotInView

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"testing"
 	"time"
 )
@@ -59,11 +60,11 @@ func TestSubscribeSessionFollowsViewPointer(t *testing.T) {
 	defer subscription.Close()
 
 	service.sessions.SetActive("session-old")
-	service.publishSessionEvent(EventMessageDelta, 1, "", "session-old", MessageDelta{MessageID: "m-before-switch"})
+	service.publishSessionEvent(EventMessageDelta, 1, "", "session-old", protocol_event.MessageDelta{MessageID: "m-before-switch"})
 	// 切换/物化在 core 里都收口为 session.Domain.SetActive，视图归属随之改变。
 	service.sessions.SetActive("session-new")
-	service.publishSessionEvent(EventMessageDelta, 2, "", "session-old", MessageDelta{MessageID: "m-stale"})
-	service.publishSessionEvent(EventMessageDelta, 3, "", "session-new", MessageDelta{MessageID: "m-new"})
+	service.publishSessionEvent(EventMessageDelta, 2, "", "session-old", protocol_event.MessageDelta{MessageID: "m-stale"})
+	service.publishSessionEvent(EventMessageDelta, 3, "", "session-new", protocol_event.MessageDelta{MessageID: "m-new"})
 	service.publishSessionEvent(EventResyncRequired, 4, "", "", nil)
 
 	delivered := map[string]bool{}
@@ -78,7 +79,7 @@ collect:
 			if event.DeliverySeq != uint64(count) {
 				t.Fatalf("delivery seq = %d, want contiguous %d", event.DeliverySeq, count)
 			}
-			var delta MessageDelta
+			var delta protocol_event.MessageDelta
 			_ = json.Unmarshal(event.Payload, &delta)
 			delivered[event.SessionID+":"+delta.MessageID] = true
 			deliveredKinds[string(event.Kind)] = true

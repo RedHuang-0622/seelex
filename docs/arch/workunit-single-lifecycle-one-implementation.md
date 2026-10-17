@@ -19,7 +19,7 @@ subagent 与 teammate 只做**在父实现上注册 + 转发**，转发时把自
 | 同一件事 | subagent 走的路 | teammate 走的路 |
 |---|---|---|
 | 建现场 | `beginNodeWorktree`（`runtime_plan.go:145`） | `BindWorkspace`（`runtime_teamwork_items.go:58`） |
-| 收尾合并 | `finishNodeWorktree`（`runtime_plan.go:208`） | `Coordinator.SettleWorkItemOutcome`（`teamwork/items.go`） |
+| 收尾合并 | `finishNodeWorktree`（`runtime_plan.go:208`） | `Coordinator.SettleWorkItemOutcome`（`backend/multiagent/teamwork/items.go`） |
 | 重启后登记现场 | 有：`NoteWorktree` 调用点全仓只有 `beginNodeWorktree` 一处 | 没有：得另从团队账本 + 绑定认领一次（`runtime_subagent_recovery.go:139`） |
 | 生命周期方法 | `nodeWorkUnit`（`workunit_node.go`，5 个方法各自实现） | `teamUnit`（`workunit_team.go`，5 个方法各自实现） |
 
@@ -64,7 +64,7 @@ type Unit interface {                 // 层的读数：只有身份与策略，
 
 ```
 lifecycleHost            // 父：唯一实现，持有全部端口
-  ├─ ledger   workunit.SessionLedger   // 快照读/写（结构上就是 *sessionstore.NodeSessionStore）
+  ├─ ledger   workunit.SessionLedger   // 快照读/写（结构上就是 *store.NodeSessionStore）
   ├─ spaces   *worktree.WorktreeManager // 现场：fork / merge / rebase / 主工作区保护（一份）
   ├─ jobs     jobs.Manager              // 作业与子进程树：Reclaim(ctx, scope)
   ├─ bindings 团队绑定账本 + 计划存储     // teammate 归属与终态
@@ -111,7 +111,7 @@ lifecycleLayer           // 层差异：只有读数，没有逻辑
 - worktree 管理：fork / merge / rebase / **主工作区保护**（`worktree_manager.go:430-505` 已是一份，
   但两条调用链各走各的入口）；
 - 会话管理：add / restart / over（`ResetSession` 等）；
-- 后台子进程树管理（`security/process_tree_windows.go` 一个作业对象；
+- 后台子进程树管理（`backend/limit/gate/process_tree_windows.go` 一个作业对象；
   谁在什么时机回收、两条链是否都走到）。
 → 本轮只盘点并写清"现状几份、该归到哪个父实现"，**不动实现**（大提取是后续独立一波）。
 

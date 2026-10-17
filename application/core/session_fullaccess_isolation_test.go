@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
 	"testing"
 	"time"
 )
@@ -34,7 +35,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 
 	// 后台会话 B 已有一笔等待用户确认的权限请求。
 	go func() {
-		_, _ = service.Approval.Request(context.Background(), ApprovalRequest{
+		_, _ = service.Approval.Request(context.Background(), contract.ApprovalRequest{
 			ID: "perm-b", SessionID: backgroundSession, PermissionRequest: true,
 		})
 	}()
@@ -50,7 +51,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 	}
 	// 2) 没替 B 放行新请求：B 的下一笔权限请求也必须等用户。
 	go func() {
-		_, _ = service.Approval.Request(context.Background(), ApprovalRequest{
+		_, _ = service.Approval.Request(context.Background(), contract.ApprovalRequest{
 			ID: "perm-b2", SessionID: backgroundSession, PermissionRequest: true,
 		})
 	}()
@@ -63,7 +64,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 		t.Fatal("污染：后台会话继承了视图会话的全权")
 	}
 	// 4) A 自己的权限请求仍被放行（全权在本会话内生效）。
-	decision, err := service.Approval.Request(context.Background(), ApprovalRequest{
+	decision, err := service.Approval.Request(context.Background(), contract.ApprovalRequest{
 		ID: "perm-a", SessionID: viewSession, PermissionRequest: true,
 	})
 	if err != nil || decision.OptionID != "allow" {
@@ -72,7 +73,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 
 	// 收尾：显式结掉 B 的待批（不留给 Shutdown 之外的悬挂）。
 	for _, id := range []string{"perm-b", "perm-b2"} {
-		if err := service.Approval.Resolve(id, ApprovalDecision{OptionID: "deny"}); err != nil {
+		if err := service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: "deny"}); err != nil {
 			t.Fatalf("Resolve(%s): %v", id, err)
 		}
 	}

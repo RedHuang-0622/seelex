@@ -11,11 +11,12 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func runningAsyncRecord(handle string) dto.AsyncRunRecord {
@@ -23,25 +24,25 @@ func runningAsyncRecord(handle string) dto.AsyncRunRecord {
 	return dto.AsyncRunRecord{
 		SessionID: "session-a", Handle: handle, Description: "跑一整轮集成测试",
 		Command: "go test ./... -count=1", State: dto.AsyncStateRunning, ExitCode: -1,
-		LogBytes: 1300, Tail: "ok seelebridge/tools 6.5s",
+		LogBytes: 1300, Tail: "ok backend/tool/registry 6.5s",
 		LastByteAt: now, LogPath: `C:\Temp\seelex-async-1\a3.log`,
 		BatchID: "req-1", StartedAt: now.Add(-2 * time.Second),
 	}
 }
 
-func workItemByID(rows []WorkItem, id string) (WorkItem, bool) {
+func workItemByID(rows []model.WorkItem, id string) (model.WorkItem, bool) {
 	for _, row := range rows {
 		if row.ID == id {
 			return row, true
 		}
 	}
-	return WorkItem{}, false
+	return model.WorkItem{}, false
 }
 
 // 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
 func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 	record := runningAsyncRecord("a3")
-	rows := buildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{record})
+	rows := worktable.BuildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{record}, workTableBounds())
 	row, ok := workItemByID(rows, "async:a3")
 	if !ok {
 		t.Fatalf("后台行没进工作表格: %+v", rows)
@@ -65,10 +66,10 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 		t.Fatalf("探针打点条数 = %d", len(row.Trace))
 	}
 	point := row.Trace[0]
-	if point.Operation != asyncProbeOperation || point.Status != dto.AsyncStateRunning.String() {
+	if point.Operation != worktable.AsyncProbeOperation || point.Status != dto.AsyncStateRunning.String() {
 		t.Fatalf("探针打点身份不符: %+v", point)
 	}
-	for _, want := range []string{"1.3KiB", "ok seelebridge/tools 6.5s"} {
+	for _, want := range []string{"1.3KiB", "ok backend/tool/registry 6.5s"} {
 		if !strings.Contains(point.Evidence, want) {
 			t.Fatalf("探针证据缺 %q: %q", want, point.Evidence)
 		}
@@ -80,7 +81,7 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 		t.Fatalf("批次归属丢失: %q", row.BatchID)
 	}
 	// 批次头必须出现，否则前端按批次渲染时这行无处安放。
-	batches := buildWorkTableBatches(rows)
+	batches := worktable.BuildWorkTableBatches(rows)
 	found := false
 	for _, batch := range batches {
 		if batch.ID == "req-1" {
@@ -102,7 +103,7 @@ func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T) {
 	killed := base
 	killed.Handle, killed.State, killed.ExitCode = "a7", dto.AsyncStateKilled, 137
 
-	rows := buildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{base, failed, killed})
+	rows := worktable.BuildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{base, failed, killed}, workTableBounds())
 	for id, want := range map[string]string{
 		"async:a9": dto.TaskCompleted.String(),
 		"async:a8": dto.TaskFailed.String(),
@@ -122,7 +123,7 @@ func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T) {
 // 收窄：路径、日志名、时间戳都不许出现在这里（它们是探针给 GUI 的）。
 func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 	record := runningAsyncRecord("a3")
-	lines := asyncTraceLines([]dto.AsyncRunRecord{record}, "session-a")
+	lines := worktable.AsyncTraceLines([]dto.AsyncRunRecord{record}, "session-a", workTableBounds())
 	if len(lines) != 1 {
 		t.Fatalf("打点行数 = %d: %v", len(lines), lines)
 	}
@@ -142,8 +143,8 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 	terminal := record
 	terminal.State = dto.AsyncStateDone
 	terminal.Notified = true
-	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok seelebridge/tools"
-	terminalLines := asyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a")
+	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok backend/tool/registry"
+	terminalLines := worktable.AsyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a", workTableBounds())
 	if len(terminalLines) != 1 {
 		t.Fatalf("完成行（已回填）必须进打点块: %v", terminalLines)
 	}
@@ -159,10 +160,10 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 	// 终态但**没回填过**（Notified=false）= 状态机与投影不一致，不得当成结果进块。
 	unnotified := record
 	unnotified.State = dto.AsyncStateDone
-	if got := asyncTraceLines([]dto.AsyncRunRecord{unnotified}, "session-a"); len(got) != 0 {
+	if got := worktable.AsyncTraceLines([]dto.AsyncRunRecord{unnotified}, "session-a", workTableBounds()); len(got) != 0 {
 		t.Fatalf("没回填过的终态行进了块: %v", got)
 	}
-	if got := asyncTraceLines([]dto.AsyncRunRecord{record}, "session-b"); len(got) != 0 {
+	if got := worktable.AsyncTraceLines([]dto.AsyncRunRecord{record}, "session-b", workTableBounds()); len(got) != 0 {
 		t.Fatalf("别的会话的后台命令漏进本会话打点块: %v", got)
 	}
 }
@@ -255,8 +256,8 @@ func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T) {
 
 // 后台行按上限封顶，且不挤掉真实任务行（在途优先，终态按最新补齐）。
 func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
-	records := make([]dto.AsyncRunRecord, 0, asyncWorkMaxRows+20)
-	for index := range asyncWorkMaxRows + 20 {
+	records := make([]dto.AsyncRunRecord, 0, worktable.AsyncWorkMaxRows+20)
+	for index := range worktable.AsyncWorkMaxRows + 20 {
 		record := runningAsyncRecord(fmt.Sprintf("t%d", index))
 		record.State = dto.AsyncStateDone
 		records = append(records, record)
@@ -264,15 +265,15 @@ func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
 	records = append(records, runningAsyncRecord("a999"))
 	tasks := []dto.TaskRecord{{ID: "task:1", Phase: "task", Kind: "task", Task: "真任务", Status: dto.TaskRunning}}
 
-	rows := buildWorkTable(nil, tasks, nil, records)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, records, workTableBounds())
 	asyncCount := 0
 	for _, row := range rows {
-		if strings.HasPrefix(row.ID, asyncWorkRowPrefix) {
+		if strings.HasPrefix(row.ID, worktable.AsyncWorkRowPrefix) {
 			asyncCount++
 		}
 	}
-	if asyncCount != asyncWorkMaxRows {
-		t.Fatalf("后台行数 = %d，want 上限 %d", asyncCount, asyncWorkMaxRows)
+	if asyncCount != worktable.AsyncWorkMaxRows {
+		t.Fatalf("后台行数 = %d，want 上限 %d", asyncCount, worktable.AsyncWorkMaxRows)
 	}
 	if _, ok := workItemByID(rows, "async:a999"); !ok {
 		t.Fatal("在途的后台行被终态行挤掉了（必须先保在途）")
@@ -283,7 +284,7 @@ func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
 }
 
 // TC-K5-1（打点 K-5 的"有界"判据）：注入 100 个已完成作业 →
-//   - 工作表格里的作业行 ≤ asyncWorkMaxRows；
+//   - 工作表格里的作业行 ≤ worktable.AsyncWorkMaxRows；
 //   - 打点块里的行 ≤ workTableTraceMaxLines（含块头块尾）；
 //   - 在途行优先于完成行（它们在动）；
 //   - 被截掉的完成行**补一行汇总**，不静默消失（静默会让模型以为"没有待取回的作业"）。
@@ -301,20 +302,20 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 		records = append(records, runningAsyncRecord(fmt.Sprintf("r%d", index)))
 	}
 
-	rows := asyncWorkItems(records)
+	rows := worktable.AsyncWorkItems(records, workTableBounds())
 	asyncRows := 0
 	for _, row := range rows {
-		if strings.HasPrefix(row.ID, asyncWorkRowPrefix) {
+		if strings.HasPrefix(row.ID, worktable.AsyncWorkRowPrefix) {
 			asyncRows++
 		}
 	}
-	if asyncRows > asyncWorkMaxRows {
-		t.Fatalf("工作表格作业行 = %d，超过上限 %d", asyncRows, asyncWorkMaxRows)
+	if asyncRows > worktable.AsyncWorkMaxRows {
+		t.Fatalf("工作表格作业行 = %d，超过上限 %d", asyncRows, worktable.AsyncWorkMaxRows)
 	}
 
-	lines := asyncTraceLines(records, "session-a")
-	if len(lines) > asyncWorkMaxRows {
-		t.Fatalf("打点行 = %d，超过上限 %d", len(lines), asyncWorkMaxRows)
+	lines := worktable.AsyncTraceLines(records, "session-a", workTableBounds())
+	if len(lines) > worktable.AsyncWorkMaxRows {
+		t.Fatalf("打点行 = %d，超过上限 %d", len(lines), worktable.AsyncWorkMaxRows)
 	}
 	// 在途行必须全部在（4 条），且排在完成行之前。
 	for index := range 4 {
@@ -350,7 +351,7 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 	}
 }
 
-func serviceWorkTableRows(service *Service) []WorkItem {
+func serviceWorkTableRows(service *Service) []model.WorkItem {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	return CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)

@@ -3,12 +3,14 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 func TestNewTestServiceCleansUpCatalogWorker(t *testing.T) {
@@ -28,7 +30,7 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 	sessions := &scopedSessions{
 		// 展示名来自枚举行（存储层 = 会话头的目录枚举面）。目录刷新只读枚举
 		// 行，不再为标题打开会话正文（见 session_runtime 的正文读计数探针）。
-		catalog: map[string][]SessionInfo{
+		catalog: map[string][]model.SessionInfo{
 			"project-1": {
 				{ID: "session-a", Name: "same question", UpdatedAt: updatedAt},
 				{ID: "session-b", Name: "same question", UpdatedAt: updatedAt},
@@ -36,14 +38,14 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 		},
 	}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: t.TempDir()}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "project", RootPath: t.TempDir()}
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
 
-	catalog := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 2 }).Sessions
+	catalog := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 2 }).Sessions
 	if len(catalog) != 2 {
 		t.Fatalf("session count = %d, want 2", len(catalog))
 	}
@@ -56,7 +58,7 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 }
 
 func TestSessionTitleUsesFirstUserQuestion(t *testing.T) {
-	history := []EngineMessage{
+	history := []contract.EngineMessage{
 		{Role: "system", Content: "system"},
 		{Role: "assistant", Content: "assistant"},
 		{Role: "user", Content: wrapModelInput("\n  first   question  \nsecond line", "model context")},
@@ -87,7 +89,7 @@ func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 	tests := []struct {
 		name         string
-		sessions     SessionPort
+		sessions     contract.SessionPort
 		wantReleases int
 	}{
 		{name: "success", sessions: fakeSessions{}, wantReleases: 1},
@@ -96,8 +98,8 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			engine := &fakeEngine{}
-			service := mustNew(t, Dependencies{
-				Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+			service := mustNew(t, contract.Dependencies{
+				Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 				Skills: fakeSkills{}, Sessions: test.sessions,
 			})
 			defer service.Shutdown()
@@ -118,10 +120,10 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 }
 
 func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old question"}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "user", Content: "old question"}}}
 	sessions := &trackingSessions{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()
@@ -177,8 +179,8 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -217,8 +219,8 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
 	engine := &fakeEngine{lazyStart: true}
 	sessions := &trackingSessions{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()
@@ -250,13 +252,13 @@ func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
 func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &scopedSessions{
-		catalog: map[string][]SessionInfo{"": {{ID: "saved", UpdatedAt: time.Now()}}},
-		histories: map[string]map[string][]EngineMessage{
+		catalog: map[string][]model.SessionInfo{"": {{ID: "saved", UpdatedAt: time.Now()}}},
+		histories: map[string]map[string][]contract.EngineMessage{
 			"": {"saved": {{Role: "user", Content: "saved question"}, {Role: "assistant", Content: "saved answer"}}},
 		},
 	}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()
@@ -267,7 +269,7 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		for _, item := range snapshot.Sessions {
 			if item.ID == "saved" {
 				return true
@@ -295,8 +297,8 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -357,8 +359,8 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -405,10 +407,10 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
 	root := t.TempDir()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: root}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "project", RootPath: root}
 	workspaces.BindSession("saved", "project-1")
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -423,23 +425,23 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
-	sessions := &scopedSessions{catalog: map[string][]SessionInfo{
+	sessions := &scopedSessions{catalog: map[string][]model.SessionInfo{
 		"project-1": {{ID: "saved-1", UpdatedAt: time.Unix(2, 0), TokenCount: 10}},
 		"project-2": {{ID: "saved-2", UpdatedAt: time.Unix(3, 0), TokenCount: 20}},
 	}}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
-	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = model.WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved-1", "project-1")
 	workspaces.BindSession("saved-2", "project-2")
 
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
 
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 2 })
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 2 })
 	if len(snapshot.Workspaces) != 2 || len(snapshot.Sessions) != 2 {
 		t.Fatalf("hydrated snapshot workspaces=%v sessions=%v", snapshot.Workspaces, snapshot.Sessions)
 	}
@@ -453,19 +455,19 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{
 		workspace: "project-2",
-		catalog:   map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
-		histories: map[string]map[string][]EngineMessage{
+		catalog:   map[string][]model.SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]contract.EngineMessage{
 			"project-1": {"saved": {{Role: "assistant", Content: "project one history"}}},
 		},
 	}
 	workspaces := newFakeWorkspace()
 	root := t.TempDir()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: root}
-	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "one", RootPath: root}
+	workspaces.items["project-2"] = model.WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
 
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -483,17 +485,17 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 
 func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
 	sessions := &scopedSessions{
-		catalog: map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
-		histories: map[string]map[string][]EngineMessage{
+		catalog: map[string][]model.SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]contract.EngineMessage{
 			"project-1": {"saved": {{Role: "assistant", Content: "recover me"}}},
 		},
 	}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
-	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = model.WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-2")
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -507,22 +509,22 @@ func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
 }
 
 func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
-	history := make([]EngineMessage, 250)
+	history := make([]contract.EngineMessage, 250)
 	for index := range history {
-		history[index] = EngineMessage{Role: "assistant", Content: fmt.Sprintf("message-%d", index)}
+		history[index] = contract.EngineMessage{Role: "assistant", Content: fmt.Sprintf("message-%d", index)}
 	}
 	sessions := &scopedSessions{
-		catalog: map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
-		histories: map[string]map[string][]EngineMessage{
+		catalog: map[string][]model.SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]contract.EngineMessage{
 			"project-1": {"saved": history},
 		},
 	}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
-	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = model.WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -540,15 +542,15 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 }
 
 func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old project"}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "user", Content: "old project"}}}
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{workspace: "project-1"}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
-	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = model.WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("session-1", "project-1")
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -573,7 +575,7 @@ func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if len(snapshot.Sessions) != 1 {
 		t.Fatalf("sessions = %d, want 1", len(snapshot.Sessions))
 	}
@@ -584,8 +586,8 @@ func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 
 func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()
@@ -606,8 +608,8 @@ func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 
 func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
 	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer close(sessions.release)
@@ -638,7 +640,7 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
+	service.Core.Snapshot.Runtime.WorkTable = worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	service.ViewMu.Unlock()
 
 	if err := service.BeginNewSession(); err != nil {
@@ -655,9 +657,9 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &trackingSessions{}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:  fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()
@@ -698,7 +700,7 @@ func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 func TestResumeCommandOpensSessionInteraction(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if err := service.Submit(context.Background(), "/resume"); err != nil {
 		t.Fatal(err)

@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
@@ -42,13 +44,13 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
-	sessions.setInfos([]SessionInfo{{ID: aID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}})
 
-	result := make(chan ApprovalDecision, 1)
+	result := make(chan contract.ApprovalDecision, 1)
 	go func() {
-		decision, err := service.Approval.Request(ctx, ApprovalRequest{
+		decision, err := service.Approval.Request(ctx, contract.ApprovalRequest{
 			ID: "ask-A", SessionID: aID, Question: "A 继续？",
-			Options: []InteractionOption{{ID: "allow", Label: "允许"}, {ID: "deny", Label: "拒绝"}},
+			Options: []model.InteractionOption{{ID: "allow", Label: "允许"}, {ID: "deny", Label: "拒绝"}},
 		})
 		if err == nil {
 			result <- decision
@@ -125,13 +127,13 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 	if got := service.Snapshot().Session.ID; got != aID {
 		t.Fatalf("view session = %q, want A（B 后台运行不切换视图）", got)
 	}
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: bID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: bID}})
 
-	resultB := make(chan ApprovalDecision, 1)
+	resultB := make(chan contract.ApprovalDecision, 1)
 	go func() {
-		decision, err := service.Approval.Request(ctx, ApprovalRequest{
+		decision, err := service.Approval.Request(ctx, contract.ApprovalRequest{
 			ID: "ask-B", SessionID: bID, Question: "B 继续？",
-			Options: []InteractionOption{{ID: "allow", Label: "允许"}},
+			Options: []model.InteractionOption{{ID: "allow", Label: "允许"}},
 		})
 		if err == nil {
 			resultB <- decision
@@ -160,9 +162,9 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 
 	// 同会话第二笔待批（B 仍后台）：单格保持为空，broker 两笔都归属 B。
 	go func() {
-		decision, err := service.Approval.Request(ctx, ApprovalRequest{
+		decision, err := service.Approval.Request(ctx, contract.ApprovalRequest{
 			ID: "ask-B2", SessionID: bID, Question: "B 第二笔继续？",
-			Options: []InteractionOption{{ID: "allow", Label: "允许"}},
+			Options: []model.InteractionOption{{ID: "allow", Label: "允许"}},
 		})
 		if err == nil && decision.OptionID != "allow" {
 			t.Errorf("ask-B2 decision = %#v", decision)
@@ -231,10 +233,10 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: bID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: bID}})
 
 	var wg sync.WaitGroup
-	results := make(chan ApprovalDecision, 4)
+	results := make(chan contract.ApprovalDecision, 4)
 	for index := 0; index < 4; index++ {
 		wg.Add(1)
 		target := aID
@@ -245,9 +247,9 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 		}
 		go func(target, id string) {
 			defer wg.Done()
-			decision, err := service.Approval.Request(ctx, ApprovalRequest{
+			decision, err := service.Approval.Request(ctx, contract.ApprovalRequest{
 				ID: id, SessionID: target, Question: "继续？",
-				Options: []InteractionOption{{ID: "allow", Label: "允许"}},
+				Options: []model.InteractionOption{{ID: "allow", Label: "允许"}},
 			})
 			if err == nil {
 				results <- decision

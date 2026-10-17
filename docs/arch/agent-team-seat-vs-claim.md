@@ -34,7 +34,7 @@
 所以「扬长避短」不是把一条轴做得更像另一条，而是**分层**：席位制管治理面（目标、顺序、裁决、权限），
 认领制管执行面（扇出、并发、worktree 隔离、提交/合并作为机器证据），两侧的产物回落到同一条账本。
 本仓库这两条轴**已经是并存的**（`application/core/agentteam` + `application/core/goal` vs
-`seelebridge/fork` + `seelebridge/task` + `application/core/work_table.go`），缺的是把它们当成一个
+`backend/tool/fork` + `backend/tool/task` + `application/core/work_table.go`），缺的是把它们当成一个
 「治理 + 执行」的分层方案写进叙事（见 §6）。
 
 ---
@@ -48,16 +48,16 @@
 | 协作介质 | task 行（`Assignee` / `Participants` / `Trace`）+ 子代理摘要 + worktree 合并 | **唯一帧账本**（同一 `seq` 空间，逐帧带 `role_name`）+ 角色 lifecycle |
 | 执行单元 | plan 节点 / fork 子代理（DAG，可并发） | 席位回合（`roleTurnSeat.Act` → `RunRoleTurn`） |
 | 「做完」的判据 | 任务终态 + 有界自述摘要（+ worktree 提交/合并痕迹） | goal `acceptance` + 终态 gate 的裁决（`verdict_done` 才收口） |
-| 主要代码锚点 | `seelebridge/task/task.go`、`application/core/work_table.go`、`seelebridge/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`sessionstore/role_session.go` |
+| 主要代码锚点 | `backend/tool/task/task.go`、`application/core/work_table.go`、`backend/tool/fork/tool.go`、`backend/tool/worktree/worktree_manager.go` | `backend/multiagent/team/spec.go`（`scheduler.go`/`runtime.go`/`factory.go` 已于 2026-10-15 A04/A15 退场）、`application/core/goal_coordinator.go`、`backend/multiagent/goal/gate.go`、`store/role_session.go` |
 
 **认领的确切语义（B）**：`attachParticipantLocked` 里，「认领」= **最后一个接管者成为当前 `Assignee`**，
-名单只增不减，没有 lease / TTL / unclaim / 排他检查（`seelebridge/task/task.go`）。
+名单只增不减，没有 lease / TTL / unclaim / 排他检查（`backend/tool/task/task.go`）。
 也就是说认领是**标签语义**，不是锁语义。子代理行的认领是**被动投影**发生的：
 `fork` 注册子代理树 → 树事件 → `application/core/work_table.go` 的 `syncSubagentTask`
 → `TaskAttachParticipant`（模型不调任何工具也照样认领）。
 
 **席位的确切语义（B）**：发言权的唯一运行时落点是 `message head.floor`（写者只有一个：sequencer），
-顺序的唯一运行时事实是环的链表（`application/core/agentteam/scheduler.go`），落盘事实是
+顺序的唯一运行时事实是环的链表（`application/core/agentteam/scheduler.go`（**已删除**：2026-10-15 A04/A15 随发言环退场）），落盘事实是
 `lifecycle.order_policy/order_roles`。环本身**不生产正文**，它只做两件事：决定下一个谁发言（`Advance(skip)`）、
 以及在交班时下发 team work 前缀（`SetPrefix`）。
 
@@ -104,24 +104,24 @@ flowchart TB
 ## 3. 优势（席位制相对认领制，逐条给证据）
 
 1. **可验收性（最核心）**：「队友做完了」必须落到某条 `seq` 上，而 goal 的收口由 gate 裁决决定，
-   不是由它自己说。证据（B）：`application/core/goal/gate.go` 的 `ProposeFinish`
+   不是由它自己说。证据（B）：`backend/multiagent/goal/gate.go` 的 `ProposeFinish`
    （`verdict_done → completed`、`verdict_not_done → 保持 active`、`escalate_human → 转人工`、
    b 缺席 → 安全默认）与 `CloseTopGoalOnTerminal`；`GoalRecord.Acceptance` 是域内一等字段
-   （`application/core/goal/record.go`，上限 64 条）。作品集里这一条最值钱：**验收判据是数据，不是措辞**。
+   （`backend/multiagent/goal/record.go`，上限 64 条）。作品集里这一条最值钱：**验收判据是数据，不是措辞**。
 2. **分配无争用的确定性**：发言权来自一份顺序事实 + 一个游标，不存在「抢占 / 覆盖」。
    对比：认领制的 `Assignee` 是单值字段，同 goal 的两个并行子代理会共用同一 task 行，
-   `Assignee` 被后到者覆盖（B：`seelebridge/task/task.go` 的 `attachParticipantLocked`、
-   `seelebridge/fork/bind_subagent_task_test.go`）。
+   `Assignee` 被后到者覆盖（B：`backend/tool/task/task.go` 的 `attachParticipantLocked`、
+   `backend/tool/fork/bind_subagent_task_test.go`）。
 3. **上下文口径可算、有界、可展示**：切点 `C` 的计算式、端点语义（`seq > C`）、
    main 恒 `C=0`、缺 `compact_ref` 硬报错而不静默兼容、以及前端把「不在区间内」的行渲染成占位 `—`
-   ——这套口径让「它当时能看到什么」变成可核对的事实（B：`sessionstore/role_session.go`；
+   ——这套口径让「它当时能看到什么」变成可核对的事实（B：`store/role_session.go`；
    数据流详见 [`2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)）。
 4. **质量对抗面是结构性的**：ADVISOR 座位由 role kind 派生（改名不丢座位），指令与裁决落在同一账本，
    且在**产出它的那一回合**就可见（B/C：`application/core/goal_coordinator.go`、
    [`2026-09-16-advisor-verdict-visible-immediately.md`](../devlog/2026-09-16-advisor-verdict-visible-immediately.md)）。
 5. **人类控制面中途可得**：会话粒度权限档 `manual/edit/auto/full`（升序 = 自动度递增，只剪 `ask` 规则、
    从不新增 allow、从不触碰 deny；`full` 只对 root 短路，员工/子代理判定链一字不改），
-   外加审批预筛的「默认拒绝兜底」（B/C：`seelebridge/tools/permission_tiers.go`、
+  外加审批预筛的「默认拒绝兜底」（B/C：`backend/limit/policy/tiers.go`、
    [`2026-09-16-session-permission-tiers.md`](../devlog/2026-09-16-session-permission-tiers.md)、
    [`agent-permission-subjects.md`](agent-permission-subjects.md)）。
 6. **恢复语义干净**：环是可重建的派生态（`Runtime.Reset` 只清 `stopped/round/noProgress`，
@@ -155,7 +155,7 @@ flowchart TB
    - `compact_ref.applied_seq` 的写入入口只有 headless `role.set_lifecycle`，**仓内没有自动写入者**
      （切点抬高由宿主/巡检调用方负责）——所以别写成「compact 后自动抬高」。
    - `TurnScheduler.Remove/Restore`、`Runtime.Next()` 目前无生产调用点；`README` 措辞与 grep 事实有出入
-     （B：`application/core/agentteam/scheduler.go` 头注已按事实修正）。
+     （B：`application/core/agentteam/scheduler.go`（**已删除**：2026-10-15 A04/A15 随发言环退场） 头注已按事实修正）。
    - 认领侧的对应缺口：`ResumePlan` 无用户可达入口、部分完成的 fork 会重跑整个 DAG、
      后台会话分区的 task 不走默认身份/名单（B/D：`docs/research/2026-08-24-fork-subagent-recovery.md`）。
 
@@ -170,7 +170,7 @@ flowchart TB
 2. 认领轴的产物必须回落到同一账本（节点输出 / 摘要 / worktree 合并结果 → 主会话行），
    再由 ADVISOR 回合裁决；这样「并行干活」不会把证据切碎到各自的 message history 里。
 3. 已知的机器证据链：`worktree` 的提交存在性与合并结果是**可机器验证**的收尾判据
-   （B：`seelebridge/worktree/worktree_manager.go`）；把它当认领轴的验收锚点用，
+   （B：`backend/tool/worktree/worktree_manager.go`）；把它当认领轴的验收锚点用，
    而不是只看 `"subagent:"+status` 这种固定字符串 evidence。
 
 **B. 补强席位制最弱的两条（吞吐 / 弹性）**
@@ -226,7 +226,7 @@ flowchart TB
 
 | 主张 | 证据 |
 | --- | --- |
-| 上下文口径可算 | `sessionstore/role_session.go`（切点计算 + 缺帧硬报错）；`TestRoleSnapshotMarksRowsOutsidePrefixMatch`、`TestAssembleRoleWireForMainIsMainSessionContext` |
+| 上下文口径可算 | `store/role_session.go`（切点计算 + 缺帧硬报错）；`TestRoleSnapshotMarksRowsOutsidePrefixMatch`、`TestAssembleRoleWireForMainIsMainSessionContext` |
 | 队友在 goal 那一回合入伙 | `TestGoalBeginJoinsTeammatesAtGoalTurn` |
 | 裁决不靠「下一次用户回合」 | `TestAdvisorVerdictVisibleInProducingTurn` |
 | 座位按 kind 派生（改名不丢座位） | `goal_seats_test.go`（`TestSeatPlanFollowsRoleKindNotRoleName` 等） |
@@ -259,17 +259,17 @@ flowchart TB
 
 | 命令 | 结果 |
 | --- | --- |
-| `go test ./seelebridge/task -run TestTaskRegistryPassiveIdentityAndClaim -count=1 -v` | PASS（认领语义） |
+| `go test ./backend/tool/task -run TestTaskRegistryPassiveIdentityAndClaim -count=1 -v` | PASS（认领语义） |
 | `go test ./application/core -run "TestGoalBeginJoinsTeammatesAtGoalTurn\|TestAdvisorVerdictVisibleInProducingTurn\|TestRingEscapeClosesGoalAndArchivesTLHistory\|TestRoleTurnSeatPassesRoleIdentityToExecutionFace" -count=1 -v` | 4/4 PASS |
-| `go test ./sessionstore -run TestRoleSnapshotMarksRowsOutsidePrefixMatch -count=1 -v` | PASS（切点与区间计数） |
+| `go test ./store -run TestRoleSnapshotMarksRowsOutsidePrefixMatch -count=1 -v` | PASS（切点与区间计数） |
 
 ### 7.B 静态锚点（B 类，本次只读）
 
-`application/core/agentteam/{spec,scheduler,runtime,factory,presets}.go`、
-`application/core/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
-`application/core/goal_service.go`、`application/core/work_table.go`、`sessionstore/role_session.go`、
-`seelebridge/task/task.go`、`seelebridge/fork/{tool,summary}.go`、`seelebridge/plan/policy.go`、
-`seelebridge/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
+`backend/multiagent/team/spec.go`（其余 `{scheduler,runtime,factory,presets}.go` 已于 2026-10-15 A04/A15 退场）、
+`backend/multiagent/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
+`application/core/goal_service.go`、`application/core/work_table.go`、`store/role_session.go`、
+`backend/tool/task/task.go`、`backend/tool/fork/{tool,summary}.go`、`backend/tool/plan/policy.go`、
+`backend/tool/worktree/worktree_manager.go`、`backend/multiagent/subagent/subagent_tree.go`、
 `gui/frontend/dist/agent-team-view.js`。静态检索结论：`GatePolicy` / `CompactPolicy` /
 `PresencePolicy` / `ModelPolicy` / `DirectiveSchema` 仅出现在 DTO、preset、注册表、适配器与
 工厂回读处，未见运行时消费分支。
@@ -277,7 +277,7 @@ flowchart TB
 ### 7.C 既有报告（C 类，历史口径）
 
 - [`../../.seelex/perf/REPORT-latest.md`](../../.seelex/perf/REPORT-latest.md)（2026-08-05，TUI 口径）。
-- [`../../2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)
+- [`../2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)
   （记录数据流与症状表）。
 - `docs/devlog/` 的 `2026-09-16-agentteam-ring-revive.md`、`2026-09-16-advisor-verdict-visible-immediately.md`、
   `2026-09-16-session-permission-tiers.md`、`2026-09-14-teamwork-wiring-fixes.md`。
@@ -306,6 +306,6 @@ market-based allocation）本次**无法核实**（`web_search` 403、`subagents
 - 市场对照（姊妹篇）：[`agent-team-work-vs-market.md`](agent-team-work-vs-market.md)
 - 团队装配与角色工厂：[`a2a-agent-team-factory.md`](a2a-agent-team-factory.md)
 - 权责模型：[`agent-permission-subjects.md`](agent-permission-subjects.md)
-- 记录数据流：[`../../2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)
+- 记录数据流：[`../2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)
 - 工作台/任务行：[`../gui/modules/work-table.md`](../gui/modules/work-table.md)
 - 子代理恢复（认领侧缺口）：[`../research/2026-08-24-fork-subagent-recovery.md`](../research/2026-08-24-fork-subagent-recovery.md)

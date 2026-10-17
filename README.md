@@ -21,9 +21,9 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 ## 项目概览
 
-Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](seelebridge/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
+Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](backend/engine/assemble/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
 
-主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
+主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型通过 <code>fork_subagents</code> 派发独立子代理；每条子代理拥有独立 Session、SceneScope、PromptBlocks、账号路由和 token budget，完成后把 findings、decisions 与 progress 结构化 merge-back 回父会话。团队级编排走 <code>teamwork</code>；分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>），派发只回受理回执，产出按句柄消费式取回。WorkPlan DAG 与 <code>plan_*</code> 工具面已退役，历史 Plan 仅作只读展示。
 
 上下文处理采用预算驱动的 Context Engineering 流程。Seelex 会为输出预留 token、保留最近对话窗口、压缩窗口外历史，并把超大 Tool Result 归档为可读回的引用。文件和 Shell 工具则同时受 ProjectScope 与 Permission Policy 约束：前者负责 workspace root 的路径 containment（按会话分格，后台与并行会话各用各的项目根），后者在合法范围内继续执行 allow、ask 或 deny，并通过 Human-in-the-loop Interaction 完成审批。桌面操控与用户图片走同一条会话媒体通道，额外受过平台门控、媒体配额与逐次审批约束；长任务则可以选择进入 goal 目标栈，由独立上下文的裁决角色评审「是否完成」。
 
@@ -60,8 +60,8 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 能力 | 当前实现 |
 |---|---|
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
-| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>bg_manage</code> 取回） |
-| 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_propose_finish</code> / <code>goal_done</code>——<code>goal_done</code> 是主代理（即 TL）的真收口，<code>goal_propose_finish</code> 才送终态 gate，员工与子代理看不到 <code>goal_done</code> |
+| 子 Agent 与团队 | <code>fork_subagents</code> 后台作业派发、独立 Session / SceneScope / worktree、结构化 merge-back；<code>teamwork</code> 负责团队计划、派发、回执与整队收口；历史 Plan 只读展示，不再有执行入口 |
+| 目标治理 | 会话级 LIFO goal 栈、状态机与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_done</code>。ADVISOR / TechLeader 评审环已按裁决删除，团队编排归 teamwork |
 | 代理团队与工作台 | leader + 异步 worker 的 teamwork（旧 TeamSpec 团队工厂、团队库/员工库显式装配与成员发言顺序注册表已随 J-1a 退场）；leader 工具面 <code>team_plan</code> / <code>team_work</code> / <code>team_item</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_accept</code> / <code>team_fail</code> / <code>team_recover</code> / <code>team_milestone</code> / <code>team_context</code> / <code>team_items</code> / <code>team_close</code>——<code>team_close</code> 是整队收口与回收的唯一入口（幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>，服务团队作业表）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；**句柄自带来源**（本表 <code>bt-</code> / <code>bs-</code>，团队表 <code>bteam-</code>），跨表调用显式报错并点名对偶工具；串行 <code>bash</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回（<code>read_tool_result</code> / <code>read_compressed_turn</code> / <code>search_history</code>）；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩；压缩失败**只留痕**——不改写 agent 的上下文、不中断会话 |
@@ -102,16 +102,16 @@ flowchart TB
         STATE["权威状态<br/>model · event · approval · contract · prompt"]
     end
 
-    subgraph L3["seelebridge/ 防腐层：运行时能力适配"]
+    subgraph L3["backend/engine/assemble/ 防腐层：运行时能力适配"]
         RT["Runtime 装配与关停"]
         TOOLS["tools：Router · RegistryState · PermissionGate"]
         ORCH["plan · node · fork · scheduler · task"]
         CAP["account · mcp · plugin · session · search"]
     end
 
-    CTX["seelexctx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
-    PERSIST["sessionstore/ · session/ · workspace/"]
-    EXT["plugin/ · skill/ · mcpstack/"]
+    CTX["backend/engine/context/seelectx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
+    PERSIST["store/ · session/ · workspace/"]
+    EXT["backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack"]
     SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
 
     TUI --> SVC
@@ -185,7 +185,7 @@ sequenceDiagram
     participant U as 用户
     participant F as TUI / GUI
     participant S as application.Service
-    participant R as seelebridge.Runtime
+    participant R as assemble.Runtime
     participant L as Seele ReActLoop
     participant T as tools.Registry + PermissionGate
 
@@ -242,7 +242,7 @@ flowchart LR
 └───────────────┬──────────────────────────┬──────────────────┘
                 │                          │
 ┌───────────────▼────────────┐  ┌──────────▼──────────────────┐
-│ seelebridge/               │  │ seelexctx/                  │
+│ assemble/                  │  │ context/seelectx/           │
 │ Runtime · Tools · Plan     │  │ Assemble · Compact · DAG    │
 │ Account · MCP · Security    │  │ Memory · Search · Merge     │
 └───────────────┬────────────┘  └──────────┬──────────────────┘
@@ -253,7 +253,7 @@ flowchart LR
 └─────────────────────────────────────────────────────────────┘
 
 Supporting modules:
-plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
+backend/engine/plugin · backend/engine/skill · store/ · workspace/ · session/ · backend/engine/mcp/mcpstack
 ~~~
 
 ### Seelex 与 Seele 的边界
@@ -273,9 +273,9 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 |---|---|
 | 会话数据流：状态流转（Mermaid） | [application/core/README.md](application/core/README.md)「会话数据流：状态流转」 |
 | 会话数据流：架构层与方法（Mermaid） | [docs/arch/README.md](docs/arch/README.md)「会话数据流：架构层与方法」 |
-| 上下文压缩占比（字符画，启用/未启用对照） | [seelexctx/README.md](seelexctx/README.md)「上下文压缩的占比表现」 |
+| 上下文压缩占比（字符画，启用/未启用对照） | [backend/engine/context/seelectx/README.md](backend/engine/context/seelectx/README.md)「上下文压缩的占比表现」 |
 | Fork 对话机制（字符画，切点与深拷贝占比） | [application/core/README.md](application/core/README.md)「Fork 对话机制」 |
-| Skill 加载位置（Mermaid） | [skill/README.md](skill/README.md)「Skill 加载位置」 |
+| Skill 加载位置（Mermaid） | [backend/engine/skill/README.md](backend/engine/skill/README.md)「Skill 加载位置」 |
 | 上下文前缀链路（稳定前缀 + 累积 context + plan/task 后置，已实现） | [docs/arch/context-prefix-chain.md](docs/arch/context-prefix-chain.md) |
 
 ## 关键技术决策
@@ -286,11 +286,11 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 
 Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
 
-- <code>application/contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
-- 根目录 adapter、<code>seelebridge/</code> 和存储模块实现这些端口。
+- <code>contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
+- 根目录 adapter、<code>backend/engine/assemble/</code> 和存储模块实现这些端口。
 - TUI 与 GUI 只依赖 Application DTO、Snapshot 和 Event，不直接调用 Seele Engine、数据库或 Plugin Manager。
 
-这个决策把“模型如何执行”和“产品如何解释执行结果”分开。Seele 可以继续演进 Agent、Session、Tool Registry 和 WorkPlan 原语；Seelex 则保持 Task、Plan、审批、Workspace 和前端协议稳定。上游类型变化被限制在 **Anti-Corruption Layer** <code>seelebridge/</code> 内，而不是扩散到整个代码库。
+这个决策把“模型如何执行”和“产品如何解释执行结果”分开。Seele 可以继续演进 Agent、Session、Tool Registry 和 WorkPlan 原语；Seelex 则保持 Task、Plan、审批、Workspace 和前端协议稳定。上游类型变化被限制在 **Anti-Corruption Layer** <code>backend/engine/assemble/</code> 内，而不是扩散到整个代码库。
 
 ### 2. Application Snapshot 是权威状态，Event 只负责增量同步
 
@@ -300,27 +300,21 @@ Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方
 - Event 出现缺口、未知版本或协议不兼容时，客户端重新加载 Snapshot。
 - 前端本地状态只保存 viewport、光标、输入框和布局等纯 UI 信息。
 
-这是一个面向 Agent 长任务的 **Snapshot + Event Delta Protocol**。它避免 TUI 和 GUI 各自维护一套业务状态机，也避免流式 token、工具事件和 Plan 节点状态因丢包而永久错位。
+这是一个面向 Agent 长任务的 **Snapshot + Event Delta Protocol**。它避免 TUI 和 GUI 各自维护一套业务状态机，也避免流式 token、工具事件和历史 Plan 节点状态因丢包而永久错位。
 
-### 3. ReAct 是默认执行路径，DAG Plan 是按需加载的编排能力
+### 3. ReAct 是默认执行路径，子代理按需派发
 
-Seelex 没有强迫所有请求先生成 Plan。简单任务直接进入主 **ReAct Loop**，减少额外模型请求、首 token 延迟和计划 token 消耗；只有复杂任务需要结构化拆分时，模型才使用 <code>plan_load</code>/<code>plan_run</code> 加载 **Agentic Workflow DAG**。
+Seelex 没有强迫所有请求先生成计划。简单任务直接进入主 **ReAct Loop**，减少额外模型请求、首 token 延迟和计划 token 消耗；复杂任务由 <code>fork_subagents</code> 按条派发独立子代理，团队级工作由 <code>teamwork</code> 编排。
 
-Plan 在执行前完成：
+每条子代理获得独立 Session、SceneScope、PromptBlocks、账号路由和 token budget；<code>fork_subagents</code> 不经 DAG，调用立即返回作业句柄，产出按 <code>bg_manage</code> 取回。历史 WorkPlan DAG 与 <code>plan_*</code> 工具族已退役，只保留只读投影。
 
-- JSON Schema 与字段归一化。
-- 节点引用、边和拓扑校验。
-- cycle detection 与 topological order。
-- Effort 对节点数、串并行和最大并发的策略约束。
-- 执行模式是**任务级**决策而不是 Plan 策略：<code>tasklist</code> 由主代理自己按 DAG 串行执行（逐节点 <code>task_check_node</code> 打点、最后 <code>task_complete</code> 收尾），<code>plan</code> 交给 <code>plan_run</code> 起子代理并行。
-
-每个 <code>kind: agent</code> 节点获得独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget。并行分支不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
+并行子代理不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
 
 这个设计属于 **Multi-Agent Orchestration / Subagent Orchestration**，但当前仍是单进程内编排，不宣称已经实现跨组织 A2A Protocol。
 
 #### 子代理的进度与结果
 
-`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>bg_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
+`fork_subagents` 会按每条 spec 直接构造一个子代理节点，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>bg_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看子代理树与工具活动：在 GUI 中点击子代理节点，即可查看会话记录、功能打点、工具活动和最终输出。
 
 summary 节点仍拼接各子代理输出，它是**整批作业正文的兜底**（某个子代理没有可复用摘要时用它）。单个子代理的完整产出按它自己的句柄取回；把外层兜底正文当作大结果的唯一读取通道，或者据此转述、推断审查结论，都是不允许的。
 
@@ -402,13 +396,13 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - **落盘**：PNG 以内容寻址写入会话媒体分区 <code>&lt;sessionRoot&gt;/meta/&lt;sha256&gt;/&lt;原名&gt;</code>，工具结果只挂 <code>media:&lt;sha256&gt;</code> 引用与尺寸/缩放元数据；同一份字节只落一份，改名写入记为 alias。
 - **随图**：画面进入「待随图队列」，由最贴近 provider 的一层挂到**下一次**模型请求上；<code>Take</code> 即清空，同一张图至多送一次，避免反复占用 token 与配额。包装位置刻意在 request log **之内**，因此请求日志记录的就是真正发出去的消息。
 - **分轴限额**：文本大结果软限 60000 字符（可截断并归档 <code>result_ref</code>），媒体单件 8 MB、长边 4096 像素、每会话 500 件、会话配额 256 MB，且**永不截断**；配额只统计二进制载荷，与文本大结果独立记账，回收以工具结果引用集为准（<code>CollectMedia</code>，支持 dry-run）。
-- **归属按执行会话解析**：主代理按会话绑定，子代理与 Plan 节点按 <code>NodeScope.WorkspaceID</code>，刻意不读 Router 的活跃写作用域——并行执行期间视图可能已切走，用它解析会把画面写进另一个项目。
+- **归属按执行会话解析**：主代理按会话绑定，子代理与 Plan 节点按 <code>SceneScope.WorkspaceID</code>，刻意不读 Router 的活跃写作用域——并行执行期间视图可能已切走，用它解析会把画面写进另一个项目。
 
 门控分四层：平台（不支持的平台不注册工具）、<code>SEELEX_COMPUTER_USE=0/off/false/no</code> 可整体关闭、<code>config/seele.yaml</code> 的 <code>permission.rules</code> 逐次 allow/ask/deny、子代理不可见**会改变桌面**的工具（<code>computer_focus</code> 与键鼠注入类；子代理只保留只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code>、<code>computer_wait</code>）。默认规则中截屏、窗口枚举与可滚动面板识别为 <code>ask</code>（画面/屏幕内容进入模型上下文），键鼠注入逐次 <code>ask</code>，<code>computer_wait</code> 为 <code>allow</code>。
 
 ### 11. 目标栈与裁决角色把「完成」变成外部裁决
 
-- 会话级 **LIFO 目标栈**（栈深上限 16）承载目标、验收条件与进展；活栈投影落 sessionstore，进程重启后继续治理，终态弹栈即删除。
+- 会话级 **LIFO 目标栈**（栈深上限 16）承载目标、验收条件与进展；活栈投影落 store，进程重启后继续治理，终态弹栈即删除。
 - 执行侧（EXEC）的事件驱动裁决侧（ADVISOR / TechLeader）在**独立上下文**中回合制评审，裁决以指令回投执行侧：指令邮箱容量 32（满则丢最旧并计数），指令正文 ≤1200 rune，信号 detail ≤400 rune。
 - **抽帧节流**：非关键信号在评估窗口（默认 3）内抑制，关键信号立即评估；回合完成后一次性抽帧，把 EXEC 的真实产出摘要带进裁决输入。
 - **缺席矩阵**：完成声明必须经裁决侧裁决；执行侧永不等待裁决侧；超时或限流按判负或转人工处理；审批请求先经裁决侧预筛（低风险代答、高风险转人工）；每次状态变更 append-only 记账。
@@ -619,7 +613,7 @@ Skill 使用 <code>&lt;skill&gt;/SKILL.md</code> 目录结构；相关脚本和�
 - 截图按宽度缩放（最近邻，保持坐标系），PNG 落会话媒体分区，画面随下一次模型请求送入，同一张图至多送一次。
 - **滚轮与可滚动面板**：<code>computer_scroll_targets</code> 用 UI Automation **只读**列出窗口里的可滚轮面板（名称、控件类型、矩形、中心坐标、纵向/横向滚动位置与视口占比），模型据此知道"屏幕外的上下文在哪个面板里、还差多少"；<code>computer_scroll</code> 在指定坐标按格下发滚轮（给 <code>window</code> 时按该窗口最大的纵向面板落点），并在结果里回读落点面板的滚前/滚后位置，区分"滚了但已到头"和"没滚到可滚动区域"。
 - 输入注入默认逐次审批；子代理只可见只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code> 与 <code>computer_wait</code>（<code>computer_focus</code> 与键鼠注入类对子代理不可见，因为并行子代理共用一块桌面会互相打断）。
-- 另有一条面向外部宿主的 MCP 工具面（<code>seelebridge/tools/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> / <code>scroll_targets</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
+- 另有一条面向外部宿主的 MCP 工具面（<code>backend/tool/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> / <code>scroll_targets</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
 
 权限规则在 <code>config/seele.yaml</code> 中声明（默认已包含以下条目）：
 
@@ -654,14 +648,14 @@ permission:
 | 目录 | 职责 |
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
-| [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
-| [<code>sessionstore/</code>](sessionstore/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
-| [<code>session/</code>](session/README.md) | 会话领域模型与投影 |
-| [<code>plugin/</code>](plugin/README.md) | Plugin loader、生命周期和事务式切换 |
-| [<code>skill/</code>](skill/README.md) | Skill 加载、资源安全和可见性 |
-| [<code>workspace/</code>](workspace/README.md) | Workspace 与 Session binding |
-| [<code>mcpstack/</code>](mcpstack/README.md) | MCP 调用轨迹、持久化和上下文摘要 |
+| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
+| [<code>backend/engine/context/seelectx/</code>](backend/engine/context/seelectx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back（M5-R7 迁出仓库根 `seelexctx/`，包名不变） |
+| [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
+| [<code>middle/switch/sessionusecase/</code>](middle/switch/sessionusecase/README.md) | 会话领域模型与投影（Go 包名仍为 `session`） |
+| [<code>backend/engine/plugin/</code>](backend/engine/plugin/README.md) | Plugin loader、生命周期和事务式切换 |
+| [<code>backend/engine/skill/</code>](backend/engine/skill/README.md) | Skill 加载、资源安全和可见性 |
+| [<code>store/workspace/</code>](store/workspace/README.md) | Workspace 与 Session binding |
+| [<code>backend/engine/mcp/mcpstack/</code>](backend/engine/mcp/mcpstack/README.md) | MCP 调用轨迹、持久化和上下文摘要 |
 | [<code>tui/</code>](tui/README.md) | Bubble Tea 终端前端 |
 | [<code>gui/</code>](gui/README.md) | Wails GUI 适配层、headless RPC 与前端 |
 | [<code>e2e/</code>](e2e/README.md) | 无真实 LLM 的确定性端到端场景 |
@@ -693,7 +687,7 @@ go build -tags "gui,desktop,production" ./...
 
 ~~~bash
 # 真机探针：真截一次屏并落会话媒体分区（不注入键鼠）
-$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./seelebridge/tools/computer -run RealDesktop -v
+$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./backend/tool/computer -run RealDesktop -v
 
 # 真实 API 冒烟：走完整应用链路（模型自己调用 computer_screenshot → 截图随下一次
 # 请求送入 → 回答必须命中真实前台窗口标题）。⚠️ 会把当前屏幕画面发给 provider。
@@ -712,7 +706,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 其中 Linux GUI 这条腿此前不在流水线里，只能靠 Linux 侧手工执行脚本再手传（v0.1.0 的 <code>linux-amd64-gui</code> 就是这么补的）；2026-10-03 起并入流水线（<code>gui-linux</code> job：<code>ubuntu-22.04</code> + <code>libgtk-3-dev</code> / <code>libwebkit2gtk-4.0-dev</code>，走脚本的 <code>--native</code> 分支），ABI 与手工路径保持一致。
 
-2026-09-14 在当前工作树执行 `go test ./... -covermode=count -coverprofile=coverage.out` 的可复现结果为全仓 **58.6%**（全部包通过）；关键包分布为 `application/core` **74.4%**、`seelebridge` **65.1%**、`seelexctx` **84.6%**、`sessionstore` **73.9%**、`plugin` **83.4%**、`gui` **69.0%**、`workspace` **78.1%**、`tui` **35.6%**。这个分布也暴露了剩余风险：TUI 仍明显低于核心编排层，不应只用全仓平均值掩盖前端交互测试不足。CI 使用同类命令，并叠加 `-race -covermode=atomic -coverpkg=./...`，上传 `coverage.out` 与 `coverage-summary.txt` 供复核。
+2026-09-14 在当前工作树执行 `go test ./... -covermode=count -coverprofile=coverage.out` 的可复现结果为全仓 **58.6%**（全部包通过）；关键包分布为 `application/core` **74.4%**、`seelebridge` **65.1%**、`seelexctx` **84.6%**、`store` **73.9%**、`plugin` **83.4%**、`gui` **69.0%**、`workspace` **78.1%**、`tui` **35.6%**。这个分布也暴露了剩余风险：TUI 仍明显低于核心编排层，不应只用全仓平均值掩盖前端交互测试不足。CI 使用同类命令，并叠加 `-race -covermode=atomic -coverpkg=./...`，上传 `coverage.out` 与 `coverage-summary.txt` 供复核。
 
 ## 性能测试与基准（历史基线）
 
@@ -788,10 +782,11 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 | 层 | 模块 README |
 |---|---|
-| 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [contract/](application/contract/README.md) · [contract/dto/](application/contract/dto/README.md) · [model/](application/model/README.md) · [event/](application/event/README.md) · [approval/](application/approval/README.md) · [prompt/](application/prompt/README.md) |
-| 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](seelebridge/security/README.md) · [tools/](seelebridge/tools/README.md) · [plan/](seelebridge/plan/README.md) · [node/](seelebridge/node/README.md) · [fork/](seelebridge/fork/README.md) · [session/](seelebridge/session/README.md) · [account/](seelebridge/account/README.md) · [mcp/](seelebridge/mcp/README.md) · [computer/](seelebridge/tools/computer/README.md) |
-| 上下文与存储 | [seelexctx/](seelexctx/README.md) · [sessionstore/](sessionstore/README.md) · [session/](session/README.md) · [workspace/](workspace/README.md) |
-| 扩展与前端 | [plugin/](plugin/README.md) · [skill/](skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
+| 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](middle/protocol/model/README.md) · [event/](middle/protocol/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
+| 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
+| 运行时适配 | [backend/engine/assemble/](backend/engine/assemble/README.md) · [backend/limit/gate/](backend/limit/gate/README.md) · [backend/tool/registry/](backend/tool/registry/README.md) · [backend/tool/node/](backend/tool/node/README.md) · [backend/tool/fork/](backend/tool/fork/README.md) · [backend/multiagent/subagent/](backend/multiagent/subagent/README.md) · [backend/engine/account/](backend/engine/account/README.md) · [backend/engine/mcp/](backend/engine/mcp/README.md) · [backend/tool/computer/](backend/tool/computer/README.md) |
+| 上下文与存储 | [backend/engine/context/seelectx/](backend/engine/context/seelectx/README.md) · [store/](store/README.md) · [middle/switch/sessionusecase/](middle/switch/sessionusecase/README.md) · [store/workspace/](store/workspace/README.md) |
+| 扩展与前端 | [backend/engine/plugin/](backend/engine/plugin/README.md) · [backend/engine/skill/](backend/engine/skill/README.md) · [backend/engine/mcp/mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 
 README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭合、图类型、括号与引号配平、
@@ -804,7 +799,7 @@ README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭�
 项目当前仍主要由原作者维护；欢迎提交可复现 Issue、设计审查或 Pull Request，但仓库不会把自动化提交包装成外部贡献。开始修改前，请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[行为准则](CODE_OF_CONDUCT.md)、[AGENTS.md](AGENTS.md) 和目标模块的 README，并保持以下约束：
 
 - 前端只消费 Application DTO/Event，不复制业务状态机。
-- 上游 Seele 能力优先通过 <code>seelebridge/</code> 适配。
+- 上游 Seele 能力优先通过 <code>backend/engine/assemble/</code> 适配。
 - 新增工具必须经过 ProjectScope、权限和可见性边界。
 - 行为变化应同时更新测试和对应模块文档。
 - 不提交账号文件、API key、DSN、token 或本机绝对路径。

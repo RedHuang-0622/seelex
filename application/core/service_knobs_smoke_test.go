@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // service_knobs_smoke_test.go —— composer 底部两条独立拉条的**全链路冒烟**。

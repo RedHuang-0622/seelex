@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
 )
@@ -22,13 +24,13 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	now := time.Now()
 	gated := &gatedHistorySessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{
+			catalog: map[string][]model.SessionInfo{
 				"": {
 					{ID: "sess-cold", Name: "cold B", UpdatedAt: now},
 					{ID: "sess-b", Name: "hot C", UpdatedAt: now},
 				},
 			},
-			histories: map[string]map[string][]EngineMessage{
+			histories: map[string]map[string][]contract.EngineMessage{
 				"": {
 					"sess-cold": {{Role: "user", Content: "cold b content"}},
 					"sess-b":    {{Role: "user", Content: "hot c content"}},

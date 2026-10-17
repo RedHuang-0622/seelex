@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -10,13 +12,13 @@ func TestActiveSkillsProjectionForSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 
 	service.ViewMu.Lock()
-	taskA := service.components.tasks.BeginTaskFor("session-a", "req-a", "goal task", "high", nil, TaskCheckpoint{})
-	service.components.tasks.ActivateTaskSkillsLocked(taskA, []PromptLayer{
+	taskA := service.components.tasks.BeginTaskFor("session-a", "req-a", "goal task", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.ActivateTaskSkillsLocked(taskA, []prompt.PromptLayer{
 		{Name: "goal", Text: "goal layer"},
 		{Name: "review", Text: "review layer"},
 	})
-	taskB := service.components.tasks.BeginTaskFor("session-b", "req-b", "coding task", "high", nil, TaskCheckpoint{})
-	service.components.tasks.ActivateTaskSkillsLocked(taskB, []PromptLayer{
+	taskB := service.components.tasks.BeginTaskFor("session-b", "req-b", "coding task", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.ActivateTaskSkillsLocked(taskB, []prompt.PromptLayer{
 		{Name: "review", Text: "review layer"},
 	})
 	service.ViewMu.Unlock()

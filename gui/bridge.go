@@ -11,13 +11,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui/terminal"
-	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 const eventName = "seelex:event"
@@ -75,21 +71,21 @@ type Application interface {
 	// SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回
 	// 真正生效的档位；未识别的档位 id 报错。会话级归属（G4）。
 	SetPermissionTier(string) (string, error)
-	SessionStorageConfig() (sessionstore.Config, error)
-	TestSessionStorage(context.Context, sessionstore.Config) error
-	ConfigureSessionStorage(context.Context, sessionstore.Config) error
+	SessionStorageConfig() (application.SessionStorageConfig, error)
+	TestSessionStorage(context.Context, application.SessionStorageConfig) error
+	ConfigureSessionStorage(context.Context, application.SessionStorageConfig) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 	ClearSubagentTree() error
 	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
 	// pending/doing/done；plan/subagent 由执行器管理）。
 	UpdateWorkItemStatus(id, status string) error
-	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	ScheduleTask(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	// UpdateScheduledTask 用一份新定义覆盖既有任务（编辑；ID 是操作键）。
-	UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	UpdateScheduledTask(context.Context, string, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	CancelScheduledTask(string) error
 	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 	// GUI 历史检索面板数据源）。
-	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
+	SearchHistory(context.Context, string, int) (application.SearchResult, error)
 	// WorkspaceTree 列出当前工作区某目录的子条目（工作树数据源；只含
 	// 元数据，不含文件内容）。
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
@@ -223,7 +219,7 @@ type Options struct {
 	// 配置警告（配置损坏仍可启动，不闪退）。
 	StartupWarning string
 	// AppearancePath 是 GUI 外观设置（当前皮肤 + 由它派生的窗口材质）的落盘路径，
-	// 由宿主按配置责任链给出（见 main.go guiAppearancePath）。建窗期读它决定窗口
+	// 由宿主按配置责任链给出（见 wiring/config 的 GUIAppearancePath）。建窗期读它决定窗口
 	// 是否走透明/亚克力；换肤期由 Bridge.SetWindowAppearance 写它。
 	// 空串 = 不落盘：窗口保持不透明，换肤照常。
 	AppearancePath string
@@ -882,7 +878,7 @@ func (bridge *Bridge) SetAccountWindow(name string, window int) (int, error) {
 // AccountWindowPresets 返回界面挡位（token，升序）——**后端下发**，前端不自己写死
 // 一份（与权限档位、effort 档位同一条口径：档位表只有一处，改它不用改两处）。
 func (bridge *Bridge) AccountWindowPresets() []int {
-	return seelexctx.AccountContextWindowPresets()
+	return application.AccountWindowPresets()
 }
 
 func (bridge *Bridge) SwitchPlugin(name string) error {
@@ -970,26 +966,26 @@ func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 	return bridge.app.SetPermissionTier(tier)
 }
 
-func (bridge *Bridge) SessionStorageConfig() (sessionstore.Config, error) {
+func (bridge *Bridge) SessionStorageConfig() (application.SessionStorageConfig, error) {
 	return bridge.app.SessionStorageConfig()
 }
 
-func (bridge *Bridge) TestSessionStorage(config sessionstore.Config) error {
+func (bridge *Bridge) TestSessionStorage(config application.SessionStorageConfig) error {
 	return bridge.app.TestSessionStorage(bridge.requestContext(), config)
 }
 
-func (bridge *Bridge) ConfigureSessionStorage(config sessionstore.Config) error {
+func (bridge *Bridge) ConfigureSessionStorage(config application.SessionStorageConfig) error {
 	return bridge.app.ConfigureSessionStorage(bridge.requestContext(), config)
 }
 
 // ScheduleTask 创建并启动一个定时/周期任务（后端调度器校验白名单/周期或 RunAt）。
-func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
 }
 
 // UpdateScheduledTask 编辑既有定时/周期任务（同一份 spec 形状；任务 ID 是操作键，
 // 名称只做展示）。
-func (bridge *Bridge) UpdateScheduledTask(id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (bridge *Bridge) UpdateScheduledTask(id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 	return bridge.app.UpdateScheduledTask(bridge.requestContext(), id, spec)
 }
 
@@ -1098,8 +1094,8 @@ func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit in
 // 会话角色基座（RoleSessionID / 角色 draft / floor / RoleSnapshot）与团队看板
 // （teamwork）**不在**这一段，它们仍在。
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
-// Wails 前端历史检索面板数据源，返回权威 seelexctx/search.Result）。
-func (bridge *Bridge) SearchHistory(query string, limit int) (seelexctxsearch.Result, error) {
+// Wails 前端历史检索面板数据源，返回门面再导出的 `application.SearchResult`）。
+func (bridge *Bridge) SearchHistory(query string, limit int) (application.SearchResult, error) {
 	return bridge.app.SearchHistory(bridge.requestContext(), query, limit)
 }
 
@@ -1166,7 +1162,7 @@ func (bridge *Bridge) PerfStats() application.PerfStats {
 }
 
 // toolFailureBoardProvider 是 Application 的**窄可选**能力面：工具失败分布看板
-// （进程级读数：跨会话跨项目）。
+// （会话级读数：跟当前视图会话走，落该会话自己的 tool-record.jsonl）。
 //
 // 为什么是"可选窄接口 + 类型断言"而不是 Application 的成员：口径与
 // contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 一致——
@@ -1179,7 +1175,7 @@ type toolRecordBoardProvider interface {
 	SetToolRecordEnabled(enabled bool) (bool, error)
 }
 
-// ToolRecordBoard 返回工具记录看板（进程级读数：跨会话跨项目）。
+// ToolRecordBoard 返回工具记录看板（会话级读数：当前视图会话自己的累计）。
 //
 // 走"按需拉取"而不是快照：快照是**会话作用域**的可重放状态，把进程级计数塞进去会
 // 让"重放一份会话快照"听起来像"重放这台机器的计数"（与 PerfStats 同一条理由）。

@@ -8,7 +8,7 @@ import { escapeHtml, icon } from "./components.js";
 // 的在编行写钩子 `data-team-role-open`，`app.js` 的 `bindTeamBoardActions` 绑委托），
 // 因此原样保留，只把口径从「Agent Team 面板成员行」改成「角色会话只读观察面」。
 //
-// 数据源：Bridge.AgentTeamRoleSnapshot（application/contract/dto.RoleSnapshot）——后端
+// 数据源：Bridge.AgentTeamRoleSnapshot（contract/dto.RoleSnapshot）——后端
 // 保留该方法且不改名（它是这条读面的权威读数，与面板存亡无关）。
 // 目的：EXEC（main）与 ADVISOR（tl）是两个独立会话；主对话只显示 EXEC 的可见消息，
 // ADVISOR 自己的行在这里按角色身份单独列出，避免「两个 agent 都叫 AGENT」的歧义。

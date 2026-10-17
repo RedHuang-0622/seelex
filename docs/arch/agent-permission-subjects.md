@@ -16,10 +16,10 @@
 | --- | --- | --- |
 | 框架（Seele） | `tools/permission/{checker,middleware,approval}.go` | 组/位/规则/审批的**判定与错误语义**；`Gate` 是唯一判定入口 |
 | 框架 | `tools/tools.go` `ToolMeta{Kind,Groups,Bits,Resource}` | 工具自报门第（**可选**，见 §7） |
-| 产品（Seelex） | `seelebridge/tools/permission_policy.go` | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
-| 产品 | `seelebridge/tools/permission_tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
-| 产品 | `seelebridge/tools/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
-| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥。**注（2026-10-12 J-1a）**：`SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 的注入已随之退场——它们的事实源是 Agent Team 反向索引（随退场删除），未注入时的口径是"员工主体识别按调用 ctx 判、审批归属按调用会话原样归属"；员工主体识别的权威通路仍是角色回合执行体按构造写 ctx（`tools.WithEmployeeGrant`，`seelebridge/runtime_role_turn.go`）。 |
+| 产品（Seelex） | `backend/limit/policy/policy.go`（授权表 / 路由组 / 主体位，判据）+ `backend/tool/registry/permission_policy.go`（主体类策略 Enforcer） | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
+| 产品 | `backend/limit/policy/tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
+| 产品 | `backend/tool/registry/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
+| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥。**注（2026-10-12 J-1a）**：`SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 的注入已随之退场——它们的事实源是 Agent Team 反向索引（随退场删除），未注入时的口径是"员工主体识别按调用 ctx 判、审批归属按调用会话原样归属"；员工主体识别的权威通路仍是角色回合执行体按构造写 ctx（`tools.WithEmployeeGrant`，`backend/engine/assemble/runtime_role_turn.go`）。 |
 | 配置 | `config/seele.yaml` | **只写覆盖**（`missing_bit` + 最细粒度 `rules`） |
 
 分工的一句话：**框架管"位语义"，产品管"位落在哪片资源、以及各主体的默认授权"**。
@@ -31,7 +31,7 @@
 | 主体 id | 来源（`ClassForNodeScope` / `roleSessionClass`） | Linux 类比 |
 | --- | --- | --- |
 | `root` | 无节点作用域 / 主代理 / plan entry / goalplan 节点 / 未登记会话 | uid 0（sudo） |
-| `sub` | 调度 ctx 带 `NodeScope{NodeID, Role: RoleSubAgent}`（`node/agent_node.go` 注入） | 普通用户 |
+| `sub` | 调度 ctx 带 `NodeScope{NodeID, Role: RoleSubAgent}`（`backend/tool/node/agent_node.go` 注入） | 普通用户 |
 | `emp_ro` | 角色会话（员工）+ `RoleSpec.ToolsPolicy = readonly` | 受限用户（只读） |
 | `emp_rw` | 角色会话（员工）+ `RoleSpec.ToolsPolicy = readwrite` | 受限用户（可写项目） |
 
@@ -93,7 +93,7 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 
 `rules` 是 args 级的最后一道覆盖（LMRW），顺序即语义：**先兜底 ask，再安全 allow，
 最后危险 deny**。命令行类工具（`bash`）的 `patterns` 匹配的是**命令本体**，不是工具
-入参 JSON —— 由 `seelebridge/tools/registry_state.go:policyArgsFor` 归一化，
+入参 JSON —— 由 `backend/tool/registry/registry_state.go:policyArgsFor` 归一化，
 否则"能力白名单"整块失效。
 
 `config/seele.yaml` **不写** `tool: "*"` 的兜底 ask：那会把所有组的默认动作覆盖掉。
@@ -111,8 +111,8 @@ deny**（危险命令段在任何档位下都硬拦）。
 | `auto` | 再剪 `bash` 的全部 ask | 任意命令直跑（危险 deny 仍在） |
 | `full` | 执行门短路 | 本会话全部放行（= 旧 `full_access`） |
 
-- 词表（id/标签/说明）的唯一事实在 `application/contract/dto`（前端按它渲染列表）；
-  覆盖实现在 `seelebridge/tools/permission_tiers.go`。
+- 词表（id/标签/说明）的唯一事实在 `contract/dto`（前端按它渲染列表）；
+  覆盖实现在 `backend/limit/policy/tiers.go`。
 - **只对 root 生效**：`gate()` 按"主体类 + 会话档位"选表——非 root（`sub`/`emp_*`）
   一律用 base 表；`full` 档的短路条件收紧为 `class == root`。因此档位只改主 agent 的
   "问不问"，不改任何主体的"有没有位"（员工越权照旧审批提权）。
@@ -125,7 +125,7 @@ deny**（危险命令段在任何档位下都硬拦）。
 ## 3. 一次调用的求值顺序
 
 ```
-Middleware(ctx, name, meta)                 # seelebridge/tools/registry_state.go
+Middleware(ctx, name, meta)                 # backend/tool/registry/registry_state.go
   ├─ 主体解析：节点作用域（sub）→ 角色会话登记（emp_*）→ 否则 root
   ├─ ctx 注入 WithEngine(subject) + WithSessionID(session)
   └─ Gate.Decide(ctx, name, meta, args)     # 框架
@@ -193,7 +193,7 @@ PermissionGate.Set(cfg, handler)                        # 重建 checker + 保�
 | --- | --- | --- |
 | **工具未登记 `ToolMeta`** | 所有真实工具都是零值 `ToolMeta`（注册点未加 meta） | 路由走的是 §2.2 的**名字 glob 分封**（已生效）；"工具自报门第"与 `Map` 到簇属的能力未启用 |
 | `meta.Kind == ToolKindControl → 非 root 不可见` | 闸门存在但**无工具声明 Kind**，当前是死的 | 登记 control 类工具前必须先处理主体映射（`root` 之外的 subject 会让它变不可见） |
-| `seelebridge/tools/policy.go` 两张硬编码名单 | `nodeScopeExcludedTool` / `isComputerInputTool` 仍在，与位模型**并存** | 双份事实，存在漂移风险；设计稿要求"名单改由工具元数据生成→删硬编码" |
+| `backend/tool/registry/policy.go` 两张硬编码名单 | `nodeScopeExcludedTool` / `isComputerInputTool` 仍在，与位模型**并存** | 双份事实，存在漂移风险；设计稿要求"名单改由工具元数据生成→删硬编码" |
 | **员工执行面** | 只有"读面"接线（`main.go:SetRoleSessionPolicyResolver`）；员工回合的执行面尚未落到 framework Session | `emp_ro/emp_rw` 目前只有单测覆盖，**生产路径上还没有真实调用者** |
 | 提权台账 | 审批响应 `Scope` 为空 = `once`，不持久 | "记住此工具 / 整会话"的台账与审计回调未做 |
 | 可见性面 | 位缺表现为 dispatch 时的 `ErrToolNotVisible` | 设计目标是"断位即不在工具清单里"（需要 provider 侧按主体过滤） |
@@ -204,12 +204,12 @@ PermissionGate.Set(cfg, handler)                        # 重建 checker + 保�
 ```powershell
 go vet ./...                                            # 退出码 0
 go test ./... -count=1                                  # 全包 ok
-go test -race ./seelebridge/tools/... ./seelebridge/session/... ./application/core/goal/... ./seelexctx/... -count=1
+go test -race ./backend/tool/registry/... ./backend/multiagent/subagent/... ./application/core/goal/... ./seelexctx/... -count=1
 
 # 确定性用例（不需凭据）
-go test ./seelebridge/tools/ -run "Subagent|Employee|Bash|Subject|Route" -v -count=1
+go test ./backend/tool/registry/ -run "Subagent|Employee|Bash|Subject|Route" -v -count=1
 go test . -run "TestEveryRegisteredToolIsRouted|TestMainAgentToolDecisions|TestMergedConfigSubagentAndEmployee" -v -count=1
-go test ./seelebridge/session/ -run "LifecycleRelease" -v -count=1
+go test ./backend/multiagent/subagent/ -run "LifecycleRelease" -v -count=1
 
 # 真实 API 冒烟（opt-in，需凭据；走生产审批桥）
 $env:SEELEX_SMOKE_ACCOUNTS='<repo>\config\accounts.yaml'

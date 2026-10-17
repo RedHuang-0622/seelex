@@ -3,13 +3,14 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
@@ -30,15 +31,15 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	if hooks.OnIterationComplete(context.Background(), 1) {
 		t.Fatal("tool-call budget should stop the next ReAct iteration")
 	}
-	if err := service.components.tasks.ReActBudgetError("budget-request"); !errors.Is(err, task_context.ErrReActBudgetExceeded) {
-		t.Fatalf("budget error = %v, want task_context.ErrReActBudgetExceeded", err)
+	if err := service.components.tasks.ReActBudgetError("budget-request"); !errors.Is(err, contract.ErrReActBudgetExceeded) {
+		t.Fatalf("budget error = %v, want contract.ErrReActBudgetExceeded", err)
 	}
 }
 
 func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	rawResult := strings.Repeat("oversized-result", task_context.DefaultToolResultLimit())
-	engine := &fakeEngine{history: []EngineMessage{
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-large", Name: "bash"}}},
+	engine := &fakeEngine{history: []contract.EngineMessage{
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-large", Name: "bash"}}},
 		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
 	}}
 	service := newTestService(t, engine)
@@ -46,8 +47,8 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "budget-request"}
-	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "budget-request"}
+	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, model.TaskCheckpoint{})
 	stored := service.components.tasks.StoreToolResultLocked("bash", rawResult)
 	service.components.tasks.SetResultRefByCallIDLocked("call-large", stored.Ref)
 	service.ViewMu.Unlock()
@@ -55,13 +56,19 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
 		t.Fatal(err)
 	}
+	engine.mu.Lock()
+	chatCalls := len(engine.chatInputs)
+	engine.mu.Unlock()
+	if chatCalls != 1 {
+		t.Fatalf("预算收尾必须是一次且仅一次调用，实际 %d", chatCalls)
+	}
 	for _, message := range engine.History() {
 		if message.Content == reactBudgetFinalizationInput {
 			t.Fatal("internal budget-finalization input leaked into history")
 		}
 	}
 	engine.mu.Lock()
-	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	prepared := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	for _, message := range prepared {
 		if strings.Contains(message.Content, "oversized-result") {
@@ -70,11 +77,29 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	}
 }
 
+// TestReActBudgetFinalizationPromptSummarizesBudgetWork 钉住用户裁决的 P2 语义：
+// 预算耗尽后的 +1 次调用只做"总结预算内已完成的工作/未完成的部分/证据"，不再调工具。
+func TestReActBudgetFinalizationPromptSummarizesBudgetWork(t *testing.T) {
+	if !strings.HasPrefix(reactBudgetFinalizationInput, contract.ReactBudgetFinalizationMarker) {
+		t.Fatal("收尾输入必须带契约层的唯一标记（判定侧靠它过滤）")
+	}
+	for _, want := range []string{
+		"Do not call any tools again",
+		"summarize what was actually completed within the budget",
+		"what remains unfinished",
+		"Do not claim work that was not done",
+	} {
+		if !strings.Contains(reactBudgetFinalizationInput, want) {
+			t.Fatalf("收尾提示缺少语义 %q：%s", want, reactBudgetFinalizationInput)
+		}
+	}
+}
+
 func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
 	defer service.Shutdown()

@@ -14,18 +14,19 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
-func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime) {
+func teamworkCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime) {
 	t.Helper()
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = trigger
 	})
@@ -150,7 +151,7 @@ func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T) {
 // （`bt-` / `bteam-`，见 dto.JobNamespace），两条链的键天然不同——但幂等账仍然按表记账，
 // 因为口径是"哪张表的哪一条"，不是"哪一串字符"。
 func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = true
 	})
@@ -186,11 +187,11 @@ func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T) {
 // 忙会话的读法：**回合边界打点块**里的 teammate 完成行（这是"回执被看见"的另一半——
 // 终态触发绝不唤醒忙会话，忙的时候只剩这条路）。
 func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T) {
-	lines := teamworkTraceLines([]dto.TeamworkJobCompletionRecord{
+	lines := worktable.TeamworkTraceLines([]dto.TeamworkJobCompletionRecord{
 		completedTeammateRecord("ab20", asyncStateDone),
 		{Handle: "ab21", Kind: "worker", State: dto.AsyncStateRunning, SessionID: "session-a", Role: "verify", WorkItem: "wi-verify", Description: "复核渲染件"},
 		{Handle: "ab22", Kind: "worker", State: asyncStateDone, SessionID: "session-b", Role: "other", WorkItem: "wi-other"},
-	}, "session-a")
+	}, "session-a", workTableBounds())
 
 	if len(lines) != 2 {
 		t.Fatalf("打点块只取本会话的 teammate 行（另一会话的行不得混进来）：%+v", lines)

@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,7 +37,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("long session A did not start")
 	}
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: bID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: bID}})
 	historyBefore := engine.HistoryFor(aID)
 	if !service.sessions.Unit(aID).ChatState().Running {
 		t.Fatal("A should be running")
@@ -124,7 +126,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 	}
 }
 
-func readSessionView(t *testing.T, service *Service, sessionID string) []Message {
+func readSessionView(t *testing.T, service *Service, sessionID string) []model.Message {
 	t.Helper()
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
@@ -132,10 +134,10 @@ func readSessionView(t *testing.T, service *Service, sessionID string) []Message
 	if view == nil {
 		return nil
 	}
-	return append([]Message(nil), view.Conversation...)
+	return append([]model.Message(nil), view.Conversation...)
 }
 
-func viewText(messages []Message) string {
+func viewText(messages []model.Message) string {
 	var builder strings.Builder
 	for _, message := range messages {
 		builder.WriteString(message.Role)
@@ -146,7 +148,7 @@ func viewText(messages []Message) string {
 	return builder.String()
 }
 
-func joinHistoryText(history []EngineMessage) string {
+func joinHistoryText(history []contract.EngineMessage) string {
 	var builder strings.Builder
 	for _, message := range history {
 		builder.WriteString(message.Role)

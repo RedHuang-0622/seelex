@@ -2,6 +2,8 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"testing"
 )
 
@@ -14,7 +16,7 @@ func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	defer service.Shutdown()
 
 	sessionID := service.Core.Snapshot.Session.ID
-	engine.ReplaceHistory(sessionID, []EngineMessage{
+	engine.ReplaceHistory(sessionID, []contract.EngineMessage{
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "answer", ReasoningContent: "thinking steps"},
 	})
@@ -36,12 +38,14 @@ func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	}
 
 	sawReasoningEvent := false
-	for event := range sub.Events {
-		if event.Kind != EventMessageDelta {
+	// 循环变量不能叫 `event`：它会把 `middle/protocol/event` 包名遮蔽掉，
+	// 而这里要用 `event.MessageDelta`（R10b 之后别名改成限定名）。
+	for evt := range sub.Events {
+		if evt.Kind != EventMessageDelta {
 			continue
 		}
-		var delta MessageDelta
-		if err := json.Unmarshal(event.Payload, &delta); err != nil {
+		var delta event.MessageDelta
+		if err := json.Unmarshal(evt.Payload, &delta); err != nil {
 			t.Fatalf("unmarshal message delta: %v", err)
 		}
 		if delta.MessageID == assistant.ID && delta.ReasoningContent == "thinking steps" {

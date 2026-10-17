@@ -33,7 +33,7 @@ Workspace 不承载任意 DSL 卡片。DSL 卡片始终在 Conversation；`FileL
 
 - `workspace/tree.go` 提供 `ListTree`/`CountFiles`（只读元数据；忽略目录与
   敏感文件名过滤、containment、预算截断；不跟随符号链接，绝不返回文件内容）；
-- `application/contract/workspace_tree.go` 定义 optional `WorkspaceTreePort`，
+- `contract/workspace_tree.go` 定义 optional `WorkspaceTreePort`，
   `gui.Bridge.WorkspaceTree/WorkspaceFileCount` 暴露给 Wails；
 - 右栏「工作树」面板（`worktree-view.js`）替代旧的「Agent 已读文件」平铺
   列表：惰性展开目录 + 直接文件计数 + 递归文件数 badge；

@@ -2,12 +2,13 @@ package core
 
 import (
 	"context"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
@@ -19,22 +20,22 @@ import (
 //  3. 提示词落在**新会话**的可见投影里，当前视图会话一条都不多。
 //
 // 会话记录本身仍走会话自己的存储/读写纪律（这里只验"落在哪个会话、绑哪个
-// 项目"这一层，落盘口径由 sessionstore 的用例钉住）。
+// 项目"这一层，落盘口径由 store 的用例钉住）。
 func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	root := t.TempDir()
 	engine := &fakeEngine{chunks: []string{"收到"}}
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
 	sessions := &scopedSessions{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
 
 	before := service.Snapshot().Session.ID
-	sessionID, err := service.StartScheduledSession(context.Background(), seelebridge.ScheduledTaskSpec{
+	sessionID, err := service.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Prompt: "每天巡检一次", WorkspaceID: "project-1",
 	})
 	if err != nil {
@@ -84,9 +85,9 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 	engine := &fakeEngine{chunks: []string{"收到"}}
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -94,7 +95,7 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 	// 当前会话先绑到项目（视图会话的项目绑定不该传染给定时会话）。
 	workspaces.BindSession(service.Snapshot().Session.ID, "project-1")
 
-	sessionID, err := service.StartScheduledSession(context.Background(), seelebridge.ScheduledTaskSpec{
+	sessionID, err := service.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Prompt: "无工作区巡检",
 	})
 	if err != nil {
@@ -121,7 +122,7 @@ func (runtime *fakeRuntime) sessionProjectRoot(sessionID string) string {
 }
 
 // conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
-func conversationContents(messages []Message) string {
+func conversationContents(messages []model.Message) string {
 	parts := make([]string, 0, len(messages))
 	for _, message := range messages {
 		parts = append(parts, message.Content)
@@ -135,15 +136,15 @@ func conversationContents(messages []Message) string {
 func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: t.TempDir()}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: t.TempDir()}
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{}, Workspace: workspaces,
 	})
 	defer service.Shutdown()
 
-	updated, err := service.UpdateScheduledTask(context.Background(), "sched_test", ScheduledTaskSpec{
-		Name: "改后的名字", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "改后的提示词",
+	updated, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+		Name: "改后的名字", Kind: assemble.ScheduledTaskPrompt, Prompt: "改后的提示词",
 		WorkspaceID: "project-1", Interval: time.Hour, Enabled: true,
 	})
 	if err != nil {
@@ -157,8 +158,8 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	}
 
 	// 不存在的工作区：当场拒绝，且不惊动调度器。
-	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", ScheduledTaskSpec{
-		Name: "n", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", WorkspaceID: "ws_missing", Interval: time.Hour,
+	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", WorkspaceID: "ws_missing", Interval: time.Hour,
 	}); err == nil {
 		t.Fatal("编辑到不存在的工作区必须报错")
 	}
@@ -167,8 +168,8 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	}
 
 	// 空 ID：编辑没有目标，直接拒绝。
-	if _, err := service.UpdateScheduledTask(context.Background(), "   ", ScheduledTaskSpec{
-		Name: "n", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.UpdateScheduledTask(context.Background(), "   ", assemble.ScheduledTaskSpec{
+		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 	}); err == nil {
 		t.Fatal("空任务 ID 必须报错")
 	}
@@ -183,8 +184,8 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	runtime := &fakeRuntime{}
 	engine := &fakeEngine{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
@@ -195,7 +196,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	// 空档位（未归一的 spec 直接进来）：按默认 full access 兜住。
-	ctx, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{Plugins: []string{"code"}})
+	ctx, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{Plugins: []string{"code"}})
 	if err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
 	}
@@ -213,15 +214,15 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := engine.sessionLoopsFor(sessionID); got != 384 {
 		t.Fatalf("未声明循环次数没有落成默认档位读数：%d, want 384", got)
 	}
-	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortHigh {
+	if wire, ok := service.knobs.TakeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortHigh {
 		t.Fatalf("未声明思考强度没有落成默认档位读数：%q（ok=%v）, want high", wire, ok)
 	}
-	if _, again := service.takeSessionReasoningEffort(sessionID); again {
+	if _, again := service.knobs.TakeSessionReasoningEffort(sessionID); again {
 		t.Fatal("强度租约必须只被取走一次（它属于那一次运行）")
 	}
 
 	// 声明了两条参数：按声明的落，不被默认值盖掉。
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
 		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
 	}); err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
@@ -229,7 +230,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := engine.sessionLoopsFor(sessionID); got != 48 {
 		t.Fatalf("声明的循环次数没有落到那次会话：%d, want 48", got)
 	}
-	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortLow {
+	if wire, ok := service.knobs.TakeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortLow {
 		t.Fatalf("声明的思考强度没有记上：%q（ok=%v）, want low", wire, ok)
 	}
 	// 别的会话一个字都不受影响（装配是会话级决定，不进进程默认）。
@@ -238,7 +239,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	}
 
 	// 显式档位 + 空插件：档位照写，插件面不再装配（上一次的读数保持不变）。
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
 		PermissionTier: dto.PermissionTierEdit,
 	}); err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
@@ -254,10 +255,10 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := service.permissionTierForSession("another_session"); got != dto.PermissionTierManual {
 		t.Fatalf("装配泄漏到了别的会话：%q", got)
 	}
-	if _, err := service.AssembleScheduledRun(context.Background(), "  ", ScheduledTaskSpec{}); err == nil {
+	if _, err := service.AssembleScheduledRun(context.Background(), "  ", assemble.ScheduledTaskSpec{}); err == nil {
 		t.Fatal("空会话 ID 必须报错")
 	}
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
 		t.Fatal("未知档位必须报错（不静默降级）")
 	}
 }
@@ -271,14 +272,14 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 //  3. 非法取值在创建那一刻就拒（不是等到触发那天变成一次失败的运行）。
 func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 	runtime := &fakeRuntime{}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
 
-	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
-		Name: "巡检", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "巡检", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 	}); err != nil {
 		t.Fatalf("ScheduleTask: %v", err)
 	}
@@ -289,8 +290,8 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 		t.Fatalf("未声明的执行参数没有落成默认参数：(%q, %d)，want (high, 384)", got.ReasoningEffort, got.LoopLimit)
 	}
 
-	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
-		Name: "带参数", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "带参数", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
 	}); err != nil {
 		t.Fatalf("ScheduleTask: %v", err)
@@ -301,16 +302,16 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 
 	for _, testCase := range []struct {
 		name    string
-		spec    ScheduledTaskSpec
+		spec    assemble.ScheduledTaskSpec
 		wantErr string
 	}{
-		{"未识别的思考强度", ScheduledTaskSpec{ReasoningEffort: "ludicrous"}, "无效的思考强度"},
-		{"循环次数越上限", ScheduledTaskSpec{LoopLimit: Limits().InputLoopLimit + 1}, "循环次数"},
-		{"循环次数为负", ScheduledTaskSpec{LoopLimit: -1}, "循环次数"},
+		{"未识别的思考强度", assemble.ScheduledTaskSpec{ReasoningEffort: "ludicrous"}, "无效的思考强度"},
+		{"循环次数越上限", assemble.ScheduledTaskSpec{LoopLimit: Limits().InputLoopLimit + 1}, "循环次数"},
+		{"循环次数为负", assemble.ScheduledTaskSpec{LoopLimit: -1}, "循环次数"},
 	} {
 		spec := testCase.spec
 		spec.Name = testCase.name
-		spec.Kind = seelebridge.ScheduledTaskPrompt
+		spec.Kind = assemble.ScheduledTaskPrompt
 		spec.Prompt = "P"
 		spec.Interval = time.Hour
 		_, err := service.ScheduleTask(context.Background(), spec)
@@ -327,15 +328,15 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 // 在**创建/编辑**这一刻就拒绝（而不是等到触发那天变成"这一轮什么工具都没有"）。
 func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 	runtime := &fakeRuntime{}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
 
 	// 目录里有 code：创建放行，且装配随 spec 交给调度器。
-	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
-		Name: "带装配", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "带装配", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		PermissionTier: dto.PermissionTierAuto, Plugins: []string{"code"},
 	}); err != nil {
 		t.Fatalf("已知插件的任务被拒：%v", err)
@@ -345,14 +346,14 @@ func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 	}
 
 	// 目录里没有 ghost：创建与编辑都当场拒绝，且不惊动调度器。
-	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
-		Name: "未知插件", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "未知插件", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"ghost"},
 	}); err == nil {
 		t.Fatal("未知插件必须被拒")
 	}
-	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", ScheduledTaskSpec{
-		Name: "n", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"code", "ghost"},
 	}); err == nil {
 		t.Fatal("编辑到未知插件必须被拒")
@@ -361,8 +362,8 @@ func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 		t.Fatalf("被拒的装配不该转发：specs=%d updated=%v", len(runtime.scheduledSpecs), runtime.updatedTasks)
 	}
 	// 重复声明与超上限交给同一份 dto.NormalizePlugins 判据，这里只确认它会冒出来。
-	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
-		Name: "重复声明", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "重复声明", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"code", "code"},
 	}); err == nil {
 		t.Fatal("重复声明的插件必须被拒")

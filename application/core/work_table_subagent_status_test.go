@@ -3,7 +3,8 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // TestTaskStatusForSubagentInterrupted（G4 stale）：崩溃遗留节点经树恢复为
@@ -24,8 +25,8 @@ func TestTaskStatusForSubagentInterrupted(t *testing.T) {
 		{sub: dto.SubAgentUnknown, want: dto.TaskInterrupted},
 	}
 	for _, tc := range cases {
-		if got := taskStatusForSubagent(tc.sub); got != tc.want {
-			t.Fatalf("taskStatusForSubagent(%s) = %s, want %s", tc.sub, got, tc.want)
+		if got := worktable.TaskStatusForSubagent(tc.sub); got != tc.want {
+			t.Fatalf("worktable.TaskStatusForSubagent(%s) = %s, want %s", tc.sub, got, tc.want)
 		}
 	}
 }

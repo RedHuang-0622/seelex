@@ -1,0 +1,219 @@
+// retention / LRU（M4）。
+//
+// 事实模型（my_design §4 I2）：
+//   - LRU 行删除只发生在 watermark 之前（连续前缀），message_id/seq 保持
+//     空洞、不重编号；锚 ≤ watermark 视为已淘汰区引用，不算损坏；
+//   - mode=manual 时自动淘汰被拒绝，需用户确认（T-WM-01）；
+//   - 实现 = 写新分片 → 原子替换 message.json → 更新 retention.json →
+//     删旧分片（T-WM-04：崩溃只能落"旧分片+旧 head"或"新 head 已发布"二选
+//     一，无中间态）。
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	"os"
+	"path/filepath"
+	"sort"
+	"time"
+)
+
+// retentionHead 是 metadata/retention.json payload。
+type retentionHead struct {
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode"`
+	DryRun    bool   `json:"dry_run"`
+	// WatermarkSeq/MessageID 与 message head 一致（已淘汰水位）。
+	WatermarkSeq       uint64    `json:"watermark_seq,omitempty"`
+	WatermarkMessageID string    `json:"watermark_message_id,omitempty"`
+	DeletedRows        uint64    `json:"deleted_rows,omitempty"`
+	CompactThreshold   int       `json:"compact_frame_threshold,omitempty"`
+	RawBytesAlert      uint64    `json:"raw_bytes_alert,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// ErrRetentionRequiresConfirm 表示 manual 模式自动淘汰被拒绝。
+var ErrRetentionRequiresConfirm = errors.New("session storage: LRU deletion requires user confirmation (mode=manual)")
+
+// ErrForkBeforeWatermark 表示 fork 起点早于 LRU watermark（I7）。
+var ErrForkBeforeWatermark = errors.New("session storage: fork start must be >= LRU watermark")
+
+// retentionThresholds 返回 §11 的压缩帧数阈值与原始字节告警线。
+func (store *storeEngine) retentionThresholds() (int, uint64) {
+	return store.settings.CompactFrameThreshold, store.settings.RawBytesAlert
+}
+
+func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error) {
+	return readModuleHeadPayloadLocked[retentionHead](store, key, moduleRetention)
+}
+
+// readRetentionHead 读取 retention head（缺失时先补建默认 manual head）。
+func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
+	store.mu(key, moduleRetention).Lock()
+	defer store.mu(key, moduleRetention).Unlock()
+	threshold, alertBytes := store.retentionThresholds()
+	head, err := store.readRetentionHeadLocked(key)
+	if err == nil {
+		return head, nil
+	}
+	head = retentionHead{
+		SessionID:        key.SessionID,
+		Mode:             storeroot.RetentionModeManual,
+		DryRun:           true,
+		CompactThreshold: threshold,
+		RawBytesAlert:    alertBytes,
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if _, err := store.publishModuleHead(key, moduleRetention, modulePayloadCommitID(moduleRetention, head), head, head.UpdatedAt); err != nil {
+		return retentionHead{}, err
+	}
+	return head, nil
+}
+
+// lRUDelete 删除 watermark 之前的连续前缀（用户确认后调用）。
+// upToSeq 含端点：删除 [watermark+1, upToSeq]。
+func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (retentionHead, error) {
+	store.mu(key, moduleRetention).Lock()
+	defer store.mu(key, moduleRetention).Unlock()
+	threshold, alertBytes := store.retentionThresholds()
+	retention, err := store.readRetentionHeadLocked(key)
+	if err != nil {
+		retention = retentionHead{
+			SessionID: key.SessionID, Mode: storeroot.RetentionModeManual, DryRun: true,
+			CompactThreshold: threshold,
+			RawBytesAlert:    alertBytes,
+		}
+	}
+	if retention.Mode == storeroot.RetentionModeManual && !confirmed {
+		return retentionHead{}, ErrRetentionRequiresConfirm
+	}
+	oldWatermark := retention.WatermarkSeq
+	if oldWatermark >= upToSeq {
+		return retention, nil
+	}
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
+	messageHead, err := store.readMessageHeadLocked(key)
+	if err != nil {
+		return retentionHead{}, err
+	}
+	if upToSeq > messageHead.LastSeq {
+		upToSeq = messageHead.LastSeq
+	}
+	all, err := store.readRowsLocked(key, 1, 0)
+	if err != nil {
+		return retentionHead{}, err
+	}
+	remaining := make([]Event, 0, len(all))
+	for _, row := range all {
+		if row.Seq > upToSeq {
+			remaining = append(remaining, row)
+		}
+	}
+	if len(remaining) > 0 && remaining[0].Seq > upToSeq+1 && remaining[0].Seq <= messageHead.LastSeq {
+		return retentionHead{}, errors.New("session storage: LRU delete range is not a continuous prefix")
+	}
+	oldShards := append([]shardInfo(nil), messageHead.Shards...)
+	newHead := messageHead
+	newHead.Shards = nil
+	newHead.TotalRows = 0
+	newHead.WatermarkSeq = upToSeq
+	newHead.WatermarkMessageID = messageHead.LastMessageID
+	if len(remaining) > 0 {
+		newHead.WatermarkMessageID = remaining[0].MessageID
+	}
+	dir := store.messageDir(key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return retentionHead{}, err
+	}
+	newFiles := make([]string, 0, 1)
+	for start := 0; start < len(remaining); start += store.settings.ShardRows() {
+		end := start + store.settings.ShardRows()
+		if end > len(remaining) {
+			end = len(remaining)
+		}
+		batch := remaining[start:end]
+		shardPath := store.shardPath(key, batch[0].Seq, batch[len(batch)-1].Seq)
+		if err := writeMessageRowsFile(shardPath, batch); err != nil {
+			for _, path := range newFiles {
+				_ = os.Remove(path)
+			}
+			return retentionHead{}, err
+		}
+		newHead.Shards = append(newHead.Shards, shardInfo{
+			Path: filepath.Base(shardPath), FromSeq: batch[0].Seq, ToSeq: batch[len(batch)-1].Seq,
+			Count: len(batch), SHA256: fileSHA256(shardPath), Bytes: fileSize(shardPath),
+		})
+		newHead.TotalRows += uint64(len(batch))
+		newFiles = append(newFiles, shardPath)
+	}
+	if len(newHead.Shards) == 0 {
+		newHead.Shards = nil
+	}
+	if _, err := store.publishModuleHead(key, moduleMessage, modulePayloadCommitID(moduleMessage, newHead), newHead, time.Now().UTC()); err != nil {
+		for _, path := range newFiles {
+			_ = os.Remove(path)
+		}
+		return retentionHead{}, err
+	}
+	store.rememberMessageAnchor(key, newHead)
+	// head 已发布后删旧分片（失败只留孤儿文件，reader 以 head 为准）。
+	//
+	// 跳过本轮新写的分片：新片按「存活行首末 seq」命名，小分片淘汰后可能
+	// 与旧片**同名**（例：30 行 3 片淘汰 1..20 ⇒ 新片 message_21_30.jsonl
+	// 与旧末片同名）。若一并删除，head 会指向不存在的文件——而缺片读被当作
+	// "该片无行"（readMessageRowsFileAt 的 LRU 容忍），于是读者静默读到空，
+	// TotalRows 与可见行数不一致（数据无声消失）。
+	newPaths := make(map[string]bool, len(newFiles))
+	for _, path := range newFiles {
+		newPaths[filepath.Base(path)] = true
+	}
+	for _, shard := range oldShards {
+		if newPaths[shard.Path] {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, shard.Path))
+	}
+	retention.WatermarkSeq = upToSeq
+	retention.WatermarkMessageID = newHead.WatermarkMessageID
+	retention.DeletedRows += upToSeq - oldWatermark
+	retention.UpdatedAt = time.Now().UTC()
+	if _, err := store.publishModuleHead(key, moduleRetention, modulePayloadCommitID(moduleRetention, retention), retention, retention.UpdatedAt); err != nil {
+		return retentionHead{}, err
+	}
+	return retention, nil
+}
+
+// writeMessageRowsFile 用新文件完整写一批行（LRU 重写用）。
+func writeMessageRowsFile(path string, rows []Event) error {
+	_ = os.Remove(path)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	buffer := make([]byte, 0, 4096)
+	for _, row := range rows {
+		data, err := json.Marshal(row)
+		if err != nil {
+			file.Close()
+			return err
+		}
+		buffer = append(buffer, data...)
+		buffer = append(buffer, '\n')
+	}
+	if _, err := file.Write(buffer); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+// sortShards 按 FromSeq 排序分片索引（防御读取顺序）。
+func sortShards(shards []shardInfo) {
+	sort.Slice(shards, func(i, j int) bool { return shards[i].FromSeq < shards[j].FromSeq })
+}

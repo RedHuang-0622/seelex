@@ -25,10 +25,10 @@ package core
 // 运行：go test ./application/core -run ContextPrefixInvariant -v -count=1
 
 import (
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/types"
 )
 
 func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
@@ -124,20 +124,20 @@ func probeAssertPrefixInvariant(t *testing.T, harness *prefixProbeHarness) {
 }
 
 // probeMessageAt 返回序列化消息快照中的第 index 条（越界返回空消息）。
-func probeMessageAt(messages []EngineMessage, index int) EngineMessage {
+func probeMessageAt(messages []contract.EngineMessage, index int) contract.EngineMessage {
 	if index < 0 || index >= len(messages) {
-		return EngineMessage{}
+		return contract.EngineMessage{}
 	}
 	return messages[index]
 }
 
-func probeMessageContentAt(messages []EngineMessage, index int) string {
+func probeMessageContentAt(messages []contract.EngineMessage, index int) string {
 	return probeMessageAt(messages, index).Content
 }
 
 // probeFirstDiffKind 归因首个差异消息的成因——只在两侧 role / tool_calls ID
 // 相同时才判定为"同一位置被改写"，否则归因为"消息流错位"。
-func probeFirstDiffKind(previous, current []EngineMessage, index int) string {
+func probeFirstDiffKind(previous, current []contract.EngineMessage, index int) string {
 	before, after := probeMessageAt(previous, index), probeMessageAt(current, index)
 	if before.Role != after.Role || probeCallIDs(before.ToolCalls) != probeCallIDs(after.ToolCalls) {
 		return "消息流错位（该位置不是同一条消息）"

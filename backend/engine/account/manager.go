@@ -1,0 +1,232 @@
+package account
+
+import (
+	"context"
+	"sort"
+	"sync"
+
+	"github.com/RedHuang-0622/Seele/accountpool"
+	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/config"
+	"github.com/RedHuang-0622/seelex/internal/model"
+)
+
+// Account 是账号路由摘要（GUI/快照消费）。
+type Account struct {
+	Name     string
+	Provider string
+	Model    string
+	Disabled bool
+}
+
+// Manager 收拢 Runtime 的账号路由状态：账号规格、限额、选中账号与 provider
+// 过滤、P2C 池引用。自带锁，跨域协作经 Selector 闭包注入。
+type Manager struct {
+	mu             sync.RWMutex
+	specs          map[string]model.AccountSpec
+	limits         map[string]config.AccountLimits
+	defaultID      string
+	selectedID     string
+	providerFilter string
+	pool           *accountpool.P2CPool[agent.Completer]
+}
+
+// NewManager 构造账号管理器。
+func NewManager(specs []model.AccountSpec, limits map[string]config.AccountLimits, defaultID string, pool *accountpool.P2CPool[agent.Completer]) *Manager {
+	m := &Manager{
+		specs:     make(map[string]model.AccountSpec, len(specs)),
+		limits:    limits,
+		defaultID: defaultID,
+		pool:      pool,
+	}
+	for _, spec := range specs {
+		m.specs[spec.Name] = spec
+	}
+	return m
+}
+
+// Select 切换主链路选中账号（provider 过滤跟随账号规格）；未知账号返回 false。
+func (m *Manager) Select(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	spec, ok := m.specs[name]
+	if !ok {
+		return false
+	}
+	m.selectedID = spec.Name
+	m.providerFilter = spec.Provider
+	return true
+}
+
+// SetSelected 设置选中账号（不校验规格；plan 分支冻结路径用）。
+func (m *Manager) SetSelected(name string) {
+	m.mu.Lock()
+	m.selectedID = name
+	m.mu.Unlock()
+}
+
+// Selected 返回当前选中账号。
+func (m *Manager) Selected() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.selectedID
+}
+
+// SetProvider 切换 provider 过滤；非空时清除固定账号，让 P2C 在过滤集内选择。
+func (m *Manager) SetProvider(provider string) {
+	m.mu.Lock()
+	m.providerFilter = provider
+	if provider != "" {
+		m.selectedID = ""
+	}
+	m.mu.Unlock()
+}
+
+// Provider 返回当前 provider 过滤；未过滤时回退默认账号的 provider。
+func (m *Manager) Provider() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.providerFilter != "" {
+		return m.providerFilter
+	}
+	if spec, ok := m.specs[m.defaultID]; ok {
+		return spec.Provider
+	}
+	return ""
+}
+
+// Accounts 返回账号池条目的路由摘要（按名称排序）。
+func (m *Manager) Accounts() []Account {
+	if m.pool == nil {
+		return nil
+	}
+	entries := m.pool.Entries()
+	result := make([]Account, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, Account{
+			Name:     entry.Snapshot.ID,
+			Provider: entry.Snapshot.Metadata["provider"],
+			Model:    entry.Snapshot.Metadata["model"],
+			Disabled: entry.Snapshot.Disabled,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+// Specs 返回账号规格列表（只读拷贝）。
+func (m *Manager) Specs() []model.AccountSpec {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	specs := make([]model.AccountSpec, 0, len(m.specs))
+	for _, spec := range m.specs {
+		specs = append(specs, spec)
+	}
+	return specs
+}
+
+// Limits 返回当前账号（选中或默认）的限额；未知回退默认值。
+func (m *Manager) Limits() config.AccountLimits {
+	m.mu.RLock()
+	accountID := m.selectedID
+	if accountID == "" {
+		accountID = m.defaultID
+	}
+	limits, ok := m.limits[accountID]
+	m.mu.RUnlock()
+	if ok {
+		return limits
+	}
+	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
+}
+
+// LimitsFor 返回**指定账号**在账号档里自报的限额；未知账号回退默认值（与 Limits
+// 同一口径，只是不跟"当前选中"走）。界面按账号显示窗口时需要它：逐账号读各自的
+// 自报值，而不是拿当前账号的值顶替。
+func (m *Manager) LimitsFor(name string) config.AccountLimits {
+	m.mu.RLock()
+	limits, ok := m.limits[name]
+	m.mu.RUnlock()
+	if ok {
+		return limits
+	}
+	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
+}
+
+// Selector 返回主链路共享的账号选择器闭包：把请求条件转换为
+// accountpool.AcquireRequest。P2C 池负责实际选择与租赁。
+// 子代理请求（ctx 含 SceneScope）优先走节点账号解析：按角色 + branchID
+// 走确定性 hash（ResolveForBranch 逻辑）。
+func (m *Manager) Selector() func(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
+	return func(ctx context.Context, _ []types.Message, _ []types.Tool) accountpool.AcquireRequest {
+		if scope := dto.SceneScopeFromContextOrEmpty(ctx); scope.SceneID != "" {
+			return m.nodeRequest(scope)
+		}
+		m.mu.RLock()
+		selected := m.selectedID
+		provider := m.providerFilter
+		m.mu.RUnlock()
+		request := accountpool.AcquireRequest{}
+		if selected != "" {
+			request.AccountID = selected
+		}
+		if provider != "" {
+			if request.Metadata == nil {
+				request.Metadata = make(map[string]string)
+			}
+			request.Metadata["provider"] = provider
+		}
+		// 主链路角色约束（2026-10-09 口径）：主会话请求的角色是 agent——未固定
+		// 账号时，负载只在 **agent 角色的账号**里做（P2C 在这个子集内选），不跨
+		// 角色。provider 过滤仍然生效：候选 = agent 角色 ∩ 该 provider。
+		// agent 角色没有可用候选（单角色安装、或该 provider 只配在别的角色下）
+		// 时不叠加谓词，保持"池内任选"的原语义，保住可用性（与
+		// model.FallbackRoles 的回退精神一致）。显式固定账号优先级最高。
+		if predicate := m.mainChainRolePredicate(provider); predicate != nil {
+			request.Predicate = predicate
+		}
+		return request
+	}
+}
+
+// mainChainRolePredicate 返回主链路（无 SceneScope）的角色约束谓词：只允许
+// agent 角色的账号（有 provider 过滤时再叠加 provider 维度）。没有可用候选时
+// 返回 nil（不约束），调用方保持原语义。
+func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.AccountSnapshot) bool {
+	ids := make(map[string]bool)
+	for _, entry := range ForRole(m.pool, model.RoleAgent) {
+		if provider != "" && entry.Snapshot.Metadata["provider"] != provider {
+			continue
+		}
+		ids[entry.Snapshot.ID] = true
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return func(snapshot accountpool.AccountSnapshot) bool {
+		return ids[snapshot.ID]
+	}
+}
+
+// nodeRequest 按节点作用域解析账号租赁请求：binding 显式 AccountID 直接
+// pin；否则按 role + planID:branchID 确定性 hash 选择。
+func (m *Manager) nodeRequest(scope dto.SceneScope) accountpool.AcquireRequest {
+	request := accountpool.AcquireRequest{}
+	if scope.BranchID == "" {
+		// 无显式 branch 钉扎（fork 双子代理/plan 默认）：按角色选当前仍有
+		// 并发余量的账号，让并发节点分散到空闲槽而不是确定性哈希撞车排队。
+		if accountID, ok := leastBusyForRole(m.pool, scope.Role); ok {
+			request.AccountID = accountID
+		}
+		return request
+	}
+	// 分支保留确定性哈希：同分支同 seed 恒等，维持前缀缓存。
+	accountID, err := ResolveForBranch(m.pool, scope.Role, ":"+scope.BranchID)
+	if err == nil {
+		request.AccountID = accountID
+	}
+	return request
+}

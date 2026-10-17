@@ -108,7 +108,7 @@ plugins/
 
 ### 3.1 Plugin Loader
 
-当前 `plugin/loader.go`：
+当前 `backend/engine/plugin/loader.go`：
 
 ```go
 type Plugin struct {
@@ -148,7 +148,7 @@ type Skill struct {
 
 ### 3.3 Suggestions 可见性
 
-改 `application/completion.go` 中 `#` 的补全逻辑：
+改 `application/core/completion.go` 中 `#` 的补全逻辑：
 
 - 当前：`#` 显示所有 skill（全局）
 - 改为：`#` 只显示**当前激活插件**下的 skill
@@ -175,10 +175,10 @@ LLM 需要调用时，通过 `execute_python` 或 `read_file` 传入完整路径
 | 2 | 清理 `plugins/freecad/scripts/` | `plugins/freecad/scripts/` |
 | 3 | 清理 `_fc_*.py` 根目录脚本 | `_fc_*.py` |
 | 4 | 创建 `plugins/freecad/<skill>/SKILL.md + 脚本` | 新目录 |
-| 5 | 修改 `plugin/loader.go` 支持子目录 skill | `plugin/loader.go` |
-| 6 | 修改 `plugin/manager.go` 技能可见性 | `plugin/manager.go` |
-| 7 | 修改 `application/completion.go` skill 补全范围 | `application/completion.go` |
-| 8 | 修改 `skill/` 包的注册/激活逻辑 | `skill/skill.go` |
+| 5 | 修改 `backend/engine/plugin/loader.go` 支持子目录 skill | `backend/engine/plugin/loader.go` |
+| 6 | 修改 `backend/engine/plugin/manager.go` 技能可见性 | `backend/engine/plugin/manager.go` |
+| 7 | 修改 `application/core/completion.go` skill 补全范围 | `application/core/completion.go` |
+| 8 | 修改 `backend/engine/skill` 包的注册/激活逻辑 | `backend/engine/skill/skill.go` |
 | 9 | 迁移已有 skill | `skills/cad-*` → `plugins/*/` |
 | 10 | 全量测试 | `go test ./...` |
 

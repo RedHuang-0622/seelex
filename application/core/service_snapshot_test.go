@@ -3,7 +3,10 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
@@ -50,23 +53,24 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	defer subscription.Close()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "request-1"}
 	message := service.appendMessageLocked("assistant", "", nil)
 	messageID := message.ID
 	service.ViewMu.Unlock()
 
 	service.appendDelta("request-1", "next")
-	var event Event
+	// 局部变量不能叫 `event`：会遮蔽 `middle/protocol/event` 包名（R10b 之后类型改成限定名）。
+	var evt protocol_event.Event
 	deadline := time.After(time.Second)
-	for event.Kind != EventMessageDelta {
+	for evt.Kind != EventMessageDelta {
 		select {
-		case event = <-subscription.Events:
+		case evt = <-subscription.Events:
 		case <-deadline:
 			t.Fatal("did not receive message.delta event")
 		}
 	}
-	var delta MessageDelta
-	if err := json.Unmarshal(event.Payload, &delta); err != nil {
+	var delta protocol_event.MessageDelta
+	if err := json.Unmarshal(evt.Payload, &delta); err != nil {
 		t.Fatal(err)
 	}
 	if delta.MessageID != messageID || delta.Delta != "next" {
@@ -96,8 +100,8 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
 	service.ViewMu.Lock()
-	taskState := service.components.tasks.BeginTask("task-goal", "plan work", "high", nil, TaskCheckpoint{})
-	service.components.tasks.ActivateTaskSkillsLocked(taskState, []PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
+	taskState := service.components.tasks.BeginTask("task-goal", "plan work", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.ActivateTaskSkillsLocked(taskState, []prompt.PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
 	service.ViewMu.Unlock()
 	if !service.GoalSkillActive() {
 		t.Fatal("goal skill state was not projected")

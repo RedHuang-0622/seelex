@@ -3,12 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // compactionIndexRecorder 记录装配层压缩推进索引面的请求（回执与失败可配）。
@@ -76,11 +76,11 @@ func appendIndexRounds(t *testing.T, service *Service, taskID string) {
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: taskID, MessageID: fmt.Sprintf("message-%d", index*2+1),
 			Role: "user", Content: fmt.Sprintf("question-%d", index),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: taskID, MessageID: fmt.Sprintf("message-%d", index*2+2),
 			Role: "assistant", Content: strings.Repeat("A", 160_000),
 		})
@@ -108,8 +108,8 @@ func TestCompactionPushesFrameIntoIndex(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-index-1"}
-	service.components.tasks.BeginTask("task-index-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-index-1"}
+	service.components.tasks.BeginTask("task-index-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-index")
 	sessionID := service.Snapshot().Session.ID
@@ -251,8 +251,8 @@ func TestCompactionPushFailureIsReportedNotFatal(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-index-fail"}
-	service.components.tasks.BeginTask("task-index-fail", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-index-fail"}
+	service.components.tasks.BeginTask("task-index-fail", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-index-fail")
 	sessionID := service.Snapshot().Session.ID
@@ -300,11 +300,11 @@ func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-index-skip"}
-	service.components.tasks.BeginTask("task-index-skip", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-index-skip"}
+	service.components.tasks.BeginTask("task-index-skip", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 只有两个短事件：整个 transcript 都装得进保留窗口，因此显式压缩折不出任何
 	// 区间（溢出为空）——这正是"索引面就绪但无事可做"的形态。
-	for _, event := range []TranscriptEvent{
+	for _, event := range []model.TranscriptEvent{
 		{TaskID: "task-index-skip", MessageID: "message-1", Role: "user", Content: "hello"},
 		{TaskID: "task-index-skip", MessageID: "message-2", Role: "assistant", Content: "hi"},
 	} {

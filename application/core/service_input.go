@@ -3,12 +3,10 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
-
-	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
@@ -41,7 +39,7 @@ func (service *Service) chatStream(ctx context.Context, sessionID, input string,
 }
 
 // appendEngineMessage 追加消息到指定会话引擎历史。
-func (service *Service) appendEngineMessage(sessionID string, msg types.Message) {
+func (service *Service) appendEngineMessage(sessionID string, msg contract.EngineMessage) {
 	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
 		routed.AppendHistoryFor(sessionID, msg)
 		return
@@ -96,6 +94,38 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 	return service.components.input.Dispatch(ctx, input)
 }
 
+// enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），
+// 返回发布用的 revision（非活跃会话不推进进程 revision，返回 0）。
+//
+// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）：展示的
+// 行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。三条入队路径
+// （视图提交、显式目标提交、起跑时发现回合已起的收口）共用这一份判据。
+func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64 {
+	runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
+	displays, count := runtime.QueueProjection()
+	runtime.UpdateChat(func(chat *model.ChatState) {
+		chat.InputQueue = displays
+		chat.QueuedCount = count
+	}, nil)
+	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+	if !active {
+		return 0
+	}
+	return service.bumpLocked()
+}
+
+// afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
+// durable queue 镜像（先队列后草稿）。排队项正文落盘，崩溃/重启后按「该轮是否已
+// 发布」的消费凭据恢复重发（store/queue_consume.go）。文件 IO 不占内核锁；
+// 落盘失败不回滚内存队列——权威是会话域队列，durable queue 只是崩溃兜底。
+func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest) {
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+	service.publishChatStateFor(sessionID)
+	if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
+		runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
+	}
+}
+
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	// fork 执行期**不再拒绝输入**（2026-10-05 退役 fork 门控）。fork_subagents 派发
 	// 即后台化之后，"父回合还在、子代理作业在跑"是常态，把用户挡在门外只是把
@@ -106,7 +136,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// durable queue 与调序/撤回同源）；没有回合在跑 → 照常开新回合。
 	//
 	// 并发写主工作区的风险改由合并侧收口，而不是靠拒绝输入回避：
-	// seelebridge/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
+	// backend/tool/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
 	// 主工作区脏/真冲突时落 ErrMergeBlockedByMain 待合并（保留现场 + 提示），
 	// 不再把一个子代理的产出判死。
 	request := newChatRequest(input, service.promptStack.Layers())
@@ -141,26 +171,9 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	}
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
-		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
-		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）：
-		// 展示的行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。
-		displays, count := runtime.QueueProjection()
-		runtime.UpdateChat(func(chat *ChatState) {
-			chat.InputQueue = displays
-			chat.QueuedCount = count
-		}, nil)
-		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-		revision := service.bumpLocked()
+		revision := service.enqueueChatLocked(sessionID, runtime, request, true)
 		service.ViewMu.Unlock()
-		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-		service.publishChatStateFor(sessionID)
-		// durable queue 镜像（先队列后草稿）：排队项正文落盘，崩溃/重启后按
-		// 「该轮是否已发布」的消费凭据恢复重发（sessionstore/queue_consume.go）。
-		// 放在 ViewMu 之外：文件 IO 不占内核锁。落盘失败不回滚内存队列——
-		// 权威是会话域队列，durable queue 只是崩溃兜底。
-		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
-			runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
-		}
+		service.afterChatEnqueued(sessionID, revision, request)
 		return nil
 	}
 	// 同会话压缩门（延后语义，判据与上面的 restoring 门同形）：一轮显式压缩可以
@@ -184,7 +197,12 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	if drained {
 		service.publishChatStateFor(sessionID)
 	}
-	return service.startChat(ctx, request)
+	// 目标会话已在上面锁内确定（并通过 restoring/running/压缩门）：起跑必须用
+	// 这个会话号，不能回到 startChat 重新读视图指针——两次取锁之间若发生视图
+	// 切换，提交会落到另一个会话（快照上表现为"提交返回 nil 但目标会话没开跑、
+	// 队列也是空的"）。-race 下 TestBackgroundCompletionWhileSwitchingToC 命中过
+	// 这一格：hello C 跑到别的会话，hello C2 成了 C 的第一轮。
+	return service.startChatFor(sessionID, ctx, request)
 }
 
 // submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
@@ -216,30 +234,9 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
-		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
-		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）。
-		displays, count := runtime.QueueProjection()
-		runtime.UpdateChat(func(chat *ChatState) {
-			chat.InputQueue = displays
-			chat.QueuedCount = count
-		}, nil)
-		if active {
-			service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-			revision := service.bumpLocked()
-			service.ViewMu.Unlock()
-			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-			service.publishChatStateFor(sessionID)
-			if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
-				runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
-			}
-			return nil
-		}
+		revision := service.enqueueChatLocked(sessionID, runtime, request, active)
 		service.ViewMu.Unlock()
-		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
-		service.publishChatStateFor(sessionID)
-		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
-			runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
-		}
+		service.afterChatEnqueued(sessionID, revision, request)
 		return nil
 	}
 	// 同会话压缩门：与 submitConversation 同一条判据（见那里的注释），后台提交
@@ -319,7 +316,7 @@ func (service *Service) CancelAllChats() {
 //
 //  1. 先停在跑的前台工具调用：取消会话回合的 ctx，引擎 ReAct 循环与正在执行的前台
 //     工具（同步 bash 及其派生的整棵进程树）随之中止——工具调用不会在停止之后继续
-//     跑完，也不会再按住收尾等它（见 seelebridge/tools 的进程树终止原语）。
+//     跑完，也不会再按住收尾等它（见 backend/tool/registry 的进程树终止原语）。
 //  2. 不动后台子进程：bash_bg / read_batch / subagent 作业用 context.WithoutCancel
 //     摘掉了回合 ctx，生死只由 bg_manage(op=kill) 与硬上限决定；点停止不杀它们。
 //  3. 清空消息队列并全部发出去：排队输入在回合收尾整批提升为下一轮（见 runChat），

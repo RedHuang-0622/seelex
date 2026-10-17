@@ -567,7 +567,7 @@ func (service *Service) buildSwitchInstructions() string {
 | **application** | `application/prompt_assembly.go` | **新增** 结构化 PromptAssembly | ~80 行 |
 | **application** | `application/app.go` | Service 集成 PromptAssembly | ~30 行 |
 | **application** | `application/input.go` | Skill 激活后构造用户上下文 | ~10 行 |
-| **seelebridge** | `seelebridge/runtime.go` | 暴露模型切换 | ~15 行 |
+| **seelebridge** | `backend/engine/assemble/runtime.go` | 暴露模型切换 | ~15 行 |
 | **main** | `main.go` | settings.json effort 读取 | ~20 行 |
 | **总计** | — | — | **~280 行** |
 

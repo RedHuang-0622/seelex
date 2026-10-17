@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
 )
@@ -12,12 +14,12 @@ import (
 func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if _, err := service.Deps.Workspace.Create("proj", "C:\\proj", ""); err != nil {
 		t.Fatalf("create workspace: %v", err)
@@ -73,16 +75,16 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog: map[string][]SessionInfo{
+		catalog: map[string][]model.SessionInfo{
 			"": {{ID: "session-a", UpdatedAt: updatedAt}},
 		},
-		histories: map[string]map[string][]EngineMessage{
+		histories: map[string]map[string][]contract.EngineMessage{
 			"": {"session-a": {{Role: "user", Content: "a"}}},
 		},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-removed", updatedAt)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -110,7 +112,7 @@ func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 	}
 }
 
-func sessionIDsOf(sessions []SessionInfo) []string {
+func sessionIDsOf(sessions []model.SessionInfo) []string {
 	ids := make([]string, 0, len(sessions))
 	for _, item := range sessions {
 		ids = append(ids, item.ID)

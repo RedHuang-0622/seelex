@@ -1,0 +1,202 @@
+package assemble
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+)
+
+// countingBlockingCompleter counts how many Complete calls are actually
+// in-flight at once. It proves the account pool enforces MaxConcurrency even
+// when many subagent sessions have already started (and are shown as running).
+type countingBlockingCompleter struct {
+	mu          sync.Mutex
+	inFlight    int
+	maxInFlight int
+	started     chan struct{}
+	release     chan struct{}
+	once        sync.Once
+}
+
+func newCountingBlockingCompleter() *countingBlockingCompleter {
+	return &countingBlockingCompleter{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (c *countingBlockingCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error) {
+	c.mu.Lock()
+	c.inFlight++
+	if c.inFlight > c.maxInFlight {
+		c.maxInFlight = c.inFlight
+	}
+	c.mu.Unlock()
+	c.once.Do(func() { close(c.started) })
+	select {
+	case <-c.release:
+	case <-ctx.Done():
+		c.mu.Lock()
+		c.inFlight--
+		c.mu.Unlock()
+		return types.Message{}, ctx.Err()
+	}
+	c.mu.Lock()
+	c.inFlight--
+	c.mu.Unlock()
+	reply := "done"
+	return types.Message{Role: "assistant", Content: &reply}, nil
+}
+
+func (c *countingBlockingCompleter) peakInFlight() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxInFlight
+}
+
+// TestForkManySubagentsSharedAccountQueued reproduces the user scenario: all
+// subagents of one fork are routed to a single account with MaxConcurrency=1,
+// so real concurrency is 1 and the rest must queue at acquire/limiter.
+// Assertions:
+//  1. every subagent is really executed (completer sees N requests); none is
+//     canceled while queued;
+//  2. the task registry holds N subagent tasks, all completed;
+//  3. every subagent job reaches done (no job is left running / canceled).
+func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
+	runtime := newAsyncTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit many modules", ConversationCount: 1,
+	})
+
+	const subagents = 20
+	shared := newScriptedNodeCompleter("MODULE-AUDITED")
+	runtime.pool.Unregister("agent-1")
+	mustRegisterAccount(t, runtime, "shared-agent", shared)
+
+	specs := make([]string, 0, subagents)
+	for i := 0; i < subagents; i++ {
+		specs = append(specs, fmt.Sprintf(`{"id":"s%02d","goal":"audit module %d"}`, i, i))
+	}
+	args := `{"subagents":[` + strings.Join(specs, ",") + `]}`
+	started := time.Now()
+	receipt, err := forkDispatch(t, runtime, args)
+	t.Logf("fork_subagents 派发耗时 %v（作业化派发：不等结果）", time.Since(started))
+	if err != nil {
+		t.Fatalf("fork_subagents failed: %v", err)
+	}
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
+	forkWaitTerminal(t, runtime, handles)
+	for _, handle := range handles {
+		if state := forkStateOf(t, runtime, handle); state != "done" {
+			t.Fatalf("作业 %s 终态 = %q, want done（排队中的子代理被取消？）", handle, state)
+		}
+	}
+
+	// Assertion 1: all subagents were really executed.
+	shared.mu.Lock()
+	requestCount := len(shared.requests)
+	shared.mu.Unlock()
+	if requestCount != subagents {
+		t.Fatalf("completer saw %d/%d requests (queued subagents canceled?)", requestCount, subagents)
+	}
+
+	// Assertion 2: all subagent tasks reached completed.
+	tasks := runtime.TaskSnapshot()
+	byID := make(map[string]dto.TaskRecord, len(tasks))
+	for _, task := range tasks {
+		if task.Kind == "subagent" {
+			byID[task.ID] = task
+		}
+	}
+	for i := 0; i < subagents; i++ {
+		id := fmt.Sprintf("subagent:s%02d", i)
+		record, ok := byID[id]
+		if !ok {
+			t.Fatalf("task registry missing %s (has %d subagent tasks)", id, len(byID))
+		}
+		if record.Status != dto.TaskCompleted {
+			t.Fatalf("%s status = %v, want completed", id, record.Status)
+		}
+	}
+}
+
+// TestForkManySubagentsSharedAccountDeadlockProbe blocks subagents on a single
+// MaxConcurrency=1 account and verifies the account pool truly serializes them
+// (peak in-flight == 1) and that release lets all complete within the timeout.
+//
+// Note: task status is NOT a reliable queue signal here - markNodeStarted flips
+// a node to running at first request assembly, which happens before the account
+// acquire inside Complete. Waiting subagents therefore show running in the
+// worktable while the account semaphore is their real wait queue.
+func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
+	runtime := newAsyncTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit many modules", ConversationCount: 1,
+	})
+
+	const subagents = 12
+	blocking := newCountingBlockingCompleter()
+	runtime.pool.Unregister("agent-1")
+	mustRegisterAccount(t, runtime, "shared-agent", blocking)
+
+	specs := make([]string, 0, subagents)
+	for i := 0; i < subagents; i++ {
+		specs = append(specs, fmt.Sprintf(`{"id":"s%02d","goal":"audit module %d"}`, i, i))
+	}
+	args := `{"subagents":[` + strings.Join(specs, ",") + `]}`
+
+	receipt, err := forkDispatch(t, runtime, args)
+	if err != nil {
+		t.Fatalf("fork 派发失败: %v", err)
+	}
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
+
+	// First subagent really started (blocked inside Complete).
+	select {
+	case <-blocking.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first subagent never started")
+	}
+	// Give the other 11 sessions time to reach the account semaphore.
+	time.Sleep(300 * time.Millisecond)
+
+	// Release the account: all queued subagents must finish in order, no deadlock.
+	close(blocking.release)
+	forkWaitTerminal(t, runtime, handles)
+	if peak := blocking.peakInFlight(); peak != 1 {
+		t.Fatalf("account pool allowed %d concurrent completes, want 1 (MaxConcurrency not enforced)", peak)
+	}
+	byID := make(map[string]dto.TaskRecord)
+	for _, record := range runtime.TaskSnapshot() {
+		if record.Kind == "subagent" {
+			byID[record.ID] = record
+		}
+	}
+	if len(byID) != subagents {
+		t.Fatalf("subagent tasks = %d, want %d", len(byID), subagents)
+	}
+	for id, record := range byID {
+		if record.Status != dto.TaskCompleted {
+			t.Fatalf("%s status = %v, want completed", id, record.Status)
+		}
+	}
+}

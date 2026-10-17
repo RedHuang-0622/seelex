@@ -22,7 +22,7 @@
   需要新增 role"的最终答案是"不变"，记录见
   `docs/2026-10-12-frontend-consistency-and-fixes/README.md` §3 J-1b；
 - 这条口径必须让 agent 知道（否则出现"给了路径却没去读"的空转），提示词落在
-  `internal/promptassets/assets/system/instructions.md`。
+  `backend/engine/prompt/assets/assets/system/instructions.md`。
 
 ## 文件与函数索引
 
@@ -35,7 +35,7 @@
 - `func (s *queueRecordingSessions) QueueMarkConsumedWorkspace(_, _, turnID string) error`
 - `func (s *queueRecordingSessions) QueueConfirmConsumedWorkspace(_, _, turnID string) error`
 - `func (s *queueRecordingSessions) QueueFailConsumedWorkspace(_, _, turnID string) error`
-- `func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (sessionstore.QueueRecoveryReport, bool, error)`
+- `func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (store.QueueRecoveryReport, bool, error)`
 - `func (s *queueRecordingSessions) queueCalls() (enqueued, marked, confirmed, failed []string)`
 - `func (*snapshotFailingSessions) SaveSessionSnapshot( string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult, ) error`
 - `func (*snapshotFailingSessions) SaveSessionSnapshotWorkspace( string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult, ) error`
@@ -51,9 +51,9 @@
 - `func (service *Service) submitSkill(ctx context.Context, name string, args []string, input string) error`
 - `func (service *Service) submitPluginSwitch(ctx context.Context, name string) error` — submitPluginSwitch 是 `#` 前缀的落点：切换/停用插件。
 - `func (service *Service) endSkill() error`
-- `func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error`
+- `func (service *Service) activateSkillAndSubmit(ctx context.Context, skill model.SkillInfo, args []string, input string) error`
 - `func (service *Service) prepareCompletedTaskBoundary()`
-- `func (service *Service) applySkill(skill SkillInfo)`
+- `func (service *Service) applySkill(skill model.SkillInfo)`
 
 ### input_router_compat_test.go
 

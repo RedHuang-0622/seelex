@@ -11,7 +11,8 @@ import (
 // tool_record_panel.go — **工具记录**的 TUI 只读面（2026-10-15）。
 //
 // 生态位：与 GUI「状态 → 工具记录」**同源**——两边读的都是
-// `Application.ToolRecordBoard()`（进程级读数，落 `<数据根>/tool-record.jsonl`），
+// `Application.ToolRecordBoard()`（当前视图会话的会话级读数，落该会话自己的
+// `tool-record.jsonl`），
 // 终端里不再折一遍统计（那是第二份事实）。面板不新增只对终端生效的业务事实，
 // 也不做任何写动作（开关是 GUI 设置的事：TUI 面板是只读面，见 tui/README.md 的边界）。
 //

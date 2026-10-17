@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type fakeApp struct {
@@ -24,7 +25,7 @@ type fakeApp struct {
 }
 
 func newFakeApp() *fakeApp {
-	return &fakeApp{snapshot: application.Snapshot{Runtime: application.RuntimeState{Model: "model"}}, hub: application.NewEventHub()}
+	return &fakeApp{snapshot: application.Snapshot{Runtime: application.RuntimeState{Model: "model"}}, hub: wiring.NewEventHub()}
 }
 func (app *fakeApp) Snapshot() application.Snapshot                { return app.snapshot }
 func (app *fakeApp) Subscribe(buffer int) application.Subscription { return app.hub.Subscribe(buffer) }

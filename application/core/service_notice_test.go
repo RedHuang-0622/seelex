@@ -1,11 +1,15 @@
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+)
 
 func TestServiceAddNoticeAppendsSystemMessage(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	service.AddNotice("startup warning")
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		if len(snapshot.Conversation) == 0 {
 			return false
 		}

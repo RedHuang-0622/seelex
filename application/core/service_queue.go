@@ -2,10 +2,9 @@ package core
 
 import (
 	"errors"
-	"fmt"
-	"strings"
-
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // 排队输入的编辑面（调换顺序 / 撤回到输入框）。
@@ -49,7 +48,7 @@ func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error
 	}
 	if !unit.ReorderRequests(from, to) {
 		service.ViewMu.Unlock()
-		return fmt.Errorf("%w: from=%d to=%d", ErrQueueIndexOutOfRange, from, to)
+		return switching.ReorderIndexError(from, to)
 	}
 	service.applyQueueEditLocked(unit) // 释放 Core.ViewMu 并发布事件
 	return nil
@@ -74,7 +73,7 @@ func (service *Service) RecallQueuedInput(sessionID string, index int) (string, 
 	request, ok := unit.RecallRequest(index)
 	if !ok {
 		service.ViewMu.Unlock()
-		return "", fmt.Errorf("%w: index=%d", ErrQueueIndexOutOfRange, index)
+		return "", switching.RecallIndexError(index)
 	}
 	service.applyQueueEditLocked(unit) // 释放 Core.ViewMu 并发布事件
 	return request.DisplayInput, nil
@@ -85,13 +84,10 @@ func (service *Service) queueEditGuardLocked() error {
 	if service == nil {
 		return errors.New("application is not available")
 	}
-	if service.closed {
-		return errors.New("application is shut down")
-	}
-	if service.draining {
-		return ErrApplicationDraining
-	}
-	return nil
+	return switching.QueueEditGate(service.closed, service.draining, switching.QueueGateErrors{
+		Closed:   errors.New("application is shut down"),
+		Draining: ErrApplicationDraining,
+	})
 }
 
 // queuedInputUnitLocked 解析队列编辑的目标会话单元（调用方持有 Core.ViewMu）。
@@ -100,20 +96,12 @@ func (service *Service) queueEditGuardLocked() error {
 //   - 会话当前没有运行中的回合 → ErrQueueNotRunning（视图会话尚未注册时
 //     同样按"没有回合在跑"处理，而不是"会话不存在"）
 func (service *Service) queuedInputUnitLocked(sessionID string) (*session.SessionUnit, error) {
-	sessionID = strings.TrimSpace(sessionID)
 	viewID := service.Core.Snapshot.Session.ID
-	if sessionID == "" {
-		sessionID = viewID
-	}
+	sessionID = switching.QueueTargetSession(sessionID, viewID)
 	unit := service.sessions.Unit(sessionID)
-	if unit == nil {
-		if sessionID == viewID {
-			return nil, fmt.Errorf("%w: session %q", ErrQueueNotRunning, sessionID)
-		}
-		return nil, fmt.Errorf("%w: session %q", ErrQueueSessionNotFound, sessionID)
-	}
-	if !unit.ChatState().Running {
-		return nil, fmt.Errorf("%w: session %q", ErrQueueNotRunning, sessionID)
+	running := unit != nil && unit.ChatState().Running
+	if err := switching.QueueTargetError(sessionID, viewID, unit != nil, running); err != nil {
+		return nil, err
 	}
 	return unit, nil
 }
@@ -124,7 +112,7 @@ func (service *Service) queuedInputUnitLocked(sessionID string) (*session.Sessio
 func (service *Service) applyQueueEditLocked(unit *session.SessionUnit) {
 	sessionID := unit.ID
 	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *ChatState) {
+	unit.UpdateChat(func(chat *model.ChatState) {
 		chat.InputQueue = displays
 		chat.QueuedCount = count
 	}, nil)

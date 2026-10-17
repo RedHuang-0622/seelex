@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/input_router"
+	"github.com/RedHuang-0622/seelex/backend/engine/input"
 )
 
 func TestNewAssemblesInputRouter(t *testing.T) {

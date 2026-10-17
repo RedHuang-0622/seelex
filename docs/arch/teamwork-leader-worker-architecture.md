@@ -37,7 +37,7 @@ teamwork 的硬编排写进**独立存储 `moduleTeamwork`**，由 leader 掌控
 |---|---|---|
 | 驱动 | goal 治理循环 `govern.TurnGovernor` **同步**推座位（`goal_coordinator.go` 的 `AdvanceAfterChat`） | **leader 派发 worker 作业**（`jobs.Manager.Dispatch` → handle），worker 并发 |
 | 并发 | 座位串行（一轮一座） | **非串行**：N 个 worker 同一管理器下并行 |
-| 隔离 | 角色会话 `role_session_id`，无独立工作区 | 每个 teammate **绑定 worktree**（`seelebridge/worktree`，git）+ `emp_<role>` 主体 |
+| 隔离 | 角色会话 `role_session_id`，无独立工作区 | 每个 teammate **绑定 worktree**（`backend/tool/worktree`，git）+ `emp_<role>` 主体 |
 | 结果回传 | 座位 `Act` 同步返回一句话 | **作业句柄** `observe/fetch/kill/done`，消费式增量 |
 | 通知 | 无 | **变更信号口** + **回合边界有界摘要**（不唤醒忙会话） |
 | 顺序/阻塞 | `lifecycle.order_policy/order_roles` | leader 掌控的**硬编排计划** + 显式 join（`moduleTeamwork`） |
@@ -47,7 +47,7 @@ teamwork 的硬编排写进**独立存储 `moduleTeamwork`**，由 leader 掌控
 `session` 一次会话串行（回合闸门）、多会话可并发、`Reset(ctx)` 可清空；`event` 有 Sink/Recorder/Heartbeat；`tools/permission` 有 Subject×Group×Bits+sudo。
 **唯独缺**「把一次长任务表达为可派发/可观察/可终止的作业」那层契约。
 
-**Seelex 现状（要下沉的范式原型）**：`seelebridge/tools/job_contract.go` 头注即「**作业契约**」——
+**Seelex 现状（要下沉的范式原型）**：`backend/tool/registry/job_contract.go` 头注即「**作业契约**」——
 派发（`bash_bg`/`read_batch`/`subagent`）→ handle → `job_manage(observe/fetch/kill/done)`；
 三类作业（`JobKindProcess`/`JobKindInline`/`JobKindSubagent`）**共用同一张登记表与同一套状态机**，
 管理面只有一份实现（`jobManager`）；隔离靠 `JobSpec.SessionID`（`Router.CloseSessionAsync` 会话销毁即杀），
@@ -164,24 +164,24 @@ func WithReclaimer(func(ctx, Scope) error) Option   // 作用域回收钩子（�
 |---|---|
 | I-1 收尾恰好一次 | 正常退出 / 硬超时 / 被杀 / 执行体 panic **四条路都必须落到 `finish` 恰好一次** |
 | I-2 退出码语义 | 硬超时合成 `exit=124`、被杀合成 `exit=137`，注记写进输出文件（否则模型只看到"突然结束"） |
-| I-3 句柄唯一 | 句柄自带**命名空间**（`<token>-<seq>`：后台工具作业 `bt-`、子代理作业 `bs-`、团队作业 `bteam-`；token 表与文法在 `application/contract/dto/job_namespace.go`），seq 单调、禁用 `len(runs)` 推（驱逐后会重号）；团队表的命名由产品经 `jobs.Namer` 注入（Seele 不自命名，2026-10-15 审计 D1）；去重键=作用域+载荷，仅 running 期间生效 |
+| I-3 句柄唯一 | 句柄自带**命名空间**（`<token>-<seq>`：后台工具作业 `bt-`、子代理作业 `bs-`、团队作业 `bteam-`；token 表与文法在 `contract/dto/job_namespace.go`），seq 单调、禁用 `len(runs)` 推（驱逐后会重号）；团队表的命名由产品经 `jobs.Namer` 注入（Seele 不自命名，2026-10-15 审计 D1）；去重键=作用域+载荷，仅 running 期间生效 |
 | I-4 句柄不落盘 | 记录/句柄只在内存；写进持久化会留下"永远 running 的假行"（I-21） |
 | I-5 回收 | 程序收尾时关进程树句柄（Job Object `KILL_ON_JOB_CLOSE`）是唯一确定回收点；**作用域销毁即杀**（`Reclaim`） |
 | I-6 输出有界 | 输出文件字节上限（超限截断仍向子进程报"已消费"，避免把基础设施限制伪装成命令失败）；增量=文件偏移游标 |
 | I-7 跨作用域拒绝 | 取回/终止一律拒绝跨 `Scope` 访问（照抄既有 `run.sessionID != sessionID` 的判据，扩成 Scope 不等即拒） |
 
-> 这些是 seelex 异步面现有不变式的**框架化**（`seelebridge/tools/job_contract.go` 头注 + `async_exec.go` + `tools/README.md`），落地时以既有测试当回归。
+> 这些是 seelex 异步面现有不变式的**框架化**（`backend/tool/registry/job_contract.go` 头注 + `async_exec.go` + `tools/README.md`），落地时以既有测试当回归。
 
 ### 3.3 事件与信号
 
-- **事件流由 Seelex 构建，框架只给信号口与读面**：`jobs` 不 import `event`、不建 `event.Recorder`、不发 `event.Sink`（没有 `WithEventSink`）。理由：`event.Sink` 的实现必须在 `jobs.Manager` 的**构造期**定下，而构造期拿不到"这条作业属于哪个会话的哪条事件流"——框架的 `Recorder` 是单例、**序号全局**，会话事件库却是**按会话**追加/排序的。这样发出来的事件 **append 不到会话事件流的尾部**，只能由产品事后**回填**会话归属，且全局序号在按会话排序下不成立。Seelex 侧（`seelebridge/jobs_events.go`）改为订阅 `Events()`，用 `Snapshot` 取到 `Record.Scope.Session` 之后自行投影并追加（补 `agent.runtime` 定位、序号取时间基 `uint64(at.UnixNano())`，与 Seelex 既有事件同策略）。
+- **事件流由 Seelex 构建，框架只给信号口与读面**：`jobs` 不 import `event`、不建 `event.Recorder`、不发 `event.Sink`（没有 `WithEventSink`）。理由：`event.Sink` 的实现必须在 `jobs.Manager` 的**构造期**定下，而构造期拿不到"这条作业属于哪个会话的哪条事件流"——框架的 `Recorder` 是单例、**序号全局**，会话事件库却是**按会话**追加/排序的。这样发出来的事件 **append 不到会话事件流的尾部**，只能由产品事后**回填**会话归属，且全局序号在按会话排序下不成立。Seelex 侧（`backend/engine/assemble/jobs_events.go`）改为订阅 `Events()`，用 `Snapshot` 取到 `Record.Scope.Session` 之后自行投影并追加（补 `agent.runtime` 定位、序号取时间基 `uint64(at.UnixNano())`，与 Seelex 既有事件同策略）。
 - `Events()` 是**变更信号口**：派发/终态/新字节三类触发；容量 1、latest-wins、**不推进游标、不进上下文**。
 - **无 push 唤醒**：框架**绝不**把结果投递进忙会话（详见 §6.1）。
 
 ### 3.4 权限与归属接线
 
 - 派发工具的 `ToolMeta{Kind: ToolKindWrite, Groups, Bits: BitWrite|BitExecute, Resource}` → 由 `tools/permission` 在**分发前**鉴权（派发侧工具在 Seelex 声明，见 §5）。
-- `Scope.Subject` 由 Manager 解析后交给 Executor；Executor 把主体放进执行 ctx（参考 `seelebridge/runtime_role_turn.go` 的 `tools.WithEmployeeSubject`），执行体内所有工具按主体权责收窄。
+- `Scope.Subject` 由 Manager 解析后交给 Executor；Executor 把主体放进执行 ctx（参考 `backend/engine/assemble/runtime_role_turn.go` 的 `tools.WithEmployeeSubject`），执行体内所有工具按主体权责收窄。
 - **归属与隔离分两处**：`Scope` 决定「能不能取 / 要不要回收」（参加鉴权），`Node`/`Batch` 只做打点归属（**不参加鉴权**）——照抄既有 `SessionID` 与 `BatchID` 的分工。
 - `kill` 亦鉴权：无权杀这一条则拒绝。
 
@@ -228,8 +228,8 @@ jobs/
 
 | 约束 | 设计 | 落点 |
 |---|---|---|
-| **人数上限** | `limits.team.max_teammates`（配置；默认取与 `ResidentSessionLimit` 同量级，建议 **6**）。超限的 `team_dispatch`/`team_plan` **显式拒绝**（不静默排队） | `seelexctx/limits.go`（新增 `TeamLimits` 块）+ 计划校验 |
-| **子代理策略** | **不设开关：teammate 工具面直接不注册 `fork_subagents`（硬移除）**。理由：① 一角色一 teammate 已定，嵌套子代理会**绕过人数上限**；② teammate 绑 worktree，子代理会派生更多 worktree——**生命周期说不清就会留下删不干净的 worktree 与孤儿作业**；③ 需要并行广度时，正确做法是 **leader 多派几个 teammate**，而不是让 teammate 再分叉 | teammate 工具面装配（`seelebridge/tools` 装配点） |
+| **人数上限** | `limits.team.max_teammates`（配置；默认取与 `ResidentSessionLimit` 同量级，建议 **6**）。超限的 `team_dispatch`/`team_plan` **显式拒绝**（不静默排队） | `backend/limit/limits.go`（新增 `TeamLimits` 块）+ 计划校验 |
+| **子代理策略** | **不设开关：teammate 工具面直接不注册 `fork_subagents`（硬移除）**。理由：① 一角色一 teammate 已定，嵌套子代理会**绕过人数上限**；② teammate 绑 worktree，子代理会派生更多 worktree——**生命周期说不清就会留下删不干净的 worktree 与孤儿作业**；③ 需要并行广度时，正确做法是 **leader 多派几个 teammate**，而不是让 teammate 再分叉 | teammate 工具面装配（`backend/tool/registry` 装配点） |
 
 > 与在途上限的关系：`jobs` 的在途上限（现 32）是框架级兜底；**团队人数上限是产品级约束，必须先于框架兜底生效**（否则"限制"形同虚设）。
 > worktree 数量因此被 teammate 数量封顶（无子代理 ⇒ 无孙 worktree），再叠加 `team_retire` 即释放（§4.4），不会累积残留。
@@ -241,8 +241,8 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 | 步骤 | 动作 | 机制 |
 |---|---|---|
 | 1 | 回收该 teammate 名下未完成的作业 | **只在整队收口**（`team_close`）：`jobs.Manager.Reclaim(ctx, Scope{Session:"<主会话>", Subject:"emp_<role>"})`（只动这一个 teammate，不牵连同会话其他人；§10.1）。**单角色退场 `team_retire` 不回收作业**——作业与正文留到收口，退场不撤走证据 |
-| 2 | **释放 worktree**（节约存储，D7） | `seelebridge/worktree` 的 `Release`（`git worktree remove` + 删本地分支）；**释放前若工作区脏 → 先提交或按 `ErrUncommittedChanges` 语义显式报错，不静默丢弃** |
-| 3 | 清空该 teammate 的**会话记录内容**（工作历史 + durable 快照、message 行/上下文栈） | Seele `session.Reset(ctx)` + sessionstore 清该 `role_session_id` 的消息通道 |
+| 2 | **释放 worktree**（节约存储，D7） | `backend/tool/worktree` 的 `Release`（`git worktree remove` + 删本地分支）；**释放前若工作区脏 → 先提交或按 `ErrUncommittedChanges` 语义显式报错，不静默丢弃** |
+| 3 | 清空该 teammate 的**会话记录内容**（工作历史 + durable 快照、message 行/上下文栈） | Seele `session.Reset(ctx)` + store 清该 `role_session_id` 的消息通道 |
 | 4 | **保留 teammate 在线** | 计划里的成员条目（`role_name`/`role_session_id`/`permission_groups`）**保留**、`worktree` 字段置空待重派；前端「员工在线」态不变 |
 
 - **语义边界**：删的是**会话内容**（对话记忆）与**工作区检出**，不是**注册/在编**。下一次派发时 teammate 以**干净上下文 + 全新 worktree**开跑。
@@ -289,14 +289,14 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
   `milestones[].items[].depends_on` 是里程碑内的 **DAG**（并行）。
   `stages` 已**整条退场**（计划结构、DTO、投影、工具 schema、前端、TUI 里都没有它），
   D4「顺序归计划"取代 `order_policy/order_roles`」的口径不变。
-- 存储：sessionstore 新增 `moduleTeamwork`（枚举 + **独立锁 + head**；`mutexFor` 无 case 会 panic，必须补）。
+- 存储：store 新增 `moduleTeamwork`（枚举 + **独立锁 + head**；`mutexFor` 无 case 会 panic，必须补）。
   目录 `session/<sid>/teamwork/{plan.json, events.jsonl}`；与现有 `session/<sid>/team/roles.json`（在编成员）区分。
 - **不落盘的内容**：作业句柄（内存，I-4）、worktree 路径/差异/补丁（git 的事，§4.7）。
 - 旧字段退场：`lifecycle.order_policy/order_roles` 标注历史/只读，读面切换到计划。
 
 ### 4.7 版本 / 分支管理：git 统一，Seelex 不内置（D9）
 
-- **唯一入口是 git**：worktree 创建/分支/rebase/merge/提交 全走 `seelebridge/worktree` 的 `GitRunner`（git 子进程），沿用 `NodeWorktree{Path,Branch:seelex/<id>,BaseCommit,MainBranch}` 语义。
+- **唯一入口是 git**：worktree 创建/分支/rebase/merge/提交 全走 `backend/tool/worktree` 的 `GitRunner`（git 子进程），沿用 `NodeWorktree{Path,Branch:seelex/<id>,BaseCommit,MainBranch}` 语义。
 - **Seelex 不建自有版本系统**：不存快照仓库、不做 diff/patch 数据库、不维护第二份"分支真相"；`moduleTeamwork` 只存**编排与绑定**（谁、什么顺序），不存内容。
 - **合并门**：沿用 `worktree_manager` 的 `approve.ApprovalGate`（合并审批）——审批是产品语义，允许留在 Seelex；**版本事实**仍由 git 提供。
 - worktree 失败现场保留（`ErrUncommittedChanges`）供人工恢复，不由框架静默删除。
@@ -318,7 +318,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### 6.1 铁律：不得唤醒忙会话
 
-异步面选型已证明：push 结果进会话必回闯 `ChatStream` 持有的会话锁，且迟到 `role=tool` 在 wire 层非法、破坏前缀缓存（`seelebridge/tools/README.md` 引 `docs/2026-09-24-async-tool-deferred-ack/README.md` §0）。故「通知」＝：
+异步面选型已证明：push 结果进会话必回闯 `ChatStream` 持有的会话锁，且迟到 `role=tool` 在 wire 层非法、破坏前缀缓存（`backend/tool/registry/README.md` 引 `docs/2026-09-24-async-tool-deferred-ack/README.md` §0）。故「通知」＝：
 - **变更信号口**（`jobs.Events()`）→ 服务投影/UI，不推进游标、不进上下文；
 - **回合边界有界摘要**（完成行 ≤512B）→ 在 leader 下一回合随请求尾部打点块回填（对齐 K-5 完成回填）。
 
@@ -368,21 +368,21 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 ### M0 — Seele `jobs` 根能力（框架：契约 + Manager + `jobs_manage`）
 - **目标**：作业契约/管理器/管理工具进 Seele；行为与 seelex 现有异步面**逐字节对齐**。**`bash_bg` 等派发侧实现不动**（D1）。
 - **交付物**：`G:\program\go\seele\jobs\{job,manager,executor,options,events}.go` + `jobs/builtin/`（`jobs_manage`）+ `jobs/README.md` + `docs/arch/1x-jobs-contracts.md`；
-  Seelex：`go.mod` 加 replace；`seelebridge/tools/*` 的**记录/状态机**迁到 `jobs.Manager`（`Scope{Session,Subject}` 与既有 `SessionID` 逐位对齐；**派发工具签名与语义不变**）；`process`/`inline` Executor 落地。
-- **触碰面**：`G:\program\go\seele\jobs\**`、`seelebridge/tools/{job_*,async_*}.go`、`seelexctx/limits.go`（`AsyncExec` 保留）。
+  Seelex：`go.mod` 加 replace；`backend/tool/registry/*` 的**记录/状态机**迁到 `jobs.Manager`（`Scope{Session,Subject}` 与既有 `SessionID` 逐位对齐；**派发工具签名与语义不变**）；`process`/`inline` Executor 落地。
+- **触碰面**：`G:\program\go\seele\jobs\**`、`backend/tool/registry/{job_*,async_*}.go`、`backend/limit/limits.go`（`AsyncExec` 保留）。
 - **验收**：seelex 既有 `async_*_test.go` + `job_contract_test.go` 全绿（`bash_bg`/`read_batch`/`job_manage` 行为不变，含 `TestCloseSessionAsyncKillsOnlyOwnSession`）；Seele `go test ./... -count=1 -timeout 300s` + `go vet ./...` + `go build ./...` 绿；`jobs` 无 seelex import。
 - **退出判据**：作业面无回归；`jobs` 契约冻结（后续变更走 Seele 评审）。
 
 ### M1 — worker Executor + worktree（teammate 上线）
 - **目标**：`KindWorker` = 在角色会话跑限量回合；teammate 绑 worktree + `emp_<role>`；人数上限与子代理策略生效。
-- **交付物**：`seelebridge` worker Executor（`runtime_role_turn.go` 升格）；worktree 绑定/释放（复用 `seelebridge/worktree`，git）；
+- **交付物**：`seelebridge` worker Executor（`runtime_role_turn.go` 升格）；worktree 绑定/释放（复用 `backend/tool/worktree`，git）；
   `limits.team.max_teammates`（默认 6）；teammate 工具面**移除 `fork_subagents`（无开关）**。
 - **验收**：能派发/观察/取回/终止一个 teammate 作业；`Reclaim(Scope{Session,Subject})` 只杀该 teammate 而不动同会话其他作业；worktree 创建与释放（git）；越权工具被拒；**超员被拒**；**重复角色被拒**；teammate 工具面**不存在** `fork_subagents`（连开关都没有）。
 - **退出判据**：单个 teammate 端到端跑通（干净上下文 + worktree 落痕）。
 
 ### M2 — team plan 存储 + leader 工具面 + 提示词 + goal 座位降级
 - **目标**：`moduleTeamwork` 落盘；leader 六件套工具；提示词驱动；goal 座位循环改 `KindSeat` Executor。
-- **交付物**：sessionstore 新模块（枚举+锁+head+读写面）；plan schema 与校验（含一角色一 teammate、人数上限）；
+- **交付物**：store 新模块（枚举+锁+head+读写面）；plan schema 与校验（含一角色一 teammate、人数上限）；
   `team_plan/team_dispatch/team_join/team_milestone/team_retire` 工具；leader skill；
   `application/core/govern/*` 改为 `KindSeat` Executor 实现。
 - **验收**：plan 落盘/重载一致；leader 用提示词跑通一条 V 模型流水线（req→impl→test→review，含一个里程碑）；`Spec.Node` 归属正确落到里程碑聚合；里程碑事件落 `event.Sink`；顺序链式派发且里程碑注入验证通过。
@@ -390,7 +390,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### M3 — teammate 生命周期（回收作业→释放 worktree→清内容→保在线）+ 信号/里程碑注入
 - **目标**：`team_retire` 按固定顺序执行；完成摘要与里程碑帧在回合边界注入。
-- **交付物**：`jobs.Reclaim` + `worktree.Release` 接线 + `session.Reset`/sessionstore 清 `role_session_id` 消息通道；roster 保在线；边界摘要/里程碑帧注入。
+- **交付物**：`jobs.Reclaim` + `worktree.Release` 接线 + `session.Reset`/store 清 `role_session_id` 消息通道；roster 保在线；边界摘要/里程碑帧注入。
 - **验收**：retire 后**会话内容为空、worktree 已释放（`git worktree list` 无残留）**且 teammate **仍在册在线**；下一任务上下文干净；脏工作区按语义报错而非静默丢弃；忙会话**不被唤醒**（无 push）。
 - **退出判据**：长驻 teammate 跨任务复用不腐蚀上下文、不残留 worktree。
 
@@ -437,10 +437,10 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 **本轮拍定（原「剩余待议」两条，现为 D11/D12）**：
 - **D11 `max_teammates` 默认值 = 6**（与 `ResidentSessionLimit` 同量级）。落点：
-  `seelexctx.TeamLimits.MaxTeammates`（配置 `limits.team.max_teammates`）；零值 → 常量
+  `limit.TeamLimits.MaxTeammates`（配置 `limits.team.max_teammates`）；零值 → 常量
   `DefaultTeamMaxTeammates = 6`，**负值在 `LoadLimits` 启动期报错**（不让负数有语义）。
   超限的 `team_dispatch` / `team_plan` **显式拒绝**（不静默排队）。M1 实测后只调数字，不改契约。
-- **D12 计划带 `events.jsonl` 追加审计面 = 要**。落点：`sessionstore` 的 `moduleTeamwork`——
+- **D12 计划带 `events.jsonl` 追加审计面 = 要**。落点：`store` 的 `moduleTeamwork`——
   计划落模块 head（等价 `plan.json`：原子发布 + 校验和自愈），审计落**同模块的数据文件**
   `teamwork/events.jsonl`（只追加、不重写；崩溃残尾跳过，不因此读不出前面的行）。
   审计面记 `plan / dispatch / join / milestone / retire` 五类事实。
@@ -452,7 +452,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 **为什么不拼串**：既有 todo / task / subagent 的绑定范式已经把这件事做对了——
 `JobSpec.SessionID`（隔离 + 回收，`Router.CloseSessionAsync` 按它杀）+ `JobSpec.BatchID`（归属盖印章，
 由 `Router.currentBatch` 注入，task/todo/plan/subagent 条目自动盖章）**是两个并列字段**，
-跨会话访问靠 `run.sessionID != sessionID` 直接拒绝（`seelebridge/tools/job_contract.go`）。
+跨会话访问靠 `run.sessionID != sessionID` 直接拒绝（`backend/tool/registry/job_contract.go`）。
 自造 `a/b` 或 `a::b` 只会新增**转义规则与碰撞面**（会话 id、角色名里都可能出现该字符），而收益为零。
 
 **字段分工（照抄既有分工）**：
@@ -487,19 +487,19 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 |---|---|---|
 | M0 Seele `jobs` 根能力 | **已实现** | `Seele/jobs/{job,manager,executor,options,output}.go` + `jobs/builtin`（`jobs_manage`）+ `jobs/README.md` + `Seele/docs/arch/16-jobs-contracts.md`；不变式 I-1..I-7 逐条有用例（含去重、跨作用域拒绝、两档 Snapshot/Reclaim、硬上限 124 / 被杀 137 / panic 收尾、输出封顶不改判终态） |
 | M0 Seelex `go.mod` replace | **已实现（临时）** | `replace github.com/RedHuang-0622/Seele => G:/Program/go/seele`，`go work vendor` 已重生成 vendor；Seele 打 tag 发布 `jobs` 后即删除 |
-| M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
-| M1 worker Executor | **已实现（`KindSeat` 已于 2026-10-03 W3 退场）** | `seelebridge/teamwork/executor.go`：`KindWorker`（`KindSeat` 已删除）；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
-| M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `seelebridge/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
-| M1 人数上限 | **已实现** | `seelexctx.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
-| M1 teammate 工具面移除 `fork_subagents` | **已实现** | `seelebridge/runtime_role_turn.go` 的 `teammateAgent`/`teammateToolFace`（硬移除：可见面剔除 + 派发口拒绝），`newRoleEngine` 装配点用 `teammateToolFace(r.agt)`；`runtime_role_face_test.go` 钉住（含"装配点确实用它"） |
-| M2 `moduleTeamwork` 存储 | **已实现** | `sessionstore/module_heads.go`（枚举 + **独立锁** + `mutexFor` case）+ `sessionstore/teamwork.go` |
-| M2 plan schema + 校验 | **已实现** | `sessionstore.ValidateTeamworkPlan`：一角色一 teammate、禁内置角色、人数上限、阶段 id 唯一、`depends_on` 无环（Kahn）、里程碑引用存在 |
+| M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `backend/tool/registry/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
+| M1 worker Executor | **已实现（`KindSeat` 已于 2026-10-03 W3 退场）** | `backend/multiagent/teamwork/executor.go`：`KindWorker`（`KindSeat` 已删除）；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
+| M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `backend/tool/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
+| M1 人数上限 | **已实现** | `limit.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
+| M1 teammate 工具面移除 `fork_subagents` | **已实现** | `backend/engine/assemble/runtime_role_turn.go` 的 `teammateAgent`/`teammateToolFace`（硬移除：可见面剔除 + 派发口拒绝），`newRoleEngine` 装配点用 `teammateToolFace(r.agt)`；`runtime_role_face_test.go` 钉住（含"装配点确实用它"） |
+| M2 `moduleTeamwork` 存储 | **已实现** | `store/module_heads.go`（枚举 + **独立锁** + `mutexFor` case）+ `store/teamwork.go` |
+| M2 plan schema + 校验 | **已实现** | `store.ValidateTeamworkPlan`：一角色一 teammate、禁内置角色、人数上限、阶段 id 唯一、`depends_on` 无环（Kahn）、里程碑引用存在 |
 | M2 `events.jsonl` 审计面（D12） | **已实现** | `AppendTeamworkEvent` / `ReadTeamworkEvents`（只追加、残尾容错）；`Coordinator` 写 `plan / dispatch / join / milestone / retire` 五类事实 |
-| M2 leader 六件套工具 | **已实现** | `seelebridge/runtime_teamwork.go` 的 `team_plan/team_dispatch/team_join/team_milestone/team_retire` 经 `r.RegisterTool` 注册（`RegisterBuiltins` + `SetTeamworkBackend`），`jobs_manage` 由 `jobs/builtin` 提供；路由组表已分封（`team_*` → ctl、`jobs_manage` → rw）。**leader 提示词** = `plugins/default/teamwork/SKILL.md`（`$teamwork`）。组合根接线见 `main.go` 的 `Runtime.SetTeamworkBackend`；`sessionstore.Router.TeamworkFor` 提供持久面 |
+| M2 leader 六件套工具 | **已实现** | `backend/engine/assemble/runtime_teamwork.go` 的 `team_plan/team_dispatch/team_join/team_milestone/team_retire` 经 `r.RegisterTool` 注册（`RegisterBuiltins` + `SetTeamworkBackend`），`jobs_manage` 由 `jobs/builtin` 提供；路由组表已分封（`team_*` → ctl、`jobs_manage` → rw）。**leader 提示词** = `plugins/default/teamwork/SKILL.md`（`$teamwork`）。组合根接线见 `main.go` 的 `Runtime.SetTeamworkBackend`；`store.Router.TeamworkFor` 提供持久面 |
 | M2 goal 座位降级 `KindSeat` | **已退场（2026-10-03 阶段三 W3；被"提示词驱动的 leader 派活 + 终态 goal gate"替代）** | **以下为退场前的实现快照（历史，不再描述现状）**：**派发侧**端口 = `application/core/goal_coordinator.go` 的 `SeatJobs`（`DispatchSeat` / `JoinSeat`；终态读数 `dto.SeatJobOutcome`），经 `goalCoordinatorDeps.SeatJobs` 注入、由 `service_assembler.go` 的 `assembler.deps.Runtime.(SeatJobs)`（+ 装配探针 `SeatJobsAssembled`）探测；**执行侧**端口 = `seelebridge/teamwork.SeatRoundRunner`（`Runtime.SetSeatRoundRunner`，组合根 `main.go` 在 `initApplication` 之后传入 application 侧实现者 `Service.RunSeatRound`）。座位循环正文**唯一**（`goalCoordinator.runSeatRound`，作业执行体与同步降级路径共用）：`advanceAfterChat` 逃生记账之后——装配了作业面 → `DispatchSeat` → 有界（默认 5 分钟）`JoinSeat`，终态非 done ⇒ `Summary` 走与 `gov.Next` 同一条登记路径进 `RoundError`；未装配（端口 nil / 作业面未装配）⇒ 现状同步循环，行为一字不变。注册：`Runtime.SetTeamworkBackend` 的 `jobs.New` 补 `teamwork.SeatExecutor(r)`（作业 `Scope{Session}`、`Description` 为治理行标题）；会话归属与本轮正文走**载荷**（`SeatRequest.SessionID/Detail`），不依赖作业 ctx（由 `jobs.Manager` 从 `Background` 派生）。退场记录见 [`../devlog/2026-10-03-seat-rotation-retired.md`](../devlog/2026-10-03-seat-rotation-retired.md) |
 | M3 `team_retire` 四步 | **已实现（2026-10-02 收窄：不再回收作业）** | `Coordinator.Retire` = `retireSteps(reclaim=false)`：释放 worktree → 清会话内容 → 保在线；**不回收作业**（"谁还在跑"留到整队收口）。四步实现只有一份，`Close` 以 `reclaim=true` 复用同一函数；端口缺失时**显式报错**；生产实现 = `Runtime.ReleaseWorkspace` + `Runtime.ResetSession` |
 | 阶段四 S1–S3 看板接线 | **已实现** | `dto.TeamworkBoardView`（+ `max_members` / `stale` / `recovered` / 收口三字段）→ `Runtime.TeamworkBoardSnapshot` → `contract.TeamworkBoardProjection` → `SessionRuntime.TeamworkBoard` → GUI `renderTeam` / TUI `teamPanelLines`；契约 [`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md)、存档面 [`session-board-metadata-lifecycle.md`](session-board-metadata-lifecycle.md) |
-| 阶段四 S4a `team_close` | **已实现** | 整队**收口唯一入口**（无参数、幂等 `already_closed`）：逐在编成员 `retireSteps(reclaim=true)` → 封板存档（`closed`/`team.close`）→ 计划标 `closed` → 落 `close` 审计。落点：`Coordinator.Close`、`Runtime.teamCloseHandler`、`runtime_teamwork_board_close.go`、`sessionstore.TeamworkStateClosed/TeamworkEventClose` |
+| 阶段四 S4a `team_close` | **已实现** | 整队**收口唯一入口**（无参数、幂等 `already_closed`）：逐在编成员 `retireSteps(reclaim=true)` → 封板存档（`closed`/`team.close`）→ 计划标 `closed` → 落 `close` 审计。落点：`Coordinator.Close`、`Runtime.teamCloseHandler`、`runtime_teamwork_board_close.go`、`store.TeamworkStateClosed/TeamworkEventClose` |
 | 阶段四 S4b `goal_done` | **已实现** | main agent 的**真收口**（裁决 B：主代理即 TL）：`action=finish\|abort` 直连 `Controller.Finish/Abort`，**不过终态 gate**；收口后 `dismissTeamWhenGoalClosed` 让"干完就走人"成立。落点：`goalCoordinator.FinishDirect`、`Service.GoalDoneFor`、`register_goal_tools.go`（`goal_*` 仍在 ctl 组、子代理整族不可见） |
 | 阶段四 S5 作业正文活到 close | **已实现** | ① **输出归属**：`Coordinator.Dispatch` 经 `teamwork.JobOutputs` 端口分配**产品自有**路径（会话目录内 `teamwork/jobs/<role>-<n>.log`）并同时写进 `jobs.Spec.OutputPath` 与 `WorkerRequest.OutputPath`；框架不建写句柄、只按偏移读，`externalOutput.remove()` 是空操作——销项 / 驱逐 / Close 都不删正文；执行体经**产品面**写（`Runtime.RunWorker` → `JobOutputs.WriteJobOutput`），`team_close` 时整目录清掉（`ClearJobOutputs`）。② **防 prune**：`jobs.WithLimits(Limits{Records: teamworkJobRecordCeiling(maxTeammates)})`——记录槽上限按"一支团队一开到底"的量级给，不撞框架缺省的进程级兜底 256（prune 只逐最老的终态行）。③ **写/清串行**：写与清目录在同一把锁上（`WriteJobOutput` / `ClearJobOutputs`），清目录同时**作废**这一批落点、序号**不复位**（进程内落点不复用）——被取消回合的最后一次写因此不会在清目录之后造出残文件（`Reclaim` 等待有上限 5s 的窄竞态已收口）。④ **逐出回读**：行被 prune 逐出后按句柄读不到，读面（`team_context`）按**角色名**回读产品自有正文（`JobOutputs.LatestJobOutputPath` + `readOutputHead`），并以 `dto.TeamworkMemberContextView.Evicted` 显式标出来源——"行被逐出"不再等于"正文丢了" |
 | 阶段四 S6 `team_context` | **已实现** | 成员工作上下文**只读面**：`Snapshot` + `jobs.Manager.Peek`（**非消费**：不推进游标、不销项）；正文默认关、逐成员默认 4KB / 硬顶 32KB、按 UTF-8 边界裁剪；`Idle` 显式化（不靠 handle 为空反推）。落点：`runtime_teamwork_context.go`、`dto.TeamworkContextView` |
@@ -507,7 +507,7 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | 阶段四 S8 收口后看板退场 | **已实现（2026-10-03 口径修正）** | `TeamworkBoardSnapshot` 对 `plan.State.State=closed` 返回 `nil`——收口之后看板整块退场（与"没有计划"同解、"结束就是没有了"同口径），在编名册不再挂在面板上；域内 closed 事实仍归计划，存档仍按 `state=closed` 封板。落点：`runtime_teamwork_board.go`、`runtime_teamwork_board_closed_test.go`、[`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md) §2/§5/§7 |
 | 阶段四 S9 teammate 实时工具活动 | **已实现（2026-10-03）** | 员工**做工回合**（`team_dispatch` 的 worker）的每次工具调用 → `dto.RoleToolActivity` → `Runtime.SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`（载荷不进快照、`revision=0`）→ 前端「正在做（实时）」一节逐帧长出来。它是 `subagent.tool.*` 的**员工侧对称面**：修前角色回合的 ReAct 钩子只送 goal 域 TLStep sink（只有 ADVISOR 挂得上），teammate 在做工时前端一无所知。落点：`runtime_role_turn.go`（`roleWorkScope` / `roleLoopHooks`）、`runtime_teamwork.go`（`workerRoleRoundSpec`）、`runtime_role_tool_test.go`、`application/core/service.go` |
 | 阶段四 文案对齐 | **已实现** | 提示词与 schema 回到与实现同口径：`$teamwork` 工具表补 `team_close` / `team_context` 并改掉"`team_retire` 回收作业"、收尾第 1 步改用**非消费**读法（`team_context`）、§7 补「收口三步」；`$goal` 去掉"末尾必有一个 `review` 阶段"、工具表补 `goal_done`、节奏改为 `team_close → goal_done`；`teamworkRetireDescription` 与 `team_retire` 回执文案同步（不再称回收作业）；`goal_begin` 工具描述不再称"ADVISOR 回合制评审" |
-| 阶段五 Work Item 里程碑 | **已实现（2026-10-03）** | **Milestone 是屏障、Work Item 是调度单位**：`milestones[].depends_on`（里程碑之间串行）+ `work_items[].depends_on`（里程碑内 DAG）；**一个 Work Item 一个 Session + 一个 git worktree**（绑定账本 `teamwork/worktrees.jsonl`，生命周期到 `team_close`）；分里程碑排活（`team_work` 只给依赖已 done 的里程碑排活）；未开始的工作项可调整、已开始/已结束是既定事实（`team_item`）；验收通过销项并结束这件事的隔离（`team_accept`）；回合结束**自动尾插**（先合并 worktree → 有界回执进 teammate 消息队列，失败写明"请 leader 亲自执行"）；中断恢复复用原会话号（记忆建在，`team_recover`）。落点：`sessionstore/teamwork_items.go`、`seelebridge/teamwork/items.go`、`seelebridge/runtime_teamwork_items.go`、`seelebridge/worktree` 的 `BeginNamed`、`dto.TeamworkBoardView.WorkItems`、`team-board-view.js` 甘特 + 队列 + 执行进度子页面。详见 [`../devlog/2026-10-03-workitem-milestone-refactor.md`](../devlog/2026-10-03-workitem-milestone-refactor.md) |
+| 阶段五 Work Item 里程碑 | **已实现（2026-10-03）** | **Milestone 是屏障、Work Item 是调度单位**：`milestones[].depends_on`（里程碑之间串行）+ `work_items[].depends_on`（里程碑内 DAG）；**一个 Work Item 一个 Session + 一个 git worktree**（绑定账本 `teamwork/worktrees.jsonl`，生命周期到 `team_close`）；分里程碑排活（`team_work` 只给依赖已 done 的里程碑排活）；未开始的工作项可调整、已开始/已结束是既定事实（`team_item`）；验收通过销项并结束这件事的隔离（`team_accept`）；回合结束**自动尾插**（先合并 worktree → 有界回执进 teammate 消息队列，失败写明"请 leader 亲自执行"）；中断恢复复用原会话号（记忆建在，`team_recover`）。落点：`store/teamwork_items.go`、`backend/multiagent/teamwork/items.go`、`backend/engine/assemble/runtime_teamwork_items.go`、`backend/tool/worktree` 的 `BeginNamed`、`dto.TeamworkBoardView.WorkItems`、`team-board-view.js` 甘特 + 队列 + 执行进度子页面。详见 [`../devlog/2026-10-03-workitem-milestone-refactor.md`](../devlog/2026-10-03-workitem-milestone-refactor.md) |
 | M4 清场 | **已收口（2026-10-15，A04/A15）**——原状态列的 2026-10-01"待做"已不成立，§9 表各行已按事后事实更新 | §9 清单的**引用事实与退场条件**见 [`../devlog/2026-10-01-m4-deadcode-inventory.md`](../devlog/2026-10-01-m4-deadcode-inventory.md)：六条候选里只有 `TurnScheduler` 的 `Next/Request/Remove/Restore` 是 `test-only`（删它同时是改规格，要连带改 `scheduler_wiring_test.go` 与 README），其余五条都 `blocked`——`newGovernor`/`seatPlan`/`NewAdvisorSeat` 仍是座位循环正文（`runSeatRound`）的唯一座位派生来源、`teamRoleSeatsFor`/`RoleTurnPort` 仍有生产消费者、`order_policy/order_roles` 被席位环与前端 `team.set_order`（员工栏「摘除」时提交整张顺序表）共同消费。**已做的三步标注/清理**：① 2026-10-01 `order_policy` 在 `dto`（GoDoc）、`application/core/agentteam/README.md` 与 GUI 里标注为历史字段（字段本体、落盘取值与 `order_roles` 一字未动，退场条件仍 blocked），见 [`../devlog/2026-10-01-teamwork-legacy-order-fields.md`](../devlog/2026-10-01-teamwork-legacy-order-fields.md)；② 同日**删除内置形态目录**（`agentteam/presets.go` 与全部配套入口）——它不属于 §9 六条，但同属"旧面"，且 `goal` 上线自动装配团队会**整份替换掉会话已有的团队**（事故，不是自动化），见 [`../devlog/2026-10-01-no-builtin-team-shapes.md`](../devlog/2026-10-01-no-builtin-team-shapes.md)；③ 同日 **GUI 侧撤掉全部人工编排**（团队形态 chip / 顺序策略 / 拖拽调序 / 位置列一并退场，"次序 = 登记先后"落进面板与文档），见 [`../devlog/2026-10-01-team-panel-no-shapes.md`](../devlog/2026-10-01-team-panel-no-shapes.md)；④ 同日 **#1/#6 的员工执行面整条退场**（M2 的 `KindSeat` 已接管座位循环，员工干活改由 leader 派 worker 作业，退场条件「先建新面、后撤旧面」成立）：`RoleSeat` 只留 `RoleName`/`RoleKind`、`roleTurnSeat`/`newRoleTurnSeat`/`roleTurnNote`/`withRoleTurnInput`/`RoleTurnRunner`/`goalCoordinatorDeps.RoleTurnFor`/`application/core/role_turn.go` 与跨层的 `contract.RoleTurnPort`+`deps.RoleTurn`+`dto.RoleTurnRequest/RoleTurnOutcome`+`Runtime.RunRoleTurn` 一并删除（`runRoleRound` 保留——worker 作业与 ADVISOR 评审仍共用它），见 [`../devlog/2026-10-01-seat-employee-face-retired.md`](../devlog/2026-10-01-seat-employee-face-retired.md)；⑤ 同日 **#3 的 `TurnScheduler` 无消费者接口退场**：channel 投递（`Requests`/`Request`/`Next`）、顺序编辑三件（`Move`/`Remove`/`Restore`）、只读 getter `Prefix`，连同只服务它们的 `requests` 通道、`RuntimeOptions.Buffer`、`TurnRequest.RoundID` 与 `orderLocked`/`indexOfRole`；`scheduler_wiring_test.go` 的声明按事实改写并新增"退场必须被记下来"，见 [`../devlog/2026-10-01-turn-rotation-retired.md`](../devlog/2026-10-01-turn-rotation-retired.md)；⑥ 2026-10-03 **goal 席位轮转整条退场**（阶段三 W3）：goal 的驱动从"座位环"换成**提示词驱动的 leader 派活**，`application/core/govern`（整包）/ `goal/adapter.go` / 座位作业面 `jobs.KindSeat`（`SeatExecutor`/`SetSeatRoundRunner`/`RunSeat`…）/ headless `goal_gov_*` / 只读视图的 `Round`·`RoundLimit`·`CurrentSeat`·`Broken`·`BreakReason`·`RoundError` 一并删除；保留 `Controller` + 终态 gate + 逃生，见 [`../devlog/2026-10-03-seat-rotation-retired.md`](../devlog/2026-10-03-seat-rotation-retired.md) |
 
 **结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期 / 工具面接线**已落地并有回归；
@@ -574,7 +574,7 @@ sink 形状做不到「`job_manage` 之后保持稳定前缀、再把数据追�
   **按会话追加/排序**的——这样发出的事件**append 不到会话事件流的尾部**，只能事后回填归属，且全局
   序号在按会话排序下不成立（§3 的那条结构性理由）。
 - 结论：该 hook 已从 `jobs` 撤出（`Sink` 契约回到 `Note` / `SignalBytes` / `Exit` / `Complete`），
-  事件流落在 Seelex 侧（`seelebridge/jobs_events.go` 订阅 `Events()` + `Snapshot` 自投影追加），
+  事件流落在 Seelex 侧（`backend/engine/assemble/jobs_events.go` 订阅 `Events()` + `Snapshot` 自投影追加），
   与 `docs/arch/context-prefix-chain.md` 的"已定稿轮次 append-only、旧轮字节不变"同一口径。
 
 因此：**本步不再开工，也不必等 §12.3 的契约增补**；§12.3 降级为**留档**（记录"当年为什么绕不过去"），
@@ -584,17 +584,17 @@ sink 形状做不到「`job_manage` 之后保持稳定前缀、再把数据追�
 ## 附：锚点索引
 
 **Seelex（本轮静读）**
-- 异步作业面（范本）：`seelebridge/tools/{job_contract,job_tools,job_run,job_subagent,async_exec,async_run,async_probe}.go`、`seelebridge/tools/README.md`、`seelebridge/runtime_async.go`、`seelebridge/runtime_tools.go`
+- 异步作业面（范本）：`backend/tool/registry/{job_contract,job_tools,job_run,job_subagent,async_exec,async_run,async_probe}.go`、`backend/tool/registry/README.md`、`backend/engine/assemble/runtime_async.go`、`backend/engine/assemble/runtime_tools.go`
   - 契约与类别：`job_contract.go:JobSpec/JobHandle/JobTool/jobManager`（三类共表共状态机）
   - 隔离：`async_run.go:CloseSessionAsync`；`job_contract.go` 的 `run.sessionID != sessionID` 判据
   - 归属：`async_probe.go:JobInfo{SessionID,BatchID}`、`router.go:AsyncBatchID`、`runtime_tools.go:AsyncBatchID`、`task/task.go:defaultBatchID`
-- 子代理：`seelebridge/fork/{tool,types}.go`；worktree（git）：`seelebridge/worktree/worktree_manager.go`（`GitRunner`/`NodeWorktree`/`approve.ApprovalGate`）
-- 进程树：`seelebridge/security/process_tree_{windows,other}.go`
+- 子代理：`backend/tool/fork/{tool,types}.go`；worktree（git）：`backend/tool/worktree/worktree_manager.go`（`GitRunner`/`NodeWorktree`/`approve.ApprovalGate`）
+- 进程树：`backend/limit/gate/process_tree_{windows,other}.go`
 - 团队（角色唯一/会话派生）：`application/core/agentteam/{spec,registry}.go`（`Normalize` duplicate 校验、`RoleSessionID`、`needsRoleSession`）
 - 治理（降级目标）：`application/core/govern/`、`application/core/goal_coordinator.go`
-- 配置：`seelexctx/limits.go`（`Limits`/`AsyncExec` → 新增 `TeamLimits`）
-- 存储：`sessionstore/module_heads.go`（`storageModule`/`mutexFor`/`moduleForStackKind`）
-- 权限：`docs/arch/agent-permission-subjects.md`、`seelebridge/runtime_role_turn.go`
+- 配置：`backend/limit/limits.go`（`Limits`/`AsyncExec` → 新增 `TeamLimits`）
+- 存储：`store/module_heads.go`（`storageModule`/`mutexFor`/`moduleForStackKind`）
+- 权限：`docs/arch/agent-permission-subjects.md`、`backend/engine/assemble/runtime_role_turn.go`
 
 **Seele（`G:\program\go\seele`）**
 - `README.md`、`ARCHITECTURE.md`、`docs/arch/{09,10,12,14}-*.md`

@@ -2,18 +2,20 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
 // 的数据面）；漏掉就是全局台账里"行看得见、会话判不出"。
 func TestWorkItemCarriesOwningSession(t *testing.T) {
-	rows := buildWorkTable(nil, []dto.TaskRecord{{
+	rows := worktable.BuildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: dto.TaskPhaseTask, Task: "a", Kind: "task", SessionID: "sess-a",
-	}}, nil, nil)
+	}}, nil, nil, workTableBounds())
 	if len(rows) != 1 || rows[0].SessionID != "sess-a" {
 		t.Fatalf("WorkItem = %+v, want SessionID=sess-a", rows)
 	}
@@ -29,7 +31,7 @@ func TestGlobalWorkTableCarriesOwningSession(t *testing.T) {
 		"session-bg": {{ID: "task:b", Key: "k-b", Phase: dto.TaskPhaseTask, Task: "后台会话的任务", Kind: "task"}},
 	}
 
-	rows := buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
+	rows := worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	sessions := make(map[string]string, len(rows))
 	for _, row := range rows {
 		sessions[row.ID] = row.SessionID
@@ -54,7 +56,7 @@ func TestMergeTaskRecordsStampsSecondarySession(t *testing.T) {
 		{ID: "task:1", Key: "k1", Task: "磁盘旧副本"},
 	}
 
-	merged := mergeTaskRecords(primary, secondary, "sess-cold")
+	merged := worktable.MergeTaskRecords(primary, secondary, "sess-cold", task_context.LedgerIdentity)
 	if len(merged) != 2 {
 		t.Fatalf("merged = %+v, want 两行（同身份去重）", merged)
 	}
@@ -96,7 +98,7 @@ func TestTaskChangedIncrementCarriesOwningSession(t *testing.T) {
 			if event.Kind != EventTaskChanged {
 				continue
 			}
-			var payload TaskChangedEvent
+			var payload model.TaskChangedEvent
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode task.changed: %v", err)
 			}

@@ -17,18 +17,20 @@
 
 ### archive_session.go
 
-- `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话：非 running/queued/awaiting_approval 才允许；
+- `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话（判据与文案在 `middle/residency`）。
+- `func (service *Service) archiveDeps(sessionID string) residency.ArchiveDeps` — archiveDeps 装配归档用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。
+- `func (service *Service) archiveGate(sessionID string) residency.ArchiveGate` — archiveGate 在视图锁内取归档门控的四个读数，并带上宿主自己的错误值。
 
 ### archive_session_test.go
 
 - `func newArchiveCommandSessions() *archiveCommandSessions`
 - `func (sessions *archiveCommandSessions) add(projectID, sessionID string)`
-- `func (sessions *archiveCommandSessions) recordFor(projectID, sessionID string) (SessionRecord, bool)`
-- `func (sessions *archiveCommandSessions) SaveSessionRecordWorkspace(projectID, sessionID string, record SessionRecord) error`
-- `func (sessions *archiveCommandSessions) SaveSessionRecord(sessionID string, record SessionRecord) error`
-- `func (sessions *archiveCommandSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (SessionRecord, error)`
-- `func (sessions *archiveCommandSessions) LoadSessionRecord(sessionID string) (SessionRecord, error)`
-- `func (sessions *archiveCommandSessions) SessionsOf(projectID string) []SessionInfo` — SessionsOf 以 record 状态覆盖目录行（与生产 adapter 一致）。
+- `func (sessions *archiveCommandSessions) recordFor(projectID, sessionID string) (model.SessionRecord, bool)`
+- `func (sessions *archiveCommandSessions) SaveSessionRecordWorkspace(projectID, sessionID string, record model.SessionRecord) error`
+- `func (sessions *archiveCommandSessions) SaveSessionRecord(sessionID string, record model.SessionRecord) error`
+- `func (sessions *archiveCommandSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
+- `func (sessions *archiveCommandSessions) LoadSessionRecord(sessionID string) (model.SessionRecord, error)`
+- `func (sessions *archiveCommandSessions) SessionsOf(projectID string) []model.SessionInfo` — SessionsOf 以 record 状态覆盖目录行（与生产 adapter 一致）。
 - `func archiveTestService(t *testing.T, sessions *archiveCommandSessions) *Service`
 - `func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T)` — TestArchiveSessionHidesSessionFromItsProjectGrid C2 契约：归档后 record
 - `func TestArchiveSessionRejectsBusySessions(t *testing.T)` — TestArchiveSessionRejectsBusySessions C2 门控：running/queued/awaiting

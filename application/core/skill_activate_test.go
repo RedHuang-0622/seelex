@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T) {
 	waitForChatCompletion(t, service)
 	engine.mu.Lock()
 	prompt := engine.prompt
-	sentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	sentHistory := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if strings.Contains(prompt, "## Trusted Active Skill") || strings.Contains(prompt, "review prompt") {
 		t.Fatalf("activated skill body must not be embedded in system: %q", prompt)

@@ -5,7 +5,7 @@ package core
 //
 // 现场形状（生产装配）：一个会话回合里，可见行先进内存窗口（append / 流式 /
 // 工具结果），durable record 要到 runChat 收尾的 PersistCurrentSession 才落盘
-// （chat.go:271）；而存储侧冷读面的右界是**发布点**（sessionstore 以
+// （chat.go:271）；而存储侧冷读面的右界是**发布点**（store 以
 // head.LastSeq 为读者闸门，见 message_rows.go decodePublishedRows）。于是运行中
 // 的回合里「内存已可见总数 > 磁盘已发布数」是常态，差额就是本轮尚未落盘的行。
 //
@@ -22,6 +22,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ func beginInFlightTurn(t *testing.T, service *Service, store *pagedSessionStore,
 }
 
 // assertVisibleWindow 断言快照里的「窗口起点 + 窗口内容 + 已可见总数」。
-func assertVisibleWindow(t *testing.T, label string, snapshot Snapshot, wantOffset int, wantContents []string, wantTotal int) {
+func assertVisibleWindow(t *testing.T, label string, snapshot model.Snapshot, wantOffset int, wantContents []string, wantTotal int) {
 	t.Helper()
 	if got := snapshot.HistoryOffset; got != wantOffset {
 		t.Fatalf("%s: history_offset = %d, want %d（visible=%v total=%d）", label, got, wantOffset, visibleContents(snapshot), snapshot.TotalMessages)

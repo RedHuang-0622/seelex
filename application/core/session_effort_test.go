@@ -39,11 +39,11 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 	}
 }
 
-// TestPlanPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
+// TestSubagentPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
 // 策略写进引擎会话槽（2026-09-07 起 effort 不再携带 MaxForkConcurrency，
 // high/max 均为 0 = 子代理并发不设上限），互不覆盖；未选择会话回退进程
 // 默认。
-func TestPlanPolicySlotSyncPerSession(t *testing.T) {
+func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	runtime := service.Deps.Runtime.(*fakeRuntime)
 	sessionA := service.Snapshot().Session.ID
@@ -51,8 +51,8 @@ func TestPlanPolicySlotSyncPerSession(t *testing.T) {
 	if err := service.SwitchEffort(context.Background(), "high"); err != nil {
 		t.Fatalf("SwitchEffort(high): %v", err)
 	}
-	service.syncPlanPolicyFor(sessionA)
-	gotA, ok := runtime.planPolicyFor(sessionA)
+	service.syncSubagentPolicyFor(sessionA)
+	gotA, ok := runtime.subagentPolicyFor(sessionA)
 	if !ok || gotA.Effort != "high" || gotA.MaxForkConcurrency != 0 {
 		t.Fatalf("plan policy slot A = %+v ok=%v, want high/无并发上限", gotA, ok)
 	}
@@ -64,15 +64,15 @@ func TestPlanPolicySlotSyncPerSession(t *testing.T) {
 	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
-	service.syncPlanPolicyFor(draftID)
-	gotDraft, ok := runtime.planPolicyFor(draftID)
+	service.syncSubagentPolicyFor(draftID)
+	gotDraft, ok := runtime.subagentPolicyFor(draftID)
 	if !ok || gotDraft.Effort != "lite" {
 		t.Fatalf("plan policy slot draft = %+v ok=%v, want lite", gotDraft, ok)
 	}
 
 	// 再次同步会话 A：A 的槽保持 high，不被草稿同步覆盖。
-	service.syncPlanPolicyFor(sessionA)
-	gotA, ok = runtime.planPolicyFor(sessionA)
+	service.syncSubagentPolicyFor(sessionA)
+	gotA, ok = runtime.subagentPolicyFor(sessionA)
 	if !ok || gotA.Effort != "high" || gotA.MaxForkConcurrency != 0 {
 		t.Fatalf("plan policy slot A after draft sync = %+v ok=%v, want high/无并发上限", gotA, ok)
 	}

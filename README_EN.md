@@ -11,10 +11,9 @@ It is an agent for **one person**, not a team-collaboration workbench: teamwork 
 ## What it implements
 
 - streaming ReAct execution with bounded Effort profiles;
-- optional WorkPlan DAG orchestration with two execution modes (`tasklist`: the primary agent runs the DAG
-  serially, checking nodes off with `task_check_node` and closing with one deferred `task_complete`;
-  `plan`: `plan_run` spawns isolated subagents, and plan events check nodes off live), typed nodes and
-  task terminal states;
+- on-demand isolated subagents via `fork_subagents` (job handles, `bg_manage` retrieval, independent
+  Session/worktree per subagent) and teamwork for team-level orchestration; the WorkPlan DAG tool family
+  is retired, with historical Plan data kept read-only;
 - a background job surface shared by `bash_bg` / `read_batch` / `bg_manage` (an acceptance receipt with
   handle + log path, consumer-style fetch, `observe` / `kill` / `done`; serial bash refuses a `timeout`
   above 5 minutes, and a job reaching a terminal state wakes an *idle* session so the model can fetch the
@@ -69,7 +68,7 @@ It is an agent for **one person**, not a team-collaboration workbench: teamwork 
   diagnostic backend console;
 - deterministic offline scenarios, cross-platform CI, race/coverage gates and release archive audits.
 
-Seelex builds on the [Seele](https://github.com/RedHuang-0622/Seele) agent runtime. The `seelebridge/` anti-corruption layer keeps product semantics separate from runtime primitives.
+Seelex builds on the [Seele](https://github.com/RedHuang-0622/Seele) agent runtime. The `backend/engine/assemble/` anti-corruption layer keeps product semantics separate from runtime primitives.
 
 ## Quick verification
 
@@ -106,7 +105,7 @@ flowchart TB
         STATE["model · event · approval · contract · prompt"]
     end
 
-    subgraph L3["seelebridge/ — runtime anti-corruption layer"]
+    subgraph L3["backend/engine/assemble/ — runtime anti-corruption layer"]
         RT["Runtime assembly and shutdown"]
         TOOLS["tools: Router · RegistryState · PermissionGate"]
         ORCH["plan · node · fork · scheduler · task"]
@@ -114,8 +113,8 @@ flowchart TB
     end
 
     CTX["seelexctx/ — Assembler · Compressor · DAG · Memory · Merger"]
-    PERSIST["sessionstore/ · session/ · workspace/"]
-    EXT["plugin/ · skill/ · mcpstack/"]
+    PERSIST["store/ · session/ · workspace/"]
+    EXT["backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack"]
     SEELE["Seele runtime: agent · session · tools · workplan · accountpool · mcp"]
 
     TUI --> SVC
@@ -189,7 +188,7 @@ sequenceDiagram
     participant U as User
     participant F as TUI / GUI
     participant S as application.Service
-    participant R as seelebridge.Runtime
+    participant R as assemble.Runtime
     participant L as Seele ReActLoop
     participant T as tools.Registry + PermissionGate
 
@@ -215,11 +214,11 @@ TUI / Wails GUI / headless RPC / backend console
        │ Snapshot · Event · Action
 application/ — Chat · Task · Plan · Goal/Govern · AgentTeam · Worktable · Session · Workspace
        │
-seelebridge/ — runtime adaptation · tools (incl. computer use) · multimodal · node scope · provider/account routing
+backend/engine/assemble/ — runtime adaptation · tools (incl. computer use) · multimodal · node scope · provider/account routing
        │
 Seele runtime — Agent · ReAct · Tool Registry · WorkPlan · Account Pool · MCP
 
-plugin/ · skill/ · mcpstack/ · seelexctx/ · sessionstore/ · session/
+backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack · seelexctx/ · store/ · session/
 ```
 
 The important design choice is that frontends do not own the agent state machine. They consume a versioned Snapshot + Event Delta protocol from the same Application Core, which keeps chat, plan, approval and persistence behavior testable without a UI or live model.

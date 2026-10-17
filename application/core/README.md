@@ -9,21 +9,32 @@
 本包按域拆分子包（装配件 + 消费方窄接口的容器化方向，见
 `docs/2026-08-22-application-split/plan.md`）：
 
-- 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
-  汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
-  （窗口策略配置加载）、`resume/`（未完成工作恢复模板：七步顺序 +
-  幂等键 + 可审计 Report，领域实现走 `Port`）。
+- 零依赖叶子域：`../../middle/view/worktable/`（表格增量 CSP 汇聚发布器）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
+  Report，领域实现走 `Port`）已于 2026-10-16 随 M5-R8b 归位
+  [`backend/multiagent/resume`](../../backend/multiagent/resume/README.md)。）
+  （`input_router/`（命令注册表 + 输入路由）与 `context_control/`（窗口策略配置加载）已于
+  2026-10-16 随 M5-R7 归位 [`backend/engine/input`](../../backend/engine/input/README.md)
+  与 [`backend/engine/input/contextcontrol`](../../backend/engine/input/contextcontrol/README.md)。）
+  （`chat/`（流式批次与可见输出）已于 2026-10-16 随 M5-R7 归位
+  [`backend/engine/react`](../../backend/engine/react/README.md)。）
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
-- 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
-  `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
-  `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
-  （system prompt 组装）、`view_state/`（Snapshot 读/写/事件发布）、
-  `subagent_view/`（子代理详情/live/树投影）、`goal/`（Goal 状态机 +
-  DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
-  `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
-- 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
-  内核）、`internal/limits`（运行时上限）。
+- 有状态域协调器：`goal/`（Goal 状态机 +
+  DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）。（`session_runtime/`
+  （会话持久化/目录/项目绑定）已于 2026-10-16 随 M5-R7 归位
+  [`backend/engine/session`](../../backend/engine/session/README.md)，包名不变。）
+  （`context_runtime/`
+  （provider 上下文装配/压缩/历史安全）已于 2026-10-16 随 M5-R7 归位
+  [`backend/engine/context`](../../backend/engine/context/README.md)，包名不变。）
+  （`agentteam/`（AgentTeam/角色会话
+  通用装配：`TeamSpec` 工厂 + 团队库读面）的纯基座部分已于 2026-10-16 随 M5-R8b 归位
+  [`backend/multiagent/team`](../../backend/multiagent/team/README.md)，包名 `team`。）
+  （`task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）已于
+  2026-10-16 随 M5-R7 归位
+  [`backend/engine/task`](../../backend/engine/task/README.md)，包名不变。）
+- 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
+  内核）。判据类上限（`limits` 段类型、默认值、
+  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
 
 域包依赖 `state.Core` 与装配根注入的消费方窄接口，禁止反向依赖 core 根包；
 `service_assembler.go` 是唯一组合根。
@@ -46,26 +57,25 @@ flowchart TB
     SVC --> COMP
 
     subgraph DOMAIN["域协调器（有状态）"]
-        SR["session_runtime<br/>会话持久化/目录/项目绑定"]
-        TC["task_context<br/>打点/终态/checkpoint/token 审计"]
-        CR["context_runtime<br/>上下文装配/压缩/历史安全"]
-        VS["view_state<br/>Snapshot 读写 + 事件发布"]
-        SV["subagent_view<br/>子代理详情/live/树投影"]
+        SR["backend/engine/session<br/>session_runtime：持久化/目录/项目绑定"]
+        TC["backend/engine/task<br/>task_context：打点/终态/checkpoint/token 审计"]
+        CR["backend/engine/context<br/>context_runtime：上下文装配/压缩/历史安全"]
+        VS["middle/view/state<br/>Snapshot 读写 + 事件发布"]
+        SV["middle/view/subagent<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
         TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
-        PL["prompt_layer<br/>system prompt 组装"]
+        PL["backend/engine/prompt<br/>prompt_layer：system prompt 组装"]
     end
 
     subgraph LEAF["零依赖叶子域"]
-        CHAT["chat"]
-        WT["worktable"]
-        IR["input_router"]
-        CC["context_control"]
+        CHAT["backend/engine/react"]
+        WT["middle/view/worktable"]
+        IR["backend/engine/input"]
+        CC["backend/engine/input/contextcontrol"]
         RES["resume"]
     end
 
-    ST["internal/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
-    LIM["internal/limits"]
+    ST["kernel/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
     PORTS["contract 端口<br/>Engine / Runtime / Plugin / Skill / Session / Workspace"]
 
     COMP --> SR
@@ -86,7 +96,6 @@ flowchart TB
     PL --> ST
     LEAF --> ST
     ST --> PORTS
-    ST --> LIM
 ```
 
 ## 用例图
@@ -102,8 +111,8 @@ flowchart LR
     UC3(["BeginNewSession / ResumeSession / ForkSessionLatest"])
     UC4(["BindWorkspace 绑定项目"])
     UC5(["命令与输入前缀分流"])
-    UC6(["plan_load / plan_run / replan"])
-    UC7(["goal_begin / goal_update / goal_propose_finish"])
+    UC6(["fork_subagents / 历史 Plan 只读投影"])
+    UC7(["goal_begin / goal_update / goal_done"])
     UC8(["团队装配与角色登记"])
     UC9(["Snapshot / Subscribe 读取投影"])
 
@@ -132,7 +141,7 @@ flowchart LR
 
 `Service` 是稳定的应用门面与跨组件编排层，本身只保存 `serviceState` 和 `serviceComponents`。共享状态按基础设施、会话、计划、任务上下文、提示词、生命周期和前端快照分组，避免继续扩张成平铺字段集合。
 
-`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换、workspace 切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现。
+`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`middle/switch/workspace`](../../middle/switch/workspace/README.md)，本包公开方法只做一行转发，视图投影写面仍由本包持有。
 
 `service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
 
@@ -160,7 +169,7 @@ flowchart LR
 | [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
-| [README-agentteam.md](README-agentteam.md) | `agentteam_runtime.go`、`role_session.go`（+ `application/core/agentteam/**` 的纯基座部分） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）** |
+| [README-agentteam.md](README-agentteam.md) | `role_session.go`（`agentteam_runtime.go` 已删除） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分（`spec.go`：`RoleSessionID` / `Normalize*` / `ValidToolPolicy`）已于 M5-R8b 归位 `backend/multiagent/team/` |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
@@ -175,22 +184,21 @@ flowchart LR
 
 | 包 | 生态位 |
 |---|---|
-| [chat/](chat/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离 |
-| [worktable/](worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
-| [input_router/](input_router/README.md) | 命令注册表与输入路由 |
-| [context_control/](context_control/README.md) | 窗口策略配置加载 |
-| [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
-| [task_context/](task_context/README.md) | 任务执行/checkpoint/transcript/token 审计协调器 |
-| [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
-| [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
-| [view_state/](view_state/README.md) | Snapshot 读/写/事件发布协调器 |
-| [subagent_view/](subagent_view/README.md) | 子代理详情/live/树投影 |
-| [goal/](goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化 |
-| [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话） |
+| [../../backend/engine/react/](../../backend/engine/react/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离（M5-R7 归位，包名 `chat`） |
+| [../../middle/view/worktable/](../../middle/view/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
+| [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
+| [../../backend/engine/input/contextcontrol/](../../backend/engine/input/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
+| [../../backend/engine/session/](../../backend/engine/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |
+| [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
+| [../../backend/engine/context/](../../backend/engine/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |
+| [../../backend/engine/prompt/](../../backend/engine/prompt/README.md) | system prompt 组装与引擎同步（M5-R7 归位，包名 `prompt_layer`） |
+| [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |
+| [../../middle/view/subagent/](../../middle/view/subagent/README.md) | 子代理详情/live/树投影 |
+| [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
+| [../backend/multiagent/team/](../../backend/multiagent/team/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话）；原 `agentteam/`，M5-R8b 归位（包名 `team`） |
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
-| [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
-| [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
-| [internal/limits/](internal/limits/README.md) | 运行时上限（seele.yaml limits 段） |
+| [../backend/multiagent/resume/](../../backend/multiagent/resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report）；原 `resume/`，M5-R8b 归位 |
+| [../../kernel/state/](../../kernel/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖；M5-R3 迁出 `application/core/internal/state/`） |
 
 ## 权威状态与生命周期
 
@@ -260,23 +268,20 @@ Event 自 M1 起携带 `session_id` 路由键（`EventHub.PublishSession`），
 `SubscribeSession` 可按会话过滤订阅；Snapshot 的会话归属由
 `Snapshot.Session.ID` 表达（当前仅活跃会话有驻留快照）。
 
-## Plan 集成
+## 子代理与历史 Plan
 
-Tool hooks 把用户或 Agent 自主调用的 `plan_load` JSON 转为 Plan DAG。Plan 是可选的
-可视化任务结构，不是聊天入口门禁；普通 ReAct 直接使用 project-scoped tools 工作。系统提示
-区分 tasklist 与 plan：`plan_run` 可执行含 `kind:agent` 节点的 DAG，子代理继承项目作用域
-与父证据、可真并行；tasklist 模式由主代理串行执行并在节点完成后 defer 单个
-`task_complete`。`task_complete` 在存在已加载
-Plan 时必须枚举完成节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成
-节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
+并行工作由 `fork_subagents` 派发：每条 spec 获得独立 Session/worktree，继承项目作用域
+与父证据，调用立即返回作业句柄；产出经 `bg_manage` 取回。Plan 执行器与 `plan_*`
+工具族已退役，`application/core` 只保留**历史 Plan 的只读投影**：旧会话的 PlanState
+仍可显示与 `read_plan` 回读，但不能加载或执行新的 DAG。
 
-Effort 只为一次可选 `plan_load` 提供节点数、串行和并发约束；它不再创建 isolated preflight
-subagent、request-scoped authority lease 或向普通用户输入注入 hidden Plan envelope。这样聊天、
-问候和小任务始终直接进入 ReAct，同时复杂任务仍可在用户或 Agent 明确选择时使用 Plan。
+Effort 只为 `fork_subagents`/workunit 提供子代理数量、并发与循环上限；不创建
+preflight、request-scoped authority lease 或 hidden Plan envelope。聊天、问候和
+小任务始终直接进入 ReAct。
 
 ## 依赖边界
 
-允许依赖 Application 子包、`seelebridge` 的稳定桥接 DTO 和 `sessionstore.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
+允许依赖 Application 子包、`contract`/`contract/dto` 的稳定形状和 `store.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
 
 ## Review 指南
 
@@ -360,7 +365,7 @@ sequenceDiagram
     participant U as 用户
     participant S as core.Service
     participant SR as session_runtime
-    participant ST as sessionstore.Router
+    participant ST as store.Router
     participant NEW as 子会话
 
     U->>S: ForkSessionLatest(父会话)
@@ -438,12 +443,12 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 （`CreateRoleSession` / `AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` /
 `AssembleRoleWire` / `SetLifecycleOrder` / `schedule.*`）透传给 headless。
 Application 只做窄转发，不实现 sequencer、floor、draft 删除或 compact_ref
-校验；这些语义仍在 `sessionstore`。
+校验；这些语义仍在 `store`。
 
-端口形状在 S27 之后来自 `application/contract`：`contract.RoleSessionPort`
+端口形状在 S27 之后来自 `contract`：`contract.RoleSessionPort`
 与 `contract.SchedulePort`（可选能力，装配期用类型断言发现），签名只用
-`application/contract/dto` 纯 DTO，本包与 `gui/headless` 不再出现
-`sessionstore.*` 类型；DTO ↔ 存储映射是 `internal/adapters.SessionPort` 的
+`contract/dto` 纯 DTO，本包与 `headless` 不再出现
+`store.*` 类型；DTO ↔ 存储映射是 `wiring/adapters.SessionPort` 的
 职责。边界回归见 `e2e/dto_boundary_test.go`。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
@@ -472,7 +477,7 @@ todoState mailbox actor（Actor + Mailbox 并发安全）；plan/subagent 状态
 done 节点有界保留（`subagentTreeRetainDone`），工作表格持续展示已完成
 任务，直到显式清空。
 
-task 体系：`seelebridge/task/task.go`（`TaskRegistry` actor）是唯一权威源（Actor + Mailbox，
+task 体系：`backend/tool/task/task.go`（`TaskRegistry` actor）是唯一权威源（Actor + Mailbox，
 保护粒度=task），todolist 融合为 kind=todo 的 task；主动 `taskadd` 与被动
 plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（锁外外部
 端口）做幂等同步，`publishTaskDeltas` 发布 `task.changed`（逐任务）与

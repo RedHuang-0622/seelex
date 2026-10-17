@@ -1,17 +1,15 @@
 package core
 
-// goal_done_test.go — 钉住 **goal_done = 真收口** 的口径（2026-10-02 用户裁决 B）。
+// goal_done_test.go — 钉住 **goal_done = 真收口** 的口径。
 //
-// 为什么要有这条用例：原来的口径（contract_review 的 U5）要求 agent 面只能**提议**收口、
-// 终态归 TL 裁决。裁决 B 推翻了它——主代理在团队里就是 TL 角色（team_close 与 goal_done
-// 是同一个人拍板），所以 goal_done 走 Controller.Finish/Abort **直连**，不过终态 gate。
-// "直连"这件事必须有一条事实钉住：它落终态、它弹栈、它照常报错。
+// 主代理自己拍板收口：goal_done 走 Controller.Finish/Abort **直连**，没有评审环、
+// 没有终态 gate。这条用例钉住"直连"的事实：它落终态、它弹栈、它照常报错。
 
 import (
 	"context"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 func TestGoalDoneFinishesDirectly(t *testing.T) {

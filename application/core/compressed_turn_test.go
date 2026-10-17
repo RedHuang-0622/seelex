@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // testStringPtr 返回字符串指针（测试消息正文）。
@@ -20,13 +18,13 @@ func testStringPtr(value string) *string { return &value }
 // （含目标会话 ID 与项目作用域 —— 压缩原文必须按显式键落盘：G0a 断言按
 // ctx/兜底路由到正确会话，作用域断言不跟着视图活跃项目漂移）。
 type fakeCommitSession struct {
-	commits          []sessionstore.Commit
+	commits          []store.Commit
 	commitSessionIDs []string
 	commitProjectIDs []string
 	providerCalls    int
 }
 
-func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
+func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error {
 	f.commits = append(f.commits, commit)
 	f.commitProjectIDs = append(f.commitProjectIDs, projectID)
 	f.commitSessionIDs = append(f.commitSessionIDs, sessionID)
@@ -38,9 +36,9 @@ func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, com
 // LoadToolResultWorkspace(workspaceID, sessionID, ref) 同源，保证压缩原文既写得
 // 进去也读得回来。
 func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
-	store := &fakeCommitSession{}
+	st := &fakeCommitSession{}
 	bound := &CompressedTurnArchiver{
-		Sessions:            store,
+		Sessions:            st,
 		SessionIDProvider:   func() string { return "session-bound" },
 		ProjectIDProvider:   func(sessionID string) string { return "proj-" + sessionID },
 		WorkspaceIDProvider: func() string { return "proj-view" },
@@ -49,11 +47,11 @@ func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
 	if _, err := bound.StoreTurn(context.Background(), "seg-bound", messages); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.commitProjectIDs) != 1 || store.commitProjectIDs[0] != "proj-session-bound" {
-		t.Fatalf("project IDs = %+v, want [proj-session-bound]（会话绑定优先）", store.commitProjectIDs)
+	if len(st.commitProjectIDs) != 1 || st.commitProjectIDs[0] != "proj-session-bound" {
+		t.Fatalf("project IDs = %+v, want [proj-session-bound]（会话绑定优先）", st.commitProjectIDs)
 	}
 	unbound := &CompressedTurnArchiver{
-		Sessions:            store,
+		Sessions:            st,
 		SessionIDProvider:   func() string { return "session-unbound" },
 		ProjectIDProvider:   func(string) string { return "" },
 		WorkspaceIDProvider: func() string { return "proj-view" },
@@ -61,37 +59,37 @@ func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
 	if _, err := unbound.StoreTurn(context.Background(), "seg-unbound", messages); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.commitProjectIDs) != 2 || store.commitProjectIDs[1] != "proj-view" {
-		t.Fatalf("project IDs = %+v, want 第二个 = proj-view（视图工作区兜底）", store.commitProjectIDs)
+	if len(st.commitProjectIDs) != 2 || st.commitProjectIDs[1] != "proj-view" {
+		t.Fatalf("project IDs = %+v, want 第二个 = proj-view（视图工作区兜底）", st.commitProjectIDs)
 	}
-	if store.commitSessionIDs[1] != "session-unbound" {
-		t.Fatalf("session IDs = %+v, want 归属仍是 ctx/provider 的会话", store.commitSessionIDs)
+	if st.commitSessionIDs[1] != "session-unbound" {
+		t.Fatalf("session IDs = %+v, want 归属仍是 ctx/provider 的会话", st.commitSessionIDs)
 	}
 }
 
 // fakeTranscriptSession 实现 sessionTranscriptPort 读侧（LoadToolResultWorkspace）。
 type fakeTranscriptSession struct {
 	fakeSessions
-	results map[string]StoredToolResult
+	results map[string]model.StoredToolResult
 }
 
-func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error) {
+func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error) {
 	return nil, nil
 }
 
-func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error) {
+func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model.StoredToolResult, error) {
 	if result, ok := f.results[ref]; ok {
 		return result, nil
 	}
-	return StoredToolResult{}, errors.New("stored tool result not found")
+	return model.StoredToolResult{}, errors.New("stored tool result not found")
 }
 
 // TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
 // 经 SaveCommitWorkspace 持久化（ToolResults 通道，ref = compressed:<segment_id>）。
 func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
-	store := &fakeCommitSession{}
+	st := &fakeCommitSession{}
 	archiver := &CompressedTurnArchiver{
-		Sessions:          store,
+		Sessions:          st,
 		SessionIDProvider: func() string { return "session-1" },
 	}
 	messages := []types.Message{
@@ -105,10 +103,10 @@ func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 	if ref != "compressed:compact-sess-123" {
 		t.Fatalf("ref = %q, want compressed:compact-sess-123", ref)
 	}
-	if len(store.commits) != 1 || len(store.commits[0].ToolResults) != 1 {
-		t.Fatalf("commits = %+v, want 1 commit with 1 tool result", store.commits)
+	if len(st.commits) != 1 || len(st.commits[0].ToolResults) != 1 {
+		t.Fatalf("commits = %+v, want 1 commit with 1 tool result", st.commits)
 	}
-	result := store.commits[0].ToolResults[0]
+	result := st.commits[0].ToolResults[0]
 	if result.Ref != ref || result.Tool != "compact_frame" {
 		t.Fatalf("tool result = %+v, want ref %q tool compact_frame", result, ref)
 	}
@@ -119,8 +117,8 @@ func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 	if len(decoded) != 2 || *decoded[0].Content != "审计上下文压缩" {
 		t.Fatalf("decoded messages = %+v", decoded)
 	}
-	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-1" {
-		t.Fatalf("commit session IDs = %+v, want [session-1] (provider fallback)", store.commitSessionIDs)
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-1" {
+		t.Fatalf("commit session IDs = %+v, want [session-1] (provider fallback)", st.commitSessionIDs)
 	}
 }
 
@@ -128,11 +126,11 @@ func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 // 后台会话压缩出的轮次原文必须按 ctx 携带的会话 ID 落盘，绝不落入 provider
 // 返回的视图会话 —— provider 只允许在 ctx 未注入时兜底。
 func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
-	store := &fakeCommitSession{}
+	st := &fakeCommitSession{}
 	archiver := &CompressedTurnArchiver{
-		Sessions: store,
+		Sessions: st,
 		SessionIDProvider: func() string {
-			store.providerCalls++
+			st.providerCalls++
 			return "session-view"
 		},
 	}
@@ -145,22 +143,22 @@ func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
 	if ref != "compressed:seg-bg-1" {
 		t.Fatalf("ref = %q, want compressed:seg-bg-1", ref)
 	}
-	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-background" {
-		t.Fatalf("commit session IDs = %+v, want [session-background] (ctx 优先)", store.commitSessionIDs)
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-background" {
+		t.Fatalf("commit session IDs = %+v, want [session-background] (ctx 优先)", st.commitSessionIDs)
 	}
-	if store.providerCalls != 0 {
-		t.Fatalf("provider consulted %d time(s) though ctx carried the session ID", store.providerCalls)
+	if st.providerCalls != 0 {
+		t.Fatalf("provider consulted %d time(s) though ctx carried the session ID", st.providerCalls)
 	}
 }
 
 // TestCompressedTurnArchiverFallsBackToProviderWithoutContext 无 ctx 注入时
 // （装配期预热、非回合路径）provider 兜底仍可用。
 func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
-	store := &fakeCommitSession{}
+	st := &fakeCommitSession{}
 	archiver := &CompressedTurnArchiver{
-		Sessions: store,
+		Sessions: st,
 		SessionIDProvider: func() string {
-			store.providerCalls++
+			st.providerCalls++
 			return "session-view"
 		},
 	}
@@ -168,25 +166,25 @@ func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
 	if _, err := archiver.StoreTurn(context.Background(), "seg-warm", messages); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-view" {
-		t.Fatalf("commit session IDs = %+v, want [session-view] (provider 兜底)", store.commitSessionIDs)
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-view" {
+		t.Fatalf("commit session IDs = %+v, want [session-view] (provider 兜底)", st.commitSessionIDs)
 	}
-	if store.providerCalls != 1 {
-		t.Fatalf("provider calls = %d, want 1", store.providerCalls)
+	if st.providerCalls != 1 {
+		t.Fatalf("provider calls = %d, want 1", st.providerCalls)
 	}
 }
 
 // TestCompressedTurnArchiverRejectsWithoutSessionID ctx 与 provider 都拿不到
 // 会话 ID 时压缩不得落盘（宁可失败也不猜归属）。
 func TestCompressedTurnArchiverRejectsWithoutSessionID(t *testing.T) {
-	store := &fakeCommitSession{}
-	archiver := &CompressedTurnArchiver{Sessions: store}
+	st := &fakeCommitSession{}
+	archiver := &CompressedTurnArchiver{Sessions: st}
 	messages := []types.Message{{Role: "user", Content: testStringPtr("无归属压缩")}}
 	if _, err := archiver.StoreTurn(context.Background(), "seg-orphan", messages); err == nil {
 		t.Fatal("compression without a routable session ID must fail")
 	}
-	if len(store.commits) != 0 {
-		t.Fatalf("commits = %+v, want none when session ID is unavailable", store.commits)
+	if len(st.commits) != 0 {
+		t.Fatalf("commits = %+v, want none when session ID is unavailable", st.commits)
 	}
 }
 
@@ -204,10 +202,10 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &fakeTranscriptSession{results: map[string]StoredToolResult{
+	st := &fakeTranscriptSession{results: map[string]model.StoredToolResult{
 		"compressed:compact-sess-9": {ToolResultRef: model.ToolResultRef{Ref: "compressed:compact-sess-9"}, Content: string(encoded)},
 	}}
-	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(store))
+	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(st))
 
 	args, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9"})
 	page, err := service.ReadCompressedTurnHandler(context.Background(), string(args))

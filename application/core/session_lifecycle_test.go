@@ -8,10 +8,10 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 // TestResumeRunningSessionAllowsHotAttach（TC-A3-01 新语义）：运行中会话
@@ -145,15 +145,15 @@ func TestHotAttachNoReplay(t *testing.T) {
 // 视图 scope、任务运行时、引擎实例）；重开走 cold_load 恢复。
 func TestUnloadReleasesScope(t *testing.T) {
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      "sess-unload",
-			Title:   SessionTitle{Value: "Unload me", Source: "user"},
-			Conversation: ConversationRecord{Messages: []Message{
+			Title:   model.SessionTitle{Value: "Unload me", Source: "user"},
+			Conversation: model.ConversationRecord{Messages: []model.Message{
 				{ID: "u-1", Role: "user", Content: "persisted content"},
 			}},
 		},
-		transcript: []TranscriptEvent{
+		transcript: []model.TranscriptEvent{
 			{Seq: 1, TaskID: "req-1", Role: "user", Content: "persisted content", TokenCount: 4},
 		},
 	}
@@ -227,7 +227,7 @@ func TestUnloadRejectsRunningSession(t *testing.T) {
 	}
 }
 
-func containsMessageContent(messages []Message, needle string) bool {
+func containsMessageContent(messages []model.Message, needle string) bool {
 	for _, message := range messages {
 		if message.Content == needle {
 			return true
@@ -236,7 +236,7 @@ func containsMessageContent(messages []Message, needle string) bool {
 	return false
 }
 
-func conversationTextsForTest(conversation []Message) []string {
+func conversationTextsForTest(conversation []model.Message) []string {
 	texts := make([]string, 0, len(conversation))
 	for _, message := range conversation {
 		texts = append(texts, message.Role+":"+message.Content)

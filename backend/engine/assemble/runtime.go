@@ -1,0 +1,982 @@
+// Package seelebridge adapts Seele framework primitives to stable Seelex APIs.
+package assemble
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/accountpool"
+	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/Seele/agent/bridge"
+	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/Seele/jobs"
+	"github.com/RedHuang-0622/Seele/seelectx"
+	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/telemetry"
+	"github.com/RedHuang-0622/Seele/types"
+	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
+
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
+	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/backend/tool/fork"
+	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
+	toolmedia "github.com/RedHuang-0622/seelex/backend/tool/io/media"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
+	"github.com/RedHuang-0622/seelex/backend/tool/task"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/config"
+	"github.com/RedHuang-0622/seelex/internal/docker"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/store"
+	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
+)
+
+type RuntimeConfig struct {
+	MaxReplanProviderRequests int
+	MaxConcurrentReplans      int
+	MaxReplansPerWindow       int
+	ReplanWindow              time.Duration
+	PlanDecisionTimeout       time.Duration
+	AccountsPath              string // LLM 账号配置路径
+	StorePath                 string // 会话存储目录（空 = 不持久化）
+	// ScheduledTasksPath 是定时任务定义的**全局** JSONL 路径（空 = 不持久化：
+	// 任务只活在进程内）。它是进程级通道，与项目/会话存储刻意分开。
+	ScheduledTasksPath  string
+	ToolCallTimeout     time.Duration // 工具调用超时
+	ApprovalTimeout     time.Duration // 审批等待超时
+	HeartbeatInterval   time.Duration // workplan 心跳间隔
+	HubStartupDelay     time.Duration // Hub 启动等待时间
+	SubagentMailboxSize int           // 子代理 merge-back 有界邮箱容量
+	// SubagentLiveWindow 是 node 第一视角实时回放窗口上限（超出丢最旧）。
+	// 0 → 默认 512（subagentLiveHistoryCap）；<50 → 50（窗口至少要装得下一页）。
+	SubagentLiveWindow int                    // 实时回放窗口上限（见 runtime_live.go 的读法）
+	WindowConfig       seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
+	Limits             limit.Limits           // 运行时上限（seele.yaml limits 段；零值 = 默认）
+	// AccountWindows 是**按账号**覆盖的上下文窗口（token；键 = 账号名）。它来自宿主
+	// 的界面覆盖层（数据根 runtime-limits.json，落点与读写见 backend/limit/overlay/README.md）——界面
+	// 「设置 → 账号」改的就是它。优先级：账号级覆盖 > Limits.ContextWindow（seelex.yaml
+	// 的全局值）> 账号档自报值；空/0 = 该账号没被单独设过。
+	AccountWindows map[string]int
+}
+type Runtime struct {
+	registry  *toolreg.RegistryState
+	pool      *accountpool.P2CPool[agent.Completer]
+	completer agent.Completer
+	streamer  agent.StreamCompleter
+	// media 是媒体域（会话媒体落盘 + 待随图队列），实现见
+	// backend/tool/io/media；本结构只持有它并由拓扑序决定包装位置。
+	media *toolmedia.SessionMedia
+	agt   *agent.Agent
+
+	// 会话槽化（决策契约 §决策契约 1/2）：每个逻辑会话一个独立 bundle
+	// （Session + 锁 + 绑定状态），runtime 生成与生命周期会话粒度且不
+	// 传播；fork 子会话走「新建 bundle + 数据面拷贝」。bundlesMu 只保护
+	// 注册表与 activeSessionID；bundle 内部 mu 保护单会话状态。单飞门控
+	// 期间 application 层保证同一时刻只有一个运行中会话，activeSessionID
+	// 提供“当前会话”向后兼容语义。
+	bundles         map[string]*sessionBundle
+	bundlesMu       sync.RWMutex
+	activeSessionID string
+	// 跨会话共享装配（决策契约 §5：保留共享，按会话路由）：存储路由、
+	// 轮次归档器与项目知识提供者。
+	historyRouterMu sync.RWMutex
+	historyRouter   *store.Router
+	turnArchiverMu  sync.RWMutex
+	turnArchiver    seelexctx.TurnArchiver
+	projectMu       sync.RWMutex
+	project         func() *store.ProjectRecord
+
+	// 遥测（slice 8）：内存追踪器 + 生命周期钩子。会话级 llm/tool
+	// intent-effect 事件经 hook 写入 tracer；GUI/TUI 的 trace 视图经
+	// tracer.Query 读取（enginePort.TraceText / TokenCount）。
+	tracer *telemetry.MemoryTracer
+	hook   telemetry.Hook
+	// summaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
+	// 内存 append-only + 经 SetEventPersister 与 A 类事实同库持久化
+	// （events_unified.go；形态见 06-unified-event-store-decision.md）。
+	summaryLog *SummaryLog
+
+	// servedRoute 是每会话最近一次请求的**实际承接路由注册表**（P21-3 下沉到
+	// `backend/engine/account.ServedRouteRegistry`；streamingAccount-
+	// Completer 的观察者覆盖写入；request/failover 事实都算数——最终承接账号
+	// 覆盖前面的尝试）。application 在回合收尾经 RuntimePort.TakeServedRoute
+	// 取走（读即清）并回填 assistant 消息真相源。主链路（NodeID 空）才记录。
+	servedRoute *account.ServedRouteRegistry
+
+	model string
+	// startupWarnings 是启动期非致命配置警告（如 accounts.yaml 解析失败、
+	// 未配置任何角色），由装配层在界面展示；不影响 Runtime 启动。
+	startupWarnings []string
+
+	// MCPStack 记录所有 MCP 调用的 trace（熔断事件 + 调用记录）。
+	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
+	MCPStack *mcpstack.MCPStack
+
+	mcpManager           *mcp.Manager               // MCP 服务器生命周期（mcp/ 域）
+	agentFactory         frameworknode.AgentFactory // 子代理会话工厂（fork / workunit 共用）
+	subagentPolicyMu     sync.RWMutex
+	subagentPolicy       dto.SubagentPolicy            // 子代理执行策略默认槽（effort 档位写入）
+	subagentPolicyBySID  map[string]dto.SubagentPolicy // 会话级策略槽（后台会话不继承视图会话）
+	accounts             *account.Manager              // 账号路由状态（account/ 域）：选中账号/provider/限额
+	visibilityPolicy     *toolreg.Policy               // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
+	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
+	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
+	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
+	// 串行处理），替代原来的 parentEvidenceMu / subagentOverflowMu 两把锁。
+	subagentContext *subagentsession.SubagentContextActor
+	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
+	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
+	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构。
+	//
+	// 用 atomic.Pointer 而不是裸字段：它有两个读面——子代理的 skill 块（经
+	// SetSkillRegistry → node.SetSkills）与**员工回合的技能目录**（按会话装配的
+	// 集合，每轮现算）。两者都在并发回合里读，装配点又在启动期，裸字段是数据竞争。
+	skills atomic.Pointer[skill.Registry]
+	// rolePrompt 是"已装配员工提示词"的读面（装配根在首次会话启动前注入）：
+	// ADVISOR 回合用它取用户在 Agent Team 面板里登记的提示词；未注入或未登记
+	// 时回退内置提示词。读面只读角色注册表，不建环、不改任何事实。
+	rolePromptMu sync.RWMutex
+	rolePrompt   func(roleName string) string
+	// rolePlugins 是"角色自带的插件装配"读面（RoleSpec.Plugins，召唤路径）：与
+	// rolePrompt 同构的一次注入只读面，见 runtime_role_plugins.go。
+	rolePluginsMu sync.RWMutex
+	rolePlugins   func(roleName string) []string
+
+	projectScope *security.ProjectScope
+	filesystem   fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox      security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
+	dockerProbe  docker.Prober             // docker 守护进程探测/启动（零值 → 真实实现；测试注入）
+	node         *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
+	worktreeMgr  *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
+	forkTool     *fork.Tool                // fork_subagents 执行编排（fork/ 域）
+	forkMu       sync.Mutex
+	forkActive   map[string]int     // 会话 → 进行中的 fork 数（ForkBegin/ForkEnd 维护）
+	tasks        *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
+	scheduler    *schedule.State    // 定时周期任务 actor（scheduler/ 域）
+	toolEvents   *subagentsession.ToolEventState
+	// live 是**子代理第一视角实时流分发器**（P21-2「域方法随类型走」下沉到
+	// `backend/multiagent/subagent` 的 `LiveDispatcher`）：状态、广播循环、事件源接线与
+	// 分页读法都在域包，本层只持有句柄并做一行薄转发。
+	live *subagentsession.LiveDispatcher
+	// subagentLiveWindow 是实时回放窗口上限的**配置值**（RuntimeConfig.SubagentLiveWindow）：
+	// 读法与写入点都经 subagentLiveWindowSize() 归一化（0 → 默认 512），因此零值 Runtime
+	// （测试直接构造）也拿到默认窗口，不会把窗口剪成 0。
+	subagentLiveWindow int
+
+	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
+	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
+	// node:<nodeID>: 前缀工具结果归档器由组件托管，运行中/结束后均可读回。
+	subagentSessions *subagentsession.SubagentSessions
+	// subagentSessionFactory 是**子代理独立会话的工厂**（P21-5 下沉到
+	// `backend/multiagent/subagent.SessionFactory`）：组件模板由本层装配后经函数值端口注入，
+	// 域包只管本次会话专属的四格；本层只持有句柄并做一行薄转发。
+	subagentSessionFactory *subagentsession.SessionFactory
+	// requestLog 是 LLM 请求记录中间件（SEELEX_REQUEST_LOG 门控；nil =
+	// 关闭）。包装 Completer/StreamCompleter，把每次真实请求的顺序与内容
+	// 指纹落 JSONL，供 headless 冒烟做「请求顺序 ↔ 存储内容」匹配。
+	requestLog *obs.RequestLogger
+	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
+	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
+	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
+	subagentTree        *subagentsession.SubagentTree
+	toolCallTimeout     time.Duration
+	bashObserverMu      sync.RWMutex
+	bashObserver        toolreg.BashDiagnosticObserver
+	planDecisionTimeout time.Duration
+	approvalTimeout     time.Duration
+	heartbeatInterval   time.Duration
+	limits              limit.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
+	// 每账号上下文窗口覆盖（界面设置面）。P21-8：状态与判据在账号域
+	// （account.WindowOverlay），本层只持句柄、只做薄转发。
+	accountWindows   *account.WindowOverlay
+	scopedToolsReady bool
+	scopedTools      *toolreg.Router // 后台命令执行域（会话销毁即杀的入口）
+	lifecycle        []func()        // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	shutdownOnce     sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
+
+	plugins *visibility.Manager // 插件可见性配置（plugin/ 域）
+
+	permission *toolreg.PermissionGate
+
+	// 角色回合执行面（runtime_role_turn.go）：角色会话 → 引擎槽。与主会话 bundles
+	// 分离——角色回合是派生的、可丢弃的执行面，不该进活跃会话/持久化路由。
+	roleTurnsMu sync.Mutex
+	roleTurns   *roleTurnState
+	// roleToolObserver 是**员工回合**里工具活动的观察者（`SubagentToolCallback` 的
+	// 对称面）：子代理的工具调用经 `session.ToolEventState` 中间件投影成实时事件，
+	// 员工回合此前没有任何出口——本字段补上那一格。装配期经 SetRoleToolCallback
+	// 写入一次，回合内只读；nil = 没人订阅（零成本 no-op）。
+	roleToolMu       sync.Mutex
+	roleToolObserver func(dto.RoleToolActivity)
+
+	// teamwork 编排面（runtime_teamwork.go）：leader 的硬编排工具（team_*）与
+	// jobs 作业面。backend 由组合根注入（PlanStore + KeyFor）；未注入 = **不注册**
+	// 这族工具（有就有、没有就是没装配，而不是注册一堆永远报错的空壳）。
+	teamworkMu      sync.Mutex
+	teamworkBackend *TeamworkBackend
+	teamworkJobs    jobs.Manager
+	teamworkCoords  map[store.Key]*teamwork.Coordinator
+	// teamworkJobSignals / teamworkJobEvents 是 teammate 作业信号口的一次扇出与
+	// application 侧那条订阅（见 teamwork_job_signals.go）：上游 jobs.Manager.Events()
+	// 是单接收者通道，而"事件投影"与"终态触发回合"两个读侧动作都要跟着它走。
+	teamworkJobSignals *teamworkJobSignals
+	teamworkJobEvents  <-chan struct{}
+	// teamworkBoardCache 是「计划 + 审计」的按会话缓存（见 runtime_teamwork_board.go）：
+	// 会话快照是高频采集路径，不允许每次都做 O(events) 的文件读；team_* 工具成功
+	// 返回后失效（作业行不进缓存——jobs.Manager.Snapshot 是内存读，随取随新）。
+	teamworkBoardCache map[store.Key]teamworkBoardSnapshotCache
+
+	// 上下文控制接线（seelebridge/context_components.go）：
+	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
+	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。
+	windowMu sync.RWMutex
+	window   seelexctx.WindowPolicy
+	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
+	// 见 store.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
+	// 写走 `unitRecordWriter`（责任链：子代理那一环写身份 → 末端落盘），teammate 那一层
+	// 在同一条链上再加一环；读与删除仍走 `nodeSessionStore`。
+	nodeSessionStore *store.NodeSessionStore
+	// unitRecordWriter 是本进程会话记录的**写入链**（子代理那一环已装好）；未装配 = nil。
+	unitRecordWriter *store.NodeSessionRecordWriter
+	// subagentResume 保存中断子代理恢复期的状态：节点 → system 恢复说明
+	// （仅该节点的下一次装配读取）与父侧历史补齐钩子。见
+	// runtime_subagent_resume.go。
+	subagentResume subagentResumeState
+	// teamResume 保存 teammate 单元中断恢复期的 system 恢复说明（角色会话 →
+	// 说明；只进它自己的下一次装配，读完即消）。**容器只有一份**（workunit.ResumeNotes，
+	// 见 resume_notes.go）；正文也只有一份（见 workunit_team_records.go 的
+	// `workunit.RecoveryNote` 接线）。
+	teamResume       workunit.ResumeNotes
+	eventPersisterMu sync.Mutex
+	eventPersister   func(context.Context, frameworkevent.Event) error
+	lazyMCPServerMu  sync.RWMutex
+	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
+
+	// taskLedger 是 task **台账域**（跨会话工作表格读面 + 会话 scope 分区 +
+	// 会话级批次）：状态与判据都在 backend/engine/task.Ledger，宿主是下面的
+	// tasks 注册表——注册表结构上满足 LedgerHost，构造时注入（R11-task）。
+	taskLedger *task_context.Ledger
+	// compactionStack 是**装配层压缩推帧接收侧**（`backend/engine/context` 的
+	// `CompactionStack`；P21 从 `runtime_compaction_index.go` 下沉）：状态在宿主注入的
+	// 会话上下文存储上，本层只持有句柄并做一行薄转发。
+	compactionStack *context_runtime.CompactionStack
+	// sessionWorkspaces 是 application 通知的会话绑定 workspace（framework
+	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
+	sessionWorkspacesMu sync.RWMutex
+	sessionWorkspaces   map[string]string
+}
+
+// MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
+func (r *Runtime) MainSessionID() string {
+	if r == nil {
+		return ""
+	}
+	r.bundlesMu.RLock()
+	defer r.bundlesMu.RUnlock()
+	return r.activeSessionID
+}
+
+// SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
+// 注入后窗口外压缩会把溢出轮次原文持久化，帧 Evidence 携带读回句柄，
+// 模型可经 read_compressed_turn 工具读回（压缩丢失可逆）。
+func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver) {
+	r.turnArchiverMu.Lock()
+	r.turnArchiver = archiver
+	r.turnArchiverMu.Unlock()
+}
+
+// Account 账号路由摘要（域本体在 account/）。
+type Account = account.Account
+type Tool struct {
+	Name        string
+	Description string
+}
+
+func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
+	planDecisionTimeout := cfg.PlanDecisionTimeout
+	if planDecisionTimeout <= 0 {
+		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
+	}
+	// 配置容错：accounts.yaml 解析失败/未配置角色时退回内置兜底账号并记录
+	// 启动警告，应用照常启动（错误原因由界面展示），而不是启动即退出。
+	loaded, accountsErr := config.LoadTolerant(cfg.AccountsPath)
+	var startupWarnings []string
+	if accountsErr != nil {
+		startupWarnings = append(startupWarnings,
+			"账号配置异常，已使用内置兜底账号: "+accountsErr.Error())
+	}
+	if len(loaded.Specs) == 0 {
+		return nil, fmt.Errorf("seelex: accounts configuration is empty")
+	}
+
+	// 1. 账号池：accountpool.P2CPool[agent.Completer]（P2C 租约）
+	pool := accountpool.New[agent.Completer]()
+	if err := account.RegisterAccounts(pool, loaded.Specs); err != nil {
+		return nil, err
+	}
+	first := loaded.Specs[0]
+
+	// 遥测装配：内存追踪器 + 生命周期钩子（llm/tool intent-effect 事件）。
+	tracer := seeletelemetry.NewTracer()
+	hook, err := seeletelemetry.NewLifecycleHook(tracer)
+	if err != nil {
+		return nil, fmt.Errorf("seelex: create lifecycle hook: %w", err)
+	}
+
+	mcpStackOpts := []mcpstack.Option{
+		mcpstack.WithSessionID(fmt.Sprintf("mcp-%d", time.Now().Unix())),
+	}
+	if cfg.StorePath != "" {
+		mcpStackOpts = append(mcpStackOpts,
+			mcpstack.WithAutoSave(filepath.Join(cfg.StorePath, "mcp-traces.json")))
+	}
+
+	approvalTimeout := cfg.ApprovalTimeout
+	if approvalTimeout <= 0 {
+		approvalTimeout = time.Duration(cfg.Limits.WithDefaults().ApprovalTimeoutSec) * time.Second
+	}
+	heartbeatInterval := cfg.HeartbeatInterval
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = time.Duration(cfg.Limits.WithDefaults().HeartbeatIntervalSec) * time.Second
+	}
+	r := &Runtime{
+		pool:         pool,
+		model:        first.Model,
+		MCPStack:     mcpstack.New(mcpStackOpts...),
+		projectScope: security.NewProjectScope(),
+		filesystem:   fs.NewFileSystemActor(),
+		sandbox:      security.NewNativeProjectCWD(),
+		tasks:        task.NewTaskRegistry(),
+		// 定时任务定义走**全局** JSONL（与项目/会话存储分开；空路径 = 不持久化）。
+		scheduler:           schedule.NewStateWithStore(storeschedule.NewFileStore(cfg.ScheduledTasksPath)),
+		toolEvents:          subagentsession.NewToolEventState(),
+		subagentLiveWindow:  cfg.SubagentLiveWindow,
+		toolCallTimeout:     cfg.ToolCallTimeout,
+		planDecisionTimeout: planDecisionTimeout,
+		approvalTimeout:     approvalTimeout,
+		heartbeatInterval:   heartbeatInterval,
+		limits:              cfg.Limits.WithDefaults(),
+		accountWindows:      account.NewWindowOverlay(cfg.AccountWindows),
+		plugins:             visibility.NewManager(),
+		permission: &toolreg.PermissionGate{
+			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
+			SessionFromContext: seeletelemetry.SessionIDFromContext,
+		},
+		subagentSessions: subagentsession.NewSubagentSessions(tracer),
+		forkActive:       map[string]int{},
+		subagentTree:     subagentsession.NewSubagentTree(tracer),
+		subagentContext:  subagentsession.NewSubagentContextActor(tracer),
+
+		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:            tracer,
+		hook:              hook,
+		summaryLog:        NewSummaryLog(),
+		bundles:           make(map[string]*sessionBundle),
+		sessionWorkspaces: make(map[string]string),
+		startupWarnings:   startupWarnings,
+	}
+	// task 台账域（跨会话工作表格 + 会话 scope 分区 + 会话级批次）：宿主就是
+	// task 注册表本身——它结构上满足 LedgerHost（见该包的编译期钉子），所以
+	// 这里没有适配层，也不把台账判据留在组合根。
+	r.taskLedger = task_context.NewLedger(r.tasks)
+	// 压缩推帧接收侧（域包 `backend/engine/context`）：四个读取面都是本包私有访问器，
+	// 故按函数值端口注入（域包不能反向依赖装配层）。
+	r.compactionStack = context_runtime.NewCompactionStack(context_runtime.CompactionStackDeps{
+		Store:      r.sessionContextStore,
+		DAG:        r.MainCompactionDAG,
+		Summarizer: r.compactionSummarizer,
+		Archiver:   r.getTurnArchiver,
+	})
+	// 路由事实注册表（域包 `backend/engine/account`）：只差一个摘要落点，
+	// 装配期把"写 B 类摘要"接上（`summaryLog` 可能为 nil ⇒ 域内判空后不记）。
+	r.servedRoute = account.NewServedRouteRegistry(account.ServedRouteDeps{
+		RecordSummary: func(event seeletelemetry.SummaryEvent) {
+			if r.summaryLog != nil {
+				r.summaryLog.RecordSummary(event)
+			}
+		},
+	})
+	// 子代理独立会话工厂（域包 `backend/multiagent/subagent`）：组件模板（Agent/Context/Telemetry）
+	// 由本层装配；本次会话专属的 Hooks/SessionID/ModelName/History 由域包补。
+	r.subagentSessionFactory = subagentsession.NewSessionFactory(subagentsession.SessionFactoryDeps{
+		Components: func() session.SessionComponents {
+			return session.SessionComponents{
+				Agent:     r.agt,
+				Context:   r.nodeContextComponents(),
+				Telemetry: r.hook,
+			}
+		},
+		ModelName:         func() string { return r.model },
+		HistoryRouter:     r.HistoryRouter,
+		WorkspaceResolver: r.sessionWorkspaceFor,
+		Registry:          r.subagentSessions,
+	})
+	// 实时流分发器（域包 `backend/multiagent/subagent`）：两个事件源走函数值端口，
+	// 窗口按域包的归一化判据取（配置读数仍是本层的 subagentLiveWindow）。
+	r.live = subagentsession.NewLiveDispatcher(r.subagentLiveWindow, subagentsession.LiveDispatcherDeps{
+		StageEvents: r.NodeStageEvents,
+		ToolEvents: func(fn func(subagentsession.SubagentToolEvent)) func() {
+			if r.toolEvents == nil {
+				return func() {}
+			}
+			return r.toolEvents.Subscribe(fn)
+		},
+	})
+	// 媒体域（待随图队列 + 会话媒体分区读写法）：宿主就是本 Runtime——它只经
+	// media.Host 的两格读面（HistoryRouter / SessionProjectID）回看状态。
+	r.media = toolmedia.New(r)
+	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
+	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
+	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
+	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
+	// 路径门在权限门之前（P1）：越界路径直接拒，不先弹一次没用的审批。
+	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout,
+		toolreg.PathGate(toolreg.Deps{ProjectScope: r.projectScope, SessionKey: seetelemetry.SessionIDFromContext}),
+		r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
+
+	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
+	if err := r.assembleCompleters(); err != nil {
+		return nil, err
+	}
+	// 请求记录中间件（诊断/冒烟，默认关闭）：SEELEX_REQUEST_LOG=<jsonl>
+	// 时包装 Completer/StreamCompleter，在 agent.NewWithComponents 前完成，
+	// 保证主会话、子代理与 QuickChat 辅助请求全部经过同一记录点。
+	if path := os.Getenv(obs.RequestLogEnv); path != "" {
+		logger, err := obs.OpenRequestLogger(path)
+		if err != nil {
+			return nil, fmt.Errorf("seelex: open request log %q: %w", path, err)
+		}
+		r.requestLog = logger
+		r.completer = obs.NewRequestLogCompleter(r.completer, logger)
+		r.streamer = obs.NewRequestLogStreamCompleter(r.streamer, logger)
+	}
+
+	// 3.1 待随图（截屏/看图 → 下一次请求随图）：包装在最靠近 provider 的一层，
+	//    且在 agent.NewWithComponents 之前——引擎按组件快照取 Completer。
+	r.wrapImageAttachments()
+
+	// 4. 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
+	// （GoalSkillActive 是运行期状态，闭包在 Dispatch 期求值；node 可能尚未
+	// 装配，nil 防护回退 false。）
+	r.visibilityPolicy = toolreg.NewPolicy(toolreg.PolicyDeps{
+		GoalSkillActive: func() bool {
+			if r.node == nil {
+				return false
+			}
+			return r.node.GoalSkillActive()
+		},
+		GoalActive: func() bool {
+			if projection := r.visibilityProjection.Load(); projection != nil {
+				if projection.GoalSkillActive {
+					return true
+				}
+				return projection.GoalGovernance != nil && projection.GoalGovernance.Active
+			}
+			return false
+		},
+		// 员工工具面：主体类解析与权限门同源（同一份 PermissionConfig + 同一个
+		// 角色会话读面），只对 emp_ro / emp_rw 生效。这里传闭包而不是
+		// r.permission.ToolFaceForContext 的方法值：方法值会把接收者在装配时
+		// 定住，一旦装配顺序调整（permission 后置）就会静默失效；闭包每次调用
+		// 现取字段，且 ToolFaceForContext 自带 nil 防护。
+		ToolFace: func(ctx context.Context, toolName string) bool {
+			return r.permission.ToolFaceForContext(ctx, toolName)
+		},
+		PluginFilter: r.plugins.Filter,
+		// 插件面收口（能力轴，**按会话装配**）：从本轮 ctx 解析装配集合，现算收窄
+		// 后的工具面。空集 = 不覆盖：早退到宿主全局装配（r.plugins.Filter），
+		// 与"插件缺失 = 今天的行为"逐字一致。
+		//
+		// 集合引用了**本进程未定义**的插件（root 撤销过 / 名字漂了）：不静默放宽
+		// （丢掉某份收窄就是放宽），也不假装收窄——显式失灵（空工具面），让下一次
+		// 派发/编排的显式校验报出来。这条只在"声明时合法、之后被撤"时才可能走到。
+		//
+		// 判据只有一份：pluginFaceJudgement（读数与运行面共用），所以回执里那个数
+		// **不会**与这里算出来的面相反（缺陷 C 修的就是"回执报满面、运行面为空"）。
+		PluginFace: func(ctx context.Context, tools []types.Tool) []types.Tool {
+			if r.plugins == nil {
+				return tools
+			}
+			return r.pluginFaceJudgement(toolreg.RolePluginsFromContext(ctx)).Face(tools)
+		},
+	})
+
+	// 5. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）
+	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.Registry,
+		bridge.WithVisibilityPolicy(r.visibilityPolicy.Filter),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("seelex: assemble tool runtime: %w", err)
+	}
+	agt, err := agent.NewWithComponents(agent.Components{
+		Completer:       r.completer,
+		StreamCompleter: r.streamer,
+		Tools:           runtimeAdapter,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seelex: create agent: %w", err)
+	}
+	r.agt = agt
+
+	// 6. 节点协调器：session/fork/task 经接口与闭包注入，域内不反向依赖 Runtime。
+	r.node = seenode.NewCoordinator(seenode.CoordinatorDeps{
+		Sessions: r.subagentSessions,
+		Tree:     r.subagentTree,
+		Tasks:    r.tasks,
+		Evidence: r.subagentContext.NodeParentEvidence,
+		Limits:   r.limits,
+		GoalSkillActive: func() bool {
+			if projection := r.visibilityProjection.Load(); projection != nil {
+				return projection.GoalSkillActive
+			}
+			return false
+		},
+		AccountLimits: r.currentAccountLimits,
+		InheritedBlocks: func() []seelectx.PromptBlock {
+			blocks := make([]seelectx.PromptBlock, 0, 2)
+			if project := r.projectBlock(); project != nil {
+				blocks = append(blocks, *project)
+			}
+			blocks = append(blocks, r.stackBlocks()...)
+			return blocks
+		},
+		RelatedMemory: r.relatedMemoryBlocks,
+		ResumeNote:    r.SubagentResumeNote,
+	})
+	// worktree 现场适配器：项目根经 deps 注入；重试与收尾分类在 workunit.Host，
+	// 组件不反向依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
+	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
+		Root: r.projectScope.Root,
+	})
+	r.forkTool = fork.NewTool(r.forkDeps())
+	// telemetry 钩子链统一由 Chain 组装（最外层→最内层，见
+	// internal/telemetry/chain.go）：
+	// 1) DiagnosticHook：bash 停滞诊断，bracket telemetry.After（这是工具
+	//    注册表返回与应用 ToolHookBridge 完成回调之间唯一的框架边界；
+	//    观察者未启用时保持惰性）。
+	// 2) StageHook：把 node 会话的 llm/tool telemetry 边界投影为同节点
+	//    分阶段日志（SceneScope 已在 AgentNode.Run 注入 ctx；主会话无
+	//    SceneScope 被过滤）。best-effort，绝不改变执行路径。
+	// 3) SummaryHook：B 类 llm/tool 脱敏摘要（统一事件库，
+	//    events_unified.go；best-effort）。
+	// 4) SessionTagHook：把 ctx 中的会话 ID 打到 telemetry attributes
+	//    上，trace 按会话隔离（INV-T1；查询经 SessionTracer 过滤）。
+	r.hook = seeletelemetry.Chain(r.hook,
+		seeletelemetry.SessionTagHook,
+		seeletelemetry.NewDiagnosticHook(r.observeBash),
+		seeletelemetry.NewStageHook(r.node),
+		seeletelemetry.NewSummaryHook(r.summaryLog),
+	)
+
+	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
+	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
+
+	// 10. 子代理工厂：bridge.NewAgentFactory（每条子代理独立 Session，
+	//    工作历史隔离；节点会话组件见 runtime_subagent.go）。
+	planAgentFactory, err := bridge.NewAgentFactory(agt,
+		bridge.WithSessionComponents(r.nodeSessionComponents()),
+		bridge.WithSessionID(r.nodeSessionID),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("seelex: create plan agent factory: %w", err)
+	}
+	r.agentFactory = planAgentFactory
+	// 生命周期登记（装配序；Shutdown 逆序关停）。只登记真实资源持有者；
+	// forkTool 无自有 goroutine，不登记。
+	r.lifecycle = nil
+	if r.tasks != nil {
+		r.lifecycle = append(r.lifecycle, r.tasks.Close)
+	}
+	if r.subagentContext != nil {
+		r.lifecycle = append(r.lifecycle, r.subagentContext.Close)
+	}
+	if r.subagentSessions != nil {
+		r.lifecycle = append(r.lifecycle, r.subagentSessions.Close)
+	}
+	if r.scheduler != nil {
+		r.lifecycle = append(r.lifecycle, r.scheduler.Stop)
+	}
+	if r.worktreeMgr != nil {
+		r.lifecycle = append(r.lifecycle, r.worktreeMgr.Close)
+	}
+	if r.node != nil {
+		r.lifecycle = append(r.lifecycle, r.node.Close)
+	}
+	if r.mcpManager != nil {
+		r.lifecycle = append(r.lifecycle, r.mcpManager.Close)
+	}
+	if r.agt != nil {
+		r.lifecycle = append(r.lifecycle, r.agt.Shutdown)
+	}
+	if r.requestLog != nil {
+		r.lifecycle = append(r.lifecycle, func() { _ = r.requestLog.Close() })
+	}
+	// node 第一视角实时流分发器**立即启动**：stage/tool 事件从子代理一开始
+	// 就进入每节点历史缓冲（即使 GUI 从未订阅），打开详情时回放不丢。
+	r.startLiveDispatcher()
+	return r, nil
+}
+
+// Agent returns the framework object used by session assembly.
+func (r *Runtime) Agent() *agent.Agent { return r.agt }
+
+// Session 返回当前主会话（尚未创建时返回 nil）。
+// 纯读：只 RLock（§2.14）——取写锁会让并发读面（CurrentSession 等）在装配/
+// 切换期间无谓串行，而这里并不改动 bundle 任何字段。
+func (r *Runtime) Session() *session.Session {
+	if bundle := r.activeBundle(); bundle != nil {
+		bundle.mu.RLock()
+		defer bundle.mu.RUnlock()
+		return bundle.session
+	}
+	return nil
+}
+
+// NewMainSession 按新装配模型（session.NewSession）构造主会话。
+// 每个逻辑会话（StartSession / resume）重建一个 Session，SessionID 为空时
+// 由 Seelex 生成。AttachHistoryRouter 已装配时，框架 working history 使用
+// 同一 SessionID 的 DurableHistory；完整 SessionRecord 仍由 Application
+// 的 Router SaveCommit 负责。
+func (r *Runtime) NewMainSession(hooks *session.LoopHooks) (*session.Session, error) {
+	return r.newMainSession("", hooks)
+}
+
+// NewMainSessionWithID keeps the framework Session identity aligned with the
+// application session key used by resume and durable storage.
+func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
+	return r.newMainSession(sessionID, hooks)
+}
+
+// AttachHistoryRouter installs the provider-history plane independently from
+// SessionContextStore, whose state blob has a different owner.
+func (r *Runtime) AttachHistoryRouter(router *store.Router) {
+	r.historyRouterMu.Lock()
+	r.historyRouter = router
+	r.historyRouterMu.Unlock()
+}
+
+// HistoryRouter 返回会话存储路由（装配后只读；未装配 nil）。
+//
+// 它是 `media.Host` 的一格：媒体域（backend/tool/io/media）按会话写/读媒体分区，
+// 需要一个拿路由的窄口。本包内部的其它消费点同样走它——一份实现，两个调用面。
+func (r *Runtime) HistoryRouter() *store.Router {
+	r.historyRouterMu.RLock()
+	defer r.historyRouterMu.RUnlock()
+	return r.historyRouter
+}
+
+// SessionProjectID 解析会话绑定的项目 id（未绑定 = ""）。
+//
+// 它是 `media.Host` 的另一格：媒体归属解析要知道"这个会话属于哪个项目"。刻意
+// 只暴露绑定本身（不读 Router 的活跃写作用域、不用主会话兜底），归属判定仍由
+// 媒体域自己那份实现负责。
+func (r *Runtime) SessionProjectID(sessionID string) string {
+	return r.sessionProjectIDFor(sessionID)
+}
+
+// wrapImageAttachments 把待随图包装挂到最靠近 provider 的一层。
+//
+// 位置是有意的（因此留在装配文件而不是媒体域里）：它必须在 request log 包装
+// **之内**（即先 log 再 wrap），这样 request log 记录下来的就是真正发出去的消息
+// ——包含图片的那条；同时必须在 agent.NewWithComponents 之前，引擎按组件快照取
+// Completer。包装本体由 media.SessionMedia 提供，这里只决定它挂在哪。
+func (r *Runtime) wrapImageAttachments() {
+	if r == nil {
+		return
+	}
+	r.completer, r.streamer = r.media.Wrap(r.completer, r.streamer)
+}
+
+// PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
+// application-assembled provider history to the next framework ChatStream.
+// Runtime owns only this cache; it never calls back into Application.
+func (r *Runtime) PrepareMainSessionHistory(sessionID string, messages []types.Message) bool {
+	if r == nil {
+		return false
+	}
+	r.bundlesMu.RLock()
+	bundle := r.bundles[sessionID]
+	r.bundlesMu.RUnlock()
+	if bundle == nil {
+		return false
+	}
+	return bundle.binding.prepareMainSessionHistory(sessionID, messages)
+}
+func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	}
+	// 会话槽化：目标会话 bundle 独立持有 Session/锁/绑定（新建即登记并
+	// 成为当前会话）。fork 子会话同样经此新建，不复制父 bundle。
+	bundle := r.bundleFor(sessionID)
+	bundle.mu.Lock()
+	defer bundle.mu.Unlock()
+	bundle.binding.setSessionID(sessionID)
+	if r.tasks != nil {
+		// 被动识别：主执行身份 = main:<mainSessionID>，task 创建默认继承并上名单。
+		_ = r.tasks.SetDefaultIdentity(dto.ActorIdentity("main", sessionID))
+	}
+	components := session.SessionComponents{
+		Agent:     r.agt,
+		Context:   r.mainContextComponents(),
+		Hooks:     hooks,
+		Telemetry: r.hook,
+		SessionID: sessionID,
+		ModelName: r.model,
+	}
+	// 滑动窗口加载区间（D1，plan.md §9）：装配 DurableHistory 并经
+	// SetTailBudget 注入窗口读尾预算——Session 每次 Chat 前 Load 只装载
+	// 窗口区间（token + 轮数），窗口外由 CompactStack 摘要承接。
+	// 未装配 Router 时保持框架内存 history——仅测试可用；生产装配点
+	// （main.go）始终在会话创建前 AttachHistoryRouter(store)，不会走到
+	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
+	if router := r.HistoryRouter(); router != nil {
+		history := store.NewDurableHistory(router, sessionID)
+		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
+		history.SetTailBudget(r.windowTailBudget())
+		// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
+		// （seelexctx/gap.go；压缩只随活跃期事件触发，会话结束后窗口外的
+		// 未压缩轮次会被尾窗装载丢弃——Load 时按尾窗起始单元下标，以完整
+		// 事件流补压合并帧）。
+		history.SetGapCoverer(r.coverHistoryGap)
+		components.History = history
+		bundle.binding.setMainHistory(history)
+	}
+	sess, err := session.NewSession(components)
+	if err != nil {
+		return nil, fmt.Errorf("seelex: create main session: %w", err)
+	}
+	bundle.session = sess
+	bundle.hooks = hooks
+	return sess, nil
+}
+
+// sessionWorkspaceFor 返回按会话 workspace 的解析闭包（framework
+// DurableHistory 落盘键；应用层经 SetSessionWorkspace 维护映射）。
+func (r *Runtime) sessionWorkspaceFor(sessionID string) func() string {
+	return func() string {
+		r.sessionWorkspacesMu.RLock()
+		defer r.sessionWorkspacesMu.RUnlock()
+		return r.sessionWorkspaces[sessionID]
+	}
+}
+func (r *Runtime) Shutdown() {
+	if r == nil {
+		return
+	}
+	r.shutdownOnce.Do(func() {
+		r.stopLiveDispatcher()
+		// 角色回合执行面是派生状态（引擎 + 内存历史）：重建即正确，收尾时释放。
+		r.ReleaseRoleSessions()
+		// 逆装配序统一关停（NewRuntime 登记）；幂等由本守卫保证。
+		for index := len(r.lifecycle) - 1; index >= 0; index-- {
+			if r.lifecycle[index] != nil {
+				r.lifecycle[index]()
+			}
+		}
+	})
+}
+
+// SetBashDiagnosticObserver installs an optional, best-effort diagnostic
+// observer for the project-scoped bash tool. Events contain no command text,
+// arguments, workdir, output, or account data, so a console logger can be
+// enabled while investigating a stalled tool call without exposing payloads.
+// Passing nil disables the observer.
+func (r *Runtime) SetBashDiagnosticObserver(observer toolreg.BashDiagnosticObserver) {
+	if r == nil {
+		return
+	}
+	r.bashObserverMu.Lock()
+	r.bashObserver = observer
+	r.bashObserverMu.Unlock()
+}
+func (r *Runtime) Model() string { return r.model }
+
+// StartupWarnings 返回启动期非致命配置警告（如 accounts.yaml 解析失败、
+// 未配置任何角色；已自动退回内置兜底账号）。装配层应把警告展示给用户，
+// 而不是让应用启动失败。
+func (r *Runtime) StartupWarnings() []string {
+	return append([]string(nil), r.startupWarnings...)
+}
+
+// Tracer 返回遥测内存追踪器（trace 视图查询源，见 seelebridge/trace.go）。
+// GUI/TUI 经 enginePort 查询（TraceText/TokenCount）；生命周期事件
+// （llm/tool intent-effect）由会话级 hook 写入。
+func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
+
+// SessionTracer 返回会话过滤的 trace 查询面（M1 INV-T2：查询只含该会话
+// span；数据源仍为同一 MemoryTracer，共享面不变）。
+func (r *Runtime) SessionTracer() *seeletelemetry.SessionTracer {
+	if r == nil {
+		return nil
+	}
+	return seeletelemetry.NewSessionTracer(r.tracer)
+}
+
+// CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。
+// 注意：仅在 ChatStream 之外读取（会话切换/装配）；运行中的子代理上下文
+// 访问会与主会话锁死锁，父证据/回传均走无锁旁路。
+func (r *Runtime) CurrentSession() *session.Session {
+	return r.Session()
+}
+
+// ContextWindow returns the effective context window of the selected account
+// (per-account overlay > limits.context_window > the account file's value; see
+// ContextWindowFor). Overrides only affect the window used for budget judgement —
+// the provider still enforces its own hard limit. It is distinct from
+// MaxOutputTokens, which caps a single response.
+func (r *Runtime) ContextWindow() int {
+	if r == nil {
+		return 0
+	}
+	if name := r.accounts.Selected(); name != "" {
+		return r.ContextWindowFor(name)
+	}
+	if r.limits.ContextWindow > 0 {
+		return r.limits.ContextWindow
+	}
+	return r.currentAccountLimits().ContextWindow
+}
+
+// MaxOutputTokens returns the configured maximum output for one model call.
+func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }
+
+// BindProjectRoot makes the supplied project the only root used by Seelex
+// filesystem tools as the process default (view session).
+func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
+
+// BindProjectRootFor 绑定指定会话自己的工具路径根（sessionID 为空 = 进程默认）。
+// 工具按执行 ctx 的会话键解析根（tools.Router.resolveNodePath），因此后台会话
+// 与并行会话各用自己的项目，不再借用视图会话的根。
+func (r *Runtime) BindProjectRootFor(sessionID, rootPath string) error {
+	return r.projectScope.BindFor(sessionID, rootPath)
+}
+
+// UnbindProjectRootFor 清空指定会话的工具路径根（会话解绑工作区/归档时）。
+func (r *Runtime) UnbindProjectRootFor(sessionID string) { r.projectScope.UnbindFor(sessionID) }
+
+// PerSessionExecution 声明宿主是否具备"逐会话执行"的全部前置条件。当前
+// 文件/搜索/bash 工具的项目根已按会话路由（BindProjectRootFor +
+// tools.Router 的 SessionKey 解析），但 **worktree 与 PathGuard 仍读进程级
+// projectScope.Root()**（子代理 worktree 由全局根创建，见 worktree_manager
+// 的 Root 闭包），因此这里仍返回 false：core 继续走全局项目根绑定 + 视图 key
+// 过渡锁语义（bindProjectRootIfSafe 保证后台运行中不重绑）。等 worktree/
+// PathGuard 每会话根落地后再改回 true。
+func (r *Runtime) PerSessionExecution() bool { return false }
+
+// ForkBegin 标记某会话进入 fork_subagents 执行（可嵌套，计数 +1）。
+func (r *Runtime) ForkBegin(sessionID string) {
+	if r == nil || sessionID == "" {
+		return
+	}
+	r.forkMu.Lock()
+	if r.forkActive == nil {
+		r.forkActive = map[string]int{}
+	}
+	r.forkActive[sessionID]++
+	r.forkMu.Unlock()
+}
+
+// ForkEnd 结束某会话的一次 fork 执行（计数 -1）。
+func (r *Runtime) ForkEnd(sessionID string) {
+	if r == nil || sessionID == "" {
+		return
+	}
+	r.forkMu.Lock()
+	if count := r.forkActive[sessionID]; count > 1 {
+		r.forkActive[sessionID] = count - 1
+	} else {
+		delete(r.forkActive, sessionID)
+	}
+	r.forkMu.Unlock()
+}
+
+// ForkInFlight 报告指定会话当前是否有 fork_subagents 正在执行。
+//
+// "在飞"有两段（2026-10-01 作业化之后）：**派发那一刻**（`forkSubagentsHandler` 的
+// ForkBegin/ForkEnd 包住的那一段）与**这一批子代理作业还在跑**的那一段。只数前一段
+// 会让 application 侧"fork 期间禁止同会话继续对话"（`ErrForkRunningChat`）静默失效——
+// 派发立刻返回，计数当场归零，而子代理其实还在同一个会话里跑。
+func (r *Runtime) ForkInFlight(sessionID string) bool {
+	if r == nil || sessionID == "" {
+		return false
+	}
+	r.forkMu.Lock()
+	dispatched := r.forkActive[sessionID] > 0
+	r.forkMu.Unlock()
+	if dispatched {
+		return true
+	}
+	if r.scopedTools == nil {
+		return false
+	}
+	return r.scopedTools.RunningSubagentJobsFor(sessionID) > 0
+}
+
+// UnbindProjectRoot makes filesystem and shell tools fail closed until a
+// project is selected.
+func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }
+func summarizeTools(tools []types.Tool) []Tool {
+	result := make([]Tool, 0, len(tools))
+	for _, tool := range tools {
+		result = append(result, Tool{
+			Name: tool.Function.Name, Description: tool.Function.Description,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+type runtimeBudgetProvider struct{ runtime *Runtime }
+
+func (p runtimeBudgetProvider) ContextTokens() int   { return p.runtime.ContextWindow() }
+func (p runtimeBudgetProvider) MaxOutputTokens() int { return p.runtime.MaxOutputTokens() }
+
+type runtimeCompactStacks struct {
+	runtime *Runtime
+	memory  seelexctx.CompactStackStore
+}
+
+func (s runtimeCompactStacks) Snapshot() store.SessionContextRecord {
+	if st := s.runtime.sessionContextStore(); st != nil {
+		return st.Snapshot()
+	}
+	return s.memory.Snapshot()
+}
+func (s runtimeCompactStacks) PushCompact(frame store.CompactFrame) error {
+	if st := s.runtime.sessionContextStore(); st != nil {
+		return st.PushCompact(frame)
+	}
+	return s.memory.PushCompact(frame)
+}
+
+var (
+	_ seelexctx.BudgetProvider  = runtimeBudgetProvider{}
+	_ session.ContextComponents = session.ContextComponents{}
+)
+
+type dockerProbe = docker.Prober
+type ()
+type NodeWorktree = worktree.NodeWorktree

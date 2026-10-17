@@ -24,19 +24,19 @@
 
 ### 2.1 契约在消费方，装配在组合根
 
-- 端口：`application/contract/ports.go`（`ChatEngine` / `RuntimePort` / `PluginPort` /
+- 端口：`contract/ports.go`（`ChatEngine` / `RuntimePort` / `PluginPort` /
   `SkillPort` / `SessionPort` / `WorkspacePort` / `ApprovalBroker` …）。
-- 实现：`internal/adapters/`、`seelebridge/`、`sessionstore/`、`workspace/`、`plugin/`。
+- 实现：`wiring/adapters/`、`seelebridge/`、`store/`、`workspace/`、`plugin/`。
 - 唯一装配点：`application/application.go` 的 `New(deps Dependencies) (*Service, error)`；
   组合根是 `main.go`。
-- 更严的一版：`seelebridge/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），
-  唯一实现是 `seelebridge/workunit_assembly.go` 的 `hostPorts`，并有机械门禁
+- 更严的一版：`backend/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），
+  唯一实现是 `backend/engine/assemble/workunit_assembly.go` 的 `hostPorts`，并有机械门禁
   `e2e/workunit_ports_test.go`（契约包 import 实现包零命中）。
 
 ### 2.2 员工执行面本身就是可替换的（本次问题的正面回答）
 
 ```go
-// seelebridge/runtime_role_turn.go:52
+// backend/engine/assemble/runtime_role_turn.go:52
 // roleEngine 是一个角色会话的引擎最小面。*session.Session 满足它；
 // 测试可注入假实现（角色回合的验收不需要真实 LLM）。
 type roleEngine interface {
@@ -49,9 +49,9 @@ type roleEngine interface {
 }
 ```
 
-注入点：`seelebridge/runtime_role_turn.go:216`
+注入点：`backend/engine/assemble/runtime_role_turn.go:216`
 `func (r *Runtime) SetRoleEngineFactory(factory func(sessionID string) (roleEngine, error))`；
-`seelebridge/README.md` 自陈用途之一是"**更严隔离面**"。
+`backend/engine/assemble/README.md` 自陈用途之一是"**更严隔离面**"。
 
 **这就是"远程员工节点"最干净的落点**：写一个 `remoteRoleEngine` 把 `ChatStream` 转发到另一台
 机器上的 Seelex，一个员工的工作回合就从"本机进程内引擎"变成"远端节点"。该接口只有 6 个方法、
@@ -66,14 +66,14 @@ type roleEngine interface {
 
 ## 3. computer use 本来就是"跨进程可用"的
 
-- `seelebridge/tools/computer/mcp/` 是**一个 stdio MCP 服务端**，明确服务于"外部宿主（Codex 之类）"；
+- `backend/tool/computer/mcp/` 是**一个 stdio MCP 服务端**，明确服务于"外部宿主（Codex 之类）"；
   原语层与"图像怎么进模型"解耦：Seelex 自己走会话媒体分区（`media:<hash>` 随下一次请求送），
-  MCP 面走 base64 内联（见 `seelebridge/tools/computer/README.md` 的两消费面对照表）。
+  MCP 面走 base64 内联（见 `backend/tool/computer/README.md` 的两消费面对照表）。
 - Seelex 作为 MCP **客户端**已支持远端：
   `vendor/github.com/RedHuang-0622/Seele/tools/mcp/provider.go:108-114`
   `case "stdio": NewStdioMCPClient(...)` / `case "sse": NewSSEMCPClient(cfg.URL)`；
   配置面 `config/mcp.example.yaml` 的 `transport: stdio | sse` + `url`。
-- 装配闸门：`seelebridge/runtime_computer.go`（`bridgecomputer.Supported()` +
+- 装配闸门：`backend/engine/assemble/runtime_computer.go`（`bridgecomputer.Supported()` +
   `SEELEX_COMPUTER_USE`），因此"注册不注册这族工具"是一个显式开关。
 - 权威实测方法学与判据：`docs/2026-09-25-linux-vm-demo/computer-use.md`（含 `xev` / `xdotool` 独立裁判法）。
 
@@ -85,13 +85,13 @@ type roleEngine interface {
 |---|---|---|---|
 | 1 | **Seelex 自己的包没有任何网络服务端** | `seelebridge/ application/ internal/ gui/ tui/ plugin/ mcpstack/ main.go` 下 `net.Listen` / `ListenAndServe` 零命中；`NewMCPServer` 全仓零命中；唯一的"服务端"是 `computer-mcp` 那个 stdio JSON-RPC | 远端节点要写服务端，或走 ssh 隧道复用 stdio |
 | 2 | **通道型端口不能跨进程** | `RuntimePort` 含 `AsyncRunEvents() <-chan struct{}`、`TaskChangedChannel() <-chan dto.TaskRecord`、`SubagentTreeEvents() <-chan struct{}`、`PlanNodeEventChannel() <-chan dto.PlanNodeEvent`、`SubscribeSubagentLive() (…, <-chan …, func(), error)`；`TeamworkJobCompletion.TeamworkJobEvents()` 同理 | **这是"别远程化 RuntimePort"的硬理由**；它另有几十个 `X` / `XFor(sessionID)` 成对方法，全带会话级内存所有权与锁纪律 |
-| 3 | **权限是进程内的** | 主体写在调度 ctx 上、不落共享字段（`docs/arch/agent-permission-subjects.md` §2.1）；`emp_<role>` 是本地权责表条目（`seelebridge/tools/permission_policy.go:194` `DefaultPermissionSubjects`） | 跨机之后需要**第二道**门："谁可以驱动这个节点"。现有员工权限管不到这条边界 |
-| 4 | **数据根是单进程锁** | `sessionstore/data_root_lock.go` + `data_root_lock_multiprocess_test.go` | 多节点**必须各自 data root**，汇聚只能走网络。这与"隔离"同向，不是障碍 |
+| 3 | **权限是进程内的** | 主体写在调度 ctx 上、不落共享字段（`docs/arch/agent-permission-subjects.md` §2.1）；`emp_<role>` 是本地权责表条目（`backend/tool/registry/permission_policy.go:194` `DefaultPermissionSubjects`） | 跨机之后需要**第二道**门："谁可以驱动这个节点"。现有员工权限管不到这条边界 |
+| 4 | **数据根是单进程锁** | `store/root/data_root_lock.go` + `data_root_lock_multiprocess_test.go` | 多节点**必须各自 data root**，汇聚只能走网络。这与"隔离"同向，不是障碍 |
 | 5 | **员工桌面输入位为零** | 见 §4.1 | "让员工随便用桌面"要重新裁决权限口径 |
 
 ### 4.1 员工今天在桌面上的实际权责（代码确认）
 
-`seelebridge/tools/permission_policy.go:194-232` 的 `DefaultPermissionSubjects`：
+`backend/tool/registry/permission_policy.go:194-232` 的 `DefaultPermissionSubjects`：
 
 | 主体 | ro | rw(project) | rw_session | **rw_desktop** | ctl | adm |
 |---|---|---|---|---|---|---|
@@ -150,7 +150,7 @@ L0 的暴露面即**已经写死在契约里的工具名 + JSON 参数**
 ## 7. 平台事实：三个桌面后端的能力对照（**含对早期误判的更正**）
 
 早期口径曾说"macOS 是三个后端里能力面最全的"。**这是错的**，按代码更正如下
-（`seelebridge/tools/computer/` 下各 `platform_*.go`）：
+（`backend/tool/computer/` 下各 `platform_*.go`）：
 
 | 能力 | Windows | macOS | Linux(X11) |
 |---|---|---|---|
@@ -240,7 +240,7 @@ Virtualization.framework），跑三个判据：
 
 **已确认（有代码或文档锚点）**
 
-- 依赖倒置三处缝：`application/contract/ports.go`、`seelebridge/runtime_role_turn.go:52,216`、
+- 依赖倒置三处缝：`contract/ports.go`、`backend/engine/assemble/runtime_role_turn.go:52,216`、
   `docs/arch/workunit-ports-and-assembly.md` §3。
 - `computer-mcp` 是 stdio MCP 服务端；MCP 客户端支持 SSE 远端（vendor `provider.go:108-114`）。
 - Seelex 自己的包无网络服务端（`net.Listen` / `ListenAndServe` / `NewMCPServer` 零命中）。

@@ -2,11 +2,11 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store/record"
 	"strings"
 	"sync"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/toolrecord"
 )
 
 // tool_record.go — **工具记录**（成功/失败计数 + 失败原因）的应用侧落点。
@@ -31,16 +31,16 @@ import (
 // 进程级一份会让"切会话后看到别人的读数"。
 type toolRecordAccumulators struct {
 	mu     sync.Mutex
-	byID   map[string]*toolrecord.Accumulator
+	byID   map[string]*record.Accumulator
 	loaded map[string]bool
 }
 
 func newToolRecordAccumulators() *toolRecordAccumulators {
-	return &toolRecordAccumulators{byID: map[string]*toolrecord.Accumulator{}, loaded: map[string]bool{}}
+	return &toolRecordAccumulators{byID: map[string]*record.Accumulator{}, loaded: map[string]bool{}}
 }
 
 // accumulator 取（必要时建）某会话的累计。
-func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.Accumulator {
+func (table *toolRecordAccumulators) accumulator(sessionID string) *record.Accumulator {
 	sessionID = strings.TrimSpace(sessionID)
 	if table == nil || sessionID == "" {
 		return nil
@@ -50,7 +50,7 @@ func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.A
 	if existing, ok := table.byID[sessionID]; ok {
 		return existing
 	}
-	created := toolrecord.NewAccumulator()
+	created := record.NewAccumulator()
 	table.byID[sessionID] = created
 	return created
 }
@@ -163,15 +163,15 @@ func (service *Service) loadToolRecord(sessionID string) {
 // SetToolRecordSnapshotStore 注入（或收回：传 nil）读数落盘口。
 //
 // 为什么不是 Deps 字段而是装配后注入：它依赖存储后端与工作区解析（会话 → 项目作用域），
-// 两者在装配顺序上都晚于 `application.New`（与 SetProjectBoardSink 同一处境）。
-func (service *Service) SetToolRecordSnapshotStore(store ToolRecordSnapshotStore) {
+// 两者在装配顺序上都晚于 `wiring.New`（与 SetProjectBoardSink 同一处境）。
+func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore) {
 	if service == nil || service.components.toolRecord == nil {
 		return
 	}
 	service.components.toolRecord.setSnapshotStore(store)
 }
 
-func (service *Service) toolRecordSnapshotStore() ToolRecordSnapshotStore {
+func (service *Service) toolRecordSnapshotStore() contract.ToolRecordSnapshotStore {
 	if service == nil || service.components.toolRecord == nil {
 		return nil
 	}
@@ -229,7 +229,7 @@ func (service *Service) ToolRecordBoard() dto.ToolRecordBoard {
 //
 // 退出码非零的原因归 `command-failed`（"这条命令失败了"是独立的一类修法：先看命令与 cwd，
 // 而不是看权限/入参/通道）。上报口 = 工具层既有的 `bash.process.exited` 诊断事件
-// （见 main.go 的 toolCommandOutcomeObserver：那条 stage 只由同步 bash 链发出）。
+// （见 wiring/bootstrap 的 toolCommandOutcomeObserver：那条 stage 只由同步 bash 链发出）。
 func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int) {
 	service.recordToolOutcome(sessionID, tool, exitCode != 0, fmt.Sprintf("exit code %d", exitCode))
 }

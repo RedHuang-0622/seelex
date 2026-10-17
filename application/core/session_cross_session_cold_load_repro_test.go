@@ -6,8 +6,8 @@ package core
 // 两条判据（各自的机理由源码给出，断言只认可观测量）：
 //
 //  1. 冷加载在**进程级视图过渡 key** 上读完整个磁盘才放手。
-//     生产宿主 seelebridge.Runtime.PerSessionExecution()==false
-//     （seelebridge/runtime.go:718），于是 service.transitionForSession
+//     生产宿主 assemble.Runtime.PerSessionExecution()==false
+//     （backend/engine/assemble/runtime.go:718），于是 service.transitionForSession
 //     （application/core/session_scope.go:37）一律回退 transitionForKey("")
 //     ——视图过渡锁是**全进程唯一**的一把。resumeSession
 //     （application/core/session_history.go:30）在持有这把锁期间调用
@@ -20,7 +20,7 @@ package core
 //  2. 后台冷加载即使**不激活视图**（mayActivate=false，视图已切回运行中的
 //     另一个会话），仍然无条件改写**进程级**执行面：Deps.Runtime.
 //     SwitchSessionTasks（把实时 task 注册表的 currentTaskSessionID 换成冷
-//     会话，见 seelebridge/ports.go:277）与 Deps.Runtime.ClearSubagentTree
+//     会话，见 backend/engine/assemble/ports.go:277）与 Deps.Runtime.ClearSubagentTree
 //     （清空全进程子代理树，session_history.go:404-405）。运行中会话的
 //     执行面因此被冷加载抢走。
 //
@@ -28,13 +28,14 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // gatedColdSessions 只在冷会话 "sess-cold" 的区间读上设门闩：冷加载一旦进入
@@ -51,13 +52,13 @@ func (sessions *gatedColdSessions) releaseNow() {
 	sessions.releaseOnce.Do(func() { close(sessions.release) })
 }
 
-func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	history, err := sessions.scopedSessions.LoadHistory(sessionID)
 	sessions.gate(sessionID)
 	return history, err
 }
 
-func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	rows, total, err := sessions.scopedSessions.LoadHistoryRange(sessionID, offset, limit)
 	sessions.gate(sessionID)
 	return rows, total, err
@@ -75,13 +76,13 @@ func newGatedColdSessions() *gatedColdSessions {
 	now := time.Now()
 	return &gatedColdSessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{
+			catalog: map[string][]model.SessionInfo{
 				"": {
 					{ID: "sess-cold", UpdatedAt: now},
 					{ID: "sess-b", UpdatedAt: now},
 				},
 			},
-			histories: map[string]map[string][]EngineMessage{
+			histories: map[string]map[string][]contract.EngineMessage{
 				"": {
 					"sess-cold": {
 						{Role: "user", Content: "cold-1"},
@@ -255,7 +256,7 @@ func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T) {
 	releaseEngineSession(engine, "sess-b")
 
 	if blocked {
-		t.Fatalf("红灯：A 冷加载在读盘期间攥着**进程级**视图过渡锁（seelebridge.Runtime.PerSessionExecution()==false → "+
+		t.Fatalf("红灯：A 冷加载在读盘期间攥着**进程级**视图过渡锁（assemble.Runtime.PerSessionExecution()==false → "+
 			"session_scope.go:37 回退 transitionForKey(\"\")），B 会话的提交（SubmitToSession→ActivateSession）整段排队，"+
 			"800ms 内没有受理——GUI 侧就是「另一个会话发不出消息/超时报错」。\n阻塞现场（相关 goroutine）：\n%s",
 			lateStacks)
@@ -311,7 +312,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 		t.Fatalf("红灯：A 的后台冷加载（视图已切回运行中的 B，mayActivate=false）抢走了进程级执行面："+
 			"实时 task 注册表归属会话=%q（want \"sess-b\"）、ClearSubagentTree 调用=%d 次（want 0）；"+
 			"调用序列=%v。\nsession_history.go:404-405 的 SwitchSessionTasks/ClearSubagentTree 在锁内无条件执行，"+
-			"seelebridge/ports.go:277 会把 currentTaskSessionID 换成冷会话、并把 B 的实时注册表写进分区快照；"+
+			"backend/engine/assemble/ports.go:277 会把 currentTaskSessionID 换成冷会话、并把 B 的实时注册表写进分区快照；"+
 			"ClearSubagentTree 清空的是**全进程**子代理树（GUI「清空」按钮的同一入口）。",
 			current, clearTreeHit, switches)
 	}

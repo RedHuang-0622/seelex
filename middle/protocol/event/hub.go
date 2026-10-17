@@ -1,0 +1,478 @@
+// Package event implements application event delivery.
+package event
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"sync"
+
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+)
+
+type EventKind string
+
+const (
+	EventSnapshotChanged       EventKind = "snapshot.changed"
+	EventMessageAdded          EventKind = "message.added"
+	EventMessageDelta          EventKind = "message.delta"
+	EventToolStarted           EventKind = "tool.started"
+	EventToolCompleted         EventKind = "tool.completed"
+	EventSubagentChanged       EventKind = "subagent.changed"
+	EventSubagentToolStarted   EventKind = "subagent.tool.started"
+	EventSubagentToolCompleted EventKind = "subagent.tool.completed"
+	EventRuntimeChanged        EventKind = "runtime.changed"
+	// EventChatChanged 下发会话权威聊天运行态（ChatState 载荷）：运行/排队是
+	// 后端口径，客户端不得从"收到增量事件"反推。
+	EventChatChanged       EventKind = "chat.changed"
+	EventWorkTableChanged  EventKind = "worktable.changed"
+	EventTaskChanged       EventKind = "task.changed"
+	EventInteractionOpened EventKind = "interaction.opened"
+	EventInteractionClosed EventKind = "interaction.closed"
+	EventError             EventKind = "error"
+	EventResyncRequired    EventKind = "resync.required"
+	EventExitRequested     EventKind = "app.exit_requested"
+	// EventTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员）。
+	// 载荷为空：团队面板的数据不在会话快照里（TUI 与 GUI 都按 RPC 拉取
+	// AgentTeamView），这条事件只作废客户端的**面板缓存**，不改变快照——因此
+	// 发布端用 revision=0（同 chat.changed 口径），否则"快照比事件新"的陈旧
+	// 判据会把它丢掉，而面板缓存并不随快照翻转。
+	EventTeamChanged EventKind = "team.changed"
+	// EventTeammateToolStarted / EventTeammateToolCompleted 通告"某个 teammate 在它
+	// 自己的角色会话里刚发起 / 收口了一次工具调用"（载荷 = dto.RoleToolActivity）。
+	//
+	// 它们是 subagent.tool.* 的**员工侧对称面**：子代理那条按 NodeID 落进 Plan 节点的
+	// 有界 tool_events（详情有权威投影可读）；员工这条**不落快照**——员工的权威记录在
+	// 角色会话里（AgentTeamRoleSnapshot 是读面），这里只送"它刚动了"这一件事。因此
+	// 与 team.changed 同口径用 revision=0：载荷不进快照，带 revision 会被"快照比事件新"
+	// 的陈旧判据吃掉，逐帧的进度就又退化成"等这一轮跑完才看得到"。
+	EventTeammateToolStarted   EventKind = "teammate.tool.started"
+	EventTeammateToolCompleted EventKind = "teammate.tool.completed"
+	// EventCompactionProgress 通告"一轮上下文压缩正在逐关收口"（判据估算→装配
+	// →替换 provider 历史→渲染帧→存帧→写记录），前端进度条据此推进。载荷不进
+	// 快照（压缩记录本身才进），因此与 team.changed 同口径用 revision=0：否则
+	// "快照比事件新"的陈旧判据会把中途的进度帧吃掉。终局（done/failed）后本轮
+	// 进度生命周期即结束。
+	EventCompactionProgress EventKind = "compaction.progress"
+	// EventViewSessionChanged 通告权威视图会话已被应用在内部切换（进程级、
+	// 空 sid，投递给所有订阅者）：运行中冷恢复失败把视图回退到切换前会话 /
+	// 草稿时，GUI Bridge 的事件订阅键仍钉在失败目标会话上，其订阅已永远
+	// 沉默——渲染层停在 restoring 空壳（输入框禁用）。订阅者收到本事件应
+	// 把订阅对齐到当前权威视图会话并重建，而不是把它当普通事件渲染。
+	EventViewSessionChanged EventKind = "view.session.changed"
+	// EventSessionsChanged 通告"某个会话的可见状态变了"（进程级、空 sid）：
+	// 状态 owner 是会话单元，显示面（会话目录 / 后台运行态）不是 owner。
+	// 当前视图会话有自己的 snapshot.changed；**后台会话**没有视图订阅，因此
+	// 由这条进程级事件通知所有订阅者重拉权威快照，目录行按单元重新富化。
+	EventSessionsChanged EventKind = "sessions.changed"
+)
+
+// processClassKinds 是进程级 kind 白名单（G2/M2）：此类事件不带会话归属
+// （SessionID 必空），投递给所有订阅者。白名单之外的 kind 一律视为会话类
+// ——会话类 kind 的 SessionID 必填，空 sid 不再是通配。
+var processClassKinds = map[EventKind]bool{
+	EventResyncRequired:     true,
+	EventExitRequested:      true,
+	EventViewSessionChanged: true,
+	EventSessionsChanged:    true,
+}
+
+// PublishDiagnostic 记录被 hub 拒绝的 (kind, sessionID) 违例发布（INV-G3：
+// 会话类 kind 空 sid / 进程类 kind 带 sid）。默认打到 stderr；宿主或测试
+// 可整体替换为结构化收集器。
+var PublishDiagnostic = func(kind EventKind, sessionID string) {
+	log.Printf("event: rejected publish kind=%s session_id=%q (INV-G3)", kind, sessionID)
+}
+
+// KindIsProcessClass 报告 kind 是否属于进程级（空 sid 必填）。
+func KindIsProcessClass(kind EventKind) bool {
+	return processClassKinds[kind]
+}
+
+// KindIsSessionClass 报告 kind 是否属于会话级（sid 必填）。
+func KindIsSessionClass(kind EventKind) bool {
+	return !KindIsProcessClass(kind)
+}
+
+// ValidateSessionRouting 校验 (kind, sessionID) 归属（G2/M2 白名单口径）：
+// 会话类 kind 必须携带非空 sid；进程类 kind 必须为空。违例返回明确错误，
+// 调用方（PublishSession）应拒绝发布并记诊断。
+func ValidateSessionRouting(kind EventKind, sessionID string) error {
+	switch {
+	case KindIsProcessClass(kind) && sessionID != "":
+		return fmt.Errorf("event kind %q is process-level and must not carry a session ID", kind)
+	case KindIsSessionClass(kind) && sessionID == "":
+		return fmt.Errorf("event kind %q is session-level and requires a session ID", kind)
+	default:
+		return nil
+	}
+}
+
+type Event struct {
+	ProtocolVersion int    `json:"protocol_version"`
+	Seq             uint64 `json:"seq"`
+	// DeliverySeq 是订阅内的投递序号（从 1 起，由 Hub 在投递端赋值）：会话级
+	// 订阅在投递端过滤掉其它会话的事件，全局 Seq 必然跳号，因此客户端判定
+	// "是否丢了事件"只能看 DeliverySeq —— 缓冲溢出的 ResyncRequired 是唯一
+	// 的丢失信号。发布方拿到的返回值不携带该字段。
+	DeliverySeq uint64 `json:"delivery_seq,omitempty"`
+	Revision    uint64 `json:"revision"`
+	RequestID   string `json:"request_id,omitempty"`
+	// SessionID 是事件所属会话的路由键（M1 起 chat 生命周期事件携带；
+	// 空值表示全局事件，SubscribeSession 不过滤）。
+	SessionID string          `json:"session_id,omitempty"`
+	Kind      EventKind       `json:"kind"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+}
+
+type MessageDelta struct {
+	MessageID string `json:"message_id"`
+	Delta     string `json:"delta"`
+	// ReasoningContent 在回合结束时整段送达（聊天区一行带过，轨迹区完整查看）。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// CompactionProgressState 是一轮压缩进度的状态：门禁收口中 / 本轮成功结束 /
+// 本轮失败。三态之外没有第四种，前端据此决定进度条是推进、收满还是染红。
+type CompactionProgressState string
+
+const (
+	// CompactionProgressRunning 一条门禁已收口，Gate/Index 说明走到哪。
+	CompactionProgressRunning CompactionProgressState = "running"
+	// CompactionProgressDone 本轮压缩正常收口（含"压缩了但按规则不落记录"）。
+	CompactionProgressDone CompactionProgressState = "done"
+	// CompactionProgressFailed 本轮压缩中途报错；Outcome 携带真实原因。
+	CompactionProgressFailed CompactionProgressState = "failed"
+)
+
+// CompactionPhaseBegin 是一轮压缩的**起手帧**：这一帧发出时判据估算还没出结果
+// （Index=0，一格都还没收口）。它存在是因为一段真实的时间窗口：显式压缩
+// （/compact、compact_context）从"用户按下回车"到"判据关收口"之间要跑两次全量
+// 请求估算（原始累积上下文 + 引擎缓存峰值），是整轮里最长的一段。没有这帧，
+// 界面上这段时间是完全空白的——用户看到的是"按了没反应"，几毫秒（大上下文里
+// 可达数百毫秒）后突然冒出一条"已完成"的压缩记录，于是合理地怀疑"根本没接线"。
+//
+// 只有显式路径能提前发：自动路径要不要压缩正是这次估算的结果，估完才知道。
+// 这也保证"没压缩就没有进度"（起手帧只在确定会压缩的轮次里发）。
+const CompactionPhaseBegin = "begin"
+
+// CompactionProgress 是 compaction.progress 的载荷：一轮压缩的门禁进度。
+//
+// 会话/请求归属在事件信封（Event.SessionID / Event.RequestID）里，载荷不重复
+// 一份同事实。Gate 是枚举 id（文案在前端 compaction-format.js，与压缩来源
+// 标签同一归属地），Detail 只带该关的数字事实，避免同一句话有两个来源。
+//
+// Phase 为空 = 该关刚刚收口（Index 是已收口关数）；Phase=begin = 起手帧。
+// ElapsedMS 是**刚刚过去的那一段**的墙钟耗时（毫秒）：起手帧为 0，每个门禁帧是
+// 这一关自己花掉的时间。它不是"从开轮算起"的累计值——前端把各帧加起来就是
+// 总耗时，而"哪一关慢"只有逐关计时才看得见（压缩总共几十毫秒时，这正是用户
+// 唯一能读到的"串行工作"证据）。
+type CompactionProgress struct {
+	State     CompactionProgressState `json:"state"`
+	Phase     string                  `json:"phase,omitempty"`
+	Gate      string                  `json:"gate,omitempty"`
+	Index     int                     `json:"index"`
+	Total     int                     `json:"total"`
+	Version   uint64                  `json:"version,omitempty"`
+	Origin    string                  `json:"origin,omitempty"`
+	Detail    string                  `json:"detail,omitempty"`
+	Outcome   string                  `json:"outcome,omitempty"`
+	ElapsedMS int                     `json:"elapsed_ms,omitempty"`
+}
+
+type Subscription struct {
+	Events <-chan Event
+	close  func()
+	// replay 读取本订阅的重放窗口；nil 表示该订阅未开启窗口（旧语义：溢出即
+	// 排空缓冲并投递 resync.required，客户端只能整份重拉快照）。
+	replay func(sinceSeq uint64) ReplayResult
+	// watermark 返回本订阅已分配的最大 delivery_seq。
+	watermark func() uint64
+}
+
+// ReplayResult 是一次增量补取的结果，可直接跨 JSON 边界回给消费者。
+type ReplayResult struct {
+	// Events 是窗口内 delivery_seq > sinceSeq 的事件，按序排列。
+	Events []Event `json:"events"`
+	// Covered 表示窗口覆盖了 sinceSeq 之后的全部序号；false 表示有事件已被淘
+	// 汰（或该订阅未开重放窗口），调用方必须整份重拉快照。
+	Covered bool `json:"covered"`
+}
+
+// ReplaySince 返回本订阅内 delivery_seq > sinceSeq 且仍留在重放窗口里的事件。
+// Covered=false 表示窗口不再覆盖（最早可重放序号 > sinceSeq+1）或该订阅根本没
+// 开窗口，调用方必须退回整份快照重拉，不能假设补得齐。
+//
+// 重放是幂等的：事件可能同时存在于 channel 与窗口中，客户端按 delivery_seq
+// 去重即可（已应用过的事件 seq <= lastSeq 直接忽略）。
+func (subscription Subscription) ReplaySince(sinceSeq uint64) ReplayResult {
+	if subscription.replay == nil {
+		return ReplayResult{}
+	}
+	return subscription.replay(sinceSeq)
+}
+
+// DeliveryWatermark 返回本订阅已分配到的最后一个 delivery_seq。调用方用它区分
+// "确实没有新事件"与"有新事件但我还没拿到"（后者才需要 ReplaySince 或重拉）。
+// 未开窗口的订阅同样可用：水位始终是分配的。
+func (subscription Subscription) DeliveryWatermark() uint64 {
+	if subscription.watermark == nil {
+		return 0
+	}
+	return subscription.watermark()
+}
+
+// Hub 是应用事件投递的窄契约。合约层与核心组件只依赖该接口，
+// 不依赖具体投递实现，便于替换、测试与跨进程传输。
+type Hub interface {
+	Publish(kind EventKind, revision uint64, requestID string, payload any) Event
+	Subscribe(buffer int) Subscription
+}
+
+// SessionAwareHub 是 Hub 的可选扩展：发布携带会话路由键的事件。
+// 装配层提供 *EventHub 时天然满足；测试桩只需实现 Hub 即可，会话发布
+// 会退化为普通 Publish（SessionID 为空）。
+type SessionAwareHub interface {
+	PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event
+}
+
+// 编译期断言：*EventHub 完整实现 Hub。
+var _ Hub = (*EventHub)(nil)
+var _ SessionAwareHub = (*EventHub)(nil)
+
+func (subscription Subscription) Close() {
+	if subscription.close != nil {
+		subscription.close()
+	}
+}
+
+type EventHub struct {
+	mu          sync.Mutex
+	publishMu   sync.Mutex
+	seq         uint64
+	nextID      uint64
+	subscribers map[uint64]*eventSubscriber
+}
+
+type eventSubscriber struct {
+	mu     sync.Mutex
+	events chan Event
+	closed bool
+	// filter 在投递端判定事件是否属于本订阅：不匹配的事件根本不进入 channel，
+	// 因此其它会话的流量既不挤占本订阅缓冲，也不要求客户端二次过滤。
+	// 谓词由发布 goroutine 执行，必须无阻塞、无副作用（nil = 收全部）。
+	filter func(Event) bool
+	seq    uint64
+	// replayWindow > 0 时，每个通过过滤的事件都先进入 replay 环形窗口（按
+	// delivery_seq 有序），channel 满时不再丢弃载荷：落后的消费者凭
+	// ReplaySince 增量补取，只有窗口被淘汰掉才会退化为整份重拉。
+	replay       []Event
+	replayWindow int
+}
+
+func NewEventHub() *EventHub {
+	return &EventHub{subscribers: make(map[uint64]*eventSubscriber)}
+}
+
+func (hub *EventHub) Subscribe(buffer int) Subscription {
+	return hub.subscribe(nil, buffer, 0)
+}
+
+// SubscribeFiltered 返回按谓词筛选的订阅：只有 filter(event) 为真的事件会
+// 被投递，且投递序号在筛选后仍然连续（见 Event.DeliverySeq）。
+func (hub *EventHub) SubscribeFiltered(filter func(Event) bool, buffer int) Subscription {
+	return hub.subscribe(filter, buffer, 0)
+}
+
+// SubscribeWithReplay 是带重放窗口的订阅：除 filter 筛选外，最近 replayWindow
+// 条事件按 delivery_seq 留在窗口内，供落后消费者 ReplaySince 增量补取。
+//
+// 与 SubscribeFiltered 的区别只在溢出策略：本订阅缓冲满时**不丢弃载荷、也不
+// 排空缓冲**（事件已在窗口里，等消费者自己补），而 SubscribeFiltered 在缓冲满
+// 时排空并投递 resync.required，要求消费者重拉整份快照。只推荐给能回报
+// delivery_seq 水位并会主动补取的宿主（桌面 Bridge）。replayWindow <= 0 时
+// 退化为 SubscribeFiltered。
+func (hub *EventHub) SubscribeWithReplay(filter func(Event) bool, buffer, replayWindow int) Subscription {
+	if replayWindow <= 0 {
+		return hub.subscribe(filter, buffer, 0)
+	}
+	return hub.subscribe(filter, buffer, replayWindow)
+}
+
+func (hub *EventHub) subscribe(filter func(Event) bool, buffer, replayWindow int) Subscription {
+	if buffer < 1 {
+		buffer = 1
+	}
+	if replayWindow > 0 {
+		// 窗口至少容纳一份缓冲，否则"能补取的范围"小于"可能积压的深度"，
+		// 落后一点就直接被淘汰退化重拉。
+		if replayWindow < buffer {
+			replayWindow = buffer
+		}
+	}
+	hub.mu.Lock()
+	hub.nextID++
+	id := hub.nextID
+	subscriber := &eventSubscriber{
+		events: make(chan Event, buffer), filter: filter,
+		replay: make([]Event, 0, replayWindow), replayWindow: replayWindow,
+	}
+	hub.subscribers[id] = subscriber
+	hub.mu.Unlock()
+	var once sync.Once
+	return Subscription{
+		Events:    subscriber.events,
+		replay:    subscriber.replaySince,
+		watermark: subscriber.deliveredWatermark,
+		close: func() {
+			once.Do(func() {
+				hub.mu.Lock()
+				if current, ok := hub.subscribers[id]; ok && current == subscriber {
+					delete(hub.subscribers, id)
+				}
+				hub.mu.Unlock()
+				subscriber.close()
+			})
+		},
+	}
+}
+
+func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, payload any) Event {
+	return hub.publish(kind, revision, requestID, "", payload)
+}
+
+// PublishSession 与 Publish 等价，但事件携带会话路由键 sessionID，
+// 供多会话页签按会话过滤订阅使用。
+//
+// G2 严格白名单：发布前按 (kind, sessionID) 归属校验——会话类 kind 空
+// sid、进程类 kind 带 sid 均拒绝发布（返回零值 Event）并记诊断。
+func (hub *EventHub) PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event {
+	if err := ValidateSessionRouting(kind, sessionID); err != nil {
+		PublishDiagnostic(kind, sessionID)
+		return Event{}
+	}
+	return hub.publish(kind, revision, requestID, sessionID, payload)
+}
+
+func (hub *EventHub) publish(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event {
+	var encoded json.RawMessage
+	if payload != nil {
+		encoded, _ = json.Marshal(payload)
+	}
+	// Preserve global event order without holding the subscriber-registry lock
+	// during delivery. Subscribe and Close therefore remain independent from a
+	// slow subscriber, while concurrent publishers still observe monotonic seq.
+	hub.publishMu.Lock()
+	defer hub.publishMu.Unlock()
+
+	hub.mu.Lock()
+	hub.seq++
+	event := Event{ProtocolVersion: model.ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, SessionID: sessionID, Kind: kind, Payload: encoded}
+	subscribers := make([]*eventSubscriber, 0, len(hub.subscribers))
+	for _, subscriber := range hub.subscribers {
+		subscribers = append(subscribers, subscriber)
+	}
+	hub.mu.Unlock()
+
+	for _, subscriber := range subscribers {
+		subscriber.deliver(event)
+	}
+	return event
+}
+
+// SubscribeSession 返回按会话过滤的订阅：只投递 sessionID 匹配（或全局
+// 空 SessionID）的事件。过滤发生在投递端，其它会话的流量不会进入本订阅缓冲。
+func (hub *EventHub) SubscribeSession(sessionID string, buffer int) Subscription {
+	return hub.SubscribeFiltered(func(event Event) bool {
+		return event.SessionID == "" || event.SessionID == sessionID
+	}, buffer)
+}
+
+func (subscriber *eventSubscriber) deliver(event Event) {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed {
+		return
+	}
+	if subscriber.filter != nil && !subscriber.filter(event) {
+		return
+	}
+	subscriber.seq++
+	event.DeliverySeq = subscriber.seq
+	if subscriber.replayWindow > 0 {
+		subscriber.replay = append(subscriber.replay, event)
+		if over := len(subscriber.replay) - subscriber.replayWindow; over > 0 {
+			subscriber.replay = append(subscriber.replay[:0], subscriber.replay[over:]...)
+		}
+		select {
+		case subscriber.events <- event:
+		default:
+			// 慢消费者：事件已在重放窗口里，因此既不丢弃载荷也不排空缓冲。
+			// 消费者凭 delivery_seq 跳号或 DeliveryWatermark 发现自己落后，
+			// 再用 ReplaySince 增量补取；只有窗口被淘汰才退化为整份重拉。
+		}
+		return
+	}
+	select {
+	case subscriber.events <- event:
+	default:
+		// 非阻塞排空：消费者与投递并发时 len(ch)>0 并不保证下一次接收能
+		// 立刻拿到元素；若在这里阻塞等待，持 subscriber.mu 的 deliver 会
+		// 与等同一把锁的 close 互相死锁（订阅关闭/测试退出永久挂起）。
+		for {
+			select {
+			case <-subscriber.events:
+				continue
+			default:
+			}
+			break
+		}
+		resync := event
+		resync.Kind = EventResyncRequired
+		resync.Payload = nil
+		// resync 要求客户端重拉权威快照，必须全局可达：保留会话路由键会让
+		// 它被本订阅自己的过滤条件吞掉，客户端从此静默地看旧数据。
+		resync.SessionID = ""
+		subscriber.events <- resync
+	}
+}
+
+// replaySince 返回窗口内 delivery_seq > sinceSeq 的事件。Covered=false 表示窗口
+// 已不再覆盖该区间（或本订阅未开窗口），调用方必须整份重拉。
+func (subscriber *eventSubscriber) replaySince(sinceSeq uint64) ReplayResult {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed || subscriber.replayWindow == 0 || len(subscriber.replay) == 0 {
+		return ReplayResult{}
+	}
+	if subscriber.replay[0].DeliverySeq > sinceSeq+1 {
+		return ReplayResult{}
+	}
+	// 顺序扫描定位第一个 > sinceSeq 的序号：窗口按 delivery_seq 严格递增。
+	start := len(subscriber.replay)
+	for index, item := range subscriber.replay {
+		if item.DeliverySeq > sinceSeq {
+			start = index
+			break
+		}
+	}
+	return ReplayResult{Events: append([]Event(nil), subscriber.replay[start:]...), Covered: true}
+}
+
+// deliveredWatermark 返回已分配的最大 delivery_seq（0 = 尚未投递任何事件）。
+func (subscriber *eventSubscriber) deliveredWatermark() uint64 {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	return subscriber.seq
+}
+
+func (subscriber *eventSubscriber) close() {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed {
+		return
+	}
+	subscriber.closed = true
+	subscriber.replay = nil
+	close(subscriber.events)
+}

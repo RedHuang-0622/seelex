@@ -2,6 +2,8 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"io/fs"
 	"strings"
 	"sync"
@@ -11,7 +13,7 @@ import (
 
 // 本文件复现「长会话加载更早历史」的分页缺陷（2026-09-11）。
 //
-// 现场（生产装配 internal/adapters.SessionPort）：
+// 现场（生产装配 wiring/adapters.SessionPort）：
 //   - 冷加载有 record 的会话时，可见窗口 = 会话尾部 window 条，
 //     HistoryOffset = total - window，HasMoreHistory = offset > 0；
 //   - 前端顶部 sentinel/「加载更早」调用 LoadMoreHistory(limit) 取更早一页，
@@ -37,7 +39,7 @@ func withHistoryWindow(window int) func() {
 // pagedSessionStore 仿生产会话端口：record 与 conversation 窗口读的是同一份
 // durable 消息（v8 布局里两者都由 message 事件行派生，索引空间一致）。
 //
-// published 是**发布点闸门**（sessionstore 的 head.LastSeq 同一语义）：record 与
+// published 是**发布点闸门**（store 的 head.LastSeq 同一语义）：record 与
 // conversation 区间读只看得见 messages[:published]。写者可以先物理 append
 // （appendDraft），发布点要等回合收尾才推进（publishDraftTail）——夹具据此表达
 // 「内存窗口领先磁盘」的在飞回合。
@@ -46,7 +48,7 @@ type pagedSessionStore struct {
 	mu        sync.Mutex
 	sessionID string
 	title     string
-	messages  []Message
+	messages  []model.Message
 	published int
 	rangeRead int
 }
@@ -58,7 +60,7 @@ func newPagedSessionStore(sessionID string, count int) *pagedSessionStore {
 		if index%2 == 0 {
 			role = "user"
 		}
-		store.messages = append(store.messages, Message{
+		store.messages = append(store.messages, model.Message{
 			ID:        fmt.Sprintf("message-%d", index+1),
 			Role:      role,
 			Content:   fmt.Sprintf("durable-%d", index),
@@ -72,23 +74,23 @@ func (store *pagedSessionStore) countLocked() int {
 	return len(store.messages)
 }
 
-func (store *pagedSessionStore) SessionsOf(projectID string) []SessionInfo {
+func (store *pagedSessionStore) SessionsOf(projectID string) []model.SessionInfo {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return []SessionInfo{{ID: store.sessionID, Name: store.title, UpdatedAt: time.Unix(1, 0)}}
+	return []model.SessionInfo{{ID: store.sessionID, Name: store.title, UpdatedAt: time.Unix(1, 0)}}
 }
 
-func (store *pagedSessionStore) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (store *pagedSessionStore) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	history := make([]EngineMessage, 0, len(store.messages))
+	history := make([]contract.EngineMessage, 0, len(store.messages))
 	for _, message := range store.messages {
-		history = append(history, EngineMessage{Role: message.Role, Content: message.Content})
+		history = append(history, contract.EngineMessage{Role: message.Role, Content: message.Content})
 	}
 	return history, nil
 }
 
-func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	history, err := store.LoadHistory(sessionID)
 	if err != nil {
 		return nil, 0, err
@@ -97,36 +99,36 @@ func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit
 	return sliceWindow(&history, offset, limit), total, nil
 }
 
-func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error) {
+func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if sessionID != store.sessionID {
-		return SessionRecord{}, fs.ErrNotExist
+		return model.SessionRecord{}, fs.ErrNotExist
 	}
-	record := SessionRecord{Version: 3, ID: sessionID}
+	record := model.SessionRecord{Version: 3, ID: sessionID}
 	record.Title.Value = store.title
-	record.Conversation.Messages = append([]Message(nil), store.messages[:store.published]...)
+	record.Conversation.Messages = append([]model.Message(nil), store.messages[:store.published]...)
 	return record, nil
 }
 
-// 下面三个方法补齐 SessionRecordPort（生产 internal/adapters.SessionPort 同时
+// 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
 // 实现该面；缺一个方法就不会被当成 record 端口，冷加载会退化到旧的
 // provider 历史路径）。
-func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record SessionRecord) error {
+func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record model.SessionRecord) error {
 	return nil
 }
 
-func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error {
+func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record model.SessionRecord) error {
 	return nil
 }
 
-func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (SessionRecord, error) {
+func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (model.SessionRecord, error) {
 	return store.LoadSessionRecordWorkspace("", sessionID)
 }
 
 // LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：
 // offset/limit 与 record 的可见消息序列同空间，且同样以发布点为上限。
-func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error) {
+func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]model.Message, int, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if sessionID != store.sessionID {
@@ -162,7 +164,7 @@ func (store *pagedSessionStore) publishDraftTail() {
 }
 
 func (store *pagedSessionStore) appendRowLocked(role, content string) {
-	store.messages = append(store.messages, Message{
+	store.messages = append(store.messages, model.Message{
 		ID:        fmt.Sprintf("message-%d", len(store.messages)+1),
 		Role:      role,
 		Content:   content,
@@ -172,10 +174,10 @@ func (store *pagedSessionStore) appendRowLocked(role, content string) {
 
 // setPublished 直接铺一整份**已发布**的磁盘消息：不关心草稿尾的用例用它，
 // 别直接改 store.messages（那会绕过发布点闸门，冷读面什么都读不到）。
-func (store *pagedSessionStore) setPublished(messages ...Message) {
+func (store *pagedSessionStore) setPublished(messages ...model.Message) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.messages = append([]Message(nil), messages...)
+	store.messages = append([]model.Message(nil), messages...)
 	store.published = len(store.messages)
 }
 
@@ -202,7 +204,7 @@ func sliceWindow[T any](items *[]T, offset, limit int) []T {
 
 // visibleContents 取快照对话里的非 system 消息内容（system 是「已恢复会话」
 // 之类的引导标记，不参与 durable 索引空间）。
-func visibleContents(snapshot Snapshot) []string {
+func visibleContents(snapshot model.Snapshot) []string {
 	contents := []string{}
 	for _, message := range snapshot.Conversation {
 		if message.Role == "system" {
@@ -221,7 +223,7 @@ func wantRange(start, count int) []string {
 	return contents
 }
 
-func assertRange(t *testing.T, label string, snapshot Snapshot, start, count int) {
+func assertRange(t *testing.T, label string, snapshot model.Snapshot, start, count int) {
 	t.Helper()
 	if got := snapshot.HistoryOffset; got != start {
 		t.Fatalf("%s: history_offset = %d, want %d", label, got, start)
@@ -240,13 +242,13 @@ func assertRange(t *testing.T, label string, snapshot Snapshot, start, count int
 func TestLegacySessionWithoutRecordExposesEarlierHistory(t *testing.T) {
 	defer withHistoryWindow(6)()
 
-	history := make([]EngineMessage, 20)
+	history := make([]contract.EngineMessage, 20)
 	for index := range history {
-		history[index] = EngineMessage{Role: "assistant", Content: fmt.Sprintf("durable-%d", index)}
+		history[index] = contract.EngineMessage{Role: "assistant", Content: fmt.Sprintf("durable-%d", index)}
 	}
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "legacy-session", UpdatedAt: time.Unix(1, 0)}}},
-		histories: map[string]map[string][]EngineMessage{"": {"legacy-session": history}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "legacy-session", UpdatedAt: time.Unix(1, 0)}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"legacy-session": history}},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 	if err := service.ResumeSession("legacy-session"); err != nil {
@@ -322,7 +324,7 @@ func TestLoadMoreHistoryPagesToBeginning(t *testing.T) {
 
 	covered := map[string]bool{}
 	previousOffset := -1
-	check := func(label string, snapshot Snapshot) {
+	check := func(label string, snapshot model.Snapshot) {
 		visible := visibleContents(snapshot)
 		// 窗口必须是 [offset, offset+len) 的连续区间（第一条内容对得上 offset）。
 		if len(visible) > 0 {

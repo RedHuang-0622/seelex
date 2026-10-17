@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# 推送前把"红线"跑一遍：编译 + vet 不过就不许推。
+# 跳过：SEELEX_SKIP_HOOKS=1。触发安排见同目录 README.md。
+set -uo pipefail
+
+if [[ "${SEELEX_SKIP_HOOKS:-0}" == "1" ]]; then
+  echo "[pre-push] 已按 SEELEX_SKIP_HOOKS=1 跳过检查"
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 0
+
+# 工具链要在 PATH 或 GOROOT 里能找到：找不到时**显式拒绝**而不是打一句"command not
+# found"的糊涂红——推之前跑不了红线，就不该让这次推送看起来通过（要跳过请用
+# SEELEX_SKIP_HOOKS=1，把理由写在命令行上）。SEELEX_GO 只给钩子自测替换。
+GO_BIN="${SEELEX_GO:-}"
+if [[ -z "$GO_BIN" ]]; then
+  GO_BIN="$(command -v go || true)"
+  if [[ -z "$GO_BIN" && -x "$(command -v gofmt || true)" ]]; then
+    GO_BIN="$(dirname "$(command -v gofmt)")/go"
+  fi
+fi
+if [[ -z "$GO_BIN" || ! -x "$GO_BIN" ]]; then
+  echo "[pre-push] PATH 与 GOROOT 都找不到 go：无法执行 go build/go vet。请把 Go 加进 PATH；确要跳过用 SEELEX_SKIP_HOOKS=1" >&2
+  exit 1
+fi
+
+echo "[pre-push] $GO_BIN build ./... + vet ./..."
+if ! "$GO_BIN" build ./...; then
+  echo "[pre-push] go build 失败，拒绝推送（SEELEX_SKIP_HOOKS=1 可跳过）" >&2
+  exit 1
+fi
+if ! "$GO_BIN" vet ./...; then
+  echo "[pre-push] go vet 失败，拒绝推送（SEELEX_SKIP_HOOKS=1 可跳过）" >&2
+  exit 1
+fi
+exit 0

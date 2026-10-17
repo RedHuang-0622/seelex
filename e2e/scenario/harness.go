@@ -7,9 +7,10 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 func NewHarnessRunner(value Scenario) (*Runner, error) {
@@ -26,14 +27,14 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	events := application.NewEventHub()
-	approvals := application.NewApprovalBroker(events)
-	hookBridge := application.NewToolHookBridge()
+	events := wiring.NewEventHub()
+	approvals := wiring.NewApprovalBroker(events)
+	hookBridge := wiring.NewToolHookBridge()
 	tools := &applicationToolLifecycle{hooks: hookBridge.Hooks()}
 	scriptedEngine := NewScriptedEngine(value.EngineScript, tools, approvals)
 	scriptedEngine.SetSessionID(initialSessionID(value))
 	plugin := initialPlugin(value)
-	service, err := application.New(application.Dependencies{
+	service, err := wiring.New(application.Dependencies{
 		Engine: scriptedEngine, Runtime: harnessRuntime{plugin: plugin},
 		Plugins: &harnessPlugins{current: application.PluginInfo{Name: plugin}},
 		Skills:  harnessSkills{}, Sessions: &harnessSessions{},
@@ -44,7 +45,7 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	}
 	hookBridge.Bind(service)
 	if factory != nil {
-		scriptedEngine.SetToolExecutor(factory(approvals, service.HandlePlanBranchEvent))
+		scriptedEngine.SetToolExecutor(factory(approvals))
 	}
 	if value.Initial.Effort != "" {
 		if err := service.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
@@ -99,40 +100,35 @@ type harnessRuntime struct {
 	plugin string
 }
 
-func (harnessRuntime) Model() string                                                          { return "scripted-e2e" }
-func (harnessRuntime) Provider() string                                                       { return "local" }
-func (harnessRuntime) Accounts() []application.AccountInfo                                    { return nil }
-func (harnessRuntime) SelectAccount(string) bool                                              { return false }
-func (harnessRuntime) VisibleTools(context.Context) []application.Tool                        { return nil }
-func (runtime harnessRuntime) ActivePlugin() string                                           { return runtime.plugin }
-func (harnessRuntime) FullAccess() bool                                                       { return false }
-func (harnessRuntime) SetFullAccess(bool)                                                     {}
-func (harnessRuntime) SetFullAccessFor(string, bool)                                          {}
-func (harnessRuntime) PermissionTier() string                                                 { return dto.PermissionTierManual }
-func (harnessRuntime) SetPermissionTierFor(string, string) error                              { return nil }
-func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
-func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
-func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }
-func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)                                           {}
-func (harnessRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)                                {}
-func (harnessRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
-	return dto.PlanPreflight{}, nil
-}
-func (harnessRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.ReplanMetrics{} }
-func (harnessRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
-func (harnessRuntime) BindProjectRoot(string) error                { return nil }
-func (harnessRuntime) UnbindProjectRoot()                          {}
-func (harnessRuntime) BindProjectRootFor(string, string) error     { return nil }
-func (harnessRuntime) UnbindProjectRootFor(string)                 {}
-func (harnessRuntime) SetCurrentTaskBatch(string, string)          {}
-func (harnessRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
-func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
-func (harnessRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
-func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
-func (harnessRuntime) ReleaseSessionAsync(string) int              { return 0 }
-func (harnessRuntime) AsyncPendingFor(string) int                  { return 0 }
-func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord     { return nil }
-func (harnessRuntime) AsyncRunEvents() <-chan struct{}             { return nil }
+func (harnessRuntime) Model() string                                                       { return "scripted-e2e" }
+func (harnessRuntime) Provider() string                                                    { return "local" }
+func (harnessRuntime) Accounts() []application.AccountInfo                                 { return nil }
+func (harnessRuntime) SelectAccount(string) bool                                           { return false }
+func (harnessRuntime) VisibleTools(context.Context) []application.Tool                     { return nil }
+func (runtime harnessRuntime) ActivePlugin() string                                        { return runtime.plugin }
+func (harnessRuntime) FullAccess() bool                                                    { return false }
+func (harnessRuntime) SetFullAccess(bool)                                                  {}
+func (harnessRuntime) SetFullAccessFor(string, bool)                                       {}
+func (harnessRuntime) PermissionTier() string                                              { return dto.PermissionTierManual }
+func (harnessRuntime) SetPermissionTierFor(string, string) error                           { return nil }
+func (harnessRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection) {}
+func (harnessRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)       {}
+func (harnessRuntime) DrainSubagentContexts() []string                                     { return nil }
+func (harnessRuntime) SetSubagentPolicy(dto.SubagentPolicy)                                {}
+func (harnessRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy)                     {}
+func (harnessRuntime) BindProjectRoot(string) error                                        { return nil }
+func (harnessRuntime) UnbindProjectRoot()                                                  {}
+func (harnessRuntime) BindProjectRootFor(string, string) error                             { return nil }
+func (harnessRuntime) UnbindProjectRootFor(string)                                         {}
+func (harnessRuntime) SetCurrentTaskBatch(string, string)                                  {}
+func (harnessRuntime) TodoSnapshot() []dto.TodoItem                                        { return nil }
+func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error                         { return nil }
+func (harnessRuntime) TaskSnapshot() []dto.TaskRecord                                      { return nil }
+func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord                             { return nil }
+func (harnessRuntime) ReleaseSessionAsync(string) int                                      { return 0 }
+func (harnessRuntime) AsyncPendingFor(string) int                                          { return 0 }
+func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord                             { return nil }
+func (harnessRuntime) AsyncRunEvents() <-chan struct{}                                     { return nil }
 func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -156,25 +152,22 @@ func (harnessRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, err
 }
 func (harnessRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
 func (harnessRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
-func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
-	return nil
-}
 func (harnessRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
 	return dto.ServedRoute{}, false
 }
 func (harnessRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (harnessRuntime) SetSessionWorkspace(string, string)          {}
-func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+func (harnessRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo {
 	return nil
 }
-func (harnessRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus { return nil }
+func (harnessRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus { return nil }
 
 // ScheduleTask 显式报错（诚实桩）：e2e 场景不使用定时任务，静默返回
 // nil,nil 会让下游 NPE；fail-fast 暴露误用。
-func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (harnessRuntime) ScheduleTask(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, fmt.Errorf("harness: scheduled tasks are not supported in e2e scenarios")
 }
-func (harnessRuntime) UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (harnessRuntime) UpdateScheduledTask(context.Context, string, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, fmt.Errorf("harness: scheduled tasks are not supported in e2e scenarios")
 }
 func (harnessRuntime) CancelScheduledTask(string) error    { return nil }

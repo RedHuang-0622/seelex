@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
@@ -12,20 +14,20 @@ import (
 func addCatalogSession(sessions *scopedSessions, projectID, sessionID string, updatedAt time.Time) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	sessions.catalog[projectID] = append(sessions.catalog[projectID], SessionInfo{
+	sessions.catalog[projectID] = append(sessions.catalog[projectID], model.SessionInfo{
 		ID: sessionID, UpdatedAt: updatedAt,
 	})
 	if sessions.histories[projectID] == nil {
-		sessions.histories[projectID] = map[string][]EngineMessage{}
+		sessions.histories[projectID] = map[string][]contract.EngineMessage{}
 	}
-	sessions.histories[projectID][sessionID] = []EngineMessage{{Role: "user", Content: sessionID}}
+	sessions.histories[projectID][sessionID] = []contract.EngineMessage{{Role: "user", Content: sessionID}}
 }
 
 func newCatalogTestService(t *testing.T, sessions *scopedSessions) *Service {
 	t.Helper()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:  fakeSkills{}, Sessions: sessions, Workspace: newFakeWorkspace(),
 	})
 	return service
@@ -37,12 +39,12 @@ func newCatalogTestService(t *testing.T, sessions *scopedSessions) *Service {
 func TestWaitCatalogRefreshSettlesFreshCatalog(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-b", updatedAt)
 
@@ -61,12 +63,12 @@ func TestWaitCatalogRefreshSettlesFreshCatalog(t *testing.T) {
 func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-b", updatedAt)
 	const waiters = 16
@@ -98,11 +100,11 @@ func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 func TestWaitCatalogRefreshConvergesAfterShutdown(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	service.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -122,12 +124,12 @@ func TestWaitCatalogRefreshConvergesAfterShutdown(t *testing.T) {
 func TestCatalogCacheMirrorsWorkerRound(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	cached, _ := service.components.sessions.CatalogCache()
 	if len(cached) != 1 || cached[0].ID != "session-a" {
@@ -155,23 +157,23 @@ func TestCatalogCacheMirrorsWorkerRound(t *testing.T) {
 func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if _, err := service.Deps.Workspace.Create("proj", "C:\\proj", ""); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
 	service.Deps.Workspace.BindSession("session-b", "project-1")
 	sessions.mu.Lock()
-	sessions.catalog["project-1"] = append(sessions.catalog["project-1"], SessionInfo{ID: "session-b", UpdatedAt: updatedAt})
+	sessions.catalog["project-1"] = append(sessions.catalog["project-1"], model.SessionInfo{ID: "session-b", UpdatedAt: updatedAt})
 	if sessions.histories["project-1"] == nil {
-		sessions.histories["project-1"] = map[string][]EngineMessage{}
+		sessions.histories["project-1"] = map[string][]contract.EngineMessage{}
 	}
-	sessions.histories["project-1"]["session-b"] = []EngineMessage{{Role: "user", Content: "b"}}
+	sessions.histories["project-1"]["session-b"] = []contract.EngineMessage{{Role: "user", Content: "b"}}
 	sessions.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -199,12 +201,12 @@ func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
-		catalog:   map[string][]SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
-		histories: map[string]map[string][]EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
+		catalog:   map[string][]model.SessionInfo{"": {{ID: "session-a", UpdatedAt: updatedAt}}},
+		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
 	defer service.Shutdown()
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	var group sync.WaitGroup
 	for index := 0; index < 8; index++ {
@@ -212,7 +214,7 @@ func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 		go func(round int) {
 			defer group.Done()
 			sid := fmt.Sprintf("session-%d", round)
-			service.components.sessions.SetSessionTitleLocked(sid, SessionTitle{Value: sid})
+			service.components.sessions.SetSessionTitleLocked(sid, model.SessionTitle{Value: sid})
 		}(index)
 		go func() {
 			defer group.Done()

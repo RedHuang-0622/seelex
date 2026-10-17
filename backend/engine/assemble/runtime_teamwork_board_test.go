@@ -1,0 +1,572 @@
+package assemble
+
+// runtime_teamwork_board_test.go — 钉住团队看板只读投影（契约
+// docs/arch/team-board-gui-tui-contract.md §3/§4）：
+//   - 未装配 teamwork → nil（面板整块退场，不留空壳）；
+//   - 装配了但该会话没有计划 → nil；
+//   - 有计划 → 阶段/在编/里程碑/审计逐字段搬出来，且**顺序唯一事实**是 depends_on；
+//   - 阶段/角色是桥给出的**权威归属**（不是靠前端回落链猜的）；
+//   - 句柄投影过期（jobs I-4）显形为 Stale；
+//   - 采集是高频路径：「计划 + 审计」两份文件读按会话缓存，team_* 之后失效。
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/store"
+)
+
+// countingPlanStore 记读写次数：性能口径（§4）要靠计数验证，不能靠"看起来很快"。
+type countingPlanStore struct {
+	inner *memPlanStore
+
+	mu        sync.Mutex
+	planReads int
+	evReads   int
+}
+
+func newCountingPlanStore() *countingPlanStore {
+	return &countingPlanStore{inner: &memPlanStore{}}
+}
+
+func (s *countingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, max int) error {
+	return s.inner.WritePlan(ctx, key, plan, max)
+}
+
+func (s *countingPlanStore) ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error) {
+	s.mu.Lock()
+	s.planReads++
+	s.mu.Unlock()
+	return s.inner.ReadPlan(ctx, key)
+}
+
+func (s *countingPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error {
+	return s.inner.AppendEvent(ctx, key, event)
+}
+
+func (s *countingPlanStore) ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error) {
+	s.mu.Lock()
+	s.evReads++
+	s.mu.Unlock()
+	return s.inner.ReadEvents(ctx, key)
+}
+
+func (s *countingPlanStore) reads() (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.planReads, s.evReads
+}
+
+func (s *countingPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error {
+	return s.inner.AppendBinding(ctx, key, binding)
+}
+
+func (s *countingPlanStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error) {
+	return s.inner.ReadBindings(ctx, key)
+}
+
+func countingBackend(st *countingPlanStore, sessionID string) TeamworkBackend {
+	return TeamworkBackend{
+		Store: st,
+		KeyFor: func(id string) (store.Key, bool) {
+			if id != sessionID {
+				return store.Key{}, false
+			}
+			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
+		},
+		MaxTeammates: 6,
+	}
+}
+
+func boardPlanFixture() store.TeamworkPlan {
+	return store.TeamworkPlan{
+		TeamID:  "team-board-gui-tui",
+		Version: 2,
+		Members: []store.TeamworkMember{
+			{Role: "arch", RoleSessionID: "s-team-arch", ToolsPolicy: "readwrite"},
+			{Role: "impl_ui", RoleSessionID: "s-team-impl_ui", ToolsPolicy: "readwrite", Worktree: "wt-ui"},
+		},
+		// 里程碑 = 屏障（depends_on）+ 里程碑内的工作项 DAG。**没有阶段**（2026-10-04
+		// 阶段口径整条退场）：一个角色归哪个里程碑，看它在哪个里程碑的工作项里出现。
+		Milestones: []store.TeamworkMilestone{
+			{
+				ID: "m-design", Name: "设计", Content: "契约定稿", Required: []string{"arch"}, Status: "done",
+				Items: []store.TeamworkWorkItem{
+					{ID: "wi-design", Milestone: "m-design", Role: "arch", Name: "契约定稿"},
+				},
+			},
+			{
+				ID: "m-impl", Name: "实现", DependsOn: []string{"m-design"},
+				Items: []store.TeamworkWorkItem{
+					{ID: "wi-impl", Milestone: "m-impl", Role: "impl_ui", Name: "实现 UI"},
+				},
+			},
+		},
+	}
+}
+
+func TestTeamworkBoardSnapshotNilWithoutBackend(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	if board := r.TeamworkBoardSnapshot("s-team"); board != nil {
+		t.Fatalf("未装配 teamwork 时应返回 nil，得到 %+v", board)
+	}
+}
+
+func TestTeamworkBoardSnapshotNilWithoutPlan(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	if err := r.SetTeamworkBackend(teamworkTestBackend(&memPlanStore{}, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	if board := r.TeamworkBoardSnapshot("s-team"); board != nil {
+		t.Fatalf("没有计划时应返回 nil（不留空壳），得到 %+v", board)
+	}
+	if board := r.TeamworkBoardSnapshot("s-other"); board != nil {
+		t.Fatalf("解析不出作用域的会话应返回 nil，得到 %+v", board)
+	}
+}
+
+func TestTeamworkBoardSnapshotProjectsPlan(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	if _, err := r.teamPlanHandler(ctx, `{
+		"team_id": "team-board-gui-tui",
+		"version": 2,
+		"members": [{"role":"arch","role_session_id":"s-team-arch","tools_policy":"readwrite"}],
+		"milestones": [{"id":"m-design","name":"设计","content":"契约定稿"}]
+	}`); err != nil {
+		t.Fatalf("team_plan: %v", err)
+	}
+
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划的会话必须给出看板投影")
+	}
+	if board.TeamID != "team-board-gui-tui" || board.Version != 2 {
+		t.Fatalf("计划头搬运不一致：%+v", board)
+	}
+	if board.MaxMembers != 6 {
+		t.Fatalf("在编上限必须来自 TeamworkBackend.MaxTeammates（看板要能区分正常与顶到上限）：%d", board.MaxMembers)
+	}
+	if len(board.Milestones) != 1 || board.Milestones[0].ID != "m-design" || board.Milestones[0].Name != "设计" {
+		t.Fatalf("里程碑必须原样搬运（顺序的唯一事实是它的 depends_on）：%+v", board.Milestones)
+	}
+	if len(board.Members) != 1 || board.Members[0].RoleSessionID != "s-team-arch" ||
+		board.Members[0].ToolsPolicy != "readwrite" {
+		t.Fatalf("在编成员搬运不一致：%+v", board.Members)
+	}
+	if board.Members[0].Status != "free" {
+		t.Fatalf("没有在跑的工作项时 teammate 状态必须是 free（只有 running/free 两值）：%q", board.Members[0].Status)
+	}
+	// team_plan 落一条审计：看板必须能看到它（口径：审计是派发/里程碑/retire 的事实流水）。
+	if len(board.Events) == 0 || board.Events[0].Kind != "plan" {
+		t.Fatalf("审计流水缺 plan 事件：%+v", board.Events)
+	}
+	if board.Events[0].At == 0 {
+		t.Fatal("审计事件必须带 unix 秒时间戳（面板据此显示 HH:MM）")
+	}
+	if board.Stale {
+		t.Fatal("计划里没有句柄投影时不得标过期")
+	}
+}
+
+func TestTeamworkBoardSnapshotMarksStaleHandleProjection(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	plan := boardPlanFixture()
+	// 计划里残留着上一个进程的句柄（jobs I-4：句柄只在内存）。
+	plan.State = store.TeamworkState{Jobs: map[string]string{"arch": "a9"}}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	if err := st.WritePlan(context.Background(), key, plan, 6); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划的会话必须给出看板投影")
+	}
+	if !board.Stale {
+		t.Fatal("计划里有句柄、句柄表里查不到 → 必须显形为过期（不假装是最新事实）")
+	}
+	if len(board.Jobs) != 0 {
+		t.Fatalf("句柄表为空时不应凭空造作业行：%+v", board.Jobs)
+	}
+}
+
+func TestTeamworkBoardSnapshotCachesFileReads(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := newCountingPlanStore()
+	if err := r.SetTeamworkBackend(countingBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	if _, err := r.teamPlanHandler(ctx, `{
+		"team_id": "t", "milestones": [{"id":"m-a"}],
+		"members": [{"role":"x","role_session_id":"s-team-x"}]
+	}`); err != nil {
+		t.Fatalf("team_plan: %v", err)
+	}
+
+	// 采集路径的性能契约用**增量**度量：100 次采集只该多读一次计划 + 一次审计。
+	// （不用绝对值：计划**写**路径自 2026-10-03 起会读一次旧计划——它要保住同名里程碑
+	// 下已经排好的工作项与运行态，不因为 leader 改一次成员就整份抹掉；那是写路径的读，
+	// 与"会话快照是高频路径"这条契约无关。）
+	beforePlan, beforeEvents := st.reads()
+	for index := 0; index < 100; index++ {
+		if board := r.TeamworkBoardSnapshot("s-team"); board == nil {
+			t.Fatalf("第 %d 次采集丢掉了看板", index)
+		}
+	}
+	planReads, eventReads := st.reads()
+	if planReads-beforePlan != 1 || eventReads-beforeEvents != 1 {
+		t.Fatalf("100 次采集应只多读一次计划 + 一次审计（会话快照是高频路径），实际 %d 计划 / %d 审计",
+			planReads-beforePlan, eventReads-beforeEvents)
+	}
+
+	// team_* 成功返回后必须失效：下一次采集恰好再读一次。
+	if _, err := r.teamPlanHandler(ctx, `{
+		"team_id": "t", "version": 2, "milestones": [{"id":"m-a"}],
+		"members": [{"role":"x","role_session_id":"s-team-x"}]
+	}`); err != nil {
+		t.Fatalf("team_plan(2): %v", err)
+	}
+	afterWrite, _ := st.reads()
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil || board.Version != 2 {
+		t.Fatalf("缓存失效后必须读到新计划：%+v", board)
+	}
+	planReads, _ = st.reads()
+	if planReads-afterWrite != 1 {
+		t.Fatalf("team_plan 之后下一次采集应恰好再读一次计划，实际 %d", planReads-afterWrite)
+	}
+}
+
+// TestSettleWorkItemInvalidatesBoardCache 钉住「自动尾插」这条**非工具**写路径也让看板缓存失效。
+//
+// 为什么必须钉：缓存靠"team_* 工具成功返回后失效"，而 teammate 跑完的尾插（工作项状态 →
+// 待验收 + 回执进消息队列 + 一条 settle 审计行）**根本不经过工具**。少了这一处，看板会一直
+// 显示"这件事还在跑、没有回执"，直到下一次 team_* 调用把它撞醒——2026-10-04 headless 冒烟的
+// 现场就是：计划里已经 review，看板还停在 running、Messages 空（"跑完了看不见回执"再现，
+// 根因在投影缓存而不在尾插）。
+func TestSettleWorkItemInvalidatesBoardCache(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	backend := teamworkTestBackend(st, "s-team")
+	if err := r.SetTeamworkBackend(backend); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+
+	plan := boardPlanFixture()
+	plan.Milestones[1].Items[0].Status = store.TeamworkItemRunning
+	plan.Milestones[1].Items[0].SessionID = "s-team-impl_ui-wi-wi-impl"
+	plan.Milestones[1].Items[0].Handle = "a1"
+	if err := st.WritePlan(ctx, key, plan, backend.MaxTeammates); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+
+	// 先采一次：把「计划 + 审计」两份文件读灌进缓存（会话快照是高频路径，这是常态）。
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil || boardWorkItemStatus(board, "wi-impl") != store.TeamworkItemRunning {
+		t.Fatalf("前置：看板应显示这件事在跑：%+v", board)
+	}
+
+	// 自动尾插（不是工具调用）：缓存不能指望 team_* 那条失效点。
+	if err := r.SettleWorkItem(ctx, teamwork.WorkerRequest{
+		MainSessionID: "s-team", WorkItemID: "wi-impl", Role: "impl_ui",
+	}, nil); err != nil {
+		t.Fatalf("SettleWorkItem: %v", err)
+	}
+
+	board = r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("尾插之后看板不该消失")
+	}
+	if status := boardWorkItemStatus(board, "wi-impl"); status != store.TeamworkItemReview {
+		t.Fatalf("尾插之后看板应显示待验收（缓存没失效就会停在 running）：%q", status)
+	}
+}
+
+// boardWorkItemStatus 取看板里某个工作项的状态（空串 = 投影里没有这一条）。
+func boardWorkItemStatus(board *dto.TeamworkBoardView, id string) string {
+	for _, item := range board.WorkItems {
+		if item.ID == id {
+			return item.Status
+		}
+	}
+	return ""
+}
+
+// TestTeamworkBoardCarriesWorkItemsAndTeammateQueue 钉住 Work Item 口径的看板搬运
+// （2026-10-03）：里程碑（屏障 depends_on）+ 工作项（甘特节点，自带 milestone / role /
+// depends_on / session / worktree / live）+ teammate 的队列与状态，都要原样下发。
+//
+// 为什么在这一层钉：渲染件按这些字段决定"画不画甘特、谁被依赖卡住"；桥少搬一个字段，
+// 前端就是静默少画一行——类型上完全合法。
+func TestTeamworkBoardCarriesWorkItemsAndTeammateQueue(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	if _, err := r.teamPlanHandler(ctx, `{
+		"team_id": "v-model", "version": 1,
+		"members": [{"role":"pm","role_session_id":"s-team-pm"},{"role":"exec","role_session_id":"s-team-exec"}],
+		"milestones": [{"id":"m-build","name":"构建"},{"id":"m-ship","depends_on":["m-build"]}]
+	}`); err != nil {
+		t.Fatalf("team_plan: %v", err)
+	}
+	if _, err := r.teamWorkHandler(ctx, `{
+		"milestone": "m-build",
+		"items": [
+			{"id":"wi-req","role":"pm","name":"需求澄清"},
+			{"id":"wi-impl","role":"exec","name":"实现","depends_on":["wi-req"],"goal":"跑通"}
+		]
+	}`); err != nil {
+		t.Fatalf("team_work: %v", err)
+	}
+	// 屏障没开：给下一个里程碑排活必须被拒（分里程碑排活）。
+	if _, err := r.teamWorkHandler(ctx, `{
+		"milestone": "m-ship",
+		"items": [{"id":"wi-ship","role":"exec","name":"发布"}]
+	}`); err == nil {
+		t.Fatal("上一个里程碑没完成就给下一个排活，必须被拒")
+	}
+	// 未开始的工作项可以调整；这里顺手改个目标。
+	if _, err := r.teamItemHandler(ctx, `{"id":"wi-impl","goal":"跑通 + 有回归"}`); err != nil {
+		t.Fatalf("team_item: %v", err)
+	}
+
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划的会话必须给出看板投影")
+	}
+	if len(board.WorkItems) != 2 {
+		t.Fatalf("看板必须下发工作项（甘特数据面）：%+v", board.WorkItems)
+	}
+	impl := board.WorkItems[1]
+	if impl.ID != "wi-impl" || impl.Milestone != "m-build" || impl.Role != "exec" {
+		t.Fatalf("工作项归属搬运错了：%+v", impl)
+	}
+	if len(impl.DependsOn) != 1 || impl.DependsOn[0] != "wi-req" {
+		t.Fatalf("里程碑内依赖必须随工作项下发：%+v", impl.DependsOn)
+	}
+	if !strings.Contains(impl.Goal, "有回归") {
+		t.Fatalf("调整后的目标必须下发：%q", impl.Goal)
+	}
+	if impl.Status != store.TeamworkItemPending {
+		t.Fatalf("未派发的工作项状态是 pending：%q", impl.Status)
+	}
+	if len(board.Milestones) != 2 || len(board.Milestones[1].DependsOn) != 1 {
+		t.Fatalf("里程碑屏障必须下发：%+v", board.Milestones)
+	}
+	if board.Milestones[1].DependsOn[0] != "m-build" {
+		t.Fatalf("里程碑屏障指向错了：%+v", board.Milestones[1])
+	}
+	// teammate 段：名字 / 状态 / 工作项名称队列。
+	for _, member := range board.Members {
+		if member.Role != "exec" {
+			continue
+		}
+		if len(member.Queue) != 1 || member.Queue[0] != "实现" {
+			t.Fatalf("teammate 的队列应是「未完成的工作项名称」：%+v", member)
+		}
+		if member.Status != "free" {
+			t.Fatalf("没有在跑的工作项时人是 free（teammate 状态只有 running/free）：%q", member.Status)
+		}
+	}
+}
+
+// TestTeamworkBoardCarriesMemberCurrentSession 钉住 teammate 段的**当前会话**归属
+// （2026-10-04 用户口径：看板点开的要是"当前的 teammate 的会话"，不是员工的长期历史会话）。
+//
+// 判据链：在跑的工作项 > 等验收的 > 最近开过工的那件；一件都没开过 → 两个字段都空
+// （前端退回角色会话，并在提示里说明）。
+func TestTeamworkBoardCarriesMemberCurrentSession(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	plan := store.TeamworkPlan{
+		TeamID: "t-current", Version: 1,
+		Members: []store.TeamworkMember{
+			{Role: "exec", RoleSessionID: "s-team-exec"},
+			{Role: "verify", RoleSessionID: "s-team-verify"},
+			{Role: "fresh", RoleSessionID: "s-team-fresh"},
+		},
+		Milestones: []store.TeamworkMilestone{{
+			ID: "m-impl",
+			Items: []store.TeamworkWorkItem{
+				{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现", Status: store.TeamworkItemRunning, SessionID: "s-team-exec-wi-wi-impl"},
+				{ID: "wi-verify", Milestone: "m-impl", Role: "verify", Name: "复核", Status: store.TeamworkItemReview, SessionID: "s-team-verify-wi-wi-verify"},
+			},
+		}},
+	}
+	if err := st.WritePlan(context.Background(), key, plan, 6); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划就必须给出看板投影")
+	}
+	byRole := map[string]dto.TeamworkMemberView{}
+	for _, member := range board.Members {
+		byRole[member.Role] = member
+	}
+	exec := byRole["exec"]
+	if exec.Status != "running" {
+		t.Fatalf("有在跑的工作项时人是 running：%+v", exec)
+	}
+	if exec.CurrentSessionID != "s-team-exec-wi-wi-impl" || exec.CurrentWorkItem != "wi-impl" {
+		t.Fatalf("在跑的人必须指向**这件事自己的会话**（不是角色会话 %q）：%+v", exec.RoleSessionID, exec)
+	}
+	verify := byRole["verify"]
+	if verify.Status != "free" {
+		t.Fatalf("等验收的人不是 running（人没在干活，状态只有 running/free）：%+v", verify)
+	}
+	if verify.CurrentSessionID != "s-team-verify-wi-wi-verify" || verify.CurrentWorkItem != "wi-verify" {
+		t.Fatalf("等验收的人仍指向那件事的会话：%+v", verify)
+	}
+	fresh := byRole["fresh"]
+	if fresh.CurrentSessionID != "" || fresh.CurrentWorkItem != "" {
+		t.Fatalf("一件都没开过的人没有「当前的会话」可指（前端退到角色会话）：%+v", fresh)
+	}
+}
+
+func TestTeamworkBoardSnapshotCapsAuditWindow(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	if err := st.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+	for index := 0; index < teamworkBoardEventLimit+8; index++ {
+		if err := st.AppendEvent(context.Background(), key, store.TeamworkEvent{
+			At: time.Unix(int64(index+1), 0), Kind: "dispatch", Detail: "x",
+		}); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划的会话必须给出看板投影")
+	}
+	if len(board.Events) != teamworkBoardEventLimit {
+		t.Fatalf("审计必须限窗到 %d 条，实际 %d", teamworkBoardEventLimit, len(board.Events))
+	}
+	// 取的是**最近**的：末条 = 最后追加的那条。
+	if board.Events[len(board.Events)-1].At != int64(teamworkBoardEventLimit+8) {
+		t.Fatalf("审计应取最近若干条（保持发生顺序），末条 = %+v", board.Events[len(board.Events)-1])
+	}
+}
+
+func TestTeamworkBoardSnapshotNegativeCache(t *testing.T) {
+	// 绝大多数会话**没有**团队计划，而快照是高频路径：踩空也必须进缓存，
+	// 否则每次采集都会去 stat 一个不存在的计划文件。
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	st := newCountingPlanStore()
+	if err := r.SetTeamworkBackend(countingBackend(st, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	for index := 0; index < 50; index++ {
+		if board := r.TeamworkBoardSnapshot("s-team"); board != nil {
+			t.Fatalf("没有计划时必须返回 nil，得到 %+v", board)
+		}
+	}
+	if planReads, _ := st.reads(); planReads != 1 {
+		t.Fatalf("没有计划的会话只该读一次（负缓存），实际读 %d 次", planReads)
+	}
+
+	// team_plan 之后失效：下一次采集必须看到新计划（负缓存不得把面板永久钉在"没有"）。
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	if _, err := r.teamPlanHandler(ctx, `{
+		"team_id": "t", "milestones": [{"id":"m-a"}],
+		"members": [{"role":"x","role_session_id":"s-team-x"}]
+	}`); err != nil {
+		t.Fatalf("team_plan: %v", err)
+	}
+	if board := r.TeamworkBoardSnapshot("s-team"); board == nil {
+		t.Fatal("负缓存必须在 team_plan 之后失效（否则新建的团队永远不显示）")
+	}
+}
+
+func TestTeamworkBoardSnapshotPortsRoleFromSubject(t *testing.T) {
+	// 归属口径：作业行的角色/阶段由桥给权威值——阶段 = record.Node，
+	// 角色 = 作用域主体 emp_<role> 反解。渲染件里的回落链不该被走到。
+	if got := roleFromSubject("emp_impl_ui"); got != "impl_ui" {
+		t.Fatalf("emp_ 前缀应反解成角色名，得到 %q", got)
+	}
+	if got := roleFromSubject("main"); got != "main" {
+		t.Fatalf("不是 emp_ 前缀时原样返回（不猜），得到 %q", got)
+	}
+	if !strings.HasPrefix(strings.Join([]string{teamworkSubjectPrefix(), "arch"}, ""), "emp_") {
+		t.Fatal("作用域前缀必须与 teamwork.SubjectForRole 同源")
+	}
+}
+
+// BenchmarkTeamworkBoardSnapshot 是采集路径的**量级证据**（契约 §4）：
+// 稳态下每次采集不该碰文件——b.N 次里计划/审计读次数恒为 1。
+func BenchmarkTeamworkBoardSnapshot(b *testing.B) {
+	r := newTestRuntime(b)
+	defer r.Shutdown()
+	st := newCountingPlanStore()
+	if err := r.SetTeamworkBackend(countingBackend(st, "s-team")); err != nil {
+		b.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	if err := st.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
+		b.Fatalf("WritePlan: %v", err)
+	}
+	for index := 0; index < teamworkBoardEventLimit; index++ {
+		if err := st.AppendEvent(context.Background(), key, store.TeamworkEvent{
+			At: time.Unix(int64(index+1), 0), Kind: "dispatch", Detail: "x",
+		}); err != nil {
+			b.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	// 预热一次（冷启动那一次读文件），之后的采集全部走缓存。
+	if board := r.TeamworkBoardSnapshot("s-team"); board == nil {
+		b.Fatal("预热采集失败")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if board := r.TeamworkBoardSnapshot("s-team"); board == nil {
+			b.Fatal("采集丢掉了看板")
+		}
+	}
+	b.StopTimer()
+	planReads, eventReads := st.reads()
+	if planReads != 1 || eventReads != 1 {
+		b.Fatalf("稳态采集不应碰文件：计划读 %d 次、审计读 %d 次", planReads, eventReads)
+	}
+}

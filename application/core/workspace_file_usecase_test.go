@@ -2,13 +2,13 @@ package core
 
 import (
 	"encoding/base64"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
-	"github.com/RedHuang-0622/seelex/workspace"
 )
 
 // fileFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现
@@ -76,7 +76,7 @@ func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T) {
 			Base64: base64.StdEncoding.EncodeToString([]byte("code")),
 		},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -105,7 +105,7 @@ func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
 			Base64: base64.StdEncoding.EncodeToString([]byte("code")),
 		},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -129,7 +129,7 @@ func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
 
 func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T) {
 	fake := &fileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 	if _, err := service.WorkspaceGitCommitFileContent("abc1234", "README.md", 0); err == nil {
@@ -138,7 +138,7 @@ func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T)
 }
 
 func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testing.T) {
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
@@ -152,7 +152,7 @@ func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testi
 
 func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T) {
 	fake := &fileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 	if _, err := service.WorkspaceFileContent("README.md", 0); err == nil {
@@ -161,7 +161,7 @@ func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T) {
 }
 
 func TestWorkspaceFileContentFallsBackWhenBackendLacksFilePort(t *testing.T) {
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
@@ -190,7 +190,7 @@ func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T) {
 	}
 
 	repo := adapters.WorkspacePort{Repo: workspace.NewRepo()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
@@ -218,7 +218,7 @@ func TestWorkspaceWriteFileForwardsCurrentWorkspaceRoot(t *testing.T) {
 		fakeWorkspace: newFakeWorkspace(),
 		writeResult:   dto.FileWriteResult{Path: "src/main.go", Size: 5},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -240,7 +240,7 @@ func TestWorkspaceWriteFileForwardsCurrentWorkspaceRoot(t *testing.T) {
 
 func TestWorkspaceWriteFileRejectsWithoutBoundWorkspace(t *testing.T) {
 	fake := &fileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 	if _, err := service.WorkspaceWriteFile("README.md", "x"); err == nil {
@@ -249,7 +249,7 @@ func TestWorkspaceWriteFileRejectsWithoutBoundWorkspace(t *testing.T) {
 }
 
 func TestWorkspaceWriteFileRejectsReadOnlyBackend(t *testing.T) {
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = &readOnlyFileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
 	})
 	root := t.TempDir()
@@ -279,7 +279,7 @@ func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T) {
 	}
 
 	repo := adapters.WorkspacePort{Repo: workspace.NewRepo()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
 	if err := service.CreateWorkspace("project", root, ""); err != nil {

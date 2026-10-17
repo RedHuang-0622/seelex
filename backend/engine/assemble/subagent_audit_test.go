@@ -1,0 +1,195 @@
+package assemble
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/accountpool"
+	"github.com/RedHuang-0622/Seele/agent"
+)
+
+// TestSubAgentMailboxOverflowPreservesMessages 验证 A 修复：merge-back 队列
+// 永不静默丢弃——连续写入多条后 Drain 全部回收（修复前 channel 满直接
+// drop + 计数，导致子代理合并结果丢失）。
+func TestSubAgentMailboxOverflowPreservesMessages(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.enqueueSubagentContext("first")
+	runtime.enqueueSubagentContext("second")
+	runtime.enqueueSubagentContext("third")
+	done := make(chan struct{})
+	go func() {
+		runtime.enqueueSubagentContext("fourth")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("full subagent mailbox blocked the producer")
+	}
+	items := runtime.DrainSubagentContexts()
+	if len(items) != 4 {
+		t.Fatalf("mailbox must preserve all merge-back messages, got %d: %#v", len(items), items)
+	}
+}
+
+// TestSubAgentStartupEndToEnd 验证子代理完整启动路径：
+// plan_load → plan_run → workplan 核 → SeelexAgentNode.Run → nodeSession.Chat。
+// 使用确定性 scripted completer 避免网络调用，验证子代理会话正确构造与 Chat 入口可达。
+func TestSubAgentStartupEndToEnd(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.RegisterTool("task_complete", "complete task", nil, func(ctx context.Context, args string) (string, error) {
+		return `{"status":"completed"}`, nil
+	})
+
+	scripted := newScriptedNodeCompleter("子代理执行完成：已读取文件并返回结果。")
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
+		"agent-1": scripted,
+	})
+
+	result, err := runtime.runForkSubagent(context.Background(), "do", "read the file and return findings", "", 0)
+	if err != nil {
+		t.Fatalf("run subagent failed: %v", err)
+	}
+	t.Logf("subagent result: %s", result)
+
+	// 验证 scripted completer 被调用（子代理确实启动了 Chat）
+	scripted.mu.Lock()
+	called := len(scripted.requests) > 0
+	reqCount := len(scripted.requests)
+	scripted.mu.Unlock()
+	if !called {
+		t.Fatal("sub-agent was never started: scripted completer received no Chat requests")
+	}
+	t.Logf("sub-agent completer received %d Chat requests", reqCount)
+
+	// 验证子代理的 system prompt 包含节点目标
+	// scripted.requests 是 [][]types.Message，每个请求是一组 messages
+	scripted.mu.Lock()
+	hasGoal := false
+	for _, reqMsgs := range scripted.requests {
+		for _, msg := range reqMsgs {
+			if msg.Content != nil && strings.Contains(*msg.Content, "read the file") {
+				hasGoal = true
+			}
+		}
+	}
+	scripted.mu.Unlock()
+	if !hasGoal {
+		t.Error("sub-agent messages should contain node goal 'read the file and return findings'")
+	}
+}
+
+// TestSubAgentParallelBranches 验证两个 agent 节点并行执行
+// （workplan kernel 并发分支调度 + 独立会话）。
+func TestSubAgentParallelBranches(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	blockingLeft := newScriptedNodeCompleter("left-done")
+	blockingRight := newScriptedNodeCompleter("right-done")
+
+	// 同一个账号 pin 两个子代理：验证并行调度（两个 completer 并发进入）
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
+		"agent-1": newScriptedNodeCompleter("main-done"),
+	})
+
+	// 两分支独立账号
+	runtime.pool.Unregister("agent-1")
+	leftAcc := mustRegisterAccount(t, runtime, "left-agent", blockingLeft)
+	rightAcc := mustRegisterAccount(t, runtime, "right-agent", blockingRight)
+	_ = leftAcc
+	_ = rightAcc
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, spec := range []struct{ id, goal string }{{"left", "do left"}, {"right", "do right"}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), spec.id, spec.goal, "", 0); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
+	}
+
+	// 两个子代理都应被启动
+	select {
+	case <-blockingLeft.started:
+		t.Log("left sub-agent started")
+	case <-time.After(10 * time.Second):
+		t.Error("left sub-agent was never started")
+	}
+	select {
+	case <-blockingRight.started:
+		t.Log("right sub-agent started")
+	case <-time.After(10 * time.Second):
+		t.Error("right sub-agent was never started")
+	}
+}
+
+func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.Completer) accountpool.Account[agent.Completer] {
+	t.Helper()
+	acc := accountpool.Account[agent.Completer]{
+		ID: id, Value: value, MaxConcurrency: 1,
+		Metadata: map[string]string{"provider": "openai", "model": "test-model"},
+	}
+	if err := runtime.pool.Register(acc); err != nil {
+		t.Fatal(err)
+	}
+	return acc
+}
+
+// TestSubAgentMergeBackRegistersResultWithoutMailbox 验证 2026-09-08 改造：
+// 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
+// 更新父证据投影并登记节点结果（NodeSemanticResult）；产出经工具结果回传
+// 父代理，Runtime mailbox 不再接收 Format 信封块（mailbox 内容不进入前端
+// /引擎历史/transcript）。
+func TestSubAgentMergeBackRegistersResultWithoutMailbox(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.RegisterTool("task_complete", "complete task", nil, func(ctx context.Context, args string) (string, error) {
+		return `{"status":"completed"}`, nil
+	})
+	// 建主会话（plan_run 的父侧；NewRuntime 不自动创建）。
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	// 父子上下文消息通道（Actor 边界）：ParentEvidence 从遥测构造快照；
+	// MergeBack 更新父证据投影（嵌套 fork/后续节点可读）。
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
+	})
+
+	scripted := newScriptedNodeCompleter("子代理结论：模块审计完成。")
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
+
+	if _, err := runtime.runForkSubagent(context.Background(), "do", "audit the module and return findings", "", 0); err != nil {
+		t.Fatalf("run subagent failed: %v", err)
+	}
+
+	// mailbox 不再接收 Format 信封块：产出经工具结果回传，mailbox 保持空。
+	received := runtime.DrainSubagentContexts()
+	if len(received) != 0 {
+		t.Fatalf("mailbox must stay empty after node completion, got %d blocks", len(received))
+	}
+	result := runtime.NodeSemanticResult("do")
+	if result == nil || result.Status != "completed" {
+		t.Fatalf("node semantic result = %+v, want completed", result)
+	}
+	if !strings.Contains(result.Output, "模块审计完成") {
+		t.Fatalf("semantic result output must carry the subagent conclusion, got %q", result.Output)
+	}
+}

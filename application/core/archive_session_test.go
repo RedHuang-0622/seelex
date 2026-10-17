@@ -3,13 +3,14 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"io/fs"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 // archiveCommandSessions 是 C2 ArchiveSession 的测试桩：会话粒度目录
@@ -19,16 +20,16 @@ import (
 type archiveCommandSessions struct {
 	*scopedSessions
 	mu      sync.Mutex
-	records map[string]SessionRecord // "projectID|sessionID"
+	records map[string]model.SessionRecord // "projectID|sessionID"
 }
 
 func newArchiveCommandSessions() *archiveCommandSessions {
 	return &archiveCommandSessions{
 		scopedSessions: &scopedSessions{
-			catalog:   map[string][]SessionInfo{},
-			histories: map[string]map[string][]EngineMessage{},
+			catalog:   map[string][]model.SessionInfo{},
+			histories: map[string]map[string][]contract.EngineMessage{},
 		},
-		records: map[string]SessionRecord{},
+		records: map[string]model.SessionRecord{},
 	}
 }
 
@@ -37,55 +38,55 @@ func (sessions *archiveCommandSessions) add(projectID, sessionID string) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	sessions.scopedSessions.mu.Lock()
-	sessions.catalog[projectID] = append(sessions.catalog[projectID], SessionInfo{
+	sessions.catalog[projectID] = append(sessions.catalog[projectID], model.SessionInfo{
 		ID: sessionID, UpdatedAt: now,
 	})
 	if sessions.histories[projectID] == nil {
-		sessions.histories[projectID] = map[string][]EngineMessage{}
+		sessions.histories[projectID] = map[string][]contract.EngineMessage{}
 	}
-	sessions.histories[projectID][sessionID] = []EngineMessage{{Role: "user", Content: sessionID}}
+	sessions.histories[projectID][sessionID] = []contract.EngineMessage{{Role: "user", Content: sessionID}}
 	sessions.scopedSessions.mu.Unlock()
-	sessions.records[projectID+"|"+sessionID] = SessionRecord{
+	sessions.records[projectID+"|"+sessionID] = model.SessionRecord{
 		Version:   session_runtime.SessionRecordVersion,
 		ID:        sessionID,
 		Status:    SessionStatusIdle,
 		UpdatedAt: now,
-		Conversation: ConversationRecord{Messages: []Message{{
+		Conversation: model.ConversationRecord{Messages: []model.Message{{
 			ID: "m1", Role: "user", Content: sessionID + " content", CreatedAt: now,
 		}}},
 	}
 }
 
-func (sessions *archiveCommandSessions) recordFor(projectID, sessionID string) (SessionRecord, bool) {
+func (sessions *archiveCommandSessions) recordFor(projectID, sessionID string) (model.SessionRecord, bool) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	record, ok := sessions.records[projectID+"|"+sessionID]
 	return record, ok
 }
 
-func (sessions *archiveCommandSessions) SaveSessionRecordWorkspace(projectID, sessionID string, record SessionRecord) error {
+func (sessions *archiveCommandSessions) SaveSessionRecordWorkspace(projectID, sessionID string, record model.SessionRecord) error {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	sessions.records[projectID+"|"+sessionID] = record
 	return nil
 }
 
-func (sessions *archiveCommandSessions) SaveSessionRecord(sessionID string, record SessionRecord) error {
+func (sessions *archiveCommandSessions) SaveSessionRecord(sessionID string, record model.SessionRecord) error {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	sessions.records["|"+sessionID] = record
 	return nil
 }
 
-func (sessions *archiveCommandSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (SessionRecord, error) {
+func (sessions *archiveCommandSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error) {
 	record, ok := sessions.recordFor(projectID, sessionID)
 	if !ok {
-		return SessionRecord{}, fs.ErrNotExist
+		return model.SessionRecord{}, fs.ErrNotExist
 	}
 	return record, nil
 }
 
-func (sessions *archiveCommandSessions) LoadSessionRecord(sessionID string) (SessionRecord, error) {
+func (sessions *archiveCommandSessions) LoadSessionRecord(sessionID string) (model.SessionRecord, error) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	for key, record := range sessions.records {
@@ -93,11 +94,11 @@ func (sessions *archiveCommandSessions) LoadSessionRecord(sessionID string) (Ses
 			return record, nil
 		}
 	}
-	return SessionRecord{}, fs.ErrNotExist
+	return model.SessionRecord{}, fs.ErrNotExist
 }
 
 // SessionsOf 以 record 状态覆盖目录行（与生产 adapter 一致）。
-func (sessions *archiveCommandSessions) SessionsOf(projectID string) []SessionInfo {
+func (sessions *archiveCommandSessions) SessionsOf(projectID string) []model.SessionInfo {
 	infos := sessions.scopedSessions.SessionsOf(projectID)
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
@@ -111,10 +112,10 @@ func (sessions *archiveCommandSessions) SessionsOf(projectID string) []SessionIn
 
 func archiveTestService(t *testing.T, sessions *archiveCommandSessions) *Service {
 	t.Helper()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:    &fakeEngine{},
 		Runtime:   &fakeRuntime{},
-		Plugins:   &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:   &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:    fakeSkills{},
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
@@ -180,19 +181,19 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 
 	service.ViewMu.Lock()
 	unit := service.sessionUnitLocked("session-a")
-	unit.SetChatState(ChatState{Running: true}, nil)
+	unit.SetChatState(model.ChatState{Running: true}, nil)
 	service.ViewMu.Unlock()
 	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while running = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
-	unit.SetChatState(ChatState{QueuedCount: 1}, nil)
+	unit.SetChatState(model.ChatState{QueuedCount: 1}, nil)
 	service.ViewMu.Unlock()
 	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while queued = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
-	unit.SetChatState(ChatState{}, nil)
+	unit.SetChatState(model.ChatState{}, nil)
 	unit.AddApproval("approval-1")
 	service.ViewMu.Unlock()
 	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {

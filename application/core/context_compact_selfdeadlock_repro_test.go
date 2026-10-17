@@ -11,11 +11,11 @@ package core
 //	            └─ CompactionIndexPort.PushCompactionFrame(context.Background(), …)
 //	                 （context_runtime/compaction_index.go:68 —— ctx 是 Background）
 //	                 └─ adapters.RuntimePort.PushCompactionFrame（只转发）
-//	                      └─ seelebridge.Runtime.PushCompactionFrame
+//	                      └─ assemble.Runtime.PushCompactionFrame
 //	                           └─ CompressedTurnArchiver.StoreTurn(ctx, …)（归档原文）
 //	                                ├─ sessionIDFromContext(ctx) == ""   ← Background 不带会话
 //	                                └─ a.SessionIDProvider()             ← 兜底会话归属
-//	                                     └─ main.go:312 `app.Snapshot().Session.ID`
+//	                                     └─ wiring/bootstrap 的 TurnArchiver.SessionIDProvider `app.Snapshot().Session.ID`
 //	                                          └─ view_state.Coordinator.SnapshotView
 //	                                               └─ ViewMu.RLock()  ← 同 goroutine 再取读锁
 //
@@ -27,22 +27,22 @@ package core
 //	Submit 的第一步（ViewMu.RLock）永不返回 → 消息连队列都进不去。
 //
 // 触发条件是「压缩折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
-// —— 生产装配（main.go:310 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
+// —— 生产装配（wiring/bootstrap 的 CompressedTurnArchiver 接线 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
 // 进程里是**确定性**自锁，不是概率事件，与是否打开 context_compaction_summary 无关
 // （打开时只是在自锁之前多跑一次模型调用）。
 
 import (
 	"context"
+	types "github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	types "github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // archiverSessionsStub 是 CompressedTurnArchiver.Sessions 需要的写通道
@@ -52,7 +52,7 @@ type archiverSessionsStub struct {
 	commits int
 }
 
-func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ sessionstore.Commit) error {
+func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ store.Commit) error {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
 	stub.commits++
@@ -67,7 +67,7 @@ func (stub *archiverSessionsStub) commitCount() int {
 
 // productionArchiveIndexRuntime 按生产接线模拟压缩帧的推帧落点：跑完 DAG（这里以桩
 // 代替）后走**真实**的 CompressedTurnArchiver 归档原文，并把 ctx 原样转发——与
-// seelebridge/runtime_compaction_index.go 的第二步同形。
+// backend/engine/assemble/runtime_compaction_index.go 的第二步同形。
 type productionArchiveIndexRuntime struct {
 	runtimeWithContextLimits
 	archiver *CompressedTurnArchiver
@@ -91,7 +91,7 @@ func (runtime *productionArchiveIndexRuntime) PushCompactionFrame(
 	}, nil
 }
 
-// TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
+// TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（wiring/bootstrap 的 CompressedTurnArchiver 接线 同形）
 // 下提交一次 `/compact`，判定交互面是否被永久冻死。
 //
 // 修法（2026-09-29）：压缩落点拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
@@ -105,7 +105,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	var providerOnce sync.Once
 	archiver := &CompressedTurnArchiver{
 		Sessions: commits,
-		// 与 main.go:312 同形：归档器的兜底会话归属读的是视图快照。
+		// 与 wiring/bootstrap 的 TurnArchiver.SessionIDProvider 同形：归档器的兜底会话归属读的是视图快照。
 		SessionIDProvider: func() string {
 			providerOnce.Do(func() { close(providerEntered) })
 			return serviceRef.Snapshot().Session.ID
@@ -120,17 +120,17 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	// 直接构造而不走 newTestService：后者的 t.Cleanup(service.Shutdown) 也要取
 	// ViewMu，一旦复现出自锁就会连清理一起挂死（测试进程永不退出）。被冻住的
 	// goroutine 只持有本用例私有 service 的锁，是本用例要留下的事实。
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   &fakeEngine{},
 		Runtime:  runtime,
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: &fakeSessions{},
 	})
 	serviceRef = service
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-selflock"}
-	service.components.tasks.BeginTask("task-selflock", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-selflock"}
+	service.components.tasks.BeginTask("task-selflock", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-selflock")
 	sessionID := service.Snapshot().Session.ID

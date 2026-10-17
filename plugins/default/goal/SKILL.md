@@ -50,8 +50,8 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
   里程碑内用 `work_items[].depends_on`（**DAG**，并行）。右腿工作项依赖它配对的左腿工作项与实现工作项。
 - **分里程碑排活**：`team_work` **一次只排一个里程碑**；依赖还没 done 的里程碑会被**拒收**。
   不要一次把全程铺好（后来的证据总会改计划）。
-- 末尾**不设 `review` 里程碑**（也**不设 `tl` 角色**）：复核与收口是**你本人**的活——你就是 TL，
-  不占 teammate 席位；你的裁决以「里程碑 content + 看板打点 + `team_close` 收口」的形式落在自己的回合里。
+- 末尾**不设 `review` 里程碑**（也**不设 `tl` 角色**）：复核与收口是**你本人**的活，
+  不占 teammate 席位；你的结论以「里程碑 content + 看板打点 + `team_close` 收口」的形式落在自己的回合里。
 - **先算人再定里程碑/工作项**：在编 teammate ≤ `limits.team.max_teammates`（默认 6）。骨架（需求/设计/契约评审/实现
   + 三层验证，复核不占席位）正好 5 人；要加角色就先裁里程碑与工作项。
 - 骨架与成员表见 `$teamwork` 的「里程碑 + Work Item 模板」，照抄后按任务改名/裁剪。
@@ -101,7 +101,7 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
   **重派**（改正文、收窄范围）/ **收窄计划**（`team_plan` 减里程碑或换角色）/ **`task_needs_user_decision`**（无法自决）。
 - 同一件事最多重派 3 次；到顶就上报，不做无限重试，不靠「再来一轮」碰运气。
 - **收口**：右腿证据齐 → 完成条件**逐条**核对（缺条就说明为何免检）→ `team_close` 收团队
-  → `goal_done` 收目标（主代理即 TL，真收口；要让 TL 评估器裁决就改用 `goal_propose_finish`）。
+  → `goal_done` 收目标。
 - 提前收手也要留痕：已完成、卡在哪、下一步写进看板打点，再收口或上报。
 
 ## 7. 工具面
@@ -111,8 +111,7 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 | `goal_begin` | 注册目标（标题 + 正文 + 完成条件）——看板从此有正文与完成条件 |
 | `goal_update` | 打点：`progress_kind` = milestone/finding/decision/risk + 内容 |
 | `goal_status` | 回读看板（栈顶 + 下层状态） |
-| `goal_done` | **真收口**：`action=finish\|abort`（主代理即 TL 角色，直连收口，不过 gate） |
-| `goal_propose_finish` | 提议收口（送终态 gate：verdict_done 收口 / not_done 纠偏 / TL 缺席直连） |
+| `goal_done` | **收口**：`action=finish\|abort`（主代理直连收口） |
 | `$teamwork` | leader 工具面：`team_plan` / `team_work` / `team_item` / `team_dispatch` / `team_context` / `team_items` / `team_join` / `team_accept` / `team_fail` / `team_recover` / `team_milestone` / `team_close` + `jobs_manage` |
 | `task_check_node` / todo | 单代理顺序执行时的打点（与看板打点保持一致，不另立进度真相） |
 

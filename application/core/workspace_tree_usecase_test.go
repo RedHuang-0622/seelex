@@ -1,15 +1,15 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
-	"github.com/RedHuang-0622/seelex/workspace"
 )
 
 // treeFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现
@@ -70,7 +70,7 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 		}},
 		count: dto.TreeCount{Files: 3, Dirs: 1},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -101,7 +101,7 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 
 func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	fake := &treeFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 	if _, err := service.WorkspaceTree("", 1); err == nil {
@@ -128,7 +128,7 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 			{Hash: "abc", ShortHash: "abc", Author: "dev", Date: "08-29 10:00", Parents: []string{"def"}, Subject: "fix: git log"},
 		}},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -158,7 +158,7 @@ func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
 			Files: []dto.GitCommitFileEntry{{Path: "src/main.go", Kind: dto.ChangeModified, Status: "M", Letter: "M", Additions: 3}},
 		},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -181,7 +181,7 @@ func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
 }
 
 func TestWorkspaceTreeFallsBackWhenBackendLacksTreePort(t *testing.T) {
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
@@ -212,7 +212,7 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 	}
 
 	repo := adapters.WorkspacePort{Repo: workspace.NewRepo()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
@@ -269,7 +269,7 @@ func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T) {
 			Unstaged: 1,
 		},
 	}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
 
@@ -326,7 +326,7 @@ func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T) {
 	}
 
 	repo := adapters.WorkspacePort{Repo: workspace.NewRepo()}
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
 	if err := service.CreateWorkspace("project", root, ""); err != nil {

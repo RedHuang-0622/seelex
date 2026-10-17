@@ -3,56 +3,56 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	"github.com/RedHuang-0622/seelex/store"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // forkServiceSessions 是 Service.ForkSession 的会话桩：持有父会话数据面并
 // 记录子会话落盘参数；同时实现 resume 需要的 SessionRecordPort。
 type forkServiceSessions struct {
 	fakeSessions
-	parent     SessionRecord
-	events     []sessionstore.Event
+	parent     model.SessionRecord
+	events     []store.Event
 	context    []byte
-	results    []sessionstore.ToolResult
+	results    []store.ToolResult
 	generation string
 
 	savedChild   string
-	savedRecord  SessionRecord
+	savedRecord  model.SessionRecord
 	savedEvents  []model.TranscriptEvent
 	savedResults []model.StoredToolResult
 }
 
-func (s *forkServiceSessions) LoadSessionRecord(string) (SessionRecord, error) {
+func (s *forkServiceSessions) LoadSessionRecord(string) (model.SessionRecord, error) {
 	return s.parent, nil
 }
 
-func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (SessionRecord, error) {
+func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (model.SessionRecord, error) {
 	if sessionID == s.savedChild {
 		return s.savedRecord, nil
 	}
 	return s.parent, nil
 }
 
-func (s *forkServiceSessions) SaveSessionRecord(string, SessionRecord) error { return nil }
-func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, SessionRecord) error {
+func (s *forkServiceSessions) SaveSessionRecord(string, model.SessionRecord) error { return nil }
+func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error {
 	return nil
 }
 
-func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	return s.events, nil
 }
 
-func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
 	return s.results, nil
 }
 
-func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []EngineMessage, record SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error {
+func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error {
 	s.savedChild = sessionID
 	s.savedRecord = record
 	s.savedEvents = events
@@ -73,11 +73,11 @@ func (s *forkServiceSessions) CurrentGenerationWorkspace(projectID, sessionID st
 }
 
 func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
-	parent := SessionRecord{
+	parent := model.SessionRecord{
 		Version: 3,
 		ID:      "parent",
-		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
-		Conversation: ConversationRecord{Messages: []Message{
+		Title:   model.SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: model.ConversationRecord{Messages: []model.Message{
 			{ID: "m1", Role: "user", Content: "hi"},
 			{ID: "m2", Role: "assistant", Content: "hello"},
 		}},
@@ -88,17 +88,17 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
 		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
-		results:    []sessionstore.ToolResult{{Ref: "result:1", Tool: "bash", Content: "out", Digest: "d", Size: 3, TokenCount: 1}},
+		results:    []store.ToolResult{{Ref: "result:1", Tool: "bash", Content: "out", Digest: "d", Size: 3, TokenCount: 1}},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	childID, err := service.ForkSession("parent", ForkRequest{RequestID: "chat-1"})
+	childID, err := service.ForkSession("parent", model.ForkRequest{RequestID: "chat-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,18 +131,18 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 // 会话正文（曾复现：真实 GUI 单轮 fork 后子会话 record 含 2 条消息，但
 // SnapshotOf 恒为 total=0 resident=true）。
 func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
-	parent := SessionRecord{
+	parent := model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "parent",
-		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
-		Conversation: ConversationRecord{Messages: []Message{
+		Title:   model.SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: model.ConversationRecord{Messages: []model.Message{
 			{ID: "m1", Role: "user", Content: "hi"},
 			{ID: "m2", Role: "assistant", Content: "hello"},
 		}},
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
@@ -150,7 +150,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 		generation: "generation-parent",
 	}
 	engine := newMultiSessionEngine()
-	// 生产 seelebridge.Runtime.PerSessionExecution()=false（per-session
+	// 生产 assemble.Runtime.PerSessionExecution()=false（per-session
 	// project root 未落地前），fork 走 legacy StartSession 分支；回归必须
 	// 用默认 runtime 才能钉住该路径。
 	service := newTestService(t, engine, withTestSessions(sessions))
@@ -184,7 +184,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 	}
 }
 
-func lastMessageOf(messages []Message) *Message {
+func lastMessageOf(messages []model.Message) *model.Message {
 	for index := len(messages) - 1; index >= 0; index-- {
 		if messages[index].Role != "system" {
 			return &messages[index]
@@ -194,11 +194,11 @@ func lastMessageOf(messages []Message) *Message {
 }
 
 func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
-	parent := SessionRecord{
+	parent := model.SessionRecord{
 		Version: 3,
 		ID:      "parent",
-		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
-		Conversation: ConversationRecord{Messages: []Message{
+		Title:   model.SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: model.ConversationRecord{Messages: []model.Message{
 			{ID: "m1", Role: "user", Content: "hi"},
 			{ID: "m2", Role: "assistant", Content: "hello"},
 			{ID: "m3", Role: "user", Content: "again"},
@@ -207,7 +207,7 @@ func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 			{Seq: 3, TaskID: "chat-2", Role: "user", Content: "again", MessageID: "m3"},
@@ -234,14 +234,14 @@ func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
 }
 
 func TestForkCommandForksCurrentSession(t *testing.T) {
-	parent := SessionRecord{
+	parent := model.SessionRecord{
 		Version: 3,
 		ID:      "parent",
-		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
+		Title:   model.SessionTitle{Value: "Parent", Source: "first_request"},
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
@@ -250,7 +250,7 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "parent"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "parent"}
 	service.ViewMu.Unlock()
 
 	if err := service.submitCommand(context.Background(), "/fork"); err != nil {
@@ -267,14 +267,14 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 // TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
 // 引用不相交——改子不影响父（Conversation/Tasks/PlanStack）。
 func TestForkSessionDeepCopyIsolation(t *testing.T) {
-	parent := SessionRecord{
+	parent := model.SessionRecord{
 		Version: 3,
 		ID:      "parent",
-		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
-		Conversation: ConversationRecord{Messages: []Message{
+		Title:   model.SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: model.ConversationRecord{Messages: []model.Message{
 			{ID: "m1", Role: "user", Content: "hi"},
 			{ID: "m2", Role: "assistant", Content: "let me read"},
-			{ID: "m3", Role: "tool_result", Content: "out", Tool: &ToolCall{ID: "t1", Name: "read", Arguments: "{}"}},
+			{ID: "m3", Role: "tool_result", Content: "out", Tool: &model.ToolCall{ID: "t1", Name: "read", Arguments: "{}"}},
 		}},
 		Tasks: []dto.TaskRecord{
 			{ID: "plan:1", Kind: "plan"},
@@ -285,9 +285,9 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
-			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
+			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
 			{Seq: 3, TaskID: "chat-1", Role: "tool", ToolCallID: "t1", Name: "read", Content: "out", MessageID: "m3"},
 		},
 		context:    []byte(`{"schema_version":3}`),
@@ -295,12 +295,12 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if _, err := service.ForkSession("parent", ForkRequest{RequestID: "chat-1"}); err != nil {
+	if _, err := service.ForkSession("parent", model.ForkRequest{RequestID: "chat-1"}); err != nil {
 		t.Fatal(err)
 	}
 	// 修改子会话 record：追加消息 + 改 tool 参数 + 改 plan。
 	sessions.savedRecord.Conversation.Messages = append(sessions.savedRecord.Conversation.Messages,
-		Message{ID: "c-1", Role: "assistant", Content: "child"})
+		model.Message{ID: "c-1", Role: "assistant", Content: "child"})
 	mutatedTool := false
 	for index := range sessions.savedRecord.Conversation.Messages {
 		if sessions.savedRecord.Conversation.Messages[index].Tool != nil {
@@ -337,7 +337,7 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 // TestForkSessionRejectsRunningParent（UC5）：父会话运行中拒绝 fork。
 func TestForkSessionRejectsRunningParent(t *testing.T) {
 	sessions := &forkServiceSessions{
-		parent:     SessionRecord{Version: 3, ID: "parent", Title: SessionTitle{Value: "Parent"}},
+		parent:     model.SessionRecord{Version: 3, ID: "parent", Title: model.SessionTitle{Value: "Parent"}},
 		context:    []byte(`{}`),
 		generation: "generation-parent",
 	}
@@ -345,16 +345,16 @@ func TestForkSessionRejectsRunningParent(t *testing.T) {
 
 	// 标记父会话运行中。
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "parent"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "parent"}
 	unit := service.sessions.Unit("parent")
 	if unit == nil {
 		unit, _ = session.NewSessionUnit("parent")
 		service.sessions.Register(unit)
 	}
-	unit.SetChatState(ChatState{Running: true, RequestID: "req-parent"}, nil)
+	unit.SetChatState(model.ChatState{Running: true, RequestID: "req-parent"}, nil)
 	service.ViewMu.Unlock()
 
-	if _, err := service.ForkSession("parent", ForkRequest{}); !errors.Is(err, ErrChatRunning) {
+	if _, err := service.ForkSession("parent", model.ForkRequest{}); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("ForkSession(running parent) = %v, want ErrChatRunning", err)
 	}
 	if sessions.savedChild != "" {

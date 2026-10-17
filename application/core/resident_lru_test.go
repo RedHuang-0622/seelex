@@ -2,10 +2,10 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // withResidentLimit 把进程级 resident_limit 临时改成 limit，返回还原函数
@@ -39,7 +39,7 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
 
 	for _, sessionID := range []string{"sess-1", "sess-2", "sess-3"} {
 		engine.register(sessionID)
@@ -73,7 +73,7 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 		t.Fatalf("catalog settle: %v", err)
 	}
 	snapshot := service.Snapshot()
-	byID := map[string]SessionInfo{}
+	byID := map[string]model.SessionInfo{}
 	for _, item := range snapshot.Sessions {
 		if item.Status == SessionStatusDraft {
 			// 冷启动草稿行（"新会话"槽位）不属于本用例的驻留目录面：它与
@@ -112,7 +112,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 
 	// 空闲 B、C 依次热激活：B 先驻留，C 激活时超限 → 应驱逐空闲 B 而保留
 	// 运行中的 A（A 是当前视图且 busy，双保险）。
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}})
 	for _, sessionID := range []string{"sess-b", "sess-c"} {
 		engine.register(sessionID)
 		if err := service.ResumeSession(sessionID); err != nil {
@@ -138,10 +138,10 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 // （受保护集之外只保留上一个），两个分层覆盖键默认**未配置**（0 = 交给统一窗口
 // 管辖）——在这里补 6/12 老默认会让统一窗口永远失效。
 func TestSessionReleaseDefaults(t *testing.T) {
-	if got := seelexctx.DefaultLimits().ResidentSessionLimit; got != 0 {
+	if got := limit.DefaultLimits().ResidentSessionLimit; got != 0 {
 		t.Fatalf("default resident layer limit = %d, want 0（未配置 = 交给统一窗口）", got)
 	}
-	if got := seelexctx.DefaultLimits().ReleaseWindow(); got != 1 {
+	if got := limit.DefaultLimits().ReleaseWindow(); got != 1 {
 		t.Fatalf("default release window = %d, want 1（只保留上一个）", got)
 	}
 	if got := Limits().ReleaseWindow(); got != 1 {
@@ -151,10 +151,10 @@ func TestSessionReleaseDefaults(t *testing.T) {
 		t.Fatalf("active resident layer limit = %d, want 0", got)
 	}
 	// 窗口是配置项：显式配置生效，<=0 回落默认。
-	if got := (seelexctx.Limits{SessionReleaseWindow: 4}).ReleaseWindow(); got != 4 {
+	if got := (limit.Limits{SessionReleaseWindow: 4}).ReleaseWindow(); got != 4 {
 		t.Fatalf("configured release window = %d, want 4", got)
 	}
-	if got := (seelexctx.Limits{}).ReleaseWindow(); got != 1 {
+	if got := (limit.Limits{}).ReleaseWindow(); got != 1 {
 		t.Fatalf("zero-value release window = %d, want 1（零值回落默认）", got)
 	}
 	// 分层覆盖（老口径）折算：额度 = 上限 − 受保护数（下限 0）。

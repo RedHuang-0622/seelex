@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
@@ -28,10 +29,10 @@ func seedLongRounds(t *testing.T, service *Service, requestID string) {
 	defer service.ViewMu.Unlock()
 	for index := 0; index < 4; index++ {
 		body := "round-" + string(rune('a'+index)) + ":" + strings.Repeat("A", 160_000)
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: requestID, Role: "user", Content: "q-" + string(rune('a'+index)),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: requestID, Role: "assistant", Content: body,
 		})
 	}

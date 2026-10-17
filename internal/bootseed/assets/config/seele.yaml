@@ -1,6 +1,6 @@
 # Seelex 权责系统 — 最细粒度覆盖层（args / 单工具级）
 #
-# 三层口径（可执行形态见 seelebridge/tools/permission_policy.go，长期说明见
+# 三层口径（可执行形态见 backend/tool/registry/permission_policy.go，长期说明见
 # docs/arch/agent-permission-subjects.md）：
 #   主体（谁在调用）：root（主代理 / entry / goalplan）、sub（子代理）、
 #                    emp_ro / emp_rw（员工，按 ToolsPolicy）

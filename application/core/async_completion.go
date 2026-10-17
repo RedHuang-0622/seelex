@@ -6,8 +6,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 后台作业终态触发对话 ────────────────────────────────────────────────
@@ -39,8 +41,9 @@ import (
 // 开关：`limits.async_exec.trigger_conversation`（默认 false = 关，与 async_exec
 // 同一套"关就是关"的纪律）；关闭时调用方连扫描都不做。
 
-// asyncStateDone / asyncStateFailed 是触发口径认的两个终态：**转调契约的词表**
-// （dto.AsyncState*，字面量只有那一处），这里只是给触发口径起名，不新增第二套状态机。
+// asyncStateDone / asyncStateFailed 是触发口径认的两个终态：**转调契约的词表**（`dto.AsyncState*`，
+// 字面量只有那一处）。判据（哪两个状态触发）已在 M5-R6-async-completion 归位
+// `middle/switch.AsyncCompletionTriggers`；这里只保留**命名**供 core 内引用，不新增第二套状态机。
 const (
 	asyncStateDone   = dto.AsyncStateDone
 	asyncStateFailed = dto.AsyncStateFailed
@@ -66,7 +69,7 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 		// 裁剪账本：登记表里已经没有的句柄（被取回 / 销项 / 驱逐）从集合里去掉，
 		// 集合因此被登记表规模封顶，不会随进程存活时长无限增长。
 		present[handle] = struct{}{}
-		if !asyncCompletionTriggers(record.State) {
+		if !switching.AsyncCompletionTriggers(record.State) {
 			continue
 		}
 		sessionID := strings.TrimSpace(record.SessionID)
@@ -96,10 +99,6 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 
 // asyncCompletionTriggers 报告某个状态是否该触发对话。
 // done / failed 触发（用户口径 2026-10-01）；killed 与 running 都不触发。
-func asyncCompletionTriggers(state dto.AsyncState) bool {
-	return state == asyncStateDone || state == asyncStateFailed
-}
-
 // sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
 //
 // 判据只有一条：会话在会话域注册表里，且它的 ChatState 不在运行中。restoring
@@ -136,10 +135,10 @@ func asyncCompletionPrompt(record dto.AsyncRunRecord) string {
 	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
 	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
 	if title := strings.TrimSpace(record.Description); title != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", truncateWorkEvidence(title, 200))
+		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(title, 200))
 	}
 	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
+		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
 	}
 	fmt.Fprintf(&body, "取回全文用 bg_manage(op=fetch, handle=%q)；确认不需要了用 bg_manage(op=done, handle=%q) 销项。",
 		record.Handle, record.Handle)
@@ -169,12 +168,6 @@ func asyncPromptKind(kind string) string {
 // 一处**刻意不同**：正文指向 `jobs_manage` 与 `team_context`，不是 `bg_manage`——
 // 两张表的取回工具不是同一个，指错了模型就会去一个取不到这条作业的地方捞。
 
-// teamworkTriggeredPrefix 是幂等账的**按表**键前缀。句柄现在自带命名空间（`bt-` / `bs-` /
-// `bteam-`，见 dto.JobNamespace），字面量撞车在语法上已不可能；这个前缀仍然留着，因为
-// 幂等账的口径是"哪张表的哪一条"，不是"哪一串字符"——靠字面量区分本来就是当年那张表
-// 各铸 `a<seq>` 时的将就（2026-10-15 审计 D1）。
-const teamworkTriggeredPrefix = "teamwork:"
-
 // triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
 // 还没触发过"的作业各自起一个回合。
 //
@@ -191,9 +184,9 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 		if handle == "" {
 			continue
 		}
-		key := teamworkTriggeredPrefix + handle
+		key := switching.TeamworkTriggeredPrefix + handle
 		present[key] = struct{}{}
-		if !asyncCompletionTriggers(record.State) {
+		if !switching.AsyncCompletionTriggers(record.State) {
 			continue
 		}
 		sessionID := strings.TrimSpace(record.SessionID)
@@ -214,7 +207,7 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 		}
 	}
 	for key := range triggered {
-		if !strings.HasPrefix(key, teamworkTriggeredPrefix) {
+		if !strings.HasPrefix(key, switching.TeamworkTriggeredPrefix) {
 			continue
 		}
 		if _, ok := present[key]; !ok {
@@ -223,29 +216,15 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 	}
 }
 
-// teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
+// teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
+// 判据（窄可选端口读取）已在 M5-R6-async-completion 归位 `middle/switch`（plan §2.4）；
+// core 内部与 work_table.go 的调用点因此零改动。
 func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord {
-	if runtime == nil {
-		return nil
-	}
-	completion, ok := runtime.(contract.TeamworkJobCompletion)
-	if !ok {
-		return nil
-	}
-	return completion.TeamworkJobCompletions()
+	return switching.TeamworkJobCompletions(runtime)
 }
 
-// teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
-// 等于"这条链不存在"）。
 func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct{} {
-	if runtime == nil {
-		return nil
-	}
-	completion, ok := runtime.(contract.TeamworkJobCompletion)
-	if !ok {
-		return nil
-	}
-	return completion.TeamworkJobEvents()
+	return switching.TeamworkJobEvents(runtime)
 }
 
 // teamworkCompletionPrompt 组装 teammate 完成回执的正文。
@@ -270,10 +249,10 @@ func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string {
 	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
 	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
 	if description := strings.TrimSpace(record.Description); description != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", truncateWorkEvidence(description, 200))
+		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(description, 200))
 	}
 	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
+		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
 	}
 	fmt.Fprintf(&body,
 		"读结论用 team_context（非消费读，不推进游标）；产物正文用 jobs_manage(op=observe|fetch, handle=%q)；"+

@@ -1,0 +1,76 @@
+package assemble
+
+import (
+	"context"
+	"errors"
+	session "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/model"
+	"testing"
+)
+
+func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.SetFullAccess(true)
+	runtime.RegisterTool("event_probe", "event probe", map[string]interface{}{
+		"type": "object",
+	}, func(_ context.Context, arguments string) (string, error) {
+		return "result:" + arguments, nil
+	})
+
+	var events []session.SubagentToolEvent
+	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
+		events = append(events, event)
+	})
+
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "event_probe", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("main-agent dispatch emitted subagent events: %#v", events)
+	}
+
+	ctx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{SceneID: "node-a", Role: model.RoleSubAgent})
+	result, err := runtime.Agent().DirectDispatch(ctx, "event_probe", `{"value":1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != `result:{"value":1}` {
+		t.Fatalf("result = %q", result)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want started and completed", events)
+	}
+	started, completed := events[0], events[1]
+	if started.ID == "" || started.ID != completed.ID || started.NodeID != "node-a" || started.Status != dto.ToolEventRunning {
+		t.Fatalf("started = %#v", started)
+	}
+	if completed.Status != dto.ToolEventSuccess || completed.Result != result || completed.Duration < 0 {
+		t.Fatalf("completed = %#v", completed)
+	}
+}
+
+func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.SetFullAccess(true)
+	runtime.RegisterTool("event_failure", "event failure", map[string]interface{}{
+		"type": "object",
+	}, func(context.Context, string) (string, error) {
+		return "", errors.New("probe failed")
+	})
+
+	var events []session.SubagentToolEvent
+	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
+		events = append(events, event)
+	})
+	ctx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{SceneID: "node-f", Role: model.RoleSubAgent})
+	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {
+		t.Fatal("handler failure was not returned")
+	}
+	if len(events) != 2 || events[1].Status != dto.ToolEventError || events[1].Error != "probe failed" {
+		t.Fatalf("events = %#v", events)
+	}
+}

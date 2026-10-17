@@ -6,7 +6,7 @@
 # partition table in .claude/build-convention.md; the Makefile, build.sh,
 # build-dev.sh and .github/workflows/release.yml mirror the same table.
 # Consistency guard (must stay green):
-#   go test . -run 'BuildLayout' -count=1
+#   go test ./test/ -run 'BuildLayout' -count=1
 #   make guard-dist-layout
 # ============================================================================
 

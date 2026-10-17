@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/backend/tool/reference"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
-	"unicode/utf8"
-
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // 引用工具分页默认值收编进 seele.yaml limits 段
@@ -69,15 +68,15 @@ func (service *Service) ToolResultContent(_ context.Context, resultRef string, o
 func (service *Service) toolResultContent(resultRef string, offset, limit int, contains string) (model.ToolResultPage, error) {
 	// node:<nodeID>: 前缀 = 子代理工具结果：经引擎桥读回节点专属归档
 	// （P1 修复——子代理 ref 主会话原本读不到；ref 前缀由节点归档器写入）。
-	if nodeID, ok := nodeResultRef(resultRef); ok {
+	if nodeID, ok := reference.NodeResultRef(resultRef); ok {
 		service.ViewMu.RLock()
 		raw, found := service.nodeToolResult(nodeID, resultRef)
 		service.ViewMu.RUnlock()
 		if !found {
 			return model.ToolResultPage{}, errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
-		result := StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
-		return buildToolResultPage(result, offset, limit, contains), nil
+		result := model.StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
+		return reference.BuildPage(result, offset, limit, contains), nil
 	}
 
 	// result:call_<callID> 别名：模型在省略占位提示后常自行拼接
@@ -95,7 +94,7 @@ func (service *Service) toolResultContent(resultRef string, offset, limit int, c
 	for _, pending := range service.components.tasks.PendingToolResults() {
 		if pending.Ref == resultRef {
 			service.ViewMu.RUnlock()
-			return buildToolResultPage(pending, offset, limit, contains), nil
+			return reference.BuildPage(pending, offset, limit, contains), nil
 		}
 	}
 	sessionID := service.Core.Snapshot.Session.ID
@@ -110,7 +109,26 @@ func (service *Service) toolResultContent(resultRef string, offset, limit int, c
 	if err != nil {
 		return model.ToolResultPage{}, fmt.Errorf("read_tool_result: %w", err)
 	}
-	return buildToolResultPage(result, offset, limit, contains), nil
+	return reference.BuildPage(result, offset, limit, contains), nil
+}
+
+// nodeToolResult 读回子代理工具结果（引擎桥；Engine 未装配 → 不可用）。
+func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
+	if service == nil || service.Deps.Engine == nil {
+		return "", false
+	}
+	return service.Deps.Engine.NodeToolResult(nodeID, ref)
+}
+
+// hasToolResultRefLocked 判定该 ref 是否在当前会话的**内存态**归档里
+// （调用方持 Core.ViewMu）。
+func (service *Service) hasToolResultRefLocked(resultRef string) bool {
+	for _, result := range service.components.tasks.ToolResultRefs() {
+		if result.Ref == resultRef {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveToolResultRefAlias 把模型常见的 result:call_<callID> 引用映射为
@@ -135,98 +153,6 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 	return realRef
 }
 
-// nodeResultRef 解析 node:<nodeID>: 前缀的子代理结果引用；非节点引用 → false。
-func nodeResultRef(ref string) (string, bool) {
-	const prefix = "node:"
-	if !strings.HasPrefix(ref, prefix) {
-		return "", false
-	}
-	rest := strings.TrimPrefix(ref, prefix)
-	sep := strings.IndexByte(rest, ':')
-	if sep <= 0 {
-		return "", false
-	}
-	return rest[:sep], true
-}
-
-// nodeToolResult 读回子代理工具结果（引擎桥；Engine 未装配 → 不可用）。
-func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
-	if service == nil || service.Deps.Engine == nil {
-		return "", false
-	}
-	return service.Deps.Engine.NodeToolResult(nodeID, ref)
-}
-
-func (service *Service) hasToolResultRefLocked(resultRef string) bool {
-	for _, result := range service.components.tasks.ToolResultRefs() {
-		if result.Ref == resultRef {
-			return true
-		}
-	}
-	return false
-}
-
-// buildToolResultPage 计算工具结果的一页（contains 过滤 → offset/limit
-// 分页 → UTF-8 边界对齐）。GUI 的 ToolResultContent 与模型面
-// read_tool_result 共用同一页结构。
-func buildToolResultPage(result StoredToolResult, offset, limit int, contains string) model.ToolResultPage {
-	content := result.Content
-	if contains = strings.TrimSpace(contains); contains != "" {
-		lines := strings.Split(content, "\n")
-		matched := lines[:0]
-		for _, line := range lines {
-			if strings.Contains(line, contains) {
-				matched = append(matched, line)
-			}
-		}
-		content = strings.Join(matched, "\n")
-	}
-	if offset > len(content) {
-		return model.ToolResultPage{ResultRef: result.Ref, Tool: result.Tool, Digest: result.Digest,
-			Offset: offset, TotalBytes: len(content), Content: ""}
-	}
-	end := offset + limit
-	if end > len(content) {
-		end = len(content)
-	}
-	offset = utf8Start(content, offset)
-	end = utf8End(content, end)
-	if end == offset && offset < len(content) {
-		_, size := utf8.DecodeRuneInString(content[offset:])
-		end = offset + size
-	}
-	return model.ToolResultPage{
-		ResultRef: result.Ref, Tool: result.Tool, Digest: result.Digest,
-		Offset: offset, NextOffset: end, TotalBytes: len(content),
-		HasMore: end < len(content), Content: content[offset:end],
-	}
-}
-
-// encodeToolResultPage 是模型面 read_tool_result 的 JSON 编码（保留既有
-// 载荷形状；由 buildToolResultPage 计算）。
-func encodeToolResultPage(result StoredToolResult, offset, limit int, contains string) (string, error) {
-	page := buildToolResultPage(result, offset, limit, contains)
-	if page.Offset > page.TotalBytes {
-		return "", errors.New("read_tool_result: offset exceeds filtered content")
-	}
-	encoded, err := json.Marshal(page)
-	return string(encoded), err
-}
-
-func utf8Start(value string, index int) int {
-	for index > 0 && index < len(value) && !utf8.RuneStart(value[index]) {
-		index--
-	}
-	return index
-}
-
-func utf8End(value string, index int) int {
-	for index < len(value) && index > 0 && !utf8.RuneStart(value[index]) {
-		index--
-	}
-	return index
-}
-
 func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (string, error) {
 	var input struct {
 		PlanRef string   `json:"plan_ref"`
@@ -246,7 +172,7 @@ func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (str
 		return "", errors.New("read_plan: plan_ref is not available in the current session")
 	}
 	arguments := frame.Arguments
-	planState := cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
+	planState := cloneRuntimeState(model.RuntimeState{Plan: frame.Plan}).Plan
 	service.ViewMu.RUnlock()
 
 	var canonical map[string]any

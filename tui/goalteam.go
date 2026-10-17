@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalteam.go — 目标治理与 AgentTeam 的 TUI 只读面（Alt+G / Alt+T）。
@@ -32,7 +32,6 @@ const (
 const (
 	panelLineLimit       = 12
 	panelTextLimit       = 96
-	panelDirectiveMax    = 120
 	goalHistoryLineLimit = 4
 )
 
@@ -126,14 +125,6 @@ func (model Model) goalPanelLines() []string {
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  "+title))
 	}
-	if peer := oneLine(goal.PeerState.String(), model.textLimit()); peer != "" {
-		lines = append(lines, StyleMuted.Render("  peer: "+peer))
-	}
-	if directive := oneLine(goal.LastDirective, panelDirectiveMax); directive != "" {
-		lines = append(lines, StyleChoiceInactive.Render("  TL: "+directive))
-	} else {
-		lines = append(lines, StyleMuted.Render("  TL: 暂无裁决（终态 gate 尚未评估）"))
-	}
 	lines = append(lines, model.goalHistoryLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 看团队 · Esc 关闭"))
 	return lines
@@ -204,7 +195,7 @@ func (model Model) teamPanelLines() []string {
 	if len(lines) == 0 {
 		lines = []string{StyleMuted.Render("  ◆ 团队看板  当前会话没有团队计划（team_plan 还没排过活）")}
 	}
-	// 工具记录（进程级读数，与 GUI「状态 → 工具记录」同源）：没开计数或没记过时
+	// 工具记录（当前视图会话的会话级读数，与 GUI「状态 → 工具记录」同源）：没开计数或没记过时
 	// 整块不出现——不追加空壳（toolRecordLines 返回 nil）。
 	lines = append(lines, model.toolRecordLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"))

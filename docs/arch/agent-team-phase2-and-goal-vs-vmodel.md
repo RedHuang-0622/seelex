@@ -114,9 +114,9 @@
 | # | 根因 | 证据（本轮静读） |
 |---|---|---|
 | 1 | **默认流程没有第二个真正干活的执行体** | `application/core/agentteam/presets.go`：`goalA2APreset` 的 `OrderRoles = [user, main, tl]`，角色**没有任何 `RoleKindAgent`**。而 `goal-a2a` 既是「goal 上线自动装配」的团队（`goal_service.go:ensureGoalAgentTeam`），也是 `@` 召唤的默认目标。 |
-| 2 | **员工执行面已接线，但缺「带角色的预设」** | `application/core/service_assembler.go:122`：`RoleTurnFor: service.roleTurnRunnerFor`；`application/core/role_turn.go`：`roleTurnRunnerFor` **只按端口装没装判断**（装了 `contract.RoleTurnPort` 即非 nil）；`seelebridge/runtime_role_turn.go` 实现该端口，头注释已写「**V 模型团队循环里 pm/exec/test_case 各自做工**」。→ 机制在，只差预设里有这些角色。 |
+| 2 | **员工执行面已接线，但缺「带角色的预设」** | `application/core/service_assembler.go:122`：`RoleTurnFor: service.roleTurnRunnerFor`；`application/core/role_turn.go`：`roleTurnRunnerFor` **只按端口装没装判断**（装了 `contract.RoleTurnPort` 即非 nil）；`backend/engine/assemble/runtime_role_turn.go` 实现该端口，头注释已写「**V 模型团队循环里 pm/exec/test_case 各自做工**」。→ 机制在，只差预设里有这些角色。 |
 | 3 | **座位只有在 goal 活跃时才被驱动** | `goal_coordinator.go` 的 `AdvanceAfterChat`：`ctl.Status().Active == nil` 直接返回；`seatPlan.seats` 里 `RoleKindAgent` **必须装配 `RoleTurnRunner` 才给座位**（否则「宁可少一座，不要假一座」）。`docs/devlog/2026-09-17-summon-starts-goal.md`：`@` 曾「只装配、不落 goal」，于是 tl 永远不上场——09-17 才补成「带附言的召唤才落 goal」。 |
-| 4 | **评审者没有「牙齿」** | ADVISOR 已是「带**只读**工具的角色回合」（`seelebridge/runtime_goal_tl.go`），但**跑测试的 `bash` 属 `rw` 组，不在只读面内**（见 `2026-09-30` 研究 §1.6 明示的「下一步」）。→ 裁决仍是「观点」而非「证据」，正是 MAST `task verification` 类失败。 |
+| 4 | **评审者没有「牙齿」** | ADVISOR 已是「带**只读**工具的角色回合」（`backend/engine/assemble/runtime_goal_tl.go`），但**跑测试的 `bash` 属 `rw` 组，不在只读面内**（见 `2026-09-30` 研究 §1.6 明示的「下一步」）。→ 裁决仍是「观点」而非「证据」，正是 MAST `task verification` 类失败。 |
 | 5 | **环未接线 + 产物证据未校验** | `TurnScheduler` 未接线（§1）；`output_contract` 已要求 `refs` 为仓库内相对路径，但 **gate 未校验 `refs` 存在性**（`2026-09-30` 研究 §5.4）→ 防不住编造证据。 |
 
 **一句话**：现在值钱的是**看护**（逃生/审计/权责边界/上下文隔离），不值钱的是**宣称的团队产出能力**；「玩具感」正来自把「评审仪式」误读成「团队在做工」（座位名 `exec-a` / `advisor-b` 也在放大这种误读）。
@@ -203,8 +203,8 @@ V 模型本身偏顺序（左→右做完再做右），而 §2.3 结论 2 说�
 - 座位派生与治理循环：`application/core/goal_coordinator.go`（`seatPlan.seats` / `newGovernor` / `AdvanceAfterChat` / `roleTurnSeat` / `RoleTurnRunner`）
 - 团队 preset 与顺序事实：`application/core/agentteam/{presets,spec,registry,runtime,scheduler}.go`
 - 员工执行面接线：`application/core/role_turn.go`、`application/core/service_assembler.go:119-122`、`application/core/agentteam_runtime.go`（`teamRoleSeatsFor`）
-- 员工回合执行体：`seelebridge/runtime_role_turn.go`（`RunRoleTurn`）；契约 `application/contract/ports.go`（`RoleTurnPort` / `Dependencies.RoleTurn`）
-- 评审者回合与只读工具：`seelebridge/runtime_goal_tl.go`
+- 员工回合执行体：`backend/engine/assemble/runtime_role_turn.go`（`RunRoleTurn`）；契约 `contract/ports.go`（`RoleTurnPort` / `Dependencies.RoleTurn`）
+- 评审者回合与只读工具：`backend/engine/assemble/runtime_goal_tl.go`
 - goal 方法论：`plugins/default/goal/SKILL.md`
 
 **文档**

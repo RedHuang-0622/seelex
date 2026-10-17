@@ -3,7 +3,7 @@
 > **状态：历史评审（2026-07 前后），待与当前代码同步刷新。** 本文件由根目录迁入 `docs/arch/` 存档；
 > 其中的 H1-H28 假设清单与结论可能与当前实现不一致，引用时以代码与模块 README 为准。
 
-> 范围：仓库根目录的 Go 源码（`application/`, `seelexctx/`, `sessionstore/`, `session/`, `seelebridge/`, `mcpstack/`, `plugins/`, `internal/`, `main.go`）。侧重**上下文控制**与**数据流**的端到端形态，不对每个工具逐个复核。
+> 范围：仓库根目录的 Go 源码（`application/`, `seelexctx/`, `store/`, `session/`, `seelebridge/`, `mcpstack/`, `plugins/`, `internal/`, `main.go`）。侧重**上下文控制**与**数据流**的端到端形态，不对每个工具逐个复核。
 >
 > 证据等级：Confirmed = 引用了具体文件/符号；Hypothesis = 推断但需进一步验证。
 
@@ -29,11 +29,11 @@
 | 层 | 关键包 | 关键类型 | 行数（Go） |
 |---|---|---|---|
 | 应用门面 | `application/core` | `Service`/`serviceState`/`serviceComponents` | ~26 358（包含测试） |
-| 应用事件/审批 | `application/event`, `application/approval` | `EventHub`, `ApprovalBroker` | ~300 |
-| 应用契约 | `application/contract` | `ChatEngine`/`RuntimePort`/`Dependencies` | ~150 |
+| 应用事件/审批 | `middle/protocol/event`；审批实现已归位 `backend/limit/approval`（端口形状 `contract/approval.go`） | `EventHub`, `ApprovalBroker` | ~300 |
+| 应用契约 | `contract` | `ChatEngine`/`RuntimePort`/`Dependencies` | ~150 |
 | 上下文控制 | `seelexctx` + 子包 | `Controller`, `Assembler`, `Processor`, `Compressor`, `ContextWindowPolicy`, `DefaultWindowPolicy`, `ContextSnapshot` 等 | ~11 455 |
 | 上下文生命周期基建 | `seelexctx/lifecycle` | `ContextActor[T]`, `BatchPipeline[T]`, `Storage[T]` | ~1 246 |
-| 持久化 | `sessionstore` | `Router`, `Repository` (4 backend), `DurableHistory`, `EventStore`, `SessionContextStore`, `ProjectRecord` | ~13 098 |
+| 持久化 | `store` | `Router`, `Repository` (4 backend), `DurableHistory`, `EventStore`, `SessionContextStore`, `ProjectRecord` | ~13 098 |
 | 会话 | `session` | `Manager`（薄封装 Seele `storage.Store`） | ~615 |
 | 桥接 | `seelebridge` | `Runtime`, `SeelexAgentNode`, `fork_subagents`, `plan_*`, `account_*`, `MCPStack` 装配 | ~11 716 |
 | MCP 可观测 | `mcpstack` | `MCPStack` + 双栈（Interceptor/Snapshot/Provider/Prompt/Breaker） | ~1 569 |
@@ -117,7 +117,7 @@
 │                                                                            │
 │  ┌─ planEventSink (in-memory + 投影) ───────────────────────────────────┐
 │  │ AppendNodeResult 同步 → 投影 PlanNodeEvent → Service.HandlePlanNode   │
-│  │ (持久化由 sessionstore EventStore 承担，按事件 Location 落库)            │
+│  │ (持久化由 store EventStore 承担，按事件 Location 落库)            │
 │  └────────────────────────────────────────────────────────────────────────┘
 │                                                                            │
 │  ┌─ accountpool.P2CPool[Completer] ──────────────────────────────────────┐
@@ -164,7 +164,7 @@
 └────────────────────────────┬────────────────────────────────────────────┘
                              │
                              ▼
-┌─────────────────────── sessionstore (持久化) ─────────────────────────────┐
+┌─────────────────────── store (持久化) ─────────────────────────────┐
 │  Repository (JSON / SQLite / PostgreSQL / Redis)                            │
 │   WriteCommit/WriteAtomic: generation directory → manifest.json 原子切换    │
 │   Read: total 优先, range 走单 shard (windowed)                            │
@@ -188,7 +188,7 @@
 1. **copy-on-write + 有界**：merger.MergeBack、compactor.Compact、history_safety.PrepareReplaceHistory、viewCoordinator.appendMessageLocked、mergeConversationMessages 全部明确写"不修改入参"。
 2. **状态私有、消息进出**：lifecycle 包与 actor.go 的核心命题；`subagentMailbox`、`RuntimeVisibilityProjection`（值对象快照）、`ParentEvidenceProjection`（值对象快照）都是这一原则的体现。`docs/2026-08-04-context-memory-lifecycle/runtime-tool-completion-deadlock.md` 把"持锁者等待自己的工作"作为死锁教训记录在案。
 3. **背压 = 显式错误**：`ErrMailboxFull`、`ErrPipelineFull`；StreamBatcher 在背压时 `runtime.Gosched()` 重试，避免退化为丢消息。
-4. **持久化 = 真相源、内存 = 工作缓存**：`sessionstore.Repository` 写面是原子 manifest 切换 + shard；Engine 内存 history 只是 provider cache。
+4. **持久化 = 真相源、内存 = 工作缓存**：`store.Repository` 写面是原子 manifest 切换 + shard；Engine 内存 history 只是 provider cache。
 5. **预算/上限都从配置读**：`seele.yaml` 的 `limits` 段在 `application/core/limits.go` 收编所有运行时上限；零值回退 `DefaultLimits`。
 6. **错误结构化**：`seeleerrors.Wrap` + `errorCodePersistenceFailed/PlanPreflight/ReActBudget/ContextExceeded`；`presentUserError` 把内部错误翻译为"模块|方法"形态，不暴露 provider/requestID。
 7. **失败设计 = 显式 fail-fast**：`nativeProjectCWD`（沙箱）非 OS 级隔离，配置要求 OS 级能力时 `SandboxCapabilities` 错误返回，调用方拒绝（不悄悄降级）。
@@ -202,24 +202,24 @@
 
 | 不变量 | 代码证据 | 测试证据 |
 |---|---|---|
-| Window 区间只装载、不拉全量 | `sessionstore/durable_history.go:LoadEventTail` + `SetTailBudget` | `TestJSONRepositoryReadRangeWindowed` |
+| Window 区间只装载、不拉全量 | `store/durable_history.go:LoadEventTail` + `SetTailBudget` | `TestJSONRepositoryReadRangeWindowed` |
 | 替换历史前清掉控制标记 | `seelexctx/history_safety.go:PrepareReplaceHistory` | `controller_test.go` / `history_safety_test.go` |
 | 软阈值：窗口内不压缩 | `seelexctx/controller.go` 注释 (after_assistant/after_tool) | `controller_test.go` |
 | Provider 拒绝空 content | `application/core/history_safety.go:prepareProviderHistory` | `error_presentation_test.go` |
-| SubagentMailbox 满则计数 + 丢弃 | `seelebridge/actor.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
+| SubagentMailbox 满则计数 + 丢弃 | `backend/engine/assemble/runtime_session.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
 | ToolHook 不重入 Service.mu | `taskRuntimeState.goalSkillActive` atomic.Bool | `TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility` |
-| Plan 节点级 cycle 拒绝 | `seelebridge/plan.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
-| Plan 节点 budget 上限 | `seelebridge/plan_policy.go:validateLoad` (MaxNodeLoops/MaxNodeOutputTokens) | `plan_input_fuzz_test.go` |
+| Plan 节点级 cycle 拒绝 | `backend/tool/plan/graph.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
+| Plan 节点 budget 上限 | `backend/tool/plan/policy.go:ValidatePolicyLoad` (MaxNodeLoops/MaxNodeOutputTokens；原记录写 `seelebridge/plan_policy.go:validateLoad`，路径与符号都已在搬迁中改名) | `backend/tool/plan/policy_test.go:TestValidatePolicyLoadNodeBudgetGuard`（上限值放行 / 越界一档拒绝 / loops 先于 tokens）。注：原记录引用的 `backend/engine/assemble/plan_input_fuzz_test.go` **存在但只 fuzz `NormalizePlanLoadArguments`**，不触及本分支——该分支原先确实无覆盖，已由这条用例补上 |
 | Plan 节点事件时间线截断 | `application/core/chat.go:appendPlanNodeEvent` (limits.plan_node_events) | race_test / session_archive_test |
 | 流式 chunk 按 32 条 / 40ms 批 | `application/core/chat.go:newBatchedDeltaSink` | — |
 | 上下文恢复有界 | `application/core/context_controller.go:prepareExecutionContext` (TargetAfterCompaction) | `context_controller_test.go` |
-| Repository 原子切换后端 | `sessionstore/sessionstore.go:Router.withRepository` | `TestRouterPersistsAndSwitchesConfiguredBackend` |
-| Repository manifest 原子写 | `sessionstore/sessionstore.go:jsonRepository.WriteCommit` (writeAtomic) | `TestJSONRepositoryCommitsShardGenerationsAtomically` |
+| Repository 原子切换后端 | `store/store.go:Router.withRepository` | `TestRouterPersistsAndSwitchesConfiguredBackend` |
+| Repository manifest 原子写 | `store/store.go:jsonRepository.WriteCommit` (writeAtomic) | `TestJSONRepositoryCommitsShardGenerationsAtomically` |
 | 三路并行恢复 | `application/core/session_history.go:resumeSession` (sync.WaitGroup 3 goroutines) | session_history_test |
 | 锁外 publishRuntimeProjections | `application/core/runtime_projection.go:publishRuntimeProjections` (RLock 拷值, 锁外 publish) | service_test |
 | 锁外 collectRuntimeProjection | `application/core/service_snapshot.go:collectRuntimeProjection` (调外部 port 无锁) | service_test |
-| Slow subscriber 触发 resync | `application/event/hub.go:eventSubscriber.deliver` (drain + resync) | race_test |
-| 持久化用 ProjectID 隔离 | `sessionstore/sessionstore.go:Router.SetWorkspace` + 全部 `*Workspace` 变体 | `TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope` |
+| Slow subscriber 触发 resync | `middle/protocol/event/hub.go:eventSubscriber.deliver` (drain + resync) | race_test |
+| 持久化用 ProjectID 隔离 | `store/store.go:Router.SetWorkspace` + 全部 `*Workspace` 变体 | `TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope` |
 | 父子合并 copy-on-write | `seelexctx/merger/merger.go:MergeBack` (mu.Lock + copyDecisions/copyStrings) | `merger_test.go` |
 
 ---
@@ -231,21 +231,21 @@
 **设计**
 - 三层决策：Assembler（每次请求投影）→ Processor（超大工具结果）→ Compressor（结构化压缩）→ Controller（软/硬阈值 + 替换历史）。
 - 软阈值 75% / 硬阈值 90% / 压缩目标 60% 三个常量在 `controller.go:ContextWindowPolicy` 集中定义。
-- `seelexctx.Compressor` 的三级预算（200/499/全量）在 `compactor/compactor.go` 实现。
+- `seelexctx.Compressor` 的三级预算（200/499/全量）在 `seelexctx/compactor/compactor.go` 实现。
 - `history_safety.go` 统一负责"control block 清理 + 配对修复"。
 
 **Confirmed 优点**
-- 默认值集中在 `seelexctx.DefaultLimits` 和 `DefaultWindowConfig`；决策代码不硬编码魔法数字（`window.go` 注释明确这一点）。
+- 默认值集中在 `limit.DefaultLimits` 和 `DefaultWindowConfig`；决策代码不硬编码魔法数字（`window.go` 注释明确这一点）。
 - `WindowPolicy.WindowRounds` 显式决策顺序：配置 > provider 推导 > 保守回退（`window.go:WindowRounds` 注释里把"死接线"教训 R4 都标出来了）。
 - `PrepareReplaceHistory` 既是压缩产物的入检查，也是 chat 后端回放历史的入检查；语义统一。
 
 **Hypothesis / 风险**
 - H1：`seelexctx.Compressor.Compress` 在快照路径"预算不足以保留最小安全快照"时**静默回退**到 QuickChat（`compressor.go:60-67` 的注释里说"失败回退 QuickChat 路径"，但 `Compress` 并没有把这个回退以 warning 形式上报给 telemetry）。如果父会话的快照是模型继续推理的关键信号，回退 = 静默丢信息。建议把回退纳入 `presentedError` 或加 telemetry 计数。
-- H2：`ContextController` 的"after_assistant / after_tool 钩子"在新装配下没有看到接线代码（`controller.go` 注释假设有这两个钩子，但 `chat.go:1288 OnIterationComplete` 的注释明确"压缩决策移交 ContextController" + "配对修复由 chat 边界承担"——意味着真正的钩子移交可能尚未完成或被拆到了 history_safety 路径上）。这是"软阈值：窗口内不压缩"的关键路径，需要在 `seelebridge/runtime.go` 的 Hooks 注册里查证。
+- H2：`ContextController` 的"after_assistant / after_tool 钩子"在新装配下没有看到接线代码（`controller.go` 注释假设有这两个钩子，但 `chat.go:1288 OnIterationComplete` 的注释明确"压缩决策移交 ContextController" + "配对修复由 chat 边界承担"——意味着真正的钩子移交可能尚未完成或被拆到了 history_safety 路径上）。这是"软阈值：窗口内不压缩"的关键路径，需要在 `backend/engine/assemble/runtime.go` 的 Hooks 注册里查证。
 - H3：`seelexctx/bridge.go` 的 `Export` / `ExportWithGoal` / `ExportSnapshot` 全部使用 `context.TODO()`（5 处），且把 `provider.Export` 的 err 吞掉（`snap, _ := ...`）。这是兼容层，可以接受但需要明确标注"必须只在 chat 外调用"。
 - H4：`prepareExecutionContext` 里两次 `service.tokenCounter.CountRequest`（一次 rawTokens 决策，一次 fitted 估算），且最后仍可能触发 `errProviderContextBudgetExceeded`；这个错误码被 `error_codes.go` 定义为 `context.budget_exceeded`，但**没有证据**会触发 `presentUserError` 的特定分支。需要查 `error_presentation.go` 是否能命中。
 
-### 5.2 数据流 / 持久化（sessionstore + session + DurableHistory）
+### 5.2 数据流 / 持久化（store + session + DurableHistory）
 
 **设计**
 - 单一持久化契约 `Repository`，4 个 backend（JSON/SQLite/PostgreSQL/Redis），4 套 `WriteCommit`/`WriteAtomic` 实现。
@@ -260,12 +260,12 @@
 - `RouterStorage` 把 Router 适配为 `lifecycle.Storage[T]`，ContextActor 以 Router 为冷存储接缝——但**当前 Append 路径是 O(n) 读-合-写**（`router_storage.go:Append` 注释明确写出），基建期可接受。
 
 **Hypothesis / 风险**
-- H5：`sessionstore.Router.Save/Load/SaveCommit/LoadRange` 等约 15 处 `Repository` 方法，**全部使用 `context.Background()`**（`sessionstore.go` 中 15 处）。这意味着 caller 的 ctx（cancel、超时）无法传播到持久化层。建议在 Router 与底层 Repository 之间加 ctx 透传边界（虽然这与"切换后端"语义有冲突，但能透传 cancel 信号至少不会让 HTTP client 死等）。
-- H6：`mcpstack.TraceProvider` 通过 `provider.Compact` 路径（`mcpstack/provider.go:48`）直接构造 `ContextSnapshot` 副本，但绕过了 `seelexctx/provider.Provider` 接口——这是为了避免 import 循环而做的妥协。代价是 mcpstack 不在 seelexctx.Provider 命名空间下，可能在 `Merger.MergeBack` 时被遗漏。建议加 compile-time 接口断言 `var _ provider.Provider = (*mcpstack.TraceProvider)(nil)`（如果 import 关系允许重构）。
-- H7：`SessionRecord` / `SessionContextStore` 的 state blob 与 `ProviderHistory` 是双写关系（`persistCurrentSession` 既写 framework history 也写 state blob）；但二者在落库失败时**只返回第一个错**，后续动作是否会回滚无显式事务。`sessionstore.WriteCommit` 显式接受一次 Commit（4 段），但 Commit 内部各段（ProviderHistory/Events/State/ToolResults）的失败一致性是 backend 决定的（JSON 后端是串行 `os.WriteFile` + `os.Rename`）。
+- H5：`store.Router.Save/Load/SaveCommit/LoadRange` 等约 15 处 `Repository` 方法，**全部使用 `context.Background()`**（`store/sessionstore.go` 中 15 处）。这意味着 caller 的 ctx（cancel、超时）无法传播到持久化层。建议在 Router 与底层 Repository 之间加 ctx 透传边界（虽然这与"切换后端"语义有冲突，但能透传 cancel 信号至少不会让 HTTP client 死等）。
+- H6：`mcpstack.TraceProvider` 通过 `provider.Compact` 路径（`backend/engine/mcp/mcpstack/provider.go:48`）直接构造 `ContextSnapshot` 副本，但绕过了 `seelexctx/provider.Provider` 接口——这是为了避免 import 循环而做的妥协。代价是 mcpstack 不在 seelexctx.Provider 命名空间下，可能在 `Merger.MergeBack` 时被遗漏。建议加 compile-time 接口断言 `var _ provider.Provider = (*mcpstack.TraceProvider)(nil)`（如果 import 关系允许重构）。
+- H7：`SessionRecord` / `SessionContextStore` 的 state blob 与 `ProviderHistory` 是双写关系（`persistCurrentSession` 既写 framework history 也写 state blob）；但二者在落库失败时**只返回第一个错**，后续动作是否会回滚无显式事务。`store.WriteCommit` 显式接受一次 Commit（4 段），但 Commit 内部各段（ProviderHistory/Events/State/ToolResults）的失败一致性是 backend 决定的（JSON 后端是串行 `os.WriteFile` + `os.Rename`）。
 - H8：`RouterStorage.Append` 注释明确"基建期 O(n)"，并把增量优化（事件库 SaveCommit + 投影）列为后续切片。**当前若用作冷加载主路径，每次 Append 都是 read+merge+write 全量**——长会话下这是 O(n²) 的写入成本。一旦切到活跃生产，需要先把增量写做掉。
 
-### 5.3 应用门面 / 事件流（application/core + application/event + application/approval）
+### 5.3 应用门面 / 事件流（application/core + middle/protocol/event + backend/limit/approval）
 
 **设计**
 - `Service` 用 `serviceState` + `serviceComponents` 把状态按"基础设施/对话/生命周期/提示/会话/计划/任务"分组；`Service.mu`（RWMutex）作为整体门。
@@ -302,12 +302,12 @@
 - `pathgate.go` 接受 `seele.yaml` 的 path zone allow/ask/deny 规则。
 
 **Hypothesis / 风险**
-- H14：`mcpstack.MCPStack` 与项目其它 actor 模型**不同源**：seelexctx/lifecycle 用的是 `mailbox + 唯一 actor goroutine + 闭包状态`；mcpstack 用的是 `mu.RWMutex + slice append`。两套并发范式并存增加了评审负担。考虑到 MCPStack 范围小且已加锁保护，可接受但应在 `mcpstack/README.md` 显式说明。
+- H14：`mcpstack.MCPStack` 与项目其它 actor 模型**不同源**：seelexctx/lifecycle 用的是 `mailbox + 唯一 actor goroutine + 闭包状态`；mcpstack 用的是 `mu.RWMutex + slice append`。两套并发范式并存增加了评审负担。考虑到 MCPStack 范围小且已加锁保护，可接受但应在 `backend/engine/mcp/mcpstack/README.md` 显式说明。
 - H15：`mcpstack.ForPrompt` 的 `avgTokens` 来自 `s.averageTokenCount()`（每次调用扫描全部 Calls），token budget 评估成本 O(n)。长 MCP 会话下每次 LLM 请求都做一次 O(n) 扫描。值得做缓存。
 - H16：`mcpstack.MCPStack.Record` 每次都 `autoSave()`（`stack.go:169`），相当于同步写盘；`Undo/Redo` 也都 autosa ve。高频 MCP 调用下磁盘 IO 是瓶颈。考虑 batch autosave（与 `lifecycle.BatchPipeline` 同构，但 mcpstack 没有引入）。
 - H17：`SeelexAgentNode` 包装 `node.AgentFactory` 的 closure 解析 `scope/blocks` 是惰性的（`agent_node.go:newSeelexAgentNode`），但 `blocks` 是 `[]seelectx.PromptBlock`，在 `plan_run` 时被冻结——这里需要确认"在 `plan_run` 之前调用是否安全"。
 - H18：`stream_completer.go:streamCompleter` 是 "lease-until-EOF"——意味着账号与一条流绑定。如果流中途因网络断流但 EOF 未来，账号会一直被这个流占用。需要有 lease timeout。
-- H19：`subagent_audit_test.go:13` 演示"mailbox 容量=1 时 `enqueueSubagentContext` 阻塞不会发生"——但 `subagentDropped` 计数增加可观测。**生产代码（`actor.go:75`）没有看到 drop 计数被采样的位置**（如 telemetry、DiagnosticSnapshot）。需要确认"丢弃可观测"的承诺是否真的端到端实现。
+- H19：`subagent_audit_test.go:13` 演示"mailbox 容量=1 时 `enqueueSubagentContext` 阻塞不会发生"——但 `subagentDropped` 计数增加可观测。**生产代码（`backend/engine/assemble/runtime_session.go:137`（`subagentContextDropped`））没有看到 drop 计数被采样的位置**（如 telemetry、DiagnosticSnapshot）。需要确认"丢弃可观测"的承诺是否真的端到端实现。
 
 ### 5.5 Lifecycle 基建（seelexctx/lifecycle）
 
@@ -338,7 +338,7 @@
 
 **Confirmed 优点**
 - `Save` 写 .tmp + rename 原子；失败清理 .tmp。
-- `Snapshot` 深拷贝防止调用方修改内部状态——这是 `mcpstack/persist.go` 的核心承诺。
+- `Snapshot` 深拷贝防止调用方修改内部状态——这是 `backend/engine/mcp/mcpstack/persist.go` 的核心承诺。
 - 隐含的不变量："MCP stack 是不可变的；Record/Undo/Redo 都是栈操作"。
 
 **Hypothesis / 风险**
@@ -356,7 +356,7 @@
 - 测试覆盖：`TestJSONRepositoryCommitsShardGenerationsAtomically`、`TestSQLiteRepositoryRoundTrip`、`TestRouterPersistsAndSwitchesConfiguredBackend`、`TestSubagentMailboxIsBoundedAndNeverBlocksProducer`、`TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility`、`TestCanonicalPlanDocumentConvertsDSL`、`FuzzNormalizePlanLoadArguments`——覆盖关键并发与安全断言。
 
 **Hypothesis / 风险**
-- H25：`context.Background()` 在 `sessionstore` 内 15 处硬编码、`seelexctx/bridge.go` 5 处 `context.TODO()`。这些是"ctx 不可用"的兜底点，但形成了一个**反模式**：业务层有 ctx，infra 层无 ctx。**建议**：把 `context.TODO()` 限制在"`export` 系列（明确标为 chat 外调用）"内，且在 `sessionstore` 引入 ctx 透传边界。
+- H25：`context.Background()` 在 `store` 内 15 处硬编码、`seelexctx/bridge.go` 5 处 `context.TODO()`。这些是"ctx 不可用"的兜底点，但形成了一个**反模式**：业务层有 ctx，infra 层无 ctx。**建议**：把 `context.TODO()` 限制在"`export` 系列（明确标为 chat 外调用）"内，且在 `store` 引入 ctx 透传边界。
 - H26：`go func() { ... }` 在 `application/core/chat.go:68` 启动 `runChat`，在 `session_history.go:50-58` 启动三路并行读。**这些 goroutine 没有 panic recovery**——单个 panic 会让进程崩。建议在 `startChat` 和 `resumeSession` 的入口加 `defer recover()`。
 - H27：`Service.deps.Runtime` / `Service.deps.Engine` 是**注入的具体实现**（`application_adapters.go` 的 `enginePort` 适配 Seele `*Session`）。如果某个实现方法 panic 而没有 recover，application 会因为 goroutine leak 而逐渐 OOM。
 - H28：`streamBatcher` 是在 `consumeVisibleChunk` 锁内构造（`consumeVisibleChunk` 持锁调 `service.streamOutput.Consume`，再调 `batcher.OnChunk`），锁内做了：
@@ -375,22 +375,22 @@
 | P1 | H5 | `Repository` 全部走 `context.Background()` | 上游 ctx 取消无法传播 | 引入 ctx 透传边界；至少透传 cancel |
 | P1 | H26/H27 | `startChat` / `resumeSession` 启动的 goroutine 无 panic recovery | 进程崩溃 / goroutine leak | 加 `defer recover()` + 故障日志 |
 | P1 | H1 | Compressor 快照路径静默回退 QuickChat | 父会话关键信息可能丢失而无任何告警 | 在 `seelexctx.Compressor.Compress` 加 telemetry 计数；或把回退用 `presentedError` 上报 |
-| P1 | H2 | ContextController 的"after_assistant/after_tool"钩子未在新装配下接线 | 软阈值"窗口内不压缩"可能失效 | 查 `seelebridge/runtime.go` 的 Hooks 注册并补测试 |
+| P1 | H2 | ContextController 的"after_assistant/after_tool"钩子未在新装配下接线 | 软阈值"窗口内不压缩"可能失效 | 查 `backend/engine/assemble/runtime.go` 的 Hooks 注册并补测试 |
 | P2 | H15 | `mcpstack.ForPrompt` 每次 O(n) 扫描 | 高频 MCP 调用下 LLM 上下文组装变慢 | 加 token 估算缓存或增量聚合 |
 | P2 | H16 | `MCPStack` 每次 `Record`/`Undo`/`Redo` 都 autoSave | 高频 MCP 调用下 IO 成为瓶颈 | 引入 batch autosave |
 | P2 | H8 | `RouterStorage.Append` 是 O(n) 读-合-写 | 长会话下 O(n²) 写成本 | 实现增量 SaveCommit（事件库已就绪） |
 | P2 | H10 | `streamBatcher` 锁内 `runtime.Gosched` 持锁 | 锁等待时间被放大 | `OnChunk` 前后做解锁/重锁 |
 | P2 | H9 | `publishRuntimeProjections` 在 6+ 处全量拷贝 | 大量不必要的全量 publish | per-event diff publish |
-| P2 | H25 | `context.TODO`/`Background` 反模式 | ctx 取消信号丢失 | 限制在显式标注的兼容层；sessionstore 引入 ctx 透传 |
+| P2 | H25 | `context.TODO`/`Background` 反模式 | ctx 取消信号丢失 | 限制在显式标注的兼容层；store 引入 ctx 透传 |
 | P2 | H18 | StreamCompleter lease-until-EOF 无 timeout | 流断流时账号长期占用 | 加 lease timeout |
 | P2 | H19/H21 | `subagentDropped` / `ContextActor.drop` 没有端到端观测 | 背压丢弃静默 | 在 `/diag` 中暴露，纳入 Snapshot.Runtime |
 | P3 | H3 | `seelexctx/bridge.go` 5 处 `context.TODO` + 吞 err | 错误路径不清晰 | 注释明确"必须只在 chat 外调用" |
 | P3 | H4 | `errorCodeContextExceeded` 是否走 `presentUserError` 特定分支未确认 | 用户看不到结构化错误 | 在 `error_presentation_test.go` 补 case |
 | P3 | H6 | `mcpstack.TraceProvider` 绕过 seelexctx.Provider 命名空间 | 可能被 Merger 漏接 | 评估 import 循环，做 compile-time 断言 |
-| P3 | H7 | `SessionRecord` 双写无显式事务 | 持久化失败可能只回滚一段 | 在 `sessionstore.WriteCommit` 加跨段失败一致性测试 |
+| P3 | H7 | `SessionRecord` 双写无显式事务 | 持久化失败可能只回滚一段 | 在 `store.WriteCommit` 加跨段失败一致性测试 |
 | P3 | H12 | `ApprovalBroker` resolve timeout 后 late push 的 race | 双 Resolve race | 加 `tryResolve` 原子操作 |
 | P3 | H13 | `appendPlanNodeEvent` 30 条截断方向未明 | 节点开始信息可能丢失 | 确认截断方向并补测试 |
-| P3 | H14 | mcpstack 与 lifecycle 并发范式不同源 | 评审门槛 | 在 `mcpstack/README.md` 显式说明 |
+| P3 | H14 | mcpstack 与 lifecycle 并发范式不同源 | 评审门槛 | 在 `backend/engine/mcp/mcpstack/README.md` 显式说明 |
 | P3 | H17 | `SeelexAgentNode.blocks` 惰性解析，plan_run 之前调用不安全 | 提前解析可能拿到旧 plan 的 blocks | 加 test 覆盖"在 plan_run 之前调用" |
 | P3 | H20 | ContextActor storage 同步调用 | 慢 storage 阻塞 actor | 派生 goroutine + 自邮箱背压 |
 | P3 | H22 | MCPStack Record 持锁 + 持锁 autoSave | 磁盘 IO 拖慢 Record | 拆 RWMutex：state mu + save mu |
@@ -459,7 +459,7 @@
 
 ## 10. 致评审者
 
-- 本评审基于静态阅读 `application/`, `seelexctx/`, `sessionstore/`, `seelebridge/`, `mcpstack/`, `session/`, `main.go`, `application_adapters.go` 与相关 README/文档。
+- 本评审基于静态阅读 `application/`, `seelexctx/`, `store/`, `seelebridge/`, `mcpstack/`, `session/`, `main.go`, `application_adapters.go` 与相关 README/文档。
 - 任何标记为 **Hypothesis** 的项都需要进一步验证（建议从 `H1, H2, H5, H11, H25, H26/H27` 入手）。
 - 文档已声明通过的真实账号 smoke（`docs/2026-08-04-context-memory-lifecycle/finish-review.md`）部分抵消了本机无 GCC 的 race 覆盖盲区；建议在 CI 上保留 Linux `-race -covermode=atomic` job。
 - 本评审未触碰：plugin/ 各插件实现、gui/frontend、TUI/、build/release 脚本。这些是独立子系统。

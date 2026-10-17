@@ -16,7 +16,7 @@
 1. `go build ./...`（exit 0）。
 2. 构建暂存二进制：`make stage-gui`（或 `SMOKE_TARGET=<二进制> make smoke-gui`）。
 3. **起一个干净数据根**（别用正在跑的实例的数据根）：`SEELEX_DATA_ROOT=<tmp>` 起暂存
-   二进制，避免与正在运行的主实例抢 `lock.owner`（`sessionstore/data_root_lock.go`）。
+   二进制，避免与正在运行的主实例抢 `lock.owner`（`store/root/data_root_lock.go`）。
 
 > **本轮的限制（如实记）**：当前机器上已有一个 Seelex 实例在跑，且**本会话就跑在它
 > 里面**——重启它等于掐掉正在执行的这轮任务。所以本轮做的是

@@ -11,11 +11,11 @@ package core
 // 把模型还看得见的轮次悄悄丢掉（那正是"保留了失败痕、同时把上下文截断"）。
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 )
 
 // restartRefillRounds 是重启后新追加的轮数（每轮约 8000 tokens）。26 轮 = 实测
@@ -43,9 +43,9 @@ func startRestartRound(t *testing.T, service *Service, sessionID, requestID stri
 	t.Helper()
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
 	previous := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	service.components.tasks.BeginTaskFor(sessionID, requestID, "inspect", "high", previous, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(sessionID, requestID, "inspect", "high", previous, model.TaskCheckpoint{})
 }
 
 // TestProbeCompactionFailureAfterRestartEncounter（**红灯复现，等待口径裁决**）
@@ -194,7 +194,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 	// ② 失败痕留下，且带读数闸的报错原文。
 	records := compactionRecordsOf(t, second)
 	failures := 0
-	var failure ContextCompaction
+	var failure model.ContextCompaction
 	for _, record := range records {
 		if record.Failed {
 			failures++

@@ -2,33 +2,34 @@ package core
 
 import (
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 type coldReadSessions struct {
 	archiveCommandSessions
 	mu     sync.Mutex
-	events map[string][]sessionstore.Event
+	events map[string][]store.Event
 }
 
 func newColdReadSessions() *coldReadSessions {
 	return &coldReadSessions{
 		archiveCommandSessions: *newArchiveCommandSessions(),
-		events:                 map[string][]sessionstore.Event{},
+		events:                 map[string][]store.Event{},
 	}
 }
 
-func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	all := sessions.events[projectID+"|"+sessionID]
-	selected := make([]sessionstore.Event, 0, len(all))
+	selected := make([]store.Event, 0, len(all))
 	for _, event := range all {
 		if fromSeq == 0 && toSeq == 0 {
 			selected = append(selected, event)
@@ -41,7 +42,7 @@ func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID s
 	return selected, nil
 }
 
-func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []sessionstore.Event) {
+func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []store.Event) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	sessions.events[projectID+"|"+sessionID] = events
@@ -49,10 +50,10 @@ func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events 
 
 func newColdReadService(t *testing.T, sessions *coldReadSessions) *Service {
 	t.Helper()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:    &fakeEngine{},
 		Runtime:   &fakeRuntime{},
-		Plugins:   &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:   &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:    fakeSkills{},
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
@@ -68,20 +69,20 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "cold-1")
 	now := time.Now()
-	if err := sessions.SaveSessionRecordWorkspace("", "cold-1", SessionRecord{
+	if err := sessions.SaveSessionRecordWorkspace("", "cold-1", model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "cold-1",
-		Title:   SessionTitle{Value: "Cold Session"},
+		Title:   model.SessionTitle{Value: "Cold Session"},
 		Status:  SessionStatusIdle,
-		Conversation: ConversationRecord{Messages: []Message{{
+		Conversation: model.ConversationRecord{Messages: []model.Message{{
 			ID: "m1", Role: "user", Content: "cold content", CreatedAt: now,
 		}}},
-		Execution: SessionExecutionRecord{
-			Task: &TaskState{Status: TurnCompleted, Summary: "done"},
+		Execution: model.SessionExecutionRecord{
+			Task: &model.TaskState{Status: TurnCompleted, Summary: "done"},
 		},
-		PlanStack: []SessionPlanFrame{{
+		PlanStack: []model.SessionPlanFrame{{
 			ID: "plan-1",
-			Plan: &PlanState{
+			Plan: &model.PlanState{
 				Name: "cold plan", EntryNodeID: "n1", Status: PlanCompleted,
 			},
 		}},
@@ -144,7 +145,7 @@ func TestSnapshotOfColdUnknownSessionStillUnavailable(t *testing.T) {
 func TestGetSessionTranscriptRange(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "cold-1")
-	sessions.setEvents("", "cold-1", []sessionstore.Event{
+	sessions.setEvents("", "cold-1", []store.Event{
 		{Seq: 1, Role: "user", Content: "one"},
 		{Seq: 2, Role: "assistant", Content: "two"},
 		{Seq: 3, Role: "tool", Content: "three"},
@@ -181,7 +182,7 @@ func TestListSessionsReturnsAuthoritativeDirectory(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "sess-1")
 	service := newColdReadService(t, sessions)
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	rows := service.ListSessions()
 	if len(rows) != 1 || rows[0].ID != "sess-1" {

@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // goal_stack_view_test.go — 钉住「工作台按活动栈分块查看」的**后端投影**面。

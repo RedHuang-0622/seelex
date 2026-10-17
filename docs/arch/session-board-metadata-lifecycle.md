@@ -2,7 +2,7 @@
 
 > 状态：**已裁决（2026-10-02）**。三件事按推荐落地（§9）；另加一条硬要求——
 > goal 看板必须把 **active seq 的 goal** 与 **history goals** 分开（§3.1）。
-> 落笔依据：本仓既有存储布局（`sessionstore/module_heads.go` 的 `storageModule` 枚举 + `metadata/<module>.json` 原子 head 发布）与两块看板的现状投影路径（`runtime.goal_governance` / `runtime.teamwork_board`）。
+> 落笔依据：本仓既有存储布局（`store/module_heads.go` 的 `storageModule` 枚举 + `metadata/<module>.json` 原子 head 发布）与两块看板的现状投影路径（`runtime.goal_governance` / `runtime.teamwork_board`）。
 
 ## 0. 一句话
 
@@ -109,7 +109,7 @@
 
 沿用既有布局，**不新造机制**：
 
-- 两个新模块枚举（`sessionstore/module_heads.go`）：`moduleBoardGoal = "board_goal"`、
+- 两个新模块枚举（`store/module_heads.go`）：`moduleBoardGoal = "board_goal"`、
   `moduleBoardTeam = "board_team"` → 文件 `metadata/board_goal.json` / `metadata/board_team.json`。
   **两个模块而不是一个**：两块看板由不同子系统写（goal 域 / teamwork 域），S16 拆栈 head 的理由
   在这里同样成立——共用一个模块就是给它们造一个共享串行点。
@@ -117,7 +117,7 @@
   checksum 校验、失败不动已发布 head）。
 - 模块锁必须各加一个 `case`（`mutexFor` 对未映射枚举**panic**，且 `TestModuleLocksAreDistinct`
   遍历枚举钉住"禁止 default 别名"）——加枚举忘了加 case 会在测试里立刻炸，不会静默别名成别人的锁。
-- 读写面按 `sessionstore/teamwork.go`（`TeamworkRepository`）的既定形态提供
+- 读写面按 `store/teamwork.go`（`TeamworkRepository`）的既定形态提供
   （`BoardRepository.ReadBoardMeta / WriteBoardMeta`），`Key` 口径与其它模块一致。
 
 ## 5. 生命周期
@@ -219,7 +219,7 @@
 
 ## 10. 工作量分解（裁决后开工）
 
-1. `sessionstore`：两个模块枚举 + 两个锁 + `BoardRepository` 读写面 + 用例（含 I3/I6）。
+1. `store`：两个模块枚举 + 两个锁 + `BoardRepository` 读写面 + 用例（含 I3/I6）。
 2. `dto`：`BoardMeta` 形状（或直接复用两块看板的既有视图） + 指纹口径。
 3. 投影侧：goal 看板 / 团队看板的产出点写存档（节流 + 生命周期迁移）+ 兜底读路径 + 用例（I1/I2/I4/I5）。
 4. 前端/TUI：`recovered` 标记的可见面（一句话，与 stale 同形）。
@@ -231,25 +231,25 @@
 
 ### 落点
 
-- **存储面**：`sessionstore/module_heads.go` 新增 `moduleBoardGoal` / `moduleBoardTeam` + 两把独立锁
-  （`mutexFor` 各一 case）；`sessionstore/board.go`（新）：`BoardLifecycle` / `GoalBoardActive` /
+- **存储面**：`store/module_heads.go` 新增 `moduleBoardGoal` / `moduleBoardTeam` + 两把独立锁
+  （`mutexFor` 各一 case）；`store/board.go`（新）：`BoardLifecycle` / `GoalBoardActive` /
   `GoalBoardHistory` / `GoalBoardMeta`（active/history 分离）/ `TeamBoardMeta`（视图快照原样搬运）+
   `ValidateGoalBoardMeta` / `ValidateTeamBoardMeta` + `BoardRepository`（带 Key 的机械面）与
   `BoardsForSession`（Key 烘焙进实现，领域侧只知道 sessionID）。
-- **goal 写侧**：`application/core/goal/board_archive.go`（新）：`refreshGoalBoard`（Save 的唯一必经点）
+- **goal 写侧**：`backend/multiagent/goal/board_archive.go`（新）：`refreshGoalBoard`（Save 的唯一必经点）
   + `refreshBoardAfterAudit`（终态审计落账后，权威 Status/At/Reason）+ `planGoalBoard`（生命周期推进
   + 指纹节流）+ `mergeBoardHistory`（并集去重、只追加、id 复用让位）+ `closedInfo` / `activeFrame`；
   `sessionstore_store.go` 加存档面与 `Save` 末的扇出。
 - **goal 读侧**：`application/core/goal_coordinator.go`：活体给不出看板时用存档 active 帧重建并标
   `Recovered`（`recoveredGoalView`），`History` 与活体栈正交下发（`goalHistoryViews`）；存档读失败 /
   损坏 / 缺失一律按"没有存档"降级。
-- **team 写侧/读侧**：`seelebridge/runtime_teamwork_board_archive.go`（新）：`archiveTeamBoard`
+- **team 写侧/读侧**：`backend/engine/assemble/runtime_teamwork_board_archive.go`（新）：`archiveTeamBoard`
   （team_* 成功后用**与下发同一条组装路径** `buildTeamworkBoardView` 生成载荷）+ `nextTeamBoardMeta`
   （新开 / 版本递进先关旧版 `team.replan` / 同版本 seq+1 / 节流）+ `readTeamBoardArchive`
   （只恢复 `state=active`，标 `Recovered=true` + `Stale=true`）。
 - **可见面**：团队看板 `recovered` chip（与 `stale` 同屏，二者不互斥）；「目标」面板「历史目标」一节
   （账本与看板主体分开，§3.1）+ `recovered` 标记；TUI 同源同一份投影（`tui/goalteam.go`）。
-- **守卫**：`application/core/goal/board_archive_boundary_test.go`（I1 静态断言：只有
+- **守卫**：`backend/multiagent/goal/board_archive_boundary_test.go`（I1 静态断言：只有
   `board_archive.go` / `sessionstore_store.go` 可提到存档类型）+ `seelebridge` 的
   `TestEveryTeamworkMutationHandlerRefreshesBoardArchive`（5 个 team_* 动作都必须"失效缓存 + 刷存档"）
   + `gui/team_board_wiring_test.go` 的 `TestEmbeddedBoardArchiveVisibilityWiring`（recovered 与
@@ -258,7 +258,7 @@
 ### 回归证据
 
 - `go build ./...` exit 0；`go vet ./...` exit 0。
-- `go test -count=1 ./...` 全绿（sessionstore 75.9s / application/core 32.7s / seelebridge 47.8s / tui）。
+- `go test -count=1 ./...` 全绿（store 75.9s / application/core 32.7s / seelebridge 47.8s / tui）。
 - `node --test gui/frontend/dist/*.test.mjs` → tests 613 / pass 613 / fail 0。
 
 ### 边界（如实标注）

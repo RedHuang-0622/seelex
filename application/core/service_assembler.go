@@ -3,33 +3,37 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
+	"github.com/RedHuang-0622/seelex/middle/view/errors"
+	"github.com/RedHuang-0622/seelex/middle/view/state"
+	"github.com/RedHuang-0622/seelex/middle/view/subagent"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"github.com/RedHuang-0622/seelex/store"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
-	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/core/view_state"
-	"github.com/RedHuang-0622/seelex/application/core/worktable"
-	"github.com/RedHuang-0622/seelex/internal/promptassets"
-	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // serviceAssembler is the composition root for the application service. It
 // supplies infrastructure defaults before wiring stateful collaborators.
 type serviceAssembler struct {
-	deps Dependencies
+	deps contract.Dependencies
 }
 
 // taskPromptPort 是 task_context.PromptPort 的根包适配（prompt 域尚未下沉
 // 时的装配适配层）。
 type taskPromptPort struct {
-	promptStack   *PromptStack
-	effortManager *EffortManager
+	promptStack   *prompt.PromptStack
+	effortManager *prompt.EffortManager
 }
 
 func (p taskPromptPort) CurrentEffort() string {
@@ -65,8 +69,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
+	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
+	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
+	service.knobs = newServiceKnobs(service)
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
-	// 槽位自己持有锁，注入方（main.go / 测试）随时可 SetProjectBoardSink。
+	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
 	// 工具记录台账槽位同理在装配期建好：未注入时判空什么都不做（有就有、没有就是没装配）。
 	service.components.toolRecord = &toolRecordPort{}
@@ -76,10 +83,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
 	// 实际生效的 high（384）不一致。
-	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
-	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
-	// 定时任务的按会话强度租约表在装配期建好（写路径不加锁判 nil 是漏锁的老毛病）。
-	service.sessionEffort = make(map[string]string)
+	service.knobs.SeedReadings(
+		reasoningEffortFor(service.effortManager.Current()),
+		maxLoopsFor(service.effortManager.Current()),
+	)
 	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
 	if service.Deps.Runtime != nil {
@@ -99,7 +106,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
-		PresentToolError:           presentToolError,
+		PresentToolError:           viewerrors.PresentToolError,
 		QueuedInputRefs: func(sessionID string) []string {
 			// F-3b：按会话取排队输入引用（不读视图 Snapshot；unit 自锁）。
 			unit := service.sessions.Unit(sessionID)
@@ -120,16 +127,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
-	var goalStoreFor func(sessionID string) *sessionstore.SessionContextStore
+	var goalStoreFor func(sessionID string) *store.SessionContextStore
 	if provider, ok := assembler.deps.Runtime.(interface {
-		SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore
+		SessionContextStoreFor(sessionID string) *store.SessionContextStore
 	}); ok {
 		goalStoreFor = provider.SessionContextStoreFor
 	}
 	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
 	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
-		StoreFor:      goalStoreFor,
-		TLRecorderFor: service.goalTLRecorderFor,
+		StoreFor: goalStoreFor,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
@@ -163,8 +169,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Core:                   kernel,
 		Units:                  sessionDomain,
 		CurrentEffort:          service.effortForSession,
-		CurrentReasoningEffort: service.knobReasonings,
-		CurrentLoopLimit:       service.knobLimit,
+		CurrentReasoningEffort: service.knobs.ReasoningEfforts,
+		CurrentLoopLimit:       service.knobs.LoopLimit,
 		CurrentFullAccess:      service.fullAccessForSession,
 		CurrentPermissionTier:  service.permissionTierForSession,
 		CurrentSessionID: func() string {
@@ -182,6 +188,32 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: Limits,
 	})
 	service.components.sessions.BindView(service.components.view)
+	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
+	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
+	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
+		Store:    service.Deps.Workspace,
+		Sessions: service.Deps.Sessions,
+		Runtime:  service.Deps.Runtime,
+		Engine:   service.Deps.Engine,
+		View:     workspaceHost{service: service},
+		Prompt:   func() string { return service.promptStack.Render() },
+		PerSessionExecution: func() bool {
+			return service.perSessionExecution()
+		},
+		NewSessionID: func(prefix string) string {
+			return service.newGeneratedSessionID(prefix)
+		},
+		AttachSessionContext: func(workspaceID, sessionID string) error {
+			return service.attachSessionContextFor(workspaceID, sessionID)
+		},
+		RefreshWorkTable: func() {
+			service.refreshWorkTableFromSources()
+		},
+		WorkspaceIDForSession: func(sessionID string) string {
+			return service.components.sessions.LocateSession(sessionID).WorkspaceID
+		},
+		ChatRunningError: ErrChatRunning,
+	})
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，
@@ -232,7 +264,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。
 	service.startLifecycleConsumers()
-	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Runtime.SetSubagentPolicy(service.effortManager.SubagentPolicy())
 	service.idle = closedSignal()
 	initialSessionID := service.Deps.Engine.SessionID()
 	initialDraft := initialSessionID == ""
@@ -248,15 +280,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		now := time.Now()
 		service.draft = &draftSlot{ID: initialSessionID, CreatedAt: now, UpdatedAt: now}
 	}
-	initialSession := SessionState{ID: initialSessionID, Draft: initialDraft}
+	initialSession := model.SessionState{ID: initialSessionID, Draft: initialDraft}
 	if initialDraft {
 		initialSession.Name = draftSessionName
 	}
-	service.Core.Snapshot = Snapshot{
+	service.Core.Snapshot = model.Snapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Session:            initialSession,
-		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
-		Capabilities:       Capabilities{SessionResume: true},
+		Runtime:            model.RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
+		Capabilities:       model.Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
 	service.sessions.SetActive(initialSessionID)
@@ -279,7 +311,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	return service, nil
 }
 
-func validateDependencies(deps Dependencies) error {
+func validateDependencies(deps contract.Dependencies) error {
 	checks := []struct {
 		name       string
 		dependency any
@@ -311,7 +343,7 @@ func (service *Service) restoreInitialWorkspace() {
 	if service.Deps.Workspace == nil {
 		return
 	}
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	workspace, ok := service.Deps.Workspace.SessionWorkspace(service.Core.Snapshot.Session.ID)
 	if !ok {

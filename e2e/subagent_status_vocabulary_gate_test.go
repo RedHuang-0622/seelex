@@ -16,7 +16,7 @@ package e2e
 //	④ switch 状态分支：`switch nr.Status { case "failed": … }`
 //	⑤ 状态常量声明：`asyncStateDone = "done"`（**第二份定义**的典型长相，前四种都抓不到它）
 //	⑥ map 状态键：`map[string]string{"state": "running"}`（受理回执这类"没有结构体、只有
-//	   map"的载荷——前五种都抓不到它，而本项目里它就在 `seelebridge/fork/tool.go`）
+//	   map"的载荷——前五种都抓不到它，而本项目里它就在 `backend/tool/fork/tool.go`）
 //
 // **门禁的边界写在这里**（免得它变成一块越界的大毯子）：只扫下面 `statusVocabularyScopes` 里
 // 逐条声明的文件。没进清单的同形词表由各自的一批收口，本门禁不越界判它们（越界判 = 只能靠
@@ -26,13 +26,13 @@ package e2e
 //     `dto.SubagentToolEvent.Status`，后者是快照/存档/事件 wire 上的 `model.ToolCall.Status`。
 //     两处现已都进本清单（工具事件状态 / 工具调用视图词）；后者是**落盘**格，读回经具名转换点
 //     `model.ToolCallStatusOfRecord`（未知词落 unknown，不折成成功），存储面那名词由
-//     `internal/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
+//     `wiring/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
 //   - 计划节点状态（queued|running|completed|failed|skipped|canceled|aborted|panicked）来自
 //     框架 workplan 的 `NodeBase.Status`，**不是我们这一格的词**——所以
 //     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
 //     计划批次那一格的清单**；它读批次结果的那三个分支改成引契约常量，由编译器钉住；
 //   - 统一事件摘要状态（failed|completed）是 Seele 框架 `SummaryEvent.Status` 的词；
-//   - `seelebridge/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
+//   - `backend/tool/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
 //     结果里的框架节点状态词**（框架 workplan 的 `NodeBase.Status`，与 `plan/tool_provider.go`
 //     那条边界同源），不在"后台作业状态"这一格的取值面里——门禁按取值面判，不越界判它；
 //   - todo 三态（`application/core/work_table.go`）与"回执状态"（finished|already_finished）。
@@ -63,10 +63,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "单元身份",
 		files: map[string]string{
-			"sessionstore/node_session_store.go":       "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
-			"seelebridge/session/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
-			"seelebridge/workunit_team_records.go":     "写：teammate 那一环（写下自己这一层的身份）",
-			"seelebridge/runtime_unit_recovery.go":     "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
+			"store/node_session_store.go":                      "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
+			"backend/multiagent/subagent/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
+			"backend/engine/assemble/workunit_team_records.go": "写：teammate 那一环（写下自己这一层的身份）",
+			"backend/engine/assemble/runtime_unit_recovery.go": "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
 		},
 		// 这一格的取值面 = workunit.Kind（subagent | teammate）：词表本来就在契约里，这里只钉
 		// "谁也不许再写一份字面量"。KindJob 是基线标注（job 层不实现 Unit），不属于这一格。
@@ -75,14 +75,16 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "记录状态",
 		files: map[string]string{
-			"seelebridge/node/coordinator.go":          "写：节点结束 → Sessions.NoteOutcome 的终态词",
-			"seelebridge/session/subagent_sessions.go": "写：节点结束兜底终态（subagentOutcome.status）",
-			"seelebridge/session/subagent_tree.go":     "读：恢复时判「记录本身已终结」（restoredSubAgentStatus）",
-			"seelebridge/runtime_subagent_recovery.go": "读：残留记录判终态（Locate/ensureConclusion）",
-			"seelebridge/runtime_subagent_resume.go":   "读+本层常量：子代理那一层的终态词表",
-			"seelebridge/workunit_team.go":             "写：teammate 那一层的终态词表（收尾分类折成记录词）",
-			"seelebridge/workunit_team_records.go":     "写：teammate 单元记录的落盘写点",
-			"seelebridge/workunit_parent.go":           "写：生命周期实现落盘时的记录状态",
+			"backend/tool/node/coordinator.go":                     "写：节点结束 → Sessions.NoteOutcome 的终态词",
+			"backend/multiagent/subagent/subagent_sessions.go":     "写：节点结束兜底终态（subagentOutcome.status）",
+			"backend/multiagent/subagent/subagent_tree.go":         "读：恢复时判「记录本身已终结」（restoredSubAgentStatus）",
+			"backend/engine/assemble/runtime_subagent_recovery.go": "读：残留记录判终态（Locate/ensureConclusion）",
+			"backend/engine/assemble/runtime_subagent_resume.go":   "读+本层常量：子代理那一层的终态词表",
+			"backend/engine/assemble/workunit_team.go":             "写：teammate 那一层的终态词表（收尾分类折成记录词）",
+			"backend/engine/assemble/workunit_team_records.go":     "写：teammate 单元记录的落盘写点",
+			// M4-W：生命周期实现（唯一一份）下沉到契约包 `backend/workunit/lifecycle.go`——
+			// 词的来源没变（`workunit.StatusRunning` = 契约那一份），落点跟着实现走。
+			"backend/workunit/lifecycle.go": "写：生命周期实现落盘时的记录状态",
 		},
 		// 这一格的取值面 = dto.SubAgent* 的四个（"还在不在跑"那半份在 workunit.Status*）。
 		words: map[string]bool{"queued": true, "running": true, "done": true, "failed": true},
@@ -90,38 +92,30 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "后台作业状态",
 		files: map[string]string{
-			"seelebridge/fork/tool.go":             "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
-			"seelebridge/tools/async_exec.go":      "写：登记表的状态词表（本层常量）与状态迁移",
-			"seelebridge/tools/async_probe.go":     "读：探针把状态折进工作表格/观察行",
-			"seelebridge/tools/async_run.go":       "写：执行体落终态",
-			"seelebridge/tools/job_contract.go":    "读：作业面把执行域状态映射成契约状态",
-			"seelebridge/tools/job_run.go":         "写：作业面执行体落终态",
-			"seelebridge/tools/job_subagent.go":    "读：子代理作业的终态判定",
-			"seelebridge/tools/job_tools.go":       "读：bg_manage 的回答里带状态",
-			"application/core/async_completion.go": "读：终态触发对话（done/failed 触发，killed 不触发）",
-			"application/core/work_table_async.go": "读：折成工作表格的权威状态（killed 归 failed）",
-			"tui/goalteam.go":                      "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
+			"backend/tool/fork/tool.go":             "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
+			"backend/tool/registry/async_exec.go":   "写：登记表的状态词表（本层常量）与状态迁移",
+			"backend/tool/registry/async_probe.go":  "读：探针把状态折进工作表格/观察行",
+			"backend/tool/registry/async_run.go":    "写：执行体落终态",
+			"backend/tool/registry/job_contract.go": "读：作业面把执行域状态映射成契约状态",
+			"backend/tool/registry/job_run.go":      "写：作业面执行体落终态",
+			"backend/tool/registry/job_subagent.go": "读：子代理作业的终态判定",
+			"backend/tool/registry/job_tools.go":    "读：bg_manage 的回答里带状态",
+			"application/core/async_completion.go":  "读：终态触发对话（done/failed 触发，killed 不触发）",
+			"middle/view/worktable/async.go":        "读：折成工作表格的权威状态（killed 归 failed）",
+			"tui/goalteam.go":                       "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
 		},
 		// 这一格的取值面 = dto.AsyncState*（AsyncRunRecord.State 的注释写死的四个词）。
 		words: map[string]bool{"running": true, "done": true, "failed": true, "killed": true},
 	},
 	{
-		name: "计划批次结果状态",
-		files: map[string]string{
-			"seelebridge/plan/tool_provider.go": "写：plan_run 结果 JSON 的 status（读侧见文件头：故意不进清单）",
-		},
-		// 这一格的取值面 = dto.PlanRunStatus*（plan_run 工具结果的 status）。
-		words: map[string]bool{"completed": true, "failed": true, "aborted": true},
-	},
-	{
 		name: "工具事件状态",
 		files: map[string]string{
-			"seelebridge/session/tool_events.go":            "写：工具调用事件的三种状态（发布/落态）",
-			"seelebridge/runtime_role_turn.go":              "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
-			"application/core/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
-			"application/core/subagent_view/coordinator.go": "读：详情投影判「在跑」",
-			"application/core/service.go":                   "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
-			"tui/state.go":                                  "读：TUI 判「在跑」（转调契约枚举的对外词）",
+			"backend/multiagent/subagent/tool_events.go":   "写：工具调用事件的三种状态（发布/落态）",
+			"backend/engine/assemble/runtime_role_turn.go": "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
+			"application/core/tool_hooks.go":               "写：工具完成钩子把结果折成成功/失败",
+			"middle/view/subagent/coordinator.go":          "读：详情投影判「在跑」",
+			"application/core/service.go":                  "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
+			"tui/state.go":                                 "读：TUI 判「在跑」（转调契约枚举的对外词）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（SubagentTool/SubagentToolEvent.Status）。
 		words: map[string]bool{"running": true, "success": true, "error": true},
@@ -129,24 +123,24 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "工具调用视图词",
 		files: map[string]string{
-			"application/model/state.go":                    "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
-			"application/core/tool_hooks.go":                "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
-			"application/core/chat.go":                      "写：引擎历史回灌的可见工具行",
-			"application/core/session_history.go":           "写：引擎消息折成可见消息时的工具行",
-			"application/core/session_runtime/archive.go":   "写：存档投影里的工具行",
-			"application/core/subagent_view/coordinator.go": "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
-			"internal/adapters/session_workspace_ports.go":  "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
-			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
+			"middle/protocol/model/state.go":             "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
+			"application/core/tool_hooks.go":             "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
+			"application/core/chat.go":                   "写：引擎历史回灌的可见工具行",
+			"application/core/session_history.go":        "写：引擎消息折成可见消息时的工具行",
+			"backend/engine/session/archive.go":          "写：存档投影里的工具行",
+			"middle/view/subagent/coordinator.go":        "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
+			"wiring/adapters/session_workspace_ports.go": "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
+			"tui/state.go":                               "读：工具行图标与耗时（精确判 running）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
-		// store 那一侧（sessionstore.ConversationToolCall.Status）是契约之下的 wire，本层不 import
-		// 契约包；它写出的词由 internal/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// store 那一侧（store.ConversationToolCall.Status）是契约之下的 wire，本层不 import
+		// 契约包；它写出的词由 wiring/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{"running": true, "success": true, "error": true},
 	},
 	{
 		name: "task 状态",
 		files: map[string]string{
-			"seelebridge/task/task.go":       "写：task 注册表的状态迁移与打点状态",
+			"backend/tool/task/task.go":      "写：task 注册表的状态迁移与打点状态",
 			"application/core/work_table.go": "读：折成工作表格行（子代理行沿用 done 的显示映射）",
 		},
 		// 这一格的取值面 = dto.Task*（TaskRecord.Status / TaskTracePoint.Status）。
@@ -158,16 +152,16 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "回合状态",
 		files: map[string]string{
-			"application/core/task_context/task_execution.go":              "写：新回合开局（在飞）与续接判据",
-			"application/core/task_context/task_service.go":                "写：终态工具落结论（completed|needs_user_decision|blocked|failed）",
-			"application/core/task_context/session_context_maintenance.go": "写：会话上下文维护身份（没有在飞回合）",
-			"application/core/task_context/task_context_state.go":          "写：快照面 + 中断/续接 + 存档面",
-			"application/core/task_context/turn_status_record.go":          "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
-			"application/core/chat.go":                                     "写：请求开始时的在飞回合",
-			"application/core/history_safety.go":                           "写：provider 失败回收（回合中断）",
-			"application/core/session_cold_read.go":                        "写：冷读面的 idle（这个会话没有在飞回合）",
-			"application/core/input.go":                                    "读：终态边界（收尾过的回合）",
-			"application/core/context_runtime/coordinator.go":              "读：显式压缩的来源判定（是否在飞回合）",
+			"backend/engine/task/task_execution.go":              "写：新回合开局（在飞）与续接判据",
+			"backend/engine/task/task_service.go":                "写：终态工具落结论（completed|needs_user_decision|blocked|failed）",
+			"backend/engine/task/session_context_maintenance.go": "写：会话上下文维护身份（没有在飞回合）",
+			"backend/engine/task/task_context_state.go":          "写：快照面 + 中断/续接 + 存档面",
+			"backend/engine/task/turn_status_record.go":          "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
+			"application/core/chat.go":                           "写：请求开始时的在飞回合",
+			"application/core/history_safety.go":                 "写：provider 失败回收（回合中断）",
+			"application/core/session_cold_read.go":              "写：冷读面的 idle（这个会话没有在飞回合）",
+			"application/core/input.go":                          "读：终态边界（收尾过的回合）",
+			"backend/engine/context/coordinator.go":              "读：显式压缩的来源判定（是否在飞回合）",
 		},
 		// 这一格的取值面 = dto.Turn*（Snapshot.Task.Status 与 TaskContextProjection.Status 同格）。
 		words: map[string]bool{
@@ -178,20 +172,20 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "会话可见状态",
 		files: map[string]string{
-			"application/core/service_snapshot.go":         "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
-			"application/core/session_history.go":          "写：冷加载的 restoring 空壳",
-			"application/core/session_draft.go":            "写：草稿会话行",
-			"application/core/session_lifecycle.go":        "写：草稿会话行",
-			"application/core/archive_session.go":          "读：归档门（运行中的会话不许归档）",
-			"application/core/resident_lru.go":             "读：草稿行不参与驱逐",
-			"application/core/session_runtime/archive.go":  "读+写：落盘记录的归档态",
-			"application/core/session_runtime/scope.go":    "读：归档会话不进分发范围",
-			"internal/adapters/session_workspace_ports.go": "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
+			"application/core/service_snapshot.go":       "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
+			"application/core/session_history.go":        "写：冷加载的 restoring 空壳",
+			"application/core/session_draft.go":          "写：草稿会话行",
+			"application/core/session_lifecycle.go":      "写：草稿会话行",
+			"application/core/archive_session.go":        "读：归档门（运行中的会话不许归档）",
+			"application/core/resident_lru.go":           "读：草稿行不参与驱逐",
+			"backend/engine/session/archive.go":          "读+写：落盘记录的归档态",
+			"backend/engine/session/scope.go":            "读：归档会话不进分发范围",
+			"wiring/adapters/session_workspace_ports.go": "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
 			"tui/view.go": "读：待批会话行（跨会话计数）",
 		},
 		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。
-		// 落盘那一侧（sessionstore.Status）是契约之下的 wire，取值面是这里的**持久子集**，
-		// 两包同一份词由 internal/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// 落盘那一侧（store.Status）是契约之下的 wire，取值面是这里的**持久子集**，
+		// 两包同一份词由 wiring/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{
 			"draft": true, "idle": true, "running": true, "queued": true,
 			"awaiting_approval": true, "archived": true, "restoring": true,
@@ -200,10 +194,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "计划状态",
 		files: map[string]string{
-			"application/core/task_context/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
-			"application/core/task_context/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
-			"application/core/task_context/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
-			"application/core/plan_tools.go":                   "写：plan_run 结果与事件折成计划状态",
+			"backend/engine/task/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
+			"backend/engine/task/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
+			"backend/engine/task/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
+			"application/core/plan_tools.go":         "写：plan_run 结果与事件折成计划状态",
 		},
 		// 这一格的取值面 = dto.Plan*（PlanState.Status / SubagentEvent.PlanStatus）。
 		// 与 plan_run **批次结果**（dto.PlanRunStatus，只有终态词）是两格，见各自文件头。
@@ -214,14 +208,14 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "节点状态",
 		files: map[string]string{
-			"application/core/task_context/plan_projection.go": "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
-			"application/core/task_context/plan_transcript.go": "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
-			"application/core/task_context/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
-			"application/core/plan_tools.go":                   "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
-			"application/core/work_table.go":                   "读：节点打点合成工作表格 trace",
-			"application/core/subagent_view/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
-			"tui/plan.go":                    "读：节点状态上色（参数是枚举，不再比字面量）",
-			"seelebridge/node/agent_node.go": "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
+			"backend/engine/task/plan_projection.go": "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
+			"backend/engine/task/plan_transcript.go": "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
+			"backend/engine/task/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
+			"application/core/plan_tools.go":         "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
+			"application/core/work_table.go":         "读：节点打点合成工作表格 trace",
+			"middle/view/subagent/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
+			"tui/plan.go":                            "读：节点状态上色（参数是枚举，不再比字面量）",
+			"backend/tool/node/agent_node.go":        "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
 		},
 		// 这一格的取值面 = dto.Node*（PlanNode.Status）。
 		// 事件字段 dto.PlanNodeEvent.Status 是**混合面**（本格词 + 框架词 + 我们的阶段词），
@@ -235,7 +229,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "定时任务上次运行结果",
 		files: map[string]string{
-			"seelebridge/scheduler/scheduler.go": "写：上一次运行的落点（pending|running|ok|failed|skipped）",
+			"backend/engine/schedule/schedule.go": "写：上一次运行的落点（pending|running|ok|failed|skipped）",
 		},
 		// 这一格的取值面 = dto.ScheduleRun*（ScheduledTaskStatus.LastStatus）。
 		words: map[string]bool{
@@ -245,33 +239,18 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "goal 状态",
 		files: map[string]string{
-			"application/core/goal/controller.go":         "写：栈位置语义（栈顶 active / 下层 paused / 收口终态）",
-			"application/core/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
-			"application/core/goal/audit.go":              "写：审计条目的状态词",
-			"application/core/goal/board_archive.go":      "读：看板存档帧",
-			"application/core/goal/techleader.go":         "读：治理快照里的 goal 状态",
-			"application/core/goal_coordinator.go":        "读：治理投影（GoalGovernanceView.Status）",
-			"tui/goalteam.go":                             "读：目标面板",
+			"backend/multiagent/goal/controller.go":         "写：栈位置语义（栈顶 active / 下层 paused / 收口终态）",
+			"backend/multiagent/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
+			"backend/multiagent/goal/audit.go":              "写：审计条目的状态词",
+			"backend/multiagent/goal/board_archive.go":      "读：看板存档帧",
+			"application/core/goal_coordinator.go":          "读：治理投影（GoalGovernanceView.Status）",
+			"tui/goalteam.go":                               "读：目标面板",
 		},
 		// 这一格的取值面 = dto.Goal*（GoalRecord.Status / GoalGovernanceView.Status /
-		// sessionstore.GoalFrame.Status 同一格；存档面由 goal.StatusOfRecord 读回）。
+		// store.GoalFrame.Status 同一格；存档面由 goal.StatusOfRecord 读回）。
 		words: map[string]bool{
 			"active": true, "paused": true, "reviewing": true, "completed": true,
 			"failed": true, "aborted": true, "waiting_human": true,
-		},
-	},
-	{
-		name: "评审者状态",
-		files: map[string]string{
-			"application/core/goal/advisor.go":     "定义层：PeerState 别名 + 契约取值",
-			"application/core/goal/techleader.go":  "写：Supervisor 快照里的 peer 状态",
-			"application/core/goal_coordinator.go": "读：治理投影（peer_state）",
-			"tui/goalteam.go":                      "读：目标面板 peer 行",
-		},
-		// 这一格的取值面 = dto.Peer*（AdvisorSession.State / GoalGovernanceView.PeerState）。
-		words: map[string]bool{
-			"detached": true, "bound": true, "evaluating": true,
-			"advisory_pending": true, "reaped": true,
 		},
 	},
 }
@@ -289,19 +268,10 @@ type statusAllowedLiteral struct {
 // ——白名单不是藏东西的地毯。
 var allowedStatusLiterals = []statusAllowedLiteral{
 	{
-		scope: "后台作业状态", file: "seelebridge/tools/async_exec.go", word: "killed",
+		scope: "后台作业状态", file: "backend/tool/registry/async_exec.go", word: "killed",
 		reason: "这是**回执状态**（asyncPayload.Status：observed|killed|already_finished|finished…），" +
 			"不是执行域状态机那一格（同一结构里的 State 才是，值是 asyncState*）；" +
 			"回执词表的收口要连 bg_manage 的四种 op 一起做，登记为下一批",
-	},
-	{
-		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "failed",
-		reason: "`switch nr.Status` 读的是**框架 workplan 的节点状态**（NodeBase.Status：completed|failed|…），" +
-			"不是 plan_run 结果里这一批的 status（那个是本格，已引 dto.PlanRunStatus*）",
-	},
-	{
-		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "completed",
-		reason: "同上（框架节点状态词的另一半）",
 	},
 }
 
@@ -449,7 +419,7 @@ const (
 	// 反向对照：引契约常量不是违规。
 	clean := `package p
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 const asyncStateDone = dto.AsyncStateDone
 
@@ -467,7 +437,7 @@ func done(status string) bool { return status == dto.AsyncStateDone || status ==
 // TestSubagentStatusVocabularyGateCatchesMapStateKey 是**第六形态**（map 状态键）的阴性对照：
 // 只有 map 的载荷（受理回执那种 `map[string]string{"state": "running"}`）必须被同一套扫描
 // 函数判红——前五种形态都看不见它（键是字符串字面量，不是标识符），而本项目里它就在
-// `seelebridge/fork/tool.go` 的 jobs[].state 那一栏。
+// `backend/tool/fork/tool.go` 的 jobs[].state 那一栏。
 func TestSubagentStatusVocabularyGateCatchesMapStateKey(t *testing.T) {
 	words := map[string]bool{"running": true, "done": true, "failed": true, "killed": true}
 

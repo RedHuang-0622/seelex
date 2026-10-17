@@ -1,0 +1,204 @@
+// Package session_runtime owns the session domain: durable session records,
+// catalog discovery, project binding and storage policy. The Coordinator
+// reads task/plan authoritative state only through TaskPersistencePort
+// (consumer-declared interface, injected by the composition root), so it
+// never reaches into other domain implementations.
+package session_runtime
+
+import (
+	"context"
+	"time"
+
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
+)
+
+// TaskPersistencePort 是会话持久化对 task/plan 权威状态的读写面。
+// 全部方法显式携带 sessionID（For 变体）：后台会话收尾不得读活跃会话槽，
+// 违反即编译失败（阶段 0 契约，对应 plan.md P2/P4/R4）。
+// Locked 后缀方法要求调用方已持有 state.Core.ViewMu（内核锁内调用）。
+type TaskPersistencePort interface {
+	TaskProjectionLocked(sessionID string) *model.TaskContextProjection
+	TranscriptFor(sessionID string) []model.TranscriptEvent
+	PendingToolResultsFor(sessionID string) []model.StoredToolResult
+	TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint
+	ToolResultRefsFor(sessionID string) []model.ToolResultRef
+	ToolResultRefByCallIDFor(sessionID, callID string) string
+	ContinuationSummaryFor(sessionID, requestID string) string
+	CurrentRequestIDFor(sessionID string) string
+	TaskStateFor(sessionID string) *model.TaskState
+	ActivePlanIDFor(sessionID string) string
+	PlanStackFor(sessionID string) []model.SessionPlanFrame
+	SyncActivePlanFrameLockedFor(sessionID string, now time.Time)
+	RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult)
+}
+
+// SessionRecordPort 是会话归档的持久化面（可选能力断言：会话端口实现
+// 该接口时，record 按 workspace/session 唯一键原子落盘）。
+type SessionRecordPort interface {
+	SaveSessionRecord(string, model.SessionRecord) error
+	LoadSessionRecord(string) (model.SessionRecord, error)
+	LoadSessionRecordWorkspace(string, string) (model.SessionRecord, error)
+	// SaveSessionRecordWorkspace 在显式项目作用域下写会话 record
+	// （后台会话落盘不依赖全局 Router 写作用域；阶段 0 键漂移修复）。
+	SaveSessionRecordWorkspace(string, string, model.SessionRecord) error
+}
+
+// SessionSnapshotPort 是会话原子快照写入面（可选能力断言：record +
+// transcript + tool-result 一次性提交）。
+type SessionSnapshotPort interface {
+	SaveSessionSnapshot(string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error
+	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入会话快照
+	// （后台会话落盘用；不改变 Router active write scope）。
+	SaveSessionSnapshotWorkspace(string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error
+}
+
+// SessionTranscriptPort 是 transcript 尾部与工具结果读回面（可选能力断言）。
+type SessionTranscriptPort interface {
+	LoadTranscriptTailWorkspace(string, string, int, int) ([]model.TranscriptEvent, error)
+	LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error)
+}
+
+// SessionCompactionFactPort 是压缩记录（会话事实）的持久读回面（可选能力断言）。
+//
+// 压缩记录说的是「这个会话的上下文被折出过窗口 / 有过一次压不成」，属**会话**
+// 事实而非回合事实：进程重启后右栏「上下文压缩」（压缩栈表 + 失败痕 + seq 徽标）、
+// 轨迹「压缩」轨、对话区「以上 … 已被压缩」分界，以及保留窗口起点
+// （ContextRetainedFrom）都要靠它还原。
+//
+// 为什么单独一条通道：这些记录过去只随 record.Execution.Task 落盘，而现行存储
+// 布局（v8/S20）里 record 通道已退役（`SaveRecordRaw` 只写穿 status/title，
+// `LoadRecordRaw` 交回按 message head 派生的最小 record）——于是重启后
+// 「压缩帧在（compact 通道）、压缩记录不在」，可见面整条为空。
+type SessionCompactionFactPort interface {
+	// LoadCompactionRecordsWorkspace 按显式项目作用域读取该会话压缩记录
+	// （写入顺序）。未实现/未 v8 化时调用方回退 record 通道。
+	LoadCompactionRecordsWorkspace(projectID, sessionID string) ([]model.ContextCompaction, error)
+}
+
+// SessionConversationRangePort 是可见会话分页读回面（可选能力断言）。
+type SessionConversationRangePort interface {
+	LoadConversationRangeWorkspace(string, string, int, int) ([]model.Message, int, error)
+}
+
+// SessionContextPort 是会话 context 模块（system prompt + Plan/Task/Skill/
+// Compact 四栈）的装配端口：resume 时加载并挂接 Runtime，离开会话时解绑，
+// 防止跨会话串栈。
+type SessionContextPort interface {
+	AttachSessionContext(workspaceID, sessionID string) error
+	DetachSessionContext()
+}
+
+// SessionForkPort 是会话 fork 的持久化面（可选能力断言：实现后会话 fork
+// 才能落盘；未实现时 ForkSession 返回明确错误）。全部方法走显式项目作用域，
+// 不改变 Router 的 active write scope。
+type SessionForkPort interface {
+	// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
+	// （fork 切断点解析/段落边界校验用）。
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)
+	// LoadToolResultsWorkspace 枚举父会话 tool-results 通道全部结果
+	// （fork 深拷贝物理复制用）。
+	LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)
+	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入子会话快照
+	// （截断后的 record + events + tool-results 物理复制）。
+	SaveSessionSnapshotWorkspace(projectID, sessionID string, providerHistory []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error
+	// LoadContextStateWorkspace / SaveContextStateWorkspace 读写会话 context
+	// 模块（四栈深拷贝写入子会话）。
+	LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)
+	SaveContextStateWorkspace(projectID, sessionID string, state []byte) error
+	// CurrentGenerationWorkspace 返回会话当前已发布 generation（血缘
+	// forked_from_generation 来源）。
+	CurrentGenerationWorkspace(projectID, sessionID string) (string, error)
+}
+
+// SessionGranularPort 是会话粒度读取面：原子单位 = session，调用方只传
+// sessionID/项目 ID，不再以 workspace 粒度口读写。实现方为
+// store.SessionGranularStore 的适配器（装配根注入）。
+type SessionGranularPort interface {
+	// SessionsOf 按项目索引枚举会话（project = 会话集合）。
+	SessionsOf(projectID string) []model.SessionInfo
+	// LoadHistory 读取会话 provider 历史。
+	LoadHistory(sessionID string) ([]contract.EngineMessage, error)
+	// LoadHistoryRange 按窗口读取会话历史。
+	LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)
+	// Delete 删除会话（record/history/transcript/toolresults/context 同键）。
+	Delete(sessionID string) error
+}
+
+// SessionTitlePort 是会话标题的持久化读写面（可选能力断言）：标题随会话头
+// 落盘后，目录枚举（读会话头）即带标题，不必为标题读会话正文。
+//
+// SaveSessionTitle 是"即改即落"的写穿面（空标题 = 不写：草稿清理路径传空值，
+// 不得因此造出没有数据的会话目录）；SessionTitle 是 header-only 只读面——只
+// 打开会话头（metadata/message.json），不读任何消息分片；ok=false 表示未命中
+// （非 v8 布局/会话头不存在），调用方按"无标题"处理。
+type SessionTitlePort interface {
+	SaveSessionTitle(sessionID, title string) error
+	SessionTitle(projectID, sessionID string) (string, bool, error)
+}
+
+// FirstUserInputPort 是"会话最早用户输入"的有界读面（可选能力断言）：只打开
+// 首个消息分片，取会话最前面的若干条用户输入正文。标题回填用——标题写穿是
+// 后加的持久化面，早于它的会话（会话头里没有标题）需要从存储里重建
+// "用户第一问"标题，否则目录面只剩会话 ID（侧栏显示成 ID 前缀）。
+//
+// projectID 由调用方**显式给出**（目录枚举格）：枚举已经知道会话属于哪个项目，
+// 由端口再解析一次归属会把一次 O(会话数) 的索引扫描塞进每个会话的回填里
+// （会话绑定解析要按"数据实际所在"核对项目索引）。
+//
+// hasLayout=false 表示会话尚无已发布行（未落盘的新会话/空会话）：调用方按
+// "暂时没有答案"处理并在稍后的一轮目录刷新重试；true + 空切片 = 当前可读
+// 范围内确实没有用户输入（LRU 前缀淘汰后可能如此），不必重试。
+type FirstUserInputPort interface {
+	FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)
+}
+
+// SessionStoragePort 是会话存储设置面（可选能力断言）。
+type SessionStoragePort interface {
+	StorageConfig() (store.Config, error)
+	TestStorage(context.Context, store.Config) error
+	ConfigureStorage(context.Context, store.Config) error
+}
+
+// ViewPort 是 Snapshot revision bump 的消费方窄接口（实现：view 域
+// coordinator，装配根注入）。
+type ViewPort interface {
+	BumpLocked() uint64
+}
+
+// Deps 是 session_runtime 的装配输入。Core 是共享状态内核；Tasks 是
+// task/plan 权威状态端口；其余为跨域纯逻辑端口，由装配根注入，避免
+// 本包反向依赖 core 根包。
+type Deps struct {
+	Core  *state.Core
+	Tasks TaskPersistencePort
+	// View 用于会话目录刷新时的 Snapshot revision bump（锁内调用）。
+	View ViewPort
+	// Closed 返回应用是否已进入关闭状态；调用方持 Core.ViewMu 时读取
+	// （与 Shutdown 写 closed 同锁，避免竞态）。
+	Closed func() bool
+	// TranscriptTailBudget 返回 transcript 尾部加载的保留前缀 token 预算：
+	// window 段的 min(retain_tokens, ratio × 账号上下文窗口) 规则，与请求
+	// 装配侧的压缩保留窗口同一实现（core.RetainedReadTailBudget）。
+	TranscriptTailBudget func(runtime any) int
+	// IsInternalContent 判定一段内容是否为内部标记（task-context
+	// checkpoint / provider-only），会话归档与尾部加载过滤用。
+	IsInternalContent func(content string) bool
+	// TailHistory 把 transcript 尾部事件按协议单元收敛为 provider 历史
+	// （token 预算 + 单元上限），会话冷加载回退历史用。
+	TailHistory func(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage
+	// OversizedToolResultWarning 是超限工具结果归档警告文本（context 域纯
+	// 逻辑，装配根注入）。
+	OversizedToolResultWarning func(name, resultRef string) string
+	// ContentReferenceWarning 是超限用户输入归档引用警告文本（context 域
+	// 纯逻辑，装配根注入）。
+	ContentReferenceWarning func(resultRef string) string
+	// Limits 返回当前生效的运行时上限（装配根注入，见 core.Limits）。
+	Limits func() limit.Limits
+	// DisplayUserInput 把 provider 可见输入还原为 UI 显示输入（chat 域纯
+	// 逻辑，装配根注入），会话标题恢复用。
+	DisplayUserInput func(modelInput string) string
+}

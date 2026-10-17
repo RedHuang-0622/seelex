@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
 )
@@ -38,10 +40,10 @@ func coldRestoreFixture(t *testing.T) (*multiSessionEngine, *gatedHistorySession
 	now := time.Now()
 	gated := &gatedHistorySessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{"": {
+			catalog: map[string][]model.SessionInfo{"": {
 				{ID: "sess-cold", Name: "cold B", UpdatedAt: now},
 			}},
-			histories: map[string]map[string][]EngineMessage{"": {
+			histories: map[string]map[string][]contract.EngineMessage{"": {
 				"sess-cold": {{Role: "user", Content: "cold b content", ContentSet: true}},
 			}},
 		},
@@ -102,7 +104,7 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 
 	// ④ 放行装载：挂起的提交被唤醒，且恢复基线**先**安装（历史在前、新消息在后）。
 	gated.releaseNow()
-	final := waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+	final := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		if snapshot.Session.ID != "sess-cold" || snapshot.Session.Status == SessionStatusRestoring {
 			return false
 		}

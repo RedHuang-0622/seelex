@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing.T) {

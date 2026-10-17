@@ -1,14 +1,16 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
+	"github.com/RedHuang-0622/seelex/middle/view/board"
+	"github.com/RedHuang-0622/seelex/middle/view/state"
+	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"sync"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/core/view_state"
 )
 
 // serviceComponents is the application composition graph. Service coordinates
@@ -43,6 +45,9 @@ type serviceComponents struct {
 	// toolRecord 是工具记录台账的可变槽位（可选端口 + 计数开关，见 tool_record.go）。
 	// 与 projectBoard 同一生态位与同一套锁形状：装配期交接一次、此后每个工具完成读一份。
 	toolRecord *toolRecordPort
+	// workspace 是工作区用例的装配载体（middle/switch/workspace）：创建/绑定/
+	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
+	workspace *switchworkspace.UseCase
 }
 
 // toolRecordPort 是**计数开关 + 落盘错误**的可变槽位（读数本身按会话存在
@@ -56,7 +61,7 @@ type toolRecordPort struct {
 	// snapshotStore 是读数落盘口（会话粒度、批次更新，见 tool_record.go 的
 	// FlushToolRecord）。装配根在 New 之后注入（SetToolRecordSnapshotStore）：
 	// 它依赖存储后端与工作区解析，两者在装配顺序上都晚于 core 的构造。
-	snapshotStore ToolRecordSnapshotStore
+	snapshotStore contract.ToolRecordSnapshotStore
 }
 
 func (port *toolRecordPort) setEnabled(enabled bool) {
@@ -86,32 +91,32 @@ func (port *toolRecordPort) flushErrorMessage() string {
 	return port.lastFlushErr.Error()
 }
 
-func (port *toolRecordPort) setSnapshotStore(store ToolRecordSnapshotStore) {
+func (port *toolRecordPort) setSnapshotStore(store contract.ToolRecordSnapshotStore) {
 	port.mu.Lock()
 	port.snapshotStore = store
 	port.mu.Unlock()
 }
 
-func (port *toolRecordPort) snapshotStoreValue() ToolRecordSnapshotStore {
+func (port *toolRecordPort) snapshotStoreValue() contract.ToolRecordSnapshotStore {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.snapshotStore
 }
 
-// projectBoardPort 是项目看板订阅口（ProjectBoardSink）的**可变槽位**：
+// projectBoardPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。
 type projectBoardPort struct {
 	mu   sync.RWMutex
-	sink ProjectBoardSink
+	sink board.ProjectBoardSink
 }
 
-func (port *projectBoardPort) store(sink ProjectBoardSink) {
+func (port *projectBoardPort) store(sink board.ProjectBoardSink) {
 	port.mu.Lock()
 	port.sink = sink
 	port.mu.Unlock()
 }
 
-func (port *projectBoardPort) load() ProjectBoardSink {
+func (port *projectBoardPort) load() board.ProjectBoardSink {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.sink

@@ -13,6 +13,10 @@
 `docs/YYYY-MM-DD-*/` 是按时间封存的调研/整改记录（描述当时状态，可能合法引用
 后来被删除的文件），默认跳过；`--all` 纳入全量。
 
+个别 README 保留了整段"退场前"历史（用来说明删掉的是什么）。这类段落前后各放一行
+`<!-- readme-refs: history -->` / `<!-- readme-refs: end -->`，检查器跳过其间引用；
+只用于历史段落，当前实现段落不得使用。
+
 用法：
   python scripts/check_readme_refs.py            # 报告全部（跳过封存文档）
   python scripts/check_readme_refs.py --all      # 连封存文档一起查
@@ -33,13 +37,23 @@ IGNORED_NAMES = {
     "metadata/event.json", "metadata/stack.json", "metadata/stack_{kind}.json",
     "session/metadata/guide.json", "session/metadata/system.json",
     "session/input/draft.json", "_test.go", "builtin_xxx.go",
+    # 用户自备的工具入口脚本名（bootseed 骨架只描述落点，不随仓库分发）
+    "main.py",
     # 用户本地/运行时数据（.gitignore 内）：README 只作示例或路径说明
     "accounts.yaml", "workspace_index.json", "framework-events.json",
     "guide.json", "city_list.json",
     # 会话存储里的运行时数据文件（随会话生成，不入库）
     "metadata/message.json", "metadata/lifecycle.json", "meta.json", "roles.json",
+    "metadata/teamwork.json",
     "session/team/roles.json", "team/employees.json", "team/library.json",
     "team/order.json",
+    # 数据根里的本机数据文件（用户态配置/读数，不入库；README 只描述落点）
+    "runtime-limits.json", "session-storage.json", "gui-appearance.json",
+    # 项目目录/看板里的运行时数据与渲染件（随会话与项目生成，不入库）
+    "BOARD.md", "project-known.md", "project-record.json", "seelex.project.md",
+    "events.json", "generation-N/events.json", "plan.json",
+    # 构建标签兄弟文件的通配写法（形如 `file_shared_read_windows.go` / `_other.go`）
+    "_other.go",
 }
 # 明说「已删除/已退役」的行是在讲历史，不是在声称文件存在
 REMOVAL_MARKERS = ("已删除", "已移除", "已退役", "deleted", "removed")
@@ -102,8 +116,16 @@ def main() -> int:
         text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
         readme_dir = (REPO / rel).parent
         bad = set()
+        in_history = False
         for line in text.splitlines():
-            if any(marker in line for marker in REMOVAL_MARKERS):
+            stripped = line.strip()
+            if stripped == "<!-- readme-refs: history -->":
+                in_history = True
+                continue
+            if stripped == "<!-- readme-refs: end -->":
+                in_history = False
+                continue
+            if in_history or any(marker in line for marker in REMOVAL_MARKERS):
                 continue
             for ref in set(PATH_TOKEN.findall(line)) | set(LINK_TOKEN.findall(line)):
                 if not resolve(ref, readme_dir, paths):

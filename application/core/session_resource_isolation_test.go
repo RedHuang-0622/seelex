@@ -4,11 +4,12 @@ package core
 // 目标：后台会话收尾/视图切换不得读全局活跃槽；A/B 域不相交。
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 // TestSessionDomainsDisjoint（TC-INV-01）：A 与 B 的 M/X/R 状态域无共享，
@@ -18,12 +19,12 @@ func TestSessionDomainsDisjoint(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
-	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
-	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, TaskCheckpoint{})
-	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
-	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "user", Content: "hello B"})
-	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "assistant", Content: "reply B"})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
+	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.AppendTranscriptEventForLocked("session-a", model.TranscriptEvent{Role: "user", Content: "long task A"})
+	service.components.tasks.AppendTranscriptEventForLocked("session-b", model.TranscriptEvent{Role: "user", Content: "hello B"})
+	service.components.tasks.AppendTranscriptEventForLocked("session-b", model.TranscriptEvent{Role: "assistant", Content: "reply B"})
 	service.ViewMu.Unlock()
 
 	service.ViewMu.RLock()
@@ -47,15 +48,15 @@ func TestSessionDomainsDisjoint(t *testing.T) {
 // A 的聊天运行态与 transcript 逐字节不变（不变量 Ⅱ）。
 func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      "session-b",
-			Title:   SessionTitle{Value: "session B", Source: "user"},
-			Conversation: ConversationRecord{Messages: []Message{
+			Title:   model.SessionTitle{Value: "session B", Source: "user"},
+			Conversation: model.ConversationRecord{Messages: []model.Message{
 				{ID: "b-1", Role: "user", Content: "hello B"},
 			}},
 		},
-		transcript: []TranscriptEvent{
+		transcript: []model.TranscriptEvent{
 			{Seq: 1, TaskID: "req-b", Role: "user", Content: "hello B", TokenCount: 2},
 		},
 	}
@@ -63,11 +64,11 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
-	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
-	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
+	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.AppendTranscriptEventForLocked("session-a", model.TranscriptEvent{Role: "user", Content: "long task A"})
 	aRuntime := service.sessionUnitLocked("session-a")
-	aRuntime.SetChatState(ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
+	aRuntime.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 	service.ViewMu.Unlock()
 
 	if err := service.ResumeSession("session-b"); err != nil {
@@ -93,26 +94,26 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 // TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
 // PersistCurrentSession(A) 的 record 全域仍只属 A（不变量 Ⅲ）。
 func TestPersistReadsOnlyOwnDomain(t *testing.T) {
-	sessions := &archiveSessions{history: []EngineMessage{{Role: "system", Content: "system", ContentSet: true}}}
+	sessions := &archiveSessions{history: []contract.EngineMessage{{Role: "system", Content: "system", ContentSet: true}}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"}, withTestSessions(sessions))
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
 	// 全局快照归属会话 = B（模拟 A 后台完成时活跃会话是 B）。
-	service.Core.Snapshot.Session = SessionState{ID: "session-b", Name: "B title"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "b-1", Role: "user", Content: "hello B"}}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-b", Name: "B title"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "b-1", Role: "user", Content: "hello B"}}
 	// A 的会话域。
-	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "first A", Source: "first_request", FinalizedAt: time.Now()})
-	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
-	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
-	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "assistant", Content: "DONE_FROM_A"})
+	service.components.sessions.SetSessionTitleLocked("session-a", model.SessionTitle{Value: "first A", Source: "first_request", FinalizedAt: time.Now()})
+	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.AppendTranscriptEventForLocked("session-a", model.TranscriptEvent{Role: "user", Content: "long task A"})
+	service.components.tasks.AppendTranscriptEventForLocked("session-a", model.TranscriptEvent{Role: "assistant", Content: "DONE_FROM_A"})
 	// B 的会话域。
-	service.components.sessions.SetSessionTitleLocked("session-b", SessionTitle{Value: "hello B", Source: "first_request", FinalizedAt: time.Now()})
-	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, TaskCheckpoint{})
-	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "user", Content: "hello B"})
+	service.components.sessions.SetSessionTitleLocked("session-b", model.SessionTitle{Value: "hello B", Source: "first_request", FinalizedAt: time.Now()})
+	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, model.TaskCheckpoint{})
+	service.components.tasks.AppendTranscriptEventForLocked("session-b", model.TranscriptEvent{Role: "user", Content: "hello B"})
 	service.ViewMu.Unlock()
 
-	location := session_runtime.Location{WorkspaceID: "ws-x", Meta: SessionInfo{ID: "session-a"}}
+	location := session_runtime.Location{WorkspaceID: "ws-x", Meta: model.SessionInfo{ID: "session-a"}}
 	if err := service.components.sessions.PersistCurrentSession(location, "session-a"); err != nil {
 		t.Fatal(err)
 	}

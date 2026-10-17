@@ -11,7 +11,7 @@ const INCREMENTAL_KINDS = new Set([
 // PROCESS_KINDS 是进程级事件（G2/M2）：不带会话归属（session_id 必空），
 // 投递给全部订阅。白名单之外的 kind 一律视为会话级：session_id 必须与当前
 // 视图快照的 session.id 精确匹配——空 sid 不再作为会话事件的通配。
-const PROCESS_KINDS = new Set(["resync.required", "app.exit_requested"]);
+const PROCESS_KINDS = new Set(["resync.required", "app.exit_requested", "sessions.changed"]);
 
 const MAX_FRONTEND_NODE_TOOL_EVENTS = 100;
 

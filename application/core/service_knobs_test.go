@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // composer 底部两条「独立拉条」的落点测试（service_knobs.go）。
@@ -16,7 +16,7 @@ import (
 //     了什么）；
 //  3. 运行守卫与档位同一条：视图会话 running 时两条都拒绝，且不触碰引擎/账号池。
 //
-// 不在这里测的：真实账号池"只改跟随会话的账号"（seelebridge/account 的用例）、
+// 不在这里测的：真实账号池"只改跟随会话的账号"（backend/engine/account 的用例）、
 // 真实引擎的循环语义（Seele 侧）。
 
 func knobService(t *testing.T) (*Service, *fakeEngine) {

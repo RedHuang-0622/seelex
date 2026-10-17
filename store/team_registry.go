@@ -1,0 +1,355 @@
+// team_registry.go：A2A 角色注册表（agent-team 工厂与角色管理设置面的持久化）。
+//
+// **状态（A06，2026-10-15）：legacy 只读兼容面，没有生产调用方。**
+//
+// 写它的用户面（装配 / 员工入职 / 团队库 / 员工库 / 全局母本 / 角色管理面板）已于
+// 2026-10-12 J-1a 整条退场。2026-10-15 A06 复核结果：本文件的
+// `ReadTeamRegistryWorkspace` / `WriteTeamRegistryWorkspace` /
+// `RemoveTeamRegistryWorkspace` / `EnsureRoleSessionWorkspace` /
+// `ReadMessageFloorWorkspace` / `ReadLifecycleOrderWorkspace` 在全仓 `.go` 里
+// **没有任何生产调用方**（只剩自身定义与本包用例命中；`SetLifecycleOrderWorkspace`
+// 另由 `wiring/adapters` 的端口转发，见 A05）。
+//
+// 因此本文件现在是**旧数据兼容与诊断面**，按 A06 的兼容政策处理：
+//   - **读能力保留**：旧会话里的 `session/team/roles.json` 仍可读出、诊断与迁移
+//     （删掉 reader 会让旧数据失去唯一入口，那不是清理）；
+//   - **不删文件、不迁移、不停止写入**：任何磁盘清理/迁移必须另行中文预警 + 备份 +
+//     用户确认（根 `MEMORY.md` 与 `AGENTS.md` §0）；本条目不做任何磁盘动作；
+//   - 将来若确认产品不再读，也只先停止写入；移除必须按**版本化 API 变更**做，
+//     并带旧 `roles.json` fixture 的冷读用例；
+//   - 完整政策见 [`store/README.md`](README.md) 的「旧 Agent Team 数据（legacy）」。
+//
+// 原定位（设计史，保留；文件格式与读写语义未改）：
+//   - 文件 = `session/team/roles.json`，一次提交整份原子替换；
+//     替换成功即发布（不需要 head 水位），不写 message、不碰 sequencer；
+//   - 内容 = TeamSpec 里的角色注册表部分（RoleSpec 清单 + team_kind + 顺序策略），
+//     `order_policy`/`order_roles` 仍以 lifecycle head 为运行时权威，本文件只做
+//     角色配置的持久事实；两者由应用层在同一次装配里一起写，避免出现第二份顺序事实；
+//   - 角色身份是 metadata：`role_name` 只用于展示/归属/装配，provider role 仍只有
+//     system/user/assistant/tool。
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// TeamRegistrySchemaVersion 是 session/team/roles.json 的 schema 版本。
+//
+// legacy（A06）：版本不认识时写入显式报错（不静默降级），读侧照旧；旧文件必须可读。
+const TeamRegistrySchemaVersion = 1
+
+// TeamRoleSpec 是角色注册表里的一个角色（对应 RoleSpec，见 arch 稿 §2.1）。
+// 空字段一律表示“未配置/继承 preset 默认”，不表示禁用。
+type TeamRoleSpec struct {
+	RoleName        string   `json:"role_name"`
+	RoleKind        string   `json:"role_kind,omitempty"`
+	SystemPrompt    string   `json:"system_prompt,omitempty"`
+	ModelPolicy     string   `json:"model_policy,omitempty"`
+	MirrorPolicy    []string `json:"mirror_policy,omitempty"`
+	DirectiveSchema []string `json:"directive_schema,omitempty"`
+	OrderPriority   int      `json:"order_priority,omitempty"`
+	JoinPolicy      string   `json:"join_policy,omitempty"`
+	PresencePolicy  string   `json:"presence_policy,omitempty"`
+	ToolsPolicy     string   `json:"tools_policy,omitempty"`
+}
+
+// TeamRegistry 是 `session/team/roles.json` 的完整内容（整份替换型）。
+// Configured 由读侧推导，不落盘：文件不存在 = 未配置过角色注册表。
+type TeamRegistry struct {
+	SchemaVersion int            `json:"schema_version"`
+	TeamID        string         `json:"team_id,omitempty"`
+	TeamKind      string         `json:"team_kind,omitempty"`
+	OrderPolicy   string         `json:"order_policy,omitempty"`
+	Roles         []TeamRoleSpec `json:"roles"`
+	UpdatedAt     time.Time      `json:"updated_at,omitempty"`
+	Configured    bool           `json:"-"`
+}
+
+// teamRegistryLocks 是 `session/team/roles.json` 的按路径写锁（同 roleDraftLocks
+// 形态：整份替换型文件只需串行化同路径的读改写，不需要模块 head 锁）。
+var teamRegistryLocks sync.Map
+
+func teamRegistryLock(path string) *sync.Mutex {
+	value, _ := teamRegistryLocks.LoadOrStore(path, &sync.Mutex{})
+	return value.(*sync.Mutex)
+}
+
+func (store *storeEngine) teamRegistryPath(key Key) string {
+	return filepath.Join(store.sessionRoot(key), "team", "roles.json")
+}
+
+// normalizeTeamRoleSpec 把角色条目规整为可比较形态：role_name 去空白、kind 兜底
+// 为 agent，其余切片去空并排序（保证同一配置写出字节稳定、便于幂等比对）。
+func normalizeTeamRoleSpec(spec TeamRoleSpec) TeamRoleSpec {
+	spec.RoleName = strings.TrimSpace(spec.RoleName)
+	spec.RoleKind = strings.TrimSpace(spec.RoleKind)
+	if spec.RoleKind == "" {
+		spec.RoleKind = "agent"
+	}
+	spec.MirrorPolicy = normalizeStringSet(spec.MirrorPolicy)
+	spec.DirectiveSchema = normalizeStringSet(spec.DirectiveSchema)
+	return spec
+}
+
+func normalizeStringSet(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// normalizeTeamRegistry 校验并规整注册表；空 RoleName 或缺 role_name 的重复条目
+// 显式报错（不静默丢弃，避免角色配置“写了但没生效”）。
+func normalizeTeamRegistry(registry TeamRegistry) (TeamRegistry, error) {
+	if registry.SchemaVersion == 0 {
+		registry.SchemaVersion = TeamRegistrySchemaVersion
+	}
+	if registry.SchemaVersion != TeamRegistrySchemaVersion {
+		return TeamRegistry{}, fmt.Errorf("session storage: unsupported team registry schema %d", registry.SchemaVersion)
+	}
+	registry.TeamID = strings.TrimSpace(registry.TeamID)
+	registry.TeamKind = strings.TrimSpace(registry.TeamKind)
+	registry.OrderPolicy = strings.TrimSpace(registry.OrderPolicy)
+	if len(registry.Roles) == 0 {
+		registry.Roles = nil
+		return registry, nil
+	}
+	seen := make(map[string]struct{}, len(registry.Roles))
+	roles := make([]TeamRoleSpec, 0, len(registry.Roles))
+	for _, spec := range registry.Roles {
+		spec = normalizeTeamRoleSpec(spec)
+		if spec.RoleName == "" {
+			return TeamRegistry{}, errors.New("session storage: team registry role_name is required")
+		}
+		if _, ok := seen[spec.RoleName]; ok {
+			return TeamRegistry{}, fmt.Errorf("session storage: duplicate team registry role %q", spec.RoleName)
+		}
+		seen[spec.RoleName] = struct{}{}
+		roles = append(roles, spec)
+	}
+	sort.SliceStable(roles, func(i, j int) bool {
+		if roles[i].OrderPriority != roles[j].OrderPriority {
+			return roles[i].OrderPriority < roles[j].OrderPriority
+		}
+		return roles[i].RoleName < roles[j].RoleName
+	})
+	registry.Roles = roles
+	return registry, nil
+}
+
+// readTeamRegistry 读注册表。文件不存在返回 Configured=false 的空注册表（未配置
+// 不是错误）；文件损坏显式报错，不返回半份配置。
+func (store *storeEngine) readTeamRegistry(key Key) (TeamRegistry, error) {
+	data, err := os.ReadFile(store.teamRegistryPath(key))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return TeamRegistry{SchemaVersion: TeamRegistrySchemaVersion}, nil
+	case err != nil:
+		return TeamRegistry{}, err
+	}
+	var registry TeamRegistry
+	if err := json.Unmarshal(data, &registry); err != nil {
+		return TeamRegistry{}, errors.New("session storage: decode team registry")
+	}
+	if registry.SchemaVersion == 0 {
+		registry.SchemaVersion = TeamRegistrySchemaVersion
+	}
+	registry.Configured = true
+	return registry, nil
+}
+
+// writeTeamRegistry 整份原子替换注册表；替换成功即发布。
+func (store *storeEngine) writeTeamRegistry(key Key, registry TeamRegistry) error {
+	registry, err := normalizeTeamRegistry(registry)
+	if err != nil {
+		return err
+	}
+	registry.UpdatedAt = time.Now().UTC()
+	data, err := json.MarshalIndent(registry, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := store.teamRegistryPath(key)
+	lock := teamRegistryLock(path)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return storeroot.WriteAtomic(path, data, 0o600)
+}
+
+// removeTeamRegistry 删除角色注册表（团队离场）。文件不存在 = 已经离场（幂等，
+// 不是错误）：读面本来就以"文件不存在"表达"本会话没有团队"（Configured=false），
+// 删除是它的逆操作，两者必须是同一份判据——写一份空注册表会让读面报 Configured=true
+// 却一个成员都没有，面板会显示一支不存在的团队。
+func (store *storeEngine) removeTeamRegistry(key Key) error {
+	path := store.teamRegistryPath(key)
+	lock := teamRegistryLock(path)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// ReadTeamRegistryWorkspace 读主会话的角色注册表（项目作用域显式传入，禁止回退
+// 活跃写作用域）。
+//
+// legacy（A06）：保留的**读能力**（旧数据可诊断/可迁移）；当前没有生产调用方。
+func (router *Router) ReadTeamRegistryWorkspace(projectID, sessionID string) (TeamRegistry, error) {
+	var registry TeamRegistry
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: team registry requires session layout")
+		}
+		var err error
+		registry, err = layout.layout.readTeamRegistry(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+		return err
+	})
+	return registry, err
+}
+
+// WriteTeamRegistryWorkspace 整份写入主会话的角色注册表。
+//
+// legacy（A06）：用户面写入方（装配）已退场，当前没有生产调用方。**不停止写入、
+// 不迁移**：留着它是因为"旧数据还能被写回/修复"是兼容面的一部分（见文件头政策）。
+func (router *Router) WriteTeamRegistryWorkspace(projectID, sessionID string, registry TeamRegistry) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: team registry requires session layout")
+		}
+		return layout.layout.writeTeamRegistry(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)}, registry)
+	})
+}
+
+// RemoveTeamRegistryWorkspace 删除主会话的角色注册表（团队离场；幂等）。
+//
+// legacy（A06）：同 WriteTeamRegistryWorkspace；**不删用户文件**，本函数只提供幂等删除原语。
+func (router *Router) RemoveTeamRegistryWorkspace(projectID, sessionID string) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: team registry requires session layout")
+		}
+		return layout.layout.removeTeamRegistry(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+	})
+}
+
+// EnsureRoleSessionWorkspace 幂等创建角色会话：已存在返回 created=false（不报错），
+// 供 AgentTeamFactory 重复装配同一条 TeamSpec 时不产生第二个会话。
+//
+// legacy（A06）：调用方（`AgentTeamFactory`）已随 J-1a 删除，当前没有生产调用方。
+// 角色会话本身的创建仍有活动路径（worker 作业面），但不再经由这里。
+func (router *Router) EnsureRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error) {
+	created := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: role sessions require session layout")
+		}
+		mainKey := Key{ProjectID: projectID, SessionID: strings.TrimSpace(mainSessionID)}
+		roleStore, roleKey := layout.layout.roleStore(mainKey, roleName, roleSessionID)
+		if roleStore.sessionExists(roleKey) {
+			return nil
+		}
+		if _, _, err := layout.layout.createRoleSession(mainKey, roleName, roleSessionID, joinSeq); err != nil {
+			// 并发装配时另一方可能已经建好：再查一次，存在即视为成功。
+			if roleStore.sessionExists(roleKey) {
+				return nil
+			}
+			return err
+		}
+		created = true
+		return nil
+	})
+	return created, err
+}
+
+// ReadMessageFloorWorkspace 读主会话 message head 的 floor：当前轮到这里发言的
+// 角色（唯一写者 = sequencer，随 message head 原子发布）。Agent Team 面板的
+// floor 高亮由此而来——数据一直在 message head 里，缺的只是出口。
+//
+// 状态（A05/A06）：**floor 字段本身是活动的历史/归属事实**（sequencer 仍在写、
+// 历史渲染与审计仍要读），只有"Agent Team 面板的高亮出口"随 J-1a 退场；这个读函数
+// 当前没有生产调用方，保留为只读兼容面。
+//
+// 空值语义：会话还没发生过一次角色 draft sync（或工程解析为空、目录不存在）时
+// 返回 nil，不报错（"还没有人发言"是正常状态，不是故障）。
+func (router *Router) ReadMessageFloorWorkspace(projectID, sessionID string) (*Floor, error) {
+	var floor *Floor
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: message floor requires session layout")
+		}
+		head, err := layout.layout.readMessageHead(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		floor = cloneFloor(head.Floor)
+		return nil
+	})
+	return floor, err
+}
+
+// ReadLifecycleOrderWorkspace 读群聊顺序策略（lifecycle head 是运行时权威）。
+// 空值 = 尚未编排过顺序，不是错误。
+//
+// legacy（A05/A06）：`order_policy`/`order_roles` 是历史字段，已不驱动任何行为
+// （seatPlan 与发言环都已删除），本函数当前没有生产调用方；保留是为了旧会话可读。
+func (router *Router) ReadLifecycleOrderWorkspace(projectID, sessionID string) (string, []string, error) {
+	var policy string
+	var roles []string
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: lifecycle order requires session layout")
+		}
+		head, err := layout.layout.readLifecycleHead(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+		if errors.Is(err, fs.ErrNotExist) {
+			// 会话还没有 lifecycle head（没编排过顺序），或工程解析为空、目录
+			// 根本不存在：都表示"暂无顺序"，不是错误。把它当错误抛出去会让
+			// Agent Team 面板在未装配/未编排的会话上直接报
+			// `open ...metadata/lifecycle.json: cannot find the path`。
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		policy = head.OrderPolicy
+		roles = append([]string(nil), head.OrderRoles...)
+		return nil
+	})
+	return policy, roles, err
+}

@@ -57,10 +57,10 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   未绑定工作区返回 `""` ⇒ **不落盘**，契约 §3）。存储面用
   `Router.SetProjectBoardRootFor(func(sessionID) string)` 注入同一解析器——存储面不认识工作区，
   因此会话删除时的回收挂在 `Router.DeleteWorkspace` 上（不在 `jsonRepository.Delete` 里）；
-  落点目录由 `sessionstore.ProjectBoardDir(projectRoot)` / `ProjectBoardSessionDir(projectRoot,
+  落点目录由 `store.ProjectBoardDir(projectRoot)` / `ProjectBoardSessionDir(projectRoot,
   sessionID)` 一处派生（固定名 + 字面会话 ID，不再派生 hash 目录）。
 - **事实层不动**：工作表格行来自 `buildWorkTable`（`work_table.go`），里程碑/工作项来自
-  teamwork 计划与运行态（`sessionstore/teamwork.go`）。本模块只做**字段映射**，不判定、
+  teamwork 计划与运行态（`store/teamwork.go`）。本模块只做**字段映射**，不判定、
   不重算状态（`AGENTS.md §8.3` 的唯一判据纪律）。
 - **纯函数**：`BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState)`。
   只搬 `kind ∈ {todo, task}` 的行——plan 节点与 subagent 行各有自己的读面（`read_plan` /
@@ -89,8 +89,8 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   且行（落在该会话自己的目录里）归属该会话。它同时钉住 R-2 那条前提：**视图会话 = 运行时当前 task 会话**时
   `WorkTableRowsFor` 才取得到行（不是该口径的会话取到空集 ⇒ I6 退场、什么都不落）。
 - **按需读取面（M4）**：插件技能条目 `plugins/default/project-board/SKILL.md`（只有 name +
-  description 进技能目录）+ 只读工具 `project_board_read`（`main.registerProjectBoardReadTool`，
-  **只在 enabled 时注册**；取数在 `seelebridge/runtime_project_board_read.go`，有界、越界显式报错）。
+  description 进技能目录）+ 只读工具 `project_board_read`（`registry.RegisterProjectBoardReadTool`，
+  **只在 enabled 时注册**；取数在 `middle/view/board/read.go`（P21-11 归位），有界、越界显式报错）。
 
 契约：`docs/arch/seelex-project-board.md`。
 
@@ -102,18 +102,17 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### async_completion.go
 
 - `func (service *Service) triggerAsyncCompletions(triggered map[string]struct{})` — triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
-- `func asyncCompletionTriggers(state dto.AsyncState) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
-- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
+- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
 - `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
 - `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
 - `func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{})` — triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
-- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
-- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct` — teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
+- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
+- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct`
 - `func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string` — teamworkCompletionPrompt 组装 teammate 完成回执的正文。
 
 ### async_completion_trigger_test.go
 
-- `func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
+- `func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
 - `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
 - `func assertNoTurn(t *testing.T, service *Service, needle string)` — assertNoTurn 报告可见会话里有没有含 needle 的用户行——"不该触发"的用例用它。
 - `func completedRecord(handle string, state dto.AsyncState) dto.AsyncRunRecord` — completedRecord 造一条已落到终态的作业投影记录。
@@ -125,163 +124,64 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestAsyncCompletionStaysOffWhenDisabled(t *testing.T)` — 开关默认关：不置 trigger_conversation 时信号只驱动工作表格重投影，终态不会起任何回合。
 - `func TestAsyncCompletionIgnoresJobWithoutSession(t *testing.T)` — 没有会话归属的作业（别的进程的作业归属、或会话已被删除）不该触发：没有可起的回合
 
-### project_board.go
+### project_board_read.go
 
-- `func BuildProjectBoardRows( scope sessionstore.ProjectBoardScope, seq uint64, at int64, workItems []WorkItem, teamPlan *sessionstore.TeamworkPlan, teamState *sessionstore.TeamworkState, ) []sessionstore.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
-- `func projectBoardRow( scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) sessionstore.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
-- `func projectBoardWorkPayload(item WorkItem) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
-- `func projectBoardMilestonePayload(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
-- `func projectBoardMilestoneStatus(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
-- `func projectBoardMilestoneItemPayload(milestoneID string, item sessionstore.TeamworkWorkItem) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
-- `func projectBoardTeamState(plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState) sessionstore.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
-- `func projectBoardPutText(payload map[string]any, key, value string)` — projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
-- `func projectBoardBlocks(rows []sessionstore.ProjectBoardRow) (work, teamwork []sessionstore.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
-- `func projectBoardRowsForFile( scope sessionstore.ProjectBoardScope, seq uint64, at int64, workItems []WorkItem, teamPlan *sessionstore.TeamworkPlan, teamState *sessionstore.TeamworkState, file string, ) []sessionstore.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
-- `func projectBoardRowsFingerprint(rows []sessionstore.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
-- `func ProjectBoardHookModes() []string` — ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
-- `func TriggerFor(hookMode string) ProjectBoardTrigger` — TriggerFor 由档名编译出触发面：off / todo_list（= 空串，默认档）/ task_complete /
-- `func (t ProjectBoardTrigger) Matches(name string) bool` — Matches 报告这次工具完成是否落在触发面上。空工具名恒不命中（没有名字就不是一次工具完成）。
-- `func (t ProjectBoardTrigger) Off() bool` — Off 报告这个触发面是否"什么都不触发"（诊断 / 装配自检用）。
-- `func NewProjectBoardSyncer(deps ProjectBoardDeps) *ProjectBoardSyncer` — NewProjectBoardSyncer 装配同步器并启动唯一 flush goroutine。
-- `func (s *ProjectBoardSyncer) OnToolComplete(name string, err error, sessionID string)` — OnToolComplete 是 ProjectBoardSink 的实现：**不做任何 IO**。
-- `func (s *ProjectBoardSyncer) signal()` — signal 非阻塞唤醒 flush goroutine（信号口容量 1）。
-- `func (s *ProjectBoardSyncer) run()` — run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
-- `func (s *ProjectBoardSyncer) flushDirty()` — flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
-- `func (s *ProjectBoardSyncer) flushSession(sessionID string)` — flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
-- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope sessionstore.ProjectBoardScope, file string, at int64, items []WorkItem, plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
-- `func projectBoardRemovedRow(scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string) sessionstore.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
-- `func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState)` — remember 更新落盘记账。
-- `func (s *ProjectBoardSyncer) Close()` — Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
-- `func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
+- `func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
 - `func (service *Service) ProjectRootFor(sessionID string) string` — ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
-- `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *sessionstore.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
-- `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *sessionstore.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
+- `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
+- `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
 - `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
 
-### project_board_hook_modes_test.go
+### project_board_read_test.go
 
-- `func TestProjectBoardHookModeVocabularyMatchesTable(t *testing.T)`
-
-### project_board_test.go
-
-- `func newFakeBoardStore() *fakeBoardStore`
-- `func boardStoreKey(projectRoot, file string) string` — boardStoreKey 是内存替身的文件键：落点现在是**项目级平铺文件**
-- `func (store *fakeBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
-- `func (store *fakeBoardStore) ProjectBoardWatermark(projectRoot, file string) (uint64, error)`
-- `func (store *fakeBoardStore) watermarkLocked(projectRoot, file string) uint64`
-- `func (store *fakeBoardStore) writeCount(file string) int`
-- `func (store *fakeBoardStore) lastWrite(file string) []sessionstore.ProjectBoardRow`
-- `func (store *fakeBoardStore) raw(projectRoot, file string) []sessionstore.ProjectBoardRow` — raw 是文件的**原始行**（未折叠；I6 断言"空集合不建文件"用它）。
-- `func (store *fakeBoardStore) folded(projectRoot, file string) []sessionstore.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
-- `func (store *fakeBoardStore) dropFile(projectRoot, file string)`
-- `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)` — newBoardTestService 造一个带 fakeRuntime 的 Service，并返回其**当前视图会话**
-- `func boardDeps(store ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps` — boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
-- `func waitForBoardWrites(t *testing.T, store *fakeBoardStore, file string, want int)`
-- `func settleBoard(idle time.Duration)` — settleBoard 等过若干倍静默窗：用来证明"没有第 N 次落盘"（消极断言需要时间）。
-- `func marshalBoardRows(t *testing.T, rows []sessionstore.ProjectBoardRow) string`
-- `func boardRowByKey(rows []sessionstore.ProjectBoardRow, key string) (sessionstore.ProjectBoardRow, bool)`
-- `func boardPayloadText(row sessionstore.ProjectBoardRow, key string) string`
-- `func boardKeys(rows []sessionstore.ProjectBoardRow) []string` — boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
-- `func boardTodoItem(id, text, status string) WorkItem`
-- `func boardTaskItem(id, text, status string) WorkItem`
-- `func newBoardLiveRows(items ...WorkItem) *boardLiveRows`
-- `func (live *boardLiveRows) set(items []WorkItem)`
-- `func (live *boardLiveRows) add(item WorkItem)`
-- `func (live *boardLiveRows) drop(index int)`
-- `func (live *boardLiveRows) rows() []WorkItem`
+- `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)`
 - `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
-- `func TestBuildProjectBoardRowsNoJudgement(t *testing.T)`
-- `func TestBuildProjectBoardRowsKindMapping(t *testing.T)`
-- `func TestProjectBoardSyncerDebounce(t *testing.T)`
-- `func TestProjectBoardSyncerFingerprint(t *testing.T)`
-- `func TestProjectBoardSyncerWatermark(t *testing.T)`
-- `func TestProjectBoardTeamworkMilestonePriority(t *testing.T)`
-- `func TestProjectBoardRebuildAfterDelete(t *testing.T)`
 - `func TestProjectBoardIsNotAnInput(t *testing.T)`
-- `func marshalWorkItems(t *testing.T, items []WorkItem) string`
-- `func TestProjectBoardTriggerTable(t *testing.T)`
-- `func TestProjectBoardSyncerIgnoresFailedAndUntriggeredCalls(t *testing.T)`
-- `func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T)`
-- `func TestProjectBoardSyncerCloseIsIdempotent(t *testing.T)`
+- `func marshalWorkItems(t *testing.T, items []model.WorkItem) string`
 - `func TestProjectBoardReadersForAssembly(t *testing.T)`
-- `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool)`
+- `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)`
 - `func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string)`
 - `func (sink *recordingBoardSink) snapshot() []boardSinkCall`
-- `func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数。
 - `func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T)`
-- `func (store *flakyBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
-- `func TestProjectBoardHookFailureNoHalfWrite(t *testing.T)`
 
 ### work_table.go
 
-- `func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord) []WorkItem` — buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
-- `func taskRecordToWorkItem(record dto.TaskRecord) WorkItem` — taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
-- `func batchLabel(id string, createdAt time.Time) string` — batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
-- `func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch` — buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
-- `func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint` — planNodeTrace 由节点事件 + 子代理工具活动合成打点（按时间倒序、有界；
-- `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
-- `func truncateWorkEvidence(value string, limit int) string`
-- `func formatWorkDuration(duration time.Duration) string`
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
-- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
-- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
-- `func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string` — subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
+- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
+- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) model.WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
 - `func (service *Service) syncTasksFromSourcesFor(sessionID string)` — syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
-- `func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
-- `func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string)`
+- `func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
+- `func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, parentID string)`
 - `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
-- `func taskStatusForNode(status NodeStatus) dto.TaskStatus`
-- `func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus`
-- `func planNodeIDFor(record dto.TaskRecord) string` — planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
-- `func planDependencies(plan *PlanState, nodeID string) []string` — planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
-- `func mergeWorkDependencies(recorded []string, derived []string) []string` — mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
-- `func mergeTaskRecords(primary, secondary []dto.TaskRecord, secondarySessionID string) []dto.TaskRecord` — mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
-- `func taskRecordLedgerIdentity(record dto.TaskRecord) string` — taskRecordLedgerIdentity 返回记录在跨会话台账里的去重身份（幂等键优先、
-- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
+- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
 - `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
-- `func clonePlanForSync(plan *PlanState) *PlanState`
-- `func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode`
 - `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
 - `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
-- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
+- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
 - `func (service *Service) stopLifecycleConsumers()`
-- `func (service *Service) consumeSubagentLifecycle()`
-- `func (service *Service) consumePlanNodeEvents()`
-- `func (service *Service) consumeTaskChanges()`
-- `func (service *Service) consumeAsyncRuns()` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
+- `func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort)`
+- `func (service *Service) consumeTaskChanges(runtime contract.RuntimePort)`
+- `func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort)` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
 - `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 - `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
 - `func parseWorkItemID(id string) (kind string, index int, err error)`
 - `func (service *Service) refreshRuntimeAfterTodoChange()` — refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
+- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
 
 ### work_table_ab_test.go
 
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
-- `func heavyTestPlan(nodes int) *PlanState`
+- `func heavyTestPlan(nodes int) *model.PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
-
-### work_table_async.go
-
-- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
-- `func asyncWorkItems(records []dto.AsyncRunRecord) []WorkItem` — asyncWorkItems 把后台执行全量投影成工作表格行（跨会话：工作表格是全局台账，
-- `func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem` — asyncRunToWorkItem 映射一条后台执行到工作表格行。
-- `func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTracePoint` — asyncProbePoint 是一次探针采样的打点行：状态、字节数、末行、耗时。
-- `func asyncWorkStatus(state dto.AsyncState) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
-- `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的作业行，且只取本会话——打点块注入在组装请求的那个
-- `func asyncTraceLine(record dto.AsyncRunRecord) string` — asyncTraceLine 渲染一条作业行：句柄、类别、状态、（完成行）摘要或（在途行）标题。
-- `func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string` — teamworkTraceLines 生成打点块里的 **teammate 作业行**（与 asyncTraceLines 同一块、
-- `func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string` — teamworkTraceLine 渲染一条 teammate 作业行：句柄、状态、归属（teammate/工作项）、
-- `func teamworkOwnerText(record dto.TeamworkJobCompletionRecord) string` — teamworkOwnerText 是 teammate 行的归属文本（`<role>/<work item>`）。
-- `func formatAsyncBytes(bytes int64) string` — formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
 
 ### work_table_async_test.go
 
 - `func runningAsyncRecord(handle string) dto.AsyncRunRecord`
-- `func workItemByID(rows []WorkItem, id string) (WorkItem, bool)`
+- `func workItemByID(rows []model.WorkItem, id string) (model.WorkItem, bool)`
 - `func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T)` — 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
 - `func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T)` — 终态映射：done→completed，failed/killed→failed（表格状态机没有"被杀"这一档）。
 - `func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T)` — 打点块列**在途行 + 待取回的完成行**（打点 K-5 的回填规范），且进上下文的字段必须
@@ -290,7 +190,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T)` — 第 4 个生命周期消费者：执行域一发声，表格就重投影——不靠模型再调一次工具，
 - `func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T)` — 后台行按上限封顶，且不挤掉真实任务行（在途优先，终态按最新补齐）。
 - `func TestAsyncBackfillStaysBounded(t *testing.T)` — TC-K5-1（打点 K-5 的"有界"判据）：注入 100 个已完成作业 →
-- `func serviceWorkTableRows(service *Service) []WorkItem`
+- `func serviceWorkTableRows(service *Service) []model.WorkItem`
 
 ### work_table_fuzz_test.go
 
@@ -354,5 +254,5 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T)` — TestUpdateWorkItemStatusTodoThreeStates 走完整 Service 路径：
 - `func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T)`
 - `func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T)` — TestRefreshWorkTableSnapshotPublishesSubagentRows 验证被动触发：
-- `func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEvent`
+- `func waitForWorkTableEvent(t testing.TB, subscription protocol_event.Subscription) model.WorkTableEvent`
 - `func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T)` — TestWorkTableEventCarriesSubagentTreeOnChange 验证详情入口的数据面：子代理

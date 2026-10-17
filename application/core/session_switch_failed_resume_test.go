@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +46,10 @@ func TestFailedResumeKeepsViewOnPreviousSessionAndSubmitContinuesIt(t *testing.T
 	now := time.Now()
 	store := &attachFailingSessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{
+			catalog: map[string][]model.SessionInfo{
 				"": {{ID: "sess-b", Name: "cold B", UpdatedAt: now}},
 			},
-			histories: map[string]map[string][]EngineMessage{
+			histories: map[string]map[string][]contract.EngineMessage{
 				"": {"sess-b": {{Role: "user", Content: "cold b content"}}},
 			},
 		},

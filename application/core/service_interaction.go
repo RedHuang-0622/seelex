@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
@@ -20,48 +22,35 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 		// 非 approval 交互（session/account/plan_retry）保持视图单格校验。
 		if service.Approval != nil {
 			if _, ok := service.pendingApprovalSession(id); ok {
-				return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+				return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 			}
 		}
 		return ErrInteractionNotFound
 	}
-	if optionID == "__CANCEL__" {
-		if interaction.Kind == "approval" {
-			return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+	if optionID == switching.InteractionCancelOptionID {
+		if interaction.Kind == switching.InteractionKindApproval {
+			return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 		}
 		service.closeInteraction(id)
 		return nil
 	}
 	switch interaction.Kind {
-	case "approval":
-		return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
-	case "session":
+	case switching.InteractionKindApproval:
+		return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
+	case switching.InteractionKindSession:
 		if err := service.resumeSession(optionID); err != nil {
 			service.addNotice("恢复失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
-	case "account":
+	case switching.InteractionKindAccount:
 		if err := service.SelectAccount(ctx, optionID); err != nil {
 			service.addNotice("账号切换失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
-	case "plan_retry":
-		switch optionID {
-		case "replan":
-			if err := service.replanFailedWork(ctx, interaction.ID, interaction.Question); err != nil {
-				return err
-			}
-		case "retry":
-			service.appendPlanRetryNotice("节点失败，用户选择重试。请调用 plan_run 重新执行工作流。")
-		case "skip":
-			service.appendPlanRetryNotice("节点失败，用户选择跳过。请修改工作流（plan_clear + plan_load）排除失败节点后重新 plan_run。")
-		case "abort":
-			service.abortPlanInteraction()
-		}
 	default:
-		return fmt.Errorf("unsupported interaction kind %q", interaction.Kind)
+		return switching.UnsupportedInteractionKind(interaction.Kind)
 	}
 	service.closeInteraction(id)
 	return nil
@@ -76,30 +65,6 @@ func (service *Service) pendingApprovalSession(id string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (service *Service) appendPlanRetryNotice(message string) {
-	service.ViewMu.Lock()
-	service.appendMessageLocked("system", message, nil)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
-}
-
-func (service *Service) abortPlanInteraction() {
-	service.ViewMu.Lock()
-	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
-		plan.Status = PlanAborted
-		for index := range plan.Nodes {
-			if plan.Nodes[index].Status == NodePending || plan.Nodes[index].Status == NodeRunning {
-				plan.Nodes[index].Status = NodeAborted
-			}
-		}
-	}
-	service.appendMessageLocked("system", "工作流已终止。", nil)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
 func (service *Service) SelectAccount(_ context.Context, name string) error {
@@ -125,7 +90,7 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 // （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
 // 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
 func (service *Service) SwitchEffort(_ context.Context, level string) error {
-	viewSessionID, err := service.ensureViewIdle("切换 Effort")
+	viewSessionID, err := service.knobs.EnsureViewIdle("切换 Effort")
 	if err != nil {
 		return err
 	}
@@ -139,7 +104,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	if err := service.effortManager.Apply(level); err != nil {
 		return err
 	}
-	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Runtime.SetSubagentPolicy(service.effortManager.SubagentPolicy())
 	// 档位变化的另一半（"想多深"）落在账号客户端上：这里是这条链唯一的下发点
 	// ——loop/预算由 EffortManager 直接写引擎（applyLocked 里的 SetMaxLoops），
 	// 思考强度只此一条路（syncSessionReasoningEffort → 账号池）。
@@ -159,14 +124,14 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	// 档位 = **两条拉条的预设**：切档位把两条拉条的读数一起带进该档（前端因此看得见
 	// "档位改了什么"），而拉条各自只改自己那一项（composer 底部的两条独立拉条，
-	// 见 service_knobs.go）。权威读数与快照一起写：runtime 投影每次整份重建 Runtime，
-	// 只写快照会被下一次投影清零。加锁次序：ViewMu → knobMu（此处已持 ViewMu）。
-	service.knobMu.Lock()
-	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
-	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
-	service.Core.Snapshot.Runtime.ReasoningEffort = service.knobReasoningEffort
-	service.Core.Snapshot.Runtime.LoopLimit = service.knobLoopLimit
-	service.knobMu.Unlock()
+	// 见 backend/limit.Knobs）。权威读数与快照一起写：runtime 投影每次整份重建 Runtime，
+	// 只写快照会被下一次投影清零。加锁次序：ViewMu → 组件锁（此处已持 ViewMu）。
+	service.knobs.SeedReadings(
+		reasoningEffortFor(service.effortManager.Current()),
+		maxLoopsFor(service.effortManager.Current()),
+	)
+	service.Core.Snapshot.Runtime.ReasoningEffort = service.knobs.ReasoningEfforts()
+	service.Core.Snapshot.Runtime.LoopLimit = service.knobs.LoopLimit()
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
@@ -237,7 +202,7 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 	// 而用户可能已经用底部的循环次数拉条把它拧到了别的值。这里补回"当前生效的
 	// 循环上限"，让插件切换不再偷偷把拉条值吃掉（currentLoopLimit 读的就是快照里
 	// 那份权威值，没被用户改过时回退档位默认值，与 Apply 写的一致）。
-	service.applyLoopLimit(service.currentLoopLimit())
+	service.knobs.ApplyLoopLimit(service.knobs.CurrentLoopLimit())
 }
 
 // SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
@@ -282,7 +247,7 @@ func (service *Service) SetPermissionTier(tier string) (string, error) {
 		// 点头就是污染。放行用 "allow"（本笔放行）而不是 "always"——自动放行
 		// 不得在共享 checker 里留下永久 allow 规则（那是持久权限污染，切回低档
 		// 后仍会在别的会话生效）。
-		service.Approval.ResolveAllFor(viewSessionID, ApprovalDecision{OptionID: "allow"})
+		service.Approval.ResolveAllFor(viewSessionID, contract.ApprovalDecision{OptionID: "allow"})
 	}
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.PermissionTier = effective
@@ -313,7 +278,7 @@ func (service *Service) SetFullAccess(on bool) bool {
 // Snapshot.Interaction 只镜像当前视图会话（或进程级空归属）的审批——
 // 后台会话的待批不进视图单格，由目录行 awaiting_approval 状态与跨会话
 // 待批计数承载。
-func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction) {
+func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction) {
 	sessionID = strings.TrimSpace(sessionID)
 	viewSessionID := service.currentViewSessionID()
 	service.ViewMu.Lock()
@@ -334,7 +299,7 @@ func (service *Service) observeInteraction(sessionID, requestID string, interact
 	} else {
 		copied := *interaction
 		copied.SessionID = sessionID
-		copied.Options = append([]InteractionOption(nil), interaction.Options...)
+		copied.Options = append([]model.InteractionOption(nil), interaction.Options...)
 		if sessionID != "" {
 			if unit := service.sessions.Unit(sessionID); unit != nil {
 				unit.AddApproval(requestID)
@@ -352,9 +317,11 @@ func (service *Service) observeInteraction(sessionID, requestID string, interact
 	}
 	if interaction == nil {
 		service.publishSessionEvent(EventInteractionClosed, revision, requestID, publishSID, nil)
+		service.publishSessionStateChanged(publishSID)
 		return
 	}
 	service.publishSessionEvent(EventInteractionOpened, revision, requestID, publishSID, interaction)
+	service.publishSessionStateChanged(publishSID)
 }
 
 // mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
@@ -371,11 +338,11 @@ func (service *Service) mirrorPendingApprovalsLocked(sessionID string) {
 		return
 	}
 	copied := pending[0]
-	copied.Options = append([]InteractionOption(nil), pending[0].Options...)
+	copied.Options = append([]model.InteractionOption(nil), pending[0].Options...)
 	service.Core.Snapshot.Interaction = &copied
 }
 
-func (service *Service) openInteraction(interaction *Interaction) {
+func (service *Service) openInteraction(interaction *model.Interaction) {
 	if interaction == nil {
 		return
 	}
@@ -397,28 +364,35 @@ func (service *Service) closeInteraction(id string) {
 	service.publishSessionEvent(EventInteractionClosed, revision, id, service.currentViewSessionID(), nil)
 }
 
-func (service *Service) sessionInteraction() *Interaction {
+func (service *Service) sessionInteraction() *model.Interaction {
 	sessions := service.Snapshot().Sessions
-	options := make([]InteractionOption, 0, len(sessions))
+	choices := make([]switching.SessionChoice, 0, len(sessions))
 	for _, session := range sessions {
-		label := session.Name
-		if label == "" {
-			label = service.components.sessions.ShortSessionID(session.ID)
+		choice := switching.SessionChoice{
+			ID:         session.ID,
+			Name:       session.Name,
+			TokenCount: session.TokenCount,
+			UpdatedAt:  session.UpdatedAt,
 		}
-		options = append(options, InteractionOption{ID: session.ID, Label: label, Description: fmt.Sprintf("tok:%d  %s", session.TokenCount, session.UpdatedAt.Format("01-02 15:04"))})
+		// 短 ID 是**惰性端口**：只在名称缺失时取（判据在 middle/switch，取数在宿主）。
+		choice.ShortID = func() string { return service.components.sessions.ShortSessionID(session.ID) }
+		choices = append(choices, choice)
 	}
-	return &Interaction{ID: fmt.Sprintf("session-%d", time.Now().UnixNano()), Kind: "session", Title: "选择会话", Options: options, OpenedAt: time.Now()}
+	interaction := switching.BuildSessionInteraction(switching.SessionInteractionID(time.Now()), choices, time.Now())
+	return &interaction
 }
 
-func (service *Service) accountInteraction() *Interaction {
+func (service *Service) accountInteraction() *model.Interaction {
 	accounts := service.Deps.Runtime.Accounts()
-	options := make([]InteractionOption, 0, len(accounts))
+	choices := make([]switching.AccountChoice, 0, len(accounts))
 	for _, account := range accounts {
-		label := account.Name
-		if account.Disabled {
-			label += " [禁用]"
-		}
-		options = append(options, InteractionOption{ID: account.Name, Label: label, Description: strings.TrimSpace(account.Provider + " " + account.Model)})
+		choices = append(choices, switching.AccountChoice{
+			Name:     account.Name,
+			Disabled: account.Disabled,
+			Provider: account.Provider,
+			Model:    account.Model,
+		})
 	}
-	return &Interaction{ID: fmt.Sprintf("account-%d", time.Now().UnixNano()), Kind: "account", Title: "切换账号", Options: options, OpenedAt: time.Now()}
+	interaction := switching.BuildAccountInteraction(switching.AccountInteractionID(time.Now()), choices, time.Now())
+	return &interaction
 }

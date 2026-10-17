@@ -1,6 +1,8 @@
 package core
 
 import (
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
 )
@@ -19,13 +21,13 @@ import (
 // （`session_runtime/archive.go` 的 `Execution.Task` / `Execution.ReadFiles` 都取自
 // 这份全局镜像），于是上一个会话的压缩记录与已读文件会被**写成新会话自己的历史**。
 func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T) {
-	applyWindowConfig(t, WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
+	applyWindowConfig(t, cc.WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
 	service, _, sessionID := compactTestService(t, "task-draft-scope")
 	appendWindowRounds(t, service, "task-draft-scope", 16, 32_000)
 	compactNow(t, service, sessionID)
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.ReadFiles = []ReadFileRef{{Path: "application/core/session_draft.go", ReadAt: time.Now()}}
+	service.Core.Snapshot.ReadFiles = []model.ReadFileRef{{Path: "application/core/session_draft.go", ReadAt: time.Now()}}
 	service.ViewMu.Unlock()
 
 	if records := compactionRecords(service, sessionID); len(records) == 0 {

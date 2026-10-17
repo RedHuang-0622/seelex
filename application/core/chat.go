@@ -4,18 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	"github.com/RedHuang-0622/seelex/middle/view/errors"
+	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"log"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/chat"
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/core/view_state"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
@@ -77,8 +80,13 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
+		// TOCTOU 收口：调用方（提交路径）在释放 ViewMu 后重新取锁的窗口里，
+		// 另一个回合可能刚好起跑。输入语义是"要么开跑、要么排队"——已受理的
+		// 提交不能因为晚了一步就被丢掉（deferred submit 只记日志）。
+		revision := service.enqueueChatLocked(sessionID, runtime, request, active)
 		service.ViewMu.Unlock()
-		return ErrChatRunning
+		service.afterChatEnqueued(sessionID, revision, request)
+		return nil
 	}
 	requestID := service.nextChatRequestIDLocked()
 	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.displayInput, active)
@@ -91,7 +99,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	runtime.SetCancel(cancel)
 	service.components.tasks.StartReActBudgetForLocked(sessionID, requestID, budget)
 	previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	previousCheckpoint := TaskCheckpoint{}
+	previousCheckpoint := model.TaskCheckpoint{}
 	if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 		previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 	}
@@ -99,10 +107,10 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
 	// R4 群聊归属：用户行开启新 round；可见消息与 transcript 事件共用同一归属，
 	// 前端才可能按"哪个 agent 主持这一轮"渲染（app/model.MessageOrigin）。
-	userEvent := service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
+	userEvent := service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	runtime.SetStream(chat.NewVisibleOutputStream(requestID))
 	service.markBusyLocked()
-	runtime.SetChatState(ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}, nil)
+	runtime.SetChatState(model.ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}, nil)
 	// 阶段 1：聊天运行态投影写会话 scope（活跃会话镜像 Snapshot.Chat）。
 	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 	if active {
@@ -111,20 +119,20 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// L2：标题按会话设置（后台会话首次请求也归属自己的标题，不读活跃槽）；
 	// 仅活跃会话同步到快照展示名。
 	if service.components.sessions.SessionTitleFor(sessionID).Value == "" {
-		title := SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()}
+		title := model.SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()}
 		service.components.sessions.SetSessionTitleLocked(sessionID, title)
 		if active {
 			service.Core.Snapshot.Session.Name = title.Value
 		}
 	}
-	var user, assistant Message
-	userOrigin := MessageOrigin{
+	var user, assistant model.Message
+	userOrigin := model.MessageOrigin{
 		RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
 		RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
 	}
 	// EXEC（main）的回合行：角色会话即主会话，round 与用户行同轮；正文随后由
 	// 流式增量写入同一条消息，归属字段不会丢。
-	mainOrigin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
+	mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 	if active {
 		user = *service.appendMessageWithOriginLocked("user", request.displayInput, nil, userOrigin)
 		assistant = *service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
@@ -145,8 +153,6 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 子代理 mailbox 排空并丢弃（锁外安全点）：子代理结论已由工具结果
 	// 回传，mailbox 内容不再注入引擎历史/可见会话/transcript。
 	service.discardPendingSubagentContextsFor(sessionID)
-	// goal A2A：把上一回合 TL 产生的指令注入本回合受信区（锁外安全点）。
-	service.injectGoalDirectivesForStart(sessionID)
 	service.publishChatStateFor(sessionID)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
@@ -174,9 +180,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 工具面项目根按执行会话绑定：视图可能停在别的项目的会话上，后台会话
 	// 不得借用它的根（工作区污染回归，见 session_project_root_test.go）。
 	service.bindSessionProjectRoot(sessionID)
-	// 会话起步同步 plan 策略槽：plan_load/plan_run 在引擎内按执行 ctx 读取
-	// 本会话策略（含后台会话），不继承进程默认槽（G1-C）。
-	service.syncPlanPolicyFor(sessionID)
+	// 会话起步同步子代理策略槽：fork 在引擎内按执行 ctx 读取本会话策略
+	// （含后台会话），不继承进程默认槽。
+	service.syncSubagentPolicyFor(sessionID)
 	// 会话起步同步思考强度：账号池是进程级共享的，所以每个回合起点都按**本会话**
 	// 该用的那条强度下发一次（定时任务声明的强度就在这一步生效；其余会话下发的
 	// 是 composer 拉条的读数）。放在这里的理由与上下文窗口/策略槽一致：账号池的
@@ -185,12 +191,6 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
 	// 不继承别的会话遗留的开关。
 	service.syncFullAccessFor(sessionID)
-	// 受信注入的安全点（"下一次 ChatStream 前"）：TL/ADVISOR 指令在迭代边界
-	// 只登记、不注入——那里在 Session 锁内，重入历史写面会自锁死（见
-	// GoalIterationCompleted）。常规轮已由 startChatFor 注入，但**队列提升
-	// 出来的下一轮不经过 startChatFor**（runChat 直接续跑），少了这一处，
-	// 刚产出的裁决就会晚一整轮才进模型上下文。
-	service.injectGoalDirectivesForStart(sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
 	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)
@@ -262,18 +262,6 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// returns: child results travel back as tool results, never as mailbox
 	// content injected into engine history or the durable transcript.
 	service.discardPendingSubagentContextsFor(sessionID)
-	// goal A2A：回合结束（ChatStream 已返回、Session 锁已释放）登记一次
-	// turn_completed——席位轮转退场后这里**不再**跑 ADVISOR 回合；终态判定只发生在
-	// 显式入口（goal_propose_finish 的 gate / 审批预筛），产出的指令在下次 ChatStream
-	// 前注入受信区。
-	service.goalAdvanceAfterChat(ctx)
-	// goal A2A：ADVISOR 的裁决**不进可见对话**（2026-10-01 口径修正）。它是被
-	// 调用的 agent（goal 终态 gate 的评审者），不是参与对话的席位：裁决只走两条
-	// 通道——受信注入（下一次 ChatStream 前写进引擎受信区，模型看得到）与它自己的
-	// tl 角色会话（评审过程面板；goal_team_recorder 逐回合落 role_context/原文）。
-	// 这里过去还有两次"可见行回放"（injectGoalDirectivesFor /
-	// publishPendingGoalDirectivesFor），把 `[TL 指令 corr-N] …` 写进聊天区、
-	// 冒充一条对话发言——那正是"ADVISOR 参与对话"的症状，已删除。
 	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr
@@ -296,9 +284,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// 时它不会再被任何一轮接管（consumed_by 非空会被标记跳过）。
 		_ = service.components.sessions.QueueFailConsumedInput(location, sessionID, requestID)
 		if err != nil {
-			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
+			err = viewerrors.Wrap(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), contract.ErrorCodePersistenceFailed)
 		} else {
-			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
+			err = viewerrors.Wrap(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), contract.ErrorCodePersistenceFailed)
 		}
 	} else {
 		// durable queue：本轮的消费项已随 message 发布（PersistCurrentSession
@@ -316,19 +304,19 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.ViewMu.Unlock()
 		return
 	}
-	runtime.UpdateChat(func(chat *ChatState) { chat.Error = "" }, nil)
+	runtime.UpdateChat(func(chat *model.ChatState) { chat.Error = "" }, nil)
 	visibleError := ""
 	if err != nil {
-		if isUnclassifiedRunChatError(err) {
+		if viewerrors.IsUnclassified(err) {
 			// 分类只服务诊断日志：用户可见错误一律是原始 err 正文，
 			// 与下面三个出口（chat.Error / 会话 error 行 / EventError）同源。
 			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
 		}
-		// chat 报错恢复原始错误正文（诊断优先）：不再经 presentedError 文案
+		// chat 报错恢复原始错误正文（诊断优先）：不再经 viewerrors.Presented 文案
 		// 改写，UI/事件里就是 runChat 拿到的那条 err。错误分类呈现只保留给
-		// 工具错误出口（presentToolError → tool.Error 呈现文本）。
+		// 工具错误出口（viewerrors.PresentToolError → tool.Error 呈现文本）。
 		visibleError = err.Error()
-		runtime.UpdateChat(func(chat *ChatState) { chat.Error = visibleError }, nil)
+		runtime.UpdateChat(func(chat *model.ChatState) { chat.Error = visibleError }, nil)
 		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
@@ -344,7 +332,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	var nextContext context.Context
 	var nextCancel context.CancelFunc
 	nextRequestID := ""
-	var nextUser, nextAssistant *Message
+	var nextUser, nextAssistant *model.Message
 	if processQueue {
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
@@ -353,7 +341,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// 提升通道发言（历史上的团队发言环把 user 排除在环外，那条环已于
 		// 2026-10-15 A04 删除；见 docs/2026-10-15-product-architecture-pre-design/
 		// legacy-capability-audit.md），因此不需要任何"轮到 user"的口径。
-		runtime.UpdateChat(func(chat *ChatState) {
+		runtime.UpdateChat(func(chat *model.ChatState) {
 			chat.QueuedCount = 0
 			chat.InputQueue = nil
 		}, nil)
@@ -367,22 +355,22 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		runtime.SetCancel(nextCancel)
 		service.components.tasks.StartReActBudgetForLocked(sessionID, nextRequestID, budget)
 		previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-		previousCheckpoint := TaskCheckpoint{}
+		previousCheckpoint := model.TaskCheckpoint{}
 		if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 			previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 		}
 		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, effort, previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
-		userEvent := service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
+		userEvent := service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
-		runtime.SetChatState(ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
+		runtime.SetChatState(model.ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TurnProgressing, "Task is in progress.")
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-		userOrigin := MessageOrigin{
+		userOrigin := model.MessageOrigin{
 			RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
 			RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
 		}
-		mainOrigin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
+		mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 		if active {
 			nextUser = service.appendMessageWithOriginLocked("user", batchRequest.displayInput, nil, userOrigin)
 			nextAssistant = service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
@@ -391,7 +379,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 			nextAssistant = service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
 		}
 	} else {
-		runtime.UpdateChat(func(chat *ChatState) { chat.Running = false }, nil)
+		runtime.UpdateChat(func(chat *model.ChatState) { chat.Running = false }, nil)
 		runtime.SetCancel(nil)
 		if !service.anyChatRunningLocked() {
 			service.markIdleLocked()
@@ -459,16 +447,22 @@ func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID stri
 		service.components.tasks.InterruptTaskLocked(requestID, "The task was canceled before completion.")
 		return
 	}
-	if kind := classifyProviderFailure(err); kind != providerFailureNone {
+	if kind := contract.ClassifyProviderFailure(err); kind != contract.ProviderFailureNone {
 		service.components.tasks.InterruptTaskLocked(requestID, "The provider interrupted the task before completion.")
 		return
 	}
 	service.components.tasks.FailTaskLocked(requestID, "The task stopped before a verified completion could be delivered.")
 }
 
-const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n" +
-	"The execution budget is exhausted. Do not call investigation, execution, or verification tools again. " +
-	"Use task_complete if the evidence supports delivery, or task_failed if it does not; then provide the user-facing result from the evidence already collected."
+// reactBudgetFinalizationInput 是预算耗尽后的**+1 次调用**输入（用户裁决 P2：
+// 这一次只做总结，不再调查/执行/验证）。前缀来自契约层唯一一份标记——判定侧
+// （backend/engine/context）用同一个常量把这条内部行从模型上下文里过滤掉。
+const reactBudgetFinalizationInput = contract.ReactBudgetFinalizationMarker + "\n" +
+	"The execution budget is exhausted. Do not call any tools again. " +
+	"In one final text response, summarize what was actually completed within the budget, " +
+	"what remains unfinished, and the evidence collected for both. " +
+	"If the task is complete, state the delivered result; if not, state the verified gap. " +
+	"Do not claim work that was not done."
 
 // finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
 // 此之前已停止；本回合让用户收到结果，而非裸预算错误。
@@ -593,7 +587,7 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 	}
 	budgetErr := service.components.tasks.ReActBudgetError(requestID)
 	if budgetErr != nil {
-		budgetErr = wrapError(budgetErr, errorCodeReActBudget)
+		budgetErr = viewerrors.Wrap(budgetErr, contract.ErrorCodeReActBudget)
 	}
 	if budgetErr == nil {
 		return nil
@@ -618,7 +612,7 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 
 func (service *Service) removeReActBudgetFinalizationInput(sessionID string) error {
 	history := service.engineHistoryFor(sessionID)
-	filtered := make([]EngineMessage, 0, len(history))
+	filtered := make([]contract.EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
 		if message.Role == "user" && message.Content == reactBudgetFinalizationInput {
@@ -794,7 +788,7 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
+	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, event.MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
 // appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
@@ -832,7 +826,7 @@ func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk
 	if messageID == "" {
 		return
 	}
-	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
+	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, event.MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
 // attachLatestReasoning 在聊天回合结束后，把引擎历史里**每个 assistant 步骤**
@@ -861,7 +855,7 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	var attached []MessageDelta
+	var attached []event.MessageDelta
 	// G5 访问器化：经 View.mu 读写可见消息（Mutate 内完成查找+写入，
 	// 避免 ViewMu 下的裸字段穿越）。
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
@@ -907,7 +901,7 @@ func (service *Service) stampServedRoute(sessionID, requestID string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	var stamped Message
+	var stamped model.Message
 	found := false
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
 		for index := len(view.Conversation) - 1; index >= 0; index-- {
@@ -949,7 +943,7 @@ type stepReasoning struct {
 }
 
 // reasoningStepsFromHistory 按出现顺序取出引擎历史里带推理的 assistant 步骤。
-func reasoningStepsFromHistory(history []EngineMessage) []stepReasoning {
+func reasoningStepsFromHistory(history []contract.EngineMessage) []stepReasoning {
 	steps := make([]stepReasoning, 0, len(history))
 	for _, message := range history {
 		if message.Role != "assistant" || strings.TrimSpace(message.ReasoningContent) == "" {
@@ -969,7 +963,7 @@ func reasoningStepsFromHistory(history []EngineMessage) []stepReasoning {
 }
 
 // lastReasoningFromHistory 返回引擎历史里最后一条 assistant 推理（老口径）。
-func lastReasoningFromHistory(history []EngineMessage) string {
+func lastReasoningFromHistory(history []contract.EngineMessage) string {
 	for index := len(history) - 1; index >= 0; index-- {
 		if history[index].Role == "assistant" && history[index].ReasoningContent != "" {
 			return history[index].ReasoningContent
@@ -981,8 +975,8 @@ func lastReasoningFromHistory(history []EngineMessage) string {
 // attachStepReasoningLocked 给可见窗口里每个 assistant 步骤挂上**它自己**的推理
 // （配对口径与落盘回填一致：工具调用 ID 集合 + 归一化正文，顺序消费）。
 // 返回本次真正写入的 delta（MessageID + reasoning）。已有推理的消息不覆盖。
-func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []MessageDelta {
-	var attached []MessageDelta
+func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []event.MessageDelta {
+	var attached []event.MessageDelta
 	for index := range view.Conversation {
 		message := &view.Conversation[index]
 		if message.Role != "assistant" || message.Tool != nil || message.ReasoningContent != "" {
@@ -995,14 +989,14 @@ func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []Mess
 		step := steps[match]
 		steps = append(steps[:match], steps[match+1:]...)
 		message.ReasoningContent = step.reasoning
-		attached = append(attached, MessageDelta{MessageID: message.ID, ReasoningContent: step.reasoning})
+		attached = append(attached, event.MessageDelta{MessageID: message.ID, ReasoningContent: step.reasoning})
 	}
 	return attached
 }
 
 // visibleStepCallIDs 返回可见窗口里第 index 条 assistant 步骤声明的工具调用 ID
 // 集合：实时视图把工具调用渲染成紧随其后的 role=tool 消息（Tool 自带 ID）。
-func visibleStepCallIDs(conversation []Message, index int) map[string]bool {
+func visibleStepCallIDs(conversation []model.Message, index int) map[string]bool {
 	ids := map[string]bool{}
 	for next := index + 1; next < len(conversation); next++ {
 		message := conversation[next]
@@ -1050,9 +1044,9 @@ func takeReasoningStep(steps []stepReasoning, content string, ids map[string]boo
 
 // attachLastReasoningLocked 是没有任何步骤配上时的老口径兜底：把推理挂到窗口
 // 最后一条 assistant 消息（已有相同推理视为已挂，静默返回）。
-func attachLastReasoningLocked(view *session.View, reasoning string) (MessageDelta, bool) {
+func attachLastReasoningLocked(view *session.View, reasoning string) (event.MessageDelta, bool) {
 	if reasoning == "" {
-		return MessageDelta{}, false
+		return event.MessageDelta{}, false
 	}
 	for index := len(view.Conversation) - 1; index >= 0; index-- {
 		message := &view.Conversation[index]
@@ -1060,12 +1054,12 @@ func attachLastReasoningLocked(view *session.View, reasoning string) (MessageDel
 			continue
 		}
 		if message.ReasoningContent == reasoning {
-			return MessageDelta{}, false
+			return event.MessageDelta{}, false
 		}
 		message.ReasoningContent = reasoning
-		return MessageDelta{MessageID: message.ID, ReasoningContent: reasoning}, true
+		return event.MessageDelta{MessageID: message.ID, ReasoningContent: reasoning}, true
 	}
-	return MessageDelta{}, false
+	return event.MessageDelta{}, false
 }
 
 // streamedAssistantTextLocked 返回会话本轮的可见 assistant 正文累积
@@ -1118,20 +1112,20 @@ func (service *Service) streamedRequestTextLocked(sessionID string) string {
 	return ""
 }
 
-func (service *Service) appendHistoryLocked(history []EngineMessage) {
+func (service *Service) appendHistoryLocked(history []contract.EngineMessage) {
 	service.appendHistoryLockedFor(service.Core.Snapshot.Session.ID, history)
 }
 
 // appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
 // record 的旧格式会话恢复路径；阶段 1：写会话 view）。
-func (service *Service) appendHistoryLockedFor(sessionID string, history []EngineMessage) {
+func (service *Service) appendHistoryLockedFor(sessionID string, history []contract.EngineMessage) {
 	for _, historyMessage := range history {
 		if !isVisibleHistoryMessage(historyMessage) {
 			continue
 		}
 		// 引擎历史只有 provider role（这里的历史全部属于 EXEC 会话），按
 		// task_context 的同一口径补默认归属，避免恢复后的旧会话又变成 AGENT。
-		origin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID}
+		origin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID}
 		if historyMessage.Role == "user" {
 			origin.RoleName = RoleNameUser
 		}
@@ -1146,11 +1140,11 @@ func (service *Service) appendHistoryLockedFor(sessionID string, history []Engin
 			}
 		}
 		for _, call := range historyMessage.ToolCalls {
-			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess}, origin)
+			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess}, origin)
 		}
 		if historyMessage.Role == "tool" {
 			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
-			service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", visible, &ToolCall{
+			service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", visible, &model.ToolCall{
 				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
 				Result: visible, Status: dto.ToolEventSuccess,
 				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,

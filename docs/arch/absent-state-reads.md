@@ -1,7 +1,7 @@
 # 缺失即状态：模块 head 的读面口径
 
 > 状态：**已实现**（2026-10-15）。来源：`docs/2026-10-15-teamwork-defect-audit/README.md` D3。
-> 作用面：`sessionstore` 的模块 head 读面，以及消费它的 `seelebridge` / `application` 读面。
+> 作用面：`store` 的模块 head 读面，以及消费它的 `seelebridge` / `application` 读面。
 
 ## 1. 口径
 
@@ -13,7 +13,7 @@
 - **读不出来**（IO 失败、解码失败、schema 不符、checksum 不匹配）⇒ **仍然是错误**，不许被静默吞成"空"。
 
 后半句与前半句一样重要：把"存档坏了"读成"没有存档"，就会拿一份新快照覆盖掉旧账本
-（`application/core/goal/board_archive.go` 的"前值读不出来就不覆盖"正是这条）。
+（`backend/multiagent/goal/board_archive.go` 的"前值读不出来就不覆盖"正是这条）。
 
 ## 2. 为什么
 
@@ -37,7 +37,7 @@ open …\metadata\teamwork.json: The system cannot find the path specified.
 | ③ 退役档 | **恒返回** `fs.ErrNotExist` | `ReadState`（`state.json` 停读，D9/S20） | 它不是"缺失"，而是"这个面已经不存在"——语义与①②都不同，混进去会让人以为"再写一次就有了" |
 
 消费方的义务：①②两种表达都要能认（实现迁移期两种都可能出现）。例：
-`application/core/goal/board_archive.go` 既把零值当"首次写"，也把 `fs.ErrNotExist` 当同一状态；
+`backend/multiagent/goal/board_archive.go` 既把零值当"首次写"，也把 `fs.ErrNotExist` 当同一状态；
 其余错误一律"不覆盖"。
 
 ## 4. 不适用（边界）
@@ -49,6 +49,6 @@ open …\metadata\teamwork.json: The system cannot find the path specified.
 
 ## 5. 门禁
 
-`sessionstore/absent_state_reads_test.go` 把上面三档**逐条登记**：①档断言"零值 + nil"，
+`store/absent_state_reads_test.go` 把上面三档**逐条登记**：①档断言"零值 + nil"，
 ②③档断言各自的哨兵值。**新增 head 读面必须进这张表**——没登记的面就是下一个把"还没有"
 报成 IO 错误的面。

@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"sync"
 	"testing"
@@ -52,7 +53,7 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 			defer switchWG.Done()
 			service.ViewMu.Lock()
 			sid := ids[r%len(ids)]
-			service.Core.Snapshot.Session = SessionState{ID: sid}
+			service.Core.Snapshot.Session = model.SessionState{ID: sid}
 			service.sessions.SetActive(sid)
 			service.ViewMu.Unlock()
 		}(round)

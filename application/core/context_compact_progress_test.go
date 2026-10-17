@@ -4,17 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/event"
-	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // 压缩门禁进度（compaction.progress）：一轮压缩从「判据估算」到「写压缩记录」
@@ -198,10 +197,10 @@ func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T) {
 	}
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-progress", Role: "user", Content: "question-" + string(rune('a'+index)),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-progress", Role: "assistant", Content: roundOf(index),
 		})
 	}
@@ -260,10 +259,10 @@ func TestAutoCompactionEmitsProgressGates(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-progress-auto")
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-progress-auto", Role: "user", Content: "question",
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-progress-auto", Role: "assistant", Content: strings.Repeat("B", 160_000),
 		})
 	}
@@ -310,10 +309,10 @@ func TestExplicitCompactGateTimeline(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-timeline")
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-timeline", Role: "user", Content: "question-" + string(rune('a'+index)),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-timeline", Role: "assistant",
 			Content: "round-" + string(rune('a'+index)) + ":" + strings.Repeat("A", 160_000),
 		})
@@ -376,8 +375,8 @@ func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-progress-fail"}
-	service.components.tasks.BeginTask("task-progress-fail", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-progress-fail"}
+	service.components.tasks.BeginTask("task-progress-fail", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	sessionID := service.components.tasks.SessionIDForRequest("task-progress-fail")
 

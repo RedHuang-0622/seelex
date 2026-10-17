@@ -1,0 +1,266 @@
+package assemble
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	session "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+)
+
+// TestMergeBackParallelSubagentsNoRace 验证两个并行子代理完成时各自
+// merge-back 并发更新父证据/登记节点结果，不产生数据竞争（-race 覆盖）。
+// 2026-09-08 起产出经工具结果回传，mailbox 不再接收 Format 信封块。
+func TestMergeBackParallelSubagentsNoRace(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
+	})
+
+	left := newScriptedNodeCompleter("LEFT-FINDING: module left audited")
+	right := newScriptedNodeCompleter("RIGHT-FINDING: module right audited")
+	runtime.pool.Unregister("agent-1")
+	mustRegisterAccount(t, runtime, "left-agent", left)
+	mustRegisterAccount(t, runtime, "right-agent", right)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, spec := range []struct{ id, goal string }{{"left", "audit left"}, {"right", "audit right"}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), spec.id, spec.goal, "", 0); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
+	}
+
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty after parallel nodes, got %d blocks", len(kept))
+	}
+	for _, nodeID := range []string{"left", "right"} {
+		result := runtime.NodeSemanticResult(nodeID)
+		if result == nil || result.Status != "completed" {
+			t.Fatalf("node %s semantic result = %+v, want completed", nodeID, result)
+		}
+	}
+}
+
+// TestMergeBackIntoParentAccumulates 单测验证 B 修复：mergeBackIntoParent
+// 把子代理快照合并进 parentEvidence 并原子写回，连续两次合并时 Findings/
+// Decisions/Constraints 累积，第二次合并能看到第一次的产出。
+func TestMergeBackIntoParentAccumulates(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
+	})
+
+	first := &snapshot.ContextSnapshot{
+		SourceSessionID: "sub-a",
+		Goal:            "audit left",
+		Findings:        []string{"LEFT-ONLY-FINDING"},
+		Decisions:       []snapshot.Decision{{What: "left decision", Why: "why"}},
+	}
+	merged := runtime.mergeBackIntoParent(first)
+	if merged == nil {
+		t.Fatal("first merge returned nil")
+	}
+	// 第一次合并后：父证据携带左子代理产出。
+	if !slices.Contains(merged.Findings, "LEFT-ONLY-FINDING") {
+		t.Fatalf("first merge must accumulate left finding, got %v", merged.Findings)
+	}
+
+	second := &snapshot.ContextSnapshot{
+		SourceSessionID: "sub-b",
+		Goal:            "audit right",
+		Findings:        []string{"RIGHT-ONLY-FINDING"},
+		Constraints:     []string{"constraint-from-b"},
+		Decisions:       []snapshot.Decision{{What: "right decision", Why: "why"}},
+	}
+	merged = runtime.mergeBackIntoParent(second)
+	if merged == nil {
+		t.Fatal("second merge returned nil")
+	}
+	// B 修复：第二次合并必须看到第一次的产出（累积），而不是覆盖。
+	if !slices.Contains(merged.Findings, "LEFT-ONLY-FINDING") || !slices.Contains(merged.Findings, "RIGHT-ONLY-FINDING") {
+		t.Fatalf("merge-back must accumulate both findings, got %v", merged.Findings)
+	}
+	if !slices.Contains(merged.Constraints, "constraint-from-b") {
+		t.Fatalf("second merge must accumulate constraints, got %v", merged.Constraints)
+	}
+	if len(merged.Decisions) < 2 {
+		t.Fatalf("merge-back must accumulate decisions from both subagents, got %d", len(merged.Decisions))
+	}
+}
+
+// TestMergeBackMailboxOverflowPreserved 验证 A 修复：channel 满时 merge-back
+// 转入 overflow 队列，Drain 后全部回收（内容不丢，计数仅作诊断）。
+func TestMergeBackMailboxOverflowPreserved(t *testing.T) {
+	actor := session.NewSubagentContextActor(nil, 2) // 小 soft cap：触发 overflow 计数但内容保留
+	defer actor.Close()
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			actor.Enqueue(strings.Repeat("finding-", 20) + string(rune('a'+index)))
+		}(i)
+	}
+	wg.Wait()
+
+	// wg.Wait 只保证 8 条 enqueue 命令已入 mailbox，不保证 handler 已处理完；
+	// Overflow 在 Drain 时归零，故先轮询等待计数收敛再断言（原写法是时序竞态，
+	// 全量测试下偶发读到 0）。
+	deadline := time.Now().Add(2 * time.Second)
+	for actor.Overflow() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if overflowed := actor.Overflow(); overflowed == 0 {
+		t.Fatal("expected overflow counter to observe the full mailbox")
+	}
+	kept := actor.Drain()
+	if len(kept) != 8 {
+		t.Fatalf("mailbox must preserve all 8 merge-back messages (channel + overflow), got %d", len(kept))
+	}
+}
+
+// TestMergeBackOverflowUnderParallelForks 端到端验证 A+B：超过 mailbox 容量的
+// 并行子代理 merge-back 全部保留（A），且合并写回 parentEvidence 累积（B），
+// plan_run 成功时没有任何子代理产出丢失。
+func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
+	})
+	const subagents = 5
+	for i := 0; i < subagents; i++ {
+		mustRegisterAccount(t, runtime, "agent-"+string(rune('a'+i)),
+			newScriptedNodeCompleter("FINDING-"+string(rune('a'+i))))
+	}
+	runtime.pool.Unregister("agent-1")
+
+	var wg sync.WaitGroup
+	errs := make(chan error, subagents)
+	for i := 0; i < subagents; i++ {
+		id := string(rune('a' + i))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), id, "audit "+id, "", 0); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
+	}
+
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty after parallel nodes, got %d blocks", len(kept))
+	}
+	for i := 0; i < subagents; i++ {
+		nodeID := string(rune('a' + i))
+		result := runtime.NodeSemanticResult(nodeID)
+		if result == nil || result.Status != "completed" {
+			t.Fatalf("node %s semantic result = %+v, want completed", nodeID, result)
+		}
+	}
+}
+
+// 确保 mailbox 满时生产者不会阻塞（原有保证），供并发回归基线。
+func TestMergeBackMailboxNeverBlocksProducerRetained(t *testing.T) {
+	actor := session.NewSubagentContextActor(nil, 1)
+	defer actor.Close()
+	actor.Enqueue("first")
+	done := make(chan struct{})
+	go func() {
+		actor.Enqueue("overflowed")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("full subagent mailbox blocked the producer")
+	}
+	items := actor.Drain()
+	if len(items) != 2 {
+		t.Fatalf("mailbox must preserve both messages, got %d: %#v", len(items), items)
+	}
+}
+
+// TestMergeBackSkippedOnTimeout 复现用户猜想：长时间静置 → 触发超时 →
+// merge-back 失败。子代理在超时前已积累结构化上下文（Findings/Decisions），
+// 但 agent.Chat 返回超时错误后 SeelexAgentNode.Run 直接跳过 mergeBack——
+// 子代理产出整块丢失，主会话/父证据都看不到，前端表现为「子代理失败/
+// 工作区现场保留」。测试用确定性 completer 返回超时错误（等价于 fork
+// 超时后 agent.Chat 以 ctx.Err() 失败），避免依赖真实计时。
+func TestMergeBackSkippedOnTimeout(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
+	})
+
+	slow := &failingNodeCompleter{reply: "PARTIAL-FINDING-BEFORE-TIMEOUT", err: context.DeadlineExceeded}
+	runtime.pool.Unregister("agent-1")
+	mustRegisterAccount(t, runtime, "slow-agent", slow)
+
+	_, err := runtime.runForkSubagent(context.Background(), "do", "audit the module", "", 0)
+	if err == nil {
+		t.Fatal("subagent dispatch must fail when the subagent times out")
+	}
+
+	// 2026-09-08 语义：超时节点仍执行 mergeBack 更新父证据/登记失败结果，
+	// 但产出不再经 mailbox 回传（mailbox 必须为空）；失败在 task 面可见。
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty on timeout, got %d blocks", len(kept))
+	}
+	if result := runtime.NodeSemanticResult("do"); result == nil || result.Status != "failed" {
+		t.Fatalf("timed-out subagent must leave a failed semantic result, got %+v", result)
+	}
+}
+
+// failingNodeCompleter 返回 err（模拟子代理超时/失败），同时保留 reply
+// 表示超时前已产出的内容。
+type failingNodeCompleter struct {
+	reply string
+	err   error
+}
+
+func (c *failingNodeCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error) {
+	reply := c.reply
+	if reply == "" {
+		reply = "node-done"
+	}
+	return types.Message{Role: "assistant", Content: &reply}, c.err
+}

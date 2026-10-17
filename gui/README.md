@@ -12,7 +12,7 @@
 flowchart TB
     WEB["gui/frontend/dist<br/>原生 HTML/CSS/ES modules"] -->|Wails invoke| BR["gui.Bridge"]
     BR --> SVC["application.Service"]
-    SVC --> HUB["application/event.Hub"]
+    SVC --> HUB["middle/protocol/event.Hub"]
     HUB -->|seelex:event 推送| BR
     BR --> WEB
 
@@ -38,7 +38,7 @@ sequenceDiagram
     autonumber
     participant FE as 前端 reducer
     participant BR as gui.Bridge
-    participant HUB as application/event.Hub
+    participant HUB as middle/protocol/event.Hub
     participant SVC as application.Service
 
     FE->>BR: Snapshot()
@@ -74,14 +74,26 @@ sequenceDiagram
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
-| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）已随 Agent Team 用户面退场（2026-10-12 J-1a）整份删除。 |
+| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）**已删除**（2026-10-12 J-1a 随 Agent Team 用户面退场，整份删除）。 |
 | `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
-| `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
+| `backend/engine/assemble/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
 ## Bridge 契约
 
 `Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、`ReorderQueuedInput`/`RecallQueuedInput`（排队中的输入调换顺序/撤回到输入框，只作用于回合运行期间的会话队列）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
+
+### 端口核对
+
+```text
+python scripts/check_gui_ports.py
+```
+
+脚本静态核对三件事：前端字面 `invoke("...")` 与 `composerSubmitPlan` 的 RPC
+必须在 `*Bridge` 导出方法里；`PROCESS_KINDS` 必须是 `middle/protocol/event`
+已登记的 `EventKind`；`runtime.EventsOn("...")` 的通道名必须与 Bridge emit
+的 `seelex:event` / `seelex:ready` / `seelex:terminal` 一致。动态变量方法名
+无法静态解析时脚本会显式报数，不用“没查到”冒充“对齐”。
 
 会改变会话目录的命令（`BeginNewSession`/`DeleteSession`/`ArchiveSession`/`ForkSessionLatest`/`SetSessionMeta`）在返回前调用 `settleCatalog()`：等 `Application.WaitCatalogRefresh` 的目录刷新回执（预算 `sessionCatalogSettleTimeout`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威列表。等待超时不算失败也不向上报错——命令本身已成功，未收敛的列表由 worker 发布的 `snapshot.changed` 补齐，前端不得为此回填旧列表。
 
@@ -105,10 +117,10 @@ Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话
 是**默认页**（最近若干条）；`Bridge.TeammateSessionLivePage(roleSessionID, offset, limit)`
 是同一份读数的**分页一页**（`offset/limit/total/has_more` 都由后端归一与计算，前端只搬、
 不自算；`limit<=0` → 后端默认页大小 40）。窗口/裁剪判据只有一份，在
-[`seelebridge/runtime_teammate_session_live.go`](../seelebridge/runtime_teammate_session_live.go)；
+[`backend/engine/assemble/runtime_teammate_session_live.go`](../backend/engine/assemble/runtime_teammate_session_live.go)；
 会话不在本进程 → `running=false`（调用方据此如实说明，而不是假装"看到的是空的当前会话"）。
 node 第一视角实时回放的**分页**读法同形落在
-[`seelebridge/runtime_live.go`](../seelebridge/runtime_live.go) 的
+[`backend/engine/assemble/runtime_live.go`](../backend/engine/assemble/runtime_live.go) 的
 `SubagentLiveHistoryPage`（窗口上限 `RuntimeConfig.SubagentLiveWindow`）。
 
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
@@ -158,7 +170,7 @@ A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 `AgentTeamView` 的回退），以及团队看板自己的读面（`TeammateSessionLive*`）。
 
 > **下面四段是退场前的面板口径（历史，2026-10-12 J-1a 起不再适用）**：其中提到的
-> `gui/frontend/dist/agent-team-view.js`、`#team-section`、`team.*` RPC、团队库
+> `gui/frontend/dist/agent-team-view.js`（**已删除**：2026-10-12 J-1a）、`#team-section`、`team.*` RPC、团队库
 > （`team/library.json`）与员工库/默认顺序母本（`team/employees.json`、`team/order.json`）
 > 读写面都已随退场删除；仍然适用的只有最后一段里的「角色会话只读观察面」。
 `sessionID` 传空 = 当前视图会话，
@@ -166,7 +178,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `lifecycle.order_policy`/`order_roles` 与角色注册表：前端只提交用户改动后的完整
 顺序表（拖拽落点/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
 定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
-动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
+动作转发在 `frontend/dist/agent-team-view.js`（**已删除**：2026-10-12 J-1a 随面板退场；只读那一半现为 `dist/role-session-view.js`），面板 DOM 挂在
 状态子页的 `#team-section`。
 
 注（2026-09-15 第二轮）：`AgentTeamSaveCurrentTeam` / `AgentTeamPublishToGlobal` /
@@ -179,11 +191,11 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
 负责建角色会话并回报执行者绑定），「删除员工」走 `AgentTeamDeleteRole`，顺序编辑走
 `AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
-（`application/core/agentteam/runtime.go`）：发言环成员（= `order_roles` − `user`）
+（`application/core/agentteam/runtime.go`，**已删除**：2026-10-15 A04/A15 随发言环退场）：发言环成员（= `order_roles` − `user`）
 → 下一个该发言的角色、轮次/上限与逃生状态
 （`round_limit`/`no_progress`/`no_automatic_turn`/`empty_ring`/`external_break`）。
 `user` 不在环里（它的发言机会是回合尾消息队列被整批提升为下一轮），所以面板的
-「下一个」永远不会指向用户；前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，
+「下一个」永远不会指向用户；前端 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）的「发言调度」块只渲染后端事实，
 不下发也不缓存顺序。
 
 **员工装配（提示词/权限）与团队库（2026-09-21）**：
@@ -193,14 +205,14 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   注册表。回读经 `TeamView.members` 的登记字段（前端编辑面板要回填，否则一次编辑会
   把提示词/权限清空）。
 - `AgentTeamRolePrompt(sessionID, roleName)` 是只读提示词查询（ADVISOR 回合用它取
-  已装配提示词，装配根注入的读面见 `seelebridge/runtime_role_prompt.go`）；
+  已装配提示词，装配根注入的读面见 `backend/engine/assemble/runtime_role_prompt.go`）；
   `AgentTeamOptimizePrompt(sessionID, request)` 跑一次有界 LLM 回合产出候选文本 +
   改动理由，**不落盘、不写会话消息**（落盘仍走入职/保存）。
 - 团队库（**全局** `team/library.json`）走 `AgentTeamLibrary`（列表）/
   `AgentTeamSaveTeam`（按 `team_id` 幂等 upsert）/`AgentTeamSaveCurrentTeam`（把当前
   会话在编员工存成库条目）/`AgentTeamDeleteTeam`（幂等）/`AgentTeamMaterializeTeam`
   （库条目 → `TeamSpec` → 既有工厂：建角色会话 + 写会话注册表 + 写 `lifecycle` 顺序）。
-  团队库条目与会话在编员工是**两份不同的事实**（见 `sessionstore/README.md`）。
+  团队库条目与会话在编员工是**两份不同的事实**（见 `store/README.md`）。
 - **全局母本（2026-09-15）**：团队库 / 员工库（`team/employees.json`）/ 默认顺序
   （`team/order.json`）都是全局粒度；会话读的是母本**深拷贝副本**（会话在编员工表 +
   lifecycle 顺序），会话内入职/改序只改副本。`AgentTeamGlobalConfig` 读母本 + 会话副本
@@ -209,7 +221,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   搭配到全局」，会话副本 → 员工库 + 默认顺序 + 团队库条目）。
 - **面板读侧口径（2026-09-15 第二轮）**：GUI 的「员工库」块展示的是**可用员工**——
   `TeamGlobalConfig.employees`（全局母本）∪ `TeamGlobalConfig.composition.employees`
-  ∪ `TeamView.members`（本会话在编），在 `agent-team-view.js` 的 `employeePool()`
+  ∪ `TeamView.members`（本会话在编），在 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）的 `employeePool()`
   里读侧合并、按 `role_name` 去重、母本优先，行上标 `库` / `本会话`。合并只发生在
   展示层：两份事实仍分属两个作用域，写动作也只写母本（`AgentTeamSaveEmployee`）。
   这样"会话里明明有人、员工库却是 0 人"不再出现，拖拽也能直接拿这些人进发言顺序
@@ -220,7 +232,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 面板不再渲染字段说明与底部作用域说明（原来那批 9.5px / 10px 小字），同一批事实改挂
 控件与提交键的 `title`（hover 才出现），下拉选项标签自己把话说完（"只读（不写文件 /
 不执行命令）"）；「优化提示词」的运行态回执改用独立类 `team-prompt-state`，不再借备注
-样式。面板因此可以被断言为"零备注"：`agent-team-view.test.mjs` 覆盖两种作用域 × 四个
+样式。面板因此可以被断言为"零备注"：`agent-team-view.test.mjs`（**已删除**：2026-10-12 J-1a）覆盖两种作用域 × 四个
 面板实例，`gui/bridge_test.go` 在嵌入产物上锁同一条不变量。**团队面板（新建 / 编辑
 团队）的同类小字本轮未动**，连同其它可优化项见
 [`docs/devlog/2026-09-15-agentteam-panel-optimization.md`](../docs/devlog/2026-09-15-agentteam-panel-optimization.md)。
@@ -238,13 +250,13 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 **主会话权限档位（会话粒度，2026-09-16/17）**：`Bridge.SetPermissionTier(tier)`
 转发到 `Application.SetPermissionTier`，返回**真正生效**的档位（前端不得靠"取反本地
 旧状态"猜方向：快照滞后一格时会把"开启"点成"关闭"）；headless 上也暴露同名
-`SetPermissionTier` RPC（`gui/headless.go`），用例
+`SetPermissionTier` RPC（`headless/headless.go`），用例
 `gui/headless_permission_test.go:TestHeadlessSetPermissionTierDispatch`。档位目录由后端
 下发（`RuntimeState.permission_tiers`），前端只按序渲染；档位列表与 composer 芯片的
 纯解析口径抽在 `frontend/dist/permission-tier.js`（`node --test` 用例
 `frontend/dist/permission-tier.test.mjs`），app.js 只负责 DOM 写入。档位的**归属与落盘**
 不在 GUI：它由 `application/core` 按会话写入会话级设置并跨重启读回（见
-`sessionstore/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
+`store/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
 headless RPC）。
 
 ## 下栏终端（本地 PTY，2026-09-17）
@@ -269,7 +281,7 @@ headless RPC）。
 边界（Review 时最容易被越界的三处）：
 
 1. **不进 Agent 工具面**：`fork_subagents`/工具策略里没有终端，模型无法驱动它；
-2. **不进 headless 控制面**：`gui/headless.go` 的 `dispatch` 不分发 `Terminal*`
+2. **不进 headless 控制面**：`headless/headless.go` 的 `dispatch` 不分发 `Terminal*`
    （终端是本地交互能力，不是可远程编排的 API）；
 3. **随宿主退出**：`Bridge.Stop()` 调 `closeTerminals()` 杀全部子进程并关 PTY；
    不这么做会在 Windows 上留下悬挂 shell 与 conhost。
@@ -347,7 +359,7 @@ go test ./gui -run TestRealAPIRoleSessionLiveProbe -v -count=1 -timeout 20m
 
 `team.*` headless RPC **已退场**（2026-10-12 J-1a）：`team.materialize` / `team.view` /
 `team.put_role` / `team.delete_role` / `team.set_order` / `team.instantiate_role`，连同
-`gui/headless_team.go` 与它的契约测试 `gui/headless_team_test.go` 一起删除。
+`gui/headless_team.go` 与它的契约测试 `gui/headless_team_test.go` **已删除**（2026-10-12 J-1a 同一轮）。
 要读角色会话/团队看板请用 `role.*`（`role.snapshot` 等）与团队看板读面（`TeammateSessionLive*`）。
 
 

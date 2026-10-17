@@ -2,49 +2,51 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
 )
 
 // testServiceOption 定制 newTestService 的依赖注入。
-type testServiceOption func(*Dependencies)
+type testServiceOption func(*contract.Dependencies)
 
-func withTestSessions(sessions SessionPort) testServiceOption {
-	return func(deps *Dependencies) { deps.Sessions = sessions }
+func withTestSessions(sessions contract.SessionPort) testServiceOption {
+	return func(deps *contract.Dependencies) { deps.Sessions = sessions }
 }
 
-func withTestRuntime(runtime RuntimePort) testServiceOption {
-	return func(deps *Dependencies) { deps.Runtime = runtime }
+func withTestRuntime(runtime contract.RuntimePort) testServiceOption {
+	return func(deps *contract.Dependencies) { deps.Runtime = runtime }
 }
 
 // withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
 // 只在本次运行有效）。
-func withTestReleaseWindowStore(store ReleaseWindowStore) testServiceOption {
-	return func(deps *Dependencies) { deps.ReleaseWindowStore = store }
+func withTestReleaseWindowStore(store contract.ReleaseWindowStore) testServiceOption {
+	return func(deps *contract.Dependencies) { deps.ReleaseWindowStore = store }
 }
 
 // withTestAccountWindowStore 注入「每账号上下文窗口」的落盘口（不注入 = 界面上改的值
 // 只在本次运行有效）。
-func withTestAccountWindowStore(store AccountWindowStore) testServiceOption {
-	return func(deps *Dependencies) { deps.AccountWindowStore = store }
+func withTestAccountWindowStore(store contract.AccountWindowStore) testServiceOption {
+	return func(deps *contract.Dependencies) { deps.AccountWindowStore = store }
 }
 
 // withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
 // （source_kind/source_url/source_root）要落到会话快照，就得从**真实**的
 // adapters.PluginPort 走一遍，所以这个口子必须存在。
-func withTestPlugins(plugins PluginPort) testServiceOption {
-	return func(deps *Dependencies) { deps.Plugins = plugins }
+func withTestPlugins(plugins contract.PluginPort) testServiceOption {
+	return func(deps *contract.Dependencies) { deps.Plugins = plugins }
 }
 
 // newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
 // 结束时自动 Shutdown（catalog worker 随 teardown 停止）。
-func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service {
+func newTestService(t testing.TB, engine contract.ChatEngine, options ...testServiceOption) *Service {
 	t.Helper()
-	deps := Dependencies{
+	deps := contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: &fakeSessions{},
 	}
@@ -56,7 +58,7 @@ func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOptio
 	return service
 }
 
-func mustNew(t testing.TB, deps Dependencies) *Service {
+func mustNew(t testing.TB, deps contract.Dependencies) *Service {
 	t.Helper()
 	service, err := New(deps)
 	if err != nil {
@@ -66,7 +68,7 @@ func mustNew(t testing.TB, deps Dependencies) *Service {
 }
 
 // waitForSnapshot 轮询 Snapshot 直到 ready 条件满足，返回满足条件的快照。
-func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) Snapshot {
+func waitForSnapshot(t *testing.T, service *Service, ready func(model.Snapshot) bool) model.Snapshot {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -77,7 +79,7 @@ func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) 
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("snapshot condition not met within deadline")
-	return Snapshot{}
+	return model.Snapshot{}
 }
 
 // sessionBackedEngine 模拟生产 session-backed 引擎（OnIterationComplete 在

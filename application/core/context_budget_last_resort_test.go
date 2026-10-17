@@ -2,12 +2,11 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // pinMechanismCompactionRatios 把压缩阈值钉回 75/90/60：这组用例验证的是
@@ -16,15 +15,15 @@ import (
 // 95/98/80 调整不会再让机制用例随阈值漂移而红。
 func pinMechanismCompactionRatios(t *testing.T) {
 	t.Helper()
-	previous := limits.Get()
-	limits.Apply(seelexctx.Limits{
+	previous := limit.Get()
+	limit.Apply(limit.Limits{
 		ContextSafetyReserveDivisor: 8,
 		ContextSoftPercent:          75,
 		ContextHardPercent:          90,
 		ContextTargetPercent:        60,
 		ContextSingleItemPercent:    50,
 	})
-	t.Cleanup(func() { limits.Apply(previous) })
+	t.Cleanup(func() { limit.Apply(previous) })
 }
 
 // TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
@@ -41,16 +40,16 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-budget-1"}
-	service.components.tasks.BeginTask("task-budget-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-1"}
+	service.components.tasks.BeginTask("task-budget-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 3 个已定稿轮：assistant 正文约 52 万 ASCII 字符（≈130k tokens，介于
 	// 压缩目标 100084 与硬阈值 150127 之间）。
 	huge := strings.Repeat("A", 520_000)
 	for round := 0; round < 3; round++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-budget", Role: "user", Content: fmt.Sprintf("request-%d", round),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-budget", Role: "assistant", Content: huge,
 		})
 	}
@@ -89,14 +88,14 @@ func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-budget-3"}
-	service.components.tasks.BeginTask("task-budget-3", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-3"}
+	service.components.tasks.BeginTask("task-budget-3", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 约 61 万 ASCII 字符 ≈152.5k tokens：高于硬阈值、低于全量预算。
 	huge := strings.Repeat("A", 610_000)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-budget", Role: "user", Content: "last request",
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-budget", Role: "assistant", Content: huge,
 	})
 	service.ViewMu.Unlock()
@@ -138,13 +137,13 @@ func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-budget-2"}
-	service.components.tasks.BeginTask("task-budget-2", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-2"}
+	service.components.tasks.BeginTask("task-budget-2", "inspect", "high", nil, model.TaskCheckpoint{})
 	huge := strings.Repeat("A", 1_000_000) // ≈250k tokens，大于全量预算 166808
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-budget", Role: "user", Content: "last request",
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-budget", Role: "assistant", Content: huge,
 	})
 	service.ViewMu.Unlock()

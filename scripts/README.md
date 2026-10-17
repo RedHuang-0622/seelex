@@ -51,15 +51,17 @@ tmp/build/                          流程中间态（可整体删除）
 | `build.ps1` | Windows/PowerShell 跨平台构建+归档（P1 + P3，保留 P2）。 |
 | `build.sh` | POSIX 构建入口（P1 + P3，保留 P2）。 |
 | `build-dev.sh` | post-commit 快速重建 dev 二进制（CLI→`dist/dev/seelex.exe`，GUI→P2）。 |
+| `hooks-selftest.sh` | `.githooks` 的自测（hermetic：临时仓库 + 假构建命令；覆盖 BOM/CRLF/未格式化/禁入路径/真实配置与 post-commit 的构建决策）。改钩子后必须跑。 |
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
 | `build-linux-gui.sh` | **Linux GUI 构建入口（P6）**：Docker（默认 `ubuntu:22.04` + `webkit2_40`）/ `--native` / `--pack-only`，产物落 `dist/linux-amd64-gui/` 并归档到 `dist/archive/`。 |
 | `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release，另可单独 `-Stage SyncPlugins`）。 |
 | `sync-dev-plugins.ps1` | 把仓库 `plugins/` 的随包载荷刷进 P2 运行树（`dist/seelex-gui-dev/plugins/`）：只覆盖、不删本机自加目录；Deploy 会自动调用它。 |
 | `make-icon.sh` | 图标资源链：品牌图 → 多尺寸 `.ico` + 前端品牌图，再 `windres` 成根目录 `rsrc_windows_amd64.syso`（缺 Pillow/windres 时降级跳过，不挡构建）。 |
 | `sync-claudecode-account.ps1` | 从本机 Claude Code 设置生成 local account 配置。 |
-| `gen_core_readme_index.py` | 生成 `application/core` 的「文件与函数索引」（根包按前缀分卷）。 |
+| `gen_core_readme_index.py` | 全仓 README「文件与函数索引」生成器（**只写已定案树**；分卷包 = `application/core`、`test/`、`store/`，其余单 README 包按目录自动发现）。`--check` 只报漂移不写文件（有漂移 exit 1，可作门禁）；`--only <import-path>…` 只刷指定包——搬迁中/收口中的树（`application/core/**`、`backend/engine/**`、`backend/tool/**`、`middle/**` 里非登记包）默认跳过并登记，树静默后用 `--only` 一次补齐。store 分卷原先另有一个独立生成脚本，已并入本脚本（分卷登记与提取逻辑只留一份）。 |
 | `check_readme_refs.py` | README 漂移检查：链接目标与正文路径字面量是否还存在（`--strict` 可用于门禁）。 |
 | `check_mermaid.py` | Mermaid 代码块结构校验（fence / 图类型 / 括号引号 / subgraph）；`go test ./e2e/` 内有同源门禁。 |
+| `check_gui_ports.py` | GUI 前后端端口核对：前端字面 `invoke` / `composerSubmitPlan` 的 RPC 必须在 `*Bridge` 导出方法里，`PROCESS_KINDS` 与 `EventsOn` 通道必须与后端事件名对齐。 |
 
 仓库级 clean/build 编排由根目录 `Makefile` 提供：
 - `make build` / `make package`：平台树进 `dist/<os>-<arch>/`，归档进 `dist/archive/`；

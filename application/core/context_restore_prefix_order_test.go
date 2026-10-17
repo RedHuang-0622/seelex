@@ -2,9 +2,10 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // 恢复顺序回归：存储/会话顺序一致是为了保留稳定的上下文前缀，让模型缓存
@@ -18,8 +19,8 @@ func TestRunningSessionAccumulatesAllRoundsInOrderControl(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-order-1"}
-	service.components.tasks.BeginTask("task-order-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-order-1"}
+	service.components.tasks.BeginTask("task-order-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	events := appendOrderedRoundsLocked(service, 12)
 	service.ViewMu.Unlock()
 	if len(events) != 24 {
@@ -40,8 +41,8 @@ func TestColdRestoreTailFirstRequestKeepsTranscriptOrder(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-order-2"}
-	service.components.tasks.BeginTask("task-order-2", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-order-2"}
+	service.components.tasks.BeginTask("task-order-2", "inspect", "high", nil, model.TaskCheckpoint{})
 	events := appendOrderedRoundsLocked(service, 12)
 	service.ViewMu.Unlock()
 
@@ -65,14 +66,14 @@ func TestColdRestoreTailFirstRequestKeepsTranscriptOrder(t *testing.T) {
 	}
 }
 
-func appendOrderedRoundsLocked(service *Service, rounds int) []TranscriptEvent {
-	events := make([]TranscriptEvent, 0, rounds*2)
+func appendOrderedRoundsLocked(service *Service, rounds int) []model.TranscriptEvent {
+	events := make([]model.TranscriptEvent, 0, rounds*2)
 	for round := 0; round < rounds; round++ {
-		user := TranscriptEvent{
+		user := model.TranscriptEvent{
 			TaskID: "task-order", Role: "user",
 			Content: fmt.Sprintf("request-%02d", round), TokenCount: 1,
 		}
-		assistant := TranscriptEvent{
+		assistant := model.TranscriptEvent{
 			TaskID: "task-order", Role: "assistant",
 			Content: fmt.Sprintf("answer-%02d", round), TokenCount: 1,
 		}
@@ -83,7 +84,7 @@ func appendOrderedRoundsLocked(service *Service, rounds int) []TranscriptEvent {
 	return events
 }
 
-func orderRoundLabels(history []EngineMessage) []string {
+func orderRoundLabels(history []contract.EngineMessage) []string {
 	labels := make([]string, 0, len(history))
 	for _, message := range history {
 		round := -1

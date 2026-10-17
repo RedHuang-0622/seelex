@@ -5,7 +5,7 @@
 // 快照的补放"、把每份文件映射成抽屉条目。开 chip / 读盘 / 展开抽屉由 app.js 与
 // file-preview.js 承担（见那里的 openDeferred）。
 //
-// 契约（唯一事实）在后端：application/contract/dto/review_request.go（dto.ReviewRequest）
+// 契约（唯一事实）在后端：contract/dto/review_request.go（dto.ReviewRequest）
 // 与 docs/gui/schemas/session-snapshot.schema.json。快照顶层键 `review_request`
 // （缺省 / null = 该会话当前没有待审阅请求）：
 //   { request_id, files: [{ path, note?, start_line?, end_line? }], skipped?, requested_at? }

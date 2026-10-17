@@ -13,18 +13,18 @@ import (
 	"testing"
 	"time"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // boardArchiveReadCtx 是本文件的测试上下文（不借用其它测试文件的包级变量）。
 var boardArchiveReadCtx = context.Background()
 
 // boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
-func boardRouterForArchive(t *testing.T) *sessionstore.Router {
+func boardRouterForArchive(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}
@@ -34,14 +34,14 @@ func boardRouterForArchive(t *testing.T) *sessionstore.Router {
 
 // boardStoreFor 返回协调器的按会话存储入口（每次给一个新的会话存储实例：与生产
 // 装配同形，协调器只从中取 Router 与活栈）。
-func boardStoreFor(router *sessionstore.Router) func(string) *sessionstore.SessionContextStore {
-	return func(sessionID string) *sessionstore.SessionContextStore {
-		return sessionstore.NewSessionContextStore(router, sessionID)
+func boardStoreFor(router *store.Router) func(string) *store.SessionContextStore {
+	return func(sessionID string) *store.SessionContextStore {
+		return store.NewSessionContextStore(router, sessionID)
 	}
 }
 
 // writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
-func writeBoardArchiveFor(t *testing.T, router *sessionstore.Router, sessionID string, meta sessionstore.GoalBoardMeta) {
+func writeBoardArchiveFor(t *testing.T, router *store.Router, sessionID string, meta store.GoalBoardMeta) {
 	t.Helper()
 	boards, ok := router.BoardsForSession(sessionID)
 	if !ok {
@@ -49,7 +49,7 @@ func writeBoardArchiveFor(t *testing.T, router *sessionstore.Router, sessionID s
 	}
 	// board_kind 是存档的必填头（ValidateGoalBoardMeta）：用例只关心各自那条
 	// 语义，统一在这里补齐，免得每处字面量都抄一遍。
-	meta.Kind = sessionstore.BoardKindGoal
+	meta.Kind = store.BoardKindGoal
 	if err := boards.WriteGoalBoard(boardArchiveReadCtx, meta); err != nil {
 		t.Fatalf("写看板存档: %v", err)
 	}
@@ -62,15 +62,15 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 	router := boardRouterForArchive(t)
 	sessionID := "session-board-recover"
 	now := time.Now().UTC()
-	writeBoardArchiveFor(t, router, sessionID, sessionstore.GoalBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			State: sessionstore.BoardStateActive, Seq: 2,
+	writeBoardArchiveFor(t, router, sessionID, store.GoalBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			State: store.BoardStateActive, Seq: 2,
 			OpenedAt: now.Add(-time.Hour).Unix(), UpdatedAt: now.Unix(),
 		},
-		Active: &sessionstore.GoalBoardActive{
+		Active: &store.GoalBoardActive{
 			GoalID: "g-1", Title: "上一轮还在跑的目标", Status: "active",
 			Acceptance: []string{"go test 全绿"},
-			Progress: []sessionstore.GoalProgress{
+			Progress: []store.GoalProgress{
 				{At: now.Unix(), Kind: "milestone", Content: "已接线"},
 			},
 		},
@@ -105,12 +105,12 @@ func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
 	router := boardRouterForArchive(t)
 	sessionID := "session-board-closed"
 	closedAt := time.Now().UTC()
-	writeBoardArchiveFor(t, router, sessionID, sessionstore.GoalBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			State: sessionstore.BoardStateClosed, Seq: 3,
+	writeBoardArchiveFor(t, router, sessionID, store.GoalBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			State: store.BoardStateClosed, Seq: 3,
 			ClosedAt: closedAt.Unix(), ClosedReason: "goal.finish",
 		},
-		History: []sessionstore.GoalBoardHistory{{
+		History: []store.GoalBoardHistory{{
 			GoalID: "g-1", Title: "已收口目标", Status: "completed",
 			ClosedAt: closedAt.Unix(), ClosedReason: "goal.finish",
 		}},
@@ -143,7 +143,7 @@ func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
 	sessionID := "session-board-ledger"
 	// 先用 goal 域的写侧把"收口一轮 + 再开一轮"这条真实路径跑出来（存档与账本
 	// 都走生产代码，不在测试里手搓现场）。
-	session := sessionstore.NewSessionContextStore(router, sessionID)
+	session := store.NewSessionContextStore(router, sessionID)
 	if err := session.Load(boardArchiveReadCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
 	}

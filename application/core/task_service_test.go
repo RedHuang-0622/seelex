@@ -3,8 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	selexsession "github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"testing"
 )
@@ -19,12 +20,12 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
 	// 投影未收敛：计划运行中（执行器仍持有 DAG，事件可能滞后）
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes:  []PlanNode{{ID: "inspect", Status: NodeRunning}, {ID: "verify", Status: NodeCompleted}},
+		Nodes:  []model.PlanNode{{ID: "inspect", Status: NodeRunning}, {ID: "verify", Status: NodeCompleted}},
 	}
 	service.ViewMu.Unlock()
 
@@ -44,11 +45,11 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes:  []PlanNode{{ID: "inspect", Status: NodeRunning}},
+		Nodes:  []model.PlanNode{{ID: "inspect", Status: NodeRunning}},
 	}
 	// flush 钩子模拟 Sink 同步写入：追加返回后投影收敛（计划完成、节点全部终态）
 	service.components.tasks.SetTaskProjectionFlushLocked(func(ctx context.Context) error {
@@ -84,8 +85,8 @@ func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.SetTaskProjectionFlushLocked(func(ctx context.Context) error {
 		return fmt.Errorf("sink unavailable")
 	})
@@ -101,8 +102,8 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "write report", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "write report", "high", nil, model.TaskCheckpoint{})
 	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
 	for _, input := range []string{"first follow-up", "second follow-up"} {
 		runtime.Enqueue(selexsession.QueuedRequest{
@@ -133,8 +134,8 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, model.TaskCheckpoint{})
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "queued after natural stop",
 		Payload:      chatRequest{displayInput: "queued after natural stop"},
@@ -163,11 +164,11 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanPending,
-		Nodes:  []PlanNode{{ID: "inspect", Label: "inspect the call path", Status: NodePending}, {ID: "verify", Label: "verify the claim", Status: NodePending}},
+		Nodes:  []model.PlanNode{{ID: "inspect", Label: "inspect the call path", Status: NodePending}, {ID: "verify", Label: "verify the claim", Status: NodePending}},
 	}
 	service.ViewMu.Unlock()
 
@@ -206,9 +207,9 @@ func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanPending, Nodes: []model.PlanNode{{ID: "inspect", Status: NodePending}}}
 	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"missing"}`)
@@ -221,8 +222,8 @@ func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	if _, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"inspect"}`); err == nil || !strings.Contains(err.Error(), "no task structure is loaded") {
@@ -237,9 +238,9 @@ func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanPending, Nodes: []model.PlanNode{{ID: "inspect", Status: NodePending}}}
 	service.ViewMu.Unlock()
 
 	handler := service.TaskTerminalHandler(task_context.ToolCheckNode)
@@ -268,11 +269,11 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanPending,
-		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
+		Nodes:  []model.PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
 	}
 	service.ViewMu.Unlock()
 
@@ -306,11 +307,11 @@ func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanPending,
-		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
+		Nodes:  []model.PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
 	}
 	service.ViewMu.Unlock()
 
@@ -327,8 +328,8 @@ func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.StartReActBudgetLocked("task-1", ReActBudget{MaxNoProgressRounds: 2})
 	service.ViewMu.Unlock()
 

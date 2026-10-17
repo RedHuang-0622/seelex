@@ -35,7 +35,7 @@
 
 ### Event
 
-实现位置：`application/event.go:10-36`、`application/event.go:81-101`。
+实现位置：`middle/protocol/event.go:10-36`、`middle/protocol/event.go:81-101`。
 
 ```text
 protocol_version + seq + delivery_seq + revision + request_id + session_id + kind + payload

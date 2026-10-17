@@ -2,12 +2,13 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // 后台作业终态触发对话（第五个生命周期消费者，async_completion.go）。
@@ -20,9 +21,9 @@ import (
 //
 // limits 必须在**信号到达之前**改：开关是每次信号现读的（关着就一次扫描都不做），
 // 因此在构造前改最省事。
-func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime) {
+func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime) {
 	t.Helper()
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = trigger
 	})
@@ -75,7 +76,7 @@ func completedRecord(handle string, state dto.AsyncState) dto.AsyncRunRecord {
 func TestAsyncCompletionTriggersIdleSessionTurn(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a7", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a7", dto.AsyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
 
 	body := waitForTriggeredTurn(t, service, "a7")
@@ -94,7 +95,7 @@ func TestAsyncCompletionTriggersIdleSessionTurn(t *testing.T) {
 func TestAsyncCompletionTriggersOnFailureToo(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	record := completedRecord("a8", asyncStateFailed)
+	record := completedRecord("a8", dto.AsyncStateFailed)
 	record.ExitCode = 1
 	record.Summary = "failed · exit=1 · 12 行 · 900B · 末行: 1 failing"
 	runtime.asyncRuns = []dto.AsyncRunRecord{record}
@@ -107,13 +108,13 @@ func TestAsyncCompletionTriggersOnFailureToo(t *testing.T) {
 }
 
 func TestAsyncCompletionIgnoresRunningAndKilled(t *testing.T) {
-	if asyncCompletionTriggers(dto.AsyncStateRunning) {
+	if switching.AsyncCompletionTriggers(dto.AsyncStateRunning) {
 		t.Fatal("running 不是终态，不该触发")
 	}
-	if asyncCompletionTriggers(dto.AsyncStateKilled) {
+	if switching.AsyncCompletionTriggers(dto.AsyncStateKilled) {
 		t.Fatal("killed 是被终止而不是有了结果，不该触发")
 	}
-	if !asyncCompletionTriggers(asyncStateDone) || !asyncCompletionTriggers(asyncStateFailed) {
+	if !switching.AsyncCompletionTriggers(dto.AsyncStateDone) || !switching.AsyncCompletionTriggers(dto.AsyncStateFailed) {
 		t.Fatal("done / failed 是触发口径认的两个终态")
 	}
 
@@ -148,7 +149,7 @@ func TestAsyncCompletionDoesNotWakeBusySession(t *testing.T) {
 	}
 
 	// 会话忙：作业终态只发信号，不起回合。
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a11", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a11", dto.AsyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
 	assertNoTurn(t, service, "a11")
 
@@ -162,7 +163,7 @@ func TestAsyncCompletionDoesNotWakeBusySession(t *testing.T) {
 func TestAsyncCompletionTriggersOncePerHandle(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a12", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a12", dto.AsyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
 	waitForTriggeredTurn(t, service, "a12")
 	waitForChatCompletion(t, service)
@@ -185,7 +186,7 @@ func TestAsyncCompletionTriggersOncePerHandle(t *testing.T) {
 func TestAsyncCompletionStaysOffWhenDisabled(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, false, &fakeEngine{sessionID: "session-a"})
 
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a13", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a13", dto.AsyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
 
 	assertNoTurn(t, service, "a13")
@@ -196,9 +197,9 @@ func TestAsyncCompletionStaysOffWhenDisabled(t *testing.T) {
 func TestAsyncCompletionIgnoresJobWithoutSession(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	orphan := completedRecord("a14", asyncStateDone)
+	orphan := completedRecord("a14", dto.AsyncStateDone)
 	orphan.SessionID = ""
-	unknown := completedRecord("a15", asyncStateDone)
+	unknown := completedRecord("a15", dto.AsyncStateDone)
 	unknown.SessionID = "session-not-loaded"
 	runtime.asyncRuns = []dto.AsyncRunRecord{orphan, unknown}
 	runtime.asyncEvents <- struct{}{}

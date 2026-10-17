@@ -3,7 +3,7 @@
 > 文件索引：本文档展示从 LLM 决定调用工具到 MCP Server 响应返回的完整函数调用链、
 > 包/文件位置、数据转换过程，以及熔断事件异步通道。
 >
-> 关联：`mcpstack/`, `seelebridge/mcp.go`, `Seele/agent/core/tool/mcp/`
+> 关联：`backend/engine/mcp/mcpstack/`, `backend/engine/mcp/mcp.go`, `Seele/agent/core/tool/mcp/`
 
 ---
 
@@ -23,7 +23,7 @@
 > 文件索引：本文档展示从 LLM 决定调用工具到 MCP Server 响应返回的完整函数调用链、
 > 包/文件位置、数据转换过程，以及熔断事件异步通道。
 >
-> 关联：`mcpstack/`, `seelebridge/mcp.go`, `Seele/agent/core/tool/mcp/`
+> 关联：`backend/engine/mcp/mcpstack/`, `backend/engine/mcp/mcp.go`, `Seele/agent/core/tool/mcp/`
 
 ---
 
@@ -34,18 +34,18 @@ main.go (root)
   registerMCPServers()                          [mcpconfig.go:93]
     │
     ▼
-seelebridge.Runtime.AttachMCPServer()           [seelebridge/mcp.go:65]
+Runtime.AttachMCPServer()           [backend/engine/assemble/ports.go:536]
     │
     ▼
-seelebridge.Runtime.AttachMCP(ctx, cfg)         [seelebridge/mcp.go:43]
+Runtime.AttachMCP(ctx, cfg)         [backend/engine/assemble/ports.go:528]
     │
-    ├─1. BreakerEvents()                        [seelebridge/mcp.go:33]
+    ├─1. BreakerEvents()                        [backend/engine/mcp/mcp.go:79]
     │     └─ mcp.Provider.SetBreakerEventsChannel(ch)
     │           [Seele/agent/core/tool/mcp/provider.go:54]
     │         └─ mcpBreaker.SetEventsChannel(ch)
     │           [Seele/agent/core/tool/mcp/breaker.go:62]
     │
-    ├─2. go mcpstack.ListenBreaker(stack, ch)   [mcpstack/breaker.go:21]
+    ├─2. go mcpstack.ListenBreaker(stack, ch)   [backend/engine/mcp/mcpstack/breaker.go:21]
     │     └─ for evt := range ch {
     │          MCPStack.Record(call)
     │        }  ← 后台 goroutine 持续消费
@@ -55,7 +55,7 @@ seelebridge.Runtime.AttachMCP(ctx, cfg)         [seelebridge/mcp.go:43]
     │     ├─ client.Initialize()              ← MCP 握手
     │     └─ fetchTools() → ListTools()       ← 发现工具列表
     │
-    └─4. refreshMCPTools(provider)              [seelebridge/mcp.go:121]
+    └─4. refreshMCPTools(provider)              [backend/engine/mcp/mcp.go:262]
           └─ Holder.Unregister("mcp")
           └─ Holder.Register(provider)
                 └─ provider.Tools()             [Seele/agent/core/tool/mcp/provider.go:175]
@@ -167,7 +167,7 @@ mcpBreaker (在 mcp.Handler.Execute 内部)
                                     │
   ┌─────────────────────────────────┘
   ▼  (后台 goroutine)
-mcpstack.ListenBreaker(stack, ch)            [mcpstack/breaker.go:21]
+mcpstack.ListenBreaker(stack, ch)            [backend/engine/mcp/mcpstack/breaker.go:21]
   │
   ├─ 收到 BreakerEvent
   ├─ 构造 MCPCall {
@@ -176,7 +176,7 @@ mcpstack.ListenBreaker(stack, ch)            [mcpstack/breaker.go:21]
   │     Args:       {event, failures},
   │     Status:     StatusRolledBack,           ← 熔断标记
   │  }
-  └─ MCPStack.Record(call)                   [mcpstack/stack.go:128]
+  └─ MCPStack.Record(call)                   [backend/engine/mcp/mcpstack/stack.go:128]
         │
         └─ 追加到 Calls[] 数组
              CurrentIdx++
@@ -190,14 +190,14 @@ mcpstack.ListenBreaker(stack, ch)            [mcpstack/breaker.go:21]
 调用方 (future wrapper in seelebridge/tool handler)
   │
   ├─ mcpstack.BeforeCall(stack, server, tool, args, aiBacklink)
-  │   [mcpstack/interceptor.go:48]
+  │   [backend/engine/mcp/mcpstack/interceptor.go:48]
   │   ├─ 创建 MCPCall {Status: StatusPending}
   │   └─ MCPStack.Record(call)
   │
   ├─ (实际 MCP 调用) → mcp.Handler.Execute(...)
   │
   └─ mcpstack.CallRecorder.AfterCall(result, err)
-      [mcpstack/interceptor.go:90]
+      [backend/engine/mcp/mcpstack/interceptor.go:90]
         ├─ 成功 → StatusSuccess + result
         └─ 失败 → StatusFailed + error_msg
         └─ 更新 Calls[] 中的对应条目
@@ -254,11 +254,11 @@ result (string) ◄────────── 返回给 LLM                 
 | `Provider.SetBreakerEventsChannel` | Seele | `agent/core/tool/mcp/provider.go:54` |
 | `Provider.Attach` | Seele | `agent/core/tool/mcp/provider.go:93` |
 | `Provider.Tools` | Seele | `agent/core/tool/mcp/provider.go:175` |
-| `Runtime.AttachMCP` | seelebridge | `seelebridge/mcp.go:43` |
-| `Runtime.BreakerEvents` | seelebridge | `seelebridge/mcp.go:33` |
-| `MCPStack.Record` | mcpstack | `mcpstack/stack.go:128` |
-| `BeforeCall` | mcpstack | `mcpstack/interceptor.go:48` |
-| `CallRecorder.AfterCall` | mcpstack | `mcpstack/interceptor.go:90` |
-| `ListenBreaker` | mcpstack | `mcpstack/breaker.go:21` |
-| `Runtime.AttachMCPServer` | seelebridge | `seelebridge/mcp.go:65` |
+| `Runtime.AttachMCP` | assemble | `backend/engine/assemble/ports.go:528` |
+| `Runtime.BreakerEvents` | assemble | `backend/engine/mcp/mcp.go:79` |
+| `MCPStack.Record` | mcpstack | `backend/engine/mcp/mcpstack/stack.go:128` |
+| `BeforeCall` | mcpstack | `backend/engine/mcp/mcpstack/interceptor.go:48` |
+| `CallRecorder.AfterCall` | mcpstack | `backend/engine/mcp/mcpstack/interceptor.go:90` |
+| `ListenBreaker` | mcpstack | `backend/engine/mcp/mcpstack/breaker.go:21` |
+| `Runtime.AttachMCPServer` | assemble | `backend/engine/assemble/ports.go:536` |
 | `mcpConfig.go:registerMCPServers` | main | `mcpconfig.go:93` |

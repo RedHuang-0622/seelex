@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"errors"
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -18,7 +20,7 @@ func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 }
 
 func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.components.history.PrepareProviderHistory(); err != nil {
@@ -31,16 +33,16 @@ func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 }
 
 func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{
+	engine := &fakeEngine{history: []contract.EngineMessage{
 		{Role: "system", Content: "private system instruction", ContentSet: true},
 		{Role: "user", Content: "original request", ContentSet: true},
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"command":"Get-ChildItem"}`}}},
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"command":"Get-ChildItem"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: "raw command output that must not survive", ContentSet: true},
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
+	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found the call path", "")
 	service.ViewMu.Unlock()
 
@@ -68,7 +70,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 }
 
 func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.recoverProviderContext(errors.New("HTTP 504 upstream timeout"), "new request"); err != nil {
@@ -80,7 +82,7 @@ func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
 }
 
 func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{
+	engine := &fakeEngine{history: []contract.EngineMessage{
 		{Role: "system", Content: "private system instruction", ContentSet: true},
 		{Role: "user", Content: "audit source", ContentSet: true},
 		{Role: "tool", Name: "bash", Content: "raw output that must not survive", ContentSet: true},
@@ -88,8 +90,8 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "source", "completed", "found a call path", "")
 	service.ViewMu.Unlock()
 
@@ -135,7 +137,7 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 	}
 }
 
-func containsRecoveryHistory(history []EngineMessage, prefix string) bool {
+func containsRecoveryHistory(history []contract.EngineMessage, prefix string) bool {
 	for _, message := range history {
 		if strings.HasPrefix(message.Content, prefix) {
 			return true
@@ -169,7 +171,7 @@ func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)
 
 // TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint 覆盖“记录不合法”
 // 的另一半措辞（invalid params, chat content is empty）：它与 tool 配对 400 同类
-// （classifyProviderFailure 都判 providerFailureHistory），恢复之后同样重放一次
+// （contract.ClassifyProviderFailure 都判 contract.ProviderFailureHistory），恢复之后同样重放一次
 // 有界恢复回合，而不是把回合判死。被拒的记录不进入重放的请求；恢复说明只走私有
 // system 区，回合成功后由 removeProviderContextRecovery 摘掉。
 func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T) {
@@ -186,7 +188,7 @@ func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)
 
 	engine.mu.Lock()
 	inputs := append([]string(nil), engine.chatInputs...)
-	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	resent := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if len(inputs) != 2 {
 		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))
@@ -218,14 +220,14 @@ func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 }
 
 func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{
-		Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
+	engine := &fakeEngine{history: []contract.EngineMessage{{
+		Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
 	}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
@@ -247,8 +249,8 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 }
 
 func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
-	if got := classifyProviderFailure(errors.New("engine loop 16: HTTP 500: server_error")); got != providerFailureServer {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureServer)
+	if got := contract.ClassifyProviderFailure(errors.New("engine loop 16: HTTP 500: server_error")); got != contract.ProviderFailureServer {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureServer)
 	}
 }
 
@@ -258,12 +260,12 @@ func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
 // （现场中断在 session loop 15 / 22）。wire 出口已按协议剔除这种形状
 // （seelexctx 装配器的 tool 配对规整 + 本包投影修复），这里是措辞兜底。
 func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
-	err := errors.New(`engine loop 15: seelebridge: stream with account "agent-1": ` +
+	err := errors.New(`engine loop 15: seelex: stream with account "agent-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"Messages with role 'tool' must be a ` +
 		`response to a preceding message with 'tool_calls'","type":"invalid_request_error",` +
 		`"param":null,"code":"invalid_request_error"}}`)
-	if got := classifyProviderFailure(err); got != providerFailureHistory {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	if got := contract.ClassifyProviderFailure(err); got != contract.ProviderFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureHistory)
 	}
 }
 
@@ -276,13 +278,13 @@ func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
 // 判死（同上一条用例的现场形状：一轮在第 N 次 LLM 往返上被 400 打断）。
 // 措辞实测来源：docs/2026-09-24-async-tool-deferred-ack/README.md §0 探针 P4。
 func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T) {
-	err := errors.New(`session loop 0: seelebridge: stream with account "agent-1": ` +
+	err := errors.New(`session loop 0: seelex: stream with account "agent-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
 		`must be followed by tool messages responding to each 'tool_call_id'. ` +
 		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
 		`"param":null,"code":"invalid_request_error"}}`)
-	if got := classifyProviderFailure(err); got != providerFailureHistory {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	if got := contract.ClassifyProviderFailure(err); got != contract.ProviderFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureHistory)
 	}
 }
 
@@ -312,7 +314,7 @@ func TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections(t *testing.T) {
 // liveSessionLoopToolPairingFailure 是 2026-09-28 现场原文：会话循环第一次请求
 // 就带着一条没配齐回执的 assistant(tool_calls)，provider 直接 400，循环被判死。
 func liveSessionLoopToolPairingFailure() error {
-	return errors.New(`session loop 0: seelebridge: stream with account "goalplan-1": ` +
+	return errors.New(`session loop 0: seelex: stream with account "goalplan-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
 		`must be followed by tool messages responding to each 'tool_call_id'. ` +
 		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
@@ -340,7 +342,7 @@ func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T) {
 	}
 	engine.mu.Lock()
 	inputs := append([]string(nil), engine.chatInputs...)
-	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	resent := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if len(inputs) != 2 {
 		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))

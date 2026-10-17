@@ -2,11 +2,11 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // compactionIndexNoSummaryRuntime 在索引面之上再实现「这次压缩能不能拿到模型
@@ -43,8 +43,8 @@ func TestCompactionFailureLeavesContextAndStackUntouched(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-nosummary"}
-	service.components.tasks.BeginTask("task-nosummary", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-nosummary"}
+	service.components.tasks.BeginTask("task-nosummary", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-nosummary")
 	sessionID := service.Snapshot().Session.ID

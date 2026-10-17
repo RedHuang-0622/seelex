@@ -1,13 +1,17 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
-	"github.com/RedHuang-0622/seelex/application/core/worktable"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // serviceState is assembled from cohesive state groups. Components share the
@@ -17,7 +21,7 @@ import (
 // boundaries explicit.
 type serviceState struct {
 	*state.Core
-	commands *CommandRegistry
+	commands *input_router.CommandRegistry
 
 	conversationRuntimeState
 	lifecycleRuntimeState
@@ -38,25 +42,11 @@ type serviceState struct {
 	// 首次提交（materializeDraftSession）时消费并清空。
 	draft *draftSlot
 
-	// knobLoopLimit / knobReasoningEffort 是 composer 底部两条**独立**拉条的进程级
-	// 权威读数（推理强度 / 循环次数），由 knobMu 单独保护。
-	//
-	// 为什么不用 Core.ViewMu：runtime 投影每次整份重建 Snapshot.Runtime，读数必须
-	// 反哺进投影；而投影的**收集**发生在锁外、**应用**在 ViewMu 内，用同一把锁会有
-	// "收集时再取一次"的重入风险。加锁次序固定为 ViewMu → knobMu（只单向）。
-	//
-	// 为什么要单独存一份而不是"只写进 Snapshot.Runtime"：见上面那句——投影整份重建
-	// 时只写快照的读数会被抹掉。进程级（不分会话）的理由见 view_state.Deps 注释。
-	knobMu              sync.RWMutex
-	knobLoopLimit       int
-	knobReasoningEffort string
-
-	// sessionEffort 是"某会话的下一回合要用哪条 wire 思考强度"的一笔租约
-	// （sessionEffortMu 保护；索引 = 会话 ID）。定时任务声明的那条强度落在这里，
-	// 由该会话的回合起点取走并下发一次——账号池是进程级共享的，没有"按会话的
-	// 强度"这种格子，所以按会话记一笔、用完即消（见 service_knobs.go 的注释）。
-	sessionEffortMu sync.Mutex
-	sessionEffort   map[string]string
+	// knobs 是 composer 底部两条**独立**拉条（推理强度 / 循环次数）的状态与判据：
+	// 读数、按会话说强度租约与全部守卫都已随 M5-R-limitb 归位 `backend/limit.Knobs`（plan §2.8）。
+	// 宿主能力（视图锁、快照写面、引擎与档位读数）经 `serviceKnobsHost` 注入；
+	// 加锁次序仍是 视图锁 → 组件锁（只单向），见该组件与适配的注释。
+	knobs *limit.Knobs
 
 	// chatSeq 是聊天请求 ID 的单调序号（Core.ViewMu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
@@ -79,7 +69,7 @@ type serviceState struct {
 	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
-	residentOrder []string
+	residentOrder residency.Order
 
 	// loadedContentOrder 是「已加载会话可见正文」的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。内容上限 = limits.loaded_content_limit
@@ -88,7 +78,7 @@ type serviceState struct {
 	// awaiting_approval（含待批/排队输入）/ restoring / 本已无正文的会话都
 	// 不做候选。与 residentOrder 是两层独立治理：引擎驻留与否、正文留内存
 	// 与否互不替代。
-	loadedContentOrder []string
+	loadedContentOrder residency.Order
 
 	// viewEpoch 是视图切换的单调序号（Core.ViewMu 保护）：它是一支**时钟**——
 	// 每次"激活某个会话"都从这里取一个序号当该会话的视图意图值（见
@@ -137,7 +127,7 @@ type serviceState struct {
 // Workspace 为"工作区会话"草稿的工作区绑定（任务会话草稿为 nil）。
 type draftSlot struct {
 	ID        string
-	Workspace *WorkspaceInfo
+	Workspace *model.WorkspaceInfo
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -167,6 +157,6 @@ type lifecycleRuntimeState struct {
 }
 
 type promptRuntimeState struct {
-	promptStack   *PromptStack
-	effortManager *EffortManager
+	promptStack   *prompt.PromptStack
+	effortManager *prompt.EffortManager
 }

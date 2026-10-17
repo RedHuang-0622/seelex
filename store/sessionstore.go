@@ -1,0 +1,1939 @@
+// Package store provides atomic, project-scoped persistence for chat
+// sessions. The JSON v8 layout is the only active implementation; retired
+// backend enums return ErrBackendRetired.
+package store
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
+	"github.com/RedHuang-0622/Seele/types"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
+)
+
+type Backend string
+
+const (
+	BackendJSON       Backend = "json"
+	BackendSQLite     Backend = "sqlite"
+	BackendPostgreSQL Backend = "postgres"
+	BackendRedis      Backend = "redis"
+	// CompressedTurnRefPrefix 是压缩轮次原文在 tool-results 通道中的 ref
+	// 前缀（ref = "compressed:"+segment_id）。前缀属于存储通道命名空间，
+	// 压缩/检索与 fork 血缘共用同一常量，避免字符串漂移。
+	CompressedTurnRefPrefix = "compressed:"
+	// defaultMessageShardSize 是 JSON 存储分片条数的默认值
+	// （seele.yaml limits 段 message_shard_size 可调，0 = 默认）。
+	defaultMessageShardSize = 100
+	// frameworkEventLogFile 是执行事实事件库的独立 append-only 文件
+	// （v2 模块布局：不随 generation rollover 失效；见 plan.md §阶段1 P0）。
+	// 形态是**逐行日志**：一条事实 = 一行 compact JSON，追加只写尾部、
+	// 不读旧内容、不重写整份文件（锁面审计 §2.9）。升级前落盘的「整份 JSON
+	// 数组」仍可读，并在首次追加时就地迁移成逐行日志。
+	frameworkEventLogFile = "framework-events.json"
+	// frameworkEventLegacyFile 是 v1 布局下 generation 内的事件库文件名，
+	// 首次写入 v2 模块时迁移合并，之后只读回退。
+	frameworkEventLegacyFile = "events.json"
+	// eventLogTailChunk 是事件库自愈扫描分块（从尾部向前找最后一条完整记录），
+	// 保证自愈代价与事件库体积无关。
+	eventLogTailChunk = 64 * 1024
+)
+
+// ErrBackendRetired 标识已退役的会话存储后端。R1 只保留 JSON v8 实现；
+// SQLite/PostgreSQL/Redis 枚举继续保留，便于配置层给出明确、可操作的提示，
+// 但 Open 不再静默回退或打开旧链路。
+var ErrBackendRetired = errors.New("session storage: backend retired/unsupported")
+
+func retiredBackendError(backend Backend) error {
+	return fmt.Errorf("%w: %s; use %s", ErrBackendRetired, backend, BackendJSON)
+}
+
+type Config struct {
+	Backend Backend `json:"backend"`
+	Path    string  `json:"path,omitempty"`
+	DSN     string  `json:"dsn,omitempty"`
+	// SessionStorage 是 §11 存储运行参数覆盖（零值 = 用默认/limits 层）。
+	SessionStorage storeroot.Settings `json:"session_storage,omitempty"`
+}
+
+func (config Config) Normalize(defaultPath string) (Config, error) {
+	config.Backend = Backend(strings.ToLower(strings.TrimSpace(string(config.Backend))))
+	if config.Backend == "" {
+		config.Backend = BackendJSON
+	}
+	switch config.Backend {
+	case BackendJSON:
+		if strings.TrimSpace(config.Path) == "" {
+			config.Path = filepath.Join(defaultPath, "sessions-json")
+		}
+	case BackendSQLite, BackendPostgreSQL, BackendRedis:
+		return Config{}, retiredBackendError(config.Backend)
+	default:
+		return Config{}, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
+	}
+	// 覆盖链的最后一层：默认值 ← limits（由 NewRouter 注入）← 本配置。
+	config.SessionStorage = storeroot.ResolveSettings(config.SessionStorage)
+	if err := storeroot.ValidateSettings(config.SessionStorage); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+// Safe returns a configuration suitable for the GUI. Credentials are never
+// returned to the renderer; leaving DSN empty means "keep current DSN".
+func (config Config) Safe() Config {
+	copy := config
+	if copy.DSN != "" {
+		copy.DSN = "configured"
+	}
+	return copy
+}
+
+type Key struct {
+	ProjectID string
+	SessionID string
+}
+
+// Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
+//
+// 会话按 (project_id, session_id) 分区，半截键读不到任何一个会话的事实，因此这是
+// "这个键能不能指向一份会话"的**唯一**定义：装配层的团队作用域解析与看板域的取数判定
+// 都问这一句，不再各写一遍（P21 收尾：两处内联判据曾各自漏过一分量，见 m5-record §55）。
+func (key Key) Complete() bool {
+	return strings.TrimSpace(key.ProjectID) != "" && strings.TrimSpace(key.SessionID) != ""
+}
+
+type EventToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// EventKind 是 transcript 事件的显式类别，供轨迹多线谱与有序日志直接区分
+// 工具调用/LLM/用户输入等，避免仅按 role 启发式判定。
+const (
+	EventKindUserInput  = "user_input"
+	EventKindInternal   = "internal"
+	EventKindLLM        = "llm"
+	EventKindToolCall   = "tool_call"
+	EventKindToolOutput = "tool_output"
+	EventKindSystem     = "system"
+	EventKindError      = "error"
+	EventKindNotice     = "notice"
+)
+
+// EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
+func EventKindOf(event Event) string {
+	if event.Kind != "" {
+		return event.Kind
+	}
+	switch event.Role {
+	case "user":
+		return EventKindUserInput
+	case "assistant":
+		if len(event.ToolCalls) > 0 {
+			return EventKindToolCall
+		}
+		return EventKindLLM
+	case "tool":
+		return EventKindToolOutput
+	case "system":
+		return EventKindSystem
+	case "error":
+		return EventKindError
+	default:
+		return EventKindNotice
+	}
+}
+
+// Event is the append-only transcript representation shared by every
+// backend. TokenCount is recorded at event creation time so reverse reads do
+// not need to retokenize the complete archive.
+type Event struct {
+	Seq    uint64 `json:"seq"`
+	TaskID string `json:"task_id,omitempty"`
+	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引；
+	// 模块化方案 §3.2：禁止按数组位置临时推导）。无法稳定配对时为空。
+	MessageID string `json:"message_id,omitempty"`
+	// Kind 是轨迹可见的显式类别（tool_call/llm/user_input/…）；空 = 旧数据，
+	// 用 EventKindOf 回退。
+	Kind             string `json:"kind,omitempty"`
+	Role             string `json:"role"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Content          string `json:"content,omitempty"`
+	// ProviderContent 是该事件在 provider wire 上**实际发出**的正文（仅当它
+	// 与 Content 不同才落盘；空 = Content 即 wire 字节）。Content 是视图/轨迹
+	// 呈现（工具失败分类文本、超限警告的应用归档引用），ProviderContent 是
+	// 「已发出字节」。provider 投影出口（eventsToMessages / 会话 wire 装配 /
+	// 应用侧 transcript 投影）必须取它，否则跨轮重投影改写该消息、前缀缓存
+	// 自该点起失效（实测 63 B → 181 B，见
+	// docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md §8）。
+	ProviderContent string          `json:"provider_content,omitempty"`
+	ToolCallID      string          `json:"tool_call_id,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	ToolCalls       []EventToolCall `json:"tool_calls,omitempty"`
+	ResultRef       string          `json:"result_ref,omitempty"`
+	TokenCount      int             `json:"token_count"`
+	CreatedAt       time.Time       `json:"created_at"`
+	// CommitID 是 会话存储布局中"一次持久提交"的标识：同一提交内的多行事件共享
+	// 同一 commit_id；重复持久化同 commit_id 幂等（行不重复、head 不双跳）。
+	// 旧布局 transcript.log / rollout.jsonl 已随 D2/S12 退役，不再消费该
+	// 字段。
+	CommitID string `json:"commit_id,omitempty"`
+	// InOutJSON 是 message 行的"最终成功载荷"（最终成功 in/out 原样）。
+	InOutJSON json.RawMessage `json:"in_out_json,omitempty"`
+	// WireMaterial 只对 internal_user/context 行有意义：true = 可作为
+	// 内部 user 材料进入 wire（R2-FILTER），false/空 = 只服务前端/历史。
+	WireMaterial bool `json:"wire_material,omitempty"`
+	// RoleName / RoleSessionID 是群聊角色归属（§8.3）：user/main/tl/
+	// agent-team；message 行必须可识别归属，UI/审计/恢复按此区分。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	// RoundID 是一条 user 输入开启的群聊因果轮次；UnitSeq 是角色内单元序。
+	// 两者与 message 全局 seq 分离，是 sequencer 排序键（§8.3）。
+	RoundID uint64 `json:"round_id,omitempty"`
+	UnitSeq uint64 `json:"unit_seq,omitempty"`
+	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 行对应模型请求的
+	// 实际承接路由（见 middle/protocol/model.TranscriptEvent 同名字段）：随行落盘，
+	// 会话派生（derivedConversationMessages）与轨迹审计共用。
+	ConfigRole     string `json:"config_role,omitempty"`
+	ConfigModel    string `json:"config_model,omitempty"`
+	ConfigProvider string `json:"config_provider,omitempty"`
+}
+
+type ToolResult struct {
+	Ref        string    `json:"ref"`
+	Tool       string    `json:"tool"`
+	Content    string    `json:"content"`
+	Digest     string    `json:"digest"`
+	Size       int       `json:"size"`
+	TokenCount int       `json:"token_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	// Multimodal 承载本次工具结果的媒体资产引用（`media:<sha256>`）。
+	// 正文仍然是 Content（文本结果或摘要），图片等二进制只以引用形式挂在
+	// 这里：记录本身不复制字节，字节在会话媒体分区（meta/<hash>/<原名>）。
+	Multimodal []MediaRef `json:"multimodal,omitempty"`
+}
+
+// Commit replaces the bounded provider cache and append-only transcript
+// snapshot together with the latest projection. Tool results are immutable
+// additions referenced by the committed state.
+type Commit struct {
+	ProviderHistory []types.Message
+	Events          []Event
+	State           []byte
+	ToolResults     []ToolResult
+	// CompactionRecords 是本次提交时要对齐的压缩记录**全量列表**（应用侧
+	// ContextCompaction 的序列化原文，append-only、只追加不重排）。存储层按
+	// 水位（metadata/compaction.json 的 count）只追加新增的尾部行——重复提交同
+	// 一份列表是幂等空操作。调用方每次落盘都传全量，因为「盘上已有多少条」只有
+	// 水位知道，而水位是存储层的私有事实。
+	CompactionRecords []json.RawMessage
+}
+
+func (key Key) validate() error {
+	if strings.TrimSpace(key.SessionID) == "" {
+		return errors.New("session storage: session ID is required")
+	}
+	return nil
+}
+
+// validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
+// 项目作用域；项目记录不挂会话，只按 projectID 独立存储。
+func validateProjectID(projectID string) error {
+	if strings.TrimSpace(projectID) == "" {
+		return errors.New("session storage: project ID is required")
+	}
+	return nil
+}
+
+// Repository is the single persistence contract used by session.Manager.
+// WriteAtomic replaces one complete logical history. Reads therefore observe
+// either the preceding committed history or the next committed history, never
+// a mix of shards from both.
+type Repository interface {
+	WriteCommit(context.Context, Key, Commit) error
+	WriteAtomic(context.Context, Key, []types.Message) error
+	Read(context.Context, Key) ([]types.Message, error)
+	ReadRange(context.Context, Key, int, int) ([]types.Message, int, error)
+	ReadEventTail(context.Context, Key, int, int) ([]Event, error)
+	// ReadEventRange 按 EventSeq 范围（含端点）读取事件流，保持 Seq 连续性。
+	ReadEventRange(context.Context, Key, uint64, uint64) ([]Event, error)
+	// ReadConversationRange 只解析 state blob 的 conversation 模块（不解析
+	// Plan/Execution/Projection 等非 conversation 子树），offset/limit 语义
+	// 与 ReadRange 一致（limit <= 0 返回窗口尾段；总数为完整消息数）。
+	ReadConversationRange(context.Context, Key, int, int) ([]ConversationMessage, int, error)
+	ReadToolResult(context.Context, Key, string) (ToolResult, error)
+	// ListToolResults 返回会话 tool-results 通道的全部不可变结果（含
+	// compressed:<segment_id> 压缩原文归档）。fork 深拷贝需要物理复制整个
+	// 通道：先枚举，再随子会话快照逐条写入。
+	ListToolResults(context.Context, Key) ([]ToolResult, error)
+	// CurrentGeneration 返回会话当前已发布 generation（不可变快照版本；
+	// fork 血缘的 forked_from_generation 来源）。会话不存在时返回
+	// fs.ErrNotExist（唯一判据见 IsSessionNotFound；SQL 后端已退役，
+	// 不再有 sql.ErrNoRows 路径）。
+	CurrentGeneration(context.Context, Key) (string, error)
+	WriteState(context.Context, Key, []byte) error
+	ReadState(context.Context, Key) ([]byte, error)
+	// WriteContextState/ReadContextState 是会话 context 模块的独立存储通道
+	// （system prompt + Plan/Task/Skill/Compact 四栈；模块化方案 architecture.md
+	// §4）。与 state.json（SessionRecord）物理隔离，避免不同 schema 互相覆盖。
+	WriteContextState(context.Context, Key, []byte) error
+	ReadContextState(context.Context, Key) ([]byte, error)
+	// WriteProjectRecord/ReadProjectRecord 是项目级模块语义记录（plan.md §3.7.1）。
+	// 与会话记录不同，它按 projectID 独立存储、跨会话共享；会话只读（read-only
+	// contract），只有 project_refresh 工具调用写入。
+	WriteProjectRecord(context.Context, string, ProjectRecord) error
+	ReadProjectRecord(context.Context, string) (ProjectRecord, error)
+	// AppendFrameworkEvent/ReadFrameworkEvents 是会话级执行事实事件库
+	// （双轨事件的事实轨，slice 8；event.Sink → store 事件库）。
+	// 追加顺序 = 落库顺序；读取按 Seq 排序。
+	AppendFrameworkEvent(context.Context, Key, EventLogEntry) error
+	ReadFrameworkEvents(context.Context, Key) ([]EventLogEntry, error)
+	// stackJournal 返回 plan/task/goal 栈通道（my_design §2.4）的后端实现。
+	// 接口方法不可在包外实现：每个后端必须显式给出栈通道，不存在「某个后端
+	// 没有栈通道」的运行期分支。
+	stackJournal() stackJournal
+	List(context.Context, string) ([]frameworkStorage.SessionMeta, error)
+	Delete(context.Context, Key) error
+	Ping(context.Context) error
+	Close() error
+}
+
+// Router serializes access to the selected backend and supplies the active
+// project scope. Changing storage is atomic with respect to all repository
+// calls: existing operations finish on the old backend, then future calls use
+// the fully initialized replacement.
+type Router struct {
+	mu          sync.RWMutex
+	repository  Repository
+	config      Config
+	configPath  string
+	defaultPath string
+	projectID   string
+	// projectBoardRootFor 是「会话 → 项目根」的解析器（装配期注入一次；nil = 未装配）。
+	// 项目看板的落点是项目目录，而存储层不认识工作区——只有会话删除时的投影回收需要
+	// 它（见 project_board.go 的 SetProjectBoardRootFor / ReclaimProjectBoard）。
+	projectBoardRootFor func(sessionID string) string
+	// opsMu/activeOps/opsCond 统计在途 repository 操作：Repository 切换与
+	// Close 只在活跃操作归零后关闭旧后端；数据操作本身不再持有 router.mu，
+	// 不同会话的读写可并行（跨会话锁竞争消除）。
+	opsMu     sync.Mutex
+	activeOps int
+	opsCond   *sync.Cond
+	opsOnce   sync.Once
+}
+
+func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*Router, error) {
+	config, err := loadConfig(configPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		config = Config{Backend: BackendJSON}
+	}
+	// §11 覆盖链：默认值 ← seele.yaml limits.session_storage ← session-storage.json。
+	config.SessionStorage = storeroot.ResolveSettings(limits...)
+	config, err = config.Normalize(defaultPath)
+	if err != nil {
+		return nil, err
+	}
+	repository, err := Open(context.Background(), config)
+	if err != nil {
+		return nil, err
+	}
+	router := &Router{repository: repository, config: config, configPath: configPath, defaultPath: defaultPath}
+	router.opsCond = sync.NewCond(&router.opsMu)
+	return router, nil
+}
+
+func (router *Router) SetWorkspace(projectID string) {
+	router.mu.Lock()
+	router.projectID = strings.TrimSpace(projectID)
+	router.mu.Unlock()
+}
+
+func (router *Router) Workspace() string {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+	return router.projectID
+}
+
+func (router *Router) Save(sessionID string, messages []types.Message) error {
+	return router.withRepository(func(repository Repository, projectID string) error {
+		return repository.WriteAtomic(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, messages)
+	})
+}
+
+// SaveWorkspace 在显式项目作用域下原子写 provider 历史（framework
+// DurableHistory 按会话 workspace 落盘用；不改变 active write scope）。
+func (router *Router) SaveWorkspace(projectID, sessionID string, messages []types.Message) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteAtomic(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, messages)
+	})
+}
+
+func (router *Router) SaveCommit(sessionID string, commit Commit) error {
+	return router.withRepository(func(repository Repository, projectID string) error {
+		return repository.WriteCommit(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, commit)
+	})
+}
+
+func (router *Router) SaveCommitWorkspace(projectID, sessionID string, commit Commit) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteCommit(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, commit)
+	})
+}
+
+func (router *Router) Load(sessionID string) ([]types.Message, error) {
+	return router.LoadWorkspace(router.Workspace(), sessionID)
+}
+
+// LoadWorkspace reads a session from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) LoadWorkspace(projectID, sessionID string) ([]types.Message, error) {
+	var messages []types.Message
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		messages, err = repository.Read(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return messages, err
+}
+
+func (router *Router) LoadRange(sessionID string, offset, limit int) ([]types.Message, int, error) {
+	return router.LoadRangeWorkspace(router.Workspace(), sessionID, offset, limit)
+}
+
+// LoadRangeWorkspace reads a history window from an explicit project scope
+// without changing the router's active write scope.
+func (router *Router) LoadRangeWorkspace(projectID, sessionID string, offset, limit int) ([]types.Message, int, error) {
+	var messages []types.Message
+	var total int
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		messages, total, err = repository.ReadRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, offset, limit)
+		return err
+	})
+	return messages, total, err
+}
+
+// LoadEventTail reads newest complete protocol units within a token budget.
+func (router *Router) LoadEventTail(sessionID string, tokenBudget, maxUnits int) ([]Event, error) {
+	return router.LoadEventTailWorkspace(router.Workspace(), sessionID, tokenBudget, maxUnits)
+}
+
+func (router *Router) LoadEventTailWorkspace(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error) {
+	var events []Event
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		events, err = repository.ReadEventTail(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, tokenBudget, maxUnits)
+		return err
+	})
+	return events, err
+}
+
+// LoadConversationRangeWorkspace 读取会话 conversation 模块的指定窗口
+// （只解析 state blob 的 conversation 子树，不解析执行/计划模块）。
+func (router *Router) LoadConversationRangeWorkspace(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {
+	var messages []ConversationMessage
+	var total int
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		messages, total, err = repository.ReadConversationRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, offset, limit)
+		return err
+	})
+	return messages, total, err
+}
+
+// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
+// （诊断/流式重放的有界范围读取）。
+func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
+	var events []Event
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		events, err = repository.ReadEventRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, fromSeq, toSeq)
+		return err
+	})
+	return events, err
+}
+
+func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error) {
+	return router.LoadToolResultWorkspace(router.Workspace(), sessionID, resultRef)
+}
+
+func (router *Router) LoadToolResultWorkspace(projectID, sessionID, resultRef string) (ToolResult, error) {
+	var result ToolResult
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		result, err = repository.ReadToolResult(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, resultRef)
+		return err
+	})
+	return result, err
+}
+
+// ListToolResultsWorkspace 读取会话 tool-results 通道全部结果（显式项目
+// 作用域；fork 深拷贝物理复制的枚举来源）。
+func (router *Router) ListToolResultsWorkspace(projectID, sessionID string) ([]ToolResult, error) {
+	var results []ToolResult
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		results, err = repository.ListToolResults(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return results, err
+}
+
+// CurrentGenerationWorkspace 读取会话当前已发布 generation（显式项目
+// 作用域；fork 血缘快照版本绑定）。
+func (router *Router) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
+	var generation string
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		generation, err = repository.CurrentGeneration(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return generation, err
+}
+
+// SaveState stores application-owned session state next to the engine history.
+// The blob is opaque to store so JSON, SQLite, and PostgreSQL share the
+// same persistence contract without importing application packages.
+func (router *Router) SaveState(sessionID string, state []byte) error {
+	return router.SaveStateWorkspace(router.Workspace(), sessionID, state)
+}
+
+func (router *Router) SaveStateWorkspace(projectID, sessionID string, state []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, state)
+	})
+}
+
+// SaveContextState 保存会话 context 模块（system prompt + 四栈）到独立
+// 存储通道，与 SessionRecord 的 state blob 物理隔离。
+func (router *Router) SaveContextState(sessionID string, state []byte) error {
+	return router.SaveContextStateWorkspace(router.Workspace(), sessionID, state)
+}
+
+func (router *Router) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteContextState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, state)
+	})
+}
+
+// LoadContextState 读取会话 context 模块；不存在时返回 fs.ErrNotExist。
+func (router *Router) LoadContextState(sessionID string) ([]byte, error) {
+	return router.LoadContextStateWorkspace(router.Workspace(), sessionID)
+}
+
+func (router *Router) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	var state []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		state, err = repository.ReadContextState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return state, err
+}
+
+func (router *Router) LoadState(sessionID string) ([]byte, error) {
+	return router.LoadStateWorkspace(router.Workspace(), sessionID)
+}
+
+func (router *Router) LoadStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	var state []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		state, err = repository.ReadState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return state, err
+}
+
+// SaveCheckpointWorkspace 写入引擎续跑快照（S24：JSON v8 布局落
+// metadata/checkpoint.json；SQL/Redis 在 v8 化搁置前沿用 state 通道）。
+func (router *Router) SaveCheckpointWorkspace(projectID, sessionID string, payload []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		if jsonRepository, ok := repository.(*jsonRepository); ok {
+			return jsonRepository.writeCheckpointLayout(Key{ProjectID: projectID, SessionID: sessionID}, payload)
+		}
+		return repository.WriteState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, payload)
+	})
+}
+
+// LoadCheckpointWorkspace 读取引擎续跑快照；不存在返回 fs.ErrNotExist。
+func (router *Router) LoadCheckpointWorkspace(projectID, sessionID string) ([]byte, error) {
+	var payload []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		if jsonRepository, ok := repository.(*jsonRepository); ok {
+			loaded, err := jsonRepository.readCheckpointLayout(Key{ProjectID: projectID, SessionID: sessionID})
+			payload = loaded
+			return err
+		}
+		loaded, err := repository.ReadState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		payload = loaded
+		return err
+	})
+	return payload, err
+}
+
+// SaveSystemPromptWorkspace 把会话 system prompt 快照写进 metadata/system.json
+// （S19）。返回 handled=false 表示当前后端未 v8 化（调用方保留 context blob
+// 承载字段）。
+func (router *Router) SaveSystemPromptWorkspace(projectID, sessionID, prompt, version string) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.writeSystemPromptLayout(Key{ProjectID: projectID, SessionID: sessionID},
+			systemPromptSnapshot{
+				SessionID: sessionID, Prompt: prompt, Version: version, UpdatedAt: time.Now().UTC(),
+			})
+	})
+	return handled, err
+}
+
+// LoadSystemPromptWorkspace 读取会话 system prompt 快照；handled=false 表示
+// 当前后端未 v8 化（调用方回退 context blob）。
+func (router *Router) LoadSystemPromptWorkspace(projectID, sessionID string) (systemPromptSnapshot, bool, error) {
+	var snapshot systemPromptSnapshot
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		loaded, err := jsonRepository.readSystemPromptLayout(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		snapshot = loaded
+		return nil
+	})
+	return snapshot, handled, err
+}
+
+// CompactFramesWorkspace 读取 compact 通道已发布帧（S19：CompactStack 权威
+// 在 session/compact.jsonl，不再依赖 context blob 双写）。handled=false 表示
+// 当前后端未 v8 化（调用方保留 blob 承载）。
+func (router *Router) CompactFramesWorkspace(projectID, sessionID string) ([]CompactFrame, bool, error) {
+	var frames []CompactFrame
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		key := Key{ProjectID: projectID, SessionID: sessionID}
+		rows, err := readCompactFrameRows(jsonRepository.layout.compactFilePath(key))
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			frames = append(frames, CompactFrame{
+				SegmentID: row.FrameID, PrevSegmentID: row.PrevID,
+				MessageFrom: row.MessageFrom, MessageTo: row.MessageTo,
+				Summary: row.Summary, CompressedAt: row.CompressedAt,
+			})
+		}
+		return nil
+	})
+	return frames, handled, err
+}
+
+// LoadCompactionRecordsWorkspace 读取该会话的压缩记录通道（应用侧压缩记录的
+// 序列化原文，按 Seq 升序）。handled=false 表示当前后端未 v8 化（调用方保留
+// record 通道承载）。
+//
+// 这是「重启后压缩栈还在吗」的唯一读回面：压缩帧（compact 通道）一直能跨重启，
+// 而记录过去只活在 record.Execution.Task 里——那条通道在 v8/S20 已退役，因此
+// 重启后右栏压缩栈与保留窗口起点会一起消失。把记录搬到本通道后，帧与记录同属
+// 会话自己的持久事实，重启只是重新读一遍盘。
+func (router *Router) LoadCompactionRecordsWorkspace(projectID, sessionID string) ([]json.RawMessage, bool, error) {
+	var records []json.RawMessage
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		rows, err := jsonRepository.layout.readCompactionRecords(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		records = make([]json.RawMessage, 0, len(rows))
+		for _, row := range rows {
+			records = append(records, row.Payload)
+		}
+		return nil
+	})
+	if !handled {
+		return nil, false, err
+	}
+	return records, true, err
+}
+
+// LayoutV8 报告当前后端是否 v8 JSON 布局（S19 消费面迁移判据）。
+func (router *Router) LayoutV8() bool {
+	handled := false
+	_ = router.withRepositoryAt("", func(repository Repository, _ string) error {
+		_, handled = repository.(*jsonRepository)
+		return nil
+	})
+	return handled
+}
+
+// SessionMetaWorkspace 返回会话枚举 meta（message head.Meta）；handled=false
+// 表示后端未 v8 化（调用方回退 record 通道）。
+func (router *Router) SessionMetaWorkspace(projectID, sessionID string) (frameworkStorage.SessionMeta, bool, error) {
+	var meta frameworkStorage.SessionMeta
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		loaded, ok := jsonRepository.sessionMeta(Key{ProjectID: projectID, SessionID: sessionID})
+		if ok {
+			meta = loaded
+		}
+		return nil
+	})
+	return meta, handled, err
+}
+
+// SetSessionTitleWorkspace 写会话标题（v8：message head 的目录枚举面
+// head.Meta.Summary）。handled=false 表示后端未 v8 化（标题沿用 record
+// 通道，调用方无需降级处理）。
+func (router *Router) SetSessionTitleWorkspace(projectID, sessionID, title string) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.layout.setMessageTitleStored(Key{ProjectID: projectID, SessionID: sessionID}, title)
+	})
+	return handled, err
+}
+
+// SessionTitleWorkspace 只读会话标题（header-only：只打开 metadata/message.json
+// 与它同文件的 payload，不读任何消息分片）。exists=false 表示后端未 v8 化或
+// 会话头不存在（调用方按"无标题"处理，不得退化为读正文）。
+func (router *Router) SessionTitleWorkspace(projectID, sessionID string) (string, bool, error) {
+	handled := false
+	title := ""
+	exists := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		value, ok, err := jsonRepository.layout.messageTitleStored(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		title, exists = value, ok
+		return nil
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return title, handled && exists, nil
+}
+
+// FirstUserInputsWorkspace 读取会话最早的若干条用户输入正文（标题回填用；
+// 有界读：只打开首个消息分片，不读尾部窗口、不解码全量历史）。
+//
+// hasLayout=false 表示会话尚无已发布行（未落盘的新会话/空会话）：调用方按
+// "暂时没有答案"处理并稍后重试；true + 空 = 当前可读范围内确实没有用户输入。
+func (router *Router) FirstUserInputsWorkspace(projectID, sessionID string, limit int) ([]string, bool, error) {
+	var inputs []string
+	hasLayout := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		value, found, readErr := jsonRepository.layout.firstShardUserInputs(
+			Key{ProjectID: projectID, SessionID: sessionID}, limit)
+		if readErr != nil {
+			return readErr
+		}
+		inputs, hasLayout = value, found
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return inputs, hasLayout, nil
+}
+
+// SetSessionArchivedWorkspace 写/清 lifecycle archived_at（S20：已归档判据）。
+func (router *Router) SetSessionArchivedWorkspace(projectID, sessionID string, archived bool) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.layout.setLifecycleArchived(Key{ProjectID: projectID, SessionID: sessionID}, archived)
+	})
+	return handled, err
+}
+
+// SessionArchivedWorkspace 返回会话归档时间（零值 = 未归档）。
+func (router *Router) SessionArchivedWorkspace(projectID, sessionID string) (time.Time, bool, error) {
+	var archivedAt time.Time
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		at, err := jsonRepository.layout.lifecycleArchivedAt(Key{ProjectID: projectID, SessionID: sessionID})
+		archivedAt = at
+		return err
+	})
+	return archivedAt, handled, err
+}
+
+// SaveSessionDisplayMetaWorkspace / LoadSessionDisplayMetaWorkspace：项目级
+// 展示元数据（S20：JSON v8 落 project-*/session-meta.json；其余后端沿用
+// state 通道）。
+func (router *Router) SaveSessionDisplayMetaWorkspace(projectID string, payload []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		if jsonRepository, ok := repository.(*jsonRepository); ok {
+			return jsonRepository.writeSessionDisplayMetaLayout(projectID, payload)
+		}
+		return repository.WriteState(context.Background(), Key{ProjectID: projectID, SessionID: sessionMetaKey}, payload)
+	})
+}
+
+func (router *Router) LoadSessionDisplayMetaWorkspace(projectID string) ([]byte, error) {
+	var payload []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		if jsonRepository, ok := repository.(*jsonRepository); ok {
+			loaded, err := jsonRepository.readSessionDisplayMetaLayout(projectID)
+			payload = loaded
+			return err
+		}
+		loaded, err := repository.ReadState(context.Background(), Key{ProjectID: projectID, SessionID: sessionMetaKey})
+		payload = loaded
+		return err
+	})
+	return payload, err
+}
+
+// DerivedRecordWorkspace 返回派生 SessionRecord JSON（S20：record 通道退役后
+// 由 message head.Meta + message 行 + lifecycle 派生）。handled=false 表示
+// 后端未 v8 化；payload 为空 = 会话不存在。
+func (router *Router) DerivedRecordWorkspace(projectID, sessionID string) ([]byte, bool, error) {
+	var payload []byte
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		derived, err := jsonRepository.derivedRecordPayload(Key{ProjectID: projectID, SessionID: sessionID})
+		payload = derived
+		return err
+	})
+	return payload, handled, err
+}
+
+// AppendGoalAuditEvent 把 goal 审计条目写进 EVENT 通道（S19：GoalAudit 的
+// 权威从 context blob 迁到 EVENT goal.*）。handled=false 表示后端未 v8 化。
+func (router *Router) AppendGoalAuditEvent(projectID, sessionID string, entry GoalAuditEntry) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.appendGoalAuditLayout(Key{ProjectID: projectID, SessionID: sessionID}, entry)
+	})
+	return handled, err
+}
+
+// GoalAuditEvents 读取 EVENT 通道里的 goal 审计条目（按事件序，Seq 顺序编号）。
+func (router *Router) GoalAuditEvents(projectID, sessionID string) ([]GoalAuditEntry, bool, error) {
+	var entries []GoalAuditEntry
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		loaded, err := jsonRepository.readGoalAuditLayout(Key{ProjectID: projectID, SessionID: sessionID})
+		entries = loaded
+		return err
+	})
+	return entries, handled, err
+}
+
+// SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
+// 只读契约：会话不写项目记录；本方法只被 project_refresh 工具调用（plan.md §3.7.1）。
+func (router *Router) SaveProjectRecord(projectID string, record ProjectRecord) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteProjectRecord(context.Background(), projectID, record)
+	})
+}
+
+// AppendFrameworkEvent 追加执行事实事件到会话级事件库
+// （双轨事件的事实轨：event.Sink → store 事件库；slice 8）。
+func (router *Router) AppendFrameworkEvent(ctx context.Context, sessionID string, entry EventLogEntry) error {
+	return router.AppendFrameworkEventWorkspace(ctx, router.Workspace(), sessionID, entry)
+}
+
+// AppendFrameworkEventWorkspace 在显式项目作用域下追加执行事实事件。
+func (router *Router) AppendFrameworkEventWorkspace(ctx context.Context, projectID, sessionID string, entry EventLogEntry) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.AppendFrameworkEvent(ctx, Key{ProjectID: projectID, SessionID: sessionID}, entry)
+	})
+}
+
+// ReadFrameworkEvents 读取会话级执行事实事件库（按 Seq 排序）。
+func (router *Router) ReadFrameworkEvents(ctx context.Context, sessionID string) ([]EventLogEntry, error) {
+	return router.ReadFrameworkEventsWorkspace(ctx, router.Workspace(), sessionID)
+}
+
+// ReadFrameworkEventsWorkspace 在显式项目作用域下读取执行事实事件库。
+func (router *Router) ReadFrameworkEventsWorkspace(ctx context.Context, projectID, sessionID string) ([]EventLogEntry, error) {
+	var entries []EventLogEntry
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		entries, err = repository.ReadFrameworkEvents(ctx, Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return entries, err
+}
+
+// LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
+// 记录尚未构建时返回 fs.ErrNotExist，由调用方按「未构建」处理
+// （判定统一走 IsSessionNotFound；SQL 后端已退役，不再有 sql.ErrNoRows 路径）。
+func (router *Router) LoadProjectRecord(projectID string) (ProjectRecord, error) {
+	var record ProjectRecord
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		record, err = repository.ReadProjectRecord(context.Background(), projectID)
+		return err
+	})
+	return record, err
+}
+
+func (router *Router) List() []frameworkStorage.SessionMeta {
+	return router.ListWorkspace(router.Workspace())
+}
+
+// ListWorkspace lists sessions from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) ListWorkspace(projectID string) []frameworkStorage.SessionMeta {
+	var result []frameworkStorage.SessionMeta
+	_ = router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		result, err = repository.List(context.Background(), projectID)
+		return err
+	})
+	return result
+}
+
+func (router *Router) Delete(sessionID string) error {
+	return router.DeleteWorkspace(router.Workspace(), sessionID)
+}
+
+// DeleteWorkspace deletes a session from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) DeleteWorkspace(projectID, sessionID string) error {
+	if err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.Delete(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+	}); err != nil {
+		return err
+	}
+	// 派生投影与会话同批回收：项目看板是"按会话派生"的投影（可删可重建），会话没了
+	// 它的行就该退场（否则会在项目看板里留成"幽灵活"）。回收实现只有一处
+	// （ReclaimProjectBoard，见 project_board.go）——这里只做绑定，且**只在真正删成
+	// 之后**才做（失败不掩盖删除错误）。
+	return router.ReclaimProjectBoard(projectID, sessionID)
+}
+
+func (router *Router) MessageCount(sessionID string) (int, error) {
+	messages, err := router.Load(sessionID)
+	return len(messages), err
+}
+
+func (router *Router) Config() Config {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+	return router.config.Safe()
+}
+
+func (router *Router) Test(ctx context.Context, config Config) error {
+	router.mu.RLock()
+	defaultPath := router.defaultPath
+	router.mu.RUnlock()
+	normalized, err := config.Normalize(defaultPath)
+	if err != nil {
+		return err
+	}
+	repository, err := Open(ctx, normalized)
+	if err != nil {
+		return err
+	}
+	defer repository.Close()
+	return repository.Ping(ctx)
+}
+
+func (router *Router) Configure(ctx context.Context, config Config) error {
+	router.mu.RLock()
+	defaultPath := router.defaultPath
+	router.mu.RUnlock()
+	normalized, err := config.Normalize(defaultPath)
+	if err != nil {
+		return err
+	}
+	replacement, err := Open(ctx, normalized)
+	if err != nil {
+		return err
+	}
+	if err := replacement.Ping(ctx); err != nil {
+		replacement.Close()
+		return err
+	}
+	if err := saveConfig(router.configPath, normalized); err != nil {
+		replacement.Close()
+		return err
+	}
+	router.mu.Lock()
+	router.waitOpsIdleLocked()
+	old := router.repository
+	router.repository = replacement
+	router.config = normalized
+	router.mu.Unlock()
+	return old.Close()
+}
+
+func (router *Router) Close() error {
+	router.mu.Lock()
+	router.waitOpsIdleLocked()
+	repository := router.repository
+	router.repository = nil
+	router.mu.Unlock()
+	if repository == nil {
+		return nil
+	}
+	return repository.Close()
+}
+
+func (router *Router) withRepository(fn func(Repository, string) error) error {
+	// projectID 是可变写作用域（SetWorkspace 在会话切换/回合重绑时改它），
+	// 必须在锁内取快照：此前直接读字段与 SetWorkspace 的写构成数据竞争
+	// （-race 在 headless teammate 冒烟里命中的正是这一格）。
+	router.mu.RLock()
+	projectID := router.projectID
+	router.mu.RUnlock()
+	repository, projectID, ok := router.acquireRepository(projectID)
+	if !ok {
+		return errors.New("session storage: repository is closed")
+	}
+	defer router.releaseRepository()
+	return fn(repository, projectID)
+}
+
+func (router *Router) withRepositoryAt(projectID string, fn func(Repository, string) error) error {
+	repository, resolvedProjectID, ok := router.acquireRepository(projectID)
+	if !ok {
+		return errors.New("session storage: repository is closed")
+	}
+	defer router.releaseRepository()
+	return fn(repository, strings.TrimSpace(resolvedProjectID))
+}
+
+// withJSONRepositoryAt 是"仅 JSON 会话存储布局"运行期入口的统一包装（§2.13）：
+// 在锁外执行对 jsonRepository 的操作，同时登记在途操作（activeOps），使
+// Configure/Close 会等到该操作结束再关闭旧后端——此前这些入口只取锁快照
+// repository 指针就放锁，可与存储切换/Close 在旧后端上重叠。
+//
+// 与 withRepositoryAt 的差异是**口径**，不能顺带改变：
+//   - withRepositoryAt 只在 Router 已关闭时返回 error；
+//   - 本函数对"非 JSON 布局"与"Router 已关闭"都返回 (false, nil)，调用方按
+//     "该能力不可用 → 回退旧链路/降级"处理。
+//
+// 调用方确实依赖后一种口径（例：session_history.go 的 wire 装配把 err 当硬
+// 失败、直接中断会话恢复，而 ok=false 才回退到旧装配），所以这里保留
+// (false, nil)，而不是改走 withRepositoryAt 把关闭变成 error。
+func (router *Router) withJSONRepositoryAt(projectID string, fn func(*jsonRepository, string) error) (bool, error) {
+	repository, resolvedProjectID, ok := router.acquireRepository(projectID)
+	if !ok {
+		return false, nil
+	}
+	defer router.releaseRepository()
+	jsonRepo, ok := repository.(*jsonRepository)
+	if !ok {
+		return false, nil
+	}
+	return true, fn(jsonRepo, resolvedProjectID)
+}
+
+// acquireRepository 短暂取锁获取当前 repository 并登记在途操作；数据操作在
+// 锁外执行（跨会话并行），Configure/Close 会在活跃归零后再关闭旧后端。
+func (router *Router) acquireRepository(projectID string) (Repository, string, bool) {
+	router.mu.RLock()
+	repository := router.repository
+	projectID = strings.TrimSpace(projectID)
+	if repository != nil {
+		router.ensureOpsCond()
+		router.opsMu.Lock()
+		router.activeOps++
+		router.opsMu.Unlock()
+	}
+	router.mu.RUnlock()
+	return repository, projectID, repository != nil
+}
+
+func (router *Router) releaseRepository() {
+	router.opsMu.Lock()
+	router.activeOps--
+	if router.activeOps == 0 {
+		router.opsCond.Broadcast()
+	}
+	router.opsMu.Unlock()
+}
+
+func (router *Router) ensureOpsCond() {
+	router.opsOnce.Do(func() {
+		router.opsCond = sync.NewCond(&router.opsMu)
+	})
+}
+
+// waitOpsIdleLocked 等待在途操作归零（调用方持 router.mu）。
+func (router *Router) waitOpsIdleLocked() {
+	router.ensureOpsCond()
+	router.opsMu.Lock()
+	for router.activeOps > 0 {
+		router.opsCond.Wait()
+	}
+	router.opsMu.Unlock()
+}
+
+func Open(ctx context.Context, config Config) (Repository, error) {
+	switch config.Backend {
+	case BackendJSON:
+		return newJSONRepository(config.Path, config.SessionStorage)
+	case BackendSQLite, BackendPostgreSQL, BackendRedis:
+		return nil, retiredBackendError(config.Backend)
+	default:
+		return nil, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
+	}
+}
+
+type jsonRepository struct {
+	root     string
+	settings storeroot.Settings
+	mu       sync.RWMutex
+	// v8 是 会话存储布局引擎（新建会话消息/模块 head；见 对应模块文件）。
+	layout *storeEngine
+	// attempts 是 会话共享的运行期尝试缓存（wire 最近 K 条装配）。
+	attempts *attemptCache
+}
+
+func newJSONRepository(root string, settings storeroot.Settings) (*jsonRepository, error) {
+	return newJSONRepositoryWithLayout(root, settings)
+}
+
+func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error {
+	return repository.WriteCommit(context.Background(), key, Commit{ProviderHistory: messages})
+}
+
+func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit Commit) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	for _, result := range commit.ToolResults {
+		if strings.TrimSpace(result.Ref) == "" {
+			return errors.New("session storage: result ref is required")
+		}
+	}
+	return repository.writeCommitLayout(key, commit)
+}
+
+// Read 只服务 v8 布局会话（D2/S12：旧 manifest 布局会话不再打开，读接口
+// 一律返回 fs.ErrNotExist，由目录枚举在 List 层跳过并告警）。
+func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Message, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	if !repository.active(key) {
+		return nil, fs.ErrNotExist
+	}
+	return repository.readAllLayoutMessages(key)
+}
+
+func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
+	// limit <= 0 是"只取总数"语义（会话切换先探 total 再尾部窗口读）。
+	if offset < 0 {
+		return nil, 0, errors.New("session storage: invalid range")
+	}
+	if !repository.active(key) {
+		return nil, 0, fs.ErrNotExist
+	}
+	return repository.readRangeLayout(key, offset, limit)
+}
+
+func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, tokenBudget, maxUnits int) ([]Event, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	if repository.active(key) {
+		return repository.readEventTailLayout(key, tokenBudget, maxUnits)
+	}
+	// D2/S12：旧 manifest 布局会话不再打开。
+	return nil, fs.ErrNotExist
+}
+
+func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, resultRef string) (ToolResult, error) {
+	if err := key.validate(); err != nil {
+		return ToolResult{}, err
+	}
+	if strings.TrimSpace(resultRef) == "" {
+		return ToolResult{}, errors.New("session storage: result ref is required")
+	}
+	if !repository.active(key) {
+		return ToolResult{}, fs.ErrNotExist
+	}
+	if repository.active(key) {
+		if refs, refsErr := repository.layout.readToolResultRefs(key); refsErr == nil && !containsValue(refs, resultRef) {
+			return ToolResult{}, fs.ErrNotExist
+		}
+		data, err := os.ReadFile(repository.toolResultPath(key, resultRef))
+		if err != nil {
+			return ToolResult{}, err
+		}
+		var result ToolResult
+		if err := json.Unmarshal(data, &result); err != nil {
+			return ToolResult{}, err
+		}
+		if result.Ref != resultRef {
+			return ToolResult{}, errors.New("session storage: tool result reference mismatch")
+		}
+		return result, nil
+	}
+	return ToolResult{}, fs.ErrNotExist
+}
+
+func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([]ToolResult, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	if !repository.active(key) {
+		return nil, fs.ErrNotExist
+	}
+	if repository.active(key) {
+		refs, refsErr := repository.layout.readToolResultRefs(key)
+		var results []ToolResult
+		if refsErr == nil {
+			results = make([]ToolResult, 0, len(refs))
+			for _, ref := range refs {
+				data, readErr := os.ReadFile(repository.toolResultPath(key, ref))
+				if readErr != nil {
+					return nil, readErr
+				}
+				var result ToolResult
+				if err := json.Unmarshal(data, &result); err != nil {
+					return nil, err
+				}
+				if result.Ref != ref {
+					return nil, errors.New("session storage: tool result reference mismatch")
+				}
+				results = append(results, result)
+			}
+			return results, nil
+		}
+		if !errors.Is(refsErr, fs.ErrNotExist) {
+			return nil, refsErr
+		}
+		// head 缺失 = 尚无已发布 refs（含首次提交的「文件已写、head 未发布」
+		// 过渡现场）。禁止回退目录扫描：blob 文件先于 refs head 落盘，扫描
+		// 会把一次 commit 的半对 ref 暴露成撕裂快照（T-FK torn）。发布点是
+		// refs head 的原子替换，head 缺失时按空返回。
+		return []ToolResult{}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) (string, error) {
+	if err := key.validate(); err != nil {
+		return "", err
+	}
+	if repository.active(key) {
+		return repository.currentGenerationLayout(key)
+	}
+	// D2/S12：旧 manifest 布局会话不再打开。
+	return "", fs.ErrNotExist
+}
+
+func (repository *jsonRepository) WriteState(_ context.Context, key Key, state []byte) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	// D9/S20：state.json 停写（dev 阶段丢字段已接受）。
+	return nil
+}
+
+func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	// D9/S20：state.json 停读。
+	return nil, fs.ErrNotExist
+}
+
+func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record ProjectRecord) error {
+	if err := validateProjectID(projectID); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	directory := repository.projectDir(projectID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal project record: %w", err)
+	}
+	return storeroot.WriteAtomic(filepath.Join(directory, "project-record.json"), data, 0o600)
+}
+
+func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Key, entry EventLogEntry) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	directory := repository.sessionDir(key)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(directory, frameworkEventLogFile)
+	if err := repository.prepareEventLogForAppendLocked(path, directory); err != nil {
+		return err
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal event log entry: %w", err)
+	}
+	return appendEventLogLine(path, line)
+}
+
+// prepareEventLogForAppendLocked 让事件库文件处于「可逐行追加」状态，是追加
+// 路径上唯一可能读写全量内容的地方（且每个会话只发生一次）：
+//
+//   - 文件不存在：按旧口径迁移 v1 布局遗留的 events.json（含已 rollover 的
+//     generation），旧执行事实不随布局升级丢失；
+//   - 文件是升级前形态（整份 JSON 数组）：原子重写成逐行日志；
+//   - 文件已是逐行日志：只截掉崩溃截断的半条尾记录（自愈），随后交给调用方
+//     O(1) 追加。
+//
+// 判形态只看首字节、自愈只看尾部，**不读整份日志** —— 否则「追加也要读一遍
+// 全库」会把 §2.9 要消掉的线性代价原样带回来。调用方必须持有
+// jsonRepository.mu 写锁。
+func (repository *jsonRepository) prepareEventLogForAppendLocked(path, directory string) error {
+	first, size, tornCut, err := inspectEventLog(path)
+	if err != nil {
+		return err
+	}
+	if size < 0 { // 文件不存在：一次性迁移 v1 遗留的 events.json
+		legacy, legacyErr := repository.legacyFrameworkEventEntriesLocked(directory)
+		if legacyErr != nil {
+			return legacyErr
+		}
+		if len(legacy) == 0 {
+			return nil // 空库：留给追加路径的 O_CREATE 建文件
+		}
+		return writeEventLogLines(path, legacy)
+	}
+	if size == 0 {
+		return nil
+	}
+	switch first {
+	case '[': // 升级前形态（整份 JSON 数组）：一次性重写成逐行日志
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		entries, decodeErr := decodeLegacyEventLogArray(data)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		return writeEventLogLines(path, entries)
+	case '{': // 逐行日志
+		if tornCut < 0 {
+			return nil
+		}
+		return os.Truncate(path, tornCut)
+	default:
+		// 首字节既不是 '{' 也不是 '['（前导空白等手工文件）：退回整份判定，
+		// 属罕见路径，不进入热路径代价。
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if isLegacyEventLogArray(data) {
+			entries, decodeErr := decodeLegacyEventLogArray(data)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			return writeEventLogLines(path, entries)
+		}
+		if tornCut < 0 {
+			return nil
+		}
+		return os.Truncate(path, tornCut)
+	}
+}
+
+// writeEventLogLines 原子发布逐行日志（迁移路径专用：每会话只发生一次）。
+func writeEventLogLines(path string, entries []EventLogEntry) error {
+	lines, err := encodeEventLogLines(entries)
+	if err != nil {
+		return err
+	}
+	return storeroot.WriteAtomic(path, lines, 0o600)
+}
+
+// appendEventLogLine 以 O_APPEND 追加一行（一条事实 = 一行）：不读旧内容、
+// 不重写整份文件，临界区长度与事件库体积解耦（锁面审计 §2.9）。写侧不做
+// fsync，与 writeAtomic 同口径（进程崩溃不丢已写页，掉电丢未落盘页）。
+func appendEventLogLine(path string, line []byte) error {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(append(line, '\n'))
+	return err
+}
+
+// inspectEventLog 一次打开就拿到追加前要判断的三件事：形态（首字节）、体积、
+// 崩溃截断位置（tornCut ≥ 0 表示需要截断；-1 表示完好）。
+// size < 0 表示文件不存在。只读首字节与尾部分块，不读整份日志。
+func inspectEventLog(path string) (first byte, size int64, tornCut int64, err error) {
+	tornCut = -1
+	file, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, -1, tornCut, nil
+	}
+	if err != nil {
+		return 0, 0, tornCut, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, 0, tornCut, err
+	}
+	size = info.Size()
+	if size == 0 {
+		return 0, size, tornCut, nil
+	}
+	head := make([]byte, 1)
+	if _, err := file.ReadAt(head, 0); err != nil && !errors.Is(err, io.EOF) {
+		return 0, size, tornCut, err
+	}
+	first = head[0]
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, size-1); err != nil && !errors.Is(err, io.EOF) {
+		return first, size, tornCut, err
+	}
+	if last[0] == '\n' {
+		return first, size, tornCut, nil
+	}
+	tornCut, err = scanEventLogTailCut(file, size)
+	return first, size, tornCut, err
+}
+
+// scanEventLogTailCut 从尾部向前按块找最后一条完整记录的末尾
+// （0 = 整份文件都是半条记录）。
+func scanEventLogTailCut(file *os.File, size int64) (int64, error) {
+	buffer := make([]byte, eventLogTailChunk)
+	for end := size; end > 0; {
+		start := end - int64(len(buffer))
+		if start < 0 {
+			start = 0
+		}
+		chunk := buffer[:end-start]
+		if _, err := file.ReadAt(chunk, start); err != nil && !errors.Is(err, io.EOF) {
+			return -1, err
+		}
+		if index := bytes.LastIndexByte(chunk, '\n'); index >= 0 {
+			return start + int64(index) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
+}
+
+// encodeEventLogLines 把事件序列编成逐行日志（每行一条 compact JSON + 换行）。
+func encodeEventLogLines(entries []EventLogEntry) ([]byte, error) {
+	var buffer bytes.Buffer
+	for _, entry := range entries {
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("session storage: marshal event log: %w", err)
+		}
+		buffer.Write(line)
+		buffer.WriteByte('\n')
+	}
+	return buffer.Bytes(), nil
+}
+
+// isLegacyEventLogArray 判定事件库是不是升级前的「整份 JSON 数组」形态。
+func isLegacyEventLogArray(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+func decodeLegacyEventLogArray(data []byte) ([]EventLogEntry, error) {
+	var entries []EventLogEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("session storage: decode event log: %w", err)
+	}
+	return entries, nil
+}
+
+// decodeEventLog 解事件库：逐行日志（现形态）与整份 JSON 数组（升级前形态）都认。
+// 不以换行结束的尾行 = 崩溃截断的半条记录，读时丢弃（下一次追加会把它截掉），
+// 已结束的行损坏仍显式报错。
+func decodeEventLog(data []byte) ([]EventLogEntry, error) {
+	if isLegacyEventLogArray(data) {
+		return decodeLegacyEventLogArray(data)
+	}
+	lines := bytes.Split(data, []byte{'\n'})
+	entries := make([]EventLogEntry, 0, len(lines))
+	for index, raw := range lines {
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 {
+			continue
+		}
+		var entry EventLogEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			if index == len(lines)-1 && !bytes.HasSuffix(data, []byte{'\n'}) {
+				break // 崩溃截断的半条尾记录
+			}
+			return nil, fmt.Errorf("session storage: decode event log: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// dedupeEventLogEntries 同 Seq 只留最后追加的那条（后写者胜），与旧「读整份 →
+// mergeEventLogEntries」的幂等口径一致：调用方已按 Seq 升序排好，这里保持顺序。
+func dedupeEventLogEntries(entries []EventLogEntry) []EventLogEntry {
+	if len(entries) < 2 {
+		return entries
+	}
+	kept := make([]EventLogEntry, 0, len(entries))
+	seen := make(map[uint64]struct{}, len(entries))
+	for index := len(entries) - 1; index >= 0; index-- {
+		if _, ok := seen[entries[index].Seq]; ok {
+			continue
+		}
+		seen[entries[index].Seq] = struct{}{}
+		kept = append(kept, entries[index])
+	}
+	for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+		kept[left], kept[right] = kept[right], kept[left]
+	}
+	return kept
+}
+
+func (repository *jsonRepository) ReadFrameworkEvents(_ context.Context, key Key) ([]EventLogEntry, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	directory := repository.sessionDir(key)
+	path := filepath.Join(directory, frameworkEventLogFile)
+	if _, err := os.Stat(path); err == nil {
+		return repository.readEventLogLocked(path)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	// v1 回退：旧布局未迁移的会话按 generation 扫描读取。
+	return repository.legacyFrameworkEventEntriesLocked(directory)
+}
+
+// legacyFrameworkEventEntriesLocked 扫描 v1 布局遗留的 events.json（所有
+// generation 目录及 session 根目录），按 Seq 去重合并。调用方必须持有
+// jsonRepository.mu（读锁或写锁）。
+func (repository *jsonRepository) legacyFrameworkEventEntriesLocked(directory string) ([]EventLogEntry, error) {
+	var merged []EventLogEntry
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []EventLogEntry{}, nil
+		}
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "generation-") {
+			continue
+		}
+		legacy, readErr := repository.readEventLogLocked(filepath.Join(directory, entry.Name(), frameworkEventLegacyFile))
+		if readErr != nil {
+			return nil, readErr
+		}
+		merged = mergeEventLogEntries(merged, legacy)
+	}
+	legacy, err := repository.readEventLogLocked(filepath.Join(directory, frameworkEventLegacyFile))
+	if err != nil {
+		return nil, err
+	}
+	return mergeEventLogEntries(merged, legacy), nil
+}
+
+// mergeEventLogEntries 合并两个按 Seq 升序的事件库切片，同 Seq 保留先出现的
+// 条目（幂等：迁移与追加的重复落库不会产生重复事实）。
+func mergeEventLogEntries(primary, extra []EventLogEntry) []EventLogEntry {
+	if len(extra) == 0 {
+		return primary
+	}
+	if len(primary) == 0 {
+		return append([]EventLogEntry(nil), extra...)
+	}
+	merged := make([]EventLogEntry, 0, len(primary)+len(extra))
+	seen := make(map[uint64]struct{}, len(primary)+len(extra))
+	appendUnique := func(entry EventLogEntry) {
+		if _, ok := seen[entry.Seq]; ok {
+			return
+		}
+		seen[entry.Seq] = struct{}{}
+		merged = append(merged, entry)
+	}
+	index := 0
+	for _, entry := range extra {
+		for index < len(primary) && primary[index].Seq < entry.Seq {
+			appendUnique(primary[index])
+			index++
+		}
+		appendUnique(entry)
+	}
+	for ; index < len(primary); index++ {
+		appendUnique(primary[index])
+	}
+	return merged
+}
+
+// readEventLogLocked 读取事件库（不存在 → 空库；损坏 → 显式错误），按 Seq
+// 升序返回，同 Seq 只留最后追加的那条（幂等，与旧「读整份 → merge」口径一致）。
+// 调用方必须持有 jsonRepository.mu（读锁或写锁）。
+func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEntry, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []EventLogEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	entries, err := decodeEventLog(data)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Seq < entries[j].Seq })
+	return dedupeEventLogEntries(entries), nil
+}
+
+func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (ProjectRecord, error) {
+	if err := validateProjectID(projectID); err != nil {
+		return ProjectRecord{}, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	data, err := os.ReadFile(filepath.Join(repository.projectDir(projectID), "project-record.json"))
+	if err != nil {
+		return ProjectRecord{}, err
+	}
+	var record ProjectRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return ProjectRecord{}, err
+	}
+	return record, nil
+}
+
+func (repository *jsonRepository) List(_ context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
+	entries, err := os.ReadDir(repository.projectDir(projectID))
+	if os.IsNotExist(err) {
+		return []frameworkStorage.SessionMeta{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := make([]frameworkStorage.SessionMeta, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		directory := filepath.Join(repository.projectDir(projectID), entry.Name())
+		if meta, ok := readMetaFromDir(directory); ok {
+			result = append(result, meta)
+			continue
+		}
+		// D2/S12：只有 manifest.json 的旧布局目录不再打开——跳过（内容保留
+		// 在磁盘上，由用户/运维处置），避免把旧会话当成 v8 会话载入。
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
+	return result, nil
+}
+
+func (repository *jsonRepository) Delete(_ context.Context, key Key) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if err := storeroot.RemoveAllWithBackoff(repository.sessionDir(key)); err != nil {
+		return err
+	}
+	// 派生投影的回收**不在这里**：项目看板的落点是项目目录（`<项目根>/.seelex/board`），
+	// 而存储层不认识"工作区 → 项目根"这条外部事实。回收挂在 Router.DeleteWorkspace
+	// （见 project_board.go 的 ReclaimProjectBoard + SetProjectBoardRootFor）。
+	return nil
+}
+
+func (repository *jsonRepository) Ping(context.Context) error { return nil }
+func (repository *jsonRepository) Close() error {
+	storeroot.ReleaseDataRootLock(repository.root)
+	return nil
+}
+
+func (repository *jsonRepository) writeToolResultLocked(key Key, result ToolResult) error {
+	if strings.TrimSpace(result.Ref) == "" {
+		return errors.New("session storage: result ref is required")
+	}
+	directory := filepath.Dir(repository.toolResultPath(key, result.Ref))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return storeroot.WriteAtomic(repository.toolResultPath(key, result.Ref), data, 0o600)
+}
+
+func (repository *jsonRepository) projectDir(projectID string) string {
+	return filepath.Join(repository.root, "project-"+storeroot.Hash(projectID))
+}
+func (repository *jsonRepository) sessionDir(key Key) string {
+	return filepath.Join(repository.projectDir(key.ProjectID), "session-"+storeroot.Hash(key.SessionID))
+}
+func (repository *jsonRepository) toolResultPath(key Key, resultRef string) string {
+	// S13：结果记录与超大输出同走 big_tool_result 单通道（独立后缀，避开
+	// blob GC 的 .jsonl 枚举；旧 tool-results/ 目录不再产生）。
+	return filepath.Join(repository.layout.blobDir(key), storeroot.Hash(resultRef)+".result.json")
+}
+
+func eventTokenCount(events []Event) int {
+	total := 0
+	for _, event := range events {
+		total += event.TokenCount
+	}
+	return total
+}
+
+// selectEventTailWindow 选取尾窗，并回报尾窗的起始单元下标。
+//
+// startUnit 是返回事件所属第一个单元在 CompleteEventUnits(events) 中的下标；
+// 未选中任何单元时等于单元总数（即尾窗为空，全部单元都在窗口之前）。调用方
+// 据此就能在**同一个计数空间**里确定"窗口之前"的区间，不必再把两个事件列表
+// 各自切单元后相减——那会因切分边界不一致而轻微错位。
+func selectEventTailWindow(events []Event, tokenBudget, maxUnits int) (tail []Event, startUnit int) {
+	units := CompleteEventUnits(events)
+	if tokenBudget <= 0 || maxUnits <= 0 {
+		return []Event{}, len(units)
+	}
+	capacity := maxUnits
+	if capacity > len(units) {
+		capacity = len(units) // MaxInt 全量读等大上限不得触发 makeslice panic
+	}
+	selected := make([][]Event, 0, capacity)
+	tokens := 0
+	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {
+		unitTokens := eventTokenCount(units[index])
+		if tokens+unitTokens > tokenBudget {
+			break
+		}
+		selected = append(selected, units[index])
+		tokens += unitTokens
+	}
+	result := make([]Event, 0)
+	for index := len(selected) - 1; index >= 0; index-- {
+		result = append(result, selected[index]...)
+	}
+	return result, len(units) - len(selected)
+}
+
+func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
+	tail, _ := selectEventTailWindow(events, tokenBudget, maxUnits)
+	return tail
+}
+
+// CompleteEventUnits 把事件流切分为可见协议轮次单元（轮）：user 轮、
+// assistant 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿
+// tool 事件、未知角色与控制块不构成单元。中断（残缺）工具链轮与未回复的
+// user 请求仍构成开放单元 —— UI 可见的轮次不得因单元切分而从冷加载
+// provider 上下文消失；缺失的 tool 结果由装配层请求前补齐。
+func CompleteEventUnits(events []Event) [][]Event {
+	units := make([][]Event, 0, len(events))
+	for index := 0; index < len(events); {
+		event := events[index]
+		switch {
+		case event.Role == "user":
+			unit, next := userEventUnit(events, index)
+			if len(unit) > 0 {
+				units = append(units, unit)
+			}
+			index = next
+		case event.Role == "assistant" && len(event.ToolCalls) == 0:
+			units = append(units, append([]Event(nil), event))
+			index++
+		case event.Role == "assistant" && len(event.ToolCalls) > 0:
+			unit, next, complete := toolEventUnit(events, index)
+			if complete {
+				units = append(units, unit)
+			} else if len(unit) > 0 {
+				// 残缺（中断）工具链：保留已记录部分为开放单元，从链断裂点
+				// 续扫 —— 不整体作废、不连坐跳到下一个 user。
+				units = append(units, unit)
+			}
+			index = next
+		default:
+			// Orphan tool results and unknown roles are archive evidence but
+			// never become provider context by themselves.
+			index++
+		}
+	}
+	return units
+}
+
+func userEventUnit(events []Event, start int) ([]Event, int) {
+	unit := []Event{events[start]}
+	index := start + 1
+	for index < len(events) && events[index].Role != "user" {
+		event := events[index]
+		if event.Role != "assistant" {
+			// 孤儿 tool / 异常角色：轮在此终止，产出已保留内容；孤儿消息由
+			// 外层 default 跳过。
+			return unit, index
+		}
+		if len(event.ToolCalls) == 0 {
+			unit = append(unit, event)
+			return unit, index + 1
+		}
+		toolUnit, next, _ := toolEventUnit(events, index)
+		// 工具链完整或残缺（中断）都并入该轮；残缺链的缺失结果由装配层
+		// 补齐。next 落在链断裂点，后续同轮文本/下一 user 不会被跳转丢弃。
+		unit = append(unit, toolUnit...)
+		index = next
+	}
+	// 到达下一个 user 或流末：产出开放单元。覆盖残缺工具链收尾、无回复的
+	// user 请求（会话关闭/取消/进程在首个模型响应前退出）等可见轮次 ——
+	// 丢弃会让持久化会话在 UI 可见但冷加载 provider 上下文缺失。
+	return unit, index
+}
+
+func toolEventUnit(events []Event, start int) ([]Event, int, bool) {
+	assistant := events[start]
+	wanted := make(map[string]struct{}, len(assistant.ToolCalls))
+	for _, call := range assistant.ToolCalls {
+		if call.ID == "" {
+			return nil, start + 1, false
+		}
+		if _, duplicate := wanted[call.ID]; duplicate {
+			return nil, start + 1, false
+		}
+		wanted[call.ID] = struct{}{}
+	}
+	unit := []Event{assistant}
+	seen := make(map[string]struct{}, len(wanted))
+	index := start + 1
+	for index < len(events) && len(seen) < len(wanted) {
+		event := events[index]
+		if event.Role != "tool" {
+			break
+		}
+		if _, ok := wanted[event.ToolCallID]; !ok {
+			break
+		}
+		if _, duplicate := seen[event.ToolCallID]; duplicate {
+			break
+		}
+		seen[event.ToolCallID] = struct{}{}
+		unit = append(unit, event)
+		index++
+	}
+	return unit, index, len(seen) == len(wanted)
+}
+
+func appendUnique(values []string, value string) []string {
+	if containsValue(values, value) {
+		return values
+	}
+	return append(values, value)
+}
+func containsValue(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+func loadConfig(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var config Config
+	err = json.Unmarshal(data, &config)
+	return config, err
+}
+func saveConfig(path string, config Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return storeroot.WriteAtomic(path, data, 0o600)
+}

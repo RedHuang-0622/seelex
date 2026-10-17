@@ -4,7 +4,7 @@ package core
 //
 // 历史：装配层压缩的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
 // 帧正文落存储」放在**单个** Core.ViewMu 写锁临界区里，而生产推帧会回调宿主读面
-// （main.go 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
+// （wiring/bootstrap 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
 // 于是同 goroutine 持写锁再取读锁 = 确定性自锁（f643f2d 修，见
 // docs/devlog/2026-09-29-compaction-fold-lock-granularity.md）。
 //
@@ -24,17 +24,17 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
 
 // reentrantGateIndexRuntime 是"生产形状"的索引面桩：
 //
-//   - 推帧内部先读一次视图快照（= main.go 的 CompressedTurnArchiver.SessionIDProvider
+//   - 推帧内部先读一次视图快照（= wiring/bootstrap 的 CompressedTurnArchiver.SessionIDProvider
 //     → app.Snapshot() → ViewMu.RLock）；
 //   - 第一次推帧阻塞到 release（= 前缀重放厚摘要的模型调用 / 原文归档写盘），
 //     其余推帧直接放行（同会话链式栈由 compactionPushLock 串行）。
@@ -81,8 +81,8 @@ func triggerLivenessFixture(t *testing.T, requestID string) (*Service, *reentran
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	runtime.snapshot = func() { _ = service.Snapshot() }
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
 	sessionID := service.Snapshot().Session.ID
@@ -107,7 +107,7 @@ func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, i
 	case <-runtime.entered:
 	case <-inFlight:
 		t.Fatalf("%s 在进入推帧之前就返回了，夹具没走到判定点", what)
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatalf("5s 内没有进入推帧（夹具失效）：%s", what)
 	}
 }
@@ -116,19 +116,19 @@ func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, i
 // 这条入口把慢活放进了临界区（或与 pushLock 互等）。
 func assertInteractionFaceLive(t *testing.T, service *Service, what string) {
 	t.Helper()
-	if !returnsWithin(time.Second, func() {
+	if !returnsWithin(testutil.Budget(time.Second), func() {
 		service.ViewMu.Lock()
 		service.ViewMu.Unlock()
 	}) {
 		t.Fatalf("%s：推帧期间 ViewMu 写锁拿不到（推帧落在临界区内 = 自锁/互等）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.Snapshot() }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Snapshot() }) {
 		t.Fatalf("%s：推帧期间快照取不到（会话切不动、列表与右栏不刷新）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.Submit(context.Background(), "hello") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Submit(context.Background(), "hello") }) {
 		t.Fatalf("%s：推帧期间提交入口不返回（消息连队列都进不去）", what)
 	}
-	if !returnsWithin(time.Second, func() { _ = service.resumeSession("session-other") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.resumeSession("session-other") }) {
 		t.Fatalf("%s：推帧期间切会话不返回", what)
 	}
 }
@@ -156,7 +156,7 @@ func TestAutoCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("释放推帧后自动装配失败：%v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后自动装配仍未返回")
 	}
 }
@@ -182,7 +182,7 @@ func TestMaintenanceCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("释放推帧后维护压缩失败：%v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后维护压缩仍未返回")
 	}
 }
@@ -220,7 +220,7 @@ func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T) {
 	release()
 	select {
 	case <-commandReturned:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Budget(5 * time.Second)):
 		t.Fatal("释放推帧后 /compact 仍未返回")
 	}
 }
@@ -261,7 +261,7 @@ func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testin
 	release()
 	select {
 	case <-commandDone:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testutil.Budget(10 * time.Second)):
 		t.Fatal("释放推帧后 /compact 仍未返回（显式与自动互等）")
 	}
 	select {
@@ -269,7 +269,7 @@ func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testin
 		if err != nil {
 			t.Fatalf("释放推帧后自动装配失败：%v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(testutil.Budget(10 * time.Second)):
 		t.Fatal("释放推帧后自动装配仍未返回")
 	}
 }
@@ -282,8 +282,8 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
 	sessionID := service.Snapshot().Session.ID

@@ -9,15 +9,15 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。
-func waitRoleToolEvent(t *testing.T, subscription Subscription, wantKind EventKind) Event {
+func waitRoleToolEvent(t *testing.T, subscription event.Subscription, wantKind event.EventKind) event.Event {
 	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {

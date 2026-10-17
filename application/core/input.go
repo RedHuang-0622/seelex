@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 )
 
@@ -85,19 +86,19 @@ func (service *Service) endSkill() error {
 	// 恢复的是**当前生效的循环上限**（用户用拉条改过就是改过的值），不是档位默认值
 	// ——旧实现直接取 maxLoopsFor(档位)，于是"把循环次数拧到 600"会在一次退栈后
 	// 无声回到 384。
-	loopLimit := service.currentLoopLimit()
+	loopLimit := service.knobs.CurrentLoopLimit()
 	for _, layer := range service.promptStack.Layers() {
 		if layer.Kind == "skill" && layer.Name == "goal" {
 			loopLimit = Limits().InputLoopLimit // limits.input_loop_limit（默认 9999 ≈ 无上限）
 			break
 		}
 	}
-	service.applyLoopLimit(loopLimit)
+	service.knobs.ApplyLoopLimit(loopLimit)
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }
 
-func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error {
+func (service *Service) activateSkillAndSubmit(ctx context.Context, skill model.SkillInfo, args []string, input string) error {
 	service.prepareCompletedTaskBoundary()
 	service.applySkill(skill)
 	if len(args) == 0 {
@@ -119,15 +120,15 @@ func (service *Service) prepareCompletedTaskBoundary() {
 	service.ViewMu.RUnlock()
 	if terminal {
 		service.promptStack.ClearKind("skill")
-		service.applyLoopLimit(service.currentLoopLimit())
+		service.knobs.ApplyLoopLimit(service.knobs.CurrentLoopLimit())
 	}
 }
 
-func (service *Service) applySkill(skill SkillInfo) {
+func (service *Service) applySkill(skill model.SkillInfo) {
 	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {
-		service.applyLoopLimit(Limits().InputLoopLimit)
+		service.knobs.ApplyLoopLimit(Limits().InputLoopLimit)
 	}
 	service.addNotice("加载 Skill: " + skill.Name)
 }

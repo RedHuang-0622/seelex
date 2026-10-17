@@ -17,7 +17,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // sessionSwitchBoardRuntime 是**按会话**回答团队看板的运行时桩：上一个会话说"有"、

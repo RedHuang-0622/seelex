@@ -107,7 +107,7 @@ test("④ 来源标签映射：builtin=随发行包 / vendored=第三方移植 /
 
 test("⑤ 缺失来源类型 ≠ 缺失载入根：不编 kind，但载入根照报（不默认成 builtin）", () => {
   // 后端对**未登记**插件**刻意**只下发 source_root——类型两键整键缺席（omitempty），
-  // 载入位置必须可读（application/model/state.go 的 source_root；断言见
+  // 载入位置必须可读（middle/protocol/model/state.go 的 source_root；断言见
   // application/core/plugin_source_projection_test.go「未登记插件的载入位置仍必须可读」）。
   // 用户当面问的「这些插件我没在我的 plugins/ 下见过」正是靠这句载入根解释 ⇒
   // 无 kind 时**不得**整块退场（那会让这批行"裸奔"成只有插件名）。

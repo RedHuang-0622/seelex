@@ -8,12 +8,13 @@ import (
 	"time"
 
 	frameworksession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
-	"github.com/RedHuang-0622/seelex/seelebridge"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type guiChainEngine struct {
@@ -73,7 +74,7 @@ func (*guiChainEngine) SetSystemPrompt(string)               {}
 func (*guiChainEngine) SetMaxLoops(int)                      {}
 func (*guiChainEngine) TraceText() string                    { return "" }
 func (*guiChainEngine) TokenCount() string                   { return "0" }
-func (*guiChainEngine) AppendHistory(types.Message)          {}
+func (*guiChainEngine) AppendHistory(contract.EngineMessage) {}
 func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {
@@ -110,8 +111,8 @@ func (runtime *guiChainRuntime) SetFullAccessFor(sessionID string, on bool) {
 	}
 	runtime.mu.Unlock()
 }
-func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
-func (*guiChainRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
+func (*guiChainRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection) {}
+func (*guiChainRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)       {}
 func (runtime *guiChainRuntime) PermissionTier() string {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -128,27 +129,22 @@ func (runtime *guiChainRuntime) SetPermissionTierFor(sessionID, tier string) err
 	runtime.SetFullAccessFor(sessionID, normalized == dto.PermissionTierFull)
 	return nil
 }
-func (*guiChainRuntime) DrainSubagentContexts() []string         { return nil }
-func (*guiChainRuntime) SetPlanPolicy(dto.PlanPolicy)            {}
-func (*guiChainRuntime) SetPlanPolicyFor(string, dto.PlanPolicy) {}
-func (*guiChainRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
-	return dto.PlanPreflight{}, nil
-}
-func (*guiChainRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.ReplanMetrics{} }
-func (*guiChainRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
-func (*guiChainRuntime) BindProjectRoot(string) error                { return nil }
-func (*guiChainRuntime) UnbindProjectRoot()                          {}
-func (*guiChainRuntime) BindProjectRootFor(string, string) error     { return nil }
-func (*guiChainRuntime) UnbindProjectRootFor(string)                 {}
-func (*guiChainRuntime) SetCurrentTaskBatch(string, string)          {}
-func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
-func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
-func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
-func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
-func (*guiChainRuntime) ReleaseSessionAsync(string) int              { return 0 }
-func (*guiChainRuntime) AsyncPendingFor(string) int                  { return 0 }
-func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord     { return nil }
-func (*guiChainRuntime) AsyncRunEvents() <-chan struct{}             { return nil }
+func (*guiChainRuntime) DrainSubagentContexts() []string                 { return nil }
+func (*guiChainRuntime) SetSubagentPolicy(dto.SubagentPolicy)            {}
+func (*guiChainRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy) {}
+func (*guiChainRuntime) BindProjectRoot(string) error                    { return nil }
+func (*guiChainRuntime) UnbindProjectRoot()                              {}
+func (*guiChainRuntime) BindProjectRootFor(string, string) error         { return nil }
+func (*guiChainRuntime) UnbindProjectRootFor(string)                     {}
+func (*guiChainRuntime) SetCurrentTaskBatch(string, string)              {}
+func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                    { return nil }
+func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error     { return nil }
+func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord                  { return nil }
+func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord         { return nil }
+func (*guiChainRuntime) ReleaseSessionAsync(string) int                  { return 0 }
+func (*guiChainRuntime) AsyncPendingFor(string) int                      { return 0 }
+func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord         { return nil }
+func (*guiChainRuntime) AsyncRunEvents() <-chan struct{}                 { return nil }
 func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -172,22 +168,21 @@ func (*guiChainRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, e
 }
 func (*guiChainRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
 func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
-func (*guiChainRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
-	return nil
+func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
+	return dto.ServedRoute{}, false
 }
-func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) { return dto.ServedRoute{}, false }
 func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (*guiChainRuntime) SetSessionWorkspace(string, string)          {}
-func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+func (*guiChainRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo {
 	return nil
 }
-func (*guiChainRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+func (*guiChainRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus {
 	return nil
 }
-func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (*guiChainRuntime) ScheduleTask(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, nil
 }
-func (*guiChainRuntime) UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (*guiChainRuntime) UpdateScheduledTask(context.Context, string, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, nil
 }
 func (*guiChainRuntime) CancelScheduledTask(string) error    { return nil }
@@ -246,11 +241,11 @@ func (*guiChainSessions) Workspace() string   { return "" }
 
 func newGUIChainApplication(t *testing.T) (*application.Service, *application.ApprovalBroker) {
 	t.Helper()
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
-	hooks := application.NewToolHookBridge()
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
+	hooks := wiring.NewToolHookBridge()
 	engine := &guiChainEngine{hooks: hooks.Hooks()}
-	app, err := application.New(application.Dependencies{
+	app, err := wiring.New(application.Dependencies{
 		Engine: engine, Runtime: &guiChainRuntime{}, Plugins: &guiChainPlugins{},
 		Skills: &guiChainSkills{}, Sessions: &guiChainSessions{}, Events: events, Approval: approval,
 	})

@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestAdaptSubagentConversation 验证会话记录适配：截断（evidence_chars）、
@@ -31,9 +32,13 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 	}}
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
-	// 经 plan_load 播种节点（权威 Snapshot 投影）。
-	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
-	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	// 历史 Plan 投影：直接种一个含 worker 节点的只读状态。
+	svc.ViewMu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
+		Status: PlanRunning,
+		Nodes:  []model.PlanNode{{ID: "worker", Status: NodePending}},
+	}
+	svc.ViewMu.Unlock()
 
 	detail, err := svc.SubagentSessionDetail("worker")
 	if err != nil {
@@ -59,19 +64,23 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 	engine := &fakeEngine{
 		nodeContext: &snapshot.ContextSnapshot{Goal: "audit module", MessageCount: 3},
-		nodeWorktreeInfoFn: func(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+		nodeWorktreeInfoFn: func(nodeID string) (assemble.NodeWorktreeInfo, bool) {
 			if nodeID != "worker" {
-				return seelebridge.NodeWorktreeInfo{}, false
+				return assemble.NodeWorktreeInfo{}, false
 			}
-			return seelebridge.NodeWorktreeInfo{
+			return assemble.NodeWorktreeInfo{
 				Path: "G:/tmp/seelex-seelex-worker", Branch: "seelex/worker", MainBranch: "main",
 			}, true
 		},
 	}
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
-	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
-	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	svc.ViewMu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
+		Status: PlanRunning,
+		Nodes:  []model.PlanNode{{ID: "worker", Status: NodePending}},
+	}
+	svc.ViewMu.Unlock()
 
 	detail, err := svc.SubagentSessionDetail("worker")
 	if err != nil {
@@ -88,7 +97,7 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 // CancelScheduledTask 变更入口转发到 Runtime 并刷新投影。
 func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 	runtime := &fakeRuntime{
-		scheduledTasks: []seelebridge.ScheduledTaskStatus{{
+		scheduledTasks: []assemble.ScheduledTaskStatus{{
 			ID: "sched_1", Name: "抓职位", Kind: "command",
 			Enabled: true, NextRunAt: time.Now().Add(time.Minute),
 		}},
@@ -103,8 +112,8 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("allowlist must project: %+v", commands)
 	}
 
-	created, err := svc.ScheduleTask(context.Background(), seelebridge.ScheduledTaskSpec{
-		Name: "周期提醒", Kind: seelebridge.ScheduledTaskPrompt,
+	created, err := svc.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "周期提醒", Kind: assemble.ScheduledTaskPrompt,
 		Prompt: "检查发布状态", Interval: time.Minute, Enabled: true,
 	})
 	if err != nil {

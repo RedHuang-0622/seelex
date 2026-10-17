@@ -417,6 +417,16 @@ test("applies recursive subagent lifecycle and tool events without mutating the 
   assert.deepEqual(current.runtime.plan.nodes[0].children[0].tool_events, []);
 });
 
+// 状态 owner 到显示面的集成：后台会话的状态变化没有自己的视图订阅，
+// 后端发进程级 sessions.changed（空 sid）通知所有显示面重拉权威快照。
+test("sessions.changed is process-level and forces a refresh", () => {
+  const result = applyEvent(snapshot(), {
+    protocol_version: 1, delivery_seq: 1, revision: 0, kind: "sessions.changed"
+  }, 0);
+  assert.equal(result.needsRefresh, true);
+  assert.equal(result.dropped, undefined);
+});
+
 // 窗口投影属于后端 view_state：reducer 只追加消息，不再本地截断或推算
 // total_messages / history_offset / has_more_history（旧实现在 JS 里复刻了同一
 // 套规则，两边一旦漂移就出现"客户端少显示历史"）。权威游标随下一次

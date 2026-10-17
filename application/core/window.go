@@ -1,20 +1,21 @@
 package core
 
 import (
-	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
 // 门面导出，实现位于 context_control。压缩保留窗口决策（context_runtime）
 // 与框架侧 WindowPolicy 读同一份配置，避免第二套硬编码窗口数字。
-func ApplyWindowConfig(config WindowConfig) {
+func ApplyWindowConfig(config cc.WindowConfig) {
 	cc.Apply(config)
 }
 
 // CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
-func CurrentWindowConfig() WindowConfig {
+func CurrentWindowConfig() cc.WindowConfig {
 	return cc.Current()
 }
 
@@ -49,7 +50,7 @@ func RetainFloorTokens(budget task_context.ContextBudget) int {
 // （窗口 − 输出预留 − 窗口/安全除数），与压缩判据共用同一份口径；
 // windowTokens <= 0（账号未声明窗口）时只校验比例本身（比例 × 预算无从计算，
 // 该维留给运行期把下限夹进上限）。
-func ValidateRetainWindow(config WindowConfig, limits seelexctx.Limits, windowTokens int) error {
+func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTokens int) error {
 	budget := 0
 	if windowTokens > 0 {
 		budget = task_context.ContextBudgetFor(retainWindowLimits{

@@ -14,7 +14,7 @@
 **非目标**（本轮不做）：
 
 - 不做第二套渲染口径（不复制色值、不重写一份拓扑排序 / 阶段状态折算）；
-- 不改 sessionstore 的落盘格式、不改 jobs 契约、不改 Seele 的 `jobs.Manager`；
+- 不改 store 的落盘格式、不改 jobs 契约、不改 Seele 的 `jobs.Manager`；
 - 前端不回写后端（看板是**单向只读投影**，渲染结果不上传）；
 - 不新建任何「收口待确认」界面，不把评审过程搬到交互确认弹窗（用户裁决：只去掉，不迁移）。
 
@@ -22,7 +22,7 @@
 
 ## 2. 数据形状
 
-新增文件 `application/contract/dto/teamwork_board.go`（只放数据形状，不带行为、不 import 存储包）。
+新增文件 `contract/dto/teamwork_board.go`（只放数据形状，不带行为、不 import 存储包）。
 
 ```go
 type TeamworkBoardView struct {
@@ -93,7 +93,7 @@ type PluginAssemblyView struct {
 type TeamworkMilestoneView struct {
     ID      string   `json:"id"`
     After   []string `json:"after,omitempty"`
-    Status  string   `json:"status,omitempty"`   // 空 = pending（与 sessionstore 同口径）
+    Status  string   `json:"status,omitempty"`   // 空 = pending（与 store 同口径）
     Content string   `json:"content,omitempty"`
 }
 
@@ -133,7 +133,7 @@ type TeamworkEventView struct {
   由它给出，**空集显式写成 `inherit-host`**（不靠字段缺失暗示），失灵
   （声明还在、定义没了）写成 `plugin_face_faulted + plugin_face_note` 且
   `plugin_face_tools = 0`——`mode` 仍是 `replace`（失灵 ≠ 没装配）。
-- `Stages[].DependsOn` 是**顺序的唯一事实**（`sessionstore.TeamworkPlan.Stages[].DependsOn`
+- `Stages[].DependsOn` 是**顺序的唯一事实**（`store.TeamworkPlan.Stages[].DependsOn`
   同名搬运）；渲染件的拓扑+层号只从它算，不从派发姿势猜。
 - `State` / `ClosedAt` / `ClosedReason` 是整队收口的三字段。**收口之后看板整块退场**
   （2026-10-03 口径修正）：`TeamworkBoardSnapshot` 对 `state=closed` 的计划返回 `nil`，
@@ -152,18 +152,18 @@ type TeamworkEventView struct {
 ## 3. 投影路径
 
 ```
-sessionstore（moduleTeamwork）
+store（moduleTeamwork）
   TeamworkPlan   ← plan.json（head，整份替换）
   TeamworkEvent  ← teamwork/events.jsonl（只追加）
         │
         │  ① 桥侧组装：seelebridge.Runtime.TeamworkBoardSnapshot(sessionID)
-        │          application/contract/dto/teamwork_board.go 的 DTO
+        │          contract/dto/teamwork_board.go 的 DTO
         ▼
-application/contract/ports.go   TeamworkBoardProjection（**窄可选**能力面）
+contract/ports.go   TeamworkBoardProjection（**窄可选**能力面）
         │
         │  ② 会话投影收集：view_state.Coordinator.CollectRuntimeProjectionFor
         ▼
-application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_board"
+middle/protocol/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_board"
         │
         ├──► GUI   app.js renderTeam(snapshot)  ← snapshot.runtime.teamwork_board
         └──► TUI   goalteam.go teamPanelLines() ← snapshot.Runtime.TeamworkBoard
@@ -173,15 +173,15 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 
 | 段 | 文件:符号 |
 |---|---|
-| 计划 / 审计读面 | `sessionstore/teamwork.go` `TeamworkRepository.ReadTeamworkPlan/ReadTeamworkEvents` |
-| 桥的存储端口 | `seelebridge/teamwork/teamwork.go` `PlanStore`；`seelebridge/runtime_teamwork.go` `TeamworkBackend{Store,KeyFor}` |
-| 作业行 | `jobs.Manager.Snapshot(jobs.Scope{Session: sessionID})`（内存态，`seelebridge/runtime_teamwork.go` 的 `r.teamworkJobs`） |
-| 组装 | `seelebridge/runtime_teamwork_board.go` `(*Runtime).TeamworkBoardSnapshot`（**已落地**） |
-| 端口 | `application/contract/ports.go` `TeamworkBoardProjection`（**已落地**；窄可选接口，位置与 `RuntimePort` 同文件） |
-| 收集 | `application/core/view_state/coordinator.go` `Deps.Teamwork` + `CollectRuntimeProjectionFor`（**已落地**） |
+| 计划 / 审计读面 | `store/teamwork.go` `TeamworkRepository.ReadTeamworkPlan/ReadTeamworkEvents` |
+| 桥的存储端口 | `backend/multiagent/teamwork/teamwork.go` `PlanStore`；`backend/engine/assemble/runtime_teamwork.go` `TeamworkBackend{Store,KeyFor}` |
+| 作业行 | `jobs.Manager.Snapshot(jobs.Scope{Session: sessionID})`（内存态，`backend/engine/assemble/runtime_teamwork.go` 的 `r.teamworkJobs`） |
+| 组装 | `backend/engine/assemble/runtime_teamwork_board.go` `(*Runtime).TeamworkBoardSnapshot`（**已落地**） |
+| 端口 | `contract/ports.go` `TeamworkBoardProjection`（**已落地**；窄可选接口，位置与 `RuntimePort` 同文件） |
+| 收集 | `middle/view/state/coordinator.go` `Deps.Teamwork` + `CollectRuntimeProjectionFor`（**已落地**） |
 | 转发 | `application/core/teamwork_service.go` `(*Service).TeamworkBoardViewFor`（**已落地**：Deps.Teamwork 的接口名是「会话 → 视图」，由这一层类型断言到 Runtime 的 `TeamworkBoardSnapshot`） |
 | 装配 | `application/core/service_assembler.go` 里 `view_state.NewCoordinator(Deps{...})` 的 `Teamwork: service`（**已落地**） |
-| 会话槽 | `application/model/state.go` `SessionRuntime` / `RuntimeState` 的 `TeamworkBoard` + `CloneRuntimeState` → `CloneTeamworkBoardView` 深拷贝（**已落地**） |
+| 会话槽 | `middle/protocol/model/state.go` `SessionRuntime` / `RuntimeState` 的 `TeamworkBoard` + `CloneRuntimeState` → `CloneTeamworkBoardView` 深拷贝（**已落地**） |
 | GUI | `gui/frontend/dist/app.js` `renderTeam`（消费件）；`team-board-view.js` `renderTeamBoard`（渲染件，**不改**） |
 | TUI | `tui/goalteam.go` `teamPanelLines`（新增一节） |
 
@@ -310,7 +310,7 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 |---|---|---|
 | 1 | `go build ./...` | 通过 |
 | 2 | `go vet ./application/... ./seelebridge/... ./tui/...` | 无告警 |
-| 3 | `go test ./application/model/... ./application/core/view_state/... ./seelebridge/...` | 全绿 |
+| 3 | `go test ./middle/protocol/model/... ./middle/view/state/... ./seelebridge/...` | 全绿 |
 | 4 | `go test ./tui/...` | 全绿（含新增团队看板面板用例） |
 | 5 | `go test -bench=TeamworkBoard -benchmem ./seelebridge/...` | 有量级输出；采集 100 次文件读 = 1 |
 | 6 | `node --test gui/frontend/dist/*.test.mjs`（仓库规范写法；全仓无 package.json） | 全绿（含 `team-board-view` / `goal-*` / `snapshot-shape` / `element-registry`） |

@@ -3,15 +3,14 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"sync"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/session"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
-	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
@@ -28,7 +27,6 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	if sessionID == "" {
 		sessionID = service.Core.Snapshot.Session.ID
 	}
-	var planBinding *dto.PlanBranchBinding
 	service.components.tasks.EnsureToolCallTranscriptLocked(sessionID, name, id, arguments)
 	// 框架在 wire 上丢弃工具轮正文（Seele `session/loop.go:564`），说明文本只经
 	// onChunk 进可见视图：在"本次迭代的 tool_call 事件刚就位 + 流式缓冲已 flush"
@@ -36,42 +34,21 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	// 叙述会落到别的迭代/轮次（见
 	// application/core/context_narration_attribution_test.go）。
 	service.components.tasks.AttributeToolNarrationLocked(sessionID,
-		TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
+		model.TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
 		service.streamedAssistantTextLocked(sessionID))
-	var message Message
+	var message model.Message
 	// 工具调起/结果归属调起方（EXEC）：与同轮的 assistant 行共享 role_name 与
 	// round_id，前端把过程归到主持这一轮的 agent 名下（§2.1 表：tool → 调起方）。
-	toolOrigin := MessageOrigin{
+	toolOrigin := model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	}
 	if active {
-		tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}
+		tool := &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}
 		message = *service.appendMessageWithOriginLocked("tool", "", tool, toolOrigin)
 	} else {
 		// 阶段 1：后台会话工具消息写自身 view（hot_attach 回看可见）。
-		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
-	}
-
-	// plan_load 启动时：解析 DAG 并初始化 PlanState（Plan 状态属活跃会话；
-	// 后台并行会话不修改共享 Plan 快照）。
-	if active && name == "plan_load" {
-		service.updatePlanFromLoad(arguments)
-		if state := service.components.tasks.CurrentTaskExecution(); state != nil && state.RequestID == service.Core.Snapshot.Chat.RequestID {
-			state.PlanArguments = arguments
-		}
-	}
-	// plan_clear 启动时：清空 PlanState
-	if active && name == "plan_clear" {
-		service.Core.Snapshot.Runtime.Plan = nil
-		service.components.tasks.SeedPlanProjection(service.Core.Snapshot.Session.ID, nil)
-		if state := service.components.tasks.CurrentTaskExecution(); state != nil && state.RequestID == service.Core.Snapshot.Chat.RequestID {
-			state.PlanArguments = ""
-		}
-	}
-	if active && name == "plan_run" {
-		binding := service.planBranchBindingLocked()
-		planBinding = &binding
+		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
 	}
 
 	revision := uint64(0)
@@ -85,30 +62,10 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		}
 	}
 	service.ViewMu.Unlock()
-	if planBinding != nil {
-		service.Deps.Runtime.SetPlanBranchBinding(*planBinding)
-	}
 	service.publishSessionEvent(EventToolStarted, revision, requestID, sessionID, message)
-	// plan_load/plan_clear/plan_run 已改 PlanState：被动同步 plan → task
-	// 注册表并发布 worktable/task 增量，再发最新 runtime.changed。
+	// 工具边界后被动同步 task → worktable 增量，再发最新 runtime.changed。
 	service.refreshWorkTableFromSources()
 	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
-}
-
-func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding {
-	binding := dto.PlanBranchBinding{
-		SessionID: service.Core.Snapshot.Session.ID,
-		AccountID: service.Core.Snapshot.Runtime.Account,
-		TraceID:   service.Core.Snapshot.Chat.RequestID,
-	}
-	if workspace := service.Core.Snapshot.CurrentWorkspace; workspace != nil {
-		binding.WorkspaceID = workspace.ID
-	}
-	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
-		binding.PlanID = plan.EntryNodeID
-		binding.EntryNodeID = plan.EntryNodeID
-	}
-	return binding
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
@@ -173,7 +130,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.task.done")
 	status, errorText := dto.ToolEventSuccess, ""
 	if toolErr != nil {
-		status, errorText = dto.ToolEventError, presentToolError(name, toolErr)
+		status, errorText = dto.ToolEventError, viewerrors.PresentToolError(name, toolErr)
 	}
 	// 快照截断（根因链治本一环）：可见会话只放预览
 	// （≤ limits.snapshot_tool_output_chars），完整输出归档 result_ref，
@@ -195,38 +152,18 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	if active && name == "read_file" && toolErr == nil {
 		service.recordReadFileForSessionLocked(sessionID, toolArguments)
 	}
-	if active && name == "plan_load" && toolErr == nil {
-		service.components.tasks.PushLoadedPlanLocked(toolArguments, time.Now())
-	}
-	if active && name == "plan_clear" && toolErr == nil {
-		service.components.tasks.ClearActivePlanLocked()
-	}
 	content := visibleContent
 	if toolErr != nil {
 		content = errorText
 	}
 
-	var planFailure *Interaction
-	if active && name == "plan_run" {
-		switch {
-		case toolErr != nil:
-			planFailure = service.handlePlanRunFailureLocked(toolErr.Error(), result)
-		default:
-			if failure := planRunFailure(result); failure != "" {
-				planFailure = service.handlePlanRunFailureLocked(failure, result)
-			} else {
-				service.updatePlanFromRunResult(result)
-			}
-		}
-	}
-
-	var message Message
-	var assistant *Message
-	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &ToolCall{
+	var message model.Message
+	var assistant *model.Message
+	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &model.ToolCall{
 		ID: id, Name: name, Result: visibleContent, Error: errorText,
 		Status: status, Duration: duration,
 		ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
-	}, MessageOrigin{
+	}, model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	})
@@ -257,9 +194,6 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// 包装文案（"该工具未能完成本次操作…"），它刻意不含内部细节，拿它归因只会全落到
 	// "其它"。成功也记（开关打开时）：没有分母的失败计数会把优化带偏。
 	service.recordToolOutcome(sessionID, name, toolStatusFailed(status), toolErrorText(toolErr))
-	if planFailure != nil {
-		service.publishSessionEvent(EventInteractionOpened, revision, planFailure.ID, sessionID, planFailure)
-	}
 	if assistant != nil {
 		service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, *assistant)
 	}
@@ -334,7 +268,6 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			}
 		},
 		OnToolStart: func(ctx context.Context, info session.ToolCallInfo) {
-			info = normalizePlanToolCallInfo(info)
 			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.enter", Name: info.Name})
 			service, id := bridge.beginTool(info)
 			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.matched", Name: info.Name})
@@ -346,7 +279,6 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			}
 		},
 		OnToolComplete: func(ctx context.Context, info session.ToolCallInfo) {
-			info = normalizePlanToolCallInfo(info)
 			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.enter", Name: info.Name, Err: info.Error})
 			service, id := bridge.completeTool(info)
 			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.matched", Name: info.Name, Err: info.Error})
@@ -368,10 +300,6 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			if !svc.components.tasks.AllowNextReActIteration(ctx, turn) {
 				return false
 			}
-			// P1 goal 接线：回合边界登记 exec 账本水位并把 b→a TL 指令注入
-			// 引擎历史（Session 锁内仅 AppendHistory 安全；可见记录在
-			// runChat 结束点回放）。
-			svc.GoalIterationCompleted(ctx)
 			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
 			// OnIterationComplete 在回合内、同一条 goroutine 上同步执行。Seele
 			// 已把「整轮持锁」换成回合闸门 + 工作状态短临界区：这里再调引擎的
@@ -412,19 +340,6 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			return true
 		},
 	}
-}
-
-// normalizePlanToolCallInfo 保持应用快照与 Seele 执行的同一规范 DAG 表示。
-// 非法适配器输入原样保留，使工具错误对用户可见。
-func normalizePlanToolCallInfo(info session.ToolCallInfo) session.ToolCallInfo {
-	if info.Name != "plan_load" {
-		return info
-	}
-	canonical, err := seelplan.NormalizePlanLoadArguments(info.Arguments)
-	if err == nil {
-		info.Arguments = canonical
-	}
-	return info
 }
 
 func (bridge *ToolHookBridge) beginTool(info session.ToolCallInfo) (*Service, string) {

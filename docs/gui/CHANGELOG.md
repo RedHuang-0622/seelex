@@ -393,7 +393,7 @@
 - 调度器一次性定时任务：`dto.ScheduledTaskSpec` 新增 `RunAt`，
   `ScheduledTaskStatus` 新增 `run_at`/`one_shot`；`nextScheduledAt` 优先
   返回 `RunAt`，执行完成后自动停用并清除下次排期
-  （`seelebridge/scheduler/scheduler.go` + `scheduler_test.go`）。
+  （`backend/engine/schedule/scheduler.go` + `scheduler_test.go`）。
 - 定时任务面板一次性任务展示：任务行显示「定时 MM-dd HH:mm」与「一次性」
   chip，空态文案统一为「暂无定时任务」（`scheduled-tasks-view.js` +
   `scheduled-tasks-view.test.mjs`）。
@@ -454,7 +454,7 @@
 - 后端 `ScheduledTaskSpec/Status` 增加 `period_unit`/`period_value`；
   调度器支持日历月周期（`addCalendarMonths` 月末钳制），小时/天/周为
   固定时长；旧任务以 `interval_seconds` 回退展示
-  （`seelebridge/scheduler/scheduler.go` + `scheduler_test.go`）。
+  （`backend/engine/schedule/scheduler.go` + `scheduler_test.go`）。
 - 会话树工作区组可折叠：点击组头收起/展开其下会话（`app.js`
   `toggleWorkspaceGroup`，折叠状态 localStorage 记忆，重渲染保持）。
 - 全局去线框：badge/chip/icon-button 默认去边框（hover 再出现），
@@ -506,7 +506,7 @@
   替换 Plan 树 / 待办 / 子代理三个分区；节点详情弹窗保留。
 - `application/core/work_table.go`：plan/todo/subagent → 扁平 WorkItem 读模型
   （有界：`work_table_rows` / `plan_node_events` / `evidence_chars`）。
-- `application/core/worktable_publisher.go`：CSP 汇聚发布器（latest-wins，
+- `middle/view/worktable_publisher.go`：CSP 汇聚发布器（latest-wins，
   生产者阻塞背压，关闭排空尾态）。
 - `seelebridge/todo_tool.go`：todoState 改为 Actor + Mailbox；TodoItem 增加
   三态 `status`（pending/doing/done），`Done` 为派生字段；新增

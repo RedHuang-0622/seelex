@@ -7,12 +7,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalRPCFakeApp 复刻 headless goal 链路的 Application 扩展面：记录调用
-// 路由到的会话并把 begin/update/propose_finish 映射为治理视图状态迁移，
+// 路由到的会话并把 begin/update/done 映射为治理视图状态迁移，
 // 供 headless 分发表复刻验收（真实 Service 侧行为由 application/core 测试
 // 覆盖；本测试钉住 gui → goal.<method> 接线）。
 type goalRPCFakeApp struct {
@@ -44,15 +44,19 @@ func (fake *goalRPCFakeApp) GoalUpdateFor(_ context.Context, sessionID string, r
 	return fake.active, nil
 }
 
-func (fake *goalRPCFakeApp) GoalProposeFinishFor(_ context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error) {
+func (fake *goalRPCFakeApp) GoalDoneFor(_ context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
 	if fake.active != nil {
-		fake.active.Status = goaldomain.StatusCompleted
+		if abort {
+			fake.active.Status = goaldomain.StatusAborted
+		} else {
+			fake.active.Status = goaldomain.StatusCompleted
+		}
 		fake.view = &dto.GoalGovernanceView{Active: false}
 	}
-	return goaldomain.FinishProposalResult{Outcome: goaldomain.OutcomeCompleted, Goal: fake.active}, nil
+	return fake.active, nil
 }
 
 func (fake *goalRPCFakeApp) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
@@ -80,7 +84,7 @@ func (fake *goalRPCFakeApp) GoalGovernanceViewFor(sessionID string) *dto.GoalGov
 
 // TestHeadlessGoalChainReplication 复刻验收 goal 治理的 gui headless 链路：
 // goal.begin → 视图 active；goal.update/status/gov_snapshot 与当前视图会话
-// 路由一致；goal.propose_finish 收口后视图复位；gov_next / gov_break 已随
+// 路由一致；goal.done 收口后视图复位；gov_next / gov_break 已随
 // 席位轮转退场（与未知方法一样被拒，见文件末尾那条用例）。
 func TestHeadlessGoalChainReplication(t *testing.T) {
 	base := newFakeApplication()
@@ -137,16 +141,16 @@ func TestHeadlessGoalChainReplication(t *testing.T) {
 		t.Fatalf("progress after update = %+v", fake.active.Progress)
 	}
 
-	result = headlessRPC(t, serverBase, "goal.propose_finish", map[string]any{"result": "单测全绿"})
+	result = headlessRPC(t, serverBase, "goal.done", map[string]any{"result": "单测全绿"})
 	if !result.OK {
-		t.Fatalf("goal.propose_finish failed: %s", result.Error)
+		t.Fatalf("goal.done failed: %s", result.Error)
 	}
-	var proposal goaldomain.FinishProposalResult
-	if err := remarshal(result.Result, &proposal); err != nil {
-		t.Fatalf("decode proposal: %v", err)
+	var record2 goaldomain.GoalRecord
+	if err := remarshal(result.Result, &record2); err != nil {
+		t.Fatalf("decode goal.done: %v", err)
 	}
-	if proposal.Goal == nil || proposal.Goal.Status != goaldomain.StatusCompleted {
-		t.Fatalf("proposal = %+v", proposal)
+	if record2.Status != goaldomain.StatusCompleted {
+		t.Fatalf("goal.done = %+v", record2)
 	}
 	viewAfter := fake.GoalGovernanceViewFor("session-gui-headless")
 	if viewAfter.Active {

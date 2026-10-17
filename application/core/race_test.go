@@ -3,11 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/types"
 )
 
 var _ = types.Message{} // used by blockingEngine (embeds fakeEngine with AppendHistory)
@@ -141,12 +142,12 @@ func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
 			// 发起请求（会阻塞直到 Resolve）
 			go func() {
 				time.Sleep(time.Millisecond * 5)
-				broker.Resolve(reqID, ApprovalDecision{OptionID: "ok"})
+				broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "ok"})
 			}()
-			_, _ = broker.Request(context.Background(), ApprovalRequest{
+			_, _ = broker.Request(context.Background(), contract.ApprovalRequest{
 				ID:       reqID,
 				Question: "test?",
-				Options:  []InteractionOption{{ID: "ok", Label: "OK"}},
+				Options:  []model.InteractionOption{{ID: "ok", Label: "OK"}},
 			})
 		}(i)
 	}
@@ -165,7 +166,7 @@ func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, _ = broker.Request(context.Background(), ApprovalRequest{
+			_, _ = broker.Request(context.Background(), contract.ApprovalRequest{
 				ID:       fmt.Sprintf("s-%d", id),
 				Question: "q",
 				Timeout:  time.Millisecond * 50,
@@ -195,13 +196,13 @@ func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
 			go func() {
 				if id%2 == 0 {
 					time.Sleep(time.Microsecond)
-					broker.Resolve(reqID, ApprovalDecision{OptionID: "fast"})
+					broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "fast"})
 				} else {
 					time.Sleep(time.Millisecond * 20)
-					broker.Resolve(reqID, ApprovalDecision{OptionID: "slow"})
+					broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "slow"})
 				}
 			}()
-			broker.Request(context.Background(), ApprovalRequest{
+			broker.Request(context.Background(), contract.ApprovalRequest{
 				ID:       reqID,
 				Question: "q",
 				Timeout:  time.Millisecond * 5,
@@ -218,7 +219,7 @@ func TestApprovalBroker_RaceDuplicateResolve(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		broker.Request(context.Background(), ApprovalRequest{
+		broker.Request(context.Background(), contract.ApprovalRequest{
 			ID:       "dup",
 			Question: "q",
 		})
@@ -234,7 +235,7 @@ func TestApprovalBroker_RaceDuplicateResolve(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			broker.Resolve("dup", ApprovalDecision{OptionID: "ok"})
+			broker.Resolve("dup", contract.ApprovalDecision{OptionID: "ok"})
 		}()
 	}
 	wg.Wait()
@@ -250,10 +251,10 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"slow..."}}
 	// 使用自定义 engine 让它阻塞以模拟长时间 chat
 	blockEngine := &blockingEngine{fakeEngine: engine}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   blockEngine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -329,10 +330,10 @@ func (e *blockingEngine) ChatStreamFor(sessionID string, ctx context.Context, in
 // TestChat_RaceSnapshotDuringChat 验证 Chat 运行期间并发读取 Snapshot 无 data race。
 func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -423,10 +424,10 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 // TestService_RaceShutdownChat 验证 Shutdown 与 Chat 并发安全。
 func TestService_RaceShutdownChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -609,10 +610,10 @@ func TestPromptStack_RaceClearKind(t *testing.T) {
 // TestInputQueue_RaceEnqueueDuringChat 验证 Chat 运行中并发入队安全。
 func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -694,10 +695,10 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 // TestCancelChat_Race 验证并发 CancelChat 安全。
 func TestCancelChat_Race(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -731,11 +732,11 @@ func TestObserveInteraction_Race(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			interaction := &Interaction{
+			interaction := &model.Interaction{
 				ID:       fmt.Sprintf("i%d", time.Now().UnixNano()),
 				Kind:     "approval",
 				Question: "test",
-				Options:  []InteractionOption{{ID: "ok", Label: "OK"}},
+				Options:  []model.InteractionOption{{ID: "ok", Label: "OK"}},
 			}
 			service.observeInteraction("sess-race", interaction.ID, interaction)
 		}()

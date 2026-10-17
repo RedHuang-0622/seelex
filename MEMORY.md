@@ -15,7 +15,7 @@
 ## 执行前必查清单
 
 1. **运行中的进程**：`Get-Process | Where-Object { $_.ProcessName -match 'seelex' }`——有则禁止 clean/删除，先请用户关闭；
-2. **会话记录**：目标目录内是否存在 `.seelex/`（`sessions`、`sessions-json`、`sessionstore` 数据）；
+2. **会话记录**：目标目录内是否存在 `.seelex/`（`sessions`、`sessions-json`、`store` 数据）；
 3. **真实配置**：是否存在 `config/accounts.yaml`、`config/mcp.yaml`、`config/search_engine.yaml`、`*.local.yaml`、`seele.yaml`、`seelex.yaml` 或 dist 内的配置副本；
 4. **备份**：可恢复数据先复制到临时目录（如 `$env:TEMP`）再操作；
 5. **确认**：把上述检查结果用中文告知用户，明确"将删除 X、影响 Y、可/不可恢复"，获得同意后执行。
@@ -60,7 +60,10 @@
    - 崭新能力/新领域 → 评估是否值得新开包。
 2. **相关代码应放进哪个已有模块？**
    - 先查 AGENTS.md 的模块边界表与仓库模块清单；
-   - 同类职责归同包；跨域共享类型下沉到 `application/contract/dto` 或 `seelebridge/internal/model`；
+   - 同类职责归同包；跨域共享类型按**三个面**下沉：契约面 → `contract/dto`（零依赖端口与 DTO）、
+     协议/视图面 → `middle/protocol`（`model`/`event`，门面与前端都消费）、seelebridge 域内部 →
+     `internal/model`（只服务该域，不外扩）。落位权威见
+     `docs/2026-10-15-architecture-reshape/plan.md` §1；
    - 带行为方法的类型下沉时，遵循"DTO 纯化 + 方法转自由函数"（避免把行为捆进共享 DTO）。
 3. **是否需要新开包/新文件夹？**
    - 新领域、新生命周期、可独立维护 → 新开 `xxx/` 包并配 README；
@@ -77,6 +80,27 @@
 
 同一件事**不许有第二份实现**（判据、词表、状态判定、回收动作、恢复说明都属于此列）：先找既有实现、
 能结构满足就不写适配器、只并"本质重复"、交付必须列删除清单——完整纪律见 `AGENTS.md` §8「复用与单一实现纪律」。
+
+### 入口与装配归属（2026-10-16，M5「架构重排」之后）
+
+落位权威：`docs/2026-10-15-architecture-reshape/plan.md` §1（目标模型）；本节是它的入口侧摘要，
+两处若措辞不一致，以 plan §1 为准（plan 全文其余"待裁决"字样只指尚未落地的项，
+不要读成"目标模型还没定"——实施记录见同目录 `m1-record.md` … `m5-record.md`）。
+
+新增"启动/装配类"代码时按下面四条落位，别再往入口堆：
+
+1. **启动参数**（flag 名、默认值、说明文案）→ `wiring/config` 的 `Flags` + `BindFlags`；路径/配置
+   责任链、模式词法解析也在那里。默认值即安全基线，改动要同步 `test/release_test.go` 的契约。
+2. **装配顺序**（装什么、按什么次序、怎么逆序关机）→ `wiring/bootstrap` 的 `Run` / `App`；新增
+   装配步骤必须写在 `Run` 的**正确位置**并说明理由（顺序即行为），需要关机就 `boot.addCleanup`。
+3. **工具与能力注册**（`register*Tool` / 能力面）→ `wiring/registry`；新工具要在
+   `backend/limit/policy` 的工具组表里分封，否则 `test` 的 `tool_meta_declaration_test.go` 会点名。
+4. **入口**（`main.go`，目前 48 行）只做：`BindFlags` → `flag.Parse` → pprof 构建钩子 →
+   `-version` → `bootstrap.Run` → `Serve` → `Shutdown`。第二个入口（不同 build tag / 前端形态）
+   照抄这五步即可，**不要**复制装配段——那正是历史事故（测试基座漏一句 `AttachSubSessionStore`，
+   端到端断言恒为空集）的成因。
+
+仓库级集成用例统一在 `test/` 包（原先散在仓库根，M5-S4 归位）；模块内部用例仍随包走。
 
 ## 会话存储约定（2026-09-09，配合 docs/2026-09-08-session-storage-architecture/my_design.md）
 

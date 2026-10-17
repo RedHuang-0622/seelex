@@ -8,11 +8,11 @@ package core
 //   - 其余「已加载过且已静默」的会话（典型：切走之后回合跑完的那个）按 LRU 释放，
 //     **窗口默认 1** ⇒ 只保留上一个：切走一个不释放，再切走一个才释放最旧的。
 //   - 窗口是配置项：`config/seelex.yaml` 的 `limits.session_release_window`
-//     （见 seelexctx.Limits.ReleaseWindow）；`resident_limit` /
+//     （见 limit.Limits.ReleaseWindow）；`resident_limit` /
 //     `loaded_content_limit` 是**分层覆盖**的老口径（显式 >0 才生效）。
 //
 // 一次释放放掉的面（重到轻）：引擎实例（EnginePort）→ 桥侧会话本体
-// （seelebridge.Runtime.bundles：框架 Session + 会话上下文存储 + 主历史）→
+// （assemble.Runtime.bundles：框架 Session + 会话上下文存储 + 主历史）→
 // 可见正文（View.Conversation）→ 使用序与 per-会话残格。**保留**会话单元、
 // 目录行、标题、统计与磁盘事实：重开走冷加载（正文尾部窗口 + 上下文按盘重建）。
 //
@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // sessionReleaseMode 是一次释放的强度。
@@ -47,13 +49,12 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 	if service == nil || sessionID == "" {
 		return true
 	}
-	if sessionID == service.Core.Snapshot.Session.ID {
-		return true
-	}
-	if service.isRestoringLocked(sessionID) {
-		return true
-	}
-	return service.sessionBusy(service.sessions.Unit(sessionID))
+	return switching.Protected(switching.ProtectedInput{
+		SessionID:     sessionID,
+		ViewSessionID: service.Core.Snapshot.Session.ID,
+		Restoring:     service.isRestoringLocked(sessionID),
+		State:         sessionBusyState(service.sessions.Unit(sessionID)),
+	})
 }
 
 // releaseBudget 把"本层能留几个"折算成一个数字。
@@ -62,13 +63,7 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 //     会话）"，因此可释放的额度 = 上限 − 受保护数（下限 0）。
 //   - legacyLimit <= 0：**统一窗口（默认口径）**——受保护集之外保留窗口个。
 func releaseBudget(legacyLimit int, protectedCount int) int {
-	if legacyLimit > 0 {
-		if budget := legacyLimit - protectedCount; budget > 0 {
-			return budget
-		}
-		return 0
-	}
-	return Limits().ReleaseWindow()
+	return residency.Budget(legacyLimit, protectedCount, Limits().ReleaseWindow())
 }
 
 // releaseSessionMemory 释放一个会话的内存占用（引擎 + 桥侧本体 + 正文 + 使用序，
@@ -174,13 +169,7 @@ func (service *Service) releaseSessionContentMemory(sessionID string) {
 
 // forgetResidentLocked 把会话移出驻留使用序并清驻留标记（调用方持有 Core.ViewMu）。
 func (service *Service) forgetResidentLocked(sessionID string) {
-	filtered := service.residentOrder[:0]
-	for _, existing := range service.residentOrder {
-		if existing != sessionID {
-			filtered = append(filtered, existing)
-		}
-	}
-	service.residentOrder = filtered
+	service.residentOrder = service.residentOrder.Forget(sessionID)
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetResident(false)
 	}

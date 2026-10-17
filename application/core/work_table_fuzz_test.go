@@ -2,13 +2,14 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
-// 都必须产出有界行且不 panic（白盒健壮性，参照 plan_input_fuzz_test.go）。
+// 都必须产出有界行且不 panic（白盒健壮性）。
 func FuzzBuildWorkTable(f *testing.F) {
 	f.Add(`{"status":"running","nodes":[{"id":"n1","label":"a","status":"completed","output":"x","events":[{"status":"queued","at":"2026-01-01T00:00:00Z"}]}]}`, `[]`)
 	f.Add(`{"status":"completed","nodes":[],"edges":[]}`, `[{"id":"todo:0","phase":"tasklist","task":"a","status":"doing","kind":"todo"},{"id":"subagent:s1","phase":"subagent","task":"g","status":"running","kind":"subagent"}]`)
@@ -16,9 +17,9 @@ func FuzzBuildWorkTable(f *testing.F) {
 	f.Add(``, `[]`)
 
 	f.Fuzz(func(t *testing.T, planJSON, taskJSON string) {
-		var plan *PlanState
+		var plan *model.PlanState
 		if planJSON != "" {
-			var candidate PlanState
+			var candidate model.PlanState
 			if err := json.Unmarshal([]byte(planJSON), &candidate); err == nil {
 				plan = &candidate
 			}
@@ -26,7 +27,7 @@ func FuzzBuildWorkTable(f *testing.F) {
 		var tasks []dto.TaskRecord
 		_ = json.Unmarshal([]byte(taskJSON), &tasks)
 
-		rows := buildWorkTable(plan, tasks, nil, nil)
+		rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 		if len(rows) > Limits().WorkTableRows {
 			t.Fatalf("rows = %d exceed limit %d", len(rows), Limits().WorkTableRows)
 		}

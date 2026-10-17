@@ -134,7 +134,7 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 最新在下。它是"此刻在做什么"，与下面的记录表（权威投影，拉取面）分工——两者不互相冒充。
 
 判据只来自后端投影，前端不推演：会话工作区把 `draft_rows` 与 `main_rows/role_rows`
-分列返回（`sessionstore/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），
+分列返回（`store/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），
 **一轮结束时**的 `SyncRoleDraft` 才把草稿发布成 message（草稿行不带 seq，发布后
 draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「本轮取消」= 草稿按未同步
 原样留着——前端只渲染这份权威投影，不做回写。
@@ -162,7 +162,7 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   （`runtime.goal_skill_active`）。
 
 无目标文本、无任务且无激活 skill 时整个 section 隐藏。数据在
-`application/core/view_state` 收集投影（锁内快照），`runtime.changed` 增量携带，
+`middle/view/state` 收集投影（锁内快照），`runtime.changed` 增量携带，
 不需要额外 Bridge 调用。
 
 ## 资源管理器子页：三个平级子页（工作树 / 提交记录 / 工作区更改）+ 文件预览
@@ -230,7 +230,7 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   工作区文件），而历史版本与工作区同名文件会是同一枚 chip——一次保存就能把某个历史
   版本写回工作区。那一层在提交记录面板内只读渲染，渲染分派仍共用
   `file-preview.renderReadOnlyContent`。
-  **Agent 驱动打开（J-2，前后端已落）**：主 agent 调 `show_files`（`seelebridge/review_files.go`）请求
+  **Agent 驱动打开（J-2，前后端已落）**：主 agent 调 `show_files`（`backend/engine/assemble/review_files.go`）请求
   "请 GUI 打开这些待审阅文件"，一次调用 = 一次批处理召唤、单次上限 10 份（超限显式报错）。它不是事件而是
   **会话作用域的可重放请求**（`Snapshot.ReviewRequest` / `SessionSnapshot.ReviewRequest`，契约
   `dto.ReviewRequest`），前端起来或切回该会话时按快照补放：**只有第一枚成为当前显示的详情**、其余只出

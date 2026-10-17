@@ -18,17 +18,17 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### role_tool_activity_test.go
 
-- `func waitRoleToolEvent(t *testing.T, subscription Subscription, wantKind EventKind) Event` — waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。
+- `func waitRoleToolEvent(t *testing.T, subscription event.Subscription, wantKind event.EventKind) event.Event` — waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。
 - `func TestHandleRoleToolActivityPublishesSessionEvent(t *testing.T)`
 - `func TestHandleRoleToolActivityTruncatesAndDropsUnroutable(t *testing.T)`
 
 ### service.go
 
-- `func (service *Service) SetProjectBoardSink(sink ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-- `func (service *Service) projectBoardSink() ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
-- `func New(deps Dependencies) (*Service, error)`
+- `func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
+- `func (service *Service) projectBoardSink() board.ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
+- `func New(deps contract.Dependencies) (*Service, error)`
 - `func (service *Service) ActiveSkillIDs() []string` — ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
-- `func (service *Service) PromptLayers() []PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
+- `func (service *Service) PromptLayers() []prompt.PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
 - `func (service *Service) GoalSkillActive() bool` — GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
 - `func (service *Service) PublishRuntimeProjections()` — PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
 - `func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
@@ -40,19 +40,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
 
-### service_account_window_test.go
+### service_account_window_forward_test.go
 
-- `func (store *recordingAccountWindowStore) SaveAccountWindow(name string, window int) error`
-- `func (store *recordingAccountWindowStore) read(name string) (int, bool)`
-- `func newFakeAccountWindowRuntime(global int) *fakeAccountWindowRuntime`
-- `func (runtime *fakeAccountWindowRuntime) SetAccountWindow(name string, window int)`
-- `func (runtime *fakeAccountWindowRuntime) AccountWindowFor(name string) int`
-- `func TestSetAccountWindowValidatesBeforeWriting(t *testing.T)` — TestSetAccountWindowValidatesBeforeWriting：越界值与空账号名在动盘/动内存之前就被拒。
-- `func TestSetAccountWindowPersistsThenApplies(t *testing.T)` — TestSetAccountWindowPersistsThenApplies：合法值先落盘、再改运行面，返回**生效值**。
-- `func TestSetAccountWindowStoreFailureKeepsRuntimeUntouched(t *testing.T)` — TestSetAccountWindowStoreFailureKeepsRuntimeUntouched：写盘失败 ⇒ 运行面不动。
-- `func TestSetAccountWindowWithoutStoreStillApplies(t *testing.T)` — TestSetAccountWindowWithoutStoreStillApplies：宿主没装落盘口 ⇒ 只本次运行有效，不算失败。
-- `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)` — TestSetAccountWindowNeedsRuntimePort：宿主没实现窄可选能力面时给出明确错误，
-- `func TestAccountContextWindowPresetsAreUsable(t *testing.T)` — TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
+- `func TestSetAccountWindowNilServiceGuard(t *testing.T)`
+- `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)`
+- `func (store *recordingWindowStoreForForward) SaveAccountWindow(string, int) error`
 
 ### service_assembler.go
 
@@ -60,7 +52,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (p taskPromptPort) ClearSkillLayers()`
 - `func (p taskPromptPort) PushSkillLayer(kind, name, text string)`
 - `func (assembler serviceAssembler) assemble() (*Service, error)`
-- `func validateDependencies(deps Dependencies) error`
+- `func validateDependencies(deps contract.Dependencies) error`
 - `func (assembler *serviceAssembler) applyInfrastructureDefaults()`
 - `func (service *Service) restoreInitialWorkspace()`
 
@@ -68,6 +60,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T)`
 - `func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T)`
+- `func TestReActBudgetFinalizationPromptSummarizesBudgetWork(t *testing.T)` — TestReActBudgetFinalizationPromptSummarizesBudgetWork 钉住用户裁决的 P2 语义：
 - `func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T)`
 - `func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T)`
 - `func TestChatPublishesSnapshotWithoutUI(t *testing.T)`
@@ -78,8 +71,14 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_components.go
 
-- `func (port *projectBoardPort) store(sink ProjectBoardSink)`
-- `func (port *projectBoardPort) load() ProjectBoardSink`
+- `func (port *toolRecordPort) setEnabled(enabled bool)`
+- `func (port *toolRecordPort) enabledValue() bool`
+- `func (port *toolRecordPort) noteFlushError(err error)`
+- `func (port *toolRecordPort) flushErrorMessage() string`
+- `func (port *toolRecordPort) setSnapshotStore(store contract.ToolRecordSnapshotStore)`
+- `func (port *toolRecordPort) snapshotStoreValue() contract.ToolRecordSnapshotStore`
+- `func (port *projectBoardPort) store(sink board.ProjectBoardSink)`
+- `func (port *projectBoardPort) load() board.ProjectBoardSink`
 
 ### service_components_test.go
 
@@ -103,40 +102,40 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *sessionBackedBlockingEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
 - `func (sessions *blockingSaveSessions) SaveCurrent(string) error`
 - `func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (engine *fakeEngine) History() []EngineMessage`
+- `func (engine *fakeEngine) History() []contract.EngineMessage`
 - `func (engine *fakeEngine) ClearHistory()`
 - `func (engine *fakeEngine) SessionID() string`
 - `func (engine *fakeEngine) StartSession() string`
 - `func (engine *fakeEngine) ActivateSession(sessionID string) error` — ActivateSession 以显式会话 ID 创建并激活引擎实例（G4 早分配 SID：
-- `func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
+- `func (engine *fakeEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error`
 - `func (engine *fakeEngine) SetSystemPrompt(prompt string)`
 - `func (engine *fakeEngine) SetMaxLoops(maxLoops int)`
 - `func (engine *fakeEngine) SetSessionMaxLoopsFor(sessionID string, loops int)` — SetSessionMaxLoopsFor 实现 contract.SessionLoopLimitPort：定时任务声明的循环上限
 - `func (engine *fakeEngine) sessionLoopsFor(sessionID string) int` — sessionLoopsFor 读指定会话被钉住的循环上限（0 = 没钉，按进程默认值跑）。
-- `func (engine *fakeEngine) AppendHistory(msg types.Message)`
+- `func (engine *fakeEngine) AppendHistory(msg contract.EngineMessage)`
 - `func (*fakeEngine) TraceText() string`
 - `func (*fakeEngine) TokenCount() string`
-- `func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool)`
+- `func (*fakeEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool)`
 - `func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool)`
 - `func (engine *fakeEngine) NodeToolResult(nodeID, ref string) (string, bool)`
-- `func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool)`
+- `func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool)`
 - `func (engine *fakeEngine) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)`
 - `func (engine *fakeEngine) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage`
 - `func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode`
 - `func (engine *fakeEngine) ReleaseWorkingHistory()`
 - `func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string)`
 - `func (engine *fakeEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (engine *fakeEngine) HistoryFor(sessionID string) []EngineMessage`
-- `func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg types.Message)`
+- `func (engine *fakeEngine) HistoryFor(sessionID string) []contract.EngineMessage`
+- `func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg contract.EngineMessage)`
 - `func (engine *fakeEngine) ClearHistoryFor(sessionID string)`
 - `func (engine *fakeEngine) SetSystemPromptFor(sessionID, prompt string)`
-- `func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error`
+- `func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error`
 - `func (engine *fakeEngine) HasSession(sessionID string) bool`
 - `func (*fakeRuntime) Model() string`
 - `func (*fakeRuntime) Provider() string`
-- `func (*fakeRuntime) Accounts() []AccountInfo`
+- `func (*fakeRuntime) Accounts() []model.AccountInfo`
 - `func (runtime *fakeRuntime) SelectAccount(name string) bool`
-- `func (runtime *fakeRuntime) VisibleTools(context.Context) []Tool`
+- `func (runtime *fakeRuntime) VisibleTools(context.Context) []model.Tool`
 - `func (*fakeRuntime) ActivePlugin() string`
 - `func (runtime *fakeRuntime) FullAccess() bool`
 - `func (runtime *fakeRuntime) SetFullAccess(on bool)`
@@ -144,16 +143,12 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) FullAccessFor(sessionID string) bool` — FullAccessFor 返回指定会话生效的全权模式（会话级选择优先，未选择回退
 - `func (runtime *fakeRuntime) PermissionTier() string` — PermissionTier 返回进程级默认权限档位（fake 只有二元口径：fullAccess → full）。
 - `func (runtime *fakeRuntime) SetPermissionTierFor(sessionID, tier string) error` — SetPermissionTierFor 把档位落到 fake 的二元全权口径（full → true，其余 → false），
-- `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
-- `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
+- `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
+- `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection)`
 - `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
-- `func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy)`
-- `func (runtime *fakeRuntime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)`
-- `func (runtime *fakeRuntime) planPolicyFor(sessionID string) (dto.PlanPolicy, bool)`
-- `func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
-- `func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics`
-- `func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics`
-- `func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding)`
+- `func (runtime *fakeRuntime) SetSubagentPolicy(policy dto.SubagentPolicy)`
+- `func (runtime *fakeRuntime) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy)`
+- `func (runtime *fakeRuntime) subagentPolicyFor(sessionID string) (dto.SubagentPolicy, bool)`
 - `func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem`
 - `func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error`
 - `func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord` — TaskSnapshot 返回**项目/全局** task 表（镜像生产 Runtime：实时注册表 +
@@ -182,11 +177,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string)`
 - `func (runtime *fakeRuntime) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 是生产 Runtime 同名方法的镜像：把插件装配带进这一轮执行
 - `func (runtime *fakeRuntime) PluginAssembly() []string` — PluginAssembly 读最近一次装配（同包用例直读，加锁）。
-- `func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo`
-- `func (runtime *fakeRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus`
-- `func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
+- `func (runtime *fakeRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo`
+- `func (runtime *fakeRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus`
+- `func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
 - `func (runtime *fakeRuntime) CancelScheduledTask(id string) error`
-- `func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — UpdateScheduledTask 是编辑入口的桩：记录"改哪一条、改成什么"，并把快照里
+- `func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — UpdateScheduledTask 是编辑入口的桩：记录"改哪一条、改成什么"，并把快照里
 - `func (runtime *fakeRuntime) ClearSubagentTree() error`
 - `func (runtime *fakeRuntime) RestoreSubagentAnchors(string) error`
 - `func (runtime *fakeRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error)`
@@ -199,56 +194,56 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
 - `func (runtime *fakeRuntime) ProjectRoot() string` — ProjectRoot 读当前绑定的项目根（加锁）：写侧可能来自后台 chat goroutine，
 - `func (runtime *fakeRuntime) SetCurrentTaskBatch(sessionID, batchID string)` — SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
-- `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool`
-- `func (*fakePlugins) All() []PluginInfo`
+- `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []model.Tool`
+- `func (*fakePlugins) All() []model.PluginInfo`
 - `func (plugins *fakePlugins) Activate(_ context.Context, name string) error`
 - `func (plugins *fakePlugins) Deactivate(context.Context) error`
-- `func (plugins *fakePlugins) Current() (PluginInfo, bool)`
-- `func (fakeSkills) All() []SkillInfo`
-- `func (fakeSkills) Get(name string) (SkillInfo, bool)`
+- `func (plugins *fakePlugins) Current() (model.PluginInfo, bool)`
+- `func (fakeSkills) All() []model.SkillInfo`
+- `func (fakeSkills) Get(name string) (model.SkillInfo, bool)`
 - `func (fakeSessions) SaveCurrent(string) error`
 - `func (fakeSessions) Resume(string) error`
-- `func (fakeSessions) List() []SessionInfo`
-- `func (fakeSessions) LoadHistory(string) ([]EngineMessage, error)`
-- `func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error)`
+- `func (fakeSessions) List() []model.SessionInfo`
+- `func (fakeSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (fakeSessions) LoadHistoryRange(string, int, int) ([]contract.EngineMessage, int, error)`
 - `func (fakeSessions) Delete(string) error`
 - `func (fakeSessions) MessageCount(string) (int, error)`
 - `func (fakeSessions) SetWorkspace(string)`
 - `func (fakeSessions) Workspace() string`
-- `func (sessions *blockingCatalogSessions) List() []SessionInfo`
+- `func (sessions *blockingCatalogSessions) List() []model.SessionInfo`
 - `func (persistenceFailingSessions) SaveCurrent(string) error`
 - `func (sessions *trackingSessions) SaveCurrent(sessionID string) error`
 - `func (sessions *scopedSessions) SetWorkspace(workspaceID string)`
 - `func (sessions *scopedSessions) Workspace() string`
 - `func (sessions *scopedSessions) SaveCurrent(sessionID string) error`
 - `func (sessions *scopedSessions) SavedIDs() []string`
-- `func (sessions *scopedSessions) SessionsOf(projectID string) []SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
+- `func (sessions *scopedSessions) SessionsOf(projectID string) []model.SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
 - `func (sessions *scopedSessions) LoadedWorkspace() string`
-- `func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []EngineMessage, bool)` — resolveWorkspaceFor 返回会话历史所在 workspace（扫描 histories；未找到
-- `func (sessions *scopedSessions) LoadHistory(sessionID string) ([]EngineMessage, error)` — LoadHistory 实现 SessionGranularPort：读取会话历史（会话粒度键；workspace
-- `func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)` — LoadHistoryRange 实现 SessionGranularPort：按窗口读取会话历史。
+- `func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []contract.EngineMessage, bool)` — resolveWorkspaceFor 返回会话历史所在 workspace（扫描 histories；未找到
+- `func (sessions *scopedSessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error)` — LoadHistory 实现 SessionGranularPort：读取会话历史（会话粒度键；workspace
+- `func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)` — LoadHistoryRange 实现 SessionGranularPort：按窗口读取会话历史。
 - `func (sessions *scopedSessions) Delete(sessionID string) error` — Delete 实现 SessionGranularPort：从全部项目索引删除会话。
 - `func newFakeWorkspace() *fakeWorkspace`
-- `func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)`
-- `func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error)`
-- `func (repo *fakeWorkspace) List() []WorkspaceInfo`
+- `func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)`
+- `func (repo *fakeWorkspace) Get(id string) (model.WorkspaceInfo, error)`
+- `func (repo *fakeWorkspace) List() []model.WorkspaceInfo`
 - `func (repo *fakeWorkspace) Delete(id string) error`
 - `func (repo *fakeWorkspace) BindSession(sessionID, workspaceID string)`
 - `func (repo *fakeWorkspace) UnbindSession(sessionID string)`
-- `func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (WorkspaceInfo, bool)`
+- `func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (model.WorkspaceInfo, bool)`
 - `func (repo *fakeWorkspace) AllBindings() map[string]string`
 - `func (*fakeWorkspace) DetectGitRemote(string) string`
 
 ### service_helpers_test.go
 
-- `func withTestSessions(sessions SessionPort) testServiceOption`
-- `func withTestRuntime(runtime RuntimePort) testServiceOption`
-- `func withTestReleaseWindowStore(store ReleaseWindowStore) testServiceOption` — withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
-- `func withTestAccountWindowStore(store AccountWindowStore) testServiceOption` — withTestAccountWindowStore 注入「每账号上下文窗口」的落盘口（不注入 = 界面上改的值
-- `func withTestPlugins(plugins PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
-- `func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service` — newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
-- `func mustNew(t testing.TB, deps Dependencies) *Service`
-- `func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) Snapshot` — waitForSnapshot 轮询 Snapshot 直到 ready 条件满足，返回满足条件的快照。
+- `func withTestSessions(sessions contract.SessionPort) testServiceOption`
+- `func withTestRuntime(runtime contract.RuntimePort) testServiceOption`
+- `func withTestReleaseWindowStore(store contract.ReleaseWindowStore) testServiceOption` — withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
+- `func withTestAccountWindowStore(store contract.AccountWindowStore) testServiceOption` — withTestAccountWindowStore 注入「每账号上下文窗口」的落盘口（不注入 = 界面上改的值
+- `func withTestPlugins(plugins contract.PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
+- `func newTestService(t testing.TB, engine contract.ChatEngine, options ...testServiceOption) *Service` — newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
+- `func mustNew(t testing.TB, deps contract.Dependencies) *Service`
+- `func waitForSnapshot(t *testing.T, service *Service, ready func(model.Snapshot) bool) model.Snapshot` — waitForSnapshot 轮询 Snapshot 直到 ready 条件满足，返回满足条件的快照。
 - `func (*sessionBackedEngine) SessionBacked() bool`
 - `func newGracefulShutdownEngine() *gracefulShutdownEngine`
 - `func (engine *gracefulShutdownEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
@@ -260,11 +255,13 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) discardPendingSubagentContexts()` — discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 - `func (service *Service) discardPendingSubagentContextsFor(_ string)` — discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
-- `func (service *Service) appendEngineMessage(sessionID string, msg types.Message)` — appendEngineMessage 追加消息到指定会话引擎历史。
+- `func (service *Service) appendEngineMessage(sessionID string, msg contract.EngineMessage)` — appendEngineMessage 追加消息到指定会话引擎历史。
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 - `func (service *Service) clearEngineHistoryFor(sessionID string)` — clearEngineHistoryFor 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
 - `func (service *Service) Submit(ctx context.Context, text string) error`
+- `func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64` — enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），
+- `func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest)` — afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 - `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
@@ -281,7 +278,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input_test.go
 
-- `func trustedSkillInHistory(t *testing.T, history []EngineMessage, name, text string) bool` — trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
+- `func trustedSkillInHistory(t *testing.T, history []contract.EngineMessage, name, text string) bool` — trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 - `func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T)`
 - `func TestWorkTableTraceBlock(t *testing.T)`
 - `func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T)`
@@ -293,20 +290,18 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
-- `func (service *Service) appendPlanRetryNotice(message string)`
-- `func (service *Service) abortPlanInteraction()`
 - `func (service *Service) SelectAccount(_ context.Context, name string) error`
 - `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
 - `func (service *Service) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
 - `func (service *Service) SetFullAccess(on bool) bool` — SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
-- `func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
+- `func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
 - `func (service *Service) mirrorPendingApprovalsLocked(sessionID string)` — mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
-- `func (service *Service) openInteraction(interaction *Interaction)`
+- `func (service *Service) openInteraction(interaction *model.Interaction)`
 - `func (service *Service) closeInteraction(id string)`
-- `func (service *Service) sessionInteraction() *Interaction`
-- `func (service *Service) accountInteraction() *Interaction`
+- `func (service *Service) sessionInteraction() *model.Interaction`
+- `func (service *Service) accountInteraction() *model.Interaction`
 
 ### service_interaction_guard_test.go
 
@@ -324,22 +319,16 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_knobs.go
 
-- `func (service *Service) ensureViewIdle(action string) (string, error)` — ensureViewIdle 是本文件与 SwitchEffort 共用的运行守卫：返回视图会话 ID，并在
-- `func validWireReasoningEffort(value string) bool` — validWireReasoningEffort 判定一个值是否是 provider 词表里的思考强度。
 - `func (service *Service) SetReasoningEffort(_ context.Context, effort string) error` — SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
-- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。取值判据与定时任务的循环次数
-- `func (service *Service) applyLoopLimit(limit int)` — applyLoopLimit 是"改循环上限"的唯一写点：引擎与快照读数一起改，避免出现
-- `func (service *Service) setReasoningEffortReading(value string)` — setReasoningEffortReading 记录"当前生效的 wire 思考强度"（engine/账号池那一步由
-- `func (service *Service) knobReadings() (string, int)` — knobReadings 是 runtime 投影收集两条拉条读数的唯一入口（每个回合尾、每次工具
-- `func (service *Service) knobReasonings() string` — knobReasonings / knobLimit 是投影装配用的两个单值回调。
-- `func (service *Service) knobLimit() int`
-- `func (service *Service) currentLoopLimit() int` — currentLoopLimit 返回"当前生效的循环上限"：用户用拉条改过就用改过的值，否则回退
-- `func (service *Service) pushSessionReasoningEffort(wireValue string) int` — pushSessionReasoningEffort 把 wire 值下发给"跟随会话"的账号，返回被改动的账号数。
-- `func (service *Service) publishKnobs(mutate func(*RuntimeState)) error` — publishKnobs 把两条拉条的读数变更推成一次 runtime.changed：mutate 在 ViewMu 下
-- `func reasoningEffortChoices() []string` — reasoningEffortChoices 是给报错提示用的可选值清单（不含 "session"：见
-- `func validateLoopLimit(limit int) error` — validateLoopLimit 是"循环次数"这一项的**唯一**一份取值判据：拉条（SetLoopLimit）
-- `func (service *Service) borrowSessionReasoningEffort(sessionID, wireValue string)` — —— 定时任务的按会话思考强度（"租一笔"）——
-- `func (service *Service) takeSessionReasoningEffort(sessionID string) (string, bool)` — takeSessionReasoningEffort 取走并消掉指定会话待下发的思考强度（没有则 false）。
+- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。判据与守卫在 `limit.Knobs`。
+- `func (host serviceKnobsHost) ViewSession() (string, bool)`
+- `func (host serviceKnobsHost) MutateRuntime(mutate func(*model.RuntimeState))`
+- `func (host serviceKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) error`
+- `func (host serviceKnobsHost) SetEngineMaxLoops(limit int)`
+- `func (host serviceKnobsHost) CurrentEffort() string`
+- `func (host serviceKnobsHost) MaxLoopsForEffort(level string) int`
+- `func (host serviceKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort`
+- `func newServiceKnobs(service *Service) *limit.Knobs` — newServiceKnobs 在装配期为某个 Service 建拉条组件（宿主就是它自己）。
 
 ### service_knobs_smoke_test.go
 
@@ -363,19 +352,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_notice_test.go
 
 - `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
-
-### service_plan_test.go
-
-- `func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T)`
-- `func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T)`
-- `func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T)`
-- `func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T)`
-- `func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T)`
-- `func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T)`
-- `func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T)`
-- `func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T)`
-- `func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T)`
-- `func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T)`
 
 ### service_queue.go
 
@@ -401,8 +377,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_release_window.go
 
-- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**
+- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**的值
 - `func (service *Service) SessionReleaseWindow() int` — SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
+- `func (service *Service) releaseWindowDeps() switching.ReleaseWindowDeps` — releaseWindowDeps 装配驻留窗口可调面的宿主面。
 
 ### service_release_window_test.go
 
@@ -417,26 +394,26 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_scheduler.go
 
-- `func withScheduledRunDefaults(spec seelebridge.ScheduledTaskSpec) seelebridge.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
+- `func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
 - `func scheduledRunParams(effort string, loopLimit int) (string, int)` — scheduledRunParams 返回这条任务触发时**真正要用**的两条参数：声明优先，未声明（空/0）
-- `func (service *Service) validateScheduledRunParams(spec seelebridge.ScheduledTaskSpec) error` — validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
-- `func (service *Service) applyScheduledRunParams(sessionID string, task seelebridge.ScheduledTaskSpec) error` — applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
-- `func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
-- `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
+- `func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error` — validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
+- `func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error` — applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
+- `func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
+- `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
 - `func (service *Service) validateScheduledWorkspace(workspaceID string) error` — validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
-- `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*WorkspaceInfo, error)` — resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
+- `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)` — resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
 - `func (service *Service) validateScheduledPlugins(plugins []string) error` — validateScheduledPlugins 校验任务声明的插件装配都存在（空 = 不覆盖，合法）。
-- `func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task seelebridge.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
+- `func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
 - `func (service *Service) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
 - `func (service *Service) RefreshRuntimeSnapshot()` — RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
-- `func (service *Service) StartScheduledSession(ctx context.Context, task seelebridge.ScheduledTaskSpec) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
+- `func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
 
 ### service_scheduler_test.go
 
 - `func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T)` — TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
 - `func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T)` — TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound 钉住"工作区是
 - `func (runtime *fakeRuntime) sessionProjectRoot(sessionID string) string` — sessionProjectRoot 读 fakeRuntime 的按会话工具根（同包测试直读，加锁）。
-- `func conversationContents(messages []Message) string` — conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
+- `func conversationContents(messages []model.Message) string` — conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
 - `func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T)` — TestUpdateScheduledTaskForwardsAndValidatesWorkspace 钉住编辑这条链的应用层口径：
 - `func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T)` — TestAssembleScheduledRunAppliesTierAndPlugins 钉住任务的**装配**落到哪儿：
 - `func TestScheduledRunParamsDefaultsAndValidation(t *testing.T)` — TestScheduledRunParamsDefaultsAndValidation 钉住定时任务那两条执行参数（思考强度 /
@@ -444,10 +421,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_snapshot.go
 
-- `func (service *Service) Snapshot() Snapshot`
-- `func (service *Service) ListSessions() []SessionInfo` — ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
-- `func (service *Service) enrichDirectoryRowsLocked(rows []SessionInfo) []SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
-- `func (service *Service) sessionStatusLocked(sessionID string) SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
+- `func (service *Service) Snapshot() model.Snapshot` — Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
+- `func (service *Service) ListSessions() []model.SessionInfo` — ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
+- `func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
+- `func (service *Service) sessionStatusLocked(sessionID string) model.SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
 - `func (service *Service) isRestoringLocked(sessionID string) bool` — isRestoringLocked 报告目标会话是否处于后台冷加载（调用方持有
 - `func (service *Service) setRestoringLocked(sessionID string)` — setRestoringLocked 标记目标会话进入后台冷加载（调用方持有 Core.ViewMu）。
 - `func (service *Service) clearRestoringLocked(sessionID string)` — clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
@@ -457,18 +434,18 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) markSessionViewIntentLocked(sessionID string) uint64` — markSessionViewIntentLocked 给会话记一次新的视图意图并返回其值（调用方持有
 - `func (service *Service) markSessionViewIntent(sessionID string)` — markSessionViewIntent 是 markSessionViewIntentLocked 的自取锁包装。
 - `func (service *Service) sessionViewIntentLocked(sessionID string) uint64` — sessionViewIntentLocked 返回会话当前的视图意图值（调用方持有 Core.ViewMu）。
-- `func (service *Service) Subscribe(buffer int) Subscription`
+- `func (service *Service) Subscribe(buffer int) event.Subscription`
 - `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)` — refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
 - `func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
 - `func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection)` — applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
-- `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
-- `func (service *Service) appendMessageWithOriginLocked(role, content string, tool *ToolCall, origin MessageOrigin) *Message` — appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
-- `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
-- `func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *ToolCall, origin MessageOrigin) *Message` — appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
-- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *Message` — appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
-- `func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
+- `func (service *Service) appendMessageLocked(role, content string, tool *model.ToolCall) *model.Message`
+- `func (service *Service) appendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
+- `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *model.ToolCall) *model.Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
+- `func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
+- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *model.Message` — appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
+- `func (service *Service) setSessionChatLockedFor(sessionID string, chat model.ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 - `func (service *Service) mirrorActiveViewLocked()` — mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
 - `func (service *Service) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
 - `func (service *Service) sessionViewEmptyLocked(sessionID string) bool` — sessionViewEmptyLocked 报告指定会话的可见会话是否为空（调用方持有
@@ -477,7 +454,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) addNotice(notice string)`
 - `func (service *Service) AddNotice(notice string)` — AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
 - `func (service *Service) resetConversation(notice string)`
-- `func (service *Service) advanceMessageSeqLocked(sessionID string, messages []Message)` — advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
+- `func (service *Service) advanceMessageSeqLocked(sessionID string, messages []model.Message)` — advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
 
 ### service_snapshot_test.go
 
@@ -544,14 +521,14 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### teamwork_completion_trigger_test.go
 
-- `func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
+- `func teamworkCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime)` — teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
 - `func completedTeammateRecord(handle string, state dto.AsyncState) dto.TeamworkJobCompletionRecord` — completedTeammateRecord 造一条已落到终态的 teammate 作业记录。
 - `func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T)`
 - `func TestTeamworkCompletionTriggersOnFailureToo(t *testing.T)`
 - `func TestTeamworkCompletionIgnoresRunningAndKilled(t *testing.T)`
 - `func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T)` — 铁律 §6.1「绝不唤醒忙会话」：忙的时候不起回合，跳过的条目**不记账**——会话回到空闲
 - `func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T)` — 幂等：句柄在册期间只触发一次（句柄单调不复用，进程内一个集合就够）。
-- `func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T)` — 两张表的终态链各触发一次：幂等账**按表**记账（句柄自带命名空间 `bt-`/`bteam-`，见 `dto.JobNamespace`；历史上两张表都铸 `a<seq>`，靠前缀才分得开）
+- `func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T)` — 两张表的终态链**各触发一次**：幂等账按表（前缀）分开，不靠句柄字面量。
 - `func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T)` — 开关关闭时连扫描都不做（与 subagent 那条同一个开关）。
 - `func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T)` — 忙会话的读法：**回合边界打点块**里的 teammate 完成行（这是"回执被看见"的另一半——
 

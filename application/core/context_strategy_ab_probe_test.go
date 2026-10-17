@@ -33,17 +33,17 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/Seele/seelectx"
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/seelectx"
-	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/memory"
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ── 脚本 ────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ type abCall struct {
 	iter  int
 	label string
 	items int
-	msgs  []EngineMessage
+	msgs  []contract.EngineMessage
 	bytes string
 	total int
 }
@@ -131,9 +131,9 @@ type abCall struct {
 type abRun struct {
 	label   string
 	system  string
-	tools   []Tool
+	tools   []model.Tool
 	calls   []abCall
-	durable [][]TranscriptEvent
+	durable [][]model.TranscriptEvent
 }
 
 type abDivergence struct {
@@ -160,7 +160,7 @@ type abDivergence struct {
 // 工具 schema 与 system 都是跨轮常量，放在头部与真实 provider 的渲染顺序一致
 // （tools 字段独立于 messages，渲染在消息之前）；这样"回合内追加消息"不会被
 // 尾部常量块打断，字节 LCP 只反映消息流的真实发散。
-func abSerialize(system string, items []EngineMessage, tools []Tool) string {
+func abSerialize(system string, items []contract.EngineMessage, tools []model.Tool) string {
 	var builder strings.Builder
 	builder.WriteString(serText("TOOLS", abToolsSignature(tools)))
 	builder.WriteString(serText("SYSTEM", system))
@@ -181,7 +181,7 @@ func abSerialize(system string, items []EngineMessage, tools []Tool) string {
 	return builder.String()
 }
 
-func abToolsSignature(tools []Tool) string {
+func abToolsSignature(tools []model.Tool) string {
 	var builder strings.Builder
 	for _, tool := range tools {
 		builder.WriteString("\n@TOOL@")
@@ -190,18 +190,18 @@ func abToolsSignature(tools []Tool) string {
 	return builder.String()
 }
 
-func abSortedTools(tools []Tool) []Tool {
-	out := append([]Tool(nil), tools...)
+func abSortedTools(tools []model.Tool) []model.Tool {
+	out := append([]model.Tool(nil), tools...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
-func abCapture(arm string, turn, iter int, system string, items []EngineMessage, tools []Tool) abCall {
+func abCapture(arm string, turn, iter int, system string, items []contract.EngineMessage, tools []model.Tool) abCall {
 	serialized := abSerialize(system, items, tools)
 	return abCall{
 		arm: arm, turn: turn, iter: iter,
 		label: fmt.Sprintf("%s.t%d.i%d", arm, turn, iter),
-		items: len(items), msgs: append([]EngineMessage(nil), items...),
+		items: len(items), msgs: append([]contract.EngineMessage(nil), items...),
 		bytes: serialized, total: tokens.Count(serialized),
 	}
 }
@@ -277,17 +277,17 @@ func runABProductionArm(t *testing.T, label string, script []abTurnScript, cfg p
 //     无"空正文占位/修复注记"）；
 //   - 世界状态变化渲染为尾部片段（变化时才写，写在尾部，不回头改头部）；
 //   - 每次请求 = 当前已知 item 列表的确定性串行化。
-func runABCodexArm(t *testing.T, label string, script []abTurnScript, system string, tools []Tool) *abRun {
+func runABCodexArm(t *testing.T, label string, script []abTurnScript, system string, tools []model.Tool) *abRun {
 	t.Helper()
 	sorted := abSortedTools(tools)
 	run := &abRun{label: label, system: system, tools: sorted}
-	items := make([]EngineMessage, 0, 64)
+	items := make([]contract.EngineMessage, 0, 64)
 	for turnIndex, turn := range script {
 		turnNo := turnIndex + 1
 		if turn.env != "" {
-			items = append(items, EngineMessage{Role: "user", Content: turn.env, ContentSet: true})
+			items = append(items, contract.EngineMessage{Role: "user", Content: turn.env, ContentSet: true})
 		}
-		items = append(items, EngineMessage{Role: "user", Content: turn.input, ContentSet: true})
+		items = append(items, contract.EngineMessage{Role: "user", Content: turn.input, ContentSet: true})
 		run.calls = append(run.calls, abCapture(label, turnNo, 1, system, items, sorted))
 
 		for callIndex, tool := range turn.tools {
@@ -297,16 +297,16 @@ func runABCodexArm(t *testing.T, label string, script []abTurnScript, system str
 				// 在同一步追加，之后不再回填。
 				narration = turn.narration
 			}
-			items = append(items, EngineMessage{
+			items = append(items, contract.EngineMessage{
 				Role: "assistant", Content: narration, ContentSet: narration != "",
-				ToolCalls: []EngineToolCall{{ID: tool.id, Name: tool.name, Arguments: tool.args}},
+				ToolCalls: []contract.EngineToolCall{{ID: tool.id, Name: tool.name, Arguments: tool.args}},
 			})
-			items = append(items, EngineMessage{
+			items = append(items, contract.EngineMessage{
 				Role: "tool", ToolCallID: tool.id, Name: tool.name, Content: tool.result, ContentSet: true,
 			})
 			run.calls = append(run.calls, abCapture(label, turnNo, callIndex+2, system, items, sorted))
 		}
-		items = append(items, EngineMessage{Role: "assistant", Content: turn.reply, ContentSet: true})
+		items = append(items, contract.EngineMessage{Role: "assistant", Content: turn.reply, ContentSet: true})
 	}
 	return run
 }
@@ -588,9 +588,9 @@ func TestContextStrategyAB_DynamicFactsPlacement(t *testing.T) {
 	options := memory.DefaultOptions()
 	queryOne := "第 1 轮：provider cache hit rate versus tool result size。"
 	queryTwo := "第 2 轮：memory select lexical score with CJK bigram and worktable position。"
-	record := sessionstore.SessionContextRecord{
-		SkillStack: []sessionstore.SkillFrame{{SkillID: "skill-review", Name: "review"}},
-		CompactStack: []sessionstore.CompactFrame{{
+	record := store.SessionContextRecord{
+		SkillStack: []store.SkillFrame{{SkillID: "skill-review", Name: "review"}},
+		CompactStack: []store.CompactFrame{{
 			SegmentID: "compact-s-4", From: 23, To: 30, Summary: candidates[3].Summary,
 		}},
 	}

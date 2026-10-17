@@ -3,7 +3,8 @@ package core
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ const (
 type chatRequest struct {
 	displayInput string
 	modelInput   string
-	skills       []PromptLayer
+	skills       []prompt.PromptLayer
 	budget       ReActBudget
 }
 
@@ -27,13 +28,13 @@ func chatRequestDisplays(requests []chatRequest) []string {
 	return displays
 }
 
-func newChatRequest(input string, layers []PromptLayer) chatRequest {
+func newChatRequest(input string, layers []prompt.PromptLayer) chatRequest {
 	display := strings.TrimSpace(input)
 	return chatRequest{displayInput: display, modelInput: display, skills: selectedSkillLayers(layers)}
 }
 
-func selectedSkillLayers(layers []PromptLayer) []PromptLayer {
-	skilled := make([]PromptLayer, 0, len(layers))
+func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer {
+	skilled := make([]prompt.PromptLayer, 0, len(layers))
 	for _, layer := range layers {
 		if layer.Kind == "skill" {
 			skilled = append(skilled, layer)
@@ -42,12 +43,12 @@ func selectedSkillLayers(layers []PromptLayer) []PromptLayer {
 	return skilled
 }
 
-func formatSkillUserInput(layers []PromptLayer, input string) string {
+func formatSkillUserInput(layers []prompt.PromptLayer, input string) string {
 	_ = layers
 	return input
 }
 
-func writeSkillItem(builder *strings.Builder, skill PromptLayer) {
+func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer) {
 	fmt.Fprintf(builder, "- name: %s\n  instructions: |\n", skill.Name)
 	for _, line := range strings.Split(strings.TrimSpace(skill.Text), "\n") {
 		builder.WriteString("    ")
@@ -106,7 +107,7 @@ func combineChatRequests(requests []chatRequest) chatRequest {
 	return combined
 }
 
-func mergeSkillLayers(current, incoming []PromptLayer) []PromptLayer {
+func mergeSkillLayers(current, incoming []prompt.PromptLayer) []prompt.PromptLayer {
 	for _, layer := range incoming {
 		found := false
 		for index := range current {

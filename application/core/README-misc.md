@@ -2,28 +2,28 @@
 
 ## 生态位
 
-基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
+基础与杂项（vocabulary/assembly_helpers/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
 
-覆盖：显式名单 25 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：显式名单 27 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### aliases.go
+### assembly_helpers.go
 
-- `func NewCommandRegistry() *CommandRegistry`
+- `func NewCommandRegistry() *input_router.CommandRegistry`
 - `func newInputRouter(handlers inputRouteHandlers) *inputRouter`
-- `func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy`
-- `func DefaultWindowConfig() WindowConfig`
-- `func LoadWindowConfig(path string) (WindowConfig, error)`
-- `func NewEventHub() *EventHub`
-- `func NewApprovalBroker(events event.Hub) *ApprovalBroker`
-- `func NewPromptStack() *PromptStack`
-- `func NewEffortManager(stack *PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *EffortManager`
-- `func cloneSnapshot(snapshot Snapshot) Snapshot`
-- `func cloneRuntimeState(runtime RuntimeState) RuntimeState`
+- `func NewDefaultWindowPolicy(config cc.WindowConfig) cc.DefaultWindowPolicy`
+- `func DefaultWindowConfig() cc.WindowConfig`
+- `func LoadWindowConfig(path string) (cc.WindowConfig, error)`
+- `func NewEventHub() *event.EventHub`
+- `func NewApprovalBroker(events event.Hub) *limitapproval.ApprovalBroker`
+- `func NewPromptStack() *prompt.PromptStack`
+- `func NewEffortManager(stack *prompt.PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *prompt.EffortManager`
+- `func cloneSnapshot(snapshot model.Snapshot) model.Snapshot`
+- `func cloneRuntimeState(runtime model.RuntimeState) model.RuntimeState`
 - `func maxLoopsFor(level string) int`
 - `func reasoningEffortFor(level string) string`
 - `func reactBudgetFor(level string) prompt.ReActBudget`
@@ -59,10 +59,10 @@
 ### compressed_turn_test.go
 
 - `func testStringPtr(value string) *string` — testStringPtr 返回字符串指针（测试消息正文）。
-- `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error`
+- `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error`
 - `func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T)` — TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
-- `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error)`
-- `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error)`
+- `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error)`
+- `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model.StoredToolResult, error)`
 - `func TestCompressedTurnArchiverPersistsOriginal(t *testing.T)` — TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
 - `func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T)` — TestCompressedTurnArchiverRoutesByContextSessionID 写侧归属（G0a 回归）：
 - `func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T)` — TestCompressedTurnArchiverFallsBackToProviderWithoutContext 无 ctx 注入时
@@ -71,7 +71,7 @@
 
 ### diagnostics.go
 
-- `func RenderDiag(snap Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
+- `func RenderDiag(snap model.Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
 
 ### fault_guard.go
 
@@ -86,8 +86,9 @@
 
 ### limits.go
 
-- `func ApplyLimits(l seelexctx.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
-- `func Limits() seelexctx.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+- `func ApplyLimits(l limit.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
+- `func Limits() limit.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+- `func workTableBounds() worktable.Limits` — workTableBounds 把进程级上限里**工作表格投影**用到的那三格按值取出，交给中间层的
 - `func ApplySessionReleaseWindow(window int) (int, error)` — ApplySessionReleaseWindow 校验并**立刻生效**一个「会话驻留窗口」，返回真正生效的
 
 ### perf_stats.go
@@ -146,7 +147,9 @@
 - `func (service *Service) touchResident(sessionID string)` — touchResident 记录一次会话引擎使用（冷加载/热切换/物化），并触发超限
 - `func (service *Service) markResidentRecentLocked(sessionID string, resident bool)` — markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
 - `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 按释放面口径收敛驻留引擎（引擎层）：受保护集（当前视图 /
+- `func (service *Service) residentEvictionSnapshotLocked() residency.EvictionSnapshot` — residentEvictionSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
 - `func (service *Service) sessionBusy(unit *session.SessionUnit) bool` — sessionBusy 报告会话是否正忙（释放面的守卫判据之一：忙的会话绝不释放）：
+- `func sessionBusyState(unit *session.SessionUnit) switching.BusyState` — sessionBusyState 把会话单元的四个忙态读数装配成中间层的值（装配缝；判据在
 
 ### resident_lru_test.go
 
@@ -158,11 +161,16 @@
 
 ### review_files.go
 
-- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 seelebridge.ReviewFilesPort：把一次「请 GUI 在侧边资源
+- `func (service *Service) reviewRequests() *review.Requests` — reviewRequests 返回落点（每次调用构造一次值语义的宿主适配；无状态）。
+- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 assemble.ReviewFilesPort（判据在 `backend/tool/review`）。
 - `func (service *Service) ClearReviewRequest(sessionID string)` — ClearReviewRequest 清空指定会话的待审阅请求（工作区切换/解绑的失效面；
-- `func (service *Service) newReviewRequestID() string` — newReviewRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与
-- `func normalizeReviewKey(path string) string` — normalizeReviewKey 归一化用于"同批次去重"的路径键（分隔符归一；不做路径语义
-- `func classifyReviewReadError(err error) string` — classifyReviewReadError 把 workspace 域的读取拒绝归到契约词表里的原因格。
+- `func (host serviceReviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
+- `func (host serviceReviewHost) NextRequestID() string` — NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。
+- `func (host serviceReviewHost) SessionIDFromContext(ctx context.Context) string`
+- `func (host serviceReviewHost) ViewSessionID() string`
+- `func (host serviceReviewHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
+- `func (host serviceReviewHost) ClearReviewRequest(sessionID string)`
+- `func (host serviceReviewHost) PublishSnapshotChanged(sessionID string, revision uint64)`
 
 ### review_files_test.go
 
@@ -177,8 +185,6 @@
 ### runtime_projection.go
 
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布
-- `func latestVisibleUserGoal(messages []Message) string`
-- `func truncateRuntimeProjectionGoal(content string) string`
 
 ### served_route_test.go
 
@@ -190,12 +196,11 @@
 ### snapshot_budget.go
 
 - `func snapshotToolOutputLimit() int` — snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
-- `func toolOutputPreview(content string, limit int) (string, bool)` — toolOutputPreview 把超限工具输出截断为快照预览：取前 limit 字节（按
+- `func toolOutputPreview(content string, limit int) (string, bool)` — toolOutputPreview 是快照预览截断判据的**宿主转发**：判据本体在中间层
 - `func (service *Service) boundToolResultForSnapshot(name, content string) (visible string, ref string, truncated bool, totalChars int)` — boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有
 
 ### snapshot_budget_test.go
 
-- `func TestToolOutputPreviewTruncates(t *testing.T)` — TestToolOutputPreviewTruncates 验证快照预览截断：超过阈值只留前 N 字符
 - `func TestBoundToolResultForSnapshotArchives(t *testing.T)` — TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
 - `func TestToolResultContentPagination(t *testing.T)` — TestToolResultContentPagination 验证分页读回：offset/limit/UTF-8 边界
 - `func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T)` — TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小
@@ -207,11 +212,11 @@
 
 ### window.go
 
-- `func ApplyWindowConfig(config WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
-- `func CurrentWindowConfig() WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
+- `func ApplyWindowConfig(config cc.WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
+- `func CurrentWindowConfig() cc.WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
 - `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
 - `func RetainFloorTokens(budget task_context.ContextBudget) int` — RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
-- `func ValidateRetainWindow(config WindowConfig, limits seelexctx.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
+- `func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
 - `func (r retainWindowLimits) ContextWindow() int`
 - `func (r retainWindowLimits) MaxOutputTokens() int`
 
@@ -234,6 +239,17 @@
 - `func TestWorkspaceWriteFileRejectsReadOnlyBackend(t *testing.T)`
 - `func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T)` — TestWorkspaceWriteFileUseCaseWritesRealFilesystem：真实 workspace.Repo 上的
 
+### workspace_host.go
+
+- `func (host workspaceHost) LockTransition() func()`
+- `func (host workspaceHost) State() switchworkspace.ViewState`
+- `func (host workspaceHost) ApplyDraftBinding(info model.WorkspaceInfo, projection switchworkspace.Projection) uint64`
+- `func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection switchworkspace.Projection, freshSessionID, notice string) uint64`
+- `func (host workspaceHost) ApplyUnbind(sessionID string, projection switchworkspace.Projection) uint64`
+- `func (host workspaceHost) PublishSnapshotChanged(revision uint64)`
+- `func (host workspaceHost) RequestCatalogRefresh()`
+- `func (host workspaceHost) ClearReviewRequest()`
+
 ### workspace_tree_usecase_test.go
 
 - `func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error)`
@@ -253,21 +269,16 @@
 ### workspace_usecase.go
 
 - `func (service *Service) releaseSessionAsync(sessionID string)` — releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。
-- `func (service *Service) DeleteSession(sessionID string) error`
-- `func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error`
-- `func (service *Service) BindWorkspace(workspaceID string) error`
-- `func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error`
-- `func (service *Service) UnbindWorkspace()`
-- `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（GUI 工作树数据源；root 只
-- `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge 数据源）。
-- `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交（含父提交拓扑；GUI
-- `func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回当前工作区未提交的改动（GUI 工作区更改面板数据源；
-- `func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 返回当前工作区某个提交改了哪些文件（GUI「提交记录 →
-- `func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
-- `func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取当前工作区某文件在某个提交时的内容（GUI
-- `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 用 content 覆盖当前工作区某文件的全部内容（「资源管理器 →
-- `func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error)` — workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
-- `func (service *Service) workspaceFilePort() (contract.WorkspaceFilePort, string, error)` — workspaceFilePort 读取当前工作区 root（同一套锁内快照拷贝）并断言
-- `func (service *Service) workspaceRootPort(missingPortMessage string) (contract.WorkspacePort, string, error)` — workspaceRootPort 解析"当前会话绑定的工作区根"与后端本身：没有绑定工作区时
-- `func (service *Service) collectWorkspaceProjection() workspaceStateProjection` — collectWorkspaceProjection 在获取 service.ViewMu 之前执行 WorkspacePort I/O。
-- `func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection)`
+- `func (service *Service) DeleteSession(sessionID string) error` — DeleteSession 删除会话记录并走完整释放面（会话域用例，留在 application/core）。
+- `func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error` — CreateWorkspace 建工作区并绑定到当前视图（实现：middle/switch/workspace）。
+- `func (service *Service) BindWorkspace(workspaceID string) error` — BindWorkspace 把工作区绑定到当前视图会话/草稿（实现：middle/switch/workspace）。
+- `func (service *Service) UnbindWorkspace()` — UnbindWorkspace 解绑当前视图会话/草稿的工作区（实现：middle/switch/workspace）。
+- `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（root 只来自后端当前 workspace）。
+- `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数。
+- `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交。
+- `func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回当前工作区未提交的改动。
+- `func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 返回当前工作区某提交改了哪些文件。
+- `func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 读取当前工作区某文件的前 limit 字节。
+- `func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取某文件在某个提交时的内容（git 对象库）。
+- `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（面板编辑保存）。
+- `func (service *Service) applyWorkspaceProjectionLocked(projection switchworkspace.Projection)` — applyWorkspaceProjectionLocked 把 middle 产出的窄投影写进 Snapshot。

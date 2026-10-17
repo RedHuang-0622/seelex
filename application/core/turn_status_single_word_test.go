@@ -2,9 +2,9 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // turn_status_single_word_test.go — 「一次回合（请求）现在处在哪一步」这件事，
@@ -26,13 +26,17 @@ func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.ViewMu.Unlock()
 
-	service.ViewMu.RLock()
+	// 可见面走 `Snapshot()`（自取读锁）；存档面走 `TaskProjectionLocked`（要调用方持读锁）。
+	// **不要**在持有 `ViewMu.RLock()` 时调 `Snapshot()`：`sync.RWMutex` 不可重入——目录刷新
+	// worker 在 `Coordinator.publishCatalogMirror` 里排队等写锁时，嵌套的 RLock 会永久阻塞
+	// （P20 现场：3 并发跑本包，第一轮就挂死在这个嵌套上）。
 	visible := service.Snapshot().Task
+	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
 	service.ViewMu.RUnlock()
 

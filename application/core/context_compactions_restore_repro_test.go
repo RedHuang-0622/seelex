@@ -27,9 +27,13 @@ package core
 // 会话落盘 → Shutdown → 同一 store 上新建第二份 Service 冷加载
 // （`ResumeSession`）。store 用 `archiveSessions`（record 的读写面），它按
 // `SaveSessionRecordWorkspace` / `LoadSessionRecord` 承载 record，与生产
-// sessionstore 的 record 通道同形。
+// store 的 record 通道同形。
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+)
 
 const restartCompactionRequestID = "task-restart-compaction"
 
@@ -37,7 +41,7 @@ const restartCompactionRequestID = "task-restart-compaction"
 // 会话里跑出 4 个已定稿轮次（上下文压力越软阈值）、显式压缩一次（记录进状态、
 // 进快照、并按会话落盘），session 的事件流与 record 都留在 store 上。返回的
 // retained 是压缩推前后的保留窗口起点（重启前的事实）。
-func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompaction, int) {
+func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.ContextCompaction, int) {
 	t.Helper()
 	store := &archiveSessions{}
 	first := newTestService(t, &fakeEngine{},
@@ -45,8 +49,8 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 		withTestRuntime(runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}),
 	)
 	first.ViewMu.Lock()
-	first.Core.Snapshot.Chat = ChatState{Running: true, RequestID: restartCompactionRequestID}
-	first.components.tasks.BeginTask(restartCompactionRequestID, "inspect", "high", nil, TaskCheckpoint{})
+	first.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: restartCompactionRequestID}
+	first.components.tasks.BeginTask(restartCompactionRequestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	first.ViewMu.Unlock()
 	sessionID := first.Snapshot().Session.ID
 	if sessionID == "" {
@@ -54,7 +58,7 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	}
 	// 替身认得这个会话（生产上适配层的按项目枚举同形）：压缩 checkpoint 的落点
 	// 解析才有事实可依——它不再按活跃写作用域猜。
-	store.sessionID = sessionID
+	store.setSessionID(sessionID)
 	appendWindowRounds(t, first, restartCompactionRequestID, 4, 32_000)
 
 	// 压缩一次（`/compact`、`compact_context` 同一落点）。
@@ -65,10 +69,10 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	first.ViewMu.RLock()
 	state := first.components.tasks.CurrentTaskExecutionFor(sessionID)
 	var retained int
-	var transcript []TranscriptEvent
+	var transcript []model.TranscriptEvent
 	if state != nil {
 		retained = state.ContextRetainedFrom
-		transcript = append([]TranscriptEvent(nil), first.components.tasks.TranscriptFor(sessionID)...)
+		transcript = append([]model.TranscriptEvent(nil), first.components.tasks.TranscriptFor(sessionID)...)
 	}
 	first.ViewMu.RUnlock()
 	if state == nil || len(state.ContextCompactions) != 1 {

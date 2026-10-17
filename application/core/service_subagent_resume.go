@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 子代理中断恢复的应用层入口（headless/GUI 走这一面）：

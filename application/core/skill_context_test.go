@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"testing"
 )
@@ -13,7 +15,7 @@ func TestFormatSkillUserInputKeepsPlainInputUnchanged(t *testing.T) {
 }
 
 func TestSkillSelectionKeepsUserInputPlainAndFreezesTrustedLayers(t *testing.T) {
-	layers := []PromptLayer{
+	layers := []prompt.PromptLayer{
 		{Kind: "base", Name: "base", Text: "system"},
 		{Kind: "skill", Name: "review", Text: "Check correctness.\nReport evidence."},
 		{Kind: "skill", Name: "security", Text: "Inspect inputs."},
@@ -38,8 +40,8 @@ func TestDisplayUserInputRejectsInvalidEnvelope(t *testing.T) {
 
 func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T) {
 	const input = "$review 检查这个实现"
-	modelInput := formatSkillUserInput([]PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}}, input)
-	adapted := adaptEngineMessage(EngineMessage{Role: "user", Content: modelInput})
+	modelInput := formatSkillUserInput([]prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}}, input)
+	adapted := adaptEngineMessage(contract.EngineMessage{Role: "user", Content: modelInput})
 	if adapted.Content != input {
 		t.Fatalf("adapted content = %q, want %q", adapted.Content, input)
 	}
@@ -50,14 +52,14 @@ func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T) {
 	if got := displayUserInput(recovery); got != "continue audit" {
 		t.Fatalf("recovery display = %q", got)
 	}
-	if isVisibleHistoryMessage(EngineMessage{Role: "system", Content: "assembled system prompt"}) {
+	if isVisibleHistoryMessage(contract.EngineMessage{Role: "system", Content: "assembled system prompt"}) {
 		t.Fatal("system history must never be visible in a frontend snapshot")
 	}
 }
 
 func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T) {
 	first := newChatRequest("plain", nil)
-	second := newChatRequest("$review focused", []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
+	second := newChatRequest("$review focused", []prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	combined := combineChatRequests([]chatRequest{first, second})
 
 	if got, want := combined.displayInput, "plain\n---\n$review focused"; got != want {

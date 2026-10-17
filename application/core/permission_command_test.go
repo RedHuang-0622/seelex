@@ -1,21 +1,21 @@
 package core
 
-// 运行期 CLI/TUI 切档（P1-2）：main.go 的装配注释早就写着"运行期由 GUI/CLI 按会话
+// 运行期 CLI/TUI 切档（P1-2）：wiring/bootstrap 的装配注释早就写着"运行期由 GUI/CLI 按会话
 // 切换"，但命令注册表里一直没有 /permission（只有 /effort），于是 headless/TUI 用户
 // 无法在运行期改档位。本文件钉住：命令存在、带描述、无参回显当前档 + 目录、带参走
 // SetPermissionTier 单一路径（含写入侧校验与大小写宽容）。
 
 import (
 	"context"
+	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func permissionCommandFor(t *testing.T, service *Service) interface {
 	Description() string
-	Execute(context.Context, []string) (CommandResult, error)
+	Execute(context.Context, []string) (input_router.CommandResult, error)
 } {
 	t.Helper()
 	command, ok := service.commands.Get("permission")

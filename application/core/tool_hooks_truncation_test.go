@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +21,7 @@ func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	service.handleToolComplete("bash", "tool-1", big, nil, 1500*time.Millisecond)
 
 	snapshot := service.Snapshot()
-	var toolMessage *Message
+	var toolMessage *model.Message
 	for index := range snapshot.Conversation {
 		message := snapshot.Conversation[index]
 		if message.Role == "tool_result" && message.Tool != nil && message.Tool.ID == "tool-1" {
@@ -81,7 +83,7 @@ func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	limit := snapshotToolOutputLimit()
 	big := strings.Repeat("restore-line-", 2000) // ~24KB
-	history := []EngineMessage{
+	history := []contract.EngineMessage{
 		{Role: "assistant", Content: "let me check"},
 		{Role: "tool", ToolCallID: "call-restore-1", Name: "bash", Content: big},
 	}

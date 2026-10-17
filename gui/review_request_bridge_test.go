@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestBridgeSnapshotCarriesReviewRequest 是 J-2 的 **GUI 面 bridge 断言**：待审阅

@@ -1,0 +1,347 @@
+# tools 域
+
+## 生态位
+
+承载 scoped 工具路由与工具注册表状态：受项目根限制的
+read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
+（`RegistryState.AddInline`）、权限门控（`PermissionGate`）。主要调用方：
+`runtime.go`（RegisterBuiltins、seelexVisibilityPolicy）。
+
+## 职责与非职责
+
+- 职责：`Router` 注册并路由项目作用域工具；`RegistryState` 包装
+  framework tools.Registry（超时/中间件/内联工具 + 工具簇属声明）；`PermissionGate`
+  做工具调度前的权限检查（allow/deny/ask）；`async_*.go` / `job_*.go` 承载 **作业执行域**
+  （子进程调用系契约，受 `limits.async_exec.enabled` 管辖；出厂配置 **true**，
+  结构零值仍 false = 旧配置缺这段时能力不出现）。
+- 非职责：MCP 工具生命周期（归 mcp 域）、plan 工具族（归 plan 域）。
+
+## 与其它域的关系
+
+```mermaid
+flowchart LR
+    RUNTIME["runtime（组合根）"] --> ROUTER["tools.Router<br/>scoped 工具（filesystem / projectScope / bash）"]
+    RUNTIME --> RS["tools.RegistryState"]
+    RS --> REG["framework tools.Registry"]
+    RS --> MCPD["mcp：重挂载 MCP provider"]
+    RS --> TASKD["task：终态工具 provider"]
+    ROUTER --> GATE["PermissionGate<br/>middleware"]
+    RS --> GATE
+    GATE --> REG
+```
+
+## 权限判定链（主体 × 路由组 × 位）
+
+```mermaid
+flowchart TB
+    CALL["一次工具调度"] --> CTX["从执行 ctx 取会话与主体<br/>SessionFromContext / WithEngine"]
+    CTX --> CLASS{"主体类"}
+    CLASS -->|root<br/>主代理 / plan entry / goalplan| ROOT["读本会话档位表<br/>ApplyTier 剪掉若干 ask"]
+    CLASS -->|sub<br/>节点子代理| BASE1["读 base 表（无 ctl / adm 位）"]
+    CLASS -->|emp_ro / emp_rw<br/>角色员工| BASE2["读 base 表 + 角色权责"]
+    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm"]
+    BASE1 --> GROUP
+    BASE2 --> GROUP
+    GROUP --> BITS{"该主体有位？"}
+    BITS -->|缺位| NOWAY["该工具对该主体不可路由（≈ 不在 PATH）"]
+    BITS -->|有位| RULES["LMRW 规则：最后匹配胜出"]
+    RULES --> ACT{"判定"}
+    ACT -->|allow| RUN["执行"]
+    ACT -->|ask| APV["人工审批（approval.Broker）"]
+    ACT -->|deny| BLOCK["硬拒（危险命令在任何档位都拦）"]
+```
+
+**这一层的分工（2026-10-16 M2-C1/C4 后）**：图上"路由组表 / base 表 / 档位覆盖 /
+工具簇属声明 / 壳类别"这些**判据**已归位 `backend/limit/policy`
+（`DefaultPermissionGroupList` / `DefaultPermissionSubjects` / `ApplyTier` /
+`DeclaredToolMeta` / `ShellKind`），本包只保留**执行门**（`PermissionGate` 的
+类解析、可见性、工具面、员工主体解析与缓存）与注册表；审批落
+`backend/limit/approval` 的 broker（本包只注入超时并消费）。判据改在 policy 改，
+执行顺序改在本包改——两件事不要混。
+
+## 核心实现
+
+- `Router`：Deps 闭包注入 Runtime 能力（filesystem/projectScope/docker
+  恢复/诊断），注册 read/write/bash 等工具。路径根解析顺序：worktree 节点作用域
+  （`SceneScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
+  telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
+  会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
+- **前台工具调用的终止（停止按钮）**：同步 `bash` 的 run 挂在回合 ctx 上，
+  点停止 = 取消该 ctx。它与后台作业共用**同一份**进程树装配——`newProcessTreeCommand`
+  （`router.go:570`）+ `startWithProcessTree`（`router.go:584`）= `security.ProcessTree` +
+  `ConfigureProcessTree` + `cmd.Cancel = tree.Terminate()` + `WaitDelay`，两条链只传各自的
+  `runCtx`（装配回归见 `process_tree_assembly_test.go`）。所以停止（以及 `timeout` 到点）
+  终止的是**整棵树**：只杀直接 shell 时，它派生的孙进程会继续
+  跑、继续握住输出管道，`cmd.Wait` 于是要等孙进程自己退出——"停止工具调用"就变成"点了
+  停止还要再等几十秒"（回归用例 `stop_foreground_run_test.go`）。反过来，后台作业用
+  `context.WithoutCancel` 摘掉了回合 ctx，**停止按钮不杀它们**：生死只由
+  `bg_manage(op=kill)` 与 `asyncHardCap` 决定。
+  **有意不并的只有 `runCtx`（超时 / 取消策略）**：两条链长得像但语义不同——后台是
+  `context.WithTimeout(context.WithoutCancel(ctx), asyncHardCap)`（受理回执一返回本次调用的
+  ctx 就失效，沿用它会把刚起的命令连带杀掉），同步是
+  `context.WithTimeout(ctx, r.scopedToolTimeout(...))`（受本次调用预算约束、可被"停止"取消）。
+  把这两条并成一条，要么后台命令被回执后的 ctx 杀掉，要么前台命令再也停不下来。
+- `RegistryState`：framework registry 包装 + `InlineProvider` 累积
+  RegisterTool 产品工具（重名覆盖、快照重建）。
+- `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`backend/limit/policy/tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
+- `computer/`（子包）：桌面 computer use 原语 + Seelex 侧工具族（`computer_*`）；
+  工具面只依赖注入闭包（注册面/媒体分区/随图队列），原语平台无关桩保持跨平台
+  可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
+  `isComputerInputTool`）。
+
+### 作业执行域（子进程调用系契约，`async_*.go` / `job_*.go`）
+
+**契约 = 一个 interface、Add + 四个管理动作**（`job_contract.go` 的 `JobTool`）：
+
+```text
+Add(ctx, JobSpec)            → []byte   派发并立刻返回受理回执（handle + log_path）
+Status(ctx, JobHandle)       → []byte   只读看进度（不推进游标、不消费输出）
+Fetch(ctx, JobHandle)        → []byte   取回增量（消费式：取过的不再给第二次）
+Kill(ctx, JobHandle)         → []byte   终止执行体（进程树 / 取消级联），已产出内容不丢
+Done(ctx, JobHandle)         → []byte   销项一个已终态的作业（终态只由执行体判定）
+```
+
+出参一律 `[]byte`（JSON 载荷）：载荷就是将来要交给模型/前端的结构化输出，先转成
+string 只会让每个调用点多做一次编解码往返；框架的 `ToolHandler` 只吃 string，所以
+转换点只留在**工具边界**那一处。
+
+三类作业共用**同一张登记表、同一套状态机**（`asyncRun.kind`）：
+
+| kind | 谁派发 | 执行体 | 谁触发终态 |
+|---|---|---|---|
+| `process` | `bash_bg` | 后台 shell 子进程（进程树可终止） | 运行体系（`awaitAsync` 被动） |
+| `inline` | `read_batch` | 进程内读扇出（取消靠 ctx） | 运行体系（goroutine 收尾，被动） |
+| `subagent` | `fork_subagents` | plan 节点编排（取消靠 ctx） | 运行体系（`CompleteJob`，被动）+ 模型侧 `done` 销项 |
+
+三类作业的派发工具都**只派发、不等结果**：`fork_subagents` 也没有"阻塞到全部跑完"
+的分支（阻塞期间模型没有下一次调用，`observe`/`kill` 就没有入口）。
+
+### 句柄自带来源（作业身份层，2026-10-15）
+
+本域的后台作业表与 Seele `jobs.Manager` 的团队作业表**在同一个进程里并存**，各表自己维护
+派发序号。两边曾经共用同一套句柄形状（都从 `a1` 起），于是把一张表的句柄交给另一张表的管理
+工具会**静默命中一条无关作业**（审计 `docs/2026-10-15-teamwork-defect-audit/README.md` D1，
+真实会话里发生过 leader 想停 teammate 的 `a5`、却销掉一条无关后台作业并收到"成功"）。
+
+现在的口径：
+
+| 表 | 派发面 | 句柄 | 管理工具 |
+|---|---|---|---|
+| 后台工具作业 | `bash_bg`（process）/ `read_batch`（inline） | `bt-<seq>` | `bg_manage` |
+| 后台子代理作业 | `fork_subagents`（subagent） | `bs-<seq>` | `bg_manage` |
+| 团队作业 | `team_dispatch`（teammate，Seele `jobs.Manager`） | `bteam-<seq>` | `jobs_manage` |
+
+- **文法与判据只有一处**：`contract/dto/job_namespace.go`（`JobHandle` 铸造 /
+  `JobNamespaceOf` 识别 / `JobHandleSeq` 解析）。分隔符是文法的一部分——`bt` 是 `bteam` 的
+  前缀，只有带上 `-` 匹配，`bteam-3` 才不会被判成 `bt-` 那一族。
+- **本域铸造**在 `async_exec.go` 的 `beginJob`（按 kind 取 token）；团队表由 Seelex 注入的
+  命名器给出（`backend/engine/assemble/teamwork_job_namer.go`）。
+- **跨表调用显式报错**：`bg_manage` 的 `requireOwnedJobHandles` 只认本表的两个 token（正向
+  白名单，第三张表出现时默认拒绝），拒绝文案点名 `jobs_manage`。
+- 工作表格行 ID 仍是 `async:<handle>`（`async:` 是**行**命名空间，与句柄命名空间正交），
+  前端与看板因此不需要认识 token。
+- 名字从 `job_manage` 改成 `bg_manage`：旧名与 `jobs_manage` 只差一个字母（退役门禁见根目录
+  `job_migration_residue_test.go`），新名与 token 同源。
+
+### 实际壳的单一事实源（2026-10-15）
+
+`bash` / `bash_bg` 到底在哪条壳里执行，是一条**装配期解析一次**的结论（`shell_fact.go` 的
+`ResolveShellFact`：Git Bash → PATH 上的 bash（WSL 的 bash 被拒）→ PowerShell → cmd → sh），
+进程内缓存。**执行层、模型面、权限表读同一份**：
+
+- 执行层：`scopedBashCommand` 直接取事实里的 `Path` + 方言 argv（不再每次现算）；
+- 模型面：两个工具的描述各带一句 `DialectHint`（本机壳是 POSIX 还是 PowerShell、该用哪些命令），
+  系统提示词另有一段 Environment（由组合根经 `contract.Dependencies.EnvironmentSection` 注入，
+  装配期定值 ⇒ 稳定前缀）；
+- 权限表：`PermissionRulesForShell` 的**免打断读命令**那一层按方言分槽（PowerShell 宿主放行
+  `Get-ChildItem*` / `Select-String *` 等，不放行 `ls *` / `head *` —— 那些命令在 PowerShell 下
+  是"放行即失败"），其余层（写类 ask、危险 deny、越界 ask）只有一份。
+
+为什么必须同源：白名单按**命令文本**匹配，同一个字符串在不同壳里是两回事。不同源的代价是
+"**过闸即死**"——白名单放行、执行层跑另一个壳、命令失败，模型只拿到一条执行错误（审计 D4）。
+判据在 `shell_fact_test.go`（事实稳定 + 执行同源 + 方言进模型面 + 权限分层）。
+
+工具面与形状：`bash`（唯一的 shell 入口：串行、同步，**不再有 `background`**；
+只读形态的免打断由权限模式表承担）/ `bash_bg`（`Add`，**必须带
+`description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/
+`fork_subagents`（一次派发 N 个子代理作业）/ `bg_manage`（`op=observe|fetch|kill|done`；
+`op=fetch`/`op=observe` 可给 `handles` 数组一次管一批——**整批共用一份等待预算**，
+不是逐条各等一次）。派发只返回**受理回执**
+（`{status:accepted, handle, log_path, state:running}`，不含作业输出），
+`tool_call`/`tool_result` 的配对就在这一次调用里完成。每一问一答都是正常的相邻工具对，
+所以历史只追加、不回写，也不需要
+"结果到达时把空闲会话叫醒"那条链路（它必然回闯 `ChatStream` 全程持有的会话锁）。选型与
+实测见
+[`docs/2026-09-24-async-tool-deferred-ack/README.md`](../../../docs/2026-09-24-async-tool-deferred-ack/README.md)
+§0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）与 §10。
+契约与打点见 [`docs/2026-09-26-subprocess-contract/tool_concurrency_design.md`](../../../docs/2026-09-26-subprocess-contract/tool_concurrency_design.md)
+§A/§B 与 [`docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md`](../../../docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md)。
+
+串行与后台之间有一条**时长线**（`serialBashBudget` = 5 分钟）：显式 `timeout` 超过它的
+`bash` 调用被拒绝，并被指向 `bash_bg`（`auditSerialTimeout`）。取拒绝而不是
+按预算截断：截断是静默降级——模型以为给了 30 分钟，命令在第 5 分钟被杀，工作白做且没有
+任何信号说明该换入口。作业面关闭时**不**审查：没有 `bash_bg` 可派发，拒绝一条长命令等于
+既不执行也不给替代路径。没声明 `timeout` 的调用同样不审查（没有"声明的时长"），长命令该
+去哪由描述与系统提示词负责说明。这条线的数字在三份工具描述与
+[`assets/system/instructions.md`](../../engine/prompt/assets/assets/system/instructions.md)
+的 `Long-Running Commands` 段里各出现一次，来源只有 `serialBashBudget`：
+`serial_bash_budget_test.go` 同时钉住拒绝、边界、开关不误伤与"提示词里的数字就是代码执行
+的数字"。
+
+文件分工按"契约 / 表 / 执行体 / 工具面 / 探针"五份（`async_exec.go` 单文件曾长到 608 行
+且职责混合，命中仓库根 `MEMORY.md` 的上帝文件判据）：
+
+- `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现；批量入口
+  `FetchMany`/`StatusMany` 也在这里，单条与批量共用 `fetchOne`/`polledPayload`）。
+- `job_tools.go`：`bg_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
+- `scoped_names.go`：**项目作用域工具名单（唯一一份）**（P21-31 归位）——六个名字常量
+  （`ReadFileToolName` / `GrepSearchToolName` / `GlobToolName` / `WriteFileToolName` /
+  `EditFileToolName` / `BashToolName`）+ `ProjectScopedToolName(name) bool`。名单有两个消费面：
+  `Router.Register` 登记它们、装配层的 `RegisterTool` 拒绝在作用域表就绪后再注册同名工具——
+  两处各写一份就会漂移（新加的项目作用域工具被晚注册顶掉，或莫名其妙被拒）。
+- `path_gate.go`：**路径门前移**（P1 / M2-C5）——把 ProjectScope 越界检查放在权限门
+  **之前**（事件 → 路径门 → 权限门 → 诊断 → handler），越界路径直接拒、不先弹审批。
+  路径根解析与 handler 同源（`resolveScopedPath`，含 SceneScope worktree 根）；本文件只维护
+  "哪个工具的哪个入参是路径"的表（`path` / `paths[]` / `workdir`）。
+- `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
+- `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
+- `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
+- `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
+  "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
+- `scoped_names_test.go`：**跨实现一致性**——用 `Deps.RegisterTool` 桩捕获注册面实际登记的名字，
+  与判据面的名单逐一对账（两处各写一份名单就会在这里红）；名单之外的名字（含大小写变体与
+  `bash_bg` / `read_batch` 这类同族名字）一律不算。
+
+- `asyncRegistry`：单锁句柄表。句柄 `<token>-<seq>`（本表是 `bt-` / `bs-`，token 表与文法见
+  `contract/dto/job_namespace.go`；seq 单调，不能用 `len(runs)` 推——驱逐过
+  已完成项后会同号，两条执行共用输出文件）；去重键 = 会话+命令（只在 `state=running`
+  期间生效，一次失败不得永久封死这条命令）；在途上限 32、记录槽 256，驱逐最老的已完成
+  记录时**连带删输出文件**（记录槽有上限、文件没有，否则长会话把临时目录无界撑大）。
+  `begin`/`snapshot` 都按值返回副本：表内那条记录的 `state/exit` 由执行体收尾在锁内改写。
+- 执行体：`context.WithoutCancel` + 自带 `asyncHardCap=30m`。同步路径的
+  `scopedToolTimeout` 在这里不适用——受理回执一返回，本次工具调用的 ctx 就失效，沿用
+  它会立刻杀掉刚起的命令。硬超时合成 `exit=124`、被杀合成 `exit=137`，两者都把注记写进
+  输出文件（否则模型只看到"命令突然结束"）；正常退出、硬超时、被杀、执行体 panic 四条路
+  都必须落到 `finish` 恰好一次。
+- **进程树终止靠 `security.ProcessTree`（Windows = Job Object，POSIX = 进程组）**：
+  `exec.CommandContext` 到点只杀直接子进程（bash），`taskkill /T` 也杀不到——MSYS2/Git Bash
+  的 fork 子 shell 不一定挂在直接父进程下，实测 `bash -c "(sleep 0.5; echo GRANDCHILD) &
+  sleep 25"` 在 150ms 被 `/T` 杀掉后 GRANDCHILD 仍落进日志。Job Object 不看父子关系，
+  且 `KILL_ON_JOB_CLOSE` 让"执行体收尾时关句柄"成为唯一确定的回收点。Job 建不出来时
+  退化成按 PID 杀，`Degraded()` 说得清——此时不得主张"整棵进程树已终止"。两条链读的是
+  **同一个判据**（`backend/limit/gate/process_tree_windows.go` 的 `Degraded()`：Job 没建成 **或** 进程没挂进去），
+  只是读数通道不同——后台链折进探针的 `Degraded` 栏与观察行（`async_probe.go:64`/`:127`），
+  同步链发一条 `bash.process.degraded` 诊断（`router.go:714`，回归见
+  `process_tree_degraded_reading_test.go`）：同一件事不许一条链说得出口、另一条链瞒下。
+- `cappedLogWriter`：输出在 1MiB 处截断，超上限只丢字节、**仍向子进程报告已消费**
+  （报短写会让命令自己异常退出，那是把基础设施限制伪装成命令失败）。
+- 增量交付：`cursor` 是"已交付给模型的文件偏移"，每次取回最多带 4000 字符的**新增**
+  部分——反复轮询同一句柄不会把整份日志重播进上下文（这是轮询型唯一真实的 token 风险）。
+- 会话销毁即杀：`Router.CloseSessionAsync(sessionID)` 由 `Runtime.ReleaseSessionAsync`
+  转给 core，在会话删除/归档时调用。句柄表按会话持有执行体，会话没了就没有任何取回/终止
+  入口——不杀就是无人认领的孤儿进程，而工作打点表会一路显示 running。
+- `AsyncPendingFor(sessionID)`：只读计数本会话在途执行。它是 core"无进展预算"的判据输入：
+  异步载荷刻意不含时间戳（含了就每轮白烧前缀缓存），所以一条**安静**的长命令的两次取回
+  必然逐字节相同，按载荷字节算进展会把还在跑的回合判死。
+- 实时探针（`async_probe.go`）：`AsyncRuns()` 把登记表采样成"是什么（description）、
+  在跑什么（command）、现在怎么样（state / exit / 已产出字节 / 末行 / 耗时 / 是否降级）"，
+  `AsyncRunEvents()` 是它的变化信号口（容量 1、latest-wins）。三类来源发信号：派发与终态
+  （`begin`/`finish`）、以及**有新字节**（`cappedLogWriter` → `noteOutput`，按
+  `asyncProbeThrottle=1s` 去抖；安静没输出的命令不刷信号）。探针不推进 `cursor`，也不进
+  上下文——命令行原文、绝对路径、时间戳只到 GUI；`asyncPayload` 那份仍受"确定性、不含
+  路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table.go`。
+- 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
+  false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
+  `bg_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
+  `fork_subagents`（它只走作业面）都直接报错。**关就是关**，不得静默降级成同步执行
+  （与 `backend/limit/gate/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
+  每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
+- 完成回填（打点 K-5）：终态迁移那一刻算一次**有界摘要**（≤512B：状态 + 退出码 +
+  行数 + 字节数 + 有界末行），投影（`application/core/work_table.go`）把它回填进
+  请求尾部打点块——在途行带标题、完成行带摘要，取回/销项后行才消失。摘要按轮重播，
+  所以它是**严格有界**的；全文只走 `fetch` 或 attachments 里的日志路径。
+  `Notified` 位是回填幂等键：重复 `finish` / 重复 `done` 不产生第二次回填
+  （`finish` 与 `CompleteJob` 都以"状态非 running 即返回"做同一次守卫）。
+
+## Review 要点（本域最容易出错的地方）
+
+- `state/exit/killRequested/cmd` 只能在 `g.mu` 内读写；终止动作（taskkill / TerminateJobObject）
+  必须在锁外做——`finish` 也要这把锁。
+- `killed` 意图只能在终止**确认成功**后落（`markKilled`），否则状态会跑在进程前面。
+- 载荷新增字段前想清楚：它会永久留在可缓存前缀里，任何"每次都不一样"的字节都在白烧预算。
+- 派发返回前若 `attach` 没落上（记录被驱逐/关停），执行体必须自己 `tree.Close()`，否则漏 Job。
+- 探针读表（`infos`）只能在锁内取字段，文件 `stat`/读末窗一律在锁外做——一条狂写日志的
+  命令不得挡住派发与收尾。信号是**非阻塞**发送（持 `g.mu` 时），消费者慢就让它丢，
+  读侧自己汇聚。
+- `asyncProbeThrottle` 只限制发信号的频率，不参与"进程还活着吗"的判断；终态一律由
+  `cmd.Wait` 的返回说话。新增按墙钟猜状态的判据一律拒绝。
+- 给后台执行加字段时先说清它属于哪一层：`asyncRun`（表）→ `AsyncRunInfo`（探针，可带
+  路径/时间/命令原文）→ `asyncPayload`（进上下文，必须确定性、不含路径）。三层字段混用
+  就是拿缓存预算换界面便利。
+
+## 数据流
+
+RegisterBuiltins → Router.Register → framework registry；每次工具调度 →
+permission middleware → handler → 诊断/遥测钩子。
+
+## 依赖方向
+
+允许依赖：`fs`、`security`、`internal/model`、`framework tools`、
+`framework types`。禁止依赖：seelebridge 根包及其它域。
+
+## 并发、存储、安全
+
+`Router`/`PermissionGate` 自带锁；路径经 `security.ProjectScope` 校验；
+bash 诊断观察者 panic 隔离。作业域：`asyncRegistry` 单锁（执行体 goroutine 只写
+自己那条，读侧在 handler 里，文件 I/O 一律在锁外）；句柄只对本会话有效，跨会话
+取回/终止/销项直接拒绝；执行体脱离工具 ctx（`context.WithoutCancel`），存活上限由
+`asyncHardCap` 自带；输出目录归本进程，`CloseAsync` 当场试删，删不动（还有句柄没关）
+就由最后一条 `finish` 补删，关停后 `begin` 直接报错而不是新建一个没人回收的目录。
+**`bash_read` 已删除（2026-10-15）**：它当年是"只读名牌 + 服务端语法判定"的分裂面
+（`security.ClassifyCommand`/`ExplainCommand`，随它一起删除），实测 479 次调用有 165 次
+（34.4%）折在判定上，而判定侧本身还与本机执行壳错位（白名单是 POSIX 词表、壳退化成
+PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_bg`；读文件走
+`read_file`/`grep_search`/`glob`。
+
+**免打断的读命令**改由 `bash` 的**模式白名单**承担（`backend/limit/policy/policy.go` 的
+`bash` Patterns：`git *` / `ls *` / `cat *` / `head *` / `tail *` / `pwd` / `go test *`
+… ⇒ `ActionAllow`），其余形态落到 `ActionAsk`。模式匹配比服务端分类弱，所以这里刻意
+只放保守形态（无管道、无重定向、无替换）。
+
+## 扩展方式
+
+新增 scoped 工具：扩展 `Router.Register`；新增内联产品工具：`AddInline`（簇属由
+`backend/limit/policy.DeclaredToolMeta` 按路由组表自动填，新工具名必须先在**路由组表**里分封，否则
+`RegistryState.UndeclaredTools()` 会把它列出来）。新增作业类型：实现 `JobTool`
+（`Add` + `Status`/`Fetch`/`Kill`/`Done`，管理动作委派 `jobManager`）并把执行体接进
+`asyncRun`——派发回执必须在自己的单元内完成配对，不得引入"迟到补记"写回历史中段的链路。
+
+## Review 指南
+
+- 路径是否可能逃逸项目根；路径门是否仍在权限门之前（越界不该弹审批）；权限中间件是否在
+  注册表构造时正确闭包捕获。
+- 后台执行体**不得**继承工具调用的 ctx 或 `scopedToolTimeout`（回执一返回该 ctx 就
+  失效）；新增清理路径都要问"终态是否恰好合成一次"。
+- 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。
+- 取回只能交付增量并推进 `cursor`；把整份日志重播进上下文会同时烧 token 和破前缀。
+- `bg_manage` 的 `handles` 批量取回共用**一份**等待预算（deadline 只建一次）：新增
+  批量路径时不得把预算按条数相乘——那是把"一次等一批"变回 N 次串行等待。`kill`/`done`
+  一次只认一条句柄（kill 会终止整批共用编排，销项是逐条的确认）。
+- 终态只由执行体判定：模型侧 `done` 只能销**已终态**的行，对在途作业必须报错并要求
+  `kill`；`finish`/`CompleteJob` 必须以"状态非 running 即返回"守住"只迁移一次"。
+- 摘要与投影都必须按**字节**封顶（末行按字符截断再拼进摘要，混着算会悄悄超限）。
+- 开关新增一处生效就要同步三处（schema / 注册 / handler），且关闭态必须报错而非降级。
+
+## 测试与验证
+
+`go test ./backend/tool/registry/...`（router_test、permission_state_test、
+async_exec_test：回执不含输出、增量拼接恰好一次、跨会话拒绝、未知句柄报错、去重只在
+在途、在途上限、驱逐连带删日志、截断不报短写、wait_ms 归一、开关三处同步、权限组）。
+真实 API 的形态与经济性冒烟（opt-in，不进 CI）：
+
+```text
+# wire 层：P1–P7（轮询形态合法且不破前缀缓存）
+go test -tags asynclive . -run TestAsyncWire -count=1 -v
+# §8.3 五指标 A/B（两臂只差 limits.async_exec.enabled）
+go test -tags manualsmoke . -run TestManualSmokeAsyncAB -count=1 -v -timeout=60m
+```

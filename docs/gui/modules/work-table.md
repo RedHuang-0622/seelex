@@ -86,7 +86,7 @@
 
 ## 数据流
 
-1. **task 注册表是唯一权威源**（`seelebridge/task/task.go`，Actor +
+1. **task 注册表是唯一权威源**（`backend/tool/task/task.go`，Actor +
    Mailbox，保护粒度=task）：`task_add` 主动入表；todolist 融合为
    kind=todo 的 task；plan/subagent 生命周期被动同步
    （`syncTasksFromSources`）。工作表格走**全局读面**
@@ -255,4 +255,4 @@ go test ./docs... 2>/dev/null; go test . -run TestGUIDocumentContracts -count=1
 批次相关新增测试：`TestBuildWorkTableBatches`、
 `TestTaskRecordToWorkItemCarriesBatch`（application/core）、
 `TestTaskRegistryDefaultBatchStampsNewTasks`、
-`TestTaskRegistryTodoKindRestrictsStateMachine`（seelebridge/task）。
+`TestTaskRegistryTodoKindRestrictsStateMachine`（backend/tool/task）。

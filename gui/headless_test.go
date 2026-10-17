@@ -12,25 +12,26 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/headless"
 )
 
-func newHeadlessTestServer(t *testing.T, app Application) string {
+func newHeadlessTestServer(t *testing.T, app headless.Application) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &headlessServer{app: app}
+	server := headless.NewServer(app)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = server.srv.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 	})
 	return "http://" + listener.Addr().String()
 }
 
-func headlessRPC(t *testing.T, base, method string, args ...any) rpcResponse {
+func headlessRPC(t *testing.T, base, method string, args ...any) headless.Response {
 	t.Helper()
 	rawArgs := make([]json.RawMessage, 0, len(args))
 	for _, arg := range args {
@@ -40,7 +41,7 @@ func headlessRPC(t *testing.T, base, method string, args ...any) rpcResponse {
 		}
 		rawArgs = append(rawArgs, encoded)
 	}
-	body, err := json.Marshal(rpcRequest{Method: method, Args: rawArgs})
+	body, err := json.Marshal(headless.Request{Method: method, Args: rawArgs})
 	if err != nil {
 		t.Fatalf("marshal rpc request: %v", err)
 	}
@@ -49,7 +50,7 @@ func headlessRPC(t *testing.T, base, method string, args ...any) rpcResponse {
 		t.Fatalf("POST /rpc %s: %v", method, err)
 	}
 	defer response.Body.Close()
-	var result rpcResponse
+	var result headless.Response
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatalf("decode rpc response %s: %v", method, err)
 	}

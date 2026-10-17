@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`internal/winhide` 为 GUI 应用在加载项目（git）、执行 bash 工具或沙箱命令时隐藏 Windows 子进程控制台窗口（`CREATE_NO_WINDOW`），避免弹出黑色终端窗口；非 Windows 平台为空操作。主要调用方：`workspace`、`seelebridge/worktree`、`seelebridge/tools`、`seelebridge/security`、`seelebridge/scheduler`。
+`internal/winhide` 为 GUI 应用在加载项目（git）、执行 bash 工具或沙箱命令时隐藏 Windows 子进程控制台窗口（`CREATE_NO_WINDOW`），避免弹出黑色终端窗口；非 Windows 平台为空操作。主要调用方：`workspace`、`backend/tool/worktree`、`backend/tool/registry`、`backend/limit/gate`、`backend/engine/schedule`。
 
 ## 职责与非职责
 
@@ -14,10 +14,10 @@
 ```mermaid
 flowchart LR
     W["workspace（git 加载）"] --> H["internal/winhide"]
-    WT["seelebridge/worktree"] --> H
-    T["seelebridge/tools（bash）"] --> H
-    SEC["seelebridge/security（沙箱命令）"] --> H
-    SCH["seelebridge/scheduler（白名单命令）"] --> H
+    WT["backend/tool/worktree"] --> H
+    T["backend/tool/registry（bash）"] --> H
+    SEC["backend/limit/gate（沙箱命令）"] --> H
+    SCH["backend/engine/schedule（白名单命令）"] --> H
     H --> WIN["Windows：CREATE_NO_WINDOW"]
     H --> OTHER["非 Windows：空操作（编译期隔离）"]
     WIN --> CMD["exec.Cmd.SysProcAttr"]
@@ -49,7 +49,14 @@ CGO_ENABLED=0 GOOS=darwin go build ./internal/winhide
 
 ## 文件与函数索引
 
-- `winhide_windows.go`
-  - `func Apply(cmd *exec.Cmd)`：隐藏子进程控制台窗口（Windows）；其它平台无副作用。
-- `winhide_other.go`
-  - `func Apply(_ *exec.Cmd)`：在非 Windows 平台为空操作。
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### winhide_other.go
+
+- `func Apply(_ *exec.Cmd)` — Apply 在非 Windows 平台为空操作。
+
+### winhide_windows.go
+
+- `func Apply(cmd *exec.Cmd)` — Apply 隐藏子进程控制台窗口（Windows）；其它平台无副作用。
+

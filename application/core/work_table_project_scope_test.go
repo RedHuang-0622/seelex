@@ -25,10 +25,11 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // foreignTaskLabel 是项目 A 的活动任务标题（断言"它是否被注入项目 B 的上下文"）。
@@ -50,12 +51,12 @@ func newProjectSwitchHarness(t *testing.T) *projectSwitchHarness {
 	engine := &fakeEngine{chunks: []string{"ok"}}
 	runtime := &fakeRuntime{}
 	workspaces := newMultiProjectWorkspace()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine: engine,
 		Runtime: runtimeWithContextLimits{
 			fakeRuntime: runtime, window: 200_000, output: 8_192,
 		},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{},
+		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
 	t.Cleanup(service.Shutdown)
@@ -116,10 +117,10 @@ func appendProjectRoundsFor(t *testing.T, service *Service, sessionID string, ro
 	defer service.ViewMu.Unlock()
 	for index := 0; index < rounds; index++ {
 		mark := fmt.Sprintf("round-%02d", index)
-		service.components.tasks.AppendTranscriptEventForLocked(sessionID, TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventForLocked(sessionID, model.TranscriptEvent{
 			TaskID: "task-b-fold", Role: "user", Content: "q-" + mark,
 		})
-		service.components.tasks.AppendTranscriptEventForLocked(sessionID, TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventForLocked(sessionID, model.TranscriptEvent{
 			TaskID: "task-b-fold", Role: "assistant", Content: mark + ":" + strings.Repeat("A", chars),
 		})
 	}
@@ -178,8 +179,8 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	// 由 TestProjectSwitchRebindsTaskRegistryToNewSession 单独盯。
 	appendProjectRoundsFor(t, harness.service, harness.sessionB, 20, 32_000)
 	harness.service.ViewMu.Lock()
-	harness.service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-b-fold"}
-	harness.service.components.tasks.BeginTaskFor(harness.sessionB, "task-b-fold", "切换项目后的第一轮", "high", nil, TaskCheckpoint{})
+	harness.service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-b-fold"}
+	harness.service.components.tasks.BeginTaskFor(harness.sessionB, "task-b-fold", "切换项目后的第一轮", "high", nil, model.TaskCheckpoint{})
 	harness.service.ViewMu.Unlock()
 
 	out, err := harness.service.components.context.PrepareExecutionContextFor(
@@ -198,7 +199,7 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	// 压缩之后的下一轮：块按轮重拼，污染不会随压缩消失。
 	harness.service.ViewMu.Lock()
 	previous := harness.service.components.tasks.CurrentTaskExecutionFor(harness.sessionB)
-	harness.service.components.tasks.BeginTaskFor(harness.sessionB, "task-b-next", "B 的下一轮", "high", previous, TaskCheckpoint{})
+	harness.service.components.tasks.BeginTaskFor(harness.sessionB, "task-b-next", "B 的下一轮", "high", previous, model.TaskCheckpoint{})
 	harness.service.ViewMu.Unlock()
 	next, err := harness.service.components.context.PrepareExecutionContextFor(
 		harness.sessionB, "task-b-next", "B 的下一轮")
@@ -237,7 +238,7 @@ func TestProjectSwitchRebindsTaskRegistryToNewSession(t *testing.T) {
 
 	// 会话域活跃指针：回合登记必须落在新会话。
 	harness.service.ViewMu.Lock()
-	harness.service.components.tasks.BeginTask("task-routing", "切换项目后的一轮", "high", nil, TaskCheckpoint{})
+	harness.service.components.tasks.BeginTask("task-routing", "切换项目后的一轮", "high", nil, model.TaskCheckpoint{})
 	harness.service.ViewMu.Unlock()
 	if got := harness.service.components.tasks.SessionIDForRequest("task-routing"); got != harness.sessionB {
 		t.Errorf("回合 task-routing 被登记到 %q，want %q（新项目的回合落在旧项目的会话上）", got, harness.sessionB)

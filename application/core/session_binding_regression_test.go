@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -12,8 +14,8 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()

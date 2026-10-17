@@ -25,14 +25,13 @@ package core
 
 import (
 	"context"
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/application/core/chat"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"strings"
+	"testing"
 )
 
 const coldNarrationRequestID = "cold-narration-1"
@@ -42,15 +41,15 @@ const coldNarrationRequestID = "cold-narration-1"
 // ——与 v8 布局「record 由 message 行派生」同形。
 type coldNarrationStore struct {
 	*pagedSessionStore
-	persisted SessionRecord
+	persisted model.SessionRecord
 }
 
-func (s *coldNarrationStore) SaveSessionRecordWorkspace(_, _ string, record SessionRecord) error {
+func (s *coldNarrationStore) SaveSessionRecordWorkspace(_, _ string, record model.SessionRecord) error {
 	s.persisted = record
 	return nil
 }
 
-func (s *coldNarrationStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error) {
+func (s *coldNarrationStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error) {
 	if s.persisted.ID != "" {
 		return s.persisted, nil
 	}
@@ -72,10 +71,10 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	// 本轮：用户行落地（含可见行 + transcript 事件）→ 流式占位。
 	const input = "读一下装配入口"
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: coldNarrationRequestID}
-	service.components.tasks.BeginTask(coldNarrationRequestID, "narration", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: coldNarrationRequestID}
+	service.components.tasks.BeginTask(coldNarrationRequestID, "narration", "high", nil, model.TaskCheckpoint{})
 	service.appendMessageLocked("user", input, nil)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: coldNarrationRequestID, Role: "user", Content: input,
 	})
 	service.appendMessageLocked("assistant", "", nil)
@@ -106,7 +105,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 		Turn: 0, Name: "read_file", Arguments: callArguments,
 	})
 
-	var toolEvent *TranscriptEvent
+	var toolEvent *model.TranscriptEvent
 	for index, event := range service.components.tasks.TranscriptFor(sessionID) {
 		if event.Role == "assistant" && len(event.ToolCalls) > 0 {
 			toolEvent = &service.components.tasks.TranscriptFor(sessionID)[index]
@@ -121,7 +120,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 
 	// 冷加载侧：落盘后换新 Service 冷恢复，可见会话里必须能看到该正文。
 	if err := service.components.sessions.PersistCurrentSession(
-		session_runtime.Location{Meta: SessionInfo{ID: sessionID}}, sessionID,
+		session_runtime.Location{Meta: model.SessionInfo{ID: sessionID}}, sessionID,
 	); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}

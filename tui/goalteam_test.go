@@ -1,4 +1,3 @@
-
 package tui
 
 import (
@@ -8,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalteam_test.go — 目标/团队只读面板（Alt+G / Alt+T）的验收：
@@ -37,12 +36,10 @@ func goalSnapshot() application.Snapshot {
 	snapshot := application.Snapshot{Runtime: application.RuntimeState{Model: "model"}}
 	snapshot.Session.ID = "sess-main-1"
 	snapshot.Runtime.GoalGovernance = &dto.GoalGovernanceView{
-		Active:        true,
-		GoalID:        "g-1",
-		Title:         "给员工按权限开放工具",
-		Status:        dto.GoalActive,
-		PeerState:     dto.PeerAdvisoryPending,
-		LastDirective: "[verdict_done] 两条验收证据在本次 ADVISOR 输入中均可核对",
+		Active: true,
+		GoalID: "g-1",
+		Title:  "给员工按权限开放工具",
+		Status: dto.GoalActive,
 	}
 	return snapshot
 }
@@ -109,7 +106,7 @@ func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 	panel := model.renderPanel()
 	// 面板按治理投影渲染 goal 状态词：取值只可能来自 dto.GoalStatus 那一格
 	// （夹具早先用过 "running"——那是**格外的词**，枚举化后写不出来了）。
-	for _, want := range []string{"GOAL", "active", "advisory_pending", "verdict_done", "g-1"} {
+	for _, want := range []string{"GOAL", "active", "g-1"} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
 		}

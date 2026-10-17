@@ -9,12 +9,11 @@ package core
 //   - 释放 = 引擎 + 桥侧本体 + 正文；会话单元/目录行/磁盘事实保留。
 
 import (
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // withSessionReleaseWindow 把统一窗口改成 window，并把两个分层覆盖键归零
@@ -32,7 +31,7 @@ func withSessionReleaseWindow(window int) func() {
 
 // releaseAwareEngine 在 multiSessionEngine 之上记录「桥侧会话本体」的释放
 // （application 侧 ReleaseSessionBundle 端口；生产实现是
-// seelebridge.Runtime.ReleaseSessionBundle）。没有这一格，用例只能看到"引擎被
+// assemble.Runtime.ReleaseSessionBundle）。没有这一格，用例只能看到"引擎被
 // 卸载了"，而看不出"驱逐是否真的把本体放掉了"——那正是 2026-10-14 的缺口。
 type releaseAwareEngine struct {
 	*multiSessionEngine
@@ -106,7 +105,7 @@ func TestPointViewAtRestoringShellKeepsTargetUnitContent(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-view"}, {ID: "sess-target"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}, {ID: "sess-target"}})
 
 	engine.register("sess-view")
 	if err := service.ResumeSession("sess-view"); err != nil {
@@ -143,7 +142,7 @@ func TestPointViewAtRestoringShellIgnoresSettledTarget(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-view"}, {ID: "sess-settled"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}, {ID: "sess-settled"}})
 
 	engine.register("sess-view")
 	if err := service.ResumeSession("sess-view"); err != nil {
@@ -169,7 +168,7 @@ func TestReleaseSessionMemoryForgetsGoalStoreHandle(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
 
 	for _, sessionID := range []string{"sess-gone", "sess-view"} {
 		engine.register(sessionID)
@@ -201,7 +200,7 @@ func TestSessionReleaseWindowKeepsOnlyPreviousSession(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
 
 	for _, sessionID := range []string{"sess-1", "sess-2", "sess-3"} {
 		engine.register(sessionID)
@@ -249,7 +248,7 @@ func TestSessionReleaseWindowProtectsBusySession(t *testing.T) {
 
 	// 空闲 B/C/D 依次热激活：窗口 1 ⇒ 受保护集（运行中的 A + 当前视图 D）之外
 	// 只留最近的一个（C），最旧的空闲 B 被释放。
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}, {ID: "sess-d"}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}, {ID: "sess-d"}})
 	for _, sessionID := range []string{"sess-b", "sess-c", "sess-d"} {
 		engine.register(sessionID)
 		if err := service.ResumeSession(sessionID); err != nil {
@@ -316,7 +315,7 @@ func TestDeleteSessionReleasesMemory(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
 
 	// 先激活要删的会话，再切到 sess-view：删除时 sess-gone 是**非视图**会话。
 	for _, sessionID := range []string{"sess-gone", "sess-view"} {
@@ -347,7 +346,7 @@ func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-view"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}})
 
 	engine.register("sess-view")
 	if err := service.ResumeSession("sess-view"); err != nil {
@@ -384,7 +383,7 @@ func TestReleaseSessionMemorySkipsProtectedSession(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-view"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}})
 
 	engine.register("sess-view")
 	if err := service.ResumeSession("sess-view"); err != nil {

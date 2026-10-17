@@ -2,13 +2,13 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
-	"github.com/RedHuang-0622/seelex/workspace"
 )
 
 // reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
@@ -36,7 +36,7 @@ func reviewFixture(t *testing.T) (*Service, string) {
 		t.Fatal(err)
 	}
 
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = adapters.WorkspacePort{Repo: workspace.NewRepo()}
 	})
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
@@ -167,7 +167,7 @@ func TestRequestFileReviewRejectsOverCapAndEmpty(t *testing.T) {
 // TestRequestFileReviewWithoutWorkspaceFailsExplicitly：没有绑定工作区时明确失败
 // （而不是"看起来打开了、前端去读却读不到"）。
 func TestRequestFileReviewWithoutWorkspaceFailsExplicitly(t *testing.T) {
-	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = adapters.WorkspacePort{Repo: workspace.NewRepo()}
 	})
 	if _, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}}); err == nil {

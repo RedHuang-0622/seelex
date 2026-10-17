@@ -35,3 +35,22 @@ flowchart LR
 ```text
 go test ./internal/frontmatter -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### frontmatter.go
+
+- `func Parse(data []byte, dst any) (string, error)` — Parse unmarshals YAML frontmatter into dst and returns the Markdown body.
+
+### frontmatter_fuzz_test.go
+
+- `func FuzzParse(f *testing.F)`
+
+### frontmatter_test.go
+
+- `func TestParseWithAndWithoutFrontmatter(t *testing.T)`
+- `func TestParseRejectsInvalidFrontmatter(t *testing.T)`
+

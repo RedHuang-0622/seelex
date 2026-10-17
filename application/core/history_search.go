@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 )
 
 // SearchHistory 返回会话历史检索结果（GUI 历史检索面板数据源；query 非空

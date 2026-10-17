@@ -2,11 +2,11 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // compactionReadbackRuntime 在索引面之上再实现「压缩之前先试一次模型读后感」的
@@ -72,8 +72,8 @@ func TestCompactionFailureWithFailedReadbackLeavesContextUntouched(t *testing.T)
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-local-fallback"}
-	service.components.tasks.BeginTask("task-local-fallback", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-local-fallback"}
+	service.components.tasks.BeginTask("task-local-fallback", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-local-fallback")
 	sessionID := service.Snapshot().Session.ID
@@ -173,8 +173,8 @@ func TestCompactionWithReadbackStillCompacts(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-readback-ok"}
-	service.components.tasks.BeginTask("task-readback-ok", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-readback-ok"}
+	service.components.tasks.BeginTask("task-readback-ok", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-readback-ok")
 	sessionID := service.Snapshot().Session.ID
