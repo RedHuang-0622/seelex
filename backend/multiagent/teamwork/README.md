@@ -107,6 +107,8 @@ stateDiagram-v2
 | `job_projection.go` | **作业完成投影**（P21-25 从 `backend/engine/assemble/runtime_teamwork_jobs.go` 归位，plan §2.7）：`ProjectJobCompletions`（按读取顺序搬运、空表归一 nil）+ `JobCompletionFrom`（"每一列都要到"的搬运口径：角色由 `emp_<role>` 反解、工作项取 `Node`）+ `AsyncStateFromJobs`（框架状态词 → 契约枚举，**只折一次**；认不得的词落 `AsyncStateUnknown`——"认不得"不许被折成"还在跑"） |
 | `scene.go` | **团队现场名单判据 + 指派名的反向换算**（P21-26 从 `backend/engine/assemble/runtime_teamwork_scene.go` 归位，plan §2.7）：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ `SceneEntry{NodeID, Role, WorkItem}`，按 nodeID 去重保序；刻意不经折叠读法——折叠以 work_item 为键会把 WorkItem 留空的 teammate 级行整行丢掉）、`SceneNodeIDs`（只取名字的投影）、`NodeIDFromWorktreeName`（`seelex/<nodeID>` → nodeID，**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——两个方向过去分居两包，现在一条命名只有一域） |
 | `worker_round.go` | **teammate 回合面的三条纯判据**（P21-29 从 `backend/engine/assemble/runtime_teamwork.go` 归位，plan §2.7）：`RoundsPerMember`（"一名 teammate 收口前最多派多少轮"的量级取用值 64）+ `JobRecordCeiling`（作业表记录槽上限：规模换算，**只抬不降**、永不低于框架缺省；计划侧"不限制"按一名成员算）、`TurnLimit`（成员级 `max_turns` 优先，否则回退宿主给的默认）、`RoundInput`（回合输入正文的组装：`<milestone>` 标签只认里程碑、正文 trim、没有正文时如实说明） |
+| `plan_query.go` | **计划查询的两条判据**（P21-33 从 `backend/engine/assemble/runtime_teamwork.go` 的两个遍历点搬进本域，与已有 `items.go` 的 `findItem` 同源）：`ItemRole(plan, id)`（按 id 查执行角色；入参 trim 后比较；查不到/空 id ⇒ 空串）与 `MemberOf(plan, role)`（按角色名查在编成员；trim 后比较；查不到/空角色 ⇒ false）。收口之前派发回执那边另写了一次"遍历里程碑找 item.Role"的循环——与 `findItem` 口径略不同，迟早漂移 |
+| `plan_query_test.go` | 按 id 找执行角色（trim/查不到/空 id/空计划）、按角色找成员（trim/查不到/空角色） |
 | `worker_round_test.go` | 记录槽上限"只抬不降"两半（换算低于缺省取缺省、高于缺省照用）与"不限制"同解、回数上限优先与回退、输入正文（里程碑标签/正文 trim/task 点名角色/无正文与无里程碑两形态） |
 | `scene_test.go` | 反向换算与正向拼装互逆（含空白与无前缀输入）、名单次序（计划在前账本在后、去重保序、已释放不认领、空白指派名跳过）、teammate 级行 WorkItem 留空、空输入与 nodeID 投影 |
 | `job_projection_test.go` | 逐列搬运（含缺主体/缺状态）、状态折算（四词 + 空值 + 未知词）、顺序保持与空表归一 |
@@ -551,6 +553,17 @@ go test ./backend/multiagent/... -count=1
 - `func TestDispatchAssignsProductOwnedOutput(t *testing.T)`
 - `func TestDispatchWithoutOutputsKeepsFrameworkOwnedFile(t *testing.T)`
 - `func TestJobOutputsSurviveUntilClose(t *testing.T)`
+
+### plan_query.go
+
+- `func ItemRole(plan store.TeamworkPlan, itemID string) string` — ItemRole 返回计划里某工作项的执行角色（按 id 查；入参 trim 后比较）。
+- `func MemberOf(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool)` — MemberOf 返回计划里某角色的在编成员（按角色名查；入参 trim 后比较）。
+
+### plan_query_test.go
+
+- `func planQueryFixture() store.TeamworkPlan`
+- `func TestItemRoleFindsTheOwner(t *testing.T)` — TestItemRoleFindsTheOwner：按 id 找执行角色（入参 trim 后比较）；找不到 / 空 id 回空串。
+- `func TestMemberOfFindsTheMember(t *testing.T)` — TestMemberOfFindsTheMember：按角色名找在编成员（trim 后比较）；找不到 / 空角色回 false。
 
 ### planless_session_test.go
 

@@ -317,17 +317,15 @@ func (r *Runtime) dispatchAssemblyReading(ctx context.Context, coordinator *team
 	if err != nil {
 		return nil
 	}
-	for _, member := range plan.Members {
-		if member.Role != role {
-			continue
-		}
-		views := r.assemblyViews([]store.TeamworkMember{member})
-		if len(views) == 0 {
-			return nil
-		}
-		return &views[0]
+	member, ok := teamwork.MemberOf(plan, role)
+	if !ok {
+		return nil
 	}
-	return nil
+	views := r.assemblyViews([]store.TeamworkMember{member})
+	if len(views) == 0 {
+		return nil
+	}
+	return &views[0]
 }
 
 // dispatchItemRole 在计划里按工作项 id 找它的执行角色（派发回执的读数要按**这个工作项**
@@ -340,15 +338,8 @@ func dispatchItemRole(ctx context.Context, coordinator *teamwork.Coordinator, it
 	if err != nil {
 		return ""
 	}
-	itemID = strings.TrimSpace(itemID)
-	for _, milestone := range plan.Milestones {
-		for _, item := range milestone.Items {
-			if strings.TrimSpace(item.ID) == itemID {
-				return item.Role
-			}
-		}
-	}
-	return ""
+	// 查询（trim + 按 id 找执行角色）只有一份实现，在团队域 plan_query.go。
+	return teamwork.ItemRole(plan, itemID)
 }
 
 func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (string, error) {
