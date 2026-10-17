@@ -19,8 +19,9 @@
 - `events.go`：`PlanNodeEvent` 投影 + `EventSink`（事件库 + 订阅 + 持久化钩子）。
 - `replan_guard.go`：`ReplanGuard` 进程级重规划护栏与 `ReplanMetrics`。
 - `input_adapter.go`：`NormalizePlanLoadArguments` 规范化/兼容归一化。
-- `factory_types.go`：`SeelexNodeInput`/`NodeBudgetInput` 节点负载、
-  `CanonicalPlanDocument`、product/approval 节点实现。
+- `factory_types.go`：`CanonicalPlanDocument`、product/approval 节点实现。
+- `node_input.go`：`SeelexNodeInput`/`NodeBudgetInput` 的**同身份别名**；唯一实现已下沉
+  `backend/tool/node/input.go`（执行者所在域），Plan 执行器退役后随包删除。
 - `branch_types.go`：`PlanBranchBinding`/`PlanBranchEvent` 分支绑定类型。
 - `branch_routing.go`：**分支路由三条判据**（P21-30 从 `backend/engine/assemble/runtime_plan.go` 归位，plan §2.6）——
   `BranchTraceID`（`traceID:branchID`，没给 traceID 时退化成 branchID）、`StableHash`（FNV-1a 32 位；稳定性是契约：

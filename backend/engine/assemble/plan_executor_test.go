@@ -50,23 +50,6 @@ func TestPlanExecutorRunLifecycle(t *testing.T) {
 	runtime.RegisterBuiltins()
 	executor := runtime.planExecutor
 
-	projected := make(chan dto.PlanNodeEvent, 16)
-	executor.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
-
-	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", PlanID: "p-life", WorkspaceID: "w1"})
-	runtime.node.AppendPhase(context.Background(), "start", "running")
-	select {
-	case ev := <-projected:
-		if ev.NodeID != "start" || ev.Status != "running" || ev.PlanID != "p-life" {
-			t.Fatalf("phase event = %+v, want node=start/status=running/plan=p-life", ev)
-		}
-		if ev.RunID != "" {
-			t.Fatalf("phase run ID = %q, want empty before plan_run", ev.RunID)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("phase projection was not delivered")
-	}
-
 	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planExecutorLifecyclePlan); err != nil {
 		t.Fatal(err)
 	}

@@ -535,7 +535,7 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 		if ctx.Err() != nil || time.Now().After(deadline) {
 			return fmt.Errorf("%w：%v（本次已尝试 %d 次；先提交或暂存主工作区的在途改动，再重试合并）", ErrMergeBlockedByMain, err, attempt)
 		}
-		w.deps.Phase(ctx, nodeID, phaseAwaitingMerge)
+		w.phase(ctx, nodeID, phaseAwaitingMerge)
 		select {
 		case <-time.After(w.mergeRetryInterval):
 		case <-ctx.Done():
@@ -549,7 +549,7 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 // 收尾在改主工作区），因此这里不再自带互斥。skipApproval = 重试路径，跳过重复审批。
 func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
 	root := w.deps.Root()
-	w.deps.Phase(ctx, nodeID, "rebasing")
+	w.phase(ctx, nodeID, "rebasing")
 	behind, err := w.branchBehindBase(nodeID, wt)
 	if err != nil {
 		return err
@@ -587,7 +587,7 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 	if err := w.alignMergeTarget(root, nodeID, wt); err != nil {
 		return err
 	}
-	w.deps.Phase(ctx, nodeID, "merging")
+	w.phase(ctx, nodeID, "merging")
 	if out, mergeErr := w.git(root, "merge", "--no-edit", wt.Branch); mergeErr != nil {
 		if isMergeBlockedEvidence(out, mergeErr) {
 			// 合并**没开始就被主工作区挡下**：可重试态（重试由 Finish 的预算循环驱动；
@@ -598,6 +598,14 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 		return fmt.Errorf("worktree %q: merge %s into %s failed (resolve conflicts in the main workspace, or git merge --abort): %v\n%s\n冲突文件: %v", nodeID, wt.Branch, wt.MainBranch, mergeErr, out, conflicts)
 	}
 	return w.cleanup(root, wt)
+}
+
+// phase 在注入阶段观察者时转发；Plan 阶段事件退役后装配层不再注入，保持 nil 安全。
+func (w *WorktreeManager) phase(ctx context.Context, nodeID, status string) {
+	if w == nil || w.deps.Phase == nil {
+		return
+	}
+	w.deps.Phase(ctx, nodeID, status)
 }
 
 // alignMergeTarget 把主工作区切到**现场记录的那条收尾分支**（`wt.MainBranch`，建现场

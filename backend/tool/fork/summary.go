@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 )
 
 // summaryLineLimit 是单行摘要长度上限（按 rune/“字”计数，中文不因
@@ -35,11 +35,11 @@ const (
 // 子代理树（工作区）与节点详情弹窗承载完整会话/上下文/工具活动。
 type SummaryNode struct {
 	node.BaseNode
-	input plan.SeelexNodeInput
+	input seenode.SeelexNodeInput
 }
 
 // NewSummaryNode 构造 fork summary 节点。
-func NewSummaryNode(spec codec.NodeSpec[plan.SeelexNodeInput]) *SummaryNode {
+func NewSummaryNode(spec codec.NodeSpec[seenode.SeelexNodeInput]) *SummaryNode {
 	return &SummaryNode{
 		BaseNode: node.NewBaseNode(spec.ID, node.KindMethod),
 		input:    spec.Input,

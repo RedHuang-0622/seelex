@@ -65,7 +65,8 @@ sequenceDiagram
   阶段与预定义语义结果（`NodeSemanticResult`，对象结构由 seelex 制定、非 subagent
   自拟）在 `mergeBack` 内记录并投入语义结果队列；
 - 节点级 PromptBlocks 的 ctx 注入/读取（`WithNodePromptBlocks` / `NodePromptBlocksFromContext`）；
-- 执行预算（`NodeBudgetInfo`）、子代理章程渲染（`NodeSubagentCharter`）、skill 匹配（`MatchNodeSkills`）、分支角色判定（`RoleForPlanBranch`）。
+- 执行预算（`NodeBudgetInfo`）、子代理章程渲染（`NodeSubagentCharter`）、skill 匹配（`MatchNodeSkills`）；
+- 节点输入负载 `SeelexNodeInput` / `NodeBudgetInput`（`input.go`）：fork 单条子代理与历史 Plan 用例共用同一份形状。
 
 非职责：
 
@@ -77,12 +78,13 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |---|---|
-| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`/`withWorktreeMergeBlockedNotice`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`/`withWorktreeMergeBlockedNotice`、`NodeScopeFor`（经 `CurrentSceneScope` 窄回调解析）、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `input.go` | `SeelexNodeInput` / `NodeBudgetInput` 节点输入负载 |
 | `coordinator.go` | `SessionPort`/`TreePort`/`TaskPort` 接口、`Coordinator`（含阶段日志与语义结果委托） |
 
 ## 核心实现
 
-`Deps` 是全部运行时能力的函数字段集合（当前 15 项：工厂、binding、worktree 三件套、会话注册/终态、父证据、merge-back、预算、PromptBlocks、Tracer），由根包 `Runtime.nodeDeps()` 闭包注入。
+`Deps` 是全部运行时能力的函数字段集合（工厂、`CurrentSceneScope`、worktree 三件套、会话注册/终态、父证据、merge-back、预算、PromptBlocks、Tracer），由根包 `Runtime.nodeDeps()` 闭包注入。node 域不再 import Plan 包。
 
 `AgentNode.Run` 生命周期：`scope()`（惰性解析，plan_run 时 binding 已冻结）→ `BeginNodeWorktree`（RoleSubAgent）→ `WithNodeScope` → `AppendNodePhase(running)` → `WithNodePromptBlocks` → `factory.NewAgent` → `RegisterNodeSession` + `Chat` → `CompleteSubagentNode` → `mergeBack`（失败也执行，幂等）→ `FinishNodeWorktree`/`ReleaseNodeWorktree`。
 

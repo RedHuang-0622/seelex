@@ -15,27 +15,6 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 )
 
-// SeelexNodeInput 是产品 DSL 的节点负载（plan.md §3.3）。
-// plan_load 规范 JSON 中每个节点形如 {"id","input","kind","budget"}。
-type SeelexNodeInput struct {
-	ID    string `json:"id"`
-	Input string `json:"input"`
-	Kind  string `json:"kind,omitempty"` // agent | auto | function | approve | verify | deliver
-	// Budget 是节点级执行预算（plan.md §7.3）：可选覆盖 limits 默认值；
-	// 缺省（nil/0）回退 seele.yaml limits，上限由 PlanPolicy 校验。
-	Budget *NodeBudgetInput `json:"budget,omitempty"`
-	// TaskID 是装配件模式绑定的现成 task（B6）：只绑 task_id，不注入 task
-	// 内容到 prompt（保持子代理 prompt 格式纯净）；空 = 子代理自行开 task。
-	TaskID string `json:"task_id,omitempty"`
-}
-
-// NodeBudgetInput 是节点子代理的预算参数（JSON 契约：max_loops /
-// max_output_tokens 均可选，0 = 缺省回退 limits）。
-type NodeBudgetInput struct {
-	MaxLoops        int `json:"max_loops,omitempty"`
-	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
-}
-
 // canonicalPlanDocument 把规范化 plan_load JSON
 // （{entry, nodes:{id:{input,kind}}, edges:{from:[targets]}}）转换为
 // codec.Document[SeelexNodeInput]，供 codec.Import 严格校验 + Seal。

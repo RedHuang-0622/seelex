@@ -15,7 +15,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
@@ -43,23 +42,29 @@ type nodeFinishFakeFactory struct{ agent frameworknode.Agent }
 
 func (f nodeFinishFakeFactory) NewAgent(string) frameworknode.Agent { return f.agent }
 
-// nodeFinishEffect 是 AgentNode.Run 收尾段的可观察效果（释放/阶段/警告/判死）。
+// nodeFinishEffect 是 AgentNode.Run 收尾段的可观察效果（释放/警告/判死）。
 type nodeFinishEffect struct {
 	result   string
 	err      error
 	released bool
 	finished bool
-	phases   []string
 }
 
-// phaseReported 报告某个阶段名是否被补记（worktree_unmerged / merge_blocked）。
-func (e nodeFinishEffect) phaseReported(phase string) bool {
-	for _, reported := range e.phases {
-		if reported == phase {
-			return true
-		}
+// outcome 从节点可见效果反推契约分类：判死看 error，落定看现场是否释放，
+// 未提交/挡路看产出里的收尾警告原文（警告就是这两类的用户可见出口）。
+func (e nodeFinishEffect) outcome() workunit.OutcomeKind {
+	switch {
+	case e.err != nil:
+		return workunit.OutcomeFailed
+	case e.released:
+		return workunit.OutcomeSettled
+	case strings.Contains(e.result, "未提交改动"):
+		return workunit.OutcomeUncommitted
+	case strings.Contains(e.result, "主工作区的在途改动挡住了"):
+		return workunit.OutcomeMergeBlocked
+	default:
+		return workunit.OutcomeFailed
 	}
-	return false
 }
 
 // runNodeFinish 用假 Deps 驱动一次 AgentNode.Run：现场与收尾都走注入的回调，
@@ -68,12 +73,11 @@ func runNodeFinish(t *testing.T, runErr, finishErr error) nodeFinishEffect {
 	t.Helper()
 	effect := nodeFinishEffect{}
 	deps := seenode.Deps{
-		CurrentPlanBranchBinding: func() plan.PlanBranchBinding { return plan.PlanBranchBinding{} },
+		CurrentSceneScope: func(sceneID string) model.NodeScope {
+			return model.NodeScope{NodeID: sceneID, Role: model.RoleSubAgent, BranchID: sceneID}
+		},
 		CurrentAgentFactory: func() frameworknode.AgentFactory {
 			return nodeFinishFakeFactory{agent: nodeFinishFakeAgent{reply: "节点结论", err: runErr}}
-		},
-		AppendNodePhase: func(_ context.Context, _ string, status string) {
-			effect.phases = append(effect.phases, status)
 		},
 		BeginNodeWorktree: func(model.NodeScope, string) *worktree.NodeWorktree {
 			return &worktree.NodeWorktree{Path: t.TempDir(), Branch: "seelex/wu-1", MainBranch: "main"}
@@ -85,11 +89,11 @@ func runNodeFinish(t *testing.T, runErr, finishErr error) nodeFinishEffect {
 		ReleaseNodeWorktree:  func(string) { effect.released = true },
 		CompleteSubagentNode: func(string, string, error) {},
 		MergeBackIntoParent:  func(*snapshot.ContextSnapshot) *snapshot.ContextSnapshot { return nil },
-		NodePromptBlocks:     func(plan.SeelexNodeInput) []seelectx.PromptBlock { return nil },
+		NodePromptBlocks:     func(seenode.SeelexNodeInput) []seelectx.PromptBlock { return nil },
 	}
-	spec := codec.NodeSpec[plan.SeelexNodeInput]{
+	spec := codec.NodeSpec[seenode.SeelexNodeInput]{
 		ID:    "wu-1",
-		Input: plan.SeelexNodeInput{ID: "wu-1", Input: "do the thing"},
+		Input: seenode.SeelexNodeInput{ID: "wu-1", Input: "do the thing"},
 	}
 	effect.result, effect.err = seenode.NewAgentNode(spec, deps).Run(context.Background(), nil)
 	return effect
@@ -108,7 +112,6 @@ func TestNodeFinishClassificationIsOneTable(t *testing.T) {
 		mergeErr    error
 		wantKind    workunit.OutcomeKind
 		wantRelease bool
-		wantPhase   string
 		wantWarn    bool
 		wantFailed  bool
 	}{
@@ -117,14 +120,14 @@ func TestNodeFinishClassificationIsOneTable(t *testing.T) {
 			wantKind: workunit.OutcomeSettled, wantRelease: true,
 		},
 		{
-			name:     "跑完但现场有未提交改动 → 未提交：不释放，记 worktree_unmerged 并警告，不判死",
+			name:     "跑完但现场有未提交改动 → 未提交：不释放，警告，不判死",
 			mergeErr: uncommitted, wantKind: workunit.OutcomeUncommitted,
-			wantPhase: "worktree_unmerged", wantWarn: true,
+			wantWarn: true,
 		},
 		{
-			name:     "跑完但主工作区挡路 → 挡路：不释放，记 merge_blocked 并警告，不判死",
+			name:     "跑完但主工作区挡路 → 挡路：不释放，警告，不判死",
 			mergeErr: blocked, wantKind: workunit.OutcomeMergeBlocked,
-			wantPhase: "merge_blocked", wantWarn: true,
+			wantWarn: true,
 		},
 		{
 			name:     "跑完但合并撞别的错 → 判死",
@@ -144,13 +147,10 @@ func TestNodeFinishClassificationIsOneTable(t *testing.T) {
 			if outcome.Kind != testCase.wantKind {
 				t.Fatalf("契约分类 = %s，想要 %s（notice: %s）", outcome.Kind, testCase.wantKind, outcome.Notice)
 			}
-			// 第二列：同输入落到节点上的效果（释放 / 阶段 / 警告 / 判死）。
+			// 第二列：同输入落到节点上的效果（释放 / 警告 / 判死）。
 			effect := runNodeFinish(t, testCase.runErr, testCase.mergeErr)
 			if effect.released != testCase.wantRelease {
-				t.Fatalf("释放现场 = %v，想要 %v（phases=%v）", effect.released, testCase.wantRelease, effect.phases)
-			}
-			if testCase.wantPhase != "" && !effect.phaseReported(testCase.wantPhase) {
-				t.Fatalf("必须补记阶段 %q，实际 phases=%v", testCase.wantPhase, effect.phases)
+				t.Fatalf("释放现场 = %v，想要 %v", effect.released, testCase.wantRelease)
 			}
 			warned := strings.Contains(effect.result, "[收尾警告]")
 			if warned != testCase.wantWarn {

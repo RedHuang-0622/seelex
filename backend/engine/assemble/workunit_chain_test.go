@@ -93,7 +93,6 @@ type chainClassifyRow struct {
 	runErr    error
 	mergeErr  error
 	want      workunit.OutcomeKind
-	nodePhase string // 节点侧应补记的阶段（"" = 不补记）
 	nodeDead  bool   // 节点侧应判死（Run 返回非空 error）
 	teamState string // 工作项终态
 	unmerged  bool   // 计划里应留下"未合并"标记（收口闸门据此拒拆现场）
@@ -103,14 +102,14 @@ func chainClassifyRows() []chainClassifyRow {
 	uncommitted := fmt.Errorf("worktree %q: 现场有未提交改动: %w", "wu-1", worktree.ErrUncommittedChanges)
 	blocked := fmt.Errorf("worktree %q: 合并被主工作区挡住: %w", "wu-1", worktree.ErrMergeBlockedByMain)
 	return []chainClassifyRow{
-		{"干净落定", nil, nil, workunit.OutcomeSettled, "", false, store.TeamworkItemReview, false},
-		{"这一轮跑失败", errors.New("provider 402"), nil, workunit.OutcomeFailed, "", true, store.TeamworkItemFailed, false},
-		{"现场有未提交改动", nil, uncommitted, workunit.OutcomeUncommitted, "worktree_unmerged", false, store.TeamworkItemReview, true},
-		{"主工作区挡路", nil, blocked, workunit.OutcomeMergeBlocked, "merge_blocked", false, store.TeamworkItemReview, true},
-		{"其他合并错误", nil, errors.New("rebase 冲突"), workunit.OutcomeFailed, "", true, store.TeamworkItemFailed, false},
+		{"干净落定", nil, nil, workunit.OutcomeSettled, false, store.TeamworkItemReview, false},
+		{"这一轮跑失败", errors.New("provider 402"), nil, workunit.OutcomeFailed, true, store.TeamworkItemFailed, false},
+		{"现场有未提交改动", nil, uncommitted, workunit.OutcomeUncommitted, false, store.TeamworkItemReview, true},
+		{"主工作区挡路", nil, blocked, workunit.OutcomeMergeBlocked, false, store.TeamworkItemReview, true},
+		{"其他合并错误", nil, errors.New("rebase 冲突"), workunit.OutcomeFailed, true, store.TeamworkItemFailed, false},
 		{"两种收尾失败同时具备 → 未提交优先", nil,
 			errors.Join(worktree.ErrUncommittedChanges, worktree.ErrMergeBlockedByMain),
-			workunit.OutcomeUncommitted, "worktree_unmerged", false, store.TeamworkItemReview, true},
+			workunit.OutcomeUncommitted, false, store.TeamworkItemReview, true},
 	}
 }
 
@@ -129,23 +128,9 @@ func TestChainOneFinishScriptForBothLayers(t *testing.T) {
 
 			// ── 左腿：subagent 层 ──────────────────────────────────────────
 			effect := runNodeFinish(t, row.runErr, row.mergeErr)
-			nodeKind := workunit.OutcomeSettled
-			switch {
-			case effect.err != nil:
-				nodeKind = workunit.OutcomeFailed
-			case effect.phaseReported("worktree_unmerged"):
-				nodeKind = workunit.OutcomeUncommitted
-			case effect.phaseReported("merge_blocked"):
-				nodeKind = workunit.OutcomeMergeBlocked
-			}
+			nodeKind := effect.outcome()
 			if nodeKind != contract.Kind {
 				t.Errorf("subagent 层分类 = %s，契约 = %s（这一层不许自己再判一次）", nodeKind, contract.Kind)
-			}
-			if effect.phaseReported(row.nodePhase) && row.nodePhase == "" {
-				t.Errorf("subagent 层补记了不该补的阶段：%v", effect.phases)
-			}
-			if row.nodePhase != "" && !effect.phaseReported(row.nodePhase) {
-				t.Errorf("subagent 层没补记阶段 %q：%v", row.nodePhase, effect.phases)
 			}
 			if (effect.err != nil) != row.nodeDead {
 				t.Errorf("subagent 层判死 = %v，want %v（Run 的 error 是「这轮失败」的唯一出口）", effect.err != nil, row.nodeDead)
@@ -266,14 +251,15 @@ func TestChainEveryLayerCoversEveryOutcome(t *testing.T) {
 			t.Errorf("teammate 层把 %s 记成 %q：只有真的失败才记 failed", kind, status)
 		}
 	}
-	// subagent 层：每一个非落定类都必须有阶段名/警告这条落地路径——用输入表核对一遍，
+	// subagent 层：每一个非落定类都必须有警告/判死这条落地路径——用输入表核对一遍，
 	// 保证"新增分类"不会在这层悄悄变成"什么都不做"。
 	for _, row := range chainClassifyRows() {
 		if row.want == workunit.OutcomeSettled {
 			continue
 		}
-		if row.nodePhase == "" && !row.nodeDead {
-			t.Errorf("subagent 层对分类 %s 既没补阶段也没判死：新增分类必须落到一个可观察效果上", row.want)
+		warned := row.want == workunit.OutcomeUncommitted || row.want == workunit.OutcomeMergeBlocked
+		if !warned && !row.nodeDead {
+			t.Errorf("subagent 层对分类 %s 既没警告也没判死：新增分类必须落到一个可观察效果上", row.want)
 		}
 	}
 }

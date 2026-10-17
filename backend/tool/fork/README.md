@@ -12,8 +12,8 @@
 
 执行编排（账号/任务绑定/结果复用/worktree 生命周期）在本包 `tool.go`
 （`Tool`/`NewTool`/`buildForkPlan`），根包 `runtime_plan.go` 只保留
-`forkSubagentsHandler` 门面转发；本包不反向依赖 `seelebridge` 根包，仅依赖
-`plan` 子包（`SeelexNodeInput`）。
+`forkSubagentsHandler` 门面转发；本包不反向依赖 `seelebridge` 根包，节点输入
+形状直接复用 `backend/tool/node` 的 `SeelexNodeInput`（不再依赖 Plan 包）。
 
 ## 与其它域的关系
 

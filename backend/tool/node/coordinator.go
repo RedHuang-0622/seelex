@@ -14,7 +14,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
@@ -61,7 +60,6 @@ type CoordinatorDeps struct {
 	Sessions        SessionPort
 	Tree            TreePort
 	Tasks           TaskPort
-	Plan            *plan.Executor
 	Evidence        func() *snapshot.ContextSnapshot
 	Skills          *skill.Registry
 	Limits          limit.Limits
@@ -239,14 +237,6 @@ func (c *Coordinator) DrainSemanticResults() []*model.NodeSemanticResult {
 	return c.deps.Sessions.DrainResults()
 }
 
-// AppendPhase 把节点生命周期阶段事件写入 plan 执行器（worktree/running 等）。
-func (c *Coordinator) AppendPhase(ctx context.Context, nodeID, status string) {
-	if c == nil || c.deps.Plan == nil {
-		return
-	}
-	c.deps.Plan.AppendPhase(ctx, nodeID, status)
-}
-
 // ParentEvidence 返回 Runtime 持有的父证据快照（子代理可读）。
 func (c *Coordinator) ParentEvidence() *snapshot.ContextSnapshot {
 	if c == nil || c.deps.Evidence == nil {
@@ -267,7 +257,7 @@ func (c *Coordinator) SetSkills(registry *skill.Registry) {
 // Budget 返回节点子代理的迭代轮数预算：优先节点输入参数（plan_load 节点
 // budget 字段，plan.md §7.3），缺省回退 seele.yaml limits 的
 // plan_node_max_loops（默认 384）。上限由 dto.PlanPolicy 校验。
-func (c *Coordinator) Budget(input plan.SeelexNodeInput) NodeBudgetInfo {
+func (c *Coordinator) Budget(input SeelexNodeInput) NodeBudgetInfo {
 	var limits config.AccountLimits
 	if c != nil && c.deps.AccountLimits != nil {
 		limits = c.deps.AccountLimits()
@@ -301,7 +291,7 @@ func (c *Coordinator) GoalSkillActive() bool {
 // 父证据、预算、收尾约束全部并入章程（单一权威契约，不再拆碎块）。
 // 中断恢复说明（若有）以 system 紧跟章程注入：它是编排事实，不是模型发言，
 // 也不是用户输入（AT9），且只进本节点自己的上下文。
-func (c *Coordinator) PromptBlocks(input plan.SeelexNodeInput) []seelectx.PromptBlock {
+func (c *Coordinator) PromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 4)
 	blocks = append(blocks, seelectx.PromptBlock{
 		Name: "node-charter",
@@ -344,7 +334,7 @@ func (c *Coordinator) Assembler() seelectx.RequestAssembler {
 //     可用技能；与主代理"读取 skill 目录"对齐）；
 //   - node-skill-active：与节点目标匹配的 skill 完整指令（名称分词/描述词
 //     出现在节点 input 中即激活；未匹配 → 不注入，目录块仍在）。
-func (c *Coordinator) skillBlocks(input plan.SeelexNodeInput) []seelectx.PromptBlock {
+func (c *Coordinator) skillBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
 	if c == nil || c.skills == nil {
 		return nil
 	}

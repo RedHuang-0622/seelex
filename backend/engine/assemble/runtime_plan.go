@@ -3,6 +3,7 @@ package assemble
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/Seele/session"
@@ -326,12 +327,33 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	return r.forkTool.Handle(ctx, argsJSON)
 }
 
+// currentNodeSceneScope 解析节点执行作用域：Plan 分支绑定存在时按绑定
+// （entry 用主角色、"_" 前缀为 goalplan、其余 subagent）；fork 的单条
+// 子代理没有 Plan 绑定，按 subagent 执行。
+func (r *Runtime) currentNodeSceneScope(sceneID string) model.NodeScope {
+	binding := r.currentPlanBranchBinding()
+	role := model.RoleSubAgent
+	switch {
+	case binding.EntryNodeID != "" && sceneID == binding.EntryNodeID:
+		if binding.PrimaryRole != "" {
+			role = binding.PrimaryRole
+		}
+	case strings.HasPrefix(sceneID, "_"):
+		role = model.RoleGoalPlan
+	}
+	return model.NodeScope{
+		NodeID:      sceneID,
+		Role:        role,
+		BranchID:    sceneID,
+		WorkspaceID: binding.WorkspaceID,
+	}
+}
+
 // nodeDeps 把 Runtime 能力面注入 node 域（Deps 全部为闭包，域内不依赖根包）。
 func (r *Runtime) nodeDeps() seenode.Deps {
 	return seenode.Deps{
-		CurrentAgentFactory:      r.currentAgentFactory,
-		CurrentPlanBranchBinding: r.currentPlanBranchBinding,
-		AppendNodePhase:          r.node.AppendPhase,
+		CurrentAgentFactory: r.currentAgentFactory,
+		CurrentSceneScope:   r.currentNodeSceneScope,
 		// 生命周期（建现场 / 收尾 / 释放）只有一份：这三个回调都驱动 subagent 层的
 		// 工作单元（父实现见 workunit_parent.go），现场的唯一建法与收尾仍在既有实现里
 		// 被父调用。ReleaseNodeWorktree 保留原实现（收尾落定时父的策略已经回收过，
@@ -457,7 +479,13 @@ func (r *Runtime) resolvePlanBranchAccount(binding dto.PlanBranchBinding, role m
 
 // roleForPlanBranch 解析分支账号角色（main/entry → 主账号，其余 → 子代理）。
 func roleForPlanBranch(binding dto.PlanBranchBinding, branchID string) model.AccountRole {
-	return seenode.RoleForPlanBranch(binding, branchID)
+	if branchID == binding.EntryNodeID {
+		return binding.PrimaryRole
+	}
+	if strings.HasPrefix(branchID, "_") {
+		return model.RoleGoalPlan
+	}
+	return model.RoleSubAgent
 }
 
 func (r *Runtime) currentPlanPolicy() dto.PlanPolicy {

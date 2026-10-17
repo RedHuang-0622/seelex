@@ -23,7 +23,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -33,24 +32,25 @@ import (
 
 // Deps 是 AgentNode 执行所需的运行时回调集合，由根包（Runtime）注入。
 type Deps struct {
-	CurrentAgentFactory      func() frameworknode.AgentFactory
-	CurrentPlanBranchBinding func() plan.PlanBranchBinding
-	AppendNodePhase          func(ctx context.Context, nodeID, status string)
-	BeginNodeWorktree        func(scope model.NodeScope, nodeID string) *worktree.NodeWorktree
-	FinishNodeWorktree       func(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error
-	ReleaseNodeWorktree      func(nodeID string)
-	RegisterNodeSession      func(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)
-	UnregisterNodeSession    func(nodeID string)
-	CompleteSubagentNode     func(nodeID, summary string, err error)
-	NodeParentEvidence       func() *snapshot.ContextSnapshot
-	MergeBackIntoParent      func(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot
-	RecordNodeStage          func(nodeID string, log model.NodeStageLog)
-	RecordNodeResult         func(nodeID string, result *model.NodeSemanticResult)
+	CurrentAgentFactory func() frameworknode.AgentFactory
+	// CurrentSceneScope 按场景 ID 解析执行作用域（角色、工作区、分支）。
+	// fork 子代理与未来的后台工作单元共用它；node 域不再依赖 Plan 绑定。
+	CurrentSceneScope     func(sceneID string) model.NodeScope
+	BeginNodeWorktree     func(scope model.NodeScope, nodeID string) *worktree.NodeWorktree
+	FinishNodeWorktree    func(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error
+	ReleaseNodeWorktree   func(nodeID string)
+	RegisterNodeSession   func(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)
+	UnregisterNodeSession func(nodeID string)
+	CompleteSubagentNode  func(nodeID, summary string, err error)
+	NodeParentEvidence    func() *snapshot.ContextSnapshot
+	MergeBackIntoParent   func(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot
+	RecordNodeStage       func(nodeID string, log model.NodeStageLog)
+	RecordNodeResult      func(nodeID string, result *model.NodeSemanticResult)
 	// RecordNodeAssistant 在节点会话的 assistant 正文流式边界收到增量
 	// （G7：ChatStream onChunk 转写；nodeID 即 live 事件路由键）。
 	RecordNodeAssistant func(nodeID string, delta string)
-	NodeBudget          func(input plan.SeelexNodeInput) NodeBudgetInfo
-	NodePromptBlocks    func(input plan.SeelexNodeInput) []seelectx.PromptBlock
+	NodeBudget          func(input SeelexNodeInput) NodeBudgetInfo
+	NodePromptBlocks    func(input SeelexNodeInput) []seelectx.PromptBlock
 	Tracer              func() provider.TraceSource
 }
 
@@ -66,7 +66,7 @@ type NodeBudgetInfo struct {
 // 自己的 Session 执行。
 type AgentNode struct {
 	frameworknode.BaseNode
-	input   plan.SeelexNodeInput
+	input   SeelexNodeInput
 	factory func() frameworknode.AgentFactory
 	scope   func() model.NodeScope // 惰性解析：plan_run 时 binding 已冻结
 	blocks  func() []seelectx.PromptBlock
@@ -76,7 +76,7 @@ type AgentNode struct {
 // NewAgentNode 构造 agent 节点包装。scope/blocks 经闭包延迟解析，使
 // plan_load（buildNode）到 plan_run 之间冻结的 PlanBranchBinding 与
 // 父证据都能被观察到。
-func NewAgentNode(spec codec.NodeSpec[plan.SeelexNodeInput], deps Deps) *AgentNode {
+func NewAgentNode(spec codec.NodeSpec[SeelexNodeInput], deps Deps) *AgentNode {
 	taskID := spec.Input.TaskID
 	return &AgentNode{
 		BaseNode: frameworknode.NewBaseNode(spec.ID, frameworknode.KindAgent),
@@ -93,7 +93,7 @@ func NewAgentNode(spec codec.NodeSpec[plan.SeelexNodeInput], deps Deps) *AgentNo
 }
 
 // Input 返回节点输入（测试/诊断读取面）。
-func (n *AgentNode) Input() plan.SeelexNodeInput { return n.input }
+func (n *AgentNode) Input() SeelexNodeInput { return n.input }
 
 // Scope 返回节点作用域解析器（测试/诊断读取面）。
 func (n *AgentNode) Scope() func() model.NodeScope { return n.scope }
@@ -120,17 +120,11 @@ var now = time.Now
 // 分类判定见下方 workunit.ClassifyFinish 分支。
 func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	scope := n.scope()
-	if scope.Role == model.RoleSubAgent {
-		n.deps.AppendNodePhase(ctx, n.ID(), dto.NodeWorktreeCreating.String())
-	}
 	wt := n.deps.BeginNodeWorktree(scope, n.ID())
 	if wt != nil {
 		scope.WorkspaceID = wt.Path
 	}
 	ctx = model.WithNodeScope(ctx, scope)
-	if scope.Role == model.RoleSubAgent {
-		n.deps.AppendNodePhase(ctx, n.ID(), dto.NodeRunning.String())
-	}
 	if n.blocks != nil {
 		ctx = WithNodePromptBlocks(ctx, n.blocks())
 	}
@@ -200,14 +194,12 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 				//   1. 现场保留（不 Release），前端"工作区现场"仍可查、可人工恢复；
 				//   2. 警告写进节点产出，父代理/用户明确知道改动未合并及现场路径；
 				//   3. 节点按 Chat 结果判定成功，兄弟节点不再被连坐取消。
-				n.deps.AppendNodePhase(ctx, n.ID(), nodePhaseWorktreeUnmerged)
 				result = withWorktreeUnmergedNotice(result, finishErr)
 			case workunit.OutcomeMergeBlocked:
 				// 合并被主工作区的在途改动挡住：与「未提交改动」同族——**不代表
 				// 节点产出无效**，只是"这次没合进去"。处置动作是"先让主工作区
 				// 干净（提交或暂存），再重试合并"；判死会让一份已完成产出连现场
 				// 一起留在没人看的角落。现场同样保留（不 Release）。
-				n.deps.AppendNodePhase(ctx, n.ID(), nodePhaseMergeBlocked)
 				result = withWorktreeMergeBlockedNotice(result, finishErr)
 			default:
 				// OutcomeFailed：收尾真的失败了（rebase/审批/合并撞别的错）——判死。
@@ -312,25 +304,20 @@ func nodeStatusForErr(err error) string {
 // NodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
 // 角色按 binding 与 entry 判定（与分支账号路由语义一致）。
 func NodeScopeFor(deps Deps, nodeID string) model.NodeScope {
-	binding := deps.CurrentPlanBranchBinding()
-	return model.NodeScope{
-		NodeID:      nodeID,
-		Role:        RoleForPlanBranch(binding, nodeID),
-		BranchID:    nodeID,
-		WorkspaceID: binding.WorkspaceID,
+	scope := model.NodeScope{NodeID: nodeID, BranchID: nodeID}
+	if deps.CurrentSceneScope != nil {
+		scope = deps.CurrentSceneScope(nodeID)
+		if scope.NodeID == "" {
+			scope.NodeID = nodeID
+		}
+		if scope.BranchID == "" {
+			scope.BranchID = nodeID
+		}
 	}
-}
-
-// RoleForPlanBranch 判定分支角色：entry 节点用 PrimaryRole；"_" 前缀为
-// goalplan；其余为 subagent。
-func RoleForPlanBranch(binding plan.PlanBranchBinding, branchID string) model.AccountRole {
-	if branchID == binding.EntryNodeID {
-		return binding.PrimaryRole
+	if scope.Role == "" {
+		scope.Role = model.RoleSubAgent
 	}
-	if strings.HasPrefix(branchID, "_") {
-		return model.RoleGoalPlan
-	}
-	return model.RoleSubAgent
+	return scope
 }
 
 type nodePromptBlocksContextKey struct{}
@@ -356,7 +343,7 @@ func NodePromptBlocksFromContext(ctx context.Context) []seelectx.PromptBlock {
 // Role/Context/Task/Investigation/Constraints/Verification）。提示词正文
 // 收录在 backend/engine/prompt/assets/assets/subagent/charter.md（不硬编码），
 // Go 侧只提供运行时事实（goal/预算/节点 ID/父证据）。
-func NodeSubagentCharter(input plan.SeelexNodeInput, budget NodeBudgetInfo, evidence *snapshot.ContextSnapshot) string {
+func NodeSubagentCharter(input SeelexNodeInput, budget NodeBudgetInfo, evidence *snapshot.ContextSnapshot) string {
 	data := promptassets.SubagentData{
 		Goal:            input.Input,
 		NodeID:          input.ID,

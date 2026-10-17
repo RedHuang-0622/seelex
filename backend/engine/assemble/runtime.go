@@ -555,7 +555,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		Sessions: r.subagentSessions,
 		Tree:     r.subagentTree,
 		Tasks:    r.tasks,
-		Plan:     r.planExecutor,
 		Evidence: r.subagentContext.NodeParentEvidence,
 		Limits:   r.limits,
 		GoalSkillActive: func() bool {
@@ -582,9 +581,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
-		Root:  r.projectScope.Root,
-		Phase: r.node.AppendPhase,
-		Gate:  r.planExecutor.CurrentApprovalGate,
+		Root: r.projectScope.Root,
+		Gate: r.planExecutor.CurrentApprovalGate,
 	})
 	r.forkTool = fork.NewTool(r.forkDeps())
 	// telemetry 钩子链统一由 Chain 组装（最外层→最内层，见
