@@ -1044,7 +1044,13 @@ func (router *Router) Close() error {
 }
 
 func (router *Router) withRepository(fn func(Repository, string) error) error {
-	repository, projectID, ok := router.acquireRepository(router.projectID)
+	// projectID 是可变写作用域（SetWorkspace 在会话切换/回合重绑时改它），
+	// 必须在锁内取快照：此前直接读字段与 SetWorkspace 的写构成数据竞争
+	// （-race 在 headless teammate 冒烟里命中的正是这一格）。
+	router.mu.RLock()
+	projectID := router.projectID
+	router.mu.RUnlock()
+	repository, projectID, ok := router.acquireRepository(projectID)
 	if !ok {
 		return errors.New("session storage: repository is closed")
 	}
