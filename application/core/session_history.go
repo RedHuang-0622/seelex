@@ -62,8 +62,15 @@ func (service *Service) resumeSession(sessionID string) error {
 		// 而本 API 的契约是"返回时视图 = 目标"。归位只重指目标空壳与快照投影，
 		// **不碰目标会话单元**——在途装载可能已经把内容写进去了，清空会把它抹掉。
 		transition.Unlock()
-		service.pointViewAtRestoringShell(sessionID)
-		return nil
+		if service.pointViewAtRestoringShell(sessionID) {
+			return nil
+		}
+		// 装载在"读到 restoring"与"归位视图"之间收口了：pointViewAtRestoringShell
+		// 拒绝越权冒充激活（restoring 已清），但本 API 的契约是"返回时视图 = 目标"。
+		// 此时目标已驻留，走正常热挂载把视图归位；否则调用方会看到 ResumeSession
+		// 返回 nil、视图却停在上一个会话（TestTwoRunningViewThirdSwitchStress 的
+		// "stress view = A, want C" 就是这个窗口）。
+		return service.hotAttachSession(sessionID)
 	}
 	if hot {
 		// 阶段 2：目标会话已驻留（含运行中）→ 热加载，只换视图指针 +
@@ -153,20 +160,27 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 // 与 beginAsyncRestore 的关键差别：**不清目标会话单元的可见区**——在途装载可能
 // 已经把回读出来的内容写进单元了，清空会把它抹掉；这里只换视图指针与快照里的
 // 上一会话投影。
-func (service *Service) pointViewAtRestoringShell(sessionID string) {
+//
+// 返回值：true = 视图已指向目标（本次归位或本来就在）；false = 装载已收口，
+// 调用方应改走正常热挂载（"返回时视图 = 目标"的契约不能靠静默返回维持）。
+func (service *Service) pointViewAtRestoringShell(sessionID string) bool {
 	if service == nil || sessionID == "" {
-		return
+		return false
 	}
 	service.ViewMu.Lock()
-	if service.closed || service.Core.Snapshot.Session.ID == sessionID {
+	if service.closed {
 		service.ViewMu.Unlock()
-		return
+		return true // 已关闭：保持既有静默语义，不再动视图
+	}
+	if service.Core.Snapshot.Session.ID == sessionID {
+		service.ViewMu.Unlock()
+		return true
 	}
 	if !service.isRestoringLocked(sessionID) {
 		// 装载已收口（restoring 已清）：视图归位交给正常的切换路径，这里不越权
 		// 冒充一次激活——否则会把已发布的内容换成空壳。
 		service.ViewMu.Unlock()
-		return
+		return false
 	}
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	unit := service.sessionUnitLocked(sessionID)
@@ -185,6 +199,7 @@ func (service *Service) pointViewAtRestoringShell(sessionID string) {
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+	return true
 }
 
 // resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定

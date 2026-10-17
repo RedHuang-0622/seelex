@@ -524,7 +524,8 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 					return
 				}
 				if snap := harness.app.Snapshot(); snap.Session.ID != sid {
-					switcherErr <- fmt.Errorf("stress view = %q, want %q", snap.Session.ID, sid)
+					switcherErr <- fmt.Errorf("stress view = %q, want %q (A=%s B=%s C=%s)\n%s",
+						snap.Session.ID, sid, sessionA, sessionB, sessionC, allGoroutineStacks())
 					return
 				}
 			}
