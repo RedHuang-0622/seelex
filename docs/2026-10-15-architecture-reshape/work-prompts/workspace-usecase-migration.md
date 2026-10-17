@@ -1,5 +1,8 @@
 # 任务书：`workspace_usecase` 迁入 `middle/switch/workspace`
 
+> **状态：已完成并提交 `2eec5f1f`。请勿重复认领。** 本文件保留为验收记录；
+> 工作区用例现位于 `middle/switch/workspace/`，应用层公开方法只做一行转发。
+
 ## 你的任务
 
 在 `refactor/architecture-reshape` 分支上，把

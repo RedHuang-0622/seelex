@@ -5,7 +5,7 @@
 | 任务书 | 认领范围 | 不要碰 |
 |---|---|---|
 | [worktree-finish.md](worktree-finish.md) | **已完成并提交 `2c043125`，勿重复认领** | NodeScope/SceneScope |
-| [workspace-usecase-migration.md](workspace-usecase-migration.md) | 工作区搬迁；工作树已有 WIP（`middle/switch/workspace/`、`application/core/workspace_host.go`），先核对再继续 | NodeScope/SceneScope |
+| [workspace-usecase-migration.md](workspace-usecase-migration.md) | **已完成并提交 `2eec5f1f`，勿重复认领** | NodeScope/SceneScope |
 | [baseline-context-tests.md](baseline-context-tests.md) | **三条已全绿（`4388524c` + 验证），勿重复认领** | NodeScope/SceneScope |
 | [p21-remaining-slices.md](p21-remaining-slices.md) | P21 装配层剩余片；工作树已有 `runtime_teamwork_scope*` 等 WIP，先核对再继续 | Plan 工具面、NodeScope/SceneScope |
 
