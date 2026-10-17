@@ -163,13 +163,14 @@ func (service *Service) BeginNewSession() error {
 //     清掉上一个会话留在快照里的全部会话事实；
 //  2. **冷加载中断时恢复草稿内容**（`resetViewToDraftAfterRestoreFailure`）：冷恢复失败且无前一会话
 //     可回退时把视图退回草稿壳；**不做任何持久化**（避免空壳覆盖目标会话记录），因此保留窗口读数；
+//     但已读文件属于"未加载成功的那个会话"，草稿壳不继承（否则物化时会被写成新会话的 Execution）；
 //  3. **卸载/删掉正在看的会话**（`switchViewToFreshDraftLocked`）：视图单例必须始终有对应单元，
-//     就地新建一个早分配草稿单元；**不写槽位**（不进入会话树，与卸载前语义一致）。
+//     就地新建一个早分配草稿单元；**不写槽位**（不进入会话树，与卸载前语义一致）。进程级交互
+//     （`SessionID` 为空）不随会话卸载失效，保留；会话级交互属于被卸下的会话，必须清掉。
 //
-// 这四条 `keep*`/`reset*` 开关就是三条路径今日的**真实差异**（本片之前是三份手抄的清理清单，
+// 三条 `keep*`/`reset*` 开关就是三条路径的**真实差异**（本片之前是三份手抄的清理清单，
 // 集合各不相同、看不出哪些是有意的）。差异矩阵与理由见 `session_draft_shell_test.go`。
-// 其中 02 不清 `ReadFiles`、03 不清 `Interaction` 两条**看起来是漂移**（另两条路径都清），
-// 已登记在 `m5-record.md` 里等你裁决，本片保持行为零变化。
+// 2026-10-17 用户裁决后，02 的 `ReadFiles` 与 03 的会话级 `Interaction` 两处漂移已收敛。
 type draftShellOptions struct {
 	// sessionID 是草稿的早分配 SID。
 	sessionID string
@@ -178,10 +179,9 @@ type draftShellOptions struct {
 	keepWorkspace bool
 	// resetHistoryWindow 把 `HistoryOffset` / `TotalMessages` / `HasMoreHistory` 归零。
 	resetHistoryWindow bool
-	// keepReadFiles 保留上一会话留在快照里的已读文件（02 的"不持久化"降级路径）。
-	keepReadFiles bool
-	// keepInteraction 保留 `Snapshot.Interaction`（03 就地换单元，不碰交互单格）。
-	keepInteraction bool
+	// keepProcessInteraction 只保留**进程级**交互（`SessionID` 为空）；会话级交互随
+	// 被卸下的会话一起失效（03 就地换单元）。
+	keepProcessInteraction bool
 	// composerFromUnit 把草稿单元的 composer 文本写进快照（只有 01 写）。
 	composerFromUnit bool
 	// resetTitle 把该会话的标题清成空（01/02 清，03 不动）。
@@ -212,11 +212,13 @@ func (service *Service) enterDraftShellLocked(options draftShellOptions) *sessio
 		service.Core.Snapshot.HasMoreHistory = false
 	}
 	service.Core.Snapshot.Task = nil
-	if !options.keepReadFiles {
-		service.Core.Snapshot.ReadFiles = nil
-	}
+	service.Core.Snapshot.ReadFiles = nil
 	service.Core.Snapshot.Runtime.Plan = nil
-	if !options.keepInteraction {
+	if !options.keepProcessInteraction {
+		service.Core.Snapshot.Interaction = nil
+	} else if interaction := service.Core.Snapshot.Interaction; interaction != nil && interaction.SessionID != "" {
+		// 会话级交互（审批等）挂在被卸下的会话上，换单元后必须清；进程级交互
+		// （账号/计划重试）与会话无关，保留。
 		service.Core.Snapshot.Interaction = nil
 	}
 	runtime := service.sessionUnitLocked(options.sessionID)

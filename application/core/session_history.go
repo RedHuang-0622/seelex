@@ -237,11 +237,10 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 	// 本会话的生效档位，而不是上一个会话留在快照里的那个。
 	//
 	// 差异（`draftShellOptions` 的显式开关）：本路径**不持久化**，所以保留上一会话的
-	// 窗口读数与已读文件（见类型文档里的三条角色）。
+	// 窗口读数；已读文件属于未加载成功的那个会话，草稿壳不继承（见类型文档里的三条角色）。
 	service.enterDraftShellLocked(draftShellOptions{
 		sessionID:     draftID,
 		keepWorkspace: true,
-		keepReadFiles: true,
 		resetTitle:    true,
 		tier:          func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
 	})

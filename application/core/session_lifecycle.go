@@ -183,12 +183,13 @@ func (service *Service) unloadGate(sessionID string) switching.UnloadGate {
 // 否则快照里留着的是刚被移除会话的档位/任务（与 BeginNewSession 同一口径）。
 func (service *Service) switchViewToFreshDraftLocked() {
 	draftID := service.newDraftSessionIDLocked()
-	// 差异（`draftShellOptions` 的显式开关）：本路径只换单元、不碰工作区绑定与交互单格，
-	// 也不清窗口读数与标题（对齐"与卸载前语义一致"，见类型文档里的三条角色）。
+	// 差异（`draftShellOptions` 的显式开关）：本路径只换单元、不碰工作区绑定，
+	// 也不清窗口读数与标题（对齐"与卸载前语义一致"，见类型文档里的三条角色）；
+	// 进程级交互保留，会话级交互属于被卸下的会话，随之失效。
 	service.enterDraftShellLocked(draftShellOptions{
-		sessionID:       draftID,
-		keepWorkspace:   true,
-		keepInteraction: true,
-		tier:            func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
+		sessionID:              draftID,
+		keepWorkspace:          true,
+		keepProcessInteraction: true,
+		tier:                   func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
 	})
 }

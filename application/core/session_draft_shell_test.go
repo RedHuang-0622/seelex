@@ -13,12 +13,12 @@ import (
 //
 //  1. `/new` 进草稿（`BeginNewSession`）——复用保留槽、恢复展示绑定与档位，清掉全部会话事实；
 //  2. 冷加载中断时恢复草稿内容（`resetViewToDraftAfterRestoreFailure`）——**不持久化**，
-//     故保留窗口读数与已读文件（避免用空壳覆盖目标会话记录）；
+//     故保留窗口读数（避免用空壳覆盖目标会话记录）；已读文件属于未加载成功的会话，不继承；
 //  3. 卸载/删掉正在看的会话（`switchViewToFreshDraftLocked`）——就地换单元、不写槽位，
-//     不碰交互单格。
+//     进程级交互保留、会话级交互随被卸下的会话失效。
 //
-// 其中 02 不清 `ReadFiles`、03 不清 `Interaction` 两条**看起来是漂移**（另两条路径都清），
-// 已登记等裁决：下面的期望值就是**今日行为**，谁改语义谁改这张表。
+// 2026-10-17 用户裁决：02 的 `ReadFiles`、03 的会话级 `Interaction` 两处漂移已收敛。
+// 下面的期望值就是收敛后的语义，谁改语义谁改这张表。
 
 // seedPreviousSessionFacts 在快照里铺满"上一个会话留下的会话事实"，供三条路径消费。
 func seedPreviousSessionFacts(service *Service) {
@@ -76,7 +76,7 @@ func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T) {
 	}
 }
 
-func TestColdRestoreFailureDraftShellKeepsWindowAndReadFiles(t *testing.T) {
+func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
 	defer service.Shutdown()
@@ -91,13 +91,13 @@ func TestColdRestoreFailureDraftShellKeepsWindowAndReadFiles(t *testing.T) {
 		t.Fatalf("会话事实（Task/Plan/Interaction）必须清：Task=%v Plan=%v Interaction=%v",
 			snapshot.Task, snapshot.Runtime.Plan, snapshot.Interaction)
 	}
-	// 这条路径**不持久化**（避免空壳覆盖目标会话记录），所以保留窗口读数与已读文件。
+	// 这条路径**不持久化**（避免空壳覆盖目标会话记录），所以保留窗口读数。
 	if snapshot.HistoryOffset != 7 || snapshot.TotalMessages != 21 || !snapshot.HasMoreHistory {
 		t.Fatalf("窗口读数应保留（不持久化的降级路径）：offset=%d total=%d hasMore=%v",
 			snapshot.HistoryOffset, snapshot.TotalMessages, snapshot.HasMoreHistory)
 	}
-	if len(snapshot.ReadFiles) != 1 {
-		t.Fatalf("已读文件今日保留（登记为待裁决差异）：%+v", snapshot.ReadFiles)
+	if snapshot.ReadFiles != nil {
+		t.Fatalf("已读文件属于未加载成功的会话，草稿壳不得继承：%+v", snapshot.ReadFiles)
 	}
 	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "ws-previous" {
 		t.Fatalf("工作区绑定不动：%+v", snapshot.CurrentWorkspace)
@@ -107,7 +107,7 @@ func TestColdRestoreFailureDraftShellKeepsWindowAndReadFiles(t *testing.T) {
 	}
 }
 
-func TestUnloadViewDraftShellKeepsInteractionAndWritesNoSlot(t *testing.T) {
+func TestUnloadViewDraftShellKeepsProcessInteractionAndWritesNoSlot(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
 	defer service.Shutdown()
@@ -124,9 +124,9 @@ func TestUnloadViewDraftShellKeepsInteractionAndWritesNoSlot(t *testing.T) {
 		t.Fatalf("会话事实（Task/Plan/ReadFiles）必须清：Task=%v Plan=%v ReadFiles=%v",
 			snapshot.Task, snapshot.Runtime.Plan, snapshot.ReadFiles)
 	}
-	// 就地换单元：不碰交互单格、不清窗口读数、不写槽位。
+	// 就地换单元：进程级交互（无会话归属）保留、不清窗口读数、不写槽位。
 	if snapshot.Interaction == nil {
-		t.Fatal("交互单格今日保留（登记为待裁决差异）")
+		t.Fatal("进程级交互（SessionID 为空）不随会话卸载失效，应保留")
 	}
 	if snapshot.HistoryOffset != 7 || snapshot.TotalMessages != 21 {
 		t.Fatalf("窗口读数应保留：offset=%d total=%d", snapshot.HistoryOffset, snapshot.TotalMessages)
@@ -140,5 +140,27 @@ func TestUnloadViewDraftShellKeepsInteractionAndWritesNoSlot(t *testing.T) {
 	}
 	if unit := service.sessions.Unit(draftID); unit == nil {
 		t.Fatalf("视图单例必须有对应单元（nil 会让后续 Unit(viewID) 读成 nil）")
+	}
+}
+
+// 会话级交互挂在被卸下的会话上：换单元后必须清掉，否则用户会对着一个已不存在的
+// 会话确认审批。
+func TestUnloadViewDraftShellDropsSessionScopedInteraction(t *testing.T) {
+	engine := newMultiSessionEngine()
+	service := newTestService(t, engine)
+	defer service.Shutdown()
+	seedPreviousSessionFacts(service)
+
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Interaction = &model.Interaction{
+		ID: "interaction-gone", Kind: "approval", SessionID: "sess-unloaded",
+	}
+	service.switchViewToFreshDraftLocked()
+	service.ViewMu.Unlock()
+
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
+	if service.Core.Snapshot.Interaction != nil {
+		t.Fatalf("会话级交互属于被卸下的会话，必须清：%+v", service.Core.Snapshot.Interaction)
 	}
 }
