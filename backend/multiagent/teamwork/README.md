@@ -103,6 +103,8 @@ stateDiagram-v2
 | `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 `backend/engine/assemble/runtime_teamwork_schema.go` 整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
 | `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
 | `output_store.go` | **产品自有作业输出面**（P21-23 从 `backend/engine/assemble/runtime_teamwork_output.go` 整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
+| `board_archive.go` | **看板存档的生命周期判据**（P21-24 从 `backend/engine/assemble/runtime_teamwork_board_archive.go` 与 `..._board_close.go` 归位，plan §2.7；契约 docs/arch/session-board-metadata-lifecycle.md §5/§6/§7/§8/§9）：`NextBoardMeta`（无档新开一版 / **换版本先关旧后开新**（`team.replan`）/ 同版本只推进 seq 与 updated_at / 指纹不变即节流；读失败与"没档案"同解）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑；`Recovered=true` 且 `Stale=true`）、`SealBoard`（把在册那一版关成 `team.close`，可顺带刷新快照；幂等，读失败上抛）、`BoardFingerprint`（§7 节流判据） |
+| `board_archive_test.go` | 生命周期三规则 + 换版本写序（新开→刷新→关旧）+ 已退场不再续命 + 读失败按首次写；恢复只认 active（四种不恢复形态）；封板幂等与读失败上抛；指纹稳定 |
 | `output_store_test.go` | 随实现搬入的域级用例（逐字）：每次派发互不覆盖且落在会话目录、角色名折成安全片段、清目录= 删整目录 + 作废落点（迟到写丢弃、不复用）、非本面分配的路径拒绝写、按角色名取序号最大的一份、无会话归属显式报错、缺 store/keyFor 构造函数返回 nil |
 | `context_view_test.go` | 预算夹取与缺省、UTF-8 安全裁剪、最新作业行选取、空转与残边回读两条空闲形态、角色过滤归一 |
 | `tool_shapes_test.go` | 随实现搬入的断言（逐字）：team_plan schema 是**里程碑口径**（milestones 有 name/depends_on、`after` 整条退场、required 说明是角色声明）、**没有 stages**、description 讲里程碑词表、成员级 `max_turns` 既进 schema 也进 description |
@@ -227,6 +229,26 @@ go test ./backend/multiagent/... -count=1
 - `func (reader BoardReader) SessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — SessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +
 - `func (reader BoardReader) projections() (contract.TeamworkBoardProjection, bool)` — boardProjections 是"能回答团队看板"的宿主面；未装配 → 取不到。
 - `func (reader BoardReader) liveProjections() (contract.TeammateSessionProjection, bool)` — liveProjections 是"能回答 teammate 会话 live 读数"的宿主面；未装配 → 取不到。
+
+### board_archive.go
+
+- `func NextBoardMeta(ctx context.Context, repository store.BoardRepository, key store.Key, plan store.TeamworkPlan, payload json.RawMessage, now time.Time) (store.TeamBoardMeta, bool, error)` — NextBoardMeta 按生命周期规则推进存档元数据（§5），并报告"是否需要写盘"（§7）。
+- `func ReadBoardArchive(repository store.BoardRepository, key store.Key) *dto.TeamworkBoardView` — ReadBoardArchive 读存档并还原成看板投影（§6 重启恢复）。
+- `func SealBoard(ctx context.Context, repository store.BoardRepository, key store.Key, payload json.RawMessage, now time.Time) error` — SealBoard 把一版**在册的**看板存档显式收口；payload 非空时顺带刷新快照内容。
+- `func BoardFingerprint(payload []byte) string` — BoardFingerprint 是存档载荷的指纹（§7 节流判据）：同一份载荷 → 同一个值。
+
+### board_archive_test.go
+
+- `func (s *stubBoardRepository) ReadTeamBoard(context.Context, store.Key) (store.TeamBoardMeta, error)`
+- `func (s *stubBoardRepository) WriteTeamBoard(_ context.Context, _ store.Key, meta store.TeamBoardMeta) error`
+- `func (s *stubBoardRepository) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error` — 目标看板那一半在本用例里不被触达，但接口是完整的（不做"只实现一半"的替身）。
+- `func (s *stubBoardRepository) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error)`
+- `func archivePlanFixture(version int) store.TeamworkPlan`
+- `func TestNextBoardMetaOpensNewVersionAndClosesOld(t *testing.T)` — TestNextBoardMetaOpensNewVersionAndClosesOld：三条生命周期规则——无存档新开一版、
+- `func TestBoardFingerprintIsStable(t *testing.T)` — TestBoardFingerprintIsStable：同一份载荷 → 同一个值；不同载荷 → 不同值。
+- `func TestReadBoardArchiveOnlyRestoresActive(t *testing.T)` — TestReadBoardArchiveOnlyRestoresActive：只有 active 且快照可解、且有里程碑时才恢复；
+- `func TestSealBoardIsIdempotent(t *testing.T)` — TestSealBoardIsIdempotent：封板把在册那一版关掉（可顺带刷新快照）；已 closed / 无存档都是
+- `func boardArchiveViewFixture() map[string]any` — boardArchiveViewFixture 造一份"有里程碑"的看板投影（存档恢复的最小形状）。
 
 ### board_test.go
 

@@ -15,8 +15,6 @@ package assemble
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"strings"
@@ -24,6 +22,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
@@ -97,81 +96,16 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	}
 }
 
-// nextTeamBoardMeta 按生命周期规则推进存档元数据（§5），并报告"是否需要写盘"（§7）。
-//
-// 三条规则：
-//   - 无存档 / 已退场 → 新开一版 active（opened_at=now、seq=1）；
-//   - 已有 active 且版本不同 → 旧版显式收口（closed_reason=team.replan），再写
-//     新的 active（opened_at=now、seq=1）——**先关旧、后开新**，写序即事实；
-//   - 已有 active 且版本相同 → 只 seq+1 与 updated_at（opened_at 不动）。
-//
-// 指纹不变（且版本相同）时返回 write=false：载荷不变不写盘。
-func nextTeamBoardMeta(ctx context.Context, repository store.BoardRepository, key store.Key, plan store.TeamworkPlan, payload json.RawMessage, now time.Time) (store.TeamBoardMeta, bool, error) {
-	meta := store.TeamBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			Kind: store.BoardKindTeam, State: store.BoardStateActive,
-			Seq: 1, OpenedAt: now.Unix(), UpdatedAt: now.Unix(), Fingerprint: boardFingerprint(payload),
-		},
-		TeamID: plan.TeamID, Version: plan.Version, Snapshot: payload,
-	}
-	existing, err := repository.ReadTeamBoard(ctx, key)
-	if err != nil {
-		// 无存档（fs.ErrNotExist）与读失败同解：按"第一次写"处理。读不出来时
-		// 覆盖写也是唯一的自愈路径（存档没有独立数据文件可重建）。
-		return meta, true, nil
-	}
-	if existing.State != store.BoardStateActive {
-		return meta, true, nil // 已退场的那一版不再续命：新开一版。
-	}
-	if existing.Version == plan.Version && existing.Fingerprint == meta.Fingerprint {
-		return store.TeamBoardMeta{}, false, nil // §7 节流。
-	}
-	if existing.Version != plan.Version {
-		closed := existing
-		closed.State = store.BoardStateClosed
-		closed.ClosedAt = now.Unix()
-		closed.ClosedReason = store.BoardCloseTeamReplan
-		closed.UpdatedAt = now.Unix()
-		if err := repository.WriteTeamBoard(ctx, key, closed); err != nil {
-			return store.TeamBoardMeta{}, false, err
-		}
-		return meta, true, nil // 新版本：opened_at/seq=1（meta 已就位）。
-	}
-	// 同版本刷新：续接 opened_at，只推进 seq 与 updated_at。
-	meta.OpenedAt = existing.OpenedAt
-	meta.Seq = existing.Seq + 1
-	return meta, true, nil
-}
+// 同身份别名：判据只有一份实现（团队域 board_archive.go，P21-24 归位）。
+var (
+	nextTeamBoardMeta = teamwork.NextBoardMeta
+	boardFingerprint  = teamwork.BoardFingerprint
+)
 
-// readTeamBoardArchive 读存档并还原成看板投影（§6 重启恢复）。
-//
-// 只有 state=active 才恢复：state=closed / 无存档 / 快照坏了都返回 nil——
-// 看板退场就是退场（与"活体没有阶段就不留空壳"同一口径）。
-//
-// 恢复出的看板 Recovered=true，且 Stale=true：存档里的作业行来自上一个进程，
-// jobs 句柄只在内存（jobs I-4），恢复出来的句柄一律视为过期。
+// readTeamBoardArchive 读存档并还原成看板投影（判据在域包）。
 func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key store.Key) *dto.TeamworkBoardView {
 	if backend == nil || backend.Boards == nil {
 		return nil
 	}
-	meta, err := backend.Boards.ReadTeamBoard(context.Background(), key)
-	if err != nil || meta.State != store.BoardStateActive || len(meta.Snapshot) == 0 {
-		return nil
-	}
-	var view dto.TeamworkBoardView
-	if err := json.Unmarshal(meta.Snapshot, &view); err != nil {
-		return nil
-	}
-	if len(view.Milestones) == 0 {
-		return nil // 存档里也没有可看的编排：不留空壳。
-	}
-	view.Recovered = true
-	view.Stale = true
-	return &view
-}
-
-// boardFingerprint 是存档载荷的指纹（§7 节流判据）：同一份载荷 → 同一个值。
-func boardFingerprint(payload []byte) string {
-	sum := sha256.Sum256(payload)
-	return hex.EncodeToString(sum[:])
+	return teamwork.ReadBoardArchive(backend.Boards, key)
 }

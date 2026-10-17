@@ -14,13 +14,12 @@ package assemble
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
@@ -83,30 +82,5 @@ func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager 
 	return sealTeamBoard(ctx, backend.Boards, key, payload, now)
 }
 
-// sealTeamBoard 把一版**在册的**看板存档显式收口；payload 非空时顺带刷新快照内容。
-//
-// 幂等：已 closed / 无存档（没写过，或上一次收口已把它退场）都原样返回——封板是
-// "把在册的那一版关掉"，没有在册的一版就没有可关的东西（不是失败）。
-func sealTeamBoard(ctx context.Context, repository store.BoardRepository, key store.Key, payload json.RawMessage, now time.Time) error {
-	if repository == nil {
-		return nil
-	}
-	existing, err := repository.ReadTeamBoard(ctx, key)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	if existing.Closed() {
-		return nil
-	}
-	if len(payload) > 0 {
-		existing.Snapshot = payload
-	}
-	existing.State = store.BoardStateClosed
-	existing.ClosedAt = now.Unix()
-	existing.ClosedReason = store.BoardCloseTeamClose
-	existing.UpdatedAt = now.Unix()
-	return repository.WriteTeamBoard(ctx, key, existing)
-}
+// 同身份别名：封板判据只有一份实现（团队域 board_archive.go，P21-24 归位）。
+var sealTeamBoard = teamwork.SealBoard
