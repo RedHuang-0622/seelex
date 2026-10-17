@@ -157,14 +157,14 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) engineForSessionLocked(sessionID string) ReactorEngine` — engineForSessionLocked 返回指定会话的引擎；未注册会话返回 nil（阶段 0：
 - `func (port *EnginePort) HistoryFor(sessionID string) []contract.EngineMessage` — HistoryFor 返回指定会话引擎的历史（只读拷贝）。
 - `func (port *EnginePort) RawHistoryFor(sessionID string) []types.Message` — RawHistoryFor 返回指定会话引擎的原始历史（只读拷贝）。
-- `func (port *EnginePort) AppendHistoryFor(sessionID string, msg types.Message)` — AppendHistoryFor 追加消息到指定会话引擎历史。
+- `func (port *EnginePort) AppendHistoryFor(sessionID string, msg contract.EngineMessage)` — AppendHistoryFor 追加消息到指定会话引擎历史。
 - `func (port *EnginePort) ClearHistoryFor(sessionID string)` — ClearHistoryFor 清空指定会话引擎历史。
 - `func (port *EnginePort) SetSystemPromptFor(sessionID, prompt string)` — SetSystemPromptFor 设置指定会话引擎的 system prompt。
 - `func (port *EnginePort) HasSession(sessionID string) bool` — HasSession 报告目标会话引擎是否已实例化。
 - `func (port *EnginePort) ReleaseSessionBundle(sessionID string) bool` — ReleaseSessionBundle 释放指定会话的**桥侧会话本体**（框架 Session + 会话上下文
 - `func (port *EnginePort) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error` — ReplaceHistoryFor 是会话内历史替换（contract 版）：替换指定会话引擎
 - `func (port *EnginePort) ReplaceRawHistoryFor(sessionID string, history []types.Message) error` — ReplaceRawHistoryFor 是 ReplaceHistoryFor 的原始消息版本。
-- `func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool)` — NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
+- `func (port *EnginePort) NodeSessionConversation(nodeID string) ([]contract.EngineMessage, bool)` — NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
 - `func (port *EnginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)` — NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
 - `func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool)` — NodeToolResult 转发子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
 - `func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool)` — NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
@@ -172,7 +172,7 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 即时输出面）。
 - `func (port *EnginePort) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage` — SubagentLiveHistoryPage 转发同一份实时回放窗口的分页读法（翻页入口；窗口上限
 - `func (port *EnginePort) NodeStageLogs(nodeID string) []dto.NodeStageLog` — NodeStageLogs 转发 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
-- `func (port *EnginePort) AppendHistory(msg types.Message)` — AppendHistory 追加消息到引擎内部对话历史。
+- `func (port *EnginePort) AppendHistory(msg contract.EngineMessage)` — AppendHistory 追加消息到引擎内部对话历史。
 - `func (port *EnginePort) ClearHistory()` — ClearHistory 清空活跃会话引擎历史。锁纪律同 ClearHistoryFor：port.mu 只解析
 - `func (port *EnginePort) ReplaceHistory(sessionID string, history []contract.EngineMessage) error`
 - `func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Message) error`

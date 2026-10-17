@@ -272,9 +272,6 @@ func Run(opts Options) (*App, error) {
 	}
 	registry.RegisterTaskTerminalTools(runtime, app)
 	registry.RegisterGoalTools(runtime, app)
-	// P1：真实 TL 评估器装配（seelebridge 账号 completer → goal 域
-	// TLEvaluator）；注入发生在首次会话启动前，Supervisor 首次 bind 即启用。
-	//
 	// **J-1a 之后这里不再注入两条"角色自带"读面**（2026-10-12，Agent Team 用户面
 	// 退场）：
 	//
@@ -284,9 +281,8 @@ func Run(opts Options) (*App, error) {
 	//     的 `rolePluginsFor`），因此退场后的行为与"注册表里没登记"逐字相同；能力轴
 	//     仍在：`team_plan members[].plugins` 的显式声明照旧生效（那条面在
 	//     backend/multiagent/teamwork，未动）。
-	//   - `SetRolePromptProvider`（已登记员工提示词 → ADVISOR 回合）：同上，读面未注入
-	//     时 ADVISOR 回退内置角色设定（backend/engine/assemble/runtime_role_prompt.go），输出契约
-	//     不受影响。
+	//   - `SetRolePromptProvider`（已登记员工提示词 → 角色回合）：同上，读面未注入
+	//     时角色回合回退内置角色设定（backend/engine/assemble/runtime_role_prompt.go）。
 	//
 	// 两条注入点保留在 seelebridge 侧（它们是运行时的公开读面，不属于本条目要删的
 	// Agent Team 用户面），只是不再有装配根来源。
@@ -305,9 +301,6 @@ func Run(opts Options) (*App, error) {
 	// docs/arch/agent-permission-subjects.md）。`seelebridge` 侧的
 	// `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 仍在（运行时公开
 	// 读面，测试与 headless 宿主可用），只是不再有装配根来源。
-	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
-		app.SetGoalTLEvaluator(tlEvaluator)
-	}
 	registry.RegisterSkillActivateTool(runtime, skillRegistry, func(name string) (skill.Skill, error) {
 		info, err := app.ActivateSkill(name)
 		if err != nil {

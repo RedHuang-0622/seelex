@@ -868,13 +868,6 @@ func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
 			"progress_content": map[string]interface{}{"type": "string", "description": "进度/发现内容"},
 		},
 	}
-	finishSchema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"reason": map[string]interface{}{"type": "string", "description": "收口理由（可选）"},
-			"result": map[string]interface{}{"type": "string", "description": "最终结果/证据（可选）"},
-		},
-	}
 	doneSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -885,13 +878,13 @@ func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
 	}
 	runtime.RegisterTool(
 		"goal_begin",
-		"注册并压栈一个会话 goal（目标看板的正文 + 完成条件；$goal 的工具形态）。目标由**提示词驱动的 leader 派活**推进（没有席位轮转）；收口走 goal_done（主代理即 TL，真收口）或 goal_propose_finish（送终态 gate）。",
+		"注册并压栈一个会话 goal（目标看板的正文 + 完成条件；$goal 的工具形态）。目标由**提示词驱动的 leader 派活**推进（没有席位轮转）；收口走 goal_done。",
 		beginSchema,
 		app.GoalBeginHandler,
 	)
 	runtime.RegisterTool(
 		"goal_update",
-		"向栈顶 active goal 追加一条进度/发现（只汇报，不直接收口）。权限：agent 面只能汇报进度；改 goal 定义（标题/正文/完成条件）只有 ADVISOR 裁决侧能发起，改定义反而会让评审依据失效。",
+		"向栈顶 active goal 追加一条进度/发现，或更新标题/正文/完成条件（主代理自己拍板；员工/子代理看不到 goal 工具族）。",
 		updateSchema,
 		app.GoalUpdateHandler,
 	)
@@ -902,14 +895,8 @@ func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
 		app.GoalStatusHandler,
 	)
 	runtime.RegisterTool(
-		"goal_propose_finish",
-		"提议收口当前栈顶 goal（mainAgent 只能提议；终态裁决由 ADVISOR gate 给出：verdict_done 收口 / verdict_not_done 纠偏 / TL 缺席直连收口）。",
-		finishSchema,
-		app.GoalProposeFinishHandler,
-	)
-	runtime.RegisterTool(
 		"goal_done",
-		"直接收口当前栈顶 goal（main agent 的真收口面：主代理即 TL 角色，不再送 ADVISOR 提议）。action=finish|abort（缺省 finish），reason/result 进审计。员工/子代理看不到这个工具。",
+		"直接收口当前栈顶 goal。action=finish|abort（缺省 finish），reason/result 进审计。员工/子代理看不到这个工具。",
 		doneSchema,
 		app.GoalDoneHandler,
 	)

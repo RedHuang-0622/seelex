@@ -32,7 +32,6 @@ const (
 const (
 	panelLineLimit       = 12
 	panelTextLimit       = 96
-	panelDirectiveMax    = 120
 	goalHistoryLineLimit = 4
 )
 
@@ -125,14 +124,6 @@ func (model Model) goalPanelLines() []string {
 	lines := []string{StyleTaskRunning.Render(header)}
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  "+title))
-	}
-	if peer := oneLine(goal.PeerState.String(), model.textLimit()); peer != "" {
-		lines = append(lines, StyleMuted.Render("  peer: "+peer))
-	}
-	if directive := oneLine(goal.LastDirective, panelDirectiveMax); directive != "" {
-		lines = append(lines, StyleChoiceInactive.Render("  TL: "+directive))
-	} else {
-		lines = append(lines, StyleMuted.Render("  TL: 暂无裁决（终态 gate 尚未评估）"))
 	}
 	lines = append(lines, model.goalHistoryLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 看团队 · Esc 关闭"))

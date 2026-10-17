@@ -207,10 +207,10 @@ go test ./e2e/scenario -count=1
 - `func (engine *ScriptedEngine) StartSession() string`
 - `func (engine *ScriptedEngine) SetSystemPrompt(prompt string)`
 - `func (engine *ScriptedEngine) SetMaxLoops(maxLoops int)`
-- `func (engine *ScriptedEngine) AppendHistory(msg types.Message)`
+- `func (engine *ScriptedEngine) AppendHistory(msg contract.EngineMessage)`
 - `func (*ScriptedEngine) TraceText() string`
 - `func (*ScriptedEngine) TokenCount() string`
-- `func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool)`
+- `func (*ScriptedEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool)`
 - `func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool)`
 - `func (*ScriptedEngine) NodeToolResult(string, string) (string, bool)`
 - `func (*ScriptedEngine) NodeWorktreeInfoFor(string) (assemble.NodeWorktreeInfo, bool)`

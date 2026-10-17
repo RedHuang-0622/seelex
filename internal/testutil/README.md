@@ -72,8 +72,8 @@ func (e *myTestEngine) History() []contract.EngineMessage { return e.history }
 - `func (*EmbeddedChatEngine) SetMaxLoops(int)`
 - `func (*EmbeddedChatEngine) TraceText() string`
 - `func (*EmbeddedChatEngine) TokenCount() string`
-- `func (*EmbeddedChatEngine) AppendHistory(types.Message)`
-- `func (*EmbeddedChatEngine) NodeSessionConversation(string) ([]types.Message, bool)`
+- `func (*EmbeddedChatEngine) AppendHistory(contract.EngineMessage)`
+- `func (*EmbeddedChatEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool)`
 - `func (*EmbeddedChatEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool)`
 - `func (*EmbeddedChatEngine) NodeToolResult(string, string) (string, bool)`
 - `func (*EmbeddedChatEngine) NodeWorktreeInfoFor(string) (dto.NodeWorktreeInfo, bool)`
