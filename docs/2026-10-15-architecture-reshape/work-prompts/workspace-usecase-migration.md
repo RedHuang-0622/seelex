@@ -57,3 +57,5 @@ python scripts/check_readme_refs.py --strict
 ```
 
 交付时列出：搬走的文件/函数、保留在 application 的会话面、端口清单、删除的重复实现。
+
+> **状态：已完成并提交 `2eec5f1f`（记录 `213f9517`）。请勿重复认领。**

@@ -565,8 +565,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		RelatedMemory: r.relatedMemoryBlocks,
 		ResumeNote:    r.SubagentResumeNote,
 	})
-	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
-	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
+	// worktree 现场适配器：项目根经 deps 注入；重试与收尾分类在 workunit.Host，
+	// 组件不反向依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
 		Root: r.projectScope.Root,
 	})
@@ -577,8 +577,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	//    注册表返回与应用 ToolHookBridge 完成回调之间唯一的框架边界；
 	//    观察者未启用时保持惰性）。
 	// 2) StageHook：把 node 会话的 llm/tool telemetry 边界投影为同节点
-	//    分阶段日志（NodeScope 已在 AgentNode.Run 注入 ctx；主会话无
-	//    NodeScope 被过滤）。best-effort，绝不改变执行路径。
+	//    分阶段日志（SceneScope 已在 AgentNode.Run 注入 ctx；主会话无
+	//    SceneScope 被过滤）。best-effort，绝不改变执行路径。
 	// 3) SummaryHook：B 类 llm/tool 脱敏摘要（统一事件库，
 	//    events_unified.go；best-effort）。
 	// 4) SessionTagHook：把 ctx 中的会话 ID 打到 telemetry attributes
