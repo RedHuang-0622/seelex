@@ -1618,3 +1618,38 @@ FNV-1a 32 位散列（**同一原语三处**）。它们的"判据"是同一个�
 `runtime_plan.go` 的分支账号与节点会话号派生、`runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、
 `workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。
 **判定为装配面（不搬）** 的那批理由见 §38 表。
+
+
+## 43. P21 续片（2026-10-17 第十一轮：P21-24）+ 全量验收
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-24 | **看板存档生命周期与封板判据** → `backend/multiagent/teamwork/board_archive.go`（plan §2.7）：`NextBoardMeta`（无档/已退场新开一版；**换版本先关旧（`team.replan`）后开新**；同版本只推进 seq 与 updated_at；指纹不变即节流；读失败按首次写）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑，`Recovered`+`Stale`）、`SealBoard`（在册那版关成 `team.close`，可顺带刷新快照；幂等、读失败上抛）、`BoardFingerprint`。装配层两个文件只剩宿主面（何时刷新 / 读哪些事实 / 失败只记一行 / 收口路径与 `BoardCloser` 接线），判据处走同身份别名。域级 4 条新用例 | `e09804b3` |
+
+**装配层体积（本轮两片）**：`runtime_teamwork_output.go` 275 → **删除**；
+`..._board_archive.go` 177 → 103 行；`..._board_close.go` 112 → 84 行。
+
+**全量验收（2026-10-17，本机）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+                                                   （本次 ./test/ 全绿——它在负载下才会偶发红，见 §42）
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/teamwork   exit 0
+```
+
+**teamwork 组进度**：`runtime_teammate_session_live.go`(P21-12) / `runtime_teamwork_board.go`(P21-20) /
+`runtime_teamwork_schema.go`(P21-21) / `runtime_teamwork_context.go`(P21-22) /
+`runtime_teamwork_output.go`(P21-23) / `runtime_teamwork_board_archive.go` + `..._board_close.go`(P21-24)
+六片已归位；仍未下沉的是 `runtime_teamwork.go`（作业记录上限、场景清单与认领、handler 入参口径）、
+`runtime_teamwork_jobs.go`（作业完成投影）、`runtime_teamwork_items.go`（工作区绑定/合并/释放的宿主动作）、
+`runtime_teamwork_scene.go`（团队现场索引与认领）、`runtime_teamwork_curated.go`（未装配插件拒绝）。
+
+**其余待办**：`runtime_plan.go` 的分支账号与节点会话号派生、`runtime_session_release.go` 的三条拒绝判据
+（→ `middle/switch`）、`workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、
+`runtime_tools.go` 的项目作用域词表。**判定为装配面（不搬）** 的那批理由见 §38 表；
+四项待裁决（越层边 / README 漂移批 / FNV 原语三处 / 时序用例根因）见 §37、§39、§42。
