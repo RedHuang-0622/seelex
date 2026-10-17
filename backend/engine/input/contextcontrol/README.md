@@ -17,7 +17,7 @@ flowchart LR
     POL --> CTX["seelexctx 决策公式<br/>窗口轮数计算"]
 ```
 
-本包只做「配置装载 + 策略类型」，窗口轮数的实际计算在 `seelexctx/window.go`。
+本包只做「配置装载 + 策略类型」，窗口轮数的实际计算在 `backend/engine/context/seelectx/window.go`。
 
 ## 测试
 

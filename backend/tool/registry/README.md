@@ -245,7 +245,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   （`begin`/`finish`）、以及**有新字节**（`cappedLogWriter` → `noteOutput`，按
   `asyncProbeThrottle=1s` 去抖；安静没输出的命令不刷信号）。探针不推进 `cursor`，也不进
   上下文——命令行原文、绝对路径、时间戳只到 GUI；`asyncPayload` 那份仍受"确定性、不含
-  路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table_async.go`。
+  路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table.go`。
 - 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
   false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
   `bg_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
@@ -253,7 +253,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   （与 `backend/limit/gate/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
   每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
 - 完成回填（打点 K-5）：终态迁移那一刻算一次**有界摘要**（≤512B：状态 + 退出码 +
-  行数 + 字节数 + 有界末行），投影（`application/core/work_table_async.go`）把它回填进
+  行数 + 字节数 + 有界末行），投影（`application/core/work_table.go`）把它回填进
   请求尾部打点块——在途行带标题、完成行带摘要，取回/销项后行才消失。摘要按轮重播，
   所以它是**严格有界**的；全文只走 `fetch` 或 attachments 里的日志路径。
   `Notified` 位是回填幂等键：重复 `finish` / 重复 `done` 不产生第二次回填

@@ -117,7 +117,7 @@ provider 直接 400 `insufficient tool messages following tool_calls message`（
 session loop 0）。同一行里**空 ID**与**行内重复 ID**的调用永远配不上回执（provider 按
 `tool_calls` 条数数），从声明里剔除。合成占位只在调用**不可能在飞**时补（ReplaceHistory 路径，
 或重复声明），并且被后到的真结果顶掉——否则「重复结果」规则会把真结果当多余行丢弃，模型永远
-只看到「调用可能没执行」。框架侧孪生实现（`seelexctx/history_safety.go`）同步改，出口不变量
+只看到「调用可能没执行」。框架侧孪生实现（`seelectx/history_safety.go`）同步改，出口不变量
 由 `seelexctx/wire_protocol_safety_test.go:assertProviderToolProtocol` 全量断言。
 
 历史归一化遵守**跨轮前缀不变量**：每条请求都以更早发出的请求字节为前缀，

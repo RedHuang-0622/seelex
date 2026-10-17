@@ -8,7 +8,7 @@
   （功能打点快照与终态判定）、`TaskService`（Plan 打卡/终态工具）、
   append-only transcript、checkpoint、result-ref、token 审计
   （`CalibratedTokenCounter`）、plan 帧状态与 ReAct 预算。
-- **任务台账域**（`Ledger`，R11-task 从 `backend/engine/assemble/ports.go`
+- **任务台账域**（`Ledger`，R11-task 从装配层 `ports.go`（已删除）
   下沉）：跨会话工作表格的合并读面、会话 scope 分区写面、会话级默认批次、
   清单（`kind=todo`）面。
 

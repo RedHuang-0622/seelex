@@ -13,7 +13,7 @@
 周期重复（minute/hour/day/week/month 或固定 Interval）与一次性定时（RunAt）。
 
 宿主转发面：`Runtime` 的 9 个公开方法（`RestoreScheduledTasks` / `ScheduleTask` / `UpdateScheduledTask` /
-`CancelScheduledTask` / …）在 M5-R11-schedule 片从 `backend/engine/assemble/ports.go` 原样搬到该包的
+`CancelScheduledTask` / …）在 M5-R11-schedule 片从装配层 `ports.go`（该文件已删除）原样搬到该包的
 `runtime_schedule.go`，只做 nil 守卫 + 逐行委托，**判据与状态全在本包**。
 
 任务**定义**落在一个**全局** JSONL 里（默认 `<store>/scheduled-tasks.jsonl`，

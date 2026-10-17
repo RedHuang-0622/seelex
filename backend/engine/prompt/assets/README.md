@@ -8,7 +8,8 @@ system, effort, optional Plan prompts, and the subagent charter. Assets are
 prompt-file dependency: 单二进制可部署、提示词与代码同版本。
 
 **外部覆盖层（已实现）**：启动期按责任链确定提示词资产目录——默认
-`config/prompt/`（`config/prompt/system/instructions.md` → `<exe>/config/prompt/...`），
+`config/prompt/`（仓库不存该运行时文件；发布产物里 system/instructions.md 落在
+`<exe>/config/prompt/system/instructions.md`），
 候选链全缺时用内嵌默认词初始化（`internal/bootseed`），随后 `promptassets.SetDir`
 把它设为覆盖目录。解析口径三条：**命中即读**（目录里同名文件优先于内嵌）、
 **逐文件回退**（只覆盖一份也能用）、**空文件 = 未配置**（回退内嵌，不把该段抹空）。

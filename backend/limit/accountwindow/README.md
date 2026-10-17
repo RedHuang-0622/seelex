@@ -23,7 +23,7 @@
 
 物理位置：2026-10-16 按
 [`../../../docs/2026-10-15-architecture-reshape/plan.md`](../../../docs/2026-10-15-architecture-reshape/plan.md)
-§2.8 从 `seelexctx/window.go`（该文件仍有窗口策略，但不含账号窗口）归位到 limit 板块（M2-C3）。
+§2.8 从 `backend/engine/context/seelectx/window.go`（该文件仍有窗口策略，但不含账号窗口）归位到 limit 板块（M2-C3）。
 
 ## 职责与非职责
 
@@ -37,7 +37,7 @@
 |---|---|
 | [`accountwindow.go`](accountwindow.go) | `MaxWindow`、`Presets()`、`Validate()` |
 | [`setter.go`](setter.go) | `Setter`：可调面的判据本体（校验 → 先写盘再改内存 → 报回生效值），M5-R-limita 随接收者转移从 `application/core` 归位 |
-| [`setter_test.go`](setter_test.go) | 上述判据的行为用例（原 `application/core/service_account_window_test.go`，随判据迁入） |
+| [`setter_test.go`](setter_test.go) | 上述判据的行为用例（原 core 侧用例已删除，随判据迁入） |
 
 ## 核心实现
 

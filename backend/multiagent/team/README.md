@@ -8,6 +8,7 @@
 
 > **退场时间线（现行状态以本节为准）**
 >
+<!-- readme-refs: history -->
 > | 日期 | 条目 | 退场内容 |
 > |---|---|---|
 > | 2026-10-12 | J-1a | Agent Team 装配适配（`factory.go` / `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` / 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤；`application/core/agentteam_service.go`、`agentteam_runtime.go` 的装配读面、`agentteam_role_index.go` 一并删除 |
@@ -17,6 +18,7 @@
 > 依据 [`docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../../../docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)（A03/A04）。
 > A04 的执行前置正是 A03：`TeamRuntimeFor` 摘掉后，`*agentteam.Runtime` 不再是任何生产签名
 > 的类型，全仓 Go 源码只剩注释提及；环本身没有任何建造入口，也没有任何消费者。
+<!-- readme-refs: end -->
 
 ## 生态位
 
@@ -62,8 +64,8 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
 
 已删除（勿再按名字找，均已删除）：`factory.go`、`registry.go`、`library.go`、`global.go`、`runtime.go`、
-`scheduler.go`、`agentteam_test.go`、`team_view_test.go`、`runtime_test.go`、`scheduler_test.go`、
-`scheduler_wiring_test.go`、`prefix_test.go` 均已删除。
+`scheduler.go`、`agentteam_test.go`、`team_view_test.go`、`runtime_test.go`、`scheduler_test.go`（以上均已删除）、
+`scheduler_wiring_test.go`、`prefix_test.go` 均已删除（此处列出的文件全部已删除）。
 
 ## 核心实现
 
@@ -112,6 +114,8 @@ go test ./application/core/... ./store/... -count=1
 `RoleSessionID` 的行为在调用方与 `seelebridge` 的用例里被间接覆盖。
 
 ---
+
+<!-- readme-refs: history -->
 
 ## 退场前记录（历史，2026-10-12 之前的口径）
 
@@ -399,6 +403,8 @@ go test -race ./backend/multiagent/team -count=1
 `application/core/goal_work_summary_test.go`（EXEC 工作正文进 ADVISOR 输入）、
 `gui/headless_team_test.go`（`team.*` 契约）、
 `gui/team_live_probe_test.go`（真实 API + pprof 冒烟，env 门控）。
+
+<!-- readme-refs: end -->
 
 ## 文件与函数索引
 
