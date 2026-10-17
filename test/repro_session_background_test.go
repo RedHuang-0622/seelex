@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"testing"
@@ -445,6 +446,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	select {
 	case <-provider.seen[5]:
 	case <-ctx.Done():
+		dumpBackgroundTurnStall(t, harness, "C second turn did not block")
 		t.Fatal("C second turn did not block")
 	}
 	close(provider.release[2])
@@ -493,4 +495,15 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		!containsUserText(harness.app.Snapshot().Conversation, "hello C2") {
 		t.Fatalf("C conversation incomplete after A completion: %v", conversationTexts(harness.app.Snapshot().Conversation))
 	}
+}
+
+// dumpBackgroundTurnStall 在"C 的第二轮没到 provider"时留一份现场：快照读数 +
+// 全量 goroutine dump。这条用例在 -race/高负载下偶发，只有 dump 能区分
+// "请求被队列/锁挡住"与"请求在传输层丢了"。
+func dumpBackgroundTurnStall(t *testing.T, harness fullChainHarness, reason string) {
+	t.Helper()
+	snapshot := harness.app.Snapshot()
+	t.Logf("%s: session=%s chat=%+v view=%+v",
+		reason, snapshot.Session.ID, snapshot.Chat, snapshot.Session)
+	_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 }

@@ -80,8 +80,13 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
+		// TOCTOU 收口：调用方（提交路径）在释放 ViewMu 后重新取锁的窗口里，
+		// 另一个回合可能刚好起跑。输入语义是"要么开跑、要么排队"——已受理的
+		// 提交不能因为晚了一步就被丢掉（deferred submit 只记日志）。
+		revision := service.enqueueChatLocked(sessionID, runtime, request, active)
 		service.ViewMu.Unlock()
-		return ErrChatRunning
+		service.afterChatEnqueued(sessionID, revision, request)
+		return nil
 	}
 	requestID := service.nextChatRequestIDLocked()
 	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.displayInput, active)
