@@ -1995,3 +1995,30 @@ handler**。越界路径不再先弹一次没用的审批。
 console 不再直接 import 工具注册表。I2 允许清单随之收缩（console 只剩门面 + 契约），
 headless 的 goal 请求形状作为已知边登记到 P3。细节见
 [p-items-record.md](p-items-record.md) §P7。
+
+## 56. 收口验收与最后一条视图竞态（2026-10-17）
+
+### 视图归位竞态（`3d16a972`）
+
+`test.TestTwoRunningViewThirdSwitchStress` 在全量跑里约 5% 失败（`stress view = A, want C`）。
+根因不是用例假设，而是 `ResumeSession` 的一个真实窗口：
+
+1. 目标会话正在后台装载（restoring）；
+2. `resumeSession` 读到 restoring，释放过渡锁，准备把视图重指到目标空壳；
+3. 后台装载恰好在这两步之间收口并清掉 restoring；
+4. `pointViewAtRestoringShell` 按设计拒绝"冒充激活"（避免把已发布内容换成空壳），静默返回；
+5. `ResumeSession` 返回 nil，但视图仍停在上一个会话。
+
+修法：归位函数返回"是否已把视图指向目标"；未归位时改走正常热挂载。证据：
+`-count=50` 全绿（修前 20 次里 1–2 次失败）。失败诊断同时补了 goroutine dump 与会话三元组。
+
+### 验收
+
+| 检查 | 结果 |
+|---|---|
+| `gofmt`（tracked `*.go`） | 空 |
+| `go build ./...` / `-tags "gui,desktop,production"` / `go vet ./...` | 全 0 |
+| `go test ./...` | 93–94 包 ok；`application/core` 基线 3 例红（既有，契约 §0.5） |
+| `python scripts/gen_core_readme_index.py --check` | 88 个 README 无漂移 |
+| `python scripts/check_readme_refs.py --strict` | 178 个 README 0 未解析引用 |
+| 受影响包 `-race` | 见 `tmp/reshape/race-affected-final.log`：0 DATA RACE |

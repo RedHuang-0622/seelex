@@ -6,6 +6,24 @@
 
 ---
 
+## P20 续 —— 视图归位竞态（`TestTwoRunningViewThirdSwitchStress`）
+
+提交：`3d16a972`。
+
+**现象**：全量跑约 5% 失败，`stress view = A, want C`；单跑 20 次复现 1–2 次。
+
+**根因**：`ResumeSession` 读到目标仍在 restoring 后释放过渡锁；后台装载在"重指视图"
+之前收口并清掉 restoring；归位函数按设计拒绝冒充激活，于是返回 nil 但视图停在上一个
+会话。`resumeSession` 把"归位函数无返回"当成成功——契约"返回时视图 = 目标"被破坏。
+
+**修法**：`pointViewAtRestoringShell` 返回是否已归位；未归位时改走 `hotAttachSession`
+（目标此时已驻留）。失败时补 goroutine dump + A/B/C 三元组。
+
+**证据**：`go test ./test/ -run TestTwoRunningViewThirdSwitchStress -count=50` 全绿
+（修前 `-count=20` 失败 1–2 次）。
+
+---
+
 ## P7 —— 前端收口三件（console / headless / 旧路径）
 
 提交：`e55e929b`（console）+ 本批 `refactor(arch): gui/headless 独立为 headless/`。
