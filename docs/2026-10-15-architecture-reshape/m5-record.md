@@ -1577,3 +1577,44 @@ FNV-1a 32 位散列（**同一原语三处**）。它们的"判据"是同一个�
 `runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、`workunit_*.go` 其余判据、
 `runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。**判定为装配面（不搬）** 的那批
 理由见 §38 表。
+
+
+## 42. P21 续片（2026-10-17 第十轮：P21-23）+ 一条时序用例的排查记录
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-23 | **产品自有作业输出面**整份 → `backend/multiagent/teamwork/output_store.go`（`OutputStore` + `NewOutputStore`，plan §2.7）：每派发一个互不覆盖的 `<role>-<n>.log`、序号进程内单调且**不复用**落点、写入与清目录经同一把锁串行（迟到的写静默丢弃 —— S5 残边）、按角色名回读最近一份、角色名过 `safeRoleFileName`、会话归属走 telemetry。装配层 `runtime_teamwork_output.go` **删除**；组合根（`wiring/bootstrap`）与 headless 端到端用例改调域包构造；宿主级接线用例（`writeWorkerOutput` 经端口 + 清目录后迟到写丢弃）留装配层，域级 7 条用例随实现搬入 | `fff29401` |
+
+**装配层体积（本轮）**：`runtime_teamwork_output.go` 275 → **删除**。
+
+### `test.TestBackgroundCompletionWhileSwitchingToC` 的排查记录（未修，已回退试探改动）
+
+本片之前，这条用例在**整包并发跑**（本机被其它构建/测试占满）时三次以
+`C second turn did not block`（90s = ctx 超时）收场；`-race` 下在基线 `ae2faa18` 也能复现。
+
+**做过的排查**（结论：**不是**假 provider 的请求序号错位）：
+
+1. 假 provider 原按**请求序号**阻塞（`seen[2]` / `seen[5]`），怀疑"多一次重试/换号就整体错位"。
+2. 于是改成**按请求内容阻塞**（`newContentBlockingProvider("long task A", "hello C2")`，只阻塞第一次命中，
+   防二次 close），并在 `-race` 下连跑 5 次验证。
+3. 结果：**仍然失败 2/5**，失败点与文案完全相同（`repro_session_background_test.go:511: C second turn did not block`）。
+   ⇒ 序号口径不是根因；根因是"**C 的第二轮请求在 90s 内根本没到 provider**"。
+
+**同一轮排查中得到的两条新证据**（都在 `-race` 下）：
+
+   - 另一次失败**提前到 0.62s**，报的是 `C conversation incomplete after A completion`，
+     会话内容为 `first A / hello B / hello C2`（**缺 `hello C`**）——这正是本用例要守的
+     TC-A2-01（"A 收尾与 C 运行并发；A 的 ReleaseWorkingHistoryFor 不得清 C 的引擎工作历史或串写 C"）
+     所描述的那类串扰形态；
+   - 其余通过。
+
+**处置**：试探性改动**已回退**（`git restore` 回 HEAD 版本）——它不修根因，还改了用例的时序语义，
+留下来只会掩盖问题。**待办**：按 P20 的姿势定位（需要失败时刻的 goroutine dump + 引擎工作历史快照，
+判断是"C 的第二轮被队列/锁挡住"还是"请求在传输层被换号重试吞掉"）。
+
+**仍待办（按价值排序）**：`runtime_teamwork.go` 的判据（作业记录上限 `teamworkJobRecordCeiling`、
+场景清单 `teamSceneIndex`/`adoptTeamworkScenes`、派发/汇合 handler 里的入参口径）、存档元数据推进与封板
+（`..._board_archive.go` / `..._close.go`）、`runtime_teamwork_jobs.go` 的作业完成投影、
+`runtime_plan.go` 的分支账号与节点会话号派生、`runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、
+`workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。
+**判定为装配面（不搬）** 的那批理由见 §38 表。
