@@ -289,6 +289,11 @@ sequenceDiagram
   不再经过 Plan DAG。`plan_*` 剩下的只是用例面：16 个测试文件仍在钉工具入口/
   节点/合并链，删完这些用例就可以移除 plan 注册并删 `backend/tool/plan`、
   `backend/tool/node`。
+- **plan_* 模型工具面已退役（2026-10-17）**：`plan_load/plan_run/plan_status/
+  plan_clear/plan_validate/plan_export` 不再注册；历史用例改用
+  `runPlanToolForTest` 直调 provider handler。**剩余**：删内部 `backend/tool/plan`
+  与 `backend/tool/node`（连同这些内部用例）、`runtime_plan.go` 的 Plan 段、
+  `application/core/plan_tools.go` 的 Plan 投影，最后删 `NodeScope`。
 - **worktree 生命周期已在 workunit**：`workunit.Host`（`lifecycle.go`）拥有
   Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是现场端口
   （`SceneFace`）的 git 适配器。plan 节点专用的 `WorktreeManager.Finish`/审批/

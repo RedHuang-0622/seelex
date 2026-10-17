@@ -2077,3 +2077,27 @@ Supervisor/TLEvaluator/终态 gate/TL 指令队列/评审过程投影/`goal_team
 
 验收：`go build` / `-tags` / `go vet` 全 0；`go test ./...` 95 包 ok，仅
 `application/core` 基线 3 例红；Readme 索引/引用门禁待随本批刷新。
+
+## 59. plan_* 退役与 fork 解耦（2026-10-17）
+
+用户裁决：**worktree 生命周期归 workunit；先确认 plan 与 teamwork 状态查看是否耦合，
+解耦后删除 plan_*；并讲解 FNV 原语。**
+
+- **耦合审计**：teamwork 看板读自己的 `store.TeamworkPlan`/`TeamworkBoardView`，与
+  `plan_*` 不耦合；真正的耦合是 **fork_subagents → plan.Executor.RunPlan + NodeFactory**。
+- **fork 解耦**（`579ca691`）：`fork.Deps` 改为 `RunSubagent`；`Runtime.runForkSubagent`
+  直接构造 AgentNode 执行单条子代理（worktree/NodeScope/prompt blocks/merge-back 原样），
+  作业化派发按条独立、best-effort 兄弟不连坐。
+- **plan_* 模型工具面退役**（`920cad16`）：`plan_load/run/status/clear/validate/export`
+  不再注册；历史用例改用 `runPlanToolForTest` 直调 provider handler；可见性用例改为
+  断言 plan 族始终不可见。内部 `backend/tool/plan`/`backend/tool/node` 仍留给这些
+  历史用例，下一步连同用例一起删，再删 NodeScope。
+- **worktree 生命周期**：`workunit.Host` 已拥有 Begin/Finish/Reclaim/Recover 判据；
+  `backend/tool/worktree` 是 `SceneFace` 的 git 适配器，plan 专用的 Finish/审批/
+  dirty 判定随 plan 删除。
+- **FNV**：三处同一 FNV-1a 32 位原语（nodeID / 账号定序 / 主体名短哈希），是三个
+  持久兼容面；建议抽 `internal/stablehash.FNV1a32` 共用算法 + 已知向量测试，
+  各自保留语义契约（handoff §8.4）。
+
+验收：`go build` / `go vet` 全 0；`go test ./...` 95 包 ok，仅 `application/core`
+基线 3 例红；README 引用 179 个 0 漂移。
