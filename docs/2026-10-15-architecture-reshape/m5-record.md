@@ -1653,3 +1653,37 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 （→ `middle/switch`）、`workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、
 `runtime_tools.go` 的项目作用域词表。**判定为装配面（不搬）** 的那批理由见 §38 表；
 四项待裁决（越层边 / README 漂移批 / FNV 原语三处 / 时序用例根因）见 §37、§39、§42。
+
+
+## 44. P21 续片（2026-10-17 第十二轮：P21-25 / P21-26 / P21-27）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-25 | **作业完成投影** → `backend/multiagent/teamwork/job_projection.go`（plan §2.7）：`ProjectJobCompletions`（顺序搬运、空表归一 nil）+ `JobCompletionFrom`（逐列搬运：角色由 `emp_<role>` 反解、工作项取 `Node`）+ `AsyncStateFromJobs`（框架状态词 → 契约枚举的**唯一**折算处，认不得的词落 Unknown）。装配层只剩作业表读数与信号口 | `a3115b2c` |
+| P21-26 | **团队现场名单判据 + 指派名反向换算** → `backend/multiagent/teamwork/scene.go`：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ 去重保序的 `SceneEntry`；刻意不经折叠读法——折叠以 work_item 为键会丢掉 WorkItem 留空的 teammate 级行）、`SceneNodeIDs`、`NodeIDFromWorktreeName`（`seelex/<nodeID>` 去前缀；**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——一条命名过去分居两包，现在只有一域）。装配层只剩"读两份持久事实 + 逐个 `Adopt` 认领" | `86268dee` |
+| P21-27 | **"未装配名字"判决** → `backend/multiagent/team/plugin_reject.go`（与 P21-18 的 `ValidateMemberPlugins` 同域）：`RejectUnassembledPlugins` + `UnassembledPluginDeps{Limit, Defined, UnassembledReason}`——已装插件不问、语法先于语义、带来源被拒、没有判决面时空操作。装配层只剩三格宿主读数 | `8c7fa639` |
+
+**装配层体积（本轮三片）**：`runtime_teamwork_jobs.go` 95 → 53 行；`runtime_teamwork_scene.go` 128 → 81 行；
+`runtime_teamwork_curated.go` 55 → 32 行；`runtime_teamwork_items.go` 少一份去前缀实现。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/team{,work}   exit 0
+```
+
+### teamwork / team 组剩余（按价值排序）
+
+`runtime_teamwork.go`（作业记录上限 `teamworkJobRecordCeiling`、派发/汇合/收口 handler 里的入参口径、
+`workerRoleRoundSpec` 的构造、`RunWorker` 的宿主动作）、`runtime_teamwork_items.go`（工作区绑定/合并/
+释放的宿主动作与 `workspaceRootFor`）、`runtime_teamwork_board.go` 的缓存细节（已判为宿主面）、
+`runtime_role_turn.go`（角色回合构造口径）、`runtime_plan.go`（分支账号与节点会话号派生）、
+`runtime_session_release.go`（三条拒绝判据 → `middle/switch`）、`workunit_*.go` 其余判据、
+`runtime_tools.go`（项目作用域词表）。**判定为装配面（不搬）** 的那批理由见 §38 表；
+四项待裁决见 §37、§39、§42。
