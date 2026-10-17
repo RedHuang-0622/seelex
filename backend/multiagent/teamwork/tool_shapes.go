@@ -1,11 +1,43 @@
-package assemble
+package teamwork
 
-// runtime_teamwork_schema.go — leader 编排工具的输入契约（JSON Schema）。
+// tool_shapes.go 是 leader 编排工具的**形状面**（P21-21「域方法随类型走」：从
+// `backend/engine/assemble/runtime_teamwork_schema.go` 整份搬进本域；plan §2.7 把
+// `runtime_teamwork*.go` 列为 `backend/multiagent/teamwork/` 的目标）。
 //
-// 描述与参数面向**提示词**：leader 的 skill（plugins/default/teamwork）按这里的
-// 形状调用，因此 schema 既是准入面也是文档面。
+// 描述与参数面向**提示词**：leader 的 skill（plugins/default/teamwork）按这里的形状调用，
+// 因此 schema 既是准入面也是文档面。装配层只留一句注册（名字 + 描述 + schema + handler）。
+//
+// 门禁咬合：`test/tool_face_prompt_consistency_test.go` 从**注册面**扫工具名并与 leader 的 SKILL
+// 对账——工具名常量因此声明在这里（注册点跨包引用它），扫描器按声明包名解析。
 
-func teamworkPlanDescription() string {
+const (
+	// TeamPlanToolName 是 `team_plan` 的注册名（注册点跨包引用它）。
+	TeamPlanToolName = "team_plan"
+	// TeamDispatchToolName 是 `team_dispatch` 的注册名（注册点跨包引用它）。
+	TeamDispatchToolName = "team_dispatch"
+	// TeamWorkToolName 是 `team_work` 的注册名（注册点跨包引用它）。
+	TeamWorkToolName = "team_work"
+	// TeamItemToolName 是 `team_item` 的注册名（注册点跨包引用它）。
+	TeamItemToolName = "team_item"
+	// TeamAcceptToolName 是 `team_accept` 的注册名（注册点跨包引用它）。
+	TeamAcceptToolName = "team_accept"
+	// TeamFailToolName 是 `team_fail` 的注册名（注册点跨包引用它）。
+	TeamFailToolName = "team_fail"
+	// TeamRecoverToolName 是 `team_recover` 的注册名（注册点跨包引用它）。
+	TeamRecoverToolName = "team_recover"
+	// TeamItemsToolName 是 `team_items` 的注册名（注册点跨包引用它）。
+	TeamItemsToolName = "team_items"
+	// TeamJoinToolName 是 `team_join` 的注册名（注册点跨包引用它）。
+	TeamJoinToolName = "team_join"
+	// TeamMilestoneToolName 是 `team_milestone` 的注册名（注册点跨包引用它）。
+	TeamMilestoneToolName = "team_milestone"
+	// TeamCloseToolName 是 `team_close` 的注册名（注册点跨包引用它）。
+	TeamCloseToolName = "team_close"
+	// TeamContextToolName 是 `team_context` 的注册名（注册点跨包引用它）。
+	TeamContextToolName = "team_context"
+)
+
+func TeamPlanDescription() string {
 	return "Define or replace the team's hard orchestration plan (milestones, members and the work inside them). " +
 		"Milestones are barriers and milestones[].depends_on is the order fact between them: a milestone may only be " +
 		"arranged after every milestone it depends on is done, so you lay out one milestone at a time. Inside one " +
@@ -20,7 +52,7 @@ func teamworkPlanDescription() string {
 		"Anchors: docs/arch/teamwork-leader-worker-architecture.md §4.6."
 }
 
-func teamworkPlanSchema() map[string]interface{} {
+func TeamPlanSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -77,13 +109,13 @@ func teamworkPlanSchema() map[string]interface{} {
 	}
 }
 
-func teamworkDispatchDescription() string {
+func TeamDispatchDescription() string {
 	return "Dispatch one teammate's job and return immediately with a handle (never waits). Refuses an unenrolled role " +
 		"and refuses to exceed the teammate ceiling (explicitly, never silently queued); a repeated dispatch of the same " +
 		"role collapses onto the job already running."
 }
 
-func teamworkDispatchSchema() map[string]interface{} {
+func TeamDispatchSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -94,14 +126,14 @@ func teamworkDispatchSchema() map[string]interface{} {
 	}
 }
 
-func teamworkWorkDescription() string {
+func TeamWorkDescription() string {
 	return "Arrange the work INSIDE one milestone: append work items (name / role / description / goal / depends_on). " +
 		"Milestones are barriers — a milestone may only be arranged after every milestone it depends on is done, " +
 		"so you plan one milestone at a time instead of laying out the whole run up front. depends_on is a within-milestone " +
 		"DAG (the V-model edge exec -> test_case lives here). One work item = one teammate = one Session + one git worktree."
 }
 
-func teamworkWorkSchema() map[string]interface{} {
+func TeamWorkSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -127,13 +159,13 @@ func teamworkWorkSchema() map[string]interface{} {
 	}
 }
 
-func teamworkItemDescription() string {
+func TeamItemDescription() string {
 	return "Adjust one work item that has NOT started yet (role / name / description / goal / depends_on). " +
 		"Started work (running / review) and finished work (done / failed) are settled facts — adjust them by writing a new " +
 		"item instead, never by rewriting history."
 }
 
-func teamworkItemSchema() map[string]interface{} {
+func TeamItemSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -148,7 +180,7 @@ func teamworkItemSchema() map[string]interface{} {
 	}
 }
 
-func teamworkAcceptDescription() string {
+func TeamAcceptDescription() string {
 	return "Accept one work item after your review (status -> done). Acceptance also ends that item's execution isolation: " +
 		"its git worktree is released and its Session contents are cleared, so the teammate opens a fresh Session + worktree " +
 		"for its next work item. A work item whose upstream dependencies are not done cannot be dispatched, so acceptance is " +
@@ -158,7 +190,7 @@ func teamworkAcceptDescription() string {
 		"Wait for its receipt (team_items) or kill the job first."
 }
 
-func teamworkAcceptSchema() map[string]interface{} {
+func TeamAcceptSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -169,12 +201,12 @@ func teamworkAcceptSchema() map[string]interface{} {
 	}
 }
 
-func teamworkFailDescription() string {
+func TeamFailDescription() string {
 	return "Rule one work item as failed after your review. The worktree現場 and the Session memory are kept, so re-dispatching " +
 		"the same item resumes in the SAME Session (this is what makes the interrupted-run memory survive)."
 }
 
-func teamworkFailSchema() map[string]interface{} {
+func TeamFailSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -185,18 +217,18 @@ func teamworkFailSchema() map[string]interface{} {
 	}
 }
 
-func teamworkRecoverDescription() string {
+func TeamRecoverDescription() string {
 	return "Recover after an interruption (quota exhaustion / process restart): read the plan and the worktree binding ledger back, " +
 		"and make explicit which work items are re-dispatchable (their job handle only lives in memory, so a restarted process " +
 		"cannot see it). It touches NOTHING: sessions and worktrees stay alive so the memory and the现场 survive — that is why " +
 		"re-dispatching reuses the same Session id."
 }
 
-func teamworkRecoverSchema() map[string]interface{} {
+func TeamRecoverSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
 }
 
-func teamworkItemsDescription() string {
+func TeamItemsDescription() string {
 	return "Read the work items (the gantt data): status, owner, milestone, dependencies, live binding (Session + worktree) and " +
 		"whether a running item is interrupted (its handle is gone from this process's job table). " +
 		"Each item also carries `gate` (where it is stuck right now: gate:依赖未 done / job:running / " +
@@ -205,16 +237,16 @@ func teamworkItemsDescription() string {
 		"inferring progress from the status yourself."
 }
 
-func teamworkItemsSchema() map[string]interface{} {
+func TeamItemsSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
 }
 
-func teamworkJoinDescription() string {
+func TeamJoinDescription() string {
 	return "Bounded join: wait up to budget_ms for the given handles, then return their read-only records. " +
 		"Use it only at a real dependency point; it observes but never consumes output (that is jobs_manage op=fetch)."
 }
 
-func teamworkJoinSchema() map[string]interface{} {
+func TeamJoinSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -225,12 +257,12 @@ func teamworkJoinSchema() map[string]interface{} {
 	}
 }
 
-func teamworkMilestoneDescription() string {
+func TeamMilestoneDescription() string {
 	return "Declare a milestone and write its content. The predicate is a dependency edge, not wall time: every stage in " +
 		"`after` must have dispatched at least one teammate."
 }
 
-func teamworkMilestoneSchema() map[string]interface{} {
+func TeamMilestoneSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -241,7 +273,7 @@ func teamworkMilestoneSchema() map[string]interface{} {
 	}
 }
 
-func teamworkCloseDescription() string {
+func TeamCloseDescription() string {
 	return "Close the whole team (team_close): every enrolled member runs the same four close steps (reclaim its jobs → " +
 		"release its worktree(s) → clear its session contents → keep it on the roster) — this is the ONE place that reclaims " +
 		"jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
@@ -253,21 +285,21 @@ func teamworkCloseDescription() string {
 		"receipt (or kill the job), and resolve a failed item's worktree by hand (conflicts, rebase, merge) before accepting it."
 }
 
-func teamworkCloseSchema() map[string]interface{} {
+func TeamCloseSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type":       "object",
 		"properties": map[string]interface{}{},
 	}
 }
 
-func teamworkContextDescription() string {
+func TeamContextDescription() string {
 	return "Read each member's work context (roster entry + its job row + optional body) — a READ-ONLY surface: it " +
 		"never dispatches, reclaims or consumes. Body is read with a NON-consuming read (jobs.Manager.Peek): the cursor " +
 		"does not advance and a terminal job is not retired, so 'take a look at a member' never turns unread content into " +
 		"read. Body is off by default and bounded per member (default 4KB, hard cap 32KB)."
 }
 
-func teamworkContextSchema() map[string]interface{} {
+func TeamContextSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{

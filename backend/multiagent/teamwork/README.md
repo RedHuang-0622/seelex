@@ -100,6 +100,8 @@ stateDiagram-v2
 | `board.go` | **团队看板读面**（原 `application/core/teamwork_service.go`，M5-R8c 归位）：`BoardReader` 只做转发与"未装配 / 宿主不支持该投影"时的空视图口径（不解释、不缓存、不做判定）；`application/core` 侧只留同名门面方法 |
 | `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
 | `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
+| `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 `backend/engine/assemble/runtime_teamwork_schema.go` 整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
+| `tool_shapes_test.go` | 随实现搬入的断言（逐字）：team_plan schema 是**里程碑口径**（milestones 有 name/depends_on、`after` 整条退场、required 说明是角色声明）、**没有 stages**、description 讲里程碑词表、成员级 `max_turns` 既进 schema 也进 description |
 | `board_view_test.go` | 出图五份行齐与闭板三字段从计划搬、人状态两值、队列销项即出队、当前会话三段优先、主体反解、审计有界保序、过期提示位、编排判据 |
 | `teammate_live_test.go` | 域级用例：有界裁剪（条数 + 单条长度 + 如实标 Truncated）、只留 user/assistant、分页归一（负 offset / limit<=0 / 越界页）、默认页取尾部、执行面不在本进程时的空视图语义 |
 | `teamwork_test.go` / `items_test.go` | 端口桩驱动的编排语义测试（后者按 Work Item 口径逐条覆盖九类要求） |
@@ -550,4 +552,39 @@ go test ./backend/multiagent/... -count=1
 ### testnamer_test.go
 
 - `func (testNamer) Name(spec jobs.Spec, seq int) jobs.Handle`
+
+### tool_shapes.go
+
+- `func TeamPlanDescription() string`
+- `func TeamPlanSchema() map[string]interface`
+- `func TeamDispatchDescription() string`
+- `func TeamDispatchSchema() map[string]interface`
+- `func TeamWorkDescription() string`
+- `func TeamWorkSchema() map[string]interface`
+- `func TeamItemDescription() string`
+- `func TeamItemSchema() map[string]interface`
+- `func TeamAcceptDescription() string`
+- `func TeamAcceptSchema() map[string]interface`
+- `func TeamFailDescription() string`
+- `func TeamFailSchema() map[string]interface`
+- `func TeamRecoverDescription() string`
+- `func TeamRecoverSchema() map[string]interface`
+- `func TeamItemsDescription() string`
+- `func TeamItemsSchema() map[string]interface`
+- `func TeamJoinDescription() string`
+- `func TeamJoinSchema() map[string]interface`
+- `func TeamMilestoneDescription() string`
+- `func TeamMilestoneSchema() map[string]interface`
+- `func TeamCloseDescription() string`
+- `func TeamCloseSchema() map[string]interface`
+- `func TeamContextDescription() string`
+- `func TeamContextSchema() map[string]interface`
+
+### tool_shapes_test.go
+
+- `func planToolSchemaProps(t *testing.T) map[string]interface`
+- `func TestTeamworkPlanSchemaCarriesMilestoneVocabulary(t *testing.T)`
+- `func TestTeamworkPlanSchemaHasNoStages(t *testing.T)` — TestTeamworkPlanSchemaHasNoStages：阶段口径整条退场——属性没有、required 没有、
+- `func TestTeamworkPlanDescriptionSpeaksMilestoneVocabulary(t *testing.T)`
+- `func TestTeamworkPlanSchemaCarriesPerMemberMaxTurns(t *testing.T)` — TestTeamworkPlanSchemaCarriesPerMemberMaxTurns：成员级执行参数（max_turns）既是
 

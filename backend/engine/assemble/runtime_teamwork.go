@@ -224,25 +224,27 @@ func (r *Runtime) registerTeamworkTools() {
 	if !r.teamworkEnabled() {
 		return
 	}
-	r.RegisterTool("team_plan", teamworkPlanDescription(), teamworkPlanSchema(), r.teamPlanHandler)
-	r.RegisterTool("team_dispatch", teamworkDispatchDescription(), teamworkDispatchSchema(), r.teamDispatchHandler)
-	r.RegisterTool("team_join", teamworkJoinDescription(), teamworkJoinSchema(), r.teamJoinHandler)
-	r.RegisterTool("team_milestone", teamworkMilestoneDescription(), teamworkMilestoneSchema(), r.teamMilestoneHandler)
+	// 工具形状（名字 / 描述 / schema）在团队域 [`teamwork.tool_shapes.go`](../../multiagent/teamwork/README.md)：
+	// 本层只做注册（P21-21），与 `RegisterReviewFilesTool` 同款形状。
+	r.RegisterTool(teamwork.TeamPlanToolName, teamwork.TeamPlanDescription(), teamwork.TeamPlanSchema(), r.teamPlanHandler)
+	r.RegisterTool(teamwork.TeamDispatchToolName, teamwork.TeamDispatchDescription(), teamwork.TeamDispatchSchema(), r.teamDispatchHandler)
+	r.RegisterTool(teamwork.TeamJoinToolName, teamwork.TeamJoinDescription(), teamwork.TeamJoinSchema(), r.teamJoinHandler)
+	r.RegisterTool(teamwork.TeamMilestoneToolName, teamwork.TeamMilestoneDescription(), teamwork.TeamMilestoneSchema(), r.teamMilestoneHandler)
 	// team_close：整队**收口**的唯一入口：作业回收、现场拆除、会话内容清空都落在这一处
 	// （唯一的回收实现 = coordinator.closeStepsLocked + releaseAllItems；逐人退场那条
 	// 口径已整条删除，2026-10-06）。
-	r.RegisterTool("team_close", teamworkCloseDescription(), teamworkCloseSchema(), r.teamCloseHandler)
+	r.RegisterTool(teamwork.TeamCloseToolName, teamwork.TeamCloseDescription(), teamwork.TeamCloseSchema(), r.teamCloseHandler)
 	// team_context：成员工作上下文**读面**（要求③）。它只读、且正文走非消费读法
 	// （Manager.Peek），因此与其余 team_* 工具不同：调用它不会改变任何事实。
-	r.RegisterTool("team_context", teamworkContextDescription(), teamworkContextSchema(), r.teamworkContextHandler)
+	r.RegisterTool(teamwork.TeamContextToolName, teamwork.TeamContextDescription(), teamwork.TeamContextSchema(), r.teamworkContextHandler)
 	// Work Item 口径的 leader 工具面（2026-10-03）：排活（按里程碑）/ 调整未开始项 /
 	// 验收通过 / 判失败 / 中断恢复 / 读工作项。
-	r.RegisterTool("team_work", teamworkWorkDescription(), teamworkWorkSchema(), r.teamWorkHandler)
-	r.RegisterTool("team_item", teamworkItemDescription(), teamworkItemSchema(), r.teamItemHandler)
-	r.RegisterTool("team_accept", teamworkAcceptDescription(), teamworkAcceptSchema(), r.teamAcceptHandler)
-	r.RegisterTool("team_fail", teamworkFailDescription(), teamworkFailSchema(), r.teamFailHandler)
-	r.RegisterTool("team_recover", teamworkRecoverDescription(), teamworkRecoverSchema(), r.teamRecoverHandler)
-	r.RegisterTool("team_items", teamworkItemsDescription(), teamworkItemsSchema(), r.teamItemsHandler)
+	r.RegisterTool(teamwork.TeamWorkToolName, teamwork.TeamWorkDescription(), teamwork.TeamWorkSchema(), r.teamWorkHandler)
+	r.RegisterTool(teamwork.TeamItemToolName, teamwork.TeamItemDescription(), teamwork.TeamItemSchema(), r.teamItemHandler)
+	r.RegisterTool(teamwork.TeamAcceptToolName, teamwork.TeamAcceptDescription(), teamwork.TeamAcceptSchema(), r.teamAcceptHandler)
+	r.RegisterTool(teamwork.TeamFailToolName, teamwork.TeamFailDescription(), teamwork.TeamFailSchema(), r.teamFailHandler)
+	r.RegisterTool(teamwork.TeamRecoverToolName, teamwork.TeamRecoverDescription(), teamwork.TeamRecoverSchema(), r.teamRecoverHandler)
+	r.RegisterTool(teamwork.TeamItemsToolName, teamwork.TeamItemsDescription(), teamwork.TeamItemsSchema(), r.teamItemsHandler)
 	// jobs_manage：框架通用管理工具（jobs/builtin）。簇属按 seelex 的路由组表声明，
 	// 与 bash_bg/bg_manage 同组（它就是对作业面的读/写/销项）。
 	r.teamworkMu.Lock()

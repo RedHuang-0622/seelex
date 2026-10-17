@@ -1,6 +1,6 @@
-package assemble
+package teamwork
 
-// runtime_teamwork_schema_test.go — 钉住 team_plan 的输入契约是**里程碑口径**：
+// tool_shapes_test.go —（P21-21 随实现从 backend/engine/assemble/runtime_teamwork_schema_test.go 搬进本域，断言逐字） 钉住 team_plan 的输入契约是**里程碑口径**：
 // 里程碑是屏障（milestones[].depends_on），里程碑内按 Work Item 的 depends_on DAG
 // 并行；**没有 stages**（2026-10-04 阶段口径整条退场：属性、required、description
 // 里一处都不许再出现——留着属性，leader 就会照旧写阶段，两套顺序语义又长回来）。
@@ -13,9 +13,9 @@ import (
 	"testing"
 )
 
-func teamworkPlanSchemaProps(t *testing.T) map[string]interface{} {
+func planToolSchemaProps(t *testing.T) map[string]interface{} {
 	t.Helper()
-	properties, ok := teamworkPlanSchema()["properties"].(map[string]interface{})
+	properties, ok := TeamPlanSchema()["properties"].(map[string]interface{})
 	if !ok {
 		t.Fatal("team_plan schema 应有 properties")
 	}
@@ -23,7 +23,7 @@ func teamworkPlanSchemaProps(t *testing.T) map[string]interface{} {
 }
 
 func TestTeamworkPlanSchemaCarriesMilestoneVocabulary(t *testing.T) {
-	properties := teamworkPlanSchemaProps(t)
+	properties := planToolSchemaProps(t)
 
 	// 1) milestones 增 name 与 depends_on：这是屏障口径的两个字段。
 	milestones, ok := properties["milestones"].(map[string]interface{})
@@ -63,9 +63,9 @@ func TestTeamworkPlanSchemaCarriesMilestoneVocabulary(t *testing.T) {
 // description 里也不提"历史口径的阶段"（那句话本身就是留在提示词面的一条后门：
 // leader 读了会照旧写 stages，而写进去的阶段不再被任何读侧认作顺序事实）。
 func TestTeamworkPlanSchemaHasNoStages(t *testing.T) {
-	schema := teamworkPlanSchema()
+	schema := TeamPlanSchema()
 
-	if _, exists := teamworkPlanSchemaProps(t)["stages"]; exists {
+	if _, exists := planToolSchemaProps(t)["stages"]; exists {
 		t.Fatal("stages 属性必须整条删除（阶段口径已退场）")
 	}
 	required, ok := schema["required"].([]string)
@@ -88,13 +88,13 @@ func TestTeamworkPlanSchemaHasNoStages(t *testing.T) {
 	if !found {
 		t.Fatalf("milestones 必须在 required 里（计划的最小形状）：%v", required)
 	}
-	if strings.Contains(teamworkPlanDescription(), "stages[") {
-		t.Fatalf("description 里不该再讲 stages 口径：%q", teamworkPlanDescription())
+	if strings.Contains(TeamPlanDescription(), "stages[") {
+		t.Fatalf("description 里不该再讲 stages 口径：%q", TeamPlanDescription())
 	}
 }
 
 func TestTeamworkPlanDescriptionSpeaksMilestoneVocabulary(t *testing.T) {
-	description := teamworkPlanDescription()
+	description := TeamPlanDescription()
 	for _, keyword := range []string{"milestone", "depends_on", "Work Item"} {
 		if !strings.Contains(description, keyword) {
 			t.Fatalf("team_plan description 应含里程碑口径关键词 %q，得 %q", keyword, description)
@@ -106,7 +106,7 @@ func TestTeamworkPlanDescriptionSpeaksMilestoneVocabulary(t *testing.T) {
 // **准入面**（schema）也必须是**文档面**（description）——只进 schema 而描述不提，
 // 模型不会用；只写描述而 schema 不收，调用会被拒。
 func TestTeamworkPlanSchemaCarriesPerMemberMaxTurns(t *testing.T) {
-	members, ok := teamworkPlanSchemaProps(t)["members"].(map[string]interface{})
+	members, ok := planToolSchemaProps(t)["members"].(map[string]interface{})
 	if !ok {
 		t.Fatal("team_plan schema 应有 members")
 	}
@@ -125,7 +125,7 @@ func TestTeamworkPlanSchemaCarriesPerMemberMaxTurns(t *testing.T) {
 	if _, ok := maxTurns.(map[string]interface{}); !ok {
 		t.Fatalf("max_turns 应是对象形状的 schema，得 %T", maxTurns)
 	}
-	if !strings.Contains(teamworkPlanDescription(), "max_turns") {
-		t.Fatalf("description 必须提到 max_turns（否则模型不会用）：%q", teamworkPlanDescription())
+	if !strings.Contains(TeamPlanDescription(), "max_turns") {
+		t.Fatalf("description 必须提到 max_turns（否则模型不会用）：%q", TeamPlanDescription())
 	}
 }
