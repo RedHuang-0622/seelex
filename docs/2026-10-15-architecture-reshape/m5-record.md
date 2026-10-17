@@ -1883,3 +1883,35 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 
 **四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
 `TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
+
+
+## 51. P21 续片（2026-10-17 第十九轮：P21-37）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-37 | **团队工具入参形状与解码** → `backend/multiagent/teamwork/tool_requests.go`（plan §2.7）：七个 `Request` 类型 + 七个 `Decode*`（默认值：plan version 缺省 1、join 预算缺省 5s 并丢弃空白句柄；trim 口径：role/item/id/milestone trim，goal/note/content 原样）。**收掉一处重复**：验收与判负原来各写一份 `{id, note}` 匿名结构，现在共用 `ItemNoteRequest`。**形状与 schema 同处一域**（`tool_shapes.go`），schema 与解析结构从此不会再"各长一半"。装配层 handler 只剩话术包装 + Coordinator 调用 + 回执，`runtime_teamwork.go` 去掉 `time` 直依赖。域级 6 条新用例 | `0b055ca9` |
+
+**装配层体积**：`runtime_teamwork.go` 877 → 806 行。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/teamwork   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+1. `runtime_teamwork.go`（≈806 行）剩余：派发/汇合/收口的宿主动作（`RunWorker` / `workerRoleRoundSpec` /
+   `bindWorkerProjectRoot` / `writeWorkerOutput` / `teamworkJobOutputs`）与 `SetTeamworkBackend` 的装配；
+2. `runtime_teamwork_items.go`（端口实现：`BindWorkspace` / `MergeWorkspace` / `ReleaseWorkspaceItem` /
+   `EnqueueTeammateMessage`）与 `workunit_assembly.go`（三格端口适配器 `hostPorts`）——**按设计文档留在装配处**；
+3. `runtime_context.go` 组件工厂、`runtime_tools.go` 其余注册面——已判为装配面（§38 表）。
+
+**四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
+`TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
