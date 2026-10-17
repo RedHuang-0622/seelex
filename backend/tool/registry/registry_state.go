@@ -31,14 +31,15 @@ type RegistryState struct {
 
 // NewRegistryState 构造带超时/权限门/事件与诊断中间件的工具注册表。
 //
-// 事件与权限门走 MetaMiddleware（权限判定要吃工具自带的簇属 ToolMeta），
-// 诊断留在普通链上。框架先套普通中间件、再套 Meta 中间件，因此两种写法的
-// 实际嵌套都是 事件 → 权限门 → 诊断 → handler，与历史顺序一致。
-func NewRegistryState(timeout time.Duration, permission *PermissionGate, approvalTimeout time.Duration, eventMiddleware, diagnosticMiddleware frameworktools.Middleware) *RegistryState {
+// 事件、路径门与权限门走 MetaMiddleware（权限判定要吃工具自带的簇属 ToolMeta），
+// 诊断留在普通链上。框架先套普通中间件、再按顺序套 Meta 中间件，因此实际嵌套是
+// 事件 → 路径门 → 权限门 → 诊断 → handler。路径门在权限门之前（P1）：越界路径
+// 直接拒，不先弹一次没用的审批；pathGate 为 nil 时退回旧顺序。
+func NewRegistryState(timeout time.Duration, permission *PermissionGate, approvalTimeout time.Duration, pathGate frameworktools.MetaMiddleware, eventMiddleware, diagnosticMiddleware frameworktools.Middleware) *RegistryState {
 	return &RegistryState{Registry: frameworktools.NewRegistry(
 		frameworktools.WithCallTimeout(timeout),
 		frameworktools.WithMiddleware(diagnosticMiddleware),
-		frameworktools.WithMetaMiddleware(asMetaMiddleware(eventMiddleware), permission.Middleware(approvalTimeout)),
+		frameworktools.WithMetaMiddleware(asMetaMiddleware(eventMiddleware), pathGate, permission.Middleware(approvalTimeout)),
 	)}
 }
 

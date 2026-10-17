@@ -48,6 +48,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )
@@ -447,7 +448,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
 	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
+	// 路径门在权限门之前（P1）：越界路径直接拒，不先弹一次没用的审批。
+	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout,
+		toolreg.PathGate(toolreg.Deps{ProjectScope: r.projectScope, SessionKey: seetelemetry.SessionIDFromContext}),
+		r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {
