@@ -91,3 +91,31 @@ func TestDefaultRoleTurnPromptFramesTheRole(t *testing.T) {
 		t.Fatal("角色名必须按参数落地")
 	}
 }
+
+// TestComposeWorkerSystemPromptKeepsTheOrder：worker 回合系统提示的三段顺序是判据——
+// 角色提示词 → 作业纪律 → （可选）恢复说明，段间空行；没有恢复说明时不多一段空文。
+func TestComposeWorkerSystemPromptKeepsTheOrder(t *testing.T) {
+	composed := ComposeWorkerSystemPrompt("角色提示词", "恢复说明：上一轮中断")
+	wantOrder := []string{"角色提示词", WorkerWorkItemDiscipline, "恢复说明：上一轮中断"}
+	last := -1
+	for _, segment := range wantOrder {
+		index := strings.Index(composed, segment)
+		if index < 0 {
+			t.Fatalf("缺段 %q：%q", segment, composed)
+		}
+		if index < last {
+			t.Fatalf("段落顺序被改变（%q 出现在前一段之前）：%q", segment, composed)
+		}
+		last = index
+	}
+	if !strings.Contains(composed, "角色提示词\n\n"+WorkerWorkItemDiscipline) {
+		t.Fatalf("角色提示词与作业纪律之间应当以空行分隔：%q", composed)
+	}
+	plain := ComposeWorkerSystemPrompt("角色提示词", "")
+	if strings.HasSuffix(plain, "\n\n") || strings.Contains(plain, "\n\n\n") {
+		t.Fatalf("没有恢复说明时不该多出空段：%q", plain)
+	}
+	if plain != "角色提示词\n\n"+WorkerWorkItemDiscipline {
+		t.Fatalf("无恢复说明的组合 = %q", plain)
+	}
+}

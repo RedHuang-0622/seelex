@@ -54,7 +54,7 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
 | `plugin_assembly.go` | **运行时插件装配判据**（P21-18 从 `backend/engine/assemble/runtime_role_plugins.go` 归位，plan §2.7）：`ResolvePluginAssembly`（显式声明替换集合 → 角色自带 → 空集不覆盖）、`NormalizePluginNames`（读侧/传输侧规范化：trim + 保序去重 + 空清完归一为 nil）、`ValidateMemberPlugins`（编排入口的四条口径：语法规整写回成员 / 未知名显式拒绝 / 超限显式拒绝 / 重复显式拒绝）、`PluginFaceJudgement`（装配面裁决的三种形态：有定义按定义收窄 / 空定义一律可见 / **失灵一个都不给**）+ `Visible` / `Face` / `FaultNote` |
 | `plugin_reject.go` | **"未装配名字"的判决**（P21-27 从 `backend/engine/assemble/runtime_teamwork_curated.go` 归位，plan §2.7；与 `ValidateMemberPlugins` 同域——一个说"未定义"，一个说"为什么未定义"）：`RejectUnassembledPlugins(members, UnassembledPluginDeps{Limit, Defined, UnassembledReason})`——**已装插件不问**（判定只发生在"确实未定义"时）、**语法先于语义**（规整报错的成员跳过，留给 `ValidateMemberPlugins` 说）、**在写入任何计划之前**调用（被拒的计划不落盘）、`UnassembledReason == nil`（宿主没接精选目录判决面）时整个函数空操作 |
-| `role_turn.go` | **员工回合三条判据**（P21-32 从 `backend/engine/assemble/runtime_role_turn.go` 归位，plan §2.7）：`WorkScope` + `WithWorkScope` / `WorkScopeFrom`（"这一轮是谁的活"的身份：三项全空 = 不是员工回合、主会话/角色会话缺一 = 归属不成立）、`ToolActivityID` + `ToolActivityLimit`（同一次工具调用的稳定标识：轮次 + 工具名 + 入参指纹，started/completed 两帧同值供 upsert；入参/结果截断按 rune，600）、`DefaultRoleTurnPrompt`（未登记提示词时的最小角色框架：点名角色、只处理本轮正文、不越权、证据落仓库、结论 ≤800 字） |
+| `role_turn.go` | **员工回合三条判据**（P21-32 从 `backend/engine/assemble/runtime_role_turn.go` 归位，plan §2.7）：`WorkScope` + `WithWorkScope` / `WorkScopeFrom`（"这一轮是谁的活"的身份：三项全空 = 不是员工回合、主会话/角色会话缺一 = 归属不成立）、`ToolActivityID` + `ToolActivityLimit`（同一次工具调用的稳定标识：轮次 + 工具名 + 入参指纹，started/completed 两帧同值供 upsert；入参/结果截断按 rune，600）、`DefaultRoleTurnPrompt`（未登记提示词时的最小角色框架：点名角色、只处理本轮正文、不越权、证据落仓库、结论 ≤800 字）；P21-38 补：`WorkerWorkItemDiscipline`（作业纪律文案：完成即提交）与 `ComposeWorkerSystemPrompt`（角色提示词 → 作业纪律 → 恢复说明的三段顺序，段间空行） |
 | `role_turn_test.go` | 身份往返与两种"不成立"、活动 ID 的两帧同值/同名不同参不合/不同轮次不合/错误帧不改变 ID 与形状、最小角色框架的关键约束 |
 | `plugin_reject_test.go` | 已装插件不问（判据一次都不被调）、未装名字带来源被拒、语法非法成员跳过、没有判决面时空操作、判据给 nil 时放行 |
 | `plugin_assembly_test.go` | 三层口径与读侧规整、四条显式拒绝（含"没有目录面时只做语法与数量校验"）、装配面裁决三形态（读数面与运行面同源、失灵不静默放宽） |
@@ -439,12 +439,14 @@ go test -race ./backend/multiagent/team -count=1
 - `func WithWorkScope(ctx context.Context, scope WorkScope) context.Context` — WithWorkScope 把本轮员工做工身份挂到 ctx 上；三项全空 = 不是员工做工回合，原样返回
 - `func WorkScopeFrom(ctx context.Context) (WorkScope, bool)` — WorkScopeFrom 取本轮员工做工身份；不是员工做工回合时返回 (零值, false)。
 - `func DefaultRoleTurnPrompt(roleName string) string` — DefaultRoleTurnPrompt 是**未登记员工提示词**时的最小角色框架：明确"你是谁、这一轮要产出什么"，
+- `func ComposeWorkerSystemPrompt(rolePrompt, recoveryNote string) string` — ComposeWorkerSystemPrompt 组装一个 worker 回合的系统提示：**角色提示词 + 作业纪律 +
 
 ### role_turn_test.go
 
 - `func TestWorkScopeRoundTripsThroughContext(t *testing.T)` — TestWorkScopeRoundTripsThroughContext：身份经 ctx 往返；三项全空 = 不是员工回合（原样返回 ctx，
 - `func TestToolActivityIDIsStableAcrossFrames(t *testing.T)` — TestToolActivityIDIsStableAcrossFrames：同一次调用（同轮次 + 同名 + 同参）的 started/completed
 - `func TestDefaultRoleTurnPromptFramesTheRole(t *testing.T)` — TestDefaultRoleTurnPromptFramesTheRole：未登记提示词时的最小角色框架——点名角色名、
+- `func TestComposeWorkerSystemPromptKeepsTheOrder(t *testing.T)` — TestComposeWorkerSystemPromptKeepsTheOrder：worker 回合系统提示的三段顺序是判据——
 
 ### roles.go
 

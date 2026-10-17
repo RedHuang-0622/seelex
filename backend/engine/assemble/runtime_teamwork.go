@@ -29,6 +29,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
+	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	tooljobs "github.com/RedHuang-0622/seelex/backend/tool/jobs"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
@@ -562,18 +563,9 @@ func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error
 // （那个常量属角色回合面，随 `runtime_role_turn.go` 的片一起走）。
 var workerTurnLimit = func(requested int) int { return teamwork.TurnLimit(requested, roleTurnMaxLoops) }
 
-// workerWorkItemDiscipline 是 teammate 回合的**作业纪律**：一件活的收尾动作写在系统提示里，
-// 而不只写在 leader 的 SKILL 里（2026-10-15 审计 D6）。
-//
-// 为什么放在装配处而不是 SKILL：SKILL 是**leader** 读的文档，teammate 的系统提示是它唯一
-// 必然读到的约束位。真实会话里的现象是 leader 为 4 件以上工作项手工补提交——"完成即提交"
-// 在执行面完全没约束。它是系统事实：每次 worker 回合都带上，已登记的员工提示词也盖不掉。
-const workerWorkItemDiscipline = `<work-item-discipline>
-- 你这次只做交给你的这一件事；改动只落在**你自己这件事的 worktree** 里，不碰主工作区，也不动别人的 worktree。
-- **收尾前必须提交**：把你的改动 git add + git commit 落成至少一次提交（提交信息写清这件事做了什么）。带着未提交改动结束 = 这件事交不出去，leader 得替你补提交并从主工作区再合一遍。
-- 做不完就如实说明卡在哪（缺什么信息 / 缺什么权限），不要伪造完成的结论。
-- 结束时给出：做了什么（含提交号）、证据在哪（相对路径）、还剩什么没做；结论 ≤800 字。
-</work-item-discipline>`
+// workerWorkItemDiscipline 是团队域 `WorkerWorkItemDiscipline` 的同值常量别名（作业纪律的
+// 文案只有一份实现）。
+const workerWorkItemDiscipline = teamdomain.WorkerWorkItemDiscipline
 
 // RunWorker 实现 teamwork.WorkerRunner：在角色会话里跑一轮有界回合。
 //
@@ -629,14 +621,11 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 // 读完即消；落点不同（subagent 在节点装配 PromptBlocks 时读，teammate 在角色装配这里读），
 // 但两层的文案来自同一份构建器 `workunit.RecoveryNote`（前缀族因此是同一种东西）。
 func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec {
-	systemPrompt := r.roleTurnSystemPrompt(request.Role)
-	// 作业纪律是**系统事实**，不进 SKILL：teammate 的收尾动作必须硬约束在它的系统提示里
-	// （2026-10-15 审计 D6：真实会话里 leader 为 4 件以上工作项手工补提交，说明"完成即提交"
-	// 此前只写在 leader 的文档里，执行面没有任何约束）。
-	systemPrompt = systemPrompt + "\n\n" + workerWorkItemDiscipline
-	if note := r.consumeTeamResumeNote(request.RoleSessionID); note != "" {
-		systemPrompt = systemPrompt + "\n\n" + note
-	}
+	// 三段组装（角色提示词 + 作业纪律 + 恢复说明）的判据在团队域；本层只给两格读数。
+	systemPrompt := teamdomain.ComposeWorkerSystemPrompt(
+		r.roleTurnSystemPrompt(request.Role),
+		r.consumeTeamResumeNote(request.RoleSessionID),
+	)
 	return roleRoundSpec{
 		MainSessionID:    mainSessionID,
 		RoleName:         request.Role,

@@ -70,6 +70,7 @@
 | P21-team-unit-record-link | **域方法随类型走**第三十四片：teammate 单元记录的**身份写侧**下沉——`UnitRecordKey` / `UnitRecordKeyFor`（记录身份与 nodeID 口径）与 `TeammateUnitRecordLink`（写链上 teammate 那一环） | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `unit_record.go`（plan §2.7）；本包 `teamUnitRecordKey` 改类型别名、`teamUnitKeyFor` / `teamUnitUnitRecordLink` 改函数值别名（记录写侧与链用例零改动）。域级 2 条新用例（身份取数 + 身份环只写自己那格且拷贝集合） |
 | P21-team-unit-recovery | **域方法随类型走**第三十五片：`RecoverTeamworkUnits` 的**中断判定**下沉（记录侧与账本侧两条来源 + 一次去重 + 恢复说明生成） | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `unit_recovery.go`（`InterruptedUnits` / `UnitRecovery`，plan §2.7）；本包只剩**宿主编排**（认领现场 → 读记录 → 账本 Recover/AliveSceneNodes → 域包判中断 → 注入说明），执行面读数 `teamUnitSurfaceAlive` 以函数值传入。域级 3 条新用例 |
 | P21-teamwork-tool-requests | **域方法随类型走**第三十六片：十个 handler 里的**入参形状与解码**下沉（形状与 schema 同处一域） | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `tool_requests.go`；本包 handler 只剩"解码（域包）→ 话术包装 → Coordinator 调用 → 回执"（错误文案 `team_x: 参数解析失败` 仍在本层）。域级 6 条新用例；既有 handler 级用例（端到端/headless）一行未改 |
+| P21-worker-system-prompt | **域方法随类型走**第三十七片：worker 回合**系统提示的组成**下沉（作业纪律文案 + 三段顺序：角色提示词 → 作业纪律 → 恢复说明，段间空行） | [`backend/multiagent/team`](../../multiagent/team/README.md) 的 `role_turn.go`（`WorkerWorkItemDiscipline` / `ComposeWorkerSystemPrompt`，plan §2.7）；本包 `workerWorkItemDiscipline` 改同值常量别名、`workerRoleRoundSpec` 的提示词组装只剩"两格读数 → 域包一行"。域级 1 条新用例（顺序/空行/无恢复说明不多段） |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_tools`
 （→ `backend/engine/toolregistry`）、

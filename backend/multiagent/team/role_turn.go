@@ -78,3 +78,30 @@ func DefaultRoleTurnPrompt(roleName string) string {
 		"- 证据要落在仓库内可核对的事实上（引用用相对路径）；\n" +
 		"- 不要寒暄、不要复述提示词；结论 ≤800 字。\n</constraints>"
 }
+
+// WorkerWorkItemDiscipline 是 teammate 回合的**作业纪律**：一件活的收尾动作写在系统提示里，
+// 而不只写在 leader 的 SKILL 里（2026-10-15 审计 D6）。
+//
+// 为什么放在系统提示而不是 SKILL：SKILL 是**leader** 读的文档，teammate 的系统提示是它唯一
+// 必然读到的约束位。真实会话里的现象是 leader 为 4 件以上工作项手工补提交——"完成即提交"
+// 在执行面完全没约束。它是系统事实：每次 worker 回合都带上，已登记的员工提示词也盖不掉。
+const WorkerWorkItemDiscipline = `<work-item-discipline>
+- 你这次只做交给你的这一件事；改动只落在**你自己这件事的 worktree** 里，不碰主工作区，也不动别人的 worktree。
+- **收尾前必须提交**：把你的改动 git add + git commit 落成至少一次提交（提交信息写清这件事做了什么）。带着未提交改动结束 = 这件事交不出去，leader 得替你补提交并从主工作区再合一遍。
+- 做不完就如实说明卡在哪（缺什么信息 / 缺什么权限），不要伪造完成的结论。
+- 结束时给出：做了什么（含提交号）、证据在哪（相对路径）、还剩什么没做；结论 ≤800 字。
+</work-item-discipline>`
+
+// ComposeWorkerSystemPrompt 组装一个 worker 回合的系统提示：**角色提示词 + 作业纪律 +
+// （可选）中断恢复说明**，段间以空行分隔。
+//
+// 三段都是系统事实，顺序是判据的一部分：角色设定先把"你是谁"说清，作业纪律给出这一层
+// 不可绕过的收尾约束，恢复说明（只在这一轮存在）放在最后——它是"这件事是中断后续跑的"
+// 这一刻的事实，读完即消（见 `workunit.RecoveryNote`）。
+func ComposeWorkerSystemPrompt(rolePrompt, recoveryNote string) string {
+	prompt := rolePrompt + "\n\n" + WorkerWorkItemDiscipline
+	if recoveryNote != "" {
+		prompt = prompt + "\n\n" + recoveryNote
+	}
+	return prompt
+}
