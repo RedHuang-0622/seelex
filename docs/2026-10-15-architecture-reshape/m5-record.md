@@ -2152,8 +2152,8 @@ Plan 执行器删除后，`NodeScope` 只剩“Plan 节点作用域”的名字�
 借用的只是“现场身份 + 角色 + 工作区”。本片把它收成后台工作现场的通用形状。
 
 - **契约形状**：`contract/dto/scene_scope.go` 新增 `SceneScope{SceneID, Role,
-  BranchID, WorkspaceID, TaskID}` 与窄读面 `WorkScope{SceneID, Role,
-  WorkspaceID}`（`SceneScope.Work()`）；ctx 注入/读取函数改为
+  BranchID, WorkspaceID, TaskID}`；各读者按需只读自己的字段（路径门读
+  WorkspaceID、权限读 SceneID+Role、账号读 SceneID+BranchID+Role 等）。ctx 注入/读取函数改为
   `WithSceneScope` / `SceneScopeFromContext` / `SceneScopeFromContextOrEmpty`。
 - **删除别名**：`contract/dto/node_scope.go`、`internal/model/node_scope.go`、
   `backend/tool/node/scope.go` 全部删除；`rg NodeScope --glob '*.go'` = 0。

@@ -6,7 +6,8 @@ import "context"
 // 场景身份、角色、分支、工作区与可选 task 绑定。它由 AgentNode.Run 在子代理执行前
 // 注入 ctx；权限/可见性、账号选择、路径门、stream 路由与 telemetry 都从 ctx 读取。
 //
-// 只读面用 WorkScope() 取窄形状：多数读者只需要 SceneID/Role/WorkspaceID。
+// 读者按需只取自己的字段：路径门读 WorkspaceID、权限读 SceneID+Role、
+// 账号读 SceneID+BranchID+Role、stream 读 Role、telemetry 读 SceneID。
 type SceneScope struct {
 	SceneID     string
 	Role        AccountRole
@@ -15,19 +16,6 @@ type SceneScope struct {
 	// TaskID 是装配件模式绑定的现成 task（B6）：只作为绑定元数据，不进
 	// 任何 prompt 块——避免外部 task 内容污染子代理 prompt 格式与处理。
 	TaskID string
-}
-
-// WorkScope 是 SceneScope 的窄读面：只含路径门/权限/账号/stream/telemetry
-// 需要的三格，避免读者顺带依赖 task/branch 等执行细节。
-type WorkScope struct {
-	SceneID     string
-	Role        AccountRole
-	WorkspaceID string
-}
-
-// Work 返回窄读面。
-func (s SceneScope) Work() WorkScope {
-	return WorkScope{SceneID: s.SceneID, Role: s.Role, WorkspaceID: s.WorkspaceID}
 }
 
 type sceneScopeContextKey struct{}

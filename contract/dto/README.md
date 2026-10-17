@@ -25,7 +25,7 @@
 | `agentteam.go` | `RoleKind` / `OrderPolicy` / `TeamKind` 等 A2A 角色工厂枚举与 `TeamSpec` / `RoleSpec`。 |
 | `rolesession.go` | R2/R4 群聊角色会话纯 DTO（`Event` / `RoleDraftRow` / `RoleSnapshot` 的应用层形状）。 |
 | `permission.go` | 员工权限装配词汇：路由组名 + 位值（前端按组渲染「逐格装配」面板）。 |
-| `scene_scope.go` | `SceneScope`：后台工作现场/子代理的执行作用域（SceneID / 角色 / 分支 / 工作区 / TaskID），ctx 携带；`WorkScope()` 提供权限/路径/账号等读者需要的窄读面。原 Plan 节点 `NodeScope` 已退役。 |
+| `scene_scope.go` | `SceneScope`：后台工作现场/子代理的执行作用域（SceneID / 角色 / 分支 / 工作区 / TaskID），ctx 携带；各读者只取自己需要的字段。原 Plan 节点 `NodeScope` 已退役。 |
 | `scheduler.go` | `ScheduledTaskKind` / `PeriodUnit` 定时与周期任务契约。 |
 | `subagent.go` | 子代理树只读投影（状态、节点、紧凑上下文）。 |
 | `subagent_live.go` | `SubagentLiveEvent`：节点第一视角实时推送（stage / tool / assistant）；`SubagentLiveHistoryPage`：同一份回放窗口的**分页一页**（`scope_id/offset/limit/total/has_more/events`，窗口上限见 `seelebridge.RuntimeConfig.SubagentLiveWindow`）。 |
@@ -158,7 +158,6 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 
 ### scene_scope.go
 
-- `func (s SceneScope) Work() WorkScope` — 返回窄读面（SceneID / Role / WorkspaceID）。
 - `func WithSceneScope(ctx context.Context, scope SceneScope) context.Context` — 把现场作用域注入 ctx。
 - `func SceneScopeFromContext(ctx context.Context) (SceneScope, bool)` — 读取 ctx 中的现场作用域；无作用域时返回 (零值, false)。
 - `func SceneScopeFromContextOrEmpty(ctx context.Context) SceneScope` — 读取现场作用域；无作用域时返回空 SceneScope。
