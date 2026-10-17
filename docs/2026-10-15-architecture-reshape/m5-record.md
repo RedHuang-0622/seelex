@@ -1751,3 +1751,38 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/too
 派发/汇合/收口宿主动作、`runtime_teamwork_items.go` 的工作区动作、`workunit_*.go` 其余判据。
 `runtime_context.go` 组件工厂与 §38 表那批已判装配面（bundles、调度/MCP/插件/任务的转发、端口宿主面）
 按裁决保留。四项待裁决见 §37、§39、§42。
+
+
+## 47. P21 续片（2026-10-17 第十五轮：P21-32）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-32 | **员工回合三条判据** → `backend/multiagent/team/role_turn.go`（plan §2.7 明确列出 `runtime_role_turn.go`）：`WorkScope` + `WithWorkScope` / `WorkScopeFrom`（"这一轮是谁的活"的身份；三项全空 = 不是员工回合，主会话/角色会话缺一 = 归属不成立）、`ToolActivityID` + `ToolActivityLimit`（稳定标识：轮次 + 工具名 + 入参指纹，两帧同值供 upsert；600 rune 上限）、`DefaultRoleTurnPrompt`（未登记提示词时的最小角色框架）。装配层 `runtime_role_turn.go` 里相关符号改类型/函数值别名（调用点与用例零改动），`roleTurnSystemPrompt` 只剩"读已登记提示词、否则回退域包默认"，并去掉 `hash/crc32` 直依赖。域级 3 条新用例 | `cab273bf` |
+
+**装配层体积**：`runtime_role_turn.go` 700 → 649 行（执行面全部原样保留：开引擎/会话槽/权限分配/
+项目根绑定/回合闸门/ChatStream/活动发布/释放）。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/team   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+1. `runtime_teamwork.go`（877 行）：几个 handler 的**入参口径**（`team_dispatch` / `team_work` /
+   `team_join` / `team_milestone` / `team_close` 的请求形状与默认值）与派发/汇合/收口的宿主动作；
+2. `workunit_*.go`（≈1k 行）：除已归位的 `KindOf` / `RestoreUnits` / `ResumeNotes` 之外的判据
+   （三格端口适配器 `hostPorts` 按设计文档留在装配处）；
+3. `runtime_teamwork_items.go`（181 行）：工作区绑定/合并/释放的宿主动作（端口实现）；
+4. `runtime_context.go` 的组件工厂、`runtime_tools.go` 其余注册面——已判为装配面（§38 表）。
+
+**四项待裁决**：`middle/view/state → backend/engine/assemble` 越层边（§37）、11 条 README 路径漂移批（§37）、
+FNV 原语三处（§39——本轮 P21-30 只搬位置、没有擅并）、`TestBackgroundCompletionWhileSwitchingToC`
+根因定位（§42，需要失败时刻的 goroutine dump + 引擎工作历史快照）。
