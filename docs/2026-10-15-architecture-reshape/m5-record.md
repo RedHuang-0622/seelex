@@ -1687,3 +1687,34 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 `runtime_session_release.go`（三条拒绝判据 → `middle/switch`）、`workunit_*.go` 其余判据、
 `runtime_tools.go`（项目作用域词表）。**判定为装配面（不搬）** 的那批理由见 §38 表；
 四项待裁决见 §37、§39、§42。
+
+
+## 45. P21 续片（2026-10-17 第十三轮：P21-28 / P21-29）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-28 | **桥侧会话本体释放判据** → `middle/switch/bundle_release.go`（plan §2.4 的目标落点）：`ReleaseBundle` + `BundleReleaseDeps{ForkInFlight, AsyncPending, TakeBundle, DropResidue}` —— 三种拒绝情形（fork 在飞 / 有在途后台命令 / 活跃别名或不在册）与顺序（先问两份"还在忙吗"读数 → 再取走本体 → 最后清残格）、会话号归一、幂等。**TakeBundle 合成一格端口**是为了让"活跃别名检查 + 移出"保持原子。装配层只剩四格读数（含 `takeSessionBundle`，注册表锁内的检查与移出）| `5a2aeee8` |
+| P21-29 | **teammate 回合面三条纯判据** → `backend/multiagent/teamwork/worker_round.go`：`RoundsPerMember` + `JobRecordCeiling`（记录槽上限：规模换算、**只抬不降**、"不限制"按一名成员算）、`TurnLimit`（成员级 `max_turns` 优先，回退值由宿主传）、`RoundInput`（回合输入正文：`<milestone>` 只认里程碑、正文 trim、无正文如实说明）。装配层三处改同值/同身份别名 | `366e24f9` |
+
+**装配层体积（本轮两片）**：`runtime_session_release.go` 84 → 76 行；`runtime_teamwork.go` 920 → 877 行。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/team{,work}   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+`runtime_teamwork.go`（几个 handler 的入参口径与派发/汇合/收口的宿主动作、`workerRoleRoundSpec`、
+`RunWorker`、`bindWorkerProjectRoot`、`writeWorkerOutput`）、`runtime_teamwork_items.go`（工作区绑定/
+合并/释放的宿主动作、`workspaceRootFor`）、**`runtime_role_turn.go`（700 行，角色回合构造口径：员工主体、
+只读评审口径、插件集合装配、`FreshContext`；执行面留宿主）**、`runtime_plan.go`（分支账号与节点会话号
+派生）、`workunit_*.go` 其余判据、`runtime_tools.go`（项目作用域词表）、`runtime_context.go` 的组件工厂
+（已判为装配面）。**判定为装配面（不搬）** 的那批理由见 §38 表；四项待裁决见 §37、§39、§42。
