@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
@@ -187,6 +188,32 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: Limits,
 	})
 	service.components.sessions.BindView(service.components.view)
+	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
+	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
+	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
+		Store:    service.Deps.Workspace,
+		Sessions: service.Deps.Sessions,
+		Runtime:  service.Deps.Runtime,
+		Engine:   service.Deps.Engine,
+		View:     workspaceHost{service: service},
+		Prompt:   func() string { return service.promptStack.Render() },
+		PerSessionExecution: func() bool {
+			return service.perSessionExecution()
+		},
+		NewSessionID: func(prefix string) string {
+			return service.newGeneratedSessionID(prefix)
+		},
+		AttachSessionContext: func(workspaceID, sessionID string) error {
+			return service.attachSessionContextFor(workspaceID, sessionID)
+		},
+		RefreshWorkTable: func() {
+			service.refreshWorkTableFromSources()
+		},
+		WorkspaceIDForSession: func(sessionID string) string {
+			return service.components.sessions.LocateSession(sessionID).WorkspaceID
+		},
+		ChatRunningError: ErrChatRunning,
+	})
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，
@@ -316,7 +343,7 @@ func (service *Service) restoreInitialWorkspace() {
 	if service.Deps.Workspace == nil {
 		return
 	}
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	workspace, ok := service.Deps.Workspace.SessionWorkspace(service.Core.Snapshot.Session.ID)
 	if !ok {

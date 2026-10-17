@@ -50,7 +50,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	// 工作台投影：目标会话任务快照（只影响 view，不触碰执行态）。
 	service.Deps.Runtime.SwitchSessionTasks(sessionID, service.Deps.Runtime.TaskSnapshotFor(sessionID))
 	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 	// 需求变更（P1-1）：热切换读回目标会话的权限档位（含磁盘读，在锁外完成；
 	// 内存态落地在下面拿到会话单元之后）。
 	storedTier := service.readStoredPermissionTier(sessionID)

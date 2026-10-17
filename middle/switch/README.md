@@ -11,9 +11,12 @@
 - 本包（`switching`）：**会话展示元数据**的读写判据（`session_meta.go` 家族）与**草稿会话的身份判据**
   （`draft.go` 家族：草稿 SID 口径 + 草稿归属/物化闸门）；
 - 子域 [`history/`](history/README.md)：历史分页的**窗口装配判据**。
+- 子域 [`workspace/`](workspace/README.md)：**工作区用例**（创建/绑定/解绑、当前工作区
+  读面、工作区投影收集）；视图投影的 owner 仍是 `application/core`，本子域只产出
+  `Projection` 并经窄 `ViewPort` 写入。
 
 生命周期 / 切换 / 队列 / 驻留调度器家族（`session_{lifecycle,release,fork,ctx,pending_tail,queue_recover}`、
-`service_{scheduler,queue,release_window}`、`async_completion`、`service_interaction`、`workspace_usecase`、
+`service_{scheduler,queue,release_window}`、`async_completion`、`service_interaction`、
 顶层 `session/`）随 R6 续做搬入。
 
 ## 职责与非职责
@@ -73,6 +76,7 @@
 | `draft.go` | `DraftSessionName` / `DraftSessionIDPrefix` + `NewDraftSessionID`、`DraftTarget` 的 `Matches` / `InView`：草稿身份的两条判据 |
 | `draft_test.go` | 常量值钉住（持久化键口径）、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格真值表（含"视图切走但槽仍命中"的反例） |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
+| `workspace/` | 工作区用例：创建/绑定/解绑、当前工作区读面与投影收集（见其 README） |
 | `interaction.go` | 交互面词表与装配：`InteractionKind*` 四类 kind、`InteractionCancelOptionID`、`PlanRetryOption*` 与两条 `PlanRetryNotice*` / `PlanAbortNotice` 文案、`SessionInteractionID` / `AccountInteractionID`、`BuildSessionInteraction` / `BuildAccountInteraction`、`UnsupportedInteractionKind` |
 | `interaction_test.go` | 四类 kind 与取消选项的字面量口径、plan_retry 四个选项与两条提示文案、未识别 kind 的报错、会话/账号交互体的选项装配（含短 ID 惰性端口与 `tok:` 描述） |
 
@@ -121,6 +125,7 @@
 go test ./middle/switch/... -count=1
 go test ./application/core/ -run 'SessionMeta|Meta' -count=1   # 门面级：断言端口 + 转发
 go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实现
+go test ./middle/switch/workspace/ ./application/core/ -run 'Workspace|BindWorkspace' -count=1
 ```
 
 ## 文件与函数索引

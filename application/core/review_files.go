@@ -39,7 +39,7 @@ func (service *Service) ClearReviewRequest(sessionID string) {
 type serviceReviewHost struct{ service *Service }
 
 func (host serviceReviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error) {
-	return host.service.workspaceFilePort()
+	return host.service.components.workspace.FilePort()
 }
 
 // NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。

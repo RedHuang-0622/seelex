@@ -416,7 +416,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		}
 	}
 
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 	// 需求变更（P1-1）：冷加载读回目标会话的权限档位（含磁盘读，在锁外完成；
 	// 内存态落地在下面拿到会话单元之后）。
 	storedTier := service.readStoredPermissionTier(sessionID)

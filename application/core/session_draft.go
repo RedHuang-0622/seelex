@@ -278,7 +278,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if err != nil {
 		return err
 	}
-	workspaceProjection := service.collectWorkspaceProjection()
+	workspaceProjection := service.components.workspace.Projection()
 
 	service.ViewMu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位

@@ -6,6 +6,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
+	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
@@ -44,6 +45,9 @@ type serviceComponents struct {
 	// toolRecord 是工具记录台账的可变槽位（可选端口 + 计数开关，见 tool_record.go）。
 	// 与 projectBoard 同一生态位与同一套锁形状：装配期交接一次、此后每个工具完成读一份。
 	toolRecord *toolRecordPort
+	// workspace 是工作区用例的装配载体（middle/switch/workspace）：创建/绑定/
+	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
+	workspace *switchworkspace.UseCase
 }
 
 // toolRecordPort 是**计数开关 + 落盘错误**的可变槽位（读数本身按会话存在

@@ -86,7 +86,7 @@
 1. 冷恢复 / 热挂载（`resumeSession`）；
 2. 新建会话（`materializeDraftSession`，含冷启动草稿物化）——早分配 SID 就是最终键，
    全新键上 `Load` 只落到空记录（各通道 not-found 按 S19 口径静默初始化）；
-3. 切项目另起的独立会话（`workspace_usecase.go` 的 `startFreshSession`）。
+3. 切项目另起的独立会话（`middle/switch/workspace` 的 `bindInfo` 换项目分支）。
 
 漏一处，那个会话的**整段活跃期**都处于"未绑定"：`PushCompactionFrame` /
 `ReadbackCompactionSummary` 直接报 `会话上下文存储未绑定（压缩栈不可用）`
