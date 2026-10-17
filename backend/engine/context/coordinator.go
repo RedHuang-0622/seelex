@@ -250,8 +250,9 @@ const (
 const (
 	// CompactionFailureNoModelSummary：拿不到模型读后感（摘要器未装配 / 重放调用失败）。
 	CompactionFailureNoModelSummary = "no_model_summary"
-	// CompactionFailureIneffective：压缩落点够不到判据线（幂等/有效性校验命中），
-	// 折了也换不来余量。
+	// CompactionFailureIneffective：压缩落点够不到软线（幂等/有效性校验命中），
+	// 折了也换不来余量。**自 2026-10-17 起不再落失败痕**：这是判据前置的主动跳过
+	// （模型都没被叫到），只进瞬态进度；字面量保留给历史记录与回执兼容。
 	CompactionFailureIneffective = "ineffective_compact"
 )
 
@@ -534,10 +535,10 @@ type compactDecision struct {
 	Gates   []CompactionGateTiming
 	NoEpoch bool // 没有可压缩的执行纪元（state == nil 或 requestID 不匹配）
 	// Failure 报告这次压缩**没做成**的原因（空 = 没失败）：判据命中了，但压不下去。
-	// 两个取值见 CompactionFailureNoModelSummary / CompactionFailureIneffective，
-	// 与失败痕 Note、门禁 Detail、瞬态进度的 outcome 同源——调用方据此区分
-	// 「判据没命中」（CompactBelowThreshold）与「判据命中了、但这次压不成」
-	// （CompactFailed）：两种终局给用户的下一步完全不同。
+	// 目前只有 CompactionFailureNoModelSummary（真的尝试过、拿不到读后感）；无效
+	// 压缩是判据前置的主动跳过，不产生失败痕。它与失败痕 Note、门禁 Detail、瞬态
+	// 进度的 outcome 同源——调用方据此区分「判据没命中」（CompactBelowThreshold）
+	// 与「判据命中了、但这次压不成」（CompactFailed）：两种终局给用户的下一步完全不同。
 	Failure string
 }
 
@@ -570,6 +571,19 @@ func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionS
 		return model.CompactionOriginExplicitAfterTurn
 	}
 	return model.CompactionOriginExplicit
+}
+
+// compactionSoftLine 返回自动压缩的**有效性判据线**：limits.context_soft_percent ×
+// 预算。压缩落点（保留窗口 + 固定开销）必须低于它，这一轮才算换来了可用的余量。
+//
+// 这不是触发线（自动触发只看硬线）；它复用 seelectx.ContextWindowPolicy 这一份
+// 软线实现，避免在装配层再写一遍比例运算。budget.SoftThreshold 与之不同：
+// 2026-09-30 起后者被定义为「报表用的硬线同值」，只服务展示。
+func compactionSoftLine(budget task_context.ContextBudget) int {
+	if budget.Window <= 0 {
+		return budget.HardThreshold
+	}
+	return seelexctx.NewContextWindowPolicy(budget.Window, budget.OutputReserve, limit.Get()).SoftThreshold()
 }
 
 func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error) {
@@ -665,6 +679,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 哪」，判据要拿它做下面的**幂等/有效性校验**。纯算术 + 一次配置读取，提前
 	// 计算不改变任何既有语义（下方压缩分支直接复用这一份，不再重算第二遍）。
 	retain := retainWindowDecision(windowConfig, allContextTokens, budget, limit.Get().ContextRetainFloorPercent)
+	// 有效压缩的落点线：压缩后的整条请求必须回到 limits.context_soft_percent 以下。
+	// 注意 budget.SoftThreshold 自 2026-09-30 起与硬线同值（报表口径），不能拿来
+	// 做这条校验——否则「落点仍贴着硬线」会被误判成有余量，下一轮以同一个数字
+	// 再越线（2026-09-29 现场：3.5 分钟落 3 条压缩记录）。
+	softLine := compactionSoftLine(budget)
 	// 固定开销 = 整条请求估算 − transcript 一侧估算：system 稳定层 + plan 上下文 +
 	// 工具 + 当轮输入。这部分**不参与压缩**，因此它独立于保留窗口决策存在。
 	requestOverhead := rawTokens - allContextTokens
@@ -693,11 +712,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 帧而不是 transcript，因此不受这条上限约束）。判据事实照旧进判据关的 Detail
 	// 与终局 Detail，读进度的人能自答"为什么这次没压"。
 	//
+	// 判据线是**软线**（limits.context_soft_percent），不是 budget.SoftThreshold：
+	// 后者 2026-09-30 起被定义成「报表用的硬线同值」，拿它比较会让这条校验
+	// 形同虚设（落点贴着硬线也判成有余量）。
+	//
 	// 显式要求（/compact、compact_context）、硬线与维护入口**不受此校验约束**：
 	// 它们分别是"用户/模型现在就要求压"、"必须压"与"这次调用就是要折出 checkpoint"
 	// 的语义，跳过即违约。
 	ineffectiveCompact := fold && !options.forceCompact && !options.maintenanceCompact && !hardCompact &&
-		retain.Retained+requestOverhead >= budget.HardThreshold
+		retain.Retained+requestOverhead >= softLine
 	// ── 没有模型读后感就不折 ──────────────────────────────────────────────
 	//
 	// 一帧的价值分配是「元数据 + 模型读后感」（见 compaction_frame.go 的文件头）：
@@ -752,7 +775,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
 		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
 		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d overhead=%d ineffective=%t %s",
-			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveCompact, retain.Terse()))
+			rawTokens, softLine, budget.HardThreshold, requestOverhead, ineffectiveCompact, retain.Terse()))
 	}
 
 	// ── 读过再折：把「这次有没有模型读后感」从结构判断升级成实测读数 ────────
@@ -830,14 +853,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	//   ineffective_compact —— 压缩落点够不到判据线（幂等/有效性校验），折了也白折。
 	//
 	// 共同后果只有一句话：**这次什么都没动**。上下文原样 append、compact stack top
-	// 不动、上下文版本不推进；本轮只留一条失败痕（见下方 A 段的失败记录）。
+	// 不动、上下文版本不推进。no_model_summary 留一条失败痕（见下方 A 段的失败
+	// 记录）；无效压缩是判据前置的主动跳过，只进瞬态进度，不写压缩列表。
 	compactionFailure := ""
-	if fold && !compacting {
-		if noSummary {
-			compactionFailure = CompactionFailureNoModelSummary
-		} else {
-			compactionFailure = CompactionFailureIneffective
-		}
+	// 只有「真的尝试过、但拿不到模型读后感」才算失败并留痕。无效压缩是**判据
+	// 前置的主动跳过**（模型都没被叫到），它只进瞬态进度；把它写成失败痕会让
+	// 每一次达峰都往压缩列表里追加一条记录，正是「无余量压缩不幂等」的成因。
+	if fold && !compacting && noSummary {
+		compactionFailure = CompactionFailureNoModelSummary
 	}
 	target := budget.Budget
 	switch {
@@ -895,8 +918,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 改写请求前缀、把 provider 的整段前缀缓存作废。此前只有 newCheckpoint 与
 	// compacting 带了 noSummary 闸，这条路径漏了 —— "没有读后感"的宿主仍会被自主压缩
 	// 推出一帧并落下记录（用户口径 2026-10-01 要求不折、不推栈顶、不落记录）。
+	// 自主压缩是兜底，只有两种现场值得把整段 transcript 换成 checkpoint：
+	//   ① 装配结果已经装不进全量预算（不发就得拒绝发送）；
+	//   ② 这一轮真的折过有界窗口（compacting），窗口形态仍贴着硬线。
+	//
+	// 若本轮因为「无余量」被跳过、而请求本身仍在预算内，触发它的只是固定开销
+	// （system/plan/工具）贴着硬线：折掉少量 transcript 既换不来余量、又丢掉
+	// 完整前缀——不是兜底，是误伤（运行中/冷恢复只剩最后一轮的现场）。
 	autonomous := false
-	if !noSummary && estimated > budget.HardThreshold {
+	if !noSummary && (estimated > budget.Budget || (compacting && estimated > budget.HardThreshold)) {
 		if compressed, compressedTokens, ok := c.compressExecutionHistory(systemPrompt, systems, summary, planMessage, currentInput, tools, budget); ok && compressedTokens < estimated {
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
@@ -1067,7 +1097,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				// 幂等/有效性校验命中：这次压缩的落点仍在软线之上（保留区 + 固定开销
 				// ≥ 软线），折了也只是把同一件事再做一遍。跳过它，等硬线/自主压缩。
 				progress.skip(fmt.Sprintf("skipped=ineffective_compact landing=%d soft=%d overhead=%d retained=%d all=%d",
-					retain.Retained+requestOverhead, budget.SoftThreshold,
+					retain.Retained+requestOverhead, softLine,
 					requestOverhead, retain.Retained, allContextTokens))
 			} else {
 				// 同一个 progress 纪元内已压过、且装配后估算未越硬阈值（走进来的
