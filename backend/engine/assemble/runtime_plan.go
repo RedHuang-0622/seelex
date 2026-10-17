@@ -226,19 +226,37 @@ func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *wor
 func (r *Runtime) forkDeps() fork.Deps {
 	return fork.Deps{
 		CurrentPlanPolicy:        r.currentPlanPolicy,
-		NodeFactory:              r.nodeFactory,
+		RunSubagent:              r.runForkSubagent,
 		TaskResolveByKeyFor:      r.ResolveTaskByKeyFor,
 		TaskAddFor:               r.TaskAddFor,
 		TaskSetStatusFor:         r.TaskSetStatusFor,
 		TaskAttachParticipant:    r.TaskAttachParticipant,
 		SubagentTreeRegisterFork: r.subagentTree.RegisterFork,
 		SubagentTreeSummaryFor:   r.subagentTree.SummaryFor,
-		RunPlan:                  r.planExecutor.RunPlan,
 		ForkTimeoutSec:           r.limits.ForkTimeoutSec,
 		PlanNodeMaxLoops:         r.limits.PlanNodeMaxLoops,
 		LoopLimitCeiling:         r.limits.InputLoopLimit,
 		Jobs:                     r.subagentJobs(),
 	}
+}
+
+// runForkSubagent 直接执行一条 fork 子代理（不经过 Seele Plan DAG）。
+//
+// 这是 plan_* 退场的前置：fork 只需要"按一份 spec 起一个子代理会话并收尾"，
+// 不需要 DAG/依赖/屏障。执行体仍是同一个 AgentNode（worktree、NodeScope、
+// prompt blocks、merge-back 全在原实现里），只是由 fork 直接调用而不是
+// planExecutor.RunPlan 驱动。
+func (r *Runtime) runForkSubagent(ctx context.Context, id, goal, taskID string, maxLoops int) (string, error) {
+	spec := codec.NodeSpec[plan.SeelexNodeInput]{
+		ID:   id,
+		Kind: "agent",
+		Input: plan.SeelexNodeInput{
+			ID: id, Input: goal, TaskID: taskID,
+			Budget: &plan.NodeBudgetInput{MaxLoops: maxLoops},
+		},
+	}
+	agentNode := seenode.NewAgentNode(spec, r.nodeDeps())
+	return agentNode.Run(ctx, nil)
 }
 
 // subagentJobsAdapter 把**作业域**暴露给 fork 域的 SubagentJobs 端口。

@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
@@ -18,15 +17,16 @@ import (
 
 // Deps 是 fork_subagents 工具执行所需的运行时回调集合，由根包（Runtime）注入。
 type Deps struct {
-	CurrentPlanPolicy        func() plan.PlanPolicy
-	NodeFactory              func() codec.NodeFactory[plan.SeelexNodeInput]
+	CurrentPlanPolicy func() dto.PlanPolicy
+	// RunSubagent 直接执行一条子代理（不经过 Plan DAG）：入参是 spec 身份与目标，
+	// 返回该子代理的产出。worktree/NodeScope/merge-back 仍在执行体里。
+	RunSubagent              func(ctx context.Context, id, goal, taskID string, maxLoops int) (string, error)
 	TaskResolveByKeyFor      func(sessionID, key string) (task.TaskRecord, bool, error)
 	TaskAddFor               func(sessionID string, spec task.TaskSpec) (task.TaskRecord, bool, error)
 	TaskSetStatusFor         func(sessionID, id string, status task.TaskStatus, evidence string) (task.TaskRecord, error)
 	TaskAttachParticipant    func(id, participant string) (task.TaskRecord, error)
 	SubagentTreeRegisterFork func(mainSessionID, parentID string, specs []SubagentSpec)
 	SubagentTreeSummaryFor   func(specID string) string
-	RunPlan                  func(ctx context.Context, loaded *plan.LoadedPlanDoc, withNodeOutputs bool) (string, error)
 	ForkTimeoutSec           int
 	PlanNodeMaxLoops         int
 	// LoopLimitCeiling 是**进程级循环次数天花板**（limits.input_loop_limit，默认
@@ -108,10 +108,6 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 		return t.dispatchReusedJobs(ctx, input, taskBindings, summaries)
 	}
 
-	loaded, err := t.buildForkPlan(input, taskBindings)
-	if err != nil {
-		return "", err
-	}
 	// 子代理树（内存态，不落盘）：记录 parent/child 链——父节点是发起
 	// fork 的子代理（NodeScope 携带节点 ID；嵌套 fork）或主代理（main 合成根）。
 	// 归属主会话按执行 ctx 的会话键标注（嵌套 fork 由树从父节点继承）：工作
@@ -137,7 +133,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	// 为什么必须作业化（而不是在阻塞调用里同步跑）：阻塞调用期间模型没有下一次
 	// 调用，"主动查看/提前终止子代理"在阻塞形态下根本没有入口——不是缺工具，是缺
 	// 时机。作业化之后 observe / kill / done 才有意义（设计文档 §B.3）。
-	return t.dispatchJobs(ctx, loaded, input, forkTimeout)
+	return t.dispatchJobs(ctx, input, taskBindings, forkTimeout)
 }
 
 // dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回
@@ -151,7 +147,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 //     `bg_manage(op=kill)` 与会话销毁（它们走登记表里的取消口）；
 //   - 收尾必须落到 Complete（恰好一次）：跑完、失败、被取消三条路都不能让句柄停在
 //     running——否则那一行会永远显示在打点表上。
-func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, input Input, timeout time.Duration) (string, error) {
+func (t *Tool) dispatchJobs(ctx context.Context, input Input, taskBindings map[string]string, timeout time.Duration) (string, error) {
 	if t.deps.Jobs == nil {
 		return "", fmt.Errorf("fork_subagents: 子代理作业面不可用（未装配或 limits.async_exec.enabled=false）；" +
 			"子代理派发只走作业面，不静默退化成阻塞调用")
@@ -183,39 +179,43 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 
 	go func() {
 		defer cancel()
-		output, runErr := t.deps.RunPlan(runCtx, loaded, false)
-		batchState := dto.AsyncStateDone
-		switch {
-		case runErr != nil && runCtx.Err() != nil:
-			batchState = dto.AsyncStateKilled
-		case runErr != nil:
-			batchState = dto.AsyncStateFailed
-		}
-		nodeStates := batchNodeStates(output)
+		var wg sync.WaitGroup
 		for _, item := range jobs {
-			// 每条作业的终态按**它自己的节点**判定（best-effort 批次里一个兄弟失败、
-			// 其余成功时，把整批写成一个状态会让失败行看起来是 done）。
-			state := batchState
-			if state == dto.AsyncStateDone && len(nodeStates) > 0 {
-				switch nodeStates[item.spec.ID] {
-				case "completed":
-				case "aborted":
+			wg.Add(1)
+			go func(item dispatched) {
+				defer wg.Done()
+				loops := t.deps.PlanNodeMaxLoops
+				if item.spec.MaxLoops > 0 {
+					loops = item.spec.MaxLoops
+				}
+				output, runErr := t.deps.RunSubagent(runCtx, item.spec.ID, item.spec.Goal, taskBindings[item.spec.ID], loops)
+				state := dto.AsyncStateDone
+				switch {
+				case runErr != nil && runCtx.Err() != nil:
 					state = dto.AsyncStateKilled
-				default:
+				case runErr != nil:
 					state = dto.AsyncStateFailed
 				}
-			}
-			// 每个子代理的正文 = 它自己的产出（子代理树里保存的摘要）；取不到时退回
-			// 整批结果——宁可给整批，也不要给一行空正文。
-			body := strings.TrimSpace(t.deps.SubagentTreeSummaryFor(item.spec.ID))
-			if body == "" {
-				body = strings.TrimSpace(output)
-			}
-			if body != "" {
-				t.deps.Jobs.Note(item.handle, body+"\n")
-			}
-			t.deps.Jobs.Complete(item.handle, state)
+				body := strings.TrimSpace(output)
+				if body == "" {
+					body = strings.TrimSpace(t.deps.SubagentTreeSummaryFor(item.spec.ID))
+				}
+				if runErr != nil {
+					reason := strings.TrimSpace(runErr.Error())
+					if reason != "" && !strings.Contains(body, reason) {
+						if body != "" {
+							body += "\n"
+						}
+						body += reason
+					}
+				}
+				if body != "" {
+					t.deps.Jobs.Note(item.handle, body+"\n")
+				}
+				t.deps.Jobs.Complete(item.handle, state)
+			}(item)
 		}
+		wg.Wait()
 	}()
 
 	receipts := make([]map[string]string, 0, len(jobs))
@@ -292,40 +292,6 @@ func acceptanceReceipt(receipts []map[string]string, hint string) (string, error
 	return string(encoded), nil
 }
 
-// batchNodeStates 从 plan_run 的结果 JSON 里取出每个节点的终态（node_id → status）。
-//
-// 为什么要它：作业化之后，一条子代理作业的终态必须能按**它自己的节点**判定。
-// best-effort 批次（fork 的默认策略）里一个兄弟失败、其余照样跑完——把整批写成
-// 一个状态，失败那一行就会显示成 done，而"终态只由执行体判定"这条纪律读到的正是
-// 这份事实。结果 JSON 是 plan_run 的自己产物（`{"nodes":[{"node_id","status"},…]}`）。
-//
-// 解析失败（形状变了 / 结果为空）返回 nil：调用方退回整批状态，不猜。
-func batchNodeStates(output string) map[string]string {
-	trimmed := strings.TrimSpace(output)
-	if !strings.HasPrefix(trimmed, "{") {
-		return nil
-	}
-	var payload struct {
-		Nodes []struct {
-			NodeID string `json:"node_id"`
-			Status string `json:"status"`
-		} `json:"nodes"`
-	}
-	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-		return nil
-	}
-	if len(payload.Nodes) == 0 {
-		return nil
-	}
-	states := make(map[string]string, len(payload.Nodes))
-	for _, node := range payload.Nodes {
-		if id := strings.TrimSpace(node.NodeID); id != "" {
-			states[id] = strings.ToLower(strings.TrimSpace(node.Status))
-		}
-	}
-	return states
-}
-
 // reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的
 // 既有 task 已完成，且子代理树仍保留该节点的完整输出。全部命中才返回
 // （摘要表, true）；任一缺失返回 (nil, false)。
@@ -383,69 +349,4 @@ func (t *Tool) bindSubagentTask(sessionID string, spec SubagentSpec) string {
 	}
 	_, _ = t.deps.TaskSetStatusFor(sessionID, created.ID, task.TaskQueued, "fork scheduled")
 	return created.ID
-}
-
-// buildForkPlan 程序化构造 fork DAG：
-//
-//	start(auto) ──→ s1(agent) ──┐
-//	    └──────→ s2(agent) ──┼──→ summary(summary, 拼接全部输出)
-//	    └──────→ sN(agent) ──┘
-func (t *Tool) buildForkPlan(input Input, taskBindings map[string]string) (*plan.LoadedPlanDoc, error) {
-	nodeCount := len(input.Subagents) + 2 // start + subagents + summary
-	policy := t.deps.CurrentPlanPolicy()
-	maxFork := input.MaxConcurrency
-	if maxFork <= 0 {
-		maxFork = plan.PolicyConcurrency(policy, nodeCount)
-	}
-	document := codec.Document[plan.SeelexNodeInput]{
-		Version: codec.Version,
-		Entry:   "start",
-		Nodes: []codec.NodeSpec[plan.SeelexNodeInput]{
-			{ID: "start", Kind: "auto", Input: plan.SeelexNodeInput{ID: "start", Input: "fork start", Kind: "auto"}},
-		},
-	}
-	for _, spec := range input.Subagents {
-		// 子代理节点循环预算 = **这一条自己声明的 max_loops**，否则本批默认
-		// PlanNodeMaxLoops（配置 plan_node_max_loops，默认 384）。**刻意不读
-		// effort 档位的 PlanPolicy.MaxNodeLoops**：档位管的是主代理自己的循环
-		// 次数与思考强度，一个工作单元跑多少轮只由它自己（或配置）决定——
-		// 否则"切一次 reasoning effort，子代理的次数跟着变"（2026-10-08 口径）。
-		loops := t.deps.PlanNodeMaxLoops
-		if spec.MaxLoops > 0 {
-			loops = spec.MaxLoops
-		}
-		document.Nodes = append(document.Nodes, codec.NodeSpec[plan.SeelexNodeInput]{
-			ID: spec.ID, Kind: "agent",
-			Input: plan.SeelexNodeInput{
-				ID: spec.ID, Input: spec.Goal, Kind: "agent",
-				Budget: &plan.NodeBudgetInput{MaxLoops: loops},
-				// B6：装配现成 task_id（无内容，不污染 prompt）。
-				TaskID: taskBindings[spec.ID],
-			},
-		})
-	}
-	document.Nodes = append(document.Nodes, codec.NodeSpec[plan.SeelexNodeInput]{
-		ID: "summary", Kind: "summary",
-		Input: plan.SeelexNodeInput{ID: "summary", Input: "summarize all subagent outputs", Kind: "summary"},
-	})
-	// 边：start → 每个子代理；每个子代理 → summary。
-	document.Edges = append(document.Edges, codec.EdgeSpec{From: "start", To: "summary"})
-	for _, spec := range input.Subagents {
-		document.Edges = append(document.Edges,
-			codec.EdgeSpec{From: "start", To: spec.ID},
-			codec.EdgeSpec{From: spec.ID, To: "summary"},
-		)
-	}
-	planDoc, err := codec.Render(document, t.deps.NodeFactory())
-	if err != nil {
-		return nil, fmt.Errorf("fork_subagents: build DAG: %w", err)
-	}
-	return &plan.LoadedPlanDoc{
-		Canonical:   PlanCanonical(input),
-		Entry:       "start",
-		NodeCount:   nodeCount,
-		EdgeCount:   len(document.Edges),
-		MaxForkConc: maxFork,
-		Plan:        planDoc,
-	}, nil
 }

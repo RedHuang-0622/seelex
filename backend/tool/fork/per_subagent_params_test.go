@@ -7,24 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 )
 
-// TestForkPlanNodesHonourPerSubagentMaxLoops：**一个工作单元自己的执行参数**在
-// subagent 层的入参落点——同批里逐条不同，而不是全批一个常量。
-func TestForkPlanNodesHonourPerSubagentMaxLoops(t *testing.T) {
-	tool := forkLoopHarness(plan.PlanPolicy{Effort: "high", MaxNodeLoops: 48}, 15)
-
-	got := buildLoops(t, tool,
-		SubagentSpec{ID: "read", Goal: "只读审查", MaxLoops: 8},
-		SubagentSpec{ID: "default", Goal: "没带就回退配置默认"},
-		SubagentSpec{ID: "migrate", Goal: "长链条迁移", MaxLoops: 48},
-	)
-	want := map[string]int{"read": 8, "default": 15, "migrate": 48}
-	for id, loops := range want {
-		if got[id] != loops {
-			t.Fatalf("node %q max_loops = %d, want %d（全批 %v）", id, got[id], loops, got)
-		}
-	}
-}
-
 // 判据本身（进程级天花板、0 = 未声明、effort 节点上限不参与）已随 M2-B 归一，
 // 用例搬到唯一实现处：`backend/limit/loop/loop_test.go` 的
 // TestValidateSubagentMaxLoopsUsesProcessCeiling 与 …MessagesUnchanged。

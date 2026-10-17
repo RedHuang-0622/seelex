@@ -283,11 +283,12 @@ sequenceDiagram
   `store.TeamworkPlan` + `TeamworkBoardView`（`middle/view/board`），与 Seele
   workplan 的 `PlanState` / `plan_load` / `plan_run` 没有调用关系。因此"teamwork
   自己的方法"已经存在，不需要再造一层解耦。
-- **fork_subagents 仍依赖 plan 执行器**：`runtime_plan.go` 的 `fork.Deps` 把
-  `RunPlan: r.planExecutor.RunPlan` 与 `NodeFactory: r.nodeFactory` 注入 fork；
-  子代理当前是经 Plan DAG 节点执行的。**这是删除 `plan_*` 的真正前置**——必须先给
-  fork 一条不经过 Plan 执行器的执行路径（直接按 `SubagentForkSpec` 起子代理会话 +
-  作业回收），否则 plan 一删 fork 就断。
+- **fork 与 plan 已解耦（2026-10-17）**：`fork.Deps` 的 `RunPlan`/`NodeFactory`
+  已换成 `RunSubagent`；`Runtime.runForkSubagent` 直接构造一个 AgentNode 执行
+  单条子代理（worktree/NodeScope/prompt blocks/merge-back 全在 AgentNode 里），
+  不再经过 Plan DAG。`plan_*` 剩下的只是用例面：16 个测试文件仍在钉工具入口/
+  节点/合并链，删完这些用例就可以移除 plan 注册并删 `backend/tool/plan`、
+  `backend/tool/node`。
 - **worktree 生命周期已在 workunit**：`workunit.Host`（`lifecycle.go`）拥有
   Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是现场端口
   （`SceneFace`）的 git 适配器。plan 节点专用的 `WorktreeManager.Finish`/审批/

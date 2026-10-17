@@ -34,10 +34,11 @@
 | 面 | 事实 | 处置 |
 |---|---|---|
 | teamwork 看板/状态 | 读自己的 `store.TeamworkPlan` + `TeamworkBoardView`（`middle/view/board`），不读 Seele `PlanState`，也不调 `plan_load/run` | 已有自己的方法，无需再造解耦层 |
-| fork_subagents | `runtime_plan.go` 的 `fork.Deps` 注入 `RunPlan: r.planExecutor.RunPlan` 与 `NodeFactory`；子代理经 Plan DAG 节点执行 | **删除 plan_* 的前置**：先给 fork 一条直接的子代理执行路径（按 `SubagentForkSpec` 建会话 + 作业回收） |
+| fork_subagents | 已解耦：`fork.Deps` 的 `RunPlan`/`NodeFactory` 换成 `RunSubagent`；`Runtime.runForkSubagent` 直接构造 AgentNode 执行单条子代理，不经过 Plan DAG | plan_* 只剩用例面待删（16 个测试文件） |
 | worktree 生命周期 | `workunit.Host` 已拥有 Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是 `SceneFace` 的 git 适配器 | plan 专用的 `Finish`/审批/dirty 判定随 plan 删除；workunit 需要的建/合并/认领/清理保留 |
 
-因此本轮**没有**删除 `plan_*`（删了 fork 会断）；在 fork 解耦完成后再删，顺序见
+因此本轮**没有**删除 `plan_*` 工具注册（fork 已解耦，但用例面还钉着工具入口）；
+下一步删/改写 16 个 plan 相关测试后即可移除注册并删包，顺序见
 [handoff-next-session.md](handoff-next-session.md) §8.1。
 
 ---

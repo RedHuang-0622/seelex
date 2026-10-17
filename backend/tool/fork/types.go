@@ -2,7 +2,6 @@ package fork
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -79,10 +78,4 @@ type SubagentJobs interface {
 	Add(spec SubagentJobSpec, cancel context.CancelFunc) (string, error)
 	Note(handle, text string)
 	Complete(handle string, state dto.AsyncState)
-}
-
-// PlanCanonical 生成 fork DAG 的规范 JSON（审计/展示；非模型输入）。
-func PlanCanonical(input Input) string {
-	encoded, _ := json.Marshal(input)
-	return string(encoded)
 }
