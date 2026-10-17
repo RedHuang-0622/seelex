@@ -474,9 +474,15 @@ func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID stri
 	service.components.tasks.FailTaskLocked(requestID, "The task stopped before a verified completion could be delivered.")
 }
 
-const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n" +
-	"The execution budget is exhausted. Do not call investigation, execution, or verification tools again. " +
-	"Use task_complete if the evidence supports delivery, or task_failed if it does not; then provide the user-facing result from the evidence already collected."
+// reactBudgetFinalizationInput 是预算耗尽后的**+1 次调用**输入（用户裁决 P2：
+// 这一次只做总结，不再调查/执行/验证）。前缀来自契约层唯一一份标记——判定侧
+// （backend/engine/context）用同一个常量把这条内部行从模型上下文里过滤掉。
+const reactBudgetFinalizationInput = contract.ReactBudgetFinalizationMarker + "\n" +
+	"The execution budget is exhausted. Do not call any tools again. " +
+	"In one final text response, summarize what was actually completed within the budget, " +
+	"what remains unfinished, and the evidence collected for both. " +
+	"If the task is complete, state the delivered result; if not, state the verified gap. " +
+	"Do not claim work that was not done."
 
 // finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
 // 此之前已停止；本回合让用户收到结果，而非裸预算错误。

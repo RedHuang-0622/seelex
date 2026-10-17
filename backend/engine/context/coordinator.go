@@ -39,7 +39,7 @@ const (
 	// （context_runtime 不反向依赖 core 根包，字符串字面量在此保留）。
 	contextRecoveryPrefix         = "<!-- seelex:context-recovery:v1 -->"
 	providerRecoveryPrefix        = "<!-- seelex:provider-recovery:v1 -->"
-	reactBudgetFinalizationPrefix = "<!-- seelex:react-budget-finalize:v1 -->"
+	reactBudgetFinalizationPrefix = contract.ReactBudgetFinalizationMarker
 )
 
 // IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only

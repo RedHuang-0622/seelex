@@ -56,6 +56,12 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
 		t.Fatal(err)
 	}
+	engine.mu.Lock()
+	chatCalls := len(engine.chatInputs)
+	engine.mu.Unlock()
+	if chatCalls != 1 {
+		t.Fatalf("预算收尾必须是一次且仅一次调用，实际 %d", chatCalls)
+	}
 	for _, message := range engine.History() {
 		if message.Content == reactBudgetFinalizationInput {
 			t.Fatal("internal budget-finalization input leaked into history")
@@ -67,6 +73,24 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	for _, message := range prepared {
 		if strings.Contains(message.Content, "oversized-result") {
 			t.Fatal("reserved final delivery turn received raw oversized tool output")
+		}
+	}
+}
+
+// TestReActBudgetFinalizationPromptSummarizesBudgetWork 钉住用户裁决的 P2 语义：
+// 预算耗尽后的 +1 次调用只做"总结预算内已完成的工作/未完成的部分/证据"，不再调工具。
+func TestReActBudgetFinalizationPromptSummarizesBudgetWork(t *testing.T) {
+	if !strings.HasPrefix(reactBudgetFinalizationInput, contract.ReactBudgetFinalizationMarker) {
+		t.Fatal("收尾输入必须带契约层的唯一标记（判定侧靠它过滤）")
+	}
+	for _, want := range []string{
+		"Do not call any tools again",
+		"summarize what was actually completed within the budget",
+		"what remains unfinished",
+		"Do not claim work that was not done",
+	} {
+		if !strings.Contains(reactBudgetFinalizationInput, want) {
+			t.Fatalf("收尾提示缺少语义 %q：%s", want, reactBudgetFinalizationInput)
 		}
 	}
 }

@@ -138,3 +138,15 @@ func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T) {
 		t.Fatal("active-skill event is a settled append-only turn, not a dynamic tail message")
 	}
 }
+
+// TestBudgetFinalizationMarkerIsDynamicTail：预算收尾输入是每轮重建的控制行，
+// 必须被动态尾部判据认出来（前缀与写入侧共用 contract 常量，写进用例防止
+// 两边各写一份字面量后漂移）。
+func TestBudgetFinalizationMarkerIsDynamicTail(t *testing.T) {
+	message := contract.EngineMessage{
+		Role: "user", Content: contract.ReactBudgetFinalizationMarker + "\nsummarize the budget", ContentSet: true,
+	}
+	if !isDynamicTailMessage(message) {
+		t.Fatal("budget-finalization input must be a dynamic tail message")
+	}
+}
