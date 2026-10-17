@@ -129,27 +129,22 @@ func (runtime *guiChainRuntime) SetPermissionTierFor(sessionID, tier string) err
 	runtime.SetFullAccessFor(sessionID, normalized == dto.PermissionTierFull)
 	return nil
 }
-func (*guiChainRuntime) DrainSubagentContexts() []string         { return nil }
-func (*guiChainRuntime) SetPlanPolicy(dto.PlanPolicy)            {}
-func (*guiChainRuntime) SetPlanPolicyFor(string, dto.PlanPolicy) {}
-func (*guiChainRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
-	return dto.PlanPreflight{}, nil
-}
-func (*guiChainRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.ReplanMetrics{} }
-func (*guiChainRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
-func (*guiChainRuntime) BindProjectRoot(string) error                { return nil }
-func (*guiChainRuntime) UnbindProjectRoot()                          {}
-func (*guiChainRuntime) BindProjectRootFor(string, string) error     { return nil }
-func (*guiChainRuntime) UnbindProjectRootFor(string)                 {}
-func (*guiChainRuntime) SetCurrentTaskBatch(string, string)          {}
-func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
-func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
-func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
-func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
-func (*guiChainRuntime) ReleaseSessionAsync(string) int              { return 0 }
-func (*guiChainRuntime) AsyncPendingFor(string) int                  { return 0 }
-func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord     { return nil }
-func (*guiChainRuntime) AsyncRunEvents() <-chan struct{}             { return nil }
+func (*guiChainRuntime) DrainSubagentContexts() []string                 { return nil }
+func (*guiChainRuntime) SetSubagentPolicy(dto.SubagentPolicy)            {}
+func (*guiChainRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy) {}
+func (*guiChainRuntime) BindProjectRoot(string) error                    { return nil }
+func (*guiChainRuntime) UnbindProjectRoot()                              {}
+func (*guiChainRuntime) BindProjectRootFor(string, string) error         { return nil }
+func (*guiChainRuntime) UnbindProjectRootFor(string)                     {}
+func (*guiChainRuntime) SetCurrentTaskBatch(string, string)              {}
+func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                    { return nil }
+func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error     { return nil }
+func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord                  { return nil }
+func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord         { return nil }
+func (*guiChainRuntime) ReleaseSessionAsync(string) int                  { return 0 }
+func (*guiChainRuntime) AsyncPendingFor(string) int                      { return 0 }
+func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord         { return nil }
+func (*guiChainRuntime) AsyncRunEvents() <-chan struct{}                 { return nil }
 func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -173,9 +168,6 @@ func (*guiChainRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, e
 }
 func (*guiChainRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
 func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
-func (*guiChainRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
-	return nil
-}
 func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
 	return dto.ServedRoute{}, false
 }

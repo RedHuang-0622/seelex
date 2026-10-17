@@ -45,10 +45,10 @@ func (c *worktreeLeftoverCompleter) Complete(ctx context.Context, _ []types.Mess
 	return types.Message{Role: "assistant", Content: &reply}, nil
 }
 
-// TestPlanNodeUncommittedWorktreeKeepsResult 红灯复现：子代理 Chat 成功但
-// worktree 有未提交改动时，plan_run 不得整体失败，节点结论必须仍然交付，
+// TestSubagentUncommittedWorktreeKeepsResult 红灯复现：子代理 Chat 成功但
+// worktree 有未提交改动时，派发不得整体失败，节点结论必须仍然交付，
 // 且未提交现场必须保留并可被前端查询。
-func TestPlanNodeUncommittedWorktreeKeepsResult(t *testing.T) {
+func TestSubagentUncommittedWorktreeKeepsResult(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
@@ -59,16 +59,9 @@ func TestPlanNodeUncommittedWorktreeKeepsResult(t *testing.T) {
 	probe := &worktreeLeftoverCompleter{reply: "调研结论：已核实 24 篇文献", leftover: "probe.py"}
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": probe})
 
-	planJSON := `{"entry":"do","nodes":{"do":{"input":"调研文献","kind":"agent"}},"edges":{}}`
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
-		t.Fatal(err)
-	}
-	out, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
+	out, err := runtime.runForkSubagent(context.Background(), "do", "调研文献", "", 0)
 	if err != nil {
-		t.Fatalf("收尾协议未执行不得让 plan_run 整体失败（会连坐兄弟节点并丢弃产出）：%v\n%s", err, out)
-	}
-	if !strings.Contains(out, `"status":"completed"`) {
-		t.Fatalf("plan_run status 必须为 completed，实际：%s", out)
+		t.Fatalf("收尾协议未执行不得让派发整体失败（会连坐兄弟节点并丢弃产出）：%v\n%s", err, out)
 	}
 	if !strings.Contains(out, "调研结论") {
 		t.Fatalf("节点结论必须仍然交付给父代理：%s", out)

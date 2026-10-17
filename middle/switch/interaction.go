@@ -17,35 +17,21 @@ import (
 // 交互 kind 词表：宿主 `ResolveInteraction` 按它分派处置，前端按它决定渲染面。
 // 未列出的 kind 一律走 UnsupportedInteractionKind 报错（不许静默吞）。
 const (
-	InteractionKindApproval  = "approval"
-	InteractionKindSession   = "session"
-	InteractionKindAccount   = "account"
-	InteractionKindPlanRetry = "plan_retry"
+	InteractionKindApproval = "approval"
+	InteractionKindSession  = "session"
+	InteractionKindAccount  = "account"
 )
 
 // 选项 id 词表（前端按钮的机器名）：
 //   - `InteractionCancelOptionID` 是"取消"哨兵：approval 走结案，其余 kind 直接关格；
-//   - `PlanRetryOption*` 是 plan_retry 的四个分支，宿主按它们分派，前端按它们出按钮。
 const (
 	InteractionCancelOptionID = "__CANCEL__"
-
-	PlanRetryOptionReplan = "replan"
-	PlanRetryOptionRetry  = "retry"
-	PlanRetryOptionSkip   = "skip"
-	PlanRetryOptionAbort  = "abort"
 )
 
 // 交互标题与提示文案（用户可见文字只此一份）。
 const (
 	InteractionTitleSession = "选择会话"
 	InteractionTitleAccount = "切换账号"
-
-	// PlanRetryNoticeRetry / PlanRetryNoticeSkip 是 plan_retry 选项落到对话里的
-	// system 行（用户点"重试/跳过"后，模型下一轮要读到这句指令才知道怎么做）。
-	PlanRetryNoticeRetry = "节点失败，用户选择重试。请调用 plan_run 重新执行工作流。"
-	PlanRetryNoticeSkip  = "节点失败，用户选择跳过。请修改工作流（plan_clear + plan_load）排除失败节点后重新 plan_run。"
-	// PlanAbortNotice 是"终止"分支的对话回执。
-	PlanAbortNotice = "工作流已终止。"
 )
 
 // UnsupportedInteractionKind 是未知 kind 的报错（文案逐字保留 `%q` 的引号形式，

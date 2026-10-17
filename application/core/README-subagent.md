@@ -35,6 +35,4 @@
 
 ### subagent_tree_test.go
 
-- `func TestHandlePlanNodeCompleteProjectsSubAgentTree(t *testing.T)` — TestHandlePlanNodeCompleteProjectsSubAgentTree 验证 plan 节点事件把
-- `func TestHandlePlanBranchEventProjectsSubAgentTree(t *testing.T)` — TestHandlePlanBranchEventProjectsSubAgentTree 验证分支生命周期事件同样
 - `func TestCollectRuntimeProjectionCarriesSubAgentTree(t *testing.T)` — TestCollectRuntimeProjectionCarriesSubAgentTree 验证权威 Snapshot 投影

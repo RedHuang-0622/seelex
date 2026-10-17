@@ -18,12 +18,9 @@ import (
 // 账号路由状态已收敛为 account.Manager（选中账号/provider 过滤/限额/选择器）。
 // 本文件只保留 Runtime 侧委托与 completer 装配接线。
 
-// accountSelector 是主链路共享的账号选择器闭包（委托 account.Manager.Selector；
-// plan 分支绑定经闭包注入）。
+// accountSelector 是主链路共享的账号选择器闭包（委托 account.Manager.Selector）。
 func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
-	return r.accounts.Selector(account.SelectorDeps{
-		BranchBinding: r.currentPlanBranchBinding,
-	})(ctx, messages, tools)
+	return r.accounts.Selector()(ctx, messages, tools)
 }
 
 // assembleCompleters 构造同步与流式 completer，两者共享同一个账号选择器闭包。

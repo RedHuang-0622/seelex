@@ -108,14 +108,6 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		words: map[string]bool{"running": true, "done": true, "failed": true, "killed": true},
 	},
 	{
-		name: "计划批次结果状态",
-		files: map[string]string{
-			"backend/tool/plan/tool_provider.go": "写：plan_run 结果 JSON 的 status（读侧见文件头：故意不进清单）",
-		},
-		// 这一格的取值面 = dto.PlanRunStatus*（plan_run 工具结果的 status）。
-		words: map[string]bool{"completed": true, "failed": true, "aborted": true},
-	},
-	{
 		name: "工具事件状态",
 		files: map[string]string{
 			"backend/multiagent/subagent/tool_events.go":   "写：工具调用事件的三种状态（发布/落态）",
@@ -280,15 +272,6 @@ var allowedStatusLiterals = []statusAllowedLiteral{
 		reason: "这是**回执状态**（asyncPayload.Status：observed|killed|already_finished|finished…），" +
 			"不是执行域状态机那一格（同一结构里的 State 才是，值是 asyncState*）；" +
 			"回执词表的收口要连 bg_manage 的四种 op 一起做，登记为下一批",
-	},
-	{
-		scope: "计划批次结果状态", file: "backend/tool/plan/tool_provider.go", word: "failed",
-		reason: "`switch nr.Status` 读的是**框架 workplan 的节点状态**（NodeBase.Status：completed|failed|…），" +
-			"不是 plan_run 结果里这一批的 status（那个是本格，已引 dto.PlanRunStatus*）",
-	},
-	{
-		scope: "计划批次结果状态", file: "backend/tool/plan/tool_provider.go", word: "completed",
-		reason: "同上（框架节点状态词的另一半）",
 	},
 }
 

@@ -99,12 +99,6 @@ func DefaultManualRules() []toolspermission.PermissionRule {
 		{ToolName: "task_complete", Action: toolspermission.ActionAllow},
 		{ToolName: "task_failed", Action: toolspermission.ActionAllow},
 		{ToolName: "task_needs_user_decision", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_load", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_run", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_status", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_validate", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_export", Action: toolspermission.ActionAllow},
-		{ToolName: "plan_clear", Action: toolspermission.ActionAllow},
 	}
 }
 

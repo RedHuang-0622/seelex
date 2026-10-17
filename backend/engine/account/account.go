@@ -5,7 +5,6 @@ package account
 
 import (
 	"fmt"
-	"hash/fnv"
 	"net/http"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
@@ -13,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/stablehash"
 )
 
 // ClientFor 从账号配置构造一个同步 Completer（agent.Completer）。
@@ -111,9 +111,7 @@ func StableIndex(seed string, size int) int {
 	if size <= 1 {
 		return 0
 	}
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(seed))
-	return int(hash.Sum32() % uint32(size))
+	return int(stablehash.FNV1a32(seed) % uint32(size))
 }
 
 // leastBusyForRole 返回指定角色下当前还有并发余量的账号（余量最大者）；

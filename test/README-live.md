@@ -115,19 +115,6 @@
 - `func TestManualSmokeRealAccountJobContract(t *testing.T)` — TestManualSmokeRealAccountJobContract 是**真实 API** 上的"子进程调用系"冒烟：
 - `func jobHandleFromCalls(t *testing.T, calls []liveToolCall) string` — jobHandleFromCalls 从本轮真实调用里取出 bash_bg 的受理回执句柄。
 
-### manual_smoke_test.go
-
-- `func TestManualSmokeRealAccountPlan(t *testing.T)` — TestManualSmokeRealAccountPlan verifies the real account path without
-- `func newSmokeObserver(hub *application.EventHub) *smokeObserver`
-- `func (o *smokeObserver) consume()`
-- `func (o *smokeObserver) record(format string, args ...interface{})`
-- `func (o *smokeObserver) Close()` — Close 停止订阅并等待消费者退出（阶段结束时调用）。
-- `func (o *smokeObserver) Dump(t *testing.T, phase string)` — Dump 输出本阶段的过程日志（失败诊断与断言引用）。
-- `func smokePhaseContext() (context.Context, context.CancelFunc)`
-- `func truncateSmokeReply(value string, limit int) string`
-- `func copyOpaqueFile(t *testing.T, source, destination string)`
-- `func workspaceSmokeRoot() string` — workspaceSmokeRoot 返回冒烟测试的项目根：优先仓库根（scoped 工具可读
-
 ### prefix_chain_live_test.go
 
 - `func applyRetainFloorPercent(percent int)` — applyRetainFloorPercent 设置 limits.context_retain_floor_percent（进程内生效配置：

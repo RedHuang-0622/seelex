@@ -110,7 +110,7 @@ func Effective(pinned, fallback int) int {
 // ValidateSubagentMaxLoops 判一条子代理自己声明的循环次数能不能用。
 //
 // 判据只有**进程级循环天花板**（limits.input_loop_limit）。effort 档位的节点上限
-// （PlanPolicy.MaxNodeLoops）在这里**不出现**——它是主代理自己 plan_load 节点的判据，
+// （SubagentPolicy.MaxNodeLoops）在这里**不出现**——它是主代理自己 plan_load 节点的判据，
 // 拿来卡子代理就等于"设一下 reasoning effort，子代理的次数跟着变"（2026-10-08 口径）。
 // 0 = 没声明（不是"零轮"），留给本批默认；负数才是非法。
 //

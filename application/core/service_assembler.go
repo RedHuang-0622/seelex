@@ -237,7 +237,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。
 	service.startLifecycleConsumers()
-	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Runtime.SetSubagentPolicy(service.effortManager.SubagentPolicy())
 	service.idle = closedSignal()
 	initialSessionID := service.Deps.Engine.SessionID()
 	initialDraft := initialSessionID == ""

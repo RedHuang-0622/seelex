@@ -9,7 +9,6 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
@@ -156,19 +155,14 @@ func (m *Manager) LimitsFor(name string) config.AccountLimits {
 	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
 }
 
-// SelectorDeps 是 Selector 需要的跨域闭包（plan 分支绑定读取）。
-type SelectorDeps struct {
-	BranchBinding func() dto.PlanBranchBinding
-}
-
 // Selector 返回主链路共享的账号选择器闭包：把请求条件转换为
 // accountpool.AcquireRequest。P2C 池负责实际选择与租赁。
-// Plan 子代理请求（ctx 含 NodeScope）优先走节点账号解析：显式 pin 优先，
-// 否则按角色 + branchID 走确定性 hash（ResolveForBranch 逻辑）。
-func (m *Manager) Selector(deps SelectorDeps) func(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
+// 子代理请求（ctx 含 NodeScope）优先走节点账号解析：按角色 + branchID
+// 走确定性 hash（ResolveForBranch 逻辑）。
+func (m *Manager) Selector() func(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
 	return func(ctx context.Context, _ []types.Message, _ []types.Tool) accountpool.AcquireRequest {
 		if scope := model.NodeScopeFromContextOrEmpty(ctx); scope.NodeID != "" {
-			return m.nodeRequest(deps, scope)
+			return m.nodeRequest(scope)
 		}
 		m.mu.RLock()
 		selected := m.selectedID
@@ -218,16 +212,8 @@ func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.Accou
 
 // nodeRequest 按节点作用域解析账号租赁请求：binding 显式 AccountID 直接
 // pin；否则按 role + planID:branchID 确定性 hash 选择。
-func (m *Manager) nodeRequest(deps SelectorDeps, scope model.NodeScope) accountpool.AcquireRequest {
+func (m *Manager) nodeRequest(scope model.NodeScope) accountpool.AcquireRequest {
 	request := accountpool.AcquireRequest{}
-	binding := dto.PlanBranchBinding{}
-	if deps.BranchBinding != nil {
-		binding = deps.BranchBinding()
-	}
-	if binding.AccountID != "" {
-		request.AccountID = binding.AccountID
-		return request
-	}
 	if scope.BranchID == "" {
 		// 无显式 branch 钉扎（fork 双子代理/plan 默认）：按角色选当前仍有
 		// 并发余量的账号，让并发节点分散到空闲槽而不是确定性哈希撞车排队。
@@ -236,8 +222,8 @@ func (m *Manager) nodeRequest(deps SelectorDeps, scope model.NodeScope) accountp
 		}
 		return request
 	}
-	// 分支（plan branch）保留确定性哈希：同分支同 seed 恒等，维持前缀缓存。
-	accountID, err := ResolveForBranch(m.pool, scope.Role, binding.PlanID+":"+scope.BranchID)
+	// 分支保留确定性哈希：同分支同 seed 恒等，维持前缀缓存。
+	accountID, err := ResolveForBranch(m.pool, scope.Role, ":"+scope.BranchID)
 	if err == nil {
 		request.AccountID = accountID
 	}

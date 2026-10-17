@@ -45,7 +45,7 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	}
 	hookBridge.Bind(service)
 	if factory != nil {
-		scriptedEngine.SetToolExecutor(factory(approvals, service.HandlePlanBranchEvent))
+		scriptedEngine.SetToolExecutor(factory(approvals))
 	}
 	if value.Initial.Effort != "" {
 		if err := service.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
@@ -114,26 +114,21 @@ func (harnessRuntime) SetPermissionTierFor(string, string) error                
 func (harnessRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection) {}
 func (harnessRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)       {}
 func (harnessRuntime) DrainSubagentContexts() []string                                     { return nil }
-func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)                                        {}
-func (harnessRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)                             {}
-func (harnessRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
-	return dto.PlanPreflight{}, nil
-}
-func (harnessRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.ReplanMetrics{} }
-func (harnessRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
-func (harnessRuntime) BindProjectRoot(string) error                { return nil }
-func (harnessRuntime) UnbindProjectRoot()                          {}
-func (harnessRuntime) BindProjectRootFor(string, string) error     { return nil }
-func (harnessRuntime) UnbindProjectRootFor(string)                 {}
-func (harnessRuntime) SetCurrentTaskBatch(string, string)          {}
-func (harnessRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
-func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
-func (harnessRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
-func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
-func (harnessRuntime) ReleaseSessionAsync(string) int              { return 0 }
-func (harnessRuntime) AsyncPendingFor(string) int                  { return 0 }
-func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord     { return nil }
-func (harnessRuntime) AsyncRunEvents() <-chan struct{}             { return nil }
+func (harnessRuntime) SetSubagentPolicy(dto.SubagentPolicy)                                {}
+func (harnessRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy)                     {}
+func (harnessRuntime) BindProjectRoot(string) error                                        { return nil }
+func (harnessRuntime) UnbindProjectRoot()                                                  {}
+func (harnessRuntime) BindProjectRootFor(string, string) error                             { return nil }
+func (harnessRuntime) UnbindProjectRootFor(string)                                         {}
+func (harnessRuntime) SetCurrentTaskBatch(string, string)                                  {}
+func (harnessRuntime) TodoSnapshot() []dto.TodoItem                                        { return nil }
+func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error                         { return nil }
+func (harnessRuntime) TaskSnapshot() []dto.TaskRecord                                      { return nil }
+func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord                             { return nil }
+func (harnessRuntime) ReleaseSessionAsync(string) int                                      { return 0 }
+func (harnessRuntime) AsyncPendingFor(string) int                                          { return 0 }
+func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord                             { return nil }
+func (harnessRuntime) AsyncRunEvents() <-chan struct{}                                     { return nil }
 func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -157,9 +152,6 @@ func (harnessRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, err
 }
 func (harnessRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
 func (harnessRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
-func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
-	return nil
-}
 func (harnessRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
 	return dto.ServedRoute{}, false
 }

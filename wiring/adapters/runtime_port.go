@@ -38,26 +38,11 @@ func (port RuntimePort) SetParentEvidenceProjection(projection assemble.ParentEv
 	port.Runtime.SetParentEvidenceProjection(projection)
 }
 func (port RuntimePort) DrainSubagentContexts() []string { return port.Runtime.DrainSubagentContexts() }
-func (port RuntimePort) SetPlanPolicy(policy dto.PlanPolicy) {
-	port.Runtime.SetPlanPolicy(policy)
+func (port RuntimePort) SetSubagentPolicy(policy dto.SubagentPolicy) {
+	port.Runtime.SetSubagentPolicy(policy)
 }
-
-// SetPlanPolicyFor 按会话写入 plan 策略槽（会话 effort 同步入口；引擎侧
-// plan_load/plan_run 按执行 ctx 会话读取自己的槽）。
-func (port RuntimePort) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
-	port.Runtime.SetPlanPolicyFor(sessionID, policy)
-}
-func (port RuntimePort) PrepareReplan(ctx context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
-	return port.Runtime.PrepareReplan(ctx, request)
-}
-func (port RuntimePort) ReplanMetrics() dto.ReplanMetrics {
-	return port.Runtime.ReplanMetrics()
-}
-func (port RuntimePort) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
-	port.Runtime.SetPlanBranchBinding(binding)
-}
-func (port RuntimePort) RestorePlan(ctx context.Context, arguments string) error {
-	return port.Runtime.RestorePlan(ctx, arguments)
+func (port RuntimePort) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy) {
+	port.Runtime.SetSubagentPolicyFor(sessionID, policy)
 }
 func (port RuntimePort) BindProjectRoot(rootPath string) error {
 	return port.Runtime.BindProjectRoot(rootPath)
@@ -122,9 +107,6 @@ func (port RuntimePort) TaskChangedChannel() <-chan dto.TaskRecord {
 }
 func (port RuntimePort) SubagentTreeEvents() <-chan struct{} {
 	return port.Runtime.SubagentTreeEvents()
-}
-func (port RuntimePort) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
-	return port.Runtime.PlanNodeEventChannel()
 }
 func (port RuntimePort) TakeServedRoute(sessionID string) (dto.ServedRoute, bool) {
 	return port.Runtime.TakeServedRoute(sessionID)

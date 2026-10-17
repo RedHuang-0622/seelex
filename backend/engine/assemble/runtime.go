@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
+	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
@@ -39,7 +40,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
 	toolmedia "github.com/RedHuang-0622/seelex/backend/tool/io/media"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
@@ -134,10 +134,13 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpManager           *mcp.Manager     // MCP 服务器生命周期（mcp/ 域）
-	planExecutor         *plan.Executor   // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
-	accounts             *account.Manager // 账号路由状态（account/ 域）：选中账号/provider/限额
-	visibilityPolicy     *toolreg.Policy  // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
+	mcpManager           *mcp.Manager               // MCP 服务器生命周期（mcp/ 域）
+	agentFactory         frameworknode.AgentFactory // 子代理会话工厂（fork / workunit 共用）
+	subagentPolicyMu     sync.RWMutex
+	subagentPolicy       dto.SubagentPolicy            // 子代理执行策略默认槽（effort 档位写入）
+	subagentPolicyBySID  map[string]dto.SubagentPolicy // 会话级策略槽（后台会话不继承视图会话）
+	accounts             *account.Manager              // 账号路由状态（account/ 域）：选中账号/provider/限额
+	visibilityPolicy     *toolreg.Policy               // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -537,20 +540,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 	r.agt = agt
 
-	// 6. plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂。
-	//    依赖面此时已全部就绪（registry/accounts/agt），无前向闭包；
-	//    NodeFactory 经 SetNodeFactory 后置注入（plan→node 构造环）。
-	r.planExecutor = plan.NewExecutor(plan.ExecutorDeps{
-		Model:               r.model,
-		Heartbeat:           heartbeatInterval,
-		Limits:              r.limits,
-		PlanDecisionTimeout: planDecisionTimeout,
-		Accounts:            r.accountSpecList,
-		LoadPlanDefinition:  func() (types.Tool, bool) { return r.registry.FindTool("plan_load") },
-		Dispatch:            r.agentDispatch,
-	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
-
-	// 7. 节点协调器：session/fork/task/plan 经接口与闭包注入，域内不反向依赖 Runtime。
+	// 6. 节点协调器：session/fork/task 经接口与闭包注入，域内不反向依赖 Runtime。
 	r.node = seenode.NewCoordinator(seenode.CoordinatorDeps{
 		Sessions: r.subagentSessions,
 		Tree:     r.subagentTree,
@@ -575,14 +565,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		RelatedMemory: r.relatedMemoryBlocks,
 		ResumeNote:    r.SubagentResumeNote,
 	})
-	// 8. 回填节点工厂（node 已就绪；plan_load 在运行期才消费）。
-	r.planExecutor.SetNodeFactory(r.nodeFactory)
-
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
 		Root: r.projectScope.Root,
-		Gate: r.planExecutor.CurrentApprovalGate,
 	})
 	r.forkTool = fork.NewTool(r.forkDeps())
 	// telemetry 钩子链统一由 Chain 组装（最外层→最内层，见
@@ -607,8 +593,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
 	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
 
-	// 10. Plan 子代理工厂：bridge.NewAgentFactory（每节点独立 Session，
-	//    工作历史隔离；节点会话组件见 branch.go nodeSessionComponents）。
+	// 10. 子代理工厂：bridge.NewAgentFactory（每条子代理独立 Session，
+	//    工作历史隔离；节点会话组件见 runtime_subagent.go）。
 	planAgentFactory, err := bridge.NewAgentFactory(agt,
 		bridge.WithSessionComponents(r.nodeSessionComponents()),
 		bridge.WithSessionID(r.nodeSessionID),
@@ -616,9 +602,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("seelex: create plan agent factory: %w", err)
 	}
-	r.planExecutor.SetAgentFactory(planAgentFactory)
+	r.agentFactory = planAgentFactory
 	// 生命周期登记（装配序；Shutdown 逆序关停）。只登记真实资源持有者；
-	// planExecutor/forkTool 无自有 goroutine，不登记。
+	// forkTool 无自有 goroutine，不登记。
 	r.lifecycle = nil
 	if r.tasks != nil {
 		r.lifecycle = append(r.lifecycle, r.tasks.Close)

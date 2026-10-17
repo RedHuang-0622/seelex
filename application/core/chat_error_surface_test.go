@@ -68,10 +68,10 @@ func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) 
 		t.Fatalf("event error should carry the raw error text: %q", eventMessage)
 	}
 
-	service.handleToolStart(context.Background(), "plan_load", "tool-plan", `{}`)
-	service.handleToolComplete("plan_load", "tool-plan", "", errors.New(`plan_load: normalize DAG input: edges is required`), 0)
+	service.handleToolStart(context.Background(), "read", "tool-read", `{}`)
+	service.handleToolComplete("read", "tool-read", "", errors.New(`storage unavailable`), 0)
 	tool := service.Snapshot().Conversation[len(service.Snapshot().Conversation)-2].Tool
-	if tool == nil || strings.Contains(tool.Error, "edges is required") || !strings.Contains(tool.Error, "模块：计划预检") {
+	if tool == nil || strings.Contains(tool.Error, "storage unavailable") || !strings.Contains(tool.Error, "模块：") {
 		t.Fatalf("tool error = %#v", tool)
 	}
 }

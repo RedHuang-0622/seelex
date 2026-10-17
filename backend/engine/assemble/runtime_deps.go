@@ -4,7 +4,6 @@ import (
 	"context"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
-	approve "github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
@@ -26,15 +25,9 @@ type RuntimeDeps struct {
 	TurnArchiver seelexctx.TurnArchiver
 	// ProjectKnowledge 项目级模块语义提供者（nil 关闭 project 块）。
 	ProjectKnowledge func() *store.ProjectRecord
-	// EventErrorHandler Sink 失败处理器（默认 log.Printf 兜底）。
-	EventErrorHandler frameworkevent.ErrorHandler
 	// EventPersister 执行事实持久化钩子（双轨事件的事实轨：
 	// event.Sink → store 事件库）。
 	EventPersister func(context.Context, frameworkevent.Event) error
-	// PlanApprovalGate plan kind:approve/manual 节点审批门控（延迟读取）。
-	PlanApprovalGate approve.ApprovalGate
-	// PlanNodeCallback 节点/计划状态投影订阅（PlanNodeEvent 回调）。
-	PlanNodeCallback func(dto.PlanNodeEvent)
 	// SubagentToolCallback 子代理工具活动观察者（委托 session.ToolEventState）。
 	SubagentToolCallback func(subagentsession.SubagentToolEvent)
 	// RoleToolCallback **员工回合**工具活动观察者（subagent 那条的对称面：子代理按
@@ -64,17 +57,8 @@ func (r *Runtime) ApplyDeps(deps RuntimeDeps) {
 	if deps.ProjectKnowledge != nil {
 		r.SetProjectKnowledgeProvider(deps.ProjectKnowledge)
 	}
-	if deps.EventErrorHandler != nil {
-		r.SetEventErrorHandler(deps.EventErrorHandler)
-	}
 	if deps.EventPersister != nil {
 		r.SetEventPersister(deps.EventPersister)
-	}
-	if deps.PlanApprovalGate != nil {
-		r.SetPlanApprovalGate(deps.PlanApprovalGate)
-	}
-	if deps.PlanNodeCallback != nil {
-		r.SetPlanNodeCallback(deps.PlanNodeCallback)
 	}
 	if deps.SubagentToolCallback != nil {
 		r.SetSubagentToolCallback(deps.SubagentToolCallback)

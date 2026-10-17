@@ -17,7 +17,7 @@ import (
 
 // Deps 是 fork_subagents 工具执行所需的运行时回调集合，由根包（Runtime）注入。
 type Deps struct {
-	CurrentPlanPolicy func() dto.PlanPolicy
+	CurrentSubagentPolicy func(context.Context) dto.SubagentPolicy
 	// RunSubagent 直接执行一条子代理（不经过 Plan DAG）：入参是 spec 身份与目标，
 	// 返回该子代理的产出。worktree/NodeScope/merge-back 仍在执行体里。
 	RunSubagent              func(ctx context.Context, id, goal, taskID string, maxLoops int) (string, error)
@@ -31,7 +31,7 @@ type Deps struct {
 	PlanNodeMaxLoops         int
 	// LoopLimitCeiling 是**进程级循环次数天花板**（limits.input_loop_limit，默认
 	// 9999，与循环次数拉条同一份哨兵）：一条子代理自己声明的 max_loops 不得越过它。
-	// 刻意不接 effort 档位的节点上限（PlanPolicy.MaxNodeLoops）——那是主代理
+	// 刻意不接 effort 档位的节点上限（SubagentPolicy.MaxNodeLoops）——那是主代理
 	// plan_load 节点的判据，拿它卡子代理就是"设置 reasoning effort 连带改变了工作
 	// 单元的次数"（2026-10-08 口径）。0 = 未配置（不限）。
 	LoopLimitCeiling int
@@ -60,7 +60,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 		return "", fmt.Errorf("fork_subagents: at least one subagent is required")
 	}
 	seen := make(map[string]bool, len(input.Subagents))
-	policy := t.deps.CurrentPlanPolicy()
+	policy := t.deps.CurrentSubagentPolicy(ctx)
 	for _, spec := range input.Subagents {
 		if spec.ID == "" || strings.TrimSpace(spec.Goal) == "" {
 			return "", fmt.Errorf("fork_subagents: subagent %q must have id and goal", spec.ID)
@@ -74,7 +74,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 			return "", err
 		}
 	}
-	// 护杠：数量上限（PlanPolicy.MaxNodes；未配置不限）。
+	// 护杠：数量上限（SubagentPolicy.MaxNodes；未配置不限）。
 	if policy.MaxNodes > 0 && len(input.Subagents) > policy.MaxNodes {
 		return "", fmt.Errorf("fork_subagents: %d subagents exceeds policy limit %d", len(input.Subagents), policy.MaxNodes)
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
@@ -170,7 +170,7 @@ func TestForkSubagentsValidation(t *testing.T) {
 	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
-	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "test", MaxNodes: 2})
+	runtime.SetSubagentPolicy(dto.SubagentPolicy{Effort: "test", MaxNodes: 2})
 
 	cases := []struct {
 		name string
@@ -235,8 +235,8 @@ func TestForkInFlightTracksRunningSubagentJobs(t *testing.T) {
 // TestForkSummaryNodeConcatenatesPredecessors 验证 summary 节点拼接
 // WorkflowContext.PrevResults（含排序确定性）。
 func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
-	spec := codec.NodeSpec[plan.SeelexNodeInput]{ID: "summary", Kind: "summary",
-		Input: plan.SeelexNodeInput{ID: "summary", Input: "summarize"}}
+	spec := codec.NodeSpec[seenode.SeelexNodeInput]{ID: "summary", Kind: "summary",
+		Input: seenode.SeelexNodeInput{ID: "summary", Input: "summarize"}}
 	n := fork.NewSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
 	// 多行输出：紧凑摘要保留前 N 行（*N 语义），超出部分截断。

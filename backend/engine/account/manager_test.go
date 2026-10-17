@@ -6,7 +6,6 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
@@ -39,25 +38,6 @@ func TestManagerSelectProviderAndLimits(t *testing.T) {
 	}
 }
 
-func TestManagerSelectorNodePin(t *testing.T) {
-	pool := accountpool.New[agent.Completer]()
-	manager := NewManager(
-		[]model.AccountSpec{{Name: "main", Provider: "openai", Model: "gpt-4o"}},
-		nil, "main", pool,
-	)
-	selector := manager.Selector(SelectorDeps{
-		BranchBinding: func() (binding dto.PlanBranchBinding) {
-			binding.AccountID = "pinned"
-			return binding
-		},
-	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent})
-	req := selector(ctx, nil, nil)
-	if req.AccountID != "pinned" {
-		t.Fatalf("node request must pin binding account, got %q", req.AccountID)
-	}
-}
-
 // registerCompleterAccount 把一个账号注册进测试池（Value 无需真实 client：
 // 谓词路由只读快照）。
 func registerCompleterAccount(t *testing.T, pool *accountpool.P2CPool[agent.Completer], id, provider, model2 string) {
@@ -80,7 +60,7 @@ func TestManagerSelectorMainChainAgentRole(t *testing.T) {
 	registerCompleterAccount(t, pool, "subagent-1", "openai", "r1")
 	registerCompleterAccount(t, pool, "goalplan-1", "openai", "o3")
 	manager := NewManager(nil, nil, "agent-1", pool)
-	request := manager.Selector(SelectorDeps{})(context.Background(), nil, nil)
+	request := manager.Selector()(context.Background(), nil, nil)
 	if request.AccountID != "" {
 		t.Fatalf("unpinned main-chain request must not pin an account, got %q", request.AccountID)
 	}
@@ -105,7 +85,7 @@ func TestManagerSelectorMainChainRoleFallback(t *testing.T) {
 	pool := accountpool.New[agent.Completer]()
 	registerCompleterAccount(t, pool, "subagent-1", "openai", "r1")
 	manager := NewManager(nil, nil, "subagent-1", pool)
-	request := manager.Selector(SelectorDeps{})(context.Background(), nil, nil)
+	request := manager.Selector()(context.Background(), nil, nil)
 	if request.Predicate != nil && !request.Predicate(accountpool.AccountSnapshot{ID: "subagent-1"}) {
 		t.Fatal("fallback: no agent-role accounts means the predicate must not exclude the only account")
 	}

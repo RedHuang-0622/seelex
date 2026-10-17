@@ -77,7 +77,6 @@ func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit, *approveGa
 		Phase: func(_ context.Context, nodeID, status string) {
 			phases = append(phases, nodeID+":"+status)
 		},
-		Gate: func() approve.ApprovalGate { return gate },
 	})
 	fake := newFakeGit()
 	mgr.git = fake.run
@@ -154,7 +153,7 @@ func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T) {
 
 func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 	root := t.TempDir()
-	mgr, fake, gate := newTestWorktreeManager(root)
+	mgr, fake, _ := newTestWorktreeManager(root)
 	wt := mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("begin must succeed")
@@ -168,29 +167,6 @@ func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 	}
 	if !containsCall(calls, "worktree remove --force "+wt.Path) {
 		t.Fatalf("cleanup must run after merge, calls=%v", calls)
-	}
-	gate.mu.Lock()
-	asked := len(gate.asked)
-	gate.mu.Unlock()
-	if asked != 1 {
-		t.Fatalf("approval asked %d times, want 1", asked)
-	}
-}
-
-func TestWorktreeManagerFinishMergeRejectedPreservesScene(t *testing.T) {
-	root := t.TempDir()
-	mgr, _, gate := newTestWorktreeManager(root)
-	gate.choice = "reject"
-	wt := mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
-	if wt == nil {
-		t.Fatal("begin must succeed")
-	}
-	err := mgr.Finish(context.Background(), "impl", wt)
-	if err == nil || !strings.Contains(err.Error(), "merge rejected") {
-		t.Fatalf("expected rejection error, got %v", err)
-	}
-	if _, ok := mgr.Info("impl"); !ok {
-		t.Fatal("rejected worktree must stay registered for scene inspection")
 	}
 }
 

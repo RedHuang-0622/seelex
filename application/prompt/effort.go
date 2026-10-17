@@ -44,15 +44,15 @@ func MaxLoops(level string) int { return loop.MaxLoops(level) }
 // ReActBudgetFor returns an immutable execution budget for an effort level.
 func ReActBudgetFor(level string) ReActBudget { return loop.BudgetFor(level) }
 
-// PlanningPolicy returns the plan constraints for an effort level.
-func PlanningPolicy(level string) dto.PlanPolicy { return effort.PlanningPolicy(level) }
+// SubagentPolicyFor returns the plan constraints for an effort level.
+func SubagentPolicyFor(level string) dto.SubagentPolicy { return effort.SubagentPolicyFor(level) }
 
 // ValidEffortLevels 返回所有有效 effort 等级。
 func ValidEffortLevels() []string { return effort.Levels() }
 
-// PlanPolicy returns the constraints for the manager's current effort level.
-func (m *EffortManager) PlanPolicy() dto.PlanPolicy {
-	return PlanningPolicy(m.Current())
+// SubagentPolicy returns the constraints for the manager's current effort level.
+func (m *EffortManager) SubagentPolicy() dto.SubagentPolicy {
+	return SubagentPolicyFor(m.Current())
 }
 
 // NewEffortManager 创建 Effort 管理器。

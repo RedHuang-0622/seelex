@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
@@ -18,12 +17,6 @@ import (
 	"sync"
 	"time"
 )
-
-// persistedPlanRestorer 是 Runtime 的可选能力：resume 时按 plan 参数恢复
-// 可执行 Plan（不可用时保留可见投影）。
-type persistedPlanRestorer interface {
-	RestorePlan(context.Context, string) error
-}
 
 // resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
 // 未驻留时冷加载。冷加载一律先激活目标会话的 restoring 空壳（视图立即指向
@@ -423,13 +416,6 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		}
 	}
 
-	activePlan := task_context.ActivePlanFrame(record.PlanStack, record.ActivePlanID)
-	var planRestoreErr error
-	if hasRecord && activePlan != nil && activePlan.Arguments != "" {
-		if restorer, ok := service.Deps.Runtime.(persistedPlanRestorer); ok {
-			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
-		}
-	}
 	workspaceProjection := service.collectWorkspaceProjection()
 	// 需求变更（P1-1）：冷加载读回目标会话的权限档位（含磁盘读，在锁外完成；
 	// 内存态落地在下面拿到会话单元之后）。
@@ -540,9 +526,6 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			} else {
 				service.Core.Snapshot.Task = nil
 			}
-		}
-		if planRestoreErr != nil {
-			service.appendSessionMessageLocked(sessionID, "system", "The stored Plan is visible for review but could not be reloaded for execution with the current settings.", nil)
 		}
 	} else {
 		service.appendHistoryLockedFor(sessionID, visibleHistory)

@@ -15,7 +15,6 @@ import (
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -279,9 +278,9 @@ func TestForkSummaryReportsTruncatedSize(t *testing.T) {
 	for index := range lines {
 		lines[index] = fmt.Sprintf("行%d %s", index, strings.Repeat("字", 80))
 	}
-	node := fork.NewSummaryNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	node := fork.NewSummaryNode(codec.NodeSpec[seenode.SeelexNodeInput]{
 		ID: "summary", Kind: "summary",
-		Input: plan.SeelexNodeInput{ID: "summary", Input: "summarize"},
+		Input: seenode.SeelexNodeInput{ID: "summary", Input: "summarize"},
 	})
 	wc := workplanTypes.NewWorkflowContext()
 	wc.SetResultRaw("s1", strings.Join(lines, "\n"))

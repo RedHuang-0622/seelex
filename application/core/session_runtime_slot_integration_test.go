@@ -43,9 +43,6 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
 	engine.tokens[aID] = "27"
-	runtime.replanMetricsBySession = map[string]dto.ReplanMetrics{
-		aID: {InFlight: 1, ConcurrentLimit: 1, Accepted: 3},
-	}
 
 	bID := "sess-slot-b"
 	engine.register(bID)
@@ -54,7 +51,6 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
-	runtime.replanMetricsBySession[bID] = dto.ReplanMetrics{InFlight: 2, ConcurrentLimit: 1, Accepted: 5}
 
 	// 会话分区的 task 注册表（S0 风格）：A 当前分区，B 独立分区。
 	runtime.SwitchSessionTasks(aID, nil)
@@ -85,14 +81,6 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	}
 	if got := unitB.RuntimeState().Tokens; got != "13" {
 		t.Fatalf("B slot tokens = %q, want 13", got)
-	}
-
-	// replan 统计按会话入槽：A/B 各自预算互不混用。
-	if got := unitA.RuntimeState().Replan.Accepted; got != 3 {
-		t.Fatalf("A slot replan accepted = %d, want 3", got)
-	}
-	if got := unitB.RuntimeState().Replan.Accepted; got != 5 {
-		t.Fatalf("B slot replan accepted = %d, want 5", got)
 	}
 
 	// SnapshotOf(B) 读 B 自身槽：token 属于 B，任务表只含 B 的节点。

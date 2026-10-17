@@ -160,7 +160,7 @@ type Limits struct {
 	// fork 子代理长任务宽松预算（2026-08-08）：fork_subagents 是同步编排
 	// 工具，总时长 = 全部子代理工作量之和，不能被通用工具超时（30 分钟）
 	// 掐死；fork 用独立大预算。子代理节点循环数复用 effort 调节值
-	// （PlanPolicy.MaxNodeLoops），不做独立常量。
+	// （SubagentPolicy.MaxNodeLoops），不做独立常量。
 	ForkTimeoutSec int `yaml:"fork_timeout"` // fork 工具总超时（秒；0 → 7200 = 2 小时）
 	// AsyncExec 是**作业面**（子进程调用系契约：bash_bg / read_batch / bg_manage /
 	// fork_subagents 的 async 模式）的开关块。默认 false = 关闭：作业工具都不注册、

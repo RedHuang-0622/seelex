@@ -1,10 +1,11 @@
 package fork
 
 import (
+	"context"
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 判据本身（进程级天花板、0 = 未声明、effort 节点上限不参与）已随 M2-B 归一，
@@ -16,8 +17,8 @@ import (
 // 上真的生效（不是只有单测里的自由函数被覆盖）。
 func TestForkToolHandleRejectsSubagentLoopsAboveProcessCeiling(t *testing.T) {
 	tool := NewTool(Deps{
-		CurrentPlanPolicy: func() plan.PlanPolicy {
-			return plan.PlanPolicy{Effort: "high", MaxNodeLoops: 48}
+		CurrentSubagentPolicy: func(context.Context) dto.SubagentPolicy {
+			return dto.SubagentPolicy{Effort: "high", MaxNodeLoops: 48}
 		},
 		LoopLimitCeiling: 9999,
 	})

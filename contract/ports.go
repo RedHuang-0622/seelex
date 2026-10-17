@@ -136,13 +136,10 @@ type RuntimePort interface {
 	SetRuntimeVisibilityProjection(dto.RuntimeVisibilityProjection)
 	SetParentEvidenceProjection(dto.ParentEvidenceProjection)
 	DrainSubagentContexts() []string
-	SetPlanPolicy(dto.PlanPolicy)
-	// SetPlanPolicyFor 按会话写入 plan 策略槽（G1-C：plan_load/plan_run 按
-	// 执行 ctx 会话读取自己的额度；chat 起点由 application 按会话 effort 同步）。
-	SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)
-	PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error)
-	ReplanMetrics() dto.ReplanMetrics
-	SetPlanBranchBinding(dto.PlanBranchBinding)
+	// SetSubagentPolicy 写入子代理执行策略（effort 档位决定 fork 数量/并发上限）。
+	SetSubagentPolicy(dto.SubagentPolicy)
+	// SetSubagentPolicyFor 按会话写入子代理执行策略槽（后台会话读取自己的槽）。
+	SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()
 	// BindProjectRootFor 绑定指定会话自己的工具路径根：多项目并行时，工具按
@@ -205,9 +202,6 @@ type RuntimePort interface {
 	// SubagentTreeEvents 返回子代理树生命周期信号 channel（CSP 消费者刷新
 	// 工作表格；取代同步回调 observer）。
 	SubagentTreeEvents() <-chan struct{}
-	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
-	// 取代同步回调）。
-	PlanNodeEventChannel() <-chan dto.PlanNodeEvent
 	// TakeServedRoute 取出（并清掉）该会话最近一次模型请求的实际承接路由
 	//（config role / 账号 / provider / model；请求解析中间件在租约路径上得出）。
 	// 消费点：回合收尾把路由回填进 assistant 消息真相源（读即清，防残留）。

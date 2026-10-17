@@ -8,6 +8,7 @@ import (
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestAdaptSubagentConversation 验证会话记录适配：截断（evidence_chars）、
@@ -31,9 +32,13 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 	}}
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
-	// 经 plan_load 播种节点（权威 Snapshot 投影）。
-	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
-	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	// 历史 Plan 投影：直接种一个含 worker 节点的只读状态。
+	svc.ViewMu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
+		Status: PlanRunning,
+		Nodes:  []model.PlanNode{{ID: "worker", Status: NodePending}},
+	}
+	svc.ViewMu.Unlock()
 
 	detail, err := svc.SubagentSessionDetail("worker")
 	if err != nil {
@@ -70,8 +75,12 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 	}
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
-	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
-	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	svc.ViewMu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
+		Status: PlanRunning,
+		Nodes:  []model.PlanNode{{ID: "worker", Status: NodePending}},
+	}
+	svc.ViewMu.Unlock()
 
 	detail, err := svc.SubagentSessionDetail("worker")
 	if err != nil {

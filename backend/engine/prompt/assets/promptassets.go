@@ -121,7 +121,7 @@ func SystemInstructions() string { return read("assets/system/instructions.md") 
 // 2026-10 归一：这里原本按档位返回四份近乎同构的变体（lite/medium/high/max），
 // 各自复述"本档该做多少事"。那是**第二份事实**——档位真正的差别（思考强度、
 // loop 次数、plan 策略）全在运行时被机器执行（reasoning_effort / SetMaxLoops /
-// dto.PlanPolicy），提示词再复述一遍只会与它们分叉；而档位名一旦写进提示词，
+// dto.SubagentPolicy），提示词再复述一遍只会与它们分叉；而档位名一旦写进提示词，
 // 模型就会按"我是 lite"自我设限，与"effort 只调思考强度与循环预算"的原意相悖。
 //
 // 所以四个档位共用这一份，档位差异一律由运行时表达。

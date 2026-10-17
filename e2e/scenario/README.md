@@ -88,11 +88,8 @@ go test ./e2e/scenario -count=1
 - `func (harnessRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection)`
 - `func (harnessRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)`
 - `func (harnessRuntime) DrainSubagentContexts() []string`
-- `func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)`
-- `func (harnessRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)`
-- `func (harnessRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error)`
-- `func (harnessRuntime) ReplanMetrics() dto.ReplanMetrics`
-- `func (harnessRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)`
+- `func (harnessRuntime) SetSubagentPolicy(dto.SubagentPolicy)`
+- `func (harnessRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy)`
 - `func (harnessRuntime) BindProjectRoot(string) error`
 - `func (harnessRuntime) UnbindProjectRoot()`
 - `func (harnessRuntime) BindProjectRootFor(string, string) error`
@@ -115,7 +112,6 @@ go test ./e2e/scenario -count=1
 - `func (harnessRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, error)`
 - `func (harnessRuntime) TaskChangedChannel() <-chan dto.TaskRecord`
 - `func (harnessRuntime) SubagentTreeEvents() <-chan struct`
-- `func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent`
 - `func (harnessRuntime) TakeServedRoute(string) (dto.ServedRoute, bool)`
 - `func (harnessRuntime) SwitchSessionTasks(string, []dto.TaskRecord)`
 - `func (harnessRuntime) SetSessionWorkspace(string, string)`

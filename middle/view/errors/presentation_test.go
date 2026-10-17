@@ -45,12 +45,6 @@ func TestPresentedClassificationIdentifiesSourceWithoutProviderDetails(t *testin
 			forbid: []string{"HTTP", "500", "req-secret", "server_error"},
 		},
 		{
-			name:   "invalid plan",
-			err:    errors.New(`plan preflight: no valid plan_load: normalize DAG input: edges is required`),
-			module: "计划预检", method: "PreparePlan",
-			forbid: []string{"edges is required", "normalize DAG"},
-		},
-		{
 			name:   "result ref unavailable",
 			err:    errors.New(`read_tool_result: result_ref is not available in the current session`),
 			module: "工具执行", method: "read_tool_result",
@@ -104,11 +98,6 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 			module: "会话持久化", method: "persistCurrentSession",
 		},
 		{
-			name:   "plan preflight code",
-			err:    Wrap(fmt.Errorf("plan preflight: %w", errors.New("no plan_load")), contract.ErrorCodePlanPreflight),
-			module: "计划预检", method: "PreparePlan",
-		},
-		{
 			name:   "react budget code",
 			err:    Wrap(fmt.Errorf("%w: no progress", contract.ErrReActBudgetExceeded), contract.ErrorCodeReActBudget),
 			module: "执行预算", method: "finalizeReActBudget",
@@ -141,8 +130,8 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 		t.Fatal("errors.Is(contract.ErrReActBudgetExceeded) broken through structured envelope")
 	}
 	// 取消语义优先于结构化分类（与旧分类顺序一致）。
-	canceled := Wrap(fmt.Errorf("plan preflight: %w", context.Canceled), contract.ErrorCodePlanPreflight)
+	canceled := Wrap(fmt.Errorf("wrapped: %w", context.Canceled), "some.other.code")
 	if got := Classify(canceled).String(); !strings.Contains(got, "任务已停止") {
-		t.Fatalf("canceled plan preflight should present as 任务已停止, got %q", got)
+		t.Fatalf("canceled error should present as 任务已停止, got %q", got)
 	}
 }

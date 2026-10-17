@@ -135,7 +135,6 @@
 ### tool_hooks.go
 
 - `func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string)`
-- `func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding`
 - `func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration)`
 - `func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id, arguments, result string, toolErr error, duration time.Duration, observe func(string))` — handleToolCompleteObserved 把生产完成投影保持在一处，同时允许 ToolHookBridge
 - `func NewToolHookBridge() *ToolHookBridge`
@@ -143,11 +142,15 @@
 - `func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver)` — SetDiagnosticObserver 安装可选、尽力而为的生命周期诊断。传入 nil 关闭。
 - `func (bridge *ToolHookBridge) observeDiagnostic(event ToolHookDiagnosticEvent)`
 - `func (bridge *ToolHookBridge) Hooks() *session.LoopHooks`
-- `func normalizePlanToolCallInfo(info session.ToolCallInfo) session.ToolCallInfo` — normalizePlanToolCallInfo 保持应用快照与 Seele 执行的同一规范 DAG 表示。
 - `func (bridge *ToolHookBridge) beginTool(info session.ToolCallInfo) (*Service, string)`
 - `func (bridge *ToolHookBridge) completeTool(info session.ToolCallInfo) (*Service, string)`
 - `func (bridge *ToolHookBridge) nextToolIDLocked() string`
 - `func toolHookKey(info session.ToolCallInfo) string`
+
+### tool_hooks_test.go
+
+- `func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T)` — TestHandleSubagentToolEventProjectsBoundedIncrementals 钉住子代理工具事件的
+- `func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T)`
 
 ### tool_hooks_truncation_test.go
 

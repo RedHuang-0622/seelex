@@ -19,7 +19,7 @@ import (
 type Profile struct {
 	Level           string
 	Loops           loop.Profile
-	PlanPolicy      dto.PlanPolicy
+	SubagentPolicy  dto.SubagentPolicy
 	ReasoningEffort string
 }
 
@@ -28,25 +28,25 @@ var profiles = map[string]Profile{
 	"lite": {
 		Level:           "lite",
 		Loops:           mustLoopProfile("lite"),
-		PlanPolicy:      dto.PlanPolicy{Effort: "lite"},
+		SubagentPolicy:  dto.SubagentPolicy{Effort: "lite"},
 		ReasoningEffort: "low",
 	},
 	"medium": {
 		Level: "medium",
 		// MaxForkConcurrency 有意保持 0：subagent 只是角色 + 模型供应商。
-		PlanPolicy:      dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true},
+		SubagentPolicy:  dto.SubagentPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true},
 		ReasoningEffort: "medium",
 		Loops:           mustLoopProfile("medium"),
 	},
 	"high": {
 		Level:           "high",
-		PlanPolicy:      dto.PlanPolicy{Effort: "high", MaxNodeLoops: 48},
+		SubagentPolicy:  dto.SubagentPolicy{Effort: "high", MaxNodeLoops: 48},
 		ReasoningEffort: "high",
 		Loops:           mustLoopProfile("high"),
 	},
 	"max": {
 		Level:           "max",
-		PlanPolicy:      dto.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
+		SubagentPolicy:  dto.SubagentPolicy{Effort: "max", MaxNodeLoops: 96},
 		ReasoningEffort: "max",
 		Loops:           mustLoopProfile("max"),
 	},
@@ -82,13 +82,13 @@ func ReasoningEffortFor(level string) string {
 	return profile.ReasoningEffort
 }
 
-// PlanningPolicy 返回 plan_load 的硬约束；未识别兜底 lite（迁移前口径）。
-func PlanningPolicy(level string) dto.PlanPolicy {
+// SubagentPolicyFor 返回 plan_load 的硬约束；未识别兜底 lite（迁移前口径）。
+func SubagentPolicyFor(level string) dto.SubagentPolicy {
 	profile, ok := For(level)
 	if !ok {
 		profile = profiles["lite"]
 	}
-	return profile.PlanPolicy
+	return profile.SubagentPolicy
 }
 
 // Levels 返回全部已登记档位（顺序不保证；需要顺序用 OrderedLevels）。

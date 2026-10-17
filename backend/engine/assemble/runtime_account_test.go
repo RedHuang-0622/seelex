@@ -12,7 +12,6 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	seelaccount "github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
@@ -366,64 +365,6 @@ func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
 	spec, err := model.ResolveAccountSpec(loaded.Specs, model.RoleSubAgent)
 	if err != nil || spec.Name != "subagent-1" {
 		t.Fatalf("resolved account=%v err=%v", spec, err)
-	}
-}
-func TestRuntimePlanBranchBindingResolvesAccountsByRoleAndPin(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "accounts.yaml")
-	content := `roles:
-  agent:
-    - model: main-model
-      base_url: http://localhost
-      api_key: test-key
-  subagent:
-    - model: child-one
-      base_url: http://localhost
-      api_key: test-key
-    - model: child-two
-      base_url: http://localhost
-      api_key: test-key
-`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path, ToolCallTimeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Shutdown()
-	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
-		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start", TraceID: "trace-1",
-	})
-	binding := runtime.currentPlanBranchBinding()
-	if role := roleForPlanBranch(binding, "start"); role != model.RoleAgent {
-		t.Fatalf("entry role = %q, want agent", role)
-	}
-	if role := roleForPlanBranch(binding, "left"); role != model.RoleSubAgent {
-		t.Fatalf("left role = %q, want subagent", role)
-	}
-	if traceID := branchTraceID(binding, "left"); traceID != "trace-1:left" {
-		t.Fatalf("branch trace ID = %q", traceID)
-	}
-	entryAccount, err := runtime.resolvePlanBranchAccount(binding, model.RoleAgent, "start")
-	if err != nil || entryAccount != "agent-1" {
-		t.Fatalf("entry account = %q err=%v", entryAccount, err)
-	}
-	leftAccount, err := runtime.resolvePlanBranchAccount(binding, model.RoleSubAgent, "left")
-	if err != nil || (leftAccount != "subagent-1" && leftAccount != "subagent-2") {
-		t.Fatalf("left account = %q err=%v", leftAccount, err)
-	}
-
-	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", AccountID: "subagent-2"})
-	pinned := runtime.currentPlanBranchBinding()
-	override, err := runtime.resolvePlanBranchAccount(pinned, model.RoleSubAgent, "left")
-	if err != nil || override != "subagent-2" {
-		t.Fatalf("explicit account override = %q err=%v", override, err)
-	}
-
-	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", AccountID: "missing-account"})
-	missing := runtime.currentPlanBranchBinding()
-	if _, err := runtime.resolvePlanBranchAccount(missing, model.RoleSubAgent, "left"); err == nil {
-		t.Fatal("unavailable pinned account must fail")
 	}
 }
 func TestRuntimeToleratesEmptyAccountsWithWarning(t *testing.T) {

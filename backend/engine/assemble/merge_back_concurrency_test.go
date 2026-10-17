@@ -2,7 +2,6 @@ package assemble
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -34,12 +33,21 @@ func TestMergeBackParallelSubagentsNoRace(t *testing.T) {
 	mustRegisterAccount(t, runtime, "left-agent", left)
 	mustRegisterAccount(t, runtime, "right-agent", right)
 
-	planJSON := `{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"},"left":{"input":"audit left","kind":"agent"},"right":{"input":"audit right","kind":"agent"},"finish":{"input":"finish","kind":"auto"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load: %v %s", err, result)
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, spec := range []struct{ id, goal string }{{"left", "audit left"}, {"right", "audit right"}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), spec.id, spec.goal, "", 0); err != nil {
+				errs <- err
+			}
+		}()
 	}
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
-		t.Fatalf("plan_run failed: %v", err)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
 	}
 
 	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
@@ -155,30 +163,22 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 	}
 	runtime.pool.Unregister("agent-1")
 
-	var sb strings.Builder
-	sb.WriteString(`{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"}`)
+	var wg sync.WaitGroup
+	errs := make(chan error, subagents)
 	for i := 0; i < subagents; i++ {
 		id := string(rune('a' + i))
-		fmt.Fprintf(&sb, `,"%s":{"input":"audit %s","kind":"agent"}`, id, id)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), id, "audit "+id, "", 0); err != nil {
+				errs <- err
+			}
+		}()
 	}
-	sb.WriteString(`,"finish":{"input":"finish","kind":"auto"}},"edges":{"start":[`)
-	for i := 0; i < subagents; i++ {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(`"` + string(rune('a'+i)) + `"`)
-	}
-	sb.WriteString(`]`)
-	for i := 0; i < subagents; i++ {
-		sb.WriteString(`,"` + string(rune('a'+i)) + `":["finish"]`)
-	}
-	sb.WriteString(`}}`)
-
-	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", sb.String()); err != nil || !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load: %v %s", err, result)
-	}
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
-		t.Fatalf("plan_run failed: %v", err)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
 	}
 
 	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
@@ -235,13 +235,9 @@ func TestMergeBackSkippedOnTimeout(t *testing.T) {
 	runtime.pool.Unregister("agent-1")
 	mustRegisterAccount(t, runtime, "slow-agent", slow)
 
-	planJSON := `{"entry":"do","nodes":{"do":{"input":"audit the module","kind":"agent"}},"edges":{}}`
-	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load: %v %s", err, result)
-	}
-	_, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
+	_, err := runtime.runForkSubagent(context.Background(), "do", "audit the module", "", 0)
 	if err == nil {
-		t.Fatal("plan_run must fail when the subagent times out")
+		t.Fatal("subagent dispatch must fail when the subagent times out")
 	}
 
 	// 2026-09-08 语义：超时节点仍执行 mergeBack 更新父证据/登记失败结果，

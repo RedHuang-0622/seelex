@@ -230,7 +230,7 @@ func TestReActBudgetByEffort(t *testing.T) {
 	}
 }
 
-func TestPlanningPolicyByEffort(t *testing.T) {
+func TestSubagentPolicyForByEffort(t *testing.T) {
 	tests := []struct {
 		level    string
 		maxNodes int
@@ -243,11 +243,11 @@ func TestPlanningPolicyByEffort(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.level, func(t *testing.T) {
-			policy := PlanningPolicy(test.level)
+			policy := SubagentPolicyFor(test.level)
 			// 2026-09-07：并发不再由 effort 档限制（subagent = 角色 +
 			// 模型供应商）；任何档位都不得再注入 MaxForkConcurrency。
 			if policy.Effort != test.level || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != 0 {
-				t.Fatalf("PlanningPolicy(%q) = %+v", test.level, policy)
+				t.Fatalf("SubagentPolicyFor(%q) = %+v", test.level, policy)
 			}
 		})
 	}

@@ -419,8 +419,8 @@ func (service *Service) refreshWorkTableFromSources() {
 
 // ── CSP 生命周期消费者（取代同步回调 observer）────────────
 
-// startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
-// 工作表格；plan 节点事件 → 投影；task 变更 → 直发 task.changed；后台执行表变化 →
+// startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
+// 工作表格；task 变更 → 直发 task.changed；后台执行表变化 →
 // 重投影（这一路同时驱动"后台作业终态触发对话"，见 consumeAsyncRuns 的注释）。数据经
 // channel（CSP）流转，runtime 侧不再同步回调进 application。
 func (service *Service) startLifecycleConsumers() {
@@ -431,11 +431,10 @@ func (service *Service) startLifecycleConsumers() {
 		service.lifecycleStop = make(chan struct{})
 	}
 	go service.consumeSubagentLifecycle(service.Deps.Runtime)
-	// 四个消费者都在**起 goroutine 之前**拿到宿主面：契约上信号口必须在 wiring.New 之前就绪
+	// 三个消费者都在**起 goroutine 之前**拿到宿主面：契约上信号口必须在 wiring.New 之前就绪
 	// （见 consumeAsyncRuns 的装配说明），所以消费者本来就不该在运行期读 `service.Deps.Runtime`
 	// ——顺带消掉"启动后替换 Deps.Runtime"与这些读之间的 data race（P20：`-race` 抓到
-	// served_route 用例写 `Deps.Runtime` 与 consume{PlanNodeEvents,TaskChanges,AsyncRuns} 的读撞车）。
-	go service.consumePlanNodeEvents(service.Deps.Runtime)
+	// served_route 用例写 `Deps.Runtime` 与 consume{TaskChanges,AsyncRuns} 的读撞车）。
 	go service.consumeTaskChanges(service.Deps.Runtime)
 	// 宿主面在**起 goroutine 之前**读一次传进去：消费者不再碰 `service.Deps.Runtime`。
 	// 这既守住下面那条"信号口在 wiring.New 之前就绪、消费者只读一次通道"的装配契约，
@@ -459,24 +458,6 @@ func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort) {
 		select {
 		case <-events:
 			service.safeLifecycleCall(service.RefreshWorkTableSnapshot)
-		case <-service.lifecycleStop:
-			return
-		}
-	}
-}
-
-func (service *Service) consumePlanNodeEvents(runtime contract.RuntimePort) {
-	events := runtime.PlanNodeEventChannel()
-	if events == nil {
-		return
-	}
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			service.safeLifecycleCall(func() { service.HandlePlanNodeComplete(event) })
 		case <-service.lifecycleStop:
 			return
 		}

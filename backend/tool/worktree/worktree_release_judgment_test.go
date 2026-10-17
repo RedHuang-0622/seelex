@@ -24,8 +24,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 )
 
 // releaseScene 是一份待释放的现场（真实 git 仓库 + 真实 worktree）。
@@ -53,7 +51,6 @@ func TestSceneReleaseJudgmentIsSingleAcrossEntries(t *testing.T) {
 		mgr := NewWorktreeManager(WorktreeManagerDeps{
 			Root:  func() string { return root },
 			Phase: func(context.Context, string, string) {},
-			Gate:  func() approve.ApprovalGate { return &approveGateStub{choice: "approve"} },
 		})
 		t.Cleanup(mgr.Close)
 		wt := mgr.BeginNamed("wi-release-judgment")

@@ -329,9 +329,8 @@ type fakeRuntime struct {
 	// fullAccessMu 保护 fullAccess：多个会话的 runChat 起点并发 sync
 	// 引擎门（G4 每会话选择 → 进程单例门镜像），fake 必须与生产
 	// PermissionGate（内部 RWMutex）同构，否则 -race 报竞争。
-	fullAccessMu sync.RWMutex
-	binding      dto.PlanBranchBinding
-	planPolicy   dto.PlanPolicy
+	fullAccessMu   sync.RWMutex
+	subagentPolicy dto.SubagentPolicy
 	// visibleTools 覆盖 VisibleTools 的返回（默认给 [read]）：用例需要
 	// "某个工具名真的可见"时（未知命令提示要把工具与命令分开）才设置。
 	visibleTools []model.Tool
@@ -348,22 +347,15 @@ type fakeRuntime struct {
 	// 与 asyncRuns 一样是"两张表"里的另一张（contract.TeamworkJobCompletion）。
 	teamworkRuns   []dto.TeamworkJobCompletionRecord
 	teamworkEvents chan struct{}
-	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
-	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
-	planPolicyMu        sync.Mutex
-	planPolicyBySession map[string]dto.PlanPolicy
-	visibility          assemble.RuntimeVisibilityProjection
-	evidence            assemble.ParentEvidenceProjection
-	mailbox             []string
-	mailboxMu           sync.Mutex
-	replans             []dto.ReplanRequest
-	replanResult        dto.PlanPreflight
-	replanErr           error
-	replanMetrics       dto.ReplanMetrics
-	// replanMetricsBySession 是按会话 replan 统计（G1/M5：fake 镜像
-	// 生产 Runtime.ReplanMetricsFor 的会话槽语义）。
-	replanMetricsBySession map[string]dto.ReplanMetrics
-	projectRoot            string
+	// subagentPolicyBySession 是按会话子代理策略槽（镜像生产
+	// Runtime.SetSubagentPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
+	subagentPolicyMu        sync.Mutex
+	subagentPolicyBySession map[string]dto.SubagentPolicy
+	visibility              assemble.RuntimeVisibilityProjection
+	evidence                assemble.ParentEvidenceProjection
+	mailbox                 []string
+	mailboxMu               sync.Mutex
+	projectRoot             string
 	// projectRootMu 保护 projectRoot：后台会话的 runChat（rebindViewWorkspaceWhenIdle
 	// → bindProjectRootIfSafe）会在 chat goroutine 上写它，而用例在测试 goroutine 上
 	// 读它——不加锁就是数据竞争（-race 实报：TestBackgroundSessionKeepsOwnProjectRoot
@@ -515,42 +507,24 @@ func (runtime *fakeRuntime) DrainSubagentContexts() []string {
 	return items
 }
 
-func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy) {
-	runtime.planPolicy = policy
+func (runtime *fakeRuntime) SetSubagentPolicy(policy dto.SubagentPolicy) {
+	runtime.subagentPolicy = policy
 }
 
-func (runtime *fakeRuntime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
-	runtime.planPolicyMu.Lock()
-	defer runtime.planPolicyMu.Unlock()
-	if runtime.planPolicyBySession == nil {
-		runtime.planPolicyBySession = make(map[string]dto.PlanPolicy)
+func (runtime *fakeRuntime) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy) {
+	runtime.subagentPolicyMu.Lock()
+	defer runtime.subagentPolicyMu.Unlock()
+	if runtime.subagentPolicyBySession == nil {
+		runtime.subagentPolicyBySession = make(map[string]dto.SubagentPolicy)
 	}
-	runtime.planPolicyBySession[sessionID] = policy
+	runtime.subagentPolicyBySession[sessionID] = policy
 }
 
-func (runtime *fakeRuntime) planPolicyFor(sessionID string) (dto.PlanPolicy, bool) {
-	runtime.planPolicyMu.Lock()
-	defer runtime.planPolicyMu.Unlock()
-	policy, ok := runtime.planPolicyBySession[sessionID]
+func (runtime *fakeRuntime) subagentPolicyFor(sessionID string) (dto.SubagentPolicy, bool) {
+	runtime.subagentPolicyMu.Lock()
+	defer runtime.subagentPolicyMu.Unlock()
+	policy, ok := runtime.subagentPolicyBySession[sessionID]
 	return policy, ok
-}
-
-func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
-	runtime.replans = append(runtime.replans, request)
-	return runtime.replanResult, runtime.replanErr
-}
-
-func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics { return runtime.replanMetrics }
-
-func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
-	if runtime.replanMetricsBySession == nil {
-		return runtime.replanMetrics
-	}
-	return runtime.replanMetricsBySession[sessionID]
-}
-
-func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
-	runtime.binding = binding
 }
 
 func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem {

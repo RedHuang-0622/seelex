@@ -41,7 +41,7 @@
 | P21-subagent-session | **域方法随类型走**第五片：子代理**独立会话工厂**（显式 ID 建会话 + 重名拒绝 + 组件模板补齐 Hooks/SessionID/ModelName/History + 注册进 registry）搬进域包 | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `SessionFactory`（`session_factory.go`）；本包 `runtime_subagent_session.go` 只剩一行薄转发，公开方法名与签名逐字不变 |
 | P21-unified-events | **域方法随类型走**第六片：B 类脱敏摘要日志（`SummaryLog` + 摘要→框架事件转换）与统一事件查询（`UnifiedEventReader` / `UnifiedEventView` / 两个读法 / `UnifiedEventTopic` 话题映射 / `filterUnifiedEvents` 过滤）连同**判据**一起下沉 | [`backend/engine/obs`](../../engine/obs/README.md) 的 `unified_events.go`；本包 `events_unified.go` 只剩同身份别名（调用方与用例零改动）+ 两个公开读法的薄转发，宿主读数仍只有两格（`HistoryRouter` 与 tracer 的查询闭包） |
 | P21-account-windows | **域方法随类型走**第七片：每账号上下文窗口覆盖层的**状态**（互斥量 + 表）与三条判据（入口过滤、改一格/清一格、**生效窗口的优先级**）下沉；顺带删掉装配层唯一读法 `Runtime.accountWindow`（域包 `For` 是唯一一份） | [`backend/engine/account`](../../engine/account/README.md) 的 `WindowOverlay`（`window_overlay.go`）；本包 `runtime_account.go` 只剩 `SetAccountWindow` / `AccountWindows` / `ContextWindowFor` 三个薄转发（公开签名逐字不变），宿主读数以 `account.WindowDeps` 注入（`limits.context_window` + 账号档自报两条函数值） |
-| P21-event-correlation | **域方法随类型走**第八片：双轨事件的关联面（`correlateMainSessionID` 与两轨关联说明）整文件下沉；**同时把"从事件读会话归属"这条判据收敛成唯一一份**——装配层 `eventSessionID` 与 `backend/tool/plan` 的 `sessionIDFromLocations` 都是 `store.sessionIDFromEvent` 的逐字副本，现统一为 `store.SessionIDFromEvent` / `store.SessionIDFromLocations`（含 obs 话题映射里的内联循环） | [`backend/engine/obs`](../../engine/obs/README.md) 的 `event_correlation.go`（`CorrelateMainSessionID`）+ [`store`](../../../store/README.md) 的 `SessionIDFromEvent` / `SessionIDFromLocations`（唯一判据处）；本包 `events.go` **删除**，`runtime_plan.go` 的 `SetEventPersister` 改为调用域包一行 |
+| P21-event-correlation | **域方法随类型走**第八片：双轨事件的关联面（`correlateMainSessionID` 与两轨关联说明）整文件下沉；**同时把"从事件读会话归属"这条判据收敛成唯一一份**——装配层 `eventSessionID` 与 `backend/tool/plan` 的 `sessionIDFromLocations` 都是 `store.sessionIDFromEvent` 的逐字副本，现统一为 `store.SessionIDFromEvent` / `store.SessionIDFromLocations`（含 obs 话题映射里的内联循环） | [`backend/engine/obs`](../../engine/obs/README.md) 的 `event_correlation.go`（`CorrelateMainSessionID`）+ [`store`](../../../store/README.md) 的 `SessionIDFromEvent` / `SessionIDFromLocations`（唯一判据处）；本包事件关联文件已删除，`runtime_subagent.go` 的 `SetEventPersister` 改为调用域包一行 |
 | P21-jobs-domain | **域方法随类型走**第九片：异步作业域的两面整文件下沉——作业生命周期事件流（`jobsEventStream` + 状态记忆 + 状态映射 + 时间基序号）与后台执行表投影（`AsyncRunsSnapshot` 的逐列搬运）；端口取窄（事件流只吃 `Snapshot(Scope)` 一格；投影只吃 `[]registry.AsyncRunInfo`） | 新建 [`backend/tool/jobs`](../../tool/jobs/README.md)（`event_stream.go` / `projection.go`，plan §2.6 的目标落点）；本包容纳事件流的那个文件（`jobs_events`）**整份删除**、`runtime_async.go` 只剩两个薄转发，`currentEventPersister` 移到 `runtime_plan.go`（与 `SetEventPersister` 同处），装配点 `SetTeamworkBackend` 改为 `tooljobs.NewEventStream(...)`。**顺带修掉一处停机隐患**：`Close` 在"从未 Start"时不再等一个永不关闭的 `done`（装配中途失败会让停机钉死） |
 | P21-project-board | **域方法随类型走**第十片：项目看板的两面下沉——按需读取面（`ReadProjectBoard` + 白名单归一 + 稳定排序 + 边界报错，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 键完整性 / 读失败与空计划同解）；端口取两格函数值 | [`middle/view/board`](../../../middle/view/board/README.md) 的 `read.go` / `teamwork_plan.go`（plan §2.4 的目标落点）；本包按需读取面那个文件（`runtime_project_board_read`）**整份删除**、`runtime_project_board.go` 只剩方法转发 + `teamworkKeyFor` / `readTeamworkPlan` 两格宿主读数 + **直接**钉 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`（依赖方向允许本层引用该接口名）；工具注册点 `wiring/registry/registry.go` 的 5 处引用改指域包。域级用例随实现搬进域包（`read_test.go` 断言逐字 + 5 条新的 `teamwork_plan_test.go`），宿主级用例（`runtime_project_board_test.go`，真 Runtime + 真存储）留在本包 |
 | P21-teammate-live | **域方法随类型走**第十一片：**当前 teammate 会话**的实时只读投影（默认页 + 分页读法 + 唯一一份裁剪/分页判据 + 只留 user/assistant 的投影判据 + 两个上限常量）整文件下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `teammate_live.go`（plan §2.7 的目标落点）；本包 `runtime_teammate_session_live.go` 只剩两个公开方法的一行转发 + 同值常量别名 + **一格宿主读数** `teammateLiveDeps`/`teammateLiveSession`（角色回合执行面句柄：角色名 / 是否在飞 / 引擎历史）。域级用例随实现搬进域包（`teammate_live_test.go`，含原纯函数用例的断言），宿主级用例（两个 `runtime_teammate_session_live*_test.go`，真 Runtime + 真角色回合）留在本包 |
@@ -62,7 +62,7 @@
 | P21-plugin-reject | **域方法随类型走**第二十六片：「未装配名字」的判决（只判名字 / 已装插件不问 / 语法先于语义 / 判据函数给什么理由就说什么理由）下沉 | [`backend/multiagent/team`](../../multiagent/team/README.md) 的 `plugin_reject.go`（plan §2.7；与 P21-18 的 `ValidateMemberPlugins` 同域）；本包 `runtime_teamwork_curated.go` 只剩三格宿主读数（有没有判决面 / `Defined` / `UnassembledReason` + 每会话上限）。域级 5 条新用例；既有装配链用例一行未改 |
 | P21-session-bundle-release | **域方法随类型走**第二十七片：桥侧会话本体**释放判据**（三种拒绝情形 + 顺序）下沉 | [`middle/switch`](../../../middle/switch/README.md) 的 `bundle_release.go`（plan §2.4）；本包 `runtime_session_release.go` 只剩**宿主面**（四格读数：`ForkInFlight` / `AsyncPendingFor` / `takeSessionBundle`（注册表锁内"活跃别名 + 在册"检查并移出，原子）/ `dropSessionResidue`），`ReleaseSessionBundle` 签名与返回语义不变。域级 4 条新用例；宿主级用例（真 Runtime 注册表与残格）一行未改 |
 | P21-worker-round | **域方法随类型走**第二十八片：teammate 回合面的三条纯判据下沉（记录槽上限"只抬不降"、回数上限口径、回合输入正文组装） | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `worker_round.go`（plan §2.7）；本包 `runtime_teamwork.go` 里三处改成**同值/同身份别名**（`teamworkRoundsPerMember` / `teamworkJobRecordCeiling` / `workerTurnLimit`（回退值仍是本层角色回合常量）/ `workerRoundInput`），既有调用点与用例零改动。域级 3 条新用例 |
-| P21-plan-branch-routing | **域方法随类型走**第二十九片：Plan **分支路由**三条判据下沉（追踪 ID、稳定哈希与节点会话号派生、分支账号解析含"钉住账号必须存在"的显式拒绝） | [`backend/tool/plan`](../../tool/plan/README.md) 的 `branch_routing.go`（plan §2.6）；本包 `runtime_plan.go` 里 `branchTraceID` / `stableHash` 改成同身份别名、`nodeSessionID` 与 `resolvePlanBranchAccount` 改成薄转发（签名不变），并因此去掉 `hash/fnv` 与 `engine/account` 两条直依赖。域级 5 条新用例；既有用例（含 `branchTraceID` 断言）一行未改 |
+| P21-plan-branch-routing | **域方法随类型走**第二十九片（历史记录）：Plan **分支路由**三条判据曾下沉到 `backend/tool/plan` | 该包与内部 Plan 执行器已在 2026-10-17 随“plan_* 工具面退役”整体删除；节点会话号派生保留在 `backend/tool/node/session_id.go`，稳定哈希原语收敛到 `internal/stablehash` |
 | P21-project-scoped-names | **域方法随类型走**第三十片（**去重**）：项目作用域工具名单**两份实现并成一份**——`Router.Register` 里的六个名字字面量与装配层 `isProjectScopedTool` 的 switch 是同一份名单；现在名字与判据同处工具注册域（`scoped_names.go`），注册点用常量 | [`backend/tool/registry`](../../tool/registry/README.md) 的 `scoped_names.go`；本包 `runtime_tools.go` 的 `isProjectScopedTool` 改成**同身份别名**（调用点零改动）。新增跨实现一致性用例（桩捕获注册面名字对账） |
 | P21-role-turn-judgments | **域方法随类型走**第三十一片：员工回合三条判据下沉（身份 `WorkScope` 与 ctx 往返、工具活动稳定 ID 与上限、未登记提示词时的最小角色框架） | [`backend/multiagent/team`](../../multiagent/team/README.md) 的 `role_turn.go`（plan §2.7 明确列出 `runtime_role_turn.go`）；本包 `runtime_role_turn.go` 里 `roleWorkScope` 改类型别名、`withRoleWorkScope` / `roleWorkScopeFrom` / `roleToolActivityID` 改函数值别名、`roleTurnSystemPrompt` 只剩"读已登记提示词、否则回退域包默认"，并因此去掉 `hash/crc32`。执行面（开引擎/会话槽/权限分配/项目根绑定/回合闸门/ChatStream）仍是宿主。域级 3 条新用例 |
 | P21-teamwork-plan-query | **域方法随类型走**第三十二片（**去重**）：派发回执里的"按工作项找执行角色"另写过一次里程碑遍历（与 `items.go` 的 `findItem` 同源但口径略不同）→ 与"按角色找成员"一起收进团队域 `plan_query.go`；装配层 `dispatchItemRole` / `dispatchAssemblyReading` 只剩"取计划（host）+ 查一次（域包）" | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `plan_query.go`（`ItemRole` / `MemberOf`）。域级 2 条新用例；既有派发/装配读数用例一行未改 |
@@ -75,7 +75,7 @@
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_tools`
 （→ `backend/engine/toolregistry`）、
 `runtime_session` / `role_host_session`（→ `backend/engine/session`）；
-tool 侧 `runtime_plan`（→ `backend/tool/plan`）；
+tool 侧子代理执行（`runtime_subagent.go`；Plan 执行器已退役）；
 multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
 `runtime_subagent_*`（→ `backend/multiagent/subagent`；实时流与独立会话工厂已随 **P21-live-dispatch** /
 **P21-subagent-session** 下沉，剩余是恢复/续跑面）、`workunit_*`（→ `backend/multiagent/workunit`）、
@@ -138,7 +138,7 @@ flowchart TB
 | `runtime_plugin.go` | 插件域的宿主转发面（M5-R11-plugin 从 `ports.go` 原样搬来）：7 个 `Runtime` 公开方法，前六个逐行委托 [`backend/engine/plugin`](../../engine/plugin/README.md)，`WithPluginAssembly` 走共享原语 `toolreg.WithRolePlugins` |
 | `runtime_node.go` | 子代理树与节点只读面的宿主转发面（M5-R11-node 从 `ports.go` 原样搬来，含 `NodeWorktreeInfo` 别名）：14 个 `Runtime` 公开方法，逐行读 `Runtime` 自己持有的域组件 |
 | `runtime_task.go` | task 台账域的薄转发面（M5-R11-task-forwarder 从 `ports.go` 原样搬来）：`ledger()` + 台账/清单/批次 20 个方法 + `SetSessionWorkspace` + `RegisterTaskTerminalTools` |
-| `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
+| `runtime_subagent.go` | 子代理执行装配与委托（子代理策略、fork 作业面、node Deps 闭包；Plan 执行器已退役） |
 | `runtime_context.go` | 上下文**接线**（Assembler/Controller/Compressor/窗口/stack/project/memory/归档）：组件工厂 + 五个判据的一行转发（判据在域包 [`wiring.go`](../../engine/context/README.md)：分片预算 / 摘要器理由 / 读尾预算 / 真空区补压 / 记忆块选取） |
 | `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）——三条判据（入口过滤 / 改一格清一格 / **优先级**：账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）在 P21-8 下沉到 [`backend/engine/account.WindowOverlay`](../../engine/account/README.md)，本文件只剩三个薄转发 + `account.WindowDeps` 注入。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档。**路由事实注册表**（承接路由 / unpinned 去重 / 读即清）在 P21-3 下沉到 [`backend/engine/account.ServedRouteRegistry`](../../engine/account/README.md)，本文件只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发 |
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
@@ -191,7 +191,6 @@ flowchart TB
 |---|---|
 | `security/` | `ProjectScope` 项目根 containment + `CommandSandbox` shell 隔离（见 `../backend/limit/gate/README.md`） |
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `../backend/tool/io/fs/README.md`） |
-| `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `../backend/tool/plan/README.md`） |
 | `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `../backend/tool/task/README.md`） |
 | `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `../backend/tool/fork/README.md`） |
 | `node/` | `kind:agent` 节点执行域：`AgentNode`/`Coordinator`/`ScopeAssembler`/预算/charter/skill 匹配/工具结果归档（见 `../backend/tool/node/README.md`） |
@@ -226,7 +225,7 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 1. `NewRuntime` 加载账号并注册进 `accountpool.P2CPool[agent.Completer]`，装配
    `bridge.NewAccountCompleter`（同步）与 `streamingAccountCompleter`（流式，
    租约覆盖整条流），初始化 scope 和 MCP 状态。
-2. `RegisterBuiltins` 注册 scoped tools 与 plan/task 工具 provider；不能同时
+2. `RegisterBuiltins` 注册 scoped tools 与 task 工具 provider；不能同时
    暴露绕过 scope 的同名原始工具。
 3. Application 通过 `BindProjectRoot`（进程默认根）与 `BindProjectRootFor`
    （逐会话根）限定工具范围；工具按执行 ctx 的会话键解析项目根，后台/并行
@@ -259,7 +258,7 @@ fork 子会话深拷贝 = 新建 bundle + 数据面拷贝，不共享实例句�
 
 主会话装配器按前缀缓存链路接线（context-prefix-chain，任务 A）：project →
 memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context）→
-动态尾部栈（plan/task）；节点子代理继承路径仍使用完整栈块集合
+动态尾部栈（task/历史 plan 投影）；节点子代理继承路径仍使用完整栈块集合
 （`stackBlocks` 兼容入口），不受主链路顺序影响。
 
 冷恢复一致性：`DurableHistory` 尾窗 Load 触发的真空区补压只在会话已有
@@ -299,35 +298,34 @@ Windows GUI 构建还会以 `SysProcAttr.HideWindow` 启动 scoped shell，避�
 
 Plan 分支执行走 Seele v2 装配模型：`plan_run` 经 `codec.Import` 导入 DAG 后由
 `workplan.NewFromPlan(plan, bridge.NewAgentFactory(...))` 执行，每个
-`kind:agent` 节点获得**独立 Session**（`SeelexAgentNode` 包装：注入 NodeScope
-与节点级 PromptBlocks——目标/父证据/预算），天然并行隔离。账号选择按
-role + branchID 走确定性 hash（`ResolveAccountForBranch`），显式 binding
-AccountID 直接 pin，不占用主链路租约。节点执行事实经 `event.Sink` 投影为
-`PlanNodeEvent`（queued/running/终态），不再使用框架分支运行时回调。
+每条子代理获得**独立 Session**（`SeelexAgentNode` 包装：注入节点作用域
+与节点级 PromptBlocks——目标/父证据/预算），天然隔离。账号选择按
+role + branchID 走确定性 hash；fork 子代理没有 Plan 绑定，按 subagent
+角色选号。节点执行事实经节点会话/子代理树投影，不再产生 `PlanNodeEvent`。
 
-### Plan 执行域组件（`planExecutor`）
+### 子代理执行域（Plan 执行器已退役）
 
-Plan 策略、分支绑定、run ID、事件通道、重规划护栏、审批门与子代理工厂的
-状态收进 `plan.Executor`（`plan/executor.go`；Runtime 字段名仍是 `planExecutor`），
-`Runtime` 保留公开方法委托（`runtime_plan.go`）
-（`SetPlanPolicy`/`SetPlanBranchBinding`/`SetPlanApprovalGate`/
-`SetPlanNodeCallback`/`PlanNodeEventChannel`/`SetEventPersister`/
-`SetEventErrorHandler`/`ReplanMetrics`/`PrepareReplan`），
-`contract/ports.go` 不变。组件不持有 `*Runtime`：
-`accounts`/`loadPlanDefinition`/`dispatch`/`nodeFactory` 以 deps 闭包注入，
-`plan.ToolProvider`（`plan/tool_provider.go`，`plan.NewToolProvider` 绑定
-`*plan.Executor`）持有执行器引用；节点工厂（`nodeFactory`/`nodeFactoryDeps`/
-`nodeDeps`，见 `runtime_plan.go`）仍留在 Runtime，因为 `SeelexAgentNode` 依赖
-Runtime 的节点作用域与子代理上下文服务。
+内部 Plan 执行器、`plan_*` 工具面、分支绑定、replan 护栏与审批门已在
+2026-10-17 整体删除。当前 `Runtime` 只保留：
+
+- `agentFactory`：`bridge.NewAgentFactory` 构造的子代理会话工厂（fork 与
+  workunit 共用）；
+- `subagentPolicy`：effort 档位写入的子代理数量/并发/循环上限（会话级槽 +
+  进程默认槽，见 `runtime_subagent.go`）；
+- `nodeDeps`：节点作用域、worktree 三件套、会话注册/终态、父证据、
+  merge-back、PromptBlocks 与 Tracer 的闭包注入。
+
+`contract/ports.go` 只保留 `SetSubagentPolicy` / `SetSubagentPolicyFor`；
+历史 Plan 的只读投影仍在 `application/core/plan_tools.go`，但不再有执行入口。
 
 ### `fork_subagents` 的派发边界
 
-`fork_subagents` 是上述 Plan 的轻量入口，也是**作业化派发工具**：它程序化构造
-`start → N 个 agent → summary`，把这一批登记成 `Kind=subagent` 的作业，**调用立刻返回
+`fork_subagents` 是**作业化派发工具**：它按每条 spec 直接构造一个 AgentNode
+执行单条子代理（不经过 DAG），把这一批登记成 `Kind=subagent` 的作业，**调用立刻返回
 受理回执**（每个子代理一个句柄，形如 `bs-7`），编排在后台跑。产出走 `bg_manage(op=fetch, handle)`
 （消费式增量；一批一次等用 `handles`），过程用 `op=observe` 看、提前终止用 `op=kill`
 （已产出内容不丢；一条 kill 取消整批共用编排），结清用 `op=done`。要看更细的运行状态，
-另可读 Plan 的节点事件、工具活动与子会话快照。
+另可读子代理树、工具活动与子会话快照。
 
 句柄的命名空间（`bt-` 工具作业 / `bs-` 子代理作业 / `bteam-` 团队作业）与文法见
 `contract/dto/job_namespace.go`：它让"拿错表的句柄"不再可能命中无关作业；
@@ -377,11 +375,11 @@ Recovery planning is protected by a process-wide guard: by default at most two c
 Medium, High, and Max no longer create a mandatory planning preflight. Their
 `PlanPolicy` only constrains a voluntarily loaded DAG. Normal requests enter
 the primary ReAct loop directly, so no Plan authority envelope is injected
-into user input and no request-scoped PlanAct lease is acquired. The optional
-Plan remains a visible checklist; normal project-scoped tools perform the
-actual work, while prompt policy keeps `plan_run` out of the main workflow.
+into user input and no request-scoped PlanAct lease is acquired. 历史 Plan
+只作为只读清单显示；实际工作由正常项目作用域工具与 fork 子代理完成。
 
-每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。节点账号选择按 role 与 seed 确定性解析（`resolvePlanBranchAccount`/`ResolveAccountForBranch`），显式 binding 优先 pin，避免并发分支共享不可控状态。
+每条子代理执行携带节点作用域（node/branch/role/workspace/task）。节点账号选择
+按 role 与 branchID 种子确定性解析，不共享主链路租约，避免并发分支互相挤占。
 
 ## 兼容性原则
 
@@ -433,5 +431,5 @@ child agent) and Application drains it by discarding the content — mailbox
 content never enters engine history, the visible conversation, or storage.
 
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在
-`plan_kernel_test.go`，账号池/流式租约在 `runtime_account_test.go`/
+`runtime_subagent_resume_test.go`，账号池/流式租约在 `runtime_account_test.go`/
 `internal/stream/stream_test.go`，流式端到端在 `stream_integration_test.go`。

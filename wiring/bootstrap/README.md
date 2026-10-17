@@ -2,108 +2,108 @@
 
 ## 生态位
 
-`wiring/bootstrap` 是组合根的**装配段**：把 Seelex 的全部部件（Runtime、插件/技能系统、存储、
+mwiring/bootstrapm 是组合根的**装配段**：把 Seelex 的全部部件（Runtime、插件/技能系统、存储、
 Application、权限门、工具与能力、看板 sink、前端）按固定顺序接成一台能跑的 Seelex。
 
-主要调用方是入口 `main.go`（`Run` → `Serve` → `Shutdown` 三步）与测试基座
-（`test/`、`e2e/` 里的 full-chain harness 逐段复用 `Init*`）。它存在的理由只有一条：
-**同一套装配要能被多个入口复用**（`go run .`、发布二进制、`-frontend backend` 诊断入口、
+主要调用方是入口 mmain.gom（mRunm → mServem → mShutdownm 三步）与测试基座
+（mtest/m、me2e/m 里的 full-chain harness 逐段复用 mInit*m）。它存在的理由只有一条：
+**同一套装配要能被多个入口复用**（mgo run .m、发布二进制、m-frontend backendm 诊断入口、
 headless 宿主、测试基座），第二份"看起来差不多"的装配正是历史事故（测试基座缺一句
-`AttachSubSessionStore`，端到端断言恒为空集）的来源。
+mAttachSubSessionStorem，端到端断言恒为空集）的来源。
 
 ## 职责与非职责
 
-**做**：装配顺序；装配期的一次性注入（`RuntimeDeps` / `EnginePortDeps` / 看板 sink / 工具记录
+**做**：装配顺序；装配期的一次性注入（mRuntimeDepsm / mEnginePortDepsm / 看板 sink / 工具记录
 存储）；**逆序关机**；启动期多进程闸门；数据根解析后的 limits 与覆盖层叠加；权限门安装；
 前端选择与启动。
 
-**不做**：不声明启动参数（`wiring/config`）；不登记具体工具（`wiring/registry`）；不实现任何
-业务判定（一律调用被装部件的既有方法面）；不解析配置段语义（`backend/limit`、
-`mcpstack/config` 各自拥有自己的段）。
+**不做**：不声明启动参数（mwiring/configm）；不登记具体工具（mwiring/registrym）；不实现任何
+业务判定（一律调用被装部件的既有方法面）；不解析配置段语义（mbackend/limitm、
+mmcpstack/configm 各自拥有自己的段）。
 
 ## 文件结构
 
 | 文件 | 职责 |
 |---|---|
-| `bootstrap.go` | `Options` / `App` / `Run` / `Serve` / `Shutdown`：装配主流程与逆序关机栈。 |
-| `runtime.go` | `InitRuntime`（配置责任链 → limits → 覆盖层 → 账号池）、`InitStore`、`InitWorkspaceRepo`、`InitEngine`、会话→存储键解析、工具记录存储适配、多进程闸门。 |
-| `plugins.go` | `InitSkillSystem`、`PluginStartup`、`InitPluginSystem`、`ActivateDefaultPlugin`。 |
-| `application.go` | `InitSessionManager`、`InitApplication`（`wiring.New(Dependencies{...})` 的唯一装配点）。 |
-| `permission.go` | `SetupPermissionGate`、`MergePermissionConfig`、`DefaultManualRules`、`LoadPermissionConfig`、`NewPermissionBridge`。 |
-| `frontend.go` | `InitTUI`、`StartTUI`、`StartFrontend`（tui / gui / headless / backend 四态分派）。 |
+| mbootstrap.gom | mOptionsm / mAppm / mRunm / mServem / mShutdownm：装配主流程与逆序关机栈。 |
+| mruntime.gom | mInitRuntimem（配置责任链 → limits → 覆盖层 → 账号池）、mInitStorem、mInitWorkspaceRepom、mInitEnginem、会话→存储键解析、工具记录存储适配、多进程闸门。 |
+| mplugins.gom | mInitSkillSystemm、mPluginStartupm、mInitPluginSystemm、mActivateDefaultPluginm。 |
+| mapplication.gom | mInitSessionManagerm、mInitApplicationm（mwiring.New(Dependencies{...})m 的唯一装配点）。 |
+| mpermission.gom | mSetupPermissionGatem、mMergePermissionConfigm、mDefaultManualRulesm、mLoadPermissionConfigm、mNewPermissionBridgem。 |
+| mfrontend.gom | mInitTUIm、mStartTUIm、mStartFrontendm（tui / gui / headless / backend 四态分派）。 |
 
 ## 核心实现
 
-- **顺序就是行为面**：`Run` 的每一步顺序与 M5 之前 `main.go` 的 `run()` 逐条一致
+- **顺序就是行为面**：mRunm 的每一步顺序与 M5 之前 mmain.gom 的 mrun()m 逐条一致
   （runtime → 闸门 → builtins → skills → plugins → store → 权限门 → 工具注册 → EnginePort
   deps → teamwork → Application → 各类回调注入 → 看板 sink → 工具记录 → RuntimeDeps →
   定时任务恢复 → 前端）。改动顺序属于行为变更，必须配套用例。
-- **逆序关机栈**：`Run` 里原本的 `defer` 全部改写成 `App.addCleanup`，`Shutdown` 反向执行，
-  顺序与改动前逐条相同（`closeProjectBoard` → `app.Shutdown` → `st.Close` → `runtime.Shutdown`
-  → backend 诊断输出最后关）。装配中途失败时 `fail` 走同一套清理再返回原错误。
-- **显式输入**：数据根（`storePath`）与插件根（`pluginsPaths`）作为参数传入，装配段不读包级
+- **逆序关机栈**：mRunm 里原本的 mdeferm 全部改写成 mApp.addCleanupm，mShutdownm 反向执行，
+  顺序与改动前逐条相同（mcloseProjectBoardm → mapp.Shutdownm → mst.Closem → mruntime.Shutdownm
+  → backend 诊断输出最后关）。装配中途失败时 mfailm 走同一套清理再返回原错误。
+- **显式输入**：数据根（mstorePathm）与插件根（mpluginsPathsm）作为参数传入，装配段不读包级
   flag——第二个入口因此可以把它们换成别的值（不同 build 的不同配置）。
-- **权限门**：先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），`config/seele.yaml`
-  的 `permission` 段按字段覆盖；免打断白名单按**装配期解析出的实际壳**分派
-  （`policy.PermissionConfigForShell`）。
-- **前端分派**：`StartFrontend` 是四态 switch；GUI 不可用时（未带 `gui,desktop,production`
+- **权限门**：先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），mconfig/seele.yamlm
+  的 mpermissionm 段按字段覆盖；免打断白名单按**装配期解析出的实际壳**分派
+  （mpolicy.PermissionConfigForShellm）。
+- **前端分派**：mStartFrontendm 是四态 switch；GUI 不可用时（未带 mgui,desktop,productionm
   标签）在装配早期就给出可读错误，而不是等到建窗。
 
 ## 数据流
 
-`wiring/config.Flags` + `internal/buildinfo.Version`（入口）→ `Run` → `App{Application, Runtime, Store}`
-→ `Serve` 跑前端 → `Shutdown` 逆序释放。运行期数据流由各被装部件负责，本包只在装配期
-**一次性**接线（`RuntimeDeps` / `EnginePortDeps` / `Set*` 注入），不做运行期转发。
+mwiring/config.Flagsm + minternal/buildinfo.Versionm（入口）→ mRunm → mApp{Application, Runtime, Store}m
+→ mServem 跑前端 → mShutdownm 逆序释放。运行期数据流由各被装部件负责，本包只在装配期
+**一次性**接线（mRuntimeDepsm / mEnginePortDepsm / mSet*m 注入），不做运行期转发。
 
 ## 依赖方向
 
-允许：标准库、`application`（含 core、console、`core/task_context`、`core/session_runtime`）、
-`backend/engine/assemble`（Runtime）、`backend/limit{,overlay,policy}`、
-`backend/multiagent/teamwork`、`backend/tool/{registry,search}`、`gui`、`tui`、
-`internal/bootseed`、`backend/engine/prompt/assets`、`plugin`、`session`、`skill`、`store{,/workspace}`、
-`wiring`、`wiring/config`、`wiring/registry`、Seele 的 `session`/`types`/`tools/permission`。
+允许：标准库、mapplicationm（含 core、console、mcore/task_contextm、mcore/session_runtimem）、
+mbackend/engine/assemblem（Runtime）、mbackend/limit{,overlay,policy}m、
+mbackend/multiagent/teamworkm、mbackend/tool/{registry,search}m、mguim、mtuim、
+minternal/bootseedm、mbackend/engine/prompt/assetsm、mpluginm、msessionm、mskillm、mstore{,/workspace}m、
+mwiringm、mwiring/configm、mwiring/registrym、Seele 的 msessionm/mtypesm/mtools/permissionm。
 
-禁止：`wiring/bootstrap` 不得被 `application/*`、`backend/*`、`gui`、`tui` 反向依赖；它只被
+禁止：mwiring/bootstrapm 不得被 mapplication/*m、mbackend/*m、mguim、mtuim 反向依赖；它只被
 入口与测试装配。
 
 ## 错误语义
 
-- 装配期错误**不吞**：逐层向上返回原错误（`InitStore`/`InitRuntime`/`InitPluginSystem` 各自
-  带上下文），`Run` 在返回前按已登记的清理栈释放已装部件——半装配状态不会留在进程里。
-- 启动期的**非致命**配置问题走 `Runtime.StartupWarnings()`：以系统通知进 UI 面，不阻断启动
+- 装配期错误**不吞**：逐层向上返回原错误（mInitStorem/mInitRuntimem/mInitPluginSystemm 各自
+  带上下文），mRunm 在返回前按已登记的清理栈释放已装部件——半装配状态不会留在进程里。
+- 启动期的**非致命**配置问题走 mRuntime.StartupWarnings()m：以系统通知进 UI 面，不阻断启动
   （"配置读不到就回退代码默认值"的既有口径）。
-- 零插件、GUI 不可用、数据根被活进程占用：都是显式错误（分别由 `wiring/config`、
-  `StartFrontend` 的可用性检查、`limits.runtime.allow_multi_process` 闸门给出）。
+- 零插件、GUI 不可用、数据根被活进程占用：都是显式错误（分别由 mwiring/configm、
+  mStartFrontendm 的可用性检查、mlimits.runtime.allow_multi_processm 闸门给出）。
 
 ## 扩展方式
 
-新增一个装配步骤：加在 `Run` 里**正确的位置**并说明为什么在那里（顺序即行为），需要关机的
-就 `boot.addCleanup`；新增一个入口：`config.BindFlags(flag.CommandLine)` → `bootstrap.Run` →
-`Serve` → `Shutdown`，不要在入口里复制装配。新增前端形态：改 `ParseFrontendMode`
-（`wiring/config`）与 `StartFrontend` 的 switch，并补两处文档。
+新增一个装配步骤：加在 mRunm 里**正确的位置**并说明为什么在那里（顺序即行为），需要关机的
+就 mboot.addCleanupm；新增一个入口：mconfig.BindFlags(flag.CommandLine)m → mbootstrap.Runm →
+mServem → mShutdownm，不要在入口里复制装配。新增前端形态：改 mParseFrontendModem
+（mwiring/configm）与 mStartFrontendm 的 switch，并补两处文档。
 
 ## Review 指南
 
-- 装配顺序是否被改动（尤其 `SetTeamworkBackend` 必须在 `InitApplication` 之前、
-  `RestoreScheduledTasks` 必须在执行器注入之后）。
-- 新增的 `defer` 是否必须——`Run` 内部用清理栈，不要混用两种关机路径。
+- 装配顺序是否被改动（尤其 mSetTeamworkBackendm 必须在 mInitApplicationm 之前、
+  mRestoreScheduledTasksm 必须在执行器注入之后）。
+- 新增的 mdeferm 是否必须——mRunm 内部用清理栈，不要混用两种关机路径。
 - 是否把包级 flag 又读回来了（应当只剩参数）。
 - 是否出现了第二份装配（测试基座自己拼一遍）——那正是漂移的来源。
 - 关机顺序是否仍是逆序，且每一格只会被关一次（幂等）。
 
 ## 测试与验证
 
-```text
+mmmtext
 go test ./wiring/bootstrap/ -count=1     # 本包随装配被根包/测试基座用例覆盖
 go build ./wiring/bootstrap
 go test ./test/ -count=1                 # full-chain harness 逐段复用 Init*
 go test ./e2e/ -count=1
-```
+mmm
 
-关键跨包用例（随 M5 收尾搬进 `test/`）：`tool_full_chain_test.go`（同序装配的测试基座）、
-`manual_smoke_test.go`、`repro_*_test.go`（会话/工具链回归都建在这套装配上）、
-`permission_config_test.go` / `permission_employee_panel_test.go`（权限门与审批桥）、
-`release_test.go`（档位与默认值的契约）。
+关键跨包用例（随 M5 收尾搬进 mtest/m）：mtool_full_chain_test.gom（同序装配的测试基座）、
+mmanual_smoke_test.gom、mrepro_*_test.gom（会话/工具链回归都建在这套装配上）、
+mpermission_config_test.gom / mpermission_employee_panel_test.gom（权限门与审批桥）、
+mrelease_test.gom（档位与默认值的契约）。
 
 ## 文件与函数索引
 

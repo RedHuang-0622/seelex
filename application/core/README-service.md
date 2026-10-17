@@ -146,13 +146,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 - `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection)`
 - `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
-- `func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy)`
-- `func (runtime *fakeRuntime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)`
-- `func (runtime *fakeRuntime) planPolicyFor(sessionID string) (dto.PlanPolicy, bool)`
-- `func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
-- `func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics`
-- `func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics`
-- `func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding)`
+- `func (runtime *fakeRuntime) SetSubagentPolicy(policy dto.SubagentPolicy)`
+- `func (runtime *fakeRuntime) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy)`
+- `func (runtime *fakeRuntime) subagentPolicyFor(sessionID string) (dto.SubagentPolicy, bool)`
 - `func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem`
 - `func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error`
 - `func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord` — TaskSnapshot 返回**项目/全局** task 表（镜像生产 Runtime：实时注册表 +
@@ -294,8 +290,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
-- `func (service *Service) appendPlanRetryNotice(message string)`
-- `func (service *Service) abortPlanInteraction()`
 - `func (service *Service) SelectAccount(_ context.Context, name string) error`
 - `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
@@ -358,19 +352,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_notice_test.go
 
 - `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
-
-### service_plan_test.go
-
-- `func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T)`
-- `func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T)`
-- `func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T)`
-- `func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T)`
-- `func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T)`
-- `func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T)`
-- `func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T)`
-- `func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T)`
-- `func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T)`
-- `func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T)`
 
 ### service_queue.go
 

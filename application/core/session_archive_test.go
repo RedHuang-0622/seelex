@@ -488,26 +488,6 @@ func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 	}
 }
 
-func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-plan"}
-	service := newTestService(t, engine)
-	defer service.Shutdown()
-	arguments := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
-
-	service.handleToolStart(context.Background(), "plan_load", "plan-call", arguments)
-	service.handleToolComplete("plan_load", "plan-call", `{"status":"loaded"}`, nil, 0)
-
-	service.ViewMu.RLock()
-	defer service.ViewMu.RUnlock()
-	if service.components.tasks.ActivePlanID() == "" || len(service.components.tasks.PlanStack()) != 1 {
-		t.Fatalf("plan stack = %#v, active = %q", service.components.tasks.PlanStack(), service.components.tasks.ActivePlanID())
-	}
-	frame := service.components.tasks.PlanStack()[0]
-	if frame.ID != service.components.tasks.ActivePlanID() || frame.Arguments != arguments || frame.Plan == nil || frame.Plan.EntryNodeID != "inspect" {
-		t.Fatalf("loaded frame = %#v", frame)
-	}
-}
-
 func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 	sessions := &archiveSessions{
 		historyErr: errors.New("history shard unavailable"),

@@ -67,10 +67,6 @@ func Classify(err error) Presented {
 			summary: "会话记录中存在缺少可发送文本的条目，本次请求未能安全提交。",
 			next:    "当前进度已保存；请发送“继续”重试。",
 		}
-	case StructuredCode(err) == contract.ErrorCodePlanPreflight ||
-		strings.Contains(message, "plan preflight") || strings.Contains(message, "plan_load:") ||
-		strings.Contains(message, "plan policy "):
-		return planPreflightPresentation()
 	case errors.Is(err, contract.ErrReActBudgetExceeded) || StructuredCode(err) == contract.ErrorCodeReActBudget ||
 		strings.Contains(message, "react execution budget"):
 		return reactBudgetPresentation()

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
@@ -110,21 +109,19 @@ func (l *phaseLog) has(status string) bool {
 
 // newScriptedManager 组装一个注入脚本化 git 的管理器（预算压到几十毫秒，测试可
 // 在秒级观察重试）。
-func newScriptedManager(t *testing.T, git *scriptedGit) (*WorktreeManager, *phaseLog, *approveGateStub) {
+func newScriptedManager(t *testing.T, git *scriptedGit) (*WorktreeManager, *phaseLog) {
 	t.Helper()
 	root := t.TempDir()
 	phases := &phaseLog{}
-	gate := &approveGateStub{choice: "approve"}
 	manager := NewWorktreeManager(WorktreeManagerDeps{
 		Root:  func() string { return root },
 		Phase: phases.record,
-		Gate:  func() approve.ApprovalGate { return gate },
 	})
 	manager.git = git.run
 	manager.mergeRetryBudget = 60 * time.Millisecond
 	manager.mergeRetryInterval = 2 * time.Millisecond
 	t.Cleanup(manager.Close)
-	return manager, phases, gate
+	return manager, phases
 }
 
 // mainDirtyBlocked 是"主工作区未提交改动压在本次合并路径上"的 git 原文形状。
@@ -135,7 +132,7 @@ const mainDirtyBlocked = "error: Your local changes to the following files would
 // 同一个主工作区的 .git。判据取"同时进入 merge 的子进程数"——必须恒为 1。
 func TestFinishSerializesConcurrentMergesIntoMain(t *testing.T) {
 	git := newScriptedGit()
-	manager, _, _ := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	first := manager.BeginNamed("n1")
 	second := manager.BeginNamed("n2")
 	if first == nil || second == nil {
@@ -182,7 +179,7 @@ func TestFinishSerializesConcurrentMergesIntoMain(t *testing.T) {
 // 2026-10-05 之前"一批子代理同时收工"的现场——红线用例必须能区分这两者。
 func TestFinishWithoutActorOverlapsMerges(t *testing.T) {
 	git := newScriptedGit()
-	manager, _, _ := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	manager.finishActor = nil // 对照：无串行化
 	first := manager.BeginNamed("n1")
 	second := manager.BeginNamed("n2")
@@ -222,7 +219,7 @@ func TestFinishRetriesWhileMainWorkspaceDirtyThenMerges(t *testing.T) {
 		}
 		return "merged", nil
 	}
-	manager, phases, gate := newScriptedManager(t, git)
+	manager, phases := newScriptedManager(t, git)
 	wt := manager.BeginNamed("impl")
 	if wt == nil {
 		t.Fatal("begin must succeed with scripted git")
@@ -239,12 +236,6 @@ func TestFinishRetriesWhileMainWorkspaceDirtyThenMerges(t *testing.T) {
 	if !containsCall(git.snapshot(), "worktree remove --force "+wt.Path) {
 		t.Fatalf("合上之后必须清理现场：calls=%v", git.snapshot())
 	}
-	gate.mu.Lock()
-	asked := len(gate.asked)
-	gate.mu.Unlock()
-	if asked != 1 {
-		t.Fatalf("审批门被问 %d 次，want 1（重试不重复打扰）", asked)
-	}
 }
 
 // TestFinishReportsMergeBlockedByMainWithoutFailingScene：预算耗尽仍被挡住 → 返回
@@ -255,7 +246,7 @@ func TestFinishReportsMergeBlockedByMainWithoutFailingScene(t *testing.T) {
 	git.mergeHook = func(string, int) (string, error) {
 		return mainDirtyBlocked, errors.New("exit status 1")
 	}
-	manager, phases, _ := newScriptedManager(t, git)
+	manager, phases := newScriptedManager(t, git)
 	wt := manager.BeginNamed("impl")
 	if wt == nil {
 		t.Fatal("begin must succeed with scripted git")
@@ -289,7 +280,7 @@ func TestFinishMergeConflictIsDefinitive(t *testing.T) {
 	git.mergeHook = func(string, int) (string, error) {
 		return "CONFLICT (content): Merge conflict in main.go\nAutomatic merge failed; fix conflicts and then commit the result.", errors.New("exit status 1")
 	}
-	manager, _, _ := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	wt := manager.BeginNamed("impl")
 	if wt == nil {
 		t.Fatal("begin must succeed with scripted git")
@@ -327,7 +318,7 @@ func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T) {
 		}
 		return "merged", nil
 	}
-	manager, _, _ := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	manager.mergeRetryBudget = 30 * time.Second // n1 一直等，直到自己的 ctx 被取消
 	manager.mergeRetryInterval = 5 * time.Millisecond
 	stuck := manager.BeginNamed("n1")
@@ -373,7 +364,7 @@ func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T) {
 // 串行化与现场语义对两者同时生效。
 func TestBeginNamedReusedByTeammateAndSubagent(t *testing.T) {
 	git := newScriptedGit()
-	manager, _, _ := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	byScope := manager.Begin(model.NodeScope{NodeID: "wi-1", Role: model.RoleSubAgent, BranchID: "wi-1"}, "wi-1")
 	byName := manager.BeginNamed("wi-2")
 	if byScope == nil || byName == nil {

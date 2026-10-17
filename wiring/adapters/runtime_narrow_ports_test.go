@@ -37,14 +37,10 @@ var narrowPortForwarded = map[string]string{
 	// goal 第五栈的会话上下文存储取用面（service_assembler.go）。
 	// **本轮补**：漏了它 = goal 不落盘、board_goal.json 从不写。
 	"SessionContextStoreFor": "SessionContextStoreFor",
-	// persistedPlanRestorer（session_history.go，包内命名接口）。
-	"RestorePlan": "RestorePlan",
 	// fork 在飞闸门（service_input.go 两处）。
 	"ForkInFlight": "ForkInFlight",
 	// 冻结会话执行（session_scope.go）。
 	"PerSessionExecution": "PerSessionExecution",
-	// 按会话 replan 指标（view_state/coordinator.go）。**本轮补**。
-	"ReplanMetricsFor": "ReplanMetricsFor",
 	// 按会话任务快照（work_table.go）。
 	"TaskSnapshotFor": "TaskSnapshotFor",
 	// 按轮插件装配（service_scheduler.go，定时任务的插件装配）。

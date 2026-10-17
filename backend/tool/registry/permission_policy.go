@@ -10,7 +10,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/stablehash"
 )
 
 // rolePolicyCacheTTL 是"角色会话 → 员工权限口径"解析结果的缓存时长。解析器由
@@ -348,9 +348,7 @@ func EmployeeSubjectName(roleName string) string {
 // employeeSubjectHash 是角色原文的稳定短哈希（8 位十六进制）：只在归一化丢信息时
 // 用来区分"归一后同名"的不同角色。
 func employeeSubjectHash(roleName string) string {
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(roleName))
-	return fmt.Sprintf("%08x", hasher.Sum32())
+	return fmt.Sprintf("%08x", stablehash.FNV1a32(roleName))
 }
 
 // EmployeeSubject 返回员工的主体 id（不是员工 → ok=false）。

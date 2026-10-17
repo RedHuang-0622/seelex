@@ -3,7 +3,6 @@ package core
 import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -38,7 +37,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 				Children: []model.PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
 			},
 		},
-		Edges: []seelplan.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
+		Edges: []dto.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
 	}
 	tasks := []dto.TaskRecord{
 		{ID: "plan:n1", Key: "plan:n1", Phase: "plan", Task: "调研", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1", Elapsed: "2m"},

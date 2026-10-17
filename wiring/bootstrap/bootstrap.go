@@ -15,7 +15,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	coretask "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
@@ -157,10 +156,8 @@ func Run(opts Options) (*App, error) {
 	boot.addCleanup(func() { _ = st.Close() })
 	console.LogStageIf(backendTrace, "startup.store.ready")
 	runtime.AttachHistoryRouter(st)
-	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）
-	// 与 plan checkpoint 持久化（RunPlan 落最终快照，ResumePlan 续跑）。
+	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）。
 	runtime.AttachSubSessionStore(store.NewNodeSessionStore(st))
-	runtime.SetPlanCheckpointStore(store.NewCheckpointStore(st, st.Workspace()))
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
 	// 双轨事件（slice 8）：执行事实 → store 事件库（事实轨），
@@ -404,13 +401,7 @@ func Run(opts Options) (*App, error) {
 			}
 			return &record
 		},
-		EventPersister: eventStore.Append,
-		PlanApprovalGate: &adapters.PlanApprovalGate{
-			Broker: approval,
-			// 波 4 approval 会话级归属：plan/manual 审批节点随执行 ctx
-			// 归属到目标会话（与 runChat 同一路由键）。
-			SessionIDFromContext: coretask.SessionIDFromContext,
-		},
+		EventPersister:       eventStore.Append,
 		SubagentToolCallback: app.HandleSubagentToolEvent,
 		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
 		// 都在 application（HandleRoleToolActivity）。

@@ -203,18 +203,18 @@ func (service *Service) effortForSession(sessionID string) string {
 	return service.effortManager.Current()
 }
 
-// syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
-// plan_load/plan_run 在引擎内按执行 ctx 的会话读取自己的槽；chat 起点同步，
-// 保证每个会话（含后台）都携带自己的额度，而不是继承进程默认槽）。
-func (service *Service) syncPlanPolicyFor(sessionID string) {
+// syncSubagentPolicyFor 按会话 effort 向引擎写入该会话的子代理策略槽：
+// fork 在引擎内按执行 ctx 的会话读取自己的槽；chat 起点同步，保证每个会话
+// （含后台）都携带自己的额度，而不是继承进程默认槽。
+func (service *Service) syncSubagentPolicyFor(sessionID string) {
 	if service == nil || service.Deps.Runtime == nil {
 		return
 	}
-	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
+	service.Deps.Runtime.SetSubagentPolicyFor(sessionID, prompt.SubagentPolicyFor(service.effortForSession(sessionID)))
 }
 
 // syncSessionReasoningEffortFor 是**回合起点**按会话下发 wire 思考强度的唯一入口
-// （与 syncPlanPolicyFor / syncFullAccessFor 同一个同步点，于是后台会话、定时任务
+// （与 syncSubagentPolicyFor / syncFullAccessFor 同一个同步点，于是后台会话、定时任务
 // 新建的会话都自带自己的那一条，而不是继承上一个说话的会话）。
 //
 // 两条来源，一格优先：
@@ -236,7 +236,7 @@ func (service *Service) syncSessionReasoningEffortFor(sessionID string) {
 // syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
 // （`reasoning_effort: session`），返回被改动的账号数。
 //
-// 与 syncPlanPolicyFor 的分工：plan 策略槽按会话写进引擎（每个会话一份），而思考
+// 与 syncSubagentPolicyFor 的分工：子代理策略槽按会话写进引擎（每个会话一份），而思考
 // 强度落在**账号客户端**上、账号池是进程级共享的（一个账号一个 ChatClient），所以
 // 这里不按会话分格——只在档位变化时下发一次，多个会话各自的档位在下发口上按"后切
 // 者生效"落到同一批账号（账号池本来就是进程级共享，不是本次引入的语义）。

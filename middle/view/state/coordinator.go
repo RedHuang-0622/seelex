@@ -228,15 +228,6 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			projection.Runtime.TeamworkBoard = &copyView
 		}
 	}
-	metrics := c.replanMetricsFor(sessionID)
-	projection.Runtime.Replan = model.ReplanMonitor{
-		InFlight: metrics.InFlight, ConcurrentLimit: metrics.ConcurrentLimit,
-		WindowAttempts: metrics.WindowAttempts, WindowLimit: metrics.WindowLimit,
-		WindowStartedAt: metrics.WindowStartedAt, Accepted: metrics.Accepted,
-		Succeeded: metrics.Succeeded, Failed: metrics.Failed, Rejected: metrics.Rejected,
-		DuplicateRejected: metrics.DuplicateRejected, ProviderRequests: metrics.ProviderRequests,
-		ProviderWindowRequests: metrics.ProviderWindowRequests, ProviderWindowLimit: metrics.ProviderWindowLimit,
-	}
 	// 工作表格是**项目/全局**读模型（跨会话台账）：无论视图会话还是后台
 	// 会话，都取全局注册表合并快照（TaskSnapshot）——会话只是条目的产生地，
 	// 不是表格的作用域，切走/新建都不丢行。会话级读面（持久化落盘、请求
@@ -264,17 +255,6 @@ func (c *Coordinator) permissionTierFor(sessionID string) string {
 		return tier
 	}
 	return dto.PermissionTierManual
-}
-
-// replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
-// 未实现时回退进程级合计）。
-func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics {
-	if forMetrics, ok := c.Deps.Runtime.(interface {
-		ReplanMetricsFor(string) dto.ReplanMetrics
-	}); ok {
-		return forMetrics.ReplanMetricsFor(sessionID)
-	}
-	return c.Deps.Runtime.ReplanMetrics()
 }
 
 // tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；

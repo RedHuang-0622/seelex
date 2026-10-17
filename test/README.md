@@ -94,7 +94,7 @@ go test -tags manualsmoke ./test/ -count=1    # 需要真实账号的手工冒�
 gofmt -l test
 ```
 
-关键用例：`tool_full_chain_test.go`（同序装配基座）、`manual_smoke_test.go`（手工冒烟总入口）、
+关键用例：`tool_full_chain_test.go`（同序装配基座）、
 `repro_*_test.go`（会话/工具链回归复现）、`release_test.go`（发布契约：版本号、默认档位、
 安全默认值）、`build_layout_test.go` 与 `icon_resource_test.go`（构建/交付布局护栏）、
 `plugin_*_test.go` 与 `project_board_*_test.go`（插件与看板契约）。
@@ -107,7 +107,7 @@ gofmt -l test
 | 卷 | 覆盖 | 内容 |
 |---|---|---|
 | [README-harness.md](README-harness.md) | `doc.go`、`main_test.go` | 用例基座：包说明、TestMain 的 CWD 口径与 launchFlags 摆现场句柄。 |
-| [README-live.md](README-live.md) | `async_exec_ab_live_test.go`、`async_tool_wire_live_probe_test.go`、`compact_live_smoke_test.go`、`computer_use_live_smoke_test.go`、`context_long_live_test.go`、`job_backfill_live_smoke_test.go`、`job_live_smoke_test.go`、`manual_smoke_test.go`、`prefix_chain_live_test.go`、`real_api_permission_smoke_test.go`、`real_api_prefix_live_test.go`、`real_api_smoke_test.go`、`scheduled_task_live_smoke_test.go`、`smoke_test.go` | 真 API / 手工冒烟族：由 build tag 与环境变量双开关，缺凭证即 skip（默认集合不红）。 |
+| [README-live.md](README-live.md) | `async_exec_ab_live_test.go`、`async_tool_wire_live_probe_test.go`、`compact_live_smoke_test.go`、`computer_use_live_smoke_test.go`、`context_long_live_test.go`、`job_backfill_live_smoke_test.go`、`job_live_smoke_test.go`、`prefix_chain_live_test.go`、`real_api_permission_smoke_test.go`、`real_api_prefix_live_test.go`、`real_api_smoke_test.go`、`scheduled_task_live_smoke_test.go`、`smoke_test.go` | 真 API / 手工冒烟族：由 build tag 与环境变量双开关，缺凭证即 skip（默认集合不红）。 |
 | [README-repro.md](README-repro.md) | `prefix_invariant_fullchain_test.go`、`repro_chain_ab_test.go`、`repro_hot_attach_background_tool_order_test.go`、`repro_multi_round_llm_preserved_test.go`、`repro_queued_input_switch_promotion_test.go`、`repro_second_round_engine_released_test.go`、`repro_session_background_test.go`、`repro_session_disappear_test.go`、`repro_session_race_test.go`、`repro_session_switch_real_test.go`、`repro_session_workspace_test.go`、`repro_three_sessions_running_switch_test.go`、`repro_two_running_view_third_then_switched_finishes_test.go` | 会话/工具链回归复现：用户现象 → 会红的断言（含多会话并发与热切场景）。 |
 | [README-session.md](README-session.md) | `session_chain_bench_test.go`、`session_switch_profile_test.go` | 会话生命周期与切换成本：链路基准与切换剖面。 |
 | [README-plugin.md](README-plugin.md) | `curated_catalog_test.go`、`dev_plugin_payload_test.go`、`plugin_catalog_registration_test.go`、`plugin_curated_runtime_test.go`、`plugin_doc_sigil_test.go`、`plugin_roots_test.go`、`plugin_self_tools_test.go`、`skill_activate_tool_test.go`、`tool_face_prompt_consistency_test.go`、`tool_meta_declaration_test.go` | 插件与精选目录契约：目录登记、根解析、自省工具、技能激活、工具声明分封。 |

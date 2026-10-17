@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -92,7 +92,7 @@ func TestSubagentResumeRestartsInterruptedUnit(t *testing.T) {
 	runtime.setSubagentRedispatchHook(func(_ context.Context, nodeID, goal string) (string, error) {
 		dispatched = append(dispatched, nodeID+":"+goal)
 		note = runtime.SubagentResumeNote(nodeID)
-		blocks = runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: nodeID, Input: goal})
+		blocks = runtime.node.PromptBlocks(seenode.SeelexNodeInput{ID: nodeID, Input: goal})
 		// 模拟真实运行期收尾：结论跟随 main（记录由收敛步骤删除）。
 		done := record
 		done.Status = "done"

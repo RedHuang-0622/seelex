@@ -200,7 +200,6 @@
 - `func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T)`
 - `func TestSessionRecordStoresLargeContentByReference(t *testing.T)`
 - `func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T)`
-- `func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T)`
 - `func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T)`
 - `func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T)`
 - `func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *testing.T)` — TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents 是
@@ -326,7 +325,7 @@
 ### session_effort_test.go
 
 - `func TestEffortOwnershipPerSession(t *testing.T)` — TestEffortOwnershipPerSession（G4）：effort 选择归属进 SessionUnit——
-- `func TestPlanPolicySlotSyncPerSession(t *testing.T)` — TestPlanPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
+- `func TestSubagentPolicySlotSyncPerSession(t *testing.T)` — TestSubagentPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
 
 ### session_fork.go
 
@@ -622,10 +621,6 @@
 - `func TestSetPermissionTierRejectsUnknown(t *testing.T)` — TestSetPermissionTierRejectsUnknown：非法档位 id 报错且**不改变**当前档位。
 - `func TestSetFullAccessCompatMapsToTier(t *testing.T)` — TestSetFullAccessCompatMapsToTier：旧全权开关是档位的兼容壳（true ⇔ full，
 
-### session_plan_switch_regression_test.go
-
-- `func TestHotAttachKeepsBackgroundPlanProgress(t *testing.T)` — TestHotAttachKeepsBackgroundPlanProgress 回归：后台会话运行期间 plan 节点
-
 ### session_pollution_s0_test.go
 
 - `func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T)`
@@ -721,7 +716,7 @@
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
 - `func (service *Service) effortForSession(sessionID string) string` — effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
-- `func (service *Service) syncPlanPolicyFor(sessionID string)` — syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
+- `func (service *Service) syncSubagentPolicyFor(sessionID string)` — syncSubagentPolicyFor 按会话 effort 向引擎写入该会话的子代理策略槽：
 - `func (service *Service) syncSessionReasoningEffortFor(sessionID string)` — syncSessionReasoningEffortFor 是**回合起点**按会话下发 wire 思考强度的唯一入口
 - `func (service *Service) syncSessionReasoningEffort(level string) int` — syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
 - `func (service *Service) permissionTierForSession(sessionID string) string` — permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；

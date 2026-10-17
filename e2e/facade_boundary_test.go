@@ -202,9 +202,13 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/model",
 	"github.com/RedHuang-0622/seelex/internal/stream",
 	"github.com/RedHuang-0622/seelex/internal/telemetry",
+	// P22：共享稳定哈希原语（node 会话号 / 账号定序 / 权限主体名）。
+	// **等量替换的理由**：三处原各有一份 FNV-1a 实现，收敛为 `internal/stablehash`；
+	// 同时删掉了 `backend/tool/plan` 的清单条目。新包只依赖标准库，没有引入第三方
+	// 或反向依赖，闭包条数不变。
+	"github.com/RedHuang-0622/seelex/internal/stablehash",
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp",
 	"github.com/RedHuang-0622/seelex/backend/tool/node",
-	"github.com/RedHuang-0622/seelex/backend/tool/plan",
 	// M5-R9：这里是 Runtime 的插件可见性投影缓存，原先就装在
 	// `backend/engine/plugin` 目录里；plugin 生命周期包从仓库顶层归位到同一个
 	// 目录后，缓存退到子包 `backend/engine/plugin/visibility`（包名 plugin →

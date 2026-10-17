@@ -3,24 +3,14 @@ package assemble
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/RedHuang-0622/Seele/accountpool"
-	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/seelectx"
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 
-	seelaccount "github.com/RedHuang-0622/seelex/backend/engine/account"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -157,9 +147,9 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
-	node := seenode.NewAgentNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[seenode.SeelexNodeInput]{
 		ID:    "left",
-		Input: plan.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
+		Input: seenode.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
 
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
@@ -210,9 +200,9 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		}
 	})
 
-	node := seenode.NewAgentNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[seenode.SeelexNodeInput]{
 		ID:    "left",
-		Input: plan.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
+		Input: seenode.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
 	ctx := seenode.WithNodeScope(context.Background(), node.Scope()())
 	ctx = seenode.WithNodePromptBlocks(ctx, node.Blocks()())
@@ -248,298 +238,3 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 }
 
 // ── DAG 两分支并行（确定性 completer）────────────────────────────────
-
-// TestPlanRunParallelAgentBranches 验证子代理 DAG 真并行：
-//   - 两个 agent 分支按账号 hash 路由到不同账号（subagent-1/subagent-2）；
-//   - 左分支阻塞期间右分支已完成（并行而非串行）；
-//   - 子代理请求携带父证据块与节点目标；
-//   - 子代理只看到项目作用域工具（read_file 在、plan_run 不在）；
-//   - 节点完成事件流入投影（dto.PlanNodeEvent）。
-func TestPlanRunParallelAgentBranches(t *testing.T) {
-	runtime := newTestRuntimeWithSubagents(t)
-	defer runtime.Shutdown()
-	runtime.RegisterBuiltins()
-
-	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
-
-	// hash 路由断言：left/right 必须落到不同子代理账号（否则无法证明并行）。
-	leftAccount, err := seelaccount.ResolveForBranch(runtime.pool, model.RoleSubAgent, "plan-1:left")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rightAccount, err := seelaccount.ResolveForBranch(runtime.pool, model.RoleSubAgent, "plan-1:right")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if leftAccount == rightAccount {
-		t.Fatalf("branch hash collision: both resolve to %q; pick different plan IDs", leftAccount)
-	}
-
-	// 两个分支的 completer 都阻塞：同时"在途"即为并行调度（串行执行器
-	// 永远无法让第二个分支启动）。
-	blockingLeft := newScriptedNodeCompleter("left-done")
-	blockingLeft.release = make(chan struct{})
-	blockingRight := newScriptedNodeCompleter("right-done")
-	blockingRight.release = make(chan struct{})
-	blockingRight.probeTool = "plan_run" // 首轮尝试调用隐藏工具，验证 Dispatch 拒绝后继续
-
-	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
-		"agent-1":    newScriptedNodeCompleter("main-done"),
-		leftAccount:  blockingLeft,
-		rightAccount: blockingRight,
-	})
-
-	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
-		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start",
-	})
-
-	projected := make(chan dto.PlanNodeEvent, 64)
-	runtime.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
-
-	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"do left","kind":"agent"},"right":{"input":"do right","kind":"agent"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
-		t.Fatal(err)
-	}
-
-	runDone := make(chan struct{})
-	go func() {
-		defer close(runDone)
-		result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
-		if err != nil {
-			t.Errorf("plan_run failed: %v", err)
-			return
-		}
-		if !strings.Contains(result, `"status":"completed"`) {
-			t.Errorf("plan_run result = %q, want completed", result)
-		}
-	}()
-
-	// 两分支同时阻塞 = 并行调度（串行执行器不可能让第二个分支启动）。
-	select {
-	case <-blockingLeft.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("left branch never started")
-	}
-	select {
-	case <-blockingRight.started:
-	case <-time.After(5 * time.Second):
-		close(blockingLeft.release)
-		t.Fatal("right branch did not start while left is blocked: branches are serialized")
-	}
-
-	// 子代理请求断言：两分支启动时都已记录请求与工具集（含父证据块）。
-	for _, branch := range []struct {
-		name      string
-		completer *scriptedNodeCompleter
-		goal      string
-	}{{name: "left", completer: blockingLeft, goal: "do left"}, {name: "right", completer: blockingRight, goal: "do right"}} {
-		branch.completer.mu.Lock()
-		requests := branch.completer.requests
-		tools := branch.completer.seenTools
-		branch.completer.mu.Unlock()
-		if len(requests) == 0 {
-			t.Fatalf("%s branch never produced an LLM request", branch.name)
-		}
-		requestText := joinMessageContents(requests[0])
-		for _, want := range []string{branch.goal, "## 继承上下文", "parent-goal"} {
-			if !strings.Contains(requestText, want) {
-				t.Errorf("%s branch request missing %q:\n%s", branch.name, want, requestText)
-			}
-		}
-		if len(tools) == 0 {
-			t.Fatalf("%s branch never received a tool set", branch.name)
-		}
-		seen := toolNamesFromTypes(tools[0])
-		if !containsName(seen, "read_file") {
-			t.Errorf("%s branch tools = %v, missing scoped read_file", branch.name, seen)
-		}
-		if containsName(seen, "plan_run") {
-			t.Errorf("%s branch tools = %v, hidden plan_run leaked to subagent", branch.name, seen)
-		}
-	}
-
-	// 释放两个分支 → 全图完成。
-	close(blockingLeft.release)
-	close(blockingRight.release)
-	select {
-	case <-runDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("plan_run did not finish after releasing both branches")
-	}
-
-	// right 分支探测的隐藏工具调用被拒绝后仍完成：探测轮 + 终轮。
-	blockingRight.mu.Lock()
-	rightRequestCount := len(blockingRight.requests)
-	blockingRight.mu.Unlock()
-	if rightRequestCount < 2 {
-		t.Errorf("right branch requests = %d, want probe round + final round", rightRequestCount)
-	}
-
-	// 节点事件流入投影：left/right 均出现 completed（kind=agent）。
-	statuses := map[string][]string{}
-	kinds := map[string]string{}
-	for {
-		select {
-		case ev := <-projected:
-			statuses[ev.NodeID] = append(statuses[ev.NodeID], ev.Status)
-			if ev.NodeID != "" && ev.Kind != "" {
-				kinds[ev.NodeID] = ev.Kind
-			}
-		default:
-			goto drained
-		}
-	}
-drained:
-	for _, id := range []string{"left", "right"} {
-		seen := statuses[id]
-		if len(seen) == 0 || seen[len(seen)-1] != "completed" {
-			t.Errorf("node %q projection = %v, want final completed", id, seen)
-		}
-		if kinds[id] != "agent" {
-			t.Errorf("node %q projected kind = %q, want agent", id, kinds[id])
-		}
-	}
-}
-
-// ── 测试辅助 ─────────────────────────────────────────────────────────
-
-// scriptedNodeCompleter 是确定性节点 completer（example 08 模式，无网络）：
-// 记录每次请求的完整消息与可见工具；release 非 nil 时阻塞到关闭（模拟慢
-// 节点）；probeTool 非空时首轮发出该工具调用（验证 Dispatch 可见性）；
-// failErr 非空时直接失败（模拟上游 LLM 流错误 → 节点 failed）。
-type scriptedNodeCompleter struct {
-	mu        sync.Mutex
-	startOnce sync.Once
-	started   chan struct{}
-	release   chan struct{}
-	requests  [][]types.Message
-	seenTools [][]types.Tool
-	probeTool string
-	reply     string
-	failErr   error
-}
-
-func newScriptedNodeCompleter(reply string) *scriptedNodeCompleter {
-	return &scriptedNodeCompleter{started: make(chan struct{}), reply: reply}
-}
-
-func (c *scriptedNodeCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error) {
-	c.mu.Lock()
-	c.requests = append(c.requests, cloneMessages(messages))
-	c.seenTools = append(c.seenTools, cloneTools(tools))
-	c.mu.Unlock()
-	c.startOnce.Do(func() { close(c.started) })
-	if c.release != nil {
-		select {
-		case <-c.release:
-		case <-ctx.Done():
-			return types.Message{}, ctx.Err()
-		}
-	}
-	// 首轮：发出 probeTool 工具调用（下一轮返回最终文本）。
-	if c.probeTool != "" && len(c.requests) == 1 {
-		return types.Message{
-			Role: "assistant",
-			ToolCalls: []types.ToolCall{{
-				ID: "call-1", Type: "function",
-				Function: types.ToolCallFunction{Name: c.probeTool, Arguments: "{}"},
-			}},
-		}, nil
-	}
-	reply := c.reply
-	if reply == "" {
-		reply = "node-done"
-	}
-	return types.Message{Role: "assistant", Content: &reply}, nil
-}
-
-// newTestRuntimeWithSubagents 构造带两个子代理账号的测试 Runtime
-// （并行分支各占一个账号，MaxConcurrency=1 时并行性由 DAG 执行器保证）。
-func newTestRuntimeWithSubagents(t testing.TB) *Runtime {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "accounts.yaml")
-	content := `roles:
-  agent:
-    - model: main-model
-      base_url: http://localhost
-      api_key: test-key
-  subagent:
-    - model: child-one
-      base_url: http://localhost
-      api_key: test-key
-    - model: child-two
-      base_url: http://localhost
-      api_key: test-key
-`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path, ToolCallTimeout: 30 * time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
-	return runtime
-}
-
-// injectScriptedCompleters 用确定性 completer 替换账号池（不发起网络调用）。
-func injectScriptedCompleters(t *testing.T, runtime *Runtime, completers map[string]agent.Completer) {
-	t.Helper()
-	for _, entry := range runtime.pool.Entries() {
-		if err := runtime.pool.Unregister(entry.Snapshot.ID); err != nil {
-			t.Fatalf("unregister %q: %v", entry.Snapshot.ID, err)
-		}
-	}
-	for id, value := range completers {
-		if err := runtime.pool.Register(accountpool.Account[agent.Completer]{
-			ID: id, Value: value, MaxConcurrency: 1,
-			Metadata: map[string]string{"provider": "openai", "model": "test-model"},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func cloneMessages(messages []types.Message) []types.Message {
-	cloned := make([]types.Message, len(messages))
-	copy(cloned, messages)
-	for index := range cloned {
-		if cloned[index].Content != nil {
-			value := *cloned[index].Content
-			cloned[index].Content = &value
-		}
-	}
-	return cloned
-}
-
-func cloneTools(tools []types.Tool) []types.Tool {
-	return append([]types.Tool(nil), tools...)
-}
-
-func joinMessageContents(messages []types.Message) string {
-	var builder strings.Builder
-	for _, message := range messages {
-		if message.Content != nil {
-			builder.WriteString(*message.Content)
-			builder.WriteString("\n")
-		}
-	}
-	return builder.String()
-}
-
-func toolNamesFromTypes(tools []types.Tool) []string {
-	names := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		names = append(names, tool.Function.Name)
-	}
-	return names
-}
-
-func containsName(names []string, want string) bool {
-	for _, name := range names {
-		if name == want {
-			return true
-		}
-	}
-	return false
-}

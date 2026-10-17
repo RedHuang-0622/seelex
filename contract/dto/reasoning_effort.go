@@ -14,7 +14,7 @@ import (
 //
 // 放在 dto 的原因：这是**跨层契约**。seelebridge（账号装配与配置加载）与
 // application（effort 策略）都要用它，而 application 依赖 seelebridge，反向引用
-// 成环；dto 是两边都引的叶子包（同 AccountRole / PlanPolicy 的处理）。
+// 成环；dto 是两边都引的叶子包（同 AccountRole / SubagentPolicy 的处理）。
 const (
 	// ReasoningEffortMinimal 只在部分模型上可用（如 GPT-5 系）。登记它是为了让
 	// 配置校验不至于把合法值判错，并不代表所有 provider 都认。

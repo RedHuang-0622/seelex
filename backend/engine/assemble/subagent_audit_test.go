@@ -3,6 +3,7 @@ package assemble
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,22 +52,11 @@ func TestSubAgentStartupEndToEnd(t *testing.T) {
 		"agent-1": scripted,
 	})
 
-	// plan_load: 加载含 agent 节点的最小 DAG
-	planJSON := `{"entry":"do","nodes":{"do":{"input":"read the file and return findings","kind":"agent"}},"edges":{}}`
-	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON)
+	result, err := runtime.runForkSubagent(context.Background(), "do", "read the file and return findings", "", 0)
 	if err != nil {
-		t.Fatalf("plan_load failed: %v", err)
+		t.Fatalf("run subagent failed: %v", err)
 	}
-	if !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load unexpected: %s", result)
-	}
-
-	// plan_run: 执行 DAG —— 这应启动子代理
-	result, err = runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
-	if err != nil {
-		t.Fatalf("plan_run failed: %v", err)
-	}
-	t.Logf("plan_run result: %s", result)
+	t.Logf("subagent result: %s", result)
 
 	// 验证 scripted completer 被调用（子代理确实启动了 Chat）
 	scripted.mu.Lock()
@@ -117,20 +107,22 @@ func TestSubAgentParallelBranches(t *testing.T) {
 	_ = leftAcc
 	_ = rightAcc
 
-	planJSON := `{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"},"left":{"input":"do left","kind":"agent"},"right":{"input":"do right","kind":"agent"},"finish":{"input":"finish","kind":"auto"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON)
-	if err != nil {
-		t.Fatalf("plan_load failed: %v", err)
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, spec := range []struct{ id, goal string }{{"left", "do left"}, {"right", "do right"}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := runtime.runForkSubagent(context.Background(), spec.id, spec.goal, "", 0); err != nil {
+				errs <- err
+			}
+		}()
 	}
-	if !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load unexpected: %s", result)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("parallel subagent failed: %v", err)
 	}
-
-	result, err = runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
-	if err != nil {
-		t.Fatalf("plan_run failed: %v", err)
-	}
-	t.Logf("plan_run parallel result: %s", result)
 
 	// 两个子代理都应被启动
 	select {
@@ -184,12 +176,8 @@ func TestSubAgentMergeBackRegistersResultWithoutMailbox(t *testing.T) {
 	scripted := newScriptedNodeCompleter("子代理结论：模块审计完成。")
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
 
-	planJSON := `{"entry":"do","nodes":{"do":{"input":"audit the module and return findings","kind":"agent"}},"edges":{}}`
-	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
-		t.Fatalf("plan_load: %v %s", err, result)
-	}
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
-		t.Fatalf("plan_run failed: %v", err)
+	if _, err := runtime.runForkSubagent(context.Background(), "do", "audit the module and return findings", "", 0); err != nil {
+		t.Fatalf("run subagent failed: %v", err)
 	}
 
 	// mailbox 不再接收 Format 信封块：产出经工具结果回传，mailbox 保持空。

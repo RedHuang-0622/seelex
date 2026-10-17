@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -202,8 +201,7 @@ func isMergeBlockedEvidence(stderr string, callErr error) bool {
 
 type WorktreeManagerDeps struct {
 	Root  func() string                                    // 项目根（原 r.projectScope.Root）
-	Phase func(ctx context.Context, nodeID, status string) // 阶段事件（原 r.appendNodePhase）
-	Gate  func() approve.ApprovalGate                      // 合并审批门（原 r.currentApprovalGate）
+	Phase func(ctx context.Context, nodeID, status string) // 阶段事件（可选观察者）
 }
 
 // 收尾串行化与重试常量。
@@ -242,11 +240,10 @@ type WorktreeManager struct {
 
 // finishCommand 是投给 finishActor 的一条收尾命令。
 type finishCommand struct {
-	ctx          context.Context
-	nodeID       string
-	wt           *NodeWorktree
-	skipApproval bool // 重试不再重复询问审批门（同一个 nodeID 只问一次）
-	reply        chan error
+	ctx    context.Context
+	nodeID string
+	wt     *NodeWorktree
+	reply  chan error
 }
 
 func NewWorktreeManager(deps WorktreeManagerDeps) *WorktreeManager {
@@ -263,7 +260,7 @@ func NewWorktreeManager(deps WorktreeManagerDeps) *WorktreeManager {
 
 // handleFinish 是 finishActor 的唯一消费者：串行执行收尾段并把结果回给投递方。
 func (w *WorktreeManager) handleFinish(command finishCommand) {
-	err := w.finishExclusive(command.ctx, command.nodeID, command.wt, command.skipApproval)
+	err := w.finishExclusive(command.ctx, command.nodeID, command.wt)
 	select {
 	case command.reply <- err:
 	default:
@@ -272,12 +269,12 @@ func (w *WorktreeManager) handleFinish(command finishCommand) {
 }
 
 // submitFinish 把一次收尾投给单写者并等结果。
-func (w *WorktreeManager) submitFinish(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
+func (w *WorktreeManager) submitFinish(ctx context.Context, nodeID string, wt *NodeWorktree) error {
 	if w.finishActor == nil {
-		return w.finishExclusive(ctx, nodeID, wt, skipApproval)
+		return w.finishExclusive(ctx, nodeID, wt)
 	}
 	reply := make(chan error, 1)
-	command := finishCommand{ctx: ctx, nodeID: nodeID, wt: wt, skipApproval: skipApproval, reply: reply}
+	command := finishCommand{ctx: ctx, nodeID: nodeID, wt: wt, reply: reply}
 	if !w.finishActor.SendTimeout(command, finishSubmitTimeout) {
 		return fmt.Errorf("worktree %q: finish queue is closed or saturated", nodeID)
 	}
@@ -525,10 +522,9 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 	}
 	deadline := time.Now().Add(w.mergeRetryBudget)
 	attempt := 0
-	skipApproval := false
 	for {
 		attempt++
-		err := w.submitFinish(ctx, nodeID, wt, skipApproval)
+		err := w.submitFinish(ctx, nodeID, wt)
 		if err == nil || !IsMergeBlockedByMain(err) {
 			return err
 		}
@@ -541,13 +537,12 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 		case <-ctx.Done():
 			return fmt.Errorf("%w：%v（等待被取消；现场保留）", ErrMergeBlockedByMain, err)
 		}
-		skipApproval = true // 审批门对同一个 nodeID 只问一次
 	}
 }
 
 // finishExclusive 是收尾段的实际实现：只由 finishActor 串行调用（同一时刻只有一个
-// 收尾在改主工作区），因此这里不再自带互斥。skipApproval = 重试路径，跳过重复审批。
-func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
+// 收尾在改主工作区），因此这里不再自带互斥。
+func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt *NodeWorktree) error {
 	root := w.deps.Root()
 	w.phase(ctx, nodeID, "rebasing")
 	behind, err := w.branchBehindBase(nodeID, wt)
@@ -574,15 +569,6 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 			return fmt.Errorf("worktree %q: subagent left uncommitted changes (finish protocol git add -A && git commit 未执行); files preserved in %s: %w", nodeID, wt.Path, ErrUncommittedChanges)
 		}
 		return w.cleanup(root, wt)
-	}
-	if !skipApproval {
-		summary, err := w.diffStat(nodeID, wt)
-		if err != nil {
-			summary = "diff stat unavailable"
-		}
-		if err := w.approve(ctx, nodeID, wt, summary); err != nil {
-			return err
-		}
 	}
 	if err := w.alignMergeTarget(root, nodeID, wt); err != nil {
 		return err
@@ -883,27 +869,6 @@ func pathDirtyWith(git gitFn, path string) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
-// approve 合并前审批：复用 SetPlanApprovalGate 注入的审批门；gate 未注入 → 放行。
-func (w *WorktreeManager) approve(ctx context.Context, nodeID string, wt *NodeWorktree, summary string) error {
-	gate := w.deps.Gate()
-	if gate == nil {
-		return nil
-	}
-	decision, err := gate.Ask(ctx, approve.Question{
-		ID:      "merge-" + nodeID,
-		Content: fmt.Sprintf("子代理 %s 的改动将合并进主工作区（%s）。\n%s", nodeID, wt.MainBranch, summary),
-		Options: approve.Choices("approve", "reject"),
-	})
-	if err != nil {
-		return err
-	}
-	choice, _ := decision.(string)
-	if choice != "approve" {
-		return fmt.Errorf("worktree %q: merge rejected by user (changes preserved in %s)", nodeID, wt.Path)
-	}
-	return nil
-}
-
 func (w *WorktreeManager) isGitRepository(root string) bool {
 	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
 		return true
@@ -969,18 +934,6 @@ func (w *WorktreeManager) conflictFilesIn(dir string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-func (w *WorktreeManager) diffStat(nodeID string, wt *NodeWorktree) (string, error) {
-	if strings.TrimSpace(wt.BaseCommit) == "" {
-		// 同一格判据（空栏不拼 ref）：调用方把这条错误当成"摘要拿不到"，不新增失败面。
-		return "", missingBaseline(nodeID, wt)
-	}
-	out, err := w.git(wt.Path, "diff", "--stat", wt.BaseCommit+"..HEAD")
-	if err != nil {
-		return "", err
-	}
-	return out, nil
 }
 
 // cleanup 是收尾自动释放的入口（Finish 的两条成功路径）。释放判据只有一份，见

@@ -148,8 +148,6 @@ var assemblyOnlyMethods = []string{
 	"GoalDoneHandler",
 	"GoalStatusHandler",
 	"GoalUpdateHandler",
-	"HandlePlanBranchEvent",
-	"HandlePlanNodeComplete",
 	"HandleRoleToolActivity",
 	"HandleSubagentToolEvent",
 	"PrepareProviderHistory",

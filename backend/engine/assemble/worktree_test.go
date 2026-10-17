@@ -5,11 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/internal/model"
@@ -55,12 +53,8 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 	scripted := newScriptedNodeCompleter("read-only result, no changes")
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
 
-	planJSON := `{"entry":"do","nodes":{"do":{"input":"read base.txt","kind":"agent"}},"edges":{}}`
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
-		t.Fatalf("plan_run: %v", err)
+	if _, err := runtime.runForkSubagent(context.Background(), "do", "read base.txt", "", 0); err != nil {
+		t.Fatalf("run subagent: %v", err)
 	}
 
 	// 节点结束后注册表清空、无残留 worktree 目录。
@@ -76,109 +70,6 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 	out, err := worktree.GitRunner(repo, "log", "--oneline")
 	if err != nil || strings.Contains(out, "seelex/") {
 		t.Fatalf("main branch must stay clean, log=%q err=%v", out, err)
-	}
-}
-
-// approveGateStub 是测试审批门（approve/reject 可配）。
-type approveGateStub struct {
-	mu     sync.Mutex
-	choice string
-	asked  []string
-}
-
-func (g *approveGateStub) Ask(_ context.Context, q approve.Question) (any, error) {
-	g.mu.Lock()
-	g.asked = append(g.asked, q.ID)
-	choice := g.choice
-	g.mu.Unlock()
-	return choice, nil
-}
-
-// TestWorktreeMergeApproved 验证有提交的节点：合并审批 approve →
-// merge 回主工作区 → worktree 清理。
-func TestWorktreeMergeApproved(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	repo := setupGitRepo(t)
-	if err := runtime.BindProjectRoot(repo); err != nil {
-		t.Fatal(err)
-	}
-	gate := &approveGateStub{choice: "approve"}
-	runtime.SetPlanApprovalGate(gate)
-
-	// 手动驱动生命周期（避开 scripted completer 不写文件的限制）：
-	scope := seenode.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
-	wt := runtime.beginNodeWorktree(scope, "impl")
-	if wt == nil {
-		t.Fatal("worktree creation must succeed in a git repo")
-	}
-	// 模拟子代理在 worktree 里干活并 commit。
-	change := filepath.Join(wt.Path, "feature.txt")
-	if err := os.WriteFile(change, []byte("feature\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worktree.GitRunner(wt.Path, "add", "."); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worktree.GitRunner(wt.Path, "commit", "-m", "seelex/impl: add feature"); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := runtime.finishNodeWorktree(context.Background(), "impl", wt); err != nil {
-		t.Fatalf("finish: %v", err)
-	}
-	// merge 后主工作区可见改动（Windows git 可能做 CRLF 转换，容忍行尾）；worktree 已清理。
-	merged, err := os.ReadFile(filepath.Join(repo, "feature.txt"))
-	if err != nil || strings.TrimSpace(string(merged)) != "feature" {
-		t.Fatalf("merged file missing or wrong: %q err=%v", merged, err)
-	}
-	if _, err := os.Stat(wt.Path); err == nil {
-		t.Fatalf("worktree not cleaned after merge: %s", wt.Path)
-	}
-	gate.mu.Lock()
-	asked := len(gate.asked)
-	gate.mu.Unlock()
-	if asked != 1 {
-		t.Fatalf("approval asked %d times, want 1", asked)
-	}
-}
-
-// TestWorktreeMergeRejected 验证审批拒绝：节点报错且 worktree 保留现场。
-func TestWorktreeMergeRejected(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	repo := setupGitRepo(t)
-	if err := runtime.BindProjectRoot(repo); err != nil {
-		t.Fatal(err)
-	}
-	gate := &approveGateStub{choice: "reject"}
-	runtime.SetPlanApprovalGate(gate)
-
-	scope := seenode.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
-	wt := runtime.beginNodeWorktree(scope, "impl")
-	if wt == nil {
-		t.Fatal("worktree creation must succeed")
-	}
-	if err := os.WriteFile(filepath.Join(wt.Path, "feature.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worktree.GitRunner(wt.Path, "add", "."); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := worktree.GitRunner(wt.Path, "commit", "-m", "seelex/impl: work"); err != nil {
-		t.Fatal(err)
-	}
-
-	err := runtime.finishNodeWorktree(context.Background(), "impl", wt)
-	if err == nil || !strings.Contains(err.Error(), "merge rejected") {
-		t.Fatalf("expected merge rejection error, got %v", err)
-	}
-	// 现场保留：worktree 目录仍在，主工作区无改动。
-	if _, statErr := os.Stat(wt.Path); statErr != nil {
-		t.Fatalf("worktree must be preserved on rejection: %v", statErr)
-	}
-	if _, readErr := os.Stat(filepath.Join(repo, "feature.txt")); readErr == nil {
-		t.Fatal("main workspace must not contain rejected changes")
 	}
 }
 

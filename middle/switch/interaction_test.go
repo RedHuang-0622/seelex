@@ -9,10 +9,9 @@ import (
 // 改一个字符就会让按钮失效或让模型读到别的指令。
 func TestInteractionVocabularyIsPinned(t *testing.T) {
 	kinds := map[string]string{
-		InteractionKindApproval:  "approval",
-		InteractionKindSession:   "session",
-		InteractionKindAccount:   "account",
-		InteractionKindPlanRetry: "plan_retry",
+		InteractionKindApproval: "approval",
+		InteractionKindSession:  "session",
+		InteractionKindAccount:  "account",
 	}
 	for got, want := range kinds {
 		if got != want {
@@ -21,10 +20,6 @@ func TestInteractionVocabularyIsPinned(t *testing.T) {
 	}
 	options := map[string]string{
 		InteractionCancelOptionID: "__CANCEL__",
-		PlanRetryOptionReplan:     "replan",
-		PlanRetryOptionRetry:      "retry",
-		PlanRetryOptionSkip:       "skip",
-		PlanRetryOptionAbort:      "abort",
 	}
 	for got, want := range options {
 		if got != want {
@@ -33,9 +28,6 @@ func TestInteractionVocabularyIsPinned(t *testing.T) {
 	}
 	if InteractionTitleSession == "" || InteractionTitleAccount == "" {
 		t.Fatal("交互标题不得为空")
-	}
-	if PlanRetryNoticeRetry == PlanRetryNoticeSkip || PlanAbortNotice == "" {
-		t.Fatal("plan_retry 两条提示必须互不相同且非空")
 	}
 }
 

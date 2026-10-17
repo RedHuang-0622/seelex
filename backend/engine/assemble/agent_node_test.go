@@ -7,8 +7,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
-	"github.com/RedHuang-0622/seelex/backend/tool/plan"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
@@ -21,55 +19,18 @@ func TestNodeBudgetPrefersNodeInput(t *testing.T) {
 	defer runtime.Shutdown()
 
 	// 缺省（无 budget）：回退 limits（默认 384）。
-	if b := runtime.node.Budget(plan.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 384 {
+	if b := runtime.node.Budget(seenode.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 384 {
 		t.Fatalf("default max_loops = %d, want 384", b.MaxLoops)
 	}
 
 	// 部分覆盖：只指定 max_loops，max_output_tokens 保持 limits。
-	in := plan.SeelexNodeInput{ID: "a", Input: "x", Budget: &plan.NodeBudgetInput{MaxLoops: 8}}
+	in := seenode.SeelexNodeInput{ID: "a", Input: "x", Budget: &seenode.NodeBudgetInput{MaxLoops: 8}}
 	b := runtime.node.Budget(in)
 	if b.MaxLoops != 8 {
 		t.Fatalf("budget max_loops = %d, want 8", b.MaxLoops)
 	}
 	if b.MaxOutputTokens <= 0 {
 		t.Fatalf("fallback max_output_tokens = %d, want > 0", b.MaxOutputTokens)
-	}
-}
-
-// TestPlanLoadParsesNodeBudget 验证 plan_load 规范 JSON 的节点 budget 字段
-// 经 plan.canonicalPlanDocument 解析进 plan.SeelexNodeInput（canonical → 节点契约）。
-func TestPlanLoadParsesNodeBudget(t *testing.T) {
-	canonical := `{"entry":"do","nodes":{"do":{"input":"read","kind":"agent","budget":{"max_loops":5,"max_output_tokens":2000}}},"edges":{}}`
-	doc, err := plan.CanonicalPlanDocument(canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.Nodes) != 1 {
-		t.Fatalf("nodes = %d, want 1", len(doc.Nodes))
-	}
-	input := doc.Nodes[0].Input
-	if input.Budget == nil {
-		t.Fatal("node budget must be parsed")
-	}
-	if input.Budget.MaxLoops != 5 || input.Budget.MaxOutputTokens != 2000 {
-		t.Fatalf("budget = %+v, want {5 2000}", input.Budget)
-	}
-}
-
-// TestPlanPolicyRejectsExcessNodeBudget 验证 dto.PlanPolicy 上限校验拒绝超限预算。
-func TestPlanPolicyRejectsExcessNodeBudget(t *testing.T) {
-	policy := dto.PlanPolicy{Effort: "high", MaxNodeLoops: 48, MaxNodeOutputTokens: 8000}
-	ok := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_loops":10}}},"edges":{}}`
-	if _, err := plan.ValidatePolicyLoad(policy, ok); err != nil {
-		t.Fatalf("within-limit budget rejected: %v", err)
-	}
-	excess := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_loops":100}}},"edges":{}}`
-	if _, err := plan.ValidatePolicyLoad(policy, excess); err == nil || !strings.Contains(err.Error(), "max_loops=100 exceeds limit") {
-		t.Fatalf("excess budget must be rejected, got %v", err)
-	}
-	excessTokens := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_output_tokens":9000}}},"edges":{}}`
-	if _, err := plan.ValidatePolicyLoad(policy, excessTokens); err == nil || !strings.Contains(err.Error(), "max_output_tokens=9000 exceeds limit") {
-		t.Fatalf("excess output budget must be rejected, got %v", err)
 	}
 }
 
@@ -87,14 +48,14 @@ func TestNodeSkillBlocksInjected(t *testing.T) {
 	runtime.SetSkillRegistry(registry)
 
 	// registry 已装配、输入 "audit" 无激活匹配 → 章程 + 目录块 = 2 块。
-	noBlocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "audit"})
+	noBlocks := runtime.node.PromptBlocks(seenode.SeelexNodeInput{ID: "a", Input: "audit"})
 	if len(noBlocks) != 2 {
 		t.Fatalf("blocks = %d, want 2 (node-charter + skill catalog)", len(noBlocks))
 	}
 
 	// 装配后：目录块含全部技能名；激活块含匹配技能的完整指令。
 	// （输入命中 code-impl 描述的 "code changes" 词。）
-	blocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "execute code changes and verify"})
+	blocks := runtime.node.PromptBlocks(seenode.SeelexNodeInput{ID: "a", Input: "execute code changes and verify"})
 	var catalog, active bool
 	for _, b := range blocks {
 		switch b.Name {
@@ -132,7 +93,7 @@ func TestNodeCharterBlock(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	blocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "inspect", Input: "audit"})
+	blocks := runtime.node.PromptBlocks(seenode.SeelexNodeInput{ID: "inspect", Input: "audit"})
 	var found string
 	for _, b := range blocks {
 		if b.Name == "node-charter" && b.Messages[0].Content != nil {

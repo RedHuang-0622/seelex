@@ -72,7 +72,7 @@ sequenceDiagram
 
 - 不持有会话/账号池/任务注册表/父证据（全部经 `Deps` 回调）；
 - 不实现 worktree 生命周期（`backend/tool/worktree/` 域）；
-- 不做 plan 调度与事件（`backend/tool/plan/` 域）。
+- 不做 Plan 执行调度（内部 Plan 引擎已退役；历史 Plan 只读投影在应用层）。
 
 ## 目录或文件结构
 

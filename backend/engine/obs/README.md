@@ -70,8 +70,7 @@ B 类摘要（SummaryLog.Append → 持久化钩子，Source=seelex.telemetry.su
   sessionID/nodeID 归属与 limit 截断），查询与区间查询共用。
 - `CorrelateMainSessionID`：包装持久化钩子的**唯一一处**（两格入参都是函数值：主会话读数由宿主
   闭包给，下游钩子原样转调；任一为空即原样返回下游）。它**不自己解析**会话归属——那句判据在
-  `store.SessionIDFromEvent`（本包 `UnifiedEventTopic` 与 `backend/tool/plan` 的事件投影
-  也问同一句）。
+  `store.SessionIDFromEvent`（本包 `UnifiedEventTopic` 也问同一句）。
 
 ## 并发、安全与错误语义
 

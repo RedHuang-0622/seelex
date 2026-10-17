@@ -36,8 +36,6 @@ func ClassifyStructured(err error) (Presented, bool) {
 	switch structured.Function {
 	case "persistCurrentSession":
 		return persistenceFailurePresentation(), true
-	case "PreparePlan":
-		return planPreflightPresentation(), true
 	}
 	if structured.Step != "" || structured.Path != "" {
 		return unclassifiedPresentation(), true
@@ -50,14 +48,6 @@ func persistenceFailurePresentation() Presented {
 		module: "会话持久化", method: "persistCurrentSession",
 		summary: "任务状态未能可靠写入持久化存储。",
 		next:    "不要假定进度已经保存；请先检查存储连接或磁盘状态，再决定是否重试。",
-	}
-}
-
-func planPreflightPresentation() Presented {
-	return Presented{
-		module: "计划预检", method: "PreparePlan",
-		summary: "当前计划无法生成或通过校验。",
-		next:    "请简化目标后重新规划，或改为直接执行该任务。",
 	}
 }
 

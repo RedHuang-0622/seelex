@@ -49,19 +49,6 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 			service.closeInteraction(id)
 			return err
 		}
-	case switching.InteractionKindPlanRetry:
-		switch optionID {
-		case switching.PlanRetryOptionReplan:
-			if err := service.replanFailedWork(ctx, interaction.ID, interaction.Question); err != nil {
-				return err
-			}
-		case switching.PlanRetryOptionRetry:
-			service.appendPlanRetryNotice(switching.PlanRetryNoticeRetry)
-		case switching.PlanRetryOptionSkip:
-			service.appendPlanRetryNotice(switching.PlanRetryNoticeSkip)
-		case switching.PlanRetryOptionAbort:
-			service.abortPlanInteraction()
-		}
 	default:
 		return switching.UnsupportedInteractionKind(interaction.Kind)
 	}
@@ -78,30 +65,6 @@ func (service *Service) pendingApprovalSession(id string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (service *Service) appendPlanRetryNotice(message string) {
-	service.ViewMu.Lock()
-	service.appendMessageLocked("system", message, nil)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
-}
-
-func (service *Service) abortPlanInteraction() {
-	service.ViewMu.Lock()
-	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
-		plan.Status = PlanAborted
-		for index := range plan.Nodes {
-			if plan.Nodes[index].Status == NodePending || plan.Nodes[index].Status == NodeRunning {
-				plan.Nodes[index].Status = NodeAborted
-			}
-		}
-	}
-	service.appendMessageLocked("system", switching.PlanAbortNotice, nil)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
 func (service *Service) SelectAccount(_ context.Context, name string) error {
@@ -141,7 +104,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	if err := service.effortManager.Apply(level); err != nil {
 		return err
 	}
-	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Runtime.SetSubagentPolicy(service.effortManager.SubagentPolicy())
 	// 档位变化的另一半（"想多深"）落在账号客户端上：这里是这条链唯一的下发点
 	// ——loop/预算由 EffortManager 直接写引擎（applyLocked 里的 SetMaxLoops），
 	// 思考强度只此一条路（syncSessionReasoningEffort → 账号池）。

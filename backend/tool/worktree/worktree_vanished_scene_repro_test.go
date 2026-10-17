@@ -33,8 +33,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 )
 
 // TestWorktreeFinishReportsVanishedScene 复现"现场被对端收走"的报错形状。
@@ -52,11 +50,9 @@ func TestWorktreeFinishReportsVanishedScene(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gate := &approveGateStub{choice: "approve"}
 			mgr := NewWorktreeManager(WorktreeManagerDeps{
 				Root:  func() string { return root },
 				Phase: func(context.Context, string, string) {},
-				Gate:  func() approve.ApprovalGate { return gate },
 			})
 			wt := mgr.BeginNamed(tc.nodeID)
 			if wt == nil {

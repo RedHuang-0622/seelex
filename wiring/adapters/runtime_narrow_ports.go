@@ -125,16 +125,6 @@ func (port RuntimePort) TeamworkJobEvents() <-chan struct{} {
 	return port.Runtime.TeamworkJobEvents()
 }
 
-// ReplanMetricsFor 实现 view_state 的 per-session replan 指标面。漏了它不会报错：
-// 调用方会静默回退到**进程级合计**，于是"这个会话的 replan 花了多少"在多会话下
-// 变成"所有会话加起来"，读数看着正常但答的不是被问的那个问题。
-func (port RuntimePort) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
-	if port.Runtime == nil {
-		return dto.ReplanMetrics{}
-	}
-	return port.Runtime.ReplanMetricsFor(sessionID)
-}
-
 // WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
 // 任务声明的插件集合带进这一轮执行 ctx）。漏了它**不会报错**：core 侧的断言失败
 // ⇒ 定时任务的插件装配整块消失（任务照跑，但用的是宿主全局激活的那个插件），
@@ -193,18 +183,10 @@ var (
 	_ interface {
 		SessionContextStoreFor(string) *store.SessionContextStore
 	} = RuntimePort{}
-	_ interface {
-		ReplanMetricsFor(string) dto.ReplanMetrics
-	} = RuntimePort{}
 	_ interface{ ForkInFlight(string) bool }  = RuntimePort{}
 	_ interface{ PerSessionExecution() bool } = RuntimePort{}
 	_ interface {
 		TaskSnapshotFor(string) []dto.TaskRecord
-	} = RuntimePort{}
-	// persistedPlanRestorer（application/core/session_history.go）：resume 时按
-	// plan 参数恢复可执行 Plan；断言失败只是保留可见投影，症状同样无声。
-	_ interface {
-		RestorePlan(context.Context, string) error
 	} = RuntimePort{}
 	_ interface {
 		WithPluginAssembly(context.Context, []string) context.Context

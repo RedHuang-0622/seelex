@@ -300,7 +300,6 @@ go test ./wiring/adapters -count=1
 - `func restoreMessages(messages []contract.EngineMessage) []types.Message`
 - `func ApprovalOption(choice string) model.InteractionOption`
 - `func ApprovalAccepted(optionID string) bool`
-- `func (g *PlanApprovalGate) Ask(ctx context.Context, q approve.Question) (any, error)` — Ask 将框架审批请求转换为 ApprovalBroker.Request，阻塞等待用户选择后返回。
 - `func ConvertPermissionOptions(opts []toolspermission.ApproveOption) []model.InteractionOption` — convertPermissionOptions 将 permission.ApproveOption 转为 model.InteractionOption。
 
 ### role_fields_test.go
@@ -317,7 +316,6 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePage 是同一份读数的**分页读法**（"只有尾巴"改成"有界窗口 +
 - `func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
 - `func (port RuntimePort) TeamworkJobEvents() <-chan struct`
-- `func (port RuntimePort) ReplanMetricsFor(sessionID string) dto.ReplanMetrics` — ReplanMetricsFor 实现 view_state 的 per-session replan 指标面。漏了它不会报错：
 - `func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
 - `func (port RuntimePort) SetSessionReasoningEffort(effort string) int` — SetSessionReasoningEffort 实现 contract.ReasoningEffortPort：把会话档位对应的 wire
 - `func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)` — TeamworkPlanFor 实现 application/core 的 `TeamworkPlanSource` 窄可选端口
@@ -348,12 +346,8 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection)`
 - `func (port RuntimePort) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection)`
 - `func (port RuntimePort) DrainSubagentContexts() []string`
-- `func (port RuntimePort) SetPlanPolicy(policy dto.PlanPolicy)`
-- `func (port RuntimePort) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)` — SetPlanPolicyFor 按会话写入 plan 策略槽（会话 effort 同步入口；引擎侧
-- `func (port RuntimePort) PrepareReplan(ctx context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
-- `func (port RuntimePort) ReplanMetrics() dto.ReplanMetrics`
-- `func (port RuntimePort) SetPlanBranchBinding(binding dto.PlanBranchBinding)`
-- `func (port RuntimePort) RestorePlan(ctx context.Context, arguments string) error`
+- `func (port RuntimePort) SetSubagentPolicy(policy dto.SubagentPolicy)`
+- `func (port RuntimePort) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy)`
 - `func (port RuntimePort) BindProjectRoot(rootPath string) error`
 - `func (port RuntimePort) UnbindProjectRoot()`
 - `func (port RuntimePort) BindProjectRootFor(sessionID, rootPath string) error`
@@ -376,7 +370,6 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error)`
 - `func (port RuntimePort) TaskChangedChannel() <-chan dto.TaskRecord`
 - `func (port RuntimePort) SubagentTreeEvents() <-chan struct`
-- `func (port RuntimePort) PlanNodeEventChannel() <-chan dto.PlanNodeEvent`
 - `func (port RuntimePort) TakeServedRoute(sessionID string) (dto.ServedRoute, bool)`
 - `func (port RuntimePort) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
 - `func (port RuntimePort) SetSessionWorkspace(sessionID, workspaceID string)`

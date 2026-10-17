@@ -17,7 +17,6 @@ import (
 // 可结构化解读（Struct/Function/Step/Path 提供模块定位信息）。
 const (
 	ErrorCodePersistenceFailed = "session.persistence_failed"
-	ErrorCodePlanPreflight     = "plan.preflight_failed"
 	ErrorCodeReActBudget       = "react.budget_exhausted"
 	ErrorCodeContextExceeded   = "context.budget_exceeded"
 )

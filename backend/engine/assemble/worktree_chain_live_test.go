@@ -27,37 +27,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 )
-
-// liveApproveGate 是收尾合并审批门的记录器：它被问到，就证明确实在工作区里**提交过**
-// 东西（Finish 只在 `commits > 0` 时才问审批），问题正文里带着 `git diff --stat` 的
-// 原文——这就是"现场上真干了活"的第一手证据。
-type liveApproveGate struct {
-	mu       sync.Mutex
-	asked    []string
-	contents []string
-	choice   string
-}
-
-func (g *liveApproveGate) Ask(_ context.Context, question approve.Question) (any, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.asked = append(g.asked, question.ID)
-	g.contents = append(g.contents, question.Content)
-	choice := g.choice
-	if choice == "" {
-		choice = "approve"
-	}
-	return choice, nil
-}
-
-func (g *liveApproveGate) snapshot() (ids []string, contents []string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return append([]string(nil), g.asked...), append([]string(nil), g.contents...)
-}
 
 // liveSceneFrames 是运行期对现场的逐帧取证（plan_run 阻塞期间由探针轮询）。
 type liveSceneFrames struct {
@@ -133,9 +104,8 @@ func liveSubagentAccountsPath() string {
 // 硬断言（有一条不成立就是产品问题，不是"模型没照做"）：
 //  1. 现场在运行期**确实被建出来**且落在主工作区之外（隔离）；
 //  2. 模型产出的文件**先出现在现场里**，此时主工作区**还没有**它；
-//  3. 收尾**问过合并审批**（= 现场里提交过东西），且 diffstat 里带着该文件；
-//  4. 合并后主工作区**拿到了**那个文件与那条提交（rebase/merge 回得来）；
-//  5. 成功后现场**被析构**：目录没了、分支没了、登记没了（成功路径的销项策略）。
+//  3. 合并后主工作区**拿到了**那个文件与那条提交（rebase/merge 回得来）；
+//  4. 成功后现场**被析构**：目录没了、分支没了、登记没了（成功路径的销项策略）。
 func TestLiveSubagentWorktreeChain(t *testing.T) {
 	if os.Getenv("SEELEX_LIVE_SMOKE") == "" {
 		t.Skip("set SEELEX_LIVE_SMOKE=1 to run the real-API worktree chain acceptance")
@@ -164,11 +134,6 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatalf("BindProjectRoot: %v", err)
 	}
-	// plan_load / plan_run 是 goal 技能面里的工具：不打开这一格它们不在可见面上
-	// （首次跑出的红就是 `tool "plan_load": tool is not visible for this request`）。
-	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
-	gate := &liveApproveGate{}
-	runtime.SetPlanApprovalGate(gate)
 	liveSceneRegistry = runtime.worktreeMgr
 
 	goal := fmt.Sprintf(
@@ -176,12 +141,6 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 			"然后按收尾协议执行 git add -A && git commit -m \"live acceptance %s\"。\n"+
 			"只做这一件事，不要碰别的文件，不要跑测试；完成后用一句话汇报。",
 		fileName, marker, marker)
-	planJSON := fmt.Sprintf(`{"entry":%q,"nodes":{%q:{"input":%q,"kind":"agent"}},"edges":{}}`,
-		nodeID, nodeID, goal)
-	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
-		t.Fatalf("plan_load: %v", err)
-	}
-
 	frames := &liveSceneFrames{}
 	stop := make(chan struct{})
 	probeDone := make(chan struct{})
@@ -202,13 +161,13 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
-	out, runErr := runPlanToolForTest(runtime, ctx, "plan_run", `{}`)
+	out, runErr := runtime.runForkSubagent(ctx, nodeID, goal, "", 0)
 	close(stop)
 	<-probeDone
 	elapsed := time.Since(started)
 
-	t.Logf("=== plan_run 耗时 %s ===", elapsed)
-	t.Logf("plan_run 输出：%s", out)
+	t.Logf("=== 子代理耗时 %s ===", elapsed)
+	t.Logf("子代理输出：%s", out)
 
 	// ── ① 运行期现场确实建出来了 ──────────────────────────────────────
 	registered, fileInScene, _, scenePath, samples := frames.snapshot()
@@ -228,18 +187,7 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 	}
 	t.Logf("产出落在现场：%v（现场=%s）", fileInScene, scenePath)
 
-	// ── ③ 收尾问过合并审批（= 现场里提交过），diffstat 里有那个文件 ────
-	ids, contents := gate.snapshot()
-	if len(ids) == 0 {
-		t.Fatalf("收尾从未问过合并审批：说明现场里 commits == 0（收尾协议未执行或根本没干活）；输出=%s", out)
-	}
-	t.Logf("合并审批：%v\n%s", ids, strings.Join(contents, "\n---\n"))
-	joined := strings.Join(contents, "\n")
-	if !strings.Contains(joined, fileName) {
-		t.Errorf("合并审批的 diffstat 里应看到 %s（现场上真干活的证据），实际：%s", fileName, joined)
-	}
-
-	// ── ④ 合并回主工作区 ─────────────────────────────────────────────
+	// ── ③ 合并回主工作区 ─────────────────────────────────────────────
 	content, readErr := os.ReadFile(filepath.Join(repo, fileName))
 	if readErr != nil {
 		t.Fatalf("主工作区必须拿到产出 %s（rebase/merge 没合回来）：%v；plan_run=%v 输出=%s",
@@ -258,7 +206,7 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 		t.Errorf("主工作区分支上应能看到这条提交/这次工作（%s），实际 log=%q 输出=%q", marker, logOut, firstLine(out))
 	}
 
-	// ── ⑤ 成功路径析构：目录 + 分支 + 登记三者都清 ────────────────────
+	// ── ④ 成功路径析构：目录 + 分支 + 登记三者都清 ────────────────────
 	if scenePath != "" {
 		if _, err := os.Stat(scenePath); err == nil {
 			t.Errorf("成功合并后现场目录必须被析构，实际还在：%s", scenePath)

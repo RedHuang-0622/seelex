@@ -23,18 +23,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 )
 
 // mergeKickbackManager 造一个绑定到 root 的收尾管理器（真实 git + 总是批准的审批门）。
 func mergeKickbackManager(t *testing.T, root string) *WorktreeManager {
 	t.Helper()
-	gate := &approveGateStub{choice: "approve"}
 	mgr := NewWorktreeManager(WorktreeManagerDeps{
 		Root:  func() string { return root },
 		Phase: func(context.Context, string, string) {},
-		Gate:  func() approve.ApprovalGate { return gate },
 	})
 	t.Cleanup(mgr.Close)
 	return mgr

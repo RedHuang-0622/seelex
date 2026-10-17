@@ -548,8 +548,8 @@ tmp 并显式报错。原因：Windows 上目标文件被任何句柄打开即�
 
 - **会话归属判据只有一份**：`SessionIDFromEvent` / `SessionIDFromLocations`（取
   `agent.runtime` 定位里的 `session_id`）。它是"事件该落进哪个会话"的判据，而落库路由、
-  统一事件查询的话题映射（`backend/engine/obs.UnifiedEventTopic`）、聚合读面
-  （`backend/tool/plan` 的事件投影）与持久化前的关联补全（`obs.CorrelateMainSessionID`）
+  统一事件查询的话题映射（`backend/engine/obs.UnifiedEventTopic`）与持久化前的
+  关联补全（`obs.CorrelateMainSessionID`）
   都问这一句——判据漂移会让同一条事件"落进 A 会话、被读成 B 会话"，所以不各写一份
   （2026-10-17 的 P21-9 把两处逐字副本收敛到这里）。
 

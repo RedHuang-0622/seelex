@@ -103,7 +103,6 @@ go test ./e2e/ -count=1
 - `func StructuredCode(err error) string` — StructuredCode 返回错误链上的结构化错误码（seeleerrors.From）；无结构化错误时返回空串。
 - `func ClassifyStructured(err error) (Presented, bool)` — ClassifyStructured 按结构化定位字段（Function/Step/Path）推断分类。
 - `func persistenceFailurePresentation() Presented` — 会话持久化的呈现文本（"不要假定进度已经保存"）。
-- `func planPreflightPresentation() Presented` — 计划预检失败的呈现文本。
 - `func reactBudgetPresentation() Presented` — 执行预算耗尽（未形成收尾）的呈现文本。
 - `func resultRefUnavailablePresentation() Presented` — read_tool_result 结果引用不可读的呈现文本。
 - `func contextExhaustedPresentation() Presented` — 上下文耗尽的呈现文本（已保存进度、可"继续"）。
