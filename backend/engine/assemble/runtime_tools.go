@@ -337,11 +337,7 @@ func (r *Runtime) SetPermissionTierFor(sessionID, tier string) error {
 func (r *Runtime) VisibleTools(ctx context.Context) []Tool {
 	return summarizeTools(r.agt.VisibleTools(ctx))
 }
-func isProjectScopedTool(name string) bool {
-	switch name {
-	case "read_file", "grep_search", "glob", "write_file", "edit_file", "bash":
-		return true
-	default:
-		return false
-	}
-}
+
+// isProjectScopedTool 是工具注册域 `ProjectScopedToolName` 的**同身份别名**：名单只有一份
+// （与注册面同一份常量，P21-31 归位），两处各写一遍迟早漂移。
+var isProjectScopedTool = toolreg.ProjectScopedToolName

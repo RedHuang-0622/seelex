@@ -89,11 +89,13 @@ func (r *Router) sessionKey(ctx context.Context) string {
 // Holder inline providers take precedence over builtin providers with the same
 // name, keeping this policy local to Seelex.
 func (r *Router) Register() {
-	r.deps.RegisterTool("read_file", "Read a file inside the bound project.", readFileSchema(), r.scopedReadFile)
-	r.deps.RegisterTool("grep_search", "Search file contents inside the bound project.", grepSchema(), r.scopedGrep)
-	r.deps.RegisterTool("glob", "Find matching files inside the bound project.", globSchema(), r.scopedGlob)
-	r.deps.RegisterTool("write_file", "Write a file inside the bound project.", writeFileSchema(), r.scopedWriteFile)
-	r.deps.RegisterTool("edit_file", "Edit a file inside the bound project.", editFileSchema(), r.scopedEditFile)
+	// 名字用本包的常量（与 ProjectScopedToolName 同一份名单）：注册面与"项目作用域已占位"
+	// 这条判据必须同源，否则增删一个工具会让两边漂移（见 scoped_names.go）。
+	r.deps.RegisterTool(ReadFileToolName, "Read a file inside the bound project.", readFileSchema(), r.scopedReadFile)
+	r.deps.RegisterTool(GrepSearchToolName, "Search file contents inside the bound project.", grepSchema(), r.scopedGrep)
+	r.deps.RegisterTool(GlobToolName, "Find matching files inside the bound project.", globSchema(), r.scopedGlob)
+	r.deps.RegisterTool(WriteFileToolName, "Write a file inside the bound project.", writeFileSchema(), r.scopedWriteFile)
+	r.deps.RegisterTool(EditFileToolName, "Edit a file inside the bound project.", editFileSchema(), r.scopedEditFile)
 	allowBackground := r.asyncEnabled()
 	// bash 工具族（设计文档 §A.4 / 打点 K-3）——两个名字，不是一个名字加开关：
 	//   bash      串行、同步、**写类**（保守归类）：保留现状语义，但不再有
@@ -107,7 +109,7 @@ func (r *Router) Register() {
 	// 本机执行壳退化成 PowerShell）意味着这些命令就算放行也会执行失败。命令面的
 	// **免打断**由 `bash` 的 allow 模式表承担（见 permission_policy.go 的 bash 模式白名单），
 	// 只读文件读取走 read_file / grep_search / glob——工具面因此只剩两个 bash 名字。
-	r.deps.RegisterTool("bash", bashDescription(), bashSchema(), r.scopedBash)
+	r.deps.RegisterTool(BashToolName, bashDescription(), bashSchema(), r.scopedBash)
 	if allowBackground {
 		// 作业面只在能力常驻时注册：关闭时它们必然无句柄可取，注册几个只会报错的
 		// 工具只是占模型的选项与 token。关就是关（见 Deps.AsyncExecEnabled 注释）。

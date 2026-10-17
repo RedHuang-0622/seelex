@@ -194,11 +194,19 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 - `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现；批量入口
   `FetchMany`/`StatusMany` 也在这里，单条与批量共用 `fetchOne`/`polledPayload`）。
 - `job_tools.go`：`bg_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
+- `scoped_names.go`：**项目作用域工具名单（唯一一份）**（P21-31 归位）——六个名字常量
+  （`ReadFileToolName` / `GrepSearchToolName` / `GlobToolName` / `WriteFileToolName` /
+  `EditFileToolName` / `BashToolName`）+ `ProjectScopedToolName(name) bool`。名单有两个消费面：
+  `Router.Register` 登记它们、装配层的 `RegisterTool` 拒绝在作用域表就绪后再注册同名工具——
+  两处各写一份就会漂移（新加的项目作用域工具被晚注册顶掉，或莫名其妙被拒）。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
 - `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
   "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
+- `scoped_names_test.go`：**跨实现一致性**——用 `Deps.RegisterTool` 桩捕获注册面实际登记的名字，
+  与判据面的名单逐一对账（两处各写一份名单就会在这里红）；名单之外的名字（含大小写变体与
+  `bash_bg` / `read_batch` 这类同族名字）一律不算。
 
 - `asyncRegistry`：单锁句柄表。句柄 `<token>-<seq>`（本表是 `bt-` / `bs-`，token 表与文法见
   `contract/dto/job_namespace.go`；seq 单调，不能用 `len(runs)` 推——驱逐过
