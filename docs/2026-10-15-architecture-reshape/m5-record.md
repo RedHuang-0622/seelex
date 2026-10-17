@@ -1850,3 +1850,36 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 
 **四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
 `TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
+
+
+## 50. P21 续片（2026-10-17 第十八轮：P21-36）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-36 | **teammate 单元中断判定** → `backend/multiagent/teamwork/unit_recovery.go`（plan §2.7）：`InterruptedUnits(index, progress, stored, ledgerInterrupted, surfaceAlive)` → `UnitRecovery{Interrupted, Notes}` —— 记录侧（在跑且执行面不在）+ 账本侧（状态说在跑、句柄不在册；**记录缺席**时也不漏）+ 一次去重保序 + 按记录生成恢复说明（键 = 角色会话号、正文来自 `workunit.RecoveryNote`）。`surfaceAlive == nil` 时保守判中断（可重派清单只会多不会少）。装配层 `RecoverTeamworkUnits` 只剩宿主编排（认领现场 → 读记录 → 账本 Recover/AliveSceneNodes → 域包判中断 → 注入说明）。域级 3 条新用例 | `e9c497d1` |
+
+**装配层体积**：`workunit_team_records.go` 396 → 368 行。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/multiagent/teamwork   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+1. `runtime_teamwork.go`（≈850 行）：几个 handler 的**入参口径**（`team_dispatch` / `team_work` /
+   `team_join` / `team_milestone` / `team_close` 的请求形状与默认值）与派发/汇合/收口的宿主动作；
+2. `workunit_team_records.go` 剩余（≈368 行）：落盘/清理/恢复说明容器的宿主用法
+   （`RecoverTeamworkUnits` 的认领与读面编排本身已判为宿主面）；
+3. `runtime_teamwork_items.go` / `workunit_assembly.go`：端口实现与三格适配器——**按设计文档留在装配处**；
+4. `runtime_context.go` 组件工厂、`runtime_tools.go` 其余注册面——已判为装配面（§38 表）。
+
+**四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
+`TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
