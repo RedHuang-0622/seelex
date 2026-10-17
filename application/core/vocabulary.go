@@ -57,6 +57,7 @@ const (
 	EventResyncRequired        = event.EventResyncRequired
 	EventExitRequested         = event.EventExitRequested
 	EventViewSessionChanged    = event.EventViewSessionChanged
+	EventSessionsChanged       = event.EventSessionsChanged
 	PlanUnknown                = model.PlanUnknown
 	PlanPending                = model.PlanPending
 	PlanRunning                = model.PlanRunning

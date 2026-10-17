@@ -551,7 +551,7 @@
 - `func (e *multiSessionEngine) ResumeSession(sessionID string, history []contract.EngineMessage) error` — ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
 - `func (e *multiSessionEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (e *multiSessionEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg types.Message)`
+- `func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg contract.EngineMessage)`
 - `func (e *multiSessionEngine) ClearHistoryFor(sessionID string)`
 - `func (e *multiSessionEngine) SetSystemPromptFor(sessionID, prompt string)`
 - `func (e *multiSessionEngine) ClearHistory()`
@@ -734,6 +734,7 @@
 - `func (service *Service) publishSessionEvent(kind protocol_event.EventKind, revision uint64, requestID, sessionID string, payload any) protocol_event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
 - `func (service *Service) publishViewSessionChanged()` — publishViewSessionChanged 通告权威视图会话已被应用内部切换（进程级事件、
 - `func (service *Service) publishChatStateFor(sessionID string)` — publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
+- `func (service *Service) publishSessionStateChanged(sessionID string)` — publishSessionStateChanged 把"某个会话的运行态变了"通知给所有显示面。
 - `func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
 - `func (service *Service) rebindViewWorkspaceWhenIdle()` — rebindViewWorkspaceWhenIdle 在进程变为完全空闲后，把全局项目根/Router 写
 - `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
@@ -767,6 +768,10 @@
 - `func TestSessionSnapshotTransportShape(t *testing.T)` — TestSessionSnapshotTransportShape（G3）：SessionSnapshot 是传输完备的会话
 - `func TestSessionSnapshotCarriesResidentFlag(t *testing.T)` — TestSessionSnapshotCarriesResidentFlag C1：SessionSnapshot 顶层携带
 - `func TestProcessSnapshotTransportShape(t *testing.T)` — TestProcessSnapshotTransportShape（G3）：ProcessSnapshot 承载进程级目录与
+
+### session_state_display_test.go
+
+- `func TestBackgroundSessionStateChangeNotifiesDisplaySurfaces(t *testing.T)` — TestBackgroundSessionStateChangeNotifiesDisplaySurfaces 钉住"状态 owner 到
 
 ### session_status_test.go
 

@@ -363,6 +363,32 @@ func (service *Service) publishChatStateFor(sessionID string) {
 	}
 	chat := unit.ChatState()
 	service.publishSessionEvent(EventChatChanged, 0, chat.RequestID, sessionID, chat)
+	// 状态 owner = 会话单元；**显示面**（会话目录 / 后台会话状态）不是 owner。
+	// 后台会话没有自己的视图订阅，因此这里补一条进程级通知：目录行按单元重新
+	// 富化后下发（见 enrichDirectoryRowsLocked），GUI/TUI 走 observer 刷新。
+	service.publishSessionStateChanged(sessionID)
+}
+
+// publishSessionStateChanged 把"某个会话的运行态变了"通知给所有显示面。
+//
+// 集成方式（用户裁决：状态 owner 到整体显示面）：
+//   - 当前视图会话：它自己的 snapshot.changed / chat.changed 已经到达显示面；
+//   - 后台会话：它的会话级订阅不属于当前视图，所以发一条**进程级**
+//     snapshot.changed（sessionID 为空）——前端收到后重拉权威 Snapshot，
+//     会话目录行由 `enrichDirectoryRowsLocked` 按会话单元重新算 running/queued/
+//     awaiting/resident。这是 observer 通道，不把状态复制进任何第二份 owner。
+func (service *Service) publishSessionStateChanged(sessionID string) {
+	if service == nil || sessionID == "" {
+		return
+	}
+	service.ViewMu.RLock()
+	active := service.Core.Snapshot.Session.ID == sessionID
+	service.ViewMu.RUnlock()
+	if active {
+		return
+	}
+	// 进程级、revision=0：载荷不进快照，只作废显示面的目录缓存（同 team.changed）。
+	service.publishSessionEvent(EventSessionsChanged, 0, "", "", nil)
 }
 
 // bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：

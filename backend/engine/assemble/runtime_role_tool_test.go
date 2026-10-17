@@ -22,7 +22,6 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -112,20 +111,14 @@ func TestRoleLoopHooksStaySilentWithoutWorkScope(t *testing.T) {
 	reported := 0
 	runtime.SetRoleToolCallback(func(dto.RoleToolActivity) { reported++ })
 
-	// ADVISOR 评审回合：ctx 上没有员工做工身份（它挂的是 goal 域的 TLStep sink）。
-	var steps []goaldomain.TLStep
-	ctx := goaldomain.WithTLStepSink(context.Background(), func(step goaldomain.TLStep) {
-		steps = append(steps, step)
-	})
+	// 非员工回合：ctx 上没有员工做工身份。
+	ctx := context.Background()
 	hooks := runtime.roleLoopHooks()
 	hooks.OnToolStart(ctx, session.ToolCallInfo{Turn: 1, Name: "read_file", Arguments: "{}"})
 	hooks.OnToolComplete(ctx, session.ToolCallInfo{Turn: 1, Name: "read_file", Result: "ok"})
 
 	if reported != 0 {
 		t.Fatalf("评审回合不该播报员工工具活动（别把两件事读成一件）：%d 帧", reported)
-	}
-	if len(steps) != 2 {
-		t.Fatalf("评审回合的 TLStep sink 必须照旧收到步骤（这条改动不动那条路）：%+v", steps)
 	}
 }
 

@@ -92,7 +92,7 @@ func TestPolicyGoalToolsGatedByGoalActive(t *testing.T) {
 	mainCtx := context.Background()
 	got := inactive.Filter(mainCtx, []types.Tool{
 		planTool("goal_begin"), planTool("goal_update"), planTool("goal_status"),
-		planTool("goal_propose_finish"), planTool("goal_done"), planTool("bash"),
+		planTool("goal_done"), planTool("bash"),
 	})
 	if len(got) != 2 || got[0].Function.Name != "goal_begin" || got[1].Function.Name != "bash" {
 		t.Fatalf("goal-inactive main tools = %v, want goal_begin + bash", names(got))

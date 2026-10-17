@@ -251,7 +251,6 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"backend/multiagent/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
 			"backend/multiagent/goal/audit.go":              "写：审计条目的状态词",
 			"backend/multiagent/goal/board_archive.go":      "读：看板存档帧",
-			"backend/multiagent/goal/techleader.go":         "读：治理快照里的 goal 状态",
 			"application/core/goal_coordinator.go":          "读：治理投影（GoalGovernanceView.Status）",
 			"tui/goalteam.go":                               "读：目标面板",
 		},
@@ -260,20 +259,6 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		words: map[string]bool{
 			"active": true, "paused": true, "reviewing": true, "completed": true,
 			"failed": true, "aborted": true, "waiting_human": true,
-		},
-	},
-	{
-		name: "评审者状态",
-		files: map[string]string{
-			"backend/multiagent/goal/advisor.go":    "定义层：PeerState 别名 + 契约取值",
-			"backend/multiagent/goal/techleader.go": "写：Supervisor 快照里的 peer 状态",
-			"application/core/goal_coordinator.go":  "读：治理投影（peer_state）",
-			"tui/goalteam.go":                       "读：目标面板 peer 行",
-		},
-		// 这一格的取值面 = dto.Peer*（AdvisorSession.State / GoalGovernanceView.PeerState）。
-		words: map[string]bool{
-			"detached": true, "bound": true, "evaluating": true,
-			"advisory_pending": true, "reaped": true,
 		},
 	},
 }

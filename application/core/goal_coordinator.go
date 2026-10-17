@@ -1,12 +1,14 @@
 package core
 
-// goal_coordinator.go — 会话级 goal 治理协调器（P1 装配）。
+// goal_coordinator.go — 会话级 goal 协调器。
 //
-// 职责：按 sessionID 持有 goal.Controller + Supervisor，
-// 提供 Service 侧的 goal 方法面与只读治理视图（GoalGovernanceView）。goal
-// 状态/审计落 store 第五栈（ContextStateStore），未装配会话上下文
-// 存储时退化为内存（Store=nil，仅进程内）。本协调器不引入上帝对象：每会话
-// 独立 bundle，生命周期随会话；跨会话零共享。
+// 职责：按 sessionID 持有 goal.Controller，提供 Service 侧的 goal 方法面与
+// 只读治理视图（GoalGovernanceView）。goal 状态/审计落 store 第五栈
+// （ContextStateStore），未装配会话上下文存储时退化为内存（Store=nil）。
+//
+// **TL/ADVISOR 评审环已删除（2026-10-17 用户裁决）**：目标由主代理自己推进、
+// `goal_done` 直接收口；不再有 b 回合、终态 gate、TL 指令队列或评审过程投影。
+// 团队编排由 teamwork 承担。
 
 import (
 	"context"
@@ -18,23 +20,18 @@ import (
 )
 
 // frameProgressLimit 是看板卡片上"一行摘要"保留的打点条数（详情面看 ProgressAll
-// 全量）：看板帧投影与"存档恢复"的帧投影共用同一个上限，避免两处渲染不一致。
+// 全量）：看板帧投影与"存档恢复"的帧投影共用同一个上限。
 const frameProgressLimit = 3
 
 // goalCoordinatorDeps 是 goal 协调器装配输入。
 type goalCoordinatorDeps struct {
 	// StoreFor 返回指定会话的 SessionContextStore（nil = 未装配 → 内存态）。
 	StoreFor func(sessionID string) *store.SessionContextStore
-	// Evaluator 是 TL 评估器（nil = TL 未启用，B4 直连收口语义）。
-	Evaluator goaldomain.TLEvaluator
-	// TLRecorderFor 返回指定会话的 TL 回合记录器（nil = 不记录 b 回合原文）。
-	TLRecorderFor func(sessionID string) goaldomain.TLRoundRecorder
 }
 
-// goalSessionRuntime 是一个会话的 goal 治理 bundle（会话间零共享）。
+// goalSessionRuntime 是一个会话的 goal bundle（会话间零共享）。
 type goalSessionRuntime struct {
 	ctl *goaldomain.Controller
-	sup *goaldomain.Supervisor
 }
 
 type goalCoordinator struct {
@@ -50,14 +47,8 @@ func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
 	}
 }
 
-// ForgetSession 释放一个会话的 goal 运行时（会话释放面调用，见 session_release.go）：
-// 丢掉按会话缓存的那份控制器与**上下文存储适配器**，使该会话下次被使用时经
-// StoreFor 重新解析、控制器经 Reload 按盘重建活栈/审计。
-//
-// 为什么必须跟着释放：bundleFor 在创建时把 StoreFor 解析出来的 store 句柄钉在
-// 适配器里；会话释放后桥侧本体已被放掉、重开时会绑**新的** store。旧句柄留着
-// 就变成"同一个会话两个 store 句柄同时写盘"——存储层的单写者纪律失效，且下次
-// 打开拿到的不是它那一份（INV-RS6：释放后所有内存句柄必须离场，重开按盘重建）。
+// ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
+// 的控制器与上下文存储适配器，下次经 StoreFor 重新解析、按盘重建。
 func (g *goalCoordinator) ForgetSession(sessionID string) {
 	if g == nil || sessionID == "" {
 		return
@@ -67,8 +58,7 @@ func (g *goalCoordinator) ForgetSession(sessionID string) {
 	g.mu.Unlock()
 }
 
-// bundleFor 返回（需要时创建）指定会话的 goal bundle。创建时若装配了会话
-// 上下文存储，则经 ContextStateStore 持久化并 Reload 恢复活栈/审计。
+// bundleFor 返回（需要时创建）指定会话的 goal bundle。
 func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -80,8 +70,6 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	if g.deps.StoreFor != nil {
 		if contextStore := g.deps.StoreFor(sessionID); contextStore != nil {
 			adapter := goaldomain.NewContextStateStore(contextStore)
-			// 看板存档面（goal 看板写侧的扇出）：未装配（BoardsFor 返回 false）
-			// 时适配器按"没有存档"降级——不报错、不阻断栈的持久化。
 			if boards, ok := g.boardFor(sessionID); ok {
 				adapter.BindBoards(boards)
 			}
@@ -93,38 +81,19 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	})
 	if st != nil {
 		if err := controller.Reload(context.Background()); err != nil {
-			// 恢复失败不阻塞会话：退回内存态（进程内治理仍可用；持久化
-			// 故障由存储层显式报错，不静默吞掉审计语义）。
 			controller = goaldomain.NewController(goaldomain.Options{
 				Depth: goaldomain.DefaultStackDepth,
 			})
 		}
 	}
-	runtime := &goalSessionRuntime{
-		ctl: controller,
-		sup: goaldomain.NewSupervisor(controller, g.deps.Evaluator, goaldomain.DefaultTechLeaderConfig()),
-	}
-	// 主会话坐标：ADVISOR 回合的输入要带上"评审哪个工作区"，执行面才能绑定项目根
-	// 并给评审者只读工具（没有它，评审只能凭上下文猜，见 runtime_goal_tl.go）。
-	runtime.sup.SetSessionID(sessionID)
-	if g.deps.TLRecorderFor != nil {
-		runtime.sup.SetRoundRecorder(g.deps.TLRecorderFor(sessionID))
-	}
+	runtime := &goalSessionRuntime{ctl: controller}
 	g.sessions[sessionID] = runtime
 	return runtime
 }
 
-// noteRoundError 已随席位轮转退场删除：不再有"治理回合"，也就没有回合失败可登记。
-// 回合失败语义改由显式入口（终态 gate / 审批预筛）自己返回 error。
-
 // Begin 注册并压栈（会话路由）。
 func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
-	runtime := g.bundleFor(sessionID)
-	record, err := runtime.ctl.Begin(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	return record, nil
+	return g.bundleFor(sessionID).ctl.Begin(ctx, request)
 }
 
 // Update 更新栈顶（会话路由）。
@@ -132,89 +101,14 @@ func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request 
 	return g.bundleFor(sessionID).ctl.Update(ctx, request)
 }
 
-// ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
-func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error) {
-	return g.bundleFor(sessionID).sup.ProposeFinish(ctx, request)
-}
-
-// FinishDirect 直接落终态收口（**goal_done** 的领域动作）：把栈顶 goal 标 completed /
-// aborted 并弹栈，**不过终态 gate**。
-//
-// 口径（2026-10-02 用户裁决 B，推翻 contract_review 的 U5）：主代理就是 TL 的角色——它在
-// 团队里拍板收口，也应当能对目标拍板收口，因此 goal_done 是**真收口**而不是提议。
-// teammate（角色会话）仍禁：goal 工具族在可见性层对 subagent 整族不可见
-// （backend/tool/registry/policy.go isGoalTool），员工连工具都看不到，谈不上调用。
-//
-// 与 ProposeFinish 的分工：那条路送终态 gate（TL 评估器裁决，可能纠偏）；这一条是裁决者
-// 自己拍板。两条路落到同一个 Controller.Finish/Abort——收口的副作用（弹栈 + History 留
-// 审计 + 看板据 audit 收口）因此只有一份实现，不另开收口路径。
+// FinishDirect 直接落终态收口（goal_done 的领域动作）：把栈顶 goal 标
+// completed / aborted 并弹栈。
 func (g *goalCoordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
 	controller := g.bundleFor(sessionID).ctl
 	if abort {
 		return controller.Abort(ctx, request)
 	}
 	return controller.Finish(ctx, request)
-}
-
-// Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
-func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error {
-	return g.bundleFor(sessionID).sup.Notify(ctx, signal)
-}
-
-// Next 已随席位轮转退场删除：回合尾不再自动推进座位循环。终态判定走显式入口
-// （goal_propose_finish / 审批预筛）。
-
-// AdvanceAfterChat 在 ChatStream 返回后的回合边界安全点登记一次 turn_completed
-// （EXEC 账本水位 + 本轮工作正文摘要）。
-//
-// **席位轮转已退场**（2026-10-01 阶段三 W3）：回合尾**不再**自动跑"exec 让位 →
-// advisor 评审"的座位循环。goal 的驱动改为提示词驱动的 leader 派活（见
-// plugins/default/goal/SKILL.md），终态判定只发生在显式入口——`goal_propose_finish`
-// 的终态 gate（Supervisor 的真实 TL 回合）与审批预筛。
-//
-// **团队环逃生记账已退场**（2026-10-15，A03）：环的唯一建造入口随 Agent Team 用户面
-// （J-1a）删除后，`TeamRuntimeFor` 读面恒为 nil、`NoteTurn` 没有调用者，那条"到达轮次
-// 上限 → 收口 goal + 归档 b 历史"的接线不可达，已随本条目一并移除；goal 收口只走终态
-// gate / 显式入口。detail 仅作 b 评审输入（本轮工作正文摘要）。
-//
-// 返回值不再有"治理回合失败"语义（没有回合了）；调用方丢弃它也不影响聊天成功。
-func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error {
-	runtime := g.bundleFor(sessionID)
-	if runtime.ctl.Status().Active == nil {
-		return nil
-	}
-	return runtime.sup.Notify(ctx, goaldomain.TLEvalSignal{
-		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end", Detail: detail,
-	})
-}
-
-// 席位轮转退场（2026-10-01 阶段三 W3）：治理循环上限、座位派生、座位作业面
-// （newGovernor / seatsFor / seatPlan / SeatJobs / RoleSeat / runSeatRound）已
-// 一并删除。goal 的驱动不再经过任何座位。
-
-// 座位派生（RoleSeat / seatsFor / seatPlan.seats）已随席位轮转退场删除。
-
-// 座位作业面（SeatJobs / SeatJobsAssembled / SeatJobOutcome）与退化座位匹配
-// （seatsFromOrder / orderSeats / teamOrderFor / teamRoleSeat）已随席位轮转退场删除。
-
-// Break 已随席位轮转退场删除：没有治理循环可中断。goal 的收口走终态 gate。
-
-// setEvaluator 装配/替换 TL 评估器：更新后续会话 bundle 构造输入，并为已
-// 存在的会话重建 Supervisor（评审会话从下一次显式入口重新 bind）。
-// 供组合根在首次会话启动前注入真实 TLEvaluator。
-func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator) {
-	if g == nil {
-		return
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.deps.Evaluator = evaluator
-	for sessionID, runtime := range g.sessions {
-		runtime.sup = goaldomain.NewSupervisor(runtime.ctl, evaluator, goaldomain.DefaultTechLeaderConfig())
-		// 重建 Supervisor 必须把主会话坐标重新写回：换评估器不该把"评审哪个工作区"
-		// 丢掉（丢了 = ADVISOR 退回无工具评审，静默降级）。
-		runtime.sup.SetSessionID(sessionID)
-	}
 }
 
 // StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
@@ -228,38 +122,8 @@ func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView {
 	return runtime.ctl.Status()
 }
 
-// DrainDirectives 排空该会话 b→a 指令队列（ChatStream 回合边界注入）。
-func (g *goalCoordinator) DrainDirectives(sessionID string) []goaldomain.TLDirective {
-	g.mu.Lock()
-	runtime := g.sessions[sessionID]
-	g.mu.Unlock()
-	if runtime == nil {
-		return nil
-	}
-	return runtime.sup.Mailbox().DrainDirectives()
-}
-
-// PeekDirectives 读取该会话待注入的 b→a 指令（不消费）：回合结束时把刚产出的
-// 裁决立刻回放进可见会话用。队列本身留给下一次 ChatStream 前的受信注入消费。
-func (g *goalCoordinator) PeekDirectives(sessionID string) []goaldomain.TLDirective {
-	g.mu.Lock()
-	runtime := g.sessions[sessionID]
-	g.mu.Unlock()
-	if runtime == nil {
-		return nil
-	}
-	return runtime.sup.Mailbox().PeekDirectives()
-}
-
 // goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
 // = active 那一帧）。
-//
-// 只读：不写回任何 goal 状态，也不新增第二份"栈事实"——事实仍是 Controller 的
-// LIFO 栈。每帧带自己的标题/陈述/状态/验收/非目标范围/打点，工作台据此渲染看板
-// 卡片与"点开看详情"的属性表。
-//
-// 打点给两份：Progress = 最近 frameProgressLimit 条（卡片一行摘要），
-// ProgressAll = 这一帧保留的全部（详情面的完整流水）。
 func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 	if len(stack) == 0 {
 		return nil
@@ -298,47 +162,17 @@ func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 	return frames
 }
 
-// ADVISOR 的可见回放记账（DirectivePublished / MarkDirectivePublished /
-// NoteInjected / TakeInjected）已删除（2026-10-01 口径修正）：裁决不再回放进可见
-// 会话，"待回放/已回放"这份账本随之失去唯一消费者。裁决只走受信注入与它自己的
-// tl 角色会话。
-
-// goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
-// 面板不显示空壳）。
-func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView {
-	if len(steps) == 0 {
-		return nil
-	}
-	views := make([]dto.GoalStepView, 0, len(steps))
-	for _, step := range steps {
-		views = append(views, dto.GoalStepView{
-			Kind: step.Kind, Turn: step.Turn, Name: step.Name,
-			Args: step.Args, Result: step.Result, Err: step.Err, At: step.At,
-		})
-	}
-	return views
-}
-
-// GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil，前端隐藏）。
+// GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil）。
 //
-// 席位轮转退场后，视图不再有"轮次/座次/断环"这类循环概念：它只投影 goal
-// **看板**（活动栈逐帧 + 状态 + 最近裁决）。评审过程（round_steps / in_flight /
-// peer_state）仍在——但只在终态 gate 或审批预筛跑真实 TL 回合时短暂有值。
-//
-// 看板存档（§8/§9 的读侧兜底）：活体栈为空时存档是**唯一还在的快照**——进程
-// 重启后活栈通道可能还没重建（或已经被弹空），而看板存档里 state=active 说明
-// 那一刻有目标在跑。此时按存档的 active 帧把看板重建出来并标 Recovered=true；
-// state=closed 或没有存档则让看板退场（Active:false / nil），不留空壳。
-// history 是收口**账本**，活体可用时也照常下发（它不是兜底专属，也不混进 Stack）。
+// 看板存档（§8/§9 的读侧兜底）：活体栈为空时存档是唯一还在的快照——进程重启后
+// 活栈通道可能还没重建（或已经被弹空），而看板存档里 state=active 说明那一刻有
+// 目标在跑。此时按存档的 active 帧把看板重建出来并标 Recovered=true。
 func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	g.mu.Lock()
 	runtime := g.sessions[sessionID]
 	g.mu.Unlock()
 	archive, hasArchive := g.readGoalBoardArchive(sessionID)
 	if runtime == nil {
-		// 还没有 goal bundle（本次进程还没碰过这个会话的 goal）：只有存档能
-		// 回答"上一轮目标还在不在"。没有存档仍然返回 nil（会话隔离用例钉的
-		// 就是这条：未 begin 的会话不应有治理视图）。
 		return recoveredGoalView(archive, hasArchive)
 	}
 	status := runtime.ctl.Status()
@@ -346,35 +180,19 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		if view := recoveredGoalView(archive, hasArchive); view != nil {
 			return view
 		}
-		// 看板退场：state=closed 或没有存档（Active:false，前端隐藏面板）。
 		return &dto.GoalGovernanceView{Active: false, History: goalHistoryViews(archive, hasArchive)}
 	}
-	peer := runtime.sup.Snapshot()
-	view := &dto.GoalGovernanceView{
-		Active:    true,
-		GoalID:    status.Active.ID,
-		Title:     status.Active.Title,
-		Status:    status.Active.Status,
-		PeerState: peer.Peer,
-		// 进行中的 ADVISOR 正文（只读快照）：回合结束为空。前端据此在评审期间
-		// 轮询快照，把"评审在写什么"及时渲染出来。
-		InFlight:      peer.InFlight,
-		InFlightChars: peer.InFlightChars,
-		RoundSteps:    goalStepViews(peer.RoundSteps),
-		// 收口账本与活体栈正交：活体可用时照常下发（前端"已收口目标"列表的数据面）。
+	return &dto.GoalGovernanceView{
+		Active:  true,
+		GoalID:  status.Active.ID,
+		Title:   status.Active.Title,
+		Status:  status.Active.Status,
 		History: goalHistoryViews(archive, hasArchive),
+		Stack:   goalStackFrames(status.Stack),
 	}
-	// 每帧的只读投影：工作台按**活动栈**分块展示（栈顶=当前目标，栈下=被嵌套
-	// 压栈而暂停的目标）。栈只有一份事实（Controller 的 LIFO 栈），这里只读。
-	view.Stack = goalStackFrames(status.Stack)
-	if rounds := peer.Rounds; len(rounds) > 0 {
-		view.LastDirective = rounds[len(rounds)-1].Summary
-	}
-	return view
 }
 
-// boardFor 返回指定会话的看板存档取用面。未装配（StoreFor 缺席 / Router 缺席
-// / 非 JSON 布局）返回 false——调用方按"没有存档"降级，不报错、不阻断。
+// boardFor 返回指定会话的看板存档取用面（未装配 → false）。
 func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool) {
 	if g == nil || g.deps.StoreFor == nil {
 		return nil, false
@@ -390,8 +208,7 @@ func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool)
 	return router.BoardsForSession(sessionID)
 }
 
-// readGoalBoardArchive 读取该会话的看板存档。没有存档面 / 没有存档 / 存档损坏
-// 一律返回 false：调用方统一按"没有存档"降级（读侧不把存档当硬依赖）。
+// readGoalBoardArchive 读取该会话的看板存档（缺失/损坏 → false）。
 func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool) {
 	boards, ok := g.boardFor(sessionID)
 	if !ok {
@@ -404,16 +221,14 @@ func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoar
 	return archive, true
 }
 
-// recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true 标记"这一帧
-// 来自快照，不是活体栈"）。存档不存在 / 已关闭 / 没有当前帧 → nil（由调用方
-// 决定"退场"还是"隐藏"）。
+// recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true）。
 func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView {
 	if !hasArchive || archive.State != store.BoardStateActive || archive.Active == nil {
 		return nil
 	}
 	active := archive.Active
 	progress := goalProgressViews(active.Progress)
-	view := &dto.GoalGovernanceView{
+	return &dto.GoalGovernanceView{
 		Active:    true,
 		Recovered: true,
 		GoalID:    active.GoalID,
@@ -434,12 +249,9 @@ func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGo
 			UpdatedAt:   active.UpdatedAt,
 		}},
 	}
-	return view
 }
 
-// goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空账本 → nil：没有条目
-// 就没有条目，不产生空壳）。history **不混进 Stack、也不当 active 那一帧**——
-// 它是"已收口目标"的账本，与活动栈是两个正交的面。
+// goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空 → nil）。
 func goalHistoryViews(archive store.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView {
 	if !hasArchive || len(archive.History) == 0 {
 		return nil

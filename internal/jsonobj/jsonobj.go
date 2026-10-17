@@ -18,7 +18,7 @@ package jsonobj
 // 为 completed）。**一条裁决该不该收口，不该由转义细节决定。**
 //
 // 边界：本层只做两件事——补引号/控制字符的转义，再取首个**括号平衡**的对象。
-// 不改字段名、不补字段、不猜 kind；语义校验仍在 goal 域的 TLDirective.Validate()。
+// 不改字段名、不补字段、不猜 kind；语义校验由调用方负责。
 
 import (
 	"encoding/json"

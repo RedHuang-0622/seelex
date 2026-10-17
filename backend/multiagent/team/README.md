@@ -25,7 +25,8 @@
 本包现在只剩 `spec.go`，且没有用户可见面：
 
 1. **`RoleSessionID(mainSessionID, teamID, roleName)`** —— 角色会话号派生（重复装配幂等的键）。
-   它是本包**唯一在生产仍被调用**的符号，调用方是 `application/core/goal_team_recorder.go`。
+   原调用方 `application/core/goal_team_recorder.go`（已删除）已随 TL/ADVISOR 删除（2026-10-17），
+   现在只剩一致性用例在钉它的历史身份公式；生产角色会话号走 `teamwork.DefaultRoleSessionID`。
    `teamwork.DefaultRoleSessionID` 与它同形但不同语义（空 team ID / 空白裁剪 / 默认身份不同），
    两者**不合并**（见 A12：合并会改变空值兼容并制造新的角色会话键）。
 2. **`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`** —— 角色与

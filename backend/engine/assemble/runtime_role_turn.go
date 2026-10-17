@@ -54,7 +54,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -426,29 +425,9 @@ func (r *Runtime) roleLoopHooks() *session.LoopHooks {
 	return &session.LoopHooks{
 		OnToolStart: func(ctx context.Context, info session.ToolCallInfo) {
 			r.reportRoleToolStart(ctx, info)
-			sink := goaldomain.TLStepSinkFrom(ctx)
-			if sink == nil {
-				return
-			}
-			sink(goaldomain.TLStep{
-				Kind: "tool", Turn: info.Turn, Name: info.Name,
-				Args: truncateRunes(info.Arguments, goaldomain.StepArgsLimit),
-			})
 		},
 		OnToolComplete: func(ctx context.Context, info session.ToolCallInfo) {
 			r.reportRoleToolComplete(ctx, info)
-			sink := goaldomain.TLStepSinkFrom(ctx)
-			if sink == nil {
-				return
-			}
-			step := goaldomain.TLStep{
-				Kind: "tool_result", Turn: info.Turn, Name: info.Name,
-				Result: truncateRunes(info.Result, goaldomain.StepResultLimit),
-			}
-			if info.Error != nil {
-				step.Err = info.Error.Error()
-			}
-			sink(step)
 		},
 	}
 }

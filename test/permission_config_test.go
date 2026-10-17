@@ -45,7 +45,7 @@ var permissionToolNames = []string{
 	// ctl 叫停 loop 簇
 	"task_complete", "task_failed", "task_needs_user_decision", "task_check_node",
 	"ask_approve", "fork_subagents", "plan_load", "plan_clear", "plan_run",
-	"goal_begin", "goal_update", "goal_propose_finish",
+	"goal_begin", "goal_update",
 	// teamwork leader 编排面（ctl 簇）
 	"team_plan", "team_dispatch", "team_join", "team_milestone",
 	// adm 属主簇
@@ -110,7 +110,7 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"task_complete": true, "task_failed": true, "task_needs_user_decision": true,
 		"task_check_node": true, "ask_approve": true, "fork_subagents": true,
 		"plan_load": true, "plan_clear": true, "plan_run": true,
-		"goal_begin": true, "goal_update": true, "goal_propose_finish": true,
+		"goal_begin": true, "goal_update": true,
 		"jobs_manage": true,
 		"team_plan":   true, "team_dispatch": true, "team_join": true, "team_milestone": true,
 	}

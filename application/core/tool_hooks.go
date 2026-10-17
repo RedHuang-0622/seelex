@@ -368,10 +368,6 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			if !svc.components.tasks.AllowNextReActIteration(ctx, turn) {
 				return false
 			}
-			// P1 goal 接线：回合边界登记 exec 账本水位并把 b→a TL 指令注入
-			// 引擎历史（Session 锁内仅 AppendHistory 安全；可见记录在
-			// runChat 结束点回放）。
-			svc.GoalIterationCompleted(ctx)
 			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
 			// OnIterationComplete 在回合内、同一条 goroutine 上同步执行。Seele
 			// 已把「整轮持锁」换成回合闸门 + 工作状态短临界区：这里再调引擎的

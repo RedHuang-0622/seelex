@@ -176,7 +176,6 @@ type ViewFace interface {
 	WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)
 	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
-	GoalIterationCompleted(ctx context.Context) bool
 }
 
 // CommandFace 命令面（plan §1.3 C 组）：提交、取消、会话与工作区生命周期，以及子代理/团队动作。
@@ -201,8 +200,6 @@ type CommandFace interface {
 	GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
 	GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
 	GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
-	GoalProposeFinish(ctx context.Context, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)
-	GoalProposeFinishFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)
 	GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
 	GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
 	RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)

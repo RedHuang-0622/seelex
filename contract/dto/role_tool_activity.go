@@ -6,9 +6,8 @@ import "time"
 //
 // 生态位：subagent 侧已有同一件事的那一份（`SubagentToolEvent`，见 subagent_live.go：
 // 子代理工具调用 → `subagent.tool.started/completed` 增量 → 前端详情实时更新）。员工
-// （teammate）侧此前**没有**：角色回合的 ReAct 钩子只把工具步骤送进 goal 域的
-// TLStep sink（评审过程），而那个 sink 只有 ADVISOR 回合挂得上——于是 teammate 在做工
-// 时，前端一无所知，只能等这一轮跑完（leader 写里程碑那一刻）才看得到结果。
+// （teammate）侧此前**没有**：角色回合的工具步骤没有投影，teammate 在做工时前端
+// 一无所知，只能等这一轮跑完（leader 写里程碑那一刻）才看得到结果。
 //
 // 本结构补的就是这一格：同一条钩子对**员工回合**也发一份活动投影，经装配根送到
 // application（`Service.HandleRoleToolActivity`）→ 会话级事件

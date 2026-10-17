@@ -1,10 +1,6 @@
 package assemble
 
-import (
-	"testing"
-
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
-)
+import "testing"
 
 // 两条 ADVISOR 提示词用例（登记提示词优先 / 工具边界与实际执行面同源）随评估器本体搬进
 // goal 域（`backend/multiagent/goal/advisor_evaluator_test.go`，P21-13）；本文件只留
@@ -18,16 +14,16 @@ import (
 // （调用方回退内置），不让 nil 读面 panic。
 func TestRolePromptProviderDefaultsToEmpty(t *testing.T) {
 	runtime := &Runtime{}
-	if got := runtime.rolePromptFor(goaldomain.AdvisorRoleName); got != "" {
+	if got := runtime.rolePromptFor("pm"); got != "" {
 		t.Fatalf("未注入读面应返回空串，实际 %q", got)
 	}
 	runtime.SetRolePromptProvider(func(string) string { return "  登记的提示词  " })
-	if got := runtime.rolePromptFor(goaldomain.AdvisorRoleName); got != "登记的提示词" {
+	if got := runtime.rolePromptFor("pm"); got != "登记的提示词" {
 		t.Fatalf("读面结果必须 trim，实际 %q", got)
 	}
 	// nil Runtime 不 panic（装配期容错）。
 	var nilRuntime *Runtime
-	if got := nilRuntime.rolePromptFor(goaldomain.AdvisorRoleName); got != "" {
+	if got := nilRuntime.rolePromptFor("pm"); got != "" {
 		t.Fatalf("nil Runtime 应返回空串，实际 %q", got)
 	}
 }

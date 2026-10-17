@@ -153,8 +153,6 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 子代理 mailbox 排空并丢弃（锁外安全点）：子代理结论已由工具结果
 	// 回传，mailbox 内容不再注入引擎历史/可见会话/transcript。
 	service.discardPendingSubagentContextsFor(sessionID)
-	// goal A2A：把上一回合 TL 产生的指令注入本回合受信区（锁外安全点）。
-	service.injectGoalDirectivesForStart(sessionID)
 	service.publishChatStateFor(sessionID)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
@@ -193,12 +191,6 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
 	// 不继承别的会话遗留的开关。
 	service.syncFullAccessFor(sessionID)
-	// 受信注入的安全点（"下一次 ChatStream 前"）：TL/ADVISOR 指令在迭代边界
-	// 只登记、不注入——那里在 Session 锁内，重入历史写面会自锁死（见
-	// GoalIterationCompleted）。常规轮已由 startChatFor 注入，但**队列提升
-	// 出来的下一轮不经过 startChatFor**（runChat 直接续跑），少了这一处，
-	// 刚产出的裁决就会晚一整轮才进模型上下文。
-	service.injectGoalDirectivesForStart(sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
 	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)
@@ -270,18 +262,6 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// returns: child results travel back as tool results, never as mailbox
 	// content injected into engine history or the durable transcript.
 	service.discardPendingSubagentContextsFor(sessionID)
-	// goal A2A：回合结束（ChatStream 已返回、Session 锁已释放）登记一次
-	// turn_completed——席位轮转退场后这里**不再**跑 ADVISOR 回合；终态判定只发生在
-	// 显式入口（goal_propose_finish 的 gate / 审批预筛），产出的指令在下次 ChatStream
-	// 前注入受信区。
-	service.goalAdvanceAfterChat(ctx)
-	// goal A2A：ADVISOR 的裁决**不进可见对话**（2026-10-01 口径修正）。它是被
-	// 调用的 agent（goal 终态 gate 的评审者），不是参与对话的席位：裁决只走两条
-	// 通道——受信注入（下一次 ChatStream 前写进引擎受信区，模型看得到）与它自己的
-	// tl 角色会话（评审过程面板；goal_team_recorder 逐回合落 role_context/原文）。
-	// 这里过去还有两次"可见行回放"（injectGoalDirectivesFor /
-	// publishPendingGoalDirectivesFor），把 `[TL 指令 corr-N] …` 写进聊天区、
-	// 冒充一条对话发言——那正是"ADVISOR 参与对话"的症状，已删除。
 	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr

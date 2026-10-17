@@ -390,41 +390,6 @@ func TestGoalStatusEnumWire(t *testing.T) {
 	}
 }
 
-// 格 K：评审者（b / ADVISOR）生命周期状态。
-func TestPeerStateEnumWire(t *testing.T) {
-	cases := []struct {
-		state PeerState
-		word  string
-	}{
-		{PeerStateUnknown, "unknown"},
-		{PeerDetached, "detached"},
-		{PeerBound, "bound"},
-		{PeerEvaluating, "evaluating"},
-		{PeerAdvisoryPending, "advisory_pending"},
-		{PeerReaped, "reaped"},
-	}
-	for _, entry := range cases {
-		state := entry.state
-		assertStateWire(t, stateWireCase{
-			grid:  "评审者状态",
-			state: state,
-			word:  entry.word,
-			parse: func(text string) (fmt.Stringer, bool) {
-				parsed, ok := ParsePeerState(text)
-				return parsed, ok
-			},
-			read: func(data []byte) error { return json.Unmarshal(data, &state) },
-		})
-	}
-	// 边界：goal 自己的状态词不许被这一格认下（两格都在 goal 治理视图里，
-	// 但一个说"目标处在哪一步"、一个说"评审者在不在"）。
-	for _, foreign := range []string{"active", "paused", "waiting_human"} {
-		if _, ok := ParsePeerState(foreign); ok {
-			t.Errorf("评审者状态认下了 goal 状态的词 %q", foreign)
-		}
-	}
-}
-
 // 格 L：恢复单元状态（恢复模板里的粗分三桶；由记录状态折一次）。
 func TestUnitStatusEnumWire(t *testing.T) {
 	cases := []struct {

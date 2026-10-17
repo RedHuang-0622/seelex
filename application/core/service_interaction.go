@@ -354,9 +354,11 @@ func (service *Service) observeInteraction(sessionID, requestID string, interact
 	}
 	if interaction == nil {
 		service.publishSessionEvent(EventInteractionClosed, revision, requestID, publishSID, nil)
+		service.publishSessionStateChanged(publishSID)
 		return
 	}
 	service.publishSessionEvent(EventInteractionOpened, revision, requestID, publishSID, interaction)
+	service.publishSessionStateChanged(publishSID)
 }
 
 // mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到

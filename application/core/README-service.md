@@ -112,10 +112,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) SetMaxLoops(maxLoops int)`
 - `func (engine *fakeEngine) SetSessionMaxLoopsFor(sessionID string, loops int)` — SetSessionMaxLoopsFor 实现 contract.SessionLoopLimitPort：定时任务声明的循环上限
 - `func (engine *fakeEngine) sessionLoopsFor(sessionID string) int` — sessionLoopsFor 读指定会话被钉住的循环上限（0 = 没钉，按进程默认值跑）。
-- `func (engine *fakeEngine) AppendHistory(msg types.Message)`
+- `func (engine *fakeEngine) AppendHistory(msg contract.EngineMessage)`
 - `func (*fakeEngine) TraceText() string`
 - `func (*fakeEngine) TokenCount() string`
-- `func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool)`
+- `func (*fakeEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool)`
 - `func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool)`
 - `func (engine *fakeEngine) NodeToolResult(nodeID, ref string) (string, bool)`
 - `func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool)`
@@ -126,7 +126,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string)`
 - `func (engine *fakeEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (engine *fakeEngine) HistoryFor(sessionID string) []contract.EngineMessage`
-- `func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg types.Message)`
+- `func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg contract.EngineMessage)`
 - `func (engine *fakeEngine) ClearHistoryFor(sessionID string)`
 - `func (engine *fakeEngine) SetSystemPromptFor(sessionID, prompt string)`
 - `func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error`
@@ -259,7 +259,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) discardPendingSubagentContexts()` — discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 - `func (service *Service) discardPendingSubagentContextsFor(_ string)` — discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
-- `func (service *Service) appendEngineMessage(sessionID string, msg types.Message)` — appendEngineMessage 追加消息到指定会话引擎历史。
+- `func (service *Service) appendEngineMessage(sessionID string, msg contract.EngineMessage)` — appendEngineMessage 追加消息到指定会话引擎历史。
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 - `func (service *Service) clearEngineHistoryFor(sessionID string)` — clearEngineHistoryFor 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，

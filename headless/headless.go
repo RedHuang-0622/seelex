@@ -568,7 +568,7 @@ func (server *Server) dispatchSchedule(method string, args []json.RawMessage) (a
 type goalRPCApplication interface {
 	GoalBeginFor(context.Context, string, goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
 	GoalUpdateFor(context.Context, string, goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
-	GoalProposeFinishFor(context.Context, string, goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)
+	GoalDoneFor(context.Context, string, goaldomain.FinishRequest, bool) (*goaldomain.GoalRecord, error)
 	GoalStatusFor(string) (goaldomain.StatusView, error)
 	GoalGovernanceViewFor(string) *dto.GoalGovernanceView
 }
@@ -600,12 +600,12 @@ func (server *Server) dispatchGoal(method string, args []json.RawMessage) (any, 
 			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
 		}
 		return app.GoalUpdateFor(ctx, sessionID, request)
-	case "goal.propose_finish":
+	case "goal.done":
 		var request goaldomain.FinishRequest
 		if err := decodeArg(&request); err != nil {
 			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
 		}
-		return app.GoalProposeFinishFor(ctx, sessionID, request)
+		return app.GoalDoneFor(ctx, sessionID, request, false)
 	case "goal.status":
 		return app.GoalStatusFor(sessionID)
 	case "goal.gov_snapshot":

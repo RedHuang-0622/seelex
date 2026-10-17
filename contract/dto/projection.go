@@ -9,37 +9,17 @@ type RuntimeVisibilityProjection struct {
 }
 
 // GoalGovernanceView 是会话 goal 治理的只读投影（§2.2）：由 goal 协调器
-// 组装（Controller + Supervisor 读面），经 SessionRuntime 下发给 GUI/TUI 面板。
+// 从 Controller 组装，经 SessionRuntime 下发给 GUI/TUI 面板。
 // Active=false（或 nil）表示该会话无 goal 治理，前端隐藏面板。
 //
 // 2026-10-01（阶段三 W3）席位轮转退场：视图不再有"轮次 / 座次 / 断环"这类
 // 循环概念（Round/RoundLimit/CurrentSeat/Broken/BreakReason/RoundError 一并删除）。
-// 它现在只投影 goal **看板**（活动栈 + 状态 + 最近裁决）与终态 gate / 审批预筛
-// 期间短暂有值的评审过程。
+// 它只投影 goal **看板**（活动栈 + 状态 + 收口账本）；TL/ADVISOR 评审环已删除。
 type GoalGovernanceView struct {
 	Active bool       `json:"active"`
 	GoalID string     `json:"goal_id,omitempty"`
 	Title  string     `json:"title,omitempty"`
 	Status GoalStatus `json:"status,omitempty"` // goal 状态（词表在 dto.GoalStatus）
-	// PeerState 是评审者（b）的状态：只在终态 gate / 审批预筛跑真实 TL 回合时
-	// 短暂进入 evaluating / advisory_pending，其余时间为稳态（词表在 dto.PeerState）。
-	PeerState     PeerState `json:"peer_state,omitempty"`
-	LastDirective string    `json:"last_directive,omitempty"`
-	// InFlight / InFlightChars 是**当前 b（ADVISOR）回合进行中**的正文近端。
-	//
-	// 为什么存在于治理视图：b 回合是同步跑完的（回合结束才推一次状态），"评审在
-	// 写什么"因此完全不可见（渲染不及时）。这里把进行中正文作为只读快照暴露，
-	// 前端在 peer_state=evaluating 期间轮询快照即可看到；回合结束即清空（权威正文是
-	// tl_directive 行）。**只有后端 → 前端的单向投影**。
-	InFlight      string `json:"in_flight,omitempty"`
-	InFlightChars int    `json:"in_flight_chars,omitempty"`
-	// RoundSteps 是**本轮/最近一轮** ADVISOR 评审的过程步骤（工具调用 + 返回）。
-	//
-	// 为什么存在于治理视图：b 回合是一次**带只读工具的**评审（读文件/搜索），但那些
-	// 工具调用只活在进程内的角色会话里，回合结束即消失——前端因此只看得到终局裁决
-	// （tl_directive 行），看不到"评审者核对了什么"。这里把过程作为只读投影暴露，
-	// 前端据此渲染"评审过程"时间线（进行中与刚结束都可看）。**单向投影**。
-	RoundSteps []GoalStepView `json:"round_steps,omitempty"`
 	// Stack 是 goal **活动栈**的逐帧只读投影（栈底→栈顶；末元素 = Active 那一帧）。
 	//
 	// 为什么要有它：governance 视图原来只有栈顶一帧，会话里嵌套压栈（新 goal 压栈、
@@ -69,20 +49,6 @@ type GoalHistoryView struct {
 	// ProgressCount 是该目标收口时的打点条数（判定得出时才有值：终态审计条目
 	// 自己不承载条数，取不到就是 0，不猜）。
 	ProgressCount int `json:"progress_count,omitempty"`
-}
-
-// GoalStepView 是 ADVISOR 评审过程里的**一步**只读投影（前端"评审过程"时间线）。
-//
-// 两步一条工具调用：Kind="tool"（Name/Args 有效）与 Kind="tool_result"
-// （Result/Err 有效）——与轨迹视图的请求/响应对齐，前端可配对渲染。
-type GoalStepView struct {
-	Kind   string `json:"kind,omitempty"`
-	Turn   int    `json:"turn,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Args   string `json:"args,omitempty"`
-	Result string `json:"result,omitempty"`
-	Err    string `json:"err,omitempty"`
-	At     int64  `json:"at,omitempty"`
 }
 
 // GoalFrameView 是 goal 活动栈里**一帧**的只读投影（看板一行 + 详情一份属性表）。
