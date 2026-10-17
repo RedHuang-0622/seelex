@@ -81,8 +81,6 @@ var FaceTypeNames = []string{
 	"ReplayResult",
 	"RuntimePort",
 	"RuntimeState",
-	"SearchHit",
-	"SearchRecord",
 	"SearchResult",
 	"Service",
 	"SessionArchive",
