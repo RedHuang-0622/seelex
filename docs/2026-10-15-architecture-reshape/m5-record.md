@@ -1531,3 +1531,23 @@ FNV-1a 32 位散列（**同一原语三处**）。它们的"判据"是同一个�
 （节点会话号派生 / 账号 pool 定序 / 权限策略摘要），且都是**兼容面**（换算法即换 nodeID / 换钉账号）。
 按 AGENTS §8.2 这属于"要不要并成一份共享原语"的取舍：并的收益是算法口径只有一处，代价是要新建一个共享包并
 触碰权限策略那处 —— **未动，等裁决**。
+
+
+## 40. P21 续片（2026-10-17 第八轮：P21-19 / P21-20）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-19 | **子代理中断恢复判据** → `backend/multiagent/subagent/resume_units.go`：`LocateResumeUnits`（残留记录 → 恢复单元的判定口径：在跑 ⇒ active / 判失败 ⇒ failed / 其余 ⇒ done / **已有结论一律按终结**）、`ResumeUnitKey`（幂等键：节点 id 优先退到会话号）、`RecordIsFailed` / `RecordIsTerminal`（落盘格唯一转换点，认不得的词不判死也不当终结）、`SceneOf`（现场投影：载荷 + 摘要回退"之前做到哪"）、`LastStagePreview`、`ResumeExtraFacts` / `ResumeNote`（契约正文 + 两条有界追加事实）。装配层保留七步模板的**宿主适配器**（账本/事件库读取、宿主钩子、真派发与 ctx 会话注入、记录删除）与状态容器；`lastSubagentStagePreview` 走函数值同身份别名。域级 5 条新用例 | `5d649cc0` |
+| P21-20 | **团队看板投影判据** → `backend/multiagent/teamwork/board_view.go`（337 行）：`BuildBoardView`（**下发与存档同一条路径**）+ 五份行搬运（成员 / 工作项 / 里程碑 / 作业 / 审计）+ 人的状态**两值**折算 + 当前会话三段优先 + 卡点渲染（走编排面同一处 `ItemGateOf`）+ 主体反解 `RoleFromSubject` + 句柄过期提示位 + `PlanHasOrchestration`。装配层只剩**宿主面**（文件读缓存与负缓存、存档兜底、整表失效、装配读数），所有搬走的函数留同身份别名（存档刷新/关闭封板/同包用例零改动）。域级 8 条新用例 | `8f496293` |
+
+**装配层体积变化（本轮）**：`runtime_teamwork_board.go` 480 → 218 行（判据 337 行进域包）；
+`runtime_subagent_resume.go` 577 → 约 535 行（判据 159 行进域包）。
+
+**仍待办（按价值排序）**：`runtime_teamwork_schema.go`（288 行工具形状：13 把 team_* 的名字/描述/schema）、
+`runtime_teamwork_context.go`（311 行：上下文视图投影 + 正文预算/截断判据）、`runtime_teamwork_output.go`
+（275 行：作业输出路径与文件读写）、`runtime_teamwork.go` 的判据（作业记录上限、场景清单）、
+`runtime_teamwork_board_archive.go` / `..._close.go`（存档元数据推进、封板）、`runtime_plan.go` 的分支账号
+与节点会话号派生、`runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、
+`workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。
+**判定为装配面（不搬，理由见 §38 表）**：bundles 注册表与会话绑定访问器、调度/MCP/插件/任务的转发与注册、
+端口宿主面（`runtime_history` / `runtime_visibility` / `runtime_bundle` / `runtime_deps`）。
