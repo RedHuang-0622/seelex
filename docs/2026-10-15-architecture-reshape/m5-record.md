@@ -1233,10 +1233,10 @@ B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把
 | 4 | R5b（工作表格域） | ✅ | `middle/view/worktable` 持有投影判据，宿主用例一行未改 |
 | 5 | R10a（门面五组窄接口） | ✅ | `go test ./e2e/ -run Facade` 全绿（含 I5） |
 | 6 | P13（README 索引全仓化 + 收尾） | ✅ | `--check` exit 0 |
-| 7 | **R10b**：删 `application/core/aliases.go`（234 行）+ core 内改限定名 | ⚠ **已尝试、中止并登记（P22）** | 契约 §1.3 的前提不实：该文件是"别名 + 词表 const + 未导出 input 别名 + 8 个构造函数 + 5 个转发 helper"的混合体，实测 1736 处引用 / 247 文件。处置见 §31 |
-| 8 | **R6 余片**：`session_lifecycle.go`（`hotAttachSession`）、`session_release.go` 余项、`session_history.go` 剩余宿主部分、顶层 `session/` → `middle/switch/sessionusecase/` | ⛔ 未做 | plan §2.4 落点表 |
-| 9 | `service_scheduler.go` 参数默认值下沉 | ⏸ 前置未清 | 等 plan §1.5 的 `application/prompt/effort.go` → `backend/limit/{loop,effort}` |
-| 10 | M5 出口验收（全量 CI 等价） | ⛔ 未做 | `gofmt`/`go build`/`-tags`/`go vet`/`go test ./...`/`./test/`/`node --test gui/frontend/dist/*.test.mjs`/`hooks-selftest.sh` |
+| 7 | **R10b**：删 `application/core/aliases.go`（234 行）+ core 内改限定名 | ✅ **已重做（`909c9f97`，见 §31 更正）** | 契约 §1.3 的前提不实（该文件是混合体）；按"先拆文件、再改限定名"落地 |
+| 8 | **R6 余片** | ✅ 宿主部分按 P21 口径留在 core；**仅 `session/` + `workspace_usecase` 的物理搬迁待 P3 状态 owner** | 详见 §57 |
+| 9 | `service_scheduler.go` 参数默认值下沉 | ✅ **`4d03de5d`** | 策略表归位 `backend/limit/effort`；默认参数走 `effort.DefaultRunParams` |
+| 10 | M5 出口验收（全量 CI 等价） | ✅ **见 §56** | `gofmt`/`go build`/`-tags`/`go vet`/`go test ./...`/`./test/`/`node --test`/README 门禁 |
 | 11 | push 前历史卫生 | ⛔ 未做 | squash `fd549859`（单提交不可构建）与 `9e07bc83`（夹带 R11-task 7 文件）；本分支**未 push** |
 | 12 | 待你裁决 | ⏸ | P8 的 5.3 冗余/僵尸面 + 本轮新增 **P18–P21**（见 post-migration-proposals.md） |
 
@@ -2022,3 +2022,30 @@ headless 的 goal 请求形状作为已知边登记到 P3。细节见
 | `python scripts/gen_core_readme_index.py --check` | 88 个 README 无漂移 |
 | `python scripts/check_readme_refs.py --strict` | 178 个 README 0 未解析引用 |
 | 受影响包 `-race` | 见 `tmp/reshape/race-affected-final.log`：0 DATA RACE |
+
+## 57. R6 余片收口：effort 策略下沉与 R6 状态澄清（2026-10-17）
+
+### effort 策略表（`4d03de5d`）
+
+plan §2.8 的最后一处判据搬迁：`application/prompt/effort.go` 里的档位策略表
+（profiles / `DefaultEffortLevel` / `ReasoningEffortFor` / `PlanningPolicy` / `Levels`）
+归位 **`backend/limit/effort`**；`EffortManager`（PromptStack + 引擎应用动作）
+留在 `application/prompt` 并转发既有入口。
+
+- 定时任务默认参数：`service_scheduler.go` 的 `scheduledRunParams` 改调
+  `effort.DefaultRunParams`——"声明优先、未声明落默认档位读数"只剩一处；
+- 测试随实现搬入 `backend/limit/effort`；prompt 保留跨入口一致性用例
+  （`MaxLoops` / `ReActBudgetFor` / `ReasoningEffortFor` 与判据层同解）；
+- facade 闭包等量登记 `backend/limit/effort`（干净叶子：loop + contract/dto），
+  上限 83→84 并在清单里写明理由。
+
+### R6 余片的状态澄清
+
+| 项 | 结论 |
+|---|---|
+| `session_lifecycle.go`（hotAttach）/ `session_release.go` / `session_history.go` | 判据已在 `middle/switch/*`（release/interaction/history 等）；剩余是**宿主动作**（引擎锁、workspace 绑定、prompt 写入），按 P21 口径留在 core，不搬 |
+| `workspace_usecase.go` → `middle/switch/workspace/` | 方法体是宿主编排（`Deps.Workspace`/`Deps.Sessions`/引擎切换）；纯判据只有"换项目是否另起会话"一条。整体搬迁需要状态 owner 裁决（与 P3 同一前置） |
+| 顶层 `session/` → `middle/switch/sessionusecase/` | **仍未搬**。阻塞点：`session/ports.go` 直接别名 `store` 的 6 个类型，`Manager` 持 `*store.Router`；搬到中间层会违反"middle 不 import store"。先要把存储面反转成端口（状态 owner / scope 决定），属 P3 前置 |
+
+因此 R6 的"能搬的判据"已经搬完；剩下的两个物理落点与 P3 共用同一组产品决定，
+不是可以独立完成的搬迁片。
