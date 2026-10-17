@@ -117,7 +117,7 @@ func TestUnitRecordCarriesTheRoundFacts(t *testing.T) {
 	if record.Summary != "产出预览" {
 		t.Fatalf("摘要应当按 clip 口径裁剪：%q", record.Summary)
 	}
-	if !strings.Contains(record.StagesJSON, "round_output") {
+	if !strings.Contains(string(record.StagesJSON), "round_output") {
 		t.Fatalf("阶段必须编码进 StagesJSON：%q", record.StagesJSON)
 	}
 	if record.Worktree != worktree {
