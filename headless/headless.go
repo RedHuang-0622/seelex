@@ -1,4 +1,4 @@
-package gui
+package headless
 
 // headless.go 承载桌面 GUI 的“headless 冒烟接口”（headlessUI 设计）：
 // 真实 GUI 进程内打开一个仅绑定 127.0.0.1 的本地控制面，让外部驱动像
@@ -8,7 +8,8 @@ package gui
 // 定位与边界：
 //   - 默认关闭：只有显式设置 SEELEX_HEADLESS_PORT 才启动（开发/冒烟用，
 //     生产双击启动不受影响）；只监听回环地址，不对外网开放。
-//   - 能力面 = 前端 Bridge 的窄子集（gui/bridge.go 的 Application 契约），
+//   - 能力面 = 本包声明的窄 `Application` 契约（由门面 `application.Service`
+//     结构满足），
 //     不新增业务状态机；真实工作仍全部经 application core 执行。
 //   - /events 订阅全局事件流（含所有会话），冒烟驱动据此记录事件到达
 //     时刻/速率，与 /rpc 的调用耗时共同构成“热力时间消耗”数据面。
@@ -38,22 +39,74 @@ const headlessEnvPort = "SEELEX_HEADLESS_PORT"
 // 会以 resync.required 全局事件兜底，驱动应按快照重拉处理）。
 const headlessEventBuffer = 4096
 
-// headlessServer 是 headless 冒烟接口的 HTTP 服务（单进程内绑定）。
-type headlessServer struct {
+// Application 是 headless 控制面消费的窄契约：只列它真正会调用的 17 个方法。
+// 接口归调用方所有（与 gui 的 Application 同款），因此本包不 import gui——
+// gui 反过来 import 本包启动进程内控制面，方向始终保持单向。
+type Application interface {
+	Snapshot() application.Snapshot
+	WaitForIdle(context.Context) error
+	Subscribe(int) application.Subscription
+	Submit(context.Context, string) error
+	BeginNewSession() error
+	ResumeSession(string) error
+	ForkSessionLatest(string) (string, error)
+	CancelChat(string) bool
+	ResolveInteraction(context.Context, string, string) error
+	LoadMoreHistory(int) error
+	LoadLatestHistory() error
+	WaitCatalogRefresh(context.Context) error
+	CreateWorkspace(name, rootPath, gitRemote string) error
+	BindWorkspace(workspaceID string) error
+	UnbindWorkspace()
+	SetPermissionTier(string) (string, error)
+	PerfStats() application.PerfStats
+}
+
+// sessionAwareApplication 是可选的会话级扩展面（显式 sessionID API）。
+// 未实现时对应 RPC 退回视图会话或显式报错。
+type sessionAwareApplication interface {
+	SubmitToSession(context.Context, string, string) error
+	ActivateSession(string) error
+	SnapshotOf(string) (application.SessionSnapshot, error)
+	ListSessions() []application.SessionInfo
+	GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error)
+	SubscribeSession(string, int) (application.Subscription, error)
+}
+
+// toolRecordBoardProvider 是可选的工具记录看板读/开关面。
+type toolRecordBoardProvider interface {
+	ToolRecordBoard() application.ToolRecordBoard
+	ToolRecordEnabled() bool
+	SetToolRecordEnabled(enabled bool) (bool, error)
+}
+
+// Server 是 headless 冒烟接口的 HTTP 服务（单进程内绑定）。
+type Server struct {
 	app Application
 	srv *http.Server
+}
+
+// NewServer 构造一个尚未 Serve 的控制面（测试可直接在回环监听器上起它）。
+func NewServer(app Application) *Server { return &Server{app: app} }
+
+// Shutdown 关闭底层 HTTP 服务（未 Serve 时为空操作）。
+func (server *Server) Shutdown(ctx context.Context) error {
+	if server == nil || server.srv == nil {
+		return nil
+	}
+	return server.srv.Shutdown(ctx)
 }
 
 // RunHeadless 是 headless 控制面的独立入口（调试/冒烟用，不启动桌面窗口）：
 // 与 GUI 进程内装配一致地启动回环 RPC + 事件流，但不依赖 WebView2/Wails。
 // 未设置 SEELEX_HEADLESS_PORT 时返回可读错误；启动后阻塞到进程收到中断或
 // 终止信号（外部驱动结束后 kill 进程即可）。
-func RunHeadless(app Application) error {
+func Run(app Application) error {
 	port := strings.TrimSpace(os.Getenv(headlessEnvPort))
 	if port == "" {
 		return fmt.Errorf("headless 调试入口需要 %s=<端口>（例如 SEELEX_HEADLESS_PORT=39123）", headlessEnvPort)
 	}
-	stop, err := startHeadlessIfRequested(app)
+	stop, err := StartIfRequested(app)
 	if err != nil {
 		return err
 	}
@@ -64,9 +117,9 @@ func RunHeadless(app Application) error {
 	return nil
 }
 
-// startHeadlessIfRequested 在设置 SEELEX_HEADLESS_PORT 时启动回环控制面；
+// StartIfRequested 在设置 SEELEX_HEADLESS_PORT 时启动回环控制面；
 // 未设置时返回空操作（生产双击路径零成本）。
-func startHeadlessIfRequested(app Application) (func(), error) {
+func StartIfRequested(app Application) (func(), error) {
 	port := strings.TrimSpace(os.Getenv(headlessEnvPort))
 	if port == "" {
 		return func() {}, nil
@@ -78,7 +131,7 @@ func startHeadlessIfRequested(app Application) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("headless 接口监听失败: %w", err)
 	}
-	server := &headlessServer{app: app}
+	server := NewServer(app)
 	go func() { _ = server.Serve(listener) }()
 	stop := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -89,7 +142,7 @@ func startHeadlessIfRequested(app Application) (func(), error) {
 }
 
 // Serve 在给定监听器上提供 headless 冒烟接口（/healthz、/rpc、/events）。
-func (server *headlessServer) Serve(listener net.Listener) error {
+func (server *Server) Serve(listener net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.serveHealth)
 	mux.HandleFunc("/rpc", server.serveRPC)
@@ -98,27 +151,27 @@ func (server *headlessServer) Serve(listener net.Listener) error {
 	return server.srv.Serve(listener)
 }
 
-func (server *headlessServer) serveHealth(writer http.ResponseWriter, _ *http.Request) {
+func (server *Server) serveHealth(writer http.ResponseWriter, _ *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	_, _ = writer.Write([]byte(`{"ok":true}`))
 }
 
-// rpcRequest 是 /rpc 的入参形状：method + 位置参数数组（与 Bridge 方法签名
+// Request 是 /rpc 的入参形状：method + 位置参数数组（与 Bridge 方法签名
 // 一一对应，减少驱动层的参数名转换）。
-type rpcRequest struct {
+type Request struct {
 	Method string            `json:"method"`
 	Args   []json.RawMessage `json:"args"`
 }
 
-type rpcResponse struct {
+type Response struct {
 	OK     bool   `json:"ok"`
 	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 
-func (server *headlessServer) serveRPC(writer http.ResponseWriter, request *http.Request) {
+func (server *Server) serveRPC(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
-	var payload rpcRequest
+	var payload Request
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writeRPCError(writer, fmt.Sprintf("decode rpc: %v", err))
 		return
@@ -128,16 +181,16 @@ func (server *headlessServer) serveRPC(writer http.ResponseWriter, request *http
 		writeRPCError(writer, err.Error())
 		return
 	}
-	_ = json.NewEncoder(writer).Encode(rpcResponse{OK: true, Result: result})
+	_ = json.NewEncoder(writer).Encode(Response{OK: true, Result: result})
 }
 
 func writeRPCError(writer http.ResponseWriter, message string) {
-	_ = json.NewEncoder(writer).Encode(rpcResponse{OK: false, Error: message})
+	_ = json.NewEncoder(writer).Encode(Response{OK: false, Error: message})
 }
 
 // dispatch 把冒烟驱动的方法调用映射到 Application（含会话级扩展）契约。
 // 新增 GUI 命令时在这里补一行即可；命令本身仍走 application core。
-func (server *headlessServer) dispatch(method string, args []json.RawMessage) (any, error) {
+func (server *Server) dispatch(method string, args []json.RawMessage) (any, error) {
 	if strings.HasPrefix(method, "goal.") {
 		return server.dispatchGoal(method, args)
 	}
@@ -412,7 +465,7 @@ func decodeHeadlessObject(method string, args []json.RawMessage, destination any
 	return nil
 }
 
-func (server *headlessServer) dispatchRole(method string, args []json.RawMessage) (any, error) {
+func (server *Server) dispatchRole(method string, args []json.RawMessage) (any, error) {
 	app, ok := server.app.(roleRPCApplication)
 	if !ok {
 		return nil, fmt.Errorf("%s: 当前 Application 未装配群聊角色扩展面", method)
@@ -489,7 +542,7 @@ func (server *headlessServer) dispatchRole(method string, args []json.RawMessage
 	}
 }
 
-func (server *headlessServer) dispatchSchedule(method string, args []json.RawMessage) (any, error) {
+func (server *Server) dispatchSchedule(method string, args []json.RawMessage) (any, error) {
 	app, ok := server.app.(roleRPCApplication)
 	if !ok {
 		return nil, fmt.Errorf("%s: 当前 Application 未装配定时插话扩展面", method)
@@ -521,7 +574,7 @@ type goalRPCApplication interface {
 }
 
 // dispatchGoal 把 goal.<method> 透传到 application（当前视图会话）。
-func (server *headlessServer) dispatchGoal(method string, args []json.RawMessage) (any, error) {
+func (server *Server) dispatchGoal(method string, args []json.RawMessage) (any, error) {
 	app, ok := server.app.(goalRPCApplication)
 	if !ok {
 		return nil, fmt.Errorf("%s: 当前 Application 未装配 goal 扩展面", method)
@@ -582,7 +635,7 @@ func waitContext(timeoutSeconds int, fallback time.Duration) (context.Context, c
 // serveEvents 以 SSE 方式推送全量会话事件（含 payload 体积与到达时刻由
 // 驱动侧打点）。事件行只带公开元数据，不携带会话正文，避免把完整对话内容
 // 重复流过冒烟通道。
-func (server *headlessServer) serveEvents(writer http.ResponseWriter, request *http.Request) {
+func (server *Server) serveEvents(writer http.ResponseWriter, request *http.Request) {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		http.Error(writer, "streaming unsupported", http.StatusInternalServerError)

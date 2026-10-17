@@ -1,13 +1,13 @@
 package goal
 
 // headless.go 承载 goal 域的 Headless 调教接口（headlessGUI 设计，对齐
-// gui/headless.go 的 wire shape）：本地/测试驱动经 /rpc 调 goal 控制器
+// headless/headless.go 的 wire shape）：本地/测试驱动经 /rpc 调 goal 控制器
 // 同源能力（goal_begin/update/finish/abort/status/projection + WithTechLeader 装配后的
 // goal_tl_*/goal_propose_finish/goal_prescreen），经 /events 订阅全量 goal 事件流
 // （快照语义）。真实业务全部在 Controller/Supervisor，本层只做方法分发与编解码，
-// 不新增状态机（对齐 gui/headless.go 定位）。
+// 不新增状态机（对齐 headless/headless.go 定位）。
 //
-// 接线位（后续 P0-wiring）：gui/headless.go dispatch 增一行 goal.<method>
+// 接线位（后续 P0-wiring）：headless/headless.go dispatch 增一行 goal.<method>
 // → 本包 Controller（由 application 按会话持有）；本层因此可原样复用。
 
 import (
@@ -46,7 +46,7 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// RPCRequest 是 /rpc 入参形状（与 gui/headless.go 同款：method + 位置参数）。
+// RPCRequest 是 /rpc 入参形状（与 headless/headless.go 同款：method + 位置参数）。
 type RPCRequest struct {
 	Method string            `json:"method"`
 	Args   []json.RawMessage `json:"args"`
@@ -286,7 +286,7 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // ReadEvents 逐行读取 /events 流并调用 handle（阻塞至 ctx 取消或流结束）。
-// 用于 headless 驱动做事件热力/断言分析（对齐 gui/headless.go /events 用途）。
+// 用于 headless 驱动做事件热力/断言分析（对齐 headless/headless.go /events 用途）。
 func (c *Client) ReadEvents(ctx context.Context, handle func(Event) error) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/events", nil)
 	if err != nil {

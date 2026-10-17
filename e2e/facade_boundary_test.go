@@ -290,7 +290,7 @@ var contractClosureAllowList = []string{
 	"go.opentelemetry.io/otel/trace/internal/telemetry",
 }
 
-// frontendDirectImportAllowList 是三个前端入口的**直接** import 允许清单（只许收缩）。
+// frontendDirectImportAllowList 是四个前端入口的**直接** import 允许清单（只许收缩）。
 //
 // 为什么用"直接"而不是"传递闭包"：前端 import 门面，门面今天仍传递依赖
 // application/core → seelebridge/store/seelexctx，所以"前端传递闭包 ⊆ 门面"
@@ -299,12 +299,17 @@ var contractClosureAllowList = []string{
 var frontendDirectImportAllowList = map[string][]string{
 	"./gui": {
 		"github.com/RedHuang-0622/seelex/application",
-		// D-M1-6：headless RPC 透传 goal 域的请求/响应形状；随 headless 拆分（M5）收口。
-		"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
 		// D-M1-2：纯数据形状，plan 口径暂列允许项，M5 门面收窄时统一裁决。
 		"github.com/RedHuang-0622/seelex/middle/protocol/model",
 		"github.com/RedHuang-0622/seelex/contract/dto",
 		"github.com/RedHuang-0622/seelex/gui/terminal",
+	},
+	"./headless": {
+		"github.com/RedHuang-0622/seelex/application",
+		// D-M1-6：headless RPC 透传 goal 域的请求/响应形状；随 P3（goal 请求形状
+		// 契约化）收口。headless 已从 gui 拆出（P7），这条边不再挂在 gui 上。
+		"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
+		"github.com/RedHuang-0622/seelex/contract/dto",
 	},
 	"./tui": {
 		"github.com/RedHuang-0622/seelex/application",
@@ -313,13 +318,8 @@ var frontendDirectImportAllowList = map[string][]string{
 	},
 	"./console": {
 		"github.com/RedHuang-0622/seelex/application",
-		// D-M1-7：console 尚未搬出 application/（plan §2.1 计划搬 console/），
-		// 搬迁时随 §2.10 的 seelebridge 解散一并收口。
-		// 2026-10-17（P8 §5.2）：`assemble` 里那两条 `BashDiagnosticEvent/Observer`
-		// 别名已删（类型的事实源本来就是本包），所以这条越层边的**目标**从
-		// `backend/engine/assemble` 换成类型定义处 `backend/tool/registry`；
-		// 边本身仍属 D-M1-7，等 console 搬出 `application/` 时收口。
-		"github.com/RedHuang-0622/seelex/backend/tool/registry",
+		// D-M1-7 已收口：BashDiagnosticEvent 形状下沉 contract/dto，console 只经门面 + 契约。
+		"github.com/RedHuang-0622/seelex/contract/dto",
 	},
 }
 

@@ -28,7 +28,7 @@ const (
 //     seatPlan / 座位轮转（2026-10-03）与发言环（`agentteam.Runtime`，A04 2026-10-15）
 //     都已删除，没有任何运行时消费者；
 //   - 剩下的写入口只有 headless `role.set_order` 与 `wiring/adapters` 的端口适配
-//     （见 gui/headless.go），产品 UI 已无装配/调序入口；
+//     （见 headless/headless.go），产品 UI 已无装配/调序入口；
 //   - **不删、不改落盘取值**：旧会话里的 "goal_loop" 等取值必须继续可读；字段清除
 //     属于独立的版本化迁移（旧会话样例 + 冷恢复路径 + 回滚方案齐备后才做），
 //     不与"删退场面"同批。历史决策见

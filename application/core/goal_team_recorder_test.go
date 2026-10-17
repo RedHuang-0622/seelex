@@ -17,7 +17,7 @@ package core
 //
 // 保留面完好：`AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` / 角色 draft 的
 // 存储实现与 headless RPC 一字未改（见 application/core/role_session.go、
-// store/role_session*.go、gui/headless.go 的 `role.*`）。
+// store/role_session*.go、headless/headless.go 的 `role.*`）。
 
 import (
 	"context"

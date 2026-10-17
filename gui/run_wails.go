@@ -12,6 +12,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	windowoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/RedHuang-0622/seelex/headless"
 )
 
 func Available() bool { return true }
@@ -20,7 +22,7 @@ func Run(app Application, config Options) error {
 	// headless 冒烟接口（headlessUI 设计）：仅当设置 SEELEX_HEADLESS_PORT
 	// 时在 127.0.0.1 打开 JSON-RPC + 事件流控制面，外部驱动可像前端一样
 	// 调用 Bridge 同源能力；未设置时零开销。
-	stopHeadless, err := startHeadlessIfRequested(app)
+	stopHeadless, err := headless.StartIfRequested(app)
 	if err != nil {
 		return err
 	}

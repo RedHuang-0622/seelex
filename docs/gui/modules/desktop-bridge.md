@@ -68,7 +68,7 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 
 ### 4.1 Headless 冒烟接口（headlessUI 设计）
 
-实现位置：`gui/headless.go`；装配点 `gui/run_wails.go` 的 `Run` 开头。
+实现位置：`headless/headless.go`；装配点 `gui/run_wails.go` 的 `Run` 开头。
 
 桌面 GUI 在真实窗口之外提供一个**默认关闭、仅回环**的本地控制面，让外部驱动
 像前端一样驱动同一份 Application Core，用于多会话/长会话冒烟与时间线热力

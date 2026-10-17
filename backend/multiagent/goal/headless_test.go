@@ -178,7 +178,7 @@ func TestHeadlessEventsStream(t *testing.T) {
 	}
 }
 
-// TestHeadlessJSONWireShape 钉住 wire shape：method + args（gui/headless.go
+// TestHeadlessJSONWireShape 钉住 wire shape：method + args（headless/headless.go
 // 同款），result 字段 JSON 可反序列化为契约视图。
 func TestHeadlessJSONWireShape(t *testing.T) {
 	controller := newTestController(t, DefaultStackDepth)

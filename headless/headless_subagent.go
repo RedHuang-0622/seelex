@@ -1,4 +1,4 @@
-package gui
+package headless
 
 // headless_subagent.go 承载 headless 的 subagent.* 段（工作流 A 的文件归属）：
 // 子代理是劳务派遣式 tool calling 能力，它的 active 只活跃在表格；这里暴露
@@ -29,7 +29,7 @@ type subagentRPCApplication interface {
 	ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)
 }
 
-func (server *headlessServer) dispatchSubagent(method string, args []json.RawMessage) (any, error) {
+func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (any, error) {
 	app, ok := server.app.(subagentRPCApplication)
 	if !ok {
 		return nil, fmt.Errorf("%s: 当前 Application 未装配子代理恢复面", method)

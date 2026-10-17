@@ -54,7 +54,7 @@ var repositoryModules = []string{
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
-	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "wiring/adapters",
+	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "headless", "internal", "wiring/adapters",
 	"internal/buildinfo", "internal/frontmatter", "plugins", "plugins/default",
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"backend/engine/assemble", "backend/engine/obs", "backend/tool/fork", "backend/tool/io/fs",

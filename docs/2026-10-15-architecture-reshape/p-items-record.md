@@ -6,6 +6,26 @@
 
 ---
 
+## P7 —— 前端收口三件（console / headless / 旧路径）
+
+提交：`e55e929b`（console）+ 本批 `refactor(arch): gui/headless 独立为 headless/`。
+
+| 件 | 落地 | 证据 |
+|---|---|---|
+| `application/console` → `console/` | 顶层化，与 gui/tui/headless 平级；只改 import、允许清单与 README 链接 | `go test ./console/ ./e2e/` 全绿 |
+| `gui/headless*.go` → `headless/` | 新包声明**自己的 17 方法窄 `Application`**（接口归调用方），gui 反过来 import 它启动进程内控制面；`Run` / `StartIfRequested` / `NewServer` / `Server.Shutdown` 为公开面 | `go test ./gui/ ./e2e/` 全绿；headless 无 gui 反向依赖 |
+| 旧路径注释 | 活动文档/注释里的 `gui/headless.go` → `headless/headless.go`；历史记录不改 | `rg` 复核 |
+
+**D-M1-7 收口**：`BashDiagnosticEvent` / `Observer` 形状下沉 `contract/dto`，工具注册表保留
+同身份别名；console 不再直接 import `backend/tool/registry`，I2 允许清单里 console 只剩
+`application` + `contract/dto`。headless 的 goal 请求形状仍是已知边（D-M1-6），等 P3
+把 goal 词表契约化时收口，已单独登记在 I2 允许清单。
+
+**测试放置**：headless 的 RPC 用例仍留在 `gui`（复用 gui 的 `fakeApplication`，避免复制
+一份测试替身），通过本包导出的 `NewServer` / `Serve` / `Shutdown` 驱动。
+
+---
+
 ## P17 / V10 / M2-d —— 工具记录看板读数通道（会话粒度，不进 Snapshot）
 
 提交：随本轮文档与注释收口提交（`refactor(docs): ...`）。

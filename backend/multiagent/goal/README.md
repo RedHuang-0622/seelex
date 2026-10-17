@@ -488,7 +488,7 @@ go test -race ./backend/multiagent/goal/ -count=1
 - `func TestHeadlessHealthAndBeginStatusFinish(t *testing.T)`
 - `func TestHeadlessErrorTransparentAndUnknownMethod(t *testing.T)`
 - `func TestHeadlessEventsStream(t *testing.T)` — TestHeadlessEventsStream 验证 /events 流：begin/finish 事件行按序到达且
-- `func TestHeadlessJSONWireShape(t *testing.T)` — TestHeadlessJSONWireShape 钉住 wire shape：method + args（gui/headless.go
+- `func TestHeadlessJSONWireShape(t *testing.T)` — TestHeadlessJSONWireShape 钉住 wire shape：method + args（headless/headless.go
 
 ### headless_tl_test.go
 

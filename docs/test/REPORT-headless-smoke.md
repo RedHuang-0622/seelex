@@ -3,7 +3,7 @@
 > 配套：`docs/2026-09-07-goal-domain-techleader/techleader-mvp.md`（goal Part II MVP 装配
 > headless 调教接口后的验收冒烟）、`tmp/headless-smoke/README.md`（9-06 GUI headless 冒烟历史）。
 > 本文档记录 **Goal + TechLeader Part II 的 headless 冒烟三科目与 race/pprof 分析**：
-> 在真实 GUI headless 控制面（`gui/headless.go` HTTP RPC）+ 真实 DeepSeek API 上驱动
+> 在真实 GUI headless 控制面（`headless/headless.go` HTTP RPC）+ 真实 DeepSeek API 上驱动
 > `-race` / `-tags pprof` 两种二进制，验证 首提交/新会话/回复质量/工具链/竞态/性能与上下文载荷。
 
 ## 1. 被测对象与构建
@@ -14,7 +14,7 @@
 | pprof | `tmp/headless-smoke/seelex-pprof.exe`（~50MB） | `go build -tags pprof`，内置 `127.0.0.1:6060` 采样口（`SEELEX_PPROF_ADDR` 可覆盖） |
 
 装配内容（本次会话 09-07 16:33–16:36 落盘并重新构建）：
-`gui/headless.go` dispatch 新增 `CreateWorkspace / BindWorkspace / UnbindWorkspace` 三个 RPC，
+`headless/headless.go` dispatch 新增 `CreateWorkspace / BindWorkspace / UnbindWorkspace` 三个 RPC，
 支撑代码场景的 project-scope 绑定（与 9-06 版相比为新增工作区控制面）。
 
 驱动 harness：`tmp/headless-smoke/scenario_test.go`（`TestRealAPIScenarios`，SMOKE_REAL=1 启用）。

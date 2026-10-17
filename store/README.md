@@ -42,7 +42,7 @@ errors; they do not participate in range/recovery semantics.
 `TruncateCrashTail`、存储运行参数 `Settings`）已在 M3-S2 抽成独立的 `store/root` 包
 （依赖闭包 = 纯标准库，见 [`root/README.md`](root/README.md)）。
 本包以 import 别名 `storeroot` 使用它（`Settings` / 哨兵错误 / 数据根锁读函数一律写限定名）。
-2026-10-17（P8 §5.2）删掉了过渡期的 `root_aliases.go`：那批保形别名只为"搬迁期不动调用点"存在，
+2026-10-17（P8 §5.2）删掉了过渡期的 `root_aliases.go`（已删除）：那批保形别名只为"搬迁期不动调用点"存在，
 外部只有 `wiring/bootstrap` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
 这些机制（同一判据只许有一处实现）。
 
@@ -637,7 +637,7 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
   max(join_seq_id, compact_ref.applied_seq)` 已发布行 + 该角色自身 pending
   draft；`RoleSnapshotWorkspace` 汇总 main/备份/draft/floor/compact_ref 与
   设计偏差提示，供 headless 真实 API 冒烟与巡检读取。
-- `gui/headless` 暴露 `role.create/list/append_draft/read_draft/sync_draft/
+- `headless` 暴露 `role.create/list/append_draft/read_draft/sync_draft/
   append_backup/read_backup/snapshot/wire/set_order/set_lifecycle` 与
   `schedule.register|cancel|fire`；真实 API 冒烟见
   `gui/role_live_probe_test.go`（`SMOKE_ROLE_LIVE=1`）。

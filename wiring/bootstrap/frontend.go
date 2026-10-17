@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/console"
 	"github.com/RedHuang-0622/seelex/gui"
+	"github.com/RedHuang-0622/seelex/headless"
 	"github.com/RedHuang-0622/seelex/tui"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
@@ -37,8 +38,8 @@ func StartFrontend(flags *config.Flags, app *application.Service, backendOutput 
 		return nil
 	case "headless":
 		// headless 调试入口：无窗口装配同一 Application，经
-		// SEELEX_HEADLESS_PORT 回环 RPC + 事件流驱动（gui/headless.go）。
-		if err := gui.RunHeadless(app); err != nil {
+		// SEELEX_HEADLESS_PORT 回环 RPC + 事件流驱动（headless/）。
+		if err := headless.Run(app); err != nil {
 			return fmt.Errorf("headless 错误: %w", err)
 		}
 		return nil

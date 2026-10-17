@@ -1986,3 +1986,12 @@ handler**。越界路径不再先弹一次没用的审批。
 **V10/M2-d 复核结论**：现行实现已是会话粒度读数 + 不进 `Snapshot` + 提交点批量写
 该会话 JSONL；本轮只把 5 处"进程级/跨会话跨项目"的注释漂移改成会话口径（无行为
 改动）。整机汇总按 P17"按需"**不实现**。细节见 [p-items-record.md](p-items-record.md) §P17/V10。
+
+## 55. P7 前端收口（2026-10-17）
+
+`application/console` → `console/`（`e55e929b`）；`gui/headless*.go` → `headless/`
+（新包自声明 17 方法窄契约，gui 单向 import 它）；headless 的 RPC 用例留在 `gui`
+复用既有 fake。顺带收口 **D-M1-7**：`BashDiagnosticEvent` 形状下沉 `contract/dto`，
+console 不再直接 import 工具注册表。I2 允许清单随之收缩（console 只剩门面 + 契约），
+headless 的 goal 请求形状作为已知边登记到 P3。细节见
+[p-items-record.md](p-items-record.md) §P7。

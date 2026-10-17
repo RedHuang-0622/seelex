@@ -50,7 +50,9 @@ SECTION_NOTE = (
 # 单 README 包：按树自动发现（搬迁中/收口中的树刻意不在列）。
 SETTLED_TREES = (
     "contract",
+    "console",
     "e2e",
+    "headless",
     "wiring",
     "store",
     "internal",

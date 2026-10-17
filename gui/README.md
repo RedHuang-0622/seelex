@@ -238,7 +238,7 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 **主会话权限档位（会话粒度，2026-09-16/17）**：`Bridge.SetPermissionTier(tier)`
 转发到 `Application.SetPermissionTier`，返回**真正生效**的档位（前端不得靠"取反本地
 旧状态"猜方向：快照滞后一格时会把"开启"点成"关闭"）；headless 上也暴露同名
-`SetPermissionTier` RPC（`gui/headless.go`），用例
+`SetPermissionTier` RPC（`headless/headless.go`），用例
 `gui/headless_permission_test.go:TestHeadlessSetPermissionTierDispatch`。档位目录由后端
 下发（`RuntimeState.permission_tiers`），前端只按序渲染；档位列表与 composer 芯片的
 纯解析口径抽在 `frontend/dist/permission-tier.js`（`node --test` 用例
@@ -269,7 +269,7 @@ headless RPC）。
 边界（Review 时最容易被越界的三处）：
 
 1. **不进 Agent 工具面**：`fork_subagents`/工具策略里没有终端，模型无法驱动它；
-2. **不进 headless 控制面**：`gui/headless.go` 的 `dispatch` 不分发 `Terminal*`
+2. **不进 headless 控制面**：`headless/headless.go` 的 `dispatch` 不分发 `Terminal*`
    （终端是本地交互能力，不是可远程编排的 API）；
 3. **随宿主退出**：`Bridge.Stop()` 调 `closeTerminals()` 杀全部子进程并关 PTY；
    不这么做会在 Windows 上留下悬挂 shell 与 conhost。

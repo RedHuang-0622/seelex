@@ -14,6 +14,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
 )
@@ -472,20 +473,15 @@ type scopedBashResult struct {
 // BashDiagnosticEvent describes a boundary crossed by scopedBash. It is
 // deliberately metadata-only: command text, arguments, working directories,
 // output, and account data must never enter diagnostic logs.
-type BashDiagnosticEvent struct {
-	Stage string
-	Shell string
-	// Session 是发起这条命令的会话（工具记录按会话归类用；诊断日志忽略它）。
-	// 只填会话 ID，不含任何正文/路径/命令文本（本结构一直是 metadata-only）。
-	Session  string
-	ExitCode int
-	Err      error
-}
+//
+// 形状的唯一事实源在 `contract/dto`（D-M1-7）：前端诊断面不再为一个只读事件
+// 结构直接 import 本包。这里是同身份别名，调用点与签名零改动。
+type BashDiagnosticEvent = dto.BashDiagnosticEvent
 
 // BashDiagnosticObserver receives best-effort scoped bash stage events.
 // Implementations should return promptly; observer failures are isolated from
 // the tool call itself.
-type BashDiagnosticObserver func(BashDiagnosticEvent)
+type BashDiagnosticObserver = dto.BashDiagnosticObserver
 
 func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string, returnedErr error) {
 	defer func() {

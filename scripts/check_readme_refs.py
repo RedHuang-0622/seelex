@@ -37,6 +37,8 @@ IGNORED_NAMES = {
     "metadata/event.json", "metadata/stack.json", "metadata/stack_{kind}.json",
     "session/metadata/guide.json", "session/metadata/system.json",
     "session/input/draft.json", "_test.go", "builtin_xxx.go",
+    # 用户自备的工具入口脚本名（bootseed 骨架只描述落点，不随仓库分发）
+    "main.py",
     # 用户本地/运行时数据（.gitignore 内）：README 只作示例或路径说明
     "accounts.yaml", "workspace_index.json", "framework-events.json",
     "guide.json", "city_list.json",
