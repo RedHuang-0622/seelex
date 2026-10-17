@@ -55,6 +55,8 @@
 | `meta.go` | `MetaDeps`（`MetaStore` + `Wake`）+ `SetMeta` / `ReadMeta` + `ErrMetaUnsupported` |
 | `meta_test.go` | 空 ID / 未装配 / 写盘失败不唤醒 / 成功唤醒一次 / 读回转发 |
 | `release.go` | `BusyState` + `Busy`、`ProtectedInput` + `Protected`：释放面的两条判据 |
+| `bundle_release.go` | **桥侧会话本体释放的判据**（P21-28 从 `backend/engine/assemble/runtime_session_release.go` 归位，plan §2.4）：`ReleaseBundle` + `BundleReleaseDeps{ForkInFlight, AsyncPending, TakeBundle, DropResidue}` —— 三种拒绝情形（fork 在飞 / 有在途后台命令 / 活跃别名或不在册）与顺序（先问两份"还在忙吗"读数 → 再在注册表锁内取走本体 → 最后清残格）都在这里；**TakeBundle 合成一格端口**是为了让"活跃别名检查 + 移出"保持原子（拆开就是可被并发切换插进来的窗口） |
+| `bundle_release_test.go` | 三种拒绝情形（忙的两条不惊动注册表、取不到就不清残格）、成功路径（会话号归一 + 移出后清一次残格）、空会话号与缺端口 |
 | `release_test.go` | 忙态四轴、受保护集四条来源、空会话 ID 与空视图 ID 的边界 |
 | `pendingtail.go` | `PendingTailDeps` + `RecoverPendingTail`：草稿尾恢复的决策表与四条提示文案 |
 | `pendingtail_test.go` | 运行中不探测 / clean·未知静默 / 恢复并报数 / gap 只报告 / 探测与恢复失败的文案 |

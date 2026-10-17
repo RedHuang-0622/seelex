@@ -12,7 +12,7 @@ package assemble
 // `SessionContextStoreFor` 在重建前返回 nil，这是既有契约（"未实例化/未绑定 → nil"）。
 
 import (
-	"strings"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // ReleaseSessionBundle 释放一个会话的桥侧内存占用：移出 bundles 注册表并清掉
@@ -28,14 +28,18 @@ func (r *Runtime) ReleaseSessionBundle(sessionID string) bool {
 	if r == nil {
 		return false
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return false
-	}
-	// 状态守卫在取注册表锁之前问（两者各自加锁，别嵌套）：这些读面自己会取锁。
-	if r.ForkInFlight(sessionID) || r.AsyncPendingFor(sessionID) > 0 {
-		return false
-	}
+	// 判据（三种拒绝情形 + 顺序）在中间层：本层只把四格宿主读数接进去。
+	return switching.ReleaseBundle(sessionID, switching.BundleReleaseDeps{
+		ForkInFlight: r.ForkInFlight,
+		AsyncPending: r.AsyncPendingFor,
+		TakeBundle:   r.takeSessionBundle,
+		DropResidue:  r.dropSessionResidue,
+	})
+}
+
+// takeSessionBundle 在注册表锁内做"活跃别名 / 在册"两项检查并移出本体：这两步必须原子
+// （拆开就是一个可被并发切换插进来的窗口），所以合成一格供域包调用。
+func (r *Runtime) takeSessionBundle(sessionID string) bool {
 	r.bundlesMu.Lock()
 	if r.activeSessionID == sessionID {
 		r.bundlesMu.Unlock()
@@ -48,7 +52,6 @@ func (r *Runtime) ReleaseSessionBundle(sessionID string) bool {
 	}
 	delete(r.bundles, sessionID)
 	r.bundlesMu.Unlock()
-	r.dropSessionResidue(sessionID)
 	return true
 }
 
