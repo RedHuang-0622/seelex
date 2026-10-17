@@ -1,12 +1,11 @@
 // Package task 承载 worktable/task 注册表域：TaskRecord 等共享 DTO、
 // TodoItem 兼容契约与 task 终态工具 provider。依赖方向为根 facade →
-// task；task 不反向依赖 seelebridge 根包。
+// task；task 不反向依赖装配根。
 package task
 
 import (
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/actor"
+	"github.com/RedHuang-0622/seelex/internal/stablehash"
 )
 
 // ── task 注册表（worktable task 状态体系，Actor + Mailbox）────────────
@@ -786,9 +786,7 @@ func (registry *TaskRegistry) ReplaceAll(records []TaskRecord) error {
 func TaskKeyForGoal(goal string) string {
 	// 归一化：去全部空白并小写（中文分词空格不改变语义）。
 	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(goal)), ""))
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(normalized))
-	return fmt.Sprintf("goal:%x", hasher.Sum64())
+	return fmt.Sprintf("goal:%x", stablehash.FNV1a64(normalized))
 }
 
 // ActorIdentity 按 role+sessionID 合成执行身份（dto 自由函数别名）。

@@ -24,7 +24,7 @@ reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执
 
 ## 核心实现
 
-- `Profile`：一条档位一条记录（`Level` / `Loops` / `PlanPolicy` / `ReasoningEffort`），
+- `Profile`：一条档位一条记录（`Level` / `Loops` / `SubagentPolicy` / `ReasoningEffort`），
   防止新增档位只拿到其中一半。
 - `For` / `ReasoningEffortFor` / `PlanningPolicy` / `Levels` / `OrderedLevels`。
 - `DefaultRunParams`：定时任务的"声明优先、未声明落默认"唯一判据；只有 0 算
@@ -72,7 +72,7 @@ go test ./application/prompt/ -count=1
 - `func mustLoopProfile(level string) loop.Profile`
 - `func For(level string) (Profile, bool)` — For 返回档位策略；未识别返回 false（不猜档位）。
 - `func ReasoningEffortFor(level string) string` — ReasoningEffortFor 返回 provider wire 词表里的思考强度；未识别返回空串
-- `func SubagentPolicyFor(level string) dto.SubagentPolicy` — SubagentPolicyFor 返回 plan_load 的硬约束；未识别兜底 lite（迁移前口径）。
+- `func SubagentPolicyFor(level string) dto.SubagentPolicy` — SubagentPolicyFor 返回子代理执行的硬约束；未识别兜底 lite（迁移前口径）。
 - `func Levels() []string` — Levels 返回全部已登记档位（顺序不保证；需要顺序用 OrderedLevels）。
 - `func DefaultRunParams(reasoningEffort string, loopLimit int) (string, int)` — DefaultRunParams 把一次定时任务的执行参数落成显式值：声明优先，未声明
 

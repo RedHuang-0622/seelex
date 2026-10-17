@@ -126,9 +126,8 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// 派发面免打断，取回/终止/销项走 bg_manage（rw 簇）。
 				"read_batch",
 				"get_time", "web_search",
-				"todo_status", "todolist_status", "plan_status", "goal_status",
+				"todo_status", "todolist_status", "goal_status",
 				"plugins_list", "skills_list", "mcp_list",
-				"plan_validate", "plan_export",
 				// show_files（2026-10-12，J-2）：agent 请求 GUI 打开待审阅文件。归 ro
 				// 而非 rw_desktop/session——它不改任何共享状态：请求落在**本会话**的
 				// 只读快照段里（人可忽略、可关掉，不是模态框/置顶窗），且工具返回值
@@ -187,12 +186,11 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Match: []string{
 				"task_complete", "task_failed", "task_needs_user_decision", "task_check_node",
 				"ask_approve", "fork_subagents",
-				"plan_load", "plan_clear", "plan_run",
 				// goal 栈是主代理的治理状态：policy.go 对子代理整族不可见，
 				// 因此跟着 ctl 一起断位（比设计稿 §3.2 的 rw 更贴合现有口径）。
-				"goal_begin", "goal_update", "goal_propose_finish", "goal_done",
+				"goal_begin", "goal_update", "goal_done",
 				// teamwork leader 编排面：改的是"团队顺序与作业"这条循环控制流，
-				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
+				// 与 fork_subagents 同族——sub/员工断位（teammate 不该编排
 				// 团队），主代理（root）默认 allow。
 				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_close", "team_context",
 				// Work Item 口径（2026-10-03）：排活 / 调整 / 验收 / 判失败 / 中断恢复。

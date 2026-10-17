@@ -27,7 +27,7 @@ import (
 	"text/template"
 )
 
-//go:embed assets/system/*.md assets/effort/*.md assets/plan/*.md assets/subagent/*.md
+//go:embed assets/system/*.md assets/effort/*.md assets/subagent/*.md
 var files embed.FS
 
 // Entry 是提示词资产目录在外部目录里的入口文件（相对目录，用 / 分隔）：
@@ -92,16 +92,6 @@ func DirOf(entryPath string) string {
 	return root
 }
 
-// PlanData is the runtime policy projection available to a planning template.
-// It deliberately contains constraints, not user input or account data.
-type PlanData struct {
-	Effort       string
-	NodeLimit    string
-	Topology     string
-	Concurrency  string
-	Verification string
-}
-
 // SubagentData 是子代理章程模板的运行时事实（goal/预算/节点 ID 来自节点
 // 输入与 effort 调节；Evidence 为父代理证据的预渲染文本，空 = 无证据段）。
 type SubagentData struct {
@@ -120,16 +110,12 @@ func SystemInstructions() string { return read("assets/system/instructions.md") 
 //
 // 2026-10 归一：这里原本按档位返回四份近乎同构的变体（lite/medium/high/max），
 // 各自复述"本档该做多少事"。那是**第二份事实**——档位真正的差别（思考强度、
-// loop 次数、plan 策略）全在运行时被机器执行（reasoning_effort / SetMaxLoops /
+// loop 次数、子代理策略）全在运行时被机器执行（reasoning_effort / SetMaxLoops /
 // dto.SubagentPolicy），提示词再复述一遍只会与它们分叉；而档位名一旦写进提示词，
 // 模型就会按"我是 lite"自我设限，与"effort 只调思考强度与循环预算"的原意相悖。
 //
 // 所以四个档位共用这一份，档位差异一律由运行时表达。
 func Effort() string { return read("assets/effort/system.md") }
-
-func PlanPreflight(data PlanData) string { return render("assets/plan/preflight.md", data) }
-
-func PlanReplan(data PlanData) string { return render("assets/plan/replan.md", data) }
 
 // SubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
 // Role/Context/Task/Investigation/Constraints/Verification）。提示词正文
@@ -151,11 +137,6 @@ func Validate() error {
 		"assets/effort/system.md",
 	} {
 		if _, err := readAsset(name); err != nil {
-			return err
-		}
-	}
-	for _, name := range []string{"assets/plan/preflight.md", "assets/plan/replan.md"} {
-		if _, err := renderAsset(name, PlanData{}); err != nil {
 			return err
 		}
 	}

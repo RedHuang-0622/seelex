@@ -142,9 +142,9 @@ func (store *EventStore) loadRange(ctx context.Context, sessionID string, fromSe
 //
 // **这是"从事件读会话归属"的唯一一处判据**（AGENTS §8.3：同一判据只许出现在一处）。
 // 三个消费者都问这一句：事件落库前的路由（本文件的 Append）、统一事件查询的话题映射
-// （backend/engine/obs 的 UnifiedEventTopic）与聚合读面（backend/tool/plan 的事件投影）、
-// 持久化前的关联补全（obs.CorrelateMainSessionID）。这条判据一旦漂移，事件会"落进 A 会话、
-// 被读成 B 会话"，所以不许各写一份（历史上 assemble 与 tool/plan 各有一份逐字副本，
+// （backend/engine/obs 的 UnifiedEventTopic）与持久化前的关联补全
+// （obs.CorrelateMainSessionID）。这条判据一旦漂移，事件会"落进 A 会话、
+// 被读成 B 会话"，所以不许各写一份（历史上装配层曾有一份逐字副本，
 // 2026-10-17 的 P21-9 收敛到此）。
 func SessionIDFromEvent(event frameworkevent.Event) string {
 	return SessionIDFromLocations(event.Locations)

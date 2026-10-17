@@ -2,9 +2,9 @@ package dto
 
 import "time"
 
-// PlanEdge 是 Seelex 拥有的可序列化 Plan 边类型。
+// PlanEdge 是历史 Plan 的可序列化边类型（只读展示用；执行器已退役）。
 // JSON 格式与旧 serialize.PlanEdgeSpec 保持同形，PlanState.Edges 的 DTO
-// 契约不变；backend/tool/plan 以 alias 复用本定义（单源）。
+// 契约不变。
 type PlanEdge struct {
 	From      string `json:"from"`
 	To        string `json:"to"`
@@ -21,8 +21,8 @@ const (
 	RoleGoalPlan AccountRole = "goalplan"
 )
 
-// SubagentPolicy 是 plan 执行策略（纯 DTO；行为方法在 backend/tool/plan 域以
-// 自由函数提供：ValidatePolicyLoad / PolicyConcurrency）。
+// SubagentPolicy 是子代理执行策略（fork 数量/并发/节点循环上限）。
+// 唯一消费者是 fork/workunit 的装配与执行路径；Plan 执行器已退役。
 type SubagentPolicy struct {
 	Effort              string
 	MaxNodes            int

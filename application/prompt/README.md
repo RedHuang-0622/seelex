@@ -68,31 +68,26 @@ flowchart LR
 
 ## EffortManager
 
-`lite`、`medium`、`high`、`max` 映射到行为提示、Engine MaxLoops、PlanPolicy 和请求级 ReAct budget。`Apply` 同时更新 PromptStack 与 Engine；`Cycle` 为前端提供顺序切换。
+`lite`、`medium`、`high`、`max` 映射到行为提示、Engine MaxLoops、SubagentPolicy 和请求级 ReAct budget。`Apply` 同时更新 PromptStack 与 Engine；`Cycle` 为前端提供顺序切换。
 
 每个 budget 都限制工具轮数和工具调用数，并在 `core.Service` 接管底层 Engine 未主动执行 `MaxLoops` 时作为最终的收束边界。预算按提交时的 effort 快照保存；它不会禁止 Markdown 导出等交付工具，只会阻止预算耗尽后的下一次 ReAct 迭代。长编码任务不设 wall-clock 超时，仍可由用户显式取消。
 
-具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和 PlanAct preflight/replan 模板位于 [`backend/engine/prompt/assets`](../../backend/engine/prompt/assets/README.md)：默认以内嵌资源随二进制走，启动期可被 `config/prompt/` 里的同名文件逐份覆盖（外部覆盖层，见该包 README）。这里只保留层组合与 `EffortManager` 的应用动作；**档位策略表**（reasoning 强度 / plan 约束 / 默认档位）已归位 [`backend/limit/effort`](../../backend/limit/effort/README.md)，四个档位共用同一份 effort 行为指令，档位差异只由策略读数表达。
+具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和子代理章程位于 [`backend/engine/prompt/assets`](../../backend/engine/prompt/assets/README.md)：默认以内嵌资源随二进制走，启动期可被 `config/prompt/` 里的同名文件逐份覆盖（外部覆盖层，见该包 README）。这里只保留层组合与 `EffortManager` 的应用动作；**档位策略表**（reasoning 强度 / 子代理约束 / 默认档位）已归位 [`backend/limit/effort`](../../backend/limit/effort/README.md)，四个档位共用同一份 effort 行为指令，档位差异只由策略读数表达。
 
-每个 budget 同时限制工具轮数、工具调用数和连续无进展轮数；无进展只在重复工具工作未产生新事实、变更、产物或 Plan 节点状态时计数。它是最后熔断器，主路径仍是 Application 的 checkpoint 与 token 驱动上下文裁剪；长编码任务没有 wall-clock timeout。预算不会禁止 Markdown 导出等交付工具。
+每个 budget 同时限制工具轮数、工具调用数和连续无进展轮数；无进展只在重复工具工作未产生新事实、变更、产物或 task 状态时计数。它是最后熔断器，主路径仍是 Application 的 checkpoint 与 token 驱动上下文裁剪；长编码任务没有 wall-clock timeout。预算不会禁止 Markdown 导出等交付工具。
 
-## Plan policy
+## Subagent policy
 
-`PlanningPolicy` maps effort to runtime-enforced constraints for an optional
-`plan_load`: Medium permits at most four nodes in one serial chain; High/Max
-accept DAG plans and let every currently runnable agent node execute
-concurrently. 2026-09-07 起 `MaxForkConcurrency` 已从 effort 档移除
-（subagent 只是角色 + 模型供应商，并发不再由 effort 限制；`fork_subagents`
-与 `plan_run` 默认允许所有当前可运行节点同时执行）。`core.Service`
-snapshots this policy with the request budget, but every normal user request
-enters the ReAct loop directly; effort does not create a mandatory preflight.
-
-When a loaded Plan fails, an explicit replan interaction uses the same `plan_load` contract to replace only the remaining recovery workflow. It carries bounded node evidence and stops before `plan_run`, so a changed recovery path is reviewed before any new side effect.
+`SubagentPolicyFor` maps effort to runtime-enforced subagent constraints
+(node/task limits, loop/output caps). The Plan DAG tool family is retired;
+`fork_subagents` is the parallel-work entry and returns job handles immediately.
+Every normal user request enters the ReAct loop directly; effort does not create
+a mandatory planning preflight.
 
 ## Review 指南
 
 - 不要让 map 迭代顺序影响 prompt；渲染顺序必须确定。
-- Effort 更新应同时刷新 max loops 和最终 system prompt；新增等级必须通过单一 profile 同时定义 prompt、PlanPolicy 和 budget。
+- Effort 更新应同时刷新 max loops 和最终 system prompt；新增等级必须通过单一 profile 同时定义 prompt、SubagentPolicy 和 budget。
 - Skill prompt 与 system layers 的边界不能混淆。
 - 所有读写都经过 mutex，返回 slice 时需复制。
 

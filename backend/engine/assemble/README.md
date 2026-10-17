@@ -291,15 +291,6 @@ scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝�
 
 Windows GUI 构建还会以 `SysProcAttr.HideWindow` 启动 scoped shell，避免每次 `bash` 工具调用闪现命令行窗口；若已安装 Git for Windows，优先使用其 `bash.exe`，使 `pwd && ls -la` 等模型常用 Bash 语义可直接执行；否则才回退到系统 PowerShell/cmd。stdout、stderr 与退出码仍通过工具结果返回。
 
-## Plan branch
-
-Plan 分支执行走 Seele v2 装配模型：`plan_run` 经 `codec.Import` 导入 DAG 后由
-`workplan.NewFromPlan(plan, bridge.NewAgentFactory(...))` 执行，每个
-每条子代理获得**独立 Session**（`SeelexAgentNode` 包装：注入节点作用域
-与节点级 PromptBlocks——目标/父证据/预算），天然隔离。账号选择按
-role + branchID 走确定性 hash；fork 子代理没有 Plan 绑定，按 subagent
-角色选号。节点执行事实经节点会话/子代理树投影，不再产生 `PlanNodeEvent`。
-
 ### 子代理执行域（Plan 执行器已退役）
 
 内部 Plan 执行器、`plan_*` 工具面、分支绑定、replan 护栏与审批门已在
@@ -357,22 +348,19 @@ stack（now using 栈顶）与按当前查询召回的 memory——插在节点�
 这条契约；task 经 retry 计数后回到 completed。只有全部命中才走复用；部分命中仍整体
 重跑（保守策略，避免 DAG 混合状态）。
 
-## Effort PlanPolicy
+## Subagent policy
 
-`Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge normalizes either the canonical object-keyed DAG or an LLM-friendly `nodes[]` / `edges[]` form into Seele's canonical JSON, then validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
-
-The optional `plan_load` tool schema exposes only the canonical object-keyed DAG: node specs belong under `nodes`, and edges are source-keyed target arrays. The adapter retains narrowly scoped recovery compatibility for legacy node entries with `id`/`key`, edge entries with `from`/`source` and `to`/`target`, explicit edge-chain strings, adjacency targets written as `{ "to": "id" }`, and referenced top-level node specs containing only `input` and optional `kind`. It never guesses a missing edge source or target, and rejects unrelated top-level fields such as `item`; invalid references return a pre-execution `plan_load` error and can use the bounded corrective retry path.
-
-The preflight and recovery prompt templates live in [`backend/engine/prompt/assets`](../prompt/assets/README.md). Runtime supplies only the current `PlanPolicy` limits to those templates; prompt prose is not embedded in `seelebridge` Go code.
-
-`PrepareReplan` uses the same isolated, forced `plan_load` path for an explicitly selected recovery. It receives only the objective, old Plan, failure and completed-node evidence; it atomically replaces the WorkPlan but never calls `plan_run` itself.
-
-Recovery planning is protected by a process-wide guard: by default at most two concurrent operations, six replan operations per minute, and six actual provider requests per minute. Its metrics are safe to expose in Application snapshots; a corrective retry is permitted only after a pre-execution `plan_load` validation failure.
+`Runtime.RegisterBuiltins` registers `fork_subagents` and the team tools;
+`plan_load/plan_run/plan_status/plan_clear/plan_validate/plan_export` are not
+registered. `SubagentPolicy` only constrains fork/workunit execution
+(node/task limits, loop/output caps). There is no mandatory planning preflight,
+no Plan approval gate and no replan guard; normal requests enter the primary
+ReAct loop directly.
 
 Medium, High, and Max no longer create a mandatory planning preflight. Their
-`PlanPolicy` only constrains a voluntarily loaded DAG. Normal requests enter
-the primary ReAct loop directly, so no Plan authority envelope is injected
-into user input and no request-scoped PlanAct lease is acquired. 历史 Plan
+`SubagentPolicy` only constrains `fork_subagents`/workunit execution. Normal
+requests enter the primary ReAct loop directly, so no planning authority
+envelope is injected into user input. 历史 Plan
 只作为只读清单显示；实际工作由正常项目作用域工具与 fork 子代理完成。
 
 每条子代理执行携带节点作用域（node/branch/role/workspace/task）。节点账号选择

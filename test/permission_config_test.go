@@ -26,8 +26,8 @@ var permissionToolNames = []string{
 	// ro 读簇
 	"read_file", "read_plan", "read_tool_result", "read_compressed_turn", "search_history",
 	"grep_search", "glob", "get_time", "web_search",
-	"todo_status", "todolist_status", "plan_status", "goal_status",
-	"plugins_list", "skills_list", "mcp_list", "plan_validate", "plan_export",
+	"todo_status", "todolist_status", "goal_status",
+	"plugins_list", "skills_list", "mcp_list",
 	// show_files：J-2 agent 请求 GUI 打开待审阅文件（只读浏览档，归 ro 组）
 	"show_files",
 	"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
@@ -44,7 +44,7 @@ var permissionToolNames = []string{
 	"computer_type", "computer_keys", "computer_focus",
 	// ctl 叫停 loop 簇
 	"task_complete", "task_failed", "task_needs_user_decision", "task_check_node",
-	"ask_approve", "fork_subagents", "plan_load", "plan_clear", "plan_run",
+	"ask_approve", "fork_subagents",
 	"goal_begin", "goal_update",
 	// teamwork leader 编排面（ctl 簇）
 	"team_plan", "team_dispatch", "team_join", "team_milestone",
@@ -99,9 +99,8 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"read_file": true, "glob": true, "grep_search": true, "get_time": true, "web_search": true,
 		"read_plan": true, "read_tool_result": true, "read_compressed_turn": true, "search_history": true,
 		"computer_wait": true, "compact_context": true,
-		"todo_status": true, "todolist_status": true, "plan_status": true, "goal_status": true,
+		"todo_status": true, "todolist_status": true, "goal_status": true,
 		"plugins_list": true, "skills_list": true, "mcp_list": true,
-		"plan_validate": true, "plan_export": true,
 		// show_files：只读浏览档（不改共享状态、返回值只带路径与计数）→ 组默认 allow
 		"show_files": true,
 		"todo_init":  true, "todo_add": true, "todo_done": true,
@@ -109,7 +108,6 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"task_add": true, "taskadd": true, "project_refresh": true,
 		"task_complete": true, "task_failed": true, "task_needs_user_decision": true,
 		"task_check_node": true, "ask_approve": true, "fork_subagents": true,
-		"plan_load": true, "plan_clear": true, "plan_run": true,
 		"goal_begin": true, "goal_update": true,
 		"jobs_manage": true,
 		"team_plan":   true, "team_dispatch": true, "team_join": true, "team_milestone": true,

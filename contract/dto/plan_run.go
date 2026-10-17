@@ -1,10 +1,9 @@
 package dto
 
-// plan_run 结果状态：枚举（唯一一份定义）。
+// 历史 plan_run 结果状态：枚举（唯一一份定义）。
 //
-// `plan_run` 的工具结果是一段 JSON（写方见 backend/tool/plan 的 planRunResultJSON），它跨两层：
-// **写方**在 backend/tool/plan，**读方**在 application/core（把结果 status 折成计划状态、
-// 判"这一批是不是失败了"）。这一格回答"这一批跑成什么样"。
+// Plan 执行器已退役，本枚举保留为旧记录与前端 wire 兼容面；新执行路径
+// 不再产生 plan_run 结果。
 //
 // 枚举化（不是"契约里的一处无类型字符串"）：取值只能从下面这一组来，比较只能发生在枚举之间；
 // 对外词只在 `planRunStatusWords` 里出现一次，边界处 `String()` 转出去。

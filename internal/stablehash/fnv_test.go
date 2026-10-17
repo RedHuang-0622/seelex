@@ -18,3 +18,19 @@ func TestFNV1a32KnownVectors(t *testing.T) {
 		}
 	}
 }
+
+func TestFNV1a64KnownVectors(t *testing.T) {
+	cases := []struct {
+		in   string
+		want uint64
+	}{
+		{"", 0xcbf29ce484222325},
+		{"a", 0xaf63dc4c8601ec8c},
+		{"foobar", 0x85944171f73967e8},
+	}
+	for _, testCase := range cases {
+		if got := FNV1a64(testCase.in); got != testCase.want {
+			t.Errorf("FNV1a64(%q) = %#x, want %#x", testCase.in, got, testCase.want)
+		}
+	}
+}

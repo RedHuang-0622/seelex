@@ -31,8 +31,8 @@ type Deps struct {
 	PlanNodeMaxLoops         int
 	// LoopLimitCeiling 是**进程级循环次数天花板**（limits.input_loop_limit，默认
 	// 9999，与循环次数拉条同一份哨兵）：一条子代理自己声明的 max_loops 不得越过它。
-	// 刻意不接 effort 档位的节点上限（SubagentPolicy.MaxNodeLoops）——那是主代理
-	// plan_load 节点的判据，拿它卡子代理就是"设置 reasoning effort 连带改变了工作
+	// 刻意不接 effort 档位的节点上限（SubagentPolicy.MaxNodeLoops）——那是历史
+	// Plan 节点的判据，拿它卡子代理就是"设置 reasoning effort 连带改变了工作
 	// 单元的次数"（2026-10-08 口径）。0 = 未配置（不限）。
 	LoopLimitCeiling int
 	// Jobs 是子代理作业的登记面（Kind=subagent，打点 L-5）。nil = async 模式不可用。
@@ -40,7 +40,7 @@ type Deps struct {
 }
 
 // Tool 是 fork_subagents 的执行编排：B6 task 幂等登记 → 结果复用（省 token）
-// → 构造 fork DAG → 子代理树登记 → planExecutor 执行（含超时与取消级联）。
+// → 逐条构造 AgentNode → 子代理树登记 → 执行（含超时与取消级联）。
 type Tool struct {
 	deps Deps
 }

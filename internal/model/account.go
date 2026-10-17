@@ -1,5 +1,5 @@
-// Package model 承载 seelebridge 各域共享的纯类型（无运行时依赖），
-// 供根包 facade 与 plan/worktree/task/session 等子包共同引用。
+// Package model 承载各域共享的纯类型（无运行时依赖），供根包 facade 与
+// backend 的 account/worktree/task/session 等子包共同引用。
 package model
 
 import (
@@ -42,8 +42,8 @@ const DefaultTemperature = 0.3
 //
 // 空值时 provider 走自己的默认，我们**绝不猜一个值**填进去。
 //
-// 放在 model 而不是各个装配点：账号池（backend/engine/account）与规划预检
-// （backend/tool/plan）都要构造 ChatClient，两处必须同一条口径——否则 "session"
+// 放在 model 而不是各个装配点：账号池（backend/engine/account）与子代理执行
+// 都要构造 ChatClient，两处必须同一条口径——否则 "session"
 // 会从其中一处原样漏到 wire 上，被 provider 判成非法值。
 func WireReasoningEffort(configured string) string {
 	if configured == ReasoningEffortSession {
@@ -69,7 +69,7 @@ type AccountSpec struct {
 }
 
 // ReasoningEffortSession 与角色默认思考强度统一登记在 contract/dto
-// （跨层契约：seelebridge 与 application 都要用，而 application 依赖 seelebridge，
+// （跨层契约：backend 与 application 都要用，而 application 依赖 backend，
 // 反向引用成环，故落在两边都引的叶子包）。这里按本包既有习惯（AccountRole 也是
 // 这样）再导出一次，免得调用方同时引两个包。
 const ReasoningEffortSession = dto.ReasoningEffortSession

@@ -63,14 +63,14 @@ func TestPolicyHidesCompactContextFromSubagents(t *testing.T) {
 	}
 }
 
-func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
+func TestPolicyFiltersSubagentExcludedAndGoalTools(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{
 		GoalSkillActive: func() bool { return false },
 		PluginFilter:    func(ts []types.Tool) []types.Tool { return ts },
 	})
 	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(ctx, []types.Tool{
-		planTool("plan_run"), planTool("task_complete"), planTool("fork_subagents"),
+		planTool("task_complete"), planTool("fork_subagents"),
 		planTool("switch_plugin"), planTool("switch_mode"), planTool("skill_activate"),
 		planTool("bash"),
 	})
@@ -79,9 +79,9 @@ func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 	}
 
 	mainCtx := context.Background()
-	gotMain := policy.Filter(mainCtx, []types.Tool{planTool("plan_run"), planTool("bash")})
-	if len(gotMain) != 1 || gotMain[0].Function.Name != "bash" {
-		t.Fatalf("goal-inactive main tools = %v, want only bash", names(gotMain))
+	gotMain := policy.Filter(mainCtx, []types.Tool{planTool("read_plan"), planTool("bash")})
+	if len(gotMain) != 2 {
+		t.Fatalf("main tools = %v, want read_plan + bash（历史 Plan 只读工具仍可用）", names(gotMain))
 	}
 }
 

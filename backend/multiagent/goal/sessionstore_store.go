@@ -120,9 +120,8 @@ func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame {
 			UpdatedAt:  record.UpdatedAt,
 			FinishedAt: record.FinishedAt,
 			Budget: store.GoalBudget{
-				MaxLoops:      record.Budget.MaxLoops,
-				MaxTokens:     record.Budget.MaxTokens,
-				TLTokensShare: record.Budget.TLTokensShare,
+				MaxLoops:  record.Budget.MaxLoops,
+				MaxTokens: record.Budget.MaxTokens,
 			},
 		}
 		for _, item := range record.Progress {
@@ -165,9 +164,8 @@ func recordsFromGoalFrames(frames []store.GoalFrame) []*GoalRecord {
 			UpdatedAt:  frame.UpdatedAt,
 			FinishedAt: frame.FinishedAt,
 			Budget: Budget{
-				MaxLoops:      frame.Budget.MaxLoops,
-				MaxTokens:     frame.Budget.MaxTokens,
-				TLTokensShare: frame.Budget.TLTokensShare,
+				MaxLoops:  frame.Budget.MaxLoops,
+				MaxTokens: frame.Budget.MaxTokens,
 			},
 		}
 		for _, item := range frame.Progress {

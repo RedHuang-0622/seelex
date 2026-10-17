@@ -82,7 +82,7 @@ func ReasoningEffortFor(level string) string {
 	return profile.ReasoningEffort
 }
 
-// SubagentPolicyFor 返回 plan_load 的硬约束；未识别兜底 lite（迁移前口径）。
+// SubagentPolicyFor 返回子代理执行的硬约束；未识别兜底 lite（迁移前口径）。
 func SubagentPolicyFor(level string) dto.SubagentPolicy {
 	profile, ok := For(level)
 	if !ok {

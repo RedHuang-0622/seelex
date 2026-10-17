@@ -12,3 +12,11 @@ func FNV1a32(s string) uint32 {
 	_, _ = hash.Write([]byte(s))
 	return hash.Sum32()
 }
+
+// FNV1a64 返回 s 的 FNV-1a 64 位哈希。它服务 task key 等更长的稳定标识；
+// 同样是持久兼容面，换算法必须迁移对应的键。
+func FNV1a64(s string) uint64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(s))
+	return hash.Sum64()
+}

@@ -68,12 +68,6 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 			(name != "goal_begin" && !p.goalActive())) {
 			continue
 		}
-		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
-		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
-		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
-		if scope.Role != dto.RoleSubAgent && isPlanTool(name) && !p.goalSkillActive() {
-			continue
-		}
 		// 员工工具面（权责模型 P1）：角色会话里的成员按 ToolsPolicy 分档
 		// （readonly → emp_ro / readwrite → emp_rw），面上只出现它位上有的工具。
 		// 位缺不是"藏起来就完事"：调用侧仍有权限门的执行选择页面兜住提权，这里
@@ -123,16 +117,6 @@ func isGoalTool(name string) bool {
 	}
 }
 
-// isPlanTool 判断 plan 工具族（goal skill 激活时对主代理可见）。
-func isPlanTool(name string) bool {
-	switch name {
-	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate":
-		return true
-	default:
-		return false
-	}
-}
-
 // sceneScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
 // runtime/会话级单例状态，并行子代理调用会造成语义冲突。其余工具与主代理
 // 一致可见。
@@ -144,8 +128,7 @@ func isPlanTool(name string) bool {
 // skill 已由节点装配自动注入，插件/技能切换属于会话/UI 级控制。
 func sceneScopeExcludedTool(name string) bool {
 	switch name {
-	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
-		"task_complete", "task_failed", "task_needs_user_decision",
+	case "task_complete", "task_failed", "task_needs_user_decision",
 		"fork_subagents", // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
 		"switch_plugin", "switch_mode", "skill_activate",
 		// compact_context 压缩的是**共享会话**的可变 transcript：子代理并行

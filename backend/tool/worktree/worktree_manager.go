@@ -944,7 +944,7 @@ func GitRunner(root string, args ...string) (string, error) {
 }
 
 // CleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
-// 包级薄包装：worktree_test.go 与 seelebridge 的验收释放直接调用；组件内部走
+// 包级薄包装：测试与宿主验收释放直接调用；组件内部走
 // w.cleanup——两条入口转调**同一份实现**（cleanupWorktreeWith），只是 git 注入点不同
 // （GitRunner / w.git），因此不可能再出现"同一个现场、两条入口两个结论"。
 func CleanupWorktree(root string, wt *NodeWorktree) error {

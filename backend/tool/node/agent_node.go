@@ -1,6 +1,6 @@
-// Package node 承载 plan kind:agent 节点的子代理执行域：节点包装、节点级
+// Package node 承载子代理 AgentNode 的执行域：节点包装、节点级
 // PromptBlocks、执行预算与 skill 匹配。运行时能力经 Deps 由根包注入，
-// 域内不依赖 seelebridge 根包（避免循环依赖）。
+// 域内不依赖装配根（避免循环依赖）。
 package node
 
 import (
@@ -73,9 +73,8 @@ type AgentNode struct {
 	deps    Deps
 }
 
-// NewAgentNode 构造 agent 节点包装。scope/blocks 经闭包延迟解析，使
-// plan_load（buildNode）到 plan_run 之间冻结的 PlanBranchBinding 与
-// 父证据都能被观察到。
+// NewAgentNode 构造子代理节点包装。scope/blocks 经闭包延迟解析，使执行前
+// 解析的 SceneScope 与父证据都能被观察到。
 func NewAgentNode(spec codec.NodeSpec[SeelexNodeInput], deps Deps) *AgentNode {
 	taskID := spec.Input.TaskID
 	return &AgentNode{

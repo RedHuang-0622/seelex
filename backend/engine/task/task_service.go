@@ -330,7 +330,7 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTerminal) (string, error) {
 	plan := s.projection.Plan()
 	if plan == nil {
-		return "", fmt.Errorf("%s: no task structure is loaded; load one with plan_load first", ToolCheckNode)
+		return "", fmt.Errorf("%s: no task structure is loaded; historical Plan data is read-only (plan_* tools are retired)", ToolCheckNode)
 	}
 	var label string
 	for index := range plan.Nodes {

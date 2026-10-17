@@ -29,8 +29,6 @@ const (
 	MaxProgressItems = 32
 	// MaxProgressRunes 限制单条 progress 长度。
 	MaxProgressRunes = 800
-	// DefaultTLTokensShare 是 TechLeader 评估预算占 goal 总 token 的默认比例（%）。
-	DefaultTLTokensShare = 20
 	// MaxDirectives 是 GoalRecord.Directives 环形保留上限（Part II 预留）。
 	MaxDirectives = 5
 )
@@ -78,17 +76,8 @@ var (
 
 // Budget 是 goal 级预算护栏（design §3.2）。0 = 无限/未设。
 type Budget struct {
-	MaxLoops      int `json:"max_loops,omitempty"`       // goal 总循环护栏
-	MaxTokens     int `json:"max_tokens,omitempty"`      // goal 总 token 护栏
-	TLTokensShare int `json:"tl_tokens_share,omitempty"` // TL 评估预算占比（默认 DefaultTLTokensShare）
-}
-
-// Normalized 返回带默认值的预算副本。
-func (b Budget) Normalized() Budget {
-	if b.TLTokensShare <= 0 {
-		b.TLTokensShare = DefaultTLTokensShare
-	}
-	return b
+	MaxLoops  int `json:"max_loops,omitempty"`  // goal 总循环护栏
+	MaxTokens int `json:"max_tokens,omitempty"` // goal 总 token 护栏
 }
 
 // ProgressKind 是 goal 进度条目类型（milestone/finding/decision/risk）。
@@ -170,7 +159,7 @@ func (r *GoalRecord) validateBegin() error {
 			return fmt.Errorf("%w: acceptance 条目不可为空", ErrInvalidArgument)
 		}
 	}
-	if r.Budget.MaxLoops < 0 || r.Budget.MaxTokens < 0 || r.Budget.TLTokensShare < 0 {
+	if r.Budget.MaxLoops < 0 || r.Budget.MaxTokens < 0 {
 		return fmt.Errorf("%w: budget 字段不可为负", ErrInvalidArgument)
 	}
 	return nil
@@ -196,10 +185,10 @@ func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord {
 		Status:     StatusActive,
 		CreatedAt:  now,
 		UpdatedAt:  now,
-		Budget:     Budget{}.Normalized(),
+		Budget:     Budget{},
 	}
 	if request.Budget != nil {
-		record.Budget = request.Budget.Normalized()
+		record.Budget = *request.Budget
 	}
 	return record
 }

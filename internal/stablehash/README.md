@@ -3,14 +3,15 @@
 ## 生态位
 
 `internal/stablehash` 是仓库内的稳定哈希原语叶子包。它只回答"同一输入是否得到
-同一 32 位哈希"，不做加密、不做业务映射；调用方是 `backend/tool/node`（节点会话号）、
-`backend/engine/account`（账号池定序）与 `backend/tool/registry`（员工权限主体名）。
+同一稳定哈希"，不做加密、不做业务映射；调用方是 `backend/tool/node`（节点会话号）、
+`backend/engine/account`（账号池定序）、`backend/tool/registry`（员工权限主体名）
+与 `backend/tool/task`（goal task key，64 位）。
 
 ## 职责与非职责
 
 职责：
 
-- 提供唯一的 FNV-1a 32 位实现 `FNV1a32(string) uint32`。
+- 提供唯一的 FNV-1a 32/64 位实现 `FNV1a32` / `FNV1a64`。
 - 用已知向量钉住算法输出，防止无意换算法。
 
 非职责：
@@ -22,12 +23,13 @@
 
 | 文件 | 职责 |
 |---|---|
-| `fnv.go` | `FNV1a32` 唯一实现 |
-| `fnv_test.go` | 已知向量（空串 / `a` / `foobar`） |
+| `fnv.go` | `FNV1a32` / `FNV1a64` 唯一实现 |
+| `fnv_test.go` | 32/64 位已知向量（空串 / `a` / `foobar`） |
 
 ## 核心实现
 
-`FNV1a32` 直接用标准库 `hash/fnv` 的 `New32a`，逐字节 XOR 后乘 16777619。
+`FNV1a32` 直接用标准库 `hash/fnv` 的 `New32a`，`FNV1a64` 用 `New64a`；
+两者都是逐字节 XOR 后乘 FNV 质数。
 输出是**持久兼容面**：节点会话号、账号绑定与权限主体名都依赖它；换算法必须
 同时迁移这些持久键。
 

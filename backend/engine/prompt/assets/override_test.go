@@ -65,8 +65,6 @@ func TestDefaultFilesCoverEveryRenderedAsset(t *testing.T) {
 		"system/identity.md",
 		"system/instructions.md",
 		"effort/system.md",
-		"plan/preflight.md",
-		"plan/replan.md",
 		"subagent/charter.md",
 	} {
 		if !found[want] {

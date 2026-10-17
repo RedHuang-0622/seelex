@@ -35,7 +35,7 @@ func employeeFaceTools() []string {
 		// rw_desktop：共享外设
 		"computer_click",
 		// ctl：循环控制流
-		"task_complete", "plan_load", "goal_begin", "fork_subagents",
+		"task_complete", "goal_begin", "fork_subagents",
 		// adm：能力面本身
 		"switch_plugin", "plugins_reload",
 		// 未分封：动态注册的工具（MCP 等）
@@ -59,7 +59,7 @@ func TestEmployeeToolFaceFollowsToolsPolicy(t *testing.T) {
 	}
 	neverWant := map[string]bool{
 		"compact_context": true, "computer_click": true, "task_complete": true,
-		"plan_load": true, "goal_begin": true, "fork_subagents": true,
+		"goal_begin": true, "fork_subagents": true,
 		"switch_plugin": true, "plugins_reload": true, "mcp_custom_tool": true,
 	}
 

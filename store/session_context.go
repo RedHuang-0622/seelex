@@ -55,9 +55,8 @@ type TaskFrame struct {
 
 // GoalBudget 是 GoalFrame 内嵌的预算护栏（与 goal 域 Budget 同形，纯 DTO）。
 type GoalBudget struct {
-	MaxLoops      int `json:"max_loops,omitempty"`
-	MaxTokens     int `json:"max_tokens,omitempty"`
-	TLTokensShare int `json:"tl_tokens_share,omitempty"`
+	MaxLoops  int `json:"max_loops,omitempty"`
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 // GoalProgress 是 GoalFrame 内的一条进度/发现（与 goal 域 Progress 同形）。

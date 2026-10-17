@@ -54,7 +54,7 @@ ValidateSubagentMaxLoops(id, maxLoops, ceiling) → 负数 / 越天花板各一�
 - 错误文案逐字保留（`max_loops must be >= 1` 这条是对负数说的既有口径）。
 
 `effort 档位的节点上限`（`PlanPolicy.MaxNodeLoops`）**不在这里**：那是主代理自己
-`plan_load` 节点的判据，拿来卡子代理等于"改一下 reasoning effort，子代理的次数跟着变"
+历史 Plan 节点的判据，拿来卡子代理等于"改一下 reasoning effort，子代理的次数跟着变"
 （2026-10-08 口径）。这条口径由 `backend/tool/fork` 的工具入口用例守着。
 
 ## 数据流

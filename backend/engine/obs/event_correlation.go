@@ -6,8 +6,8 @@ package obs
 //
 // 同一运行有两类事实，分别落两套存储/命名：
 //
-//  1. workplan 执行事实轨：frameworkevent.Sink（`backend/tool/plan/events.go` 的 EventSink，
-//     planExecutor 持有）→ store 事件库（`store/event_store.go`）。关联字段：
+//  1. 执行事实轨：frameworkevent.Sink（子代理/作业事件）→ store 事件库
+//     （`store/event_store.go`）。关联字段：
 //     `event.Locations["agent.runtime"]["session_id"]` + `event.Scope{PlanID, RunID, NodeID}`。
 //     框架 runner 事件缺失 session_id 时 EventStore 跳过持久化（best-effort），
 //     判据见 `store.SessionIDFromEvent`。
