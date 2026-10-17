@@ -3,7 +3,7 @@ package subagent_view
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -16,9 +16,9 @@ import (
 // 轨迹视图的 `tool.status === "error" ? … : "success"`）会静默降级成"未知/成功"。
 func TestSubagentConversationSpeaksTheToolCallCellWords(t *testing.T) {
 	c := testCoordinator()
-	adapted := c.adaptSubagentConversation([]types.Message{
-		{Role: "assistant", Content: strPtr("读取中"), ToolCallID: "t1", Name: "read_file"},
-		{Role: "tool", Content: strPtr("package a"), ToolCallID: "t1", Name: "read_file"},
+	adapted := c.adaptSubagentConversation([]contract.EngineMessage{
+		{Role: "assistant", Content: "读取中", ContentSet: true, ToolCallID: "t1", Name: "read_file"},
+		{Role: "tool", Content: "package a", ContentSet: true, ToolCallID: "t1", Name: "read_file"},
 	})
 	if len(adapted) == 0 || adapted[0].Tool == nil {
 		t.Fatalf("工具消息必须携带 Tool 摘要：%+v", adapted)

@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
@@ -406,7 +406,7 @@ func isRunningSubagentStatus(status model.NodeStatus) bool {
 	}
 }
 
-func (c *Coordinator) adaptSubagentConversation(messages []types.Message) []model.Message {
+func (c *Coordinator) adaptSubagentConversation(messages []contract.EngineMessage) []model.Message {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -416,10 +416,7 @@ func (c *Coordinator) adaptSubagentConversation(messages []types.Message) []mode
 		if len(adapted) >= maxSubagentConversationMessages {
 			break
 		}
-		content := ""
-		if msg.Content != nil {
-			content = *msg.Content
-		}
+		content := msg.Content
 		if limit > 0 && len(content) > limit {
 			content = content[:limit] + "…"
 		}

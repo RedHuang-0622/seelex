@@ -22,7 +22,6 @@ package core
 import (
 	"context"
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
@@ -94,17 +93,13 @@ func (engine *sessionLockEngine) History() []contract.EngineMessage {
 
 func (engine *sessionLockEngine) HistoryFor(string) []contract.EngineMessage { return engine.History() }
 
-func (engine *sessionLockEngine) AppendHistory(msg types.Message) {
+func (engine *sessionLockEngine) AppendHistory(msg contract.EngineMessage) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	content := ""
-	if msg.Content != nil {
-		content = *msg.Content
-	}
-	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
+	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: msg.Content, ContentSet: msg.ContentSet})
 }
 
-func (engine *sessionLockEngine) AppendHistoryFor(_ string, msg types.Message) {
+func (engine *sessionLockEngine) AppendHistoryFor(_ string, msg contract.EngineMessage) {
 	engine.AppendHistory(msg)
 }
 

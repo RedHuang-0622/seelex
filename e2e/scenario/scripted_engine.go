@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
@@ -197,19 +197,17 @@ func (engine *ScriptedEngine) SetMaxLoops(maxLoops int) {
 	engine.mu.Unlock()
 }
 
-func (engine *ScriptedEngine) AppendHistory(msg types.Message) {
+func (engine *ScriptedEngine) AppendHistory(msg contract.EngineMessage) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	content := ""
-	if msg.Content != nil {
-		content = *msg.Content
-	}
-	engine.history = append(engine.history, application.EngineMessage{Role: msg.Role, Content: content})
+	engine.history = append(engine.history, application.EngineMessage{Role: msg.Role, Content: msg.Content})
 }
 
-func (*ScriptedEngine) TraceText() string                                      { return "scripted scenario" }
-func (*ScriptedEngine) TokenCount() string                                     { return "0" }
-func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (*ScriptedEngine) TraceText() string  { return "scripted scenario" }
+func (*ScriptedEngine) TokenCount() string { return "0" }
+func (*ScriptedEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool) {
+	return nil, false
+}
 func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	return nil, false
 }

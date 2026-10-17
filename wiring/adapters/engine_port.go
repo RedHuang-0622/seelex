@@ -360,12 +360,12 @@ func (port *EnginePort) RawHistoryFor(sessionID string) []types.Message {
 }
 
 // AppendHistoryFor 追加消息到指定会话引擎历史。
-func (port *EnginePort) AppendHistoryFor(sessionID string, msg types.Message) {
+func (port *EnginePort) AppendHistoryFor(sessionID string, msg contract.EngineMessage) {
 	port.mu.RLock()
 	engine := port.engineForSessionLocked(sessionID)
 	port.mu.RUnlock()
 	if engine != nil {
-		engine.AppendHistory(msg)
+		engine.AppendHistory(restoreMessages([]contract.EngineMessage{msg})[0])
 	}
 }
 
@@ -436,11 +436,12 @@ func (port *EnginePort) ReplaceRawHistoryFor(sessionID string, history []types.M
 
 // NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
 // 查询源经 ApplyDeps 注入，只读子代理 actor，安全）。
-func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
+func (port *EnginePort) NodeSessionConversation(nodeID string) ([]contract.EngineMessage, bool) {
 	if port == nil || port.nodeConversations == nil {
 		return nil, false
 	}
-	return port.nodeConversations(nodeID)
+	conversation, ok := port.nodeConversations(nodeID)
+	return adaptMessages(conversation), ok
 }
 
 // NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
@@ -507,12 +508,12 @@ func (port *EnginePort) NodeStageLogs(nodeID string) []dto.NodeStageLog {
 
 // AppendHistory 追加消息到引擎内部对话历史。
 // 由 OnIterationComplete 在 ChatStream 同 goroutine 中调用，无需加锁。
-func (port *EnginePort) AppendHistory(msg types.Message) {
+func (port *EnginePort) AppendHistory(msg contract.EngineMessage) {
 	port.mu.RLock()
 	engine := port.engine
 	port.mu.RUnlock()
 	if engine != nil {
-		engine.AppendHistory(msg)
+		engine.AppendHistory(restoreMessages([]contract.EngineMessage{msg})[0])
 	}
 }
 

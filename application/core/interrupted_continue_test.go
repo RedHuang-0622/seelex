@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -68,8 +68,7 @@ func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T) {
 
 	// 重启后用户输入 continue：模型上下文包含原任务 + 已完成 t1 + 未知 t2，
 	// 可继续接下来的步骤。
-	continueContent := "continue"
-	engine.AppendHistory(types.Message{Role: "user", Content: &continueContent})
+	engine.AppendHistory(contract.EngineMessage{Role: "user", Content: "continue", ContentSet: true})
 	history = engine.History()
 	if len(history) != 5 || history[4].Role != "user" || history[4].Content != "continue" {
 		t.Fatalf("continue message not appended: %#v", history)

@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
@@ -255,14 +254,10 @@ func (e *multiSessionEngine) ChatStreamFor(sessionID string, ctx context.Context
 	return "answer", nil
 }
 
-func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg types.Message) {
+func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg contract.EngineMessage) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	content := ""
-	if msg.Content != nil {
-		content = *msg.Content
-	}
-	e.sessions[sessionID] = append(e.sessions[sessionID], contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
+	e.sessions[sessionID] = append(e.sessions[sessionID], contract.EngineMessage{Role: msg.Role, Content: msg.Content, ContentSet: msg.ContentSet})
 }
 func (e *multiSessionEngine) ClearHistoryFor(sessionID string) {
 	e.mu.Lock()

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -52,8 +51,8 @@ func (*EmbeddedChatEngine) TokenCount() string {
 	panicUnimplemented("TokenCount")
 	return ""
 }
-func (*EmbeddedChatEngine) AppendHistory(types.Message) { panicUnimplemented("AppendHistory") }
-func (*EmbeddedChatEngine) NodeSessionConversation(string) ([]types.Message, bool) {
+func (*EmbeddedChatEngine) AppendHistory(contract.EngineMessage) { panicUnimplemented("AppendHistory") }
+func (*EmbeddedChatEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool) {
 	panicUnimplemented("NodeSessionConversation")
 	return nil, false
 }

@@ -4,7 +4,6 @@ package contract
 import (
 	"context"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -30,8 +29,11 @@ type EngineToolCall struct {
 
 // EngineBase 是引擎的公共基础面（framework 与 application 共享的最小契约）。
 // ChatEngine（应用契约）与 adapters.ReactorEngine（框架适配面）都内嵌它，
-// 表达"引擎 = 基础面 + 扩展面"。History/AppendHistory 因消息类型边界
-// （types.Message ↔ EngineMessage）分属两侧，不并入基础面。
+// 表达"引擎 = 基础面 + 扩展面"。
+//
+// 消息类型统一为 EngineMessage（契约自有形状）：此前写侧用 Seele types.Message、
+// 读侧用 EngineMessage，契约层因此被迫依赖 Seele；P3 把写侧也收到契约形状，
+// 适配层在实现里做一次显式转换（`restoreMessages`）。
 type EngineBase interface {
 	ChatStream(context.Context, string, func(string)) (string, error)
 	ClearHistory()
@@ -56,10 +58,10 @@ type ChatEngine interface {
 	// 再也不发出去，任务关不掉）。锁内的"注入"只能落在既有的循环内数据流
 	// （ContextController 的 ReplaceHistory 决策），应用侧注入一律放到
 	// ChatStream 之前/之后的锁外安全点。
-	AppendHistory(msg types.Message)
+	AppendHistory(msg EngineMessage)
 	// NodeSessionConversation 返回节点子代理的会话记录（运行中实时 /
 	// 结束后快照；只读子代理 actor，安全）。
-	NodeSessionConversation(nodeID string) ([]types.Message, bool)
+	NodeSessionConversation(nodeID string) ([]EngineMessage, bool)
 	// NodeContextSnapshot 返回节点子代理的结构化上下文快照（Goal/
 	// Findings/Decisions/TokenEstimate 等；运行中实时导出、结束后快照；
 	// 只读子代理 actor，安全）。
@@ -94,7 +96,7 @@ type SessionChatEngine interface {
 	// HistoryFor 返回指定会话引擎的历史（只读拷贝）。
 	HistoryFor(sessionID string) []EngineMessage
 	// AppendHistoryFor 追加消息到指定会话引擎历史。
-	AppendHistoryFor(sessionID string, msg types.Message)
+	AppendHistoryFor(sessionID string, msg EngineMessage)
 	// ClearHistoryFor 清空指定会话引擎历史。
 	ClearHistoryFor(sessionID string)
 	// SetSystemPromptFor 设置指定会话引擎的 system prompt。

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -27,11 +27,11 @@ func TestAdaptSubagentConversation(t *testing.T) {
 	c := testCoordinator()
 	limits := c.limits()
 	long := strings.Repeat("x", limits.EvidenceChars+100)
-	messages := []types.Message{
-		{Role: "user", Content: strPtr("goal")},
-		{Role: "assistant", Content: strPtr(long)},
-		{Role: "assistant", Content: strPtr("calling"), ToolCallID: "t1", Name: "read_file"},
-		{Role: "tool", Content: strPtr("file content"), ToolCallID: "t1", Name: "read_file"},
+	messages := []contract.EngineMessage{
+		{Role: "user", Content: "goal", ContentSet: true},
+		{Role: "assistant", Content: long, ContentSet: true},
+		{Role: "assistant", Content: "calling", ContentSet: true, ToolCallID: "t1", Name: "read_file"},
+		{Role: "tool", Content: "file content", ContentSet: true, ToolCallID: "t1", Name: "read_file"},
 	}
 	adapted := c.adaptSubagentConversation(messages)
 	if len(adapted) != 4 {

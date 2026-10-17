@@ -13,9 +13,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/types"
-
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -222,7 +221,7 @@ func formatDirectiveText(directive goaldomain.TLDirective) string {
 func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective) {
 	for _, directive := range directives {
 		value := "〔" + formatDirectiveText(directive) + "〕"
-		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
+		service.appendEngineMessage(sessionID, contract.EngineMessage{Role: "user", Content: value, ContentSet: true})
 	}
 }
 

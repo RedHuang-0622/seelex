@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"
@@ -40,7 +39,7 @@ func (service *Service) chatStream(ctx context.Context, sessionID, input string,
 }
 
 // appendEngineMessage 追加消息到指定会话引擎历史。
-func (service *Service) appendEngineMessage(sessionID string, msg types.Message) {
+func (service *Service) appendEngineMessage(sessionID string, msg contract.EngineMessage) {
 	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
 		routed.AppendHistoryFor(sessionID, msg)
 		return

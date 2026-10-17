@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
@@ -1696,14 +1695,4 @@ func (c *Coordinator) clearEngineHistory(sessionID string) {
 		return
 	}
 	c.Deps.Engine.ClearHistory()
-}
-
-// appendEngineHistory 追加消息到指定会话引擎历史（会话路由引擎用
-// AppendHistoryFor，否则活跃引擎）。
-func (c *Coordinator) appendEngineHistory(sessionID string, msg types.Message) {
-	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
-		routed.AppendHistoryFor(sessionID, msg)
-		return
-	}
-	c.Deps.Engine.AppendHistory(msg)
 }

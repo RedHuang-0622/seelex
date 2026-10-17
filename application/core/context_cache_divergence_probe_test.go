@@ -183,7 +183,10 @@ func (h *prefixProbeHarness) llmIteration(engineContent, reasoning string, calls
 		value := engineContent
 		content = &value
 	}
-	h.engine.AppendHistory(types.Message{Role: "assistant", Content: content, ReasoningContent: reasoning, ToolCalls: calls})
+	h.engine.AppendHistory(contract.EngineMessage{
+		Role: "assistant", Content: engineContent, ContentSet: content != nil,
+		ReasoningContent: reasoning, ToolCalls: probeEngineCalls(calls),
+	})
 	h.history = append(h.history, contract.EngineMessage{
 		Role: "assistant", Content: engineContent, ContentSet: content != nil,
 		ReasoningContent: reasoning, ToolCalls: probeEngineCalls(calls),
@@ -210,7 +213,7 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
 	h.service.ViewMu.Unlock()
-	h.engine.AppendHistory(types.Message{Role: "tool", ToolCallID: callID, Name: name, Content: &result})
+	h.engine.AppendHistory(contract.EngineMessage{Role: "tool", ToolCallID: callID, Name: name, Content: result, ContentSet: true})
 	h.history = append(h.history, contract.EngineMessage{Role: "tool", ToolCallID: callID, Name: name, Content: result, ContentSet: true})
 	if providerResult != result {
 		h.t.Logf("  note: transcript layer rewrote provider-safe tool result (%d -> %d chars)", len(result), len(providerResult))

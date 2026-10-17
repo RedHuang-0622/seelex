@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/RedHuang-0622/Seele/types"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
@@ -216,25 +215,23 @@ func (engine *fakeEngine) sessionLoopsFor(sessionID string) int {
 	return engine.sessionMaxLoops[sessionID]
 }
 
-func (engine *fakeEngine) AppendHistory(msg types.Message) {
+func (engine *fakeEngine) AppendHistory(msg contract.EngineMessage) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	content := ""
-	if msg.Content != nil {
-		content = *msg.Content
-	}
 	toolCalls := make([]contract.EngineToolCall, 0, len(msg.ToolCalls))
 	for _, call := range msg.ToolCalls {
-		toolCalls = append(toolCalls, contract.EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+		toolCalls = append(toolCalls, call)
 	}
-	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: msg.Content != nil, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
+	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: msg.Content, ContentSet: msg.ContentSet, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
 }
 
 func (*fakeEngine) TraceText() string { return "trace" }
 
 func (*fakeEngine) TokenCount() string { return "12" }
 
-func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (*fakeEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool) {
+	return nil, false
+}
 
 func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	if engine.nodeContext == nil {
@@ -301,7 +298,7 @@ func (engine *fakeEngine) HistoryFor(sessionID string) []contract.EngineMessage 
 	return engine.History()
 }
 
-func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg types.Message) {
+func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg contract.EngineMessage) {
 	engine.AppendHistory(msg)
 }
 

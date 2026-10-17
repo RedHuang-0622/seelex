@@ -8,10 +8,10 @@ import (
 	"time"
 
 	frameworksession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/wiring"
@@ -74,7 +74,7 @@ func (*guiChainEngine) SetSystemPrompt(string)               {}
 func (*guiChainEngine) SetMaxLoops(int)                      {}
 func (*guiChainEngine) TraceText() string                    { return "" }
 func (*guiChainEngine) TokenCount() string                   { return "0" }
-func (*guiChainEngine) AppendHistory(types.Message)          {}
+func (*guiChainEngine) AppendHistory(contract.EngineMessage) {}
 func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {
