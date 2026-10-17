@@ -1915,3 +1915,54 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 
 **四项待裁决**：越层边（§37）、README 漂移批（§37）、FNV 原语三处（§39）、
 `TestBackgroundCompletionWhileSwitchingToC` 根因（§42）。
+
+## 52. 附加必做项收口（2026-10-17 第二十轮：P8 / P18 / P19 / P20 / P21-38）
+
+用户裁决的必做项逐条落地；本轮起子代理仍为空闲（无新派单），全部由 root 串行完成。
+
+| 项 | 落地 | 证据 |
+|---|---|---|
+| **P8 僵尸面** | 删 15 条生产零引用出口：`SearchHit` / `SearchRecord`（门面别名）、`WithTags`、`ErrInvalidSignal`、`GroupBit{Read,Write,Execute,All}`（用例改写为 `policy.Bit*` 后删别名）、7 条 TUI 样式变量。两处版本事实收回一处：`SessionArchiveResumePrefix` 由 `SessionArchiveVersion` 派生；`TaskContextProjection.SchemaVersion` 改用 `model` 常量（原本写死字面量 1） | `3ff15b4c` |
+| **P8 保留项（判定依据）** | `SessionArchiveVersion` 保留（改由前缀派生）；`NodeStageStopped` 是显式预留；`ModelPolicyInherit` / `ModelPolicySameAsExec` 是产品模型词表；`WithMetadata` 保留（`Metadata` 被 `ForPrompt` 消费）；`Border` / `BorderForeground` **不删**——审计脚本把它们当成包级变量，实际是 `StyleInputBox` 的方法调用（删了会改 TUI 观感） | 同上 |
+| **P18 草稿冗余** | 按用户点明的三条草稿角色收敛两处漂移：①`/new` 清全部会话事实；②冷加载中断回草稿**保留窗口读数**、但不再继承上一会话的 `ReadFiles`（它属于未加载成功的会话，物化时会被写成新会话 `Execution`）；③卸载当前视图会话时**进程级交互保留、会话级交互清掉**（`SessionID` 是判据）。差异矩阵用例同步更新 | `e9c4ddb8` |
+| **P19 错误文案** | 复核 `rg 'seelebridge:'` = 0；`seelebridge` 作为 import 别名 = 0（`e2e` 里两个 `package seelebridge` 是合成夹具，不是残留）。§33 的 28 文件 85 处改写仍然有效 | 只读复核 |
+| **P20 稳定复现** | `python tmp/reshape/p20_repro.py 3 2`：6 次三并发全量跑，**0 次 `panic: test timed out`**（3 次返回码非 0 全部来自基线 3 例）；机械门禁 `e2e/view_lock_nesting_gate_test.go` 在册 | 日志 `tmp/reshape/p20-r*.txt` |
+| **P21-38** | teammate 单元记录形状 `UnitRecord` 下沉 `backend/multiagent/teamwork`（身份/摘要裁剪/阶段编码只在本域）；`runtime_teamwork.go` 的 10 处 `invalidate+archive` 收成 `afterTeamworkMutation`，接线守卫改为同时钉住组合本身 | `07b2d92d` |
+| **越层边（§37 待裁决）** | `middle/view/state/coordinator.go` 不再 import `backend/engine/assemble`：定时任务两条投影直接用 contract 端口返回的 `dto` 形状。门面依赖闭包只减不增 | `08b5b1a3` |
+| **README 漂移批（§37 待裁决）** | 11 个 README 的搬迁后路径修正；`check_readme_refs.py` 增加 `<!-- readme-refs: history -->` 段级豁免（只给整段退场历史用），`metadata/teamwork.json` 进数据文件忽略表。`--strict backend middle store wiring backend/tool` = 59 个 0 漂移 | `9b811d62` |
+
+### P21 剩余清单（更新后）
+
+装配层剩下的都不是"判据"，而是**宿主动作与端口接线**：
+
+1. `runtime_teamwork.go`：`RunWorker` / `workerRoleRoundSpec` / `bindWorkerProjectRoot` / `writeWorkerOutput` /
+   `teamworkJobOutputs`（开角色会话、绑项目根、写输出、回收现场）与 `SetTeamworkBackend` 的装配；
+2. `workunit_team_records.go`：存/删/回灌的 I/O（记录形状已下沉，见 P21-38）；
+3. `runtime_teamwork_items.go` / `workunit_assembly.go`：设计文档明确留在装配处的端口实现与三格适配器；
+4. `runtime_context.go` 组件工厂、`runtime_tools.go` 注册面——§38 表判定的装配面。
+
+**仍未裁决/未修**：FNV 原语三处（§39；三处是同一个 6 行算法，但分别钉住 nodeID /
+账号 pool 定序 / 权限摘要三个兼容面，合并会把三个冻结点耦成一处——本轮不动）；
+`TestBackgroundCompletionWhileSwitchingToC` 的根因已定位并修复（见 §53）。
+
+## 53. `-race` 收口：两个真实竞态（2026-10-17 第二十轮续）
+
+本轮全量 `-race` 抓到两处**产品代码**竞态，不是用例抖动：
+
+| # | 现场 | 根因 | 修法 | 证据 |
+|---|---|---|---|---|
+| 1 | `test.TestTeamworkPluginAssemblyHeadlessSmoke` 被标记失败（功能断言全过，只有 `race detected during execution of test`） | `store.(*Router).withRepository` 在锁外读 `router.projectID`，与 `SetWorkspace` 的锁内写构成数据竞争（读栈：`BoardsFor→withRepository`；写栈：`runChat→rebindViewWorkspaceWhenIdle→SetWorkspace`） | 写作用域在锁内取快照；新增 `store/sessionstore_workspace_race_test.go`（`SetWorkspace` × `BoardsFor` 并发） | 修前 `-race` 报 `DATA RACE`；修后 `-count=3` 全绿。提交 `8d017df7` |
+| 2 | `test.TestBackgroundCompletionWhileSwitchingToC` 在 `-race` 下 90s 以 `C second turn did not block` 收场（§42 遗留） | 两段 TOCTOU：①`submitConversation` 锁内已确定目标会话，起跑却经 `startChat` 重读视图指针；②非运行分支释放 `ViewMu` 后才调 `startChatFor`，窗口里另一个回合起跑 ⇒ 返回 `ErrChatRunning`。deferred submit 只把该错误记日志，**已受理的输入直接丢**（日志实证：`[submit] deferred submit …: chat is already running`） | ①起跑用锁内已校验的 `sessionID`；②`startChatFor` 发现回合已起跑时改为入队（输入语义 = 开跑或排队）；③三条入队路径共用 `enqueueChatLocked` / `afterChatEnqueued`。时序用例失败时补 goroutine dump | 修前 `-race -count=3` 失败 2 次（均 90s）；修后 3/3 通过；`-race -count=10`（含 `TestTwoRunningViewThirdSwitchStress`）全绿 46.8s。提交 `4a24bf38` |
+
+### 全仓 `-race` 终验（Git Bash + CGO + MinGW gcc，2026-10-17）
+
+**Git Bash 可用性**：PATH 上的 `bash` 是 WSL（看不到 `G:`，会挂住）；显式用
+`G:\Tools\Git\Git\bin\bash.exe` 则 `go version` = go1.25.8 windows/amd64、
+`CGO_ENABLED=1`、`CC=gcc`，`go test -race` 正常。
+
+| 分片 | 结果 |
+|---|---|
+| `./backend/...` | **EXIT 0**，全部 `ok`，**0 DATA RACE**（`tmp/reshape/race-backend-2.log`） |
+| `./application/... ./middle/... ./store/... ./session/... ./wiring/... ./internal/... ./contract/... ./kernel/... .` | 29 包 ok；唯一红 = `application/core` 基线 3 例；**0 DATA RACE**（`race-app-2.log`） |
+| `./e2e/... ./gui/... ./tui/...` | **EXIT 0**，5 包 ok，**0 DATA RACE**（`race-front-2.log`；首跑 red 是 `FaceTypeNames` 未同步，已由 `54931841` 修） |
+| `./test/...` | 两处竞态修复前：1 红（`TestBackgroundCompletion…` 90s）+ 1 DATA RACE；修复后：**EXIT 0，0 DATA RACE** |

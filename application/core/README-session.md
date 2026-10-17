@@ -319,8 +319,9 @@
 
 - `func seedPreviousSessionFacts(service *Service)` — seedPreviousSessionFacts 在快照里铺满"上一个会话留下的会话事实"，供三条路径消费。
 - `func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T)`
-- `func TestColdRestoreFailureDraftShellKeepsWindowAndReadFiles(t *testing.T)`
-- `func TestUnloadViewDraftShellKeepsInteractionAndWritesNoSlot(t *testing.T)`
+- `func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T)`
+- `func TestUnloadViewDraftShellKeepsProcessInteractionAndWritesNoSlot(t *testing.T)`
+- `func TestUnloadViewDraftShellDropsSessionScopedInteraction(t *testing.T)` — 会话级交互挂在被卸下的会话上：换单元后必须清掉，否则用户会对着一个已不存在的
 
 ### session_effort_test.go
 

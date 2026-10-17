@@ -387,3 +387,7 @@
 - `func TestJSONRepositoryReadRangeWindowed(t *testing.T)` — TestJSONRepositoryReadRangeWindowed 验证窗口读优化：manifest shard 计数
 - `func firstContent(messages []types.Message) string`
 - `func TestJSONRepositoryReadRangeTotalOnly(t *testing.T)` — TestJSONRepositoryReadRangeTotalOnly 验证 limit<=0 语义：只读 manifest 拿
+
+### sessionstore_workspace_race_test.go
+
+- `func TestWorkspaceSwitchIsSafeAgainstRepositoryReaders(t *testing.T)`

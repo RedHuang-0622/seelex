@@ -741,6 +741,7 @@ go test ./backend/multiagent/... -count=1
 - `func UnitStatusFor(kind workunit.OutcomeKind) string` — UnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）记 done**
 - `func UnitNodeID(request WorkerRequest) string` — UnitNodeID 把一轮 teammate 作业的现场折成契约的 nodeID（`<role>-<itemID>` / `<role>`）：
 - `func UnitRecordKeyFor(request WorkerRequest) UnitRecordKey` — UnitRecordKeyFor 从一轮作业的载荷取出记录身份（NodeID 口径见 `UnitNodeID`）。
+- `func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord` — UnitRecord 把一条 teammate 单元记录的形状收在本域：记录身份、摘要裁剪与阶段编码
 - `func TeammateUnitRecordLink(key UnitRecordKey) store.NodeSessionRecordLink` — TeammateUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
 
 ### unit_record_test.go
@@ -750,6 +751,7 @@ go test ./backend/multiagent/... -count=1
 - `func TestUnitNodeIDFollowsTheSceneNaming(t *testing.T)` — TestUnitNodeIDFollowsTheSceneNaming：单元身份——有独立现场时取指派名去前缀；
 - `func TestUnitRecordKeyForFillsIdentity(t *testing.T)` — TestUnitRecordKeyForFillsIdentity：记录身份从作业载荷取——nodeID 口径见 UnitNodeID、
 - `func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T)` — TestTeammateUnitRecordLinkWritesTheIdentity：写链上 teammate 那一环把 Kind/Role/Plugins/
+- `func TestUnitRecordCarriesTheRoundFacts(t *testing.T)` — TestUnitRecordCarriesTheRoundFacts：记录形状只在域内拼一次——作用域、身份、状态、
 
 ### unit_recovery.go
 

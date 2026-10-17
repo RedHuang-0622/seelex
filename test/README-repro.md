@@ -77,6 +77,7 @@
 - `func (p *blockingProvider) serve(t *testing.T, writer http.ResponseWriter, request *http.Request)`
 - `func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T)` — TC-A1-03：A 后台完成收尾不得影响活跃会话 B 的队列与运行态。
 - `func TestBackgroundCompletionWhileSwitchingToC(t *testing.T)` — TC-A2-01：A 收尾与 C 运行并发（真实交错）；A 的 ReleaseWorkingHistoryFor
+- `func dumpBackgroundTurnStall(t *testing.T, harness fullChainHarness, reason string)` — dumpBackgroundTurnStall 在"C 的第二轮没到 provider"时留一份现场：快照读数 +
 
 ### repro_session_disappear_test.go
 
