@@ -29,7 +29,7 @@ stateDiagram-v2
 ## 实现
 
 - `plugin.md` 的 include/exclude 均为空，交由 Seele Tool holder 暴露全部工具。
-- **不再有 Plan Skill**：`$plan` **Skill** 已退场（`plan/` 目录与其 SKILL.md 已删）；`$plan-efficiency` 同日退场（它给出的节点定义 `agent_type` / `context_inherit` / `retry_on_fail` / `timeout` 在当前工具面里没有接收方）。注意 **Skill 退场 ≠ 工具退场**：plan DAG 工具（`plan_load`/`plan_run`/`plan_status`/`plan_clear`/`plan_export`/`plan_validate`）仍由 `seelex-workplan` provider 生产注册，仅在 goal Skill 激活时对主代理可见、子代理不可见。编排走 `$goal` + `$teamwork` + subagent / teammate。
+- **不再有 Plan Skill / Plan 工具**：`$plan` **Skill** 已退场（`plan/` 目录与其 SKILL.md 已删）；`$plan-efficiency` 同日退场。plan DAG 工具（`plan_load`/`plan_run`/`plan_status`/`plan_clear`/`plan_export`/`plan_validate`）与内部 Plan 执行器也已整体退役，只剩历史 Plan 的只读投影。编排走 `$goal` + `$teamwork` + `fork_subagents` / teammate。
 - 每个子目录是一个通用 Skill（`$` 前缀召回）。
 - `$goal` 与 `$teamwork` 是团队作业面的一对：`$goal` 维护 agent 自总结的目标看板（正文/完成条件/打点），
   `$teamwork` 是 leader 的工具面规范 —— **少而关键的编制 + teammate 多任务并发 + 任务尽量解耦 + 完成一件交一件**（里程碑屏障 + 里程碑内 Work Item DAG，契约先行、证据收尾）。**不再有席位轮转。**

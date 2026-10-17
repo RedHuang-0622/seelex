@@ -111,8 +111,8 @@ flowchart LR
     UC3(["BeginNewSession / ResumeSession / ForkSessionLatest"])
     UC4(["BindWorkspace 绑定项目"])
     UC5(["命令与输入前缀分流"])
-    UC6(["plan_load / plan_run / replan"])
-    UC7(["goal_begin / goal_update / goal_propose_finish"])
+    UC6(["fork_subagents / 历史 Plan 只读投影"])
+    UC7(["goal_begin / goal_update / goal_done"])
     UC8(["团队装配与角色登记"])
     UC9(["Snapshot / Subscribe 读取投影"])
 
@@ -268,23 +268,20 @@ Event 自 M1 起携带 `session_id` 路由键（`EventHub.PublishSession`），
 `SubscribeSession` 可按会话过滤订阅；Snapshot 的会话归属由
 `Snapshot.Session.ID` 表达（当前仅活跃会话有驻留快照）。
 
-## Plan 集成
+## 子代理与历史 Plan
 
-Tool hooks 把用户或 Agent 自主调用的 `plan_load` JSON 转为 Plan DAG。Plan 是可选的
-可视化任务结构，不是聊天入口门禁；普通 ReAct 直接使用 project-scoped tools 工作。系统提示
-区分 tasklist 与 plan：`plan_run` 可执行含 `kind:agent` 节点的 DAG，子代理继承项目作用域
-与父证据、可真并行；tasklist 模式由主代理串行执行并在节点完成后 defer 单个
-`task_complete`。`task_complete` 在存在已加载
-Plan 时必须枚举完成节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成
-节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
+并行工作由 `fork_subagents` 派发：每条 spec 获得独立 Session/worktree，继承项目作用域
+与父证据，调用立即返回作业句柄；产出经 `bg_manage` 取回。Plan 执行器与 `plan_*`
+工具族已退役，`application/core` 只保留**历史 Plan 的只读投影**：旧会话的 PlanState
+仍可显示与 `read_plan` 回读，但不能加载或执行新的 DAG。
 
-Effort 只为一次可选 `plan_load` 提供节点数、串行和并发约束；它不再创建 isolated preflight
-subagent、request-scoped authority lease 或向普通用户输入注入 hidden Plan envelope。这样聊天、
-问候和小任务始终直接进入 ReAct，同时复杂任务仍可在用户或 Agent 明确选择时使用 Plan。
+Effort 只为 `fork_subagents`/workunit 提供子代理数量、并发与循环上限；不创建
+preflight、request-scoped authority lease 或 hidden Plan envelope。聊天、问候和
+小任务始终直接进入 ReAct。
 
 ## 依赖边界
 
-允许依赖 Application 子包、`seelebridge` 的稳定桥接 DTO 和 `store.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
+允许依赖 Application 子包、`contract`/`contract/dto` 的稳定形状和 `store.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
 
 ## Review 指南
 

@@ -300,19 +300,13 @@ Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方
 - Event 出现缺口、未知版本或协议不兼容时，客户端重新加载 Snapshot。
 - 前端本地状态只保存 viewport、光标、输入框和布局等纯 UI 信息。
 
-这是一个面向 Agent 长任务的 **Snapshot + Event Delta Protocol**。它避免 TUI 和 GUI 各自维护一套业务状态机，也避免流式 token、工具事件和 Plan 节点状态因丢包而永久错位。
+这是一个面向 Agent 长任务的 **Snapshot + Event Delta Protocol**。它避免 TUI 和 GUI 各自维护一套业务状态机，也避免流式 token、工具事件和历史 Plan 节点状态因丢包而永久错位。
 
-### 3. ReAct 是默认执行路径，DAG Plan 是按需加载的编排能力
+### 3. ReAct 是默认执行路径，子代理按需派发
 
-Seelex 没有强迫所有请求先生成 Plan。简单任务直接进入主 **ReAct Loop**，减少额外模型请求、首 token 延迟和计划 token 消耗；只有复杂任务需要结构化拆分时，模型才使用 <code>plan_load</code>/<code>plan_run</code> 加载 **Agentic Workflow DAG**。
+Seelex 没有强迫所有请求先生成计划。简单任务直接进入主 **ReAct Loop**，减少额外模型请求、首 token 延迟和计划 token 消耗；复杂任务由 <code>fork_subagents</code> 按条派发独立子代理，团队级工作由 <code>teamwork</code> 编排。
 
-Plan 在执行前完成：
-
-- JSON Schema 与字段归一化。
-- 节点引用、边和拓扑校验。
-- cycle detection 与 topological order。
-- Effort 对节点数、串并行和最大并发的策略约束。
-- 子代理由 <code>fork_subagents</code> 按条派发（不经 DAG），团队级工作由 <code>teamwork</code> 编排；每条子代理获得独立 Session、SceneScope、PromptBlocks、账号路由和 token budget。
+每条子代理获得独立 Session、SceneScope、PromptBlocks、账号路由和 token budget；<code>fork_subagents</code> 不经 DAG，调用立即返回作业句柄，产出按 <code>bg_manage</code> 取回。历史 WorkPlan DAG 与 <code>plan_*</code> 工具族已退役，只保留只读投影。
 
 并行子代理不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
 
@@ -320,7 +314,7 @@ Plan 在执行前完成：
 
 #### 子代理的进度与结果
 
-`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>bg_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
+`fork_subagents` 会按每条 spec 直接构造一个子代理节点，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>bg_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看子代理树与工具活动：在 GUI 中点击子代理节点，即可查看会话记录、功能打点、工具活动和最终输出。
 
 summary 节点仍拼接各子代理输出，它是**整批作业正文的兜底**（某个子代理没有可复用摘要时用它）。单个子代理的完整产出按它自己的句柄取回；把外层兜底正文当作大结果的唯一读取通道，或者据此转述、推断审查结论，都是不允许的。
 

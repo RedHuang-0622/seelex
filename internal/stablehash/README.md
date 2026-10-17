@@ -71,8 +71,10 @@ go test ./internal/stablehash/
 ### fnv.go
 
 - `func FNV1a32(s string) uint32` — FNV1a32 返回 s 的 FNV-1a 32 位哈希。
+- `func FNV1a64(s string) uint64` — FNV1a64 返回 s 的 FNV-1a 64 位哈希。它服务 task key 等更长的稳定标识；
 
 ### fnv_test.go
 
 - `func TestFNV1a32KnownVectors(t *testing.T)` — 已知向量钉住算法：这些值变了，node 会话号/账号绑定/权限主体名都会失配。
+- `func TestFNV1a64KnownVectors(t *testing.T)`
 

@@ -2,10 +2,10 @@
 
 ## 生态位
 
-承载 `plan kind:agent` 节点的子代理执行包装与节点级提示词装配。主要调用方：
+承载子代理 AgentNode 的执行包装与节点级提示词装配。主要调用方：
 
-- 根包 `runtime_subagent.go` 的 `nodeFactoryDeps`（`NewAgentNode: seenode.NewAgentNode`）——plan_load 构造节点；
-- `backend/tool/fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
+- 根包 `runtime_subagent.go` 的 `runForkSubagent`——按一条 spec 直接构造 AgentNode；
+- workunit 后台工作单元复用同一构造与 `nodeDeps()`；
 - 根包 `runtime_subagent.go` 的 `nodeDeps()`（Deps 全为闭包，域内不依赖根包）。
 
 ## 与其它域的关系

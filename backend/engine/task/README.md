@@ -351,7 +351,7 @@ go test ./backend/engine/task -count=1
 
 - `func (c *Coordinator) PlanProjectionFor(sessionID string, fromStack func() *model.PlanState) *model.PlanState` — PlanProjectionFor 返回指定**后台**会话的 plan 显示投影的只读深拷贝
 - `func (c *Coordinator) DropPlanProjection(sessionID string)` — DropPlanProjection 释放指定后台会话的 plan 投影缓存（unload/删除路径）。
-- `func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState)` — SeedPlanProjection 把会话 plan 基线写入投影缓存（plan_load/resume/
+- `func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState)` — SeedPlanProjection 把会话 plan 基线写入投影缓存（历史 Plan 投影/resume/
 - `func (c *Coordinator) EnsurePlanProjection(sessionID string, plan *model.PlanState)` — EnsurePlanProjection 仅在投影缺失时写入基线（迁移期测试/直设 Snapshot
 - `func (c *Coordinator) CheckPlanNodeProjection(sessionID, nodeID, output string) (bool, bool)` — CheckPlanNodeProjection 把指定会话投影中的节点打点为 completed（task_
 - `func (c *Coordinator) CompletePlanProjection(sessionID string)` — CompletePlanProjection 把指定会话投影整体标记为 completed（task_complete
@@ -564,7 +564,7 @@ go test ./backend/engine/task -count=1
 - `func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time)` — SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
 - `func (c *Coordinator) _SyncActivePlanFrameLockedFor(sessionID string, now time.Time)`
 - `func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time)`
-- `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
+- `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把历史 plan_load 参数追加为活跃会话新的激活帧（调用方
 - `func (c *Coordinator) _PushLoadedPlanLocked(arguments string, now time.Time)`
 - `func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)` — RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具
 - `func (c *Coordinator) _RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)`

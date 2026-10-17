@@ -11,10 +11,9 @@ It is an agent for **one person**, not a team-collaboration workbench: teamwork 
 ## What it implements
 
 - streaming ReAct execution with bounded Effort profiles;
-- optional WorkPlan DAG orchestration with two execution modes (`tasklist`: the primary agent runs the DAG
-  serially, checking nodes off with `task_check_node` and closing with one deferred `task_complete`;
-  `plan`: `plan_run` spawns isolated subagents, and plan events check nodes off live), typed nodes and
-  task terminal states;
+- on-demand isolated subagents via `fork_subagents` (job handles, `bg_manage` retrieval, independent
+  Session/worktree per subagent) and teamwork for team-level orchestration; the WorkPlan DAG tool family
+  is retired, with historical Plan data kept read-only;
 - a background job surface shared by `bash_bg` / `read_batch` / `bg_manage` (an acceptance receipt with
   handle + log path, consumer-style fetch, `observe` / `kill` / `done`; serial bash refuses a `timeout`
   above 5 minutes, and a job reaching a terminal state wakes an *idle* session so the model can fetch the
