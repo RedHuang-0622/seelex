@@ -53,6 +53,8 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `spec.go` | `TeamSpec`/`RoleSpec` 写入侧规整与校验（`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`）、角色会话号派生（`RoleSessionID`） |
 | `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
 | `plugin_assembly.go` | **运行时插件装配判据**（P21-18 从 `backend/engine/assemble/runtime_role_plugins.go` 归位，plan §2.7）：`ResolvePluginAssembly`（显式声明替换集合 → 角色自带 → 空集不覆盖）、`NormalizePluginNames`（读侧/传输侧规范化：trim + 保序去重 + 空清完归一为 nil）、`ValidateMemberPlugins`（编排入口的四条口径：语法规整写回成员 / 未知名显式拒绝 / 超限显式拒绝 / 重复显式拒绝）、`PluginFaceJudgement`（装配面裁决的三种形态：有定义按定义收窄 / 空定义一律可见 / **失灵一个都不给**）+ `Visible` / `Face` / `FaultNote` |
+| `plugin_reject.go` | **"未装配名字"的判决**（P21-27 从 `backend/engine/assemble/runtime_teamwork_curated.go` 归位，plan §2.7；与 `ValidateMemberPlugins` 同域——一个说"未定义"，一个说"为什么未定义"）：`RejectUnassembledPlugins(members, UnassembledPluginDeps{Limit, Defined, UnassembledReason})`——**已装插件不问**（判定只发生在"确实未定义"时）、**语法先于语义**（规整报错的成员跳过，留给 `ValidateMemberPlugins` 说）、**在写入任何计划之前**调用（被拒的计划不落盘）、`UnassembledReason == nil`（宿主没接精选目录判决面）时整个函数空操作 |
+| `plugin_reject_test.go` | 已装插件不问（判据一次都不被调）、未装名字带来源被拒、语法非法成员跳过、没有判决面时空操作、判据给 nil 时放行 |
 | `plugin_assembly_test.go` | 三层口径与读侧规整、四条显式拒绝（含"没有目录面时只做语法与数量校验"）、装配面裁决三形态（读数面与运行面同源、失灵不静默放宽） |
 | `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core/role_session.go` 归位（plan §2.11.1）。 |
 | `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
@@ -416,6 +418,18 @@ go test -race ./backend/multiagent/team -count=1
 - `func TestNormalizePluginNamesKeepsOrderAndDropsEmpties(t *testing.T)` — TestNormalizePluginNamesKeepsOrderAndDropsEmpties 钉住读侧规范化的形状：
 - `func TestValidateMemberPluginsRejectsExplicitly(t *testing.T)` — TestValidateMemberPluginsRejectsExplicitly 钉住**四条显式拒绝/规整**：
 - `func TestPluginFaceJudgementThreeShapes(t *testing.T)` — TestPluginFaceJudgementThreeShapes 钉住装配面裁决的**三种形态**（覆盖全部输入，
+
+### plugin_reject.go
+
+- `func RejectUnassembledPlugins(members []store.TeamworkMember, deps UnassembledPluginDeps) error` — RejectUnassembledPlugins 逐成员判"未定义的插件名是什么"：pending 候选（路线图）必须点名上游来源，
+
+### plugin_reject_test.go
+
+- `func TestRejectUnassembledPluginsSkipsAssembledNames(t *testing.T)` — TestRejectUnassembledPluginsSkipsAssembledNames：已装插件不问（判定只发生在"确实未定义"时）。
+- `func TestRejectUnassembledPluginsPointsAtTheReason(t *testing.T)` — TestRejectUnassembledPluginsPointsAtTheReason：未装名字必须**带着来源**被拒——
+- `func TestRejectUnassembledPluginsLeavesSyntaxErrorsToTheOtherRule(t *testing.T)` — TestRejectUnassembledPluginsLeavesSyntaxErrorsToTheOtherRule：语法层的话（超限 / 重复）在这里
+- `func TestRejectUnassembledPluginsWithoutReasonIsNoOp(t *testing.T)` — TestRejectUnassembledPluginsWithoutReasonIsNoOp：宿主没接判决面（Reason = nil）⇒ 整个函数空操作，
+- `func TestRejectUnassembledPluginsReturnsNilReasonWhenNobodyKnows(t *testing.T)` — TestRejectUnassembledPluginsReturnsNilReasonWhenNobodyKnows：判决函数对某个名字给 nil（"这不归我判"）
 
 ### roles.go
 
