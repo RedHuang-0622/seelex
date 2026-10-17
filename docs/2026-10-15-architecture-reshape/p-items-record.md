@@ -6,6 +6,31 @@
 
 ---
 
+## P2 —— loop 预算用尽后的 +1 次总结（主代理层）
+
+提交：`4613dc33`。
+
+用户裁决的口径：预警/用尽属于**主代理（mainagent）**，不涉及 subagent/teammate；
+预算用尽后只追加**一次**调用，内容是"总结预算内已经完成的工作"；`workunit` 不接这条链。
+
+| 面 | 落点 | 说明 |
+|---|---|---|
+| +1 次调用 | `application/core/chat.go` 的 `finalizeReActBudgetWithSink` | 原有"保留一次纯文本交付回合"的机制不变；提示词改为明确要求总结"已完成 / 未完成 / 证据"，并禁止再调任何工具 |
+| 标记唯一 | `contract.ReactBudgetFinalizationMarker` | 写入侧（core）与动态尾部过滤侧（`backend/engine/context`）共用一份常量；此前是两处字面量 |
+| 面板「无限循环」 | `gui/frontend/dist/composer-knobs.js` | 已实现（哨兵 9999、滑杆停用、读数 ∞、失败回滚）；本轮复核 `composer-knobs.test.mjs` 11/11 通过 |
+| workunit | —— | 不接：预算预警不是后台工作单元的生命周期事件 |
+
+**证据**：
+
+- `TestReActBudgetUsesReservedFinalDeliveryTurn` 新增"收尾恰好一次 `ChatStream` 调用"断言，
+  并继续钉住内部输入不泄漏进历史、超长工具结果不进收尾上下文；
+- `TestReActBudgetFinalizationPromptSummarizesBudgetWork` 钉住提示词的四个语义点
+  （禁止工具 / 总结预算内完成项 / 未完成项 / 不虚报）；
+- `TestBudgetFinalizationMarkerIsDynamicTail` 钉住判定侧用同一标记过滤内部行；
+- `application/core` 仅基线 3 例红；`backend/engine/context`、`assemble` 全绿。
+
+---
+
 ## P1 —— 路径门前移（M2-C5）
 
 提交：`aabb311d`。

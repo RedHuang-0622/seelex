@@ -1979,6 +1979,9 @@ handler**。越界路径不再先弹一次没用的审批。
 
 提交 `aabb311d`；细节见 [p-items-record.md](p-items-record.md) §P1。
 
-**下一件（迁移后行为项）**：P2 的 +1 总结调用语义复核（面板「无限循环」已在
-`gui/frontend/dist/composer-knobs.js` 落地），以及 V10/M2-d 的工具记录看板读面
-（读数不进 Snapshot、钩子直连 JSONL）。
+**P2 同批落地**（`4613dc33`）：预算耗尽后的 +1 次调用改为"总结预算内已完成/未完成
+与证据"的纯文本回合；内部标记收成 `contract.ReactBudgetFinalizationMarker` 一份；
+面板「无限循环」复核通过（11/11）。
+
+**下一件（迁移后行为项）**：V10/M2-d 的工具记录看板读面（读数不进 Snapshot、
+钩子直连 JSONL）。
