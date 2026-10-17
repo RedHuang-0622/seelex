@@ -199,6 +199,10 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   `EditFileToolName` / `BashToolName`）+ `ProjectScopedToolName(name) bool`。名单有两个消费面：
   `Router.Register` 登记它们、装配层的 `RegisterTool` 拒绝在作用域表就绪后再注册同名工具——
   两处各写一份就会漂移（新加的项目作用域工具被晚注册顶掉，或莫名其妙被拒）。
+- `path_gate.go`：**路径门前移**（P1 / M2-C5）——把 ProjectScope 越界检查放在权限门
+  **之前**（事件 → 路径门 → 权限门 → 诊断 → handler），越界路径直接拒、不先弹审批。
+  路径根解析与 handler 同源（`resolveScopedPath`，含 NodeScope worktree 根）；本文件只维护
+  "哪个工具的哪个入参是路径"的表（`path` / `paths[]` / `workdir`）。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
@@ -314,7 +318,8 @@ PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_b
 
 ## Review 指南
 
-- 路径是否可能逃逸项目根；权限中间件是否在注册表构造时正确闭包捕获。
+- 路径是否可能逃逸项目根；路径门是否仍在权限门之前（越界不该弹审批）；权限中间件是否在
+  注册表构造时正确闭包捕获。
 - 后台执行体**不得**继承工具调用的 ctx 或 `scopedToolTimeout`（回执一返回该 ctx 就
   失效）；新增清理路径都要问"终态是否恰好合成一次"。
 - 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。

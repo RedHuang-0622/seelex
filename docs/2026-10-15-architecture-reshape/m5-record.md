@@ -1966,3 +1966,19 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 | `./application/... ./middle/... ./store/... ./session/... ./wiring/... ./internal/... ./contract/... ./kernel/... .` | 29 包 ok；唯一红 = `application/core` 基线 3 例；**0 DATA RACE**（`race-app-2.log`） |
 | `./e2e/... ./gui/... ./tui/...` | **EXIT 0**，5 包 ok，**0 DATA RACE**（`race-front-2.log`；首跑 red 是 `FaceTypeNames` 未同步，已由 `54931841` 修） |
 | `./test/...` | 两处竞态修复前：1 红（`TestBackgroundCompletion…` 90s）+ 1 DATA RACE；修复后：**EXIT 0，0 DATA RACE** |
+
+## 54. 迁移后行为项第一片：路径门前移（P1 / M2-C5，2026-10-17）
+
+用户裁决"迁移收口后做、只移路径门、不拆审批"的第一件行为改动落地：
+中间件顺序从 事件 → 权限门 → 诊断 → handler 改为 **事件 → 路径门 → 权限门 → 诊断 →
+handler**。越界路径不再先弹一次没用的审批。
+
+- 路径根解析仍只有 `resolveScopedPath` 一处（handler 与路径门共用，NodeScope worktree 根优先）；
+- 入参表覆盖 `path`（读写/检索）、`read_batch.paths[]`、`bash`/`bash_bg` 的 `workdir`；
+- 红灯判据是"越界时 approvals=0、界内 approvals=1"，不是"越界会报错"。
+
+提交 `aabb311d`；细节见 [p-items-record.md](p-items-record.md) §P1。
+
+**下一件（迁移后行为项）**：P2 的 +1 总结调用语义复核（面板「无限循环」已在
+`gui/frontend/dist/composer-knobs.js` 落地），以及 V10/M2-d 的工具记录看板读面
+（读数不进 Snapshot、钩子直连 JSONL）。

@@ -6,6 +6,35 @@
 
 ---
 
+## P1 —— 路径门前移（M2-C5）
+
+提交：`aabb311d`。
+
+**改前**：事件 → 权限判定（`ask` 就地弹审批）→ 诊断 → handler；路径越界只在 handler
+里由 ProjectScope 发现。越界路径会先弹一次完全没用的审批，批准后仍然被拒。
+
+**改后**：事件 → **路径门** → 权限门 → 诊断 → handler。越界路径直接拒，不弹审批。
+
+| 面 | 落点 | 说明 |
+|---|---|---|
+| 中间件 | `backend/tool/registry/path_gate.go` 的 `PathGate` | `NewRegistryState` 的 Meta 链顺序显式写成 事件 → 路径门 → 权限门 |
+| 路径根解析 | `router.go` 的 `resolveScopedPath` | 唯一实现：handler 与路径门共用；NodeScope worktree 根优先，否则按会话键取项目根 |
+| 入参表 | `pathGateTargets` | `path`（read/grep/glob/write/edit）、`read_batch.paths[]`、`bash`/`bash_bg` 的 `workdir`；坏 JSON 不在此报错（交给原参数校验，避免两种文案） |
+| 装配 | `assemble/runtime.go` | 用 `r.projectScope` + `internal/telemetry.SessionIDFromContext` 构造 |
+
+**行为差异（有意）**：越界路径的"谁先拒"变了——不再有审批事件；错误正文仍是
+ProjectScope 的原文（`... bound project`）。界内路径的审批与执行顺序不变。
+
+**证据**：
+
+- `TestPathGateRejectsEscapeBeforePermissionAsk`：越界路径 `approvals=0 / ran=0`；
+  同一门内界内路径 `approvals=1 / ran=1`（顺序是判据，不只是"会拒"）。
+- `TestPathGateUsesNodeScopeRoot`：worktree 内放行、worktree 外拒绝。
+- `TestPathGateCoversBatchAndBashWorkdir`：批量读任意一条越界即拒；bash workdir 同门。
+- `go test ./backend/tool/registry/ ./backend/engine/assemble/ ./gui/ ./e2e/` 全绿。
+
+---
+
 ## P11 —— 节点预算上限守卫（覆盖缺口）
 
 提交：见本条记录的 commit（`test(plan): ...`）。
