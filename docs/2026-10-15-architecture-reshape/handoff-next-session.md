@@ -283,7 +283,7 @@ sequenceDiagram
 |---|---|---|---|
 | 1 | 删内部 Plan 引擎 | `backend/tool/plan/**`、`runtime_plan.go`、Plan 事件/端口/审批/replan 面 | **已完成（`3d2a9ab7`）**；历史 Plan 只保留只读投影 |
 | 2 | 删 `NodeScope` | workunit/fork 改 `SceneScope`，路径门/权限/账号/stream/telemetry 五类读者迁移 | **代码已完成（待提交）**：`SceneScope` + `WorkScope`，全仓 `NodeScope` 归零 |
-| 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | **部分完成**：审批门已删；dirty/rebase/merge 判定仍在，判据归 `Host` 待收口 |
+| 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | **已完成**（`2c043125`）：重试/挡路分类归 `workunit.Host`，现场只跑一次机械收尾；清理提交 `fecd891d`，完成记录见任务书 |
 | 4 | `workspace_usecase` 搬迁 | `application/core/workspace_usecase.go` → `middle/switch/workspace/` | 端口反转已完成（见 §8.2） |
 | 5 | P21 剩余装配片 | `runtime_teamwork*`、`workunit_team_records`、`runtime_context` 等宿主动作与端口接线 | 判据已下沉；剩余主要是装配面，见 `m5-record` §45–§51 |
 | 6 | FNV 原语 | `internal/stablehash.FNV1a32` + 已知向量；三处保留各自语义契约 | **已完成（`3d2a9ab7`）** |
