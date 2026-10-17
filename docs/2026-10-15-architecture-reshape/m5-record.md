@@ -1718,3 +1718,36 @@ python scripts/check_readme_refs.py --strict backend/engine/assemble backend/mul
 只读评审口径、插件集合装配、`FreshContext`；执行面留宿主）**、`runtime_plan.go`（分支账号与节点会话号
 派生）、`workunit_*.go` 其余判据、`runtime_tools.go`（项目作用域词表）、`runtime_context.go` 的组件工厂
 （已判为装配面）。**判定为装配面（不搬）** 的那批理由见 §38 表；四项待裁决见 §37、§39、§42。
+
+
+## 46. P21 续片（2026-10-17 第十四轮：P21-30 / P21-31）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-30 | **Plan 分支路由判据** → `backend/tool/plan/branch_routing.go`（plan §2.6）：`BranchTraceID`（`traceID:branchID`，没给 traceID 退化成 branchID）、`StableHash` + `NodeSessionID`（以节点目标为种子派生 `node-<hex>`；**空提示返回空串**让 Session 自生成不透明 ID）、`ResolveBranchAccount`（钉住账号必须**在册**、未知名显式报错；否则按角色 + `planID:branchID` 交给账号域）。装配层 `runtime_plan.go` 两处别名 + 两处薄转发，并因此去掉 `hash/fnv` 与 `engine/account` 两条直依赖。域级 5 条新用例 | `033e348d` |
+| P21-31 | **项目作用域工具名单去重**（P18 类）：`Router.Register` 的六个名字字面量与装配层 `isProjectScopedTool` 的 switch 是同一份名单的两份实现（§8.3）→ 名字与判据同处工具注册域 `backend/tool/registry/scoped_names.go`（六个常量 + `ProjectScopedToolName`），注册点用常量，装配层留函数值别名。**跨实现一致性用例**用 `Deps.RegisterTool` 桩捕获注册面名字与判据面逐一对账 | `5e662219` |
+
+**小插曲（登记）**：编辑 `backend/tool/registry/README.md` 时工作区那份被写成了 CRLF（仓库约定 `text eol=lf`，
+git 存储的 blob 仍是 LF，提交内容正确），提交时 git 给出了 CRLF→LF 的 warning。已把工作区文件归一为 LF，
+`bash scripts/hooks-selftest.sh` 复跑 **pass=13 fail=0**，工作树回归干净。教训：改 macOS/Linux 约定为 LF 的
+README 时，编辑后先 `git diff --numstat` + 查 `\r\n` 计数，别只看"能提交"。
+
+**全量验收（2026-10-17）**：
+
+```text
+gofmt -l .（排除 tmp/vendor/stage/dist）           空
+go build ./...                                     0
+go build -tags "gui,desktop,production" ./...      0
+go vet ./...                                       0
+go test ./... -count=1 -timeout 2400s              94 包 ok；唯一红 = application/core 的基线 3 例
+bash scripts/hooks-selftest.sh                     pass=13 fail=0
+python scripts/gen_core_readme_index.py --check    exit 0
+python scripts/check_readme_refs.py --strict backend/engine/assemble backend/tool/{plan,registry}   exit 0
+```
+
+### 剩余清单（按价值排序）
+
+**`runtime_role_turn.go`（700 行，最后一块大判据面）**、`runtime_teamwork.go` 的 handler 入参口径与
+派发/汇合/收口宿主动作、`runtime_teamwork_items.go` 的工作区动作、`workunit_*.go` 其余判据。
+`runtime_context.go` 组件工厂与 §38 表那批已判装配面（bundles、调度/MCP/插件/任务的转发、端口宿主面）
+按裁决保留。四项待裁决见 §37、§39、§42。
