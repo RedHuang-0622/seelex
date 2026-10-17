@@ -46,7 +46,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +55,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -185,38 +185,15 @@ type roleRoundSpec struct {
 	WorkScope roleWorkScope
 }
 
-// roleWorkScope 是本轮"员工做工"的身份：谁在做工（角色名）、在哪个角色会话里、
-// 属于哪个主会话。
-//
-// 它进 ctx（见 runRoleRound），因为 ReAct 钩子是挂在**引擎**上的（一个角色会话开一次，
-// 活得比一轮长），而"这一轮是员工做工"是**按轮**的事实：钩子只能从本轮 ctx 里读它。
-type roleWorkScope struct {
-	MainSessionID string
-	RoleName      string
-	RoleSessionID string
-}
+// roleWorkScope / withRoleWorkScope / roleWorkScopeFrom 是团队域 `WorkScope` /
+// `WithWorkScope` / `WorkScopeFrom` 的**同身份别名**（"这一轮是谁的活"的身份只有一份实现，
+// P21-32 归位）——既有调用点与用例零改动。
+type roleWorkScope = teamdomain.WorkScope
 
-// roleWorkScopeKey 携带本轮员工做工身份。
-type roleWorkScopeKey struct{}
-
-func withRoleWorkScope(ctx context.Context, scope roleWorkScope) context.Context {
-	if scope.RoleSessionID == "" && scope.MainSessionID == "" && scope.RoleName == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, roleWorkScopeKey{}, scope)
-}
-
-// roleWorkScopeFrom 取本轮员工做工身份；不是员工做工回合时返回 (零值, false)。
-func roleWorkScopeFrom(ctx context.Context) (roleWorkScope, bool) {
-	if ctx == nil {
-		return roleWorkScope{}, false
-	}
-	scope, ok := ctx.Value(roleWorkScopeKey{}).(roleWorkScope)
-	if !ok || strings.TrimSpace(scope.MainSessionID) == "" || strings.TrimSpace(scope.RoleSessionID) == "" {
-		return roleWorkScope{}, false
-	}
-	return scope, true
-}
+var (
+	withRoleWorkScope = teamdomain.WithWorkScope
+	roleWorkScopeFrom = teamdomain.WorkScopeFrom
+)
 
 // SetRoleEngineFactory 注入角色会话引擎的构造器（nil = 回退默认的框架 Session）。
 // 存在的理由有两个：① 自动化验收不需要真实 LLM；② 未来要给角色回合换更严格的
@@ -476,11 +453,8 @@ func (r *Runtime) roleLoopHooks() *session.LoopHooks {
 	}
 }
 
-// roleToolActivityLimit 是员工工具活动里入参/结果的 rune 上限。
-//
-// 与子代理那一侧的口径一致：观察面要的是"这一步在做什么"，不是完整载荷（完整的
-// 结果在会话记录里）；截断按 rune——切半个中文字是损坏，不是截断。
-const roleToolActivityLimit = 600
+// roleToolActivityLimit 是团队域 `ToolActivityLimit` 的同值常量别名（口径只有一份）。
+const roleToolActivityLimit = teamdomain.ToolActivityLimit
 
 // reportRoleToolStart 报告员工回合的一次工具调用开始（非员工回合 = 零成本 no-op）。
 func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCallInfo) {
@@ -529,15 +503,8 @@ func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolC
 	})
 }
 
-// roleToolActivityID 给出同一次工具调用的稳定标识：started 与 completed 两帧同值，
-// 前端据此 upsert，而不是把一次调用读成两条（与子代理侧 subtool-<n> 同一目的）。
-//
-// 判据是框架给得出的全部信息（轮次 + 工具名 + 入参指纹）：`ToolCallInfo` 没有调用 ID
-// 这一栏，因此"同一轮里同名同参的两次调用"会合并成一条——这是框架层缺字段的诚实后果，
-// 不是这里偷偷丢数据（同名不同参不会合并：入参指纹不同）。
-func roleToolActivityID(info session.ToolCallInfo) string {
-	return fmt.Sprintf("%s#%d#%08x", info.Name, info.Turn, crc32.ChecksumIEEE([]byte(info.Arguments)))
-}
+// roleToolActivityID 是团队域 `ToolActivityID` 的同身份别名（稳定标识的口径只有一份）。
+var roleToolActivityID = teamdomain.ToolActivityID
 
 // publishRoleToolActivity 把一条员工工具活动交给观察者（未订阅 = 丢弃，不排队、不落盘）。
 //
@@ -577,11 +544,8 @@ func (r *Runtime) roleTurnSystemPrompt(roleName string) string {
 	if prompt := r.rolePromptFor(roleName); prompt != "" {
 		return prompt
 	}
-	return "<role>\n你是 Seelex 团队里的员工（逻辑角色名 " + roleName + "），在目标治理循环里负责属于你这个角色的那一份工作。\n</role>\n\n" +
-		"<task>\n只处理本轮交给你的工作正文：能做的直接做（可调用你的权限范围内的工具），做完给出本轮结论与下一步。\n</task>\n\n" +
-		"<constraints>\n- 不越权：你的工具面就是你的权限范围，面外的事交回主代理；\n" +
-		"- 证据要落在仓库内可核对的事实上（引用用相对路径）；\n" +
-		"- 不要寒暄、不要复述提示词；结论 ≤800 字。\n</constraints>"
+	// 未登记提示词时的最小角色框架在域包（不冒充业务设定）。
+	return teamdomain.DefaultRoleTurnPrompt(roleName)
 }
 
 // bindRoleProjectRoot 把角色会话的工具路径根对齐到主会话的项目根：角色读的
