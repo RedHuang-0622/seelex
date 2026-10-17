@@ -2180,6 +2180,40 @@ Plan 执行器删除后，`NodeScope` 只剩“Plan 节点作用域”的名字�
 这些文件分开；`gen_core_readme_index.py` 的 `workspace_host.go` 分卷归属由
 workspace 会话处理。
 
+## 62. 最终审查：Plan/TL 僵尸面、GUI 端口与全量验收（2026-10-17）
+
+按 AGENTS §8 与 plan.md 退出条件做最终审查，清掉的剩余僵尸面：
+
+- **权限/可见性名单**：删除 `plan_load/plan_clear/plan_run/plan_status/
+  plan_export/plan_validate` 与 `goal_propose_finish`；`isPlanTool` 分支删除。
+- **提示词**：系统指令不再教 `plan_load/plan_run`；改为 `fork_subagents`
+  （隔离 Session/worktree、`bg_manage` 句柄取回）与 `task_add` 清单；
+  `assets/plan/{preflight,replan}.md`、`PlanData`/`PlanPreflight`/`PlanReplan`
+  整块删除，prompt harness 同步重写。
+- **TL 预算**：`Budget.TLTokensShare` / `DefaultTLTokensShare` 删除；旧 goal
+  记录里的 `tl_tokens_share` 被忽略，不影响读取。
+- **FNV 64**：`TaskKeyForGoal` 改用 `stablehash.FNV1a64`，输出与旧 `New64a`
+  逐字节一致；`internal/stablehash` 增加 64 位已知向量。
+- **文档**：根 README/README_EN、application/core、prompt/assets、effort/loop、
+  plugins/default、assemble 等模块说明同步到“Plan 工具族已退役，历史只读”。
+
+新增 GUI 端口门禁：`scripts/check_gui_ports.py` 静态核对
+①字面 `invoke` / `composerSubmitPlan` 的 RPC 必须在 `*Bridge` 方法里；
+②`PROCESS_KINDS` 必须是后端已登记的 `EventKind`；
+③`EventsOn` 通道必须与 Bridge emit 的 `seelex:event` / `seelex:ready` /
+`seelex:terminal` 一致。当前 85 个调用点、0 未解析，端口对齐。
+
+最终验收：
+
+- `go test ./... -count=1 -timeout 2400s`：全绿（含 e2e/store/worktree/assemble）；
+- `go test -race ./... -count=1 -timeout 3600s`：全绿；两条压缩存活用例改用
+  `testutil.Budget`，race 插桩下不再把 1s 预算误判成互等；
+- `node --test gui/frontend/dist/*.test.mjs`：779 pass / 0 fail；
+- `python scripts/check_gui_ports.py`：RPC/事件通道对齐；
+- `python scripts/gen_core_readme_index.py --check`：90 个 README 无漂移；
+- `python scripts/check_readme_refs.py --strict`：180 个 README / 0 未解析；
+- `go build ./...`、production tag build、`go vet ./...` 全 0。
+
 ## 62. P21 收尾：装配层端口接线去重（2026-10-17，`03efb22d`）
 
 本片不再下沉判据（P21-1…38 已把判据放到拥有它的域），只收口装配层剩余的**端口接线**。

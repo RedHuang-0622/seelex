@@ -17,9 +17,9 @@
 - **状态 owner → 显示面已集成**：后台会话状态变化发进程级 `sessions.changed`，
   GUI 重拉权威 Snapshot、TUI 重取 Snapshot；目录行按会话单元重新富化。
 
-**结构项剩余（2026-10-17 更新）**：`session/` 已迁入 `middle/switch/sessionusecase/`（`a71c2c7b`）；仍欠
-`workspace_usecase.go` → `middle/switch/workspace/` 的物理搬迁（端口反转已完成）。
-**内部 Plan 引擎与 NodeScope 的删除**顺序见 §8.1。
+**结构项已完成（2026-10-17 最终更新）**：`session/` → `middle/switch/sessionusecase/`、
+`workspace_usecase` → `middle/switch/workspace/`、内部 Plan 引擎删除、NodeScope 退役、
+P21 装配片收口均已完成。本文其余章节保留为迁移记录与验收证据。
 
 ---
 
@@ -282,12 +282,12 @@ sequenceDiagram
 | # | 事项 | 范围 | 状态/前置 |
 |---|---|---|---|
 | 1 | 删内部 Plan 引擎 | `backend/tool/plan/**`、`runtime_plan.go`、Plan 事件/端口/审批/replan 面 | **已完成（`3d2a9ab7`）**；历史 Plan 只保留只读投影 |
-| 2 | 删 `NodeScope` | workunit/fork 改 `SceneScope`，路径门/权限/账号/stream/telemetry 五类读者迁移 | **代码已完成（待提交）**：`SceneScope` + `WorkScope`，全仓 `NodeScope` 归零 |
+| 2 | 删 `NodeScope` | workunit/fork 改 `SceneScope`，路径门/权限/账号/stream/telemetry 五类读者迁移 | **已完成（`2c043125`）**：全仓 `NodeScope` 归零 |
 | 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | **已完成**（`2c043125`）：重试/挡路分类归 `workunit.Host`，现场只跑一次机械收尾；清理提交 `fecd891d`，完成记录见任务书 |
-| 4 | `workspace_usecase` 搬迁 | `application/core/workspace_usecase.go` → `middle/switch/workspace/` | 端口反转已完成（见 §8.2） |
-| 5 | P21 剩余装配片 | `runtime_teamwork*`、`workunit_team_records`、`runtime_context` 等宿主动作与端口接线 | 判据已下沉；剩余主要是装配面，见 `m5-record` §45–§51 |
+| 4 | `workspace_usecase` 搬迁 | `application/core/workspace_usecase.go` → `middle/switch/workspace/` | **已完成（`2eec5f1f` / `213f9517`）** |
+| 5 | P21 剩余装配片 | `runtime_teamwork*`、`workunit_team_records`、`runtime_context` 等宿主动作与端口接线 | **已完成（`03efb22d` / `3e93940c`）** |
 | 6 | FNV 原语 | `internal/stablehash.FNV1a32` + 已知向量；三处保留各自语义契约 | **已完成（`3d2a9ab7`）** |
-| 7 | 最终验收 | build ×2、vet、全量 test、前端 node test、README index/refs、`-race`、交接文档 | build/vet/全量 test/README 已跑；只剩 `-race` 与最终文档；基线 3 例红见 §8.3 |
+| 7 | 最终验收 | build ×2、vet、全量 test、前端 node test、README index/refs、`-race`、GUI 端口、交接文档 | **全部通过**：全量 test、全量 `-race`、779 个前端测试、GUI 端口对齐、README 0 漂移 |
 
 注意：`backend/tool/node` **不能整包删除**。`agent_node.go` 是 fork 单条子代理的执行器，
 P21 之后仍被 `runForkSubagent` 使用；本片只删 Plan 专用的 `coordinator.go`、
@@ -296,6 +296,16 @@ P21 之后仍被 `runForkSubagent` 使用；本片只删 Plan 专用的 `coordin
 
 可认领任务书在 [`work-prompts/`](work-prompts/README.md)：worktree 收尾、
 `workspace_usecase` 搬迁、三个基线红、P21 装配片各一份，均写明了禁改面与验证命令。
+
+### 8.5 保留的历史兼容面（不是可执行路径）
+
+以下面只服务旧会话读取，不应被误认为 Plan/TL 还在运行：
+
+- `read_plan` + `PlanState` / `PlanRunStatus`：历史 Plan 的只读回读与 wire 形状；
+- `task_check_node`：仅对仍有历史 Plan 结构的恢复会话可用，新会话用 `task_add`；
+- `store.RoleTL` / `team.RoleTechlead`（`"tl"`）：旧角色会话/账号命名兼容，
+  TL/ADVISOR 评审环已删除；
+- `TLTokensShare` 已从新写记录中移除；旧记录里的该字段会被忽略，不影响读取。
 
 ### 8.1 删除 Seele plan node / NodeScope（先解 fork 的耦）
 
