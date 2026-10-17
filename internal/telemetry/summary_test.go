@@ -3,11 +3,11 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
 	"time"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // summaryRecorderFunc 把回调适配为 SummaryRecorder。
@@ -117,7 +117,7 @@ func TestSummaryHookRecordsSlowSuccess(t *testing.T) {
 	}
 }
 
-// TestSummaryHookCapturesNodeID 验证 NodeScope 注入后摘要携带 nodeID。
+// TestSummaryHookCapturesNodeID 验证 SceneScope 注入后摘要携带 nodeID。
 func TestSummaryHookCapturesNodeID(t *testing.T) {
 	var got []SummaryEvent
 	at := time.Unix(1000, 0)
@@ -128,7 +128,7 @@ func TestSummaryHookCapturesNodeID(t *testing.T) {
 	}
 	hook := NewSummaryHook(summaryRecorderFunc(func(event SummaryEvent) { got = append(got, event) }),
 		WithNow(func() time.Time { return at }))(base)
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "node-42"})
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "node-42"})
 	ctx, invocation, err := hook.Before(ctx, frameworktelemetry.Action{
 		Type: frameworktelemetry.EventToolBefore,
 		Name: "bash",

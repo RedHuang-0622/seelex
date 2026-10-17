@@ -15,23 +15,23 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// ── NodeScope 上下文助手 ─────────────────────────────────────────────
+// ── SceneScope 上下文助手 ─────────────────────────────────────────────
 
-func TestNodeScopeContextRoundTrip(t *testing.T) {
+func TestSceneScopeContextRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	if scope, ok := seenode.NodeScopeFromContext(ctx); ok {
+	if scope, ok := seenode.SceneScopeFromContext(ctx); ok {
 		t.Fatalf("empty ctx must not carry a scope: %+v", scope)
 	}
-	scope := seenode.NodeScope{NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
-	child := seenode.WithNodeScope(ctx, scope)
-	got, ok := seenode.NodeScopeFromContext(child)
+	scope := seenode.SceneScope{SceneID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
+	child := seenode.WithSceneScope(ctx, scope)
+	got, ok := seenode.SceneScopeFromContext(child)
 	if !ok || got != scope {
 		t.Fatalf("scope round-trip = %+v ok=%v, want %+v", got, ok, scope)
 	}
-	if empty := seenode.NodeScopeFromContextOrEmpty(ctx); empty.NodeID != "" {
+	if empty := seenode.SceneScopeFromContextOrEmpty(ctx); empty.SceneID != "" {
 		t.Fatalf("empty ctx scope = %+v, want empty", empty)
 	}
-	if filled := seenode.NodeScopeFromContextOrEmpty(child); filled != scope {
+	if filled := seenode.SceneScopeFromContextOrEmpty(child); filled != scope {
 		t.Fatalf("or-empty scope = %+v, want %+v", filled, scope)
 	}
 
@@ -48,16 +48,16 @@ func TestNodeScopeContextRoundTrip(t *testing.T) {
 	}
 }
 
-// ── 子代理工具可见性（NodeScope → VisibilityPolicy）──────────────────
+// ── 子代理工具可见性（SceneScope → VisibilityPolicy）──────────────────
 
-func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
+func TestSceneScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	registerNamedTool(t, runtime, "task_complete")
 	registerNamedTool(t, runtime, "web_search")
 
-	// 主代理（无 NodeScope）：默认面 = 完整工具面减去 plan 工具族
+	// 主代理（无 SceneScope）：默认面 = 完整工具面减去 plan 工具族
 	// （goal skill 未激活时 plan 隐藏，plan.md §6；显式关闭测试基座的默认激活）。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{})
 	all := toolNames(runtime.VisibleTools(context.Background()))
@@ -73,8 +73,8 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	}
 	// 子代理（model.RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
 	// 操作全局状态的工具（plan 工具族 / task 终态工具）。
-	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
+	subCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
 	})
 	scoped := toolNames(runtime.VisibleTools(subCtx))
 	// 完整工具面：项目工具 + 注册的普通工具（web_search）均可见。
@@ -92,8 +92,8 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 
 	// entry 节点（model.RoleAgent）：与主代理一致的全量可见（goal 未激活时
 	// plan 同样隐藏，避免 DAG 内递归 plan）。
-	entryCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
+	entryCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "start", Role: model.RoleAgent, BranchID: "start",
 	})
 	if got := toolNames(runtime.VisibleTools(entryCtx)); len(got) != len(all) {
 		t.Fatalf("entry node tools = %v, want all %v", got, all)
@@ -101,8 +101,8 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 
 	// plan 工具面已退役（teamwork 足够）：goal skill 激活也不再可见。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
-	for _, ctx := range []context.Context{context.Background(), seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
+	for _, ctx := range []context.Context{context.Background(), seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "start", Role: model.RoleAgent, BranchID: "start",
 	})} {
 		got := toolNames(runtime.VisibleTools(ctx))
 		for _, hidden := range []string{"plan_run", "plan_load"} {
@@ -113,15 +113,15 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	}
 }
 
-// TestNodeScopeHiddenToolDispatchRejected 验证 Dispatch 侧复核同一策略：
+// TestSceneScopeHiddenToolDispatchRejected 验证 Dispatch 侧复核同一策略：
 // 子代理调用隐藏工具被拒绝（ErrToolNotVisible），可见工具正常进入 handler。
-func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
+func TestSceneScopeHiddenToolDispatchRejected(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left",
+	subCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "left", Role: model.RoleSubAgent, BranchID: "left",
 	})
 	// 隐藏工具（已注册但不在节点可见集）：ErrToolNotVisible。
 	_, err := runtime.agentDispatch(subCtx, "plan_run", `{}`)
@@ -155,10 +155,10 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
 	// 非 entry 节点 → subagent）。
 	scope := node.Scope()()
-	if scope.NodeID != "left" || scope.BranchID != "left" || scope.Role != model.RoleSubAgent {
+	if scope.SceneID != "left" || scope.BranchID != "left" || scope.Role != model.RoleSubAgent {
 		t.Fatalf("node scope = %+v", scope)
 	}
-	ctx := seenode.WithNodeScope(context.Background(), scope)
+	ctx := seenode.WithSceneScope(context.Background(), scope)
 	ctx = seenode.WithNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (seenode.ScopeAssembler{}).Assemble(ctx, seelectx.AssemblyRequest{})
@@ -184,10 +184,10 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	}
 }
 
-// TestNodeScopeAssemblerInheritsStableContextBlocks 验证子代理会话继承主代理
+// TestSceneScopeAssemblerInheritsStableContextBlocks 验证子代理会话继承主代理
 // 的稳定上下文块：project 块（项目语义）插在节点 charter 之前，内容一致
 // 且可被同会话后续请求复用（缓存前缀稳定）；未装配提供者时不注入空块。
-func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
+func TestSceneScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
@@ -204,7 +204,7 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		ID:    "left",
 		Input: seenode.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
-	ctx := seenode.WithNodeScope(context.Background(), node.Scope()())
+	ctx := seenode.WithSceneScope(context.Background(), node.Scope()())
 	ctx = seenode.WithNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (seenode.ScopeAssembler{Coordinator: runtime.node}).Assemble(ctx, seelectx.AssemblyRequest{})

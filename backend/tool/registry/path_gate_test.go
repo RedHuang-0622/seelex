@@ -7,6 +7,7 @@ package registry
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
-	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 func TestPathGateRejectsEscapeBeforePermissionAsk(t *testing.T) {
@@ -67,15 +67,15 @@ func TestPathGateRejectsEscapeBeforePermissionAsk(t *testing.T) {
 	}
 }
 
-func TestPathGateUsesNodeScopeRoot(t *testing.T) {
+func TestPathGateUsesSceneScopeRoot(t *testing.T) {
 	project := t.TempDir()
 	worktree := t.TempDir()
 	scope := security.NewProjectScope()
 	if err := scope.BindFor("sess-node", project); err != nil {
 		t.Fatalf("bind: %v", err)
 	}
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "node-1", WorkspaceID: worktree,
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "node-1", WorkspaceID: worktree,
 	})
 
 	handler := PathGate(Deps{ProjectScope: scope, SessionKey: func(context.Context) string { return "sess-node" }})(

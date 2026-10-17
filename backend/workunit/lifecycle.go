@@ -26,7 +26,7 @@ package workunit
 //	units    UnitFace     // 编排闸门 + 账本：归属 / 重入 / 回执 / 单个回收 / 回灌
 //	records  RecordFace   // 会话记录：状态读数 / 回灌读数 / 落盘 / 写终态 / 清记录
 //
-// 为什么不是"包一层"：四个动作的**判据与顺序**（重入怎么回答、合并只做一次、恢复的粒度、
+// 为什么不是"包一层"：四个动作的**判据与顺序**（重入怎么回答、合并最多成功一次、恢复的粒度、
 // 拆的时候收不收作业）此前在两个实现里各写了一遍且互相漂移；现在它们只写在下面这四个
 // 方法里，注册点的方法体一律是 `return u.host.Xxx(ctx, u.read)`。
 //
@@ -52,6 +52,9 @@ type Host struct {
 	scenes  SceneFace
 	units   UnitFace
 	records RecordFace
+	// mergeRetry 是「主工作区挡路」的等待策略：要不要等、等多久、取消时怎么收口，
+	// 都是生命周期判据（现场适配器只交回 ErrMergeBlockedByMain 这个事实）。
+	mergeRetry MergeRetry
 }
 
 // 编译期钉住"这就是契约那份父实现"：契约漂移先红。
@@ -62,8 +65,19 @@ var ErrHostUnavailable = errors.New("workunit: 生命周期宿主未装配")
 
 // NewHost 收下三格端口（构造式注入，不读全局）。三格都允许传 nil = 宿主未装配，
 // 每个动作随即以 `ErrHostUnavailable` 显式失败；现场与记录两格共用同一个适配器时传同一份。
-func NewHost(scenes SceneFace, units UnitFace, records RecordFace) *Host {
-	return &Host{scenes: scenes, units: units, records: records}
+func NewHost(scenes SceneFace, units UnitFace, records RecordFace, opts ...HostOption) *Host {
+	host := &Host{
+		scenes:     scenes,
+		units:      units,
+		records:    records,
+		mergeRetry: DefaultMergeRetry(),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(host)
+		}
+	}
+	return host
 }
 
 // teamOwned 报告这一份是不是**归团队托管**（生命周期里唯一允许出现的"按层"判断，依据是
@@ -131,7 +145,8 @@ func (h *Host) AlreadySettled(ctx context.Context, u Unit) (bool, error) {
 // 四条此前各写一遍的判据集中在这里：
 //
 //	① 重入：已经收过尾 ⇒ 零值结论（AlreadySettled）；
-//	② 合并**只做一次**：调用方已经拿到的合并结果非空即采信，不再合第二次；
+//	② 合并**最多成功一次**：调用方已经拿到的合并结果非空即采信，不再合第二次；
+//	   被主工作区挡路时按 MergeRetry 预算等待重试（等待不在现场适配器里）；
 //	③ 分类只有一份（ClassifyFinish）：未提交 / 挡路不判死、其余合并错误判死；
 //	④ 落定之后才按策略回收（FinishPolicy.AfterFinish 恰一次，调的是同一个 Reclaim）——
 //	   未落定时现场保留，因为"未提交改动"是人的资产（契约不变式 1）。
@@ -149,7 +164,7 @@ func (h *Host) Finish(ctx context.Context, u Unit, result Result, mergeErr error
 	}
 	own := u.Owns()
 	if mergeErr == nil {
-		mergeErr = h.scenes.MergeScene(ctx, own, u.ID(), u.SessionPath())
+		mergeErr = h.mergeScene(ctx, own, u)
 	}
 	if h.teamOwned(ctx, u) {
 		// 团队托管：回执（尾插）与状态写回计划是编排那条路的事（结束事实各有各的载体）。

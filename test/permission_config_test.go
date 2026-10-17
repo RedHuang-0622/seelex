@@ -185,8 +185,8 @@ func TestMergedConfigSubagentAndEmployee(t *testing.T) {
 		approvals++
 		return &toolspermission.ApprovalResponse{Choice: "allow"}, nil
 	})
-	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "node-1", Role: dto.RoleSubAgent,
+	subCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "node-1", Role: dto.RoleSubAgent,
 	})
 	for _, tool := range []string{"task_complete", "fork_subagents", "switch_plugin", "computer_click", "compact_context"} {
 		_, err := subGate.Middleware(0)(tool, frameworktools.ToolMeta{},

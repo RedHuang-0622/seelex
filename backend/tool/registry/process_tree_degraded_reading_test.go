@@ -22,6 +22,7 @@ package registry
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
 	"time"
 
@@ -53,8 +54,8 @@ func TestSyncChainReportsDegradedProcessTree(t *testing.T) {
 		ObserveBash:            func(event BashDiagnosticEvent) { events = append(events, event) },
 		DisableDockerAutoStart: true,
 	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
 	})
 
 	// ① 退化：命令照跑（挂不上不放弃执行），但"终止只及直接子进程"必须说出去。
@@ -86,8 +87,8 @@ func TestSyncChainStaysSilentWhenTreeIsHealthy(t *testing.T) {
 		ObserveBash:            func(event BashDiagnosticEvent) { events = append(events, event) },
 		DisableDockerAutoStart: true,
 	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
 	})
 
 	if _, err := router.scopedBash(ctx, `{"command":"echo healthy-probe"}`); err != nil {

@@ -16,7 +16,7 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/stablehash"
 )
 
@@ -54,8 +54,8 @@ func (state *PermissionGate) classFor(ctx context.Context) policy.SubjectClass {
 	if class, ok := subjectClassFromContext(ctx); ok {
 		return class
 	}
-	scope := model.NodeScopeFromContextOrEmpty(ctx)
-	if class := policy.ClassForNodeScope(scope); class == policy.SubjectClassSub {
+	scope := dto.SceneScopeFromContextOrEmpty(ctx)
+	if class := policy.ClassForSceneScope(scope); class == policy.SubjectClassSub {
 		return class
 	}
 	return state.roleSessionClass(state.sessionFromContext(ctx))

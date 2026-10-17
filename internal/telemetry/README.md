@@ -110,7 +110,7 @@ go test ./internal/telemetry -count=1
 ### stage_hook.go
 
 - `func NewStageHook(recorder StageRecorder) Wrapper` — NewStageHook 构造阶段记录观察面（Wrapper 形态，由 Chain 负责透传）；
-- `func (hook *StageHook) Before(ctx context.Context, action frameworktelemetry.Action) (context.Context, frameworktelemetry.Invocation, error)` — Before 实现 telemetry.Hook：按 NodeScope 投影 turn/tool 阶段日志后透传。
+- `func (hook *StageHook) Before(ctx context.Context, action frameworktelemetry.Action) (context.Context, frameworktelemetry.Invocation, error)` — Before 实现 telemetry.Hook：按 SceneScope 投影 turn/tool 阶段日志后透传。
 - `func (hook *StageHook) After(ctx context.Context, invocation frameworktelemetry.Invocation, effect frameworktelemetry.Effect) error` — After 实现 telemetry.Hook：透传。
 - `func (hook *StageHook) record(nodeID, stage string, action frameworktelemetry.Action)`
 - `func (noopHook) Before(ctx context.Context, action frameworktelemetry.Action) (context.Context, frameworktelemetry.Invocation, error)`
@@ -133,7 +133,7 @@ go test ./internal/telemetry -count=1
 - `func TestSummaryHookRecordsFailure(t *testing.T)` — TestSummaryHookRecordsFailure 验证失败调用必记摘要（Status=failed）。
 - `func TestSummaryHookDropsNormalSuccess(t *testing.T)` — TestSummaryHookDropsNormalSuccess 验证正常成功且未超阈值的调用不落摘要。
 - `func TestSummaryHookRecordsSlowSuccess(t *testing.T)` — TestSummaryHookRecordsSlowSuccess 验证正常成功但超阈值的调用记 completed。
-- `func TestSummaryHookCapturesNodeID(t *testing.T)` — TestSummaryHookCapturesNodeID 验证 NodeScope 注入后摘要携带 nodeID。
+- `func TestSummaryHookCapturesNodeID(t *testing.T)` — TestSummaryHookCapturesNodeID 验证 SceneScope 注入后摘要携带 nodeID。
 - `func TestSummaryHookCleansPendingAfterAfter(t *testing.T)` — TestSummaryHookCleansPendingAfterAfter 验证 After 后配对条目被清理（不泄漏）。
 - `func TestSummaryHookIgnoresNonLLMToolEvents(t *testing.T)` — TestSummaryHookIgnoresNonLLMToolEvents 验证非 llm/tool 事件不落摘要。
 - `func TestSummaryHookNilRecorder(t *testing.T)` — TestSummaryHookNilRecorder 验证 recorder 为 nil 时纯透传不 panic。

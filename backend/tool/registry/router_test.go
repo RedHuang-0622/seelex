@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
-// TestResolveNodePathUsesWorktreeRoot 验证 NodeScope.WorkspaceID（worktree 根）
+// TestResolveNodePathUsesWorktreeRoot 验证 SceneScope.WorkspaceID（worktree 根）
 // 优先于 ProjectScope，且越界路径（.. 逃逸）被拒绝。
 func TestResolveNodePathUsesWorktreeRoot(t *testing.T) {
 	root := t.TempDir()
@@ -19,8 +20,8 @@ func TestResolveNodePathUsesWorktreeRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := NewRouter(Deps{})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: root,
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: root,
 	})
 	resolved, err := router.resolveNodePath(ctx, "base.txt", false)
 	if err != nil {
@@ -43,8 +44,8 @@ func TestScopedBashPublishesDiagnosticStages(t *testing.T) {
 		ObserveBash:            func(event BashDiagnosticEvent) { events = append(events, event) },
 		DisableDockerAutoStart: true,
 	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
 	})
 	output, err := router.scopedBash(ctx, `{"command":"echo diagnostic-ok"}`)
 	if err != nil {
@@ -82,8 +83,8 @@ func TestBashDiagnosticObserverPanicDoesNotBreakTool(t *testing.T) {
 		ObserveBash:            func(BashDiagnosticEvent) { panic("test observer") },
 		DisableDockerAutoStart: true,
 	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: t.TempDir(),
 	})
 	if _, err := router.scopedBash(ctx, `{"command":"echo observer-safe"}`); err != nil {
 		t.Fatalf("panic in diagnostic observer must not break bash: %v", err)

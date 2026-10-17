@@ -15,7 +15,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
 )
 
@@ -66,11 +65,11 @@ func (r *Router) resolveNodePath(ctx context.Context, path string, forWrite bool
 }
 
 // resolveScopedPath 是工具路径解析的**唯一实现**（处理器与路径门前置检查共用）：
-// worktree 节点（NodeScope.WorkspaceID 指向 worktree 根）→ 节点根；否则按执行
+// worktree 节点（SceneScope.WorkspaceID 指向 worktree 根）→ 节点根；否则按执行
 // ctx 的会话键取该会话自己的项目根（会话未绑定时回退进程默认根，保持旧会话语义）。
 // worktree 目录由 git 创建（真实目录），resolveInside 内含 withinRoot 校验（越界拒绝）。
 func resolveScopedPath(deps Deps, ctx context.Context, path string, forWrite bool) (string, error) {
-	if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.WorkspaceID != "" {
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok && scope.SceneID != "" && scope.WorkspaceID != "" {
 		candidate, err := security.ResolveInside(scope.WorkspaceID, path)
 		if err != nil {
 			return "", err

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PolicyDeps 是可见性策略的跨域闭包（goal skill 激活判定 + 插件过滤 + 员工工具面）。
@@ -52,26 +52,26 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 	if p == nil {
 		return tools
 	}
-	scope := model.NodeScopeFromContextOrEmpty(ctx)
+	scope := dto.SceneScopeFromContextOrEmpty(ctx)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
 		name := tool.Function.Name
-		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
+		if scope.SceneID != "" && scope.Role == dto.RoleSubAgent && sceneScopeExcludedTool(name) {
 			continue
 		}
 		// computer use 的输入注入只归主代理：并行子代理共享同一块桌面，
 		// 同时注入输入会互相打断（观察类工具不受限）。
-		if scope.Role == model.RoleSubAgent && isComputerInputTool(name) {
+		if scope.Role == dto.RoleSubAgent && isComputerInputTool(name) {
 			continue
 		}
-		if isGoalTool(name) && (scope.Role == model.RoleSubAgent ||
+		if isGoalTool(name) && (scope.Role == dto.RoleSubAgent ||
 			(name != "goal_begin" && !p.goalActive())) {
 			continue
 		}
 		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
 		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
 		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
-		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !p.goalSkillActive() {
+		if scope.Role != dto.RoleSubAgent && isPlanTool(name) && !p.goalSkillActive() {
 			continue
 		}
 		// 员工工具面（权责模型 P1）：角色会话里的成员按 ToolsPolicy 分档
@@ -133,7 +133,7 @@ func isPlanTool(name string) bool {
 	}
 }
 
-// nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
+// sceneScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
 // runtime/会话级单例状态，并行子代理调用会造成语义冲突。其余工具与主代理
 // 一致可见。
 //
@@ -142,7 +142,7 @@ func isPlanTool(name string) bool {
 // 同一会话锁 → 自锁死锁（headless 真实 API 复现：一个子代理 done、另一个
 // running 卡死，行 Assignee 停留在 main）。子代理运行面不需要这些控制：
 // skill 已由节点装配自动注入，插件/技能切换属于会话/UI 级控制。
-func nodeScopeExcludedTool(name string) bool {
+func sceneScopeExcludedTool(name string) bool {
 	switch name {
 	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
 		"task_complete", "task_failed", "task_needs_user_decision",

@@ -18,8 +18,8 @@ func TestNodeToolResultArchiverPrefixAndReadback(t *testing.T) {
 	defer runtime.Shutdown()
 
 	arch := seenode.ToolResultArchiver{ArchiverFor: runtime.node.ToolResultArchiverFor, Shared: seelexctx.NewInMemoryToolResultArchiver()}
-	nodeCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "agent-1", Role: model.RoleSubAgent, BranchID: "agent-1",
+	nodeCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "agent-1", Role: model.RoleSubAgent, BranchID: "agent-1",
 	})
 
 	// 节点上下文：ref 带前缀，可读回原始内容。

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // summarySlowThreshold 是 B 类摘要的默认慢调用阈值：正常成功但耗时超过
@@ -30,7 +30,7 @@ type SummaryEvent struct {
 	Status     string    // "failed" | "completed"
 	DurationMS int64     // 调用耗时（毫秒）
 	At         time.Time // 调用开始时间
-	NodeID     string    // 空 = 主会话 / 无 NodeScope
+	NodeID     string    // 空 = 主会话 / 无 SceneScope
 	Detail     string    // 可选：路由事实的一句可读说明（只带非敏感路由属性）
 }
 
@@ -151,8 +151,8 @@ func (hook *SummaryHook) remember(action frameworktelemetry.Action, ctx context.
 		kind = "llm"
 	}
 	nodeID := ""
-	if scope, ok := model.NodeScopeFromContext(ctx); ok {
-		nodeID = scope.NodeID
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok {
+		nodeID = scope.SceneID
 	}
 	key := pairKey{traceID: trace.TraceID, spanID: trace.SpanID}
 	hook.mu.Lock()

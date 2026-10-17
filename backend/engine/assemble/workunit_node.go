@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── subagent 层的**注册点**（在契约那份父实现上注册 + 转发）────────────────
@@ -55,7 +55,7 @@ type nodeWorkUnit struct {
 }
 
 // newNodeWorkUnit 组装 subagent 层的注册点：父实现 + 本层读数（依赖构造式注入）。
-func (r *Runtime) newNodeWorkUnit(mainSessionID, nodeID string, scope model.NodeScope) *nodeWorkUnit {
+func (r *Runtime) newNodeWorkUnit(mainSessionID, nodeID string, scope dto.SceneScope) *nodeWorkUnit {
 	return &nodeWorkUnit{
 		host: newLifecycleHost(r),
 		read: nodeUnitReadings{

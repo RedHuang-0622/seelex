@@ -413,11 +413,11 @@ type ScopeAssembler struct {
 // Assemble 实现 seelectx.RequestAssembler。
 func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error) {
 	if a.Coordinator != nil {
-		if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
-			a.Coordinator.MarkStarted(scope.NodeID)
+		if scope, ok := dto.SceneScopeFromContext(ctx); ok && scope.SceneID != "" && scope.Role == model.RoleSubAgent {
+			a.Coordinator.MarkStarted(scope.SceneID)
 			// 每次装配上报工作历史条数：这是投影能拿到"运行中消息数"的唯一
 			// 无锁来源（读子会话 History 会等整段流式结束）。
-			a.Coordinator.NoteProgress(scope.NodeID, len(request.WorkingHistory))
+			a.Coordinator.NoteProgress(scope.SceneID, len(request.WorkingHistory))
 		}
 	}
 	nodeBlocks := NodePromptBlocksFromContext(ctx)

@@ -3,6 +3,7 @@ package media
 import (
 	"bytes"
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"testing"
 
@@ -88,7 +89,7 @@ func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	// 子代理（node 会话）执行：node 会话没有独立工作区绑定，项目取 ctx 里的
 	// 节点工作区——不落进空项目，也不借视图会话的绑定。
 	nodeCtx := seeletelemetry.WithSessionID(context.Background(), "node-1")
-	nodeCtx = model.WithNodeScope(nodeCtx, model.NodeScope{NodeID: "node-1", Role: model.RoleSubAgent, WorkspaceID: "proj-b"})
+	nodeCtx = dto.WithSceneScope(nodeCtx, dto.SceneScope{SceneID: "node-1", Role: model.RoleSubAgent, WorkspaceID: "proj-b"})
 	nodeStored, err := media.StoreMedia(nodeCtx, bridgecomputer.MediaAsset{
 		Name: "screenshot-node.png", MimeType: "image/png", Kind: "screenshot", Data: payload, Width: 320, Height: 180,
 	})
@@ -111,8 +112,8 @@ func TestMediaProjectIDForResolution(t *testing.T) {
 	if got := media.ProjectIDFor(context.Background(), "sess-main"); got != "ws-main" {
 		t.Fatalf("主会话项目 = %q, want ws-main", got)
 	}
-	nodeScope := model.NodeScope{NodeID: "node-1", Role: model.RoleSubAgent, WorkspaceID: "ws-node"}
-	nodeCtx := model.WithNodeScope(context.Background(), nodeScope)
+	sceneScope := dto.SceneScope{SceneID: "node-1", Role: model.RoleSubAgent, WorkspaceID: "ws-node"}
+	nodeCtx := dto.WithSceneScope(context.Background(), sceneScope)
 	if got := media.ProjectIDFor(nodeCtx, "node-1"); got != "ws-node" {
 		t.Fatalf("节点执行项目 = %q, want ws-node（取节点工作区）", got)
 	}
@@ -121,7 +122,7 @@ func TestMediaProjectIDForResolution(t *testing.T) {
 	}
 	// 既没有会话绑定也没有节点工作区：回落默认项目——刻意不借活跃视图会话的
 	// 绑定（并行执行期间视图可能已切走）。
-	emptyScopeCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "node-2"})
+	emptyScopeCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "node-2"})
 	if got := media.ProjectIDFor(emptyScopeCtx, "node-2"); got != "" {
 		t.Fatalf("无节点工作区时应回落默认项目 = %q, want 空", got)
 	}

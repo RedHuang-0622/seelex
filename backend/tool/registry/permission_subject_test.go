@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strconv"
 	"testing"
 
@@ -21,8 +22,8 @@ import (
 
 // subagentCtx 造一个子代理工具调度 ctx（plan kind:agent 节点 / fork 派生同形）。
 func subagentCtx() context.Context {
-	return model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "node-1", Role: model.RoleSubAgent, BranchID: "node-1",
+	return dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "node-1", Role: model.RoleSubAgent, BranchID: "node-1",
 	})
 }
 

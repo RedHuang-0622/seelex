@@ -6,6 +6,7 @@ import (
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
@@ -20,8 +21,8 @@ type StageRecorder interface {
 // 单位（这里按字节裁到 200，契约里按 rune 裁到 240），超长中文预览会被从多字节字符中间切开。
 
 // StageHook 复用现有 telemetry 边界记录 node 第一视角阶段日志：node 会话的
-// ctx 携带 NodeScope，llm/tool 事件在此被投影为同节点的阶段日志；主会话
-// （无 NodeScope）与其余事件原样透传。best-effort，绝不改变执行路径。
+// ctx 携带 SceneScope，llm/tool 事件在此被投影为同节点的阶段日志；主会话
+// （无 SceneScope）与其余事件原样透传。best-effort，绝不改变执行路径。
 type StageHook struct {
 	next     frameworktelemetry.Hook
 	recorder StageRecorder
@@ -38,15 +39,15 @@ func NewStageHook(recorder StageRecorder) Wrapper {
 	}
 }
 
-// Before 实现 telemetry.Hook：按 NodeScope 投影 turn/tool 阶段日志后透传。
+// Before 实现 telemetry.Hook：按 SceneScope 投影 turn/tool 阶段日志后透传。
 func (hook *StageHook) Before(ctx context.Context, action frameworktelemetry.Action) (context.Context, frameworktelemetry.Invocation, error) {
 	if hook.recorder != nil {
-		if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" {
+		if scope, ok := dto.SceneScopeFromContext(ctx); ok && scope.SceneID != "" {
 			switch action.Type {
 			case frameworktelemetry.EventLLMBefore:
-				hook.record(scope.NodeID, model.NodeStageTurn, action)
+				hook.record(scope.SceneID, model.NodeStageTurn, action)
 			case frameworktelemetry.EventToolBefore:
-				hook.record(scope.NodeID, model.NodeStageTool, action)
+				hook.record(scope.SceneID, model.NodeStageTool, action)
 			}
 		}
 	}

@@ -11,7 +11,7 @@
   `SummaryMaxLines` 截断参数。
 
 执行编排（账号/任务绑定/结果复用/worktree 生命周期）在本包 `tool.go`
-（`Tool`/`NewTool`/`buildForkPlan`），根包 `runtime_plan.go` 只保留
+（`Tool`/`NewTool`/`buildForkPlan`），根包 `runtime_subagent.go` 只保留
 `forkSubagentsHandler` 门面转发；本包不反向依赖 `seelebridge` 根包，节点输入
 形状直接复用 `backend/tool/node` 的 `SeelexNodeInput`（不再依赖 Plan 包）。
 
@@ -49,7 +49,7 @@ sequenceDiagram
     F->>J: 登记 N 条作业（每条挂取消口）
     F-->>T: 受理回执（N 个句柄；调用到此结束）
     P->>N: 并行执行 agent 节点
-    N->>S: 每节点独立会话 + NodeScope + PromptBlocks
+    N->>S: 每节点独立会话 + SceneScope + PromptBlocks
     S-->>N: findings / decisions / progress
     N-->>P: 节点终态
     P->>J: 逐条写正文 + 合成终态（按**各自节点**判 done/failed）

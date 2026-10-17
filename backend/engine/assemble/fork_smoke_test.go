@@ -18,7 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// scopeRecordingCompleter 记录每次请求的 NodeScope.TaskID（验证 B6 装配件
+// scopeRecordingCompleter 记录每次请求的 SceneScope.TaskID（验证 B6 装配件
 // 只把 task_id 绑进作用域），并返回固定文本。
 type scopeRecordingCompleter struct {
 	mu      sync.Mutex
@@ -27,7 +27,7 @@ type scopeRecordingCompleter struct {
 }
 
 func (c *scopeRecordingCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := seenode.NodeScopeFromContext(ctx)
+	scope, _ := seenode.SceneScopeFromContext(ctx)
 	c.mu.Lock()
 	c.taskIDs = append(c.taskIDs, scope.TaskID)
 	c.mu.Unlock()
@@ -43,7 +43,7 @@ func (c *scopeRecordingCompleter) seenTaskIDs() []string {
 
 // TestForkSubagentsSmokeTimeAndFileSummary 双子代理冒烟：一个输出时间、一个
 // 查看文件并总结，summary 节点（主侧）合并产出；同时验证 B6 task_id 注入
-// 到子代理 NodeScope（只绑 id，无内容）与注册表幂等绑定。
+// 到子代理 SceneScope（只绑 id，无内容）与注册表幂等绑定。
 func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
@@ -83,7 +83,7 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 	}
 	for taskID, found := range want {
 		if !found {
-			t.Fatalf("subagent NodeScope.TaskID %q was not injected (seen=%v)", taskID, seen)
+			t.Fatalf("subagent SceneScope.TaskID %q was not injected (seen=%v)", taskID, seen)
 		}
 	}
 
@@ -118,7 +118,7 @@ func containsParticipant(participants []string, want string) bool {
 	return false
 }
 
-// capturingCompleter 是回调注入探针：记录子代理收到的完整消息与 NodeScope
+// capturingCompleter 是回调注入探针：记录子代理收到的完整消息与 SceneScope
 // （TaskID 是否只进作用域、不进 prompt），用于检查任务投放后的实际输入。
 type capturingCompleter struct {
 	mu       sync.Mutex
@@ -128,7 +128,7 @@ type capturingCompleter struct {
 }
 
 func (c *capturingCompleter) Complete(ctx context.Context, messages []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := seenode.NodeScopeFromContext(ctx)
+	scope, _ := seenode.SceneScopeFromContext(ctx)
 	c.mu.Lock()
 	c.messages = append([]types.Message(nil), messages...)
 	c.taskID = scope.TaskID
@@ -145,7 +145,7 @@ func (c *capturingCompleter) snapshot() ([]types.Message, string) {
 
 // TestSubagentTaskDeliveryCallbackInput 回调注入冒烟：fork 一个子代理，用
 // Complete 回调抓取它实际收到的输入，验证 charter 提示词规范渲染（目标/
-// 预算/收尾协议）以及 B6 task_id 只进 NodeScope 不进 prompt。
+// 预算/收尾协议）以及 B6 task_id 只进 SceneScope 不进 prompt。
 func TestSubagentTaskDeliveryCallbackInput(t *testing.T) {
 	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
@@ -195,9 +195,9 @@ func TestSubagentTaskDeliveryCallbackInput(t *testing.T) {
 			t.Errorf("charter missing %q:\n%s", want, joined)
 		}
 	}
-	// B6：task_id 只绑进 NodeScope，不进 prompt 内容。
+	// B6：task_id 只绑进 SceneScope，不进 prompt 内容。
 	if taskID != "subagent:time_agent" {
-		t.Fatalf("NodeScope.TaskID = %q, want subagent:time_agent", taskID)
+		t.Fatalf("SceneScope.TaskID = %q, want subagent:time_agent", taskID)
 	}
 	if strings.Contains(joined, taskID) {
 		t.Errorf("task_id must not be injected into prompt content:\n%s", joined)

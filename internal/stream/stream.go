@@ -16,11 +16,10 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // streamFailoverAttempts 是一次流式请求最多换几个账号。
@@ -255,11 +254,11 @@ func (c *streamingAccountCompleter) routingNotice(
 	_ accountpool.ClientLease[agent.Completer],
 ) RoutingNotice {
 	notice.SessionID = seetelemetry.SessionIDFromContext(ctx)
-	// Role：节点请求取 NodeScope.Role（subagent / goalplan / plan 入口的
+	// Role：节点请求取 SceneScope.Role（subagent / goalplan / plan 入口的
 	// PrimaryRole）；主链路（无作用域）固定 agent——与账号路由的角色口径同源。
-	role := string(model.RoleAgent)
-	if scope, ok := model.NodeScopeFromContext(ctx); ok {
-		notice.NodeID = scope.NodeID
+	role := string(dto.RoleAgent)
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok {
+		notice.NodeID = scope.SceneID
 		if scope.Role != "" {
 			role = string(scope.Role)
 		}

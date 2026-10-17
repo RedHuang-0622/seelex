@@ -49,7 +49,7 @@ func hookStagePreview(t *testing.T, text string) model.NodeStageLog {
 	t.Helper()
 	capture := &stageCapture{}
 	hook := telemetry.NewStageHook(capture)(nil)
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "n-1", Role: model.RoleSubAgent})
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "n-1", Role: model.RoleSubAgent})
 	if _, _, err := hook.Before(ctx, frameworktelemetry.Action{
 		Type: frameworktelemetry.EventLLMBefore, Name: text,
 	}); err != nil {

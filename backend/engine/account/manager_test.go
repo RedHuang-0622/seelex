@@ -51,7 +51,7 @@ func registerCompleterAccount(t *testing.T, pool *accountpool.P2CPool[agent.Comp
 }
 
 // TestManagerSelectorMainChainAgentRole 钉住主链路角色约束：主会话请求（无
-// NodeScope、未固定账号）的候选必须是 agent 角色的账号——负载只在角色内部做，
+// SceneScope、未固定账号）的候选必须是 agent 角色的账号——负载只在角色内部做，
 // 不允许 P2C 落到 subagent/goalplan 账号上。
 func TestManagerSelectorMainChainAgentRole(t *testing.T) {
 	pool := accountpool.New[agent.Completer]()

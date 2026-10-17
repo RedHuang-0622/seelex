@@ -35,8 +35,8 @@ type Deps struct {
 	CurrentAgentFactory func() frameworknode.AgentFactory
 	// CurrentSceneScope 按场景 ID 解析执行作用域（角色、工作区、分支）。
 	// fork 子代理与未来的后台工作单元共用它；node 域不再依赖 Plan 绑定。
-	CurrentSceneScope     func(sceneID string) model.NodeScope
-	BeginNodeWorktree     func(scope model.NodeScope, nodeID string) *worktree.NodeWorktree
+	CurrentSceneScope     func(sceneID string) dto.SceneScope
+	BeginNodeWorktree     func(scope dto.SceneScope, nodeID string) *worktree.NodeWorktree
 	FinishNodeWorktree    func(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error
 	ReleaseNodeWorktree   func(nodeID string)
 	RegisterNodeSession   func(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)
@@ -62,13 +62,13 @@ type NodeBudgetInfo struct {
 }
 
 // AgentNode 是 plan kind:agent 节点的子代理执行包装（plan.md §3.3.1）。
-// Run 时先注入节点作用域（NodeScope）与节点级 PromptBlocks，再委托节点
+// Run 时先注入节点作用域（SceneScope）与节点级 PromptBlocks，再委托节点
 // 自己的 Session 执行。
 type AgentNode struct {
 	frameworknode.BaseNode
 	input   SeelexNodeInput
 	factory func() frameworknode.AgentFactory
-	scope   func() model.NodeScope // 惰性解析：plan_run 时 binding 已冻结
+	scope   func() dto.SceneScope // 惰性解析：执行前作用域已冻结
 	blocks  func() []seelectx.PromptBlock
 	deps    Deps
 }
@@ -82,8 +82,8 @@ func NewAgentNode(spec codec.NodeSpec[SeelexNodeInput], deps Deps) *AgentNode {
 		BaseNode: frameworknode.NewBaseNode(spec.ID, frameworknode.KindAgent),
 		input:    spec.Input,
 		factory:  deps.CurrentAgentFactory,
-		scope: func() model.NodeScope {
-			scope := NodeScopeFor(deps, spec.ID)
+		scope: func() dto.SceneScope {
+			scope := SceneScopeFor(deps, spec.ID)
 			scope.TaskID = taskID
 			return scope
 		},
@@ -96,7 +96,7 @@ func NewAgentNode(spec codec.NodeSpec[SeelexNodeInput], deps Deps) *AgentNode {
 func (n *AgentNode) Input() SeelexNodeInput { return n.input }
 
 // Scope 返回节点作用域解析器（测试/诊断读取面）。
-func (n *AgentNode) Scope() func() model.NodeScope { return n.scope }
+func (n *AgentNode) Scope() func() dto.SceneScope { return n.scope }
 
 // Blocks 返回节点 PromptBlocks 解析器（测试/诊断读取面）。
 func (n *AgentNode) Blocks() func() []seelectx.PromptBlock { return n.blocks }
@@ -114,7 +114,7 @@ var now = time.Now
 
 // Run 注入节点作用域与节点级 PromptBlocks 后委托节点 Session 执行。
 // worktree 生命周期（plan.md §3）：RoleSubAgent 节点先开 worktree 并把
-// NodeScope.WorkspaceID 指向它，执行结束后变基仓库 + 合并审批 + merge + 清理。
+// SceneScope.WorkspaceID 指向它，执行结束后变基仓库 + 合并审批 + merge + 清理。
 // 收尾失败的处理分两类：rebase/merge/审批失败与 Chat 失败一样让节点失败；
 // 而「子代理未提交改动」只降级为产出中的显式警告（现场保留、节点成功），
 // 分类判定见下方 workunit.ClassifyFinish 分支。
@@ -124,7 +124,7 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	if wt != nil {
 		scope.WorkspaceID = wt.Path
 	}
-	ctx = model.WithNodeScope(ctx, scope)
+	ctx = dto.WithSceneScope(ctx, scope)
 	if n.blocks != nil {
 		ctx = WithNodePromptBlocks(ctx, n.blocks())
 	}
@@ -301,14 +301,14 @@ func nodeStatusForErr(err error) string {
 	return dto.NodeCompleted.String()
 }
 
-// NodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
+// SceneScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
 // 角色按 binding 与 entry 判定（与分支账号路由语义一致）。
-func NodeScopeFor(deps Deps, nodeID string) model.NodeScope {
-	scope := model.NodeScope{NodeID: nodeID, BranchID: nodeID}
+func SceneScopeFor(deps Deps, nodeID string) dto.SceneScope {
+	scope := dto.SceneScope{SceneID: nodeID, BranchID: nodeID}
 	if deps.CurrentSceneScope != nil {
 		scope = deps.CurrentSceneScope(nodeID)
-		if scope.NodeID == "" {
-			scope.NodeID = nodeID
+		if scope.SceneID == "" {
+			scope.SceneID = nodeID
 		}
 		if scope.BranchID == "" {
 			scope.BranchID = nodeID

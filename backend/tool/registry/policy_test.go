@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -17,7 +18,7 @@ func planTool(name string) types.Tool {
 // （截图/窗口枚举/等待）对子代理保持可见。
 func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{})
-	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	subCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(subCtx, []types.Tool{
 		planTool("computer_screenshot"), planTool("computer_windows"),
 		planTool("computer_scroll_targets"), planTool("computer_wait"),
@@ -49,7 +50,7 @@ func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
 // 互相改写主会话上下文。主代理保持可见（权限门控另行把关）。
 func TestPolicyHidesCompactContextFromSubagents(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{})
-	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	subCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(subCtx, []types.Tool{
 		planTool("compact_context"), planTool("read_tool_result"), planTool("bash"),
 	})
@@ -67,7 +68,7 @@ func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 		GoalSkillActive: func() bool { return false },
 		PluginFilter:    func(ts []types.Tool) []types.Tool { return ts },
 	})
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(ctx, []types.Tool{
 		planTool("plan_run"), planTool("task_complete"), planTool("fork_subagents"),
 		planTool("switch_plugin"), planTool("switch_mode"), planTool("skill_activate"),
@@ -104,7 +105,7 @@ func TestPolicyGoalToolsGatedByGoalActive(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("goal-active main tools = %v, want goal_begin/goal_status/goal_done/bash", names(got))
 	}
-	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	subCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "s1", Role: model.RoleSubAgent})
 	got = active.Filter(subCtx, []types.Tool{planTool("goal_begin"), planTool("goal_done"), planTool("bash")})
 	if len(got) != 1 || got[0].Function.Name != "bash" {
 		t.Fatalf("subagent must never see goal tools = %v", names(got))

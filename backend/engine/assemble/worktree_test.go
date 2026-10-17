@@ -83,7 +83,7 @@ func TestWorktreeDirtyUncommittedPreserved(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatal(err)
 	}
-	scope := seenode.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
+	scope := seenode.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
 	wt := runtime.beginNodeWorktree(scope, "impl")
 	if wt == nil {
 		t.Fatal("worktree creation must succeed")
@@ -121,7 +121,7 @@ func TestWorktreeCleanWithNoChanges(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatal(err)
 	}
-	scope := seenode.NodeScope{NodeID: "noop", Role: model.RoleSubAgent, BranchID: "noop"}
+	scope := seenode.SceneScope{SceneID: "noop", Role: model.RoleSubAgent, BranchID: "noop"}
 	wt := runtime.beginNodeWorktree(scope, "noop")
 	if wt == nil {
 		t.Fatal("worktree creation must succeed")
@@ -142,7 +142,7 @@ func TestWorktreeConflictFilesListsUnmerged(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatal(err)
 	}
-	scope := seenode.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
+	scope := seenode.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}
 	wt := runtime.beginNodeWorktree(scope, "impl")
 	if wt == nil {
 		t.Fatal("worktree creation must succeed")
@@ -177,7 +177,7 @@ func TestWorktreeDegradeOutsideGit(t *testing.T) {
 	if err := runtime.BindProjectRoot(plain); err != nil {
 		t.Fatal(err)
 	}
-	scope := seenode.NodeScope{NodeID: "x", Role: model.RoleSubAgent, BranchID: "x"}
+	scope := seenode.SceneScope{SceneID: "x", Role: model.RoleSubAgent, BranchID: "x"}
 	if wt := runtime.beginNodeWorktree(scope, "x"); wt != nil {
 		t.Fatalf("non-git project must degrade to shared workspace, got worktree %+v", wt)
 	}

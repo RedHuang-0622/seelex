@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,8 +20,8 @@ import (
 type asyncSessionKey struct{}
 
 func asyncTestCtx(root, session string) context.Context {
-	ctx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: root,
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "x", Role: model.RoleSubAgent, BranchID: "x", WorkspaceID: root,
 	})
 	return context.WithValue(ctx, asyncSessionKey{}, session)
 }

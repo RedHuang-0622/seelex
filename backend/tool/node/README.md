@@ -4,9 +4,9 @@
 
 承载 `plan kind:agent` 节点的子代理执行包装与节点级提示词装配。主要调用方：
 
-- 根包 `runtime_plan.go` 的 `nodeFactoryDeps`（`NewAgentNode: seenode.NewAgentNode`）——plan_load 构造节点；
+- 根包 `runtime_subagent.go` 的 `nodeFactoryDeps`（`NewAgentNode: seenode.NewAgentNode`）——plan_load 构造节点；
 - `backend/tool/fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
-- 根包 `runtime_plan.go` 的 `nodeDeps()`（Deps 全为闭包，域内不依赖根包）。
+- 根包 `runtime_subagent.go` 的 `nodeDeps()`（Deps 全为闭包，域内不依赖根包）。
 
 ## 与其它域的关系
 
@@ -28,7 +28,7 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 ```mermaid
 sequenceDiagram
     autonumber
-    participant P as plan_run
+    participant P as fork/workunit
     participant N as AgentNode.Run
     participant W as worktree
     participant F as factory.NewAgent
@@ -38,7 +38,7 @@ sequenceDiagram
     P->>N: Run(ctx)
     N->>N: scope() 惰性解析（binding 已冻结）
     N->>W: BeginNodeWorktree(RoleSubAgent)
-    N->>N: WithNodeScope + AppendNodePhase(running)
+    N->>N: WithSceneScope
     N->>N: WithNodePromptBlocks
     N->>F: factory.NewAgent(charter + 匹配的 skills)
     F->>S: RegisterNodeSession
@@ -78,7 +78,7 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |---|---|
-| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`/`withWorktreeMergeBlockedNotice`、`NodeScopeFor`（经 `CurrentSceneScope` 窄回调解析）、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`/`withWorktreeMergeBlockedNotice`、`SceneScopeFor`（经 `CurrentSceneScope` 窄回调解析）、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
 | `input.go` | `SeelexNodeInput` / `NodeBudgetInput` 节点输入负载 |
 | `coordinator.go` | `SessionPort`/`TreePort`/`TaskPort` 接口、`Coordinator`（含阶段日志与语义结果委托） |
 
@@ -86,13 +86,13 @@ sequenceDiagram
 
 `Deps` 是全部运行时能力的函数字段集合（工厂、`CurrentSceneScope`、worktree 三件套、会话注册/终态、父证据、merge-back、预算、PromptBlocks、Tracer），由根包 `Runtime.nodeDeps()` 闭包注入。node 域不再 import Plan 包。
 
-`AgentNode.Run` 生命周期：`scope()`（惰性解析，plan_run 时 binding 已冻结）→ `BeginNodeWorktree`（RoleSubAgent）→ `WithNodeScope` → `AppendNodePhase(running)` → `WithNodePromptBlocks` → `factory.NewAgent` → `RegisterNodeSession` + `Chat` → `CompleteSubagentNode` → `mergeBack`（失败也执行，幂等）→ `FinishNodeWorktree`/`ReleaseNodeWorktree`。
+`AgentNode.Run` 生命周期：`scope()`（执行前解析 SceneScope）→ `BeginNodeWorktree`（RoleSubAgent）→ `WithSceneScope` → `WithNodePromptBlocks` → `factory.NewAgent` → `RegisterNodeSession` + `Chat` → `CompleteSubagentNode` → `mergeBack`（失败也执行，幂等）→ `FinishNodeWorktree`/`ReleaseNodeWorktree`。
 
 收尾分类**只从契约取**（`workunit.ClassifyFinish`，job/subagent/teammate 三层唯一一份判据），节点只按分类做三件事：落定 → `ReleaseNodeWorktree`；「未提交改动」（`worktree_unmerged` 阶段 + `withWorktreeUnmergedNotice`）与「主工作区挡路」（`merge_blocked` 阶段 + `withWorktreeMergeBlockedNotice`）都**降级为产出末尾的显式警告**——节点按 Chat 结果判定成功、不 `Release`（现场保留供人工检查或补提交）；其余收尾失败才判死。这样单个子代理忘记执行收尾协议、或主工作区被在途改动挡住，都不会让 workplan fail-fast 取消同批兄弟节点、丢掉它们的产出。
 
 ## 数据流或生命周期
 
-`plan_load`（buildNode）→ 构造 `AgentNode`（scope/blocks 闭包延迟解析）→ `plan_run` 触发 `Run` → 会话与工具活动经 deps 回根包 → merge-back 写 Runtime mailbox → 主会话下一次 ChatStream 前注入。
+`fork_subagents` / workunit 构造 `AgentNode`（scope/blocks 闭包延迟解析）→ 执行 `Run` → 会话与工具活动经 deps 回根包 → merge-back 写 Runtime mailbox → 主会话下一次 ChatStream 前注入。
 
 ## 依赖方向
 
@@ -115,7 +115,7 @@ sequenceDiagram
 ## Review 指南
 
 - `Deps` 是否保持"函数字段"，没有偷偷引回根包类型；
-- scope/blocks 惰性解析是否保留（plan_load→plan_run 冻结语义）；
+- scope/blocks 惰性解析是否保留（执行前冻结语义）；
 - charter 是否仍为单一块（不再拆碎）；
 - `TaskID` 是否只作绑定元数据、不进 prompt。
 

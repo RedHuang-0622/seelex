@@ -30,7 +30,7 @@
 | `SessionMedia` | 本域唯一状态：`host` + 待随图队列 `pending *imageattach.Registry`。零值不可用，`New(host)` 构造 |
 | `Attach` / `AttachPending` / `PendingCount` | 入队与读数。`AttachPending` 是工具侧入口：缺会话上下文**显式报错**（截了却送不到模型必须让人知道），`Attach` 则按队列语义静默丢弃 |
 | `StoreMedia` / `LoadMedia` | 会话媒体分区的写/读。两处都先解析归属再做 IO，因此读写同域、不会把别的会话/项目的画面取过来 |
-| `ProjectIDFor` | 归属三级解析：会话绑定 → `model.NodeScope.WorkspaceID` → 默认项目 `""`。刻意不读 Router 的活跃写作用域、不用主会话兜底（并行子代理执行期间视图可能已切走） |
+| `ProjectIDFor` | 归属三级解析：会话绑定 → `model.SceneScope.WorkspaceID` → 默认项目 `""`。刻意不读 Router 的活跃写作用域、不用主会话兜底（并行子代理执行期间视图可能已切走） |
 | `Wrap` | 把 `imageattach.Wrapper`（`Next` + `Pending` + `Loader: LoadMedia` + 可选 Stream/StreamEvents）**返回**给调用方装配，自身不持有 Completer |
 
 ## 数据流

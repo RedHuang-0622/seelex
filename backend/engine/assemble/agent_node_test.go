@@ -125,8 +125,8 @@ func TestSubAgentSeesFullToolSurface(t *testing.T) {
 	runtime.RegisterBuiltins()
 	registerNamedTool(t, runtime, "mcp_demo_tool")
 
-	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
-		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left",
+	subCtx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{
+		SceneID: "left", Role: model.RoleSubAgent, BranchID: "left",
 	})
 	visible := toolNames(runtime.VisibleTools(subCtx))
 	if !containsName(visible, "mcp_demo_tool") {

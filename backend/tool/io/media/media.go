@@ -18,7 +18,7 @@ import (
 
 	bridgecomputer "github.com/RedHuang-0622/seelex/backend/tool/computer"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach"
-	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -176,7 +176,7 @@ func (m *SessionMedia) ProjectIDFor(ctx context.Context, sessionID string) strin
 			return projectID
 		}
 	}
-	if scope, ok := model.NodeScopeFromContext(ctx); ok {
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok {
 		if workspaceID := strings.TrimSpace(scope.WorkspaceID); workspaceID != "" {
 			return workspaceID
 		}

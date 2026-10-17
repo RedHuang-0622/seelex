@@ -11,6 +11,7 @@ package assemble
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"testing"
 
@@ -41,8 +42,8 @@ func TestLifecycleOneImplementationAcrossLayers(t *testing.T) {
 	if _, err := nodeRuntime.NewMainSessionWithID("sess_main", nil); err != nil {
 		t.Fatalf("new main session: %v", err)
 	}
-	nodeUnit := nodeRuntime.newNodeWorkUnit("sess_main", "wu-1", model.NodeScope{
-		NodeID: "wu-1", Role: model.RoleSubAgent,
+	nodeUnit := nodeRuntime.newNodeWorkUnit("sess_main", "wu-1", dto.SceneScope{
+		SceneID: "wu-1", Role: model.RoleSubAgent,
 	})
 	if _, err := nodeUnit.Begin(ctx); err != nil {
 		t.Fatalf("subagent Begin: %v", err)

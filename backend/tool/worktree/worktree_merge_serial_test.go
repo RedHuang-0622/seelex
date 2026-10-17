@@ -3,11 +3,13 @@ package worktree
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
@@ -118,8 +120,6 @@ func newScriptedManager(t *testing.T, git *scriptedGit) (*WorktreeManager, *phas
 		Phase: phases.record,
 	})
 	manager.git = git.run
-	manager.mergeRetryBudget = 60 * time.Millisecond
-	manager.mergeRetryInterval = 2 * time.Millisecond
 	t.Cleanup(manager.Close)
 	return manager, phases
 }
@@ -128,7 +128,7 @@ func newScriptedManager(t *testing.T, git *scriptedGit) (*WorktreeManager, *phas
 const mainDirtyBlocked = "error: Your local changes to the following files would be overwritten by merge:\n\tmain.go\nPlease commit your changes or stash them before you merge."
 
 // TestFinishSerializesConcurrentMergesIntoMain（2026-10-05 核心红线）：fork 的一批
-// 子代理是**并发收工**的，而收尾段（rebase → 判定 → 审批 → merge → cleanup）全都动
+// 子代理是**并发收工**的，而收尾段（rebase → 判定 → merge → cleanup）全都动
 // 同一个主工作区的 .git。判据取"同时进入 merge 的子进程数"——必须恒为 1。
 func TestFinishSerializesConcurrentMergesIntoMain(t *testing.T) {
 	git := newScriptedGit()
@@ -208,10 +208,78 @@ func TestFinishWithoutActorOverlapsMerges(t *testing.T) {
 	}
 }
 
-// TestFinishRetriesWhileMainWorkspaceDirtyThenMerges："主工作区脏、正好压在本次合并
-// 路径上"不是确定性失败——预算内的重试必须自己等到主工作区干净并把改动合上，而且
-// 重试**不再重复询问审批门**（同一个 nodeID 只问一次）。
-func TestFinishRetriesWhileMainWorkspaceDirtyThenMerges(t *testing.T) {
+// scenePortForTest 把真实的 WorktreeManager.Finish 接成生命周期实现的现场端口：
+// 这样"同一份脚本化 git 输入"可以同时经过现场适配器（单次事实）与 Host（重试判据）。
+type scenePortForTest struct{ mgr *WorktreeManager }
+
+func (scenePortForTest) BeginScene(context.Context, workunit.Ownership, string, string) (workunit.Scene, error) {
+	return workunit.Scene{}, nil
+}
+
+func (p scenePortForTest) MergeScene(ctx context.Context, _ workunit.Ownership, nodeID, _ string) error {
+	return p.mgr.Finish(ctx, nodeID, p.mgr.WorktreeForNode(nodeID))
+}
+
+func (p scenePortForTest) ReleaseScene(nodeID string) { p.mgr.Release(nodeID) }
+
+func (scenePortForTest) AdoptScenes(context.Context, string) error { return nil }
+
+func (p scenePortForTest) SceneRegistered(nodeID string) bool {
+	return p.mgr.WorktreeForNode(nodeID) != nil
+}
+
+// zeroUnits 是"没有团队归属"的编排端口：本文件的用例只走 subagent 那一侧。
+type zeroUnits struct{}
+
+func (zeroUnits) Owned(context.Context, string, workunit.Ownership) bool { return false }
+
+func (zeroUnits) Settled(context.Context, string, string) (bool, error) { return false, nil }
+
+func (zeroUnits) SettleUnit(context.Context, string, workunit.Ownership, error, error) (workunit.Outcome, error) {
+	return workunit.Outcome{}, nil
+}
+
+func (zeroUnits) ReclaimUnit(context.Context, string, string) error { return nil }
+
+func (zeroUnits) RecoverUnits(context.Context, string) (workunit.Resume, error) {
+	return workunit.Resume{}, nil
+}
+
+// zeroRecords 是"没有会话记录"的账本；Clear 由 Immediate 策略在落定后调用。
+type zeroRecords struct{}
+
+func (zeroRecords) Status(context.Context, workunit.Ownership, string, string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (zeroRecords) Readout(context.Context, workunit.Ownership, string, string) (workunit.Resume, error) {
+	return workunit.Resume{}, nil
+}
+
+func (zeroRecords) SaveRecord(context.Context, workunit.Ownership, string, string, string, string, string) {
+}
+
+func (zeroRecords) SettleRecord(context.Context, workunit.Ownership, string, string, workunit.Outcome) {
+}
+
+func (zeroRecords) Clear(context.Context, workunit.Ownership, string, string) error { return nil }
+
+type sceneUnit struct{ id string }
+
+func (sceneUnit) Kind() workunit.Kind { return workunit.KindSubagent }
+
+func (u sceneUnit) ID() string { return u.id }
+
+func (sceneUnit) SessionPath() string { return "sess-worktree" }
+
+func (sceneUnit) Policy() workunit.FinishPolicy { return workunit.Immediate{} }
+
+func (sceneUnit) Owns() workunit.Ownership { return workunit.Ownership{} }
+
+// TestHostRetriesWorktreeBlockedMergeWithinBudget："主工作区脏、正好压在本次合并
+// 路径上"不是确定性失败——现场适配器只交回一次挡路事实，Host 在预算内等到主工作区
+// 干净并把改动合上；阶段 awaiting_merge 也由 Host 报出。
+func TestHostRetriesWorktreeBlockedMergeWithinBudget(t *testing.T) {
 	git := newScriptedGit()
 	git.mergeHook = func(_ string, attempt int) (string, error) {
 		if attempt <= 2 {
@@ -219,34 +287,49 @@ func TestFinishRetriesWhileMainWorkspaceDirtyThenMerges(t *testing.T) {
 		}
 		return "merged", nil
 	}
-	manager, phases := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	wt := manager.BeginNamed("impl")
 	if wt == nil {
 		t.Fatal("begin must succeed with scripted git")
 	}
-	if err := manager.Finish(context.Background(), "impl", wt); err != nil {
+	var phases phaseLog
+	host := workunit.NewHost(
+		scenePortForTest{mgr: manager}, zeroUnits{}, zeroRecords{},
+		workunit.WithMergeRetry(workunit.MergeRetry{
+			Budget:   time.Second,
+			Interval: time.Millisecond,
+			Observe:  phases.record,
+		}),
+	)
+	outcome, err := host.Finish(context.Background(), sceneUnit{id: "impl"}, workunit.Result{}, nil)
+	if err != nil {
 		t.Fatalf("被主工作区挡住的合并必须在预算内自愈，got %v", err)
+	}
+	if outcome.Kind != workunit.OutcomeSettled {
+		t.Fatalf("outcome = %+v, want settled", outcome)
 	}
 	if git.mergeCalls != 3 {
 		t.Fatalf("merge 尝试次数 = %d, want 3（2 次被挡 + 1 次成功）", git.mergeCalls)
 	}
-	if !phases.has(phaseAwaitingMerge) {
-		t.Fatalf("阶段必须报出 %s（前端要能看见'在等主工作区'）", phaseAwaitingMerge)
+	if !phases.has(workunit.MergePhaseAwaiting) {
+		t.Fatalf("阶段必须报出 %s（前端要能看见'在等主工作区'）", workunit.MergePhaseAwaiting)
 	}
 	if !containsCall(git.snapshot(), "worktree remove --force "+wt.Path) {
 		t.Fatalf("合上之后必须清理现场：calls=%v", git.snapshot())
 	}
+	if _, ok := manager.Info("impl"); ok {
+		t.Fatal("落定后 Immediate 策略应把注册表也清掉")
+	}
 }
 
-// TestFinishReportsMergeBlockedByMainWithoutFailingScene：预算耗尽仍被挡住 → 返回
-// ErrMergeBlockedByMain（分类错误），**不是**确定性失败：现场保留、不清理，输出里
-// 带上处置办法，节点侧据此降级为警告而不是把产出判死。
-func TestFinishReportsMergeBlockedByMainWithoutFailingScene(t *testing.T) {
+// TestFinishReportsBlockedByMainAsOneAttempt：现场适配器只跑一次 merge，挡路以
+// ErrMergeBlockedByMain 交回（等待/重试不在这里），现场保留、不清理。
+func TestFinishReportsBlockedByMainAsOneAttempt(t *testing.T) {
 	git := newScriptedGit()
 	git.mergeHook = func(string, int) (string, error) {
 		return mainDirtyBlocked, errors.New("exit status 1")
 	}
-	manager, phases := newScriptedManager(t, git)
+	manager, _ := newScriptedManager(t, git)
 	wt := manager.BeginNamed("impl")
 	if wt == nil {
 		t.Fatal("begin must succeed with scripted git")
@@ -255,20 +338,14 @@ func TestFinishReportsMergeBlockedByMainWithoutFailingScene(t *testing.T) {
 	if !IsMergeBlockedByMain(err) {
 		t.Fatalf("err = %v, want IsMergeBlockedByMain", err)
 	}
-	if !strings.Contains(err.Error(), "先提交或暂存主工作区的在途改动") {
-		t.Fatalf("错误必须带处置办法（谁看都能动手）：%v", err)
-	}
 	if _, ok := manager.Info("impl"); !ok {
 		t.Fatal("被挡住的现场必须保留（可查、可人工重试）")
 	}
 	if containsCall(git.snapshot(), "worktree remove --force "+wt.Path) {
 		t.Fatal("被挡住时不得清理现场")
 	}
-	if !phases.has(phaseAwaitingMerge) {
-		t.Fatalf("阶段必须报出 %s", phaseAwaitingMerge)
-	}
-	if git.mergeCalls < 2 {
-		t.Fatalf("预算内必须真的重试过：mergeCalls = %d", git.mergeCalls)
+	if git.mergeCalls != 1 {
+		t.Fatalf("现场适配器只许试一次：mergeCalls = %d, want 1", git.mergeCalls)
 	}
 }
 
@@ -303,38 +380,32 @@ func TestFinishMergeConflictIsDefinitive(t *testing.T) {
 	}
 }
 
-// TestFinishBlockedByMainReleasesActorForOtherNodes：一个节点在等主工作区干净时，
-// 其他节点**照常收尾**——等待不占单写者（否则一个脏主工作区会把整批子代理拖住）。
+// TestFinishBlockedByMainReleasesActorForOtherNodes：挡路事实交回后单写者立刻释放，
+// 其他节点照常收尾——等待不再发生在现场适配器里，因此不会把整批子代理拖住。
 func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T) {
 	git := newScriptedGit()
-	firstBlocked := make(chan struct{}, 1)
 	git.mergeHook = func(key string, _ int) (string, error) {
 		if strings.Contains(key, "seelex/n1") { // n1 永远被挡；n2 放行
-			select {
-			case firstBlocked <- struct{}{}:
-			default:
-			}
 			return mainDirtyBlocked, errors.New("exit status 1")
 		}
 		return "merged", nil
 	}
 	manager, _ := newScriptedManager(t, git)
-	manager.mergeRetryBudget = 30 * time.Second // n1 一直等，直到自己的 ctx 被取消
-	manager.mergeRetryInterval = 5 * time.Millisecond
 	stuck := manager.BeginNamed("n1")
 	other := manager.BeginNamed("n2")
 	if stuck == nil || other == nil {
 		t.Fatal("begin must succeed with scripted git")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	blocked := make(chan error, 1)
-	go func() { blocked <- manager.Finish(ctx, "n1", stuck) }()
+	go func() { blocked <- manager.Finish(context.Background(), "n1", stuck) }()
 	select {
-	case <-firstBlocked:
-	case <-time.After(2 * time.Second):
-		t.Fatal("n1 没有被挡住（脚本未生效）")
+	case err := <-blocked:
+		if !IsMergeBlockedByMain(err) {
+			t.Fatalf("n1 = %v, want IsMergeBlockedByMain", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("挡路事实必须立刻交回（现场适配器不再等待）")
 	}
 
 	done := make(chan error, 1)
@@ -345,17 +416,7 @@ func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T) {
 			t.Fatalf("n2 必须不被 n1 的等待拖住：%v", err)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("n2 被 n1 的等待挡住了（等待占用了单写者）")
-	}
-
-	cancel() // 等不来干净的主工作区时，取消必须立刻收口为分类错误
-	select {
-	case err := <-blocked:
-		if !IsMergeBlockedByMain(err) {
-			t.Fatalf("n1 = %v, want IsMergeBlockedByMain", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("n1 在被挡住的等待里没有对取消收口")
+		t.Fatal("n2 被挡住了（单写者没有在挡路事实交回后释放）")
 	}
 }
 
@@ -365,7 +426,7 @@ func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T) {
 func TestBeginNamedReusedByTeammateAndSubagent(t *testing.T) {
 	git := newScriptedGit()
 	manager, _ := newScriptedManager(t, git)
-	byScope := manager.Begin(model.NodeScope{NodeID: "wi-1", Role: model.RoleSubAgent, BranchID: "wi-1"}, "wi-1")
+	byScope := manager.Begin(dto.SceneScope{SceneID: "wi-1", Role: model.RoleSubAgent, BranchID: "wi-1"}, "wi-1")
 	byName := manager.BeginNamed("wi-2")
 	if byScope == nil || byName == nil {
 		t.Fatal("both entries must create a scene")

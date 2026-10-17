@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T) {
 			mgr, fake, gate := newTestWorktreeManager(root)
 			gate.choice = "approve"
 			tc.configure(mgr, fake)
-			wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
+			wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 			if wt == nil {
 				t.Fatal("begin must succeed with fake git")
 			}
@@ -69,7 +70,7 @@ func TestWorktreeScenePreservedOnMergeConflict(t *testing.T) {
 	fake.err["merge --no-edit seelex/n1"] = &gitTestErr{}
 	fake.reply["diff --name-only --diff-filter=U"] = "conflict.py"
 
-	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -89,7 +90,7 @@ func TestWorktreeSceneReleasedOnSuccess(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	mgr, fake, gate := newTestWorktreeManager(root)
 	gate.choice = "approve"
-	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -114,7 +115,7 @@ func TestWorktreeSceneSurvivesRelease(t *testing.T) {
 	fake.reply["status --porcelain"] = " M produced.txt"
 	fake.reply["rev-list --count abc123..HEAD"] = "0"
 	fake.reply["rev-list --count"] = "0"
-	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}

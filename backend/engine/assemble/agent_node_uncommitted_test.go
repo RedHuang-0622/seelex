@@ -30,14 +30,14 @@ import (
 
 // worktreeLeftoverCompleter 模拟"子代理产出了结论、但在自己的 worktree 里
 // 留下未提交文件"（典型：只做调研/分析，把临时探针脚本落在工作区）。
-// NodeScope.WorkspaceID 即该节点的 worktree 路径（AgentNode.Run 注入）。
+// SceneScope.WorkspaceID 即该节点的 worktree 路径（AgentNode.Run 注入）。
 type worktreeLeftoverCompleter struct {
 	reply    string
 	leftover string
 }
 
 func (c *worktreeLeftoverCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := seenode.NodeScopeFromContext(ctx)
+	scope, _ := seenode.SceneScopeFromContext(ctx)
 	if scope.WorkspaceID != "" {
 		_ = os.WriteFile(filepath.Join(scope.WorkspaceID, c.leftover), []byte("probe\n"), 0o644)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,13 +74,13 @@ func runNodeFinish(t *testing.T, runErr, finishErr error) nodeFinishEffect {
 	t.Helper()
 	effect := nodeFinishEffect{}
 	deps := seenode.Deps{
-		CurrentSceneScope: func(sceneID string) model.NodeScope {
-			return model.NodeScope{NodeID: sceneID, Role: model.RoleSubAgent, BranchID: sceneID}
+		CurrentSceneScope: func(sceneID string) dto.SceneScope {
+			return dto.SceneScope{SceneID: sceneID, Role: model.RoleSubAgent, BranchID: sceneID}
 		},
 		CurrentAgentFactory: func() frameworknode.AgentFactory {
 			return nodeFinishFakeFactory{agent: nodeFinishFakeAgent{reply: "节点结论", err: runErr}}
 		},
-		BeginNodeWorktree: func(model.NodeScope, string) *worktree.NodeWorktree {
+		BeginNodeWorktree: func(dto.SceneScope, string) *worktree.NodeWorktree {
 			return &worktree.NodeWorktree{Path: t.TempDir(), Branch: "seelex/wu-1", MainBranch: "main"}
 		},
 		FinishNodeWorktree: func(context.Context, string, *worktree.NodeWorktree) error {
@@ -231,7 +232,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 	projectID := router.Workspace()
 
-	scope := seenode.NodeScope{NodeID: "wu-1", Role: model.RoleSubAgent, BranchID: "wu-1"}
+	scope := seenode.SceneScope{SceneID: "wu-1", Role: model.RoleSubAgent, BranchID: "wu-1"}
 	adapter := runtime.newNodeWorkUnit("sess_main", "wu-1", scope)
 	// 编译期：注册点的两个面各归其位——**读数**实现契约的 Unit，**父实现**是契约的 Lifecycle。
 	var _ workunit.Unit = adapter.read

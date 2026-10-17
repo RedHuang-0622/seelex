@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
@@ -157,11 +158,11 @@ func (m *Manager) LimitsFor(name string) config.AccountLimits {
 
 // Selector 返回主链路共享的账号选择器闭包：把请求条件转换为
 // accountpool.AcquireRequest。P2C 池负责实际选择与租赁。
-// 子代理请求（ctx 含 NodeScope）优先走节点账号解析：按角色 + branchID
+// 子代理请求（ctx 含 SceneScope）优先走节点账号解析：按角色 + branchID
 // 走确定性 hash（ResolveForBranch 逻辑）。
 func (m *Manager) Selector() func(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
 	return func(ctx context.Context, _ []types.Message, _ []types.Tool) accountpool.AcquireRequest {
-		if scope := model.NodeScopeFromContextOrEmpty(ctx); scope.NodeID != "" {
+		if scope := dto.SceneScopeFromContextOrEmpty(ctx); scope.SceneID != "" {
 			return m.nodeRequest(scope)
 		}
 		m.mu.RLock()
@@ -191,7 +192,7 @@ func (m *Manager) Selector() func(ctx context.Context, messages []types.Message,
 	}
 }
 
-// mainChainRolePredicate 返回主链路（无 NodeScope）的角色约束谓词：只允许
+// mainChainRolePredicate 返回主链路（无 SceneScope）的角色约束谓词：只允许
 // agent 角色的账号（有 provider 过滤时再叠加 provider 维度）。没有可用候选时
 // 返回 nil（不约束），调用方保持原语义。
 func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.AccountSnapshot) bool {
@@ -212,7 +213,7 @@ func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.Accou
 
 // nodeRequest 按节点作用域解析账号租赁请求：binding 显式 AccountID 直接
 // pin；否则按 role + planID:branchID 确定性 hash 选择。
-func (m *Manager) nodeRequest(scope model.NodeScope) accountpool.AcquireRequest {
+func (m *Manager) nodeRequest(scope dto.SceneScope) accountpool.AcquireRequest {
 	request := accountpool.AcquireRequest{}
 	if scope.BranchID == "" {
 		// 无显式 branch 钉扎（fork 双子代理/plan 默认）：按角色选当前仍有

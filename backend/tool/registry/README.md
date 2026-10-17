@@ -63,7 +63,7 @@ flowchart TB
 
 - `Router`：Deps 闭包注入 Runtime 能力（filesystem/projectScope/docker
   恢复/诊断），注册 read/write/bash 等工具。路径根解析顺序：worktree 节点作用域
-  （`NodeScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
+  （`SceneScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
   telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
   会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
 - **前台工具调用的终止（停止按钮）**：同步 `bash` 的 run 挂在回合 ctx 上，
@@ -201,7 +201,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   两处各写一份就会漂移（新加的项目作用域工具被晚注册顶掉，或莫名其妙被拒）。
 - `path_gate.go`：**路径门前移**（P1 / M2-C5）——把 ProjectScope 越界检查放在权限门
   **之前**（事件 → 路径门 → 权限门 → 诊断 → handler），越界路径直接拒、不先弹审批。
-  路径根解析与 handler 同源（`resolveScopedPath`，含 NodeScope worktree 根）；本文件只维护
+  路径根解析与 handler 同源（`resolveScopedPath`，含 SceneScope worktree 根）；本文件只维护
   "哪个工具的哪个入参是路径"的表（`path` / `paths[]` / `workdir`）。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。

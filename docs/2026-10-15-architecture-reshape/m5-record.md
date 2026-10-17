@@ -2101,3 +2101,81 @@ Supervisor/TLEvaluator/终态 gate/TL 指令队列/评审过程投影/`goal_team
 
 验收：`go build` / `go vet` 全 0；`go test ./...` 95 包 ok，仅 `application/core`
 基线 3 例红；README 引用 179 个 0 漂移。
+
+## 60. 内部 Plan 引擎退役（2026-10-17，`3d2a9ab7`）
+
+用户裁决：`plan_*` 工具面退役后，内部 Plan 执行器与 NodeScope 一并收口；
+worktree 生命周期归 `workunit.Host`，teamwork 不依赖 Plan 看板。
+
+本片落地：
+
+- **删除整包**：`backend/tool/plan/**`（Executor/ToolProvider/Policy/Preflight/
+  ReplanGuard/NodeFactory/BranchRouting/事件投影）共 22 个文件；`runtime_plan.go`
+  改为 `runtime_subagent.go`。
+- **fork 直连节点**：`fork_subagents` 按每条 spec 直接构造 `AgentNode`，不再
+  经过 DAG；子代理作业的 best-effort 语义保留（单条失败不连坐兄弟）。
+- **节点输入归位**：`SeelexNodeInput` / `NodeBudgetInput` 的唯一实现移到
+  `backend/tool/node/input.go`；Plan 包内的类型别名随包删除。
+- **端口与权限面**：删除 `SetPlanPolicy*`、`SetPlanBranchBinding`、
+  `SetPlanApprovalGate`、`SetPlanNodeCallback`、`PlanNodeEventChannel`、
+  `ReplanMetrics*`、`PrepareReplan`、`RestorePlan`、`SetPlanCheckpointStore`、
+  `ResumePlan`；`plan_*` 权限白名单、Plan 审批门、replan 交互与错误文案一并删除。
+- **策略改名**：`dto.PlanPolicy` → `dto.SubagentPolicy`，effort 档位继续决定
+  fork 数量/并发/节点循环上限；按会话槽读取（后台会话不继承视图会话）。
+- **FNV 收敛**：新增 `internal/stablehash.FNV1a32` + 已知向量；node 会话号、
+  账号定序、员工权限主体名三处共用同一算法实现，各自保留语义契约。
+- **历史只读投影**：`application/core/plan_tools.go` 只保留 `planProjectionLocked` /
+  `mirrorPlanProjectionForSessionLocked`；旧会话的 Plan 栈仍可显示，但不再有执行入口。
+
+删除清单（文件 → 新唯一位置）：
+
+- `backend/tool/plan/**` → 删除；fork 执行面 → `backend/engine/assemble/runtime_subagent.go`；
+- Plan 节点输入 → `backend/tool/node/input.go`；
+- 节点会话号派生 → `backend/tool/node/session_id.go`；
+- FNV-1a → `internal/stablehash/fnv.go`；
+- 历史 Plan 投影 → `application/core/plan_tools.go`。
+
+验收：
+
+- `go build ./...` / `go build -tags "gui,desktop,production" ./...` / `go vet ./...` 全 0；
+- `go test ./... -count=1`：除 `application/core` 基线 3 例外全绿（含 `backend/engine/assemble`
+  110.7s、worktree 81.8s、`e2e` 38.3s）；
+- `python scripts/gen_core_readme_index.py --check`：90 个 README 无漂移；
+- `python scripts/check_readme_refs.py --strict`：179 个 README / 0 未解析。
+
+剩余：NodeScope → SceneScope（#2）、worktree dirty/merge 判定收口（#3）、
+`workspace_usecase` 搬迁（#4）、P21 装配片（#5）、`-race` 终验（#7）。
+
+## 61. NodeScope 退役：SceneScope + WorkScope（2026-10-17）
+
+Plan 执行器删除后，`NodeScope` 只剩“Plan 节点作用域”的名字；workunit 与 fork
+借用的只是“现场身份 + 角色 + 工作区”。本片把它收成后台工作现场的通用形状。
+
+- **契约形状**：`contract/dto/scene_scope.go` 新增 `SceneScope{SceneID, Role,
+  BranchID, WorkspaceID, TaskID}` 与窄读面 `WorkScope{SceneID, Role,
+  WorkspaceID}`（`SceneScope.Work()`）；ctx 注入/读取函数改为
+  `WithSceneScope` / `SceneScopeFromContext` / `SceneScopeFromContextOrEmpty`。
+- **删除别名**：`contract/dto/node_scope.go`、`internal/model/node_scope.go`、
+  `backend/tool/node/scope.go` 全部删除；`rg NodeScope --glob '*.go'` = 0。
+- **执行者**：`AgentNode.Run` 注入 `SceneScope`，`SceneScopeFor` 以场景 id 解析；
+  `WorktreeManager.Begin` 接收 `SceneScope`；workunit 的 `resolvedSceneScope`
+  兜底为 subagent 场景。
+- **五类读者**：路径门（`WorkspaceID`）、权限主体（`SceneID + Role`）、账号选择
+  （`SceneID + BranchID + Role`）、stream 路由（`Role`）、telemetry/子代理工具
+  事件（`SceneID`）全部改读 `SceneScope`；多数只取 `WorkScope()` 的三格。
+- **兼容面**：`backend/tool/node/scene_scope.go` 仅保留 `SceneScope` 与三个契约
+  函数的同身份别名，供 node 域测试与装配点使用；类型本体仍在 `contract/dto`。
+
+验收：
+
+- `go build ./...` / `go build -tags "gui,desktop,production" ./...` / `go vet ./...` 全 0；
+- `go test ./... -run '^$'` 全仓测试编译面绿；
+- `go test ./backend/tool/node/ ./backend/tool/registry/ ./backend/tool/io/media/
+  ./internal/stream/ ./internal/telemetry/` 绿；
+- `go test ./backend/engine/assemble/ -run 'TestNode|TestFork|TestWorkunit|TestChain|
+  TestSubAgent|TestMergeBack|TestWorktree'` 绿；
+- `python scripts/check_readme_refs.py --strict`：180 个 README / 0 未解析。
+
+注意：当前工作树同时有其它会话的 worktree/P21/workspace WIP，本片提交边界需与
+这些文件分开；`gen_core_readme_index.py` 的 `workspace_host.go` 分卷归属由
+workspace 会话处理。

@@ -23,7 +23,7 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](backend/engine/assemble/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
 
-主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
+主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型通过 <code>fork_subagents</code> 派发独立子代理；每条子代理拥有独立 Session、SceneScope、PromptBlocks、账号路由和 token budget，完成后把 findings、decisions 与 progress 结构化 merge-back 回父会话。团队级编排走 <code>teamwork</code>；分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>），派发只回受理回执，产出按句柄消费式取回。WorkPlan DAG 与 <code>plan_*</code> 工具面已退役，历史 Plan 仅作只读展示。
 
 上下文处理采用预算驱动的 Context Engineering 流程。Seelex 会为输出预留 token、保留最近对话窗口、压缩窗口外历史，并把超大 Tool Result 归档为可读回的引用。文件和 Shell 工具则同时受 ProjectScope 与 Permission Policy 约束：前者负责 workspace root 的路径 containment（按会话分格，后台与并行会话各用各的项目根），后者在合法范围内继续执行 allow、ask 或 deny，并通过 Human-in-the-loop Interaction 完成审批。桌面操控与用户图片走同一条会话媒体通道，额外受过平台门控、媒体配额与逐次审批约束；长任务则可以选择进入 goal 目标栈，由独立上下文的裁决角色评审「是否完成」。
 
@@ -60,8 +60,8 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 能力 | 当前实现 |
 |---|---|
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
-| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>bg_manage</code> 取回） |
-| 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_propose_finish</code> / <code>goal_done</code>——<code>goal_done</code> 是主代理（即 TL）的真收口，<code>goal_propose_finish</code> 才送终态 gate，员工与子代理看不到 <code>goal_done</code> |
+| 子 Agent 与团队 | <code>fork_subagents</code> 后台作业派发、独立 Session / SceneScope / worktree、结构化 merge-back；<code>teamwork</code> 负责团队计划、派发、回执与整队收口；历史 Plan 只读展示，不再有执行入口 |
+| 目标治理 | 会话级 LIFO goal 栈、状态机与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_done</code>。ADVISOR / TechLeader 评审环已按裁决删除，团队编排归 teamwork |
 | 代理团队与工作台 | leader + 异步 worker 的 teamwork（旧 TeamSpec 团队工厂、团队库/员工库显式装配与成员发言顺序注册表已随 J-1a 退场）；leader 工具面 <code>team_plan</code> / <code>team_work</code> / <code>team_item</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_accept</code> / <code>team_fail</code> / <code>team_recover</code> / <code>team_milestone</code> / <code>team_context</code> / <code>team_items</code> / <code>team_close</code>——<code>team_close</code> 是整队收口与回收的唯一入口（幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>，服务团队作业表）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；**句柄自带来源**（本表 <code>bt-</code> / <code>bs-</code>，团队表 <code>bteam-</code>），跨表调用显式报错并点名对偶工具；串行 <code>bash</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回（<code>read_tool_result</code> / <code>read_compressed_turn</code> / <code>search_history</code>）；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩；压缩失败**只留痕**——不改写 agent 的上下文、不中断会话 |
@@ -312,9 +312,9 @@ Plan 在执行前完成：
 - 节点引用、边和拓扑校验。
 - cycle detection 与 topological order。
 - Effort 对节点数、串并行和最大并发的策略约束。
-- 执行模式是**任务级**决策而不是 Plan 策略：<code>tasklist</code> 由主代理自己按 DAG 串行执行（逐节点 <code>task_check_node</code> 打点、最后 <code>task_complete</code> 收尾），<code>plan</code> 交给 <code>plan_run</code> 起子代理并行。
+- 子代理由 <code>fork_subagents</code> 按条派发（不经 DAG），团队级工作由 <code>teamwork</code> 编排；每条子代理获得独立 Session、SceneScope、PromptBlocks、账号路由和 token budget。
 
-每个 <code>kind: agent</code> 节点获得独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget。并行分支不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
+并行子代理不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
 
 这个设计属于 **Multi-Agent Orchestration / Subagent Orchestration**，但当前仍是单进程内编排，不宣称已经实现跨组织 A2A Protocol。
 
@@ -402,7 +402,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - **落盘**：PNG 以内容寻址写入会话媒体分区 <code>&lt;sessionRoot&gt;/meta/&lt;sha256&gt;/&lt;原名&gt;</code>，工具结果只挂 <code>media:&lt;sha256&gt;</code> 引用与尺寸/缩放元数据；同一份字节只落一份，改名写入记为 alias。
 - **随图**：画面进入「待随图队列」，由最贴近 provider 的一层挂到**下一次**模型请求上；<code>Take</code> 即清空，同一张图至多送一次，避免反复占用 token 与配额。包装位置刻意在 request log **之内**，因此请求日志记录的就是真正发出去的消息。
 - **分轴限额**：文本大结果软限 60000 字符（可截断并归档 <code>result_ref</code>），媒体单件 8 MB、长边 4096 像素、每会话 500 件、会话配额 256 MB，且**永不截断**；配额只统计二进制载荷，与文本大结果独立记账，回收以工具结果引用集为准（<code>CollectMedia</code>，支持 dry-run）。
-- **归属按执行会话解析**：主代理按会话绑定，子代理与 Plan 节点按 <code>NodeScope.WorkspaceID</code>，刻意不读 Router 的活跃写作用域——并行执行期间视图可能已切走，用它解析会把画面写进另一个项目。
+- **归属按执行会话解析**：主代理按会话绑定，子代理与 Plan 节点按 <code>SceneScope.WorkspaceID</code>，刻意不读 Router 的活跃写作用域——并行执行期间视图可能已切走，用它解析会把画面写进另一个项目。
 
 门控分四层：平台（不支持的平台不注册工具）、<code>SEELEX_COMPUTER_USE=0/off/false/no</code> 可整体关闭、<code>config/seele.yaml</code> 的 <code>permission.rules</code> 逐次 allow/ask/deny、子代理不可见**会改变桌面**的工具（<code>computer_focus</code> 与键鼠注入类；子代理只保留只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code>、<code>computer_wait</code>）。默认规则中截屏、窗口枚举与可滚动面板识别为 <code>ask</code>（画面/屏幕内容进入模型上下文），键鼠注入逐次 <code>ask</code>，<code>computer_wait</code> 为 <code>allow</code>。
 

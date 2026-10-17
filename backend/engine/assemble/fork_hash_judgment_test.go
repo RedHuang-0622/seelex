@@ -116,7 +116,7 @@ func forkScriptedProduct(taskID string) string {
 	return "脚本化产物-" + hex.EncodeToString(sum[:])[:16]
 }
 
-// scriptedProductCompleter 按**子代理身份（NodeScope.TaskID）**作答，并记录每次调用
+// scriptedProductCompleter 按**子代理身份（SceneScope.TaskID）**作答，并记录每次调用
 // 服务了谁。
 //
 // 为什么产物不按"账号"或"目标文本"给：这两条路都被实测证伪过（2026-10-07，
@@ -145,12 +145,12 @@ type scriptedProductCompleter struct {
 }
 
 func (c *scriptedProductCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := seenode.NodeScopeFromContext(ctx)
+	scope, _ := seenode.SceneScopeFromContext(ctx)
 	c.mu.Lock()
 	c.served = append(c.served, scope.TaskID)
 	c.mu.Unlock()
 	if scope.TaskID == "" {
-		return types.Message{}, fmt.Errorf("脚本化 completer 拿不到子代理身份（NodeScope.TaskID 为空），产物无从确定")
+		return types.Message{}, fmt.Errorf("脚本化 completer 拿不到子代理身份（SceneScope.TaskID 为空），产物无从确定")
 	}
 	reply := forkScriptedProduct(scope.TaskID)
 	return types.Message{Role: "assistant", Content: &reply}, nil

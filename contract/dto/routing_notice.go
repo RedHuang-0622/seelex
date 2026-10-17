@@ -33,7 +33,7 @@ type RoutingNotice struct {
 	//   - "unpinned_selection"：请求未固定账号，由账号池在多账号中选定。
 	Reason string `json:"reason"`
 	// Role 是发起这次请求的角色（agent / subagent / goalplan）：主链路 = agent，
-	// 节点请求取 NodeScope.Role。仅 request 钩子填充。
+	// 节点请求取 SceneScope.Role。仅 request 钩子填充。
 	Role string `json:"role,omitempty"`
 	// From 是换号前的账号（仅 failover 有值）；To 是实际承接的账号。
 	From string `json:"from,omitempty"`

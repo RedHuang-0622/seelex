@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
 	"time"
 
@@ -68,8 +69,8 @@ func TestPermissionGateDeniesWithFrameworkError(t *testing.T) {
 // ctl/adm 位）覆盖"位齐 → 放行"与"位缺 → 不可见"两侧。
 func TestPermissionGateRoutesByToolDeclaredClusters(t *testing.T) {
 	cfg := policy.DefaultPermissionConfig()
-	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{
-		NodeID: "node-1", Role: model.RoleSubAgent,
+	subCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "node-1", Role: model.RoleSubAgent,
 	})
 
 	cases := []struct {

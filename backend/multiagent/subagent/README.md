@@ -391,7 +391,7 @@ go build ./...
 - `func (s *ToolEventState) SetCallback(callback func(SubagentToolEvent))` — SetCallback 注入子代理工具活动观察者。主代理工具仍由 ToolHookBridge
 - `func (s *ToolEventState) Subscribe(fn func(SubagentToolEvent)) func()` — Subscribe 注册额外的工具事件观察者（多消费者：main 的 SetCallback 之外，
 - `func (s *ToolEventState) Publish(event SubagentToolEvent)` — Publish 派发一条子代理工具事件（无观察者则丢弃）。
-- `func (s *ToolEventState) Middleware() tools.Middleware` — Middleware 从 NodeScope 识别子代理调用并投影 started/completed。
+- `func (s *ToolEventState) Middleware() tools.Middleware` — Middleware 从 SceneScope 识别子代理调用并投影 started/completed。
 
 ### tool_events_test.go
 

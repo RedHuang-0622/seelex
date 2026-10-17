@@ -9,7 +9,6 @@ import (
 
 	"github.com/RedHuang-0622/Seele/tools"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // SubagentToolEvent 是 Runtime 对子代理工具调用的稳定投影，不暴露 Seele
@@ -85,24 +84,24 @@ func (s *ToolEventState) Publish(event SubagentToolEvent) {
 	}
 }
 
-// Middleware 从 NodeScope 识别子代理调用并投影 started/completed。
+// Middleware 从 SceneScope 识别子代理调用并投影 started/completed。
 // 中间件包在权限门外层，因此权限拒绝也会以 completed/error 返回前端。
 func (s *ToolEventState) Middleware() tools.Middleware {
 	return func(name string, next tools.ToolHandler) tools.ToolHandler {
 		return tools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
-			scope, ok := model.NodeScopeFromContext(ctx)
-			if !ok || scope.NodeID == "" || scope.Role != model.RoleSubAgent {
+			scope, ok := dto.SceneScopeFromContext(ctx)
+			if !ok || scope.SceneID == "" || scope.Role != dto.RoleSubAgent {
 				return next.Execute(ctx, argsJSON)
 			}
 			startedAt := time.Now()
 			id := fmt.Sprintf("subtool-%d", s.seq.Add(1))
 			s.Publish(SubagentToolEvent{
-				ID: id, NodeID: scope.NodeID, Name: name, Arguments: argsJSON,
+				ID: id, NodeID: scope.SceneID, Name: name, Arguments: argsJSON,
 				Status: dto.ToolEventRunning, StartedAt: startedAt,
 			})
 			result, err := next.Execute(ctx, argsJSON)
 			completed := SubagentToolEvent{
-				ID: id, NodeID: scope.NodeID, Name: name, Arguments: argsJSON,
+				ID: id, NodeID: scope.SceneID, Name: name, Arguments: argsJSON,
 				Result: result, Status: dto.ToolEventSuccess, StartedAt: startedAt,
 				Duration: time.Since(startedAt),
 			}

@@ -34,6 +34,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
@@ -189,7 +190,7 @@ func (p *hostPorts) BeginScene(ctx context.Context, own workunit.Ownership, node
 		}
 		return scene, nil
 	}
-	scope := model.NodeScope{NodeID: scene.NodeID, Role: model.AccountRole(own.Role)}
+	scope := dto.SceneScope{SceneID: scene.NodeID, Role: model.AccountRole(own.Role)}
 	if wt := p.r.beginNodeWorktree(scope, scene.NodeID); wt != nil {
 		scene.Worktree = wt.Branch
 	}
@@ -397,7 +398,7 @@ func workerRequest(sessionPath string, own workunit.Ownership) teamwork.WorkerRe
 //
 // 没有 ctx：node 域的 Deps 建现场回调本来就不带 ctx（建现场是纯现场动作），Begin 里
 // subagent 那一路也不写账本。
-func (r *Runtime) beginNodeUnit(scope model.NodeScope, nodeID string) *worktree.NodeWorktree {
+func (r *Runtime) beginNodeUnit(scope dto.SceneScope, nodeID string) *worktree.NodeWorktree {
 	if r == nil {
 		return nil
 	}
@@ -419,22 +420,22 @@ func (r *Runtime) finishNodeUnit(ctx context.Context, nodeID string, _ *worktree
 	if mainSessionID == "" {
 		mainSessionID = r.MainSessionID()
 	}
-	scope := resolvedNodeScope(ctx, nodeID)
+	scope := resolvedSceneScope(ctx, nodeID)
 	unit := r.newNodeWorkUnit(mainSessionID, nodeID, scope)
 	_, err := unit.Finish(ctx, workunit.Result{}, nil)
 	return err
 }
 
-// resolvedNodeScope 取当前节点作用域的读数（ctx 上有节点作用域时用它，否则按子代理角色
+// resolvedSceneScope 取当前节点作用域的读数（ctx 上有节点作用域时用它，否则按子代理角色
 // 兜底：现场端口只按角色判"要不要一份独立现场"）。
-func resolvedNodeScope(ctx context.Context, nodeID string) model.NodeScope {
-	if scope, ok := model.NodeScopeFromContext(ctx); ok {
-		if strings.TrimSpace(scope.NodeID) == "" {
-			scope.NodeID = nodeID
+func resolvedSceneScope(ctx context.Context, nodeID string) dto.SceneScope {
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok {
+		if strings.TrimSpace(scope.SceneID) == "" {
+			scope.SceneID = nodeID
 		}
 		return scope
 	}
-	return model.NodeScope{NodeID: nodeID, Role: model.RoleSubAgent}
+	return dto.SceneScope{SceneID: nodeID, Role: model.RoleSubAgent}
 }
 
 // nodeWorktreeFor 返回节点在册的现场（无管理器/无现场 → nil）。

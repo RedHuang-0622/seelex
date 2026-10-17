@@ -15,7 +15,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -124,7 +123,7 @@ func (s *SubagentTree) RegisterFork(mainSessionID, parentID string, specs []fork
 		return
 	}
 	if parentID == "" {
-		parentID = model.MainAgentNodeID
+		parentID = dto.MainAgentNodeID
 	}
 	mainSessionID = strings.TrimSpace(mainSessionID)
 	s.mu.Lock()
@@ -373,7 +372,7 @@ func (s *SubagentTree) Restore(records []store.NodeSessionRecord, mainSessionID 
 		}
 		node := &subagentNodeRecord{
 			id:            record.NodeID,
-			parentID:      model.MainAgentNodeID,
+			parentID:      dto.MainAgentNodeID,
 			goal:          record.Goal,
 			status:        restoredSubAgentStatus(record.Status),
 			summary:       record.Summary,
@@ -401,8 +400,8 @@ func (s *SubagentTree) Restore(records []store.NodeSessionRecord, mainSessionID 
 			}
 		}
 		s.nodes[node.id] = node
-		if !containsString(s.children[model.MainAgentNodeID], node.id) {
-			s.children[model.MainAgentNodeID] = append(s.children[model.MainAgentNodeID], node.id)
+		if !containsString(s.children[dto.MainAgentNodeID], node.id) {
+			s.children[dto.MainAgentNodeID] = append(s.children[dto.MainAgentNodeID], node.id)
 		}
 	}
 	s.mu.Unlock()
@@ -510,9 +509,9 @@ type treeProjectionNode struct {
 // MarkRunning 形成锁序死锁，也不会被运行中的长流式挡住。
 func (s *SubagentTree) projection() []SubAgentTreeNode {
 	s.mu.Lock()
-	mainChildren := append([]string(nil), s.children[model.MainAgentNodeID]...)
+	mainChildren := append([]string(nil), s.children[dto.MainAgentNodeID]...)
 	for id, record := range s.nodes {
-		if record.parentID == model.MainAgentNodeID {
+		if record.parentID == dto.MainAgentNodeID {
 			continue
 		}
 		if _, ok := s.nodes[record.parentID]; !ok {
@@ -548,7 +547,7 @@ func (s *SubagentTree) projection() []SubAgentTreeNode {
 	}
 	s.mu.Unlock()
 
-	root := SubAgentTreeNode{ID: model.MainAgentNodeID, Status: SubAgentRunning}
+	root := SubAgentTreeNode{ID: dto.MainAgentNodeID, Status: SubAgentRunning}
 	for _, childID := range mainChildren {
 		root.Children = append(root.Children, s.projectNode(childID, records, make(map[string]bool)))
 	}

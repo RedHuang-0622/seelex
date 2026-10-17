@@ -19,7 +19,7 @@ import (
 type Deps struct {
 	CurrentSubagentPolicy func(context.Context) dto.SubagentPolicy
 	// RunSubagent 直接执行一条子代理（不经过 Plan DAG）：入参是 spec 身份与目标，
-	// 返回该子代理的产出。worktree/NodeScope/merge-back 仍在执行体里。
+	// 返回该子代理的产出。worktree/SceneScope/merge-back 仍在执行体里。
 	RunSubagent              func(ctx context.Context, id, goal, taskID string, maxLoops int) (string, error)
 	TaskResolveByKeyFor      func(sessionID, key string) (task.TaskRecord, bool, error)
 	TaskAddFor               func(sessionID string, spec task.TaskSpec) (task.TaskRecord, bool, error)
@@ -109,12 +109,12 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	}
 
 	// 子代理树（内存态，不落盘）：记录 parent/child 链——父节点是发起
-	// fork 的子代理（NodeScope 携带节点 ID；嵌套 fork）或主代理（main 合成根）。
+	// fork 的子代理（SceneScope 携带节点 ID；嵌套 fork）或主代理（main 合成根）。
 	// 归属主会话按执行 ctx 的会话键标注（嵌套 fork 由树从父节点继承）：工作
 	// 表格行按它归属，缺了它就只能按"谁触发同步"归属（跨会话污染）。
-	parentID := model.MainAgentNodeID
-	if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
-		parentID = scope.NodeID
+	parentID := dto.MainAgentNodeID
+	if scope, ok := dto.SceneScopeFromContext(ctx); ok && scope.SceneID != "" && scope.Role == model.RoleSubAgent {
+		parentID = scope.SceneID
 	}
 	t.deps.SubagentTreeRegisterFork(seetelemetry.SessionIDFromContext(ctx), parentID, input.Subagents)
 	// fork 超时护栏：一批子代理的编排总时长 = 全部子代理工作量之和；通用工具

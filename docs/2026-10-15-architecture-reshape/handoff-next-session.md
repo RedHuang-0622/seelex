@@ -281,18 +281,21 @@ sequenceDiagram
 
 | # | 事项 | 范围 | 状态/前置 |
 |---|---|---|---|
-| 1 | 删内部 Plan 引擎 | `backend/tool/plan/**`、`backend/engine/assemble/runtime_plan.go`、`application/core/plan_tools.go`、Plan 投影与历史用例 | 模型工具面已退役（`920cad16`）；worktree 的 plan 专用收尾随本片删除 |
-| 2 | 删 `NodeScope` | 先把 workunit/fork 改成 `SceneScope`，再迁移路径门/权限/账号/stream/telemetry 五类读者 | 前置 #1 与 workunit 现场改造 |
-| 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | 生命周期判据留在 `backend/workunit/lifecycle.go` 的 `Host` |
+| 1 | 删内部 Plan 引擎 | `backend/tool/plan/**`、`runtime_plan.go`、Plan 事件/端口/审批/replan 面 | **已完成（`3d2a9ab7`）**；历史 Plan 只保留只读投影 |
+| 2 | 删 `NodeScope` | workunit/fork 改 `SceneScope`，路径门/权限/账号/stream/telemetry 五类读者迁移 | **代码已完成（待提交）**：`SceneScope` + `WorkScope`，全仓 `NodeScope` 归零 |
+| 3 | worktree 适配器收尾 | 删 `WorktreeManager.Finish` 的 plan 审批/dirty/合并判定；保留建/合并/认领/清理 git 原语 | **部分完成**：审批门已删；dirty/rebase/merge 判定仍在，判据归 `Host` 待收口 |
 | 4 | `workspace_usecase` 搬迁 | `application/core/workspace_usecase.go` → `middle/switch/workspace/` | 端口反转已完成（见 §8.2） |
 | 5 | P21 剩余装配片 | `runtime_teamwork*`、`workunit_team_records`、`runtime_context` 等宿主动作与端口接线 | 判据已下沉；剩余主要是装配面，见 `m5-record` §45–§51 |
-| 6 | FNV 原语 | `internal/stablehash.FNV1a32` + 已知向量；三处保留各自语义契约 | 待裁决，建议按 §8.4 执行 |
-| 7 | 最终验收 | build ×2、vet、全量 test、前端 node test、README index/refs、`-race`、交接文档 | 基线 3 例红见 §8.3 |
+| 6 | FNV 原语 | `internal/stablehash.FNV1a32` + 已知向量；三处保留各自语义契约 | **已完成（`3d2a9ab7`）** |
+| 7 | 最终验收 | build ×2、vet、全量 test、前端 node test、README index/refs、`-race`、交接文档 | build/vet/全量 test/README 已跑；只剩 `-race` 与最终文档；基线 3 例红见 §8.3 |
 
 注意：`backend/tool/node` **不能整包删除**。`agent_node.go` 是 fork 单条子代理的执行器，
 P21 之后仍被 `runForkSubagent` 使用；本片只删 Plan 专用的 `coordinator.go`、
 `node_phase_words.go` 与 `scope.go` 别名，并把 `AgentNode` 的作用域参数换成 #2 的
 `SceneScope`。
+
+可认领任务书在 [`work-prompts/`](work-prompts/README.md)：worktree 收尾、
+`workspace_usecase` 搬迁、三个基线红、P21 装配片各一份，均写明了禁改面与验证命令。
 
 ### 8.1 删除 Seele plan node / NodeScope（先解 fork 的耦）
 
@@ -308,30 +311,20 @@ P21 之后仍被 `runForkSubagent` 使用；本片只删 Plan 专用的 `coordin
   不再经过 Plan DAG。`plan_*` 剩下的只是用例面：16 个测试文件仍在钉工具入口/
   节点/合并链，删完这些用例就可以移除 plan 注册并删 `backend/tool/plan`；
   `backend/tool/node` 只删 Plan 专用的协调器/阶段词/作用域别名，`agent_node.go` 保留。
-- **plan_* 模型工具面已退役（2026-10-17）**：`plan_load/plan_run/plan_status/
-  plan_clear/plan_validate/plan_export` 不再注册；历史用例改用
-  `runPlanToolForTest` 直调 provider handler。**剩余**：删内部 `backend/tool/plan`
-  与 `backend/tool/node` 的 Plan 专用文件（连同这些内部用例）、`runtime_plan.go` 的 Plan 段、
-  `application/core/plan_tools.go` 的 Plan 投影，最后删 `NodeScope`。
+- **plan_* 模型工具面与内部 Plan 引擎已退役（`3d2a9ab7`）**：`plan_load/plan_run/
+  plan_status/plan_clear/plan_validate/plan_export` 不再注册；`backend/tool/plan/**`
+  整包删除，`runtime_plan.go` → `runtime_subagent.go`；历史 Plan 只保留应用层只读投影。
+  `NodeScope` 已退役为 `SceneScope`（见 §8.0 #2）。
 - **worktree 生命周期已在 workunit**：`workunit.Host`（`lifecycle.go`）拥有
   Begin/Finish/Reclaim/Recover 的判据与顺序；`backend/tool/worktree` 是现场端口
   （`SceneFace`）的 git 适配器。plan 节点专用的 `WorktreeManager.Finish`/审批/
   dirty 判定随 plan 删除；workunit 需要的建/合并/认领/清理保留。
 
 ```text
-backend/tool/plan/**                 （plan_load/run/status/clear/validate/export）
-backend/tool/node/coordinator.go     （Plan 节点协调器）
-backend/tool/node/node_phase_words.go（Plan 阶段词）
-backend/tool/node/scope.go           （NodeScope 别名；agent_node.go 保留给 fork）
-backend/engine/assemble/runtime_plan.go（plan executor / node deps / node factory）
-backend/engine/assemble/runtime.go    （planExecutor 构造与 Provider 注册）
-contract/dto/node_scope.go
-internal/model/node_scope.go
-application/core/plan_tools.go       （PlanState 投影；若产品 Plan 面板一起退场）
-contract/dto/plan.go / plan_run.go
-tui/plan.go                          （Plan 面板；工具面退役后再决定是否保留只读视图）
-wiring/bootstrap/permission.go       （plan_* 白名单条目）
-contract/ports.go                    （SetPlanPolicy/ReplanMetrics/PlanNodeEventChannel）
+contract/dto/scene_scope.go          （SceneScope / WorkScope 类型本体）
+backend/tool/node/scene_scope.go     （同身份别名 + ctx 函数转发）
+backend/tool/node/coordinator.go     （会话/树/任务/预算/PromptBlocks 协调器；保留）
+backend/engine/assemble/workunit_assembly.go（resolvedSceneScope / beginNodeUnit）
 ```
 
 删除前要先把 fork 的执行面从 plan 执行器解耦，并把 workunit 的现场改成自己的
@@ -362,18 +355,17 @@ application/core/workspace_usecase.go → middle/switch/workspace/
 
 | 位置 | 用途 | 换算法的后果 |
 |---|---|---|
-| `backend/tool/plan/branch_routing.go` 的 `StableHash` / `NodeSessionID` | 由节点提示词派生 `node-<hex>` 会话号 | 所有已存在的 nodeID 变化 → checkpoint/恢复定位失配 |
+| `backend/tool/node/session_id.go` 的 `NodeSessionID` | 由节点提示词派生 `node-<hex>` 会话号 | 所有已存在的 nodeID 变化 → checkpoint/恢复定位失配 |
 | `backend/engine/account/account.go` 的 `StableIndex` | 账号池按 seed 确定性选号 | 同一会话/角色被钉到不同账号 → 限流与成本分布变化 |
 | `backend/tool/registry/permission_policy.go` 的 `employeeSubjectHash` | 非 ASCII 角色名归一后加 8 位短哈希 | 主体名变化 → 权限配置里的 `emp_*` 键全部失配 |
 
 **它不是加密哈希**：32 位、可碰撞、只保证"同输入同输出"。三处都靠"确定性"而不是
 "抗碰撞"工作（nodeID 还有完整 hex、主体名还有可读 slug 前缀）。
 
-**建议**：抽一个 `internal/stablehash.FNV1a32(string) uint32`（纯 stdlib）让三处共用
-**算法实现**，但保留三处各自的**语义契约**（对什么做哈希、结果怎么用），并加已知向量
-测试 + 文件头写明"这三处是持久兼容面，换算法必须迁移 nodeID/账号绑定/权限主体名"。
-这样满足"同一算法只有一份实现"，又不会把三个冻结点悄悄耦成一次不可见的全局变更。
-不建议把三处直接合并成一个业务函数——它们哈希的输入与消费方式不同。
+**已实施（`3d2a9ab7`）**：`internal/stablehash.FNV1a32(string) uint32`（纯 stdlib）
+是三处唯一的算法实现；三处各自的**语义契约**（对什么做哈希、结果怎么用）仍分开。
+已知向量测试在 `internal/stablehash/fnv_test.go`。没有把三处合并成一个业务函数——
+它们哈希的输入与消费方式不同。
 
 ---
 

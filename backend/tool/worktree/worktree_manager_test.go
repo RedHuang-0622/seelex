@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit, *approveGa
 func TestWorktreeManagerBeginDegradesOutsideGit(t *testing.T) {
 	mgr, fake, _ := newTestWorktreeManager(filepath.Join(t.TempDir(), "plain"))
 	fake.err["rev-parse --is-inside-work-tree"] = &gitTestErr{}
-	if wt := mgr.Begin(model.NodeScope{NodeID: "x", Role: model.RoleSubAgent, BranchID: "x"}, "x"); wt != nil {
+	if wt := mgr.Begin(dto.SceneScope{SceneID: "x", Role: model.RoleSubAgent, BranchID: "x"}, "x"); wt != nil {
 		t.Fatalf("non-git project must degrade to nil, got %+v", wt)
 	}
 	if _, ok := mgr.Info("x"); ok {
@@ -101,7 +102,7 @@ func (*gitTestErr) Error() string { return "not a git repository" }
 func TestWorktreeManagerBeginRegistersAndInfo(t *testing.T) {
 	root := t.TempDir()
 	mgr, _, _ := newTestWorktreeManager(root)
-	wt := mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("worktree creation must succeed with fake git")
 	}
@@ -120,7 +121,7 @@ func TestWorktreeManagerFinishDirtyUncommittedPreservesScene(t *testing.T) {
 	fake.reply["status --porcelain"] = " M produced.txt"
 	fake.reply["rev-list --count abc123..HEAD"] = "0"
 	fake.reply["rev-list --count"] = "0"
-	wt := mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -138,7 +139,7 @@ func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T) {
 	root := t.TempDir()
 	mgr, fake, _ := newTestWorktreeManager(root)
 	fake.reply["rev-list --count"] = "0"
-	wt := mgr.Begin(model.NodeScope{NodeID: "noop", Role: model.RoleSubAgent, BranchID: "noop"}, "noop")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "noop", Role: model.RoleSubAgent, BranchID: "noop"}, "noop")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -154,7 +155,7 @@ func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T) {
 func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 	root := t.TempDir()
 	mgr, fake, _ := newTestWorktreeManager(root)
-	wt := mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
+	wt := mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -173,7 +174,7 @@ func TestWorktreeManagerFinishMergeApproved(t *testing.T) {
 func TestWorktreeManagerReleaseRemovesRegistration(t *testing.T) {
 	root := t.TempDir()
 	mgr, _, _ := newTestWorktreeManager(root)
-	mgr.Begin(model.NodeScope{NodeID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
+	mgr.Begin(dto.SceneScope{SceneID: "impl", Role: model.RoleSubAgent, BranchID: "impl"}, "impl")
 	if _, ok := mgr.Info("impl"); !ok {
 		t.Fatal("expected registration before release")
 	}
@@ -191,7 +192,7 @@ func TestWorktreeManagerConcurrentRace(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			wt := mgr.Begin(model.NodeScope{NodeID: id, Role: model.RoleSubAgent, BranchID: id}, id)
+			wt := mgr.Begin(dto.SceneScope{SceneID: id, Role: model.RoleSubAgent, BranchID: id}, id)
 			if wt != nil {
 				_, _ = mgr.Info(id)
 			}

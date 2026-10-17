@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"sync"
 	"testing"
 
@@ -105,13 +106,13 @@ func TestStreamingCompleterObservesUnpinnedSelection(t *testing.T) {
 }
 
 // TestStreamingCompleterRequestHookRole 钉住 request 派发钩子的角色口径：
-// 主链路（无 NodeScope）= agent；节点请求 = NodeScope.Role（subagent）。
+// 主链路（无 SceneScope）= agent；节点请求 = SceneScope.Role（subagent）。
 func TestStreamingCompleterRequestHookRole(t *testing.T) {
 	pool := newStreamPool(t, map[string]agent.Completer{"subagent-1": &staticStreamCompleter{content: "a"}})
 	observer := &collectingObserver{}
 	completer := &streamingAccountCompleter{pool: pool, observe: observer.observe}
 
-	nodeCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent})
+	nodeCtx := dto.WithSceneScope(context.Background(), dto.SceneScope{SceneID: "n1", Role: model.RoleSubAgent})
 	if _, _, _, err := completer.CompleteStream(nodeCtx, nil, nil, nil); err != nil {
 		t.Fatalf("流式调用失败：%v", err)
 	}

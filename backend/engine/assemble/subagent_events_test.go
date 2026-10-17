@@ -32,7 +32,7 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 		t.Fatalf("main-agent dispatch emitted subagent events: %#v", events)
 	}
 
-	ctx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{NodeID: "node-a", Role: model.RoleSubAgent})
+	ctx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{SceneID: "node-a", Role: model.RoleSubAgent})
 	result, err := runtime.Agent().DirectDispatch(ctx, "event_probe", `{"value":1}`)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
 		events = append(events, event)
 	})
-	ctx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{NodeID: "node-f", Role: model.RoleSubAgent})
+	ctx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{SceneID: "node-f", Role: model.RoleSubAgent})
 	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {
 		t.Fatal("handler failure was not returned")
 	}

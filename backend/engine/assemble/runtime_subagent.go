@@ -97,7 +97,7 @@ func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (str
 
 // beginNodeWorktree 为节点创建 worktree（降级返回 nil；语义见
 // worktree.WorktreeManager.Begin）。
-func (r *Runtime) beginNodeWorktree(scope model.NodeScope, nodeID string) *worktree.NodeWorktree {
+func (r *Runtime) beginNodeWorktree(scope dto.SceneScope, nodeID string) *worktree.NodeWorktree {
 	if r == nil || r.worktreeMgr == nil {
 		return nil
 	}
@@ -121,9 +121,9 @@ func (r *Runtime) currentAgentFactory() frameworknode.AgentFactory {
 // currentNodeSceneScope 解析节点执行作用域。Plan 执行器退役后，节点只有
 // 两类：fork 的单条子代理与 workunit 的后台工作单元，均按 subagent 角色执行；
 // worktree 根由 BeginNodeWorktree 回填。
-func (r *Runtime) currentNodeSceneScope(sceneID string) model.NodeScope {
-	return model.NodeScope{
-		NodeID:   sceneID,
+func (r *Runtime) currentNodeSceneScope(sceneID string) dto.SceneScope {
+	return dto.SceneScope{
+		SceneID:  sceneID,
 		Role:     model.RoleSubAgent,
 		BranchID: sceneID,
 	}

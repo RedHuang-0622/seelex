@@ -406,11 +406,11 @@ func ClassForToolsPolicy(policy string) SubjectClass {
 	}
 }
 
-// ClassForNodeScope 把工具调度 ctx 的节点作用域映射成主体类：带 NodeID 的
+// ClassForSceneScope 把工具调度 ctx 的节点作用域映射成主体类：带 NodeID 的
 // RoleSubAgent 节点 = 子代理；其余（无作用域 / 主代理 / entry / goalplan）= root。
 // 口径与 tools/policy.go 的可见性判定同源（它同样只按 RoleSubAgent 收窄）。
-func ClassForNodeScope(scope dto.NodeScope) SubjectClass {
-	if scope.NodeID != "" && scope.Role == dto.RoleSubAgent {
+func ClassForSceneScope(scope dto.SceneScope) SubjectClass {
+	if scope.SceneID != "" && scope.Role == dto.RoleSubAgent {
 		return SubjectClassSub
 	}
 	return SubjectClassRoot

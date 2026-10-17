@@ -267,7 +267,7 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 ### lifecycle.go
 
-- `func NewHost(scenes SceneFace, units UnitFace, records RecordFace) *Host` — NewHost 收下三格端口（构造式注入，不读全局）。三格都允许传 nil = 宿主未装配，
+- `func NewHost(scenes SceneFace, units UnitFace, records RecordFace, opts ...HostOption) *Host` — NewHost 收下三格端口（构造式注入，不读全局）。三格都允许传 nil = 宿主未装配，
 - `func (h *Host) teamOwned(ctx context.Context, u Unit) bool` — teamOwned 报告这一份是不是**归团队托管**（生命周期里唯一允许出现的"按层"判断，依据是
 - `func (h *Host) Begin(ctx context.Context, u Unit) (Scene, error)` — Begin 建（或复用）这一份现场：唯一实现。
 - `func (h *Host) AlreadySettled(ctx context.Context, u Unit) (bool, error)` — AlreadySettled 回答"这件事已经收过尾了吗"——**重入**的唯一判据，两层共用。
@@ -275,6 +275,42 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 - `func (h *Host) Reclaim(ctx context.Context, u Unit) error` — Reclaim 拆这一份：唯一入口，幂等。唯一实现。
 - `func (h *Host) Recover(ctx context.Context, u Unit) (Resume, error)` — Recover 重启回灌：先认领现场（**必须在 Prune 之前**），再按**会话级**粒度读回这一层的
 - `func (h *Host) Notice(outcome Outcome) string` — Notice 生成给人看的说明：**非落定必带处置办法**（合同见 Outcome）。
+
+### merge_retry.go
+
+- `func DefaultMergeRetry() MergeRetry` — DefaultMergeRetry 返回既有的默认等待预算。
+- `func WithMergeRetry(retry MergeRetry) HostOption` — WithMergeRetry 覆盖默认的挡路等待策略（测试与需要不同预算的装配点使用）。
+- `func (h *Host) mergeScene(ctx context.Context, own Ownership, u Unit) error` — mergeScene 调用现场端口一次，并在**主工作区挡路**时按预算等待重试。
+
+### merge_retry_test.go
+
+- `func (s *retryScene) BeginScene(context.Context, Ownership, string, string) (Scene, error)`
+- `func (s *retryScene) MergeScene(context.Context, Ownership, string, string) error`
+- `func (s *retryScene) ReleaseScene(nodeID string)`
+- `func (s *retryScene) AdoptScenes(context.Context, string) error`
+- `func (s *retryScene) SceneRegistered(string) bool`
+- `func (s *retryScene) calls() int`
+- `func (retryUnits) Owned(context.Context, string, Ownership) bool`
+- `func (retryUnits) Settled(context.Context, string, string) (bool, error)`
+- `func (retryUnits) SettleUnit(context.Context, string, Ownership, error, error) (Outcome, error)`
+- `func (retryUnits) ReclaimUnit(context.Context, string, string) error`
+- `func (retryUnits) RecoverUnits(context.Context, string) (Resume, error)`
+- `func (*retryRecords) Status(context.Context, Ownership, string, string) (string, bool, error)`
+- `func (*retryRecords) Readout(context.Context, Ownership, string, string) (Resume, error)`
+- `func (*retryRecords) SaveRecord(context.Context, Ownership, string, string, string, string, string)`
+- `func (*retryRecords) SettleRecord(context.Context, Ownership, string, string, Outcome)`
+- `func (r *retryRecords) Clear(context.Context, Ownership, string, string) error`
+- `func (retryUnit) Kind() Kind`
+- `func (u retryUnit) ID() string`
+- `func (retryUnit) SessionPath() string`
+- `func (retryUnit) Policy() FinishPolicy`
+- `func (retryUnit) Owns() Ownership`
+- `func blockedErr(attempt int) error`
+- `func TestHostFinishRetriesMergeBlockedByMainWithinBudget(t *testing.T)` — TestHostFinishRetriesMergeBlockedByMainWithinBudget 钉住新边界：挡路的等待与重试
+- `func TestHostFinishDoesNotRetryDefinitiveMergeFailure(t *testing.T)` — TestHostFinishDoesNotRetryDefinitiveMergeFailure 钉住"只有挡路才重试"：
+- `func TestHostFinishStopsRetryWhenContextCancelled(t *testing.T)` — TestHostFinishStopsRetryWhenContextCancelled：等待期间取消必须立刻收口为
+- `func TestHostFinishReportsBlockedBudgetWithRemedy(t *testing.T)` — TestHostFinishReportsBlockedBudgetWithRemedy：预算耗尽仍被挡住 → 交回带
+- `func TestHostFinishClassificationStaysTheOneClassifier(t *testing.T)` — TestHostFinishClassificationStaysTheOneClassifier：同一份合并事实交给 Host 与
 
 ### progress.go
 
