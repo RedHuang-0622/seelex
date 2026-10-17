@@ -109,15 +109,15 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 		t.Fatalf("entry node tools = %v, want all %v", got, all)
 	}
 
-	// goal skill 激活 → 主代理与 entry 节点可见 plan 工具。
+	// plan 工具面已退役（teamwork 足够）：goal skill 激活也不再可见。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 	for _, ctx := range []context.Context{context.Background(), seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
 	})} {
 		got := toolNames(runtime.VisibleTools(ctx))
-		for _, want := range []string{"plan_run", "plan_load"} {
-			if !containsName(got, want) {
-				t.Fatalf("goal-active tools = %v, missing plan tool %q", got, want)
+		for _, hidden := range []string{"plan_run", "plan_load"} {
+			if containsName(got, hidden) {
+				t.Fatalf("goal-active tools = %v, plan tool %q must stay retired", got, hidden)
 			}
 		}
 	}
@@ -143,10 +143,10 @@ func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
 		t.Fatalf("read_file dispatch error = %v, want scoped error (not visibility)", err)
 	}
 
-	// 主代理 ctx：plan_run 可见可分发（无加载 plan 时报 no-plan，而非隐藏）。
+	// 主代理 ctx：plan_run 同样不可见（工具面已退役）。
 	_, err = runtime.agentDispatch(context.Background(), "plan_run", `{}`)
-	if err == nil || !strings.Contains(err.Error(), "no plan is loaded") {
-		t.Fatalf("main agent plan_run dispatch error = %v, want no-plan notice", err)
+	if !errors.Is(err, bridge.ErrToolNotVisible) {
+		t.Fatalf("main agent plan_run dispatch error = %v, want ErrToolNotVisible", err)
 	}
 }
 
@@ -297,14 +297,14 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 	runtime.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
 
 	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"do left","kind":"agent"},"right":{"input":"do right","kind":"agent"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
 
 	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
-		result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+		result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 		if err != nil {
 			t.Errorf("plan_run failed: %v", err)
 			return

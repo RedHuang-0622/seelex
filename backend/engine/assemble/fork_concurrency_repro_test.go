@@ -230,10 +230,10 @@ func TestForkManySubagentsBestEffortSurfacesRealFailure(t *testing.T) {
 	mustRegisterAccount(t, runtime, "ok-agent", ok)
 
 	planJSON := buildManyAgentPlanJSON(subagents)
-	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	t.Logf("plan_run result: %.400s\nerr=%v", result, err)
 	if err != nil {
 		t.Fatalf("有幸存子代理时 plan_run 不得整体报错（错误会顶掉幸存产出）: %v\n%s", err, result)

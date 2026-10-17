@@ -44,10 +44,10 @@ func TestPlanRunExecutionFactsPersistToEventStore(t *testing.T) {
 	})
 
 	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"finish":{"input":"finish"}},"edges":{"start":["finish"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
@@ -102,10 +102,10 @@ func TestEventSinkFailureDoesNotBreakWorkPlanControlFlow(t *testing.T) {
 	})
 
 	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"finish":{"input":"finish"}},"edges":{"start":["finish"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}

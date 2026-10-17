@@ -2,15 +2,8 @@ package assemble
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -24,7 +17,7 @@ func BenchmarkPlanLoadSmoke(b *testing.B) {
 	b.SetBytes(int64(len(planLoadSmokeInput)))
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadSmokeInput); err != nil {
+		if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planLoadSmokeInput); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -107,7 +100,7 @@ func TestPlanLoadAdapterNormalizesLLMFriendlyDAG(t *testing.T) {
 			t.Errorf("canonical plan %q is missing %s", canonical, required)
 		}
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadAdapterInput)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planLoadAdapterInput)
 	if err != nil {
 		t.Fatalf("adapter plan_load returned an error: %v", err)
 	}
@@ -127,13 +120,13 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	fiveNodes := `{"entry":"one","nodes":{"one":{"input":"one"},"two":{"input":"two"},"three":{"input":"three"},"four":{"input":"four"},"five":{"input":"five"}},"edges":{"one":["two"],"two":["three"],"three":["four"],"four":["five"]}}`
 
 	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err == nil || !strings.Contains(err.Error(), "serial chain") {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", parallelFourNodes); err == nil || !strings.Contains(err.Error(), "serial chain") {
 		t.Fatalf("medium parallel plan error = %v, want serial-chain rejection", err)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err == nil || !strings.Contains(err.Error(), "maximum is 4") {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", fiveNodes); err == nil || !strings.Contains(err.Error(), "maximum is 4") {
 		t.Fatalf("medium five-node plan error = %v, want node-limit rejection", err)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", serialFourNodes); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", serialFourNodes); err != nil {
 		t.Fatalf("medium serial plan error = %v", err)
 	}
 	if runtime.planExecutor.MaxForkConcurrency() != 1 {
@@ -141,7 +134,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	}
 
 	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", parallelFourNodes); err != nil {
 		t.Fatalf("high parallel plan error = %v", err)
 	}
 	if runtime.planExecutor.MaxForkConcurrency() != 3 {
@@ -149,7 +142,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	}
 
 	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "max"})
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", fiveNodes); err != nil {
 		t.Fatalf("max plan error = %v", err)
 	}
 	if runtime.planExecutor.MaxForkConcurrency() != 5 {
@@ -161,7 +154,7 @@ func TestPlanLoadSmoke(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadSmokeInput)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planLoadSmokeInput)
 	if err != nil {
 		t.Fatalf("plan_load returned an error: %v", err)
 	}
@@ -187,7 +180,8 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	for _, tool := range runtime.registry.Registry.Tools() {
+	for _, entry := range runtime.planExecutor.Provider().Tools() {
+		tool := entry.Definition
 		if tool.Function.Name != "plan_load" {
 			continue
 		}
@@ -219,105 +213,4 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 		return
 	}
 	t.Fatal("plan_load tool was not registered")
-}
-func TestRuntimePrepareReplanLoadsRecoveryPlanWithBoundedRetry(t *testing.T) {
-	plan := map[string]interface{}{
-		"entry": "recover",
-		"nodes": map[string]interface{}{
-			"recover": map[string]string{"input": "diagnose compiler failure"},
-		},
-		"edges": map[string][]string{},
-	}
-	var payload struct {
-		ToolChoice json.RawMessage `json:"tool_choice"`
-		Messages   []struct {
-			Content string `json:"content"`
-		} `json:"messages"`
-	}
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		calls++
-		defer request.Body.Close()
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			t.Errorf("decode replan request: %v", err)
-			writer.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if calls == 1 {
-			invalid, _ := json.Marshal(map[string]interface{}{
-				"entry": "recover",
-				"nodes": map[string]interface{}{
-					"recover": map[string]string{"input": "diagnose compiler failure"},
-				},
-				// This is the provider failure observed in the live smoke: edges
-				// arrived as an array. Policy rejects it before plan_load delegates
-				// to Seele, so the one corrective retry is idempotent.
-				"edges": []interface{}{map[string]string{"to": "recover"}},
-			})
-			_ = json.NewEncoder(writer).Encode(map[string]interface{}{
-				"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
-					"role": "assistant",
-					"tool_calls": []interface{}{map[string]interface{}{
-						"id": "invalid-recovery-plan", "type": "function",
-						"function": map[string]string{"name": "plan_load", "arguments": string(invalid)},
-					}},
-				}}},
-			})
-			return
-		}
-		arguments, _ := json.Marshal(plan)
-		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
-			"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
-				"role": "assistant",
-				"tool_calls": []interface{}{map[string]interface{}{
-					"id": "recovery-plan", "type": "function",
-					"function": map[string]string{"name": "plan_load", "arguments": string(arguments)},
-				}},
-			}}},
-		})
-	}))
-	defer server.Close()
-
-	accounts := filepath.Join(t.TempDir(), "accounts.yaml")
-	content := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accounts, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: accounts, ToolCallTimeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Shutdown()
-	runtime.RegisterBuiltins()
-	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "lite"})
-	// replan 恢复路径经 plan_load（plan 工具面归位后需 goal 激活可见）。
-	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
-
-	result, err := runtime.PrepareReplan(context.Background(), dto.ReplanRequest{
-		Objective:    "build the release",
-		PreviousPlan: `{"entry":"build"}`,
-		Failure:      `node "build": compiler failed`,
-		Evidence:     "node=lint status=completed",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// tool_choice 不再强制（thinking 模型平台拒绝强制；靠 replan prompt
-	// 引导）——payload 里必须保持未设置，兼容 OpenAI thinking 模式。
-	if len(payload.ToolChoice) != 0 {
-		t.Fatalf("tool_choice = %s, want unset (thinking-model compatible)", payload.ToolChoice)
-	}
-	if calls != 2 {
-		t.Fatalf("replan request count = %d, want one bounded retry", calls)
-	}
-	metrics := runtime.ReplanMetrics()
-	if metrics.ProviderRequests != 2 || metrics.Accepted != 1 || metrics.Succeeded != 1 || metrics.InFlight != 0 {
-		t.Fatalf("replan metrics = %+v", metrics)
-	}
-	if len(payload.Messages) < 2 || !strings.Contains(payload.Messages[1].Content, "compiler failed") {
-		t.Fatalf("replan payload did not include failure context: %+v", payload.Messages)
-	}
-	if result.Arguments == "" || !strings.Contains(result.Result, `"status":"loaded"`) {
-		t.Fatalf("replan result = %+v", result)
-	}
 }

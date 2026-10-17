@@ -67,10 +67,10 @@ func TestPlanExecutorRunLifecycle(t *testing.T) {
 		t.Fatal("phase projection was not delivered")
 	}
 
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planExecutorLifecyclePlan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planExecutorLifecyclePlan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 	runID := executor.CurrentRunID()
@@ -105,13 +105,13 @@ func TestPlanExecutorRunIDVisibleDuringRun(t *testing.T) {
 	gate := &blockingApprovalGate{asked: make(chan struct{}), decision: make(chan string, 1)}
 	runtime.SetPlanApprovalGate(gate)
 
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planExecutorApprovePlan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planExecutorApprovePlan); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+		_, _ = runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	}()
 
 	select {

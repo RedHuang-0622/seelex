@@ -49,8 +49,8 @@ func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T) {
 		registered[tool.Name] = true
 	}
 	for _, name := range []string{"plan_load", "plan_run", "plan_status", "plan_export", "plan_clear"} {
-		if !registered[name] {
-			t.Errorf("initial builtin tools are missing %q", name)
+		if registered[name] {
+			t.Errorf("retired plan tool %q must not be registered", name)
 		}
 	}
 	if names := runtime.MCPServerNames(); len(names) != 0 {

@@ -53,7 +53,7 @@ func TestSubAgentStartupEndToEnd(t *testing.T) {
 
 	// plan_load: 加载含 agent 节点的最小 DAG
 	planJSON := `{"entry":"do","nodes":{"do":{"input":"read the file and return findings","kind":"agent"}},"edges":{}}`
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON)
 	if err != nil {
 		t.Fatalf("plan_load failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestSubAgentStartupEndToEnd(t *testing.T) {
 	}
 
 	// plan_run: 执行 DAG —— 这应启动子代理
-	result, err = runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err = runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestSubAgentParallelBranches(t *testing.T) {
 	_ = rightAcc
 
 	planJSON := `{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"},"left":{"input":"do left","kind":"agent"},"right":{"input":"do right","kind":"agent"},"finish":{"input":"finish","kind":"auto"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON)
 	if err != nil {
 		t.Fatalf("plan_load failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSubAgentParallelBranches(t *testing.T) {
 		t.Fatalf("plan_load unexpected: %s", result)
 	}
 
-	result, err = runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err = runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
@@ -185,10 +185,10 @@ func TestSubAgentMergeBackRegistersResultWithoutMailbox(t *testing.T) {
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
 
 	planJSON := `{"entry":"do","nodes":{"do":{"input":"audit the module and return findings","kind":"agent"}},"edges":{}}`
-	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 

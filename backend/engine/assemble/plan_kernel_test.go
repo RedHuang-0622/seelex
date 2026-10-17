@@ -141,7 +141,7 @@ func TestPlanLoadImportsCodecPlan(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", `{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims","kind":"verify"},"report":{"input":"report findings","kind":"deliver"}},"edges":{"inspect":["verify"],"verify":["report"]}}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", `{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims","kind":"verify"},"report":{"input":"report findings","kind":"deliver"}},"edges":{"inspect":["verify"],"verify":["report"]}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestPlanLoadRejectsCycleThroughCodec(t *testing.T) {
 	runtime.RegisterBuiltins()
 
 	cyclic := `{"entry":"a","nodes":{"a":{"input":"a"},"b":{"input":"b"}},"edges":{"a":["b"],"b":["a"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", cyclic); err == nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", cyclic); err == nil {
 		t.Fatal("cyclic plan must be rejected")
 	}
 }
@@ -183,7 +183,7 @@ func TestPlanLoadRejectsUnknownKind(t *testing.T) {
 	runtime.RegisterBuiltins()
 
 	payload := `{"entry":"a","nodes":{"a":{"input":"a","kind":"magic"}},"edges":{}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", payload); err == nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", payload); err == nil {
 		t.Fatal("unsupported kind must be rejected by plan_load")
 	}
 }
@@ -196,10 +196,10 @@ func TestPlanRunExecutesDeterministicDAG(t *testing.T) {
 	runtime.RegisterBuiltins()
 
 	plan := `{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"implement":{"input":"make change"},"verify":{"input":"run tests"}},"edges":{"inspect":["implement"],"implement":["verify"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
@@ -240,10 +240,10 @@ func TestPlanRunProjectsNodeAndPlanStatus(t *testing.T) {
 	})
 
 	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"},"right":{"input":"right"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
@@ -308,10 +308,10 @@ func TestPlanRunApprovalGateNode(t *testing.T) {
 	runtime.SetPlanApprovalGate(gate)
 
 	plan := `{"entry":"gate","nodes":{"gate":{"input":"approve this step","kind":"approve"}},"edges":{}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", plan); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestPlanRunRejectsWhenNoPlanLoaded(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err == nil || !strings.Contains(err.Error(), "no plan is loaded") {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err == nil || !strings.Contains(err.Error(), "no plan is loaded") {
 		t.Fatalf("plan_run error = %v, want no-plan notice", err)
 	}
 }

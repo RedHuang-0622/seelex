@@ -178,7 +178,7 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 		fileName, marker, marker)
 	planJSON := fmt.Sprintf(`{"entry":%q,"nodes":{%q:{"input":%q,"kind":"agent"}},"edges":{}}`,
 		nodeID, nodeID, goal)
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
 		t.Fatalf("plan_load: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestLiveSubagentWorktreeChain(t *testing.T) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
-	out, runErr := runtime.Agent().DirectDispatch(ctx, "plan_run", `{}`)
+	out, runErr := runPlanToolForTest(runtime, ctx, "plan_run", `{}`)
 	close(stop)
 	<-probeDone
 	elapsed := time.Since(started)

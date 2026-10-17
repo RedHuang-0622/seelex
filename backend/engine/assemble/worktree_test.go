@@ -56,10 +56,10 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
 
 	planJSON := `{"entry":"do","nodes":{"do":{"input":"read base.txt","kind":"agent"}},"edges":{}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run: %v", err)
 	}
 

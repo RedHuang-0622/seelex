@@ -258,18 +258,10 @@ func (r *Runtime) RegisterBuiltins() {
 	// （未装配 = 不摆出一族永远报错的工具）。
 	r.registerTeamworkTools()
 	r.scopedToolsReady = true
-	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
-	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。
-	//
-	// **待删除**（2026-10-17）：fork_subagents 已改为直接执行子代理
-	// （`runForkSubagent`），不再依赖 Plan 执行器；但 plan_* 的用例面仍有
-	// 16 个测试文件在钉工具入口/节点/合并链。先删/改写这些用例，再移除本注册块
-	// 并删 `backend/tool/plan`、`backend/tool/node`（见 handoff §8.1）。
-	if r.planExecutor != nil {
-		if err := r.registry.Registry.Register(r.planExecutor.Provider()); err != nil {
-			return
-		}
-	}
+	// Seele workplan 工具面已退役（2026-10-17 用户裁决：teamwork 足够）。
+	// fork_subagents 已改为直接执行子代理（`runForkSubagent`），不再依赖 Plan
+	// 执行器；plan_load/plan_run/plan_status/plan_clear/plan_validate/plan_export
+	// 不再注册。内部 Plan 执行器仅保留给历史用例（runPlanToolForTest）。
 }
 func (r *Runtime) RegisterTool(
 	name, description string,

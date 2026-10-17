@@ -35,10 +35,10 @@ func TestMergeBackParallelSubagentsNoRace(t *testing.T) {
 	mustRegisterAccount(t, runtime, "right-agent", right)
 
 	planJSON := `{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"},"left":{"input":"audit left","kind":"agent"},"right":{"input":"audit right","kind":"agent"},"finish":{"input":"finish","kind":"auto"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
@@ -174,10 +174,10 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 	}
 	sb.WriteString(`}}`)
 
-	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", sb.String()); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", sb.String()); err != nil || !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
@@ -236,10 +236,10 @@ func TestMergeBackSkippedOnTimeout(t *testing.T) {
 	mustRegisterAccount(t, runtime, "slow-agent", slow)
 
 	planJSON := `{"entry":"do","nodes":{"do":{"input":"audit the module","kind":"agent"}},"edges":{}}`
-	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+	if result, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
-	_, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	_, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err == nil {
 		t.Fatal("plan_run must fail when the subagent times out")
 	}

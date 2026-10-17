@@ -54,9 +54,8 @@ var storeBoundaryScopes = []storeBoundaryScope{
 		pattern: "./store",
 		note: "M3-S4 删掉了唯一一条向上边（`router_storage.go` 的 `seelexctx/lifecycle` " +
 			"`Storage[types.Message]` 编译期断言）：断言整条挪到消费侧 " +
-			"`seelexctx/router_storage_conformance.go`，底座只剩与上层无关的实现。因此清单为空。" +
-			"（设计稿 A 的「契约层端口」路线在本工作区不可行：`contract/ports.go` import " +
-			"`seelexctx/search`、后者 import `store` ⇒ 会成环；见 m3-record.md D-M3-11。）",
+			"`seelexctx/router_storage_conformance.go`。2026-10-17 P3 后 `contract` 闭包只剩" +
+			"纯形状包，store 依赖 `contract/dto` 是向下依赖（已在判据里显式放行）。",
 	},
 }
 
@@ -76,6 +75,12 @@ func TestStoreDependencyClosureHasNoSeelexUpwardDependency(t *testing.T) {
 				continue
 			}
 			if dependency == scope.patternPath() || strings.HasPrefix(dependency, storeBasePrefix) {
+				continue
+			}
+			// contract 是零实现依赖的底座词汇（2026-10-17 P3 后其闭包只剩
+			// 纯形状包）：store 依赖 contract/dto 是**向下**，不是向上。
+			if dependency == seelexModulePrefix+"/contract" ||
+				strings.HasPrefix(dependency, seelexModulePrefix+"/contract/") {
 				continue
 			}
 			if _, ok := allow[dependency]; ok {
@@ -100,6 +105,10 @@ func TestStoreTestFilesImportNothingUpward(t *testing.T) {
 				continue
 			}
 			if imported == scope.patternPath() || strings.HasPrefix(imported, storeBasePrefix) {
+				continue
+			}
+			if imported == seelexModulePrefix+"/contract" ||
+				strings.HasPrefix(imported, seelexModulePrefix+"/contract/") {
 				continue
 			}
 			if _, ok := allow[imported]; ok {

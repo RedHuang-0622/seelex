@@ -60,10 +60,10 @@ func TestPlanNodeUncommittedWorktreeKeepsResult(t *testing.T) {
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": probe})
 
 	planJSON := `{"entry":"do","nodes":{"do":{"input":"调研文献","kind":"agent"}},"edges":{}}`
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil {
+	if _, err := runPlanToolForTest(runtime, context.Background(), "plan_load", planJSON); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
+	out, err := runPlanToolForTest(runtime, context.Background(), "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("收尾协议未执行不得让 plan_run 整体失败（会连坐兄弟节点并丢弃产出）：%v\n%s", err, out)
 	}

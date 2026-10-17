@@ -29,14 +29,14 @@ func TestPlanLoadPerSessionPolicyIsolation(t *testing.T) {
 	executor.SetPolicyFor("sess-a", dto.PlanPolicy{Effort: "lite", MaxNodes: 2, RequireSerial: true, MaxForkConcurrency: 1})
 	executor.SetPolicyFor("sess-b", dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
 
-	if _, err := runtime.Agent().DirectDispatch(ctxA, "plan_load", plan3); err == nil {
+	if _, err := runPlanToolForTest(runtime, ctxA, "plan_load", plan3); err == nil {
 		t.Fatal("sess-a plan_load of 3-node DAG must be rejected by its own MaxNodes=2")
 	}
 	if _, err := runtime.Agent().DirectDispatch(ctxA, "plan_validate", `{"plan":"`+strings.ReplaceAll(plan3, `"`, `\"`)+`"}`); err == nil {
 		t.Fatal("sess-a plan_validate of 3-node DAG must be rejected by its own policy")
 	}
 
-	if _, err := runtime.Agent().DirectDispatch(ctxB, "plan_load", plan3); err != nil {
+	if _, err := runPlanToolForTest(runtime, ctxB, "plan_load", plan3); err != nil {
 		t.Fatalf("sess-b plan_load rejected: %v", err)
 	}
 	if got := executor.MaxForkConcurrency(); got != 3 {
@@ -66,13 +66,13 @@ func TestPlanRunPerSessionRunIDAndEventSession(t *testing.T) {
 	runtime.SetPlanApprovalGate(gate)
 
 	ctxA := seetelemetry.WithSessionID(context.Background(), "sess-a")
-	if _, err := runtime.Agent().DirectDispatch(ctxA, "plan_load", planExecutorApprovePlan); err != nil {
+	if _, err := runPlanToolForTest(runtime, ctxA, "plan_load", planExecutorApprovePlan); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runtime.Agent().DirectDispatch(ctxA, "plan_run", `{}`)
+		_, _ = runPlanToolForTest(runtime, ctxA, "plan_run", `{}`)
 	}()
 
 	select {
@@ -158,13 +158,13 @@ func TestPlanRunExplicitSessionWithoutSlotSkipsDefaultBinding(t *testing.T) {
 	runtime.SetPlanApprovalGate(gate)
 
 	ctx := seetelemetry.WithSessionID(context.Background(), "sess-x")
-	if _, err := runtime.Agent().DirectDispatch(ctx, "plan_load", planExecutorApprovePlan); err != nil {
+	if _, err := runPlanToolForTest(runtime, ctx, "plan_load", planExecutorApprovePlan); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runtime.Agent().DirectDispatch(ctx, "plan_run", `{}`)
+		_, _ = runPlanToolForTest(runtime, ctx, "plan_run", `{}`)
 	}()
 	select {
 	case <-gate.asked:
@@ -207,10 +207,10 @@ func TestPlanRunNodeProjectionsCarryExecutingSession(t *testing.T) {
 
 	ctx := seetelemetry.WithSessionID(context.Background(), "sess-kernel")
 	canonical := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"},"right":{"input":"right"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
-	if _, err := runtime.Agent().DirectDispatch(ctx, "plan_load", canonical); err != nil {
+	if _, err := runPlanToolForTest(runtime, ctx, "plan_load", canonical); err != nil {
 		t.Fatalf("plan_load: %v", err)
 	}
-	result, err := runtime.Agent().DirectDispatch(ctx, "plan_run", `{}`)
+	result, err := runPlanToolForTest(runtime, ctx, "plan_run", `{}`)
 	if err != nil {
 		t.Fatalf("plan_run: %v", err)
 	}
