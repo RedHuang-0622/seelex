@@ -2,7 +2,7 @@ import { escapeHtml } from "./components.js";
 
 // tool-record-board.js — **工具记录**看板的纯渲染件（柱形图 + 原因饼图 + 开关）。
 //
-// 生态位：数据源 = 后端 `Bridge.ToolRecordBoard()`（进程级读数，落
+// 生态位：数据源 = 后端 `Bridge.ToolRecordBoard()`（当前视图会话的会话级读数，落
 // `<数据根>/tool-record.jsonl`）。app.js 只做搬运（拉数 + innerHTML + 事件委托 +
 // 记住选了哪根柱子），排布、配色、比例、文案全在这里——渲染件可单测，面板不重算事实。
 //

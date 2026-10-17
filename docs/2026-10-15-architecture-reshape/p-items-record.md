@@ -6,6 +6,28 @@
 
 ---
 
+## P17 / V10 / M2-d —— 工具记录看板读数通道（会话粒度，不进 Snapshot）
+
+提交：随本轮文档与注释收口提交（`refactor(docs): ...`）。
+
+**用户裁决（V10）**：工具记录改成会话粒度后，"这台机器哪个工具最该优化"的看板读数
+**不进 `Snapshot`**；钩子与 JSONL 直接交互。M2-d 在 M5 完成后复核。
+
+复核结论：**现行实现已经是这个口径**，不需要行为改动；本轮只修文档漂移。
+
+| 要求 | 现行证据 |
+|---|---|
+| 读数是会话粒度 | `application/core/tool_record.go` 的 `ToolRecordBoard()` 取 `currentViewSessionID()` 的累计；落点是该会话自己的 `<sessionRoot>/tool-record.jsonl`（`store/tool_record.go`） |
+| 不进 `Snapshot` | `Snapshot` 结构里没有工具记录字段；TUI/GUI 都经 `Application.ToolRecordBoard()` 按需拉取（`gui/bridge.go`、`tui/tool_record_panel.go`） |
+| 钩子直连 JSONL | 写入侧是三族工具完成钩子 → 会话内存累计 → **提交点批量**追加一行整份快照到该会话 JSONL（`FlushToolRecord`）；不经过 Snapshot，也不逐次 fsync |
+| 整机汇总 | **不实现**（P17 的"按需"）：若产品以后要"这台机器哪个工具最该优化"，另做显式汇总（读多份 JSONL），仍不进快照 |
+
+**修的漂移**：`contract/dto/tool_record.go` 包级 doc 还写"进程级全局台账"，
+`gui/bridge.go` / `tui/{tool_record_panel,goalteam}.go` / `gui/frontend/dist/{app,tool-record-board}.js`
+还写"进程级读数（跨会话跨项目）"——全部改成"当前视图会话的会话级读数"。
+
+---
+
 ## P2 —— loop 预算用尽后的 +1 次总结（主代理层）
 
 提交：`4613dc33`。

@@ -204,7 +204,7 @@ func (model Model) teamPanelLines() []string {
 	if len(lines) == 0 {
 		lines = []string{StyleMuted.Render("  ◆ 团队看板  当前会话没有团队计划（team_plan 还没排过活）")}
 	}
-	// 工具记录（进程级读数，与 GUI「状态 → 工具记录」同源）：没开计数或没记过时
+	// 工具记录（当前视图会话的会话级读数，与 GUI「状态 → 工具记录」同源）：没开计数或没记过时
 	// 整块不出现——不追加空壳（toolRecordLines 返回 nil）。
 	lines = append(lines, model.toolRecordLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"))

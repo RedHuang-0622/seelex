@@ -706,7 +706,7 @@ function composerDraftPageText() {
   return "";
 }
 
-// 工具记录看板（2026-10-15）：进程级读数（跨会话跨项目），因此**按需拉取**
+// 工具记录看板（2026-10-15，V10 会话粒度）：当前视图会话自己的读数，因此**按需拉取**
 // （Bridge.ToolRecordBoard），不进会话快照。触发面：整轮渲染后一次、每次工具完成帧后一次、
 // 以及用户点柱子/拨开关之后——成功与失败都会改变这份数据（开了计数之后两条都记）。
 //
@@ -823,7 +823,7 @@ function renderIncremental(snapshot, kind, payload) {
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
     if (kind === "message.added") refreshInputIndex(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
-    // 工具记录只被"一次工具调用"改变：完成帧到了才拉一次看板（进程级读数，
+    // 工具记录只被"一次工具调用"改变：完成帧到了才拉一次看板（会话级读数，
     // 不进快照；见 renderToolRecordPanel 的口径说明）。
     if (kind === "tool.completed") renderToolRecordPanel();
     // 会话类页面不可见时强制隐藏会话专属悬浮件（空态/加载更早/输入框）。

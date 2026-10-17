@@ -1983,5 +1983,6 @@ handler**。越界路径不再先弹一次没用的审批。
 与证据"的纯文本回合；内部标记收成 `contract.ReactBudgetFinalizationMarker` 一份；
 面板「无限循环」复核通过（11/11）。
 
-**下一件（迁移后行为项）**：V10/M2-d 的工具记录看板读面（读数不进 Snapshot、
-钩子直连 JSONL）。
+**V10/M2-d 复核结论**：现行实现已是会话粒度读数 + 不进 `Snapshot` + 提交点批量写
+该会话 JSONL；本轮只把 5 处"进程级/跨会话跨项目"的注释漂移改成会话口径（无行为
+改动）。整机汇总按 P17"按需"**不实现**。细节见 [p-items-record.md](p-items-record.md) §P17/V10。

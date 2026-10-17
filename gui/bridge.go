@@ -1162,7 +1162,7 @@ func (bridge *Bridge) PerfStats() application.PerfStats {
 }
 
 // toolFailureBoardProvider 是 Application 的**窄可选**能力面：工具失败分布看板
-// （进程级读数：跨会话跨项目）。
+// （会话级读数：跟当前视图会话走，落该会话自己的 tool-record.jsonl）。
 //
 // 为什么是"可选窄接口 + 类型断言"而不是 Application 的成员：口径与
 // contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 一致——
@@ -1175,7 +1175,7 @@ type toolRecordBoardProvider interface {
 	SetToolRecordEnabled(enabled bool) (bool, error)
 }
 
-// ToolRecordBoard 返回工具记录看板（进程级读数：跨会话跨项目）。
+// ToolRecordBoard 返回工具记录看板（会话级读数：当前视图会话自己的累计）。
 //
 // 走"按需拉取"而不是快照：快照是**会话作用域**的可重放状态，把进程级计数塞进去会
 // 让"重放一份会话快照"听起来像"重放这台机器的计数"（与 PerfStats 同一条理由）。
