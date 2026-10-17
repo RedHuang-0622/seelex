@@ -99,6 +99,8 @@ stateDiagram-v2
 | `store.go` | `store` 持久面的适配与计划/绑定读写 |
 | `board.go` | **团队看板读面**（原 `application/core/teamwork_service.go`，M5-R8c 归位）：`BoardReader` 只做转发与"未装配 / 宿主不支持该投影"时的空视图口径（不解释、不缓存、不做判定）；`application/core` 侧只留同名门面方法 |
 | `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
+| `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
+| `board_view_test.go` | 出图五份行齐与闭板三字段从计划搬、人状态两值、队列销项即出队、当前会话三段优先、主体反解、审计有界保序、过期提示位、编排判据 |
 | `teammate_live_test.go` | 域级用例：有界裁剪（条数 + 单条长度 + 如实标 Truncated）、只留 user/assistant、分页归一（负 offset / limit<=0 / 越界页）、默认页取尾部、执行面不在本进程时的空视图语义 |
 | `teamwork_test.go` / `items_test.go` | 端口桩驱动的编排语义测试（后者按 Work Item 口径逐条覆盖九类要求） |
 | `items_concurrent_test.go` | **并发 settle 丢失更新**的回归用例：`TestConcurrentSettleDoesNotLoseUpdates`（N=5 全并发 settle）+ `TestConcurrentSettleAndAcceptDoNotResurrectDone`（settle 混 accept，done 不得被写回）。用会合点（`rendezvous`）排定交错，不靠 sleep；内存替身按生产语义 JSON 深拷贝计划 |
@@ -228,6 +230,33 @@ go test ./backend/multiagent/... -count=1
 - `func TestBoardReaderUnassembledReturnsEmptyViews(t *testing.T)` — TestBoardReaderUnassembledReturnsEmptyViews 钉"未装配"口径：nil 宿主不是错误，
 - `func TestBoardReaderUnsupportedHostReturnsEmptyViews(t *testing.T)` — TestBoardReaderUnsupportedHostReturnsEmptyViews 钉"已装配但不支持该投影"口径：
 - `func TestBoardReaderForwardsToProjection(t *testing.T)` — TestBoardReaderForwardsToProjection 钉"装配了就走宿主"：读法不得本地判定/缓存，
+
+### board_view.go
+
+- `func SubjectPrefix() string` — SubjectPrefix 与 `SubjectForRole` 同源（`emp_<role>`）：装配层用它把作业行的作用域主体
+- `func BuildBoardView( plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardView 是把（计划 + 审计 + 作业行 + 装配读数）组装成下发前端的
+- `func PlanHasOrchestration(plan store.TeamworkPlan) bool` — PlanHasOrchestration 报告一份计划有没有**可看的编排**。
+- `func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView` — MemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
+- `func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string` — MemberStatus 把一个人名下工作项的状态折算成人的状态，**只有两个值**（2026-10-04 用户口径）：
+- `func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem string)` — MemberCurrent 反解"这个人此刻那件事的会话"：优先在跑的工作项，其次等验收的，
+- `func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView` — WorkItemViews 搬运工作项（甘特图的扁平数据面）。
+- `func MilestoneViews(milestones []store.TeamworkMilestone) []dto.TeamworkMilestoneView` — MilestoneViews 搬运里程碑（after 是判据边，原样搬；status 空 = pending）。
+- `func JobViews(records []jobs.Record) []dto.TeamworkJobView` — JobViews 搬运作业行，并给出**权威归属**：Node = record.Node（派发时写的是
+- `func RoleFromSubject(subject string) string` — RoleFromSubject 把 emp_<role> 反解成角色名；不是这个前缀就原样返回（不猜）。
+- `func EventViews(events []store.TeamworkEvent) []dto.TeamworkEventView` — EventViews 搬运审计流水；只取**最近** `BoardEventLimit` 条（保持文件顺序 = 发生顺序）。
+- `func ProjectionStale(state store.TeamworkState, views []dto.TeamworkJobView) bool` — ProjectionStale 判定"计划里的句柄投影是否已经过期"（jobs I-4 的显式化）：
+
+### board_view_test.go
+
+- `func boardPlanFixture() store.TeamworkPlan`
+- `func TestBuildBoardViewCarriesFactsNotJudgments(t *testing.T)` — TestBuildBoardViewCarriesFactsNotJudgments：看板只搬事实——闭板三字段从**计划**搬、
+- `func TestMemberStatusHasOnlyTwoValues(t *testing.T)` — TestMemberStatusHasOnlyTwoValues：人的状态只有 running / free 两值（看板回答"此刻在不在干活"）。
+- `func TestMemberStatusSkipsDoneItemsInQueue(t *testing.T)` — TestMemberStatusSkipsDoneItemsInQueue：队列是"还没完成的工作项名称"（销项即出队）。
+- `func TestMemberCurrentPrefersRunningThenReviewThenLast(t *testing.T)` — TestMemberCurrentPrefersRunningThenReviewThenLast："这个人此刻那件事的会话"三段优先，
+- `func TestJobViewsReverseSubjectBackToRole(t *testing.T)` — TestJobViewsReverseSubjectBackToRole：作业行的角色由作用域主体反解（emp_<role>）；
+- `func TestEventViewsKeepsOnlyRecent(t *testing.T)` — TestEventViewsKeepsOnlyRecent 钉住审计投影的有界性：只取最近 BoardEventLimit 条，
+- `func TestProjectionStaleIsOnlyAHint(t *testing.T)` — TestProjectionStaleIsOnlyAHint：句柄过期提示位——计划里记着句柄、本进程作业表一个都查不到
+- `func TestPlanHasOrchestrationRequiresMilestones(t *testing.T)` — TestPlanHasOrchestrationRequiresMilestones：可看的编排 = 有里程碑（阶段口径已退场）。
 
 ### coordinator.go
 
