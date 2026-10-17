@@ -2049,3 +2049,31 @@ plan §2.8 的最后一处判据搬迁：`application/prompt/effort.go` 里的�
 
 因此 R6 的"能搬的判据"已经搬完；剩下的两个物理落点与 P3 共用同一组产品决定，
 不是可以独立完成的搬迁片。
+
+## 58. P3 技术面收口 + TL 删除 + 状态显示面集成（2026-10-17）
+
+### P3 契约闭包
+
+`contract` 的 Seelex 依赖闭包只剩 **4 个纯形状包**：`contract`、`contract/dto`、
+`middle/protocol/{model,event}`；`Seele/types`、`store`、`seelectx/*` 与第三方包全部
+离开。`e2e` 的 contract ratchet 上限 29 → **4**。三处改动：
+
+1. 引擎历史写面统一 `contract.EngineMessage`（`3948729c`）；
+2. `SearchHistory` 返回 `dto.SearchResult`（形状下沉，引擎包别名）；
+3. `NodeContextSnapshot` 返回 `dto.ContextSnapshot`（结构体 + Builder + Validate +
+   Truncate 整份下沉，snapshot 包只留别名）。
+
+### TL/ADVISOR 删除
+
+按用户裁决删除 A-B 评审环：goal 域只留 Controller/审计/看板；`goal_propose_finish`、
+Supervisor/TLEvaluator/终态 gate/TL 指令队列/评审过程投影/`goal_team_recorder` 全部
+删除。goal 工具面 = `goal_begin/update/status/done`。团队编排归 teamwork。
+
+### 状态 owner → 显示面
+
+运行态 owner 仍是 `session.SessionUnit`；后台会话状态变化时补发**进程级**
+`sessions.changed`（空 sid），GUI 重拉权威 Snapshot、TUI 任意事件后重取 Snapshot；
+目录行由 `enrichDirectoryRowsLocked` 按单元重新富化。新增跨层测试与前端协议用例。
+
+验收：`go build` / `-tags` / `go vet` 全 0；`go test ./...` 95 包 ok，仅
+`application/core` 基线 3 例红；Readme 索引/引用门禁待随本批刷新。

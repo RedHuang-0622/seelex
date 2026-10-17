@@ -6,6 +6,64 @@
 
 ---
 
+## P3 —— 契约层提纯（技术面完成）
+
+提交：`3948729c`（EngineMessage）+ 本批 `refactor(contract): 检索结果与上下文快照下沉 dto`。
+
+**结果**：`go list -deps ./contract` 的 Seelex 闭包只剩 4 个**纯形状包**：
+`contract`、`contract/dto`、`middle/protocol/{model,event}`。`Seele/types`、`store`、
+`seelectx/*` 与全部第三方包都已离开契约闭包；`e2e` 的 contract ratchet 上限从 29
+收到 **4**。
+
+| 遗留污染 | 处置 |
+|---|---|
+| `AppendHistory` / `AppendHistoryFor` / `NodeSessionConversation` 用 `Seele/types.Message` | 统一为 `contract.EngineMessage`；适配层 `EnginePort` 用现有 `restoreMessages/adaptMessages` 一次转换 |
+| `SearchHistory` 返回 `seelectx/search.Result` | 形状下沉 `contract/dto.SearchResult`，引擎包保留别名 |
+| `NodeContextSnapshot` 返回 `seelectx/snapshot.ContextSnapshot` | 结构体、Builder、`Validate`、`Truncate` 整份下沉 `contract/dto`，snapshot 包只留同身份别名 |
+| 协议词汇 `middle/protocol/{model,event}` | 保留：plan §1.3 I1 允许零依赖协议层作为契约词汇 |
+
+**未做（按用户裁决）**：产品 A-B（EXEC/ADVISOR）模型不再冻结——TL 已删除，goal 不再
+向契约层提纯 A-B 形状。`session/` 与 `workspace_usecase` 的物理搬迁见 §R6。
+
+---
+
+## TL/ADVISOR 删除（2026-10-17 用户裁决）
+
+用户裁决：**P3 的 A-B 模型不要了，TL 删掉，teamwork 足够**。
+
+| 删除面 | 落点 |
+|---|---|
+| 领域实现 | `backend/multiagent/goal/` 的 advisor / techleader / gate / a2a / directive / tl_steps / tl_stream / escape / advisor_evaluator / headless（含对应测试） |
+| 应用接线 | `Supervisor`、`TLEvaluator`、终态 gate、TL 指令队列、`goal_propose_finish` 工具/门面/headless RPC、`GoalIterationCompleted`、`goalAdvanceAfterChat`、`goal_team_recorder`、工作摘要 |
+| 投影/前端 | `dto.PeerState`、`GoalStepView`、`GoalGovernanceView` 的 peer/in_flight/round_steps/last_directive；TUI 目标面板的 peer/TL 行 |
+| 权限/工具 | `goal_propose_finish` 从工具表、权限词表、I2/门面清单删除 |
+| 保留 | goal 栈/审计/看板（`goal_begin/update/status/done`）作为轻量目标台账；团队编排由 teamwork 承担 |
+
+证据：`go build` / `-tags` / `go vet` 全 0；`go test ./...` 95 包 ok，仅 `application/core`
+基线 3 例红。
+
+---
+
+## 状态 owner → 显示面集成（observer）
+
+裁决依据见 plan §2.3：运行态 owner = `session.SessionUnit`，持久状态 owner =
+`store.Record`，`Snapshot` 只是当前视图镜像。
+
+**集成方式**：
+
+- 当前视图会话：沿用 `chat.changed` / `snapshot.changed`（已有）。
+- **后台会话**：`publishChatStateFor` 与审批开/闭在会话非当前视图时发一条**进程级**
+  `sessions.changed`（空 sid、revision=0）。GUI 收到后整份重拉权威 Snapshot，目录行经
+  `enrichDirectoryRowsLocked` 按会话单元重算 running/queued/awaiting/resident；TUI 的
+  事件循环本来就在任意事件后重取 Snapshot。
+- 事件白名单与前端：`event.EventSessionsChanged` 进 process-class 白名单；
+  `protocol.js` 的 `PROCESS_KINDS` 同步加 `sessions.changed`（非增量 → refresh）。
+
+证据：`TestBackgroundSessionStateChangeNotifiesDisplaySurfaces`（后台会话发进程级通知、
+视图会话不重复发）；`protocol.test.mjs` 的 `sessions.changed` refresh 用例；TUI/GUI 测试全绿。
+
+---
+
 ## P20 续 —— 视图归位竞态（`TestTwoRunningViewThirdSwitchStress`）
 
 提交：`3d16a972`。
