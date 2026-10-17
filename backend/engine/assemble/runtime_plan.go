@@ -3,7 +3,6 @@ package assemble
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/Seele/session"
@@ -12,7 +11,6 @@ import (
 	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
@@ -168,13 +166,12 @@ func (r *Runtime) beginNodeWorktree(scope seenode.NodeScope, nodeID string) *wor
 	return wt
 }
 
-// branchTraceID 返回分支追踪 ID（planID:branchID 或 traceID:branchID）。
-func branchTraceID(binding dto.PlanBranchBinding, branchID string) string {
-	if binding.TraceID == "" {
-		return branchID
-	}
-	return binding.TraceID + ":" + branchID
-}
+// branchTraceID / stableHash 是 Plan 域 `BranchTraceID` / `StableHash` 的**同身份别名**
+// （分支路由的换算只有一份实现，P21-30 归位）。
+var (
+	branchTraceID = plan.BranchTraceID
+	stableHash    = plan.StableHash
+)
 
 // currentAgentFactory 返回当前 plan 子代理工厂（SeelexAgentNode 的读取器）。
 func (r *Runtime) currentAgentFactory() node.AgentFactory {
@@ -372,14 +369,9 @@ func (r *Runtime) nodeSessionComponents() session.SessionComponents {
 	}
 }
 
-// nodeSessionID 派生节点会话 ID：以系统提示（节点目标）为种子做稳定 hash；
-// 同一节点路径 plan_run 可复现（供未来 checkpoints 定位）；空提示返回空串，
-// 让 Session 自动生成不透明 ID。
+// nodeSessionID 派生节点会话 ID（判据在 Plan 域：以系统提示为种子的稳定 hash 派生）。
 func (r *Runtime) nodeSessionID(systemPrompt string) string {
-	if systemPrompt == "" {
-		return ""
-	}
-	return fmt.Sprintf("node-%x", stableHash(systemPrompt))
+	return plan.NodeSessionID(systemPrompt)
 }
 
 // registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
@@ -441,13 +433,8 @@ func (r *Runtime) releaseNodeWorktree(nodeID string) {
 
 // resolvePlanBranchAccount 按 role + planID:branchID 稳定解析分支账号。
 func (r *Runtime) resolvePlanBranchAccount(binding dto.PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
-	if binding.AccountID != "" {
-		if spec := account.ByName(r.accountSpecList(), binding.AccountID); spec == nil {
-			return "", fmt.Errorf("branch %q pins unknown account %q", branchID, binding.AccountID)
-		}
-		return binding.AccountID, nil
-	}
-	return account.ResolveForBranch(r.pool, role, binding.PlanID+":"+branchID)
+	// 判据（钉住账号的校验 + 按角色与 `planID:branchID` 种子解析）在 Plan 域；本层只给两格读数。
+	return plan.ResolveBranchAccount(r.accountSpecList(), r.pool, binding, role, branchID)
 }
 
 // roleForPlanBranch 解析分支账号角色（main/entry → 主账号，其余 → 子代理）。
@@ -455,12 +442,6 @@ func roleForPlanBranch(binding dto.PlanBranchBinding, branchID string) model.Acc
 	return seenode.RoleForPlanBranch(binding, branchID)
 }
 
-// stableHash 返回 seed 的 FNV-1a 32 位稳定哈希。
-func stableHash(seed string) uint32 {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(seed))
-	return hash.Sum32()
-}
 func (r *Runtime) currentPlanPolicy() dto.PlanPolicy {
 	if r == nil || r.planExecutor == nil {
 		return dto.PlanPolicy{}

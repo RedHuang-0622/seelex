@@ -22,6 +22,11 @@
 - `factory_types.go`：`SeelexNodeInput`/`NodeBudgetInput` 节点负载、
   `CanonicalPlanDocument`、product/approval 节点实现。
 - `branch_types.go`：`PlanBranchBinding`/`PlanBranchEvent` 分支绑定类型。
+- `branch_routing.go`：**分支路由三条判据**（P21-30 从 `backend/engine/assemble/runtime_plan.go` 归位，plan §2.6）——
+  `BranchTraceID`（`traceID:branchID`，没给 traceID 时退化成 branchID）、`StableHash`（FNV-1a 32 位；稳定性是契约：
+  换算法就换 nodeID）与 `NodeSessionID`（以节点目标为种子派生 `node-<hex>`；**空提示返回空串**，让 Session 自动
+  生成不透明 ID）、`ResolveBranchAccount`（绑定钉住账号时**校验在册**并显式拒绝未知名，否则按角色 +
+  `planID:branchID` 种子交给账号域；`specs`/`pool` 两格读数由宿主传）。
 - `authority.go`：`AuthorizePlanMutation` 变更授权钩子（当前放行）。
 
 根包 `runtime_plan.go` 保留 plan 门面
