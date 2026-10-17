@@ -22,35 +22,19 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 记录词表与定位键（纯读数，不碰端口）───────────────────────────────────
 
-// 会话记录的 status 词表（`NodeSessionRecord.Status` 的取值面）。只有"在跑"与两种
-// 终态：记录回答的是"这一轮跑到哪"，不是"leader 验收了没有"（那是计划里 item.Status
-// 的事——两处各记一份就会漂移）。
-// var 而非 const：`dto.SubAgent*.String()` 不是常量表达式；词仍只有契约枚举一处。
+// 会话记录的 status 词表与"收尾分类 → 终态"的折算在团队域（`unit_record.go`，P21-34 归位）；
+// 本层留**同身份/同值别名**让既有调用点与用例零改动。口径：只有"在跑"与两种终态；不判死的
+// 两类（未提交 / 主工作区挡路）记 done——这一轮跑完了、产出还在现场。
 var (
-	// teamUnitStatusRunning 复用契约的词表（"在跑"只有一份，见 workunit.StatusRunning /
-	// InFlight）；两个终态**不进 workunit 契约**——它由记录写方按自己的语义定名。但"不进
-	// workunit 契约"不等于"各写一份字面量"：③U6 之后记录那一格的四个取值面只有对外契约
-	// `dto.SubAgent*` 一份（记录词 = wire 词，由 TestSubagentStatusVocabularyAgreesWithTheWire
-	// 逐条互锁），这里与子代理侧都是**转调**。
-	teamUnitStatusRunning = workunit.StatusRunning.String()
-	teamUnitStatusDone    = dto.SubAgentDone.String()
-	teamUnitStatusFailed  = dto.SubAgentFailed.String()
+	teamUnitStatusRunning = teamwork.UnitStatusRunning
+	teamUnitStatusDone    = teamwork.UnitStatusDone
+	teamUnitStatusFailed  = teamwork.UnitStatusFailed
+	teamUnitStatusFor     = teamwork.UnitStatusFor
 )
-
-// teamUnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）
-// 记 done**——这一轮跑完了、产出还在现场，记录不该把它说成"这一轮失败了"；未合并这件事
-// 由计划里的 item.Status(待验收) + plan.State.Unmerged 承载（两处各记一份就会漂移）。
-func teamUnitStatusFor(kind workunit.OutcomeKind) string {
-	if kind == workunit.OutcomeFailed {
-		return teamUnitStatusFailed
-	}
-	return teamUnitStatusDone
-}
 
 // teamUnitRecordKey 是一个 teammate 单元的身份：现场 nodeID + 角色会话 + 这一轮的目标，
 // 以及记录快照里那一格身份要用的三件事（角色 / 插件装配 / 系统提示）。
@@ -66,18 +50,8 @@ type teamUnitRecordKey struct {
 	SystemPrompt  string
 }
 
-// teamUnitNodeID 把一个 teammate 单元的现场折成契约的 nodeID（`<role>-<itemID>` /
-// `<role>`）：有指派名就去前缀（换算只有 workItemNodeID 一处），降级共享工作区（没有
-// 独立现场）时按归属拼——同一份命名由 teamwork.SceneNodeID 给出。
-func teamUnitNodeID(request teamwork.WorkerRequest) string {
-	if nodeID := workItemNodeID(request.Worktree); nodeID != "" {
-		return nodeID
-	}
-	if itemID := strings.TrimSpace(request.WorkItemID); itemID != "" {
-		return teamwork.SceneNodeID(request.Role, itemID)
-	}
-	return strings.TrimSpace(request.Role)
-}
+// teamUnitNodeID 是团队域 `UnitNodeID` 的同身份别名（单元身份的口径只有一份实现）。
+var teamUnitNodeID = teamwork.UnitNodeID
 
 // teamUnitKeyFor 从一轮作业的载荷取出记录身份（NodeID 的口径见 teamUnitNodeID）。
 // SystemPrompt 不在这里填（它由装配层在开跑前补上，见 teamUnitRecordKey）。

@@ -108,6 +108,8 @@ stateDiagram-v2
 | `scene.go` | **团队现场名单判据 + 指派名的反向换算**（P21-26 从 `backend/engine/assemble/runtime_teamwork_scene.go` 归位，plan §2.7）：`SceneIndex`（计划（成员 → 工作项）+ 账本**原始行**（未释放）→ `SceneEntry{NodeID, Role, WorkItem}`，按 nodeID 去重保序；刻意不经折叠读法——折叠以 work_item 为键会把 WorkItem 留空的 teammate 级行整行丢掉）、`SceneNodeIDs`（只取名字的投影）、`NodeIDFromWorktreeName`（`seelex/<nodeID>` → nodeID，**与正向拼装 `WorkItemWorktreeName` / `TeammateWorktreeName` 同处一域**——两个方向过去分居两包，现在一条命名只有一域） |
 | `worker_round.go` | **teammate 回合面的三条纯判据**（P21-29 从 `backend/engine/assemble/runtime_teamwork.go` 归位，plan §2.7）：`RoundsPerMember`（"一名 teammate 收口前最多派多少轮"的量级取用值 64）+ `JobRecordCeiling`（作业表记录槽上限：规模换算，**只抬不降**、永不低于框架缺省；计划侧"不限制"按一名成员算）、`TurnLimit`（成员级 `max_turns` 优先，否则回退宿主给的默认）、`RoundInput`（回合输入正文的组装：`<milestone>` 标签只认里程碑、正文 trim、没有正文时如实说明） |
 | `plan_query.go` | **计划查询的两条判据**（P21-33 从 `backend/engine/assemble/runtime_teamwork.go` 的两个遍历点搬进本域，与已有 `items.go` 的 `findItem` 同源）：`ItemRole(plan, id)`（按 id 查执行角色；入参 trim 后比较；查不到/空 id ⇒ 空串）与 `MemberOf(plan, role)`（按角色名查在编成员；trim 后比较；查不到/空角色 ⇒ false）。收口之前派发回执那边另写了一次"遍历里程碑找 item.Role"的循环——与 `findItem` 口径略不同，迟早漂移 |
+| `unit_record.go` | **teammate 单元记录的写侧口径**（P21-34 从 `backend/engine/assemble/workunit_team.go` 归位，plan §2.7）：`UnitStatusRunning` / `UnitStatusDone` / `UnitStatusFailed`（记录那一格的词表——"在跑"复用 workunit 契约、终态来自 `dto.SubAgent*`，记录词 = wire 词）、`UnitStatusFor`（收尾分类 → 记录终态：**只有判死那一类记 failed**；未提交 / 主工作区挡路都记 done，产出还在现场）、`UnitNodeID`（一轮作业的 nodeID：有独立现场就去前缀，降级共享工作区按 `<role>-<itemID>` 拼，连工作项都没有退到角色名） |
+| `unit_record_test.go` | 词表来自契约、收尾分类四支路（只有 failed 记 failed）、单元身份三形态与空输入 |
 | `plan_query_test.go` | 按 id 找执行角色（trim/查不到/空 id/空计划）、按角色找成员（trim/查不到/空角色） |
 | `worker_round_test.go` | 记录槽上限"只抬不降"两半（换算低于缺省取缺省、高于缺省照用）与"不限制"同解、回数上限优先与回退、输入正文（里程碑标签/正文 trim/task 点名角色/无正文与无里程碑两形态） |
 | `scene_test.go` | 反向换算与正向拼装互逆（含空白与无前缀输入）、名单次序（计划在前账本在后、去重保序、已释放不认领、空白指派名跳过）、teammate 级行 WorkItem 留空、空输入与 nodeID 投影 |
@@ -710,6 +712,17 @@ go test ./backend/multiagent/... -count=1
 - `func TestTeamworkPlanSchemaHasNoStages(t *testing.T)` — TestTeamworkPlanSchemaHasNoStages：阶段口径整条退场——属性没有、required 没有、
 - `func TestTeamworkPlanDescriptionSpeaksMilestoneVocabulary(t *testing.T)`
 - `func TestTeamworkPlanSchemaCarriesPerMemberMaxTurns(t *testing.T)` — TestTeamworkPlanSchemaCarriesPerMemberMaxTurns：成员级执行参数（max_turns）既是
+
+### unit_record.go
+
+- `func UnitStatusFor(kind workunit.OutcomeKind) string` — UnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）记 done**
+- `func UnitNodeID(request WorkerRequest) string` — UnitNodeID 把一轮 teammate 作业的现场折成契约的 nodeID（`<role>-<itemID>` / `<role>`）：
+
+### unit_record_test.go
+
+- `func TestUnitStatusWordsComeFromTheContract(t *testing.T)` — TestUnitStatusWordsComeFromTheContract：记录那一格的词只能来自对外契约（记录词 = wire 词）——
+- `func TestUnitStatusForOnlyFailedIsDead(t *testing.T)` — TestUnitStatusForOnlyFailedIsDead：收尾分类 → 记录终态：**只有判死那一类记 failed**；
+- `func TestUnitNodeIDFollowsTheSceneNaming(t *testing.T)` — TestUnitNodeIDFollowsTheSceneNaming：单元身份——有独立现场时取指派名去前缀；
 
 ### worker_round.go
 
