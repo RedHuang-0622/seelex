@@ -54,7 +54,9 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 **已完成**：`loop/`（循环上限判据，M2-B）；`approval/`（审批 broker，M2-C1；端口形状与
 哨兵错误留在 `contract/approval.go`，实现包不做第二份定义）；`overlay/`（运行时上限覆盖层，
 M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；`accountwindow/`
-（每账号上下文窗口的挡位表与校验，M2-C3；从 `backend/engine/context/seelectx/window.go` 归位）。
+（每账号上下文窗口的挡位表与校验，M2-C3；从 `backend/engine/context/seelectx/window.go` 归位）；
+`effort/`（档位策略唯一判据：reasoning 强度 / plan 约束 / 默认档位，plan §2.8；
+从 `application/prompt/effort.go` 拆出，宿主侧 `EffortManager` 只做应用动作）。
 `gate/`（路径门 / 沙箱 / 进程树 / 环境清洗，M4-B；从 `seelebridge/security` 整体归位，
 包名仍为 `security`——plan §2.8 点名的落点是 `gate/`，改名不是搬迁，包名是否统一到
 `gate` 留给用户裁决）。

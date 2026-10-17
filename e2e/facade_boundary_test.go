@@ -103,7 +103,7 @@ const (
 // 现在 import 它，因此闭包多这一条，上限抬到 83。它与既有登记项不同的一点是：它不是从
 // `application/core` 抽出来的，而是从**装配层**抽出来的——闭包里的装配层本来就在，抽出来的域包
 // 自然跟着进闭包。域包自身只依赖 Seele 的 `event`/`jobs`、`backend/tool/registry` 与 `contract/dto`。
-const facadeClosureAllowListMax = 83
+const facadeClosureAllowListMax = 84
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -147,6 +147,10 @@ var facadeClosureAllowList = []string{
 	// M2-B：ReAct 循环上限的判据层（从 application/prompt + wiring/adapters +
 	// backend/tool/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
 	"github.com/RedHuang-0622/seelex/backend/limit/loop",
+	// M2-E（plan §2.8）：effort 档位策略表从 application/prompt 拆出。**新增登记的
+	// 理由**：prompt 仍承担 EffortManager 的宿主动作，策略表移到 limit/effort 后
+	// 闭包多出这一个干净叶子（只依赖 loop + contract/dto），没有引入第三方或反向依赖。
+	"github.com/RedHuang-0622/seelex/backend/limit/effort",
 	// M2-C4：权限判据（主体类 / 路由组表 / 规则表 / 档位覆盖 / 工具簇属声明 /
 	// 壳类别词表）从 seelebridge/tools 抽出（M2-C4）；执行门当时仍留在 tools，
 	// 2026-10-16 M4-T3 整包归位到 backend/tool/registry（包名 registry）。

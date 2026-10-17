@@ -1,4 +1,4 @@
-package prompt
+package effort
 
 import (
 	"testing"
@@ -37,12 +37,12 @@ func TestReasoningEffortForMapsLevelsToWireVocabulary(t *testing.T) {
 // reasoningEffort 是 effortProfile 的字段而不是散在外面的 if，漏填一档会在这里
 // 变红，而不是等到线上"某一档怎么都不生效"才发现。
 func TestEffortProfilesCarryReasoningEffort(t *testing.T) {
-	for level, profile := range effortProfiles {
-		if profile.reasoningEffort == "" {
+	for level, profile := range profiles {
+		if profile.ReasoningEffort == "" {
 			t.Errorf("effort profile %q has no reasoningEffort", level)
 		}
-		if !dto.ValidReasoningEffort(profile.reasoningEffort) {
-			t.Errorf("effort profile %q has an unknown reasoningEffort %q", level, profile.reasoningEffort)
+		if !dto.ValidReasoningEffort(profile.ReasoningEffort) {
+			t.Errorf("effort profile %q has an unknown reasoningEffort %q", level, profile.ReasoningEffort)
 		}
 	}
 }

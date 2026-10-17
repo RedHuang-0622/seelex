@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	effortpolicy "github.com/RedHuang-0622/seelex/backend/limit/effort"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -19,8 +19,8 @@ import (
 // 回合"的两条读数，定时任务声明的是"触发那次会话"的两条读数，落点也各走原来那条链
 // （强度 → 跟随会话的账号；次数 → 该会话自己的引擎）。
 //
-// 默认参数 = **默认档位（prompt.DefaultEffortLevel）的那两条读数**：一个什么都没声明
-// 的定时任务，与刚开的新会话开局完全一致。数字与词表只有 effortProfiles 一份。
+// 默认参数 = **默认档位的那两条读数**（判据在 `backend/limit/effort`）：一个什么都没
+// 声明 的定时任务，与刚开的新会话开局完全一致。数字与词表只有一份。
 //
 // 为什么默认要落成显式值，而不是"空 = 触发时跟随当前档位"：定时任务在后台跑，它的
 // 行为不该随用户此刻把拉条拖到哪儿而漂移；落进定义 = 面板上看得见、跨重启稳定。
@@ -38,15 +38,7 @@ func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.Schedule
 // 只有 0 算"未声明"：**负数是非法取值**，留给 validateScheduledRunParams 显式拒绝
 // （在这里一并抹成默认值，等于把用户的错误数据当没看见）。
 func scheduledRunParams(effort string, loopLimit int) (string, int) {
-	wire := strings.ToLower(strings.TrimSpace(effort))
-	if wire == "" {
-		wire = reasoningEffortFor(prompt.DefaultEffortLevel)
-	}
-	loops := loopLimit
-	if loops == 0 {
-		loops = maxLoopsFor(prompt.DefaultEffortLevel)
-	}
-	return wire, loops
+	return effortpolicy.DefaultRunParams(effort, loopLimit)
 }
 
 // validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据

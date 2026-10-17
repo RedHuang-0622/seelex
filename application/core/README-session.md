@@ -405,7 +405,7 @@
 
 - `func (service *Service) resumeSession(sessionID string) error` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
 - `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
-- `func (service *Service) pointViewAtRestoringShell(sessionID string)` — pointViewAtRestoringShell 把视图重指到一个"装载在途"会话的空壳上（幂等，
+- `func (service *Service) pointViewAtRestoringShell(sessionID string) bool` — pointViewAtRestoringShell 把视图重指到一个"装载在途"会话的空壳上（幂等，
 - `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
 - `func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error)` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
 - `func (service *Service) resetViewToDraftAfterRestoreFailure()` — resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到
