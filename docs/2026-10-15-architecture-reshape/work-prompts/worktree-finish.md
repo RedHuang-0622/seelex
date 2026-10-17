@@ -3,6 +3,70 @@
 > **状态：已完成并提交 `2c043125`。请勿重复认领。** 本文件保留为验收记录；
 > 如后续要改，先读该提交与 `backend/workunit/merge_retry.go`。
 
+## 完成记录（2026-10-17 认领会话）
+
+### 完成项
+
+- [x] `WorktreeManager.Finish` 只执行**一次**机械收尾：rebase → 提交/脏判定 → 一次 merge →
+  cleanup；不再持有重试预算。
+- [x] 挡路等待与重试上移到 `workunit.Host`：`MergeRetry`（默认 2 分钟 / 5 秒）+ 可选
+  `awaiting_merge` 观察者；只有 `IsMergeBlockedByMain` 认的那一族才重试。
+- [x] 现场适配器只交回事实与类型化错误：`ErrUncommittedChanges` /
+  `ErrMergeBlockedByMain` / 真实 git 失败；收尾分类仍只有 `ClassifyFinish` 一份。
+- [x] `WorktreeManagerDeps` 不再有审批门；`Phase` 保留为可选的机械阶段诊断观察者，
+  生产装配不注入。
+- [x] worktree 测试里的 `approveGateStub`（已无注入点的 plan 遗留替身）已删除。
+- [x] 两份 README（`backend/workunit`、`backend/tool/worktree`）已按新边界更新；
+  workunit 索引已用生成器刷新。
+
+### 任务书更正
+
+1. **「当前事实」是认领前快照，部分已过期**：`WorktreeManager.Finish` 里的
+   `mergeRetryBudget` / `mergeRetryInterval`、`phaseAwaitingMerge` 与重试循环都已删除；
+   现在读第 1 节应理解为“改造前的事实”。
+2. **提交切分未按原计划**：核心实现被并发会话连同 `NodeScope → SceneScope` 改名一起
+   提交为 `2c043125`（同一 commit 含两个主题）；本轮没有改写共享分支历史，只补了
+   独立清理提交 `fecd891d`。后续若要求严格一行为一 commit，需要单独处理历史，不能
+   在本分支上静默 rebase。
+
+### 判据副本删除清单（旧位置 → 新唯一位置）
+
+| 旧位置（`3d2a9ab7`） | 新唯一位置 |
+|---|---|
+| `backend/tool/worktree/worktree_manager.go:213-216` 重试默认常量 | `backend/workunit/merge_retry.go` 的 `defaultMergeRetry*` |
+| `backend/tool/worktree/worktree_manager.go:217-218` `phaseAwaitingMerge` | `backend/workunit/merge_retry.go` 的 `MergePhaseAwaiting` |
+| `backend/tool/worktree/worktree_manager.go:236-238`、`:254-255` 重试字段与初始化 | `workunit.Host.mergeRetry` + `WithMergeRetry` |
+| `backend/tool/worktree/worktree_manager.go:519-541` `Finish` 重试循环 | `backend/workunit/merge_retry.go` 的 `Host.mergeScene` |
+| `backend/tool/worktree/worktree_manager.go` 的 `finishExclusive` | 同一文件的 `finishOnce`（单次，不重试） |
+
+### 钉住新边界的测试
+
+- `backend/workunit/merge_retry_test.go`
+  - 挡路两次后在预算内合上（3 次调用 + `awaiting_merge`）；
+  - 预算耗尽仍返回 `ErrMergeBlockedByMain` 且带处置办法；
+  - 等待期间取消立即收口；
+  - 确定性冲突只尝试一次；
+  - `Host.Finish` 与 `ClassifyFinish` 对同一合并事实给出同一分类。
+- `backend/tool/worktree/worktree_merge_serial_test.go`
+  - 现场适配器挡路时 `mergeCalls == 1`、现场保留；
+  - 把真实 `WorktreeManager.Finish` 接成 `workunit.SceneFace`，验证同一个脚本化 git
+    输入经 Host 重试后合上；
+  - 单写者在挡路事实交回后立刻释放。
+
+### 验收结果
+
+| 命令 | 结果 |
+|---|---|
+| `go build ./...` | 通过 |
+| `go vet ./...` | 通过 |
+| `go test ./backend/workunit/ ./backend/tool/worktree/ ./backend/engine/assemble/ -count=1 -timeout 900s` | 通过（workunit 3.2s / worktree 93–135s / assemble 129s） |
+| `python scripts/check_readme_refs.py --strict` | 通过（180 个 README，0 未解析引用） |
+| `python scripts/gen_core_readme_index.py --only backend/workunit --check` | 通过 |
+| `python scripts/gen_core_readme_index.py --check` | **全仓未通过**：`backend/limit/policy/README.md`、`contract/dto/README.md` 所属其他会话的漂移；本次未代改 |
+
+worktree 侧 plan 专用字段：生产 `WorktreeManagerDeps` 已无审批门；仅保留可选的
+`Phase` 机械阶段观察者（生产不注入）。
+
 ## 你的任务
 
 在 `refactor/architecture-reshape` 分支上，把 `backend/tool/worktree` 从“第二份生命周期”
