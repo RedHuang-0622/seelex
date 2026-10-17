@@ -104,6 +104,8 @@ stateDiagram-v2
 | `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
 | `output_store.go` | **产品自有作业输出面**（P21-23 从 `backend/engine/assemble/runtime_teamwork_output.go` 整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
 | `board_archive.go` | **看板存档的生命周期判据**（P21-24 从 `backend/engine/assemble/runtime_teamwork_board_archive.go` 与 `..._board_close.go` 归位，plan §2.7；契约 docs/arch/session-board-metadata-lifecycle.md §5/§6/§7/§8/§9）：`NextBoardMeta`（无档新开一版 / **换版本先关旧后开新**（`team.replan`）/ 同版本只推进 seq 与 updated_at / 指纹不变即节流；读失败与"没档案"同解）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑；`Recovered=true` 且 `Stale=true`）、`SealBoard`（把在册那一版关成 `team.close`，可顺带刷新快照；幂等，读失败上抛）、`BoardFingerprint`（§7 节流判据） |
+| `job_projection.go` | **作业完成投影**（P21-25 从 `backend/engine/assemble/runtime_teamwork_jobs.go` 归位，plan §2.7）：`ProjectJobCompletions`（按读取顺序搬运、空表归一 nil）+ `JobCompletionFrom`（"每一列都要到"的搬运口径：角色由 `emp_<role>` 反解、工作项取 `Node`）+ `AsyncStateFromJobs`（框架状态词 → 契约枚举，**只折一次**；认不得的词落 `AsyncStateUnknown`——"认不得"不许被折成"还在跑"） |
+| `job_projection_test.go` | 逐列搬运（含缺主体/缺状态）、状态折算（四词 + 空值 + 未知词）、顺序保持与空表归一 |
 | `board_archive_test.go` | 生命周期三规则 + 换版本写序（新开→刷新→关旧）+ 已退场不再续命 + 读失败按首次写；恢复只认 active（四种不恢复形态）；封板幂等与读失败上抛；指纹稳定 |
 | `output_store_test.go` | 随实现搬入的域级用例（逐字）：每次派发互不覆盖且落在会话目录、角色名折成安全片段、清目录= 删整目录 + 作废落点（迟到写丢弃、不复用）、非本面分配的路径拒绝写、按角色名取序号最大的一份、无会话归属显式报错、缺 store/keyFor 构造函数返回 nil |
 | `context_view_test.go` | 预算夹取与缺省、UTF-8 安全裁剪、最新作业行选取、空转与残边回读两条空闲形态、角色过滤归一 |
@@ -494,6 +496,18 @@ go test ./backend/multiagent/... -count=1
 - `func TestSettlePrintsTheRunErrorIntoTheTeammateMessage(t *testing.T)`
 - `func TestDispatchItemCarriesTheOwnersPermissionScope(t *testing.T)`
 - `func TestCloseIsIdempotentAndKeepsThePlanFacts(t *testing.T)`
+
+### job_projection.go
+
+- `func ProjectJobCompletions(records []jobs.Record) []dto.TeamworkJobCompletionRecord` — ProjectJobCompletions 把作业读数搬成契约 DTO（按读取顺序；空表归一为 nil）。
+- `func JobCompletionFrom(record jobs.Record) dto.TeamworkJobCompletionRecord` — JobCompletionFrom 把一条作业读数搬成 DTO。单独成函数是为了让"漏搬一列"
+- `func AsyncStateFromJobs(state jobs.State) dto.AsyncState` — AsyncStateFromJobs 把框架 `jobs.Manager` 的状态折成契约枚举。
+
+### job_projection_test.go
+
+- `func TestJobCompletionFromCarriesEveryColumn(t *testing.T)` — TestJobCompletionFromCarriesEveryColumn 钉住"投影只搬、不漏列"：一条作业读数的每一列都要到
+- `func TestAsyncStateFromJobsFoldsOnlyKnownWords(t *testing.T)` — TestAsyncStateFromJobsFoldsOnlyKnownWords：状态词由**框架**定义，折一次；
+- `func TestProjectJobCompletionsKeepsOrderAndNormalizesEmpty(t *testing.T)` — TestProjectJobCompletionsKeepsOrderAndNormalizesEmpty：顺序保持、空表归一为 nil。
 
 ### output_store.go
 
