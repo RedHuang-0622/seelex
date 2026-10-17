@@ -481,6 +481,12 @@ func TestPolicyMemoryComparison(t *testing.T) {
 		actor.Snapshot()
 		after := measureHeap()
 		actor.Close()
+		// 并发负载下 GC 可能在测量窗口回收基线内存，使 after < before；
+		// 这不是"负增长"的产品信号，按 0 计。FullRetain 的真实增长由
+		// TestPolicyMemoryComparisonFullRetainGrows 单独钉住。
+		if after <= before {
+			return actor, 0
+		}
 		return actor, after - before
 	}
 
