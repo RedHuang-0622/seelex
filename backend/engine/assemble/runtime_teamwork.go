@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
@@ -240,21 +239,10 @@ func (r *Runtime) registerTeamworkTools() {
 // ── leader 工具：输入解析 + 转调 Coordinator ─────────────────────────────
 
 func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		TeamID     string                    `json:"team_id"`
-		Version    int                       `json:"version"`
-		Members    []store.TeamworkMember    `json:"members"`
-		Milestones []store.TeamworkMilestone `json:"milestones"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	// 入参形状与解码在团队域（与 TeamPlanSchema 同处一域，P21-37）；本层只留话术与编排。
+	plan, err := teamwork.DecodePlanRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_plan: 参数解析失败: %w", err)
-	}
-	if raw.Version == 0 {
-		raw.Version = 1
-	}
-	plan := store.TeamworkPlan{
-		TeamID: raw.TeamID, Version: raw.Version,
-		Members: raw.Members, Milestones: raw.Milestones,
 	}
 	// 插件装配（能力轴）在这里做两道**显式拒绝**——只有这一层手里同时有插件定义与
 	// 配置上限（validateMemberPlugins）：
@@ -343,12 +331,8 @@ func dispatchItemRole(ctx context.Context, coordinator *teamwork.Coordinator, it
 }
 
 func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		Role string `json:"role"`
-		Item string `json:"item"`
-		Goal string `json:"goal"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	raw, err := teamwork.DecodeDispatchRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_dispatch: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
@@ -357,7 +341,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 	}
 	// Work Item 口径：给了 item 就按甘特节点派发（屏障 + 依赖 + 一 Work Item 一套
 	// 会话与 worktree 都归编排面管）。没给就是 teammate 级的老口径。
-	if itemID := strings.TrimSpace(raw.Item); itemID != "" {
+	if itemID := raw.Item; itemID != "" {
 		handle, err := coordinator.DispatchItem(ctx, itemID)
 		if err != nil {
 			return "", fmt.Errorf("team_dispatch: %w", err)
@@ -372,7 +356,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 			"hint":        "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 		})
 	}
-	role := strings.TrimSpace(raw.Role)
+	role := raw.Role
 	handle, err := coordinator.Dispatch(ctx, role, raw.Goal)
 	if err != nil {
 		return "", fmt.Errorf("team_dispatch: %w", err)
@@ -388,107 +372,74 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 
 // teamWorkHandler 给一个里程碑**排活**（分里程碑排活：依赖未完成的里程碑会被拒）。
 func (r *Runtime) teamWorkHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		Milestone string `json:"milestone"`
-		Items     []struct {
-			ID          string   `json:"id"`
-			Role        string   `json:"role"`
-			Name        string   `json:"name"`
-			Description string   `json:"description"`
-			Goal        string   `json:"goal"`
-			DependsOn   []string `json:"depends_on"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	milestone, specs, err := teamwork.DecodeWorkRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_work: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
 	}
-	specs := make([]teamwork.WorkItemSpec, 0, len(raw.Items))
-	for _, item := range raw.Items {
-		specs = append(specs, teamwork.WorkItemSpec{
-			ID: item.ID, Role: item.Role, Name: item.Name,
-			Description: item.Description, Goal: item.Goal, DependsOn: item.DependsOn,
-		})
-	}
-	if err := coordinator.PlanMilestone(ctx, strings.TrimSpace(raw.Milestone), specs); err != nil {
+	if err := coordinator.PlanMilestone(ctx, milestone, specs); err != nil {
 		return "", fmt.Errorf("team_work: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "milestone": raw.Milestone, "items": len(specs)})
+	return jsonReceipt(map[string]any{"ok": true, "milestone": milestone, "items": len(specs)})
 }
 
 // teamItemHandler 调整一条**尚未开始**的工作项。
 func (r *Runtime) teamItemHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		ID          string   `json:"id"`
-		Role        string   `json:"role"`
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Goal        string   `json:"goal"`
-		DependsOn   []string `json:"depends_on"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	itemID, spec, err := teamwork.DecodeItemRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_item: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := coordinator.AdjustItem(ctx, strings.TrimSpace(raw.ID), teamwork.WorkItemSpec{
-		Role: raw.Role, Name: raw.Name, Description: raw.Description,
-		Goal: raw.Goal, DependsOn: raw.DependsOn,
-	}); err != nil {
+	if err := coordinator.AdjustItem(ctx, itemID, spec); err != nil {
 		return "", fmt.Errorf("team_item: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
+	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
 // teamAcceptHandler 是 leader 的**验收通过**：工作项 → done，并结束这件事的执行隔离。
 func (r *Runtime) teamAcceptHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		ID   string `json:"id"`
-		Note string `json:"note"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	itemID, note, err := teamwork.DecodeItemNoteRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_accept: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := coordinator.AcceptItem(ctx, strings.TrimSpace(raw.ID), raw.Note); err != nil {
+	if err := coordinator.AcceptItem(ctx, itemID, note); err != nil {
 		return "", fmt.Errorf("team_accept: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
+	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
 // teamFailHandler 判定一件工作不通过（现场与记忆都留着，可重派）。
 func (r *Runtime) teamFailHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		ID   string `json:"id"`
-		Note string `json:"note"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	itemID, note, err := teamwork.DecodeItemNoteRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_fail: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := coordinator.FailItem(ctx, strings.TrimSpace(raw.ID), raw.Note); err != nil {
+	if err := coordinator.FailItem(ctx, itemID, note); err != nil {
 		return "", fmt.Errorf("team_fail: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
+	return jsonReceipt(map[string]any{"ok": true, "id": itemID})
 }
 
 // teamRecoverHandler 做中断恢复（额度中断 / 重启）：读回计划与绑定，把"句柄已作废、
@@ -534,26 +485,13 @@ func (r *Runtime) teamItemsHandler(ctx context.Context, _ string) (string, error
 }
 
 func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		Handles  []string `json:"handles"`
-		BudgetMS int      `json:"budget_ms"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	handles, budget, err := teamwork.DecodeJoinRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_join: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
-	}
-	handles := make([]jobs.Handle, 0, len(raw.Handles))
-	for _, handle := range raw.Handles {
-		if trimmed := strings.TrimSpace(handle); trimmed != "" {
-			handles = append(handles, jobs.Handle(trimmed))
-		}
-	}
-	budget := time.Duration(raw.BudgetMS) * time.Millisecond
-	if budget <= 0 {
-		budget = 5 * time.Second
 	}
 	records, err := coordinator.Join(ctx, handles, budget)
 	if err != nil {
@@ -568,23 +506,20 @@ func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string,
 }
 
 func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		ID      string `json:"id"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+	milestoneID, content, err := teamwork.DecodeMilestoneRequest(argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("team_milestone: 参数解析失败: %w", err)
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := coordinator.Milestone(ctx, strings.TrimSpace(raw.ID), raw.Content); err != nil {
+	if err := coordinator.Milestone(ctx, milestoneID, content); err != nil {
 		return "", fmt.Errorf("team_milestone: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
+	return jsonReceipt(map[string]any{"ok": true, "id": milestoneID})
 }
 
 // teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套收口四步（作业回收、

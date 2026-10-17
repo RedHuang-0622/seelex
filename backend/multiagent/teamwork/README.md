@@ -101,6 +101,8 @@ stateDiagram-v2
 | `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
 | `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
 | `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 `backend/engine/assemble/runtime_teamwork_schema.go` 整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
+| `tool_requests.go` | **工具入参形状与解码**（P21-37 从 `backend/engine/assemble/runtime_teamwork.go` 的十个 handler 搬进本域）：`PlanRequest` / `DispatchRequest` / `WorkRequest` / `ItemRequest` / `ItemNoteRequest` / `JoinRequest` / `MilestoneRequest` + 七个 `Decode*`（默认值：plan version 缺省 1、join 预算缺省 5s 并丢弃空白句柄；trim 口径：role/item/id/milestone trim，goal/note/content **原样**——它们是给模型/人看的正文）。与 `tool_shapes.go` 的 schema 同处一域：schema 改了、解析结构没跟上会让模型按 schema 发的东西被静默丢掉 |
+| `tool_requests_test.go` | 七个解码入口的默认值/trim 口径/逐字段搬运/顺序保持/非 JSON 报错 |
 | `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
 | `output_store.go` | **产品自有作业输出面**（P21-23 从 `backend/engine/assemble/runtime_teamwork_output.go` 整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
 | `board_archive.go` | **看板存档的生命周期判据**（P21-24 从 `backend/engine/assemble/runtime_teamwork_board_archive.go` 与 `..._board_close.go` 归位，plan §2.7；契约 docs/arch/session-board-metadata-lifecycle.md §5/§6/§7/§8/§9）：`NextBoardMeta`（无档新开一版 / **换版本先关旧后开新**（`team.replan`）/ 同版本只推进 seq 与 updated_at / 指纹不变即节流；读失败与"没档案"同解）、`ReadBoardArchive`（只恢复 active 且快照可解且有里程碑；`Recovered=true` 且 `Stale=true`）、`SealBoard`（把在册那一版关成 `team.close`，可顺带刷新快照；幂等，读失败上抛）、`BoardFingerprint`（§7 节流判据） |
@@ -679,6 +681,25 @@ go test ./backend/multiagent/... -count=1
 ### testnamer_test.go
 
 - `func (testNamer) Name(spec jobs.Spec, seq int) jobs.Handle`
+
+### tool_requests.go
+
+- `func DecodePlanRequest(argsJSON string) (store.TeamworkPlan, error)` — DecodePlanRequest 解析 `team_plan` 入参并补默认值（version 缺省 1；其余字段原样）。
+- `func DecodeDispatchRequest(argsJSON string) (DispatchRequest, error)` — DecodeDispatchRequest 解析 `team_dispatch` 入参：role / item trim；goal **原样**
+- `func DecodeWorkRequest(argsJSON string) (string, []WorkItemSpec, error)` — DecodeWorkRequest 解析 `team_work` 入参：里程碑 trim，工作项原样搬成规格。
+- `func DecodeItemRequest(argsJSON string) (string, WorkItemSpec, error)` — DecodeItemRequest 解析 `team_item` 入参：id trim，其余字段搬成规格。
+- `func DecodeItemNoteRequest(argsJSON string) (string, string, error)` — DecodeItemNoteRequest 解析验收/判负入参：id trim；note 原样（那是给 leader 看的原文）。
+- `func DecodeJoinRequest(argsJSON string) ([]jobs.Handle, time.Duration, error)` — DecodeJoinRequest 解析汇合入参：句柄 trim 并丢弃空白项；预算缺省（<=0）取 5s。
+- `func DecodeMilestoneRequest(argsJSON string) (string, string, error)` — DecodeMilestoneRequest 解析里程碑入参：id trim，content 原样。
+
+### tool_requests_test.go
+
+- `func TestDecodePlanRequestDefaultsVersion(t *testing.T)` — TestDecodePlanRequestDefaultsVersion：`team_plan` 的 version 缺省 1；其余字段原样。
+- `func TestDecodeDispatchRequestTrimsIDsOnly(t *testing.T)` — TestDecodeDispatchRequestTrimsIDsOnly：`team_dispatch` 只 trim role/item；goal 是这一轮正文，原样。
+- `func TestDecodeWorkRequestBuildsSpecs(t *testing.T)` — TestDecodeWorkRequestBuildsSpecs：里程碑 trim；工作项按字段逐项搬成规格（顺序保持）。
+- `func TestDecodeItemAndNoteRequests(t *testing.T)` — TestDecodeItemAndNoteRequests：`team_item` 的 id trim + 规格；验收/判负共用 id+note（note 原样）。
+- `func TestDecodeJoinRequestNormalizes(t *testing.T)` — TestDecodeJoinRequestNormalizes：句柄 trim 并丢弃空白项；预算缺省（<=0）取 5s、给了就用给的。
+- `func TestDecodeMilestoneRequestTrimsID(t *testing.T)` — TestDecodeMilestoneRequestTrimsID：里程碑 id trim、content 原样。
 
 ### tool_shapes.go
 
