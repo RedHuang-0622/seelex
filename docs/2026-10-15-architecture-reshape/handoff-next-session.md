@@ -378,9 +378,11 @@ go build -tags "gui,desktop,production" ./...
 go vet ./...
 go test ./... -count=1 -timeout 2400s
 node --test gui/frontend/dist/*.test.mjs
+python scripts/check_gui_ports.py
 python scripts/gen_core_readme_index.py --check
 python scripts/check_readme_refs.py --strict
+go test -race ./... -count=1 -timeout 3600s
 ```
 
-基线：`application/core` 3 例红，其余全绿。`-race` 用 Git Bash
-（`G:\Tools\Git\Git\bin\bash.exe`，CGO_ENABLED=1 + gcc）。
+基线：全绿。`-race` 用 Git Bash（`G:\Tools\Git\Git\bin\bash.exe`，
+CGO_ENABLED=1 + gcc）；存活/性能类用例已按 `testutil.Budget` 放宽 race 插桩预算。

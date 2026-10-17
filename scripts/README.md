@@ -61,6 +61,7 @@ tmp/build/                          流程中间态（可整体删除）
 | `gen_core_readme_index.py` | 全仓 README「文件与函数索引」生成器（**只写已定案树**；分卷包 = `application/core`、`test/`、`store/`，其余单 README 包按目录自动发现）。`--check` 只报漂移不写文件（有漂移 exit 1，可作门禁）；`--only <import-path>…` 只刷指定包——搬迁中/收口中的树（`application/core/**`、`backend/engine/**`、`backend/tool/**`、`middle/**` 里非登记包）默认跳过并登记，树静默后用 `--only` 一次补齐。store 分卷原先另有一个独立生成脚本，已并入本脚本（分卷登记与提取逻辑只留一份）。 |
 | `check_readme_refs.py` | README 漂移检查：链接目标与正文路径字面量是否还存在（`--strict` 可用于门禁）。 |
 | `check_mermaid.py` | Mermaid 代码块结构校验（fence / 图类型 / 括号引号 / subgraph）；`go test ./e2e/` 内有同源门禁。 |
+| `check_gui_ports.py` | GUI 前后端端口核对：前端字面 `invoke` / `composerSubmitPlan` 的 RPC 必须在 `*Bridge` 导出方法里，`PROCESS_KINDS` 与 `EventsOn` 通道必须与后端事件名对齐。 |
 
 仓库级 clean/build 编排由根目录 `Makefile` 提供：
 - `make build` / `make package`：平台树进 `dist/<os>-<arch>/`，归档进 `dist/archive/`；
