@@ -416,7 +416,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 			return runtime.SetTeamworkBackend(assemble.TeamworkBackend{
 				Store:        planStore,
 				Boards:       boards,
-				JobOutputs:   assemble.NewTeamworkJobOutputs(repo, keyFor),
+				JobOutputs:   seeteamwork.NewOutputStore(repo, keyFor),
 				KeyFor:       keyFor,
 				MaxTeammates: 3,
 			})

@@ -238,7 +238,7 @@ func Run(opts Options) (*App, error) {
 			Boards: boardRepo,
 			// 作业输出归产品（S5）：正文落会话的 teamwork/jobs，销项 / 驱逐 / Close
 			// 都不由框架删，整队收口（team_close）时才清——"正文活到 close"。
-			JobOutputs:   assemble.NewTeamworkJobOutputs(repo, keyFor),
+			JobOutputs:   seeteamwork.NewOutputStore(repo, keyFor),
 			KeyFor:       keyFor,
 			MaxTeammates: runtimeLimits.Team.MaxTeammates,
 		}); err != nil {

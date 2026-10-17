@@ -1,6 +1,6 @@
-package assemble
+package teamwork
 
-// runtime_teamwork_output.go — teammate 作业**输出文件**的产品面（S5 / §4.7 输出归属）。
+// output_store.go — teammate 作业**输出文件**的产品面（S5 / §4.7 输出归属）。
 //
 // 要解决的问题（改之前的事实）：worker 作业的输出文件由框架自建
 // （`<outputDir>/<handle>.log`），而框架在**销项 / 驱逐 / Close** 三处都会删掉它。于是
@@ -34,14 +34,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// TeamworkJobOutputs 实现 teamwork.JobOutputs：把"分配 / 写入 / 清理 / 回读" teammate
+// OutputStore 实现 teamwork.JobOutputs：把"分配 / 写入 / 清理 / 回读" teammate
 // 作业输出文件落在会话存储的 teamwork 模块目录上。
-type TeamworkJobOutputs struct {
+type OutputStore struct {
 	st     store.TeamworkRepository
 	keyFor func(sessionID string) (store.Key, bool)
 
@@ -55,13 +54,13 @@ type TeamworkJobOutputs struct {
 	live map[string]string
 }
 
-// NewTeamworkJobOutputs 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
+// NewOutputStore 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
 // 不把它交给 teamwork 编排面（缺失 = 交回框架自建，不是降级成半残实现）。
-func NewTeamworkJobOutputs(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *TeamworkJobOutputs {
+func NewOutputStore(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *OutputStore {
 	if st == nil || keyFor == nil {
 		return nil
 	}
-	return &TeamworkJobOutputs{st: st, keyFor: keyFor, seq: map[string]int{}, live: map[string]string{}}
+	return &OutputStore{st: st, keyFor: keyFor, seq: map[string]int{}, live: map[string]string{}}
 }
 
 // JobOutputPath 分配一次派发的输出文件路径（调用方把它同时交给执行体与
@@ -75,7 +74,7 @@ func NewTeamworkJobOutputs(st store.TeamworkRepository, keyFor func(sessionID st
 // 进程内**不复用**落点：收口清目录（ClearJobOutputs）不复位序号，于是同一个路径不会在
 // 一个进程里被第二个回合重新登记——否则"作废的落点"会重新变成有效，旧回合的迟到写就会
 // 打到新团队的同名文件上。
-func (o *TeamworkJobOutputs) JobOutputPath(ctx context.Context, role string) (string, error) {
+func (o *OutputStore) JobOutputPath(ctx context.Context, role string) (string, error) {
 	key, sessionID, err := o.resolve(ctx)
 	if err != nil {
 		return "", err
@@ -106,7 +105,7 @@ func (o *TeamworkJobOutputs) JobOutputPath(ctx context.Context, role string) (st
 //   - 写先拿到锁 → 文件写出来；随后清目录把它删掉；
 //   - 清目录先拿到锁 → 落点作废；随后的写查不到落点，**静默丢弃**（不是失败：产品已经
 //     决定不再需要这份正文）。
-func (o *TeamworkJobOutputs) WriteJobOutput(path, text string) error {
+func (o *OutputStore) WriteJobOutput(path, text string) error {
 	if o == nil {
 		return errors.New("teamwork: 作业输出面未装配")
 	}
@@ -139,7 +138,7 @@ func (o *TeamworkJobOutputs) WriteJobOutput(path, text string) error {
 // 清目录与"作废这一批落点"是同一个临界区里的一件事：删掉文件的同时把 live 里属于本会话
 // 的落点一并移除，于是并发/迟到的写（WriteJobOutput）查不到落点而被丢弃——这才是"绝对
 // 干净"的保证，而不是赌"清得快、写在它之前"。
-func (o *TeamworkJobOutputs) ClearJobOutputs(ctx context.Context) error {
+func (o *OutputStore) ClearJobOutputs(ctx context.Context) error {
 	key, sessionID, err := o.resolve(ctx)
 	if err != nil {
 		return err
@@ -168,7 +167,7 @@ func (o *TeamworkJobOutputs) ClearJobOutputs(ctx context.Context) error {
 // 它服务于一条残边（devlog §4.2）：作业行是内存态、会被框架 prune 逐出（框架没有 pin
 // 概念），逐出之后按句柄读不到任何东西——而正文文件归产品、活到收口。读面据此按角色名
 // 回读，而不是把"行不在册"冒充成"从没写过正文"。
-func (o *TeamworkJobOutputs) LatestJobOutputPath(ctx context.Context, role string) (string, bool, error) {
+func (o *OutputStore) LatestJobOutputPath(ctx context.Context, role string) (string, bool, error) {
 	key, _, err := o.resolve(ctx)
 	if err != nil {
 		return "", false, err
@@ -216,7 +215,7 @@ func (o *TeamworkJobOutputs) LatestJobOutputPath(ctx context.Context, role strin
 
 // resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
 // （telemetry 的 SessionIDFromContext），不引入第二套"当前会话"判据。
-func (o *TeamworkJobOutputs) resolve(ctx context.Context) (store.Key, string, error) {
+func (o *OutputStore) resolve(ctx context.Context) (store.Key, string, error) {
 	if o == nil || o.st == nil || o.keyFor == nil {
 		return store.Key{}, "", errors.New("teamwork: 作业输出面未装配")
 	}
@@ -255,4 +254,4 @@ func safeRoleFileName(role string) string {
 	return cleaned
 }
 
-var _ teamwork.JobOutputs = (*TeamworkJobOutputs)(nil)
+var _ JobOutputs = (*OutputStore)(nil)

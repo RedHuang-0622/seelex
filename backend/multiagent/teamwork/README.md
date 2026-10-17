@@ -102,6 +102,8 @@ stateDiagram-v2
 | `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
 | `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 `backend/engine/assemble/runtime_teamwork_schema.go` 整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
 | `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
+| `output_store.go` | **产品自有作业输出面**（P21-23 从 `backend/engine/assemble/runtime_teamwork_output.go` 整份搬入，plan §2.7）：`OutputStore` 实现本包的 `JobOutputs` 端口——目录按会话走（`<sessionRoot>/teamwork/jobs`）、每次派发一个**互不覆盖**的文件（`<role>-<n>.log`，进程内单调、**不复用**落点）、写入与清目录经**同一把锁**串行（迟到的写查不到落点即静默丢弃，S5 残边）、按角色名回读最近一份（`LatestJobOutputPath`，服务"行被框架 prune 逐出"那条残边）、角色名过 `safeRoleFileName` 折成安全片段 |
+| `output_store_test.go` | 随实现搬入的域级用例（逐字）：每次派发互不覆盖且落在会话目录、角色名折成安全片段、清目录= 删整目录 + 作废落点（迟到写丢弃、不复用）、非本面分配的路径拒绝写、按角色名取序号最大的一份、无会话归属显式报错、缺 store/keyFor 构造函数返回 nil |
 | `context_view_test.go` | 预算夹取与缺省、UTF-8 安全裁剪、最新作业行选取、空转与残边回读两条空闲形态、角色过滤归一 |
 | `tool_shapes_test.go` | 随实现搬入的断言（逐字）：team_plan schema 是**里程碑口径**（milestones 有 name/depends_on、`after` 整条退场、required 说明是角色声明）、**没有 stages**、description 讲里程碑词表、成员级 `max_turns` 既进 schema 也进 description |
 | `board_view_test.go` | 出图五份行齐与闭板三字段从计划搬、人状态两值、队列销项即出队、当前会话三段优先、主体反解、审计有界保序、过期提示位、编排判据 |
@@ -273,6 +275,20 @@ go test ./backend/multiagent/... -count=1
 - `func ContextBodyBudget(requested int) int` — ContextBodyBudget 把调用方给的预算夹到 [1, ContextMaxBodyBytes]；
 - `func TruncateContextBody(body string, limit int) (string, bool)` — TruncateContextBody 按**字节**预算裁剪，并保证不切碎一个 UTF-8 字符（正文是中文的
 - `func ReadOutputHead(path string, limit int) (string, error)` — ReadOutputHead 读一个产品自有输出文件的前 limit 字节（limit<=0 = 读全）。文件不存在 =
+
+### context_view_test.go
+
+- `func (s *stubMemberJobs) Snapshot(jobs.Scope) []jobs.Record`
+- `func (s *stubMemberJobs) Observe(handle jobs.Handle) (jobs.Record, bool)`
+- `func (s *stubMemberJobs) Peek(_ context.Context, handle jobs.Handle, _ jobs.FetchBudget) (string, jobs.Record, error)`
+- `func contextPlanFixture() store.TeamworkPlan`
+- `func TestContextViewTakesBodyOnlyWhenAsked(t *testing.T)` — TestContextViewTakesBodyOnlyWhenAsked：默认不取正文（看一眼成员状态不该把内容变成"已读"）——
+- `func TestContextBodyBudgetClamp(t *testing.T)` — TestContextBodyBudgetClamp：预算夹取——缺省 4KB、超过硬上限按 32KB。
+- `func TestTruncateContextBodyKeepsUTF8Intact(t *testing.T)` — TestTruncateContextBodyKeepsUTF8Intact：按字节裁但**不切碎**字符（切半字符是损坏，不是截断）。
+- `func TestLatestRecordForPrefersRunningThenSeq(t *testing.T)` — TestLatestRecordForPrefersRunningThenSeq：最新作业行 = 优先在跑的，否则登记序号最大
+- `func TestContextViewIdleShapes(t *testing.T)` — TestContextViewIdleShapes：空闲的两种形态——没派过活（无残边）与行被逐出但产品自有文件里有正文
+- `func TestContextViewClosureFlagAndRoles(t *testing.T)` — TestContextViewClosureFlagAndRoles：闭板标记来自计划；roles 全空白 = 不过滤（全员）。
+- `func (s *stubMemberOutputs) LatestJobOutputPath(_ context.Context, role string) (string, bool, error)`
 
 ### coordinator.go
 
@@ -456,6 +472,33 @@ go test ./backend/multiagent/... -count=1
 - `func TestSettlePrintsTheRunErrorIntoTheTeammateMessage(t *testing.T)`
 - `func TestDispatchItemCarriesTheOwnersPermissionScope(t *testing.T)`
 - `func TestCloseIsIdempotentAndKeepsThePlanFacts(t *testing.T)`
+
+### output_store.go
+
+- `func NewOutputStore(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *OutputStore` — NewOutputStore 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
+- `func (o *OutputStore) JobOutputPath(ctx context.Context, role string) (string, error)` — JobOutputPath 分配一次派发的输出文件路径（调用方把它同时交给执行体与
+- `func (o *OutputStore) WriteJobOutput(path, text string) error` — WriteJobOutput 把一轮正文写进产品自有输出文件。它是执行体写正文的**唯一入口**。
+- `func (o *OutputStore) ClearJobOutputs(ctx context.Context) error` — ClearJobOutputs 清掉当前会话那一批作业输出文件（整队收口调用）。
+- `func (o *OutputStore) LatestJobOutputPath(ctx context.Context, role string) (string, bool, error)` — LatestJobOutputPath 按**角色名**定位该角色最近一份产品自有正文（`<role>-<n>.log` 里 n
+- `func (o *OutputStore) resolve(ctx context.Context) (store.Key, string, error)` — resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
+- `func safeRoleFileName(role string) string` — safeRoleFileName 把角色名折成安全的文件名片段：角色名进路径，就必须先过这一关
+
+### output_store_test.go
+
+- `func (s *fakeTeamworkStore) WriteTeamworkPlan(context.Context, store.Key, store.TeamworkPlan, int) error`
+- `func (s *fakeTeamworkStore) ReadTeamworkPlan(context.Context, store.Key) (store.TeamworkPlan, error)`
+- `func (s *fakeTeamworkStore) AppendTeamworkEvent(context.Context, store.Key, store.TeamworkEvent) error`
+- `func (s *fakeTeamworkStore) ReadTeamworkEvents(context.Context, store.Key) ([]store.TeamworkEvent, error)`
+- `func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, store.Key) (string, error)`
+- `func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, store.Key, store.TeamworkBinding) error`
+- `func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, store.Key) ([]store.TeamworkBinding, error)`
+- `func newOutputStoreFixture(t *testing.T) (*OutputStore, string, context.Context)`
+- `func TestOutputStoreAllocatesDistinctPathsPerDispatch(t *testing.T)`
+- `func TestOutputStoreSanitizesRoleName(t *testing.T)`
+- `func TestOutputStoreClearRemovesDirAndRetiresPaths(t *testing.T)`
+- `func TestOutputStoreWriteRefusesForeignPath(t *testing.T)`
+- `func TestOutputStoreLatestJobOutputPathPicksNewest(t *testing.T)`
+- `func TestOutputStoreRefusesWithoutSession(t *testing.T)`
 
 ### outputs_test.go
 
