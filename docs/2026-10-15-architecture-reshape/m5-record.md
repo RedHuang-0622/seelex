@@ -1551,3 +1551,29 @@ FNV-1a 32 位散列（**同一原语三处**）。它们的"判据"是同一个�
 `workunit_*.go` 其余判据、`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。
 **判定为装配面（不搬，理由见 §38 表）**：bundles 注册表与会话绑定访问器、调度/MCP/插件/任务的转发与注册、
 端口宿主面（`runtime_history` / `runtime_visibility` / `runtime_bundle` / `runtime_deps`）。
+
+
+## 41. P21 续片（2026-10-17 第九轮：P21-21 / P21-22）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-21 | **leader 编排工具形状**（12 组名字 / 描述 / JSON Schema）整份 → `backend/multiagent/teamwork/tool_shapes.go`（plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>{Description,Schema}()` ×12；装配层 `runtime_teamwork_schema.go` **删除**，`registerTeamworkTools` 改成一行注册。**机械改写**（脚本按唯一改名规则改写、工具名常量从注册点读出，git 认成 82%/84% rename = 逐字搬运）。schema 用例随实现搬进域包 | `8cab44b5` |
+| P21-22 | **team_context 读面投影** → `backend/multiagent/teamwork/context_view.go`：`BuildContextView`（唯一组装路径）+ 两个**最小端口**（`MemberJobsPort` 只 Snapshot/Observe/Peek、`MemberOutputsPort` 只按角色名定位）+ 最新作业行选取 + 残边回读（`Evicted`）+ `RoleMilestone` + 角色过滤 + 预算夹取（4KB/32KB）+ **UTF-8 安全**的按字节裁剪 + `ReadOutputHead`（从 `runtime_teamwork_output.go` 一并搬来）。装配层只剩 handler 接线、读面三格读数（`teamworkReadScope`，不建 Coordinator）与输出面取值；既有读面用例经别名零改动。域级 6 条新用例 | `b0adc55e` |
+
+**装配层体积变化（本轮）**：`runtime_teamwork_context.go` 311 → 124 行；`runtime_teamwork_schema.go` 288 → **删除**。
+
+### 抖动证据补充（登记，未改）
+
+全量 `go test ./...` 在本机**多包并发**时会让 `./test` 的两条时序用例偶发红：
+`TestTwoRunningViewThirdSwitchStress`（§34 已登记）与 `TestBackgroundCompletionWhileSwitchingToC`
+（§37 登记为"`-race` 下预存红"，本轮补证据：**非 `-race` 的负载下也会红**，90s 超时形态）。
+两者的独立复跑都通过（4.3s / 51.9s~66s），且 `./test/` 整包单跑多次全绿——与"用例对时序阈值有隐含假设、
+负载放大窗口"的判断一致。**仍待单独定位**（属 P20 那一类"稳定复现再修"的工作，需要拿到失败时刻的 dump）。
+
+**仍待办（按价值排序）**：`runtime_teamwork_output.go`（作业输出存储本体：路径分配 / 写入 / 清理 / 最近一份
+定位 + `safeRoleFileName`）、`runtime_teamwork.go` 的判据（作业记录上限 `teamworkJobRecordCeiling`、场景清单
+`teamSceneIndex`/`adoptTeamworkScenes`）、存档元数据推进与封板（`..._board_archive.go` / `..._close.go`）、
+`runtime_teamwork_jobs.go` 的作业完成投影、`runtime_plan.go` 的分支账号与节点会话号派生、
+`runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、`workunit_*.go` 其余判据、
+`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。**判定为装配面（不搬）** 的那批
+理由见 §38 表。
