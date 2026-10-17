@@ -309,14 +309,6 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 // 一张表、员工只有三档枚举"。
 const EmployeeSubjectPrefix = "emp_"
 
-// 员工分组位的可读别名（与框架位值 r=4 / w=2 / x=1 一致）。
-const (
-	GroupBitRead    uint8 = policy.BitRead
-	GroupBitWrite   uint8 = policy.BitWrite
-	GroupBitExecute uint8 = policy.BitExecute
-	GroupBitAll     uint8 = policy.BitAll
-)
-
 // EmployeeSubjectName 把角色名规范化成员工主体名：小写，非 [a-z0-9_-] 归一为 '_'。
 //
 // 归一化是必须的——主体名会写进配置文件（permission.subjects）当键，随便什么角色名

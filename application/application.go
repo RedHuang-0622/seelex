@@ -113,8 +113,6 @@ type (
 	// 会话历史检索结果（`SearchHistory` 用例的返回形状，GUI 历史检索面板
 	// 数据源）。终局（规划）：plan §2.1 的 `contract.SearchPort`（M4）。
 	SearchResult = seelexctxsearch.Result
-	SearchHit    = seelexctxsearch.Hit
-	SearchRecord = seelexctxsearch.ChatRecord
 )
 
 const (

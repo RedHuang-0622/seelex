@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	SessionRecordVersion       = 3
-	SessionArchiveVersion      = 1
-	SessionArchiveResumePrefix = "<!-- seelex:session-resume:v1 -->"
+	SessionRecordVersion  = 3
+	SessionArchiveVersion = 1
 )
+
+// SessionArchiveResumePrefix 是恢复摘要行的机器前缀；版本号只从
+// SessionArchiveVersion 派生，避免"常量说 v1、字符串写 v2"的两处事实。
+var SessionArchiveResumePrefix = fmt.Sprintf("<!-- seelex:session-resume:v%d -->", SessionArchiveVersion)
 
 // PersistCurrentSession 把指定会话原子落盘（阶段 0：显式 location 键 +
 // 全 For 会话读源，后台会话收尾不得读全局活跃槽）：

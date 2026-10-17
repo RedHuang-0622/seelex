@@ -121,10 +121,6 @@ func WithMetadata(md StackMetadata) Option {
 	return func(s *MCPStack) { s.Metadata = md }
 }
 
-func WithTags(tags map[string]string) Option {
-	return func(s *MCPStack) { s.Tags = tags }
-}
-
 // New creates an empty MCPStack.
 func New(opts ...Option) *MCPStack {
 	now := time.Now().UTC()

@@ -262,10 +262,9 @@ type TLEvaluator interface {
 
 // TL 域哨兵错误。
 var (
-	ErrTLDisabled    = errors.New("goal: techleader 未启用（无评估器）")
-	ErrNoActiveGoal  = errors.New("goal: 无 active goal 可评估")
-	ErrBadDirective  = errors.New("goal: TL 输出非法指令")
-	ErrInvalidSignal = errors.New("goal: 非法信号")
+	ErrTLDisabled   = errors.New("goal: techleader 未启用（无评估器）")
+	ErrNoActiveGoal = errors.New("goal: 无 active goal 可评估")
+	ErrBadDirective = errors.New("goal: TL 输出非法指令")
 
 	// ErrRoundInFlight 表示已有一次 b 回合在进行中（回合闸门不可重入）。
 	//

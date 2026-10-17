@@ -779,7 +779,8 @@ func (c *Coordinator) _TaskProjectionLocked(sessionID string) *model.TaskContext
 		objectiveRef = fmt.Sprintf("event:%d", checkpoint.CoversEventRange.Start)
 	}
 	return &model.TaskContextProjection{
-		SchemaVersion: 1, ProjectID: projectID, SessionID: sessionID, TaskID: state.RequestID,
+		SchemaVersion: model.TaskContextProjectionSchemaVersion,
+		ProjectID:     projectID, SessionID: sessionID, TaskID: state.RequestID,
 		Status: state.Status.String(), ObjectiveRef: objectiveRef,
 		ActiveSkills: append([]model.ActiveSkill(nil), state.ActiveSkills...), ActivePlan: c._ActivePlanProjectionLocked(),
 		Checkpoint: checkpoint, TokenAudit: state.TokenAudit, UpdatedAt: time.Now(),

@@ -83,9 +83,9 @@ func TestEmployeePermissionsAssignCapabilitiesBeyondTiers(t *testing.T) {
 	state.Set(policy.DefaultPermissionConfig(), nil)
 	err := state.SetEmployeePermissions([]EmployeePermission{
 		{RoleName: "runner", Policy: "readwrite", Groups: map[string]uint8{
-			policy.GroupRO:        GroupBitRead,
-			policy.GroupRW:        GroupBitRead | GroupBitWrite,
-			policy.GroupRWDesktop: GroupBitRead | GroupBitWrite, // 档位给不出的那一格
+			policy.GroupRO:        policy.BitRead,
+			policy.GroupRW:        policy.BitRead | policy.BitWrite,
+			policy.GroupRWDesktop: policy.BitRead | policy.BitWrite, // 档位给不出的那一格
 			policy.GroupCTL:       0,
 			policy.GroupADM:       0,
 		}},
@@ -126,7 +126,7 @@ func TestEmployeeAssignedGroupsOverrideTierOnEnforcement(t *testing.T) {
 	})
 	if err := state.SetEmployeePermissions([]EmployeePermission{{
 		RoleName: "auditor", Policy: "readwrite",
-		Groups: map[string]uint8{policy.GroupRO: GroupBitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0},
+		Groups: map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0},
 	}}); err != nil {
 		t.Fatalf("SetEmployeePermissions: %v", err)
 	}
@@ -203,8 +203,8 @@ func TestAssignedEmployeePermissionsSurviveConfigRefresh(t *testing.T) {
 	state.Set(policy.DefaultPermissionConfig(), nil)
 	if err := state.SetEmployeePermissions([]EmployeePermission{{
 		RoleName: "runner", Policy: "readwrite",
-		Groups: map[string]uint8{policy.GroupRO: GroupBitRead, policy.GroupRW: GroupBitRead | GroupBitWrite,
-			policy.GroupRWDesktop: GroupBitRead | GroupBitWrite},
+		Groups: map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite,
+			policy.GroupRWDesktop: policy.BitRead | policy.BitWrite},
 	}}); err != nil {
 		t.Fatalf("SetEmployeePermissions: %v", err)
 	}
