@@ -169,12 +169,13 @@ type ViewFace interface {
 	WaitCatalogRefresh(ctx context.Context) error
 	WaitForIdle(ctx context.Context) error
 	WorkTableRowsFor(sessionID string) []model.WorkItem
-	WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)
+	WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)
 	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
 	WorkspaceFileCount() (dto.TreeCount, error)
-	WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)
-	WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)
-	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
+	WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)
+	WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)
+	WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)
+	WorkspaceGitRepos() (dto.GitReposResult, error)
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
 }
 

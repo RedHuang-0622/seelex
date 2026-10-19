@@ -390,6 +390,16 @@ func (usecase *UseCase) treePort() (contract.WorkspaceTreePort, string, error) {
 	return treePort, root, nil
 }
 
+// WorkspaceRootPort 解析「当前视图绑定的工作区根」与后端本身（锁内快照拷贝、
+// 锁外做 I/O）。
+//
+// 供应用层做「按仓库根查询」的编排：工作区根只能从这一处取（只有本包持视图
+// 依赖），而可选端口的断言（WorkspaceGitReposPort 之类）留在应用层——本包的
+// 职责是「根从哪来」，不是替应用层决定用哪个端口。
+func (usecase *UseCase) WorkspaceRootPort() (contract.WorkspacePort, string, error) {
+	return usecase.workspaceRootPort("worktree: workspace backend is not available")
+}
+
 // workspaceRootPort 解析「当前视图绑定的工作区根」与后端本身（锁内快照拷贝，
 // 锁外做文件 I/O）；没有绑定工作区时报统一的缺绑定错误。
 func (usecase *UseCase) workspaceRootPort(missingPortMessage string) (contract.WorkspacePort, string, error) {

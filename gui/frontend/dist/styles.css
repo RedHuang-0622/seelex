@@ -1598,6 +1598,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   min-width: 0;
   min-height: 0;
 }
+/* 多仓库 git：仓库标签栏在场时是「子页页签 / 仓库页签 / 内容」三行；标签栏隐藏
+   （只有一个仓库、或当前不在 git 子页）时仍是两行，内容区照旧吃满剩余高度。 */
+.code-panes.has-git-repos { grid-template-rows: auto auto minmax(0, 1fr); }
 .code-pane-tabs {
   display: flex;
   align-items: center;
@@ -1666,6 +1669,26 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   color: var(--faint);
 }
 .code-pane-refresh:hover { color: var(--accent); }
+
+/* ── 多仓库 git：仓库标签栏（子页页签之下、内容之上）────────────────
+   外观整套复用页签族的 `.code-pane-tabs` / `.code-pane-tab`（同一档内边距、
+   同一套选中态 token），这里只补三件事：
+     · 隐藏态（只有一个仓库 / 不在 git 子页）；
+     · 与子页页签条的层次差（仓库是"页中的页"，底色降一档、字号小半号）；
+     · 分支名的小字（读不到分支时整片段不渲染）。 */
+.git-repo-tabs.is-hidden { display: none; }
+.git-repo-tabs {
+  background: var(--surface);
+  border-color: transparent;
+  margin-top: calc(-1 * 2px);
+}
+.git-repo-tab { font-size: 11px; padding: 3px 10px; }
+.git-repo-tab .git-repo-branch {
+  margin-left: 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.git-repo-tab.is-active .git-repo-branch { color: inherit; opacity: 0.75; }
 
 /* D2 · 三页行壳收到左栏同一口径（B0 规则 3「行密度走 --row-min-h」）。
    实测对照（2026-10-12，改前 → 本轮）：

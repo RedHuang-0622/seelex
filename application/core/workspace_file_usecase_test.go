@@ -114,7 +114,7 @@ func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := service.WorkspaceGitCommitFileContent("abc1234", "src/main.go", 8)
+	got, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "src/main.go", 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T)
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := service.WorkspaceGitCommitFileContent("abc1234", "README.md", 0); err == nil {
+	if _, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
 		t.Fatal("WorkspaceGitCommitFileContent succeeded without a workspace")
 	}
 }
@@ -145,7 +145,7 @@ func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testi
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.WorkspaceGitCommitFileContent("abc1234", "README.md", 0); err == nil {
+	if _, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
 		t.Fatal("WorkspaceGitCommitFileContent succeeded without file-capable backend")
 	}
 }

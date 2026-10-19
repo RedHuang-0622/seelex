@@ -64,6 +64,7 @@ var wantFaceMethods = map[string][]string{
 		"WorkspaceGitCommitDetail",
 		"WorkspaceGitCommitFileContent",
 		"WorkspaceGitLog",
+		"WorkspaceGitRepos",
 		"WorkspaceTree",
 	},
 	"CommandFace": {

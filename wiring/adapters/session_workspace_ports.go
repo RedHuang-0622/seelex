@@ -125,6 +125,12 @@ func (port WorkspacePort) GitCommitDetail(root, hash string, limit int) (dto.Git
 	return port.Repo.GitCommitDetail(root, hash, limit)
 }
 
+// WorkspaceGitReposPort 实现：转发给 Repo（工作区内多仓库发现；BFS 边界与
+// 剪枝规则在 workspace 域内保证，只返回相对路径与分支名）。
+func (port WorkspacePort) GitRepos(root string, limit int) (dto.GitReposResult, error) {
+	return port.Repo.GitRepos(root, limit)
+}
+
 // WorkspaceFilePort 实现：转发给 Repo（文件预览读取；root/relPath
 // containment、敏感过滤与上限在 workspace 域内保证）。
 func (port WorkspacePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error) {

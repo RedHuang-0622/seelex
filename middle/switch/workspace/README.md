@@ -55,6 +55,13 @@
   由宿主在锁外执行，次序与迁移前一致。
 - 读面共用一条 root 解析：`workspaceRootPort` 只在锁内拷贝 root，文件 I/O 在锁外；
   `FilePort` 同时服务文件预览、提交内文件内容与待审阅请求。
+- `WorkspaceRootPort()` 把「当前绑定工作区根 + 后端本身」交给应用层，供**按仓库根
+  查询**的编排用（多仓库 git）：根只有这一处可取，可选端口（如
+  `contract.WorkspaceGitReposPort`）的断言与仓库相对路径的 containment 判据留在
+  `application/core`（`application/core/workspace_gitrepos.go`）。本包同名的
+  `GitLog/Changes/GitCommitDetail/GitCommitFileContent`（无 `repo` 参数）仍是
+  「工作区根视角」的同一条读面，桌面端已改由应用层按仓库根直接调端口，两处语义
+  一致（仓库根 = 工作区根时完全等价）。
 - 可选能力用类型断言发现（树 / 文件 / 文件写入），未装配时返回固定文案；不会让
   只读后端被动升级成可写。
 

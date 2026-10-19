@@ -264,6 +264,19 @@ retry 状态展示 `RETRY n`（retry_count）。
   行高，与 `git-log-view.js` 的 `ROW_HEIGHT`（泳道 SVG）成对，改动必须同步。旧键
   `seelex.right.codePanes` 只有"读一次 + 删一次"两条路径，没有任何写回（见
   `docs/gui/modules/right-sidebar.md`「页签与行密度」）。
+  **多仓库 git**：一个工作区下可能有多棵互不相干的仓库，提交记录与工作区更改因此
+  共用一条**仓库子页标签栏**（`#git-repo-tabs`，位于子页页签之下、内容之上）。
+  仓库清单来自 `Bridge.WorkspaceGitRepos()`（只读有界扫描），标签模型与选中收敛
+  全在 `git-repos.js` 的两个纯函数里：`buildRepoTabs(repos, selectedRel)`（primary
+  在前、其余按 rel 字典序；`show` 只在**多于一个仓库**时为真）与
+  `resolveSelectedRepo(repos, selectedRel)`（选中的仓库没了 → primary → 第一项 →
+  `""`=工作区根）。`app.js` 只做接线：选择按工作区 ID 记忆
+  （`gitRepoSelectionByWorkspace`）、**工作区切换即重置**、快照刷新不重置、
+  切到非 git 子页或只有一个仓库时隐藏标签栏（容器同步 `has-git-repos` 切三行网格）。
+  四条 git 查询都带 `repo` 参数（`""`=工作区根，与旧的单仓库查询完全等价），
+  下钻（提交详情的文件清单、提交内文件内容）沿用同一个选中仓库。样式复用页签族
+  的 `.code-pane-tabs` / `.code-pane-tab`，只在 `styles.css` 的 git 段补隐藏态、
+  层次差与分支小字。
   内容详情抽屉宽度可拖拽（`--preview-w`，`seelex.preview-pane-width` 记忆，
   **无固定上限**——只受子页宽封顶，可把任一侧拉到几乎占满子页），抽屉头部一枚按钮
   可**隐蔽工作树与提交记录**让内容详情独占子页（`seelex.preview-panes-hidden` 记忆），

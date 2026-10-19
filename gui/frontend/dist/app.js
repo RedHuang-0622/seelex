@@ -25,6 +25,7 @@ import {
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
+import { buildRepoTabs, renderRepoTabs, resolveSelectedRepo } from "./git-repos.js";
 import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { decideReviewApply, reviewRequestEntries } from "./review-request.js";
@@ -118,7 +119,7 @@ const elements = Object.fromEntries([
   // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
   // 页的内容全归渲染件 team-board-view.js 的 renderTeamPage。
   "team-page-modal", "team-page-close", "team-page-modal-title", "team-page-view",
-  "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "git-repo-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
@@ -506,8 +507,8 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
   // 提交记录的两层下钻：点开某一条 → 这次提交改了哪些文件；再点开某个文件 →
   // 它**在那个提交时**的内容（只读，字节来自 git 对象库，不会写回工作区）。
   // limit 是展示预算（视图侧给），后端另有自己的钳制上限。
-  loadCommit: async (hash, limit) => invoke("WorkspaceGitCommitDetail", hash, limit),
-  loadFile: async (hash, path, limit) => invoke("WorkspaceGitCommitFileContent", hash, path, limit)
+  loadCommit: async (hash, limit) => invoke("WorkspaceGitCommitDetail", selectedGitRepo(), hash, limit),
+  loadFile: async (hash, path, limit) => invoke("WorkspaceGitCommitFileContent", selectedGitRepo(), hash, path, limit)
 });
 // 工作区更改面板：行点击复用同一个文件详情抽屉（已删除的文件不可点）。
 const workspaceChangesView = createWorkspaceChangesView(elements["changes-view"], {
@@ -1154,6 +1155,8 @@ function setExplorerPage(page) {
   explorerState = withExplorerPage(explorerState, page);
   applyExplorerPageState();
   persistExplorerState();
+  // 仓库标签栏只在 git 两个子页上出现：切页后重算一次显隐。
+  renderGitRepoTabs();
 }
 
 // 子页内的点击走容器委托（一条监听）：页签切换 + 各子页头部的刷新按钮。页签是真
@@ -1161,7 +1164,18 @@ function setExplorerPage(page) {
 elements["code-panes"]?.addEventListener("click", event => {
   const refreshButton = event.target.closest?.("[data-page-refresh]");
   if (refreshButton) {
-    refreshExplorerPages([refreshButton.dataset.pageRefresh]);
+    const page = refreshButton.dataset.pageRefresh;
+    // git 两个子页的刷新先重发现仓库（新仓库/被删仓库要能反映到标签栏）。
+    if (page === "gitlog" || page === "changes") {
+      refreshGitPages([page]);
+      return;
+    }
+    refreshExplorerPages([page]);
+    return;
+  }
+  const repoTab = event.target.closest?.("[data-git-repo]");
+  if (repoTab) {
+    selectGitRepo(repoTab.dataset.gitRepo);
     return;
   }
   const tab = event.target.closest?.("[data-explorer-page]");
@@ -1198,8 +1212,8 @@ function loadExplorerPage(page) {
     return Promise.all([invoke("WorkspaceFileCount"), invoke("WorkspaceTree", "", 1)])
       .then(([count, listing]) => ({ count, listing }));
   }
-  if (page === "gitlog") return invoke("WorkspaceGitLog", 20);
-  if (page === "changes") return invoke("WorkspaceChanges", 200);
+  if (page === "gitlog") return invoke("WorkspaceGitLog", selectedGitRepo(), 20);
+  if (page === "changes") return invoke("WorkspaceChanges", selectedGitRepo(), 200);
   return Promise.reject(new Error(`未知的资源管理器子页：${page}`));
 }
 
@@ -1243,6 +1257,106 @@ function reportExplorerRefreshFailure(error, info) {
     view.textContent = meta.failedHint;
   }
 }
+
+// ── 多仓库 git：仓库子页标签 ─────────────────────────────
+// 一个工作区下可能有多棵互不相干的 git 仓库（根本身是仓库 / 根下若干子目录各自
+// 是仓库 / 仓库里套仓库）。提交记录与工作区更改**共用同一个选中仓库**：标签栏
+// 只列仓库，选中哪个就只显示那个仓库的 git，其余仓库作为子页标签等用户翻。
+//
+// 三条纪律（对应 git-repos.js 的纯函数）：
+//   - 只有一个仓库时不显示标签栏（保持原观感）；
+//   - 选择按工作区 ID 记忆（gitRepoSelectionByWorkspace），快照刷新不重置；
+//     工作区切换即重置（整张记忆表清空，回落 primary）；
+//   - 仓库清单变化时用 resolveSelectedRepo 收敛：选中的那个没了就回落。
+const gitRepoSelectionByWorkspace = new Map();
+
+// gitReposState 是最近一次仓库发现的读数（只读缓存；root 只用于判断"同一份"）。
+let gitReposState = { workspaceID: "", root: "", repos: [], selected: "", truncated: false, scanned: 0, error: "" };
+
+function currentWorkspaceID() {
+  return client.current()?.current_workspace?.id || "";
+}
+
+// gitRepoTabsModel 是标签栏模型的唯一出口：显隐、单选、回落都在 git-repos.js。
+function gitRepoTabsModel() {
+  return buildRepoTabs(gitReposState.repos, gitReposState.selected);
+}
+
+// selectedGitRepo 返回当前选中仓库的相对路径（"" = 工作区根，与旧的单仓库查询
+// 完全等价：后端把空串按根处理）。
+function selectedGitRepo() {
+  return gitRepoTabsModel().selected || "";
+}
+
+// renderGitRepoTabs 重绘标签栏：只有仓库多于一个、且当前激活的是 git 子页（提交
+// 记录 / 工作区更改）时才显示。
+function renderGitRepoTabs() {
+  const host = elements["git-repo-tabs"];
+  if (!host) return;
+  const model = gitRepoTabsModel();
+  host.innerHTML = renderRepoTabs(model);
+  const gitPage = explorerState.active === "gitlog" || explorerState.active === "changes";
+  const visible = model.show && gitPage;
+  host.classList.toggle("is-hidden", !visible);
+  // 容器行模板跟着换成三行（见 styles.css 的 .code-panes.has-git-repos）。
+  elements["code-panes"]?.classList.toggle("has-git-repos", visible);
+}
+
+// selectGitRepo 记下这次选择（按工作区 ID）并只刷新两个 git 子页。
+function selectGitRepo(rel) {
+  if (typeof rel !== "string" || rel.trim() === "") return;
+  const workspaceID = currentWorkspaceID();
+  if (workspaceID) gitRepoSelectionByWorkspace.set(workspaceID, rel.trim());
+  gitReposState = { ...gitReposState, selected: rel.trim() };
+  renderGitRepoTabs();
+  refreshExplorerPages(["gitlog", "changes"]);
+}
+
+// refreshGitRepos 拉一次仓库清单（只读有界扫描）并收敛选中项：记忆里的选择还在
+// 就继续用它，不在了就回落 primary / 第一项。发现失败不阻断面板——退回"只有工作
+// 区根"的单一仓库，两个 git 子页照常按根查询。
+function refreshGitRepos() {
+  const workspaceID = currentWorkspaceID();
+  return invoke("WorkspaceGitRepos").then(result => {
+    const repos = Array.isArray(result?.repos) ? result.repos : [];
+    const memorised = workspaceID ? gitRepoSelectionByWorkspace.get(workspaceID) || "" : "";
+    const selected = resolveSelectedRepo(repos, memorised);
+    if (workspaceID && selected) gitRepoSelectionByWorkspace.set(workspaceID, selected);
+    gitReposState = {
+      workspaceID,
+      root: result?.root || worktreeRoot,
+      repos,
+      selected,
+      truncated: result?.truncated === true,
+      scanned: Number(result?.scanned || 0) || 0,
+      error: typeof result?.error === "string" ? result.error : ""
+    };
+    renderGitRepoTabs();
+    return gitReposState;
+  }).catch(error => {
+    gitReposState = {
+      workspaceID, root: worktreeRoot, repos: [], selected: "",
+      truncated: false, scanned: 0, error: String(error?.message || error)
+    };
+    renderGitRepoTabs();
+    return gitReposState;
+  });
+}
+
+// refreshGitPages 是 git 两个子页刷新按钮的唯一入口：先重发现仓库，再按（可能
+// 已经收敛过的）选中仓库拉数据面。
+function refreshGitPages(pages) {
+  return refreshGitRepos().then(() => refreshExplorerPages(pages));
+}
+
+// resetGitRepoState 在换工作区/解绑时清空仓库读数与选择记忆（旧根的仓库清单绝不
+// 留在新根的标签栏上）。
+function resetGitRepoState() {
+  gitRepoSelectionByWorkspace.clear();
+  gitReposState = { workspaceID: "", root: "", repos: [], selected: "", truncated: false, scanned: 0, error: "" };
+  renderGitRepoTabs();
+}
+
 
 // ── 上下文压缩条目：点条目 → 弹框查看压缩帧正文 ───────────────
 // 帧正文不进快照（快照只带 frame_ref），打开弹框时按 ref 分页读回；条目只有一行
@@ -1577,7 +1691,9 @@ function syncExplorerData(snapshot, running) {
   worktreeRoot = rootPath;
   explorerRefresh.setRoot(rootPath);
   if (rootChanged) resetExplorerData();
-  refreshExplorerPages(EXPLORER_PAGES);
+  // 仓库清单是 git 两个子页的共同前提：先发现仓库（并收敛选中项），再按选中仓库
+  // 拉数据面——否则面板会先用旧选中仓库发一轮请求，再多发一轮。
+  refreshGitRepos().then(() => refreshExplorerPages(EXPLORER_PAGES));
 }
 
 // resetExplorerData 把三个面板一起清空（未绑定工作区 / 工作区已切换）：旧根的内容
@@ -1589,6 +1705,8 @@ function resetExplorerData() {
   workTreeView.reset();
   gitLogView.reset();
   workspaceChangesView.reset();
+  // 仓库标签栏与选中记忆属于上一个根：一起清（回落 primary）。
+  resetGitRepoState();
   elements["file-count"].textContent = "0";
   elements["git-log-count"].textContent = "0";
   elements["changes-count"].textContent = "0";

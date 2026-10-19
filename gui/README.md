@@ -83,6 +83,27 @@ sequenceDiagram
 
 `Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、`ReorderQueuedInput`/`RecallQueuedInput`（排队中的输入调换顺序/撤回到输入框，只作用于回合运行期间的会话队列）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
+### 多仓库 git（方向 A，2026-10-19）
+
+工作区根下可能有若干互不相干的 git 仓库（根本身是仓库 / 若干子目录各自是仓库 /
+仓库里套仓库）。只读 git 面因此多了「选仓库」这一维：
+
+- `Bridge.WorkspaceGitRepos()` 发现当前工作区内的仓库（BFS、有界：深度 6、目录预算
+  20000、仓库上限 64 钳 1..256；`.git` 目录或文件都算仓库，仓库内部继续下钻）。只
+  返回相对路径与分支名，绝不下发绝对仓库路径；`Truncated`/`Scanned` 如实上报。
+  **未绑定工作区或后端不支持时返回带 `Error` 文案的空结果**（不是 Go error——面板
+  显示"不可用"，不是整块渲染失败）。
+- 四条只读查询带上了 `repo` 参数（相对工作区根，`""`/`"."` = 工作区根）：
+  `WorkspaceGitLog(repo, limit)`、`WorkspaceChanges(repo, limit)`、
+  `WorkspaceGitCommitDetail(repo, hash, limit)`、
+  `WorkspaceGitCommitFileContent(repo, hash, relPath, limit)`。
+- `repo` 的解析与 containment 在应用层
+  （`application/core/workspace_gitrepos.go`）：绝对路径、`..` 逃逸、软链逃逸都是
+  **调用方传错参数 → Go error**（不是 `Result.Error`，那一位留给"这不是 git 仓库"
+  这类可展示状态）。端口签名与 git 查询语义一律不变。
+- 前端：`gui/frontend/dist/git-repos.js` 的 `buildRepoTabs`/`resolveSelectedRepo`
+  决定标签栏与默认选中，`app.js` 只做接线（见 `gui/frontend/README.md`）。
+
 ### 端口核对
 
 ```text

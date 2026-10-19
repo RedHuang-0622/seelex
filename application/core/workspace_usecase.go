@@ -1,8 +1,10 @@
 package core
 
 import (
+	"errors"
 	"log"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
@@ -90,19 +92,44 @@ func (service *Service) WorkspaceFileCount() (dto.TreeCount, error) {
 	return service.components.workspace.FileCount()
 }
 
-// WorkspaceGitLog 返回当前工作区最近 limit 条提交。
-func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
-	return service.components.workspace.GitLog(limit)
+// WorkspaceGitLog 返回**指定仓库**（repo 相对工作区根，"." = 工作区根）最近
+// limit 条提交。repo 越界/绝对路径是调用方传错参数 → Go error。
+func (service *Service) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error) {
+	port, root, err := service.workspaceRepoPort(repo)
+	if err != nil {
+		return dto.GitLogResult{}, err
+	}
+	treePort, ok := port.(contract.WorkspaceTreePort)
+	if !ok {
+		return dto.GitLogResult{}, errors.New("worktree: workspace backend does not support tree listing")
+	}
+	return treePort.GitLog(root, limit)
 }
 
-// WorkspaceChanges 返回当前工作区未提交的改动。
-func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
-	return service.components.workspace.Changes(limit)
+// WorkspaceChanges 返回**指定仓库**未提交的改动。
+func (service *Service) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error) {
+	port, root, err := service.workspaceRepoPort(repo)
+	if err != nil {
+		return dto.WorkspaceChangesResult{}, err
+	}
+	treePort, ok := port.(contract.WorkspaceTreePort)
+	if !ok {
+		return dto.WorkspaceChangesResult{}, errors.New("worktree: workspace backend does not support tree listing")
+	}
+	return treePort.GitChanges(root, limit)
 }
 
-// WorkspaceGitCommitDetail 返回当前工作区某提交改了哪些文件。
-func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
-	return service.components.workspace.GitCommitDetail(hash, limit)
+// WorkspaceGitCommitDetail 返回**指定仓库**某提交改了哪些文件。
+func (service *Service) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
+	port, root, err := service.workspaceRepoPort(repo)
+	if err != nil {
+		return dto.GitCommitDetail{}, err
+	}
+	treePort, ok := port.(contract.WorkspaceTreePort)
+	if !ok {
+		return dto.GitCommitDetail{}, errors.New("worktree: workspace backend does not support tree listing")
+	}
+	return treePort.GitCommitDetail(root, hash, limit)
 }
 
 // WorkspaceFileContent 读取当前工作区某文件的前 limit 字节。
@@ -110,9 +137,18 @@ func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.F
 	return service.components.workspace.FileContent(relPath, limit)
 }
 
-// WorkspaceGitCommitFileContent 读取某文件在某个提交时的内容（git 对象库）。
-func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
-	return service.components.workspace.GitCommitFileContent(hash, relPath, limit)
+// WorkspaceGitCommitFileContent 读取某文件在**指定仓库**某个提交时的内容
+// （git 对象库）。
+func (service *Service) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
+	port, root, err := service.workspaceRepoPort(repo)
+	if err != nil {
+		return dto.FileContent{}, err
+	}
+	filePort, ok := port.(contract.WorkspaceFilePort)
+	if !ok {
+		return dto.FileContent{}, errors.New("worktree: workspace backend does not support file preview")
+	}
+	return filePort.GitCommitFileContent(root, hash, relPath, limit)
 }
 
 // WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（面板编辑保存）。

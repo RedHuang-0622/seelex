@@ -110,13 +110,13 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	if _, err := service.WorkspaceFileCount(); err == nil {
 		t.Fatal("WorkspaceFileCount succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceGitLog(20); err == nil {
+	if _, err := service.WorkspaceGitLog(".", 20); err == nil {
 		t.Fatal("WorkspaceGitLog succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceChanges(20); err == nil {
+	if _, err := service.WorkspaceChanges(".", 20); err == nil {
 		t.Fatal("WorkspaceChanges succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceGitCommitDetail("abc", 20); err == nil {
+	if _, err := service.WorkspaceGitCommitDetail(".", "abc", 20); err == nil {
 		t.Fatal("WorkspaceGitCommitDetail succeeded without a workspace")
 	}
 }
@@ -137,7 +137,7 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceGitLog(10)
+	result, err := service.WorkspaceGitLog(".", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceGitCommitDetail("abc", 200)
+	result, err := service.WorkspaceGitCommitDetail(".", "abc", 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceChanges(50)
+	result, err := service.WorkspaceChanges(".", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceChanges(0)
+	result, err := service.WorkspaceChanges(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

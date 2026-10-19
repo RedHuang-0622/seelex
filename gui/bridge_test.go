@@ -70,6 +70,8 @@ type fakeApplication struct {
 	treeErr               error
 	gitLog                dto.GitLogResult
 	gitLimit              int
+	gitRepo               string
+	gitRepos              dto.GitReposResult
 	gitCommit             dto.GitCommitDetail
 	gitCommitHash         string
 	commitContent         dto.FileContent
@@ -312,23 +314,31 @@ func (fake *fakeApplication) WorkspaceFileCount() (dto.TreeCount, error) {
 	return fake.treeCount, fake.treeErr
 }
 
-func (fake *fakeApplication) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
+func (fake *fakeApplication) WorkspaceGitRepos() (dto.GitReposResult, error) {
+	return fake.gitRepos, nil
+}
+
+func (fake *fakeApplication) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error) {
+	fake.gitRepo = repo
 	fake.gitLimit = limit
 	return fake.gitLog, nil
 }
 
-func (fake *fakeApplication) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
+func (fake *fakeApplication) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error) {
+	fake.gitRepo = repo
 	fake.changesLimit = limit
 	return fake.changes, nil
 }
 
-func (fake *fakeApplication) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
+func (fake *fakeApplication) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
+	fake.gitRepo = repo
 	fake.gitCommitHash = hash
 	fake.gitLimit = limit
 	return fake.gitCommit, nil
 }
 
-func (fake *fakeApplication) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
+func (fake *fakeApplication) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
+	fake.gitRepo = repo
 	fake.gitCommitHash = hash
 	fake.commitRel = relPath
 	fake.commitLimit = limit
@@ -563,7 +573,35 @@ func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
 	}
 }
 
-func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
+func TestBridgeWorkspaceGitReposForwards(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.gitRepos = dto.GitReposResult{
+		Root: "G:/tmp/project",
+		Repos: []dto.GitRepoRef{
+			{Rel: ".", Name: "project", Primary: true, Branch: "main"},
+			{Rel: "vendor/lib", Name: "lib", Branch: "dev"},
+		},
+		Scanned: 12,
+	}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.WorkspaceGitRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Repos) != 2 || !result.Repos[0].Primary || result.Repos[1].Rel != "vendor/lib" {
+		t.Fatalf("unexpected repos: %+v", result.Repos)
+	}
+	if result.Scanned != 12 || result.Truncated {
+		t.Fatalf("unexpected scan facts: scanned=%d truncated=%v", result.Scanned, result.Truncated)
+	}
+}
+
+func TestBridgeWorkspaceGitLogForwardsRepoAndLimit(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.gitLog = dto.GitLogResult{Commits: []dto.GitCommitNode{
@@ -574,12 +612,12 @@ func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := bridge.WorkspaceGitLog(20)
+	result, err := bridge.WorkspaceGitLog("vendor/lib", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.gitLimit != 20 {
-		t.Fatalf("forwarded limit=%d", fake.gitLimit)
+	if fake.gitRepo != "vendor/lib" || fake.gitLimit != 20 {
+		t.Fatalf("forwarded repo=%q limit=%d", fake.gitRepo, fake.gitLimit)
 	}
 	if len(result.Commits) != 1 || result.Commits[0].Subject != "fix: git log" || len(result.Commits[0].Parents) != 1 {
 		t.Fatalf("unexpected git log result: %+v", result.Commits)
@@ -604,12 +642,12 @@ func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := bridge.WorkspaceChanges(50)
+	result, err := bridge.WorkspaceChanges("vendor/lib", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.changesLimit != 50 {
-		t.Fatalf("forwarded limit=%d", fake.changesLimit)
+	if fake.gitRepo != "vendor/lib" || fake.changesLimit != 50 {
+		t.Fatalf("forwarded repo=%q limit=%d", fake.gitRepo, fake.changesLimit)
 	}
 	if result.Branch != "main" || result.Total != 2 || len(result.Entries) != 2 {
 		t.Fatalf("unexpected changes result: %+v", result)
@@ -632,12 +670,12 @@ func TestBridgeWorkspaceGitCommitDetailForwardsHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := bridge.WorkspaceGitCommitDetail("aaaa", 50)
+	result, err := bridge.WorkspaceGitCommitDetail("vendor/lib", "aaaa", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.gitCommitHash != "aaaa" || fake.gitLimit != 50 {
-		t.Fatalf("forwarded hash=%q limit=%d", fake.gitCommitHash, fake.gitLimit)
+	if fake.gitRepo != "vendor/lib" || fake.gitCommitHash != "aaaa" || fake.gitLimit != 50 {
+		t.Fatalf("forwarded repo=%q hash=%q limit=%d", fake.gitRepo, fake.gitCommitHash, fake.gitLimit)
 	}
 	if result.Total != 1 || len(result.Files) != 1 || result.Files[0].Path != "src/main.go" || result.Files[0].Additions != 3 {
 		t.Fatalf("unexpected commit detail: %+v", result)
@@ -653,12 +691,12 @@ func TestBridgeWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.
 		t.Fatal(err)
 	}
 
-	content, err := bridge.WorkspaceGitCommitFileContent("aaaa", "src/main.go", 8)
+	content, err := bridge.WorkspaceGitCommitFileContent("vendor/lib", "aaaa", "src/main.go", 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.gitCommitHash != "aaaa" || fake.commitRel != "src/main.go" || fake.commitLimit != 8 {
-		t.Fatalf("forwarded hash=%q rel=%q limit=%d", fake.gitCommitHash, fake.commitRel, fake.commitLimit)
+	if fake.gitRepo != "vendor/lib" || fake.gitCommitHash != "aaaa" || fake.commitRel != "src/main.go" || fake.commitLimit != 8 {
+		t.Fatalf("forwarded repo=%q hash=%q rel=%q limit=%d", fake.gitRepo, fake.gitCommitHash, fake.commitRel, fake.commitLimit)
 	}
 	if content.Path != "src/main.go" || !content.TextLike {
 		t.Fatalf("unexpected commit file content: %+v", content)

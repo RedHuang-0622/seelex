@@ -123,6 +123,39 @@ flowchart LR
   `WorkspaceTree`/`WorkspaceFileCount`/`WorkspaceGitLog`/`WorkspaceChanges`/
   `WorkspaceGitCommitDetail`/`WorkspaceFileContent`/`WorkspaceGitCommitFileContent`。
 
+## 仓库发现（gitrepos.go）——多仓库 git 的发现端
+
+一个工作区根下可能有多棵互不相干的仓库（根本身是仓库 / 若干子目录各自是仓库 /
+仓库里套仓库）。`GitRepos` 做一次只读 BFS，回报有界的一份相对清单，前端据此渲染
+仓库子页标签；四条 git 查询随后按「仓库相对路径」各自发起（`repo` 的解析与
+containment 在应用层，见 `application/core/workspace_gitrepos.go`）。
+
+- `GitRepos(root, limit)`：Repo 实现 `contract.WorkspaceGitReposPort`（**可选端口，
+  单独声明**——往 `WorkspaceTreePort` 里加方法会打断所有既有实现与测试假体）。
+- **仓库判定**：目录内存在名为 `.git` 的条目，**目录或文件都算**（文件形态是
+  worktree / 子模块，`git -C` 一样可用）。
+- **下钻**：仓库内部**继续下钻**（跳过 `.git` 自身，它本来就在忽略表里）——仓库里
+  套独立仓库很常见，不下钻就漏。
+- **剪枝**：复用 `tree.go` 的 `ignoreDirNames` + 隐藏目录（`.` 开头），不写第二份表；
+  目录符号链接不跟随（`DirEntry.IsDir()` 为假即跳过，防环也防逃逸）。
+- **三重预算**：深度上限 6（工作区根 = 0）、进过的目录数 20000、仓库条目 `limit`
+  （默认 64，钳 1..256，`clampRepoLimit` 是纯函数）。任一触顶即 `Truncated=true`
+  如实上报"还有没扫到的"；`Scanned` 是真正进过的目录数。
+- **主仓库（Primary）两条判据**：根含 `.git` → `Rel="."` Primary；否则
+  `git -C root rev-parse --show-toplevel` 命中祖先仓库 → 也记 `Rel="."` Primary
+  （沿用"以工作区根为视角"的既有语义）；都没有则无 Primary（前端回落 `Repos[0]`）。
+- **顺序**：Primary 优先，其余按 `Rel` 字典序（读数确定、标签位置稳定）。
+- **错误**：读不了的目录跳过继续；空根/根不可读只回 `Result.Error` 文案与空
+  `Repos`，不报 Go error、不 panic。
+- **分支**：直接读 `<repo>/.git/HEAD`（`.git` 是文件时按 `gitdir:` 跟随），不跑子
+  进程——为标签栏拉起 N 个 git 进程不值当；读不到、分离头指针一律留空。
+- **只读元数据**：只下发相对路径、展示名、是否主仓库与分支名；`Root` 只用于前端
+  判断"同一份快照"，不含绝对仓库路径。
+
+测试在 `gitrepos_test.go`：根是仓库 / 兄弟仓库无 Primary / 仓库套仓库 / `.git`
+文件形态 / 忽略与隐藏目录剪枝 / 深度截断 / limit 钳制与截断 / 空根文案 /
+祖先 Primary / 分离头指针（全部临时目录现造，不依赖预置仓库）。
+
 ## 生态位与边界
 
 Repo 保存项目目录和关系，但不执行 PathGate、文件工具或 session history IO。Runtime 的 ProjectScope 由 Application 在 bind/resume 时同步。

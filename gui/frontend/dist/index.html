@@ -245,6 +245,10 @@
                自己就是滚动容器（滚轮只滚本页，不滚整栏）。 -->
           <div class="code-panes" id="code-panes">
             <div class="code-pane-tabs scroll-edges-x" id="code-pane-tabs" role="tablist" aria-label="资源管理器子页"></div>
+            <!-- 仓库标签栏（多仓库 git）：只列仓库，选中哪个就只显示那个仓库的
+                 git；提交记录与工作区更改共用同一个选中仓库。只有一个仓库（或
+                 当前激活的不是 git 子页）时由 app.js 加 is-hidden 隐藏。 -->
+            <div class="code-pane-tabs git-repo-tabs scroll-edges-x is-hidden" id="git-repo-tabs" role="tablist" aria-label="仓库"></div>
             <section class="code-pane" id="code-pane-worktree" role="tabpanel" aria-label="工作树">
               <div class="code-pane-head">
                 <span class="code-pane-title">工作树</span><span id="file-count" class="badge">0</span>

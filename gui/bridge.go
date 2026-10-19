@@ -91,27 +91,30 @@ type Application interface {
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
 	// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge）。
 	WorkspaceFileCount() (dto.TreeCount, error)
-	// WorkspaceGitLog 返回当前工作区最近 limit 条提交（含父提交拓扑；提交
-	// 记录树数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回
-	// Result.Error）。
-	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
-	// WorkspaceChanges 返回当前工作区未提交改动（工作区更改数据源；只读
-	// 元数据——路径与状态字符，不含 diff/文件内容；非 git 仓库返回
-	// Result.Error）。
-	WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)
-	// WorkspaceGitCommitDetail 返回当前工作区某个提交改了哪些文件（提交记录
+	// WorkspaceGitRepos 发现当前工作区内的 git 仓库（多仓库面板的仓库标签
+	// 数据源；只读扫描，有界——深度/目录/条目预算触顶时 Truncated 如实上报）。
+	// 未绑定工作区或后端不支持时返回带 Error 文案的空结果，不是 Go error。
+	WorkspaceGitRepos() (dto.GitReposResult, error)
+	// WorkspaceGitLog 返回**指定仓库**最近 limit 条提交（repo 相对工作区根，
+	// "." = 工作区根；含父提交拓扑；只读元数据，不含 diff/文件内容；非 git
+	// 仓库返回 Result.Error）。repo 越界/绝对路径是调用方传错参数 → Go error。
+	WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)
+	// WorkspaceChanges 返回**指定仓库**未提交改动（repo 口径同 WorkspaceGitLog；
+	// 只读元数据——路径与状态字符，不含 diff/文件内容）。
+	WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)
+	// WorkspaceGitCommitDetail 返回**指定仓库**某个提交改了哪些文件（提交记录
 	// 「点开某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含
 	// diff 或文件内容；非 git 仓库或提交不存在返回 Result.Error）。hash 由前端
 	// 从提交列表原样带回，形状校验在后端。
-	WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)
+	WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)
 	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
 	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
 	// workspace 层保证；只读受控字节，不进快照）。
 	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
-	// WorkspaceGitCommitFileContent 读取某文件在某个提交时的内容（提交记录
-	// 「点开某个文件」数据源）。与 WorkspaceFileContent 同一条可见性边界，
-	// 只是字节来自 git 对象库；这条通道只有读，不回写工作区。
-	WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)
+	// WorkspaceGitCommitFileContent 读取某文件在**指定仓库**某个提交时的内容
+	// （提交记录「点开某个文件」数据源）。与 WorkspaceFileContent 同一条可见性
+	// 边界，只是字节来自 git 对象库；这条通道只有读，不回写工作区。
+	WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)
 	// WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（文件详情面板的
 	// 编辑保存；可见性边界与原子发布在 workspace 层保证）。用户即动作主体，
 	// 不走主代理权限档位与审批；未装配写端口的宿主显式报错。
@@ -1109,31 +1112,38 @@ func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
 	return bridge.app.WorkspaceFileCount()
 }
 
-// WorkspaceGitLog 转发工作区 git 提交记录（最近 limit 条提交 + 父提交
-// 拓扑；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
-func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
-	return bridge.app.WorkspaceGitLog(limit)
+// WorkspaceGitRepos 转发「工作区内 git 仓库发现」（仓库标签栏数据源；扫描边界、
+// 剪枝与预算在 workspace 域内保证，应用层只做端口断言与文案回落）。
+func (bridge *Bridge) WorkspaceGitRepos() (dto.GitReposResult, error) {
+	return bridge.app.WorkspaceGitRepos()
 }
 
-// WorkspaceChanges 转发工作区未提交改动（暂存/未暂存/未跟踪/冲突；只读
-// 元数据——路径与状态字符，不含 diff/文件内容；非 git 仓库返回
-// Result.Error 供面板显示错误态）。
-func (bridge *Bridge) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
-	return bridge.app.WorkspaceChanges(limit)
+// WorkspaceGitLog 转发指定仓库的 git 提交记录（repo 相对工作区根，"." = 工作
+// 区根；最近 limit 条提交 + 父提交拓扑；只读元数据，不含 diff/文件内容；
+// 非 git 仓库返回 Result.Error）。
+func (bridge *Bridge) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error) {
+	return bridge.app.WorkspaceGitLog(repo, limit)
 }
 
-// WorkspaceGitCommitDetail 转发某个提交的改动文件清单（提交记录「点开某一条」
-// 数据源；只读元数据——状态/路径/重命名原路径/±行数，不含 diff 或文件内容；
+// WorkspaceChanges 转发指定仓库的未提交改动（repo 口径同 WorkspaceGitLog；暂存/
+// 未暂存/未跟踪/冲突；只读元数据——路径与状态字符，不含 diff/文件内容；
 // 非 git 仓库返回 Result.Error 供面板显示错误态）。
-func (bridge *Bridge) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
-	return bridge.app.WorkspaceGitCommitDetail(hash, limit)
+func (bridge *Bridge) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error) {
+	return bridge.app.WorkspaceChanges(repo, limit)
 }
 
-// WorkspaceGitCommitFileContent 转发"某文件在某个提交时的内容"读取（提交记录
-// 「点开某个文件」数据源；字节来自 git 对象库，可见性边界与工作树预览同一条；
-// 只读受控字节，不进快照，也不写回工作区）。
-func (bridge *Bridge) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
-	return bridge.app.WorkspaceGitCommitFileContent(hash, relPath, limit)
+// WorkspaceGitCommitDetail 转发指定仓库某个提交的改动文件清单（提交记录「点开
+// 某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含 diff 或文件
+// 内容；非 git 仓库返回 Result.Error 供面板显示错误态）。
+func (bridge *Bridge) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
+	return bridge.app.WorkspaceGitCommitDetail(repo, hash, limit)
+}
+
+// WorkspaceGitCommitFileContent 转发指定仓库"某文件在某个提交时的内容"读取
+// （提交记录「点开某个文件」数据源；字节来自 git 对象库，可见性边界与工作树
+// 预览同一条；只读受控字节，不进快照，也不写回工作区）。
+func (bridge *Bridge) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
+	return bridge.app.WorkspaceGitCommitFileContent(repo, hash, relPath, limit)
 }
 
 // WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限

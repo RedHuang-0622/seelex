@@ -275,10 +275,44 @@
 - `func (service *Service) UnbindWorkspace()` — UnbindWorkspace 解绑当前视图会话/草稿的工作区（实现：middle/switch/workspace）。
 - `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（root 只来自后端当前 workspace）。
 - `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数。
-- `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交。
-- `func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回当前工作区未提交的改动。
-- `func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 返回当前工作区某提交改了哪些文件。
+- `func (service *Service) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回**指定仓库**（repo 相对工作区根，"." = 工作区根）最近 limit 条提交。
+- `func (service *Service) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回**指定仓库**未提交的改动。
+- `func (service *Service) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 返回**指定仓库**某提交改了哪些文件。
 - `func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 读取当前工作区某文件的前 limit 字节。
-- `func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取某文件在某个提交时的内容（git 对象库）。
+- `func (service *Service) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取某文件在**指定仓库**某个提交时的内容（git 对象库）。
 - `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（面板编辑保存）。
 - `func (service *Service) applyWorkspaceProjectionLocked(projection switchworkspace.Projection)` — applyWorkspaceProjectionLocked 把 middle 产出的窄投影写进 Snapshot。
+
+### workspace_gitrepos.go（多仓库 git 的应用用例面）
+
+多仓库 git 只在这一处编排两件事：仓库**发现**与仓库**路径解析**。
+
+- `func (service *Service) WorkspaceGitRepos() (dto.GitReposResult, error)` —
+  发现当前工作区内的 git 仓库。端口是 optional 的
+  `contract.WorkspaceGitReposPort`（`workspace.Repo` 实现，`wiring/adapters`
+  薄转发），在这里用**类型断言**启用；未绑定工作区、后端没有这个端口都只回一份
+  带 `Error` 文案的**空结果**（不报错）：面板显示"不可用"，不是整块渲染失败。
+  `limit` 传 0，默认值（64）与钳制（1..256）都归 `store/workspace` 一份口径。
+- `func (service *Service) workspaceRepoPort(repo string) (contract.WorkspacePort, string, error)` —
+  四条 git 查询共用的入口：取当前工作区根 → 解析 repo → 连同后端端口交出。
+- `func resolveWorkspaceRepo(root, repo string) (string, error)` —
+  repo（前端给的**相对**路径，`""`/`"."` = 工作区根）→ 绝对仓库根。绝对路径、
+  `..` 逃逸、软链逃逸（`EvalSymlinks` 两侧再判一次 containment）、目录不存在
+  都是**调用方传错参数 → Go error**（不是 `Result.Error`）。端口签名与 git 查询
+  语义一律不变。
+- `func repoWithinRoot(root, candidate string) bool` — 词法 containment 判据
+  （与 `store/workspace` 目录树同口径）。
+
+四条查询因此都多了 `repo` 参数：`WorkspaceGitLog(repo, limit)`、
+`WorkspaceChanges(repo, limit)`、`WorkspaceGitCommitDetail(repo, hash, limit)`、
+`WorkspaceGitCommitFileContent(repo, hash, relPath, limit)`。
+
+### workspace_gitrepos_usecase_test.go
+
+- `func (fake *gitReposFakeWorkspace) GitRepos(root string, limit int) (dto.GitReposResult, error)`
+- `func TestResolveWorkspaceRepoContainment(t *testing.T)` — 四种入参口径：空/"." → 工作区根；相对 → 根内绝对路径；绝对路径与 `..` 逃逸 → Go error。
+- `func TestResolveWorkspaceRepoRejectsSymlinkEscape(t *testing.T)` — 软链逃逸必须报错，指向根内的链接放行（Windows 无权限造链接时跳过）。
+- `func TestWorkspaceGitQueriesForwardResolvedRepoRoot(t *testing.T)` — 三条查询把解析后的绝对仓库根（及 hash/limit）原样转发；越界入参一次端口调用都不发生。
+- `func TestWorkspaceGitCommitFileContentForwardsResolvedRepoRoot(t *testing.T)` — 提交内文件内容走同一个仓库根与文件端口。
+- `func TestWorkspaceGitReposForwardsWorkspaceRoot(t *testing.T)` — 仓库发现的 root 只来自后端当前 workspace。
+- `func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T)` — 缺端口 / 未绑定工作区都只给文案，不是 Go error。
