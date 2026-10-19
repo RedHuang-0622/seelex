@@ -116,7 +116,8 @@ OpenAI 兼容错误格式：`{"error":{"message","type","param":null,"code"}}`�
   - `count = clamp(limitResults(opts.MaxResults, maxResults), 1..50)`；
   - `need_content` 恒 `false`（正文归 Fetch；`summary` 已够模型读）；
   - `SearchItem.Content = summary → snippet`，`Score = rerank_score`；
-  - `include_answer=true` 时 `Answer = Top-1 的 summary`（不编造综合答案）；
+  - `include_answer=true` 时 `Answer` **仍为空**（DeepSeek 没有跨结果综合答案，把 Top-1
+    摘要顶上去会让同一段话印两遍），`max_results` 建议 5——一条 summary 就有 600~800 字；
   - 空结果 = 0 条 + nil error；非 200 = 错误，文案取 `error.message (code)`。
 - `backend/tool/search/config.go`：`StrategyConfig` 新增 `api_key_env`（可选）——
   `api_key`/`apikey` 都空时读该环境变量，让 `search_engine.yaml` 能进版本库而不带密钥。

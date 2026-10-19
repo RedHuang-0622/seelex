@@ -159,7 +159,7 @@ strategies:
 | `need_content` | 恒 `false` | 正文归 Fetch API；`summary`（600~800 字）已够模型读，取正文只会把载荷放大几十倍 |
 | `SearchItem.Content` | `summary` → 兜底 `snippet`（100~200 字） | 长摘要优先，UI 摘要兜底 |
 | `SearchItem.Score` | `rerank_score`（0~3；≥1.5 为高质量） | 供应商自带的排序信号，原样透传 |
-| `SearchResponse.Answer` | `include_answer` 为真时取 **Top-1 的 summary** | DeepSeek 不返回跨结果综合答案；不编造拼接式答案 |
+| `SearchResponse.Answer` | **恒空** | DeepSeek 不返回跨结果综合答案；把 Top-1 摘要顶成 Answer 会让同一段话在输出里印两遍（`## AI 摘要` + 第 1 条结果正文）。`include_answer` 对 deepseek 因此是空操作 |
 | 空结果 | 返回 0 条 + nil error | 未命中就是未命中，且官方不计费 |
 | 非 200 | 返回错误，文案取 OpenAI 兼容 `error.message`(code) | 400/401/402 不可重试；408/429/5xx 可等等再试（本层不自动重试，与其它厂商同口径） |
 

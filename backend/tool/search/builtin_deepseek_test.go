@@ -113,9 +113,9 @@ func TestDeepSeekStrategy_Search(t *testing.T) {
 	if resp.Items[1].Content != "only snippet here" {
 		t.Errorf("expected snippet fallback, got %q", resp.Items[1].Content)
 	}
-	// include_answer：Top-1 摘要顶上，不编造综合答案。
-	if resp.Answer != "long model-readable summary" {
-		t.Errorf("expected top-1 summary as answer, got %q", resp.Answer)
+	// Answer 恒空：DeepSeek 没有跨结果综合答案，不把 Top-1 摘要重复印两遍。
+	if resp.Answer != "" {
+		t.Errorf("expected empty answer (top-1 summary already in content), got %q", resp.Answer)
 	}
 }
 

@@ -112,11 +112,10 @@ func (p *deepSeekStrategy) Search(ctx context.Context, query string, maxResults 
 	}
 
 	out := SearchResponse{}
-	// include_answer 在 DeepSeek 这侧没有"跨结果综合答案"这一格：用 Top-1 的
-	// summary 顶上（它就是这一条结果的长摘要），不编造拼接式答案。
-	if p.opts.IncludeAnswer && len(raw.Results) > 0 {
-		out.Answer = strings.TrimSpace(raw.Results[0].Summary)
-	}
+	// Answer **恒空**：DeepSeek 不返回"跨结果综合答案"，它给的是逐条 summary。
+	// 早先版本把 Top-1 的 summary 顶成 Answer，结果那张摘要会在输出里出现两遍
+	// （一次 `## AI 摘要`、一次第 1 条结果的正文）——宁可不写，也不给同一段话
+	// 印两次。`include_answer` 对 deepseek 因此是空操作（见 README）。
 	for _, item := range raw.Results {
 		out.Items = append(out.Items, SearchItem{
 			Title:   item.Title,
