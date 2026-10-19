@@ -42,8 +42,28 @@
 
 | 文件 | 职责 |
 |---|---|
-| `accumulator.go` | `Accumulator`：单会话累计（`Record` / `Stats` / `Totals` / `Snapshot` / `Load`）+ 原因归一与合并。 |
+| `accumulator.go` | `Accumulator`：单会话累计（`Record` / `Stats` / `Totals` / `Snapshot` / `Load` / `Merge`）+ 原因归一与合并。 |
+| `stage.go` | `Stage`：**执行单元**（子代理节点 / teammate 角色会话）的本地暂存（阶梯提交的最下一级）。 |
 | `accumulator_test.go` | 累加、排序、快照/dirty 门、Load 的"只增不减"、原因归一与合并。 |
+| `stage_test.go` | 暂存本地累加、同步交出（序号递增 + 交完即空）、`Merge` 相加语义、条目上限只丢名字细分。 |
+
+## 叶子暂存（`stage.go`，2026-10-19 方向 C）
+
+工具读数的链路是**多级**的：`执行单元（subagent 节点 / teammate 角色会话）-> 主会话累计
+-> 会话存储`。`Stage` 就是最下一级：
+
+- **一个执行单元一份**，在做工期间只做本地累加（只有自己一把锁：不碰会话锁、不碰视图、
+  不碰磁盘）；工具热路径因此不会把主侧台账当写缓存用。
+- **同步交出**：`TakeForCommit()` 返回 `(seq, 增量读数)` 并把暂存清空——返回即入账，
+  不靠 goroutine、不排队；没有新读数时不动 `seq`、交空增量（重复收口因此幂等，
+  真正的幂等判据在 `application/core.CommitUnitToolRecord` 的 `lastSeq`）。
+- **不写第二份判据/词表**：成败与原因由 `application/core` 算好再喂进来，累加本身
+  复用 `Accumulator`（因此读面口径与主侧完全一致）。
+- **有界**：单单元工具名条目上限 `StageToolNameLimit`（256）；超限后新工具名并入
+  `StageOverflowTool`（`"other"`）桶——**只丢"名字的细分"，计数一分不丢**（这条只写注释
+  与测试，不扩展 DTO、不新增看板字段）。
+- `Accumulator.Merge(stats)` 是**相加**语义（叶子交上来的增量），与 `Load` 的
+  "取较大者"（冷启动读回同一份事实的子集）分工明确，别混用。
 
 ## 核心实现
 
@@ -118,8 +138,10 @@ node --test gui/frontend/dist/tool-record-board.test.mjs    # 柱形图/原因�
 - `func (accumulator *Accumulator) Totals() (int, int, int)` — Totals 返回（总调用, 成功, 失败）。
 - `func (accumulator *Accumulator) Snapshot() (dto.ToolRecordSnapshot, bool)` — Snapshot 取一份整份读数快照（落盘用；同时把 dirty 清掉）。
 - `func (accumulator *Accumulator) Load(snapshot dto.ToolRecordSnapshot)` — Load 用一份落盘读数**填充**空累计（冷启动/会话切回时读回）。
+- `func (accumulator *Accumulator) Merge(stats []dto.ToolRecordStat)` — Merge 把**一批增量读数**加进累计（阶梯提交的合并点：叶子暂存交上来的那一段）。
 - `func normalizeReason(reason string) string` — normalizeReason 把外部给的 reason 归一到词表：认得才留，认不得一律 other（保守默认：
 - `func bumpReason(reasons []dto.ToolRecordReason, reason string) []dto.ToolRecordReason` — bumpReason 给原因表加一笔。
+- `func addReason(reasons []dto.ToolRecordReason, reason string, count int) []dto.ToolRecordReason` — addReason 给原因表加 count 笔（合并增量时一批里同一原因可能有多笔）。
 - `func mergeReasons(current, incoming []dto.ToolRecordReason) []dto.ToolRecordReason` — mergeReasons 按原因取较大者合并（与 Load 的"只增不减"同源）。
 - `func cloneStat(stat dto.ToolRecordStat) dto.ToolRecordStat` — cloneStat 复制一格读数（含原因切片）：读面交出去的必须是快照，
 
@@ -129,4 +151,19 @@ node --test gui/frontend/dist/tool-record-board.test.mjs    # 柱形图/原因�
 - `func TestAccumulatorSnapshotHonoursDirtyGate(t *testing.T)`
 - `func TestAccumulatorLoadOnlyGrows(t *testing.T)`
 - `func TestAccumulatorNormalizesReasonVocabulary(t *testing.T)`
+
+### stage.go
+
+- `func NewStage(unitID, sessionID string) *Stage` — NewStage 构造一个执行单元的暂存（unitID/sessionID 只做身份记录与诊断，
+- `func (stage *Stage) UnitID() string` — UnitID 返回本暂存的执行单元键（"subagent:<nodeID>" / "role:<roleSessionID>"）。
+- `func (stage *Stage) SessionID() string` — SessionID 返回本暂存归属的主会话（执行上下文给定；空 = 没有归属）。
+- `func (stage *Stage) Record(tool string, ok bool, reason string)` — Record 纯本地累加一次调用（成功也记；判定与原因归并由调用方算好）。
+- `func (stage *Stage) TakeForCommit() (uint64, []dto.ToolRecordStat)` — TakeForCommit **同步**交出本窗口的增量并清空暂存；返回 (seq, 增量读数)。
+
+### stage_test.go
+
+- `func TestStageAccumulatesLocallyAndTakesSynchronously(t *testing.T)`
+- `func TestStageMergesIntoAccumulatorByAddition(t *testing.T)`
+- `func TestStageBoundsToolNamesWithoutLosingCounts(t *testing.T)`
+- `func TestStageIgnoresEmptyIdentity(t *testing.T)`
 

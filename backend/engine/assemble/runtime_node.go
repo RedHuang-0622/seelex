@@ -5,6 +5,7 @@ package assemble
 // `Runtime` 自己持有的组件上，本层只是公开面；内容从 `ports.go` 原样搬来。
 
 import (
+	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -48,11 +49,71 @@ func (r *Runtime) SubAgentTree() []dto.SubAgentTreeNode {
 }
 
 // SetSubagentToolCallback 注入子代理工具活动观察者（委托 session.ToolEventState）。
-func (r *Runtime) SetSubagentToolCallback(callback func(subagentsession.SubagentToolEvent)) {
+//
+// 本层**解析归属**后再交出去（2026-10-19 方向 C）：owner 主会话取自节点注册时随执行
+// ctx 绑定的那一格（`SubagentSessions.LiveOwner`），**不是**当前视图会话。取不到
+// （节点没注册 / 注册时没有会话）就交空归属，由读侧丢弃并计数——读侧不许回落到
+// 视图会话，这条纪律的判据只在读侧那一处。
+func (r *Runtime) SetSubagentToolCallback(callback func(SubagentToolObservation)) {
 	if r == nil || r.toolEvents == nil {
 		return
 	}
-	r.toolEvents.SetCallback(callback)
+	if callback == nil {
+		r.toolEvents.SetCallback(nil)
+		return
+	}
+	r.toolEvents.SetCallback(func(event subagentsession.SubagentToolEvent) {
+		owner, _ := r.subagentOwnerSession(event.NodeID)
+		callback(SubagentToolObservation{OwnerSessionID: owner, Event: event})
+	})
+}
+
+// subagentOwnerSession 返回节点归属的主会话（执行上下文绑定值；空 = 没有归属）。
+//
+// 读法两级：先本进程的登记表（注册时写入、注销时删除，一次 map 读），再退到会话
+// actor 的 `LiveOwner`（覆盖恢复/沿用路径）。工具热路径因此不会为每个事件都排一次
+// actor 往返——那一格只做"这一笔是谁的读数"的身份读取。
+func (r *Runtime) subagentOwnerSession(nodeID string) (string, bool) {
+	if r == nil || nodeID == "" {
+		return "", false
+	}
+	r.subagentOwnerMu.RLock()
+	owner, cached := r.subagentOwners[nodeID]
+	r.subagentOwnerMu.RUnlock()
+	if cached && owner != "" {
+		return owner, true
+	}
+	if r.subagentSessions == nil {
+		return "", false
+	}
+	return r.subagentSessions.LiveOwner(nodeID)
+}
+
+// noteSubagentOwner 记住节点归属的主会话（注册时调用；空 owner 也记——"没有归属"
+// 本身就是一条信息，读侧据此丢弃并计数）。
+func (r *Runtime) noteSubagentOwner(nodeID, mainSessionID string) {
+	if r == nil || nodeID == "" {
+		return
+	}
+	if mainSessionID = strings.TrimSpace(mainSessionID); mainSessionID == "" {
+		return
+	}
+	r.subagentOwnerMu.Lock()
+	if r.subagentOwners == nil {
+		r.subagentOwners = map[string]string{}
+	}
+	r.subagentOwners[nodeID] = mainSessionID
+	r.subagentOwnerMu.Unlock()
+}
+
+// forgetSubagentOwner 在节点注销时删掉它的归属登记（节点没了，身份也就不必留着）。
+func (r *Runtime) forgetSubagentOwner(nodeID string) {
+	if r == nil || nodeID == "" {
+		return
+	}
+	r.subagentOwnerMu.Lock()
+	delete(r.subagentOwners, nodeID)
+	r.subagentOwnerMu.Unlock()
 }
 
 // ── 节点端口 ──────────────────────────────────────────────────────

@@ -127,8 +127,22 @@ func (service *Service) PublishRuntimeProjections() {
 
 // HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 // 发布一次前端增量。
+//
+// **兼容面**（2026-10-19 方向 C）：这条入口不带 owner 归属，因此**不记读数**
+// （记账要求 `(ownerSessionID, unitID)` 两维都在，见 tool_record_stage.go）；
+// Plan 投影照旧。生产装配走 HandleSubagentToolEventFor（装配层从执行上下文
+// 解析出主会话再调进来）。
 func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
 	service.components.subagent.HandleSubagentToolEvent(event)
+}
+
+// HandleSubagentToolEventFor 同 HandleSubagentToolEvent，但带上**执行上下文**给出的
+// 归属主会话（子代理节点注册时随 ctx 绑定的那一格，不是视图会话）。
+//
+// ownerSessionID 空 ⇒ 读数丢弃 + 计数（诊断在 `ToolRecordDroppedReadings`），
+// **不回落到视图会话**：切会话串写就是这么来的（#8/#13）。
+func (service *Service) HandleSubagentToolEventFor(ownerSessionID string, event seelsession.SubagentToolEvent) {
+	service.components.subagent.HandleSubagentToolEventFor(ownerSessionID, event)
 }
 
 // HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
@@ -153,6 +167,11 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 	}
 	sessionID := strings.TrimSpace(event.MainSessionID)
 	if sessionID == "" || strings.TrimSpace(event.ID) == "" {
+		// 归属缺失 ⇒ 读数丢弃（**不回落视图会话**：这是切会话串写的根因）。
+		// 丢弃必须可见：计数进诊断面（`ToolRecordDroppedReadings`）。
+		if sessionID == "" {
+			service.noteDroppedToolRecordReading(toolRecordDropNoOwner)
+		}
 		return
 	}
 	limit := Limits().EvidenceChars
@@ -175,9 +194,15 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 		requestID = service.Core.Snapshot.Chat.RequestID
 		service.ViewMu.RUnlock()
 	}
-	// teammate 的工具记录：判据与主代理那条链**同一格**（toolStatusFailed +
-	// toolRecordReason），只是入口不同（这条链的完成帧来自角色回合的 ReAct 钩子）。
-	service.toolRecordOutcomeForStatus(sessionID, event.Name, event.Status, event.Error)
+	// teammate 的工具记录（2026-10-19 方向 C：阶梯提交的第一级台阶）：
+	// **先记进角色会话自己的暂存**（`role:<roleSessionID>`，纯本地累加，不碰会话
+	// 累计、不碰磁盘），角色回合收口时再一次性提交给主会话累计
+	// （CloseRoleToolRecordUnit，由 Runtime 在 runRoleRound 收尾处回调）。
+	// 归属 = `event.MainSessionID`（事件自带、执行上下文给出）；空 ⇒ 丢弃 + 计数，
+	// 不回落到视图会话（这是 #8/#13 的根因）。判据仍与主代理那条链同一格
+	// （toolStatusFailed + toolRecordReason）。
+	unitID := roleToolRecordUnitID(event.RoleSessionID, event.ID)
+	service.stageUnitToolOutcomeForStatus(sessionID, unitID, event.Name, event.Status, event.Error)
 	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
 }
 

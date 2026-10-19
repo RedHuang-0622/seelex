@@ -32,12 +32,20 @@ type Deps struct {
 	View ViewPort
 	// Limits 返回当前生效的运行时上限（截断配置）。
 	Limits func() limit.Limits
-	// RecordToolOutcome 是工具记录的**判据入口**（装配处注入 core 的实现）：本包只报
-	// "谁、什么状态、错误原文"，"这算不算失败、原因归哪一格"由那一处判（判据不在这里复制）。
-	// 参数吃**类型化状态**（本链到达形态就是这一格枚举），不是字符串——枚举转字符串
-	// 会得到 rune 而不是词表词，那种转换只会把判据搞坏。
-	// 未注入 = 不记录（nil 判空，与其它可选端口同口径）。
-	RecordToolOutcome func(sessionID, name string, status dto.ToolEventStatus, errorText string)
+	// RecordToolOutcome 是工具记录的**叶子暂存入口**（装配处注入 core 的实现）。
+	//
+	// 口径（2026-10-19 方向 C，阶梯提交）：本包只报"这笔读数属于哪个执行单元
+	// （owner 主会话 + 事件身份）、谁、什么状态、错误原文"；**单元键折算、成败判据
+	// （toolStatusFailed + toolRecordReason）、本地暂存与主侧合并都在注入的实现里**
+	// ——本包不复制判据、不写第二份词表。
+	//
+	// ownerSessionID 是**执行上下文**给出的归属主会话（Runtime 在节点注册时随 ctx
+	// 绑定，装配层解析后交进来）。空 ⇒ 实现侧丢弃并计数，**本包不拿视图会话顶替**
+	// （切会话串写就是这个病灶）。
+	RecordToolOutcome func(ownerSessionID string, event dto.SubagentToolEvent)
+	// CommitToolRecord 是**单元收口**的入口（节点进入终态时把暂存一次性交给主会话
+	// 累计）：同步、返回即入账，不丢 goroutine。未注入 = 不收口（落盘前抽干会兜住）。
+	CommitToolRecord func(ownerSessionID, nodeID string)
 }
 
 // ViewPort 是 Snapshot revision bump 的窄接口。
@@ -50,7 +58,8 @@ type Coordinator struct {
 	*state.Core
 	view              ViewPort
 	limits            func() limit.Limits
-	recordToolOutcome func(sessionID, name string, status dto.ToolEventStatus, errorText string)
+	recordToolOutcome func(ownerSessionID string, event dto.SubagentToolEvent)
+	commitToolRecord  func(ownerSessionID, nodeID string)
 }
 
 // NewCoordinator 构造 subagent_view 协调器。
@@ -58,29 +67,39 @@ func NewCoordinator(deps Deps) *Coordinator {
 	return &Coordinator{
 		Core: deps.Core, view: deps.View, limits: deps.Limits,
 		recordToolOutcome: deps.RecordToolOutcome,
+		commitToolRecord:  deps.CommitToolRecord,
 	}
 }
 
 // HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
 // 并发布一次前端增量。
+//
+// **兼容面**：这条入口没有 owner 归属（历史调用方只有事件）。读数因此不记
+// （记账要求 owner 显式，见 HandleSubagentToolEventFor），Plan 投影照旧。
 func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
+	c.HandleSubagentToolEventFor("", e)
+}
+
+// HandleSubagentToolEventFor 是带归属的那条入口（生产路径）。
+//
+// 次序即语义（2026-10-19 方向 C）：
+//  1. **记账先发生**——它不依赖计划节点，无 `NodeID` 时用 `subagent:<event.ID>` 作
+//     单元键（旧实现把这类事件整条丢了，病灶 #9）；
+//  2. 再做 Plan 投影，早退分支（无 NodeID/无 ID、无计划、节点不在树里）只表示
+//     "这条消息不进投影"，不代表这次工具调用没发生过。
+func (c *Coordinator) HandleSubagentToolEventFor(ownerSessionID string, e seelsession.SubagentToolEvent) {
+	// ① 记账（叶子暂存的本地累加：不碰 ViewMu、不碰磁盘）。
+	if c.recordToolOutcome != nil {
+		c.recordToolOutcome(ownerSessionID, e)
+	}
 	if strings.TrimSpace(e.NodeID) == "" || strings.TrimSpace(e.ID) == "" {
-		return
+		return // ② Plan 投影早退（记账已在上方完成）
 	}
 	// runtime 事件与快照投影同一类型（dto.SubagentToolEvent 单源）；此处只做
 	// 有界截断，不复制字段。
 	e.Arguments = c.truncateSubagentEvidence(e.Arguments)
 	e.Result = c.truncateSubagentEvidence(e.Result)
 	e.Error = c.truncateSubagentEvidence(e.Error)
-	// 计数**先记**（它不依赖计划节点）：下面的早退分支（无计划 / 节点不在树里）
-	// 只是"这条消息不进投影"，不代表这次工具调用没发生过——记录口只看"哪个会话、谁、
-	// 什么状态"。会话号照例从快照读（锁内短读，与下面的投影同源）。
-	if c.recordToolOutcome != nil {
-		c.ViewMu.RLock()
-		sessionID := c.Snapshot.Session.ID
-		c.ViewMu.RUnlock()
-		c.recordToolOutcome(sessionID, e.Name, e.Status, e.Error)
-	}
 
 	c.ViewMu.Lock()
 	plan := c.Snapshot.Runtime.Plan
@@ -96,6 +115,8 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	c.upsertSubagentToolEvent(node, e)
 	revision := c.view.BumpLocked()
 	requestID := c.Snapshot.Chat.RequestID
+	// 事件路由键沿用快照会话（实时增量的收件人 = 当前视图）；**记账**的归属
+	// 已经在上方按执行上下文定死了，两者互不替代（切会话不会再串写读数）。
 	sessionID := c.Snapshot.Session.ID
 	c.ViewMu.Unlock()
 
@@ -108,6 +129,15 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	} else {
 		c.Events.Publish(kind, revision, requestID, e)
 	}
+}
+
+// CloseToolRecordUnit 是**节点收口**：把它这一轮的读数一次性提交给主会话累计
+// （同步、返回即入账）。同一节点多次收口由实现侧幂等兜住（同 seq 只计一次）。
+func (c *Coordinator) CloseToolRecordUnit(ownerSessionID, nodeID string) {
+	if c.commitToolRecord == nil {
+		return
+	}
+	c.commitToolRecord(ownerSessionID, nodeID)
 }
 
 func (c *Coordinator) upsertSubagentToolEvent(node *model.PlanNode, e model.SubagentToolEvent) {

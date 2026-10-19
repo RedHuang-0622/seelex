@@ -230,6 +230,16 @@ type Runtime struct {
 	// 写入一次，回合内只读；nil = 没人订阅（零成本 no-op）。
 	roleToolMu       sync.Mutex
 	roleToolObserver func(dto.RoleToolActivity)
+	// roleTurnEndObserver 是员工回合**收口**的观察者（阶梯提交的收口点）：一轮跑完
+	// 时通知一次，application 侧据此把该角色会话的工具记录暂存一次性提交给主会话
+	// 累计。nil = 没人订阅（零成本 no-op）。
+	roleTurnEndMu       sync.Mutex
+	roleTurnEndObserver func(mainSessionID, roleSessionID string)
+	// subagentOwners 是"子代理节点 → 归属主会话"的本进程登记表（注册时写、注销时删）：
+	// 工具读数的归属键在一次 map 读里拿到，工具热路径因此不必每个事件都排 actor 往返
+	// （权威登记仍在 subagentSessions：注册时随执行 ctx 绑定）。
+	subagentOwnerMu sync.RWMutex
+	subagentOwners  map[string]string
 
 	// teamwork 编排面（runtime_teamwork.go）：leader 的硬编排工具（team_*）与
 	// jobs 作业面。backend 由组合根注入（PlanStore + KeyFor）；未注入 = **不注册**

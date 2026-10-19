@@ -401,12 +401,21 @@ func Run(opts Options) (*App, error) {
 			}
 			return &record
 		},
-		EventPersister:       eventStore.Append,
-		SubagentToolCallback: app.HandleSubagentToolEvent,
+		EventPersister: eventStore.Append,
+		// 子代理工具活动：事件 + 它的**归属主会话**（assemble 从执行上下文解析）。装配根
+		// 只做搬运，记账/投影都在 application（HandleSubagentToolEventFor）。
+		SubagentToolCallback: func(observation assemble.SubagentToolObservation) {
+			app.HandleSubagentToolEventFor(observation.OwnerSessionID, observation.Event)
+		},
 		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
 		// 都在 application（HandleRoleToolActivity）。
 		RoleToolCallback: app.HandleRoleToolActivity,
-		SkillRegistry:    skillRegistry,
+		// 员工回合收口：该角色会话的工具记录暂存一次性提交给主会话累计
+		// （阶梯提交的收口点；同步入账）。
+		RoleTurnEndCallback: func(mainSessionID, roleSessionID string) {
+			app.CloseRoleToolRecordUnit(mainSessionID, roleSessionID)
+		},
+		SkillRegistry: skillRegistry,
 		// 定时提示词任务的执行器：默认**新建会话**发起（可选装配工作区），
 		// 显式绑定了会话的任务才投递到那个会话。
 		// 单独一个函数是为了让测试基座（tool_full_chain_test.go 的 newFullChainHarness）

@@ -13,6 +13,21 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
+// SubagentToolObservation 是一条子代理工具事件**加上它的归属主会话**。
+//
+// 为什么要有这一层（2026-10-19 方向 C）：读数的归属键必须是
+// `(ownerSessionID, unitID)`，owner 只能从**执行上下文**取——节点注册时随 ctx
+// 绑定的主会话（`SubagentSessions.RegisterFor` 记下的那一格）。事件本体
+// （`dto.SubagentToolEvent`）是契约单源，不为了这条链路加字段；归属在本装配层
+// 解析后随事件一起交给读侧。
+//
+// OwnerSessionID 空 = 取不到归属（节点没注册 / 注册时没有会话）：读侧**丢弃并计数**，
+// 绝不回落到视图会话——切会话串写（#8/#13）就是这么来的。
+type SubagentToolObservation struct {
+	OwnerSessionID string
+	Event          subagentsession.SubagentToolEvent
+}
+
 // RuntimeDeps 是 Runtime 的启动期一次性装配（main.go 装配点一次注入；
 // 对应原散装单字段 setter，统一走 Deps 结构——禁止再新增单字段 setter）。
 // 运行期可变的投影/权限/plan policy/binding 不在此列（保留独立 setter）。
@@ -29,11 +44,17 @@ type RuntimeDeps struct {
 	// event.Sink → store 事件库）。
 	EventPersister func(context.Context, frameworkevent.Event) error
 	// SubagentToolCallback 子代理工具活动观察者（委托 session.ToolEventState）。
-	SubagentToolCallback func(subagentsession.SubagentToolEvent)
+	// 事件与它的**归属主会话**一起交出去（归属由本层从执行上下文解析，见
+	// SubagentToolObservation）。
+	SubagentToolCallback func(SubagentToolObservation)
 	// RoleToolCallback **员工回合**工具活动观察者（subagent 那条的对称面：子代理按
 	// NodeID 归到 Plan 节点，员工按角色会话归位）。application 侧把它投影成会话级
 	// 事件 teammate.tool.started/completed，前端据此实时更新开着的员工详情。
 	RoleToolCallback func(dto.RoleToolActivity)
+	// RoleTurnEndCallback 员工回合**收口**观察者：这一轮结束（工具都跑完了）时通知
+	// 一次，application 侧据此把该角色会话的工具记录暂存一次性提交给主会话累计
+	// （阶梯提交的收口点；空 mainSessionID = 没有归属，读侧丢弃）。
+	RoleTurnEndCallback func(mainSessionID, roleSessionID string)
 	// SkillRegistry 子代理 skill 目录 actor（nil 关闭 skill 块，降级）。
 	SkillRegistry *skill.Registry
 	// ScheduledPromptExecutor 周期提示词任务执行器（nil = 禁用 prompt 任务）。
@@ -65,6 +86,9 @@ func (r *Runtime) ApplyDeps(deps RuntimeDeps) {
 	}
 	if deps.RoleToolCallback != nil {
 		r.SetRoleToolCallback(deps.RoleToolCallback)
+	}
+	if deps.RoleTurnEndCallback != nil {
+		r.SetRoleTurnEndCallback(deps.RoleTurnEndCallback)
 	}
 	if deps.SkillRegistry != nil {
 		r.SetSkillRegistry(deps.SkillRegistry)

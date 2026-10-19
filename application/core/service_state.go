@@ -37,6 +37,11 @@ type serviceState struct {
 	// 会话状态，不是装配期交接一次的外部端口。
 	toolRecords *toolRecordAccumulators
 
+	// toolStages 是**叶子暂存**的登记表（执行单元 → 它自己那份本地累加，见
+	// tool_record_stage.go）。与 toolRecords 同一生态位（随工具调用变化、不落盘），
+	// 但作用域是"执行单元"而不是"会话"：读数在这里先攒、收口时才交给会话累计。
+	toolStages *toolRecordStages
+
 	// draft 是"新建会话"草稿槽位（Core.ViewMu 保护）：早分配 SID 的草稿
 	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
 	// 首次提交（materializeDraftSession）时消费并清空。

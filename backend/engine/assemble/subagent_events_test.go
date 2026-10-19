@@ -21,8 +21,8 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 	})
 
 	var events []session.SubagentToolEvent
-	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
-		events = append(events, event)
+	runtime.SetSubagentToolCallback(func(observation SubagentToolObservation) {
+		events = append(events, observation.Event)
 	})
 
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "event_probe", `{}`); err != nil {
@@ -63,8 +63,8 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 	})
 
 	var events []session.SubagentToolEvent
-	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
-		events = append(events, event)
+	runtime.SetSubagentToolCallback(func(observation SubagentToolObservation) {
+		events = append(events, observation.Event)
 	})
 	ctx := seenode.WithSceneScope(context.Background(), seenode.SceneScope{SceneID: "node-f", Role: model.RoleSubAgent})
 	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {

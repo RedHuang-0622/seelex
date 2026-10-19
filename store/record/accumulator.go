@@ -188,6 +188,51 @@ func (accumulator *Accumulator) Load(snapshot dto.ToolRecordSnapshot) {
 	}
 }
 
+// Merge 把**一批增量读数**加进累计（阶梯提交的合并点：叶子暂存交上来的那一段）。
+//
+// 与 Load 的分工（两条语义，别混用）：
+//   - `Load` 是"冷启动读回落盘快照"：同一份事实的子集 → 按工具名**取较大者**；
+//   - `Merge` 是"叶子交上来的新一笔增量"：**相加**（seq 递增的两次提交都要计入），
+//     失败原因也按条数相加。
+//
+// 判据仍在上游（成败与原因都算好才进来），本函数不判任何东西。
+func (accumulator *Accumulator) Merge(stats []dto.ToolRecordStat) {
+	if accumulator == nil || len(stats) == 0 {
+		return
+	}
+	accumulator.mu.Lock()
+	defer accumulator.mu.Unlock()
+	for _, incoming := range stats {
+		tool := strings.TrimSpace(incoming.Tool)
+		if tool == "" {
+			continue
+		}
+		stat, seen := accumulator.stats[tool]
+		if !seen {
+			stat = &dto.ToolRecordStat{Tool: tool}
+			accumulator.stats[tool] = stat
+			accumulator.order = append(accumulator.order, tool)
+		}
+		stat.Success += incoming.Success
+		stat.Failure += incoming.Failure
+		for _, reason := range incoming.Reasons {
+			if reason.Count == 0 {
+				continue
+			}
+			stat.Reasons = addReason(stat.Reasons, normalizeReason(reason.Reason), reason.Count)
+		}
+		stat.Total = stat.Success + stat.Failure
+		if incoming.LastAt.After(stat.LastAt) {
+			stat.LastAt = incoming.LastAt
+		}
+		if incoming.LastAt.After(accumulator.lastAt[tool]) {
+			accumulator.lastAt[tool] = incoming.LastAt
+		}
+		accumulator.total += incoming.Success + incoming.Failure
+		accumulator.dirty = true
+	}
+}
+
 // normalizeReason 把外部给的 reason 归一到词表：认得才留，认不得一律 other（保守默认：
 // 宁可归到"其它"，也不要让看板出现一个拼错的格子）。
 func normalizeReason(reason string) string {
@@ -202,13 +247,21 @@ func normalizeReason(reason string) string {
 
 // bumpReason 给原因表加一笔。
 func bumpReason(reasons []dto.ToolRecordReason, reason string) []dto.ToolRecordReason {
+	return addReason(reasons, reason, 1)
+}
+
+// addReason 给原因表加 count 笔（合并增量时一批里同一原因可能有多笔）。
+func addReason(reasons []dto.ToolRecordReason, reason string, count int) []dto.ToolRecordReason {
+	if count <= 0 {
+		return reasons
+	}
 	for index := range reasons {
 		if reasons[index].Reason == reason {
-			reasons[index].Count++
+			reasons[index].Count += count
 			return reasons
 		}
 	}
-	return append(reasons, dto.ToolRecordReason{Reason: reason, Count: 1})
+	return append(reasons, dto.ToolRecordReason{Reason: reason, Count: count})
 }
 
 // mergeReasons 按原因取较大者合并（与 Load 的"只增不减"同源）。

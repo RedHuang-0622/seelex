@@ -112,18 +112,34 @@ func (service *Service) ToolRecordEnabled() bool {
 // FlushToolRecord 把一个会话的读数**批量**写进会话自己的存储（真相源提交时刻调一次）。
 //
 // 调用点：**一回合一次**（`runChat` 尾部的由忙转闲点）+ `materializeDraftSession`
-// （草稿物化进真相源那一刻）+ Shutdown 兜底——粒度是"回合提交"，不是"每次工具调用"。
-// 没有新东西（dirty=false）或没装配落盘口 ⇒ 空操作：没记过的会话不产生文件。
+// （草稿物化进真相源那一刻）+ Shutdown 兜底 + 会话释放（releaseFull 之前）——粒度是
+// "回合提交"，不是"每次工具调用"。没有新东西（dirty=false）或没装配落盘口 ⇒ 空操作：
+// 没记过的会话不产生文件。
+//
+// **两道纪律**（2026-10-19 方向 C）：
+//  1. 落盘前先抽干该会话的**全部叶子暂存**（`drainStagesFor`）：子代理节点/角色会话
+//     没来得及收口（进程要退、会话要释放）时，读数不能丢在叶子那一级；
+//  2. **落盘门**：只有**已物化的真实会话**才写盘（`toolRecordWritableSession`）——
+//     草稿一次都不写。"draft 落实了才做工具记录的存储"是用户口径，这里就是它的门。
 //
 // 落盘失败**不回抛**（会话提交不该因为读数写不进去而失败）：错误留在槽位上，
 // 读面（看板）拿它显示告警。
 func (service *Service) FlushToolRecord(sessionID string) {
-	store := service.toolRecordSnapshotStore()
-	if store == nil || service.toolRecords == nil {
+	if service == nil || service.toolRecords == nil {
 		return
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
+		return
+	}
+	// ① 先抽干叶子暂存（这一步只动内存台账，草稿也要做：读数不能在切换/释放时丢）。
+	service.drainStagesFor(sessionID)
+	// ② 落盘门：草稿不写盘（判据复用会话域既有的草稿归属，不新造一格）。
+	if !service.toolRecordWritableSession(sessionID) {
+		return
+	}
+	store := service.toolRecordSnapshotStore()
+	if store == nil {
 		return
 	}
 	accumulator := service.toolRecords.accumulator(sessionID)
@@ -139,6 +155,21 @@ func (service *Service) FlushToolRecord(sessionID string) {
 		return
 	}
 	service.components.toolRecord.noteFlushError(nil)
+}
+
+// toolRecordWritableSession 报告该会话是不是**已物化的真实会话**（落盘门的唯一判据）。
+//
+// 判据复用会话域已有的"草稿 vs 真实会话"归属（`switching.DraftTarget`：草稿槽 +
+// 视图镜像两源合一），不新造一格、也不看"引擎还在不在内存里"（释放后的真实会话
+// 仍应落盘，只是那时没有新读数可写）。取不到（既不是草稿槽也不是视图草稿）⇒
+// 当真实会话：草稿身份是**显式**的，猜不得。
+func (service *Service) toolRecordWritableSession(sessionID string) bool {
+	if service == nil || service.Core == nil {
+		return true
+	}
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
+	return !service.draftTargetLocked().Matches(sessionID)
 }
 
 // loadToolRecord 把该会话最后一次落盘的读数读回内存（每个会话只读一次）。
@@ -237,19 +268,6 @@ func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCod
 // toolStatusFailed 是"这次工具调用算不算失败"的**唯一判据**（吃类型化状态那一格）。
 func toolStatusFailed(status dto.ToolEventStatus) bool {
 	return status == dto.ToolEventError
-}
-
-// toolRecordOutcomeForStatus 是**字符串状态**那两条链（teammate / 子代理）的唯一入口。
-//
-// 只有"结果帧"（success / error）才记：running 帧不是一次调用的结束，记它会把同一件事
-// 记两笔（发起一笔 + 完成一笔），"成功率"就被自己的心跳稀释了；未知/零值词同样不记
-// （认不得的词不该被当成成功——那是最容易造假的一种默认）。
-func (service *Service) toolRecordOutcomeForStatus(sessionID, name, status, errorText string) {
-	parsed, ok := dto.ParseToolEventStatus(strings.TrimSpace(status))
-	if !ok || parsed == dto.ToolEventRunning || parsed == dto.ToolEventUnknown {
-		return
-	}
-	service.recordToolOutcome(sessionID, name, toolStatusFailed(parsed), errorText)
 }
 
 // toolRecordReason 把失败文本归到**唯一一份原因词表**（dto.ToolReason*）。

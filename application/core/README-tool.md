@@ -53,6 +53,45 @@
   **落盘是批次**：`FlushToolRecord` 在真相源提交时刻（草稿物化）与停机兜底各写一次整份
   读数（会话粒度，见 store 的 `tool-record.jsonl`）——不做逐次工具写盘，避免磁盘写忙。
   原因归并吃的是**原始错误**而不是给模型看的包装文案（后者刻意不含内部细节）。
+
+## 阶梯提交与会话隔离（2026-10-19 方向 C）
+
+链路（用户口径原文）：`subagent/teammate -> mainagent -> 工具记录存储`。三条纪律：
+
+- **归属键显式**：一笔读数带 `(ownerSessionID, unitID)`。owner 只从**执行上下文**取
+  （子代理 = 节点注册时随 ctx 绑定的主会话，由 `backend/engine/assemble` 解析后经
+  `SubagentToolObservation` 交进来；teammate = 事件自带的 `MainSessionID`）。
+  `Snapshot.Session.ID` / `currentViewSessionID()` **永不作兜底**——切会话串写就是这么
+  来的（#8/#13）。取不到 ⇒ 丢弃 + 计数（`ToolRecordDroppedReadings`，键
+  `no_owner_session` / `no_unit_identity`），诊断面可见、不进快照。
+- **阶梯提交**：执行单元（子代理节点 / 角色会话）在做工期间只往**自己的**暂存里累加
+  （`store/record.Stage`，`StageUnitToolOutcome`：只碰台账锁，不碰 ViewMu、不碰磁盘）；
+  单元收口时 `CloseUnitToolRecord` 把它**同步**一次性交给会话累计（返回即已入账，
+  不丢 goroutine）。单元键口径只在本卷一份：`subagent:<nodeID>`（无 NodeID 时
+  `subagent:<event.ID>` 兜底，不再整条丢）、`role:<roleSessionID>`。
+  收口点三处：子代理节点进入终态（`RefreshWorkTableSnapshot` 扫树）、员工回合收口
+  （`Runtime.runRoleRound` 的返回点 → `CloseRoleToolRecordUnit`）、以及落盘前抽干。
+- **唯一入口**：读数进会话累计只有 `CommitUnitToolRecord(sessionID, unitID, seq, stats)`
+  一条路——`sessionID` 空则丢弃；`(sessionID, unitID)` 记 `lastSeq`，`seq <= lastSeq`
+  幂等忽略；合并是**相加**语义（`record.Accumulator.Merge`，与冷启动读回的 `Load`
+  取较大者不同）。主代理自己的读数不经暂存（它本身就是主侧），仍走 `recordToolOutcome`，
+  与暂存链共用同一份判据（`toolStatusFailed` / `toolRecordReason`）。
+
+**落盘门**：`FlushToolRecord` 只在**已物化的真实会话**上写盘（判据复用会话域既有的
+草稿归属 `switching.DraftTarget`，不新造一格）——草稿一次都不写；落盘前先
+`drainStagesFor(sessionID)` 抽干该会话的全部叶子暂存（叶子没来得及收口也不丢）。
+保留四处调用：`chat.go` 回合末尾（过门）、`materializeDraftSession`（物化即入账）、
+`Shutdown` 全量、会话释放（releaseFull 之前）。
+
+**回收**：会话释放/删除（`releaseSessionMemory` 的 releaseFull）连带回收该会话的
+暂存、提交序号、累计与"读过盘"标记——会话没了，读数的归属也就没了；留着只会让复用
+同一 ID 的新会话读到旧账（旧 `lastSeq` 还会把新会话的第一批读数误判成重复提交）。
+视图切换**什么都不做**（读数不跟视图走）。
+
+守卫用例：`tool_record_isolation_test.go`（12 条会话隔离边界矩阵）、
+`store/record/stage_test.go`（暂存本身）、`middle/view/subagent/record_attribution_test.go`
+（归属与"记账先发生"）。
+
 ### tool_record.go
 
 - `type toolRecordAccumulators struct{…}` — toolRecordAccumulators 是**每会话**一份的内存累计（键 = 会话 ID）。
@@ -166,6 +205,7 @@
 - `func (service *Service) ApplyToolRecordEnabled(enabled bool)` — ApplyToolRecordEnabled 只改内存（**装配期**用：启动时把配置/覆盖层里的值装进来）。
 - `func (service *Service) ToolRecordEnabled() bool` — ToolRecordEnabled 返回当前开关状态（设置面板与看板都读它）。
 - `func (service *Service) FlushToolRecord(sessionID string)` — FlushToolRecord 把一个会话的读数**批量**写进会话自己的存储（真相源提交时刻调一次）。
+- `func (service *Service) toolRecordWritableSession(sessionID string) bool` — toolRecordWritableSession 报告该会话是不是**已物化的真实会话**（落盘门的唯一判据）。
 - `func (service *Service) loadToolRecord(sessionID string)` — loadToolRecord 把该会话最后一次落盘的读数读回内存（每个会话只读一次）。
 - `func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore)` — SetToolRecordSnapshotStore 注入（或收回：传 nil）读数落盘口。
 - `func (service *Service) toolRecordSnapshotStore() contract.ToolRecordSnapshotStore`
@@ -173,11 +213,60 @@
 - `func (service *Service) ToolRecordBoard() dto.ToolRecordBoard` — ToolRecordBoard 返回**当前视图会话**的工具记录看板（TUI / GUI 同源读法）。
 - `func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int)` — RecordToolCommandOutcome 记一次**命令面**的结果（进程退出码）。
 - `func toolStatusFailed(status dto.ToolEventStatus) bool` — toolStatusFailed 是"这次工具调用算不算失败"的**唯一判据**（吃类型化状态那一格）。
-- `func (service *Service) toolRecordOutcomeForStatus(sessionID, name, status, errorText string)` — toolRecordOutcomeForStatus 是**字符串状态**那两条链（teammate / 子代理）的唯一入口。
 - `func toolRecordReason(text string) string` — toolRecordReason 把失败文本归到**唯一一份原因词表**（dto.ToolReason*）。
 - `func containsAny(haystack string, needles ...string) bool`
 - `func toolErrorText(err error) string` — toolErrorText 取错误的**原始**文本（没有错误 = 空串）。
 - `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)` — recordToolOutcome 在三族工具完成路径上按同一判据记一笔（成功与失败都记）。
+
+### tool_record_isolation_test.go
+
+- `func toolRecordStat(tool string, success, failure int, reason string) []dto.ToolRecordStat` — toolRecordStat 造一格增量读数（失败笔数挂一个原因）。
+- `func subagentReading(tool string, status dto.ToolEventStatus, errorText string) seelsession.SubagentToolEvent` — subagentReading 造一条子代理工具读数（执行单元 = subagent:<nodeID>）。
+- `func totals(service *Service, sessionID string) (int, int, int)` — totals 读某会话的累计三数（不存在 ⇒ 全 0）。
+- `func newToolRecordHarness(t *testing.T) *toolRecordHarness`
+- `func (harness *toolRecordHarness) switchToB()` — switchToB 走**生产切换路径**（ResumeSession），不是直接改快照字段。
+- `func (harness *toolRecordHarness) switchToA()`
+- `func TestToolRecordSubagentReadingStaysWithOwnerAcrossViewSwitch(t *testing.T)`
+- `func TestToolRecordConcurrentSubagentsStayInOwnSession(t *testing.T)`
+- `func TestToolRecordTeammateWithoutMainSessionIsDropped(t *testing.T)`
+- `func TestToolRecordCommitIsIdempotentPerSeq(t *testing.T)`
+- `func TestToolRecordCommitAccumulatesAcrossSeqs(t *testing.T)`
+- `func draftService(t *testing.T) (*Service, *recordingSnapshotStore)` — draftService 造一个**仍是草稿**的 Service（引擎还没建 bundle：HasSession=false）。
+- `func TestToolRecordDraftSessionNeverWrites(t *testing.T)`
+- `func TestToolRecordDraftMaterializationWritesOnceWithLeafReadings(t *testing.T)`
+- `func TestToolRecordFlushDrainsUnclosedLeafStages(t *testing.T)`
+- `func TestToolRecordBoardFollowsViewWithoutCrossing(t *testing.T)`
+- `func TestToolRecordReleaseRecyclesStageAndSeq(t *testing.T)`
+- `func TestToolRecordDisabledStagesNothing(t *testing.T)`
+- `func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T)`
+
+### tool_record_stage.go
+
+- `func subagentToolRecordUnitID(nodeID, eventID string) string` — subagentToolRecordUnitID 折算子代理执行单元的键：有 NodeID 用节点，
+- `func roleToolRecordUnitID(roleSessionID, eventID string) string` — roleToolRecordUnitID 折算 teammate 执行单元的键：角色会话是它的身份；
+- `func newToolRecordStages() *toolRecordStages`
+- `func (table *toolRecordStages) record(key toolRecordUnitKey, tool string, ok bool, reason string)` — record 把一笔读数记进单元暂存（调用方已完成归属/单元键的判空与取整）。
+- `func (table *toolRecordStages) take(key toolRecordUnitKey) (uint64, []dto.ToolRecordStat)` — take 交出某单元的增量（没有暂存 = 空）。
+- `func (table *toolRecordStages) acceptSeq(key toolRecordUnitKey, seq uint64) bool` — acceptSeq 报告该 seq 是否可以入账（`seq <= lastSeq` = 重复提交）。
+- `func (table *toolRecordStages) drainSession(sessionID string) []toolRecordCommit` — drainSession 交出某会话名下**全部**单元的增量（落盘前抽干：叶子没来得及收口也不丢）。
+- `func (table *toolRecordStages) releaseSession(sessionID string)` — releaseSession 回收某会话的全部暂存与提交序号（会话释放/删除）。
+- `func (table *toolRecordStages) noteDropped(reason string)` — noteDropped 记一次"读数被丢弃"（诊断面：丢弃必须是可见的，不能静默）。
+- `func (table *toolRecordStages) droppedCounts() map[string]int` — droppedCounts 返回丢弃计数快照。
+- `func (table *toolRecordStages) unitCount() int` — unitCount 返回当前登记的暂存个数（测试/诊断读面）。
+- `func (service *Service) StageUnitToolOutcome(sessionID, unitID, tool string, failed bool, errorText string)` — StageUnitToolOutcome 把一笔读数记进**执行单元自己的暂存**（叶子本地累加）。
+- `func (service *Service) CommitUnitToolRecord(sessionID, unitID string, seq uint64, stats []dto.ToolRecordStat)` — CommitUnitToolRecord 是**叶子 → 主侧**的唯一入口：同步、幂等、只碰台账锁。
+- `func (service *Service) CloseUnitToolRecord(sessionID, unitID string)` — CloseUnitToolRecord 是一次**单元收口**：把它的暂存一次性同步提交给主会话累计并清空。
+- `func (service *Service) CloseSubagentToolRecordUnit(ownerSessionID, nodeID string)` — CloseSubagentToolRecordUnit 子代理节点的收口（单元键折算只有一份：`subagent:<nodeID>`）。
+- `func (service *Service) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string)` — CloseRoleToolRecordUnit 角色会话的收口（单元键折算只有一份：`role:<roleSessionID>`）。
+- `func (service *Service) drainStagesFor(sessionID string)` — drainStagesFor 抽干某会话名下的全部叶子暂存（落盘前的兜底：叶子未收口也不丢）。
+- `func (service *Service) releaseToolRecordSession(sessionID string)` — releaseToolRecordSession 回收某会话的工具记录内存面（会话释放/删除时调用）。
+- `func (service *Service) noteDroppedToolRecordReading(reason string)` — noteDroppedToolRecordReading 记一次"读数被丢弃"（丢弃必须可见，不能静默）。
+- `func (service *Service) ToolRecordDroppedReadings() map[string]int` — ToolRecordDroppedReadings 返回"读数被丢弃"的计数（诊断读面，不进快照）。
+- `func toolRecordCountsStatus(status dto.ToolEventStatus) bool` — toolRecordCountsStatus 报告这一帧状态是不是"一次调用的结束"（成功/失败两格）。
+- `func (service *Service) stageUnitToolOutcomeForStatus(ownerSessionID, unitID, name, status, errorText string)` — stageUnitToolOutcomeForStatus 是"字符串状态"那条链（teammate）进暂存的入口。
+- `func (service *Service) stageSubagentToolOutcome(ownerSessionID string, event dto.SubagentToolEvent)` — stageSubagentToolOutcome 是子代理链进暂存的入口（事件自带身份：节点/事件 ID）。
+- `func (service *Service) closeTerminalSubagentToolRecords(nodes []dto.SubAgentTreeNode)` — closeTerminalSubagentToolRecords 把**进入终态**的子代理节点的暂存收口（收口点之一）。
+- `func terminalSubagentStatus(status dto.SubAgentNodeStatus) bool` — terminalSubagentStatus 报告子代理节点是否已经收口（终态三格：完成/失败/中断）。
 
 ### tool_record_test.go
 

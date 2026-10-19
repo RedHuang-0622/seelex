@@ -238,19 +238,27 @@ func (r *Runtime) nodeDeps() seenode.Deps {
 		// 生命周期（建现场 / 收尾 / 释放）只有一份：这三个回调都驱动 subagent 层的
 		// 工作单元（父实现见 workunit_parent.go），现场的唯一建法与收尾仍在既有实现里
 		// 被父调用。
-		BeginNodeWorktree:     r.beginNodeUnit,
-		FinishNodeWorktree:    r.finishNodeUnit,
-		ReleaseNodeWorktree:   r.releaseNodeWorktree,
-		RegisterNodeSession:   r.node.RegisterSession,
-		UnregisterNodeSession: r.node.UnregisterSession,
-		CompleteSubagentNode:  r.node.CompleteSubagentNode,
-		NodeParentEvidence:    r.node.ParentEvidence,
-		MergeBackIntoParent:   r.mergeBackIntoParent,
-		RecordNodeStage:       r.node.RecordStage,
-		RecordNodeResult:      r.node.RecordResult,
-		RecordNodeAssistant:   r.recordNodeAssistant,
-		NodeBudget:            r.node.Budget,
-		NodePromptBlocks:      r.node.PromptBlocks,
+		BeginNodeWorktree:   r.beginNodeUnit,
+		FinishNodeWorktree:  r.finishNodeUnit,
+		ReleaseNodeWorktree: r.releaseNodeWorktree,
+		// 注册/注销同时维护**归属登记表**：工具读数的归属键在执行上下文里绑定一次
+		// （mainSessionID 来自 ctx），热路径只读这一次登记（见 subagentOwnerSession）。
+		RegisterNodeSession: func(mainSessionID, nodeID string, sess *session.Session, goal string) {
+			r.noteSubagentOwner(nodeID, mainSessionID)
+			r.node.RegisterSession(mainSessionID, nodeID, sess, goal)
+		},
+		UnregisterNodeSession: func(nodeID string) {
+			r.forgetSubagentOwner(nodeID)
+			r.node.UnregisterSession(nodeID)
+		},
+		CompleteSubagentNode: r.node.CompleteSubagentNode,
+		NodeParentEvidence:   r.node.ParentEvidence,
+		MergeBackIntoParent:  r.mergeBackIntoParent,
+		RecordNodeStage:      r.node.RecordStage,
+		RecordNodeResult:     r.node.RecordResult,
+		RecordNodeAssistant:  r.recordNodeAssistant,
+		NodeBudget:           r.node.Budget,
+		NodePromptBlocks:     r.node.PromptBlocks,
 		Tracer: func() provider.TraceSource {
 			return r.Tracer()
 		},

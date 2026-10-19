@@ -79,6 +79,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.toolRecord = &toolRecordPort{}
 	// 工具读数的按会话累计表同理在装配期建好（键 = 会话 ID）。
 	service.toolRecords = newToolRecordAccumulators()
+	// 叶子暂存登记表（执行单元 → 本地累加）：阶梯提交的下一级台阶，同样装配期建好。
+	service.toolStages = newToolRecordStages()
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
@@ -238,10 +240,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Core:   kernel,
 		View:   service.components.view,
 		Limits: Limits,
-		// 工具记录走 core 里那**唯一**一处判据（toolStatusFailed + toolRecordReason）：
-		// 本包只报"谁、什么状态、错误原文"。
-		RecordToolOutcome: func(sessionID, name string, status dto.ToolEventStatus, errorText string) {
-			service.toolRecordOutcomeForStatus(sessionID, name, status.String(), errorText)
+		// 工具记录走 core 里那**唯一**一处判据（toolStatusFailed + toolRecordReason），
+		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
+		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。
+		RecordToolOutcome: func(ownerSessionID string, event dto.SubagentToolEvent) {
+			service.stageSubagentToolOutcome(ownerSessionID, event)
+		},
+		// 节点收口（终态）：把暂存一次性提交给主会话累计（同步、返回即入账）。
+		CommitToolRecord: func(ownerSessionID, nodeID string) {
+			service.CloseSubagentToolRecordUnit(ownerSessionID, nodeID)
 		},
 	})
 	service.components.input = newInputRouter(inputRouteHandlers{

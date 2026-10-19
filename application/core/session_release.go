@@ -102,6 +102,9 @@ func (service *Service) releaseSessionMemory(sessionID string, mode sessionRelea
 			return fmt.Errorf("flush session %q before release: %w", sessionID, err)
 		}
 	}
+	// 2b) 工具记录：释放前先把该会话的叶子暂存抽干并落一次（读数不能丢在内存里）。
+	//     releaseFull 之后会连台账（暂存 + 累计 + 提交序号）一起回收（见第 9 步）。
+	service.FlushToolRecord(sessionID)
 
 	// 3) 引擎实例：先放引擎（可失败：会话在飞时端口会拒绝）。
 	if engine, ok := service.Deps.Engine.(residentEngine); ok {
@@ -143,6 +146,12 @@ func (service *Service) releaseSessionMemory(sessionID string, mode sessionRelea
 	service.forgetResidentLocked(sessionID)
 	service.forgetContentLocked(sessionID)
 	service.ViewMu.Unlock()
+	// 9) 完整释放：工具记录台账（叶子暂存 + 提交序号 + 该会话累计 + 读盘标记）一起
+	//    回收——会话没了，这些读数的归属也就没了；留着只会让复用同一 ID 的新会话
+	//    读到旧账（旧 lastSeq 还会把新会话的第一批读数误判成重复提交）。
+	if mode == releaseFull {
+		service.releaseToolRecordSession(sessionID)
+	}
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }

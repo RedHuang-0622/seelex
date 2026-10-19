@@ -32,6 +32,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) GoalSkillActive() bool` — GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
 - `func (service *Service) PublishRuntimeProjections()` — PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
 - `func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
+- `func (service *Service) HandleSubagentToolEventFor(ownerSessionID string, event seelsession.SubagentToolEvent)` — HandleSubagentToolEventFor 同 HandleSubagentToolEvent，但带上**执行上下文**给出的
 - `func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity)` — HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
 - `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 - `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；

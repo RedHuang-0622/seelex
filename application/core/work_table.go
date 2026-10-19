@@ -407,6 +407,9 @@ func (service *Service) RefreshWorkTableSnapshot() {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.SubAgentTree = tree
 	service.ViewMu.Unlock()
+	// 子代理节点收口：进入终态的节点把它的**工具记录暂存**一次性交给主会话累计
+	// （阶梯提交的收口点之一；归属取节点自己的 MainSessionID，与视图无关）。
+	service.closeTerminalSubagentToolRecords(tree)
 	service.refreshWorkTableFromSources()
 }
 

@@ -291,6 +291,10 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	}
 	output, err := engine.ChatStream(turnCtx, spec.Input, spec.OnDelta)
 	handle.roundGate.Unlock()
+	// 员工回合收口（阶梯提交）：这一轮结束 ⇒ 该角色会话的工具记录暂存一次性交给
+	// 主会话累计（同步、返回即已入账；不丢 goroutine）。放在闸门之外——它只碰台账
+	// 锁，与引擎回合闸门无关。失败路径同样收口：已经跑过的工具是发生过的读数。
+	r.publishRoleTurnEnd(spec.MainSessionID, roleSessionID)
 	if err != nil {
 		// 执行面出错向上抛（治理循环透传）：不能吞成"没产出"，否则环会把它记成
 		// 无进展并逃生，把模型/权限/存储的故障掩盖成"团队不干活"。
@@ -514,6 +518,34 @@ func (r *Runtime) SetRoleToolCallback(callback func(dto.RoleToolActivity)) {
 	r.roleToolMu.Lock()
 	r.roleToolObserver = callback
 	r.roleToolMu.Unlock()
+}
+
+// SetRoleTurnEndCallback 注入**员工回合收口**的观察者（nil = 取消订阅）。
+//
+// 存在理由（2026-10-19 方向 C）：工具记录走阶梯提交 —— 角色会话在做工期间只往
+// 自己的暂存里累加，**这一轮结束时**才一次性交给主会话累计。回合边界只有本层知道
+// （runRoleRound 的返回点），所以由这里通知一次；同步调用（返回即已入账）。
+func (r *Runtime) SetRoleTurnEndCallback(callback func(mainSessionID, roleSessionID string)) {
+	if r == nil {
+		return
+	}
+	r.roleTurnEndMu.Lock()
+	r.roleTurnEndObserver = callback
+	r.roleTurnEndMu.Unlock()
+}
+
+// publishRoleTurnEnd 通知"这一轮员工回合收口了"（未订阅 = 丢弃，不排队、不落盘）。
+func (r *Runtime) publishRoleTurnEnd(mainSessionID, roleSessionID string) {
+	if r == nil {
+		return
+	}
+	r.roleTurnEndMu.Lock()
+	observer := r.roleTurnEndObserver
+	r.roleTurnEndMu.Unlock()
+	if observer == nil {
+		return
+	}
+	observer(strings.TrimSpace(mainSessionID), strings.TrimSpace(roleSessionID))
 }
 
 // roleTurnSystemPrompt 组装员工回合的系统提示：**已登记的员工提示词优先**
