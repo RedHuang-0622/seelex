@@ -34,4 +34,5 @@
 | [`2026-10-15-agent-remote-collaboration-protocols.md`](2026-10-15-agent-remote-collaboration-protocols.md) | Agent 远程协作的通信协议与传输绑定调研：SeelexDot 的唯一定义与同名物辨析、DS-A2A v0.1「transport 无关」的实际含义、MCP/A2A/ACP/ANP/SLIM 一手对照，以及维持契约下的 L0/L1/L2 替换点与 7 项待补缺口（2026-10-15） |
 | [`codex-claude-goal-harness-2026-09.md`](codex-claude-goal-harness-2026-09.md) | Codex / Claude 的 goal：harness 层如何承载（2026-09） |
 | [`goal-context-governance-2026-09.md`](goal-context-governance-2026-09.md) | Goal 上下文治理：业界做法调研（2026-09） |
+| [`2026-10-19-deepseek-search-fetch-api.md`](2026-10-19-deepseek-search-fetch-api.md) | DeepSeek 官方 Search & Fetch API（2026-10-17 上线）：端点/字段/算子/计费/QPS/错误逐条核对，与博查现状对照，以及 web_search 内置适配器 `type: deepseek` 的落点与刻意未做的部分 |
 | [`websearch-provider-design-research-2026-08.md`](websearch-provider-design-research-2026-08.md) | websearch 通用接入设计模式调研（2026-08） |
