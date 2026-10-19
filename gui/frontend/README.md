@@ -51,7 +51,8 @@ flowchart TB
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；`acceptBaseline` 是**订阅换代基线**入口（`seelex:ready` 才走它：新订阅 `delivery_seq` 从 1 重计，已应用水位必须归零——不看会话 id 变没变）；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
-| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
+| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
+| `dist/embed-buffering.js` | 会话内 HTML 渲染块的**帧缓冲**（治闪屏）：纯决策 `shouldDeferMount`（流式 / settle 窗口内不挂）与 `planEmbedMounts(prev, next, opts)`（按 `(key, srcdoc)` 分成 adopt / mount / defer / unmount 四类）+ DOM 适配 `createEmbedFrameBuffer`（领养、离屏挂载等 `load`、流式同高占位、双缓冲开关、token 防串、并发 4 上限排队、行移除清理）。零 import、可离线单测（`embed-buffering.test.mjs`）。**不改沙箱口径**：帧属性原样克隆，唯一改动是离屏副本的 `loading`（lazy 在离屏容器里可能永不加载）。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度）。**F-1（2026-10-12）可发现性**：轨道常态即可见（基础规则默认 `opacity: .92`，不再只靠 `.conversation-shell:hover` 点亮），轨道/刻度升级为 `--r-md` + `--surface`/`--border` 的可点/可悬停刻度件（命中区仍留 34px 宽，可见要素放大），悬停出**带轮次号**的摘要浮窗（`#<round> <summary>`），当前刻度与定位高亮走与左栏 `.session-row.is-active` 同族的 `--tick-hot`/`--border-running`；几何算法（`planInputLocate`/`offsetTop` 比例）与刻度来源（仅用户输入）不变。当前输入高亮、悬停出摘要、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位，回读通道未装配时只提示不空转；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）、压缩刻度（`compactionMarks`，snapshot.task.context_compactions）与压缩分界虚线（`renderCompressionCutRow`：每个压缩点一条竖向虚线 + 「以上 … 已被压缩」，只画锚定在本页的刻度——钳到页边界的刻度位置不真实，不画假线）三条元数据轨与 `renderAxisDetail` 详情（压缩详情内按 `frame_ref` 分页读回压缩帧正文）。 |
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
@@ -89,6 +90,19 @@ flowchart TB
 | `dist/sidebar.js` | 左栏纯显示工具：重名消歧编号（渲染期派生）。标题截断已删除——会话条目改成「标题段 + ⋯ 段」后由 CSS 省略号按栏宽截断，完整标题 + 时间 + token 走共享提示气泡（数据层砍字会让同前缀会话无法区分）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
 | `dist/dock-layout.js` | 子页停靠布局纯函数：对话/轨迹与状态/工作台/资源管理器五个子页在主视图与右栏的分区、排序、激活与置换演算（`normalizeDockState`/`swapViews`），不含 DOM、存储或 Bridge 调用，由 `app.js` 消费。 |
 | `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局、前缀注入轨与压缩刻度、轴详情与转义安全。 |
+
+## 会话内 HTML 渲染块的渲染时序（帧缓冲）
+
+`seelex-html` 围栏渲染的是 `<iframe sandbox="allow-scripts" srcdoc=…>`。**帧的重建成本不是零**：新帧要重新解析 srcdoc、重排版、重算字体，重建期间那块区域是空的——流式输出时每帧都在重建，于是看起来一直在闪。所以渲染规则不是"内容变了就重建"，而是：
+
+1. **稳定帧身份**：`markdown.js` 按每条消息内的 `seelex-html` 围栏序号给帧一个 key（`<行 key>#<序号>`，没有行 key 时退回内容哈希），写进 `data-embed-key`（`html-embed.js`）。内容一直在变的流式期间，只有这个 key 是稳的。
+2. **帧领养**：`conversation-view.js` 的 reconcile 在**换行之前**把旧行里的帧按 `(key, srcdoc)` 交给 `embed-buffering.js`；srcdoc 完全一致的帧原样搬进新行，**不重新加载**（滚动位置与帧内交互因此自然保留）。
+3. **缓冲挂载**：内容真的变了时，新帧先在离屏容器 `.html-embed-mount` 里建好、赋 srcdoc、等 `load` + 一帧 rAF，再换进可视位；交换之前旧帧仍在原位，落位台 `.html-embed-stage` 用 `--embed-height` 兜住高度，所以既不塌陷也不露白。
+4. **流式延迟挂载**：会话还在跑（`chat-view.js` 传 `chat.running` → `render` 的 `streaming`）时**一帧都不新建**，只留同高占位（`data-embed-pending="1"`）；内容稳定（定稿或 `settleMs≈150ms` 无变化）后一次性挂上，连续变更只挂最后一版。
+5. **防串**：每次挂载带自增 token，`load` 回来时 token 已过期就丢弃并卸载；行被移出（换会话 / 历史窗口回退）时撤在途帧、摘监听；在途帧并发上限 4（超出排队）。
+6. **双缓冲是开关**：`createEmbedFrameBuffer({ doubleBuffer: true })` 才启用两层绝对定位重叠 + opacity 过渡（默认单缓冲）。单缓冲先替换再撤旧，双缓冲先淡入新的再撤旧的——两者都不在空白期上屏。
+
+判据（`shouldDeferMount` / `planEmbedMounts`）是纯函数，`embed-buffering.test.mjs` 用最小 DOM 假体覆盖领养 / 挂载 / 延迟 / 卸载 / token 过期 / 流式期间零挂载。**安全口径不受缓冲影响**：帧的 `sandbox`、`referrerpolicy`、srcdoc 与 CSP 一律原样搬运（克隆只复制属性，不拼文档），离屏副本唯一改动的属性是 `loading`（`lazy` 在离屏容器里可能永不触发加载，那样帧永远挂不上）。
 
 ## 视觉设计系统
 

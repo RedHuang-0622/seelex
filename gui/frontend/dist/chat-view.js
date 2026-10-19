@@ -19,7 +19,7 @@ export function createChatView(elements, conversationView) {
     const draftText = String(draft ?? "");
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory });
+    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory, streaming: Boolean(chat.running) });
     renderMessageQueueHost(chat);
   }
 

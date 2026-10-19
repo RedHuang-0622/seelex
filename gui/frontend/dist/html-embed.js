@@ -207,16 +207,41 @@ export function renderSandboxFrame(body, { title = "", className = "" } = {}) {
   return `<iframe${classAttr} sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="${escapeAttribute(title)}" srcdoc="${escapeAttribute(document)}"></iframe>`;
 }
 
-export function renderHtmlEmbed(body, info = "") {
+// renderHtmlEmbed 渲染一块沙箱视图。第三个参数只有一项：`key`——帧的**稳定身份**
+// （`<行 key>#<围栏序号>`，由 markdown.js 按每条消息内的 seelex-html 围栏序号传入）。
+// 有了它，同一帧在重渲染之间能被认回来（见 embed-buffering.js 的领养）；没有稳定 key
+// 时退回**内容哈希**：同内容同身份、内容变了身份就变——身份只在"这是不是同一帧"这个
+// 意义上使用，与安全判断无关（沙箱口径仍逐条不变：只进 srcdoc、只给 allow-scripts）。
+//
+// 帧外面套一层 `.html-embed-stage`：它是帧的**固定高度的落位台**（高度取
+// `--embed-height`），单缓冲交换与双缓冲两层重叠都发生在这一层里，因此换帧期间旧帧
+// 撤走也不会让卡片塌陷。
+export function renderHtmlEmbed(body, info = "", options = {}) {
   const { title, height, interactive } = parseEmbedInfo(info);
   const document = buildEmbedDocument(body);
+  const key = String(options?.key ?? "").trim() || `content#${embedContentHash(body)}`;
+  const keyAttr = escapeAttribute(key);
   // 说明牌如实写出这一块有没有跨帧能力：能驱动会话的块，用户在点之前就该看得见。
   const note = interactive ? "沙箱渲染 · 不联网 · 可驱动会话" : "沙箱渲染 · 不联网";
-  return `<figure class="html-embed" data-embed-interactive="${interactive ? "1" : "0"}" style="--embed-height:${height}px">
+  return `<figure class="html-embed" data-embed-key="${keyAttr}" data-embed-interactive="${interactive ? "1" : "0"}" style="--embed-height:${height}px">
   <figcaption class="html-embed-head"><span class="html-embed-mark" aria-hidden="true"></span><span class="html-embed-title">${escapeHtml(title)}</span><span class="html-embed-note">${note}</span></figcaption>
-  <iframe class="html-embed-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="${escapeAttribute(title)}" srcdoc="${escapeAttribute(document)}"></iframe>
+  <div class="html-embed-stage" data-embed-stage="1" data-embed-key="${keyAttr}">
+  <iframe class="html-embed-frame" data-embed-key="${keyAttr}" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="${escapeAttribute(title)}" srcdoc="${escapeAttribute(document)}"></iframe>
+  </div>
   <details class="html-embed-source"><summary>查看源码</summary><pre><code>${escapeHtml(body)}</code></pre></details>
 </figure>`;
+}
+
+// embedContentHash 给"没有稳定行 key"的场合一个**内容身份**（FNV-1a/32 → base36）。
+// 只用于帧身份比较，不做安全判断，也不进任何用户可见文案。
+export function embedContentHash(value) {
+  const text = String(value ?? "");
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 function attributeValue(text, name) {

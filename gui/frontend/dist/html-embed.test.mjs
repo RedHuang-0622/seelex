@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildEmbedBridgeScript,
   buildEmbedDocument,
+  embedContentHash,
   isHtmlEmbedLanguage,
   parseEmbedInfo,
   renderHtmlEmbed
@@ -113,4 +114,39 @@ test("html embed: hostile body stays inside the sandbox", () => {
   // 源码折叠块里同样是转义文本（用户可自行核对渲染内容）。
   assert.match(html, /class="html-embed-source"/);
   assert.match(html, /查看源码/);
+});
+
+// ── 帧身份与落位台（渲染缓冲的抓手，见 embed-buffering.js）──────────────
+// 闪屏的根因是 reconcile 整行重建时 iframe 跟着重建。要让帧在重渲染之间被认回来，
+// 标记里必须有两个稳定抓手：**帧身份**（data-embed-key）与**落位台**
+// （.html-embed-stage：固定 --embed-height，换帧期间不塌陷）。
+test("html embed: every frame carries a stable identity and a fixed-height stage", () => {
+  const keyed = renderHtmlEmbed("<svg></svg>", "height=300", { key: "message:m1#0" });
+  assert.match(keyed, /data-embed-key="message:m1#0"/);
+  // 图与落位台、帧三处同 key：领养时按 key 找落位台、按 key 搬帧。
+  assert.equal(keyed.match(/data-embed-key="message:m1#0"/g).length, 3);
+  assert.match(keyed, /<div class="html-embed-stage" data-embed-stage="1" data-embed-key="message:m1#0">/);
+  // 高度写在图（--embed-height）上、落位台被它撑住：帧撤走也不塌陷。
+  assert.match(keyed, /style="--embed-height:300px"/);
+  // 安全口径一字未变：仍然只有 allow-scripts，仍然没有 same-origin / forms / popups。
+  assert.match(keyed, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(keyed, /allow-same-origin|allow-forms|allow-popups|allow-top-navigation/);
+  assert.match(keyed, /referrerpolicy="no-referrer"/);
+  // CSP 随 srcdoc 一起进去（属性里是转义态）：断网这一层还在。
+  assert.match(keyed, /Content-Security-Policy/);
+  assert.match(keyed, /default-src /);
+});
+
+test("html embed: without a row key the identity falls back to the content hash", () => {
+  const first = renderHtmlEmbed("<svg><circle r=\"1\"/></svg>");
+  const same = renderHtmlEmbed("<svg><circle r=\"1\"/></svg>");
+  const changed = renderHtmlEmbed("<svg><circle r=\"2\"/></svg>");
+  const keyOf = html => html.match(/data-embed-key="([^"]+)"/)[1];
+  assert.match(keyOf(first), /^content#[a-z0-9]+$/);
+  // 同内容 = 同身份（重渲染能认回来），内容变 = 身份变（必须重新挂）。
+  assert.equal(keyOf(first), keyOf(same));
+  assert.notEqual(keyOf(first), keyOf(changed));
+  assert.equal(embedContentHash("<svg/>"), embedContentHash("<svg/>"));
+  // 身份只用于比较，不进 srcdoc：文档内容与没有身份时逐字相同。
+  assert.equal(buildEmbedDocument("<svg/>"), buildEmbedDocument("<svg/>"));
 });

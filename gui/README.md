@@ -326,6 +326,12 @@ flush 完成才标记 idle），到点仍未收敛才按最佳努力退出。
 - pprof 采样：`-tags pprof`，Go 侧启动 `127.0.0.1:6060`（`SEELEX_PPROF_ADDR` 可覆盖）的 `/debug/pprof/*` 端口。用于排除法对照——GUI 内存大头在 WebView2 渲染进程，Go 侧 pprof 只能确认主进程小，救不了渲染进程。
 - 前端文件编译时嵌入，修改 `frontend/dist` 后必须重建二进制。
 
+## 会话内 HTML 渲染块的沙箱与帧缓冲（2026-10-19）
+
+会话里的 `seelex-html` 围栏渲染成 `<iframe sandbox="allow-scripts" srcdoc=…>`：正文只进 srcdoc、**不给 `allow-same-origin`**、CSP 随文档内嵌（`default-src 'none'`，断网）、不给 forms/popups/top-navigation，跨帧出口只有 `postMessage` 一条（白名单与限流见 `gui/frontend/dist/embed-bridge.js`）。这些口径由 `gui/frontend/dist/html-embed.js` 一处生成，缓冲层不做任何改写。
+
+渲染侧的闪屏根因在后端之外：`conversation-view.js` 原来只要行的 html 字符串变了就整行替换，行内 iframe 必然重建，新帧加载完成前是空白，而流式输出每帧都变。修法在 `gui/frontend/dist/embed-buffering.js`（渲染时序与判据见 `gui/frontend/README.md`「会话内 HTML 渲染块的渲染时序」）：帧有稳定身份（`data-embed-key`）、换行前被领养、内容变了才离屏重挂、流式期间零挂载、单/双缓冲可切。**Go 侧无改动**：Bridge 不下发也不感知渲染缓冲，工具/会话数据面一条都没变。
+
 ## 渲染内存治理（根因链）
 
 WebView2（Chromium）渲染进程吃内存的根因是：每条工具输出的全文都进可见会话快照并被 `markdown()` 渲染进 DOM。治理分三层（对应 `config/seelex.yaml` limits 段与前端渲染）：

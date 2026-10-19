@@ -1,4 +1,5 @@
 import { createConversationWheel } from "./conversation-wheel.js";
+import { createEmbedFrameBuffer } from "./embed-buffering.js";
 import { markEntering } from "./motion.js";
 
 const BOTTOM_THRESHOLD = 72;
@@ -30,6 +31,15 @@ export function createConversationView(container, options = {}) {
   // invoke("SessionInputIndex", sessionID) 拉回后写入（inputIndex(...)）；
   // 点击到尚未加载的早期输入时，轮轴经 locateInput 让宿主先回读那一页。
   const wheel = createConversationWheel(container, { locateInput: options.locateInput });
+
+  // 沙箱渲染块的帧缓冲（embed-buffering.js）。这里只做接线：换行前 adopt、换行后
+  // attach、行被移出时 release。**缓冲算法一概不写进 reconcile** —— 闪屏的根因是
+  // "行 html 一变就整行重建、iframe 跟着重建"，判据（领养/挂载/延迟/卸载）在
+  // embed-buffering.js 里是纯函数，可离线单测。
+  const embedBuffer = options.embedBuffer || createEmbedFrameBuffer({
+    mountRoot: options.embedMountRoot || null,
+    doubleBuffer: options.doubleBuffer === true
+  });
 
   // loadOlder 翻更早的一页。
   //
@@ -75,7 +85,10 @@ export function createConversationView(container, options = {}) {
       const anchor = captureScrollAnchor(container);
       payloads = model.payloads;
       canLoadMore = Boolean(options.hasMoreHistory);
-      reconcile(container, model.items, htmlByKey, payloads);
+      // 流式标记：会话还在跑的时候一帧都不许新建（见 embed-buffering.js 的
+      // shouldDeferMount）。chat-view.js 传的是 chat.running。
+      embedBuffer.setStreaming(Boolean(options.streaming));
+      reconcile(container, model.items, htmlByKey, payloads, { streaming: Boolean(options.streaming), embedBuffer });
       restoreScroll(container, before, options.scrollMode || "auto", anchor);
       // 几何来自 DOM：加载更早历史/增量新消息/换行后线表自动重建。
       wheel.refresh();
@@ -167,7 +180,9 @@ async function handleAction(event, getPayloads, options) {
   }
 }
 
-function reconcile(container, items, htmlByKey, payloads) {
+function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
+  const embedBuffer = buffers.embedBuffer;
+  const streaming = Boolean(buffers.streaming);
   const existing = new Map([...container.children]
     .filter(node => node.dataset.conversationKey)
     .map(node => [node.dataset.conversationKey, node]));
@@ -177,11 +192,15 @@ function reconcile(container, items, htmlByKey, payloads) {
   for (const item of items) {
     desired.add(item.key);
     let node = existing.get(item.key);
+    let fresh = false;
     if (!node || htmlByKey.get(item.key) !== item.html) {
       const replacement = elementFromHTML(item.html);
       if (node) {
         const wasCursor = node === cursor;
         const uiState = captureUIState(node);
+        // 换行**之前**：让缓冲区把旧行里内容没变的沙箱帧领养进新行（srcdoc 一致就
+        // 原样搬过去，不重新加载），内容变了的帧继续占着可视位等新帧 load 完。
+        embedBuffer?.adopt(node, replacement, { streaming });
         node.replaceWith(replacement);
         restoreUIState(replacement, uiState, payloads);
         if (wasCursor) cursor = replacement;
@@ -189,16 +208,22 @@ function reconcile(container, items, htmlByKey, payloads) {
         // 新出现的条目（新消息 / 一次新的工具过程）入场一次：keyed reconcile
         // 只在**首次插入**时挂类，后续流式替换不重播（否则工具面板会一直闪）。
         markEntering(replacement, "is-entering-row");
+        embedBuffer?.adopt(null, replacement, { streaming });
       }
       node = replacement;
+      fresh = true;
       htmlByKey.set(item.key, item.html);
     }
     if (node !== cursor) container.insertBefore(node, cursor);
+    // 换行**之后**（行进文档）才发起离屏挂载：流式期间只留同高占位。
+    if (fresh) embedBuffer?.attach(node, { streaming });
     cursor = node.nextElementSibling;
   }
   while (cursor) {
     const next = cursor.nextElementSibling;
     htmlByKey.delete(cursor.dataset.conversationKey);
+    // 行被移出对话流：撤在途挂载、摘监听、清 pending 帧（不留在离屏容器里）。
+    embedBuffer?.release(cursor);
     cursor.remove();
     cursor = next;
   }

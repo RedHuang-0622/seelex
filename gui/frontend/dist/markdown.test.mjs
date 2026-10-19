@@ -32,6 +32,36 @@ test("keeps plain html fences as source blocks", () => {
   assert.doesNotMatch(html, /<iframe/);
 });
 
+// 帧身份 `<行 key>#<围栏序号>`：同一条消息里第 n 个 seelex-html 围栏每次都拿到同一个
+// key（流式期间内容一直在变，只有序号是稳的），帧才能被 reconcile 认回来复用。
+test("html embed fence identity is row key + per-message fence index", () => {
+  const source = [
+    "```seelex-html",
+    "<svg id=\"a\"></svg>",
+    "```",
+    "",
+    "中间一段文字",
+    "",
+    "```seelex-html",
+    "<svg id=\"b\"></svg>",
+    "```"
+  ].join("\n");
+  const keysOf = html => [...html.matchAll(/data-embed-key="([^"]+)"/g)].map(match => match[1]);
+  const withRow = keysOf(renderMarkdown(source, { rowKey: "message:m1" }));
+  // 每条帧三处标记（图 / 落位台 / iframe），两帧 → 六个同身份引用
+  assert.deepEqual([...new Set(withRow)], ["message:m1#0", "message:m1#1"]);
+  assert.equal(withRow.length, 6);
+  // 序号按消息内围栏顺序，不随内容变化：内容改了，身份仍是 #0（复用同一帧）
+  const changed = keysOf(renderMarkdown(source.replace("id=\"a\"", "id=\"a2\""), { rowKey: "message:m1" }));
+  assert.deepEqual([...new Set(changed)], ["message:m1#0", "message:m1#1"]);
+  // 没有行 key（预览 / 单测）：退回内容哈希，不硬塞一个共享 key
+  const standalone = keysOf(renderMarkdown(source));
+  assert.equal(standalone.length, 6);
+  assert.match(standalone[0], /^content#[a-z0-9]+$/);
+  // 一次渲染里的计数器不跨调用泄漏：第二次渲染仍从 #0 开始
+  assert.deepEqual([...new Set(keysOf(renderMarkdown("```seelex-html\n<svg/>\n```", { rowKey: "message:m1" })))], ["message:m1#0"]);
+});
+
 test("renders common block and inline markdown", () => {
   const html = renderMarkdown(`# Title
 

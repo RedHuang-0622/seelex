@@ -71,7 +71,7 @@ test("插入只有一份：所有入口都经 applyFileReference", async () => {
 test("同一枚 chip 的两种宿主：草稿条 + 对话正文（后者只对 user 消息开启）", async () => {
   const [app, components] = await Promise.all([read("app.js"), read("components.js")]);
   assert.match(app, /fileReferenceStripHTML\(elements\.prompt\.value, \{ host: "composer" \}\)/, "草稿宿主");
-  assert.match(components, /role === "user" \? markdown\(content, \{ fileRefs: true \}\)/, "正文宿主只认用户消息");
+  assert.match(components, /role === "user"\s*\?\s*markdown\(content, \{ \.\.\.options, fileRefs: true \}\)/, "正文宿主只认用户消息");
   assert.match(app, /\.message-body \[data-file-ref\]/, "正文 chip 点击开右栏详情");
   // 正文 chip 只是渲染层识别：引用进正文靠的就是 Submit 的正文文本（签名不变）。
   assert.doesNotMatch(app, /fileReferenceStripHTML\([^)]*host: "message"/, "正文宿主由 markdown 渲染，不在 app.js 里另造一套");

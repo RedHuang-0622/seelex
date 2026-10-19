@@ -465,9 +465,13 @@ export function wheelSnippet(text = "", limit = 32) {
 // 渲染成 chip（file-reference.js 的同一枚 chip，正文宿主），其余角色保持原样。
 // chip 只是渲染层的识别：正文文本一个字都不改，roll/wheel/agent 看到的仍是完整路径
 // （用户附的文件因此能在正文里被看见，agent 据此自己 read_file/grep）。
-function renderMessageBody(message, role) {
+//
+// `key` 是这一行的对话 key：随正文一起传给 markdown，让沙箱渲染块拿到稳定身份
+// `<行 key>#<围栏序号>`（见 markdown.js 的 nextEmbedKey 与 embed-buffering.js）。
+function renderMessageBody(message, role, key = "") {
   const content = message.content || "";
-  return role === "user" ? markdown(content, { fileRefs: true }) : markdown(content);
+  const options = { rowKey: String(key || "") };
+  return role === "user" ? markdown(content, { ...options, fileRefs: true }) : markdown(content, options);
 }
 
 function renderMessage(message, key, above = false, below = false) {
@@ -495,7 +499,7 @@ function renderMessage(message, key, above = false, below = false) {
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${routeMeta}
     ${thinking}
-    <div class="message-body">${renderMessageBody(message, role)}</div>
+    <div class="message-body">${renderMessageBody(message, role, key)}</div>
   </article>`;
 }
 

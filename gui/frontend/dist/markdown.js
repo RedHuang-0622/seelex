@@ -12,7 +12,13 @@ const REASONING_CLOSE = /<\/think>/i;
 // 哪个文件"的表述，渲染层识别它，正文文本一个字都不改。
 export function renderMarkdown(value = "", options = {}) {
   const source = String(value).replace(/\r\n?/g, "\n");
-  return source ? renderBlocks(source.split("\n"), options) : "";
+  if (!source) return "";
+  // 渲染块序号只在**一次 renderMarkdown 内**计数：沙箱帧的身份是
+  // `<行 key>#<序号>`（html-embed.js 的 data-embed-key）。同一条消息里第 n 个
+  // seelex-html 围栏每次重渲染都拿到同一个 key，帧才能被 reconcile 认回来并复用；
+  // 序号按消息算而不是按围栏内容算——流式期间围栏内容每帧都在变，内容算不出稳定身份。
+  const context = { ...options, embed: { rowKey: String(options.rowKey ?? ""), index: 0 } };
+  return renderBlocks(source.split("\n"), context);
 }
 
 function renderBlocks(lines, options) {
@@ -93,7 +99,7 @@ function renderFence(lines, index, options) {
   // 显式标记的块走沙箱 iframe 渲染（见 html-embed.js 的安全边界）；
   // 普通 ```html 仍是源码块，避免既有会话里的代码片段被突然执行。
   if (isHtmlEmbedLanguage(language)) {
-    return { html: renderHtmlEmbed(body.join("\n"), opening[3] || ""), next: cursor };
+    return { html: renderHtmlEmbed(body.join("\n"), opening[3] || "", { key: nextEmbedKey(options) }), next: cursor };
   }
   // mermaid 围栏 → 图表容器（源码块 + 空画布；渲染由 mermaid-diagram.js 接管，
   // 失败/未就绪退回源码块，见 mermaidBlockHTML）。
@@ -102,6 +108,18 @@ function renderFence(lines, index, options) {
   }
   const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
   return { html: `<pre><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };
+}
+
+// nextEmbedKey 给本次渲染里的第 n 个 seelex-html 围栏一个稳定身份 `<行 key>#<n>`。
+// 没有行 key（独立的 markdown 渲染：测试、预览）时返回空串，让 html-embed.js 退回
+// 内容哈希——宁可身份弱一点，也不要把"没有行"的帧硬绑到同一个 key 上。
+function nextEmbedKey(options) {
+  const state = options && (options.embed || (options.embed = { rowKey: "", index: 0 }));
+  if (!state) return "";
+  const index = Number(state.index) || 0;
+  state.index = index + 1;
+  const rowKey = String(state.rowKey ?? "").trim();
+  return rowKey ? `${rowKey}#${index}` : "";
 }
 
 function renderReasoning(lines, index, options) {

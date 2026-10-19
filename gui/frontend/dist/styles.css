@@ -3693,6 +3693,52 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   border: 0;
   background: transparent;
 }
+/* 帧落位台：高度由 stage 兜住（--embed-height），帧在它里面绝对定位叠放。
+   换帧时旧帧先撤、新帧后到，中间的占位高度仍然是原高度 —— 卡片不塌陷、不抖。 */
+.html-embed-stage {
+  position: relative;
+  height: var(--embed-height, 260px);
+  overflow: hidden;
+  background: transparent;
+}
+.html-embed-stage > .html-embed-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* 双缓冲（默认关，见 embed-buffering.js 的 createEmbedFrameBuffer({doubleBuffer:true})）：
+   新帧先以 opacity:0 叠在旧帧之上，load 完标 data-embed-live 再淡入，过渡结束旧帧才撤。 */
+.html-embed-stage > .html-embed-frame[data-embed-layer="new"] {
+  opacity: 0;
+  transition: opacity 180ms ease;
+  z-index: 2;
+}
+.html-embed-stage > .html-embed-frame[data-embed-layer="new"][data-embed-live="1"] { opacity: 1; }
+/* 流式/待挂载：帧还没准备好，先留同高占位（data-embed-pending="1"），不露白、不塌陷。 */
+.html-embed[data-embed-pending="1"] .html-embed-stage::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  opacity: .55;
+  pointer-events: none;
+}
+/* 离屏挂载容器：新帧在这里 srcdoc + load，等它自己 load 完（+ 一帧 rAF）才交换进可视位。
+   移出屏幕而不是 display:none —— 不参与布局的帧拿不到可靠的 load 时机与尺寸。 */
+.html-embed-mount {
+  position: fixed;
+  left: -20000px;
+  top: 0;
+  width: 900px;
+  height: 600px;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  contain: strict;
+  z-index: -1;
+}
 .html-embed-source { border-top: 1px solid var(--border); }
 .html-embed-source > summary {
   padding: 5px 10px;
