@@ -19,11 +19,24 @@ type ToolRegistrar interface {
 	RegisterTool(name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error))
 }
 
+// Options 是 web_search 装配的可选项（零值 = 只用配置文件里写的东西）。
+type Options struct {
+	// APIKeyFallback 在策略**显式没配密钥**时按厂商名取一把兜底密钥。
+	// 组合根用它把"同一把 DeepSeek key"接给搜索侧（见 search.ApplyKeyFallback）。
+	APIKeyFallback search.KeyFallback
+}
+
 // Register 是 web_search 的装配点（Assembler）：配置从独立的
 // config/search_engine.yaml 的根级字段加载，由 search.Assemble 装配为代理策略后注册工具；
 // 没有可用策略时注册占位工具并给出修复指引。
 func Register(registrar ToolRegistrar, configPath string) {
+	RegisterWithOptions(registrar, configPath, Options{})
+}
+
+// RegisterWithOptions 是带可选兜底密钥的装配点（行为与 Register 完全一致）。
+func RegisterWithOptions(registrar ToolRegistrar, configPath string, opts Options) {
 	cfg := search.Load(configPath)
+	cfg = search.ApplyKeyFallback(cfg, opts.APIKeyFallback)
 	strategy, err := search.Assemble(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠ Web 搜索未装配可用代理策略 (%s)：%v\n", configPath, err)

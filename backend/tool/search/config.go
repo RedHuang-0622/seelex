@@ -45,6 +45,10 @@ type StrategyConfig struct {
 	Endpoint    string `yaml:"endpoint"`
 	APIKey      string `yaml:"api_key"`
 	APIKeyAlias string `yaml:"apikey"`
+	// APIKeyEnv 是密钥的**环境变量名**（可选）：api_key 为空时按它读取。
+	// 有了它，search_engine.yaml 可以进版本库而不带任何密钥（DeepSeek Search
+	// 与模型共用同一把 key，写一次环境变量即可）。
+	APIKeyEnv string `yaml:"api_key_env"`
 }
 
 // DefaultConfig 返回 websearch 的默认配置：引擎无关（Provider 为空，
@@ -106,6 +110,10 @@ func mergeConfig(dst *WebSearchConfig, src WebSearchConfig) {
 	for i := range src.Strategies {
 		if src.Strategies[i].APIKey == "" {
 			src.Strategies[i].APIKey = src.Strategies[i].APIKeyAlias
+		}
+		// 密钥三级落点：api_key / apikey 别名 / api_key_env 指向的环境变量。
+		if src.Strategies[i].APIKey == "" && src.Strategies[i].APIKeyEnv != "" {
+			src.Strategies[i].APIKey = os.Getenv(src.Strategies[i].APIKeyEnv)
 		}
 	}
 	dst.Strategies = src.Strategies

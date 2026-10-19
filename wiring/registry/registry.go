@@ -328,7 +328,15 @@ func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Servi
 
 func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
 	RegisterTimeTool(runtime)
-	websearch.Register(runtime, config.EnsureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()))
+	websearch.RegisterWithOptions(runtime, config.EnsureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()), websearch.Options{
+		// DeepSeek Search 与模型 API 共用一把 key：搜索配置没写 key 时取账号池里那把。
+		APIKeyFallback: func(vendor string) string {
+			if vendor == "deepseek" {
+				return config.DeepSeekSearchKey()
+			}
+			return ""
+		},
+	})
 	RegisterMCPServers(runtime, config.EnsureConfigFile(bootseed.MCPConfigName, bootseed.MCPConfigPack())) // mcpstack/config 加载 + Runtime 冷启动登记
 	RegisterMCPLoadTool(runtime)
 	RegisterPluginSwitchTools(runtime, plugins, eng)

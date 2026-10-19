@@ -4,7 +4,7 @@
 
 `backend/tool/search` 是 web_search 的**代理策略域**：提供引擎无关的统一
 `Strategy` 接口、策略装配器（`Assemble`）、标准 websearch 协议策略与
-**内置厂商适配器**（tavily / bochaai / searxng…）。主要调用方是
+**内置厂商适配器**（tavily / bochaai / searxng / deepseek…）。主要调用方是
 `backend/tool/websearch`（工具侧装配点）与 `application` 门面（兼容
 转发）；它不直接对接 GUI/前端，也不管理账号池生命周期。
 
@@ -76,6 +76,8 @@ flowchart TB
 | `builtin_tavily.go` | 内置 tavily 适配器（原生即标准协议，复用 standardStrategy） |
 | `builtin_bocha.go` | 内置博查（BochaAI）适配器：专有 body / 响应归一化 |
 | `builtin_searxng.go` | 内置 SearXNG 适配器：GET `format=json` / 响应归一化 |
+| `builtin_deepseek.go` | 内置 DeepSeek 官方 Search API 适配器：`POST /v1/tools/search` 专有 body / 响应归一化（长摘要做 Content、不取正文） |
+| `keyfallback.go` | `KeyFallback` 与 `ApplyKeyFallback`：密钥三级落点里的"厂商兜底"一级，只补空不覆盖 |
 | `format.go` | 规范结果 → Markdown 输出 |
 | `*_test.go` | 装配、配置、标准策略、内置厂商与格式化测试 |
 
@@ -130,6 +132,9 @@ strategies:
   - name: sx               # type: searxng → SearXNG JSON API（GET format=json）
     type: searxng
     endpoint: https://searx.example.org/search   # 必填；api_key 可选
+  - name: ds               # type: deepseek → DeepSeek 官方 Search API
+    type: deepseek
+    api_key_env: DEEPSEEK_API_KEY                # 或直接写 api_key
   # 省略 type（或 standard）→ 标准 Tavily 兼容协议（POST JSON + Bearer）
   - name: gateway
     endpoint: https://your-gateway.example/search
@@ -138,7 +143,27 @@ strategies:
 ```
 
 当前内置厂商：`tavily`（原生即标准协议，复用 standardStrategy）、`bochaai`、
-`searxng`。端点可经 `endpoint` 覆盖；新增厂商见「扩展方式」。
+`searxng`、`deepseek`（官方自建搜索引擎的 Search API）。端点可经 `endpoint`
+覆盖；新增厂商见「扩展方式」。
+
+#### DeepSeek 官方 Search API（`type: deepseek`）
+
+2026-10-17 上线（与 Fetch 同批）。事实口径见
+[docs/research/2026-10-19-deepseek-search-fetch-api.md](../../../docs/research/2026-10-19-deepseek-search-fetch-api.md)；
+适配器只做协议归一，**不新增配置旋钮**：
+
+| 项 | 取值 | 理由 |
+|---|---|---|
+| 端点 | `https://api.deepseek.com/v1/tools/search`（可用 `endpoint` 覆盖） | 官方端点，Bearer 鉴权，与模型 API 同一把 key |
+| `count` | `limitResults(...)` 后再钳到 1..50 | 协议上限 50；`count` 不影响按次计费 |
+| `need_content` | 恒 `false` | 正文归 Fetch API；`summary`（600~800 字）已够模型读，取正文只会把载荷放大几十倍 |
+| `SearchItem.Content` | `summary` → 兜底 `snippet`（100~200 字） | 长摘要优先，UI 摘要兜底 |
+| `SearchItem.Score` | `rerank_score`（0~3；≥1.5 为高质量） | 供应商自带的排序信号，原样透传 |
+| `SearchResponse.Answer` | `include_answer` 为真时取 **Top-1 的 summary** | DeepSeek 不返回跨结果综合答案；不编造拼接式答案 |
+| 空结果 | 返回 0 条 + nil error | 未命中就是未命中，且官方不计费 |
+| 非 200 | 返回错误，文案取 OpenAI 兼容 `error.message`(code) | 400/401/402 不可重试；408/429/5xx 可等等再试（本层不自动重试，与其它厂商同口径） |
+
+`provider: deepseek` + `api_key` 的旧式简写同样可用（`legacyStrategy` 走内置注册表）。
 
 ### 配置加载
 
@@ -147,8 +172,13 @@ include_answer=true、search_depth=advanced）；文件缺失或解析失败返�
 配置读的是**根级字段**——不再是账号档里的 `websearch:` 段（2026-10 拆分，见
 config/README.md 的配置链说明）；路径由 composition root 经 bootseed 责任链
 解析后传入，本包不参与路径决策。
-策略密钥同时接受 `api_key` 与 `apikey` 两种写法；`include_answer` 仅在显式
-配置时覆盖。
+策略密钥三级落点（只在一处定义，`ApplyKeyFallback`）：`api_key`（含 `apikey`
+别名，显式优先）→ `api_key_env` 指向的环境变量 → **厂商兜底回调**。第三级由
+组合根注入（`wiring/registry`）：`deepseek` 取账号池里同一把 DeepSeek key
+（`wiring/config.DeepSeekSearchKey()`），因为 DeepSeek Search 与模型 API 共用一把
+key，搜索配置不必再抄一份。标准协议策略（`type` 空 / `standard`，自建网关）没有
+"厂商"可言，不参与兜底。三级都空才报「密钥未配置」。
+`include_answer` 仅在显式配置时覆盖。
 
 ## 数据流或生命周期
 
