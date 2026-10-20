@@ -21,6 +21,7 @@ type fakeStore struct {
 	createdName   string
 	createdRoot   string
 	createdRemote string
+	createdRoots  []string
 	bound         [][2]string
 	unbound       []string
 	detectCalls   int
@@ -40,6 +41,7 @@ func newFakeStore(infos ...model.WorkspaceInfo) *fakeStore {
 
 func (store *fakeStore) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error) {
 	store.createdName, store.createdRoot, store.createdRemote = name, rootPath, gitRemote
+	store.createdRoots = append(store.createdRoots, rootPath)
 	if store.createErr != nil {
 		return model.WorkspaceInfo{}, store.createErr
 	}
@@ -410,6 +412,60 @@ func TestCreateWorkspaceKeepsExplicitRemote(t *testing.T) {
 	}
 	if h.store.detectCalls != 0 || h.store.createdRemote != "explicit" {
 		t.Fatalf("detect calls=%d remote=%q", h.store.detectCalls, h.store.createdRemote)
+	}
+}
+
+func TestCreateWorkspacesCreatesAllWithoutBinding(t *testing.T) {
+	h := newHarness(ViewState{SessionID: "s1", Draft: true}, newFakeStore())
+	h.store.detected = "git@example.com:team/project.git"
+
+	result, err := h.usecase.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+		{Name: "alpha", RootPath: "/src/alpha"},
+		{Name: "beta", RootPath: "/src/beta", GitRemote: "explicit.git"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspaces: %v", err)
+	}
+	if len(result.Workspaces) != 2 {
+		t.Fatalf("created %d workspaces, want 2", len(result.Workspaces))
+	}
+	if len(h.store.createdRoots) != 2 || h.store.createdRoots[0] != "/src/alpha" || h.store.createdRoots[1] != "/src/beta" {
+		t.Fatalf("store create roots = %#v", h.store.createdRoots)
+	}
+	if len(h.store.bound) != 0 || len(h.view.binds) != 0 || len(h.view.drafts) != 0 || h.view.locked != 0 {
+		t.Fatal("batch creation must not bind a project to the current view")
+	}
+}
+
+func TestCreateWorkspacesRejectsDuplicateRootsBeforeCreating(t *testing.T) {
+	h := newHarness(ViewState{SessionID: "s1"}, newFakeStore())
+
+	_, err := h.usecase.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+		{Name: "alpha", RootPath: "/src/alpha"},
+		{Name: "alpha-copy", RootPath: "/src/alpha/"},
+	})
+	if err == nil {
+		t.Fatal("CreateWorkspaces accepted duplicate roots")
+	}
+	if len(h.store.createdRoots) != 0 {
+		t.Fatalf("duplicate batch must validate before writing, created %#v", h.store.createdRoots)
+	}
+}
+
+func TestCreateWorkspacesRejectsExistingRootBeforeCreating(t *testing.T) {
+	h := newHarness(ViewState{SessionID: "s1"}, newFakeStore(model.WorkspaceInfo{
+		ID: "existing", Name: "existing", RootPath: "/src/alpha",
+	}))
+
+	_, err := h.usecase.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+		{Name: "beta", RootPath: "/src/beta"},
+		{Name: "alpha-again", RootPath: "/src/alpha/"},
+	})
+	if err == nil {
+		t.Fatal("CreateWorkspaces accepted an already registered root")
+	}
+	if len(h.store.createdRoots) != 0 {
+		t.Fatalf("batch must reject existing roots before writing, created %#v", h.store.createdRoots)
 	}
 }
 

@@ -17,15 +17,16 @@
 **做**：
 
 1. `CreateWorkspace`：校验名称/根路径，空 `gitRemote` 时探测 origin，创建后立即绑定；
-2. `BindWorkspace`：按当前视图事实走两条真值表——
+2. `CreateWorkspaces`：一次校验多个项目草稿（先拒绝空名称、空根路径和重复根路径），再批量登记；**不绑定当前视图**，供 GUI temp list 创建后再由用户选择项目；
+3. `BindWorkspace`：按当前视图事实走两条真值表——
    - **草稿**：只绑视图/草稿槽位（不提前写 `BindSession`，物化首次提交才落绑定）；
    - **普通会话**：换项目且已有历史时先保存旧会话，再另起独立会话（显式 ID 或
      引擎自分配 ID），挂接 context store、绑存储与运行时、重投影工作表格；
    同一项目或空历史保持当前会话；
-3. `UnbindWorkspace`：解绑当前会话/草稿、清全局项目根与写作用域、清待审阅请求；
-4. 当前工作区读面：树、文件数、Git 提交/改动/提交详情、文件内容、提交内文件内容、
+4. `UnbindWorkspace`：解绑当前会话/草稿、清全局项目根与写作用域、清待审阅请求；
+5. 当前工作区读面：树、文件数、Git 提交/改动/提交详情、文件内容、提交内文件内容、
    面板保存；root 只来自宿主视图，客户端只能传相对路径；
-5. `Projection`：在视图锁外收集工作区清单与会话绑定，供应用视图与其它用例复用。
+6. `Projection`：在视图锁外收集工作区清单与会话绑定，供应用视图与其它用例复用。
 
 **不做**：
 
@@ -71,6 +72,11 @@
 CreateWorkspace(name, root, remote)
   → 校验 → (remote 为空) Store.DetectGitRemote → Store.Create
   → bindInfo
+
+CreateWorkspaces([{name, root, remote}, ...])
+  → 整体校验（空值 / 重复根路径）
+  → 逐项 Store.Create
+  → 返回创建结果（不绑定、不切会话、不发布 snapshot）
 
 BindWorkspace(id)
   → Store.Get → bindInfo
@@ -167,6 +173,7 @@ go test ./middle/switch/... ./store/workspace/ -count=1
 - `type UseCase struct` — 工作区用例的唯一编排点（无状态）。
 - `func New(deps Deps) *UseCase` — 装配工作区用例。
 - `func (usecase *UseCase) CreateWorkspace(name, rootPath, gitRemote string) error` — 建工作区（空 remote 探测 origin）并立即绑定。
+- `func (usecase *UseCase) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — 批量登记项目且不绑定当前视图。
 - `func (usecase *UseCase) BindWorkspace(workspaceID string) error` — 把已存在的工作区绑定到当前视图会话/草稿。
 - `func (usecase *UseCase) UnbindWorkspace()` — 解绑当前视图会话/草稿的工作区。
 - `func (usecase *UseCase) Projection() Projection` — 在视图锁外收集工作区清单与会话绑定。

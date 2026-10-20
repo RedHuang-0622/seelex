@@ -187,8 +187,8 @@ test("theme: 选中态高亮只由皮肤派生（无黑块 / 无圆角配黑下�
     }
   }
 
-  // 5) 本轮的几何口径：中栏纸 8px 圆角（子节点由既有 overflow 裁圆）、页签条跟纸同色。
-  assert.match(css, /\.workspace\s*\{\s*border-radius:\s*var\(--r-md\)/, "内容纸必须是 --r-md 圆角");
+  // 5) 本轮的几何口径：三栏齐边贴合，中栏不再用外圆角；页签条仍跟纸同色。
+  assert.match(css, /\.workspace\s*\{\s*border-radius:\s*0/, "内容纸必须取消外圆角");
   assert.match(css, /\.conversation-tabs\s*\{\s*background:\s*transparent/, "页签条必须跟纸同色");
 
   // 6) 过圆角不回潮：全文件胶囊计数是收敛指标（OPTIMIZATION-PLAN P1-1 记 32）。

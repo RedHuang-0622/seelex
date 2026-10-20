@@ -22,7 +22,7 @@ import { permissionTierCatalog, permissionTierChip, permissionTierChipForRuntime
 import {
   planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
 } from "./plan-dsl.js";
-import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
+import { createWorkbenchSummaryView } from "./workbench-summary.js";
 import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
 import { buildRepoTabs, renderRepoTabs, resolveSelectedRepo } from "./git-repos.js";
@@ -112,7 +112,8 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "left-nav", "toggle-left-nav", "left-page-tasks", "left-page-scheduled", "left-page-plugins", "left-page-skills",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
@@ -129,7 +130,7 @@ const elements = Object.fromEntries([
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
-  "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
+  "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2", "new-project-drafts", "new-project-create",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast", "ui-tooltip",
@@ -138,6 +139,58 @@ const elements = Object.fromEntries([
   "terminal-panel", "terminal-body", "terminal-tabs", "terminal-resize", "terminal-collapse",
   "terminal-new", "terminal-close", "terminal-hide", "terminal-button"
 ].map(id => [id, document.getElementById(id)]));
+
+// ── 左侧主导航 ───────────────────────────────────────────────
+// 任务 / 定时任务 / 插件装配 / Skill 管理是同一棵左栏里的四个页面。
+// 页面切换与导航收缩只属于视图，不写快照；只有选择项目、插件或 Skill 时才进入业务命令。
+const LEFT_PAGE_IDS = { tasks: "left-page-tasks", scheduled: "left-page-scheduled", plugins: "left-page-plugins", skills: "left-page-skills" };
+const LEFT_PAGE_STORAGE_KEY = "seelex.left-page";
+const LEFT_NAV_COLLAPSED_KEY = "seelex.left-nav.collapsed";
+
+function normalizeLeftPage(page) {
+  const value = String(page || "");
+  return Object.hasOwn(LEFT_PAGE_IDS, value) ? value : "tasks";
+}
+
+function showLeftPage(page, persist = true) {
+  const active = normalizeLeftPage(page);
+  for (const [key, id] of Object.entries(LEFT_PAGE_IDS)) {
+    const panel = elements[id];
+    panel?.classList.toggle("hidden", key !== active);
+  }
+  for (const button of elements["left-nav"]?.querySelectorAll?.("[data-left-page]") || []) {
+    const selected = button.dataset.leftPage === active;
+    button.classList.toggle("is-active", selected);
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  document.documentElement.dataset.leftPage = active;
+  if (persist) storageSet(LEFT_PAGE_STORAGE_KEY, active);
+}
+
+function setLeftNavCollapsed(collapsed, persist = true) {
+  const next = Boolean(collapsed);
+  document.documentElement.dataset.leftNavCollapsed = next ? "true" : "false";
+  elements["toggle-left-nav"]?.setAttribute("aria-expanded", String(!next));
+  const toggle = elements["toggle-left-nav"];
+  if (toggle) {
+    const name = next ? "chevron-down" : "chevron-up";
+    toggle.dataset.icon = name;
+    toggle.innerHTML = icon(name, 14);
+  }
+  if (persist) storageSet(LEFT_NAV_COLLAPSED_KEY, next ? "1" : "0");
+}
+
+elements["left-nav"]?.addEventListener("click", event => {
+  const button = event.target?.closest?.("[data-left-page]");
+  if (button?.dataset.leftPage) showLeftPage(button.dataset.leftPage);
+});
+elements["toggle-left-nav"]?.addEventListener("click", event => {
+  event.stopPropagation();
+  setLeftNavCollapsed(document.documentElement.dataset.leftNavCollapsed !== "true");
+});
+setLeftNavCollapsed(storageGet(LEFT_NAV_COLLAPSED_KEY) === "1", false);
+showLeftPage(storageGet(LEFT_PAGE_STORAGE_KEY) || "tasks", false);
 
 // ── 子页停靠布局（主视图 / 右栏）────────────────────────────
 // 五个子页（conversation/trajectory/status/workbench/code）按 dockState
@@ -487,10 +540,17 @@ function reportAppliedEvents(seq) {
     invoke("AckEvents", ackPendingSeq).catch(() => {});
   }, 150);
 }
-const workTableView = createWorkTableView(elements["work-table-modal-view"], {
-  // 会话筛选轴（「仅本会话」）按**当前视图会话**取值：表格是跨会话台账，
-  // 会话切换后 render 会重跑，用函数取值避免取到创建视图时的旧会话。
-  viewSessionID: () => client.current()?.session?.id || ""
+const workbenchSummaryView = createWorkbenchSummaryView(elements["workbench-summary-view"], {
+  viewSessionID: () => client.current()?.session?.id || "",
+  onStatus: async (id, status) => {
+    try {
+      await invoke("UpdateWorkItemStatus", id, status);
+      await refresh({ scroll: false });
+    } catch (error) {
+      showToast(error);
+    }
+  },
+  onDetail: id => openNodeDetail(id)
 });
 const workTreeView = createWorkTreeView(elements["worktree-view"], {
   loadDir: async relPath => invoke("WorkspaceTree", relPath, 1),
@@ -558,10 +618,6 @@ elements["file-preview-hide-panes"].addEventListener("click", togglePanesHidden)
 // 「收起详情，让出内容页」：抽屉收成竖轨（内容页独占），竖轨本身是展开入口。
 elements["file-preview-collapse"].addEventListener("click", togglePreviewCollapsed);
 elements["file-preview-rail"].addEventListener("click", togglePreviewCollapsed);
-// workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
-// 控制弹窗打开期间不显示未读角标。
-let workTableSeen = new Map();
-let workTableOpen = false;
 // worktreeRoot 是三个数据面当前所属的工作区 root（也是刷新机的提交基准）；
 // worktreeFileCount 是递归文件统计；lastChatRunning 用于在 chat 结束（文件/
 // 提交/改动都可能变化）时整批刷新一次。
@@ -998,6 +1054,18 @@ elements["message-queue"].addEventListener("click", async event => {
     }
     await refresh({ scroll: "auto" });
   } catch (error) {
+    // 批量创建可能已写入前几项后才遇到 I/O 错误：刷新权威项目表，并从 temp list
+    // 移除已经在后端的根路径，避免重试时拿同一目录再创建一次。
+    try {
+      await refresh({ scroll: false });
+      const existingRoots = new Set(
+        (client.current()?.workspaces || []).map(workspace => normalizePath(workspace.root_path))
+      );
+      newProjectDrafts = newProjectDrafts.filter(draft => !existingRoots.has(normalizePath(draft.rootPath)));
+      renderNewSessionWorkspaces();
+    } catch {
+      /* 刷新失败时保留 temp list，让用户看得到尚未处理的输入。 */
+    }
     showToast(error);
   } finally {
     button.disabled = false;
@@ -2924,56 +2992,21 @@ let lastPlanDsl = null;
 let lastSubagentTree = [];
 
 // refreshPlanDetailData 只刷新详情弹窗的数据面（Plan DSL + 子代理树投影），
-// 不做任何面板 DOM 渲染：右侧工作台统一由工作表格（renderWorkTable）呈现，
+// 不做任何面板 DOM 渲染：右侧工作台统一由内联摘要（renderWorkTable）呈现，
 // 详情弹窗数据源保持 Plan/子代理树权威投影（planToDSL 只算不改 DOM）。
 function refreshPlanDetailData(plan, subagentTree = null) {
   lastPlanDsl = planToDSL(plan);
   lastSubagentTree = Array.isArray(subagentTree) ? subagentTree : [];
 }
 
-// renderWorkTable 渲染工作表格详情（弹窗内 keyed reconciliation）并同步
-// 右侧按钮摘要与未读角标（未读 = 新增或状态/retry 变化的条目）。
+// renderWorkTable 把工作表格投影交给内联工作台摘要。Todo 是打点表，
+// Task / Subagent 是同一套后台长任务语言；不再打开独立表格弹窗。
 function renderWorkTable(rows, batches) {
-  workTableView.render(rows, batches);
-  const normalized = workTableView.current();
-  // 计数滚动（拟物里程表）：只在"同一个计数换了值"时滚动，首次渲染/文案不同
-  // 时直接落值（规则见 motion.js countParts/rollNumber）。
+  workbenchSummaryView.render(rows, batches);
+  const normalized = workbenchSummaryView.current();
   rollNumber(elements["work-count"], String(normalized.length));
-  elements["work-table-summary"].textContent = `${normalized.length} 项任务`;
-  elements["work-section"]?.classList.toggle("hidden", normalized.length === 0);
-  const unread = workTableOpen ? 0 : countUnread(normalized, workTableSeen);
-  elements["work-unread"]?.classList.toggle("hidden", unread === 0);
-  if (elements["work-unread"]) rollNumber(elements["work-unread"], `${unread} 未读`);
+  elements["work-section"]?.classList.remove("hidden");
 }
-
-// openWorkTable 打开完整表格详情：记录当前已读快照并清角标。
-function openWorkTable() {
-  workTableOpen = true;
-  workTableSeen = workTableSignatures(workTableView.current());
-  elements["work-unread"]?.classList.add("hidden");
-  setModal("work-table-modal", true);
-}
-
-function closeWorkTable() {
-  workTableOpen = false;
-  setModal("work-table-modal", false);
-}
-
-// 工作表格行内交互（todo 状态更新、条目展开、筛选、打点展开）走委托。
-workTableView.bind({
-  onStatus: async (id, status) => {
-    try {
-      await invoke("UpdateWorkItemStatus", id, status);
-      await refresh({ scroll: false });
-    } catch (error) {
-      showToast(error);
-    }
-  },
-  onDetail: id => openNodeDetail(id)
-});
-
-elements["work-table-open"]?.addEventListener("click", openWorkTable);
-elements["work-table-modal-close"]?.addEventListener("click", closeWorkTable);
 
 // findSubagentTreeNode 在子代理树投影里按 id 找节点（含嵌套 children）。
 function findSubagentTreeNode(nodeID) {
@@ -3441,7 +3474,7 @@ function resolveNodeForDetail(nodeKey) {
   if (node) return node;
   const treeNode = findSubagentTreeNode(nodeKey);
   if (treeNode) return subagentTreeNodeToDSL(treeNode);
-  const row = workTableView.current().find(item => item.source_id === nodeKey || item.id === nodeKey);
+  const row = workbenchSummaryView.current().find(item => item.source_id === nodeKey || item.id === nodeKey);
   return workItemToDetailNode(row || { id: nodeKey, source_id: nodeKey });
 }
 
@@ -4249,13 +4282,17 @@ elements["latest-history"].addEventListener("click", returnToLatest);
 elements["new-session"].addEventListener("click", openNewSessionModal);
 
 // ── 新建会话弹窗（两步：任务会话 / 工作区会话）──────────────────────────
+let newProjectDrafts = [];
+
 function openNewSessionModal() {
   showNewSessionStep(1);
+  renderNewProjectDrafts();
   setModal("new-session-modal", true);
 }
 
 function closeNewSessionModal() {
   setModal("new-session-modal", false);
+  showNewSessionStep(1);
 }
 
 function showNewSessionStep(step) {
@@ -4288,6 +4325,42 @@ function normalizePath(value) {
   return String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
+function newProjectNameFromPath(path) {
+  return String(path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project";
+}
+
+function addNewProjectDraft(rootPath) {
+  const path = String(rootPath || "").trim();
+  if (!path) return false;
+  const key = normalizePath(path);
+  if (newProjectDrafts.some(draft => normalizePath(draft.rootPath) === key)) return false;
+  newProjectDrafts.push({ name: newProjectNameFromPath(path), rootPath: path });
+  renderNewProjectDrafts();
+  return true;
+}
+
+function renderNewProjectDrafts() {
+  const host = elements["new-project-drafts"];
+  const create = elements["new-project-create"];
+  if (!host) return;
+  host.innerHTML = newProjectDrafts.length
+    ? newProjectDrafts.map((draft, index) => `
+      <div class="new-project-draft-row" data-new-project-draft="${index}">
+        <span class="new-project-draft-index">${String(index + 1).padStart(2, "0")}</span>
+        <span class="new-project-draft-main">
+          <input class="new-project-draft-name" data-new-project-name="${index}" value="${escapeHtml(draft.name)}" aria-label="项目名称" spellcheck="false">
+          <span class="new-project-draft-path" title="${escapeHtml(draft.rootPath)}">${escapeHtml(draft.rootPath)}</span>
+        </span>
+        <button class="icon-button subtle new-project-draft-remove" type="button" data-new-project-remove="${index}" title="移出待创建列表" aria-label="移出待创建列表" data-icon="close"></button>
+      </div>`).join("")
+    : '<div class="new-project-empty">尚未加入项目文件夹</div>';
+  hydrateIcons(host);
+  if (create) {
+    create.disabled = newProjectDrafts.length === 0;
+    create.textContent = newProjectDrafts.length ? `创建 ${newProjectDrafts.length} 个项目` : "创建项目";
+  }
+}
+
 function renderNewSessionWorkspaces() {
   const snapshot = client.current() || {};
   const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
@@ -4318,6 +4391,50 @@ elements["new-session-back"].addEventListener("click", () => showNewSessionStep(
 
 elements["new-session-close"].addEventListener("click", closeNewSessionModal);
 
+elements["new-project-drafts"].addEventListener("input", event => {
+  const input = event.target.closest?.("[data-new-project-name]");
+  if (!input) return;
+  const index = Number(input.dataset.newProjectName);
+  if (Number.isInteger(index) && newProjectDrafts[index]) newProjectDrafts[index].name = input.value;
+});
+
+elements["new-project-drafts"].addEventListener("click", event => {
+  const button = event.target.closest?.("[data-new-project-remove]");
+  if (!button) return;
+  const index = Number(button.dataset.newProjectRemove);
+  if (!Number.isInteger(index)) return;
+  newProjectDrafts.splice(index, 1);
+  renderNewProjectDrafts();
+});
+
+elements["new-project-create"].addEventListener("click", async () => {
+  if (newProjectDrafts.length === 0) return;
+  const requests = newProjectDrafts.map(draft => ({
+    name: String(draft.name || "").trim(),
+    root_path: draft.rootPath,
+    git_remote: ""
+  }));
+  if (requests.some(request => !request.name)) {
+    showToast("项目名称不能为空");
+    return;
+  }
+  const button = elements["new-project-create"];
+  button.disabled = true;
+  try {
+    const result = await invoke("CreateWorkspaces", requests);
+    const created = Array.isArray(result?.workspaces) ? result.workspaces : [];
+    newProjectDrafts = [];
+    renderNewProjectDrafts();
+    await refresh({ scroll: false });
+    renderNewSessionWorkspaces();
+    showToast(created.length ? `已创建 ${created.length} 个项目` : "项目已创建");
+  } catch (error) {
+    showToast(error);
+  } finally {
+    renderNewProjectDrafts();
+  }
+});
+
 elements["new-session-workspace-list"].addEventListener("click", async event => {
   const workspaceButton = event.target.closest?.("[data-new-session-ws]");
   if (workspaceButton) {
@@ -4338,17 +4455,7 @@ elements["new-session-pick-folder"].addEventListener("click", async () => {
   try {
     const dir = await invoke("PickDirectory");
     if (!dir) return;
-    const name = dir.split(/[\\/]/).pop() || "workspace";
-    await invoke("CreateWorkspace", name, dir, "");
-    await refresh({ scroll: false });
-    const latest = client.current() || {};
-    const workspaces = Array.isArray(latest.workspaces) ? latest.workspaces : [];
-    const created = workspaces.find(workspace => normalizePath(workspace.root_path) === normalizePath(dir));
-    if (!created?.id) {
-      showToast("创建工作区失败：未找到新工作区");
-      return;
-    }
-    await bindWorkspaceAndStart(created.id);
+    if (!addNewProjectDraft(dir)) showToast("这个文件夹已在待创建列表中");
   } catch (error) { showToast(error); }
 });
 
@@ -4641,7 +4748,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -4748,7 +4855,6 @@ document.addEventListener("keydown", event => {
     closeSettings();
     closeScheduledTaskDialog();
     closeNodeDetail();
-    closeWorkTable();
     closeNewSessionModal();
     closeFilePreview();
   }

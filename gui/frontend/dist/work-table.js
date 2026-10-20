@@ -696,6 +696,16 @@ function statusLabel(status) {
   return STATUS_LABELS[statusToken(status)] || "UNKNOWN";
 }
 
+// workItemStatusToken / workItemStatusLabel 暴露工作表的唯一状态词表，
+// 供右侧内联摘要复用；状态判定不得在第二个视图里重新写一份。
+export function workItemStatusToken(status) {
+  return statusToken(status);
+}
+
+export function workItemStatusLabel(status) {
+  return statusLabel(status);
+}
+
 // statusCellLabel 状态单元格：retry 展示 RETRY n（重试数字）。
 function statusCellLabel(row) {
   const status = statusToken(row.status);

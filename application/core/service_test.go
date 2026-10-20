@@ -216,6 +216,36 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	}
 }
 
+func TestCreateWorkspacesPublishesCatalogWithoutBindingCurrentSession(t *testing.T) {
+	runtime := &fakeRuntime{}
+	workspaces := newFakeWorkspace()
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: &scopedSessions{}, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	result, err := service.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+		{Name: "alpha", RootPath: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspaces: %v", err)
+	}
+	if len(result.Workspaces) != 1 {
+		t.Fatalf("created workspaces = %d, want 1", len(result.Workspaces))
+	}
+	snapshot := service.Snapshot()
+	if len(snapshot.Workspaces) != 1 || snapshot.Workspaces[0].Name != "alpha" {
+		t.Fatalf("snapshot workspace catalog was not refreshed: %+v", snapshot.Workspaces)
+	}
+	if snapshot.CurrentWorkspace != nil || runtime.ProjectRoot() != "" {
+		t.Fatalf("batch creation must not bind a project: current=%+v root=%q", snapshot.CurrentWorkspace, runtime.ProjectRoot())
+	}
+	if len(workspaces.bindings) != 0 {
+		t.Fatalf("batch creation wrote session bindings: %+v", workspaces.bindings)
+	}
+}
+
 func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
 	engine := &fakeEngine{lazyStart: true}
 	sessions := &trackingSessions{}

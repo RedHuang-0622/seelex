@@ -88,6 +88,14 @@
   --surface-glass: rgba(241, 240, 234, .86);
   --overlay: rgba(24, 26, 30, .34);
   --surface-opaque: rgba(255, 255, 255, .99);
+  /* 左侧主导航只服从深浅轴：浅色纯白、深色纯黑，不受皮肤主信号影响。 */
+  --left-nav-bg: #ffffff;
+  --left-nav-ink: #151515;
+  --left-nav-muted: #747474;
+  --left-nav-line: #e4e4e4;
+  --left-nav-hover: #f3f3f3;
+  --left-nav-active-bg: #111111;
+  --left-nav-active-ink: #ffffff;
 
   /* trace：刻度线 */
   --tick: #e3e0d7;
@@ -242,6 +250,13 @@
   --surface-glass: rgba(46, 46, 46, .78);
   --overlay: rgba(0, 0, 0, .62);
   --surface-opaque: rgba(20, 20, 20, .99);
+  --left-nav-bg: #000000;
+  --left-nav-ink: #f4f4f4;
+  --left-nav-muted: #9a9a9a;
+  --left-nav-line: #252525;
+  --left-nav-hover: #161616;
+  --left-nav-active-bg: #f2f2f2;
+  --left-nav-active-ink: #0a0a0a;
 
   --tick: #3a3a3a;
   --tick-hot: #e9e9ec;
@@ -290,16 +305,16 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 /* ---------- 3. App shell / topbar / panels ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: var(--left-w, 268px) 6px minmax(0, 1fr) 6px var(--right-w, 300px);
+  grid-template-columns: var(--left-w, 268px) minmax(0, 1fr) var(--right-w, 300px);
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
 }
 .left-panel { grid-column: 1; grid-row: 2; }
-#left-divider { grid-column: 2; grid-row: 2; }
-.workspace { grid-column: 3; grid-row: 2; }
-#right-divider { grid-column: 4; grid-row: 2; }
-.right-panel { grid-column: 5; grid-row: 2; }
+#left-divider { grid-column: 1; grid-row: 2; justify-self: end; width: 6px; }
+.workspace { grid-column: 2; grid-row: 2; }
+#right-divider { grid-column: 3; grid-row: 2; justify-self: start; width: 6px; }
+.right-panel { grid-column: 3; grid-row: 2; }
 
 /* 侧栏分隔条：命中区 6px，视觉反馈是一条居中的实体竖带——
    悬停点亮成黄铜描边并浮出"抓取把手"（居中一排小圆点），拖拽时整条变成
@@ -425,6 +440,56 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .sessions-section { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .sessions-section > .section-title { flex: none; }
 .sessions-section .stack-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
+
+/* 左侧主导航：深浅轴独占的纯黑/纯白块。它不做毛玻璃，也不接受皮肤主信号。 */
+.left-nav {
+  flex: none;
+  margin: 0 0 10px;
+  padding: 8px;
+  border: 1px solid var(--left-nav-line);
+  border-radius: var(--r-lg);
+  color: var(--left-nav-ink);
+  background: var(--left-nav-bg);
+}
+.left-nav-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; padding: 0 2px 6px; }
+.left-nav-title { color: var(--left-nav-muted); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.left-nav-toggle { color: var(--left-nav-muted); }
+.left-nav-toggle:hover { color: var(--left-nav-ink); background: var(--left-nav-hover); }
+.left-nav-items { display: flex; flex-direction: column; gap: 3px; }
+.left-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--left-nav-ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.left-nav-item:hover { background: var(--left-nav-hover); }
+.left-nav-item.is-active { color: var(--left-nav-active-ink); background: var(--left-nav-active-bg); }
+.left-nav-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; }
+.left-nav-copy { display: flex; flex-direction: column; min-width: 0; }
+.left-nav-copy > span { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
+.left-nav-copy small { margin-top: 1px; overflow: hidden; color: var(--left-nav-muted); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.left-nav-item.is-active .left-nav-copy small { color: color-mix(in srgb, var(--left-nav-active-ink) 62%, transparent); }
+.left-nav-sub { margin-left: 18px; padding-left: 8px; border-left: 1px solid var(--left-nav-line); }
+.left-nav-item.is-sub { min-height: 34px; }
+.left-nav-item.is-sub .left-nav-copy > span { font-size: 11.5px; font-weight: 500; }
+html[data-left-nav-collapsed="true"] .left-nav { padding: 6px; }
+html[data-left-nav-collapsed="true"] .left-nav-head { justify-content: center; padding-bottom: 4px; }
+html[data-left-nav-collapsed="true"] .left-nav-title,
+html[data-left-nav-collapsed="true"] .left-nav-copy { display: none; }
+html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; min-height: 32px; padding: 5px; }
+html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-left: 0; border-left: 0; }
+
+.left-page { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.left-page-section { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.left-page-note { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 
 .section-title {
   display: flex;
@@ -2620,6 +2685,72 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .work-table-button:hover { border-color: rgba(111, 181, 142, .55); background: var(--surface-2); }
 .work-table-button-icon { color: var(--status-done); font-size: 14px; }
 .work-table-button-hint { margin-left: auto; color: var(--faint); font: 10px var(--font-mono); }
+
+/* ---------- 10.1 内联工作台：Todo / Task / Subagent 三种信息语言 ---------- */
+.workbench-summary { display: block; min-width: 0; }
+.workbench-summary-board { display: grid; gap: 16px; min-width: 0; }
+.workbench-block { display: grid; gap: 7px; min-width: 0; }
+.workbench-block + .workbench-block { padding-top: 13px; border-top: 1px solid var(--border-hairline); }
+.workbench-block-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; min-width: 0; }
+.workbench-block-head > div { display: grid; gap: 1px; min-width: 0; }
+.workbench-kicker { color: var(--faint); font: 700 9.5px var(--font-mono); letter-spacing: .09em; }
+.workbench-block-head h3 { margin: 0; color: var(--text-strong); font-size: 12.5px; font-weight: 650; }
+.workbench-block-count { flex: none; color: var(--text-dim); font: 10px var(--font-mono); }
+
+/* Todo = 打点表：三列、发丝分隔，不套卡片。 */
+.workbench-todo-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.workbench-todo-table th { padding: 4px 6px; border-bottom: 1px solid var(--border); color: var(--faint); font: 600 9.5px var(--font-mono); text-align: left; }
+.workbench-todo-table th:nth-child(1) { width: 75px; }
+.workbench-todo-table th:nth-child(3) { width: 64px; text-align: right; }
+.workbench-todo-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-hairline); vertical-align: middle; }
+.workbench-todo-state-cell { white-space: nowrap; }
+.workbench-todo-state { display: inline-flex; align-items: center; gap: 5px; padding: 2px 5px; border: 0; border-radius: var(--r-sm); color: var(--text-mid); background: transparent; cursor: pointer; font: 10px var(--font-mono); }
+.workbench-todo-state:hover { background: var(--surface-2); color: var(--text-strong); }
+.workbench-todo-dot { width: 7px; height: 7px; border: 1px solid var(--status-idle); border-radius: 50%; background: transparent; }
+.workbench-todo-state.is-doing { color: var(--status-running); }
+.workbench-todo-state.is-doing .workbench-todo-dot { border-color: var(--status-running); background: var(--status-running); box-shadow: 0 0 0 3px var(--tint-running); }
+.workbench-todo-state.is-done { color: var(--status-done); }
+.workbench-todo-state.is-done .workbench-todo-dot { border-color: var(--status-done); background: var(--status-done); }
+.workbench-todo-title { overflow: hidden; color: var(--text-mid); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-todo-row.is-done .workbench-todo-title { color: var(--faint); text-decoration: line-through; }
+.workbench-todo-traces { text-align: right; }
+.workbench-todo-empty-row td { padding: 15px 6px; color: var(--faint); font-size: 11px; text-align: center; }
+
+/* Task / Subagent = 后台长任务：同一条状态轨、同一张目标卡，只换 kind 标签。 */
+.workbench-run-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.workbench-run-row { display: grid; grid-template-columns: 13px minmax(0, 1fr); gap: 6px; min-width: 0; }
+.workbench-run-rail { position: relative; display: flex; justify-content: center; }
+.workbench-run-rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border-hairline); }
+.workbench-run-rail i { position: relative; width: 7px; height: 7px; margin-top: 11px; border: 1px solid var(--status-idle); border-radius: 50%; background: var(--surface); }
+.workbench-run-row.is-running .workbench-run-rail i { border-color: var(--status-running); background: var(--status-running); box-shadow: 0 0 0 3px var(--tint-running); }
+.workbench-run-row.is-completed .workbench-run-rail i,
+.workbench-run-row.is-done .workbench-run-rail i { border-color: var(--status-done); background: var(--status-done); }
+.workbench-run-row.is-failed .workbench-run-rail i,
+.workbench-run-row.is-interrupted .workbench-run-rail i { border-color: var(--status-failed); background: var(--status-failed); }
+.workbench-run-main { display: grid; gap: 3px; min-width: 0; padding: 7px 0 8px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.workbench-run-main:hover strong { color: var(--accent); }
+.workbench-run-head { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.workbench-run-head strong { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-run-head em { flex: none; color: var(--status-idle); font: 700 9px var(--font-mono); font-style: normal; text-transform: uppercase; }
+.workbench-run-row.is-running .workbench-run-head em { color: var(--status-running); }
+.workbench-run-row.is-completed .workbench-run-head em,
+.workbench-run-row.is-done .workbench-run-head em { color: var(--status-done); }
+.workbench-run-row.is-failed .workbench-run-head em { color: var(--status-failed); }
+.workbench-run-meta { display: flex; flex-wrap: wrap; gap: 3px 8px; color: var(--faint); font: 9.5px var(--font-mono); }
+.workbench-run-meta b { color: var(--text-mid); font-weight: 700; text-transform: uppercase; }
+.workbench-run-note { overflow: hidden; color: var(--text-dim); font-size: 10.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-run-trace { margin-top: 1px; }
+.workbench-trace-dots { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.workbench-trace-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--status-idle); }
+.workbench-trace-dots i.is-running { background: var(--status-running); }
+.workbench-trace-dots i.is-completed,
+.workbench-trace-dots i.is-done,
+.workbench-trace-dots i.is-success { background: var(--status-done); }
+.workbench-trace-dots i.is-failed,
+.workbench-trace-dots i.is-error { background: var(--status-failed); }
+.workbench-trace-dots small { margin-left: 2px; color: var(--faint); font: 9px var(--font-mono); }
+.workbench-no-traces { color: var(--faint); font: 10px var(--font-mono); }
+
 .work-table-modal-card { width: min(1120px, 94vw); max-height: 86vh; }
 /* 多重滚轮（用户报告：工作表格弹窗「滚一下跳三层」）：这个弹窗纵向原本有三个
    嵌套滚动区——可拉伸卡片自带 `overflow: auto`（.modal-card[data-resizable] 的
@@ -3102,7 +3233,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* ---------- 17. Responsive ---------- */
 @media (max-width: 1160px) {
-  .app-shell { grid-template-columns: var(--left-w, 238px) 6px minmax(0, 1fr); }
+  .app-shell { grid-template-columns: var(--left-w, 238px) minmax(0, 1fr); }
   .right-panel, #right-divider { display: none; }
 }
 
@@ -3127,7 +3258,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 
 /* ── L 区域样式：新建会话弹窗 / 会话分组 / 置顶 ── */
-.new-session-card { width: min(460px, 92vw); max-height: 86vh; }
+.new-session-card { width: min(620px, 94vw); max-height: 86vh; }
 .new-session-step { display: grid; gap: 10px; padding: 14px 2px 4px; }
 .new-session-choices { display: grid; gap: 8px; }
 .new-session-choice { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-strong); background: var(--surface); text-align: left; cursor: pointer; }
@@ -3135,6 +3266,26 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .new-session-choice-title { font-size: 12.5px; font-weight: 600; }
 .new-session-choice-desc { color: var(--faint); font-size: 10.5px; line-height: 1.45; }
 .new-session-ws { width: 100%; }
+.new-project-composer { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); }
+.new-project-composer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.new-project-composer-head > div { display: grid; gap: 2px; min-width: 0; }
+.new-project-composer-head strong,
+.new-project-existing-head strong { color: var(--text-strong); font-size: 12.5px; }
+.new-project-composer-head small,
+.new-project-existing-head small { color: var(--faint); font-size: 10.5px; line-height: 1.45; }
+.new-project-composer-head .primary { flex: none; min-height: 30px; padding: 0 12px; font-size: 11.5px; }
+.new-project-drafts { display: grid; gap: 5px; max-height: 230px; overflow-y: auto; }
+.new-project-empty { padding: 12px 8px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); color: var(--faint); font-size: 11px; text-align: center; }
+.new-project-draft-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 24px; gap: 8px; align-items: center; min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.new-project-draft-index { color: var(--faint); font: 700 10px var(--font-mono); }
+.new-project-draft-main { display: grid; gap: 3px; min-width: 0; }
+.new-project-draft-name { width: 100%; min-height: 26px; padding: 2px 6px; border: 1px solid transparent; color: var(--text-strong); background: transparent; font-size: 12px; font-weight: 600; }
+.new-project-draft-name:hover,
+.new-project-draft-name:focus { border-color: var(--border-field); background: var(--surface-2); }
+.new-project-draft-path { overflow: hidden; color: var(--faint); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.new-project-draft-remove { color: var(--faint); }
+.new-project-add { justify-self: start; }
+.new-project-existing-head { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
 .new-session-unbind { margin-top: 4px; }
 .session-group-head-row {
   display: flex;
@@ -4578,13 +4729,13 @@ html[data-left-collapsed="true"] .left-panel .panel-toggle-closed,
 html[data-right-collapsed="true"] .right-panel .panel-toggle-closed { display: block; }
 
 html[data-left-collapsed="true"] .app-shell {
-  grid-template-columns: 26px 0 minmax(0, 1fr) 6px var(--right-w, 300px);
+  grid-template-columns: 26px minmax(0, 1fr) var(--right-w, 300px);
 }
 html[data-right-collapsed="true"] .app-shell {
-  grid-template-columns: var(--left-w, 268px) 6px minmax(0, 1fr) 0 26px;
+  grid-template-columns: var(--left-w, 268px) minmax(0, 1fr) 26px;
 }
 html[data-left-collapsed="true"][data-right-collapsed="true"] .app-shell {
-  grid-template-columns: 26px 0 minmax(0, 1fr) 0 26px;
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
 }
 /* 收起的栏只留窄脊：内容整体隐藏，脊上仍是那条 < / > 按钮（可达、不占位）。 */
 html[data-left-collapsed="true"] .left-panel > *:not(.panel-rail-head),
@@ -4597,7 +4748,7 @@ html[data-left-collapsed="true"] #left-divider,
 html[data-right-collapsed="true"] #right-divider { display: none; }
 .panel-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--border-running); }
 @media (max-width: 1160px) {
-  html[data-left-collapsed="true"] .app-shell { grid-template-columns: 26px 0 minmax(0, 1fr); }
+  html[data-left-collapsed="true"] .app-shell { grid-template-columns: 26px minmax(0, 1fr); }
 }
 
 /* 18.6 会话行降噪：条目本体只留"标题 + 状态"，三个动作收进 ⋯ 段（见第 20 节） */
@@ -5533,16 +5684,9 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
    选择器要压过 .app-shell .icon-button.action-button 那条既有规则。 */
 .app-shell .icon-button.action-button.primary-button { border-radius: 999px; }
 
-/* n) 内容纸 = 一个带圆角的 panel（对话区整块）——用户口径「该有圆角的地方放上圆角，
-   比如对话区整体的 panel」。
-   实机证据：Qoder 的「纸」四角是 **7–8px 圆角**，而且**不缩进**——纸与壳齐边，
-   只在四个角的弧里露出壳（Qoder 浅色实机截图逐像素：顶左 (323,56)→(316,63)、
-   顶右 1907→1913、底 1070 行左 319 / 右 1910）。
-   本产品的中栏就是那块纸：`.workspace` 是 `.app-shell`（渐变）的子节点，四角弧里
-   自然露出壳的渐变，**不需要任何间隙**；子节点（子页页签条 / 终端面板）由既有的
-   `overflow: hidden` 一起裁圆。
-   半径取 `--r-md`(8px)：与 Qoder 实测同档，且不撞「一屏只有一处 ≥14px」（那处是 composer）。 */
-.workspace { border-radius: var(--r-md); }
+/* n) 内容纸与两侧栏齐边贴合，不再使用外圆角。三栏之间也不预留沟槽：
+   分隔条是覆盖在边界上的 6px 命中区，视觉上只留一条发丝线。 */
+.workspace { border-radius: 0; }
 
 /* 页签条跟纸同色：`.conversation-tabs` 还留着**渐变换代前**的壳色 `var(--bg)`
    （#f7f6f2），叠在纸上就是第三种颜色，纸的上面两个圆角会被这层薄色抹平。

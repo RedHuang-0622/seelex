@@ -15,6 +15,20 @@ lands.
 
 ### Added
 
+- **GUI 顶部导航、批量项目草稿与内联工作台（2026-10-21）.** 左栏新增
+  任务 / 定时任务 / 插件装配 / Skill 管理四页，导航可收缩且底色只由深浅轴
+  决定（纯白 / 纯黑）；运行状态弹窗移除 Plugin/Skill 重复展示。新建项目先维护
+  前端 temp list，再经 `Bridge.CreateWorkspaces` 一次批量登记，批量创建不绑定
+  当前会话。右侧工作台取消“按钮 + 表格弹窗”：Todo 以打点表展示，Task 与
+  Subagent 分节但共用后台长任务语言，Todo 空态明确显示「暂时没有 todo 项」。
+  三栏改为无预留沟槽的齐边布局，中栏取消外圆角；`glass` 材质按左 38% /
+  中 66% / 右 88% 递增不透明度。
+
+- **Seele 发布依赖升到 `v0.3.5`，移除本地 `replace`（2026-10-21）.** 本版
+  提供产品注入作业 Namer（`jobs.Namer` / `jobs.WithNamer`）；Seelex 的
+  `go.mod` / `go.sum` / 本地 vendor 已切到 tag `v0.3.5`，不再依赖
+  `G:/Program/go/Seele`，`vendor/modules.txt` 无替换行。
+
 - **工作项卡点：`team_items` 多出 `gate` / `next` 两格，`team_close` 的拒绝文案逐件说清**
   （2026-10-15；审计 D7/D8）. 缺陷：leader 只能靠状态/依赖/绑定自己反推"这件事卡在哪"（真实
   会话里同一批取回工具被轮询几十次），而收口闸门的拒绝文案把几种情形一起列出来、不说当前是

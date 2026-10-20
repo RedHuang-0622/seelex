@@ -1438,14 +1438,14 @@ export const TEAM_BOARD_CSS = `
    状态色/淡色底一律引用既有 --status-* / --tint-* / --border-*，不另造 hex。
    container-type 让窄栏（产品右栏 ~360px）能用 @container 收缩，不用另加一套裁剪口径。 */
 .team-board, .team-page {
-  --team-dag-scroll-max-h: 380px;
+  --team-dag-scroll-max-h: 310px;
   --team-dag-slots: 1;
-  --team-dag-label-w: 176px;
-  --team-dag-slot-w: 56px;
+  --team-dag-label-w: 138px;
+  --team-dag-slot-w: 42px;
   --team-dag-bar-h: 18px;
-  --team-dag-row-h: 46px;
-  --team-dag-wi-h: 34px;
-  --team-dag-ruler-h: 30px;
+  --team-dag-row-h: 42px;
+  --team-dag-wi-h: 30px;
+  --team-dag-ruler-h: 28px;
   --team-dag-role-0: #6f5bd6;
   --team-dag-role-1: #a4538f;
   --team-dag-role-2: #0f8f9e;
@@ -1471,12 +1471,12 @@ export const TEAM_BOARD_CSS = `
   --team-dag-ms-tone-3: #c4ab84;
   --team-dag-ms-tone-4: #b894a4;
 }
-.team-board { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); container-type: inline-size; }
-.team-board-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-dim); }
+.team-board { display: flex; flex-direction: column; gap: 10px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); container-type: inline-size; }
+.team-board-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding-bottom: 7px; border-bottom: 1px solid var(--border-hairline); font-size: var(--text-xs); color: var(--text-dim); }
 .team-badge { flex: none; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; font-weight: 600; letter-spacing: .06em; color: var(--text-mid); }
 .team-board-id { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-strong); }
 .team-version { flex: none; color: var(--text-dim); }
-.team-counts { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.team-counts { flex: 1 1 100%; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.45; }
 .team-recovered { border-color: var(--border-strong); color: var(--text-mid); }
 .team-stale { border-color: var(--border-running); color: var(--status-running); }
 .team-status { flex: none; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
@@ -1500,7 +1500,7 @@ export const TEAM_BOARD_CSS = `
    **不是时间**；刻度尺把这句话写在脸上。没有任何坐标需要实测：左端 = 槽位 × --team-dag-slot-w，
    格子底纹由一条 repeating gradient 画出来（每 --team-dag-slot-w 一条竖线），宽度永远跟着
    容器查询一起缩。 */
-.team-dag-scroll { max-height: var(--team-dag-scroll-max-h, 380px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.team-dag-scroll { max-height: var(--team-dag-scroll-max-h, 310px); overflow: auto; overscroll-behavior: contain; border-top: 1px solid var(--border-hairline); border-bottom: 1px solid var(--border-hairline); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .team-dag-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
 .team-dag-scroll::-webkit-scrollbar-track { background: transparent; }
 .team-dag-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
@@ -1568,11 +1568,11 @@ export const TEAM_BOARD_CSS = `
 .team-board [data-eff="pending"] { --row-line: var(--status-idle); }
 .team-dag-cell[data-eff="pending"], .team-wi[data-eff="pending"] { border-style: dashed; }
 /* ── teammate 条目（一行一位）────────────────────────────────────────────────── */
-.team-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.team-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
 .team-section-title { display: flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--text-dim); }
 .team-section-hint { color: var(--faint); font-size: 10px; }
 .team-members { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.team-member { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 6px 3px 5px; border: 1px solid var(--border-hairline); border-left: 3px solid var(--team-dag-role-color, var(--border)); border-radius: 5px; }
+.team-member { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 6px 4px 5px; border: 0; border-bottom: 1px solid var(--border-hairline); border-left: 2px solid var(--team-dag-role-color, var(--border)); border-radius: 0; }
 .team-member-name { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-strong); cursor: pointer; }
 .team-member-count { flex: none; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
 .team-member-wt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
@@ -1660,7 +1660,9 @@ export const TEAM_BOARD_CSS = `
 /* 窄栏自适应（口径 10）：产品右栏只有 ~360px。几何整体压小（格子的 x 全是槽位算式，跟着一起
    缩）；折叠的只是次级信息（屏障 deps 与内容摘要的第二行），全文仍在 title 与详情页里。 */
 @container (max-width: 520px) {
-  .team-dag-scroll { --team-dag-slot-w: 38px; --team-dag-label-w: 124px; --team-dag-bar-h: 15px; --team-dag-row-h: 42px; --team-dag-wi-h: 30px; --team-dag-ruler-h: 28px; }
-  .team-dag-ms-deps, .team-dag-ms-summary, .team-section-hint { display: none; }
+  .team-dag-scroll { --team-dag-slot-w: 34px; --team-dag-label-w: 116px; --team-dag-bar-h: 15px; --team-dag-row-h: 39px; --team-dag-wi-h: 28px; --team-dag-ruler-h: 26px; }
+  .team-dag-ms-deps, .team-dag-ms-summary, .team-dag-wi-role, .team-section-hint, .team-member-wt { display: none; }
+  .team-member { gap: 4px; }
+  .team-board-head { gap: 4px; }
 }
 `;

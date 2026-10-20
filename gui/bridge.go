@@ -65,6 +65,7 @@ type Application interface {
 	// 的 Snapshot() 直接携带权威目录（前端因此不必回填上一次列表伪造状态）。
 	WaitCatalogRefresh(context.Context) error
 	CreateWorkspace(name, rootPath, gitRemote string) error
+	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
 	SetFullAccess(bool) bool
@@ -946,6 +947,11 @@ func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string
 
 func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {
 	return bridge.app.CreateWorkspace(name, rootPath, gitRemote)
+}
+
+// CreateWorkspaces 批量登记项目（不绑定当前会话）；前端在确认 temp list 后一次提交。
+func (bridge *Bridge) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
+	return bridge.app.CreateWorkspaces(requests)
 }
 
 func (bridge *Bridge) BindWorkspace(workspaceID string) error {

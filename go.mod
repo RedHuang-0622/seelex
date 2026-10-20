@@ -8,10 +8,12 @@ go 1.25.8
 // 短临界区工作状态」替换 InLoop 把手（session/inloop.go 整条删除，History 永不
 // 阻塞、回合内写历史经检查点排队）；v0.3.3（2026-10-03）= 异步作业根能力
 // （作业契约 + Manager + jobs_manage）；v0.3.4（2026-10-08）= reasoning_effort
-// 真正写进请求体（openai/anthropic 两个 strategy）且运行期可切换。
+// 真正写进请求体（openai/anthropic 两个 strategy）且运行期可切换；
+// v0.3.5（2026-10-20）= 句柄命名改为产品注入 Namer（jobs.Namer / jobs.WithNamer）。
 //
-// 四次本地 replace 联调（2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28
-// 方案 B、2026-10-05 reasoning_effort）都在对应 tag 发布后移除，回归纯净依赖；
+// 五次本地 replace 联调（2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28
+// 方案 B、2026-10-05 reasoning_effort、2026-10-15 jobs Namer）都在对应 tag 发布后
+// 移除，回归纯净依赖；
 // 宿主侧对方案 B 的迁移（不再持有 inloop 把手、写历史改走检查点排队）已随那次
 // 升版落地，reasoning_effort 这一组则随 v0.3.4 收口。
 //
@@ -22,7 +24,7 @@ go 1.25.8
 // termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
-	github.com/RedHuang-0622/Seele v0.3.4
+	github.com/RedHuang-0622/Seele v0.3.5
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0
@@ -105,10 +107,3 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-// 本地联调期 replace（**发布前必须删掉**）：Seele 的句柄命名改成"产品注入 Namer"这一版
-// （jobs.Namer / jobs.WithNamer；见 Seele 仓库 CHANGELOG 的 v0.3.5 段）尚未发版，Seelex 的
-// 团队作业表装配依赖它。Seele 打 tag 之后：删掉本段 → 把上面 require 的 Seele 版本抬到该
-// tag → `go mod tidy`。这与 2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B、
-// 2026-10-05 reasoning_effort 四次联调走的是同一条路（见本文件顶部注释）。
-replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele

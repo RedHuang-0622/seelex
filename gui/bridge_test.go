@@ -258,6 +258,15 @@ func (fake *fakeApplication) WaitCatalogRefresh(ctx context.Context) error {
 func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) error {
 	return nil
 }
+func (fake *fakeApplication) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
+	result := dto.WorkspaceCreateBatchResult{Workspaces: make([]dto.WorkspaceCreateResult, 0, len(requests))}
+	for _, request := range requests {
+		result.Workspaces = append(result.Workspaces, dto.WorkspaceCreateResult{
+			ID: "ws-" + request.Name, Name: request.Name, RootPath: request.RootPath, GitRemote: request.GitRemote,
+		})
+	}
+	return result, nil
+}
 func (fake *fakeApplication) BindWorkspace(workspaceID string) error {
 	return nil
 }
@@ -552,6 +561,24 @@ func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
 	}
 	if len(listing.Entries) != 2 || listing.Entries[0].Name != "src" {
 		t.Fatalf("unexpected listing: %+v", listing.Entries)
+	}
+}
+
+func TestBridgeCreateWorkspacesForwardsBatch(t *testing.T) {
+	t.Parallel()
+	bridge, err := NewBridge(newFakeApplication(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := bridge.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+		{Name: "alpha", RootPath: "G:/alpha"},
+		{Name: "beta", RootPath: "G:/beta"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspaces: %v", err)
+	}
+	if len(result.Workspaces) != 2 || result.Workspaces[0].Name != "alpha" || result.Workspaces[1].RootPath != "G:/beta" {
+		t.Fatalf("unexpected batch result: %+v", result)
 	}
 }
 
@@ -1628,8 +1655,11 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	leftPanel := html[leftStart : leftStart+leftEnd]
 	rightPanel := html[rightStart : rightStart+rightEnd]
 	runtimeModal := html[runtimeStart:]
-	if strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || !strings.Contains(runtimeModal, `id="plugin-list"`) {
-		t.Fatal("plugins must be rendered in the runtime modal")
+	if !strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || strings.Contains(runtimeModal, `id="plugin-list"`) {
+		t.Fatal("plugins must be rendered in the left navigation, not the runtime modal")
+	}
+	if !strings.Contains(leftPanel, `id="skill-list"`) || strings.Contains(runtimeModal, `id="skill-list"`) {
+		t.Fatal("skills must be rendered in the left navigation, not the runtime modal")
 	}
 	// 运行参数分两处：思考强度贴发送键（在 composer 里，先于 Runtime modal），循环次数
 	// 与「无限循环」勾选落在 Runtime modal 内——循环是运行期预算，改在运行状态弹窗里。
@@ -1646,11 +1676,11 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="worktree-view"`) || !strings.Contains(rightPanel, `id="file-count"`) {
 		t.Fatal("right sidebar must render project status and the work tree panel")
 	}
-	if !strings.Contains(rightPanel, `id="work-table-open"`) || strings.Contains(runtimeModal, `id="work-table-open"`) {
-		t.Fatal("工作表格入口按钮必须常驻右侧栏")
+	if strings.Contains(html, `id="work-table-open"`) || strings.Contains(html, `id="work-table-modal"`) || !strings.Contains(rightPanel, `id="workbench-summary-view"`) {
+		t.Fatal("工作台必须内联渲染摘要，不再保留打开按钮或表格弹窗")
 	}
-	if !strings.Contains(html, `id="work-table-modal-view"`) || !strings.Contains(runtimeModal, `id="work-table-modal-view"`) {
-		t.Fatal("完整工作表格必须挂载在详情弹窗中（工作台窄，详情弹窗看全）")
+	if !strings.Contains(string(script), "createWorkbenchSummaryView(") {
+		t.Fatal("工作台内联摘要必须接入 workbench-summary.js")
 	}
 	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
 		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
@@ -1757,70 +1787,38 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 }
 
-// TestEmbeddedWorkTableSingleScrollContainer：工作表格弹窗纵向只允许一个滚动
-// 容器（用户报告的多重滚轮：在一层滚到底会连着翻下一层）。
-//
-// 根因是三层嵌套——.modal-card[data-resizable] 自带 overflow:auto、正文容器
-// .work-table-modal-view 又写了一份 overflow:auto、表格区再自限高自滚。这里钉住
-// "卡片与正文容器不滚、表格区滚"这一条链，改动 CSS 时立刻失败。
-func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
-	t.Parallel()
-	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
-	if err != nil {
-		t.Fatalf("embedded frontend styles.css: %v", err)
-	}
-	source := string(styles)
-	for _, want := range []string{
-		".modal-card.work-table-modal-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }",
-		"#work-table-modal-view { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }",
-		"#work-table-modal-view .work-table-scroll { flex: 1 1 auto; min-height: 0; max-height: none; }",
-	} {
-		if !strings.Contains(source, want) {
-			t.Fatalf("工作表格弹窗必须只有一个纵向滚动容器，缺少规则：%s", want)
-		}
-	}
-	if strings.Contains(source, ".work-table-modal-view { overflow: auto;") {
-		t.Fatal("工作表格正文容器不得再自带 overflow: auto（与卡片自身 overflow 叠加就是多重滚轮）")
-	}
-}
-
-// TestEmbeddedWorkTableTitleOnce：工作表格弹窗只留一个「工作表格」标题。
-// 现场（用户报告）："工作表格里面三个工作表格的标题是不是有点多了"——弹窗头的
-// eyebrow 与 h2 各写一个（同一个词上下两行），表格自己的头带里还有第三个。
-// 口径："保留内部黄色的部分即可"——只留坐在 .work-table-head 浅色带上的那一条
-// （work-table.js 的 .work-entry-toggle strong），弹窗头两个删掉；弹窗的无障碍名
-// 改走 aria-label，不留视觉上重复的 h2。
-func TestEmbeddedWorkTableTitleOnce(t *testing.T) {
+// TestEmbeddedWorkbenchInlineSummary：工作台不再用按钮 + 弹窗查看表格；
+// Todo / Task / Subagent 直接渲染在右栏，且三种信息语言由独立模块承载。
+func TestEmbeddedWorkbenchInlineSummary(t *testing.T) {
 	t.Parallel()
 	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
 	if err != nil {
 		t.Fatalf("embedded frontend index.html: %v", err)
 	}
 	html := string(page)
-	start := strings.Index(html, `<div id="work-table-modal"`)
-	if start < 0 {
-		t.Fatal("找不到工作表格弹窗容器")
+	if !strings.Contains(html, `id="workbench-summary-view"`) {
+		t.Fatal("right workbench must host the inline summary")
 	}
-	head := html[start:]
-	end := strings.Index(head, `id="work-table-modal-view"`)
-	if end < 0 {
-		t.Fatal("找不到工作表格弹窗的正文容器")
-	}
-	modalHead := head[:end]
-	if !strings.Contains(modalHead, `aria-label="工作表格"`) {
-		t.Fatal("弹窗的无障碍名要落在 aria-label 上（视觉标题只剩表格头带那一条）")
-	}
-	for _, banned := range []string{`class="eyebrow"`, "work-table-modal-title", "<h2"} {
-		if strings.Contains(modalHead, banned) {
-			t.Fatalf("工作表格弹窗头不得再重复标题（只留表格头带那一条），却仍有：%s", banned)
+	for _, banned := range []string{`id="work-table-open"`, `id="work-table-modal"`, `id="work-table-modal-view"`} {
+		if strings.Contains(html, banned) {
+			t.Fatalf("work table modal surface must be removed, still contains %s", banned)
 		}
 	}
-	script, err := embeddedFrontend.ReadFile("frontend/dist/work-table.js")
+	script, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), "<strong>工作表格</strong>") {
-		t.Fatal("表格头带里那一条「工作表格」要留着：弹窗头删掉后就靠它给整块命名")
+	if !strings.Contains(string(script), "createWorkbenchSummaryView(") || strings.Contains(string(script), "openWorkTable(") {
+		t.Fatal("app must render the inline workbench and must not own a work-table modal opener")
+	}
+	summary, err := embeddedFrontend.ReadFile("frontend/dist/workbench-summary.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`data-workbench-section="todo"`, "renderLongRunSection", `"Subagent"`, "暂时没有 todo 项"} {
+		if !strings.Contains(string(summary), want) {
+			t.Fatalf("workbench summary missing %q", want)
+		}
 	}
 }
 

@@ -26,12 +26,12 @@
 |---|---|---|
 | A 类型与事件身份 | `FaceTypeNames` 清单（88 个名字，别名表达不了方法集） | `application/application.go` 的 `type (...)` 别名块，按字母序逐字钉住 |
 | B 读投影 | `ViewFace`（48 个方法） | 只读查询、订阅、历史窗口读回（不改内存/磁盘状态） |
-| C 命令面 | `CommandFace`（38 个方法） | 提交/取消、会话与工作区生命周期、子代理与角色草稿动作 |
+| C 命令面 | `CommandFace`（39 个方法） | 提交/取消、会话与工作区生命周期（含批量项目登记）、子代理与角色草稿动作 |
 | D 档位与策略 | `PolicyFace`（22 个方法） | 限制、档位、账号、存储配置、插件、角色生命周期、调度策略 |
 | E 队列面 | `QueueFace`（3 个方法）+ 包级无状态函数 | 排队输入召回/调序、输入建议；`HasSigilPrefix` / `SigilOf` / `ValidEffortLevels` / `AccountWindowPresets` 仍是包级函数（接口装不下函数） |
 
 - 四个接口的方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/core`，
-  共 140 个公开方法）：不新增、不删除、不改名、不改签名——它们就是 gui/tui 今天消费的契约（I5）。
+  共 141 个公开方法）：不新增、不删除、不改名、不改签名——它们就是 gui/tui 今天消费的契约（I5）。
 - `Service` 在**结构上**满足四个面：`application/faces.go` 末尾有编译期钉子
   `var _ ViewFace = (*Service)(nil)` 一族（契约 §1.2 第 1 条）。
 - 不在四组的第三类共 29 个方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：装配注入口

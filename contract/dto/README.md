@@ -35,6 +35,7 @@
 | `gitcommit.go` | 提交详情（一个提交改了哪些文件）只读元数据：状态/路径/重命名原路径/±行数；文件**内容**走 `dto.FileContent`（与工作树预览同一形状）。 |
 | `worktree.go` | `NodeWorktreeInfo`：节点 worktree 现场的只读摘要（人工恢复入口）。 |
 | `review_request.go` | 「agent 请求 GUI 打开待审阅文件」这一格的契约：`ReviewRequest` / `ReviewFileRef` / `ReviewSkip` + 上限 `MaxReviewFilesPerRequest`（10）与跳过原因词表。**只带路径**，文件内容仍走只读预览通道（`dto.FileContent`）。 |
+| `workspace.go` | 批量新建项目契约：`WorkspaceCreateRequest`、`WorkspaceCreateResult`、`WorkspaceCreateBatchResult`。批量创建只登记 workspace，不绑定当前会话；绑定仍走 `BindWorkspace`。 |
 
 ## 依赖方向
 

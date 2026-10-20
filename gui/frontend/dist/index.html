@@ -45,13 +45,70 @@
       <div class="panel-rail-head">
         <button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-left" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-right" data-icon-size="14"></span></button>
       </div>
-      <section class="sessions-section">
-        <div class="section-title">
-          <span>会话</span>
-          <span class="section-actions"><span id="session-count" class="badge">0</span><button id="new-session" class="icon-button" type="button" title="新建会话" aria-label="新建会话" data-icon="plus"></button></span>
+      <nav id="left-nav" class="left-nav" aria-label="左侧主导航">
+        <div class="left-nav-head">
+          <span class="left-nav-title">工作区</span>
+          <button id="toggle-left-nav" class="icon-button subtle left-nav-toggle" type="button" title="收起/展开主导航" aria-label="收起/展开主导航" aria-expanded="true" data-icon="chevron-up"></button>
         </div>
-        <div id="session-list" class="stack-list"></div>
-      </section>
+        <div class="left-nav-items">
+          <button class="left-nav-item is-active" type="button" data-left-page="tasks" aria-current="page">
+            <span class="left-nav-icon" data-icon="message" data-icon-size="14"></span>
+            <span class="left-nav-copy"><span>任务</span><small>会话与项目</small></span>
+          </button>
+          <button class="left-nav-item" type="button" data-left-page="scheduled">
+            <span class="left-nav-icon" data-icon="table" data-icon-size="14"></span>
+            <span class="left-nav-copy"><span>定时任务</span><small>周期与一次执行</small></span>
+          </button>
+          <button class="left-nav-item" type="button" data-left-page="plugins">
+            <span class="left-nav-icon" data-icon="plugin" data-icon-size="14"></span>
+            <span class="left-nav-copy"><span>插件装配</span><small>切换运行能力面</small></span>
+          </button>
+          <div class="left-nav-sub">
+            <button class="left-nav-item is-sub" type="button" data-nav-parent="plugins" data-left-page="skills">
+              <span class="left-nav-icon" data-icon="skill" data-icon-size="13"></span>
+              <span class="left-nav-copy"><span>Skill 管理</span><small>当前插件下的技能</small></span>
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div id="left-page-tasks" class="left-page" role="tabpanel" data-left-page-panel="tasks">
+        <section class="sessions-section">
+          <div class="section-title">
+            <span>任务</span>
+            <span class="section-actions"><span id="session-count" class="badge">0</span><button id="new-session" class="icon-button" type="button" title="新建会话或项目" aria-label="新建会话或项目" data-icon="plus"></button></span>
+          </div>
+          <div id="session-list" class="stack-list"></div>
+        </section>
+      </div>
+
+      <div id="left-page-scheduled" class="left-page hidden" role="tabpanel" data-left-page-panel="scheduled">
+        <section id="scheduled-task-section" class="left-page-section">
+          <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
+          <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
+            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
+            <span id="scheduled-table-summary">0 项任务</span>
+            <span class="work-table-button-hint">查看完整表格</span>
+          </button>
+          <div id="scheduled-task-view" class="sched-view muted">暂无定时任务</div>
+        </section>
+      </div>
+
+      <div id="left-page-plugins" class="left-page hidden" role="tabpanel" data-left-page-panel="plugins">
+        <section id="plugin-section" class="left-page-section">
+          <div class="section-title"><span>插件装配</span><span id="plugin-count" class="badge">0</span></div>
+          <p class="left-page-note">这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins/ 下的不一定是同一份。每行的「载入根 …」是它实际从哪个根载入的；精选目录里没有登记的那个只报这一句事实，不编来源（不写成"随发行包"）。</p>
+          <div id="plugin-list" class="stack-list"></div>
+        </section>
+      </div>
+
+      <div id="left-page-skills" class="left-page hidden" role="tabpanel" data-left-page-panel="skills">
+        <section class="runtime-skills left-page-section">
+          <div class="section-title">Skill 管理</div>
+          <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
+          <div id="skill-list" class="chip-list"></div>
+        </section>
+      </div>
     </aside>
 
     <main class="workspace">
@@ -203,22 +260,9 @@
           <div class="section-title"><span>团队看板</span><span id="team-board-badge" class="badge hidden">0</span></div>
           <div id="team-board-view" class="team-board-view muted">当前无团队计划</div>
         </section>
-        <section id="work-section" class="hidden">
-          <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
-          <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
-            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
-            <span id="work-table-summary">0 项任务</span>
-            <span class="work-table-button-hint">点击查看完整表格</span>
-          </button>
-        </section>
-        <section id="scheduled-task-section">
-          <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
-          <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
-            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
-            <span id="scheduled-table-summary">0 项任务</span>
-            <span class="work-table-button-hint">点击查看完整表格</span>
-          </button>
-          <div id="scheduled-task-view" class="sched-view muted hidden">暂无定时任务</div>
+        <section id="work-section">
+          <div class="section-title"><span>工作台</span><span id="work-count" class="badge">0</span></div>
+          <div id="workbench-summary-view" class="workbench-summary muted">暂时没有 todo 项</div>
         </section>
         </div>
 
@@ -329,15 +373,6 @@
             <span class="effort-end effort-end--max">768</span>
           </div>
           <p class="muted">单回合最大轮次（上限 768，即 max 档默认值）。勾选「无限循环」按进程级上限运行，常用于 goal 这类长任务；运行中的会话改不了，等回合结束再调。</p>
-        </section>
-        <section>
-          <div class="section-title"><span>Plugins</span><span id="plugin-count" class="badge">0</span></div>
-          <p class="muted">这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins/ 下的不一定是同一份。每行的「载入根 …」是它实际从哪个根载入的；精选目录里没有登记的那个只报这一句事实，不编来源（不写成"随发行包"）。</p>
-          <div id="plugin-list" class="stack-list"></div>
-        </section>
-        <section class="runtime-skills">
-          <div class="section-title">Skills</div>
-          <div id="skill-list" class="chip-list"></div>
         </section>
       </div>
     </div>
@@ -501,17 +536,6 @@
     </div>
   </div>
 
-  <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="工作表格">
-    <div class="modal-card work-table-modal-card" data-resizable>
-      <!-- 标题只留一个：表格自己的头带（▾ 工作表格 N 项 M 打点，见 work-table.js，
-           用户口径"保留内部黄色的部分即可"）。这里不再重复 eyebrow + h2 两个"工作表格"，
-           弹窗的无障碍名改走 aria-label。 -->
-      <div class="modal-header work-table-modal-head"><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <div id="work-table-modal-view" class="work-table-modal-view muted">暂无工作任务</div>
-      <div class="modal-resize-handle" aria-hidden="true"></div>
-    </div>
-  </div>
-
   <div id="role-session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="role-session-modal-title">
     <div class="modal-card role-session-card" data-resizable>
       <div class="modal-header"><div class="role-session-title-slot" id="role-session-modal-title"></div><button id="role-session-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
@@ -537,7 +561,7 @@
 
   <div id="new-session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="new-session-modal-title">
     <div class="modal-card new-session-card" data-resizable>
-      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="new-session-modal-title">新建会话</h2></div><button id="new-session-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">任务</span><h2 id="new-session-modal-title">新建任务或项目</h2></div><button id="new-session-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="new-session-step-1" class="new-session-step">
         <div class="new-session-choices">
           <button id="new-session-task" class="new-session-choice" type="button">
@@ -545,15 +569,25 @@
             <span class="new-session-choice-desc">普通对话会话，不绑定项目工作区</span>
           </button>
           <button id="new-session-workspace" class="new-session-choice" type="button">
-            <span class="new-session-choice-title">新建工作区会话</span>
-            <span class="new-session-choice-desc">绑定一个项目文件夹，文件工具作用于该工作区</span>
+            <span class="new-session-choice-title">新建项目 / 项目会话</span>
+            <span class="new-session-choice-desc">先批量登记项目，再选择其中一个开始会话</span>
           </button>
         </div>
       </div>
       <div id="new-session-step-2" class="new-session-step hidden">
         <button id="new-session-back" class="text-button" type="button">← 返回</button>
+        <div class="new-project-composer">
+          <div class="new-project-composer-head">
+            <div><strong>新建项目</strong><small>先加入待创建列表，最后一次性登记；不会立刻切换当前任务。</small></div>
+            <button id="new-project-create" class="primary" type="button" disabled>创建项目</button>
+          </div>
+          <div id="new-project-drafts" class="new-project-drafts" aria-live="polite">
+            <div class="new-project-empty">尚未加入项目文件夹</div>
+          </div>
+          <button id="new-session-pick-folder" class="text-button new-project-add" type="button">选择文件夹加入待创建列表…</button>
+        </div>
+        <div class="new-project-existing-head"><strong>已有项目</strong><small>选择项目后进入未发送的任务草稿。</small></div>
         <div id="new-session-workspace-list" class="stack-list"></div>
-        <button id="new-session-pick-folder" class="text-button" type="button">选择文件夹新建工作区…</button>
       </div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>

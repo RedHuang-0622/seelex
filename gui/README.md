@@ -83,6 +83,10 @@ sequenceDiagram
 
 `Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、`ReorderQueuedInput`/`RecallQueuedInput`（排队中的输入调换顺序/撤回到输入框，只作用于回合运行期间的会话队列）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
+`CreateWorkspaces` 是项目 temp list 的批量提交口：它只登记 workspace，不绑定当前会话。
+前端确认多个目录后一次调用，随后用户从刷新后的项目列表选择一个开始会话；单条
+`CreateWorkspace` 保留“创建并立即绑定当前视图”的既有语义。
+
 ### 多仓库 git（方向 A，2026-10-19）
 
 工作区根下可能有若干互不相干的 git 仓库（根本身是仓库 / 若干子目录各自是仓库 /

@@ -48,7 +48,7 @@ flowchart TB
 
 | 文件 | 职责 |
 |---|---|
-| `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
+| `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排；左侧主导航（任务 / 定时任务 / 插件装配 / Skill 管理）与项目 temp list 的视图状态也在这一层，不复制后端业务状态。 |
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；`acceptBaseline` 是**订阅换代基线**入口（`seelex:ready` 才走它：新订阅 `delivery_seq` 从 1 重计，已应用水位必须归零——不看会话 id 变没变）；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
@@ -68,8 +68,9 @@ flowchart TB
 | `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）**切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
 | `dist/agent-team-retirement.test.mjs` | **Agent Team 退场守卫**（2026-10-12 J-1a）：退场最容易留下的不是报错而是**半条通道**（少了监听器的入口、作废不存在的缓存、指回已删模块的 import）。这里把"退场后的形状"钉成断言——退场资产不再存在、`app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、`index.html` 无 `#team-section`、空态/placeholder 不再提「`@` 手动召唤团队」；同时钉住**保留面**：团队看板（`#team-board-section` + `runtime.teamwork_board`）与角色会话只读观察面原样在场。 |
 | `dist/agent-team-css-retirement.test.mjs` | **退场样式回流闸**（2026-10-12 J-1a / wi-j1a-css）：面板删面后，`styles.css` 里那批面板选择器成了**永远匹配不到**的死规则（DOM 已不存在），本条目按"存活侧引用数 0"（`dist/**.js` / `index.html` / `dist/themes/*.css`）逐条证明后整块摘除，并用这个文件把"已退场前缀"钉成 **0 命中**（按**选择器里的类名 token** 匹配前缀，不做整文件子串匹配——`team-board-*` 是活体、`scheduled-*` 不是 `schedule-*`），覆盖基础段 / hover / `:focus-visible` / `[hidden]` / `@media` 与 `reduced-motion`；**同时钉住脚本侧不许让类名复活**，以及保留面：`team-board-*`（`team-board-view.js` 自带 `TEAM_BOARD_CSS`）、角色会话读面仍在用的 `team-block` / `team-floor-chip` / `team-member-name` / `team-view`、看板表格件 `team-table` / `team-kv*`。 |
-| `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
-| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片并入表头（批次 = chat 请求；表头内的批次筛选行：「全部」页签居首 + 各批次页签 + 各类计数，整行占满表头宽度、与表格同宽同源，横向滚动源只此一条；2026-10-12 按 F-2 取消表格底部那条灰色挡板）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
+| `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台现由内联摘要承载）。 |
+| `dist/work-table.js` | 工作表格的**归一化与状态词表**（阶段/任务/描述/状态/Assignee/Dependency/附件、`workTableView`、`workTableSignatures`、`workItemStatusToken/Label`），以及对完整多维表格的纯渲染能力。GUI 右栏不再打开表格弹窗；`workbench-summary.js` 复用这里的归一化，不重写 kind/status 判据。 |
+| `dist/workbench-summary.js` | 右侧工作台的内联摘要：Todo 是纯打点表；Task 与 Subagent 分成两节但共用“状态轨 + 目标 + 打点”的后台长任务语言。数据源仍是 `snapshot.runtime.work_table`，无内容时 Todo 明确显示「暂时没有 todo 项」；不保留入口按钮或表格弹窗。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
 | `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览，同时 `draggable="true" data-file-drag="<工作区相对路径>"`——可以直接拖到聊天框/消息队列发出去（落点映射见 `dist/file-drop.js`）；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
 | `dist/file-drop.js` | 档案夹 → 会话的拖放**纯映射**（拖拽载荷 → 工作区相对路径 → 排队正文 → 动作）：`normalizeDropPath`（只接受工作区内相对路径：绝对路径、`..`、超长一律丢弃）、`dropPaths`（自定义 mime → `text/plain` → 带路径字段的 `files`；**裸文件名不接受**——发出去只会让模型去读一个不存在的文件）、`fileQueueText`（渲染成一条可执行的读取指令）、`dropPlan`（草稿非空 → `insert` 只追加引用、不替用户发出去；草稿为空 → `queue` 走 composer 的普通提交路径，会话运行中由后端排进消息队列）。DOM 与 Bridge 调用留在 `app.js`（document 级委托：消息队列每次重绘都换 DOM） |
@@ -213,16 +214,13 @@ Workbench 快照或进程制品）；会话粒度基线（`capabilities.session_
 本订阅的投递水位（等于甚至小于渲染层已应用水位），先走去重判定会把它当迟到事件
 吞掉——整份重拉永不发生，视图停在旧内容上。
 
-右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
+右侧工作台由内联摘要统一接管：数据源 `snapshot.runtime.work_table`
 + `snapshot.runtime.work_table_batches`（权威投影）与
 `worktable.changed`/`task.changed` 增量（`worktable.changed` 附加 `batches`
 批次头、并在子代理树内容变化时附带 `subagent_tree`；两者都是可选增量，
-缺失时保留既有值，空数组表示树已清空）。按钮常驻，带未读角标（未读 = 新增或状态/
-retry 变化的条目，打开详情后清零）；点开按钮弹出完整多维表格弹窗（工作台
-窄，详情在弹窗内看全）。Plan 节点 / todolist 项 / task 主动条目 / fork
-子代理归一为 WorkItem 行，按批次分组（批次头可折叠）并按权威 kind 筛选；
-行内可展开打点、todo 三态更新、plan/subagent 详情入口。无任务时隐藏整个
-section。
+缺失时保留既有值，空数组表示树已清空）。摘要按三个信息语言分区：Todo 是打点表，
+Task 与 Subagent 是同一套后台长任务行；Todo 空态始终可读，Task/Subagent 无内容时退场。
+Todo 三态更新仍走 `Bridge.UpdateWorkItemStatus`，Task/Subagent 行保留详情入口。
 
 todo 项（kind=todo）进入工作表格的 `tasklist` 阶段；三态（pending/doing/
 done）只读权威 `work_table` 状态，行内按钮经 `Bridge.UpdateWorkItemStatus`
@@ -246,6 +244,16 @@ task 即 worktable 条目（单一注册表 actor，保护粒度=task）：主�
 `task.changed` 按 task_id 单行 upsert，`worktable.changed` 保持整表替换；
 retry 状态展示 `RETRY n`（retry_count）。
 
+## 左侧主导航（任务 / 定时任务 / 插件装配 / Skill 管理）
+
+左栏顶部是四个页面，不是四份业务状态：`任务`保留会话与项目树；`定时任务`
+展示调度投影；`插件装配`展示当前进程插件并可切换；`Skill 管理`是插件装配下的
+子页，只展示当前插件的 Skill。页面切换与导航收缩分别记忆在
+`seelex.left-page` / `seelex.left-nav.collapsed`，都不进 Snapshot。
+
+导航底色由深浅轴独占：浅色纯白、深色纯黑，不接受皮肤主信号或环境渐变。
+运行状态弹窗不再重复展示 Plugin/Skill，避免同一能力面出现两处入口。
+
 ## 右侧栏子页（状态 / 工作台 / 资源管理器）
 
 五个子页（对话/轨迹/状态/工作台/资源管理器）由停靠布局统一管理（纯函数见
@@ -261,7 +269,8 @@ retry 状态展示 `RETRY n`（retry_count）。
   随快照（不进会话快照）；计数关着且没有历史读数时整块 hidden。**看板只读**：计数开关在
   「设置 → 工具记录」（走 `Bridge.SetToolRecordEnabled`，落数据根 `runtime-limits.json`）。
   渲染件 = `dist/tool-record-board.js`，与 TUI Alt+T 面板同源）。
-- **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
+- **工作台**：「目标」面板 + 团队看板 + Todo/Task/Subagent 内联摘要。定时任务与
+  插件/Skill 已迁到左侧主导航页面。
 - **代码**（资源管理器）：左右分栏——左「内容详情」抽屉 + 右**三个平级子页**
   （工作树 / 提交记录 / 工作区更改）。子页用一条内嵌页签切换（`role=tablist`，
   一次只显示一个），激活态与顺序记忆在 `seelex.right.explorer.v1`，旧
@@ -491,7 +500,7 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 
 ## 定时周期任务
 
-右侧栏「工作台」子页「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
+左侧主导航的「定时任务」页面（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
 新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：**类型只有提示词**（2026-10-07 起，`任务类型`/`命令` 两个控件已删除——命令白名单在本机 dev 包里为空，留着只是让人多点一次）；执行方式分「周期重复」与「定时执行（一次性）」两种。
 
@@ -504,7 +513,8 @@ Go 侧执行之前就报
 两头都有钉子：`scheduled-tasks-view.test.mjs`（`spec.runAt === null`）+ `gui/bridge_test.go` 的
 `TestScheduledTaskRunAtWireContract` / `TestEmbeddedScheduledPayloadDelegatedToView`。
 
-**表格弹窗（口径与工作表格弹窗同族）**：完整表格放 `#scheduled-table-modal`（右栏只留入口按钮），里面有两条硬规矩，改 `index.html` / `styles.css` 时别踩回去：
+**表格弹窗（定时任务专用）**：完整表格放 `#scheduled-table-modal`（左侧定时任务页
+只留入口按钮），里面有两条硬规矩，改 `index.html` / `styles.css` 时别踩回去：
 
 - **名字只有一条**：弹窗头只留关闭按钮（`aria-label="定时任务表格"` 给无障碍名），整块的名字由表内头带 `.sched-table-band` 那条给出（`定时任务 N 项`，坐在 `--surface-2` 浅色带上）。头带在滚动容器之外，空态（0 条）也照常渲染——否则删掉弹窗头两个标题后整块就没有名字了。
 - **纵向只有一个滚动容器**：卡片（`.modal-card.scheduled-table-card[data-resizable]`）与正文容器（`#scheduled-table-view`）都只让高度（`overflow: hidden`），唯一滚的是 `.sched-table-scroll`（横向溢出也归它，表格 `min-width: 720px`）。三个都滚就是"一次滚动跳三层"。
@@ -863,10 +873,11 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
 - **文档与证据**：成因分析（五条可复现规则）、渐变色皮肤设计、逐文件改动表、静态复刻页
   与实机截图都在 [`docs/gui/design/qoder-skin/`](../../docs/gui/design/qoder-skin/README.md)。
 
-**中栏是"一块带圆角的纸"（2026-09-24 第二波）**：`.workspace`（对话区整块 panel：子页页签条 +
-对话/轨迹 + composer + 终端面板）拿到 `border-radius: var(--r-md)`(8px)，子节点由既有
-`overflow: hidden` 一起裁圆；圆角里露出来的是壳的渐变，**不缩进**——这与 Qoder 实机量到的
-"纸四角 7–8px 圆角、四边紧贴窗口"一致（量法见 `docs/gui/design/qoder-skin/tools/measure-skin.py`
-同族，数值见 DESIGN-LANGUAGE §3）。同时把 `.conversation-tabs` 的底色清掉：它还留着
-**渐变换代前**的壳色 `var(--bg)`（#f7f6f2），叠在纸上就是第三种颜色、会把纸上面两个圆角
-抹平——纸要读成"一整块"，页签条就得是纸的一部分。
+**三栏齐边贴合（2026-10-21）**：主网格只保留
+`左栏 | 对话区 | 右栏` 三个真实列，两个 6px 分隔条改成覆盖在边界上的命中层，
+不再预留沟槽。`.workspace` 取消外圆角，三栏之间只保留发丝线；对话区、左右栏
+的边距由各自容器负责，组件不再用 `margin` 制造“缝”。
+
+`glass` 材质皮肤按同一方向分三档：左栏 38%、对话区 66%、右栏 88%，模糊半径
+同步增大，避免三块同质玻璃。所有不透明度只由材质皮肤的壳/纸规则控制，不改
+深浅基座和纯色皮肤。

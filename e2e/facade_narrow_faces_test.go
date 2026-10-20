@@ -81,6 +81,7 @@ var wantFaceMethods = map[string][]string{
 		"ClearSubagentTree",
 		"CompactContextNow",
 		"CreateWorkspace",
+		"CreateWorkspaces",
 		"DeleteSession",
 		"ForkSession",
 		"ForkSessionLatest",

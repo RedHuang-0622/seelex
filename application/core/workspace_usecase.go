@@ -72,6 +72,22 @@ func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error 
 	return service.components.workspace.CreateWorkspace(name, rootPath, gitRemote)
 }
 
+// CreateWorkspaces 批量登记项目，不绑定当前会话（GUI 新建项目 temp list 的提交口）。
+// 创建成功后只刷新 workspace 目录投影并发布 snapshot.changed；当前会话、绑定与运行时根都不动。
+func (service *Service) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
+	result, err := service.components.workspace.CreateWorkspaces(requests)
+	if err != nil {
+		return result, err
+	}
+	projection := service.components.workspace.Projection()
+	service.ViewMu.Lock()
+	service.applyWorkspaceProjectionLocked(projection)
+	revision := service.bumpLocked()
+	service.ViewMu.Unlock()
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
+	return result, nil
+}
+
 // BindWorkspace 把工作区绑定到当前视图会话/草稿（实现：middle/switch/workspace）。
 func (service *Service) BindWorkspace(workspaceID string) error {
 	return service.components.workspace.BindWorkspace(workspaceID)

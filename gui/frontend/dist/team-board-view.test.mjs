@@ -874,12 +874,12 @@ test("(r) teammate 详情页：装配页签 = 同一个 renderMemberAssembly + t
 // ── 样式与接线 ───────────────────────────────────────────────────
 
 test("(s) TEAM_BOARD_CSS：定值滚动上限 + 刻度尺 sticky + 窄栏容器查询 + 详情页卡片", () => {
-  assert.match(TEAM_BOARD_CSS, /--team-dag-scroll-max-h:\s*380px/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*max-height:\s*var\(--team-dag-scroll-max-h,\s*380px\)/);
+  assert.match(TEAM_BOARD_CSS, /--team-dag-scroll-max-h:\s*310px/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*max-height:\s*var\(--team-dag-scroll-max-h,\s*310px\)/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-ruler\s*\{[^}]*position:\s*sticky/);
   assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*container-type:\s*inline-size/);
   assert.match(TEAM_BOARD_CSS, /@container \(max-width:\s*520px\)/);
-  assert.match(TEAM_BOARD_CSS, /@container \(max-width:\s*520px\)\s*\{[\s\S]*?--team-dag-slot-w:\s*38px/);
+  assert.match(TEAM_BOARD_CSS, /@container \(max-width:\s*520px\)\s*\{[\s\S]*?--team-dag-slot-w:\s*34px/);
   assert.match(TEAM_BOARD_CSS, /\.team-page-card\s*\{[^}]*max-height:\s*min\(82vh,\s*760px\)/);
   assert.match(TEAM_BOARD_CSS, /\.team-page-panel\s*\{\s*display:\s*none/);
   assert.match(TEAM_BOARD_CSS, /\.team-page-panel\.is-active\s*\{\s*display:\s*block/);

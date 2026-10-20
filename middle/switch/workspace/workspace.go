@@ -12,6 +12,9 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -133,8 +136,48 @@ func New(deps Deps) *UseCase {
 
 // CreateWorkspace 建工作区（空 gitRemote 时探测 origin），成功后立即绑定到当前视图。
 func (usecase *UseCase) CreateWorkspace(name, rootPath, gitRemote string) error {
+	info, err := usecase.createWorkspace(name, rootPath, gitRemote)
+	if err != nil {
+		return err
+	}
+	return usecase.bindInfo(info)
+}
+
+// CreateWorkspaces 批量登记项目，不绑定当前视图；调用方创建后再按 ID 绑定。
+// 所有输入先整体校验，重复根路径不会产生半批写入。
+func (usecase *UseCase) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
+	prepared, err := normalizeWorkspaceCreateRequests(requests)
+	if err != nil {
+		return dto.WorkspaceCreateBatchResult{}, err
+	}
+	if usecase.deps.Store == nil {
+		return dto.WorkspaceCreateBatchResult{}, errors.New("workspace store is not available")
+	}
+	existing := make(map[string]struct{})
+	for _, info := range usecase.deps.Store.List() {
+		existing[workspaceRootKey(info.RootPath)] = struct{}{}
+	}
+	for _, request := range prepared {
+		if _, found := existing[workspaceRootKey(request.RootPath)]; found {
+			return dto.WorkspaceCreateBatchResult{}, fmt.Errorf("workspace root is already registered: %s", request.RootPath)
+		}
+	}
+	result := dto.WorkspaceCreateBatchResult{Workspaces: make([]dto.WorkspaceCreateResult, 0, len(prepared))}
+	for index, request := range prepared {
+		info, createErr := usecase.createWorkspace(request.Name, request.RootPath, request.GitRemote)
+		if createErr != nil {
+			return result, fmt.Errorf("create workspace %q (#%d): %w", request.Name, index+1, createErr)
+		}
+		result.Workspaces = append(result.Workspaces, dto.WorkspaceCreateResult{
+			ID: info.ID, Name: info.Name, RootPath: info.RootPath, GitRemote: info.GitRemote,
+		})
+	}
+	return result, nil
+}
+
+func (usecase *UseCase) createWorkspace(name, rootPath, gitRemote string) (model.WorkspaceInfo, error) {
 	if name == "" || rootPath == "" {
-		return fmt.Errorf("workspace name and root path are required")
+		return model.WorkspaceInfo{}, fmt.Errorf("workspace name and root path are required")
 	}
 	if gitRemote == "" {
 		if detected := usecase.deps.Store.DetectGitRemote(rootPath); detected != "" {
@@ -143,9 +186,41 @@ func (usecase *UseCase) CreateWorkspace(name, rootPath, gitRemote string) error 
 	}
 	info, err := usecase.deps.Store.Create(name, rootPath, gitRemote)
 	if err != nil {
-		return err
+		return model.WorkspaceInfo{}, err
 	}
-	return usecase.bindInfo(info)
+	return info, nil
+}
+
+func normalizeWorkspaceCreateRequests(requests []dto.WorkspaceCreateRequest) ([]dto.WorkspaceCreateRequest, error) {
+	if len(requests) == 0 {
+		return nil, errors.New("workspace batch requires at least one project")
+	}
+	out := make([]dto.WorkspaceCreateRequest, len(requests))
+	roots := make(map[string]struct{}, len(requests))
+	for index, request := range requests {
+		name := strings.TrimSpace(request.Name)
+		rootPath := strings.TrimSpace(request.RootPath)
+		if name == "" || rootPath == "" {
+			return nil, fmt.Errorf("workspace name and root path are required (#%d)", index+1)
+		}
+		key := workspaceRootKey(rootPath)
+		if _, exists := roots[key]; exists {
+			return nil, fmt.Errorf("duplicate workspace root path: %s", rootPath)
+		}
+		roots[key] = struct{}{}
+		out[index] = dto.WorkspaceCreateRequest{
+			Name: name, RootPath: rootPath, GitRemote: strings.TrimSpace(request.GitRemote),
+		}
+	}
+	return out, nil
+}
+
+func workspaceRootKey(rootPath string) string {
+	cleaned := filepath.Clean(rootPath)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(cleaned)
+	}
+	return cleaned
 }
 
 // BindWorkspace 把已存在的工作区绑定到当前视图会话/草稿。

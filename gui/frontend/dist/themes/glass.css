@@ -38,22 +38,32 @@
 
 /* 壳 = 透的玻璃：不铺实色底，只留一条半透明渐变；后面透出什么就看到什么。 */
 .app-shell {
+  --glass-left-alpha: 38%;
+  --glass-center-alpha: 66%;
+  --glass-right-alpha: 88%;
   background-color: transparent;
   background-image: var(--shell-gradient);
 }
 
-/* 纸 = 盖在壳上的一层雾面玻璃：半透明面 + 把身后的渐变糊掉。 */
-.workspace {
-  background: color-mix(in srgb, var(--surface) 58%, transparent);
-  backdrop-filter: blur(22px) saturate(1.35);
-  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+/* 三栏是同一块材质的三档不透明度，而不是三块同质玻璃：
+   左栏最透，对话区居中，右栏最实；模糊半径同步增加，让层级从左向右收敛。 */
+.left-panel {
+  background: color-mix(in srgb, var(--surface) var(--glass-left-alpha), transparent);
+  backdrop-filter: blur(16px) saturate(1.42);
+  -webkit-backdrop-filter: blur(16px) saturate(1.42);
 }
-
-/* 顶栏与左右栏同材质（比纸更透一档，让壳的渐变透出来）。 */
-.topbar,
-.left-panel,
+.workspace {
+  background: color-mix(in srgb, var(--surface) var(--glass-center-alpha), transparent);
+  backdrop-filter: blur(24px) saturate(1.30);
+  -webkit-backdrop-filter: blur(24px) saturate(1.30);
+}
 .right-panel {
-  background: color-mix(in srgb, var(--surface) 44%, transparent);
-  backdrop-filter: blur(22px) saturate(1.35);
-  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  background: color-mix(in srgb, var(--surface) var(--glass-right-alpha), transparent);
+  backdrop-filter: blur(32px) saturate(1.18);
+  -webkit-backdrop-filter: blur(32px) saturate(1.18);
+}
+.topbar {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  backdrop-filter: blur(20px) saturate(1.34);
+  -webkit-backdrop-filter: blur(20px) saturate(1.34);
 }

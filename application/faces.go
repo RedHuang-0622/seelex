@@ -194,6 +194,7 @@ type CommandFace interface {
 	ClearSubagentTree() error
 	CompactContextNow(ctx context.Context) (core.ContextCompactionResult, error)
 	CreateWorkspace(name, rootPath, gitRemote string) error
+	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
 	DeleteSession(sessionID string) error
 	ForkSessionLatest(parentID string) (string, error)
 	ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)
