@@ -1639,9 +1639,10 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		t.Fatal("primary GUI actions must use icon controls")
 	}
 	html := string(index)
-	leftStart := strings.Index(html, `<aside class="left-panel panel">`)
+	navStart := strings.Index(html, `<aside class="nav-panel"`)
+	leftStart := strings.Index(html, `<aside class="left-panel task-panel panel">`)
 	rightStart := strings.Index(html, `<aside class="right-panel panel">`)
-	if leftStart < 0 || rightStart < 0 {
+	if navStart < 0 || leftStart < 0 || rightStart < 0 || leftStart < navStart {
 		t.Fatal("embedded frontend sidebars are incomplete")
 	}
 	leftEnd := strings.Index(html[leftStart:], `</aside>`)
@@ -1656,7 +1657,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	rightPanel := html[rightStart : rightStart+rightEnd]
 	runtimeModal := html[runtimeStart:]
 	if !strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || strings.Contains(runtimeModal, `id="plugin-list"`) {
-		t.Fatal("plugins must be rendered in the left navigation, not the runtime modal")
+		t.Fatal("plugins must be rendered in the task-list column, not the runtime modal")
 	}
 	if !strings.Contains(leftPanel, `id="skill-list"`) || strings.Contains(runtimeModal, `id="skill-list"`) {
 		t.Fatal("skills must be rendered in the left navigation, not the runtime modal")
@@ -1681,6 +1682,15 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(string(script), "createWorkbenchSummaryView(") {
 		t.Fatal("工作台内联摘要必须接入 workbench-summary.js")
+	}
+	editorStart := strings.Index(html, `id="scheduled-editor"`)
+	mainStart := strings.Index(html, `<main class="workspace">`)
+	mainEnd := strings.Index(html[mainStart:], `</main>`)
+	if editorStart < mainStart || mainStart < 0 || mainEnd < 0 || editorStart > mainStart+mainEnd {
+		t.Fatal("定时任务编辑器必须挂在中间会话工作区，不得回到弹窗")
+	}
+	if strings.Contains(html, `id="scheduled-task-modal"`) || strings.Contains(html, `id="scheduled-table-modal"`) {
+		t.Fatal("定时任务不得继续使用弹窗或表格弹窗")
 	}
 	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
 		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
@@ -1822,75 +1832,6 @@ func TestEmbeddedWorkbenchInlineSummary(t *testing.T) {
 	}
 }
 
-// TestEmbeddedScheduledTableTitleOnce：定时任务表格弹窗只留一个「定时任务」标题。
-// 现场（用户报告，2026-09-29 真机两连）：「依旧嵌套」「依旧多重标题」——同一个毛病
-// 的下一处：工作表格弹窗已在 e2dd0f0 收敛成"弹窗头只留关闭按钮、标题交给表内头带"，
-// 定时任务表格弹窗仍写着 eyebrow「定时任务」+ h2「定时任务表格」两行同名标题。
-// 口径照 e2dd0f0：弹窗头两个都删掉、无障碍名改走 aria-label，名字只留表内那一条
-// （scheduled-tasks-view.js 的 .sched-table-band 里的 <strong>定时任务</strong>）。
-func TestEmbeddedScheduledTableTitleOnce(t *testing.T) {
-	t.Parallel()
-	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
-	if err != nil {
-		t.Fatalf("embedded frontend index.html: %v", err)
-	}
-	html := string(page)
-	start := strings.Index(html, `<div id="scheduled-table-modal"`)
-	if start < 0 {
-		t.Fatal("找不到定时任务表格弹窗容器")
-	}
-	head := html[start:]
-	end := strings.Index(head, `id="scheduled-table-view"`)
-	if end < 0 {
-		t.Fatal("找不到定时任务表格弹窗的正文容器")
-	}
-	modalHead := head[:end]
-	if !strings.Contains(modalHead, `aria-label="定时任务表格"`) {
-		t.Fatal("弹窗的无障碍名要落在 aria-label 上（视觉标题只剩表格头带那一条）")
-	}
-	for _, banned := range []string{`class="eyebrow"`, "scheduled-table-modal-title", "<h2"} {
-		if strings.Contains(modalHead, banned) {
-			t.Fatalf("定时任务表格弹窗头不得再重复标题（只留表格头带那一条），却仍有：%s", banned)
-		}
-	}
-	script, err := embeddedFrontend.ReadFile("frontend/dist/scheduled-tasks-view.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(script), "<strong>定时任务</strong>") {
-		t.Fatal("表格头带里那一条「定时任务」要留着：弹窗头删掉后就靠它给整块命名")
-	}
-}
-
-// TestEmbeddedScheduledTableSingleScrollContainer：定时任务表格弹窗纵向只允许一个
-// 滚动容器。
-//
-// 现场（用户报告，与工作表格弹窗同一句）："依旧嵌套"——根因同样是三层嵌套：
-// .modal-card[data-resizable] 自带 overflow: auto、正文容器 #scheduled-table-view
-// 又写了一份 overflow: auto、表格再自带 min-width 横向滚。修法照
-// TestEmbeddedWorkTableSingleScrollContainer：卡片与正文容器都不滚，只有表格区
-// .sched-table-scroll 滚（横向也归它）。
-func TestEmbeddedScheduledTableSingleScrollContainer(t *testing.T) {
-	t.Parallel()
-	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
-	if err != nil {
-		t.Fatalf("embedded frontend styles.css: %v", err)
-	}
-	source := string(styles)
-	for _, want := range []string{
-		".modal-card.scheduled-table-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }",
-		"#scheduled-table-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }",
-		"#scheduled-table-view .sched-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }",
-	} {
-		if !strings.Contains(source, want) {
-			t.Fatalf("定时任务表格弹窗必须只有一个纵向滚动容器，缺少规则：%s", want)
-		}
-	}
-	if strings.Contains(source, ".scheduled-table-view { overflow: auto;") {
-		t.Fatal("定时任务表格正文容器不得再自带 overflow: auto（与卡片自身 overflow 叠加就是多重滚轮）")
-	}
-}
-
 // TestEmbeddedScheduledToggleInline：新建定时任务弹窗的「创建后立即启用」开关与文案
 // 必须在同一行。
 //
@@ -1913,7 +1854,7 @@ func TestEmbeddedScheduledToggleInline(t *testing.T) {
 	}
 }
 
-// TestEmbeddedScheduledFormPromptOnly：新建定时任务弹窗只做提示词任务。
+// TestEmbeddedScheduledFormPromptOnly：中栏定时任务编辑器只做提示词任务。
 //
 // 现场（2026-10-07 用户口径）：「任务类型这个可以去掉了，只需要提示词的就够了」——
 // 下拉里那个"命令（白名单脚本）"在这一版 dev 包里根本没有可用项（白名单为空，
@@ -1927,12 +1868,12 @@ func TestEmbeddedScheduledFormPromptOnly(t *testing.T) {
 		t.Fatalf("embedded frontend index.html: %v", err)
 	}
 	html := string(page)
-	start := strings.Index(html, `<div id="scheduled-task-modal"`)
+	start := strings.Index(html, `<section id="scheduled-editor"`)
 	if start < 0 {
-		t.Fatal("找不到新建定时任务弹窗容器")
+		t.Fatal("找不到中栏定时任务编辑器")
 	}
 	body := html[start:]
-	if end := strings.Index(body, `<div id="command-modal"`); end > 0 {
+	if end := strings.Index(body, `<!-- 消息队列宿主`); end > 0 {
 		body = body[:end]
 	}
 	for _, banned := range []string{"sched-kind", "sched-command"} {
@@ -1949,16 +1890,16 @@ func TestEmbeddedScheduledFormPromptOnly(t *testing.T) {
 		`id="sched-anchor-now-field"`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("新建弹窗缺少周期锚点/提示词字段：%s", want)
+			t.Fatalf("定时任务编辑器缺少周期锚点/提示词字段：%s", want)
 		}
 	}
 	// 周期单位要能选到"分钟"（1 分钟周期是冒烟与自测最常用的粒度）。
 	if !strings.Contains(body, `<option value="minute">分钟</option>`) {
-		t.Fatal("周期单位下拉缺「分钟」：1 分钟粒度的任务在弹窗里就建不出来")
+		t.Fatal("周期单位下拉缺「分钟」：1 分钟粒度的任务在编辑器里就建不出来")
 	}
 }
 
-// TestEmbeddedScheduledFormCarriesWorkspacePicker：新建弹窗要能选工作区。
+// TestEmbeddedScheduledFormCarriesWorkspacePicker：中栏编辑器要能选工作区。
 //
 // 现场（2026-10-07 用户口径）：「定时任务需要支持工作空间的装配，每次发起默认
 // 新开会话」。落点是两件事：弹窗里给一个工作区下拉（空 = 不绑项目），载荷里
@@ -1971,23 +1912,23 @@ func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
 		t.Fatalf("embedded frontend index.html: %v", err)
 	}
 	html := string(page)
-	start := strings.Index(html, `<div id="scheduled-task-modal"`)
+	start := strings.Index(html, `<section id="scheduled-editor"`)
 	if start < 0 {
-		t.Fatal("找不到新建定时任务弹窗容器")
+		t.Fatal("找不到中栏定时任务编辑器")
 	}
 	body := html[start:]
-	if end := strings.Index(body, `<div id="command-modal"`); end > 0 {
+	if end := strings.Index(body, `<!-- 消息队列宿主`); end > 0 {
 		body = body[:end]
 	}
 	if !strings.Contains(body, `id="sched-workspace"`) {
-		t.Fatal("新建弹窗缺少工作区下拉：定时任务就没法装配工作区")
+		t.Fatal("定时任务编辑器缺少工作区下拉：定时任务就没法装配工作区")
 	}
 	// 权限档位与插件装配同样在弹窗里可选（默认档位空 = 后端按 full access 处理）。
 	// 执行参数（思考强度 / 循环次数）同理：留空 = 不声明，默认值由后端按默认档位落，
 	// 前端只把用户填的值原样送出去。
 	for _, want := range []string{`id="sched-permission"`, `id="sched-plugins"`, `id="sched-effort"`, `id="sched-loops"`} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("新建弹窗缺少装配/执行参数控件：%s", want)
+			t.Fatalf("定时任务编辑器缺少装配/执行参数控件：%s", want)
 		}
 	}
 	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")

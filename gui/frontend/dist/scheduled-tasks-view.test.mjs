@@ -15,7 +15,7 @@ const componentsSource = (await readFile(new URL("./components.js", import.meta.
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
 const source = (await readFile(new URL("./scheduled-tasks-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
-const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields, normalizePluginList, normalizeLoopLimit } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { buildScheduledTaskSpec, renderScheduledTasks, scheduledTaskFormFields, normalizePluginList, normalizeLoopLimit } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const task = (overrides = {}) => ({
   id: "sched_1",
@@ -116,7 +116,7 @@ test("escapes all rendered text and tolerates malformed items", () => {
   assert.doesNotMatch(html, /<i>label<\/i>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   // 畸形条目被过滤：仅剩 1 条合法任务
-  const items = (html.match(/class="sched-item"/g) || []).length;
+  const items = (html.match(/class="sched-item is-/g) || []).length;
   assert.equal(items, 1);
 });
 
@@ -132,46 +132,6 @@ test("renders disabled task with off chip and pending status", () => {
   assert.match(html, /sched-chip-off/);
   assert.match(html, /已停用/);
   assert.match(html, /待运行/);
-});
-
-test("renders scheduled tasks as Excel table with columns and cancel buttons", () => {
-  const html = renderScheduledTasksTable([task()], [{ key: "auto_get_jobs", label: "BOSS直聘自动投简历" }]);
-  assert.match(html, /excel-grid scheduled-table/);
-  assert.match(html, />名称</);
-  assert.match(html, />类型</);
-  assert.match(html, />周期</);
-  assert.match(html, />下次运行</);
-  assert.match(html, />状态</);
-  assert.match(html, />操作</);
-  assert.match(html, /抓职位/);
-  assert.match(html, /每 1 小时/);
-  assert.match(html, /BOSS直聘自动投简历/);
-  assert.match(html, /data-sched-cancel="sched_1"/);
-  assert.match(html, /已启用/);
-  assert.match(html, /上次成功/);
-  assert.match(html, /data-sched-id="sched_1"/);
-});
-
-// 表格整块的名字只剩头带那一条（弹窗头不再重复标题），且表体只隔一个滚动容器：
-// 弹窗纵向只此一层可滚（口径同工作表格弹窗，见 styles.css 的 .scheduled-table-card）。
-test("keeps one name band and one scroll container around the scheduled table", () => {
-  const html = renderScheduledTasksTable([task(), task({ id: "sched_2", name: "第二个" })], []);
-  assert.match(html, /<header class="sched-table-band">\s*<strong>定时任务<\/strong>/);
-  assert.match(html, /sched-table-total">2 项</);
-  assert.equal((html.match(/class="sched-table-scroll"/g) || []).length, 1);
-  assert.equal((html.match(/<table/g) || []).length, 1);
-  // 头带在滚动容器之外：滚动时块名不跟着走。
-  assert.ok(html.indexOf("sched-table-band") < html.indexOf("sched-table-scroll"));
-});
-
-test("renders empty scheduled table state for empty or non-array input", () => {
-  for (const items of [[], null, undefined, "nope"]) {
-    const html = renderScheduledTasksTable(items, []);
-    assert.match(html, /暂无定时任务/);
-    // 空表也有头带：标题只剩这一条，空态不能连名字一起丢。
-    assert.match(html, /<strong>定时任务<\/strong>/);
-    assert.match(html, /sched-table-total">0 项</);
-  }
 });
 
 // 周期锚点在面板上的读数：给了开始时间要显示出来，没给要写明"按创建时间"——
@@ -318,9 +278,6 @@ test("editing renders an edit button carrying the task ID", () => {
   assert.match(list, />编辑</);
   // 编辑与取消并存：ID 仍是操作键，两个按钮各带各的。
   assert.match(list, /data-sched-cancel="sched_1"/);
-  const table = renderScheduledTasksTable([task()], []);
-  assert.match(table, /data-sched-edit="sched_1"/);
-  assert.match(table, /data-sched-cancel="sched_1"/);
 });
 
 test("restores a periodic task into form fields and back into the same spec", () => {

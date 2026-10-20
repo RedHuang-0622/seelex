@@ -134,6 +134,7 @@
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
+  --nav-w: 112px;
 
   --shadow: 0 14px 34px rgba(24, 28, 36, .14), 0 2px 6px rgba(24, 28, 36, .06);
   --shadow-sm: 0 1px 2px rgba(24, 28, 36, .05), 0 8px 20px rgba(24, 28, 36, .07);
@@ -305,16 +306,18 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 /* ---------- 3. App shell / topbar / panels ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: var(--left-w, 268px) minmax(0, 1fr) var(--right-w, 300px);
+  grid-template-columns: var(--nav-w, 112px) var(--left-w, 268px) minmax(0, 1fr) var(--right-w, 300px);
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
 }
-.left-panel { grid-column: 1; grid-row: 2; }
-#left-divider { grid-column: 1; grid-row: 2; justify-self: end; width: 6px; }
-.workspace { grid-column: 2; grid-row: 2; }
-#right-divider { grid-column: 3; grid-row: 2; justify-self: start; width: 6px; }
-.right-panel { grid-column: 3; grid-row: 2; }
+.nav-panel { grid-column: 1; grid-row: 2; }
+.left-panel { grid-column: 2; grid-row: 2; }
+#left-divider { grid-column: 2; grid-row: 2; justify-self: end; width: 6px; }
+.workspace { grid-column: 3; grid-row: 2; }
+#right-divider { grid-column: 4; grid-row: 2; justify-self: start; width: 6px; }
+.right-panel { grid-column: 4; grid-row: 2; }
+html[data-left-nav-collapsed="true"] { --nav-w: 52px; }
 
 /* 侧栏分隔条：命中区 6px，视觉反馈是一条居中的实体竖带——
    悬停点亮成黄铜描边并浮出"抓取把手"（居中一排小圆点），拖拽时整条变成
@@ -422,6 +425,17 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
      2) 会话列表 .stack-list = 保留；
      3) 每个展开的会话分组 .session-group-body（项目粒度）= 保留（见该规则）。
    面板从此只做高度容器（flex 列 + overflow: hidden），把剩余高度让给 2)。 */
+.nav-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 6px;
+  overflow: hidden;
+  border-right: 1px solid var(--left-nav-line);
+  color: var(--left-nav-ink);
+  background: var(--left-nav-bg);
+}
+.nav-panel-head { display: flex; justify-content: flex-end; flex: none; min-height: 24px; padding: 0 2px 7px; }
 .left-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
 .right-panel {
   display: flex;
@@ -441,55 +455,45 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .sessions-section > .section-title { flex: none; }
 .sessions-section .stack-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
 
-/* 左侧主导航：深浅轴独占的纯黑/纯白块。它不做毛玻璃，也不接受皮肤主信号。 */
-.left-nav {
-  flex: none;
-  margin: 0 0 10px;
-  padding: 8px;
-  border: 1px solid var(--left-nav-line);
-  border-radius: var(--r-lg);
-  color: var(--left-nav-ink);
-  background: var(--left-nav-bg);
-}
-.left-nav-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; padding: 0 2px 6px; }
-.left-nav-title { color: var(--left-nav-muted); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.task-list-heading { display: grid; gap: 2px; flex: none; padding: 0 1px 12px; border-bottom: 1px solid var(--border-hairline); }
+.task-list-eyebrow { color: var(--faint); font: 700 9.5px var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+.task-list-heading strong { color: var(--text-strong); font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
+
+/* 一级导航独立成列：深浅轴独占的纯黑/纯白块，不做毛玻璃。 */
+.left-nav { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; }
 .left-nav-toggle { color: var(--left-nav-muted); }
 .left-nav-toggle:hover { color: var(--left-nav-ink); background: var(--left-nav-hover); }
-.left-nav-items { display: flex; flex-direction: column; gap: 3px; }
 .left-nav-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 9px;
   width: 100%;
-  min-height: 38px;
-  padding: 6px 8px;
+  min-height: 62px;
+  padding: 8px 4px;
   border: 0;
   border-radius: var(--r-md);
   color: var(--left-nav-ink);
   background: transparent;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 .left-nav-item:hover { background: var(--left-nav-hover); }
 .left-nav-item.is-active { color: var(--left-nav-active-ink); background: var(--left-nav-active-bg); }
 .left-nav-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; }
-.left-nav-copy { display: flex; flex-direction: column; min-width: 0; }
-.left-nav-copy > span { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
-.left-nav-copy small { margin-top: 1px; overflow: hidden; color: var(--left-nav-muted); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.left-nav-item.is-active .left-nav-copy small { color: color-mix(in srgb, var(--left-nav-active-ink) 62%, transparent); }
-.left-nav-sub { margin-left: 18px; padding-left: 8px; border-left: 1px solid var(--left-nav-line); }
-.left-nav-item.is-sub { min-height: 34px; }
-.left-nav-item.is-sub .left-nav-copy > span { font-size: 11.5px; font-weight: 500; }
-html[data-left-nav-collapsed="true"] .left-nav { padding: 6px; }
-html[data-left-nav-collapsed="true"] .left-nav-head { justify-content: center; padding-bottom: 4px; }
-html[data-left-nav-collapsed="true"] .left-nav-title,
+.left-nav-copy { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+html[data-left-nav-collapsed="true"] .nav-panel { padding-inline: 4px; }
+html[data-left-nav-collapsed="true"] .nav-panel-head { justify-content: center; padding-bottom: 4px; }
 html[data-left-nav-collapsed="true"] .left-nav-copy { display: none; }
-html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; min-height: 32px; padding: 5px; }
-html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-left: 0; border-left: 0; }
+html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding: 5px; }
 
 .left-page { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.task-list-heading + .left-page { padding-top: 10px; }
 .left-page-section { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.left-page-section > .stack-list { flex: none; max-height: none; overflow: visible; }
 .left-page-note { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.plugin-skills-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-hairline); }
 
 .section-title {
   display: flex;
@@ -2526,23 +2530,128 @@ html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-lef
 .side-more-body { padding-top: 12px; }
 
 /* ---------- 10. Scheduled tasks / history search / todo ---------- */
-.sched-view { display: grid; gap: 7px; font-size: var(--text-sm); }
-.sched-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; max-height: 320px; overflow: auto; }
-.sched-item { display: grid; gap: 5px; padding: 8px 2px; border: 0; background: transparent; }
-.sched-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.sched-head strong { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sched-view { display: grid; gap: 7px; min-height: 0; font-size: var(--text-sm); }
+.sched-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.sched-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; min-width: 0; border-bottom: 1px solid var(--border-hairline); background: transparent; }
+.sched-item-main {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  min-width: 0;
+  padding: 9px 2px 9px 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.sched-item-main:hover .sched-head strong { color: var(--accent); }
+.sched-rhythm { display: grid; justify-items: start; gap: 2px; padding-left: 8px; border-left: 2px solid var(--status-idle); }
+.sched-item.is-running .sched-rhythm { border-left-color: var(--status-running); }
+.sched-item.is-ok .sched-rhythm { border-left-color: var(--status-done); }
+.sched-item.is-failed .sched-rhythm { border-left-color: var(--status-failed); }
+.sched-rhythm b { max-width: 54px; overflow: hidden; color: var(--text-strong); font: 700 10px/1.35 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.sched-rhythm small { color: var(--faint); font: 9px var(--font-mono); white-space: nowrap; }
+.sched-copy { display: grid; gap: 3px; min-width: 0; }
+.sched-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.sched-head strong { flex: 1 1 auto; overflow: hidden; color: var(--text-strong); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .sched-chip-on { color: var(--status-done); }
 .sched-chip-off { color: var(--faint); }
-.sched-status { margin-left: auto; color: var(--muted); font: 700 10px var(--font-mono); }
+.sched-status { flex: none; color: var(--muted); font: 700 9px var(--font-mono); text-transform: uppercase; }
 .sched-status.is-running { color: var(--status-running); }
 .sched-status.is-ok { color: var(--status-done); }
 .sched-status.is-failed { color: var(--status-failed); }
-.sched-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--faint); font: 10px var(--font-mono); }
-.sched-detail { overflow-wrap: anywhere; color: var(--text-mid); font-size: 11px; line-height: 1.45; }
-.sched-result { overflow: auto; max-height: 56px; overflow-wrap: anywhere; color: var(--faint); font: 10px/1.45 var(--font-mono); }
+.sched-open-hint { flex: none; color: var(--faint); font: 9px var(--font-mono); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.sched-item-main:hover .sched-open-hint { opacity: 1; }
+.sched-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--faint); font: 9.5px var(--font-mono); }
+.sched-detail { overflow: hidden; color: var(--text-mid); font-size: 10.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.sched-result { overflow: hidden; color: var(--faint); font: 9.5px/1.45 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .sched-result.sched-error { color: var(--status-failed); }
 .sched-log { overflow: auto; max-height: 88px; margin: 0; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--faint); font: 10px/1.5 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
-.sched-actions { display: flex; justify-content: flex-end; }
+.sched-row-tail { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 8px 0 8px 2px; }
+.sched-row-tail .chip { padding: 1px 5px; border: 0; background: transparent; font-size: 9px; }
+.sched-cancel { color: var(--faint); font-size: 10px; }
+.sched-cancel:hover { color: var(--status-failed); }
+.sched-empty { display: grid; gap: 4px; padding: 22px 10px; border-top: 1px solid var(--border-hairline); border-bottom: 1px solid var(--border-hairline); }
+.sched-empty strong { color: var(--text-mid); font-size: 12px; }
+.sched-empty span { color: var(--faint); font-size: 10.5px; line-height: 1.5; }
+
+/* 定时任务编辑器住在中栏：左侧计划列表仍可见，保存后才回会话。 */
+.workspace.is-task-schedule > #trace-rail,
+.workspace.is-task-schedule > #conversation-tabs,
+.workspace.is-task-schedule > #main-host,
+.workspace.is-task-schedule > #message-queue,
+.workspace.is-task-schedule > #composer,
+.workspace.is-task-schedule > #terminal-panel {
+  display: none !important;
+}
+.scheduled-editor {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+.scheduled-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex: none;
+  padding: 24px max(28px, calc((100% - 1040px) / 2)) 18px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.scheduled-editor-head > div { min-width: 0; }
+.scheduled-editor-head h2 { margin: 3px 0 4px; color: var(--text-bright); font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+.scheduled-editor-head p { max-width: 64ch; margin: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.55; }
+.scheduled-editor-body {
+  display: grid;
+  grid-template-columns: minmax(250px, 1.25fr) minmax(220px, .8fr) minmax(220px, .72fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.scheduled-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px max(18px, 2.2vw);
+  border-left: 1px solid var(--border-hairline);
+}
+.scheduled-form-section:first-child { border-left: 0; }
+.scheduled-form-title { display: flex; align-items: center; gap: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--border-hairline); }
+.scheduled-form-title > span { color: var(--faint); font: 700 10px var(--font-mono); }
+.scheduled-form-title > div { display: grid; gap: 1px; }
+.scheduled-form-title strong { color: var(--text-strong); font-size: 12.5px; }
+.scheduled-form-title small { color: var(--faint); font-size: 10px; }
+.scheduled-form-runtime { background: color-mix(in srgb, var(--surface-2) 46%, transparent); }
+.scheduled-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+  padding: 12px max(28px, calc((100% - 1040px) / 2));
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.scheduled-editor-hint { margin-right: auto; color: var(--faint); font-size: 10.5px; }
+.scheduled-editor-actions .primary,
+.scheduled-editor-actions .secondary { min-height: 32px; padding: 0 14px; }
+@media (max-width: 1120px) {
+  .scheduled-editor-body { grid-template-columns: minmax(240px, 1.1fr) minmax(220px, .9fr); }
+  .scheduled-form-runtime { grid-column: 1 / -1; border-top: 1px solid var(--border-hairline); border-left: 0; }
+}
+@media (max-width: 780px) {
+  .scheduled-editor-body { grid-template-columns: 1fr; }
+  .scheduled-form-section { border-left: 0; border-top: 1px solid var(--border-hairline); }
+  .scheduled-form-section:first-child { border-top: 0; }
+  .scheduled-form-runtime { grid-column: auto; }
+}
 /* 勾选行（「创建后立即启用」/「每个周期按当前时间」）。两处现场都出自这一个标记：
    ① 开关与文案分两行——标记里两者同属 .settings-field（display: grid，子项各占一行），
       而 .settings-field 在本文件里更靠后、权重又不低于 .sched-toggle，于是
@@ -2853,9 +2962,7 @@ html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-lef
    收缩。`.modal` 是 place-items:center 的 fixed 网格、自己不带 overflow —— 卡片一旦
    高过视口，上下两端就被切在屏幕外，没有任何滚动容器能追回来（现场：小窗口里
    终端 / 外观 两段读不到，按钮点不着）。给卡片封顶 + 自己滚，口径同
-   .runtime-card 的 max-height + overflow:auto；遮罩不必再复制一份滚动。
-   `.scheduled-task-modal` 复用同一枚卡片类且带 [data-resizable]（它自己的
-   overflow:auto 特异性更高，照旧生效），这里只补它缺的高度上限。 */
+   .runtime-card 的 max-height + overflow:auto；遮罩不必再复制一份滚动。 */
 .settings-card {
   width: min(500px, calc(100vw - 28px));
   max-height: min(760px, calc(100vh - 48px));
@@ -3233,13 +3340,13 @@ html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-lef
 
 /* ---------- 17. Responsive ---------- */
 @media (max-width: 1160px) {
-  .app-shell { grid-template-columns: var(--left-w, 238px) minmax(0, 1fr); }
+  .app-shell { grid-template-columns: var(--nav-w, 112px) var(--left-w, 238px) minmax(0, 1fr); }
   .right-panel, #right-divider { display: none; }
 }
 
 @media (max-width: 780px) {
   .app-shell { grid-template-columns: 1fr; }
-  .left-panel, #left-divider, #right-divider { display: none; }
+  .nav-panel, .left-panel, #left-divider, #right-divider { display: none; }
   .workspace { grid-column: 1; }
   .conversation { padding-inline: 18px; }
   .trajectory { padding-inline: 18px; }
@@ -3352,32 +3459,6 @@ html[data-left-nav-collapsed="true"] .left-nav-sub { margin-left: 0; padding-lef
 .excel-sheet.is-active { color: var(--hl-ink); border-color: var(--border); background: var(--hl-fill); font-weight: 700; box-shadow: none; }
 .excel-sheet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .excel-sheet-counts { flex: none; color: var(--faint); }
-
-/* 定时任务 Excel 表格弹窗（与工作表格弹窗同构：标题只留表内一条、纵向只留一个
-   滚动容器） */
-.scheduled-table-card { width: min(960px, 94vw); max-height: 86vh; }
-/* 嵌套滚动（现场：可拉伸卡片 .modal-card[data-resizable] 自带 overflow:auto、正文
-   .scheduled-table-view 又写了一份 overflow:auto、表格再自带 min-width 横向滚——滚轮
-   在三层之间接力，观感就是"滚一下跳三层"）。口径与工作表格弹窗/左栏会话列表一致：
-   纵向只留一个滚动容器（就是表格区 .sched-table-scroll），卡片与正文容器只负责把高度
-   让下去。选择器带 [data-resizable]：与 §18 的 .modal-card[data-resizable] 同特异性
-   且更靠后，否则会被它的 overflow: auto 盖掉。 */
-.modal-card.scheduled-table-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }
-.scheduled-table-card > .modal-header { flex: none; }
-/* 弹窗头只剩一枚关闭按钮：标题交给表内头带那一条（弹窗头自己带下边框，这里去掉避免
-   两条横线叠在同一个位置）。 */
-.scheduled-table-card > .scheduled-table-modal-head { justify-content: flex-end; align-items: center; margin-bottom: 8px; padding-bottom: 0; border-bottom: 0; }
-#scheduled-table-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }
-#scheduled-table-view > .sched-table { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-/* 唯一滚动容器：高度由卡片剩余空间决定，横向溢出也归它（表格 min-width 720px）。 */
-#scheduled-table-view .sched-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-/* 表格自己的头带：整块的名字只剩这一条（坐在 --surface-2 浅色带上，口径同工作表格
-   的 .work-table-head）。 */
-.sched-table-band { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
-.sched-table-total { color: var(--muted); font-size: var(--text-sm); }
-.sched-table-scroll .scheduled-table { min-width: 720px; }
-.sched-row td:first-child { color: var(--text-strong); font-weight: 600; }
-.sched-table-command { display: block; color: var(--faint); font: 10px var(--font-mono); }
 
 /* 弹窗拉伸（右下角手柄，仅尺寸调整） */
 .modal-card[data-resizable] { position: relative; overflow: auto; min-width: 420px; min-height: 260px; }
@@ -4729,13 +4810,13 @@ html[data-left-collapsed="true"] .left-panel .panel-toggle-closed,
 html[data-right-collapsed="true"] .right-panel .panel-toggle-closed { display: block; }
 
 html[data-left-collapsed="true"] .app-shell {
-  grid-template-columns: 26px minmax(0, 1fr) var(--right-w, 300px);
+  grid-template-columns: var(--nav-w, 112px) 26px minmax(0, 1fr) var(--right-w, 300px);
 }
 html[data-right-collapsed="true"] .app-shell {
-  grid-template-columns: var(--left-w, 268px) minmax(0, 1fr) 26px;
+  grid-template-columns: var(--nav-w, 112px) var(--left-w, 268px) minmax(0, 1fr) 26px;
 }
 html[data-left-collapsed="true"][data-right-collapsed="true"] .app-shell {
-  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  grid-template-columns: var(--nav-w, 112px) 26px minmax(0, 1fr) 26px;
 }
 /* 收起的栏只留窄脊：内容整体隐藏，脊上仍是那条 < / > 按钮（可达、不占位）。 */
 html[data-left-collapsed="true"] .left-panel > *:not(.panel-rail-head),
@@ -4748,7 +4829,7 @@ html[data-left-collapsed="true"] #left-divider,
 html[data-right-collapsed="true"] #right-divider { display: none; }
 .panel-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--border-running); }
 @media (max-width: 1160px) {
-  html[data-left-collapsed="true"] .app-shell { grid-template-columns: 26px minmax(0, 1fr); }
+  html[data-left-collapsed="true"] .app-shell { grid-template-columns: var(--nav-w, 112px) 26px minmax(0, 1fr); }
 }
 
 /* 18.6 会话行降噪：条目本体只留"标题 + 状态"，三个动作收进 ⋯ 段（见第 20 节） */

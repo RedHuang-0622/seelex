@@ -195,7 +195,7 @@ function periodToSeconds(unit, value) {
   }
 }
 
-// ── 定时周期任务面板（右侧栏）──────────────────────────────
+// ── 定时周期任务列表（第二列任务列表 / 中栏编辑）────────────
 // 数据源：snapshot.runtime.scheduled_tasks（权威 Snapshot / runtime.changed
 // 增量投影，seelebridge 调度器状态变化时发布）。渲染只读展示，不维护本地
 // 猜测状态；所有渲染文本 escape；命令键与提示词内容非 secret，可展示。
@@ -212,14 +212,14 @@ function isScheduledTask(value) {
   return Boolean(value) && typeof value === "object";
 }
 
-// renderScheduledTasks 渲染任务列表 HTML（名称/类型/装配/启用状态/下次运行/
-// 上次结果/日志尾部/编辑与取消按钮；命令类型补白名单展示名）。
+// renderScheduledTasks 渲染紧凑计划票据：节奏列 + 名称/状态/下次运行/装配摘要；
+// 票据主体进入中栏编辑，取消是独立动作。命令类型补白名单展示名。
 // workspaces / tiers 是快照里的目录表（工作区、权限档位）：任务只记 ID，
 // 名字与短名只做展示（取不到就退回显示 ID —— 宁可显示 ID 也不丢信息）。
 export function renderScheduledTasks(items, commands, workspaces, tiers) {
   const list = scheduledTasksView(items);
   if (!list.length) {
-    return '<span class="muted list-empty">暂无定时任务</span>';
+    return '<div class="sched-empty"><strong>暂无定时任务</strong><span>新建一条计划，让 Seelex 按节奏自动发起会话。</span></div>';
   }
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
   const workspaceLabelByID = workspaceLabels(workspaces);
@@ -227,78 +227,39 @@ export function renderScheduledTasks(items, commands, workspaces, tiers) {
   return `<ul class="sched-list">${list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
-    const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
+    const scheduleText = task.one_shot ? `一次性 · 定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
+    const rhythmMain = task.one_shot ? formatRunTime(task.run_at) : formatInterval(task);
+    const rhythmLabel = task.one_shot ? "一次性" : "循环节奏";
     const workspace = workspaceChip(task, workspaceLabelByID);
     const assembly = assemblyChips(task, tierLabelByID);
-    return `<li class="sched-item" data-sched-id="${escapeHtml(task.id)}">
-      <div class="sched-head">
-        <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
-        <span class="chip">${escapeHtml(kind)}</span>
-        ${workspace}
-        ${assembly}
-        ${task.one_shot ? '<span class="chip">一次性</span>' : ""}
+    return `<li class="sched-item is-${schedStatusClass(task)}" data-sched-id="${escapeHtml(task.id)}">
+      <button type="button" class="sched-item-main" data-sched-edit="${escapeHtml(task.id)}" title="编辑 ${escapeHtml(task.name)}">
+        <span class="sched-rhythm"><b>${escapeHtml(rhythmMain)}</b><small>${escapeHtml(rhythmLabel)}</small></span>
+        <span class="sched-copy">
+          <span class="sched-head">
+            <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
+            <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
+            <span class="sched-open-hint">编辑</span>
+          </span>
+          <span class="sched-meta">
+            <span>${escapeHtml(scheduleText)}</span>
+            <span>下次 ${escapeHtml(formatRunTime(task.next_run_at))}</span>
+            <span>共 ${Number(task.run_count) || 0} 次</span>
+            ${workspace}${assembly}
+          </span>
+          ${task.kind === "command" && commandLabel ? `<span class="sched-detail" title="${escapeHtml(task.command)}">脚本 ${escapeHtml(commandLabel)}</span>` : ""}
+          ${task.kind === "prompt" && task.prompt ? `<span class="sched-detail" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt)}</span>` : ""}
+          ${task.last_error ? `<span class="sched-result sched-error" title="${escapeHtml(task.last_error)}">${escapeHtml(task.last_error)}</span>` : ""}
+          ${!task.last_error && task.last_result ? `<span class="sched-result" title="${escapeHtml(task.last_result)}">${escapeHtml(task.last_result)}</span>` : ""}
+        </span>
+      </button>
+      <div class="sched-row-tail">
         <span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span>
-        <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
-      </div>
-      <div class="sched-meta">
-        <span>${scheduleText}</span>
-        <span>下次 ${formatRunTime(task.next_run_at)}</span>
-        <span>共 ${Number(task.run_count) || 0} 次</span>
-      </div>
-      ${task.kind === "command" && commandLabel ? `<div class="sched-detail" title="${escapeHtml(task.command)}">脚本 ${escapeHtml(commandLabel)}</div>` : ""}
-      ${task.kind === "prompt" && task.prompt ? `<div class="sched-detail" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt)}</div>` : ""}
-      ${task.last_error ? `<div class="sched-result sched-error" title="${escapeHtml(task.last_error)}">${escapeHtml(task.last_error)}</div>` : ""}
-      ${!task.last_error && task.last_result ? `<div class="sched-result" title="${escapeHtml(task.last_result)}">${escapeHtml(task.last_result)}</div>` : ""}
-      ${Array.isArray(task.log_tail) && task.log_tail.length ? `<pre class="sched-log">${escapeHtml(task.log_tail.join("\n"))}</pre>` : ""}
-      <div class="sched-actions">
-        <button type="button" class="text-button sched-edit" data-sched-edit="${escapeHtml(task.id)}">编辑</button>
+        <span class="chip">${escapeHtml(kind)}</span>
         <button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button>
       </div>
     </li>`;
   }).join("")}</ul>`;
-}
-
-// renderScheduledTasksTable 渲染定时任务 Excel 表格（弹窗内展示；列：
-// 名称/类型/周期/下次运行/状态/操作；取消按钮以 data-sched-cancel 携带
-// 任务 ID——ID 是操作键，名称只展示）。
-//
-// 整块的名字由头带那一条给出（<strong>定时任务</strong> N 项，坐在 --surface-2
-// 的浅色带上）：弹窗头不再重复标题（口径同工作表格弹窗），所以名字必须留在表内。
-// 头带与表体之间只有 .sched-table-scroll 一个滚动容器——弹窗纵向只此一层可滚。
-export function renderScheduledTasksTable(items, commands, workspaces, tiers) {
-  const list = scheduledTasksView(items);
-  const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
-  const workspaceLabelByID = workspaceLabels(workspaces);
-  const tierLabelByID = tierLabels(tiers);
-  const rows = list.map(task => {
-    const kind = task.kind === "prompt" ? "提示词" : "命令";
-    const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
-    const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
-    const workspace = workspaceChip(task, workspaceLabelByID);
-    const assembly = assemblyChips(task, tierLabelByID);
-    const statusClass = schedStatusClass(task);
-    return `<tr class="sched-row is-${statusClass}" data-sched-id="${escapeHtml(task.id)}">
-      <td class="work-cell work-cell-task" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
-      <td class="work-cell">${escapeHtml(kind)}${workspace}${assembly}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
-      <td class="work-cell">${escapeHtml(scheduleText)}${task.kind === "command" && commandLabel ? `<small class="sched-table-command" title="${escapeHtml(task.command)}">${escapeHtml(commandLabel)}</small>` : ""}</td>
-      <td class="work-cell">${escapeHtml(formatRunTime(task.next_run_at))}</td>
-      <td class="work-cell"><span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span> <span class="sched-status is-${statusClass}">${escapeHtml(schedStatusText(task))}</span></td>
-      <td class="work-cell work-cell-actions"><button type="button" class="text-button sched-edit" data-sched-edit="${escapeHtml(task.id)}">编辑</button> <button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button></td>
-    </tr>`;
-  }).join("");
-  const body = list.length ? `<table class="excel-grid scheduled-table" data-scheduled-table>
-    <thead><tr class="excel-head-row">
-      <th>名称</th><th>类型</th><th>周期</th><th>下次运行</th><th>状态</th><th>操作</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>` : '<span class="muted list-empty">暂无定时任务</span>';
-  return `<div class="sched-table" data-sched-table>
-    <header class="sched-table-band">
-      <strong>定时任务</strong>
-      <span class="sched-table-total">${list.length} 项</span>
-    </header>
-    <div class="sched-table-scroll" data-sched-table-scroll>${body}</div>
-  </div>`;
 }
 
 // workspaceLabels 构造 workspace_id → 展示名（无工作区表时退回 ID 本身）。

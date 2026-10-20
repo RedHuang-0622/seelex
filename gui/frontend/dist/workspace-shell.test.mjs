@@ -12,13 +12,13 @@ test("shell removes reserved divider gutters and the content-paper radius", () =
   const shell = css.match(/\.app-shell\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.match(
     shell,
-    /grid-template-columns:\s*var\(--left-w,\s*268px\)\s+minmax\(0,\s*1fr\)\s+var\(--right-w,\s*300px\)/,
-    "三栏必须贴合，分隔条只能覆盖在边界上，不能占用 6px 列"
+    /grid-template-columns:\s*var\(--nav-w,\s*112px\)\s+var\(--left-w,\s*268px\)\s+minmax\(0,\s*1fr\)\s+var\(--right-w,\s*300px\)/,
+    "一级导航、任务列表、会话区、右栏必须是四个独立列"
   );
   assert.doesNotMatch(shell, /6px/, "主布局不得继续预留 6px 沟槽");
 
   const divider = css.match(/#left-divider\s*\{([\s\S]*?)\}/)?.[1] || "";
-  assert.match(divider, /grid-column:\s*1/, "左侧分隔条应覆盖在左栏边界");
+  assert.match(divider, /grid-column:\s*2/, "任务列表分隔条应覆盖在第二列边界");
 
   const workspace = [...css.matchAll(/\.workspace\s*\{([\s\S]*?)\}/g)]
     .map(match => match[1])
@@ -35,18 +35,25 @@ test("glass material uses a left-to-right opacity ramp", () => {
   assert.match(glass, /\.right-panel\s*\{[\s\S]*?var\(--glass-right-alpha\)/, "右栏必须消费右档透明度");
 });
 
-test("left top navigation owns tasks, scheduled tasks, plugins and nested skills", () => {
+test("left navigation is a standalone rail beside the task list", () => {
   const nav = html.match(/<nav[^>]+id="left-nav"[\s\S]*?<\/nav>/)?.[0] || "";
   assert.ok(nav, "左侧顶部导航必须存在");
-  for (const page of ["tasks", "scheduled", "plugins", "skills"]) {
+  for (const page of ["tasks", "scheduled", "plugins"]) {
     assert.match(nav, new RegExp(`data-left-page="${page}"`), `缺少 ${page} 导航项`);
   }
-  assert.match(nav, /data-nav-parent="plugins"[^>]*data-left-page="skills"/, "Skill 管理必须嵌在插件装配下");
-  assert.match(nav, /id="toggle-left-nav"/, "顶部导航必须可收缩");
+  assert.match(nav, />聊天</);
+  assert.match(nav, />定时任务</);
+  assert.match(nav, />插件管理</);
+  assert.match(html, /id="toggle-left-nav"/, "主导航必须可收缩");
+  assert.match(html, /<aside class="nav-panel"/, "一级导航必须独立成一列");
+  assert.match(html, /<aside class="left-panel task-panel panel"/, "任务列表必须是第二列");
+  const navStart = html.indexOf('<aside class="nav-panel"');
+  const taskStart = html.indexOf('<aside class="left-panel task-panel panel"');
+  assert.ok(navStart >= 0 && taskStart > navStart, "导航列必须在任务列表左侧");
   assert.match(html, /id="left-page-tasks"/);
   assert.match(html, /id="left-page-scheduled"/);
   assert.match(html, /id="left-page-plugins"/);
-  assert.match(html, /id="left-page-skills"/);
+  assert.doesNotMatch(html, /id="left-page-skills"/, "Skill 不再占第四个一级页面");
   assert.match(app, /function showLeftPage\(/);
   assert.match(app, /seelex\.left-nav\.collapsed/);
 });
@@ -58,17 +65,34 @@ test("left navigation stays mode-owned black or white, not skin-owned", () => {
     /:root\[data-theme="dark"\]\s*\{[\s\S]*?--left-nav-bg:\s*#000000/,
     "深色导航必须是纯黑"
   );
-  const rule = css.match(/\.left-nav\s*\{([\s\S]*?)\}/)?.[1] || "";
+  const rule = [...css.matchAll(/\.nav-panel\s*\{([\s\S]*?)\}/g)]
+    .map(match => match[1])
+    .find(body => /background/.test(body)) || "";
   assert.match(rule, /background:\s*var\(--left-nav-bg\)/);
   assert.doesNotMatch(rule, /--accent|--skin-|gradient/, "导航底色不得被皮肤或渐变接管");
 });
 
-test("plugins and skills leave the runtime modal for the left navigation pages", () => {
+test("plugins and skills leave the runtime modal for the task-list plugin page", () => {
   const runtime = html.slice(html.indexOf('id="runtime-modal"'));
   assert.doesNotMatch(runtime, /id="plugin-list"/, "运行状态不再显示插件");
   assert.doesNotMatch(runtime, /id="skill-list"/, "运行状态不再显示 Skill");
-  assert.match(html.slice(html.indexOf('id="left-page-plugins"')), /id="plugin-list"/);
-  assert.match(html.slice(html.indexOf('id="left-page-skills"')), /id="skill-list"/);
+  const pluginPage = html.slice(html.indexOf('id="left-page-plugins"'));
+  assert.match(pluginPage, /id="plugin-list"/);
+  assert.match(pluginPage, /id="skill-list"/);
+  assert.match(pluginPage, /plugin-skills-block/);
+});
+
+test("scheduled task editing lives inside the middle session workspace", () => {
+  assert.doesNotMatch(html, /id="scheduled-task-modal"/, "定时任务不再使用弹窗");
+  assert.doesNotMatch(html, /id="scheduled-table-modal"/, "定时任务不再使用表格弹窗");
+  const workspaceStart = html.indexOf('<main class="workspace">');
+  const editor = html.indexOf('id="scheduled-editor"');
+  const workspaceEnd = html.indexOf('</main>', workspaceStart);
+  assert.ok(editor > workspaceStart && editor < workspaceEnd, "编辑器必须在会话主区内部");
+  assert.match(html, /class="scheduled-editor-body"/);
+  assert.match(html, /id="scheduled-task-cancel"/);
+  assert.match(app, /classList\.add\("is-task-schedule"\)/);
+  assert.match(app, /classList\.remove\("is-task-schedule"\)/);
 });
 
 test("workbench renders inline and separates todo from task and subagent", () => {

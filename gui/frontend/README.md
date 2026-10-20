@@ -48,7 +48,7 @@ flowchart TB
 
 | 文件 | 职责 |
 |---|---|
-| `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排；左侧主导航（任务 / 定时任务 / 插件装配 / Skill 管理）与项目 temp list 的视图状态也在这一层，不复制后端业务状态。 |
+| `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排；一级导航（聊天 / 定时任务 / 插件管理）、任务列表列、中栏定时编辑器与项目 temp list 的视图状态也在这一层，不复制后端业务状态。 |
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；`acceptBaseline` 是**订阅换代基线**入口（`seelex:ready` 才走它：新订阅 `delivery_seq` 从 1 重计，已应用水位必须归零——不看会话 id 变没变）；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
@@ -244,12 +244,18 @@ task 即 worktable 条目（单一注册表 actor，保护粒度=task）：主�
 `task.changed` 按 task_id 单行 upsert，`worktable.changed` 保持整表替换；
 retry 状态展示 `RETRY n`（retry_count）。
 
-## 左侧主导航（任务 / 定时任务 / 插件装配 / Skill 管理）
+## 一级导航与任务列表
 
-左栏顶部是四个页面，不是四份业务状态：`任务`保留会话与项目树；`定时任务`
-展示调度投影；`插件装配`展示当前进程插件并可切换；`Skill 管理`是插件装配下的
-子页，只展示当前插件的 Skill。页面切换与导航收缩分别记忆在
-`seelex.left-page` / `seelex.left-nav.collapsed`，都不进 Snapshot。
+界面是四个独立纵向区域：`一级导航 | 任务列表 | 会话/定时编辑区 | 右栏`。
+一级导航只有 `聊天 / 定时任务 / 插件管理` 三项，不是会话列表的一部分；第二列
+随导航切换列表内容：
+
+- `聊天`：按项目分组的会话列表；
+- `定时任务`：紧凑的节奏票据，显示周期、下次运行、状态与装配摘要；
+- `插件管理`：当前进程插件，`Skill 管理`作为同一列内的子段。
+
+页面切换与导航收缩分别记忆在 `seelex.left-page` /
+`seelex.left-nav.collapsed`，都不进 Snapshot。
 
 导航底色由深浅轴独占：浅色纯白、深色纯黑，不接受皮肤主信号或环境渐变。
 运行状态弹窗不再重复展示 Plugin/Skill，避免同一能力面出现两处入口。
@@ -270,7 +276,7 @@ retry 状态展示 `RETRY n`（retry_count）。
   「设置 → 工具记录」（走 `Bridge.SetToolRecordEnabled`，落数据根 `runtime-limits.json`）。
   渲染件 = `dist/tool-record-board.js`，与 TUI Alt+T 面板同源）。
 - **工作台**：「目标」面板 + 团队看板 + Todo/Task/Subagent 内联摘要。定时任务与
-  插件/Skill 已迁到左侧主导航页面。
+  插件/Skill 位于独立的任务列表列，定时编辑器在中栏展开。
 - **代码**（资源管理器）：左右分栏——左「内容详情」抽屉 + 右**三个平级子页**
   （工作树 / 提交记录 / 工作区更改）。子页用一条内嵌页签切换（`role=tablist`，
   一次只显示一个），激活态与顺序记忆在 `seelex.right.explorer.v1`，旧
@@ -500,9 +506,17 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 
 ## 定时周期任务
 
-左侧主导航的「定时任务」页面（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
+一级导航切到「定时任务」后，第二列展示计划票据（含「新建定时任务」按钮）：
+数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经
+observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见
+`backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。票据以
+“节奏列 + 任务摘要”表达，不使用大段日志或表格弹窗；取消按钮以
+`data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
-新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：**类型只有提示词**（2026-10-07 起，`任务类型`/`命令` 两个控件已删除——命令白名单在本机 dev 包里为空，留着只是让人多点一次）；执行方式分「周期重复」与「定时执行（一次性）」两种。
+新建/编辑器落在中栏 `#scheduled-editor`，左侧计划列表保持可见。字段由
+`Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：
+**类型只有提示词**（2026-10-07 起，`任务类型`/`命令` 两个控件已删除）；
+执行方式分「周期重复」与「定时执行（一次性）」两种。
 
 **载荷契约（别在 `app.js` 里就地拼 spec）**：字段 → `scheduled-tasks-view.js` 的
 `buildScheduledTaskSpec()`（纯函数，`scheduled-tasks-view.test.mjs` 钉住）→ `Bridge.ScheduleTask`。
@@ -513,17 +527,14 @@ Go 侧执行之前就报
 两头都有钉子：`scheduled-tasks-view.test.mjs`（`spec.runAt === null`）+ `gui/bridge_test.go` 的
 `TestScheduledTaskRunAtWireContract` / `TestEmbeddedScheduledPayloadDelegatedToView`。
 
-**表格弹窗（定时任务专用）**：完整表格放 `#scheduled-table-modal`（左侧定时任务页
-只留入口按钮），里面有两条硬规矩，改 `index.html` / `styles.css` 时别踩回去：
-
-- **名字只有一条**：弹窗头只留关闭按钮（`aria-label="定时任务表格"` 给无障碍名），整块的名字由表内头带 `.sched-table-band` 那条给出（`定时任务 N 项`，坐在 `--surface-2` 浅色带上）。头带在滚动容器之外，空态（0 条）也照常渲染——否则删掉弹窗头两个标题后整块就没有名字了。
-- **纵向只有一个滚动容器**：卡片（`.modal-card.scheduled-table-card[data-resizable]`）与正文容器（`#scheduled-table-view`）都只让高度（`overflow: hidden`），唯一滚的是 `.sched-table-scroll`（横向溢出也归它，表格 `min-width: 720px`）。三个都滚就是"一次滚动跳三层"。
-
-两条都由 `gui/bridge_test.go` 的 `TestEmbeddedScheduledTableTitleOnce` / `TestEmbeddedScheduledTableSingleScrollContainer` 钉住；渲染侧的记号（头带、滚动容器各一份、头带在容器之外）由 `scheduled-tasks-view.test.mjs` 钉住。
+中栏编辑器分三块：任务内容、节奏、运行装配；打开时 `.workspace.is-task-schedule`
+隐藏对话、composer 和终端，关闭后恢复原会话视图。`scheduled-task-view` 的票据
+主体本身是编辑入口，取消仍是独立动作；`data-sched-edit` / `data-sched-cancel`
+仍以任务 ID 为操作键。
 
 - **命令任务（只在 API 面）**：白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令；`snapshot.runtime.scheduled_commands` 仍是它的展示数据源。**弹窗入口已不再暴露它**（2026-10-07：本机 dev 包里白名单为空，命令类任务根本发布不了，留着只是让人多点一次）——要看它得走 `Bridge.ScheduleTask`/`Runtime.ScheduleTask` 的 `kind="command"`，后端能力与登记（`main.go` 的 `auto_get_jobs`）原样保留。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
 - **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话。落点默认**新建会话**（`session_id` 留空）：不打断用户正在看的会话，也不切视图指针；显式绑定会话时投递到那个会话。弹窗里的**工作区**下拉（`#sched-workspace`，选项来自快照的 `workspaces`，默认跟随当前会话绑定的工作区）决定新会话装配到哪个项目——空 = 不绑项目。每次触发的落点会话号回传在快照的 `last_session_id`。结果回传为「已提交/已新建会话 X 发起」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
-- **编辑既有任务（`data-sched-edit`）**：列表与表格每行都有「编辑」按钮（ID 是操作键），点开的是**同一个弹窗**、填好那条任务的值（标题/提交按钮/启用勾的文案切成编辑态）。表单回填的唯一映射是 `scheduled-tasks-view.js` 的 `scheduledTaskFormFields(task)`，提交仍走 `buildScheduledTaskSpec` —— 两条腿都是纯函数、node 用例钉住来回（还原字段再组装必须得到同一条定义）。提交时按编辑态分派到 `Bridge.UpdateScheduledTask(id, spec)`：后端整体替换定义（ID 不变、运行账目保留）。`session_id` 面板上不编辑，但编辑提交会原样带回，改个名字不会顺手清掉绑定。
+- **编辑既有任务（`data-sched-edit`）**：点击计划票据主体，在中栏打开**同一个编辑器**并填好那条任务（标题/提交按钮/启用勾的文案切成编辑态）。表单回填的唯一映射是 `scheduled-tasks-view.js` 的 `scheduledTaskFormFields(task)`，提交仍走 `buildScheduledTaskSpec` —— 两条腿都是纯函数、node 用例钉住来回。提交时按编辑态分派到 `Bridge.UpdateScheduledTask(id, spec)`：后端整体替换定义（ID 不变、运行账目保留）。`session_id` 面板上不编辑，但编辑提交会原样带回，改个名字不会顺手清掉绑定。
 - **装配（`#sched-permission` / `#sched-plugins`）**：任务定义里声明"这次触发用什么权限档位、装配哪些插件"。档位下拉的选项来自快照的 `runtime.permission_tiers`（后端下发，前端**不自造**档位名）、默认空 = 后端按 **full access** 处理（后台跑没人能在审批弹窗上点"同意"）；插件是**多选**，选项来自 `runtime.plugins`，空选 = 继承宿主当前激活插件。面板与表格用 `sched-chip-tier` / `sched-chip-plugins` 照实显示这条任务的装配（档位是安全相关的一格；取不到档位短名就退回显示 id）。两格都由 `renderScheduledAssemblyOptions` 填充、经 `buildScheduledTaskSpec` 原样送出，判据与默认值只在后端一份。
 
 - **周期重复**：以「每 n 分钟/小时/天/周/月」表达（`period-row`：数值 + 单位下拉；
@@ -873,10 +884,10 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
 - **文档与证据**：成因分析（五条可复现规则）、渐变色皮肤设计、逐文件改动表、静态复刻页
   与实机截图都在 [`docs/gui/design/qoder-skin/`](../../docs/gui/design/qoder-skin/README.md)。
 
-**三栏齐边贴合（2026-10-21）**：主网格只保留
-`左栏 | 对话区 | 右栏` 三个真实列，两个 6px 分隔条改成覆盖在边界上的命中层，
-不再预留沟槽。`.workspace` 取消外圆角，三栏之间只保留发丝线；对话区、左右栏
-的边距由各自容器负责，组件不再用 `margin` 制造“缝”。
+**四栏齐边贴合（2026-10-21）**：主网格是
+`一级导航 | 任务列表 | 会话/定时编辑区 | 右栏` 四个真实列；分隔条改成覆盖在
+边界上的命中层，不再预留沟槽。`.workspace` 取消外圆角，列之间只保留发丝线；
+边距由各自容器负责，组件不再用 `margin` 制造“缝”。
 
 `glass` 材质皮肤按同一方向分三档：左栏 38%、对话区 66%、右栏 88%，模糊半径
 同步增大，避免三块同质玻璃。所有不透明度只由材质皮肤的壳/纸规则控制，不改

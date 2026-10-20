@@ -135,6 +135,12 @@ test("delegates queue actions on the queue host, not the conversation transcript
   );
   // 队列宿主与对话区在 index.html 里是兄弟节点：这也是「委托必须挂在队列宿主上」的物理理由。
   const markup = await readFile(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(markup, /<\/div>\s*(?:<!--[\s\S]*?-->\s*)?<div id="message-queue"/, "#message-queue must sit outside the conversation scroll area");
+  const conversationStart = markup.indexOf('id="conversation-shell"');
+  const conversationEnd = markup.indexOf('id="trajectory"', conversationStart);
+  const queueIndex = markup.indexOf('id="message-queue"');
+  const composerIndex = markup.indexOf('id="composer"');
+  assert.ok(conversationStart >= 0 && conversationEnd > conversationStart, "conversation shell must exist");
+  assert.ok(queueIndex > conversationEnd, "#message-queue must sit outside the conversation scroll area");
+  assert.ok(queueIndex < composerIndex, "#message-queue must stay adjacent to the composer layer");
 });
 

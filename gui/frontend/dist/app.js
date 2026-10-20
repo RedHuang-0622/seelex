@@ -34,7 +34,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
-import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
+import { buildScheduledTaskSpec, renderScheduledTasks, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
 import { renderToolRecordBoard, TOOL_RECORD_CSS } from "./tool-record-board.js";
 import { renderRoleSessionDetail, roleDisplayName } from "./role-session-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
@@ -112,8 +112,8 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
-  "left-nav", "toggle-left-nav", "left-page-tasks", "left-page-scheduled", "left-page-plugins", "left-page-skills",
+  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
@@ -131,7 +131,6 @@ const elements = Object.fromEntries([
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2", "new-project-drafts", "new-project-create",
-  "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast", "ui-tooltip",
   "toggle-left-panel", "toggle-right-panel",
@@ -141,14 +140,16 @@ const elements = Object.fromEntries([
 ].map(id => [id, document.getElementById(id)]));
 
 // ── 左侧主导航 ───────────────────────────────────────────────
-// 任务 / 定时任务 / 插件装配 / Skill 管理是同一棵左栏里的四个页面。
-// 页面切换与导航收缩只属于视图，不写快照；只有选择项目、插件或 Skill 时才进入业务命令。
-const LEFT_PAGE_IDS = { tasks: "left-page-tasks", scheduled: "left-page-scheduled", plugins: "left-page-plugins", skills: "left-page-skills" };
+// 一级导航与任务列表是两个独立纵列：导航只决定第二列显示哪种列表；
+// 页面切换与导航收缩只属于视图，不写快照。
+const LEFT_PAGE_IDS = { tasks: "left-page-tasks", scheduled: "left-page-scheduled", plugins: "left-page-plugins" };
+const LEFT_PAGE_LABELS = { tasks: "聊天", scheduled: "定时任务", plugins: "插件管理" };
 const LEFT_PAGE_STORAGE_KEY = "seelex.left-page";
 const LEFT_NAV_COLLAPSED_KEY = "seelex.left-nav.collapsed";
 
 function normalizeLeftPage(page) {
   const value = String(page || "");
+  if (value === "skills") return "plugins";
   return Object.hasOwn(LEFT_PAGE_IDS, value) ? value : "tasks";
 }
 
@@ -165,6 +166,10 @@ function showLeftPage(page, persist = true) {
     else button.removeAttribute("aria-current");
   }
   document.documentElement.dataset.leftPage = active;
+  if (elements["task-list-context"]) elements["task-list-context"].textContent = LEFT_PAGE_LABELS[active];
+  if (active !== "scheduled" && document.querySelector(".workspace")?.classList.contains("is-task-schedule")) {
+    closeScheduledTaskDialog();
+  }
   if (persist) storageSet(LEFT_PAGE_STORAGE_KEY, active);
 }
 
@@ -174,7 +179,7 @@ function setLeftNavCollapsed(collapsed, persist = true) {
   elements["toggle-left-nav"]?.setAttribute("aria-expanded", String(!next));
   const toggle = elements["toggle-left-nav"];
   if (toggle) {
-    const name = next ? "chevron-down" : "chevron-up";
+    const name = next ? "chevron-right" : "chevron-left";
     toggle.dataset.icon = name;
     toggle.innerHTML = icon(name, 14);
   }
@@ -188,6 +193,7 @@ elements["left-nav"]?.addEventListener("click", event => {
 elements["toggle-left-nav"]?.addEventListener("click", event => {
   event.stopPropagation();
   setLeftNavCollapsed(document.documentElement.dataset.leftNavCollapsed !== "true");
+  applyPanelWidths();
 });
 setLeftNavCollapsed(storageGet(LEFT_NAV_COLLAPSED_KEY) === "1", false);
 showLeftPage(storageGet(LEFT_PAGE_STORAGE_KEY) || "tasks", false);
@@ -3032,29 +3038,8 @@ function renderScheduledTaskPanel(runtime) {
   const workspaces = Array.isArray((client.current() || {}).workspaces) ? client.current().workspaces : [];
   const tiers = Array.isArray((client.current() || {}).runtime?.permission_tiers) ? client.current().runtime.permission_tiers : [];
   elements["scheduled-task-count"].textContent = String(tasks.length);
-  elements["scheduled-table-summary"].textContent = `${tasks.length} 项任务`;
   elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands, workspaces, tiers);
-  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands, workspaces, tiers);
 }
-
-// openScheduledTable / closeScheduledTable：定时任务 Excel 表格弹窗
-// （右栏只留入口按钮，表格放弹窗；新建复用表单弹窗）。
-function openScheduledTable() {
-  setModal("scheduled-table-modal", true);
-}
-
-function closeScheduledTable() {
-  setModal("scheduled-table-modal", false);
-}
-
-elements["scheduled-table-open"]?.addEventListener("click", openScheduledTable);
-elements["scheduled-table-close"]?.addEventListener("click", closeScheduledTable);
-elements["scheduled-table-modal"]?.addEventListener("click", event => {
-  if (event.target === elements["scheduled-table-modal"]) closeScheduledTable();
-});
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape") closeScheduledTable();
-});
 
 // roleSessionDetail 记录当前打开的员工会话视图目标（身份 + 视图内可切换的员工名单）：
 // 刷新键、切员工、以及 team.changed 事件都要靠它原样重放/换人，而不是从 DOM 里猜。
@@ -3306,24 +3291,6 @@ elements["role-session-modal"]?.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeRoleSessionDetail();
-});
-
-// 定时任务表格内编辑/取消按钮（事件委托挂表格容器；ID 是操作键）。
-elements["scheduled-table-view"]?.addEventListener("click", async event => {
-  const editButton = event.target.closest?.("[data-sched-edit]");
-  if (editButton?.dataset.schedEdit) {
-    openScheduledTaskEditor(editButton.dataset.schedEdit);
-    return;
-  }
-  const button = event.target.closest?.("[data-sched-cancel]");
-  if (!button?.dataset.schedCancel) return;
-  if (!confirm("确认取消该定时任务？")) return;
-  try {
-    await invoke("CancelScheduledTask", button.dataset.schedCancel);
-    await refresh({ scroll: false });
-  } catch (error) {
-    showToast(error);
-  }
 });
 
 // ── 档案夹 → 会话：把工作树文件"抽出来"发出去（拖拽） ────────────────────────
@@ -4536,7 +4503,7 @@ const SCHED_ANCHOR_UNITS = new Set(["day", "week", "month"]);
 // 与"草稿"同一条纪律：弹窗是**同一套控件**的两个模式，不另建一份表单。
 let editingScheduledTaskID = "";
 
-// openScheduledTaskDialog 打开弹窗：新建（无参）= 回到默认（周期重复 / 每天 /
+// openScheduledTaskDialog 打开中栏编辑器：新建（无参）= 回到默认（周期重复 / 每天 /
 // 开始时间空 → 需要用户在"开始时间"与"每个周期按当前时间"里选一个）；编辑
 // (= 任务快照) = 用 scheduledTaskFormFields 把这条任务填回同一套控件。
 function openScheduledTaskDialog(task) {
@@ -4557,12 +4524,14 @@ function openScheduledTaskDialog(task) {
   elements["sched-anchor-now"].checked = fields.anchorNow;
   elements["sched-datetime"].value = fields.runAtValue;
   elements["sched-enabled"].checked = fields.enabled;
-  // 同一条弹窗的两个模式：标题、提交按钮、启用勾的文案都跟着走（表单本身不变）。
+  // 同一个中栏编辑器的两个模式：标题、提交按钮、启用勾的文案都跟着走。
   elements["scheduled-task-modal-title"].textContent = editing ? "编辑定时任务" : "新建定时任务";
   elements["sched-enabled-label"].textContent = editing ? "启用" : "创建后立即启用";
   elements["sched-submit"].textContent = editing ? "保存修改" : "创建任务";
   syncScheduledTaskFields();
-  setModal("scheduled-task-modal", true);
+  showLeftPage("scheduled");
+  document.querySelector(".workspace")?.classList.add("is-task-schedule");
+  elements["scheduled-editor"]?.classList.remove("hidden");
   elements["sched-name"].focus();
 }
 
@@ -4634,7 +4603,9 @@ function renderScheduledAssemblyOptions(preferred) {
 
 function closeScheduledTaskDialog() {
   editingScheduledTaskID = "";
-  setModal("scheduled-task-modal", false);
+  document.querySelector(".workspace")?.classList.remove("is-task-schedule");
+  elements["scheduled-editor"]?.classList.add("hidden");
+  syncSessionChrome();
 }
 
 // syncScheduledTaskFields 联动字段可见性：一次性模式只要执行时间；周期模式
@@ -4707,7 +4678,7 @@ function scheduledTaskByID(id) {
   return tasks.find(task => task?.id === id) || null;
 }
 
-// openScheduledTaskEditor 打开编辑弹窗：按 ID 取当前快照里的那条任务填表
+// openScheduledTaskEditor 打开中栏编辑视图：按 ID 取当前快照里的那条任务填表
 // （取不到就按"任务已经没了"提示，不打开一个空表单）。
 function openScheduledTaskEditor(id) {
   const task = scheduledTaskByID(id);
@@ -4720,6 +4691,7 @@ function openScheduledTaskEditor(id) {
 
 elements["new-scheduled-task"].addEventListener("click", () => openScheduledTaskDialog());
 elements["scheduled-task-close"].addEventListener("click", closeScheduledTaskDialog);
+elements["scheduled-task-cancel"]?.addEventListener("click", closeScheduledTaskDialog);
 elements["sched-mode"].addEventListener("change", syncScheduledTaskFields);
 elements["sched-period-unit"].addEventListener("change", syncScheduledTaskFields);
 elements["sched-anchor-now"].addEventListener("change", syncScheduledTaskFields);
@@ -4748,7 +4720,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -5002,21 +4974,26 @@ function clampPanelWidth(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 // ── 两栏宽度预算 ──────────────────────────────────────────────────────────
-// .app-shell 的列是 `var(--left-w) 6px minmax(0,1fr) 6px var(--right-w)`：两栏
-// 宽度之和 + 两条分隔条 + 主视图必须 ≤ 视口，否则网格整体溢出容器，最右那一栏
+// .app-shell 的列是 `nav + 任务列表 + minmax(0,1fr) + 右栏`：任务列表与右栏
+// 宽度之和 + 一级导航 + 主视图必须 ≤ 视口，否则网格整体溢出容器，最右那一栏
 // （右栏）被挤出视口——现场（2026-10-01）「调整边框大小时右栏消失」就是这么来的：
 // 旧口径只按 `viewport-280` **逐栏**钳制，两栏之和可以远超视口，而左栏锚在视口
 // 左边、看起来没事。用户口径：右栏要「跟左栏一样保持大小，最好保持比例」。
 const MAIN_VIEW_MIN = 280; // 中间主视图至少保留的宽度
-const PANEL_DIVIDERS = 12; // 两条分隔条 6px × 2
+const PANEL_DIVIDERS = 0; // 分隔条覆盖在边界上，不占列宽
 const PANEL_WIDTH_FLOOR = 200; // 单栏下限（预算极小时的最后兜底）
 
 function viewportWidth() {
   return window.innerWidth || 1280;
 }
+function navPanelWidth() {
+  const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--nav-w"));
+  if (Number.isFinite(value) && value > 0) return value;
+  return document.documentElement.dataset.leftNavCollapsed === "true" ? 52 : 112;
+}
 // sidePaneWidthBudget 两栏**共用**的可用宽度预算。
 function sidePaneWidthBudget() {
-  return Math.max(0, viewportWidth() - MAIN_VIEW_MIN - PANEL_DIVIDERS);
+  return Math.max(0, viewportWidth() - navPanelWidth() - MAIN_VIEW_MIN - PANEL_DIVIDERS);
 }
 // sidePaneMaxWidth 单栏宽度上限。拖拽时传入另一栏当前宽度：一栏拉宽不该把另一栏
 // 挤出视口（旧口径只留 320 的绝对下限，等同于放任溢出）。
@@ -5097,7 +5074,7 @@ function setupPanelDividers() {
     };
   }
   leftDivider.addEventListener("pointerdown", beginDrag(leftDivider, event => {
-    return setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left, currentPanelWidth("--right-w", 300));
+    return setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left - navPanelWidth(), currentPanelWidth("--right-w", 300));
   }));
   rightDivider.addEventListener("pointerdown", beginDrag(rightDivider, event => {
     return setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX, currentPanelWidth("--left-w", 268));
@@ -5140,7 +5117,7 @@ setupPanelDividers();
 // 与命中哪些容器。
 const SCROLL_SHADOW_TARGETS = [
   ".work-table-scroll",
-  ".sched-table-scroll",
+  ".scheduled-editor-body",
   ".session-group-body",
   "#account-list",
   "#plugin-list",

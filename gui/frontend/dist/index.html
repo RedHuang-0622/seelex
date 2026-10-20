@@ -41,41 +41,39 @@
       <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="terminal-button" class="icon-button subtle" type="button" title="终端 (Ctrl+`)" aria-label="终端" aria-pressed="false" data-icon="terminal"></button><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
-    <aside class="left-panel panel">
-      <div class="panel-rail-head">
-        <button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-left" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-right" data-icon-size="14"></span></button>
+    <aside class="nav-panel" aria-label="主导航">
+      <div class="nav-panel-head">
+        <button id="toggle-left-nav" class="icon-button subtle left-nav-toggle" type="button" title="收起/展开主导航" aria-label="收起/展开主导航" aria-expanded="true" data-icon="chevron-left"></button>
       </div>
-      <nav id="left-nav" class="left-nav" aria-label="左侧主导航">
-        <div class="left-nav-head">
-          <span class="left-nav-title">工作区</span>
-          <button id="toggle-left-nav" class="icon-button subtle left-nav-toggle" type="button" title="收起/展开主导航" aria-label="收起/展开主导航" aria-expanded="true" data-icon="chevron-up"></button>
-        </div>
-        <div class="left-nav-items">
-          <button class="left-nav-item is-active" type="button" data-left-page="tasks" aria-current="page">
-            <span class="left-nav-icon" data-icon="message" data-icon-size="14"></span>
-            <span class="left-nav-copy"><span>任务</span><small>会话与项目</small></span>
-          </button>
-          <button class="left-nav-item" type="button" data-left-page="scheduled">
-            <span class="left-nav-icon" data-icon="table" data-icon-size="14"></span>
-            <span class="left-nav-copy"><span>定时任务</span><small>周期与一次执行</small></span>
-          </button>
-          <button class="left-nav-item" type="button" data-left-page="plugins">
-            <span class="left-nav-icon" data-icon="plugin" data-icon-size="14"></span>
-            <span class="left-nav-copy"><span>插件装配</span><small>切换运行能力面</small></span>
-          </button>
-          <div class="left-nav-sub">
-            <button class="left-nav-item is-sub" type="button" data-nav-parent="plugins" data-left-page="skills">
-              <span class="left-nav-icon" data-icon="skill" data-icon-size="13"></span>
-              <span class="left-nav-copy"><span>Skill 管理</span><small>当前插件下的技能</small></span>
-            </button>
-          </div>
-        </div>
+      <nav id="left-nav" class="left-nav" aria-label="主导航">
+        <button class="left-nav-item is-active" type="button" data-left-page="tasks" aria-current="page">
+          <span class="left-nav-icon" data-icon="message" data-icon-size="16"></span>
+          <span class="left-nav-copy">聊天</span>
+        </button>
+        <button class="left-nav-item" type="button" data-left-page="scheduled">
+          <span class="left-nav-icon" data-icon="table" data-icon-size="16"></span>
+          <span class="left-nav-copy">定时任务</span>
+        </button>
+        <button class="left-nav-item" type="button" data-left-page="plugins">
+          <span class="left-nav-icon" data-icon="plugin" data-icon-size="16"></span>
+          <span class="left-nav-copy">插件管理</span>
+        </button>
       </nav>
+    </aside>
+
+    <aside class="left-panel task-panel panel">
+      <div class="panel-rail-head">
+        <button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开任务列表 (Ctrl+B)" aria-label="收起/展开任务列表" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-left" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-right" data-icon-size="14"></span></button>
+      </div>
+      <div class="task-list-heading">
+        <span class="task-list-eyebrow">任务列表</span>
+        <strong id="task-list-context">聊天</strong>
+      </div>
 
       <div id="left-page-tasks" class="left-page" role="tabpanel" data-left-page-panel="tasks">
         <section class="sessions-section">
           <div class="section-title">
-            <span>任务</span>
+            <span>会话</span>
             <span class="section-actions"><span id="session-count" class="badge">0</span><button id="new-session" class="icon-button" type="button" title="新建会话或项目" aria-label="新建会话或项目" data-icon="plus"></button></span>
           </div>
           <div id="session-list" class="stack-list"></div>
@@ -84,29 +82,21 @@
 
       <div id="left-page-scheduled" class="left-page hidden" role="tabpanel" data-left-page-panel="scheduled">
         <section id="scheduled-task-section" class="left-page-section">
-          <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
-          <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
-            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
-            <span id="scheduled-table-summary">0 项任务</span>
-            <span class="work-table-button-hint">查看完整表格</span>
-          </button>
+          <div class="section-title"><span>计划</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
           <div id="scheduled-task-view" class="sched-view muted">暂无定时任务</div>
         </section>
       </div>
 
       <div id="left-page-plugins" class="left-page hidden" role="tabpanel" data-left-page-panel="plugins">
         <section id="plugin-section" class="left-page-section">
-          <div class="section-title"><span>插件装配</span><span id="plugin-count" class="badge">0</span></div>
+          <div class="section-title"><span>插件</span><span id="plugin-count" class="badge">0</span></div>
           <p class="left-page-note">这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins/ 下的不一定是同一份。每行的「载入根 …」是它实际从哪个根载入的；精选目录里没有登记的那个只报这一句事实，不编来源（不写成"随发行包"）。</p>
           <div id="plugin-list" class="stack-list"></div>
-        </section>
-      </div>
-
-      <div id="left-page-skills" class="left-page hidden" role="tabpanel" data-left-page-panel="skills">
-        <section class="runtime-skills left-page-section">
-          <div class="section-title">Skill 管理</div>
-          <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
-          <div id="skill-list" class="chip-list"></div>
+          <div class="runtime-skills plugin-skills-block">
+            <div class="section-title">Skill 管理</div>
+            <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
+            <div id="skill-list" class="chip-list"></div>
+          </div>
         </section>
       </div>
     </aside>
@@ -131,6 +121,93 @@
         </div>
         <div id="trajectory" class="trajectory hidden" aria-live="polite"></div>
       </div>
+      <section id="scheduled-editor" class="scheduled-editor hidden" aria-labelledby="scheduled-task-modal-title" role="region">
+        <header class="scheduled-editor-head">
+          <div>
+            <span class="eyebrow">Schedule</span>
+            <h2 id="scheduled-task-modal-title">新建定时任务</h2>
+            <p>任务到点会新建独立会话执行。编辑器留在中栏，左侧计划列表保持可见。</p>
+          </div>
+          <button id="scheduled-task-close" class="icon-button subtle" type="button" title="关闭编辑器" aria-label="关闭定时任务编辑器" data-icon="close"></button>
+        </header>
+        <div class="scheduled-editor-body">
+          <section class="scheduled-form-section scheduled-form-identity">
+            <div class="scheduled-form-title"><span>01</span><div><strong>任务</strong><small>名称、执行内容与目标项目</small></div></div>
+            <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每天九点巡检" autocomplete="off"></label>
+            <label id="sched-prompt-field" class="settings-field">提示词内容<textarea id="sched-prompt" rows="7" placeholder="到点让 agent 执行的内容"></textarea></label>
+            <label class="settings-field">工作区
+              <select id="sched-workspace">
+                <option value="">（无工作区）</option>
+              </select>
+            </label>
+          </section>
+          <section class="scheduled-form-section scheduled-form-timing">
+            <div class="scheduled-form-title"><span>02</span><div><strong>节奏</strong><small>周期重复或一次性执行</small></div></div>
+            <label class="settings-field">执行方式
+              <select id="sched-mode">
+                <option value="period">周期重复</option>
+                <option value="at">定时执行（一次性）</option>
+              </select>
+            </label>
+            <label id="sched-period-field" class="settings-field">周期
+              <span class="period-row">
+                <span class="period-prefix">每</span>
+                <input id="sched-period-value" type="number" min="1" value="1">
+                <select id="sched-period-unit">
+                  <option value="minute">分钟</option>
+                  <option value="hour">小时</option>
+                  <option value="day" selected>天</option>
+                  <option value="week">周</option>
+                  <option value="month">月</option>
+                </select>
+              </span>
+            </label>
+            <label id="sched-anchor-field" class="settings-field">开始时间
+              <span class="period-row">
+                <select id="sched-start-weekday" class="hidden" aria-label="每周的星期几">
+                  <option value="1">周一</option>
+                  <option value="2">周二</option>
+                  <option value="3">周三</option>
+                  <option value="4">周四</option>
+                  <option value="5">周五</option>
+                  <option value="6">周六</option>
+                  <option value="7">周日</option>
+                </select>
+                <input id="sched-start-clock" type="time" step="60" aria-label="开始时间">
+              </span>
+            </label>
+            <label id="sched-anchor-now-field" class="settings-field sched-toggle"><input id="sched-anchor-now" type="checkbox"> 每个周期按当前时间</label>
+            <label id="sched-datetime-field" class="settings-field hidden">执行时间<input id="sched-datetime" type="datetime-local" aria-label="定时执行时间"></label>
+            <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> <span id="sched-enabled-label">创建后立即启用</span></label>
+          </section>
+          <aside class="scheduled-form-section scheduled-form-runtime">
+            <div class="scheduled-form-title"><span>03</span><div><strong>运行装配</strong><small>权限、插件与执行参数</small></div></div>
+            <label class="settings-field">权限档位
+              <select id="sched-permission">
+                <option value="">（默认：全权）</option>
+              </select>
+            </label>
+            <label class="settings-field">插件装配
+              <select id="sched-plugins" multiple size="4"></select>
+              <small class="settings-note">不选 = 继承宿主当前激活插件；装配只收窄工具面，不放宽权限。</small>
+            </label>
+            <label class="settings-field">思考强度
+              <select id="sched-effort">
+                <option value="">（默认：与默认档位一致）</option>
+              </select>
+            </label>
+            <label class="settings-field">循环次数
+              <input id="sched-loops" type="number" min="1" step="1" placeholder="（默认：与默认档位一致）">
+              <small class="settings-note">留空 = 使用默认档位参数。</small>
+            </label>
+          </aside>
+        </div>
+        <footer class="scheduled-editor-actions">
+          <span class="scheduled-editor-hint">保存后计划列表立即刷新，不会打断当前会话。</span>
+          <button id="scheduled-task-cancel" type="button" class="secondary">取消</button>
+          <button id="sched-submit" type="button" class="primary">创建任务</button>
+        </footer>
+      </section>
       <!-- 消息队列宿主：贴输入框上沿的「一叠条」，由 chat-view.js / app.js 渲染
            （renderMessageQueue）。绝对定位在输入框正上方——队列是"还没发出去的
            那几条"，必须跟着输入框走，所以不放进对话滚动区（.conversation）。
@@ -433,77 +510,6 @@
     </div>
   </div>
 
-  <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
-    <div class="modal-card settings-card" data-resizable>
-      <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-task-modal-title">新建定时任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">到点会新建一个会话发起（不打断你正在看的会话），可以给它指定一个工作区；会话记录照常按会话自己的存储落盘。周期可以指定「每天的几点」开始，也可以让每个周期按创建时刻滚动。</p>
-      <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每天九点巡检" autocomplete="off"></label>
-      <label class="settings-field">工作区
-        <select id="sched-workspace">
-          <option value="">（无工作区）</option>
-        </select>
-      </label>
-      <label class="settings-field">权限档位
-        <select id="sched-permission">
-          <option value="">（默认：全权）</option>
-        </select>
-      </label>
-      <label class="settings-field">插件装配
-        <select id="sched-plugins" multiple size="3"></select>
-        <small class="settings-note">不选 = 继承宿主当前激活插件；装配只收窄工具面，不放宽权限。</small>
-      </label>
-      <label class="settings-field">思考强度
-        <select id="sched-effort">
-          <option value="">（默认：与默认档位一致）</option>
-        </select>
-        <small class="settings-note">触发那次会话"想多深"。留空 = 创建时按默认档位落成默认值（面板上显示实际生效值）。</small>
-      </label>
-      <label class="settings-field">循环次数
-        <input id="sched-loops" type="number" min="1" step="1" placeholder="（默认：与默认档位一致）">
-        <small class="settings-note">触发那次会话跑多少轮（钉在那个会话自己的引擎上，不改进程默认值）。留空 = 默认档位的那条读数。</small>
-      </label>
-      <label class="settings-field">执行方式
-        <select id="sched-mode">
-          <option value="period">周期重复</option>
-          <option value="at">定时执行（一次性）</option>
-        </select>
-      </label>
-      <label id="sched-period-field" class="settings-field">周期
-        <span class="period-row">
-          <span class="period-prefix">每</span>
-          <input id="sched-period-value" type="number" min="1" value="1">
-          <select id="sched-period-unit">
-            <option value="minute">分钟</option>
-            <option value="hour">小时</option>
-            <option value="day" selected>天</option>
-            <option value="week">周</option>
-            <option value="month">月</option>
-          </select>
-        </span>
-      </label>
-      <label id="sched-anchor-field" class="settings-field">开始时间
-        <span class="period-row">
-          <select id="sched-start-weekday" class="hidden" aria-label="每周的星期几">
-            <option value="1">周一</option>
-            <option value="2">周二</option>
-            <option value="3">周三</option>
-            <option value="4">周四</option>
-            <option value="5">周五</option>
-            <option value="6">周六</option>
-            <option value="7">周日</option>
-          </select>
-          <input id="sched-start-clock" type="time" step="60" aria-label="开始时间">
-        </span>
-      </label>
-      <label id="sched-anchor-now-field" class="settings-field sched-toggle"><input id="sched-anchor-now" type="checkbox"> 每个周期按当前时间</label>
-      <label id="sched-prompt-field" class="settings-field">提示词内容<textarea id="sched-prompt" rows="4" placeholder="到点让 agent 执行的内容"></textarea></label>
-      <label id="sched-datetime-field" class="settings-field hidden">执行时间<input id="sched-datetime" type="datetime-local" aria-label="定时执行时间"></label>
-      <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> <span id="sched-enabled-label">创建后立即启用</span></label>
-      <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
-      <div class="modal-resize-handle" aria-hidden="true"></div>
-    </div>
-  </div>
-
   <div id="command-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="command-modal-title">
     <div class="modal-card command-card">
       <div class="modal-header"><div><span class="eyebrow">指令</span><h2 id="command-modal-title">命令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
@@ -605,18 +611,6 @@
         <button id="file-save-discard" type="button" class="secondary">不保存</button>
         <button id="file-save-cancel" type="button" class="text-button">取消</button>
       </div>
-    </div>
-  </div>
-
-  <div id="scheduled-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="定时任务表格">
-    <div class="modal-card scheduled-table-card" data-resizable>
-      <!-- 标题只留一个（口径同工作表格弹窗 e2dd0f0：用户报告"同一个词连着两行"）：
-           弹窗头不再写 eyebrow + h2，名字交给表格自己的头带（▾ 定时任务 N 项，见
-           scheduled-tasks-view.js 的 .sched-table-band）。无障碍名因此落到 aria-label，
-           不留视觉上重复的 h2。 -->
-      <div class="modal-header scheduled-table-modal-head"><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <div id="scheduled-table-view" class="scheduled-table-view muted">暂无定时任务</div>
-      <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>
 
