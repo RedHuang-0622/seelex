@@ -5,26 +5,36 @@ All notable changes to Seelex are documented in this file.
 The repository is in Developer Alpha. Source builds report <code>dev</code>;
 release builds receive their version from the Git tag through ldflags.
 
-The current release is <code>v0.1.2</code> — the workunit / teamwork / subagent
-convergence batch. The stabilization batch that was planned under the
-<code>v0.0.2</code> label shipped as <code>v0.1.1</code>; the breaking
-architectural rewrite is not yet scheduled and will take its own version when it
-lands.
+The current release is <code>v0.1.2</code> — the defect-audit / GUI-rework
+batch on top of the workunit / teamwork / subagent convergence batch. The
+stabilization batch that was planned under the <code>v0.0.2</code> label shipped
+as <code>v0.1.1</code>; the breaking architectural rewrite is not yet scheduled
+and will take its own version when it lands.
 
 ## [Unreleased]
 
-### Added
+（暂无条目——v0.1.2 发布后从这里开始累积。）
+
+## [v0.1.2] - 2026-10-21
+
+本版把两个此前**从未发布**的批次并成一版：先记 2026-10-15 / 10-21 的缺陷审计与
+GUI 重排批，再记 2026-10-07 的工作单元 / 团队现场收敛批。两个批次的分类小节各自成套，
+不同批次的同名分类互不累加。
+
+### 批次一 · 缺陷审计与 GUI 重排（2026-10-15 / 2026-10-21）
+
+#### Added
 
 - **GUI 顶部导航、批量项目草稿与内联工作台（2026-10-21）.** 界面改为
   `一级导航 | 任务列表 | 会话/定时编辑区 | 右栏` 四列：一级导航为
   聊天 / 定时任务 / 插件管理并可收缩，底色只由深浅轴决定（纯白 / 纯黑）；
-  第二列随导航切换会话、定时计划或插件/Skill 列表。定时计划改为节奏票据，
-  新建与编辑在中栏展开，不再使用任务弹窗或表格弹窗。运行状态弹窗移除
+  第二列随导航切换会话、单行定时计划或插件条目；定时编辑器与插件 Skill 管理
+  在中栏展开，不再使用任务弹窗或表格弹窗。运行状态弹窗移除
   Plugin/Skill 重复展示。新建项目先维护
   前端 temp list，再经 `Bridge.CreateWorkspaces` 一次批量登记，批量创建不绑定
   当前会话。右侧工作台取消“按钮 + 表格弹窗”：Todo 以打点表展示，Task 与
   Subagent 分节但共用后台长任务语言，Todo 空态明确显示「暂时没有 todo 项」。
-  三栏改为无预留沟槽的齐边布局，中栏取消外圆角；`glass` 材质按左 38% /
+  四栏改为无预留沟槽的齐边布局，中栏取消外圆角；`glass` 材质按左 38% /
   中 66% / 右 88% 递增不透明度。
 
 - **Seele 发布依赖升到 `v0.3.5`，移除本地 `replace`（2026-10-21）.** 本版
@@ -164,7 +174,7 @@ lands.
   **提交内文件内容视图（`git-log-view.js`）同走一条且无写入口**（历史版本不允许任何写入）。
   `styles.css` 的 HTML 预览样式就近加在 `.file-preview-code` 段之后、`.file-preview*` 段内。
 
-### Fixed
+#### Fixed
 
 - **`project_refresh` 两处断点（G5）：默认来源差一级目录 + 项目记录写键≠读键**（`sessionstore` ·
   红灯先行）。① `ProjectKnowledgeSources.MetadataPath` 默认曾为 `<root>/gui/module_dotting.json`，
@@ -181,7 +191,7 @@ lands.
   `TestProjectRefreshWriteReadSameKey` / `TestProjectRefreshSourcesConfigurable` /
   `TestProjectRefreshRealRepositorySources`（按本仓库真实布局钉默认值）。
 
-### Tests
+#### Tests
 
 - **J-2 后端**：`seelebridge/review_files_test.go`（批处理上限显式报错且不越过落点、恰好 10 份放行、
   空清单/缺参形状错误、收据回报 requested/opened/skipped、落点错误上抛）；`application/core/review_files_test.go`
@@ -201,7 +211,7 @@ lands.
   `CODE_EXTENSIONS`、`canEditPreview` 收 html）、`file-preview-controller.test.mjs`（只读=页面、编辑=源码、
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
-### Changed
+#### Changed
 
 - **`fork_subagents` 的 `id` / `goal`：约束落到模型读得到的位置**（2026-10-15；审计 D8）. `required`
   只保证键在，空串照样能过——实测因此白跑一轮（`subagent "" must have id and goal`）。schema 补
@@ -301,7 +311,7 @@ lands.
   F-1/F-2/F-3 的样式闸、F-5 的 mermaid / vendor 懒加载断言、F-6 邻接类断言；F-3 再补一条行容器
   `align-content` 闸——`style-baseline.test.mjs` 9 → 10 例，其余文件 752 例）。
 
-### Removed
+#### Removed
 
 - **Agent Team 用户面整条退场 + `@<团队>` 手动召唤删除**（后端 + 前端 · `J-1a`；用户 2026-10-12 拍板
   「`@<团队>` **直接删除**，`@` 这个字符让给文件指代」，即
@@ -346,13 +356,13 @@ lands.
   「已退场前缀在 `styles.css` 里 0 命中」（按**选择器类名 token 前缀**判，`team-board-*` / `scheduled-*`
   不受影响）并带负控（临时塞回死选择器 → 闸红）。
 
-## [v0.1.2] - 2026-10-07
+### 批次二 · 工作单元与团队现场收敛（2026-10-07）
 
 这一版是**工作单元（workunit）与团队现场（worktree）的收束批**：把「一件事 = 一个 Unit = 一套
 Session + worktree」从作业端口长成完整生命周期契约，subagent 与 teammate 两条链都留了真机 /
 真 git 的验收读数。
 
-### Added
+#### Added
 
 - **workunit 从「作业端口」长成完整生命周期契约.** 作业面四格（提交 / 读数 / 控制 / 信号）+ 合成，
   端口形状在编译期钉住；父子契约面拆成 `Lifecycle`（一份实现 + 两个注册点：`lifecycleHost` 收口
@@ -368,7 +378,7 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
 - **合并挡路有自己的分类**（`ErrMergeBlockedByMain`）+ 收尾合并串行化 + 节点 `merge_blocked`；
   后台作业在跑时提交走既有消息队列（fork 执行门控退役）。
 
-### Changed
+#### Changed
 
 - **装配面不再说假话：「自动回合」与「派活回合」拆成两件事.** 旧口径把 `RolesWithExecutor` 当成
   "谁有执行者"，于是对一支**正要派活**的团队说「暂无可执行者 …需要宿主为它接执行者」——而
@@ -411,7 +421,7 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   `position: sticky`（滚到页中段、来回切子页时"这是哪一页、有哪几个页签"始终在眼前）。弹窗头只写
   「团队详情」——标题归页自己的抬头，之前两处都写标题，同一句话在屏幕上是两遍。
 
-### Fixed
+#### Fixed
 
 - 缺陷 A：`team_accept` 释放幂等——worktree 已回收时不再报 exit 128。
 - teammate 工具根绑到自己的 worktree（指派名去前缀后再查现场）；teammate 会话入口只认「这件事自己的
@@ -425,7 +435,7 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
 - **CI 门禁「检查 return nil, nil」转绿**：10 处改成显式零值 `[]T(nil), nil` 并就地写明为什么——nil
   在这些格子里是「空结果 / 不覆盖 / 未登记」的事实，不是吞错。
 
-### Removed
+#### Removed
 
 - `team_retire`：结束 / 归档 / 删除只剩 `team_close`（回收唯一入口）。fork 执行门控退役。
 
