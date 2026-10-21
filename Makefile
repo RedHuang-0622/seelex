@@ -146,7 +146,7 @@ clean-linux-gui: guard-dist guard-version
 ##   默认走 Docker (ubuntu:22.04, webkit2gtk-4.0)；在 Linux 主机上也可用 --native 直接构建
 ##   国内网络加速（可选）：
 ##     make build-linux-gui VERSION=v0.1.1 LINUX_GUI_APT_MIRROR=https://mirrors.aliyun.com
-##     （若 _tmp/go1.25.8-linux-amd64.tar.gz 存在会自动复用，省掉容器内 60MB 下载）
+##     （若 _tmp/go1.26.1-linux-amd64.tar.gz 存在会自动复用，省掉容器内 60MB 下载）
 build-linux-gui: guard-version
 	@bash scripts/build-linux-gui.sh --version "$(VERSION)" $(LINUX_GUI_BUILD_ARGS)
 

@@ -28,14 +28,14 @@ cd "$ROOT" || exit 1
 VERSION="dev"
 WEBKIT=40
 IMAGE="${LINUX_GUI_DOCKER_IMAGE:-ubuntu:22.04}"
-GO_VER="${LINUX_GUI_GO_VERSION:-1.25.8}"
+GO_VER="${LINUX_GUI_GO_VERSION:-1.26.1}"
 # 可选加速（默认关闭，保持公开可复现）：
 #   --apt-mirror 换 apt 源（国内网络下 archive.ubuntu.com 会慢到十几分钟）
 #   --go-tarball 用本机已有的 go<ver>.linux-amd64.tar.gz，省掉 60MB 下载
 APT_MIRROR="${LINUX_GUI_APT_MIRROR:-}"
 GO_TARBALL="${LINUX_GUI_GO_TARBALL:-}"
 # Go 官方 tarball 地址；国内可用 --go-url 换成镜像（如
-# https://mirrors.tuna.tsinghua.edu.cn/golang/go1.25.8.linux-amd64.tar.gz）
+# https://mirrors.tuna.tsinghua.edu.cn/golang/go1.26.1.linux-amd64.tar.gz）
 GO_URL="${LINUX_GUI_GO_URL:-}"
 MODE="docker"
 BINARY=""

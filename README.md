@@ -4,7 +4,7 @@
 > 它的骨架是一套面向软件工程任务的 Agent Harness 与 Multi-Agent Runtime：把 LLM、Tool Calling、Agentic Workflow、Context Engineering、权限策略和持久化装配成可运行、可观察、可恢复的本地 agent。
 
 [![CI](https://img.shields.io/github/actions/workflow/status/RedHuang-0622/seelex/ci.yml?style=flat-square&label=CI&logo=github)](https://github.com/RedHuang-0622/seelex/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.25.8%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26.1%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-6f42c1?style=flat-square)](https://github.com/RedHuang-0622/seelex/releases)
 [![Status](https://img.shields.io/badge/Status-Developer%20Alpha-f59e0b?style=flat-square)](#当前状态与边界)
@@ -414,7 +414,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 
 ### 1. 准备环境
 
-- Go 1.25.8+（<code>go.mod</code> 要求 go 1.25.8）
+- Go 1.26.1+（<code>go.mod</code> 要求 go 1.26.1）
 - 一个支持 OpenAI-compatible Chat Completions 的模型 endpoint
 - Git
 

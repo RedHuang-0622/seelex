@@ -51,7 +51,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
 
       - name: 构建 CLI
@@ -113,7 +113,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
 
       - name: 构建 Windows GUI
@@ -162,7 +162,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
 
       - name: 安装 GTK3 / WebKit2GTK(4.0) 构建依赖
