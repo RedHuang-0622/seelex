@@ -242,17 +242,9 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 收尾顺序是契约：**先停引擎与写手，再关仓库**。
-	// `t.Cleanup` 是 LIFO，所以这条必须在 `t.Cleanup(runtimeBridge.Shutdown)` **之后**注册
-	// 才会在它之前跑；两处拆开注册时（Store 关在 Shutdown 前）收尾阶段的会话快照会撞上
-	// 已关闭的 repository（`session storage: repository is closed`），异步写手还会在
-	// TempDir 清理时再落文件——Linux CI 上表现成
-	// `TempDir RemoveAll cleanup: unlinkat ...: directory not empty`
-	// （TestTwoRunningViewThirdSwitchStress）。这里合成一次，顺序不再依赖注册先后。
-	t.Cleanup(func() {
-		runtimeBridge.Shutdown()
-		_ = st.Close()
-	})
+	// 收尾顺序是契约，但**不在这里注册**：`t.Cleanup` 是 LIFO，而"先停应用 → 有界等静默
+	// → 停运行时 → 关仓库"必须整段有序，所以它合成一处、注册在应用建好之后（见本函数
+	// 末尾那条 cleanup）。这里只做装配。
 	runtimeBridge.AttachHistoryRouter(st)
 	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
 	// （wiring/bootstrap，紧跟 AttachHistoryRouter）。测试基座缺这一句时
@@ -323,7 +315,27 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	// 缺这一句时 scheduler 的 executor 是 nil，prompt 任务**根本创建不出来**
 	// （"提示词任务执行器未装配"），冒烟会把装配缺口误报成链子坏了。
 	runtimeBridge.SetScheduledPromptExecutor(registry.ScheduledPromptExecutor(app))
-	t.Cleanup(app.Shutdown)
+	// 收尾顺序是契约（`t.Cleanup` LIFO ⇒ 后注册的先跑），这里合成一处，不靠注册先后：
+	//
+	//  1. `app.Shutdown()`：取消/收口在飞的回合与派发（它也停掉"驱逐"派发）；
+	//  2. 有界等静默：驱逐/释放是**异步**的，`Shutdown` 返回不等于它已经落完；这几秒
+	//     之内落下来的会话快照还找得到仓库；
+	//  3. `runtimeBridge.Shutdown()`：停引擎与写手；
+	//  4. `st.Close()`：最后关仓库。
+	//
+	// 不这么排的结果（真实故障）：快照 flush 撞上已关闭仓库（`session storage:
+	// repository is closed`），异步写手随后又在 `t.TempDir()` 清理时落文件——Linux CI
+	// 上表现成 `TempDir RemoveAll cleanup: unlinkat …: directory not empty`
+	// （`TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns`，`-race` 下稳定复现）。
+	t.Cleanup(func() {
+		app.Shutdown()
+		if ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second); cancel != nil {
+			_ = app.WaitForIdle(ctx)
+			cancel()
+		}
+		runtimeBridge.Shutdown()
+		_ = st.Close()
+	})
 	hooks.Bind(app)
 	return fullChainHarness{
 		app: app, events: events, runtime: runtimeBridge, approval: approval,

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
@@ -522,25 +523,86 @@ func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort) {
 		return
 	}
 	triggered := map[string]struct{}{}
+	// 补扫定时器：忙会话被跳过的终态条目要靠它重试（见 triggerAsyncCompletions 的
+	// pending 回报）。信号只在"有变化"时来一次，而"会话忙"这一刻没有任何新信号会来——
+	// 只等信号就是丢唤醒（`-race` 下 worker 抢在 leader 回合收尾前完成，完成行永远不起
+	// 回合，TestTeamworkHeadlessSmoke 的 P5 等满 60s）。账本仍只由这一个 goroutine 读写。
+	//
+	// **两类补扫分开记**：后台执行表与 teammate 作业表是两张表、两套账本键
+	// （`<handle>` / `teamwork:<handle>`），合并扫描会让同一条记录被两条路各触发一次
+	// （TestTeamworkCompletionTriggersOncePerHandle 钉的就是这件事）。
+	var (
+		retryTimer      *time.Timer
+		retryC          <-chan time.Time
+		pendingAsync    bool
+		pendingTeamwork bool
+	)
+	scheduleRetry := func() {
+		if !pendingAsync && !pendingTeamwork {
+			return
+		}
+		if retryTimer == nil {
+			retryTimer = time.NewTimer(asyncTriggerRetryDelay)
+		} else {
+			if !retryTimer.Stop() {
+				select {
+				case <-retryTimer.C:
+				default:
+				}
+			}
+			retryTimer.Reset(asyncTriggerRetryDelay)
+		}
+		retryC = retryTimer.C
+	}
+	scanAsync := func() bool {
+		if !Limits().AsyncExec.TriggerConversation {
+			return false
+		}
+		pending := 0
+		service.safeLifecycleCall(func() { pending = service.triggerAsyncCompletions(triggered) })
+		return pending > 0
+	}
+	scanTeamwork := func() bool {
+		if !Limits().AsyncExec.TriggerConversation {
+			return false
+		}
+		pending := 0
+		service.safeLifecycleCall(func() { pending = service.triggerTeamworkJobCompletions(triggered) })
+		return pending > 0
+	}
 	for {
 		select {
 		case <-events:
 			service.safeLifecycleCall(service.refreshWorkTableFromSources)
 			// 开关关闭时连扫描都不做（默认关，见 limits.async_exec.trigger_conversation）。
-			if Limits().AsyncExec.TriggerConversation {
-				service.safeLifecycleCall(func() { service.triggerAsyncCompletions(triggered) })
-			}
+			pendingAsync = scanAsync()
+			scheduleRetry()
 		case <-teamworkEvents:
 			// teammate 作业终态**不改工作表格的行**（那两张表分开），只走"做完自动返回"：
-			// 空闲会话起一个回合，忙会话等它自己的回合边界（打点块里的 teammate 完成行）。
-			if Limits().AsyncExec.TriggerConversation {
-				service.safeLifecycleCall(func() { service.triggerTeamworkJobCompletions(triggered) })
+			// 空闲会话起一个回合，忙会话等补扫（或它自己那一轮的回合边界）。
+			pendingTeamwork = scanTeamwork()
+			scheduleRetry()
+		case <-retryC:
+			retryC = nil
+			if pendingAsync {
+				pendingAsync = scanAsync()
 			}
+			if pendingTeamwork {
+				pendingTeamwork = scanTeamwork()
+			}
+			scheduleRetry()
 		case <-service.lifecycleStop:
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
 			return
 		}
 	}
 }
+
+// asyncTriggerRetryDelay 是"忙会话跳过触发"之后的补扫间隔：短到完成行不会明显迟到，
+// 长到一次忙会话不会把消费者钉成忙等循环（每次补扫只是 O(在册作业数) 的一次扫描）。
+const asyncTriggerRetryDelay = 500 * time.Millisecond
 
 // safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 // 继续运行（可能持续污染其它会话）——先降级退出，再重新抛出 panic 让宿主

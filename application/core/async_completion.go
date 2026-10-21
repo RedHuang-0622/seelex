@@ -50,7 +50,12 @@ const (
 )
 
 // triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
-// 的作业各自起一个回合。
+// 的作业各自起一个回合。**返回被跳过（会话忙）的条数**——调用方据此安排补扫。
+//
+// 为什么要回报条数：忙会话按铁律 §6.1 不被唤醒，条目刻意不记入账本，"留待下一次信号
+// 重试"。可信号只在**有变化**时来一次；若此后没有新信号（真实的抢跑形状：worker 在
+// leader 那一轮收尾之前就完成），这条完成行就永远不起回合。`-race` 下 `TestTeamworkHeadlessSmoke`
+// 的 P5 就是卡在这里（等满 60s）。见 consumeAsyncRuns 的补扫定时器。
 //
 // 走全量扫描而不是"信号里带载荷"：登记表是唯一事实源，信号只承诺"有事发生"
 // （见 contract.RuntimePort.AsyncRunEvents 的注释）。全量扫描一次是 O(在册作业数)，
@@ -58,7 +63,8 @@ const (
 //
 // triggered 是调用方（consumeAsyncRuns 的那个 goroutine）持有的句柄账，只有它一个
 // goroutine 读写，因此不需要加锁。
-func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
+func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) int {
+	pending := 0
 	records := service.Deps.Runtime.AsyncRunsSnapshot()
 	present := make(map[string]struct{}, len(records))
 	for _, record := range records {
@@ -81,7 +87,8 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 			continue
 		}
 		if !service.sessionIdleForAsyncTrigger(sessionID) {
-			// 忙会话不唤醒（铁律 §6.1）；不记入集合，留待下一次信号重试。
+			// 忙会话不唤醒（铁律 §6.1）；不记入集合，留待下一次信号或补扫重试。
+			pending++
 			continue
 		}
 		// 先记账再提交：提交失败（关闭中/排空中）不该让每一次后续信号都重放一次。
@@ -95,6 +102,7 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 			delete(triggered, handle)
 		}
 	}
+	return pending
 }
 
 // asyncCompletionTriggers 报告某个状态是否该触发对话。
@@ -173,10 +181,11 @@ func asyncPromptKind(kind string) string {
 //
 // 与 triggerAsyncCompletions 同一形状（全量扫描 + 幂等账 + 只唤醒空闲会话）：登记表是
 // 唯一事实源，信号只承诺"有事发生"。
-func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{}) {
+func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{}) int {
+	pending := 0
 	records := teamworkJobCompletions(service.Deps.Runtime)
 	if len(records) == 0 {
-		return
+		return 0
 	}
 	present := make(map[string]struct{}, len(records))
 	for _, record := range records {
@@ -197,8 +206,9 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 			continue
 		}
 		if !service.sessionIdleForAsyncTrigger(sessionID) {
-			// 忙会话不唤醒（铁律 §6.1）：不记入集合，留待下一次信号重试；忙会话那一轮
+			// 忙会话不唤醒（铁律 §6.1）：不记入集合，留待下一次信号或补扫重试；忙会话那一轮
 			// 的**回合边界**会从打点块看到这条完成行（teamworkTraceLines）。
+			pending++
 			continue
 		}
 		triggered[key] = struct{}{}
@@ -214,6 +224,7 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 			delete(triggered, key)
 		}
 	}
+	return pending
 }
 
 // teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
