@@ -1034,13 +1034,40 @@ func worktreeRegisteredWith(git gitFn, root, path string) bool {
 	return false
 }
 
-// worktreePathEqual 比较两个路径是否是同一个 worktree：git 在 Windows 上输出的分隔符
-// 与盘符大小写可能与本地拼出的路径不同，统一分隔符与大小写后再比。
+// worktreePathEqual 比较两个路径是否是同一个 worktree。
+//
+// 判据分两层：
+//
+//  1. **文件身份**（`os.SameFile`）：磁盘上指向同一个对象就算相等。这一层兜住字符串
+//     抹不平的差异——最典型的是 Windows 的 8.3 短名：GitHub 的 Windows runner 把 TEMP
+//     设成 `C:\Users\RUNNER~1\AppData\Local\Temp`，而 `git worktree list --porcelain`
+//     打的是 `GetFinalPathNameByHandle` 解析后的长名（`C:\Users\runneradmin\…`）。两串
+//     归一化后仍然不等，现场于是"没人认识"：认领失败 → 被当孤儿回收（真真机故障：
+//     未提交产出连带现场一起被删）。文件身份不看这两串长什么样。
+//  2. **字符串归一化**（分隔符 / 盘符大小写 / 尾部斜杠）：路径已经不在磁盘上时
+//     （回收判定、`prune` 之后、手工移走的目录）身份层无从下手，退回这一层。
 func worktreePathEqual(a, b string) bool {
+	if sameFileIdentity(a, b) {
+		return true
+	}
 	norm := func(p string) string {
 		return strings.TrimRight(filepath.ToSlash(filepath.Clean(p)), "/")
 	}
 	return strings.EqualFold(norm(a), norm(b))
+}
+
+// sameFileIdentity 报告两个路径是否指向同一个文件系统对象（任一不存在 → false，
+// 交给调用方退回字符串比较）。
+func sameFileIdentity(a, b string) bool {
+	aInfo, aErr := os.Stat(a)
+	if aErr != nil {
+		return false
+	}
+	bInfo, bErr := os.Stat(b)
+	if bErr != nil {
+		return false
+	}
+	return os.SameFile(aInfo, bInfo)
 }
 
 // ConflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
