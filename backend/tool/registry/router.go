@@ -545,6 +545,12 @@ var newExecProcessTree = security.NewProcessTree
 func newProcessTreeCommand(runCtx context.Context, shell string, shellArgs []string, workdir string) (*exec.Cmd, *security.ProcessTree) {
 	tree := newExecProcessTree()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+	// 起命令位与 argv[0] 对齐：exec 把裸名字（POSIX 上的 `bash`）解析成绝对路径写进 Path，
+	// 但 Args[0] 仍是调用方给的裸名字。两条链共用这一份装配，就在这里对齐一次——
+	// 不留"Windows 恰好一致、Linux 不一致"的平台差（process_tree_assembly_test.go 钉的就是这条）。
+	if len(cmd.Args) > 0 {
+		cmd.Args[0] = cmd.Path
+	}
 	winhide.Apply(cmd)
 	cmd.Dir = workdir
 	security.ConfigureHiddenCommand(cmd)

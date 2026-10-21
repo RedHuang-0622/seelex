@@ -59,8 +59,17 @@ const projectKnownHeader = "# 项目摘要（Project Known）\n\n"
 // "可提交件的三条硬纪律"。
 var projectKnownWorkspaceToken = regexp.MustCompile(`ws-[0-9]{6,}`)
 
-// projectKnownAbsolutePathToken 匹配 Windows 盘符开头的绝对路径（prose 里的兜底清洗）。
-var projectKnownAbsolutePathToken = regexp.MustCompile(`[A-Za-z]:[\\/][^\s，。；、）)"'` + "`" + `]*`)
+// projectKnownAbsolutePathToken 匹配 prose 里的绝对路径（兜底清洗）：Windows 盘符开头
+// **与 POSIX 根开头**都算。
+//
+// 为什么必须跨平台：渲染件要能提交，而同一个 `ProjectRecord` 在 Windows 上的 `Path` 是
+// `C:\…`、在 Linux 上是 `/tmp/…`。只认盘符的话，Linux 上的 prose 会带着本机绝对路径
+// 原样进产物（store/project_known_test.go 的 ② 在 Linux 上就是这么红的）。
+//
+// 前导分隔符（行首 / 空白 / 括号 / 引号）用捕获组保住，只替换路径本体——否则会把
+// 前面那个空格或左括号一起吞掉。POSIX 分支要求路径后至少跟一个字符，避免把正文里
+// 孤零零的一个 `/`（如 "a / b"）当成绝对路径。
+var projectKnownAbsolutePathToken = regexp.MustCompile(`(^|[\s（("'` + "`" + `])(?:[A-Za-z]:[\\/]|/)[^\s，。；、）)"'` + "`" + `]+`)
 
 // ProjectKnownMarkdown 把 `ProjectRecord` 渲染成人读 markdown。
 //
@@ -116,7 +125,7 @@ func sanitizeKnownText(value string) string {
 		return ""
 	}
 	value = projectKnownWorkspaceToken.ReplaceAllString(value, "ws-<workspace>")
-	value = projectKnownAbsolutePathToken.ReplaceAllString(value, "<abs-path>")
+	value = projectKnownAbsolutePathToken.ReplaceAllString(value, "$1<abs-path>")
 	return strings.TrimSpace(value)
 }
 

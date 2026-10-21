@@ -91,6 +91,13 @@ type teamworkSmokeProvider struct {
 	// workers 是逐次 worker 回合的采样（含**本轮 system prompt 原文**）：装配的落点
 	// （技能目录段有没有进员工的 system）只有在 wire 上才看得见。
 	workers []workerSample
+	// onWorkerTurn 是"worker 第 N 轮的补全请求刚到达"时的回调（可选）。此刻**上一轮的
+	// 工具已经执行完、本轮的工具还没跑**，所以现场的真实状态正好可观测。
+	//
+	// 为什么要这个钩子：现场取证（`sceneProbe`）原先只靠墙钟轮询（60ms 一次），而整条
+	// 链在一次 Linux 运行里可能 60ms 内就跑完（CI 上 `采样=0` 就是这么来的）——取证窗口
+	// 全靠运气。挂在这条确定性边界上，采样点跟着流水线走，不跟时钟走。留空时行为不变。
+	onWorkerTurn func(turn int)
 }
 
 // workerSample 是一次 worker 回合的采样。SystemPrompt 是请求里第一条 system 消息的
@@ -137,9 +144,12 @@ func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, 
 
 	p.mu.Lock()
 	response := scriptedResponse{text: "收到"}
+	hook := p.onWorkerTurn
+	hookTurn := 0
 	switch {
 	case workerTurn:
 		p.workerTurns++
+		hookTurn = p.workerTurns
 		p.workers = append(p.workers, workerSample{
 			Role:         roleFromWorkerInput(lastUser),
 			SystemPrompt: requestSystemPrompt(payload.Messages),
@@ -164,6 +174,12 @@ func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, 
 		}
 	}
 	p.mu.Unlock()
+
+	// worker 回合的确定性取证点（见 onWorkerTurn 的注释）：放在锁外调用，
+	// 回调里可以做任何事（如 os.Stat），不会与请求处理互锁。
+	if hookTurn > 0 && hook != nil {
+		hook(hookTurn)
+	}
 
 	// 两条补全路都要服务：**leader 走主会话**（SSE，delta 形状），**worker 走框架会话
 	// 的补全路**（`newRoleEngine` 用 framework session + agent completer，请求

@@ -138,6 +138,10 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 		file:     fileName,
 		mainFile: filepath.Join(root, fileName),
 	}
+	// 确定性取证点：每次 worker 回合的补全请求到达时采一帧（此刻上一轮工具已执行完）。
+	// 墙钟轮询（下面那条 ticker）继续保留作补充，但**不能只靠它**——快机器上整条链可能
+	// 在第一个 60ms tick 之前跑完，取证窗口会变成空集（Linux CI 上 `采样=0` 即此）。
+	provider.onWorkerTurn = func(int) { probe.record() }
 	stop := make(chan struct{})
 	probeDone := make(chan struct{})
 	go func() {

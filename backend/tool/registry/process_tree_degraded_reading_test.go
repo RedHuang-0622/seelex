@@ -23,6 +23,7 @@ package registry
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"runtime"
 	"testing"
 	"time"
 
@@ -48,6 +49,12 @@ func diagnosticStages(events []BashDiagnosticEvent) []string {
 }
 
 func TestSyncChainReportsDegradedProcessTree(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		// "退化"是 Windows Job Object 的形态（建不出来 / 分配失败）。POSIX 上 Setpgid +
+		// kill(-pgid) 覆盖整棵树，`Degraded()` 恒为 false（backend/limit/gate/process_tree_other.go），
+		// 这条读数在 POSIX 上不存在——不是"没实现"，是"没有这个状态"。
+		t.Skip("进程树退化读数只存在于 Windows（Job Object）；POSIX 上 Degraded() 恒为 false")
+	}
 	var events []BashDiagnosticEvent
 	router := NewRouter(Deps{
 		ToolCallTimeout:        time.Minute,
