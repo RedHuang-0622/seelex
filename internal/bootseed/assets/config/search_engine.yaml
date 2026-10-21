@@ -24,13 +24,13 @@ search_depth: advanced
 # active: gateway            # 可选：多策略时选中一个；缺省取第一个
 #
 # ── 单引擎接入（最常用）────────────────────────────────────────────
-# provider: tavily           # tavily | bochaai | searxng
+# provider: deepseek         # tavily | bochaai | searxng | deepseek
 # api_key: replace-with-your-key
 #
 # ── 多引擎/自建网关：strategies 列表 ────────────────────────────────
 # 三种接入方式，对外入参/出参完全一致：
 #   1) 标准协议端点 / 自建网关：只需端点与密钥，type 省略或写 standard
-#   2) 内置厂商适配器：type 写厂商名（tavily | bochaai | searxng），走专有协议
+#   2) 内置厂商适配器：type 写厂商名（tavily | bochaai | searxng | deepseek），走专有协议
 #   3) 上面的 provider/api_key 简写——未声明 strategies 时自动翻译成策略
 # 声明了 strategies 就请把 provider/api_key 注释掉，或用 active 指定用哪个。
 # strategies:
@@ -43,3 +43,7 @@ search_depth: advanced
 #   - name: sx
 #     type: searxng          # SearXNG JSON API（endpoint 必填，api_key 可选）
 #     endpoint: https://searx.example.org/search
+#   - name: ds
+#     type: deepseek         # DeepSeek 官方 Search API（POST /v1/tools/search）
+#     # 不写密钥也行：默认继承 accounts.yaml 里的 DeepSeek 账号（同一把 key）
+#     # api_key_env: DEEPSEEK_API_KEY   # 或用环境变量；也可直接写 api_key
