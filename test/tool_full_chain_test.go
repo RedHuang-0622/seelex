@@ -242,7 +242,17 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = st.Close() })
+	// 收尾顺序是契约：**先停引擎与写手，再关仓库**。
+	// `t.Cleanup` 是 LIFO，所以这条必须在 `t.Cleanup(runtimeBridge.Shutdown)` **之后**注册
+	// 才会在它之前跑；两处拆开注册时（Store 关在 Shutdown 前）收尾阶段的会话快照会撞上
+	// 已关闭的 repository（`session storage: repository is closed`），异步写手还会在
+	// TempDir 清理时再落文件——Linux CI 上表现成
+	// `TempDir RemoveAll cleanup: unlinkat ...: directory not empty`
+	// （TestTwoRunningViewThirdSwitchStress）。这里合成一次，顺序不再依赖注册先后。
+	t.Cleanup(func() {
+		runtimeBridge.Shutdown()
+		_ = st.Close()
+	})
 	runtimeBridge.AttachHistoryRouter(st)
 	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
 	// （wiring/bootstrap，紧跟 AttachHistoryRouter）。测试基座缺这一句时
