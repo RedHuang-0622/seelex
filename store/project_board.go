@@ -315,7 +315,9 @@ func projectBoardLock(path string) *sync.Mutex {
 func readProjectBoardFile(path string) ([]ProjectBoardRow, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		// 还没有这份投影：零值即状态（absent-state-reads.md ①），不是错误。
+		var absent []ProjectBoardRow
+		return absent, nil
 	}
 	if err != nil {
 		return nil, err

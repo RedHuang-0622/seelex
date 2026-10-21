@@ -140,7 +140,9 @@ func (service *Service) validateScheduledWorkspace(workspaceID string) error {
 func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
-		return nil, nil
+		// 空 ID = 不绑项目（合法输入，不是缺失）。
+		var unbound *model.WorkspaceInfo
+		return unbound, nil
 	}
 	if service.Deps.Workspace == nil {
 		return nil, errors.New("指定了工作区，但工作区能力未装配")

@@ -79,14 +79,18 @@ func (store *FileStore) Append(record dto.ScheduledTaskRecord) error {
 // 的崩溃恢复语义：没有收尾换行的一行就是没提交完的一行）。
 func (store *FileStore) Load() ([]dto.ScheduledTaskRecord, error) {
 	if store == nil || strings.TrimSpace(store.path) == "" {
-		return nil, nil
+		// 没绑定文件 = 空任务集（未配置即状态），不是错误。
+		var unbound []dto.ScheduledTaskRecord
+		return unbound, nil
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	data, err := os.ReadFile(store.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			// 文件还没写过 = 空集（缺失即状态），不是错误。
+			var absent []dto.ScheduledTaskRecord
+			return absent, nil
 		}
 		return nil, err
 	}
