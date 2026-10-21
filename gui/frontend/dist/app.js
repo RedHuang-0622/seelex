@@ -110,7 +110,7 @@ const elements = Object.fromEntries([
   // 徽标会静默不渲染（性能/事件诊断数据照采，但用户看不到，见 element-registry.test.mjs）。
   "perf-badge-host", "live-diag-host",
   "session-list", "session-count", "new-session",
-  "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
+  "plugin-list", "plugin-count", "plugin-management", "plugin-management-title", "plugin-management-description", "plugin-management-state", "plugin-management-meta", "plugin-skill-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
@@ -153,6 +153,17 @@ function normalizeLeftPage(page) {
   return Object.hasOwn(LEFT_PAGE_IDS, value) ? value : "tasks";
 }
 
+function closePluginManagement() {
+  document.querySelector(".workspace")?.classList.remove("is-plugin-manager");
+  elements["plugin-management"]?.classList.add("hidden");
+}
+
+function openPluginManagement() {
+  if (document.querySelector(".workspace")?.classList.contains("is-task-schedule")) closeScheduledTaskDialog();
+  document.querySelector(".workspace")?.classList.add("is-plugin-manager");
+  elements["plugin-management"]?.classList.remove("hidden");
+}
+
 function showLeftPage(page, persist = true) {
   const active = normalizeLeftPage(page);
   for (const [key, id] of Object.entries(LEFT_PAGE_IDS)) {
@@ -167,7 +178,10 @@ function showLeftPage(page, persist = true) {
   }
   document.documentElement.dataset.leftPage = active;
   if (elements["task-list-context"]) elements["task-list-context"].textContent = LEFT_PAGE_LABELS[active];
-  if (active !== "scheduled" && document.querySelector(".workspace")?.classList.contains("is-task-schedule")) {
+  const workspace = document.querySelector(".workspace");
+  if (active !== "plugins") closePluginManagement();
+  if (active === "plugins") openPluginManagement();
+  if (active === "tasks" && workspace?.classList.contains("is-task-schedule")) {
     closeScheduledTaskDialog();
   }
   if (persist) storageSet(LEFT_PAGE_STORAGE_KEY, active);
@@ -1994,6 +2008,7 @@ function closeSessionMenu() {
 async function resumeSessionFromList(sessionID) {
   const { sessions, current, capabilities, sessionWorkspaces, workspaces } = sessionListSnapshot();
   const currentID = current?.id || "";
+  showLeftPage("tasks");
   if (!sessionID || sessionID === currentID) return;
   closeSessionMenu();
   if (!capabilities.session_resume) {
@@ -2370,6 +2385,7 @@ function renderPermissionMenu(runtime) {
 // 三条事实全缺时才只剩名字。
 function renderPlugins(runtime) {
   const plugins = runtime.plugins || [];
+  const active = plugins.find(plugin => plugin.name === runtime.plugin) || null;
   elements["plugin-count"].textContent = String(plugins.length);
   elements["plugin-list"].innerHTML = plugins.map(plugin => {
     const source = pluginSourceBadge(plugin);
@@ -2378,15 +2394,35 @@ function renderPlugins(runtime) {
     const badge = source.label
       ? ` <span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>`
       : "";
-    // 旁注是可见第二行：走收口过的单行文本（长根路径由 CSS 省略号再兜一层），
-    // 完整 local:<根> 与载入根在 title（按钮 + 标签两处）里。
-    const note = source.hint ? `<small>${escapePluginSourceText(source.hint)}</small>` : "";
     const title = source.note ? ` title="${escapePluginSourceText(source.note)}"` : "";
     return `
-    <button class="stack-button ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}"${title}>
-      ${escapeHtml(plugin.name)}${badge}<small>${escapeHtml(plugin.description || "")}</small>${note}
+    <button class="stack-button plugin-entry ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}"${title}>
+      <span class="plugin-entry-name">${icon(runtime.plugin === plugin.name ? "dot" : "circle", 12)}${escapeHtml(plugin.name)}</span>
+      ${badge}
     </button>`;
   }).join("");
+  if (elements["plugin-management-title"]) {
+    elements["plugin-management-title"].textContent = active?.name || "插件管理";
+  }
+  if (elements["plugin-management-description"]) {
+    elements["plugin-management-description"].textContent = active?.description || "选择一个插件，查看它当前向本会话提供的 Skill。";
+  }
+  if (elements["plugin-management-state"]) {
+    elements["plugin-management-state"].textContent = active ? "当前使用" : "未选择";
+    elements["plugin-management-state"].classList.toggle("is-on", Boolean(active));
+  }
+  if (elements["plugin-management-meta"]) {
+    if (!active) {
+      elements["plugin-management-meta"].innerHTML = '<span class="chip">暂无插件</span>';
+    } else {
+      const source = pluginSourceBadge(active);
+      elements["plugin-management-meta"].innerHTML = [
+        `<span class="chip">plugin ${escapeHtml(active.name)}</span>`,
+        source.label ? `<span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>` : "",
+        source.hint ? `<span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.hint)}</span>` : ""
+      ].filter(Boolean).join("");
+    }
+  }
 }
 
 // 插件切换：容器上一条委托（列表每次重绘不再逐行绑监听）。单飞语义保留——
@@ -2478,9 +2514,16 @@ function renderSkills(skills) {
   // Skill 的召回前缀是 `$`（`#` 是切换 Plugin、`/` 是命令）：与
   // application/core/input_router/router.go 的 skillRoute/pluginRoute 一字对应。
   // 这里曾写死成 `#`，于是用户用 `$goal` 召回的 Skill 在列表里显示成 `#goal`。
+  if (elements["plugin-skill-count"]) elements["plugin-skill-count"].textContent = String(skills.length);
   elements["skill-list"].innerHTML = skills.length
-    ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">$${escapeHtml(skill.name)}</span>`).join("")
-    : '<span class="muted">当前 Plugin 无 Skill</span>';
+    ? skills.map(skill => `<div class="plugin-skill-row">
+        <span class="plugin-skill-icon" aria-hidden="true">${icon("skill", 14)}</span>
+        <span class="plugin-skill-copy">
+          <strong class="plugin-skill-name">${escapeHtml(skill.name)}</strong>
+          <span class="plugin-skill-desc" title="${escapeHtml(skill.description || "")}">${escapeHtml(skill.description || "当前插件提供的 Skill")}</span>
+        </span>
+      </div>`).join("")
+    : '<div class="plugin-skill-empty">当前插件没有可召回的 Skill。</div>';
 }
 
 // ── 「团队看板」面板（工作台子页）──────────────────────────
@@ -3033,12 +3076,8 @@ function findSubagentTreeNode(nodeID) {
 // 新建按钮常驻（命令白名单来自 runtime.scheduled_commands）。
 function renderScheduledTaskPanel(runtime) {
   const tasks = Array.isArray(runtime.scheduled_tasks) ? runtime.scheduled_tasks : [];
-  const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
-  // 工作区名来自快照的 workspaces（任务只记 ID：ID 是索引，名字只用于展示）。
-  const workspaces = Array.isArray((client.current() || {}).workspaces) ? client.current().workspaces : [];
-  const tiers = Array.isArray((client.current() || {}).runtime?.permission_tiers) ? client.current().runtime.permission_tiers : [];
   elements["scheduled-task-count"].textContent = String(tasks.length);
-  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands, workspaces, tiers);
+  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks);
 }
 
 // roleSessionDetail 记录当前打开的员工会话视图目标（身份 + 视图内可切换的员工名单）：
@@ -4269,6 +4308,7 @@ function showNewSessionStep(step) {
 
 async function beginNewSession() {
   try {
+    showLeftPage("tasks");
     // BeginNewSession 在返回前已等过一轮会话目录刷新，因此这次重拉的快照
     // 携带权威左侧栏列表（前端不再回填旧列表掩盖异步竞态）。
     await invoke("BeginNewSession");

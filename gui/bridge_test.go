@@ -1659,8 +1659,8 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || strings.Contains(runtimeModal, `id="plugin-list"`) {
 		t.Fatal("plugins must be rendered in the task-list column, not the runtime modal")
 	}
-	if !strings.Contains(leftPanel, `id="skill-list"`) || strings.Contains(runtimeModal, `id="skill-list"`) {
-		t.Fatal("skills must be rendered in the left navigation, not the runtime modal")
+	if strings.Contains(leftPanel, `id="skill-list"`) || strings.Contains(runtimeModal, `id="skill-list"`) || !strings.Contains(html, `id="plugin-management"`) {
+		t.Fatal("skills must be rendered in the middle plugin manager, not the task list or runtime modal")
 	}
 	// 运行参数分两处：思考强度贴发送键（在 composer 里，先于 Runtime modal），循环次数
 	// 与「无限循环」勾选落在 Runtime modal 内——循环是运行期预算，改在运行状态弹窗里。

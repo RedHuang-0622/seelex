@@ -72,14 +72,17 @@ test("left navigation stays mode-owned black or white, not skin-owned", () => {
   assert.doesNotMatch(rule, /--accent|--skin-|gradient/, "导航底色不得被皮肤或渐变接管");
 });
 
-test("plugins and skills leave the runtime modal for the task-list plugin page", () => {
+test("plugin entries live in the task list while skill management lives in the middle", () => {
   const runtime = html.slice(html.indexOf('id="runtime-modal"'));
   assert.doesNotMatch(runtime, /id="plugin-list"/, "运行状态不再显示插件");
   assert.doesNotMatch(runtime, /id="skill-list"/, "运行状态不再显示 Skill");
   const pluginPage = html.slice(html.indexOf('id="left-page-plugins"'));
   assert.match(pluginPage, /id="plugin-list"/);
-  assert.match(pluginPage, /id="skill-list"/);
-  assert.match(pluginPage, /plugin-skills-block/);
+  const pluginManagement = html.slice(html.indexOf('id="plugin-management"'));
+  assert.match(pluginManagement, /id="skill-list"/);
+  assert.match(pluginManagement, /plugin-skill-section/);
+  assert.match(app, /function openPluginManagement\(/);
+  assert.match(app, /classList\.add\("is-plugin-manager"\)/);
 });
 
 test("scheduled task editing lives inside the middle session workspace", () => {

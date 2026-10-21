@@ -216,106 +216,25 @@ function isScheduledTask(value) {
 // 票据主体进入中栏编辑，取消是独立动作。命令类型补白名单展示名。
 // workspaces / tiers 是快照里的目录表（工作区、权限档位）：任务只记 ID，
 // 名字与短名只做展示（取不到就退回显示 ID —— 宁可显示 ID 也不丢信息）。
-export function renderScheduledTasks(items, commands, workspaces, tiers) {
+export function renderScheduledTasks(items) {
   const list = scheduledTasksView(items);
   if (!list.length) {
     return '<div class="sched-empty"><strong>暂无定时任务</strong><span>新建一条计划，让 Seelex 按节奏自动发起会话。</span></div>';
   }
-  const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
-  const workspaceLabelByID = workspaceLabels(workspaces);
-  const tierLabelByID = tierLabels(tiers);
   return `<ul class="sched-list">${list.map(task => {
-    const kind = task.kind === "prompt" ? "提示词" : "命令";
-    const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
     const scheduleText = task.one_shot ? `一次性 · 定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
-    const rhythmMain = task.one_shot ? formatRunTime(task.run_at) : formatInterval(task);
-    const rhythmLabel = task.one_shot ? "一次性" : "循环节奏";
-    const workspace = workspaceChip(task, workspaceLabelByID);
-    const assembly = assemblyChips(task, tierLabelByID);
+    const rhythmMain = task.one_shot
+      ? formatRunTime(task.run_at)
+      : (typeof task.start_clock === "string" && task.start_clock.trim() ? task.start_clock.trim() : formatInterval(task).replace(/\s+[（(].*$/, ""));
     return `<li class="sched-item is-${schedStatusClass(task)}" data-sched-id="${escapeHtml(task.id)}">
-      <button type="button" class="sched-item-main" data-sched-edit="${escapeHtml(task.id)}" title="编辑 ${escapeHtml(task.name)}">
-        <span class="sched-rhythm"><b>${escapeHtml(rhythmMain)}</b><small>${escapeHtml(rhythmLabel)}</small></span>
-        <span class="sched-copy">
-          <span class="sched-head">
-            <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
-            <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
-            <span class="sched-open-hint">编辑</span>
-          </span>
-          <span class="sched-meta">
-            <span>${escapeHtml(scheduleText)}</span>
-            <span>下次 ${escapeHtml(formatRunTime(task.next_run_at))}</span>
-            <span>共 ${Number(task.run_count) || 0} 次</span>
-            ${workspace}${assembly}
-          </span>
-          ${task.kind === "command" && commandLabel ? `<span class="sched-detail" title="${escapeHtml(task.command)}">脚本 ${escapeHtml(commandLabel)}</span>` : ""}
-          ${task.kind === "prompt" && task.prompt ? `<span class="sched-detail" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt)}</span>` : ""}
-          ${task.last_error ? `<span class="sched-result sched-error" title="${escapeHtml(task.last_error)}">${escapeHtml(task.last_error)}</span>` : ""}
-          ${!task.last_error && task.last_result ? `<span class="sched-result" title="${escapeHtml(task.last_result)}">${escapeHtml(task.last_result)}</span>` : ""}
-        </span>
+      <button type="button" class="sched-item-main" data-sched-edit="${escapeHtml(task.id)}" title="编辑 ${escapeHtml(task.name)} · ${escapeHtml(scheduleText)} · 下次 ${escapeHtml(formatRunTime(task.next_run_at))}">
+        <time class="sched-row-time" datetime="${escapeHtml(task.next_run_at || "")}">${escapeHtml(rhythmMain)}</time>
+        <strong class="sched-row-name" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
+        <span class="sched-row-state is-${schedStatusClass(task)}">${escapeHtml(task.enabled === false ? "已停用" : schedStatusText(task))}</span>
       </button>
-      <div class="sched-row-tail">
-        <span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span>
-        <span class="chip">${escapeHtml(kind)}</span>
-        <button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button>
-      </div>
+      <button type="button" class="sched-cancel" data-sched-cancel="${escapeHtml(task.id)}" title="取消任务">取消</button>
     </li>`;
   }).join("")}</ul>`;
-}
-
-// workspaceLabels 构造 workspace_id → 展示名（无工作区表时退回 ID 本身）。
-function workspaceLabels(workspaces) {
-  const map = new Map();
-  for (const workspace of Array.isArray(workspaces) ? workspaces : []) {
-    if (workspace?.id) map.set(String(workspace.id), String(workspace.name || workspace.id));
-  }
-  return map;
-}
-
-// workspaceChip 渲染工作区 chip（没绑工作区的任务不显示这一格——"没有"不该
-// 占一个空 chip）。名称取不到时退回 ID：ID 是索引，展示层宁可显示 ID 也不丢信息。
-function workspaceChip(task, workspaceLabelByID) {
-  const workspaceID = typeof task?.workspace_id === "string" ? task.workspace_id.trim() : "";
-  if (!workspaceID) return "";
-  const label = workspaceLabelByID.get(workspaceID) || workspaceID;
-  return `<span class="chip sched-chip-workspace" title="${escapeHtml(workspaceID)}">${escapeHtml(label)}</span>`;
-}
-
-// tierLabels 构造权限档位 id → 短名（目录缺失时退回 ID）。
-function tierLabels(tiers) {
-  const map = new Map();
-  for (const tier of Array.isArray(tiers) ? tiers : []) {
-    if (tier?.id) map.set(String(tier.id), String(tier.short || tier.label || tier.id));
-  }
-  return map;
-}
-
-// assemblyChips 渲染这条任务的装配读数：权限档位 + 插件集合 + 执行参数。
-// 档位是**安全相关**的一格（全权 = 免审），所以照实显示；插件空 = 继承宿主当前
-// 激活插件，不显示（"没声明"不该占一个空 chip）。
-// 执行参数（思考强度 / 循环次数）同理照实显示：任务里存的就是触发那次会话要用的
-// 两条（缺省在创建时已落成默认档位的读数），面板上因此看得到"这次跑多深、跑多少轮"。
-function assemblyChips(task, tierLabelByID) {
-  let html = "";
-  const tier = typeof task?.permission_tier === "string" ? task.permission_tier.trim() : "";
-  if (tier) {
-    const label = tierLabelByID.get(tier) || tier;
-    html += `<span class="chip sched-chip-tier" title="权限档位 ${escapeHtml(tier)}">${escapeHtml(label)}</span>`;
-  }
-  const plugins = normalizePluginList(task?.plugins);
-  if (plugins.length) {
-    html += `<span class="chip sched-chip-plugins" title="装配插件：${escapeHtml(plugins.join("、"))}">插件 ${escapeHtml(plugins.join("、"))}</span>`;
-  }
-  const effort = typeof task?.reasoning_effort === "string" ? task.reasoning_effort.trim() : "";
-  const loops = Number(task?.loop_limit);
-  const hasLoops = Number.isInteger(loops) && loops > 0;
-  if (effort || hasLoops) {
-    const parts = [];
-    if (effort) parts.push(`强度 ${effort}`);
-    if (hasLoops) parts.push(`循环 ${loops}`);
-    const text = parts.join(" · ");
-    html += `<span class="chip sched-chip-runparams" title="触发那次会话的执行参数：${escapeHtml(text)}">${escapeHtml(text)}</span>`;
-  }
-  return html;
 }
 
 // schedStatusText 状态文案（权威 JSON 的 running/last_status 驱动）。

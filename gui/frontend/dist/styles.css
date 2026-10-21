@@ -460,40 +460,42 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .task-list-heading strong { color: var(--text-strong); font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
 
 /* 一级导航独立成列：深浅轴独占的纯黑/纯白块，不做毛玻璃。 */
-.left-nav { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-height: 0; }
+.left-nav { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 4px; min-height: 0; }
 .left-nav-toggle { color: var(--left-nav-muted); }
 .left-nav-toggle:hover { color: var(--left-nav-ink); background: var(--left-nav-hover); }
 .left-nav-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 9px;
+  justify-content: flex-start;
+  gap: 8px;
   width: 100%;
-  min-height: 62px;
-  padding: 8px 4px;
+  min-height: 44px;
+  padding: 7px 8px;
   border: 0;
   border-radius: var(--r-md);
   color: var(--left-nav-ink);
   background: transparent;
   cursor: pointer;
-  text-align: center;
+  text-align: left;
 }
 .left-nav-item:hover { background: var(--left-nav-hover); }
 .left-nav-item.is-active { color: var(--left-nav-active-ink); background: var(--left-nav-active-bg); }
 .left-nav-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; }
-.left-nav-copy { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.left-nav-copy { display: block; min-width: 0; overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 html[data-left-nav-collapsed="true"] .nav-panel { padding-inline: 4px; }
 html[data-left-nav-collapsed="true"] .nav-panel-head { justify-content: center; padding-bottom: 4px; }
 html[data-left-nav-collapsed="true"] .left-nav-copy { display: none; }
-html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding: 5px; }
+html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; min-height: 40px; padding: 5px; }
 
 .left-page { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
 .task-list-heading + .left-page { padding-top: 10px; }
 .left-page-section { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .left-page-section > .stack-list { flex: none; max-height: none; overflow: visible; }
 .left-page-note { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
-.plugin-skills-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-hairline); }
+.plugin-entry { display: flex; align-items: center; gap: 6px; min-height: 34px; }
+.plugin-entry-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-entry .chip { margin-left: auto; flex: none; padding: 1px 5px; border: 0; background: transparent; font-size: 9px; }
 
 .section-title {
   display: flex;
@@ -2532,46 +2534,29 @@ html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding:
 /* ---------- 10. Scheduled tasks / history search / todo ---------- */
 .sched-view { display: grid; gap: 7px; min-height: 0; font-size: var(--text-sm); }
 .sched-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.sched-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; min-width: 0; border-bottom: 1px solid var(--border-hairline); background: transparent; }
+.sched-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: center; min-width: 0; border-bottom: 1px solid var(--border-hairline); background: transparent; }
 .sched-item-main {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 9px;
-  align-items: start;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
   min-width: 0;
-  padding: 9px 2px 9px 0;
+  min-height: 34px;
+  padding: 5px 2px;
   border: 0;
   color: inherit;
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
-.sched-item-main:hover .sched-head strong { color: var(--accent); }
-.sched-rhythm { display: grid; justify-items: start; gap: 2px; padding-left: 8px; border-left: 2px solid var(--status-idle); }
-.sched-item.is-running .sched-rhythm { border-left-color: var(--status-running); }
-.sched-item.is-ok .sched-rhythm { border-left-color: var(--status-done); }
-.sched-item.is-failed .sched-rhythm { border-left-color: var(--status-failed); }
-.sched-rhythm b { max-width: 54px; overflow: hidden; color: var(--text-strong); font: 700 10px/1.35 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.sched-rhythm small { color: var(--faint); font: 9px var(--font-mono); white-space: nowrap; }
-.sched-copy { display: grid; gap: 3px; min-width: 0; }
-.sched-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.sched-head strong { flex: 1 1 auto; overflow: hidden; color: var(--text-strong); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.sched-chip-on { color: var(--status-done); }
-.sched-chip-off { color: var(--faint); }
-.sched-status { flex: none; color: var(--muted); font: 700 9px var(--font-mono); text-transform: uppercase; }
-.sched-status.is-running { color: var(--status-running); }
-.sched-status.is-ok { color: var(--status-done); }
-.sched-status.is-failed { color: var(--status-failed); }
-.sched-open-hint { flex: none; color: var(--faint); font: 9px var(--font-mono); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
-.sched-item-main:hover .sched-open-hint { opacity: 1; }
-.sched-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--faint); font: 9.5px var(--font-mono); }
-.sched-detail { overflow: hidden; color: var(--text-mid); font-size: 10.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.sched-result { overflow: hidden; color: var(--faint); font: 9.5px/1.45 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.sched-result.sched-error { color: var(--status-failed); }
-.sched-log { overflow: auto; max-height: 88px; margin: 0; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--faint); font: 10px/1.5 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
-.sched-row-tail { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 8px 0 8px 2px; }
-.sched-row-tail .chip { padding: 1px 5px; border: 0; background: transparent; font-size: 9px; }
-.sched-cancel { color: var(--faint); font-size: 10px; }
+.sched-item-main:hover .sched-row-name { color: var(--accent); }
+.sched-row-time { overflow: hidden; color: var(--text-strong); font: 700 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.sched-row-name { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.sched-row-state { flex: none; color: var(--text-dim); font: 700 9px var(--font-mono); white-space: nowrap; }
+.sched-row-state.is-running { color: var(--status-running); }
+.sched-row-state.is-ok { color: var(--status-done); }
+.sched-row-state.is-failed { color: var(--status-failed); }
+.sched-cancel { padding: 2px 5px; border: 0; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 10px; cursor: pointer; }
 .sched-cancel:hover { color: var(--status-failed); }
 .sched-empty { display: grid; gap: 4px; padding: 22px 10px; border-top: 1px solid var(--border-hairline); border-bottom: 1px solid var(--border-hairline); }
 .sched-empty strong { color: var(--text-mid); font-size: 12px; }
@@ -2584,6 +2569,14 @@ html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding:
 .workspace.is-task-schedule > #message-queue,
 .workspace.is-task-schedule > #composer,
 .workspace.is-task-schedule > #terminal-panel {
+  display: none !important;
+}
+.workspace.is-plugin-manager > #trace-rail,
+.workspace.is-plugin-manager > #conversation-tabs,
+.workspace.is-plugin-manager > #main-host,
+.workspace.is-plugin-manager > #message-queue,
+.workspace.is-plugin-manager > #composer,
+.workspace.is-plugin-manager > #terminal-panel {
   display: none !important;
 }
 .scheduled-editor {
@@ -2624,7 +2617,6 @@ html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding:
 }
 .scheduled-form-section:first-child { border-left: 0; }
 .scheduled-form-title { display: flex; align-items: center; gap: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--border-hairline); }
-.scheduled-form-title > span { color: var(--faint); font: 700 10px var(--font-mono); }
 .scheduled-form-title > div { display: grid; gap: 1px; }
 .scheduled-form-title strong { color: var(--text-strong); font-size: 12.5px; }
 .scheduled-form-title small { color: var(--faint); font-size: 10px; }
@@ -2652,6 +2644,30 @@ html[data-left-nav-collapsed="true"] .left-nav-item { min-height: 40px; padding:
   .scheduled-form-section:first-child { border-top: 0; }
   .scheduled-form-runtime { grid-column: auto; }
 }
+
+.plugin-management {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 24px max(28px, calc((100% - 920px) / 2));
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+.plugin-management-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 15px; border-bottom: 1px solid var(--border-hairline); }
+.plugin-management-head h2 { margin: 3px 0 5px; color: var(--text-bright); font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+.plugin-management-head p { max-width: 62ch; margin: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.55; }
+.plugin-management-head .chip.is-on { color: var(--status-done); border-color: var(--border-done); }
+.plugin-management-meta { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 0 16px; border-bottom: 1px solid var(--border-hairline); }
+.plugin-skill-section { padding-top: 18px; }
+.plugin-skill-list { display: grid; gap: 0; }
+.plugin-skill-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 4px; border-bottom: 1px solid var(--border-hairline); }
+.plugin-skill-icon { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-mid); background: var(--surface-2); }
+.plugin-skill-copy { display: grid; gap: 2px; min-width: 0; }
+.plugin-skill-name { color: var(--text-strong); font: 600 12px var(--font-mono); }
+.plugin-skill-desc { display: -webkit-box; overflow: hidden; color: var(--text-dim); font-size: 10.5px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.plugin-skill-empty { padding: 24px 10px; border-top: 1px solid var(--border-hairline); border-bottom: 1px solid var(--border-hairline); color: var(--faint); font-size: 11px; }
 /* 勾选行（「创建后立即启用」/「每个周期按当前时间」）。两处现场都出自这一个标记：
    ① 开关与文案分两行——标记里两者同属 .settings-field（display: grid，子项各占一行），
       而 .settings-field 在本文件里更靠后、权重又不低于 .sched-toggle，于是

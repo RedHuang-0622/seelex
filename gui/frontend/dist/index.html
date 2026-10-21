@@ -90,13 +90,7 @@
       <div id="left-page-plugins" class="left-page hidden" role="tabpanel" data-left-page-panel="plugins">
         <section id="plugin-section" class="left-page-section">
           <div class="section-title"><span>插件</span><span id="plugin-count" class="badge">0</span></div>
-          <p class="left-page-note">这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins/ 下的不一定是同一份。每行的「载入根 …」是它实际从哪个根载入的；精选目录里没有登记的那个只报这一句事实，不编来源（不写成"随发行包"）。</p>
           <div id="plugin-list" class="stack-list"></div>
-          <div class="runtime-skills plugin-skills-block">
-            <div class="section-title">Skill 管理</div>
-            <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
-            <div id="skill-list" class="chip-list"></div>
-          </div>
         </section>
       </div>
     </aside>
@@ -132,7 +126,7 @@
         </header>
         <div class="scheduled-editor-body">
           <section class="scheduled-form-section scheduled-form-identity">
-            <div class="scheduled-form-title"><span>01</span><div><strong>任务</strong><small>名称、执行内容与目标项目</small></div></div>
+            <div class="scheduled-form-title"><div><strong>任务</strong><small>名称、执行内容与目标项目</small></div></div>
             <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每天九点巡检" autocomplete="off"></label>
             <label id="sched-prompt-field" class="settings-field">提示词内容<textarea id="sched-prompt" rows="7" placeholder="到点让 agent 执行的内容"></textarea></label>
             <label class="settings-field">工作区
@@ -142,7 +136,7 @@
             </label>
           </section>
           <section class="scheduled-form-section scheduled-form-timing">
-            <div class="scheduled-form-title"><span>02</span><div><strong>节奏</strong><small>周期重复或一次性执行</small></div></div>
+            <div class="scheduled-form-title"><div><strong>节奏</strong><small>周期重复或一次性执行</small></div></div>
             <label class="settings-field">执行方式
               <select id="sched-mode">
                 <option value="period">周期重复</option>
@@ -181,7 +175,7 @@
             <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> <span id="sched-enabled-label">创建后立即启用</span></label>
           </section>
           <aside class="scheduled-form-section scheduled-form-runtime">
-            <div class="scheduled-form-title"><span>03</span><div><strong>运行装配</strong><small>权限、插件与执行参数</small></div></div>
+            <div class="scheduled-form-title"><div><strong>运行装配</strong><small>权限、插件与执行参数</small></div></div>
             <label class="settings-field">权限档位
               <select id="sched-permission">
                 <option value="">（默认：全权）</option>
@@ -207,6 +201,22 @@
           <button id="scheduled-task-cancel" type="button" class="secondary">取消</button>
           <button id="sched-submit" type="button" class="primary">创建任务</button>
         </footer>
+      </section>
+      <section id="plugin-management" class="plugin-management hidden" aria-labelledby="plugin-management-title" role="region">
+        <header class="plugin-management-head">
+          <div>
+            <span class="eyebrow">Plugin</span>
+            <h2 id="plugin-management-title">插件管理</h2>
+            <p id="plugin-management-description">选择一个插件，查看它当前向本会话提供的 Skill。</p>
+          </div>
+          <span id="plugin-management-state" class="chip">未选择</span>
+        </header>
+        <div id="plugin-management-meta" class="plugin-management-meta"></div>
+        <section class="plugin-skill-section">
+          <div class="section-title"><span>Skill 管理</span><span id="plugin-skill-count" class="badge">0</span></div>
+          <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
+          <div id="skill-list" class="plugin-skill-list"></div>
+        </section>
       </section>
       <!-- 消息队列宿主：贴输入框上沿的「一叠条」，由 chat-view.js / app.js 渲染
            （renderMessageQueue）。绝对定位在输入框正上方——队列是"还没发出去的

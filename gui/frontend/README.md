@@ -251,8 +251,8 @@ retry 状态展示 `RETRY n`（retry_count）。
 随导航切换列表内容：
 
 - `聊天`：按项目分组的会话列表；
-- `定时任务`：紧凑的节奏票据，显示周期、下次运行、状态与装配摘要；
-- `插件管理`：当前进程插件，`Skill 管理`作为同一列内的子段。
+- `定时任务`：每条计划只占一行，显示节奏、名称和状态；其余信息进入中栏编辑器；
+- `插件管理`：第二列只列插件条目，当前插件的 `Skill 管理`显示在中栏。
 
 页面切换与导航收缩分别记忆在 `seelex.left-page` /
 `seelex.left-nav.collapsed`，都不进 Snapshot。
@@ -509,8 +509,9 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 一级导航切到「定时任务」后，第二列展示计划票据（含「新建定时任务」按钮）：
 数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经
 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见
-`backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。票据以
-“节奏列 + 任务摘要”表达，不使用大段日志或表格弹窗；取消按钮以
+`backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。每条
+计划固定一行（节奏 / 名称 / 状态 / 取消），提示词、工作区、权限、插件和执行参数
+只在点击后进入的中栏编辑器显示；取消按钮以
 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
 新建/编辑器落在中栏 `#scheduled-editor`，左侧计划列表保持可见。字段由
@@ -531,6 +532,10 @@ Go 侧执行之前就报
 隐藏对话、composer 和终端，关闭后恢复原会话视图。`scheduled-task-view` 的票据
 主体本身是编辑入口，取消仍是独立动作；`data-sched-edit` / `data-sched-cancel`
 仍以任务 ID 为操作键。
+
+插件管理同样采用“左列条目、中栏详情”：`#plugin-list` 每行只放插件名与来源，
+`#plugin-management` 展示当前插件描述、来源和 Skill 列表。点击插件会切换能力面，
+保持插件管理视图并刷新中栏 Skill；切回聊天时恢复原会话界面。
 
 - **命令任务（只在 API 面）**：白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令；`snapshot.runtime.scheduled_commands` 仍是它的展示数据源。**弹窗入口已不再暴露它**（2026-10-07：本机 dev 包里白名单为空，命令类任务根本发布不了，留着只是让人多点一次）——要看它得走 `Bridge.ScheduleTask`/`Runtime.ScheduleTask` 的 `kind="command"`，后端能力与登记（`main.go` 的 `auto_get_jobs`）原样保留。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
 - **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话。落点默认**新建会话**（`session_id` 留空）：不打断用户正在看的会话，也不切视图指针；显式绑定会话时投递到那个会话。弹窗里的**工作区**下拉（`#sched-workspace`，选项来自快照的 `workspaces`，默认跟随当前会话绑定的工作区）决定新会话装配到哪个项目——空 = 不绑项目。每次触发的落点会话号回传在快照的 `last_session_id`。结果回传为「已提交/已新建会话 X 发起」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。

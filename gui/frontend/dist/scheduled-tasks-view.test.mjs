@@ -33,17 +33,16 @@ const task = (overrides = {}) => ({
   ...overrides
 });
 
-test("renders task list with name, interval, next run and cancel button", () => {
+test("renders one-line task entries with rhythm, name, state and cancel", () => {
   const html = renderScheduledTasks([task()], [{ key: "auto_get_jobs", label: "BOSS直聘自动投简历" }]);
   assert.match(html, /抓职位/);
-  assert.match(html, /每 1 小时/);
-  assert.match(html, /下次/);
-  assert.match(html, /共 3 次/);
-  assert.match(html, /BOSS直聘自动投简历/);
+  assert.match(html, /sched-row-time/);
+  assert.match(html, /sched-row-name/);
+  assert.match(html, /sched-row-state/);
   assert.match(html, /data-sched-cancel="sched_1"/);
-  assert.match(html, /sched-chip-on/);
   assert.match(html, /上次成功/);
-  assert.match(html, /采集完成，共 12 条/);
+  assert.doesNotMatch(html, /采集完成，共 12 条/);
+  assert.doesNotMatch(html, /sched-detail/);
 });
 
 test("renders period units for recurring tasks", () => {
@@ -55,12 +54,11 @@ test("renders period units for recurring tasks", () => {
   assert.match(html, /每 2 周/);
 });
 
-test("renders prompt tasks with prompt content and session binding stays out of display", () => {
+test("keeps prompt and session binding out of the one-line left list", () => {
   const html = renderScheduledTasks([
     task({ id: "sched_2", name: "周期提醒", kind: "prompt", prompt: "每隔一小时检查发布状态", command: "", session_id: "sess_1" })
   ], []);
-  assert.match(html, /提示词/);
-  assert.match(html, /每隔一小时检查发布状态/);
+  assert.doesNotMatch(html, /每隔一小时检查发布状态/);
   assert.doesNotMatch(html, /sess_1/);
 });
 
@@ -94,7 +92,7 @@ test("shows running and failed states from authoritative flags", () => {
   ], []);
   assert.match(failed, /上次失败/);
   assert.match(failed, /is-failed/);
-  assert.match(failed, /命令退出失败/);
+  assert.doesNotMatch(failed, /命令退出失败/);
 });
 
 test("escapes all rendered text and tolerates malformed items", () => {
@@ -129,9 +127,8 @@ test("renders empty state for empty or non-array input", () => {
 
 test("renders disabled task with off chip and pending status", () => {
   const html = renderScheduledTasks([task({ enabled: false, last_status: "pending" })], []);
-  assert.match(html, /sched-chip-off/);
+  assert.match(html, /sched-row-state/);
   assert.match(html, /已停用/);
-  assert.match(html, /待运行/);
 });
 
 // 周期锚点在面板上的读数：给了开始时间要显示出来，没给要写明"按创建时间"——
@@ -275,7 +272,7 @@ test("carries the selected workspace on both period and one-shot specs", () => {
 test("editing renders an edit button carrying the task ID", () => {
   const list = renderScheduledTasks([task()], []);
   assert.match(list, /data-sched-edit="sched_1"/);
-  assert.match(list, />编辑</);
+  assert.match(list, /title="编辑 抓职位/);
   // 编辑与取消并存：ID 仍是操作键，两个按钮各带各的。
   assert.match(list, /data-sched-cancel="sched_1"/);
 });
@@ -398,23 +395,6 @@ test("normalizePluginList trims, drops blanks and de-duplicates but keeps order"
   assert.deepEqual(normalizePluginList(undefined), []);
 });
 
-test("renders assembly chips for tier and plugins, skipping the empty ones", () => {
-  const html = renderScheduledTasks([
-    task({ id: "sched_asm", name: "带装配", kind: "prompt", prompt: "巡检", permission_tier: "full", plugins: ["cad", "docs"] }),
-    task({ id: "sched_plain", name: "无装配", kind: "prompt", prompt: "巡检" })
-  ], [], [], [{ id: "full", short: "全权" }]);
-  assert.match(html, /sched-chip-tier/);
-  assert.match(html, />全权</);
-  assert.match(html, /sched-chip-plugins/);
-  assert.match(html, /插件 cad、docs/);
-  // 没声明的任务不占空 chip：整页只有一组装配 chip。
-  assert.equal((html.match(/sched-chip-tier/g) || []).length, 1);
-  assert.equal((html.match(/sched-chip-plugins/g) || []).length, 1);
-  // 档位目录缺失时退回显示档位 id（宁可显示 id 也不丢信息）。
-  const noCatalog = renderScheduledTasks([task({ id: "sched_asm2", permission_tier: "auto" })], []);
-  assert.match(noCatalog, />auto</);
-});
-
 test("restores the assembly back into form fields (edit leg)", () => {
   const fields = scheduledTaskFormFields(task({
     kind: "prompt", prompt: "巡检", permission_tier: "edit", plugins: [" cad ", "docs", "cad"]
@@ -425,20 +405,6 @@ test("restores the assembly back into form fields (edit leg)", () => {
   assert.equal(error, undefined);
   assert.equal(spec.permissionTier, "edit");
   assert.deepEqual(spec.plugins, ["cad", "docs"]);
-});
-
-// 面板要能看出这条任务跑在哪个工作区：任务只记 ID，名字从快照的 workspaces 表
-// 里取；取不到名字就退回显示 ID（宁可显示 ID，也不把信息藏起来）。
-test("renders the workspace chip with the snapshot name, falling back to the ID", () => {
-  const html = renderScheduledTasks([
-    task({ id: "sched_ws", name: "绑定工作区", kind: "prompt", prompt: "巡检", workspace_id: "ws_1" }),
-    task({ id: "sched_orphan", name: "工作区没了", kind: "prompt", prompt: "巡检", workspace_id: "ws_gone" }),
-    task({ id: "sched_none", name: "无工作区", kind: "prompt", prompt: "巡检" })
-  ], [], [{ id: "ws_1", name: "Seelex" }]);
-  assert.match(html, /sched-chip-workspace/);
-  assert.match(html, />Seelex</);
-  assert.match(html, />ws_gone</);
-  assert.equal((html.match(/sched-chip-workspace/g) || []).length, 2);
 });
 
 // ── 执行参数（思考强度 / 循环次数）────────────────────────────────────
@@ -481,16 +447,7 @@ test("normalizeLoopLimit keeps positive integers and treats the rest as undeclar
   }
 });
 
-test("renders run-parameter chips and restores them into form fields (edit leg)", () => {
-  const html = renderScheduledTasks([
-    task({ id: "sched_params", name: "带参数", kind: "prompt", prompt: "巡检", reasoning_effort: "high", loop_limit: 48 }),
-    task({ id: "sched_no_params", name: "没参数", kind: "prompt", prompt: "巡检" })
-  ], [], []);
-  assert.match(html, /sched-chip-runparams/);
-  assert.match(html, /强度 high · 循环 48/);
-  // 没声明的任务不占空 chip（缺省值由后端落定，前端不编一个出来）。
-  assert.equal((html.match(/sched-chip-runparams/g) || []).length, 1);
-
+test("restores run parameters into form fields (edit leg)", () => {
   const fields = scheduledTaskFormFields(task({ kind: "prompt", prompt: "巡检", reasoning_effort: "low", loop_limit: 6 }));
   assert.equal(fields.reasoningEffort, "low");
   assert.equal(fields.loopLimit, "6");

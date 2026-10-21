@@ -193,7 +193,7 @@ test("⑦ local:<根> 的长路径：可见旁注收口、完整路径留在 not
   assert.ok(local.note.includes("local:" + longRoot), "完整 local:<根> 必须留在 note（title）里");
 });
 
-test("⑧ 接线：面板每行标来源 + 面板上方那句『当前进程加载到的那一份』", async () => {
+test("⑧ 接线：左列插件条目标来源，中栏显示当前插件与 Skill", async () => {
   assert.match(appSource, /import \{ escapePluginSourceText, pluginSourceBadge \} from "\.\/plugin-source\.js";/);
   assert.match(appSource, /const source = pluginSourceBadge\(plugin\);/);
   // 来源标签可见 + 三块文本都过转义（label / note(title) / hint）。
@@ -202,13 +202,12 @@ test("⑧ 接线：面板每行标来源 + 面板上方那句『当前进程加�
   assert.match(appSource, /escapePluginSourceText\(source\.hint\)/);
 
   const html = await readFile(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins\/ 下的不一定是同一份。/);
-  // 面板上方那句要一并说清"未登记只报载入根"（用户困惑的正解），否则行内的旁注仍会被当成噪声。
-  assert.match(html, /精选目录里没有登记的那个只报这一句事实，不编来源/);
-  // 那句说明必须落在 Plugins 区、列表之上。
-  const note = html.indexOf("当前进程加载到的那一份");
   const list = html.indexOf('id="plugin-list"');
-  assert.ok(note !== -1 && list !== -1 && note < list, "说明必须在 #plugin-list 之上");
+  const management = html.indexOf('id="plugin-management"');
+  assert.ok(list !== -1 && management !== -1 && management > list, "插件条目在第二列，Skill 管理在中栏");
+  assert.match(html.slice(management), /id="skill-list"/);
+  assert.match(appSource, /plugin-management-description/);
+  assert.match(appSource, /plugin-management-meta/);
 });
 
 // ── 第二份事实的等价用例（P2 收口）────────────────────────────────────────────
