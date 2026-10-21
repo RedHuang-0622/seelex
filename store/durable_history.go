@@ -148,7 +148,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		d.prepared = nil
 		d.preparedSet = false
 		d.mu.Unlock()
-		return ProviderWireMessages(prepared), nil
+		return prepared, nil
 	}
 	d.mu.Unlock()
 	if d.router == nil || d.sessionID == "" {
@@ -169,7 +169,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 				_ = err
 			}
 		}
-		return ProviderWireMessages(eventsToMessages(tail)), nil
+		return eventsToMessages(tail), nil
 	}
 	messages, err := d.router.LoadWorkspace(d.workspace(), d.sessionID)
 	if err != nil {
@@ -178,7 +178,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		}
 		return nil, fmt.Errorf("durable history: load %q: %w", d.sessionID, err)
 	}
-	return ProviderWireMessages(messages), nil
+	return messages, nil
 }
 
 // eventsToMessages 把完整协议单元事件流转为 types.Message（窗口读尾的
@@ -237,7 +237,8 @@ func strPtrOrNil(value string) *string {
 // providerContentOrContent 返回事件在 provider wire 上的真实正文：
 // ProviderContent 非空时以它为准（记录侧保留的「已发出字节」），否则正文即
 // Content。视图/轨迹仍读 Content（呈现文本），只有 provider 投影出口取这里
-// ——两处出口的分工与耦合告警见 ProviderWireMessages。
+// ——两处出口的分工由 provider_content_test 与
+// provider_wire_output_boundary_test 守卫。
 func providerContentOrContent(event Event) string {
 	if event.ProviderContent != "" {
 		return event.ProviderContent

@@ -8,11 +8,11 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
-func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T) {
+func TestRepairEmptyHistoryContentPreservesToolCallAssistantContent(t *testing.T) {
 	history := []contract.EngineMessage{
 		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"a.go"}`}}},
-		// durable 转写可能带着回合收尾补写的视图流式正文：投影时必须归零，
-		// 否则下一轮请求字节与已发出字节分叉。
+		// 工具轮 assistant 正文是 provider 实际生成的 output 前缀的一部分。
+		// DeepSeek 会在模型输出结束位置落缓存单元；重投影必须保留它。
 		{Role: "assistant", Content: "我先读取装配入口。", ContentSet: true,
 			ToolCalls: []contract.EngineToolCall{{ID: "call-2", Name: "grep_search", Arguments: `{"pattern":"x"}`}}},
 		// 空工具结果：wire 上也是空正文（框架把工具返回值原样发出），同样不得
@@ -25,14 +25,16 @@ func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.
 	if !repaired {
 		t.Fatal("expected empty non-protocol messages to be repaired")
 	}
+	if prepared[0].Content != "" || prepared[0].ContentSet {
+		t.Fatalf("empty tool-call assistant was given placeholder content: %+v", prepared[0])
+	}
 	for _, index := range []int{0, 1} {
-		if prepared[index].Content != "" || prepared[index].ContentSet {
-			t.Fatalf("tool-call assistant %d kept provider content %q (set=%v), want empty: wire never carries text with tool calls",
-				index, prepared[index].Content, prepared[index].ContentSet)
-		}
 		if len(prepared[index].ToolCalls) != 1 {
 			t.Fatalf("tool-call assistant %d lost its protocol data: %+v", index, prepared[index])
 		}
+	}
+	if prepared[1].Content != "我先读取装配入口。" || !prepared[1].ContentSet {
+		t.Fatalf("tool-call assistant output content was rewritten: %+v", prepared[1])
 	}
 	if prepared[2].Content != "" || prepared[2].ContentSet {
 		t.Fatalf("empty tool result was given placeholder content %q (set=%v): the wire carries the tool result verbatim, empty stays empty",

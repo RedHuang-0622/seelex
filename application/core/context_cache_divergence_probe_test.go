@@ -12,15 +12,15 @@ package core
 // 与既有 context_cache_smoke_test.go 的差别：冒烟用例用 appendSettledRound
 // 手工写入「已定稿轮次」（理想 append-only），本探针复刻**真实回合边界**：
 //
-//  1. Seele ReAct 循环 per-iteration 追加 assistant（tool_calls 时 Content=nil，
-//     见 Seele@v0.1.3/session/loop.go callLLM 的 `msg := types.Message{Role:
-//     "assistant", Content: nil, ToolCalls: toolCalls}`）与 tool 消息；
+//  1. Seele ReAct 循环 per-iteration 追加 assistant（tool_calls 时保留模型实际
+//     生成的 content/reasoning_content/tool_calls）与 tool 消息；
 //  2. OnLLMComplete 钩子（ToolHookBridge.Hooks）落 transcript assistant 事件，
 //     OnToolStart 钩子边界把本轮迭代的说明正文按迭代归位到该事件
 //     （AttributeToolNarrationLocked）；
 //  3. 回合结束的生产收尾两连：EnsureFinalAssistantTranscript →
 //     BackfillAssistantReasoning（说明正文的归位已前移，回合收尾不再事后填充）；
-//  4. 下一轮 PrepareExecutionContextFor 从 transcript 重建 + 空正文修复。
+//  4. 下一轮 PrepareExecutionContextFor 从 transcript 重建，并原样复现工具轮
+//     assistant 的模型输出。
 //
 // 请求序列化沿用冒烟用例的 serializeRequest（system 在头部、工具目录在尾部，
 // 两者跨轮常量），token 估算沿用生产同款 seelexctx/tokens。
@@ -58,6 +58,7 @@ var probeInputTrailerLen = len("\n||\n") + len(serText("INPUT", ""))
 type prefixProbeConfig struct {
 	name string
 	// engineKeepsToolContent = 引擎 assistant 工具调用消息是否保留正文。
+	// 生产路径必须为 true；false 只用于守住旧缺陷的回归对照。
 	// false = 生产实测（Seele loop.callLLM 在 tool_calls 时把 Content 置 nil，
 	// 正文只经 onChunk 进视图）；true = 对照（正文进引擎历史与 transcript）。
 	engineKeepsToolContent bool
@@ -370,13 +371,12 @@ func probeCallIDs(calls []contract.EngineToolCall) string {
 	return strings.Join(ids, ",")
 }
 
-// probeStreamedContent 返回生产路径下引擎 assistant 工具调用消息的流式正文
-// （tool_calls 时框架置 nil，即空串）。
+// probeStreamedContent 返回对照臂下引擎 assistant 工具调用消息的正文。
 func probeStreamedContent(cfg prefixProbeConfig) string {
 	if cfg.engineKeepsToolContent {
-		return "narration (control: engine keeps content)"
+		return "narration (model output preserved)"
 	}
-	return ""
+	return "narration (dropped by regression arm)"
 }
 
 func splitProbeChunks(text string, size int) []string {
@@ -434,8 +434,8 @@ func logProbeDivergence(t *testing.T, kind string, divergence prefixProbeDiverge
 //   - H3：工作打点表块（请求尾部的动态块）改变是否只影响尾部。
 func TestContextCacheDivergenceProbe_TwoTurnToolCliff(t *testing.T) {
 	configs := []prefixProbeConfig{
-		{name: "A-production(drop+attribute)", engineKeepsToolContent: false},
-		{name: "C-control(keeps content)", engineKeepsToolContent: true},
+		{name: "A-production(keeps model output)", engineKeepsToolContent: true},
+		{name: "D-regression(drops model output)", engineKeepsToolContent: false},
 	}
 	for _, cfg := range configs {
 		t.Run(cfg.name, func(t *testing.T) { runPrefixProbeTwoTurns(t, cfg) })

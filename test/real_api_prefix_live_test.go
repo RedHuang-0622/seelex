@@ -2,15 +2,15 @@
 
 package test
 
-// TestManualSmokeRealAccountPrefixInvariant 是「跨轮前缀不变量 + 工具轮归属」的
+// TestManualSmokeRealAccountPrefixInvariant 是「跨轮前缀 + 模型输出边界」的
 // **真实 API 冒烟**：在真实 provider 前挂一台录制反向代理，逐条记录 provider 请求体
 // （真实 wire 字节）与响应 usage（含 DeepSeek 的 prompt_cache_hit_tokens），再驱动
 // 一个多轮、每轮都带工具调用（含工具轮说明正文 / 工具失败结果）的真实会话，最后：
 //
 //  1. 断言本次修复管辖的字节在跨轮投影里**逐字节不变**
-//     —— assistant(tool_calls) 正文恒为空（§7.4 归零规则）、tool 结果正文不被改写
-//     （§7.7 空结果不补占位；§8 发现 2：失败工具结果保存 wire 原文，应用呈现文本
-//     只属于视图）；
+//     —— assistant(tool_calls) 的 content/reasoning/tool_calls 原样复现、
+//     tool 结果正文不被改写（空结果不补占位；失败工具结果保存 wire 原文，
+//     应用呈现文本只属于视图）；
 //  2. 报告相邻请求的消息前缀保持情况（首处分歧的消息下标 / 角色 / 丢失字节）；
 //  3. 报告真实 provider 的缓存命中 token（prompt_cache_hit_tokens / miss）。
 //
@@ -316,7 +316,7 @@ func prefixLiveCompact(raw json.RawMessage) string {
 }
 
 // prefixLiveGovernedStability 报告本次修复管辖的两类消息的跨轮字节稳定性：
-// assistant(tool_calls)（§7.4 归零）与 tool 结果（§7.7 空结果不补占位）。
+// assistant(tool_calls) 模型输出与 tool 结果（空结果不补占位）。
 func prefixLiveGovernedStability(prev, cur []prefixLiveMessage) []string {
 	var problems []string
 	limit := len(prev)
@@ -332,13 +332,6 @@ func prefixLiveGovernedStability(prev, cur []prefixLiveMessage) []string {
 		problems = append(problems, fmt.Sprintf(
 			"msg#%d(%s) 跨轮被改写：prev=%s → cur=%s",
 			index, before.tag(), prefixLiveClip(before.raw, 200), prefixLiveClip(after.raw, 200)))
-	}
-	for index, message := range cur {
-		if message.role == "assistant" && message.hasTools && strings.TrimSpace(message.content) != "" {
-			problems = append(problems, fmt.Sprintf(
-				"msg#%d(%s) 工具轮 assistant 投影正文非空：%s",
-				index, message.tag(), prefixLiveClip(message.content, 200)))
-		}
 	}
 	return problems
 }
@@ -487,7 +480,7 @@ func prefixLiveWriteReport(t *testing.T, sessionID string, records []*prefixLive
 		fmt.Fprintf(&report, "%q: %d\n", key, counts[key])
 	}
 
-	fmt.Fprintf(&report, "\n## 违规（修复管辖字节被改写 / 工具轮正文非空）\n")
+	fmt.Fprintf(&report, "\n## 违规（模型输出或工具结果跨轮被改写）\n")
 	if len(violations) == 0 {
 		fmt.Fprintf(&report, "无\n")
 	}
@@ -561,8 +554,8 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 		}
 	}
 
-	// 每轮都要求「先说一句 → 再调用工具」：这正是工具轮说明正文（wire 上被丢弃、
-	// 只经 onChunk 进视图）与 assistant(tool_calls) 归零同时被触发的形状。
+	// 每轮都要求「先说一句 → 再调用工具」：工具轮说明正文属于模型输出，
+	// 下一请求必须与 content/reasoning/tool_calls 一起原样复现。
 	submit("第一步：先用一句话说明你接下来要做什么，然后调用 read_file 读取 prefix_probe.txt，" +
 		"最后只回复文件里的内容，不要解释。")
 	for round := 2; round <= 3; round++ {

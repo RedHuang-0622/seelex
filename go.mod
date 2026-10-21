@@ -24,7 +24,7 @@ go 1.25.8
 // termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
-	github.com/RedHuang-0622/Seele v0.3.5
+	github.com/RedHuang-0622/Seele v0.3.6
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0

@@ -28,10 +28,9 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		sessionID = service.Core.Snapshot.Session.ID
 	}
 	service.components.tasks.EnsureToolCallTranscriptLocked(sessionID, name, id, arguments)
-	// 框架在 wire 上丢弃工具轮正文（Seele `session/loop.go:564`），说明文本只经
-	// onChunk 进可见视图：在"本次迭代的 tool_call 事件刚就位 + 流式缓冲已 flush"
-	// 的这一刻把它归位到该事件（按迭代增量）。回合收尾不再做事后填充——否则
-	// 叙述会落到别的迭代/轮次（见
+	// 工具轮正文既进入引擎历史，也经 onChunk 实时进入可见视图：在"本次迭代的
+	// tool_call 事件刚就位 + 流式缓冲已 flush"的这一刻把它归位到该事件（按迭代
+	// 增量）。回合收尾不再做事后填充——否则叙述会落到别的迭代/轮次（见
 	// application/core/context_narration_attribution_test.go）。
 	service.components.tasks.AttributeToolNarrationLocked(sessionID,
 		model.TranscriptToolCall{ID: id, Name: name, Arguments: arguments},

@@ -12,9 +12,9 @@ import (
 const MissingHistoryContent = "[Seelex recovery note: the previous message had no text after an interrupted request; its original content is unavailable.]"
 
 // ToolCallHistoryContent 是**历史版本**里 assistant 工具调用缺正文的修复文本。
-// 当前实现不再写入它：工具轮 assistant 正文在 provider 投影里归零
-// （见 RepairEmptyHistoryContent）——wire 上本来就没有这段正文，补占位会让
-// 重投影字节与已发出字节分叉。该常量保留用于识别旧会话记录里已落盘的占位文本
+// 当前实现不再写入它：工具轮 assistant 如果实际生成了正文，provider 投影必须
+// 原样保留；如果正文为空，也不补占位（provider 从未生成过这段文本）。该常量
+// 保留用于识别旧会话记录里已落盘的占位文本
 // （IsProviderOnlyHistoryContent），不得当作真实正文渲染或投影。
 const ToolCallHistoryContent = "[Seelex recovery note: the assistant issued the recorded tool call(s); the original accompanying text is unavailable.]"
 
@@ -394,24 +394,12 @@ func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.E
 }
 
 // RepairEmptyHistoryContent 使历史对拒绝空 content 的 provider 安全
-// （纯 reasoning / 其余角色补占位文本），并**归零工具轮 assistant 正文**：
+// （纯 reasoning / 其余角色补占位文本），同时保留工具轮 assistant 正文。
 //
-// 携带工具调用的 assistant 消息，其正文在 wire 上恒为空 —— 框架构造该消息时
-// 直接置 nil（Seele `session/loop.go:564`
-// `types.Message{Role:"assistant", Content:nil, ToolCalls: toolCalls}`），
-// provider 从未收到这段正文。而 durable 转写里可能带着视图流式正文（回合收尾
-// `mergeStreamedToolNarration` 补写，视图/轨迹需要）或空正文：两者都不属于
-// **已发出字节**。若让它们进入 provider 投影（补占位 / 保留转写正文），下一轮
-// 请求的字节就会与上一轮已发出的字节分叉，provider 前缀缓存自该消息起全部
-// 失效（跨轮命中 65.9% → 98.3%，见
-// docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md）。
-// 因此投影时统一归零，保持「重投影 == 已发出」。
-//
-// 与框架 wire 行为耦合：本规则成立的前提是"框架在 tool_calls 时丢弃正文"。
-// 若 Seele 改为在 wire 上保留工具轮正文，必须同步停止归零，否则分叉方向反转
-// ——对照探针里 S-fix / C 两臂（模型假设 wire 保留正文）在本次修复后由
-// 98.6% / 98.3% 掉到 74.4% / 46.8%，就是这条耦合的报警器
-// （application/core/context_strategy_ab_probe_test.go）。
+// DeepSeek 会在模型输出结束位置落一个 cache prefix unit。工具轮 assistant
+// 消息如果实际生成了说明正文，下一次请求必须原样带走 content、reasoning 和
+// tool_calls，才能完整命中该 unit；把正文归零会退化为只命中用户输入边界。
+// 空正文仍保持空，不补占位——provider 从未生成过的字节不能凭空写入。
 func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.EngineMessage, bool) {
 	prepared := make([]contract.EngineMessage, len(history))
 	copy(prepared, history)
@@ -419,14 +407,8 @@ func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.Eng
 	for index := range prepared {
 		message := &prepared[index]
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			// wire 上工具轮 assistant 正文恒为空（框架 Content=nil）：占位与
-			// 转写补写的叙述都不属于已发出字节，一律归零（ContentSet=false
-			// 与框架的 nil 同义）。工具调用本身原样保留，配对不被破坏。
-			if message.Content != "" || message.ContentSet {
-				message.Content = ""
-				message.ContentSet = false
-				repaired = true
-			}
+			// 正文是 provider 实际输出的一部分；空正文也不补占位。
+			// 工具调用本身原样保留，配对不被破坏。
 			continue
 		}
 		if strings.TrimSpace(message.Content) != "" {

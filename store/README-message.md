@@ -134,9 +134,9 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 - `func TestEventParagraphsDeriveCompleteUnitBoundaries(t *testing.T)`
 - `func TestParagraphBoundaryChecks(t *testing.T)`
 
-### provider_wire.go
+### provider_wire_output_boundary_test.go
 
-- `func ProviderWireMessages(messages []types.Message) []types.Message` — ProviderWireMessages 把 durable 记录投影出的 provider 历史对齐到框架**实际
+- `func TestDurableHistoryPreservesToolCallAssistantOutputContent(t *testing.T)` — TestDurableHistoryPreservesToolCallAssistantOutputContent pins the provider
 
 ### structural_events.go
 

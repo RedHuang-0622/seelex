@@ -12,10 +12,9 @@ package core
 // 三个 arm：
 //
 //	arm S-prod   Seelex 生产：每轮收尾清空工作历史 → 下一轮从 durable transcript
-//	             全量重投影；且 wire 上工具轮 assistant 正文被丢弃、收尾把视图正文
-//	             事后合并回 transcript（`./Seele/session/loop.go` callLLM +
-//	             `application/core/chat.go:792-812`）。
-//	arm S-fix    仅修「wire 与 durable 逐字节一致」这一件事（等价既有探针 C 组）。
+//	             全量重投影；工具轮 assistant 的 content/reasoning/tool_calls
+//	             作为模型输出原样保留并回放。
+//	arm D-drop   回归对照：丢弃工具轮 content，只命中 user-input cache unit。
 //	arm C        Codex 策略模型：append-only item 流；已发布的 item 永不改写、
 //	             不编造占位；动态事实只在变化时作为**尾部**片段追加/替换
 //	             （`openai/codex@main`：`core/src/client.rs` 常量 instructions、
@@ -23,7 +22,7 @@ package core
 //	             `core/tests/suite/prompt_caching.rs` 前缀断言）。
 //
 // 注意：arm C 是「按 Codex 公开文档/源码语义实现的策略模型」，度量的是该策略在同一
-// 脚本上的**可达上界**，不是对真实 Codex 进程的抓包。arm S-* 是沿生产装配路径的
+// 脚本上的**可达上界**，不是对真实 Codex 进程的抓包。arm S-prod / D-drop 是沿生产装配路径的
 // 真实字节（本地复现）。
 //
 // 运行：
@@ -84,7 +83,7 @@ func abDemoScript() []abTurnScript {
 			reply:     "第 2 轮结论：重建字节在上一轮首个工具调用处即与 wire 分叉。",
 			tools: []abToolScript{
 				{"call-read-3", "read_file", `{"path":"../Seele/session/loop.go"}`,
-					abBody("loop.go: callLLM tool_calls 分支 Content=nil 证据行；", 55)},
+					abBody("loop.go: callLLM tool_calls 分支保留模型输出正文证据行；", 55)},
 				{"call-read-4", "read_file", `{"path":"application/core/context_runtime/history.go"}`,
 					abBody("history.go: RepairEmptyHistoryContent 空正文修复证据行；", 35)},
 			},
@@ -250,7 +249,7 @@ func runABProductionArm(t *testing.T, label string, script []abTurnScript, cfg p
 		}
 		for callIndex, tool := range turn.tools {
 			engineContent := ""
-			if cfg.engineKeepsToolContent {
+			if cfg.engineKeepsToolContent && callIndex == 0 {
 				engineContent = turn.narration
 			}
 			call := []types.ToolCall{{
@@ -320,8 +319,8 @@ func TestContextStrategyAB_CrossTurnScript(t *testing.T) {
 		run *abRun
 		cfg prefixProbeConfig
 	}{
-		{cfg: prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false}},
-		{cfg: prefixProbeConfig{name: "S-fix", engineKeepsToolContent: true}},
+		{cfg: prefixProbeConfig{name: "S-prod", engineKeepsToolContent: true}},
+		{cfg: prefixProbeConfig{name: "D-drop-output", engineKeepsToolContent: false}},
 	}
 	for index := range productions {
 		productions[index].run = runABProductionArm(t, productions[index].cfg.name, script, productions[index].cfg)
@@ -332,7 +331,7 @@ func TestContextStrategyAB_CrossTurnScript(t *testing.T) {
 
 	runs := []*abRun{productions[0].run, productions[1].run, codex}
 	t.Logf("== 对照组：同一 4 轮脚本 / 同一串行化器 / 同一估算器 / 同一工具目录（%d 个，按 name 排序） ==", len(tools))
-	t.Logf("  唯一变量 = 下一轮请求的消息列表怎么来（尾部追加 vs 全量重投影）")
+	t.Logf("  对照维度 = 全量重投影时是否保留工具轮模型输出（S-prod 保留，D-drop 丢弃）")
 	t.Logf("  system(instructions) %d tok 常量；脚本 %d 轮、每轮 2 次工具调用", tokens.Count(system), len(script))
 
 	for _, run := range runs {
@@ -361,7 +360,7 @@ func TestContextStrategyAB_CrossTurnScript(t *testing.T) {
 	}
 
 	// 不变量对比：arm C 的每一次请求都必须是上一次请求的字节前缀扩展；
-	// arm S-prod 的跨轮首请求必然违反（这正是 hit 掉下来的机制）。
+	// 丢弃 output 的回归臂在跨轮首请求必然违反。
 	t.Logf("-- 不变量：上一请求是下一请求的字节前缀？ --")
 	for _, run := range runs {
 		withinViolations, crossViolations, crossCount := 0, 0, 0
@@ -453,7 +452,7 @@ func abPreview(text string, limit int) string {
 func TestContextStrategyAB_WorkedExample(t *testing.T) {
 	script := abDemoScript()
 	prod := runABProductionArm(t, "S-prod", script,
-		prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false})
+		prefixProbeConfig{name: "S-prod", engineKeepsToolContent: true})
 	codex := runABCodexArm(t, "Codex", script, prod.system, prod.tools)
 
 	type boundary struct {
@@ -527,7 +526,7 @@ func TestStrategyAB_NarrationAttributionAcrossTurns(t *testing.T) {
 			arguments := fmt.Sprintf(`{"path":"file-%d-%d.go"}`, turn, round)
 			owned[callID] = narration
 			harness.streamText(narration)
-			harness.llmIteration("", "读取装配入口。", []types.ToolCall{{
+			harness.llmIteration(narration, "读取装配入口。", []types.ToolCall{{
 				ID: callID, Type: "function",
 				Function: types.ToolCallFunction{Name: "read_file", Arguments: arguments},
 			}})

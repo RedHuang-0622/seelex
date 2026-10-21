@@ -1,21 +1,18 @@
 package core
 
-// 跨轮前缀不变量守卫（红灯用例：修复前必红，修复后转绿）。
+// 跨轮前缀 + 模型输出不变量守卫。
 //
 // 不变量：**每一条发给 provider 的请求，其字节流必须以「更早发出的某条请求」
-// 为前缀**（相邻请求即上一条）。这是 provider 前缀缓存命中的必要条件，也是
-// Codex `core/tests/suite/prompt_caching.rs` 断言同款性质。
+// 为前缀**（相邻请求即上一条），且工具轮下一请求必须复现实际生成的 assistant
+// output。前者对应 user-input cache unit，后者对应 DeepSeek 的 model-output
+// cache unit。
 //
 // 生产实测在「回合边界」被**事后改写**打穿（wire 上的字节从来没变，变的是
 // 下一轮重投影时被改写的那份记录）：
 //
-//  1. 工具轮 assistant 正文：wire 上恒为空（Seele `session/loop.go:564`
-//     在 tool_calls 时 `Content: nil`），但回合收尾
-//     `mergeStreamedToolNarration` 把视图里的流式正文补写进 durable 转写；
-//     下一轮从转写重投影 → 该消息字节 ≠ 已发出字节。
-//  2. 同一轮"无说明文本"的工具轮 assistant：durable 里正文为空，下一轮装配
-//     时 `RepairEmptyHistoryContent` 注入 `ToolCallHistoryContent` 占位 →
-//     同样分叉（同一条规则已覆盖）。
+//  1. 工具轮 assistant 的 content/reasoning/tool_calls 必须原样进入下一请求；
+//     只保留 tool_calls 会漏掉 DeepSeek model-output 缓存单元。
+//  2. 同一轮"无说明文本"的工具轮 assistant：正文为空时不得补占位。
 //  3. **空工具结果**：工具返回空串时 wire 上该 tool 消息正文为空，下一轮重投影
 //     却被补成 `MissingHistoryContent` 占位 → 同类分叉（独立用例守住）。
 //
@@ -45,7 +42,7 @@ func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
 	harness.capture(1, 1, "t1.iter1")
 
 	harness.streamText(narration)
-	harness.llmIteration("", "需要先看清装配顺序。", []types.ToolCall{{
+	harness.llmIteration(narration, "需要先看清装配顺序。", []types.ToolCall{{
 		ID: "call-read-1", Type: "function",
 		Function: types.ToolCallFunction{Name: "read_file", Arguments: `{"path":"application/core/context_runtime/coordinator.go"}`},
 	}})
@@ -83,7 +80,7 @@ func TestContextPrefixInvariant_EmptyToolResult(t *testing.T) {
 	harness.capture(1, 1, "t1.iter1")
 
 	harness.streamText("我先跑一次只读命令。")
-	harness.llmIteration("", "只读命令无副作用。", []types.ToolCall{{
+	harness.llmIteration("我先跑一次只读命令。", "只读命令无副作用。", []types.ToolCall{{
 		ID: "call-empty-1", Type: "function",
 		Function: types.ToolCallFunction{Name: "bash", Arguments: `{"command":"true"}`},
 	}})

@@ -5,8 +5,9 @@
 上下文装配与控制：provider 上下文 token 预算/压缩/result-ref
 （`ContextController`）与 provider 历史归一化（`HistoryCoordinator`）。历史
 归一化遵守**跨轮前缀不变量**——每条请求都以更早发出的请求字节为前缀，
-因此 provider 投影必须等于 wire 已发出的字节：携带工具调用的 assistant
-消息正文恒为空、空工具结果不补占位（补写即让该点之后的 prefix cache 失效）。
+因此 provider 投影必须等于 wire 已发出的字节：工具轮 assistant 的
+`content` / `reasoning_content` / `tool_calls` 原样保留，空正文与空工具结果
+都不补占位（补写即让该点之后的 prefix cache 失效）。
 
 ## 职责与非职责
 
@@ -121,8 +122,8 @@ session loop 0）。同一行里**空 ID**与**行内重复 ID**的调用永远�
 由 `seelexctx/wire_protocol_safety_test.go:assertProviderToolProtocol` 全量断言。
 
 历史归一化遵守**跨轮前缀不变量**：每条请求都以更早发出的请求字节为前缀，
-因此 provider 投影必须等于 wire 已发出的字节——携带工具调用的 assistant
-消息正文恒为空，空工具结果不补占位。
+因此 provider 投影必须等于 wire 已发出的字节——工具轮 assistant 保留模型
+实际生成的正文，空正文与空工具结果不补占位。
 
 ## 依赖方向
 
@@ -189,7 +190,8 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 友好性、内部标记不得进入可见会话、正常路径不得重新注入 checkpoint（恢复
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
 不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
-投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
+投影不得事后补写（工具轮模型正文原样保留、空正文与空工具结果保持空，
+否则跨轮前缀或 DeepSeek model-output cache unit 失配）。
 压缩判据另有三条边界：① 累积起点必须取 `ContextRetainedFrom`（含跨回合
 继承），不得每次从 transcript 头部重算；② 尾窗选择与判据/装配必须同一估算器
 （`TranscriptTailWindowBy`），记录值只用于装载；③ 压缩后必须回写新的起点

@@ -3,13 +3,13 @@ package test
 // 全链路跨轮前缀不变量回归（本地、确定性、无网络）：
 //
 //	用脚本化 mock provider + 生产 harness 驱动两轮"先说明 → 再调用工具"的会话
-//	（工具轮说明正文 = wire 上被框架丢弃、只进视图的那段），然后断言**相邻两次
-//	provider 请求的消息序列保持前缀关系**：上一条请求已发出的每条消息，在下一条
-//	请求里必须逐字节不变（追加只发生在尾部）。
+//	（工具轮说明正文属于模型输出），然后断言**相邻两次 provider 请求的消息序列
+//	保持前缀关系**：上一条请求已发出的每条消息，在下一条请求里必须逐字节不变
+//	（追加只发生在尾部）。
 //
 // 该用例对应真实 API 冒烟（real_api_prefix_live_test.go）在 DeepSeek 上实测到的
 // 两类跨轮改写：
-//  1. 工具轮 assistant 消息的正文在跨轮投影里从空变成说明文本；
+//  1. 工具轮 assistant 的模型输出正文、reasoning 与 tool_calls 未完整复现；
 //  2. 工具失败结果的正文从 wire 上的原始输出变成应用呈现文本（viewerrors.PresentToolError）。
 //
 // 两者的共同后果：同一会话的后续请求不再以前一条请求的字节为前缀，provider 的
@@ -129,8 +129,7 @@ func (server *fullChainPrefixServer) serve(t *testing.T, writer http.ResponseWri
 		return
 	}
 	if call%2 == 1 {
-		// 工具轮：先给一段"说明正文"（wire 上会被框架丢弃，只经 onChunk 进视图），
-		// 再宣告工具调用。
+		// 工具轮：先给一段说明正文（属于模型输出），再宣告工具调用。
 		writeSSE(t, writer, flusher, map[string]any{
 			"choices": []any{map[string]any{
 				"index":         0,
@@ -211,7 +210,40 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 	if len(bodies) < 4 {
 		t.Fatalf("recorded %d provider requests, want >= 4", len(bodies))
 	}
+	got, ok := fullChainAssistantToolContent(t, bodies[1], "call_1")
+	if !ok || got != "第1次说明正文。" {
+		t.Fatalf("second request tool-call assistant content = %q (found=%v), want model output %q",
+			got, ok, "第1次说明正文。")
+	}
 	assertFullChainPrefixInvariant(t, bodies)
+}
+
+// fullChainAssistantToolContent 返回指定请求里带 tool_calls 的 assistant content。
+func fullChainAssistantToolContent(t *testing.T, body []byte, toolCallID string) (string, bool) {
+	t.Helper()
+	var payload struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				ID string `json:"id"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode provider request: %v", err)
+	}
+	for _, message := range payload.Messages {
+		if message.Role != "assistant" {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			if call.ID == toolCallID {
+				return message.Content, true
+			}
+		}
+	}
+	return "", false
 }
 
 // assertFullChainPrefixInvariant 断言相邻两次 provider 请求保持消息前缀关系，

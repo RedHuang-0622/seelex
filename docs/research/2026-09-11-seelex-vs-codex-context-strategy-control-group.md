@@ -1,5 +1,11 @@
 # Seelex vs Codex：上下文策略「对照组」实验
 
+> **状态更新（2026-10-21）**：文中 S-prod 的“工具轮正文归零”是历史基线。
+> DeepSeek 会在模型输出结束位置建立 cache prefix unit；当前实现保留并回放
+> `content`、`reasoning_content` 与 `tool_calls`，因此旧 S-prod 命中率不再代表
+> 当前生产路径。最新守卫见 `application/core/context_prefix_invariant_test.go`
+> 与 Seele `session/chat_test.go`。
+
 > 调研日期：2026-09-11 | 方法：同脚本、同串行化器、同估算器的三臂对照实验（本地可复现，不发网络请求）
 > 探针：`application/core/context_strategy_ab_probe_test.go`（新增，未改任何生产代码）
 > 上游：`docs/research/2026-09-12-cache-hit-vs-codex-root-cause.md`（根因）、`application/core/context_cache_divergence_probe_test.go`（首版探针）

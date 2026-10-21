@@ -1,5 +1,10 @@
 # 缓存命中率不及 Codex：根因探究
 
+> **状态更新（2026-10-21）**：本文记录的是修复前基线。工具轮 assistant 正文
+> 现已与 `reasoning_content`、`tool_calls` 一起作为模型输出原样回放，Seelex
+> 的两条 provider 投影也不再归零；此前“归零以满足上一请求前缀”的方案已被替换。
+> 当前实现见 `application/core/README-context.md`。
+
 > 调研日期：2026-09-12 | 对象：本仓库（Seelex / Seele v0.1.3） vs OpenAI Codex CLI
 > 方法：① 主会话装配链路静态审计（含上游 `../Seele` 源码，逐条 `file:line`）；② **本地可复现探针实测**
 > （`application/core/context_cache_divergence_probe_test.go`，走生产装配路径，不发网络请求）；

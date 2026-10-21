@@ -6,18 +6,20 @@
 
 覆盖：`context*.go`；未归属文件由覆盖自检拦下。
 
-## 跨轮前缀不变量与 provider 投影归零（2026-09-12）
+## 跨轮前缀与模型输出边界（2026-10-21）
 
-**不变量**：每条 provider 请求的字节都以本会话更早发出的某条请求为前缀（相邻请求
-即上一条）。回合内本就是纯追加（0 违反），唯一失效点在回合边界——修复前跨轮首请求
-命中 65.9%、失效计费 8,837 tok，修复后 98.5% / 371 tok，与 Codex 臂持平。
+**不变量**：每条 provider 请求的字节都以本会话更早发出的某条请求为前缀；工具轮
+还要求下一请求完整复现上一请求之后实际产生的 assistant output。后一条对应
+DeepSeek 的模型输出缓存单元：provider 会在 user input 结束和 model output 结束
+分别落 cache prefix unit，二者都必须完整匹配。
 
-- 规则：**携带工具调用的 assistant 消息，其 provider 投影正文恒为空**
-  （`RepairEmptyHistoryContent`）。依据是 wire 事实——框架构造该消息时直接置 nil
-  （Seele `session/loop.go:564`），provider 从未收到这段正文；事后补占位或补流式
-  叙述都会让重投影字节与已发出字节分叉，使该点之后的 prefix cache 全部失效。
-- 归零只作用于 **provider 投影**：durable 转写仍保留叙述，视图、轨迹与重启恢复
-  不变。
+- **携带工具调用的 assistant 消息保留模型实际生成的正文**。Seele 的流式工具轮
+  同时可能产生 `content`、`reasoning_content` 与 `tool_calls`；三者都属于模型
+  output，写入引擎历史并由 `RepairEmptyHistoryContent`、`DurableHistory.Load`
+  原样投影。旧实现把 `content` 置 nil，只能命中 user-input 边界，无法命中更大的
+  model-output 单元。
+- **空正文仍保持空**。provider 没有生成文本时不得补占位，否则重投影会写入从未
+  存在的字节；旧恢复占位只用于识别历史记录，不进入新请求。
 - 同族规则（同一条"不写 wire 上从未存在的字节"）：**`tool` 角色空结果保持为空**。
   工具返回空串时 wire 上就是空正文，补 `MissingHistoryContent` 会让下一轮重投影从
   `""` 变成占位（同族分叉）；中断工具链的协议占位由 `RepairInterruptedToolChains`
@@ -35,29 +37,21 @@
   `prefix_invariant_fullchain_test.go::TestFullChainPrefixInvariantToolErrorAcrossTurns`
   与 `...OversizedToolResultAcrossTurns`（比对生产路径录到的真实 wire 字节）、
   `store/provider_content_test.go`（落盘 + 冷载 + 重启恢复）。
-- 工具轮说明正文（wire 上被丢弃、只经 `onChunk` 进视图的那段）**在工具钩子边界按
-  迭代归位**到本次迭代的 assistant(tool_calls) 事件
+- 工具轮说明正文**在工具钩子边界按迭代归位**到本次迭代的 assistant(tool_calls) 事件
   （`task_context.AttributeToolNarrationLocked`；回合收尾不再做事后填充——旧做法会
-  把叙述写到别的轮次上）。归位只影响 record / 视图，投影侧仍归零，二者共同保证
-"重投影 == 已发出"。归零有两处实现，对应两条投影出口：引擎历史路径
-（`RepairEmptyHistoryContent`）与**生产实际出口**——框架 WorkingHistory 来自
-`store.DurableHistory.Load`（尾窗重投影），归零在那里由
-`store.ProviderWireMessages` 实施（2026-09-12 真实 API 冒烟发现前者到不了
-wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
-`TestConcurrentSessionsKeepOwnContent`、`TestFullChainPrefixInvariantAcrossTurns`。
+  把叙述写到别的轮次上）。引擎历史、durable 记录、视图与重启恢复使用同一份正文；
+  `store.DurableHistory.Load` 不再对工具轮 assistant 做二次归零。守卫用例：
+  `TestToolNarrationStaysWithOwningIteration`、
+  `TestConcurrentSessionsKeepOwnContent`、`TestFullChainPrefixInvariantAcrossTurns`。
 - 红灯用例：`context_prefix_invariant_test.go`（沿生产装配路径断言「每条请求是
-  上一条的前缀」，修复前在 `t1.iter3 → t2.iter1` 处 BREAK）；三臂对照组与逐边界
-  数据见 `docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md`。
+  上一条的前缀」，并让工具轮携带非空模型正文）；Seele 侧另有
+  `TestEngine_ChatStream_ToolCallReplaysModelOutputContent` 断言下一请求完整复现
+  `content + reasoning_content + tool_calls`。
 
-**修复引入的耦合（报警器，不是退化）**：归零依赖上游「wire 不保留工具轮正文」这一
-行为。对照组 S-fix / Codex 两臂假设相反，修复后由 98.6% / 98.3% 掉到 74.4% / 46.8%，
-因此成为**耦合报警器**——若上游改为在 wire 上保留工具轮正文，必须同步取消归零，
-届时这两臂重新变好、生产臂变差。另有一处本轮实测踩中的耦合：
-`BackfillAssistantReasoning` 的候选匹配对**工具轮事件**必须以「引擎侧正文」为准
-——事件侧正文现在是归位来的说明文本，若仍要求内容相等，推理草稿会静默失配、
-跨轮字节在 msg#1 分叉（研究文档 §7.8）。同一「事后改写」家族的其他来源与收口进度以
-`backend/engine/context/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
-状态）。
+**历史说明**：2026-09-12 的归零修复解决的是当时“durable 事后补写、wire 从未收到”
+造成的重投影分叉。2026-10-21 起，Seele 改为在生成工具轮时直接保留模型输出正文，
+因此 Seelex 同步取消归零和 `ProviderWireMessages` 二次投影。旧研究文档中的归零
+数据是历史基线，不再描述当前实现。
 
 ## 冷加载会话的 `/compact`：当场压缩，不再只登记（2026-09-24）
 
@@ -190,7 +184,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func probeMessagesEqual(left, right contract.EngineMessage) bool`
 - `func probeEngineCalls(calls []types.ToolCall) []contract.EngineToolCall`
 - `func probeCallIDs(calls []contract.EngineToolCall) string`
-- `func probeStreamedContent(cfg prefixProbeConfig) string` — probeStreamedContent 返回生产路径下引擎 assistant 工具调用消息的流式正文
+- `func probeStreamedContent(cfg prefixProbeConfig) string` — probeStreamedContent 返回对照臂下引擎 assistant 工具调用消息的正文。
 - `func splitProbeChunks(text string, size int) []string`
 - `func summarizeProbeText(text string) string`
 - `func probeWindow(text string, offset int) string` — probeWindow 返回 text 中 offset 附近的可读窗口（定位 system 漂移点）。

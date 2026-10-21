@@ -408,13 +408,13 @@ history, the visible conversation, or the durable transcript.
 
 > 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（越线前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；**越线才压缩**，且压缩只在装配层发生（请求估算 ≥ `limits.context_hard_percent`、`window.force_compact_tokens` 或显式 `/compact`、`compact_context`；2026-09-30 起软线不再参与判据）——折出保留窗口外的 transcript 前缀，plan/task 不参与压缩。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
 
-Provider 前缀不变量（2026-09-12）：每条请求的字节都以本会话更早发出的请求为
-前缀（回合边界同样成立）。带工具调用的 assistant 消息在 provider 投影里正文
-恒为空——框架构造该消息时即置 nil，provider 从未收到这段正文，事后补占位或
-流式叙述都会让重投影字节与已发出字节分叉，使该点之后的 prefix cache 全部
-失效（跨轮首请求命中 65.9% → 98.5%，失效计费 8,837 → 371 tok）。归零只作用于
-provider 投影，durable 转写仍保留叙述（视图/轨迹/重启恢复不变）。契约、耦合
-报警器与剩余同类来源见 [README-context.md](README-context.md)。
+Provider 前缀与模型输出不变量（2026-10-21）：每条请求的字节都以本会话更早
+发出的请求为前缀；工具轮还要求下一请求完整复现实际生成的 assistant output。
+Seele 在流式 tool_call 分支保留 `content`、`reasoning_content` 与
+`tool_calls`，Seelex 的 engine/durable 两条投影都原样携带；空正文不补占位。
+这使 DeepSeek 能完整命中 user-input 与 model-output 两个 cache prefix unit。
+旧“工具轮正文归零”只适用于当初 wire 从未收到正文的历史实现，现已取消。
+守卫与边界见 [README-context.md](README-context.md)。
 
 The token audit counts the separately configured system prompt, message/tool-call overhead, visible tool metadata, the current input, and an output plus safety reserve. Requests that still exceed the safe budget after dropping the accumulated context (without a checkpoint fallback) are rejected before `ChatStream`; the provider-504 / history-safety recovery path then owns the bounded checkpoint continuation.
 

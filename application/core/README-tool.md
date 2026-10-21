@@ -19,10 +19,10 @@
   跨会话正文，但状态不落地）。见研究文档 §7.9「剩余边界」。
 - 工具启动边界（`handleToolStart`）在 flush 流式缓冲、宣告事件就位后，把本轮**说明
   正文按迭代归位**到该工具调用的 assistant(tool_calls) 事件
-  （`task_context.AttributeToolNarrationLocked`）：wire 上工具轮正文恒为空
-  （Seele `session/loop.go:564`），说明文本只经 `onChunk` 进视图，不回填则
-  record / 重启恢复只剩工具痕迹；归位必须按迭代增量做——回合收尾的事后填充会把
-  叙述写到别的轮次（2026-09-12 修复）。目标调用 ID 必须按 `(name, arguments)` 在
+  （`task_context.AttributeToolNarrationLocked`）：说明文本同时进入引擎历史和
+  `onChunk` 可见视图，不回填则 record / 重启恢复只剩工具痕迹；归位必须按迭代
+  增量做——回合收尾的事后填充会把叙述写到别的轮次（2026-09-12 修复）。目标调用
+  ID 必须按 `(name, arguments)` 在
   `pendingProviderCalls` 里解析成**框架真实 ID**：本卷传入的 `tool-N` 是合成 ID，
   直接用它定位 transcript 事件会**静默失效**（不报错，只是永不归位）。守卫用例：
   `TestToolNarrationStaysWithOwningIteration`、`TestConcurrentSessionsKeepOwnContent`。

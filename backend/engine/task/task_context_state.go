@@ -427,13 +427,11 @@ func findReasoningCandidate(candidates []reasoningCandidate, event *model.Transc
 			continue
 		}
 		if len(eventIDs) > 0 {
-			// 工具轮 assistant 事件：wire 正文恒为空（框架 Content=nil），事件
-			// 上的正文是 record-only 的流式说明文本（工具钩子边界归位，见
-			// AttributeToolNarrationLocked）。匹配以"引擎侧正文"为准并容忍
-			// 事件侧带说明文本 —— 否则说明正文一旦落盘，推理草稿就再也匹配
-			// 不上（2026-09-11 实测：归位前移到钩子边界后回填失配 → 跨轮
-			// 字节在 msg#1 处分叉，TestContextPrefixInvariant_CrossTurn）。
-			// 调用 ID 已唯一确定迭代，内容比较在此不承担区分职责。
+			// 工具轮 assistant 的 content、reasoning_content 与 tool_calls 都属于
+			// provider 实际模型输出。事件侧正文在工具钩子边界归位，引擎侧正文
+			// 同样保留（DeepSeek 在模型输出结束位置落缓存单元）。调用 ID 已唯一
+			// 确定迭代，内容比较不再承担区分职责，避免可见流缓冲的时序差异造成
+			// 推理草稿回填失配。
 			if candidate.content != "" && candidate.content != normalizeReasoningContent(event.Content) {
 				continue
 			}
@@ -465,14 +463,13 @@ func normalizeReasoningContent(content string) string {
 	return content
 }
 
-// AttributeToolNarrationLocked 把"wire 上被丢弃的迭代说明正文"归位到**产生它
-// 的那一次迭代**的 assistant(tool_calls) 事件上（2026-09-11 归属修复；调用方
-// 持有 Core.ViewMu）。
+// AttributeToolNarrationLocked 把迭代说明正文归位到**产生它的那一次迭代**的
+// assistant(tool_calls) 事件上（2026-09-11 归属修复；调用方持有 Core.ViewMu）。
 //
-// 背景：框架在 wire 上丢弃工具轮正文（Seele `session/loop.go:564`
-// `types.Message{Role:"assistant", Content:nil, ToolCalls: toolCalls}`），说明
-// 文本只经 onChunk 进可见视图；不落盘则 record / 重启恢复只剩工具痕迹。归位
-// 必须**按迭代**进行：streamed 是本次请求截至当前的可见流式正文（视图里同一条
+// 背景：工具轮正文同时是 provider 模型输出和可见视图的一部分；引擎历史保留
+// 正文后，durable 记录也必须按迭代写入相同文本，跨轮重投影才能完整命中
+// DeepSeek 的模型输出缓存单元。归位必须**按迭代**进行：streamed 是本次请求
+// 截至当前的可见流式正文（视图里同一条
 // assistant 消息的累积），attributed 是本轮已经归位到 transcript 的前缀，二者
 // 之差即这一迭代新增的说明文本。
 //

@@ -2,9 +2,9 @@ package core
 
 // 工具轮说明正文的**归属**守卫（红灯用例：修复前叙述会落到别的轮次/迭代上）。
 //
-// 背景：框架在 wire 上丢弃工具轮正文（Seele `session/loop.go:564`），说明文本
-// 只经 onChunk 进可见视图。record / 重启恢复要保留它，就必须把它归位到**产生
-// 它的那一次迭代**的 assistant(tool_calls) 事件上。
+// 背景：工具轮说明文本同时属于模型 output、引擎历史和可见视图。record / 重启
+// 恢复要保留它，就必须把它归位到**产生它的那一次迭代**的
+// assistant(tool_calls) 事件上。
 //
 // 旧实现在回合收尾做"事后填充"（`mergeStreamedToolNarration` → 视图全部
 // assistant 正文 → 从 transcript 头部找第一个空事件填）：每多一轮，叙述就
@@ -37,7 +37,7 @@ func TestToolNarrationStaysWithOwningIteration(t *testing.T) {
 			arguments := fmt.Sprintf(`{"path":"file-%d-%d.go"}`, turn, round)
 			want[callID] = narration
 			harness.streamText(narration)
-			harness.llmIteration("", "读取装配入口。", []types.ToolCall{{
+			harness.llmIteration(narration, "读取装配入口。", []types.ToolCall{{
 				ID: callID, Type: "function",
 				Function: types.ToolCallFunction{Name: "read_file", Arguments: arguments},
 			}})

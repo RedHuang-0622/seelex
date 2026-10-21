@@ -6,11 +6,10 @@ package core
 // 现网靠 IntersectionObserver/sentinel 的自动触发即可发生）。此时本轮工具轮的
 // **说明正文**（"我先把入口读一下" 这类先说一句再调工具的正文）在冷加载后消失。
 //
-// 为什么正文只在这两处存在：
-//  1. 框架在 wire 上丢弃工具轮正文（Seele `session/loop.go` callLLM：带 tool_calls
-//     时构造 `types.Message{Role:"assistant", Content:nil, ToolCalls:...}`），
-//     LLMInfo.Response 因此为空 —— 正文只经 onChunk 进可见视图；
-//  2. 应用侧唯一的 durable 归宿是工具钩子边界的按迭代归位
+// 为什么正文有两条观察面：
+//  1. Seele 在工具轮保留模型实际生成的 content，并同时经 onChunk 进入可见视图；
+//     LLMInfo.Response 也携带该正文；
+//  2. durable 归宿由 OnLLMComplete 写入，并在工具钩子边界按迭代归位
 //     （handleToolStart → AttributeToolNarrationLocked），而它的输入
 //     `streamedAssistantTextLocked` 读的是**可见窗口**里那条 assistant 消息。
 //
@@ -90,9 +89,10 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	const narration = "先看一眼入口，再决定改哪里。"
 	service.appendDelta(coldNarrationRequestID, narration)
 
-	// OnLLMComplete：工具轮 wire 正文为空（框架丢正文），事件只带 tool_calls。
+	// OnLLMComplete：工具轮正文与 tool_calls 同属模型输出。
 	callArguments := `{"path":"application/core/session_history.go"}`
 	service.components.tasks.RecordLLMComplete(withSessionID(context.Background(), sessionID), session.LLMInfo{
+		Response: narration,
 		ToolCalls: []types.ToolCall{{
 			ID: "call-1", Type: "function",
 			Function: types.ToolCallFunction{Name: "read_file", Arguments: callArguments},
