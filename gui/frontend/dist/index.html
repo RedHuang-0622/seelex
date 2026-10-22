@@ -56,7 +56,7 @@
         </button>
         <button class="left-nav-item" type="button" data-left-page="plugins">
           <span class="left-nav-icon" data-icon="plugin" data-icon-size="16"></span>
-          <span class="left-nav-copy">插件管理</span>
+          <span class="left-nav-copy">插件 Skill</span>
         </button>
       </nav>
     </aside>
@@ -90,6 +90,7 @@
       <div id="left-page-plugins" class="left-page hidden" role="tabpanel" data-left-page-panel="plugins">
         <section id="plugin-section" class="left-page-section">
           <div class="section-title"><span>插件</span><span id="plugin-count" class="badge">0</span></div>
+          <p class="left-page-note">这一页只做查看与管理，不切换当前插件。</p>
           <div id="plugin-list" class="stack-list"></div>
         </section>
       </div>
@@ -207,14 +208,14 @@
           <div>
             <span class="eyebrow">Plugin</span>
             <h2 id="plugin-management-title">插件管理</h2>
-            <p id="plugin-management-description">选择一个插件，查看它当前向本会话提供的 Skill。</p>
+            <p id="plugin-management-description">浏览各插件随包携带的 Skill；这一页只做查看与管理，不切换当前插件。</p>
           </div>
           <span id="plugin-management-state" class="chip">未选择</span>
         </header>
         <div id="plugin-management-meta" class="plugin-management-meta"></div>
         <section class="plugin-skill-section">
           <div class="section-title"><span>Skill 管理</span><span id="plugin-skill-count" class="badge">0</span></div>
-          <p class="left-page-note">当前插件可召回的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
+          <p class="left-page-note">该插件随包携带的 Skill。使用 <code>$</code> 前缀从输入框召回。</p>
           <div id="skill-list" class="plugin-skill-list"></div>
         </section>
       </section>

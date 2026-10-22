@@ -43,7 +43,7 @@ test("left navigation is a standalone rail beside the task list", () => {
   }
   assert.match(nav, />聊天</);
   assert.match(nav, />定时任务</);
-  assert.match(nav, />插件管理</);
+  assert.match(nav, />插件 Skill</);
   assert.match(html, /id="toggle-left-nav"/, "主导航必须可收缩");
   assert.match(html, /<aside class="nav-panel"/, "一级导航必须独立成一列");
   assert.match(html, /<aside class="left-panel task-panel panel"/, "任务列表必须是第二列");
@@ -83,6 +83,11 @@ test("plugin entries live in the task list while skill management lives in the m
   assert.match(pluginManagement, /plugin-skill-section/);
   assert.match(app, /function openPluginManagement\(/);
   assert.match(app, /classList\.add\("is-plugin-manager"\)/);
+  // 插件页面只看不切：点插件只改本页停留位（state.selectedPlugin）并重画，
+  // 绝不 invoke SwitchPlugin（改进程级激活态只走 `#` 命令）。
+  assert.doesNotMatch(app, /invoke\("SwitchPlugin"/, "插件页面不许做插件切换");
+  assert.match(app, /state\.selectedPlugin/, "插件页面必须有本页停留位");
+  assert.match(app, /renderSelectedPluginSkills/, "Skill 列表必须跟着停留位走");
 });
 
 test("scheduled task editing lives inside the middle session workspace", () => {

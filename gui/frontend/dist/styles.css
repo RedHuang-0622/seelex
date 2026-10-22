@@ -494,8 +494,15 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .left-page-section > .stack-list { flex: none; max-height: none; overflow: visible; }
 .left-page-note { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .plugin-entry { display: flex; align-items: center; gap: 6px; min-height: 34px; }
-.plugin-entry-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-entry .chip { margin-left: auto; flex: none; padding: 1px 5px; border: 0; background: transparent; font-size: 9px; }
+.plugin-entry-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* 两个尾随 chip：Skill 计数 + 来源标签。计数贴着名字右侧，来源标签靠右。 */
+.plugin-entry .chip { flex: none; padding: 1px 5px; border: 0; background: transparent; font-size: 9px; }
+.plugin-entry-count { margin-left: 2px; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* 「选中」= 本页停留位（看哪个插件的 Skill），与「当前使用」是两件事：
+   selected 是这一页的视图状态，is-current 才是进程级激活态（只读）。 */
+.plugin-entry.selected { background: var(--surface-2); }
+.plugin-entry.selected .plugin-entry-name { color: var(--text-bright); }
+.plugin-entry.is-current .plugin-entry-name { color: var(--text-bright); }
 
 .section-title {
   display: flex;

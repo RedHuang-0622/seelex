@@ -101,7 +101,10 @@ const state = {
   rightTab: "status",
   trajectoryFilter: "all",
   // 账户是 provider → model 两级：这是"当前停在哪个供应商"的纯 UI 状态。
-  accountProvider: ""
+  accountProvider: "",
+  // 插件页面**只看不切**：这是「停在哪一个插件上浏览它的 Skill」的纯视图状态，
+  // 与 runtime.plugin（进程级激活态，只有 `#` 命令/定时任务会改）是两条独立事实。
+  selectedPlugin: ""
 };
 
 const elements = Object.fromEntries([
@@ -143,7 +146,7 @@ const elements = Object.fromEntries([
 // 一级导航与任务列表是两个独立纵列：导航只决定第二列显示哪种列表；
 // 页面切换与导航收缩只属于视图，不写快照。
 const LEFT_PAGE_IDS = { tasks: "left-page-tasks", scheduled: "left-page-scheduled", plugins: "left-page-plugins" };
-const LEFT_PAGE_LABELS = { tasks: "聊天", scheduled: "定时任务", plugins: "插件管理" };
+const LEFT_PAGE_LABELS = { tasks: "聊天", scheduled: "定时任务", plugins: "插件 Skill" };
 const LEFT_PAGE_STORAGE_KEY = "seelex.left-page";
 const LEFT_NAV_COLLAPSED_KEY = "seelex.left-nav.collapsed";
 
@@ -878,7 +881,7 @@ function render(snapshot, options = {}) {
   renderTeam(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderToolRecordPanel();
-  renderSkills(snapshot.runtime?.skills || []);
+  renderSelectedPluginSkills(snapshot.runtime || {});
   renderInteraction(snapshot.interaction);
   // J-2：agent 请求打开的待审阅文件（会话作用域的可重放状态，随快照到达）。放在这里
   // 而不是增量分支——后端按整份快照事件发布（见 application/core/review_files.go），
@@ -917,7 +920,7 @@ function renderIncremental(snapshot, kind, payload) {
     renderGoal(snapshot);
     renderTeam(snapshot);
     renderScheduledTaskPanel(snapshot.runtime || {});
-    renderSkills(snapshot.runtime?.skills || []);
+    renderSelectedPluginSkills(snapshot.runtime || {});
     renderProject(snapshot);
     // 轨迹子页激活时刷新前缀注入层（effort/skill/插件等可能已变化）。
     if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
@@ -2381,77 +2384,102 @@ function renderPermissionMenu(runtime) {
     </button>`).join("");
 }
 
-// renderPlugins 渲染运行状态面板里的插件列表。每行除名字 / 描述，还要回答"这个插件从
-// 哪来"——用户当面问过「这些前端显示出来的 plugin 我没在我的 plugins/ 下见过」。
-// 来源读数（source_kind/source_url/source_root）由后端下发，判定与文案全在 plugin-source.js
-// 的纯函数里，这里只做**摆位 + 转义**（文本一律转义，判据④）。
-// **类型与载入位置是两条独立的事实**：未登记（source_kind 键缺席）不编类型，但后端刻意
-// 只下发的 source_root 照报「载入根 …」——那句正是"我没在 plugins/ 下见过它"的答案；
-// 三条事实全缺时才只剩名字。
+// renderPlugins 渲染左栏「插件 Skill」页的插件列表 + 该插件的 Skill 目录。
+//
+// **这一页只看不切（2026 用户定调）**：点插件只是把本页停到它上面、列出它随包携带的
+// Skill，**不调用 SwitchPlugin** —— 改进程级激活态只走 `#` 命令（input_router 的
+// pluginRoute）与定时任务的装配面。因此：
+//   - `runtime.plugin` 是**只读现状**：列表里用一枚「当前」点标记，页面状态也照它显示；
+//   - `state.selectedPlugin` 是本页自己的停留位（纯视图，切走再回来还在）。
+//
+// 每个插件除名字 / 描述，还要回答"这个插件从哪来"——用户当面问过「这些前端显示出来的
+// plugin 我没在我的 plugins/ 下见过」。来源读数（source_kind/source_url/source_root）
+// 由后端下发，判定与文案全在 plugin-source.js 的纯函数里，这里只做**摆位 + 转义**。
+// Skill 目录随插件一起下发（PluginInfo.skills）：插件页不能只靠 runtime.skills，
+// 那是当前激活插件的合并视图，切走就看不到别的插件带什么。
+let lastPluginsRuntime = null;
+
 function renderPlugins(runtime) {
+  lastPluginsRuntime = runtime;
   const plugins = runtime.plugins || [];
-  const active = plugins.find(plugin => plugin.name === runtime.plugin) || null;
+  const currentName = runtime.plugin || "";
   elements["plugin-count"].textContent = String(plugins.length);
+  // 停留位回落顺序：仍存在的旧选择 > 当前激活插件 > 第一个插件。
+  if (!plugins.some(plugin => plugin.name === state.selectedPlugin)) {
+    state.selectedPlugin = plugins.some(plugin => plugin.name === currentName)
+      ? currentName
+      : (plugins[0]?.name || "");
+  }
+  const selected = plugins.find(plugin => plugin.name === state.selectedPlugin) || null;
   elements["plugin-list"].innerHTML = plugins.map(plugin => {
     const source = pluginSourceBadge(plugin);
     // 来源标签**可见**（不能只靠 tooltip）：local 必须一眼看出是"本机自建"；类型未登记
     // 时这枚标签是"来源未登记"（判据①：那是"不知道谁给的"，不是"随发行包"）。
     const badge = source.label
-      ? ` <span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>`
+      ? `<span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>`
       : "";
     const title = source.note ? ` title="${escapePluginSourceText(source.note)}"` : "";
+    const isSelected = plugin.name === state.selectedPlugin;
+    const isCurrent = plugin.name === currentName;
+    const skillCount = Array.isArray(plugin.skills) ? plugin.skills.length : 0;
     return `
-    <button class="stack-button plugin-entry ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}"${title}>
-      <span class="plugin-entry-name">${icon(runtime.plugin === plugin.name ? "dot" : "circle", 12)}${escapeHtml(plugin.name)}</span>
+    <button class="stack-button plugin-entry${isSelected ? " selected" : ""}${isCurrent ? " is-current" : ""}" data-plugin="${escapeHtml(plugin.name)}" aria-pressed="${isSelected}"${title}>
+      <span class="plugin-entry-name">${icon(isCurrent ? "dot" : "circle", 12)}${escapeHtml(plugin.name)}</span>
+      <span class="chip plugin-entry-count" title="随包携带 ${skillCount} 个 Skill">${skillCount}</span>
       ${badge}
     </button>`;
   }).join("");
   if (elements["plugin-management-title"]) {
-    elements["plugin-management-title"].textContent = active?.name || "插件管理";
+    elements["plugin-management-title"].textContent = selected?.name || "插件管理";
   }
   if (elements["plugin-management-description"]) {
-    elements["plugin-management-description"].textContent = active?.description || "选择一个插件，查看它当前向本会话提供的 Skill。";
+    elements["plugin-management-description"].textContent =
+      selected?.description || "浏览各插件随包携带的 Skill；这一页只做查看与管理，不切换当前插件。";
   }
   if (elements["plugin-management-state"]) {
-    elements["plugin-management-state"].textContent = active ? "当前使用" : "未选择";
-    elements["plugin-management-state"].classList.toggle("is-on", Boolean(active));
+    const isCurrent = selected && selected.name === currentName;
+    elements["plugin-management-state"].textContent = selected ? (isCurrent ? "当前使用" : "仅查看") : "未选择";
+    elements["plugin-management-state"].classList.toggle("is-on", Boolean(isCurrent));
   }
   if (elements["plugin-management-meta"]) {
-    if (!active) {
+    if (!selected) {
       elements["plugin-management-meta"].innerHTML = '<span class="chip">暂无插件</span>';
     } else {
-      const source = pluginSourceBadge(active);
+      const source = pluginSourceBadge(selected);
+      const skillCount = Array.isArray(selected.skills) ? selected.skills.length : 0;
       elements["plugin-management-meta"].innerHTML = [
-        `<span class="chip">plugin ${escapeHtml(active.name)}</span>`,
+        `<span class="chip">plugin ${escapeHtml(selected.name)}</span>`,
+        `<span class="chip">${skillCount} 个 Skill</span>`,
         source.label ? `<span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>` : "",
         source.hint ? `<span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.hint)}</span>` : ""
       ].filter(Boolean).join("");
     }
   }
+  renderSelectedPluginSkills(runtime);
 }
 
-// 插件切换：容器上一条委托（列表每次重绘不再逐行绑监听）。单飞语义保留——
-// 切插件会附挂/卸载 MCP，重复点击只能排队等，所以命中后立刻锁住容器。
-elements["plugin-list"]?.addEventListener("click", async event => {
-  const button = event.target?.closest?.("button[data-plugin]");
-  const host = elements["plugin-list"];
-  if (!button || !host) return;
-  if (host.dataset.switching === "1") return;
-  host.dataset.switching = "1";
-  host.classList.add("is-switching");
-  button.classList.add("is-pending");
-  try {
-    await invoke("SwitchPlugin", button.dataset.plugin);
-    // 切换结果由 runtime.changed（带完整运行时）＋ snapshot.changed 事件带回；
-    // 这里再拉一次整份快照纯属叠延迟（MCP 附挂本身就可能几秒）。
-    await refresh({ scroll: false });
-  } catch (error) {
-    showToast(error);
-  } finally {
-    host.dataset.switching = "";
-    host.classList.remove("is-switching");
-    button.classList.remove("is-pending");
+// 插件页的 Skill 目录：跟着**停留位**走（不是 runtime.plugin）。旧后端不带宽 skills
+// 字段时回落到 runtime.skills（当前激活插件的合并视图），页面不至于空成一张白纸。
+function renderSelectedPluginSkills(runtime) {
+  const plugins = runtime.plugins || [];
+  const selected = plugins.find(plugin => plugin.name === state.selectedPlugin) || null;
+  const skills = selected && Array.isArray(selected.skills) ? selected.skills : null;
+  if (skills) {
+    renderSkillList(skills, `插件 ${selected.name} 没有随包携带 Skill。`);
+    return;
   }
+  renderSkillList(runtime.skills || [], "当前没有可召回的 Skill。");
+}
+
+// 插件页选插件：**纯视图**，只改停留位并重画本页（绝不 invoke SwitchPlugin）。
+// 容器上一条委托（列表每次重绘不再逐行绑监听）。
+elements["plugin-list"]?.addEventListener("click", event => {
+  const button = event.target?.closest?.("button[data-plugin]");
+  if (!button) return;
+  const name = button.dataset.plugin || "";
+  if (!name || name === state.selectedPlugin) return;
+  state.selectedPlugin = name;
+  if (lastPluginsRuntime) renderPlugins(lastPluginsRuntime);
 });
 
 // renderAccounts 渲染账户栏（右栏「状态」子页）：**供应商 → 模型**两级级联——
@@ -2515,7 +2543,7 @@ elements["account-list"]?.addEventListener("click", async event => {
   }
 });
 
-function renderSkills(skills) {
+function renderSkillList(skills, emptyText = "当前插件没有可召回的 Skill。") {
   // Skill 的召回前缀是 `$`（`#` 是切换 Plugin、`/` 是命令）：与
   // application/core/input_router/router.go 的 skillRoute/pluginRoute 一字对应。
   // 这里曾写死成 `#`，于是用户用 `$goal` 召回的 Skill 在列表里显示成 `#goal`。
@@ -2528,7 +2556,7 @@ function renderSkills(skills) {
           <span class="plugin-skill-desc" title="${escapeHtml(skill.description || "")}">${escapeHtml(skill.description || "当前插件提供的 Skill")}</span>
         </span>
       </div>`).join("")
-    : '<div class="plugin-skill-empty">当前插件没有可召回的 Skill。</div>';
+    : `<div class="plugin-skill-empty">${escapeHtml(emptyText)}</div>`;
 }
 
 // ── 「团队看板」面板（工作台子页）──────────────────────────

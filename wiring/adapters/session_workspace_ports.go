@@ -1239,7 +1239,14 @@ func adaptGranularInfos(sessions []store.SessionInfo) []model.SessionInfo {
 }
 
 func adaptPlugin(item plugin.Plugin) model.PluginInfo {
-	return model.PluginInfo{Name: item.Name, Description: item.Description, Prompt: item.Prompt}
+	info := model.PluginInfo{Name: item.Name, Description: item.Description, Prompt: item.Prompt}
+	if len(item.Skills) > 0 {
+		info.Skills = make([]model.SkillInfo, 0, len(item.Skills))
+		for _, sk := range item.Skills {
+			info.Skills = append(info.Skills, adaptSkill(sk))
+		}
+	}
+	return info
 }
 func adaptSkill(item skill.Skill) model.SkillInfo {
 	return model.SkillInfo{Name: item.Name, Description: item.Description, Prompt: item.Prompt}

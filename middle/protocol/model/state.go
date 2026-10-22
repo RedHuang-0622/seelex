@@ -753,6 +753,11 @@ type PluginInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Prompt      string `json:"-"`
+	// Skills 是该插件**随包携带**的 Skill 目录（不含 Prompt 正文，见 SkillInfo.Prompt
+	// 的 `json:"-"`）。插件页面按插件逐个列出 Skill 时读它——那页只做「看/管理」，
+	// 不做插件切换，所以每个插件自己的目录必须随插件一起下发，不能只靠
+	// runtime.skills（那是**当前激活插件**的合并视图，切走就看不到了）。
+	Skills []SkillInfo `json:"skills,omitempty"`
 	// 「这个插件从哪来」（2026-10-05）：一块在前端**必须看得见**的读数——用户当面问过
 	// 「这些前端显示出来的 plugin 我没有在我的 plugin 下面见过」，而此前模型里只有
 	// Name/Description/Prompt，面板里一个字都没说。
