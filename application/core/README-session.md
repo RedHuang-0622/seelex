@@ -76,6 +76,31 @@
 5. 复现与回归：原 `session_running_idle_submit_test.go` 已删除，用例散在 `session_draft_*` 与 `service_test.go`（草稿显式提交物化、运行中会话
    不挡新建会话）+ `session_submit_restoring_test.go`（restoring 期延后提交）。
 
+## 会话目录里的「活着但还没落盘」（2026-07 用户口径）
+
+目录的事实源仍是存储层枚举（`SessionsOf` = 会话头），而会话只在**回合收尾**落盘
+（`runChat` 的 `PersistCurrentSession`）。中间那段时间以前是整段空窗：视图会话靠
+前端补一行"当前会话"勉强可见，后台会话（定时任务新建的）则完全看不到——用户口径
+是"会话条目消失，直到完成才重新出现""看不到定时任务的会话条目"。
+
+`Snapshot()` 因此在目录镜像上补两格**视图级事实**，不动存储、不造磁盘条目：
+
+1. `projectDraftWorkspaceLocked`：草稿的工作区绑定补进 `session_workspaces`。
+   草稿绑定本来就是视图级事实（`workspace.bindInfo` 的草稿分支刻意不写
+   `Store.BindSession`，要等物化才落存储），缺这一格左侧栏只能把刚发起的
+   「工作区会话」归进「未关联会话」。反向判据不变：没有工作区的草稿仍然是空的。
+2. `withLiveSessionRowsLocked`：内存里 running / queued / awaiting_approval 但目录
+   还没有的会话补一行（标题取 `CatalogSessionTitle` 的原始值，绝不借当前视图会话
+   的名字）。idle 不补——空闲会话要么已经落盘（目录本来就有），要么是不该进会话树
+   的单元；已落盘的行一律以目录为准，不覆盖它的时间/token/元数据。
+
+`StartScheduledSession` 另有一格：会话创建后立刻重采工作区投影并发布一次
+`snapshot.changed`——定时触发发生在用户视野之外，不主动发布就只能等这一轮跑完
+（旧的 `RequestCatalogRefresh` 对未落盘会话是空转）。
+
+回归：`session_directory_visibility_test.go`（工作区草稿分组 / 任务草稿仍不绑定 /
+首轮运行中可见 / 定时会话落盘前可见）。
+
 ## 会话上下文存储的挂接（2026-10-04）
 
 `Runtime` 的 `SessionContextStore` 是会话级四栈与**装配层推帧**的共同依赖，且读的是
@@ -291,6 +316,14 @@
 - `func messageIDFromPayload(raw json.RawMessage) string`
 - `func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T)`
 - `func containsText(value, sub string) bool`
+
+### session_directory_visibility_test.go
+
+- `func TestWorkspaceDraftShowsItsWorkspaceInDirectory(t *testing.T)` — TestWorkspaceDraftShowsItsWorkspaceInDirectory 钉住第 1 条：草稿的工作区绑定
+- `func TestTaskDraftStaysUnboundInDirectory(t *testing.T)` — TestTaskDraftStaysUnboundInDirectory 钉住反向判据：没有工作区的「任务会话」
+- `func TestRunningSessionVisibleInDirectory(t *testing.T)` — TestRunningSessionVisibleInDirectory 钉住第 2 条：首轮运行中（尚未落盘）的
+- `func TestScheduledSessionVisibleBeforePersist(t *testing.T)` — TestScheduledSessionVisibleBeforePersist 钉住第 3 条：定时任务新建的后台会话
+- `func findSessionRow(rows []model.SessionInfo, sessionID string) (model.SessionInfo, bool)` — findSessionRow 在目录行里按会话 ID 找那一行。
 
 ### session_draft.go
 

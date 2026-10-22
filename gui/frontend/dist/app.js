@@ -1817,7 +1817,12 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
   const items = sessions.map(session => session.id === currentID && current.name
     ? { ...session, name: current.name }
     : session);
-  if (currentID && !items.some(session => session.id === currentID)) {
+  // 当前会话的补行：目录可能慢一拍（例如刚物化、目录刷新还在路上），补一行
+  // 免得视图会话在侧栏里"没有自己"。**草稿不补**：草稿行由后端的草稿槽下发
+  // （status=draft，带工作区绑定），而一份还没发送输入的草稿不属于会话树——
+  // 前端补出来的那行既没有工作区归属（只能落进「未关联会话」），也没有标题，
+  // 正是"新建会话一开始跑到未关联里"的第二现场。
+  if (currentID && !current.draft && !items.some(session => session.id === currentID)) {
     items.unshift({ id: currentID, name: current.name || "", current: true });
   }
   elements["session-count"].textContent = String(items.length);

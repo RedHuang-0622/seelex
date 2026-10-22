@@ -7,6 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
+	"sort"
 	"strings"
 	"time"
 )
@@ -49,8 +50,98 @@ func (service *Service) Snapshot() model.Snapshot {
 			}}, snapshot.Sessions...)
 		}
 	}
+	service.projectDraftWorkspaceLocked(&snapshot)
+	snapshot.Sessions = service.withLiveSessionRowsLocked(snapshot.Sessions)
 	snapshot.Sessions = service.enrichDirectoryRowsLocked(snapshot.Sessions)
 	return snapshot
+}
+
+// projectDraftWorkspaceLocked 把草稿的工作区绑定补进 `session_workspaces`
+// 投影（调用方持有 Core.ViewMu）。
+//
+// 为什么必须有这一格：草稿的绑定是**视图级事实**——`workspace.bindInfo` 的草稿
+// 分支刻意不写 `Store.BindSession`（绑定要等首次提交物化才落到存储，见那里的
+// "G" 注释），于是 `Projection().Bindings` 里没有草稿这一行。左侧栏按
+// `session_workspaces[session.id]` 分组，缺这一格就只能把刚发起的**工作区会话**
+// 归进「未关联会话」，等首轮落盘（存储绑定那时才有）才跳回工作区分组——用户
+// 视角就是"新建的会话一开始不在工作区里"。
+//
+// 视图停在草稿上时，权威绑定就是 `CurrentWorkspace`；视图移开后（草稿槽仍保留），
+// 用槽位自己记的 workspace，绝不借用当前视图会话的项目。
+func (service *Service) projectDraftWorkspaceLocked(snapshot *model.Snapshot) {
+	if service.draft == nil || service.draft.ID == "" {
+		return
+	}
+	workspaceID := ""
+	switch {
+	case snapshot.Session.Draft && snapshot.Session.ID == service.draft.ID:
+		if snapshot.CurrentWorkspace != nil {
+			workspaceID = snapshot.CurrentWorkspace.ID
+		}
+	case service.draft.Workspace != nil:
+		workspaceID = service.draft.Workspace.ID
+	}
+	if workspaceID == "" {
+		return
+	}
+	if snapshot.SessionWorkspaces == nil {
+		snapshot.SessionWorkspaces = make(map[string]string, 1)
+	}
+	snapshot.SessionWorkspaces[service.draft.ID] = workspaceID
+}
+
+// withLiveSessionRowsLocked 把「内存里活着、目录里还没有」的会话补进目录行
+// （调用方持有 Core.ViewMu）。
+//
+// 目录的事实源是存储层枚举（`SessionsOf` = 会话头），而会话只在**回合收尾**
+// 落盘：首轮在跑的那整段时间里，这个会话在磁盘上还不存在。以前目录因此整段
+// 缺行——视图会话靠前端补一行"当前会话"勉强可见，后台会话（定时任务新建的
+// 会话）则完全看不到，直到这一轮跑完落盘才冒出来（用户口径："会话条目消失，
+// 直到完成才重新出现"/"看不到定时任务的会话条目"）。
+//
+// 判据只取"活着的运行态"：running / queued / awaiting_approval。idle 不补——
+// 空闲会话要么已经落盘（目录本来就有），要么是一次没跑完/被放弃的单元，不该
+// 被当成会话树里的一行。已落盘的会话以目录行为准（不重复、不覆盖它的
+// UpdatedAt/token/meta）。
+func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []model.SessionInfo {
+	ids := service.sessions.UnitIDs()
+	if len(ids) == 0 {
+		return rows
+	}
+	listed := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		listed[row.ID] = struct{}{}
+	}
+	live := make([]model.SessionInfo, 0, len(ids))
+	for _, sessionID := range ids {
+		if sessionID == "" {
+			continue
+		}
+		// 草稿槽自己那一行由 Snapshot 的草稿分支给出（status=draft），不在这里补。
+		if service.draft != nil && service.draft.ID == sessionID {
+			continue
+		}
+		if _, ok := listed[sessionID]; ok {
+			continue
+		}
+		switch service.sessionStatusLocked(sessionID) {
+		case SessionStatusRunning, SessionStatusQueued, SessionStatusAwaitingApproval:
+		default:
+			continue
+		}
+		row := model.SessionInfo{ID: sessionID, UpdatedAt: time.Now()}
+		// 标题取标题表的原始值（不回退活跃会话名）：后台会话不得借视图会话的标题。
+		if title := service.components.sessions.CatalogSessionTitle(sessionID); title.Value != "" {
+			row.Name = title.Value
+		}
+		live = append(live, row)
+	}
+	if len(live) == 0 {
+		return rows
+	}
+	// 行序确定性（快照是可比对的发布面，不能随 actor 返回顺序抖动）。
+	sort.Slice(live, func(i, j int) bool { return live[i].ID < live[j].ID })
+	return append(live, rows...)
 }
 
 // ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
@@ -61,6 +152,9 @@ func (service *Service) ListSessions() []model.SessionInfo {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	rows := append([]model.SessionInfo(nil), service.Core.Snapshot.Sessions...)
+	// 与会话树同一份补行判据（不是 UI 专属）：运行中但尚未落盘的会话在冷读面
+	// 同样必须在列（否则 headless 宿主看到的目录比 GUI 少行）。草稿占位槽仍然不补。
+	rows = service.withLiveSessionRowsLocked(rows)
 	return service.enrichDirectoryRowsLocked(rows)
 }
 

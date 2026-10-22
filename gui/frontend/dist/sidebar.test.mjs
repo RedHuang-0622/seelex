@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { TITLE_TAILS_KEY, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
@@ -39,6 +40,23 @@ test("title tails persist as name -> tail number key-value pair", () => {
   // 损坏存档回退空。
   const broken = fakeStorage({ [TITLE_TAILS_KEY]: "not-json" });
   assert.deepEqual(readTitleTails(broken), {});
+});
+
+// 会话树的当前行补行规则（2026-07 用户报告：新建的「工作区会话」一开始落进
+// 「未关联会话」）。草稿行由后端草稿槽下发并带工作区绑定，渲染层不得再自己补
+// 一行——那行没有分组归属（只能进「未关联会话」），也没有标题。
+test("渲染层不给草稿补当前会话行（草稿行只由后端草稿槽下发）", async () => {
+  const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  const lines = app.split("\n");
+  const hits = lines.flatMap((line, index) =>
+    line.includes("items.unshift({ id: currentID") ? [index] : []
+  );
+  assert.equal(hits.length, 1, "「当前会话补行」应当只有一处（renderSessions）");
+  assert.match(
+    lines[hits[0] - 1],
+    /if \(currentID && !current\.draft/,
+    "补行必须排除草稿：current.draft 时草稿行只认后端草稿槽那一行",
+  );
 });
 
 // 置顶/别名不再是本模块职责：它们作为会话展示元数据由后端持久化，侧栏只读快照

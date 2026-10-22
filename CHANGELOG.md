@@ -13,7 +13,21 @@ and will take its own version when it lands.
 
 ## [Unreleased]
 
-（暂无条目——v0.1.2 发布后从这里开始累积。）
+### Fixed
+
+- **会话树：新建的「工作区会话」不再先落进「未关联会话」，首轮在跑的会话不再从列表里消失**
+  （2026-07 用户报告：发起对话时会话不在工作区里而在「未关联对话」里；发出第一条消息后
+  会话条目消失，直到这一轮跑完才重新出现；连带看不到定时任务的会话条目）。两处目录投影
+  各自缺一格事实：其一，草稿的工作区绑定是**视图级**事实（`workspace.bindInfo` 的草稿
+  分支刻意不写存储绑定，要等首次提交物化），但 `Snapshot` 只补了草稿行、没把绑定补进
+  `session_workspaces`，左侧栏按绑定分组就只能把它归进「未关联会话」——现在由
+  `projectDraftWorkspaceLocked` 补上（没有工作区的「任务会话」草稿仍然为空，旧口径不放宽；
+  渲染层也不再自己给草稿补行）。其二，会话目录只枚举**已落盘**会话，而会话只在回合收尾
+  落盘：首轮整段在跑的时间、以及定时任务新建的后台会话，在目录里根本没有行——现在
+  `withLiveSessionRowsLocked` 把内存里 running / queued / awaiting_approval 的会话补成目录行
+  （标题取会话自己的标题，不借当前视图会话名），`StartScheduledSession` 在创建后立刻重采
+  工作区投影并发布一次 `snapshot.changed`（旧路径的目录刷新对未落盘会话是空转）。
+  回归：`application/core/session_directory_visibility_test.go`。
 
 ## [v0.1.2] - 2026-10-21
 

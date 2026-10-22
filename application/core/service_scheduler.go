@@ -308,8 +308,18 @@ func (service *Service) StartScheduledSession(ctx context.Context, task assemble
 		return "", err
 	}
 	// 叫醒一次目录刷新（与草稿物化同序）：新会话仍在内存里，要等它的回合落盘
-	// 才会被目录枚举看见；这里先把刷新排上，避免用户等到下一次目录轮询才看到
-	// "多了一个会跑的会话"。驻留 LRU 同步记账（引擎 bundle 已建）。
+	// 才会被目录枚举看见；内存行由 Snapshot 的（withLiveSessionRowsLocked）补，
+	// 这里再把"新会话的会话级绑定"落进工作区投影——`openSessionEngine` 已经把
+	// 绑定写进存储，但投影还停在上一次采集，不重采这一轮的分组就会把这条后台
+	// 会话先摆进「未关联会话」。
+	workspaceProjection := service.components.workspace.Projection()
+	service.ViewMu.Lock()
+	service.applyWorkspaceProjectionLocked(workspaceProjection)
+	revision := service.bumpLocked()
+	service.ViewMu.Unlock()
+	// 立刻发布一次：定时触发发生在用户视野之外，前端只有收到这版快照才知道
+	// "多了一个会跑的会话"（等到下一个快照很可能就是这一轮跑完之后了）。
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
 	service.touchResident(newID)
 	service.components.sessions.RequestCatalogRefresh()
 	// 装配必须在提交之前：档位槽要在回合起点被 syncFullAccessFor 读到，插件装配

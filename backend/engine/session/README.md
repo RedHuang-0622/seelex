@@ -206,6 +206,7 @@ go test ./backend/engine/session -count=1
 - `func (c *Coordinator) backfillCatalogTitles(grid map[string][]model.SessionInfo)` — backfillCatalogTitles 由目录枚举行回填标题表（调用方不持 catalogMu）：存储层
 - `func (c *Coordinator) UnloadSessionTitle(sessionID string)` — UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
 - `func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle` — catalogTitleOf 返回标题表原始值（不回退活跃会话名；存档 record 用——
+- `func (c *Coordinator) CatalogSessionTitle(sessionID string) model.SessionTitle` — CatalogSessionTitle 是 catalogTitleOf 的只读出口（目录行补"活会话"用：
 - `func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string)` — CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
 - `func mergedCatalogLocked(grid map[string][]model.SessionInfo) []model.SessionInfo` — mergedCatalogLocked 从分格网格组合联合目录视图（调用方持 catalogMu）：
 - `func catalogProjectOrder(grid map[string][]model.SessionInfo) []string` — catalogProjectOrder 返回网格的全部项目键（稳定顺序，避免测试/镜像抖动）。

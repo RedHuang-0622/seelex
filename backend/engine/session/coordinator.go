@@ -213,6 +213,12 @@ func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle {
 	return c.catalogTitles[sessionID]
 }
 
+// CatalogSessionTitle 是 catalogTitleOf 的只读出口（目录行补"活会话"用：
+// 后台会话的标题只能来自它自己那一格，绝不回退当前视图会话名）。
+func (c *Coordinator) CatalogSessionTitle(sessionID string) model.SessionTitle {
+	return c.catalogTitleOf(sessionID)
+}
+
 // CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
 // 观察/测试用，渲染数据仍以 Snapshot 镜像为准）。返回值为逐项目网格组合
 // 后的联合视图：跨项目同 ID 重复条目（迁移/旧布局）取最近更新。
