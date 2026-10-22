@@ -727,8 +727,14 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   max-width: min(680px, 92%);
   margin-left: auto;
   padding: 11px 14px;
+  /* 用户消息气泡（用户口径 2026-07，定稿）：不画边框、不铺实色，只留一层**极淡的
+     半透明底**——深色皮肤下比背景亮一档（玻璃感），浅色皮肤下比背景白一档。
+     纯透明试过两版都不成立：去掉填充又去掉轮廓，气泡在视觉上不存在（"你把气泡
+     删了"）；补 1px 边框则被读成"还是个框"。半透明底是唯一同时满足"无边框、
+     无实色、气泡仍在"的做法。不写死 rgba：底色跟随皮肤 token（color-mix 与
+     .axis-segment 等既有用法同一支语言）。 */
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
   border-radius: var(--r-xl);
-  background: var(--surface);
 }
 .message.user .message-head { justify-content: flex-end; }
 .message.system .message-body, .message.stage .message-body { color: var(--muted); font-size: var(--text-sm); }

@@ -29,6 +29,14 @@ and will take its own version when it lands.
   工作区投影并发布一次 `snapshot.changed`（旧路径的目录刷新对未落盘会话是空转）。
   回归：`application/core/session_directory_visibility_test.go`。
 
+### Changed
+
+- **用户消息气泡：无边框、极淡半透明底**（2026-07 用户口径定稿）：`.message.user
+  .message-body` 不画 `border`（用户要求"两侧不要那两条竖线"）、不铺实色，改用
+  `color-mix(in srgb, var(--surface) 45%, transparent)`；深色皮肤下比背景亮一档、
+  浅色下比背景白一档，圆角 / 右对齐 / 内边距不变。闸：
+  `gui/frontend/dist/user-message-bubble.test.mjs`（无 border + 非实色 + 透明度 ≤50%）。
+
 ## [v0.1.2] - 2026-10-21
 
 本版把两个此前**从未发布**的批次并成一版：先记 2026-10-15 / 10-21 的缺陷审计与
