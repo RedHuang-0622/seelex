@@ -59,6 +59,39 @@ flowchart TB
 `backend/limit/approval` 的 broker（本包只注入超时并消费）。判据改在 policy 改，
 执行顺序改在本包改——两件事不要混。
 
+## 传输选择（执行面 = local / ssh）
+
+`transport.go` + `transport_selector.go` + `ssh_transport.go`：把"这条命令在哪台
+机器上跑"从各个 handler 的入参里提出来，做成**一个接口 + 一个 ctx 读面 + 一个中间件**。
+
+```mermaid
+flowchart LR
+    CALL["一次工具调度"] --> EVENT["event"]
+    EVENT --> PG["pathGate"]
+    PG --> PERM["permission"]
+    PERM --> SEL["**TransportSelector**<br/>探针结论 → local / ssh"]
+    SEL --> DIAG["diagnostic"]
+    DIAG --> H["handler"]
+    SEL -.写入 ctx.TransportSelection.-> H
+    H -.TransportFromContext.-> EXEC["ssh：*sshTransport（backend/tool/ssh）<br/>local：Transport=nil（既有本地路径）"]
+```
+
+- **插入点**：permission **之后**、diagnostic 之前（`NewRegistryState` 的装配序）。
+  被拒的调用因此不会先去握一次手；诊断看到的是已经选完的那次调用。
+- **选择规则**（`resolveTransportSelection`，顺序即优先级）：项目已配连接 + 探针通
+  → ssh；未配 / 未探 / 探针挂 / 建连失败 **且调用方没有显式指名** → 降级 local 并
+  留痕；**显式指名而不可用 → 报错，不降级**（本地跑一条 `rm` 与远端跑一条 `rm` 是
+  两件事）；显式指名 local → 尊重调用方。
+- **错误码固定五个**：`SSH_UNREACHABLE` / `SSH_AUTH_FAILED` / `SSH_HOST_UNTRUSTED` /
+  `SSH_TIMEOUT` / `SSH_ENV_DISABLED`；映射表只有一张
+  （`transportCodeForProbeClass`，输入是 `backend/tool/ssh` 的 `Class*`）。权限拒绝
+  unwrap 到 `ErrPermissionDenied` 且不带任何码，见 `IsTransportErrorCode` 的用例。
+- **留痕**：`TransportTrace{Degraded, Reason, ProbeClass, ...}`（不含命令、不含凭据）。
+  降级必带 reason——否则"为什么这次在本机跑"无从追查。
+- **消费者闸门**：`TransportSelectorDeps.Consumers` 空 ⇒ 中间件返回 nil（链上逐字
+  等于旧行为）。把 ssh 写进 ctx 而 handler 不读，就是"说走远端其实跑了本地"，比不选
+  更危险；因此消费者名单与真实消费点必须同一个提交里改。
+
 ## 核心实现
 
 - `Router`：Deps 闭包注入 Runtime 能力（filesystem/projectScope/docker
