@@ -26,7 +26,15 @@ type Info struct {
 	CreatedAt time.Time `json:"created_at"`
 	// SSH 是项目级 SSH 端点（**非秘密**部分：主机/端口/用户）。口令不进这里，
 	// 见 connection.go 的密文库。
+	//
+	// 它是**单环境兜底**：项目配了 Environments 之后以环境表为准，这一条只服务于
+	// 老配置与"只有一个环境"的项目。会话不直接读它——会话只认环境名。
 	SSH *SSHEndpoint `json:"ssh,omitempty"`
+	// Environments 是项目侧的**多环境 SSH 表**（dev / test / prod …）：环境名 →
+	// 端点。这是 SSH 连接信息的唯一事实源，会话只持有"限定用哪个环境"的名字。
+	Environments map[string]Environment `json:"environments,omitempty"`
+	// DefaultEnv 是默认环境名（空 = 没有默认；第一个写入的环境自动成为默认）。
+	DefaultEnv string `json:"default_env,omitempty"`
 	// Git 是项目级 git 远端访问配置（**非秘密**部分：账号名/访问方式）。
 	Git *GitAccess `json:"git,omitempty"`
 }
