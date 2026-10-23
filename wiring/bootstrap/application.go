@@ -61,7 +61,7 @@ func InitApplication(
 		}
 		return ids
 	})
-	return wiring.New(application.Dependencies{
+	service, err := wiring.New(application.Dependencies{
 		Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
 		Plugins: adapters.PluginPort{Manager: plugins}, Skills: adapters.SkillPort{Registry: skills},
 		Sessions: sessionPort, Workspace: adapters.WorkspacePort{Repo: workspaces},
@@ -85,4 +85,25 @@ func InitApplication(
 		// 缓存，因此前缀逐轮稳定。
 		EnvironmentSection: toolreg.ResolveShellFact().PromptSection(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	// 权限向量接管：把 (会话, 角色) → 生效权限向量的读面接进执行门。
+	//
+	// 这是"判定的输入只有一条"的接线口：读面自己实现"登记优先、缺失按四级链路
+	// 解析"（application/core 的 RolePermissionVector），执行门只消费结论并按
+	// policy 的格位表判定。decided=false（没登记、也没有任何一层表态）留给执行门
+	// 按 ctx 身份派生——绝不在执行门里再造一份解析。
+	if runtime != nil {
+		runtime.SetRolePermissionVectorResolver(func(sessionID, role string) ([]string, bool, error) {
+			vector, err := service.RolePermissionVector(sessionID, role)
+			if err != nil {
+				return nil, false, err
+			}
+			// 空向量 = "没有来源定过"（显式"全不给"由 `!tag` 向量表达，不是空集），
+			// 因此这里把它报成 decided=false，让执行门落回 ctx 身份派生。
+			return vector, len(vector) > 0, nil
+		})
+	}
+	return service, nil
 }

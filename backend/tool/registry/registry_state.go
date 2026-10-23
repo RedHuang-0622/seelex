@@ -215,16 +215,17 @@ type PermissionGate struct {
 	// **进程级默认**（CLI -permission / 未做会话级选择的回退面）；未选择的会话回退
 	// 进程默认，不继承别的会话的档位。
 	//
-	// 档位取代了旧的二元 full_access 布尔：`full` 档 = 旧的"全权"（执行门短路），
-	// `manual/edit/auto` 是对 root 规则表的声明式覆盖（见 permission_tiers.go）。
-	// middleware **先读它**、再读 checker：用户点击切档后，即使 checker 实例被替换
-	// （Set 重建）或 checker 尚未装配，也不会出现「权限检查还走旧档 / 落在 nil
-	// checker 上」的窗口。
+	// 档位是**一份权限向量预设**（见 policy.TierVector）：执行面把它展开成"组 → 位"
+	// 后自己判（详见 Enforce）。因此这里只剩一个字符串选择，不再有"按档位预构建的
+	// 规则表"——一份判据、一份表。
 	sessionTier map[string]string
-	// tierCheckers 是按档位预构建的 checker（id → checker）：Set 时一次构建，
-	// 运行时按"会话档位 + 主体类"命中，O(1)，不引入每调用的规则重算。
-	// manual 档指向 base checker（不覆盖），其余档是 ApplyTier(base, id) 的 checker。
-	tierCheckers map[string]*toolspermission.PermissionChecker
+	// RolePermissionVector 是 (会话, 角色) → **生效权限向量**的读面，由组合根注入
+	// （实现方是 application/core 的 RolePermissionVector：登记优先、缺失按四级链路
+	// 解析）。nil = 没接上读面，员工侧按 ctx 身份自带的格子/档位派生（不落共享表）。
+	//
+	// 它取代了旧的"运行时把派生授权写回 cfg.Subjects 并重建 checker"那条路：
+	// 判定所需的格位在一次调用的局部量里算出来，共享表只读。
+	RolePermissionVector rolePermissionVectorResolver
 	// groupNames 是**当前配置**里存在的路由组名集合（rebuildLocked 时重建）。
 	// 用途见 sanitizeMeta：工具声明的簇若不在本次配置里，声明必须作废——否则
 	// checker 的 DecideForMeta 查不到组、所需位退化成 0，判定结果是**放行**。
@@ -233,52 +234,36 @@ type PermissionGate struct {
 	// 注入 seelebridge 会话路由键；nil = 权限审批保持进程级空归属回退）。
 	SessionFromContext func(ctx context.Context) string
 	// employeePermissions 是装配期分配过的员工权限（主键 = 员工主体 emp_<角色>）。
-	// 保存它是为了 Set 换配置时能重新施加：装配是运行时行为，而配置可能在装配之后
-	// 才被 Set（CLI/GUI 切权限档），丢掉就等于"分配过的员工权限被一次配置刷新吃掉"。
+	//
+	// 它是**显式分配的唯一存储**，只读地参与判定：Enforce 先查这里（显式分配优先），
+	// 查不到才按 ctx 身份（显式格子 → 档位）派生。**绝不写回 cfg.Subjects**——
+	// 共享表写回 + 重建 checker 是旧的第二条判据（见 permission_policy.go 的
+	// employeeVector 注释）。
 	employeePermissions map[toolspermission.Subject]EmployeePermission
 }
 
-// Set 装配权限配置与审批处理器。checker 只承载 manual 规则：全权由
-// sessionFullAccess 在 middleware 最前面短路，因此 Set 重建 checker 不会
-// 把任何会话的全权吃掉（历史缺陷：全权只记一个进程级布尔，Set 后被退回
-// manual）。
+// Set 装配权限配置与审批处理器。checker 只承载 base 规则：档位不再复制规则表
+// （向量预设见 policy.TierVector），因此 Set 只是"换表 + 重建 checker"，不再
+// 需要把装配期的员工分配重放进共享表（那条重放路径已收掉：显式分配存在
+// employeePermissions 里，判定时只读）。
 func (state *PermissionGate) Set(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler) {
 	state.mu.Lock()
-	// 装配期分配过的员工权限重新施加到新配置上（分配是运行时事实，不该被一次
-	// 配置刷新吃掉）。
-	for subject, permission := range state.employeePermissions {
-		if cfg.Subjects == nil {
-			cfg.Subjects = make(map[toolspermission.Subject]toolspermission.SubjectGrant)
-		}
-		if grant, err := permission.Grant(); err == nil {
-			cfg.Subjects[subject] = grant
-		}
-	}
 	state.handler = handler
 	state.cfg = cfg
 	state.rebuildLocked()
 	state.mu.Unlock()
 }
 
-// rebuildLocked 重建 base checker 与**按档位预构建**的 tierCheckers（调用方持锁）。
+// rebuildLocked 重建 base checker 与组名集合（调用方持锁）。
 //
-// 这是 checker 装配的唯一落点：任何改动 cfg（Set / SetEmployeePermissions /
-// ensureEmployeeSubject）都必须走它，否则"档位表"会与"base 表"脱节——例如员工
-// 主体在运行时补了一条默认授权，却只重建了 base checker，root 在各档位下仍读旧表。
+// 这是 checker 装配的**唯一**落点：cfg 一变就整体重建。旧的按档位预构建
+// （tierCheckers）已随"档位 = 向量预设"退场——档位不再是一张规则表，而是
+// 执行面判定的一个输入（PermissionTierFor → policy.TierVector）。
 func (state *PermissionGate) rebuildLocked() {
 	state.checker = toolspermission.NewPermissionChecker(state.cfg)
 	state.groupNames = make(map[string]bool, len(state.cfg.Groups))
 	for _, group := range state.cfg.Groups {
 		state.groupNames[group.Name] = true
-	}
-	state.tierCheckers = make(map[string]*toolspermission.PermissionChecker, len(dto.PermissionTiers()))
-	for _, info := range dto.PermissionTiers() {
-		if info.ID == dto.PermissionTierManual {
-			// manual 不覆盖任何规则 → 复用 base checker（同一个实例，语义等价且省一份表）。
-			state.tierCheckers[info.ID] = state.checker
-			continue
-		}
-		state.tierCheckers[info.ID] = toolspermission.NewPermissionChecker(policy.ApplyTier(state.cfg, info.ID))
 	}
 }
 
@@ -313,18 +298,15 @@ func (state *PermissionGate) SetEmployeePermissions(permissions []EmployeePermis
 	if state.employeePermissions == nil {
 		state.employeePermissions = make(map[toolspermission.Subject]EmployeePermission, len(prepared))
 	}
-	if state.cfg.Subjects == nil {
-		state.cfg.Subjects = make(map[toolspermission.Subject]toolspermission.SubjectGrant)
-	}
 	for subject, permission := range prepared {
-		grant, err := permission.Grant()
-		if err != nil {
+		if _, err := permission.Grant(); err != nil {
 			return err
 		}
+		// 只记分配事实（显式分配的唯一存储）。**不写 cfg.Subjects、不 rebuild**：
+		// 判定所需的格位在 Enforce 里按这条记录现算（见 permission_policy.go 的
+		// employeeVector），共享主体表因此只剩配置那一份来源。
 		state.employeePermissions[subject] = permission
-		state.cfg.Subjects[subject] = grant
 	}
-	state.rebuildLocked()
 	return nil
 }
 
@@ -340,6 +322,20 @@ func (state *PermissionGate) EmployeePermissions() []EmployeePermission {
 		permissions = append(permissions, permission)
 	}
 	return permissions
+}
+
+// SetRolePermissionVectorResolver 注入 (会话, 角色) → **生效权限向量**的读面
+// （application/core 的 RolePermissionVector：登记优先、缺失按四级链路解析）。
+//
+// 注入后，员工角色会话里的工具调用按这个向量判定（见 Enforce 的四条判据）；
+// 传 nil 关闭读面，员工侧只按 ctx 身份自带的格子/档位派生。
+func (state *PermissionGate) SetRolePermissionVectorResolver(resolver func(sessionID, role string) ([]string, bool, error)) {
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	state.RolePermissionVector = resolver
+	state.mu.Unlock()
 }
 
 // SetRoleSessionPolicyResolver 注入"角色会话 → 员工权限口径（ToolsPolicy）"解析器。
@@ -451,17 +447,12 @@ func (state *PermissionGate) effectiveTierLocked(sessionID string) string {
 	return dto.PermissionTierManual
 }
 
-// checkerForLocked 按"主体类 + 会话档位"选 checker（调用方持锁）：
-//   - 非 root（sub / emp_*）一律用 base checker —— 档位只覆盖 root 的问/放，绝不
-//     改变员工/子代理的"位"（否则 auto/edit 会把员工越权静默放行，违反产品决定）；
-//   - root 用会话档位对应的 checker（manual 即 base）。
-func (state *PermissionGate) checkerForLocked(sessionID string, class policy.SubjectClass) *toolspermission.PermissionChecker {
-	if class != policy.SubjectClassRoot {
-		return state.checker
-	}
-	if checker, ok := state.tierCheckers[state.effectiveTierLocked(sessionID)]; ok {
-		return checker
-	}
+// checkerForLocked 选 checker（调用方持锁）：**一律 base 表**。
+//
+// 档位不再复制规则表（旧实现的 tierCheckers 已删除）：档位是向量预设，由
+// Enforce 用 policy.TierCells 展开后判定；规则层只剩一份（deny/ask 的最细粒度
+// 覆盖），因此这里没有"按档位选表"这回事了。
+func (state *PermissionGate) checkerForLocked(_ string, _ policy.SubjectClass) *toolspermission.PermissionChecker {
 	return state.checker
 }
 
@@ -564,22 +555,94 @@ func (state *PermissionGate) gate(approvalTimeout time.Duration, class policy.Su
 	}
 }
 
-// Enforce 实现框架 permission.BitEnforcer：在**位/组/规则之前**做两件事。
+// Enforce 实现框架 permission.BitEnforcer：在**位/组/规则之前**用权限向量接管判定。
 //
-//  1. 会话级 full 档短路放行（全权的语义就是"本次会话不做位与规则判定"）。
-//     **只对 root（主 agent）主体生效**：员工（emp_*）与子代理（sub）不享全权——
-//     员工的越权照旧走执行选择页面提权、子代理的断位照旧不可路由。这条收紧正是
-//     "主会话全权只管网主会话"的落点（旧实现是 `class != sub`，会让 full 档连带
-//     放行员工越权）。
-//  2. 主体类策略：子代理（位齐放行、位缺/未分封直接拒绝、无人类可问）与员工
-//     （位齐交回框架、位缺走执行选择页面提权）见 permission_policy.go。
+// 判据（唯一一条，三态，见 policy.PermissionVectorCells）：
 //
-// 其余（root、非 full 档）返回 ok=false，完全落回框架判定（checker 已按档位选表）。
+//  1. 显式 deny 规则永远硬（危险命令）→ 直接拒绝，任何主体、任何档位都不例外；
+//  2. 显式 `!tag`（用户/装配方说了不给这一族）→ 直接拒绝，不给提权机会；
+//  3. 断位（向量里没有这一族）→ 按主体类落成：子代理交回框架（不可路由/拒绝）、
+//     员工与 root 走执行选择页面提权（人类 sudo 口令）；
+//  4. 已授权 → 员工/子代理直接放行（赋权即免审批）；root 在其档位**不是 full** 时
+//     仍让规则层的 ask 求值（write_file / 命令黑名单这类"最细粒度覆盖"照旧生效），
+//     full 档只受第 1 条约束。
+//
+// 向量从哪来（permission_policy.go 的 callVector）：root = 会话档位的预设
+// （policy.TierVector）；员工 = (会话, 角色) 的生效向量（登记优先、缺失走四级链路；
+// 读面没接上时按 ctx 身份自带的格子/档位派生）。两者都是**这一层唯一的方向**：
+// 显式分配与运行时派生都不写共享主体表（旧的第二条判据已收掉）。
 func (state *PermissionGate) Enforce(ctx context.Context, subject toolspermission.Subject, meta frameworktools.ToolMeta, name, argsJSON string) (toolspermission.Action, bool) {
-	if class := state.classFor(ctx); class == policy.SubjectClassRoot && state.FullAccessFor(state.sessionFromContext(ctx)) {
+	class := state.classFor(ctx)
+	cfg := state.configSnapshot()
+	if class == policy.SubjectClassRoot && state.FullAccessFor(state.sessionFromContext(ctx)) {
+		// full 档：**免审批**（不再问规则层），但危险命令的 deny 仍然硬拦——这是本轮
+		// 相对旧实现（full = BypassAll，连 deny 一起绕过）的收紧。
+		if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
+			return toolspermission.ActionDeny, true
+		}
 		return toolspermission.ActionAllow, true
 	}
-	return state.enforceClass(ctx, subject, name, meta, argsJSON)
+	if !state.policyReady(cfg) {
+		return "", false
+	}
+	if class == policy.SubjectClassSub {
+		// 子代理没有"角色登记"这一维，授权面仍由配置的主体表 + 位判定表达：
+		// 显式 deny 硬拦、位齐即授权（没有人类可问）、断位交回框架落成不可路由。
+		if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
+			return toolspermission.ActionDeny, true
+		}
+		if _, routed := policy.RoutePermissionGroup(cfg.Groups, name); !routed {
+			return "", false
+		}
+		if !state.visibleFor(subject, name, meta) {
+			return "", false
+		}
+		return toolspermission.ActionAllow, true
+	}
+	cells, tier, ok := state.callVector(ctx)
+	if !ok {
+		return "", false
+	}
+	// 1) 显式 deny 规则（危险命令）：最硬的一条，先判。
+	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
+		return toolspermission.ActionDeny, true
+	}
+	group, routed := policy.RoutePermissionGroup(cfg.Groups, name)
+	// 2) 显式 `!tag`：调用方明确说了"这一族不给" → **不给规则层兜底的机会**，
+	//    直接走人类口令（root / 员工）；子代理没有人类可问 → 拒绝。
+	//    注意它与"危险命令硬拒"不是一回事：后者仍由第 1 条的 deny 规则承担。
+	if routed && cells.ExplicitlyDenied(group.Name) {
+		if class == policy.SubjectClassSub {
+			return toolspermission.ActionDeny, true
+		}
+		return toolspermission.ActionAsk, true
+	}
+	// 3) 断位：向量里没有这一族（或这个工具在本次配置里没有分封）。
+	if !routed || !cells.Covers(group.Name, group.Mode) {
+		switch class {
+		case policy.SubjectClassSub:
+			// 子代理没有人类在环：交回框架，由它落成"不可路由/拒绝"。
+			return "", false
+		case policy.SubjectClassRoot:
+			// root 的向量外调用交回框架：规则层（ask/allow/deny 的最细粒度覆盖）照旧
+			// 说话。向量在这条路上只做**放宽**（授予的组免审），从不收窄主代理今天
+			// 走规则层能得到的东西——否则"默认档下一次 git status 也要点一次审批"。
+			return "", false
+		default:
+			return toolspermission.ActionAsk, true
+		}
+	}
+	// 4) 已授权。
+	if class == policy.SubjectClassSub {
+		// 子代理沿用既有口径：位齐即授权（没有人类可问，规则 ask 不落页面）。
+		return toolspermission.ActionAllow, true
+	}
+	// root：向量授予即免审批（档位的语义就是"这一族不再打断我"）。规则层只剩两种
+	// 声音——第 1 条的 deny（危险命令，硬拦）与**向量外**调用的 ask（第 3 条回落
+	// 框架），因此这里不再求值规则 ask：那是旧"按档位剪规则"的实现细节，剪法一变
+	// 判据就分叉。
+	_ = tier
+	return toolspermission.ActionAllow, true
 }
 
 func (state *PermissionGate) sessionFromContext(ctx context.Context) string {

@@ -1,83 +1,91 @@
 package policy
 
-// tiers.go —— 主会话权限档位（tier）在 seelex 侧的**覆盖实现**。
+// tiers.go —— 主会话权限档位（tier）在 seelex 侧的**向量预设**。
 //
-// 2026-10-16 从 seelebridge/tools/permission_tiers.go 归位（M2-C4，行为零变化）。
+// 2026-10-16 从 seelebridge/tools/permission_tiers.go 归位（M2-C4）；
+// 2026-10-21 起档位不再是"删规则的表覆盖"，而是**一份权限向量**（预设）：
 //
-// 档位是"对 root 的声明式覆盖"，不是新的判定机制：它只把**要问人的 ask 规则**
-// 按档位逐族剪掉，从不新增 allow、从不触碰 deny（`DefaultPermissionRules` 的顺序
-// 即语义——危险 deny 放最后，永不被剪）。
+// 旧实现（已删除）：每个档位复制一份 PermissionConfig、按工具名剪掉若干 ask 规则、
+// 逼出一个按档位预构建的 checker。它有两个结构性问题：
+//   - 同一件事有两处判据：规则表（base）与剪过的规则表（tier）要永远保持"只差那几条"，
+//     任何一侧新增 ask 规则都会让两边悄悄分叉；
+//   - 档位与"位"脱钩：剪规则只改"问不问"，不改"有没有"，于是新能力面（组）进来时
+//     档位不会被自动纳入审查。
 //
-// 单一事实的分工（与"组名的唯一事实在 dto、组的分封在 dto"同构）：
-//   - 档位目录（id/标签/说明）在 contract/dto（前端按它渲染列表）；
-//   - 覆盖实现（剪哪条规则）在本文件（它拥有 `DefaultPermissionRules` 的语义）。
+// 新实现（本文件）：档位就是**向量**——一组能力标签（= 路由组名，词表在
+// contract/dto）。判定面把向量展开成"组 → 位"（见 vector.go 的 CellsForVector）：
 //
-// 档位 → 覆盖（升序 = 自动度递增）：
+//	向量里有的组   → 该组位给足 → 该族工具免审批（赋权即免审批）
+//	向量里没有的组 → 断位 → 执行面按主体类落成"提权 / 不可路由"
+//	`!tag`         → 显式 deny → 直接拒绝（不给提权机会）
 //
-//	manual  无（完全按权责表）
-//	edit    剪 write_file / edit_file 的 ask（项目文件写不再打断）
-//	auto    再剪 bash 的全部 ask（任意命令直跑；危险 deny 仍在）
-//	full    BypassAll（执行门短路放行，见 backend/tool/registry/registry_state.go 的 Enforce）
+// 因此档位之间只差"给了哪几族能力"，不再有第二份规则表。危险命令（bash 的 deny
+// 规则）与规则层的 ask 判定**不受档位影响**：deny 在任何档位下都硬拦（含 full，
+// 这是旧实现 full=BypassAll 的一处收紧）。
 //
-// 刻意**不放进中档**的两族：rw_desktop（一块共享外设）与 adm（改变能力面本身），
-// 只有 full 档才放开——逐次确认共享外设与"先扩权再干活"是安全底线。
+// 分级（升序 = 自动度递增；id 是持久化键，不可改，语义由下面的预设表定义）：
+//
+//	manual  读 + 本会话工作台 + 控制流            项目写与命令仍提权
+//	edit    再加项目写（rw）                      命令与项目写免审批
+//	auto    同 edit（保留独立 id 以便持久化兼容）   —— 见下方 D-tier 说明
+//	full    全部六组                              含共享桌面与能力面；仅危险命令硬拦
+//
+// D-tier（待产品裁决，明写在这里免得当下一个人是 bug）：旧实现里 edit 与 auto 的
+// 差别是"剪不剪 bash 的 ask 规则"，而 bash 与 write_file 同属 rw 组 ⇒ 在**组级**
+// 向量下这两档给出同一族能力（rw），无法再分开。恢复区分需要新增独立的命令组
+// （例如 exec）或工具级词表——那是词表变更，不在本次改动内。
 
 import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
+// TierPreset 是一个档位的向量预设：授予的路由组（缺组 = 断位）。
+type TierPreset struct {
+	// Groups 是授予的路由组名（= 权限向量标签，唯一词表在 dto）。
+	Groups []string
+}
+
 // DefaultPermissionTiers 返回档位目录（跨层词表的唯一事实在 dto）。
 func DefaultPermissionTiers() []dto.PermissionTierInfo {
 	return dto.PermissionTiers()
 }
 
-// ApplyTier 把档位声明式覆盖到 base 权责配置上，返回应用后的配置。
+// tierPresets 是档位 → 向量的**唯一**预设表。
 //
-// 覆盖只做一件事：**删除**该档位要放开的 `ask` 规则（按工具名逐条剪）。因此
-//   - group 默认动作不变（rw 组默认 allow、rw_desktop/adm 默认 ask）；
-//   - 未列进覆盖表的 ask（如 plugin_create / skill_create）仍问人；
-//   - deny（危险命令）逐条保留，任何档位都硬拦。
+// 用有序切片而不是 map：档位目录的展示顺序由 dto 定，这里的顺序只影响"更宽的档
+// 在更后面"这一可读性，不参与判定。
+var tierPresets = map[string]TierPreset{
+	dto.PermissionTierManual: {Groups: []string{GroupRO, GroupRWSession, GroupCTL}},
+	dto.PermissionTierEdit:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW}},
+	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW}},
+	dto.PermissionTierFull: {
+		Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM},
+	},
+}
+
+// TierVector 返回档位的权限向量预设（= 该档授予的组）。
 //
-// manual 与 full 返回原配置：manual 不覆盖任何东西；full 由执行门短路，规则面
-// 保持 base（万一短路未生效，规则仍是安全兜底）。未识别的档位按 manual 处理
-// （写入侧 NormalizePermissionTier 已挡，这里只是防御）。
-func ApplyTier(base toolspermission.PermissionConfig, tier string) toolspermission.PermissionConfig {
+// 未识别 / 空档位按 manual 处理（写入侧 NormalizePermissionTier 已挡，这里只是
+// 防御）：拿不到"用户选过的档"时回落到最窄的一档，绝不放宽。
+//
+// 返回新切片：调用方（执行面）可以随自己的需要拼接/加 `!tag`，不会改到预设本身。
+func TierVector(tier string) []string {
 	normalized, err := dto.NormalizePermissionTier(tier)
 	if err != nil {
 		normalized = dto.PermissionTierManual
 	}
-	stopAsking := tierStopAskingTools(normalized)
-	if len(stopAsking) == 0 {
-		return base
+	preset, ok := tierPresets[normalized]
+	if !ok {
+		preset = tierPresets[dto.PermissionTierManual]
 	}
-	overlay := base
-	overlay.Rules = make([]toolspermission.PermissionRule, 0, len(base.Rules))
-	for _, rule := range base.Rules {
-		if rule.Action == toolspermission.ActionAsk && stopAsking[rule.ToolName] {
-			continue
-		}
-		overlay.Rules = append(overlay.Rules, rule)
-	}
-	return overlay
+	return append([]string(nil), preset.Groups...)
 }
 
-// tierStopAskingTools 返回该档位下"不再问人"的工具名集合（空 = 不覆盖）。
+// TierCells 把档位展开成"组 → 位"格位表（执行面直接读它做判定）。
 //
-//   - edit：写盘工具（write_file / edit_file）——项目文件写不再打断；
-//   - auto：写盘工具 + bash（含危险命令白名单之外的"问人"段）——任意命令直跑，
-//     但 bash 的 deny 规则（rm -rf /、dd if=* of=*、mkfs* …）逐条保留。
-//
-// 危险命令的"问人"段（npm install * / make * / docker * / rm * / mv * /
-// chmod * / chown *）也随 bash 一起放开——这正是 auto 与 edit 的分界；真危险
-// （deny 段）不受影响。
-func tierStopAskingTools(tier string) map[string]bool {
-	switch tier {
-	case dto.PermissionTierEdit:
-		return map[string]bool{"write_file": true, "edit_file": true}
-	case dto.PermissionTierAuto:
-		return map[string]bool{"write_file": true, "edit_file": true, "bash": true}
-	default:
-		return nil
-	}
+// groups 是**本次配置**的路由组表：档位预设里提到的组如果在本次配置里不存在，
+// 展开时它自然不出现（与 CellsForVector 同口径，不另判一次）。
+func TierCells(tier string, groups []toolspermission.PermissionGroup) PermissionVectorCells {
+	return CellsForVector(dto.ResolvePermissionVectorDecision(TierVector(tier)), groups)
 }

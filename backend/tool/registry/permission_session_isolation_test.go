@@ -27,7 +27,7 @@ func newFullAccessProbe() (*PermissionGate, frameworktools.ToolHandler, *int) {
 	}}
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	ran := new(int)
 	handler := state.Middleware(time.Minute)("bash", frameworktools.ToolMeta{}, frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
@@ -91,7 +91,7 @@ func TestProbeFullAccessPerSessionSurvivesSet(t *testing.T) {
 	state.SetFullAccessFor("session-a", true)
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 
 	if _, err := handler.Execute(probeCtx("session-a"), "{}"); err != nil {

@@ -128,6 +128,26 @@ func (layers RoleSettingsLayers) PermissionVectors() [][]string {
 //   - 返回切片非 nil（无允许项时是空切片），顺序 = 规范标签序（`PermissionTags`），
 //     不认识的标签排在已知标签之后并按字典序，保证输出稳定可比对。
 func ResolvePermissionVector(layers ...[]string) []string {
+	return ResolvePermissionVectorDecision(layers...).Allowed
+}
+
+// PermissionVectorDecision 是一次权限向量解析的**完整结论**：允许的标签 +
+// 被显式否掉的标签（`!tag` 赢下的那些）。
+//
+// 为什么要单独说出"被否掉"：判定的执行面要区分三态——**允许**、**没提到**
+// （断位：这一族能力不在授权面内，执行面按主体类落成"提权/不可路由"）与
+// **显式 deny**（调用者明确说了不给，执行面直接拒绝，不给提权机会）。
+// 只返回 Allowed 时后两者会被压成一件事，`!rw` 就只能退化成"没提到"。
+type PermissionVectorDecision struct {
+	// Allowed 是最终允许的标签（规范序；非 nil，可能为空切片）。
+	Allowed []string
+	// Denied 是被显式否掉的标签（规范序；非 nil，可能为空切片）。
+	Denied []string
+}
+
+// ResolvePermissionVectorDecision 是四级优先级解析的**唯一实现**
+// （ResolvePermissionVector 是它的 Allowed 投影，不另算一遍）。
+func ResolvePermissionVectorDecision(layers ...[]string) PermissionVectorDecision {
 	decided := make(map[string]bool, 8)
 	order := make([]string, 0, 8)
 	for _, layer := range layers {
@@ -145,13 +165,17 @@ func ResolvePermissionVector(layers ...[]string) []string {
 		}
 	}
 	allowed := make([]string, 0, len(order))
+	denied := make([]string, 0, len(order))
 	for _, tag := range order {
 		if decided[tag] {
 			allowed = append(allowed, tag)
+			continue
 		}
+		denied = append(denied, tag)
 	}
 	sortPermissionTags(allowed)
-	return allowed
+	sortPermissionTags(denied)
+	return PermissionVectorDecision{Allowed: allowed, Denied: denied}
 }
 
 // ResolveRoleSettings 按四级优先级解析整份角色设置（高→低参数序）：

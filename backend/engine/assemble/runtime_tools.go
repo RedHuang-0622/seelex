@@ -50,6 +50,15 @@ func (r *Runtime) SetRoleSessionPolicyResolver(resolver func(sessionID string) (
 	}
 }
 
+// SetRolePermissionVectorResolver 注入 (会话, 角色) → **生效权限向量**的读面：
+// 权限门据此判定员工的授权面（登记优先、缺失按四级链路解析）。decided=false 表示
+// "没定过"（执行面落回 ctx 身份派生）；传 nil 关闭读面。
+func (r *Runtime) SetRolePermissionVectorResolver(resolver func(sessionID, role string) ([]string, bool, error)) {
+	if r.permission != nil {
+		r.permission.SetRolePermissionVectorResolver(resolver)
+	}
+}
+
 // SetRoleSessionOwnerResolver 注入"角色会话（员工/评审者）→ 宿主主会话"的读面：
 // 员工/评审者越权提权的审批按宿主主会话归属，复用**现有审批面板**（视图单格 +
 // 目录 awaiting_approval + 会话快照），而不是弹在一个用户看不见的角色会话号上。

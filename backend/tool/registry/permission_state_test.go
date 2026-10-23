@@ -33,7 +33,7 @@ func TestPermissionGateFullAccessShortCircuitsBeforeChecker(t *testing.T) {
 	// manual + 显式 deny：不开全权时该工具必然被拒。
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 
 	ran := 0
@@ -43,7 +43,7 @@ func TestPermissionGateFullAccessShortCircuitsBeforeChecker(t *testing.T) {
 	}))
 
 	if _, err := handler.Execute(context.Background(), "{}"); err == nil {
-		t.Fatal("manual + deny 规则下 bash 应被拒")
+		t.Fatal("manual + ask 规则下 bash 应被拒")
 	}
 	if ran != 0 {
 		t.Fatalf("被拒的工具不应真正执行，ran=%d", ran)
@@ -61,7 +61,7 @@ func TestPermissionGateFullAccessShortCircuitsBeforeChecker(t *testing.T) {
 	// 全权期间再 Set 一次（例如运行期重装权限配置）不得把全权悄悄退回 manual。
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	if _, err := handler.Execute(context.Background(), "{}"); err != nil {
 		t.Fatalf("Set 之后全权意图必须保持: %v", err)
@@ -90,7 +90,7 @@ func TestPermissionGateFullAccessBeforeSetIsNotLost(t *testing.T) {
 	}
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	if !state.FullAccess() {
 		t.Fatal("装配 checker 后全权意图应保持")

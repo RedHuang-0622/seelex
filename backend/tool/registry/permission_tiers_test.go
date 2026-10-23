@@ -28,64 +28,105 @@ func tierMatrixConfig() toolspermission.PermissionConfig {
 	return policy.DefaultPermissionConfig()
 }
 
-// TestTierDecisionMatrix 逐档位钉住 root 的代表性判定（checker 级）。
+// TestTierDecisionMatrix 逐档位钉住 root 的代表性判定（执行门级）。
+//
+// 判据自 2026-10-21 起是**向量预设**（policy.TierVector → policy.TierCells）：
+//
+//	向量里有的组 → 该族免审批；没有的组 → 断位（执行选择页面提权）；
+//	危险命令的 deny 规则在任何档位下都硬拦（含 full）。
 func TestTierDecisionMatrix(t *testing.T) {
 	cfg := tierMatrixConfig()
-	root := toolspermission.SubjectRoot
+	root := toolspermission.Subject(policy.SubjectForClass(policy.SubjectClassRoot))
 	cases := []struct {
 		tier    string
 		bash    bool
 		target  string
-		want    toolspermission.CheckResult
+		want    toolspermission.Action
 		comment string
 	}{
-		// manual：与 base 完全一致（写文件/命令/能力面都问人，危险命令拒绝）。
-		{dto.PermissionTierManual, false, "write_file", toolspermission.ResultAsk, "manual 写文件问人"},
-		{dto.PermissionTierManual, false, "computer_click", toolspermission.ResultAsk, "manual 桌面问人"},
-		{dto.PermissionTierManual, true, "python x.py", toolspermission.ResultAsk, "manual 命令问人"},
-		{dto.PermissionTierManual, true, "rm -rf /", toolspermission.ResultDeny, "manual 危险命令拒绝"},
+		// manual：只给 ro / rw_session / ctl。项目写、命令、桌面与能力面一律断位。
+		{dto.PermissionTierManual, false, "write_file", toolspermission.ActionAsk, "manual 写文件提权"},
+		{dto.PermissionTierManual, false, "computer_click", toolspermission.ActionAsk, "manual 桌面提权"},
+		{dto.PermissionTierManual, true, "python x.py", toolspermission.ActionAsk, "manual 命令提权"},
+		{dto.PermissionTierManual, false, "read_file", toolspermission.ActionAllow, "manual 只读免审"},
+		{dto.PermissionTierManual, true, "rm -rf /", toolspermission.ActionDeny, "manual 危险命令拒绝"},
 
-		// edit：只放写文件；命令/桌面/能力面仍问人。
-		{dto.PermissionTierEdit, false, "write_file", toolspermission.ResultAllow, "edit 写文件放行"},
-		{dto.PermissionTierEdit, false, "edit_file", toolspermission.ResultAllow, "edit 编辑放行"},
-		{dto.PermissionTierEdit, false, "plugin_create", toolspermission.ResultAsk, "edit 扩能力仍问人"},
-		{dto.PermissionTierEdit, true, "python x.py", toolspermission.ResultAsk, "edit 命令仍问人"},
-		{dto.PermissionTierEdit, false, "computer_click", toolspermission.ResultAsk, "edit 桌面仍问人"},
-		{dto.PermissionTierEdit, true, "rm -rf /", toolspermission.ResultDeny, "edit 危险命令仍拒绝"},
+		// edit：再授予 rw（项目写 + 命令同属 rw 组）。
+		{dto.PermissionTierEdit, false, "write_file", toolspermission.ActionAllow, "edit 写文件免审"},
+		{dto.PermissionTierEdit, false, "edit_file", toolspermission.ActionAllow, "edit 编辑免审"},
+		{dto.PermissionTierEdit, false, "computer_click", toolspermission.ActionAsk, "edit 桌面仍提权"},
+		{dto.PermissionTierEdit, false, "mcp_load", toolspermission.ActionAsk, "edit 能力面仍提权"},
+		{dto.PermissionTierEdit, true, "rm -rf /", toolspermission.ActionDeny, "edit 危险命令仍拒绝"},
 
-		// auto：文件写 + 任意命令直跑；危险命令仍拒绝；桌面/能力面仍问人。
-		{dto.PermissionTierAuto, false, "write_file", toolspermission.ResultAllow, "auto 写文件放行"},
-		{dto.PermissionTierAuto, true, "python x.py", toolspermission.ResultAllow, "auto 任意命令放行"},
-		{dto.PermissionTierAuto, true, "make build", toolspermission.ResultAllow, "auto 危险段命令放行"},
-		{dto.PermissionTierAuto, true, "rm -rf /", toolspermission.ResultDeny, "auto 危险命令仍拒绝"},
-		{dto.PermissionTierAuto, true, "dd if=/dev/zero of=/dev/sda", toolspermission.ResultDeny, "auto dd 仍拒绝"},
-		{dto.PermissionTierAuto, false, "computer_click", toolspermission.ResultAsk, "auto 桌面仍问人"},
-		{dto.PermissionTierAuto, false, "mcp_load", toolspermission.ResultAsk, "auto 能力面仍问人"},
+		// auto：当前与 edit 同一份向量预设（命令与项目写同属 rw 组，见 D-tier 说明）。
+		{dto.PermissionTierAuto, false, "write_file", toolspermission.ActionAllow, "auto 写文件免审"},
+		{dto.PermissionTierAuto, true, "python x.py", toolspermission.ActionAllow, "auto 任意命令免审"},
+		{dto.PermissionTierAuto, true, "rm -rf /", toolspermission.ActionDeny, "auto 危险命令仍拒绝"},
+		{dto.PermissionTierAuto, true, "dd if=/dev/zero of=/dev/sda", toolspermission.ActionDeny, "auto dd 仍拒绝"},
+		{dto.PermissionTierAuto, false, "computer_click", toolspermission.ActionAsk, "auto 桌面仍提权"},
+
+		// full：全部六组，只剩"危险命令"这一道硬拦。
+		{dto.PermissionTierFull, false, "write_file", toolspermission.ActionAllow, "full 写文件免审"},
+		{dto.PermissionTierFull, false, "computer_click", toolspermission.ActionAllow, "full 桌面免审"},
+		{dto.PermissionTierFull, false, "mcp_load", toolspermission.ActionAllow, "full 能力面免审"},
+		{dto.PermissionTierFull, true, "rm -rf /", toolspermission.ActionDeny, "full 危险命令仍拒绝"},
 	}
 	for _, test := range cases {
-		checker := toolspermission.NewPermissionChecker(policy.ApplyTier(cfg, test.tier))
+		state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
+		state.Set(cfg, nil)
+		if err := state.SetPermissionTierFor("matrix-session", test.tier); err != nil {
+			t.Fatalf("[%s] SetPermissionTierFor: %v", test.tier, err)
+		}
 		name, args := test.target, `{}`
 		if test.bash {
 			name, args = "bash", test.target
 		}
-		result, visible := checker.DecideForMeta(root, name, frameworktools.ToolMeta{}, args)
-		if !visible {
-			t.Fatalf("[%s] %s: root 全位不该不可见", test.tier, test.comment)
+		ctx := toolspermission.WithSessionID(context.Background(), "matrix-session")
+		// 判据是**组合**的：向量授予 → 执行门直接给动作；向量外 → 交回框架的规则层
+		// （ok=false 是刻意的回落口，不是漏判），所以这里断言组合后的结论。
+		action, decided := state.Enforce(ctx, root, frameworktools.ToolMeta{}, name, args)
+		if !decided {
+			result, _ := state.decideFor(root, name, frameworktools.ToolMeta{}, args)
+			switch result {
+			case toolspermission.ResultAllow:
+				action = toolspermission.ActionAllow
+			case toolspermission.ResultDeny:
+				action = toolspermission.ActionDeny
+			default:
+				action = toolspermission.ActionAsk
+			}
 		}
-		if result != test.want {
-			t.Fatalf("[%s] %s: 判定 = %v, want %v", test.tier, test.comment, result, test.want)
+		if action != test.want {
+			t.Fatalf("[%s] %s: 判定 = %v, want %v", test.tier, test.comment, action, test.want)
 		}
 	}
 }
 
-// TestApplyTierKeepsManualAndFullUnchanged 钉住覆盖的两条不变量：
-//   - manual 与 full 返回原配置（full 由 Enforce 短路，规则面保持安全兜底）；
-//   - 未识别档位按 manual 处理（防御；写入侧 NormalizePermissionTier 已挡）。
-func TestApplyTierKeepsManualAndFullUnchanged(t *testing.T) {
-	cfg := tierMatrixConfig()
-	for _, tier := range []string{dto.PermissionTierManual, dto.PermissionTierFull, "", "unknown-tier"} {
-		if got := policy.ApplyTier(cfg, tier); len(got.Rules) != len(cfg.Rules) {
-			t.Fatalf("policy.ApplyTier(%q) 改动了规则数量：%d → %d", tier, len(cfg.Rules), len(got.Rules))
+// TestTierVectorPresetsMonotone 钉住预设的两条不变量：
+//   - 档位升序时授予的组**只增不减**（否则"切到更宽的档"会静默收回能力）；
+//   - 共享桌面（rw_desktop）与能力面（adm）只在 full 档的向量里（产品安全底线）；
+//   - 未识别 / 空档位按 manual（最窄）处理。
+func TestTierVectorPresetsMonotone(t *testing.T) {
+	order := []string{dto.PermissionTierManual, dto.PermissionTierEdit, dto.PermissionTierAuto, dto.PermissionTierFull}
+	var previous map[string]bool
+	for _, tier := range order {
+		current := make(map[string]bool, len(order))
+		for _, tag := range policy.TierVector(tier) {
+			current[tag] = true
+			if tier != dto.PermissionTierFull && (tag == policy.GroupRWDesktop || tag == policy.GroupADM) {
+				t.Fatalf("档位 %q 不该授予共享桌面/能力面（只有 full 才在向量里）", tier)
+			}
+		}
+		for tag := range previous {
+			if !current[tag] {
+				t.Fatalf("档位 %q 比它更窄的档少授予了 %q（切档会静默收权）", tier, tag)
+			}
+		}
+		previous = current
+	}
+	for _, tier := range []string{"", "unknown-tier"} {
+		if got := policy.TierVector(tier); len(got) != len(policy.TierVector(dto.PermissionTierManual)) {
+			t.Fatalf("未识别档位 %q 应回落到 manual，得到 %v", tier, got)
 		}
 	}
 }
@@ -240,7 +281,7 @@ func TestTierDoesNotBypassSubagentBoundary(t *testing.T) {
 }
 
 // TestTierSessionIsolation 钉住会话隔离：A 切 full 不替 B 放行；显式 deny 规则
-// 在 B 上仍然生效。
+// 在 B 上仍然生效（full 档免审批，但不免 deny——后者见 TestTierDecisionMatrix）。
 func TestTierSessionIsolation(t *testing.T) {
 	state := &PermissionGate{SessionFromContext: func(ctx context.Context) string {
 		sessionID, _ := ctx.Value(probeSessionKey{}).(string)
@@ -248,7 +289,7 @@ func TestTierSessionIsolation(t *testing.T) {
 	}}
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	handler := state.Middleware(time.Minute)("bash", frameworktools.ToolMeta{},
 		frameworktools.HandlerFunc(func(context.Context, string) (string, error) { return "ok", nil }))
@@ -282,14 +323,14 @@ func TestTierSurvivesConfigReinstall(t *testing.T) {
 	}}
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	if err := state.SetPermissionTierFor("session-a", dto.PermissionTierFull); err != nil {
 		t.Fatal(err)
 	}
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
+		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionAsk}},
 	}, nil)
 	if got := state.PermissionTierFor("session-a"); got != dto.PermissionTierFull {
 		t.Fatalf("Set 之后会话档位 = %q, want full（不得被配置刷新吃掉）", got)

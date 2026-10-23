@@ -87,15 +87,16 @@ func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error
 
 // 主会话权限档位（tier）的 id：**主 agent（root 主体）在本会话的自动度档位**。
 //
-// 档位不是新的权限机制，而是对既有权责表（分组表 + 规则表）的一层**声明式覆盖**：
-// 每个档位只做一件事——把"要问人的 ask 规则"按档位逐族剪掉，从不新增 allow、
-// 从不触碰 deny。升序 = 自动度递增；`full` 由执行门短路（等价旧的 full_access）。
+// 档位不是新的权限机制，而是一份**权限向量预设**（见 backend/limit/policy 的
+// TierVector）：向量里有的路由组 = 该族工具免审批；没有的组 = 断位（执行面按
+// 主体类落成"提权 / 不可路由"）。升序 = 自动度递增；`full` 授予全部组，但
+// **危险命令的 deny 规则在任何档位下都硬拦**（含 full）。
 //
 // 边界（产品决定，不是可选配置）：
-//   - 档位只作用在 root（主 agent）主体上；员工/子代理的判定链一字不改
-//     （"主会话全权只管网主会话，员工越权照旧审批提权"）。
+//   - 档位只作用在 root（主 agent）主体上；员工/子代理的授权面来自它们自己的
+//     权限向量（(会话, 角色) 的登记或四级链路），档位一字不改。
 //   - 档位是**会话粒度**（跟着 SessionUnit 的槽走，切会话即换档位）。
-//   - 共享桌面（rw_desktop）与能力面（adm）只有 full 档才放开（安全底线）。
+//   - 共享桌面（rw_desktop）与能力面（adm）只有 full 档才在向量里（安全底线）。
 const (
 	PermissionTierManual = "manual" // 手动（默认）：完全按权责表问/放
 	PermissionTierEdit   = "edit"   // 自动改文件：write_file/edit_file 不再问人
@@ -117,13 +118,13 @@ type PermissionTierInfo struct {
 func PermissionTiers() []PermissionTierInfo {
 	return []PermissionTierInfo{
 		{ID: PermissionTierManual, Label: "手动", Short: "手动",
-			Description: "写文件、命令、桌面与能力面都按权责表问人（默认）"},
+			Description: "只读、本会话工作台与控制流免审；项目写、命令、桌面与能力面都提权（默认）"},
 		{ID: PermissionTierEdit, Label: "自动改文件", Short: "改文件",
-			Description: "项目文件写不再打断；命令与桌面/能力面仍问人"},
+			Description: "再授予项目写（含命令）：文件写与任意命令免审批；桌面与能力面仍提权"},
 		{ID: PermissionTierAuto, Label: "自动执行", Short: "自动",
-			Description: "文件写与任意命令直跑（危险命令仍硬拦）；桌面/能力面仍问人"},
+			Description: "当前与「自动改文件」同一份向量预设（命令与项目写同属 rw 组）；危险命令仍硬拦"},
 		{ID: PermissionTierFull, Label: "全权", Short: "全权",
-			Description: "本会话全部放行（免审）；只作用于主 agent"},
+			Description: "授予全部能力面（含共享桌面与 adm）；仅危险命令被硬拦，只作用于主 agent"},
 	}
 }
 

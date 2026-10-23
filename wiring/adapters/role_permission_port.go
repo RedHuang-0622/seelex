@@ -147,8 +147,18 @@ func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSet
 	if assigned {
 		class = policy.ClassForToolsPolicy(permission.Policy)
 	}
-	grant := policy.DefaultPermissionSubjects()[policy.SubjectForClass(class)]
-	layers.GlobalDefault = dto.RoleSettings{PermissionVector: permissionVectorTags(grantBits(grant))}
+	if assigned && class == policy.SubjectClassRoot {
+		// "继承宿主默认"的员工：全局默认层就是宿主（root）的默认位。这一层只在**明确
+		// 继承**时才有话可说。
+		grant := policy.DefaultPermissionSubjects()[policy.SubjectForClass(class)]
+		layers.GlobalDefault = dto.RoleSettings{PermissionVector: permissionVectorTags(grantBits(grant))}
+	}
+	// 未装配 / 员工档：全局默认层留空（= 这一层没表态）。
+	//
+	// 为什么不能拿 root 的默认位兜底（2026-10-21 收紧）：执行面现在按"这几层叠出来的
+	// 向量"判定员工的授权面，若这一层在员工身份不明时补一份 root 的全组位，那就等于
+	// "谁都不知道你是谁 ⇒ 给你主代理的全部能力"——典型的 fail-open。留空后，
+	// 未登记/未装配的角色由执行面按 ctx 身份（显式格子 → 档位）派生，方向上只会更窄。
 	return layers
 }
 
@@ -177,19 +187,10 @@ func grantBits(grant toolspermission.SubjectGrant) map[string]uint8 {
 	return bits
 }
 
-// permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序）。
+// permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序，位 0 → `!tag`）。
 //
-// 位为 0（或该组没出现）→ `!tag`：`NormalizePermissionGroups` 的口径是"未列出的组
-// = 0 位，即这一族能力不在面上"，所以这里必须显式说出"不给"。否则四层解析会把
-// 沉默读成"让低层决定"，一层 `{"rw": 0}` 就会被低层的 rw 反过来放行。
+// 判据**不在这里**：唯一实现在 backend/limit/policy 的 TagsForGroups（执行面也要
+// 用它把员工身份折成向量），本文件只做转发——两处各写一份口径必然漂移。
 func permissionVectorTags(bits map[string]uint8) []string {
-	tags := make([]string, 0, len(dto.PermissionGroupNames()))
-	for _, group := range dto.PermissionGroupNames() {
-		if bits[group] != 0 {
-			tags = append(tags, group)
-			continue
-		}
-		tags = append(tags, dto.PermissionTagDenyPrefix+group)
-	}
-	return tags
+	return policy.TagsForGroups(bits)
 }

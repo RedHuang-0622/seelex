@@ -149,67 +149,84 @@ func (state *PermissionGate) sanitizeMeta(meta frameworktools.ToolMeta) framewor
 	return meta
 }
 
-// enforceClass 是主体类策略（框架 BitEnforcer 接口的实现面）：返回 ok=true 表示
-// 本次判定由主体类决定，不再走框架的组/规则；ok=false 表示交回框架。
-func (state *PermissionGate) enforceClass(ctx context.Context, subject toolspermission.Subject, name string, meta frameworktools.ToolMeta, argsJSON string) (toolspermission.Action, bool) {
-	cfg := state.configSnapshot()
-	if !state.policyReady(cfg) {
-		return "", false
-	}
-	switch state.classFor(ctx) {
+// enforceClass 已由 Enforce 的向量判定取代（见 registry_state.go）。此处只保留
+// "把一次调用解析成权限向量"的**唯一**入口。
+
+// rolePermissionVectorResolver 是 (会话, 角色) → 生效权限向量的读面。
+//
+// 三个返回值的含义（缺一不可）：
+//   - vector：生效向量（允许项 + `!tag` 显式不给项，见 dto.ResolvePermissionVectorDecision）；
+//   - decided：**这一次解析是否真的定过**。false = 登记里没有、四级链路也没有任何
+//     一层表态 → 调用方落回 ctx 身份派生（装配期口径）。空切片 + decided=true 只能
+//     由"全是 `!tag`"表达（那才是"显式不给任何能力"），空切片 + decided=false 是
+//     "没定过"——三态纪律与口令的"写入/清除/保持"同款。
+//   - err：读面故障（存储未装配等）。按"没定过"处理，绝不当成"允许"。
+type rolePermissionVectorResolver func(sessionID, role string) ([]string, bool, error)
+
+// callVector 解析本次调用的权限向量并展开成"组 → 位"格位表。
+//
+// 唯一一条判定输入（这是本轮"权限向量接管判定"的落点）：
+//
+//	root   → 会话档位的向量预设（policy.TierCells）
+//	员工   → 显式分配（装配期，权威）＞ (会话, 角色) 的生效向量（登记优先、缺失走
+//	         四级链路）＞ ctx 身份自带的格子/档位派生
+//	子代理 → 不接管（ok=false）：它没有"角色登记"这一维，授权面仍由框架的
+//	         cfg.Subjects + 位判定表达（位缺 → 不可路由）
+//
+// ok=false 表示"本次不接管"，判定落回框架（与旧行为一致）。
+func (state *PermissionGate) callVector(ctx context.Context) (policy.PermissionVectorCells, string, bool) {
+	groups := state.configSnapshot().Groups
+	class := state.classFor(ctx)
+	switch class {
 	case policy.SubjectClassSub:
-		return state.enforceSubAgent(cfg, subject, name, meta, argsJSON)
-	case policy.SubjectClassEmployeeRO, policy.SubjectClassEmployeeRW:
-		return state.enforceEmployee(cfg, subject, name, meta, argsJSON)
-	default:
-		return "", false
+		return policy.PermissionVectorCells{}, "", false
+	case policy.SubjectClassRoot:
+		tier := state.PermissionTierFor(state.sessionFromContext(ctx))
+		return policy.TierCells(tier, groups), tier, true
 	}
+	identity, ok := employeeFromContext(ctx)
+	if !ok {
+		// 只有主体类、没有角色身份（WithEmployeeSubjectClass 的老调用面）：
+		// 按共享主体（emp_ro / emp_rw）在本次配置里的位派生向量，语义与旧实现一致。
+		grant, exists := state.configSnapshot().Subjects[policy.SubjectForClass(class)]
+		if !exists {
+			// 配置里连共享主体条目都没有（只测规则的用例 / 自定义配置）：按主体类
+			// 自己的派生口径给向量（readonly → ro；readwrite → ro+rw），与
+			// EmployeeGroupsForPolicy 同一份判据。
+			bits := policy.EmployeeGroupsForClass(class)
+			return policy.CellsForVector(dto.ResolvePermissionVectorDecision(policy.TagsForGroups(bits)), groups), "", true
+		}
+		bits := make(map[string]uint8, len(grant.Bits))
+		for group, entry := range grant.Bits {
+			bits[group] = entry.Bits
+		}
+		return policy.CellsForVector(dto.ResolvePermissionVectorDecision(policy.TagsForGroups(bits)), groups), "", true
+	}
+	vector := state.employeeVector(state.sessionFromContext(ctx), identity)
+	return policy.CellsForVector(dto.ResolvePermissionVectorDecision(vector), groups), "", true
 }
 
-// enforceSubAgent 是子代理的授权口径：
-//
-//  1. 显式 deny 规则（如 bash 的危险命令模式）永远硬 → EPERM；
-//  2. 位缺（违权）→ 交回框架：checker 判"不可见"，中间件以 ErrToolNotVisible 直接
-//     拒绝（= 不可路由，不弹选择页面）；
-//  3. 未分封 → 交回框架：默认 ask，而子代理没有人类在环（Approval=nil）→ 拒绝；
-//  4. 位齐 → 放行。子代理的授权范围由位表达（作用域另有 worktree / ProjectScope
-//     收窄），"规则要求问人"的调用没有人可以问，位齐即授权。
-func (state *PermissionGate) enforceSubAgent(cfg toolspermission.PermissionConfig, subject toolspermission.Subject, name string, meta frameworktools.ToolMeta, argsJSON string) (toolspermission.Action, bool) {
-	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
-		return toolspermission.ActionDeny, true
+// employeeVector 给出一个员工的**生效权限向量**（唯一一条方向：显式分配优先，
+// 登记/四级链路次之，运行时派生只读兜底）。
+func (state *PermissionGate) employeeVector(sessionID string, identity employeeIdentity) []string {
+	// 1) 装配期显式分配：它与用户权限同一张表，是"用户/leader 说过的话"，最硬。
+	if permission, ok := state.explicitEmployeePermission(identity.RoleName); ok {
+		if bits, ok := employeePermissionBits(permission); ok {
+			return policy.TagsForGroups(bits)
+		}
 	}
-	if _, routed := policy.RoutePermissionGroup(cfg.Groups, name); !routed {
-		return "", false
+	// 2) (会话, 角色) 的生效向量：登记优先、缺失按四级链路解析（判据在
+	// application/core + contract/dto；本包只消费结论）。
+	state.mu.RLock()
+	resolver := state.RolePermissionVector
+	state.mu.RUnlock()
+	if resolver != nil && strings.TrimSpace(identity.RoleName) != "" {
+		if vector, decided, err := resolver(sessionID, identity.RoleName); err == nil && decided {
+			return vector
+		}
 	}
-	if visible := state.visibleFor(subject, name, meta); !visible {
-		return "", false
-	}
-	return toolspermission.ActionAllow, true
-}
-
-// enforceEmployee 是员工的授权口径（**赋权即免审批**，2026-10-03 产品裁决）：
-//
-//  1. 显式 deny 硬（危险命令等）：不因赋权而放开；
-//  2. 未分封 / 位缺（超出 leader 下发的权限范围）→ **执行选择页面**提权：人类放行
-//     后本次调用执行（单次提权，不是自动放行），页面上拒绝即拒；
-//  3. 位齐（在 leader 下发的权限范围内）→ **直接执行**，不再落回框架 rules 求值。
-//     因此 write_file / edit_file / bash 这些"规则 ask"不会把员工回合挂在一张没人
-//     能答的审批页上——宿主主会话正忙着等这个 teammate 的产出（approval 折算到
-//     宿主会话），页面弹不出来就是死锁。
-//
-// 为什么不再交回框架求值：框架 rules 表达的是"主代理该不该问人"；员工的授权事实是
-// leader 在 team_plan 里**逐格下发的位**——位内即授权内（直接执行），位外才需要人类口令。
-func (state *PermissionGate) enforceEmployee(cfg toolspermission.PermissionConfig, subject toolspermission.Subject, name string, meta frameworktools.ToolMeta, argsJSON string) (toolspermission.Action, bool) {
-	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
-		return toolspermission.ActionDeny, true
-	}
-	if _, routed := policy.RoutePermissionGroup(cfg.Groups, name); !routed {
-		return toolspermission.ActionAsk, true
-	}
-	if visible := state.visibleFor(subject, name, meta); !visible {
-		return toolspermission.ActionAsk, true
-	}
-	return toolspermission.ActionAllow, true
+	// 3) ctx 身份自带的格子/档位（装配期口径的兜底，纯读派生；不写共享表）。
+	return policy.TagsForGroups(employeeIdentityBits(identity))
 }
 
 // decideFor / visibleFor 是框架 checker 的只读查询（checker 自身线程安全）。
@@ -292,13 +309,27 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 	if state == nil {
 		return true
 	}
+	cfg := state.configSnapshot()
+	if !state.policyReady(cfg) {
+		return true
+	}
 	class := state.classFor(ctx)
 	switch class {
 	case policy.SubjectClassEmployeeRO, policy.SubjectClassEmployeeRW:
-		return state.ToolFaceForSubject(state.resolveEmployeeSubject(ctx, class), toolName)
 	default:
 		return true
 	}
+	// 员工的能力面 = 它自己的权限向量（与 Enforce 同一份判据、同一份读面）：
+	// 未分封 / 显式 `!tag` / 断位 都不在面上；位齐才摆进来。
+	cells, _, ok := state.callVector(ctx)
+	if !ok {
+		return state.ToolFaceForSubject(state.resolveEmployeeSubject(ctx, class), toolName)
+	}
+	group, routed := policy.RoutePermissionGroup(cfg.Groups, toolName)
+	if !routed || cells.ExplicitlyDenied(group.Name) {
+		return false
+	}
+	return cells.Covers(group.Name, group.Mode)
 }
 
 // EmployeeSubjectPrefix 是"员工主体"的命名前缀：**一个员工 = 一个主体**，
@@ -548,9 +579,12 @@ func employeeFromContext(ctx context.Context) (employeeIdentity, bool) {
 }
 
 // resolveEmployeeSubject 解析本次调用的**授权主体**：
-//   - ctx 里带员工身份（员工执行面）→ 这个员工自己的主体 emp_<角色>，
-//     缺条目时按他的（显式格子优先，其次档位）补一条默认（装配期显式分配的条目优先）；
+//   - ctx 里带员工身份（员工执行面）→ 这个员工自己的主体 emp_<角色>；
 //   - 其余 → 主体类对应的共享主体（root / sub / emp_ro / emp_rw）。
+//
+// 注意它**只解析身份、不写授权表**：主体的能力面由本次调用的权限向量决定
+// （见 callVector），共享主体表因此保持只读（旧实现在这里往 cfg.Subjects 补一条
+// 派生条目并 rebuild，那是双判据的第二条路，已删除）。
 func (state *PermissionGate) resolveEmployeeSubject(ctx context.Context, class policy.SubjectClass) toolspermission.Subject {
 	identity, ok := employeeFromContext(ctx)
 	if !ok {
@@ -560,32 +594,59 @@ func (state *PermissionGate) resolveEmployeeSubject(ctx context.Context, class p
 	if !ok {
 		return policy.SubjectForClass(class)
 	}
-	state.ensureEmployeeSubject(subject, identity)
+	// "继承宿主默认"的员工（空口径 / full / 未识别档且没有显式格子）**按 root 判**：
+	// 拿一条自造的 emp_<角色> 主体去问框架只会得到"未授权主体 → 不可见"，
+	// 那是把"继承"实现成了"什么都没继承到"。
+	if ClassForEmployeeGrant(identity.Policy, identity.Groups) == policy.SubjectClassRoot {
+		return policy.SubjectForClass(policy.SubjectClassRoot)
+	}
 	return subject
 }
 
-// ensureEmployeeSubject 保证员工主体在授权表里有条目：装配期显式分配优先，没有则按
-// （显式格子 → 档位）派生默认位。条目缺位时主体会被框架当成"未授权主体"——那会把
-// "没分配过"变成"没有任何能力"，而不是"按装配的口径判"。
-func (state *PermissionGate) ensureEmployeeSubject(subject toolspermission.Subject, identity employeeIdentity) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if state.cfg.Subjects == nil {
-		return
+// employeeIdentityBits 把员工身份**纯读**地落成"组 → 位"：显式格子优先，否则按档位
+// 派生（派生口径的唯一实现在 EmployeeGroupsForPolicy）。
+//
+// 与旧的 grantForEmployeeIdentity 的关系：同一套派生口径，但**只读**——结果直接喂给
+// 判定（经 policy.TagsForGroups 折成向量），不再写进 cfg.Subjects 里冒充配置。
+func employeeIdentityBits(identity employeeIdentity) map[string]uint8 {
+	if len(identity.Groups) > 0 {
+		return cloneEmployeeGroups(identity.Groups)
 	}
-	if _, exists := state.cfg.Subjects[subject]; exists {
-		return
-	}
-	state.cfg.Subjects[subject] = grantForEmployeeIdentity(identity)
-	state.rebuildLocked()
+	return EmployeeGroupsForPolicy(identity.Policy)
 }
 
-// grantForEmployeeIdentity 把一份员工身份落成授权条目：显式格子优先，否则按档位。
-// 与装配期 Runtime.AssignEmployeePermissions 的派生口径同一套（EmployeeGrantFor /
-// grantFromEmployeeGroups），因此"装配期分配"与"运行时补默认"给出同一个结论。
-func grantForEmployeeIdentity(identity employeeIdentity) toolspermission.SubjectGrant {
-	if len(identity.Groups) > 0 {
-		return grantFromEmployeeGroups(identity.Groups)
+// explicitEmployeePermission 取该角色在装配期的显式分配（大小写不敏感，与主体命名
+// 的归一化口径一致）。第二个返回值报告"分配过"。
+func (state *PermissionGate) explicitEmployeePermission(roleName string) (EmployeePermission, bool) {
+	if state == nil {
+		return EmployeePermission{}, false
 	}
-	return EmployeeGrantFor(identity.Policy)
+	roleName = strings.TrimSpace(roleName)
+	if roleName == "" {
+		return EmployeePermission{}, false
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	for subject, permission := range state.employeePermissions {
+		if subject == toolspermission.Subject(EmployeeSubjectName(roleName)) {
+			return permission, true
+		}
+		if strings.EqualFold(strings.TrimSpace(permission.RoleName), roleName) {
+			return permission, true
+		}
+	}
+	return EmployeePermission{}, false
+}
+
+// employeePermissionBits 取显式分配的格位（未分配 → ok=false）。
+func employeePermissionBits(permission EmployeePermission) (map[string]uint8, bool) {
+	groups := permission.Groups
+	if len(groups) > 0 {
+		return cloneEmployeeGroups(groups), true
+	}
+	derived := EmployeeGroupsForPolicy(permission.Policy)
+	if derived == nil {
+		return nil, false
+	}
+	return derived, true
 }
