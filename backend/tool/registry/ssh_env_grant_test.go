@@ -61,3 +61,14 @@ func TestEnvGateWithoutGrantPortIsFailClosed(t *testing.T) {
 		t.Fatalf("放权面未装配时该拒绝，got %q", decision.FailureCode)
 	}
 }
+
+// 决策段是**每一次工具调用**都会跑的一段（权限门之前），所以它的成本要有个量级，
+// 不能只说"是缓存读"。这条基准测的是"已放权 + 已指名环境"这一格：最热的一条路。
+func BenchmarkResolveTransportDecisionWithEnv(b *testing.B) {
+	deps := grantDeps(func(context.Context, string, string) bool { return true })
+	ctx := context.Background()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = resolveTransportDecision(ctx, deps, "bash", true, TransportSSH, "dev")
+	}
+}
