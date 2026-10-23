@@ -236,3 +236,23 @@ test("权限检查器里三个入口共用一份真值", async () => {
   assert.match(submit[0], /renderPermissionMenu\(/, "提交后要重绘下拉");
   assert.match(submit[0], /renderRolePermissionVector\(\)/, "提交后要重绘设置面板");
 });
+
+test("上下文窗口改完要读回来（send/ack），不能拿请求值当结果", async () => {
+  const app = await read("app.js");
+  const submit = app.match(/async function submitAccountWindow\(name, window\)[\s\S]*?\n\}/);
+  assert.ok(submit, "要找得到 submitAccountWindow");
+  const body = submit[0];
+  // 1. 写：仍走 SetAccountWindow 并采纳返回值
+  assert.match(body, /await invoke\("SetAccountWindow", name, window\)/, "提交仍走 SetAccountWindow");
+  // 2. 拉：写完之后必须再拉一次快照（ack 的"再一次查看"）
+  assert.match(body, /await refresh\(\{ scroll: false \}\)/, "改完要再拉一次快照");
+  // 3. 核对：以读回来的值为准，并显式说读到什么
+  assert.match(body, /accountWindowFromSnapshot\(name\)/, "要以读回来的快照值为准");
+  assert.match(body, /读回生效窗口/, "要把读回的值说出来");
+  // 渲染必须优先用 ack 读数，不能被旧快照覆盖（这正是"改了没反应"的根因）
+  assert.match(app, /function accountWindowReading\(account\)/, "要有统一的读数函数");
+  assert.match(app, /accountWindowsCommitted\.has\(account\.name\)/, "ack 读数优先于快照");
+  const render = app.match(/function renderAccountWindowRows\(\)[\s\S]*?\n\}/);
+  assert.ok(render, "要找得到 renderAccountWindowRows");
+  assert.doesNotMatch(render[0], /accountWindowsCommitted\.set\(account\.name/, "渲染不许用旧快照覆盖 ack 读数");
+});

@@ -5772,6 +5772,18 @@ function setAccountWindowsStatus(text) {
   if (status) status.textContent = text || "";
 }
 
+// accountWindowReading 给出一个账号**当前显示的生效窗口**。
+//
+// ack 优先：accountWindowsCommitted 里的是"提交后读回来的生效值"，比快照新（快照可能
+// 是在提交之前拍的）；没有 ack 读数时才退回快照里的 context_window。旧实现在渲染里
+// 无条件用快照值覆盖 committed，于是"改完之后再画一遍"画回的还是旧值——这就是用户说的
+// "数据没有及时更新"。
+function accountWindowReading(account) {
+  if (account && accountWindowsCommitted.has(account.name)) return accountWindowsCommitted.get(account.name);
+  const fromSnapshot = Number(account?.context_window);
+  return fromSnapshot > 0 ? fromSnapshot : null;
+}
+
 // renderAccountWindowRows 一行一个账号：名字（供应商/模型）+ 挡位选择器（+ 自定义输入框）。
 function renderAccountWindowRows() {
   const host = elements["account-windows"];
@@ -5783,8 +5795,7 @@ function renderAccountWindowRows() {
   }
   host.innerHTML = "";
   for (const account of accounts) {
-    const effective = Number(account.context_window) > 0 ? Number(account.context_window) : null;
-    accountWindowsCommitted.set(account.name, effective);
+    const effective = accountWindowReading(account);
 
     const row = document.createElement("div");
     row.className = "settings-field account-window-row";
@@ -5836,17 +5847,40 @@ async function syncAccountWindowReading() {
   renderAccountWindowRows();
 }
 
-// submitAccountWindow 提交一个账号的窗口：采纳后端生效值；失败回滚 + 露出来。
+// submitAccountWindow 提交一个账号的窗口，然后**读回来一嘴**（用户口径的 send/ack）：
+//   1. 写：invoke("SetAccountWindow") 返回的只是写入那一刻的生效值；
+//   2. 拉：再走一次 refresh，拿一份新快照（账号列表里的 context_window 是后端算好的
+//      生效值：账号覆盖 > config limits.context_window > 账号档自报）；
+//   3. 核对：以**读回来的值**为准重画；写入值与读回值不一致就把差异说清楚
+//      （多半是被 limits.context_window 夹了，或者窗口 <= 0 = 取消覆盖回到账号档默认）。
+// 不拿请求值当结果——这正是"改完之后显示还是旧的"的根因。
 async function submitAccountWindow(name, window) {
   try {
     const applied = Number(await invoke("SetAccountWindow", name, window));
-    accountWindowsCommitted.set(name, applied > 0 ? applied : null);
+    await refresh({ scroll: false });
+    const confirmed = accountWindowFromSnapshot(name);
+    accountWindowsCommitted.set(name, confirmed !== null ? confirmed : (applied > 0 ? applied : null));
     renderAccountWindowRows();
+    const shown = accountWindowsCommitted.get(name);
+    if (shown === null || shown === undefined) {
+      setAccountWindowsStatus(`${name}：已改，读回的是账号档默认（这一层没有覆盖）。`);
+      return;
+    }
+    const drift = applied > 0 && applied !== shown ? `（写入 ${accountWindowLabel(applied)}，读回 ${accountWindowLabel(shown)}：被上限夹过或按默认值落地）` : "";
+    setAccountWindowsStatus(`${name}：读回生效窗口 ${accountWindowLabel(shown)}${drift}`);
   } catch (error) {
     renderAccountWindowRows(); // 回滚到最后一份权威读数（后端失败时整步不改）
     setAccountWindowsStatus(`改 ${name} 的窗口失败：${error}`);
     showToast(error);
   }
+}
+
+// accountWindowFromSnapshot 从最近一份快照里读某个账号的生效窗口（读不到 → null）。
+function accountWindowFromSnapshot(name) {
+  const accounts = lastAccountsRuntime?.accounts || [];
+  const found = accounts.find(account => account && account.name === name);
+  const value = Number(found?.context_window);
+  return value > 0 ? value : null;
 }
 
 elements["account-windows"]?.addEventListener("change", async event => {
