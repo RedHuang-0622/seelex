@@ -4,7 +4,7 @@
 
 团队计划/工作项、角色会话与节点会话记账
 
-覆盖：`teamwork*.go`、`team_registry*.go`、`role_session*.go`、`node_session_store*.go`、`unit_record_writer*.go`；未归属文件由覆盖自检拦下。
+覆盖：`teamwork*.go`、`team_registry*.go`、`role_session*.go`、`role_permission*.go`、`node_session_store*.go`、`unit_record_writer*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -32,6 +32,36 @@
 - `func TestNodeSessionStoreMissingAndDelete(t *testing.T)` — TestNodeSessionStoreMissingAndDelete 验证缺失语义与删除。
 - `func TestNodeSessionStoreProjectIsolation(t *testing.T)` — TestNodeSessionStoreProjectIsolation 验证跨项目隔离。
 - `func routerConfigPath(t *testing.T, router *Router) string` — routerConfigPath 返回测试 Router 的 JSON 存储根目录（sessions-json）。
+
+### role_permission.go
+
+- `func NewRolePermissionStore(router *Router) *RolePermissionStore` — NewRolePermissionStore 构造会话级角色权限登记存储。
+- `func (store *RolePermissionStore) Vectors(projectID, sessionID string) (map[string][]string, error)` — Vectors 返回该会话下**所有**已登记角色的权限向量（一次读盘，会话加载点用）。
+- `func (store *RolePermissionStore) Vector(projectID, sessionID, role string) ([]string, bool, error)` — Vector 读单个角色的权限向量（第二返回值报告"是否登记过"）。
+- `func (store *RolePermissionStore) Put(projectID, sessionID, role string, vector []string) (RolePermissionRecord, error)` — Put 写入一个角色的权限向量（空集合法 = 显式不给任何能力）。
+- `func (store *RolePermissionStore) Drop(projectID, sessionID, role string) error` — Drop 删除一条登记（与"显式空集"是两件事）。
+- `func (store *RolePermissionStore) DropSession(projectID, sessionID string) error` — DropSession 删除该会话下的全部登记。
+- `func (store *RolePermissionStore) sessionKeys(projectID, sessionID string) []rolePermissionKey` — sessionKeys 返回该会话在索引里的全部登记格坐标。
+- `func (store *RolePermissionStore) entry(key rolePermissionKey) *rolePermissionEntry` — entry 取（或建）一个角色登记格（只增不删）。
+- `func (store *RolePermissionStore) loadEntry(entry *rolePermissionEntry, projectID, sessionID, role string) error` — loadEntry 首次访问时从盘上装载该登记格（调用方持条目锁）。
+- `func (store *RolePermissionStore) snapshot(projectID string) (rolePermissionFile, error)` — snapshot 读一次项目级登记文件（不存在 = 空表）。
+- `func (store *RolePermissionStore) mutate(projectID string, apply func(*rolePermissionFile)) error` — mutate 在项目文件锁下做一次读改写（锁序：条目锁 → 文件锁）。
+- `func (store *RolePermissionStore) fileLock(projectID string) *sync.Mutex` — fileLock 取该项目的落盘互斥（sync.Map: projectID -> *sync.Mutex）。
+- `func (repository *jsonRepository) readRolePermissionLayout(projectID string) (rolePermissionFile, error)`
+- `func (repository *jsonRepository) writeRolePermissionLayout(projectID string, file rolePermissionFile) error`
+- `func (repository *jsonRepository) rolePermissionPath(projectID string) string` — rolePermissionPath 返回项目级角色权限文件的物理路径。
+- `func normalizedRoleVector(vector []string) []string` — normalizedRoleVector 返回独立副本（空集落盘必须是 `[]` 而不是 null）。
+
+### role_permission_test.go
+
+- `func openRolePermissionRouter(t *testing.T) *Router`
+- `func rolePermissionFileOnDisk(t *testing.T, router *Router) string` — rolePermissionFileOnDisk 找项目级角色权限文件（项目目录名带 hash 前缀）。
+- `func TestRolePermissionStoreRoundTrip(t *testing.T)` — 键是 (sessionID, role)，换一个 store 实例也能读回来。
+- `func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T)` — 三态纪律：空向量是"显式不给任何能力"，与"没这条记录"分得开。
+- `func TestRolePermissionDropScopes(t *testing.T)` — Drop / DropSession 的作用域（单角色 vs 整会话）。
+- `func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T)` — 并发：不同角色同时写不丢更新。
+- `func TestRolePermissionRejectsEmptyCoordinates(t *testing.T)` — 空会话/空角色显式报错（不写一格无坐标的登记）。
+- `func TestRolePermissionStoreWithoutRouter(t *testing.T)` — 未装配 Router 时读退化为空登记、写显式失败。
 
 ### role_session.go
 

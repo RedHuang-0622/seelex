@@ -305,6 +305,14 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 需求变更（P1-1）：冷启动读回视图会话的权限档位。必须在运行时投影之前——
 	// 投影按会话读档位，恢复晚了首个快照会显示进程默认档位（重启即"丢设置"的观感）。
 	service.restorePermissionTierFor(service.currentViewSessionID())
+	// 会话加载处恢复"会话自持角色"（权责表 root 主体的主体名；与 gui/bridge.go 的
+	// sessionSelfRole 同值）的权限向量：**登记优先，缺失按四级链路解析**
+	//（user_allow > agent_dispatch > session_default > global_default）。
+	// 不写回盘、不缓存第二份向量（事实源在存储层的登记格，判据在 dto），因此这次调用
+	// 的作用是"装配缺口与坏配置在加载时暴露 + 把该会话的登记格热起来"；未装配登记能力的
+	// 宿主（CLI / 测试假实现 / headless）不因此启动失败，只有显式读面才报
+	// ErrRolePermissionsUnavailable。
+	_, _ = service.RestoreRolePermissions(service.currentViewSessionID(), []string{"root"})
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}

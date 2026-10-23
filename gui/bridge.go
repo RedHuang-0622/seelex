@@ -163,6 +163,18 @@ type queueAwareApplication interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 }
 
+// roleSettingsApplication 是 Application 的**可选**角色设置写面（设置 → 角色设置）。
+//
+// 为什么窄可选而不是并进 Application：面里只有真机应用层有这两条（会话级角色权限
+// 登记），还没装配的宿主（GUI 的假应用、headless 假面）不该被逼着写空实现——缺了就
+// 在桥面显式报"未装配"，不静默退化成"空权限"（与 queueAwareApplication 同一条口径）。
+type roleSettingsApplication interface {
+	// RolePermissionVector 读某角色在某会话的生效权限向量（登记优先，缺失按四级链路）。
+	RolePermissionVector(sessionID, role string) ([]string, error)
+	// SetRolePermissionVector 写入某角色的权限向量（空集 = 显式不给任何能力）。
+	SetRolePermissionVector(sessionID, role string, vector []string) error
+}
+
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
 // 成员行「查看会话」与「员工会话」入口）。
 //
@@ -203,6 +215,7 @@ var (
 	_ replayAwareApplication  = (*application.Service)(nil)
 	_ roleSessionApplication  = (*application.Service)(nil)
 	_ queueAwareApplication   = (*application.Service)(nil)
+	_ roleSettingsApplication = (*application.Service)(nil)
 )
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -970,6 +983,84 @@ func (bridge *Bridge) SetFullAccess(on bool) bool {
 // 后端错误，不静默改档）。会话级归属（G4）：只影响当前视图会话。
 func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 	return bridge.app.SetPermissionTier(tier)
+}
+
+// ── 设置 → 角色设置（权限向量 / 默认 plugin）─────────────────────────────
+//
+// 前端 app.js 里的三处 invoke(...) 逐字对应下面三个方法：
+//
+//	invoke("PermissionVector")            读当前生效的一组权限标签
+//	invoke("SetPermissionVector", tags)   提交整组标签（一次写入 = 一次完整状态）
+//	invoke("SetDefaultPlugin", name)      设默认 plugin
+//
+// 作用对象是**当前视图会话**的**会话自持角色**：设置面板编辑的是"这个会话自己"的
+// 角色设置，所以会话 ID 与会话角色都由桥面解析，前端不传（它也不该知道）。
+
+// sessionSelfRole 是"会话自持角色"的规范名：权限向量按 (sessionID, role) 落键，而
+// 设置面板编辑的是会话自己的角色，故取值 = 权责表的 root 主体名（
+// backend/limit/policy 的 SubjectClassRoot；不另造词表）。
+//
+// 同一个名字也用在 application/core/service_assembler.go 的会话加载处（恢复该角色的
+// 权限），两处必须一致——那里只能写字面量（core 不能反向 import gui），改名要一起改。
+const sessionSelfRole = "root"
+
+// roleSettings 取角色设置写面（未装配显式报错，不静默退化）。
+func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {
+	if bridge == nil || bridge.app == nil {
+		return nil, errors.New("bridge is not assembled")
+	}
+	app, ok := bridge.app.(roleSettingsApplication)
+	if !ok {
+		return nil, errors.New("当前 Application 未装配角色设置面（RolePermissionVector / SetRolePermissionVector）")
+	}
+	return app, nil
+}
+
+// PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按四级
+// 链路解析（user_allow > agent_dispatch > session_default > global_default）。
+//
+// 返回的是解析结果（允许的标签，规范组序），不含 `!` 否定项——否定项是层内表达，
+// 不是"当前能力"。错误如实返回（未装配登记能力 = 显式错误，前端因此标"未生效"而
+// 不是把空向量画成"什么都没开"）。
+func (bridge *Bridge) PermissionVector() ([]string, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return nil, err
+	}
+	sessionID := bridge.app.Snapshot().Session.ID
+	return app.RolePermissionVector(sessionID, sessionSelfRole)
+}
+
+// SetPermissionVector 提交当前视图会话自持角色的**整组**权限标签（不是增删单格：
+// 一次写入 = 一次完整状态，后端不用猜这次是加还是减），并返回落盘后的生效向量。
+//
+// 返回值是**真正生效**的那个（规整后的），前端采纳它而不是假定请求值生效——与
+// SetPermissionTier / SetSessionReleaseWindow 同一条口径。
+func (bridge *Bridge) SetPermissionVector(tags []string) ([]string, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return nil, err
+	}
+	sessionID := bridge.app.Snapshot().Session.ID
+	if err := app.SetRolePermissionVector(sessionID, sessionSelfRole, tags); err != nil {
+		return nil, err
+	}
+	return app.RolePermissionVector(sessionID, sessionSelfRole)
+}
+
+// SetDefaultPlugin 设"这个会话默认装载的 plugin"。
+//
+// 诚实边界（不假装写成）：默认 plugin 的**持久化落点今天还不存在**——角色设置存储
+// 只承载权限向量；进程启动恒激活 "default"（wiring/bootstrap.ActivateDefaultPlugin）。
+// 因此这里显式报出缺落点，而不是把它实现成"现在就切一次 plugin"：SwitchPlugin 会
+// 重建提示栈并清空当前对话（且运行中会话直接拒绝），那是另一件事，共用入口等于让
+// 用户在设置弹窗里意外丢历史。落点补齐后本方法改为写配置即可，语义不变。
+func (bridge *Bridge) SetDefaultPlugin(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("默认 plugin 名不能为空")
+	}
+	return errors.New("默认 plugin 还没有持久化落点：角色设置存储今天只承载权限向量；" +
+		"要立刻切换请用 SwitchPlugin（会重建提示栈并清空当前对话）")
 }
 
 func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {

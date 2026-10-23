@@ -451,6 +451,24 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 `store.*` 类型；DTO ↔ 存储映射是 `wiring/adapters.SessionPort` 的
 职责。边界回归见 `e2e/dto_boundary_test.go`。
 
+## 角色设置与权限向量恢复
+
+`application/core/role_permissions.go` 是「会话级角色权限登记」的应用层读取面：
+`RestoreRolePermissions`（会话加载点的整会话恢复）、`RolePermissionVector`（单角色
+生效向量）与 `SetRolePermissionVector`（写入，空集 = 显式不给）三条。判据只有一份
+（`contract/dto` 的 `ResolvePermissionVector` / `ResolveRoleSettings`，四级来源
+`user_allow > agent_dispatch > session_default > global_default`），事实源只有一处
+（存储层的会话级登记格，键 `(sessionID, role)`）；本包**不缓存第二份向量**、也**不把
+解析结果写回盘**。
+
+登记能力与四层来源都是会话端口上的**可选**能力（`rolePermissionPort` /
+`rolePermissionLayerPort`，类型断言发现；生产装配在
+`wiring/adapters/role_permission_port.go`）。未装配时显式返回
+`ErrRolePermissionsUnavailable`，不静默给空权限。会话加载处
+（`service_assembler.go`）对会话自持角色（权责表 root 主体）调一次恢复：作用是让装配
+缺口与坏配置在加载时暴露、并把该会话的登记格热起来；CLI/headless 一类未装配登记能力的
+宿主不因此启动失败。
+
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
 `assistant/tool` 行写 `role_name=main`、给 `system`/internal 状态材料写
 `role_name=system`，并用 `round_id`（每个 user 输入一轮）与 `unit_seq`

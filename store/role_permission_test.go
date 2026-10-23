@@ -17,7 +17,7 @@ import (
 func openRolePermissionRouter(t *testing.T) *Router {
 	t.Helper()
 	dir := t.TempDir()
-	router, err := NewRouter(filepath.Join(dir, "session-storage.json"), dir)
+	router, err := NewRouter(filepath.Join(dir, "session-storage.json"))
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

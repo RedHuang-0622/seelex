@@ -177,7 +177,7 @@ STORE_VOLUMES = (
     VolumeSpec("stack", "上下文四栈的通道与日志（Plan/Task/Skill/Compact）", ("stack_channel", "stack_journal")),
     VolumeSpec("retention", "草稿尾与未提交批次、队列消费与 LRU 回收", ("retention", "pending_tail", "lifecycle", "queue_consume")),
     VolumeSpec("board", "项目看板投影：行文件、会话分目录、项目知识记录与渲染件", ("board", "project_board", "project_known", "project_record")),
-    VolumeSpec("team", "团队计划/工作项、角色会话与节点会话记账", ("teamwork", "team_registry", "role_session", "node_session_store", "unit_record_writer")),
+    VolumeSpec("team", "团队计划/工作项、角色会话与节点会话记账", ("teamwork", "team_registry", "role_session", "node_session_store", "unit_record_writer"), ("role_permission.go", "role_permission_test.go")),
     VolumeSpec("media", "媒体分区、检索索引与派生通道（工具记录、定时任务事件）", ("media", "search_index", "tool_record", "schedule_events")),
     # P8 §5.2/§5.3（2026-10-17）：`root_aliases`（保形别名）与 `legacy_storage`（僵尸 shard 存储）
     # 两个前缀已随兼容面/僵尸面清理删除，本卷覆盖随之收缩。

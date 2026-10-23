@@ -65,7 +65,7 @@ or the next one.
 | [README-stack.md](README-stack.md) | `stack_channel`/`stack_journal` | 上下文四栈的通道与日志 |
 | [README-retention.md](README-retention.md) | `retention`/`pending_tail`/`lifecycle`/`queue_consume` | 草稿尾、队列与 LRU 回收 |
 | [README-board.md](README-board.md) | `board`/`project_board`/`project_known`/`project_record` | 项目看板投影与项目知识记录 |
-| [README-team.md](README-team.md) | `teamwork`/`team_registry`/`role_session`/`node_session_store`/`unit_record_writer` | 团队、角色与节点会话记账 |
+| [README-team.md](README-team.md) | `teamwork`/`team_registry`/`role_session`/`role_permission`/`node_session_store`/`unit_record_writer` | 团队、角色与节点会话记账 |
 | [README-media.md](README-media.md) | `media`/`search_index`/`tool_record`/`schedule_events` | 媒体分区、检索索引与派生通道 |
 | [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage` | 存储引擎底座：布局、head 发布与迁移 |
 | [README-misc.md](README-misc.md) | 兜底卷：无前缀归属的测试文件 | 跨卷用例与基础回归 |

@@ -306,6 +306,26 @@ go test ./wiring/adapters -count=1
 
 - `func TestTranscriptRoleFieldsRoundTrip(t *testing.T)` — TestTranscriptRoleFieldsRoundTrip 钉住 R2/R4 字段不会在 model ↔
 
+### role_permission_port.go
+
+- `func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore` — role_permission_port.go 是「角色设置」在装配侧的落地：把**会话端口**补上
+- `func (port SessionPort) rolePermissionStore() *store.RolePermissionStore`
+- `func (port SessionPort) rolePermissionProject(sessionID string) string` — rolePermissionProject 解析会话归属的项目（登记的键是 (项目, 会话, 角色)）。
+- `func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error)` — RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
+- `func (port SessionPort) RolePermissionVector(sessionID, role string) ([]string, bool, error)` — RolePermissionVector 实现 rolePermissionPort：读单个角色；第二个返回值报告
+- `func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector []string) error` — SetRolePermissionVector 实现 rolePermissionPort：写入一个角色的权限向量
+- `func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers` — RolePermissionLayers 实现 application/core 的 rolePermissionLayerPort：给出该角色
+- `func (port SessionPort) employeePermission(role string) (toolreg.EmployeePermission, bool)` — employeePermission 取该角色在权责表上的装配期分配（未分配 → ok=false）。
+- `func grantBits(grant toolspermission.SubjectGrant) map[string]uint8` — grantBits 把框架授权条目投影成"路由组 → 位值"（只取位，资源限定留给权限门）。
+- `func permissionVectorTags(bits map[string]uint8) []string` — permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序）。
+
+### role_permission_port_test.go
+
+- `func TestRolePermissionPortStoreRoundTrip(t *testing.T)` — TestRolePermissionPortStoreRoundTrip：写入 → 换一个端口值读回；空集与"没登记"分开；
+- `func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T)` — TestRolePermissionPortWritesLandOnlyInOwnProject：登记按会话归属项目落键，
+- `func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T)` — TestRolePermissionLayersProjectEachGroupClosedWorld 是四层来源的核心断言：
+- `func TestPermissionVectorTagsMarksZeroBitsAsDeny(t *testing.T)` — TestPermissionVectorTagsMarksZeroBitsAsDeny 钉住投影规则本身（一条判据一处实现）。
+
 ### runtime_narrow_ports.go
 
 - `func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
