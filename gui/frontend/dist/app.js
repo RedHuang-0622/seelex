@@ -1999,6 +1999,10 @@ async function dispatchSessionListAction(data) {
     await toggleSessionPin(data.pinSession);
     return;
   }
+  if (data.renameSession) {
+    beginSessionRename(data.renameSession);
+    return;
+  }
   if (data.fork) {
     await forkSessionFromList(data.fork);
     return;
@@ -2126,6 +2130,51 @@ async function toggleSessionPin(sessionID) {
   } catch (error) {
     showToast(error);
   }
+}
+
+// beginSessionRename 让会话行就地改名（Enter 提交 / Esc 或失焦取消）。
+//
+// 为什么改名走 SetSessionMeta 的 alias 而不是另开一个"改名"接口：展示名本来就是
+// 会话元数据的一部分（置顶 / 别名 / 排序同一条记录），别名一旦写进去，目录刷新后
+// 所有窗口看到的都是同一个名字——浏览器不自己记一份"我改过名"。
+// 留空 = 清掉别名（展示回落到自动生成的标题），这也是"改错了怎么退回去"的答案。
+function beginSessionRename(sessionID) {
+  closeSessionMenu();
+  const row = document.querySelector(`[data-session-row="${CSS.escape(sessionID)}"]`);
+  const title = row?.querySelector(".session-title");
+  if (!row || !title || row.querySelector(".session-rename-input")) return;
+  const meta = sessionMetaByID(sessionID);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "session-rename-input";
+  input.value = meta.alias || "";
+  input.placeholder = "会话名（留空 = 用默认标题）";
+  input.maxLength = 120;
+  title.classList.add("hidden");
+  row.insertBefore(input, title);
+  input.focus();
+  input.select();
+
+  let settled = false;
+  const finish = async commit => {
+    if (settled) return;
+    settled = true;
+    input.remove();
+    title.classList.remove("hidden");
+    if (!commit) return;
+    const alias = String(input.value || "").trim();
+    try {
+      await invoke("SetSessionMeta", sessionID, Boolean(meta.pinned), alias, meta.sort_order || 0);
+      await refresh({ scroll: false });
+    } catch (error) {
+      showToast(error);
+    }
+  };
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter") { event.preventDefault(); finish(true); }
+    if (event.key === "Escape") { event.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(false));
 }
 
 // ── 共享提示气泡（一条 DOM，委托到 [data-tip]）────────────────
@@ -2268,6 +2317,7 @@ function sessionRow(session, currentID, nameIndex = 1) {
 function sessionMenuHTML(sessionID) {
   const pinned = Boolean(sessionMetaByID(sessionID)?.pinned);
   return `<button type="button" class="session-menu-item" role="menuitem" data-pin-session="${escapeHtml(sessionID)}">${icon(pinned ? "star-outline" : "star", 13)}${pinned ? "取消置顶" : "置顶会话"}</button>
+    <button type="button" class="session-menu-item" role="menuitem" data-rename-session="${escapeHtml(sessionID)}">${icon("message", 13)}重命名会话</button>
     <button type="button" class="session-menu-item" role="menuitem" data-fork="${escapeHtml(sessionID)}">${icon("branch", 13)}分支出新会话</button>
     <div class="session-menu-sep" role="separator"></div>
     <button type="button" class="session-menu-item is-danger" role="menuitem" data-session-del="${escapeHtml(sessionID)}">${icon("close", 13)}删除会话</button>`;

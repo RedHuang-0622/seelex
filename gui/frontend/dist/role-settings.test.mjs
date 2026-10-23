@@ -276,3 +276,21 @@ test("角色默认权限：按 role 一份、跨会话，且与面板里的会�
   // 打开设置时也要拉一次
   assert.match(app, /await syncAccountWindowReading\(\);\s*\n\s*await syncPermissionRoles\(\);/, "打开设置要拉角色目录");
 });
+
+test("会话改名：菜单入口 + 就地输入 + 走 SetSessionMeta 的别名", async () => {
+  const app = await read("app.js");
+  const css = await read("styles.css");
+  assert.match(app, /data-rename-session=/, "菜单里要有重命名入口");
+  assert.match(app, /data\.renameSession\)\s*\{\s*beginSessionRename/, "点击要分派到 beginSessionRename");
+  const fn = app.match(/function beginSessionRename\(sessionID\)[\s\S]*?\n\}/);
+  assert.ok(fn, "要找得到 beginSessionRename");
+  // 走既有元数据接口（置顶的 pinned/sort_order 必须原样带回去，否则改名会顺手把置顶弄丢）
+  assert.match(fn[0], /invoke\("SetSessionMeta", sessionID, Boolean\(meta\.pinned\), alias, meta\.sort_order \|\| 0\)/, "改名走 SetSessionMeta 且不动置顶/排序");
+  assert.match(fn[0], /await refresh\(\{ scroll: false \}\)/, "改完要刷新目录");
+  // 留空 = 清别名（展示回落默认标题）
+  assert.match(fn[0], /留空 = 用默认标题/, "要说明留空的含义");
+  // Esc / 失焦取消，Enter 提交
+  assert.match(fn[0], /event\.key === "Escape"[\s\S]*finish\(false\)/, "Esc 取消");
+  assert.match(fn[0], /event\.key === "Enter"[\s\S]*finish\(true\)/, "Enter 提交");
+  assert.match(css, /\.session-rename-input/, "要有就地输入的样式");
+});

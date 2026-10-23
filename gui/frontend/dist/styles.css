@@ -5833,3 +5833,6 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   border-color: var(--border);
   box-shadow: none;
 }
+
+/* 会话行就地改名：与标题按钮同高同宽，回车提交、Esc/失焦取消。 */
+.session-rename-input { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--r-lg); background: var(--surface, transparent); color: var(--text); font: 12px var(--font-mono); }
