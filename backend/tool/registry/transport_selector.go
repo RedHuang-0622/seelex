@@ -1,14 +1,20 @@
 package registry
 
-// transport_selector.go —— 传输选择中间件。
+// transport_selector.go —— 传输选择中间件（**决策 + 建连两段**，见 transport_decision.go）。
 //
-// 链上位置：**permission 之后、diagnostic 之前**（见 registry_state.go 的
-// NewRegistryState 装配序）。为什么必须在这个位置：
+// 链上位置有两处，同一份中间件装在两处（靠 ctx 段标记区分）：
 //
-//   - 放 permission 之前：被拒的调用会先去连远端——一次越权尝试就能让本进程对外
-//     发起一次 SSH 握手，白连 + 白暴露（还可能把口令失败次数记到远端的审计里）；
-//   - 放 diagnostic 之后：诊断看到的是"已经选完"的调用，选择失败/降级的现场就只剩
-//     一行结果，看不出"为什么没走远端"。
+//	事件 → **决策段** → 路径门 → 权限门 → **建连段** → 诊断 → handler
+//
+//   - 决策段（位置：事件之后、路径门**之前**）：只读项目连接配置与探针缓存，算出
+//     "这次走哪个面"写进 ctx。**绝不建连、不发网络包**——它跑在权限门之前，被拒的
+//     调用也会经过它。路径门据此按面取根（path_gate_face.go），这是"自动选 ssh 时
+//     远端绝对路径被本地根误拒"的修法。
+//   - 建连段（位置：权限门**之后**、diagnostic 之前）：决策已定，这里才探针/拨号。
+//     放权限门之前：被拒的调用会先去连远端——一次越权尝试就能让本进程对外发起一次
+//     SSH 握手，白连 + 白暴露（还可能把口令失败次数记到远端的审计里）；放 diagnostic
+//     之后：诊断看到的是"已经选完"的调用，选择失败/降级的现场就只剩一行结果，看不出
+//     "为什么没走远端"。
 //
 // 选择规则（四格加上显式指名，判据只写在这里，不散到各个 handler）：
 //
@@ -46,6 +52,13 @@ type SSHEndpoint struct {
 	// Name 是这次连接在**人眼里的名字**（项目连接配置里的显示名；空 = 没有名字）。
 	// 它进回执的 env 一格：模型看到的不该只是一个 IP——"哪台机器"是执行事实的一部分。
 	Name string
+	// RemoteRoot 是**远端项目根**（路径门的远端取根口径；空 = 未知）。
+	//
+	// 今天恒为空：项目连接配置的读面只有 host/port/user（见 model.WorkspaceSSHInfo），
+	// 没有"远端工作目录"这一格。因此路径门在远端面上不做本地根判定，把越界候选交给
+	// 权限门按 ssh.userspace 判（见 path_gate_face.go）。等连接配置补上这一格时，
+	// 只需装配层填进这里，路径门判据一行不动。
+	RemoteRoot string
 }
 
 // Addr 返回 host:port 形态（端口缺省 22）。
@@ -111,10 +124,13 @@ type TransportSelectorDeps struct {
 	// 返回 (endpoint, true, nil) = 配了；(_, false, nil) = 没配；error = 读失败。
 	Endpoint func(projectID string) (SSHEndpoint, bool, error)
 	// Probe 读**缓存**的探测结论：ok=false 表示还没有结论（未探）。
+	//
+	// 它必须是一次纯读（内存缓存）：决策段在权限门之前跑，一次调用就会读一次。
 	Probe func(ctx context.Context, projectID string, endpoint SSHEndpoint) (TransportProbeVerdict, bool)
-	// ProbeNow 当场探一次。只在"显式指名 ssh 且未探"时调用——这一次的代价由指名者付。
+	// ProbeNow 当场探一次。只在"显式指名 ssh 且未探"时调用，且只在**建连段**——
+	// 这一次的代价由指名者付。
 	ProbeNow func(ctx context.Context, projectID string, endpoint SSHEndpoint) TransportProbeVerdict
-	// Dial 建立 ssh 传输。只在探测通过之后调用（探针通 = 可以建连）。
+	// Dial 建立 ssh 传输。只在建连段、探测通过之后调用（探针通 = 可以建连）。
 	Dial func(ctx context.Context, projectID string, endpoint SSHEndpoint) (Transport, error)
 	// Trace 是留痕口（nil = 不记）。
 	Trace TransportTraceSink
@@ -134,10 +150,16 @@ func TransportConsumers(names ...string) map[string]struct{} {
 	return consumers
 }
 
-// TransportSelector 返回传输选择中间件。
+// TransportSelector 返回传输选择中间件（**两段共用一份**，见文件头与 transport_decision.go）。
 //
-// 没有消费者时返回 nil（框架跳过 nil 中间件）：链上顺序仍是
-// 事件 → 路径门 → 权限 → **（这里）** → 诊断 → handler。
+// 同一份中间件装在两处：决策段（事件之后、路径门之前）与建连段（权限门之后、诊断
+// 之前）。它靠 ctx 上的段标记区分本次是哪一段：
+//
+//	决策段 → 只算"这次走哪个面"写进 ctx（WithTransportDecision），转发，绝不建连；
+//	建连段 → 按决策落地（探针费 / 建连 / 降级 / 报错），把 selection 写进 ctx。
+//
+// 没有标记时按**建连段**处理（直接拿中间件调用 = 旧口径：一次调用一个结论）。
+// 没有消费者时返回 nil（框架跳过 nil 中间件）：链上逐字等于旧顺序。
 func TransportSelector(deps TransportSelectorDeps) frameworktools.MetaMiddleware {
 	if len(deps.Consumers) == 0 {
 		return nil
@@ -149,7 +171,16 @@ func TransportSelector(deps TransportSelectorDeps) frameworktools.MetaMiddleware
 		}
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 			explicitKind, explicit := explicitTransport(ctx, argsJSON)
-			selection, err := resolveTransportSelection(ctx, deps, name, explicit, explicitKind)
+			// 已有决策（决策段跑过）就**不重算**：一次调用只有一份选择事实。
+			decision, decided := TransportDecisionFromContext(ctx)
+			if !decided {
+				decision = resolveTransportDecision(ctx, deps, name, explicit, explicitKind)
+			}
+			if transportStageFromContext(ctx) == transportStageDecision {
+				// 决策段：只写事实，绝不建连（跑在权限门之前，被拒的调用也会经过）。
+				return next.Execute(WithTransportDecision(ctx, decision), argsJSON)
+			}
+			selection, err := bindTransportSelection(ctx, deps, name, decision)
 			if err != nil {
 				return "", err
 			}
@@ -158,25 +189,22 @@ func TransportSelector(deps TransportSelectorDeps) frameworktools.MetaMiddleware
 	}
 }
 
-// resolveTransportSelection 是选择规则的唯一实现（顺序即优先级，勿重排）。
-func resolveTransportSelection(
+// bindTransportSelection 是**建连段**：决策已定，这里只落地 + 留痕 + 报错。
+//
+// 为什么建连必须迟绑定到这里：这一刻已经在权限门之后——被拒的调用不会白连一次远端
+// （越权尝试不许让本进程对外握手），显式指名不可用的报错也不会顶掉权限拒绝。
+func bindTransportSelection(
 	ctx context.Context,
 	deps TransportSelectorDeps,
 	toolName string,
-	explicit bool,
-	explicitKind TransportKind,
+	decision TransportDecision,
 ) (TransportSelection, error) {
 	sessionID := ""
 	if deps.SessionKey != nil {
 		sessionID = deps.SessionKey(ctx)
 	}
-	projectID := ""
-	if deps.Project != nil {
-		projectID = deps.Project(ctx, sessionID)
-	}
-
 	local := TransportSelection{
-		Kind: TransportLocal, ProjectID: projectID, Explicit: explicit,
+		Kind: TransportLocal, ProjectID: decision.ProjectID, Explicit: decision.Explicit,
 		// 本地回执的 env 一格：就是 "local"（不是空串——空格在回执里等于没说）。
 		Env: string(TransportLocal),
 	}
@@ -185,8 +213,8 @@ func resolveTransportSelection(
 			return
 		}
 		deps.Trace.RecordTransportTrace(TransportTrace{
-			SessionID: sessionID, ProjectID: projectID, Tool: toolName,
-			Kind: selection.Kind, Explicit: explicit, Degraded: degraded,
+			SessionID: sessionID, ProjectID: decision.ProjectID, Tool: toolName,
+			Kind: selection.Kind, Explicit: decision.Explicit, Degraded: degraded,
 			Reason: selection.Reason, Endpoint: selection.Endpoint,
 			ErrorCode: code, ProbeClass: probeClass,
 		})
@@ -196,108 +224,74 @@ func resolveTransportSelection(
 		record(local, true, code, probeClass)
 		return TransportSelection{}, transportErr(code, format, args...)
 	}
-
-	// ④ 显式指名 local：尊重调用方，不去连远端，也不记成降级。
-	if explicit && explicitKind == TransportLocal {
-		local.Reason = ReasonExplicitLocal
-		record(local, false, "", "")
+	// 非显式指名的远端失败：降级到本地并留痕（本地与远端不是同一件事，必须留理由）。
+	degrade := func(reason, code, probeClass string) (TransportSelection, error) {
+		local.Reason, local.ProbeClass = reason, probeClass
+		record(local, true, code, probeClass)
 		return local, nil
 	}
 
-	// 装配级开关：宿主没有 SSH 能力。
-	if !deps.Enabled {
-		if explicit && explicitKind == TransportSSH {
-			return fail(CodeSSHEnvDisabled, "",
-				"这台宿主上 SSH 传输未启用，调用方显式指名的 %s 无法执行（不降级到本地）", toolName)
-		}
-		local.Reason = ReasonEnvDisabled
-		record(local, false, "", "")
+	// 本地面：决策已经落定（未配 / 未探 / 探针挂 / 显式指名 local / 开关关闭）。
+	if !decision.Remote() {
+		local.Reason, local.ProbeClass = decision.Reason, decision.ProbeClass
+		record(local, decision.Degraded, "", decision.ProbeClass)
 		return local, nil
 	}
 
-	// 项目连接配置：未配 = 没有远端可去。
-	var endpoint SSHEndpoint
-	configured := false
-	if deps.Endpoint != nil && projectID != "" {
-		read, ok, err := deps.Endpoint(projectID)
-		if err != nil {
-			if explicit && explicitKind == TransportSSH {
-				return fail(CodeSSHUnreachable, "",
-					"读取项目 %s 的连接配置失败，显式指名的 ssh 无法确认可用性: %v", projectID, err)
-			}
-			local.Reason = ReasonUnconfigured
-			record(local, false, "", "")
-			return local, nil
+	// 远端命名空间但已判不可用：报错或降级（判据：调用方是否显式指名）。
+	if decision.FailureCode != "" {
+		if !decision.Explicit {
+			return degrade(ReasonUnconfigured, decision.FailureCode, decision.ProbeClass)
 		}
-		endpoint, configured = read, ok && read.Configured()
+		record(local, true, decision.FailureCode, decision.ProbeClass)
+		return TransportSelection{}, &TransportError{Code: decision.FailureCode, Msg: decision.FailureMsg}
 	}
-	if !configured {
-		if explicit && explicitKind == TransportSSH {
+
+	// 显式指名 + 未探：探测费由指名者付（这一段的唯一一次网络动作）。
+	if decision.NeedsProbe {
+		if deps.ProbeNow == nil {
 			return fail(CodeSSHUnreachable, "",
-				"项目 %s 没有配置 SSH 连接，显式指名的 ssh 无法执行（不降级到本地；"+
-					"先在项目设置里填 SSH 端点，或显式指名 transport=local）", trimmedOr(projectID, "(未绑定项目)"))
+				"项目 %s 的 SSH 端点 %s 还没有探测结论，无法确认可用性；"+
+					"显式指名的 ssh 不降级（先跑一次探针）", decision.ProjectID, decision.Endpoint.Addr())
 		}
-		local.Reason = ReasonUnconfigured
-		record(local, false, "", "")
-		return local, nil
-	}
-	local.Endpoint = endpoint.Addr()
-
-	// 探测结论：未探是"不知道"，不是"通"。
-	verdict, probed := TransportProbeVerdict{}, false
-	if deps.Probe != nil {
-		verdict, probed = deps.Probe(ctx, projectID, endpoint)
-	}
-	if !probed {
-		if explicit && explicitKind == TransportSSH && deps.ProbeNow != nil {
-			// 指名者付探测费：只有这一次例外，且只在显式指名时。
-			verdict, probed = deps.ProbeNow(ctx, projectID, endpoint), true
-		} else {
-			if explicit && explicitKind == TransportSSH {
-				return fail(CodeSSHUnreachable, "",
-					"项目 %s 的 SSH 端点 %s 还没有探测结论，无法确认可用性；"+
-						"显式指名的 ssh 不降级（先跑一次探针）", projectID, endpoint.Addr())
-			}
-			local.Reason = ReasonProbeNotRun
-			record(local, true, "", "")
-			return local, nil
-		}
-	}
-
-	if verdict.State != TransportProbeOK {
-		if explicit && explicitKind == TransportSSH {
+		verdict := deps.ProbeNow(ctx, decision.ProjectID, decision.Endpoint)
+		decision.ProbeState, decision.ProbeClass, decision.ProbeDetail = verdict.State, verdict.Class, verdict.Detail
+		decision.Feasible = verdict.State == TransportProbeOK
+		if !decision.Feasible {
 			code := transportCodeForProbeClass(verdict.Class)
 			return fail(code, verdict.Class,
 				"项目 %s 的 SSH 端点 %s 探测失败（分类 %s），显式指名的 ssh 不降级到本地%s",
-				projectID, endpoint.Addr(), trimmedOr(verdict.Class, "unknown"), probeDetailSuffix(verdict.Detail))
+				decision.ProjectID, decision.Endpoint.Addr(), trimmedOr(verdict.Class, "unknown"), probeDetailSuffix(verdict.Detail))
 		}
-		local.Reason = ReasonProbeFailed
-		local.ProbeClass = verdict.Class
-		record(local, true, "", verdict.Class)
-		return local, nil
+	}
+	if !decision.Feasible {
+		// 结构上不该到这里（不可用已在决策段记成 FailureCode）：宁可显式报错，也不
+		// 假装"可以走远端"然后跑本地。
+		code := transportCodeForProbeClass(decision.ProbeClass)
+		if !decision.Explicit {
+			return degrade(ReasonProbeFailed, code, decision.ProbeClass)
+		}
+		return fail(code, decision.ProbeClass,
+			"项目 %s 的 SSH 端点 %s 探测结论不可用（分类 %s），显式指名的 ssh 不降级到本地",
+			decision.ProjectID, decision.Endpoint.Addr(), trimmedOr(decision.ProbeClass, "unknown"))
 	}
 
 	// ① 探针通 → 建 ssh 一支。
-	transport, err := dialTransport(ctx, deps, projectID, endpoint)
+	transport, err := dialTransport(ctx, deps, decision.ProjectID, decision.Endpoint)
 	if err != nil {
 		code := transportCodeForProbeClass(errProbeClass(err))
-		if explicit && explicitKind == TransportSSH {
-			return fail(code, errProbeClass(err),
-				"项目 %s 的 SSH 端点 %s 建连失败，显式指名的 ssh 不降级到本地: %v",
-				projectID, endpoint.Addr(), err)
+		if !decision.Explicit {
+			return degrade(ReasonDialFailed, code, errProbeClass(err))
 		}
-		local.Reason = ReasonDialFailed
-		local.ProbeClass = errProbeClass(err)
-		record(local, true, code, local.ProbeClass)
-		return local, nil
+		return fail(code, errProbeClass(err),
+			"项目 %s 的 SSH 端点 %s 建连失败，显式指名的 ssh 不降级到本地: %v",
+			decision.ProjectID, decision.Endpoint.Addr(), err)
 	}
 
 	selection := TransportSelection{
-		Kind: TransportSSH, Transport: transport, ProjectID: projectID,
-		Endpoint: endpoint.Addr(), Env: endpoint.Label(), Explicit: explicit, Reason: ReasonProbeOK,
-	}
-	if explicit {
-		selection.Reason = ReasonExplicitSSH
+		Kind: TransportSSH, Transport: transport, ProjectID: decision.ProjectID,
+		Endpoint: decision.Endpoint.Addr(), Env: decision.Endpoint.Label(),
+		Explicit: decision.Explicit, Reason: decision.Reason,
 	}
 	record(selection, false, "", "")
 	return selection, nil

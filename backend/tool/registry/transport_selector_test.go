@@ -84,6 +84,7 @@ func (h *selectorHarness) deps() TransportSelectorDeps {
 			return h.verdict
 		},
 		Dial: func(context.Context, string, SSHEndpoint) (Transport, error) {
+			atomic.AddInt32(&h.dialCalls, 1)
 			if h.dialErr != nil {
 				return nil, h.dialErr
 			}
@@ -487,9 +488,13 @@ func TestTransportSelectorConcurrentSessionsIsolated(t *testing.T) {
 }
 
 // TestRegistryStateTransportInsertionPoint 用真实 NewRegistryState 钉插入点：
-// 权限 → 传输选择 → 诊断（被拒的调用一个探针都不打，诊断看到的是已选完的调用）。
+// 决策（只读）→ 权限 → 建连 → 诊断。
+//
+// 判据（新链序）：决策段在权限门**之前**跑，所以它会读一次**探针缓存**（纯读，不发
+// 网络包）；被拒的调用仍然零探测零建连——ProbeNow（真探）与 Dial/Exec（握手与执行）
+// 必须都是 0，诊断也不执行。
 func TestRegistryStateTransportInsertionPoint(t *testing.T) {
-	t.Run("权限拒绝先于传输选择", func(t *testing.T) {
+	t.Run("权限拒绝先于建连", func(t *testing.T) {
 		h := newSelectorHarness()
 		h.verdict, h.probed = TransportProbeVerdict{State: TransportProbeOK}, true
 		gate := sessionScopedGate("sess-deny", toolspermission.PermissionConfig{
@@ -519,11 +524,15 @@ func TestRegistryStateTransportInsertionPoint(t *testing.T) {
 		if IsTransportErrorCode(err) {
 			t.Fatal("权限拒绝不应被当成传输失败")
 		}
-		if atomic.LoadInt32(&h.probeCalls) != 0 || atomic.LoadInt32(&h.probeNow) != 0 || h.transport.Calls() != 0 {
-			t.Fatal("被拒绝的调用不该探针/建连（越权尝试不许让本进程对外握手）")
+		if atomic.LoadInt32(&h.probeNow) != 0 || atomic.LoadInt32(&h.dialCalls) != 0 || h.transport.Calls() != 0 {
+			t.Fatalf("被拒绝的调用不许真探/建连/执行：probeNow=%d dial=%d calls=%d",
+				atomic.LoadInt32(&h.probeNow), atomic.LoadInt32(&h.dialCalls), h.transport.Calls())
+		}
+		if reads := atomic.LoadInt32(&h.probeCalls); reads != 1 {
+			t.Fatalf("决策段只该读一次探针缓存（建连段复用决策，不重算）：probeCalls=%d", reads)
 		}
 		if atomic.LoadInt32(&diagnosed) != 0 {
-			t.Fatal("权限拒绝时诊断不该执行（顺序：权限 → 传输 → 诊断）")
+			t.Fatal("权限拒绝时诊断不该执行（顺序：决策 → 权限 → 建连 → 诊断）")
 		}
 	})
 

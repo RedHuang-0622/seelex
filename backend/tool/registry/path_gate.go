@@ -5,12 +5,13 @@ package registry
 //
 // 现场：以前顺序是 事件 → 权限判定（ask 就地弹审批）→ 诊断 → handler，而路径
 // 越界只在 handler 里才被发现。后果是越界路径会先弹一次完全没用的审批，用户
-// 批准之后仍然被拒。现在顺序是 事件 → 路径门 → 权限门 → 诊断 → handler：
-// 越界直接拒，不弹窗。
+// 批准之后仍然被拒。现在顺序是 事件 → **执行面决策** → 路径门 → 权限门 → 建连 →
+// 诊断 → handler：越界直接拒，不弹窗；而"按哪个根判"由决策段给的执行面决定
+// （本地面 = 项目根；远端面不按本地根判，见 path_gate_face.go）。
 //
 // 判据不在这里复制：路径根解析仍只有 resolveScopedPath 一处（与 handler 同源），
-// 本文件只负责"哪个工具的哪个入参是路径"这张表。解析失败（JSON 坏）不在此报错
-// ——交给后面原有的参数校验，避免把同一类错误挪成两种文案。
+// 本文件只负责"哪个工具的哪个入参是路径"这张表，以及按面分派。解析失败（JSON 坏）
+// 不在此报错——交给后面原有的参数校验，避免把同一类错误挪成两种文案。
 
 import (
 	"context"
@@ -20,23 +21,28 @@ import (
 )
 
 // PathGate 返回路径检查中间件。scope 为 nil 时返回 nil（未装配 = 不启用）。
+//
+// 判据按**已定执行面**取根（见 path_gate_face.go）：本地面仍按项目根判、越界直接拒；
+// 远端面不做本地根判定（远端路径属对端命名空间，越界候选交给权限门的 ssh.userspace）。
 func PathGate(deps Deps) frameworktools.MetaMiddleware {
 	if deps.ProjectScope == nil {
 		return nil
 	}
 	return func(name string, _ frameworktools.ToolMeta, next frameworktools.ToolHandler) frameworktools.ToolHandler {
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
-			// 远端面例外：显式指名 ssh 的调用，路径属**对端**命名空间，本地项目根的
-			// 包含关系不成立（把远端 `/etc/nginx.conf` 判成"越界"会直接废掉远端面）。
-			//
-			// 只有**显式指名**才有这个例外：那是调用方自己说的"这次走远端"。
-			// 剩余缺口（如实记录，未在本轮修）：选择器自动选中 ssh（项目配了连接且探针
-			// 通、调用方未指名）时，本门仍在选择之前按本地根判——远端绝对路径会被误拒。
-			// 根治要把"选面"挪到本门之前，或让本门按面取根；那是链序决策，见 README。
-			if kind, explicit := explicitTransport(ctx, argsJSON); explicit && kind == TransportSSH {
+			targets := pathGateTargets(name, argsJSON)
+			if pathGateFace(ctx, argsJSON) == PathGateFaceRemote {
+				// 远端面：**不做本地根判定**。远端根已知时按它筛，未知时按本地根当筛子；
+				// 筛出来的只是"需要权限门过问"的候选，不是拒绝理由。
+				remoteRoot := pathGateRemoteRoot(ctx)
+				if candidates := remoteEscapeCandidates(deps, ctx, remoteRoot, targets); len(candidates) > 0 {
+					ctx = WithRemotePathHandoff(ctx, RemotePathHandoff{
+						Face: PathGateFaceRemote, RemoteRoot: remoteRoot, Candidates: candidates,
+					})
+				}
 				return next.Execute(ctx, argsJSON)
 			}
-			for _, target := range pathGateTargets(name, argsJSON) {
+			for _, target := range targets {
 				if _, err := resolveScopedPath(deps, ctx, target.path, target.write); err != nil {
 					return "", err
 				}

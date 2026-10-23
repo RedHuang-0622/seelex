@@ -35,19 +35,30 @@ type RegistryState struct {
 // ToolMeta），诊断留在普通链上。框架先套普通中间件、再按顺序套 Meta 中间件，因此
 // 实际嵌套是：
 //
-//	事件 → 路径门 → 权限门 → **传输选择** → 诊断 → handler
+//	事件 → **执行面决策** → 路径门 → 权限门 → **建连（传输选择）** → 诊断 → handler
 //
-// 两处前移各自的理由：路径门在权限门之前（P1，越界路径直接拒，不先弹一次没用的
-// 审批）；传输选择在权限门**之后**、诊断之前（越权/被拒的调用不白连一次远端，
-// 而诊断看到的是已经选完的那次调用）。transport 为 nil 时链上逐字等于旧顺序。
+// 三处前移各自的理由：
+//   - 路径门在权限门之前（P1，越界路径直接拒，不先弹一次没用的审批）；
+//   - 执行面决策在路径门**之前**（决策段）：路径门要按面取根，而"这次走不走远端"
+//     在旧链序里要等权限门之后才知道——于是自动选中 ssh 的调用被本地根误拒。决策
+//     段只读（配置 + 探针缓存），绝不建连，因此前移不改"被拒的调用不许对外握手"；
+//   - 传输选择（建连段）仍在权限门**之后**、诊断之前：越权/被拒的调用不白连一次
+//     远端，而诊断看到的是已经选完的那次调用。
+//
+// 决策段与建连段是**同一份中间件装在两处**（transportMiddleware），靠 ctx 段标记
+// 区分本次是哪一段（见 transport_decision.go 的 TransportDecisionStage/DialStage）：
+// 这样装配根的签名不变，而链序拿到了它需要的第三个身份。transport 为 nil 时链上
+// 逐字等于旧顺序。
 func NewRegistryState(timeout time.Duration, permission *PermissionGate, approvalTimeout time.Duration, pathGate frameworktools.MetaMiddleware, transportMiddleware frameworktools.MetaMiddleware, eventMiddleware, diagnosticMiddleware frameworktools.Middleware) *RegistryState {
 	return &RegistryState{Registry: frameworktools.NewRegistry(
 		frameworktools.WithCallTimeout(timeout),
 		frameworktools.WithMiddleware(diagnosticMiddleware),
 		frameworktools.WithMetaMiddleware(
-			asMetaMiddleware(eventMiddleware), pathGate,
+			asMetaMiddleware(eventMiddleware),
+			TransportDecisionStage(transportMiddleware),
+			pathGate,
 			permission.Middleware(approvalTimeout),
-			transportMiddleware,
+			TransportDialStage(transportMiddleware),
 		),
 	)}
 }

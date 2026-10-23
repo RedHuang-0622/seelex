@@ -46,8 +46,14 @@ func (r *Runtime) sessionWorkspaceID(sessionID string) string {
 	return r.sessionWorkspaces[sessionID]
 }
 
-// transportSelector 装配传输选择中间件（permission 之后、diagnostic 之前，
-// 见 toolreg.NewRegistryState 的装配序）。
+// transportSelector 装配传输中间件（**两段共用一份**；见 registry 的 transport_decision.go）。
+//
+// 装配进链的位置由 NewRegistryState 定，两处都是这一份：
+//
+//	事件 → **决策段（只读）** → 路径门 → 权限门 → **建连段（迟绑定）** → 诊断 → handler
+//
+// 决策段因此会**按调用**读一次项目连接配置与探针缓存（都是读面，不发网络包）；真正的
+// 探测与拨号仍在权限门之后——被拒的调用不白探、不白连。
 func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 	prober := seelessh.NewProber(seelessh.DefaultProbeTTL, nil)
 	deps := toolreg.TransportSelectorDeps{
@@ -96,6 +102,11 @@ func (r *Runtime) sshEndpointForProject(projectID string) (toolreg.SSHEndpoint, 
 }
 
 // sshEndpoint 把连接配置折成选择器要的窄形状。
+//
+// 远端项目根（SSHEndpoint.RemoteRoot）今天**折不出来**：连接配置的读面只有
+// host/port/user（model.WorkspaceSSHInfo），没有"远端工作目录"这一格。后果是路径门
+// 在远端面上不做本地根判定，只把越界候选记成交接事实交给权限门按 ssh.userspace 判
+// （见 registry 的 path_gate_face.go）。连接配置补上这一格时，只在这里多填一个字段。
 func sshEndpoint(connection model.WorkspaceConnection) (toolreg.SSHEndpoint, bool, error) {
 	if connection.SSH == nil || connection.SSH.Host == "" {
 		return toolreg.SSHEndpoint{}, false, nil

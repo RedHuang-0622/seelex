@@ -61,27 +61,35 @@ flowchart TB
 
 ## 传输选择（执行面 = local / ssh）
 
-`transport.go` + `transport_selector.go` + `ssh_transport.go`：把"这条命令在哪台
-机器上跑"从各个 handler 的入参里提出来，做成**一个接口 + 一个 ctx 读面 + 一个中间件**。
+`transport.go` + `transport_decision.go` + `transport_selector.go` + `ssh_transport.go`：
+把"这条命令在哪台机器上跑"从各个 handler 的入参里提出来，做成**一个接口 + 一个 ctx
+读面 + 一个两段中间件**。
 
 ```mermaid
 flowchart LR
     CALL["一次工具调度"] --> EVENT["event"]
-    EVENT --> PG["pathGate"]
+    EVENT --> DEC["**TransportDecisionStage**<br/>只读决策：配置 + 探针缓存 → local / ssh"]
+    DEC --> PG["pathGate（**按已定执行面取根**）"]
     PG --> PERM["permission"]
-    PERM --> SEL["**TransportSelector**<br/>探针结论 → local / ssh"]
+    PERM --> SEL["**TransportDialStage**<br/>建连：探针费 / 拨号 / 降级 / 报错"]
     SEL --> DIAG["diagnostic"]
     DIAG --> H["handler"]
+    DEC -.写入 ctx.TransportDecision.-> PG
     SEL -.写入 ctx.TransportSelection.-> H
     H -.TransportFromContext.-> EXEC["ssh：*sshTransport（backend/tool/ssh）<br/>local：Transport=nil（既有本地路径）"]
 ```
 
-- **插入点**：permission **之后**、diagnostic 之前（`NewRegistryState` 的装配序）。
-  被拒的调用因此不会先去握一次手；诊断看到的是已经选完的那次调用。
-- **选择规则**（`resolveTransportSelection`，顺序即优先级）：项目已配连接 + 探针通
-  → ssh；未配 / 未探 / 探针挂 / 建连失败 **且调用方没有显式指名** → 降级 local 并
-  留痕；**显式指名而不可用 → 报错，不降级**（本地跑一条 `rm` 与远端跑一条 `rm` 是
-  两件事）；显式指名 local → 尊重调用方。
+- **选择拆成两段**（`transport_decision.go`，同一份中间件装在两处，靠 ctx 段标记区分）：
+  - **决策段**：event 之后、`pathGate` **之前**。只读项目连接配置 + 探针缓存，
+    **绝不建连、不发网络包**（未探 ≠ 通，照旧降级 local 并留痕）。这一段存在的唯一
+    理由：路径门要"按面取根"，而旧链序里"走不走远端"要等权限门之后才知道；
+  - **建连段**：permission **之后**、diagnostic 之前。真正的探测/拨号在这里——
+    被拒的调用因此不白探、不白连，显式指名不可用的报错也不会顶掉权限拒绝。
+- **选择规则**（`resolveTransportDecision` 判面 + `bindTransportSelection` 落地，顺序即
+  优先级）：项目已配连接 + 探针通 → ssh；未配 / 未探 / 探针挂 / 建连失败 **且调用方
+  没有显式指名** → 降级 local 并留痕；**显式指名而不可用 → 报错，不降级**（本地跑一条
+  `rm` 与远端跑一条 `rm` 是两件事）；显式指名 local → 尊重调用方。判据只有一处：决策段
+  给结论，建连段只落地。
 - **错误码固定五个**：`SSH_UNREACHABLE` / `SSH_AUTH_FAILED` / `SSH_HOST_UNTRUSTED` /
   `SSH_TIMEOUT` / `SSH_ENV_DISABLED`；映射表只有一张
   （`transportCodeForProbeClass`，输入是 `backend/tool/ssh` 的 `Class*`）。权限拒绝
@@ -120,11 +128,13 @@ flowchart LR
 
 **已知缺口（如实记录，未在本轮修）**：
 
-- **路径门与选面的顺序冲突**：`pathGate` 跑在传输选择**之前**，因此"选择器自动选中
-  ssh"（项目配了连接 + 探针通 + 调用方未指名）时，路径门仍按**本地根**判，远端绝对
-  路径会被误拒。当前只对**显式指名 ssh**（ctx 或入参 `transport=ssh`）豁免——那是
-  调用方自己说的"这次走远端"。根治要么把选面前移到路径门之前，要么让路径门按执行面
-  取根（链序决策，需 leader 裁）。
+- **`ssh.userspace` 的规则行还没接上**：路径门现在按已定执行面取根（`path_gate_face.go`）
+  ——本地面按项目根判、越界直接拒；远端面**不做本地根判定**，只把"本地根容不下"的
+  绝对路径记成 `RemotePathHandoff`（ctx 事实）。按设计这类候选该由权限门的
+  `ssh.userspace` 组判，但该组的规则行（组表条目 + 路由）尚未接入，因此本轮只交付
+  交接事实与判定顺序，**不假装已经判过**（远端越界目前等于放行到对端）。
+- **远端项目根未知**：连接配置读面只有 host/port/user，没有"远端工作目录"，所以
+  `SSHEndpoint.RemoteRoot` 恒为空；等它有了值，路径门判据一行不动（只多一个比对根）。
 - **远端无并发写互斥**：本地 `fs.FileSystem` 的 per-path actor 是进程内锁，跨机器不
   成立；远端写只保证"原子替换"，不保证两个并发远端写之间的顺序。
 - **远端 `edit_file` 是两趟往返**（读 + 写），读与写之间远端文件可能被别处改动。
@@ -272,9 +282,13 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   `Router.Register` 登记它们、装配层的 `RegisterTool` 拒绝在作用域表就绪后再注册同名工具——
   两处各写一份就会漂移（新加的项目作用域工具被晚注册顶掉，或莫名其妙被拒）。
 - `path_gate.go`：**路径门前移**（P1 / M2-C5）——把 ProjectScope 越界检查放在权限门
-  **之前**（事件 → 路径门 → 权限门 → 诊断 → handler），越界路径直接拒、不先弹审批。
-  路径根解析与 handler 同源（`resolveScopedPath`，含 SceneScope worktree 根）；本文件只维护
-  "哪个工具的哪个入参是路径"的表（`path` / `paths[]` / `workdir`）。
+  **之前**（事件 → 执行面决策 → 路径门 → 权限门 → 建连 → 诊断 → handler），越界路径
+  直接拒、不先弹审批。路径根解析与 handler 同源（`resolveScopedPath`，含 SceneScope
+  worktree 根）；本文件只维护"哪个工具的哪个入参是路径"的表（`path` / `paths[]` /
+  `workdir`）与按面分派。
+- `path_gate_face.go`：路径门**按已定执行面取根**——本地面按项目根判（越界直接拒）；
+  远端面不做本地根判定（远端路径属对端命名空间），只把"本地根容不下"的绝对路径记成
+  `RemotePathHandoff` 交给权限门按 `ssh.userspace` 判；远端面上相对路径不按本地根判。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
