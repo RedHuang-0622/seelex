@@ -826,6 +826,49 @@ type WorkspaceConnection struct {
 	GitPasswordSet bool              `json:"git_password_set"`
 }
 
+// WorkspaceEnvironmentInfo 是项目侧**一个环境**的读面（无口令，只给布尔）。
+//
+// 环境 = 项目下按名字分组的一套 SSH 端点（dev / test / prod …）。会话不持有这些
+// 字段，只持有名字（见 SessionSSHInfo）：连接信息只有项目一个事实源。
+type WorkspaceEnvironmentInfo struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	User        string `json:"user"`
+	RemoteRoot  string `json:"remote_root,omitempty"`
+	Note        string `json:"note,omitempty"`
+	PasswordSet bool   `json:"password_set"`
+	// Default 报告它是不是项目默认环境（会话没指定环境时落到这里）。
+	Default bool `json:"default"`
+}
+
+// WorkspaceEnvironmentChange 是环境的写面（口令三态：nil = 不改 / "" = 清除 / 写入）。
+type WorkspaceEnvironmentChange struct {
+	Host       string
+	Port       int
+	User       string
+	RemoteRoot string
+	Note       string
+	Password   *string
+	// MakeDefault 写完把这个环境设为项目默认（Delete=true 时忽略）。
+	MakeDefault bool
+	// Delete 删除这个环境（连同口令）；与其它字段互斥。
+	Delete bool
+}
+
+// SessionSSHInfo 是**会话级 SSH 状态**的读面：限定用哪个环境 + 被放权哪些环境。
+//
+// 不变式（在应用层强制，读侧再兜一次）：
+//   - AllowedEnvs ⊆ 项目环境表；
+//   - CurrentEnv ∈ AllowedEnvs（空 = 没有限定）；
+//   - 缺省两者都空 = 这个会话用不了 SSH（SSH 是会话内由用户推动的放权）。
+type SessionSSHInfo struct {
+	SessionID   string   `json:"session_id"`
+	CurrentEnv  string   `json:"current_env,omitempty"`
+	AllowedEnvs []string `json:"allowed_envs"`
+}
+
 // WorkspaceConnectionChange 是连接配置的写面。
 //
 // 口令三态由两个字段表达（**不要**用"空串"一个字段兼表两件事）：
