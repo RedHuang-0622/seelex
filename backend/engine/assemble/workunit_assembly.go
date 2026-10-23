@@ -190,7 +190,14 @@ func (p *hostPorts) BeginScene(ctx context.Context, own workunit.Ownership, node
 		}
 		return scene, nil
 	}
-	scope := dto.SceneScope{SceneID: scene.NodeID, Role: model.AccountRole(own.Role)}
+	// 团队里被派活的成员（有 TeamID）= teammate 角色：队友用哪个供应商/模型由
+	// accounts.yaml 的 roles.teammate 一档决定，不再从 agent/subagent 里蹭。
+	// 没配这一档时 FallbackRoles 回退 agent，单账号安装的可用性不变。
+	role := model.AccountRole(own.Role)
+	if strings.TrimSpace(own.TeamID) != "" {
+		role = model.RoleTeammate
+	}
+	scope := dto.SceneScope{SceneID: scene.NodeID, Role: role}
 	if wt := p.r.beginNodeWorktree(scope, scene.NodeID); wt != nil {
 		scene.Worktree = wt.Branch
 	}

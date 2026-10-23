@@ -16,6 +16,9 @@ const (
 	RoleAgent    = dto.RoleAgent
 	RoleSubAgent = dto.RoleSubAgent
 	RoleGoalPlan = dto.RoleGoalPlan
+	// RoleTeammate 是 team 里被派活的成员（一个 Work Item 一个 teammate 会话）的
+	// 账号类别：队友走自己这一档的供应商/模型，不再从 agent/subagent 里蹭。
+	RoleTeammate = dto.RoleTeammate
 )
 
 // DefaultTemperature 是账号未显式配置 temperature 时的采样温度。
@@ -89,7 +92,7 @@ func ReasoningEffortVocabulary() []string { return dto.ReasoningEffortVocabulary
 // 保留单账号安装的可用性）。
 func FallbackRoles(role AccountRole) []AccountRole {
 	switch role {
-	case RoleGoalPlan, RoleSubAgent:
+	case RoleGoalPlan, RoleSubAgent, RoleTeammate:
 		return []AccountRole{RoleAgent}
 	default:
 		return nil
@@ -97,8 +100,11 @@ func FallbackRoles(role AccountRole) []AccountRole {
 }
 
 // AccountRoleFromName 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
+//
+// 顺序即优先级：teammate 与 agent 都以字母开头，但前缀匹配是"整段前缀相等"，
+// 不会互相吃掉（teammate-1 推出 teammate，agent-1 推出 agent）。
 func AccountRoleFromName(name string) AccountRole {
-	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan} {
+	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan, RoleTeammate} {
 		if len(name) > len(role) && name[:len(role)] == string(role) {
 			return role
 		}

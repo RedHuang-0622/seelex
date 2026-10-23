@@ -107,6 +107,9 @@ var defaultReasoningEffortByRole = map[AccountRole]string{
 	RoleAgent:    ReasoningEffortSession,
 	RoleSubAgent: DefaultSubAgentReasoningEffort,
 	RoleGoalPlan: DefaultGoalPlanReasoningEffort,
+	// teammate 跟随会话档位：队友跑的是"这一轮团队的活"，强度该由用户在本会话
+	// 选的那一档决定，而不是另给一条潜规则。
+	RoleTeammate: ReasoningEffortSession,
 }
 
 // DefaultReasoningEffortForRole 返回角色的默认思考强度（可能是 "session"）。

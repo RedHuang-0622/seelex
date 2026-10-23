@@ -72,5 +72,17 @@ roles:
       api_key: replace-with-your-api-key
       # reasoning_effort: max  # 可选：角色默认 high；想给规划顶格就写 max
 
+  # Teammate: team 里被派活的成员（一个 Work Item 一个 teammate 会话）。
+  # 单独一档的好处：给队友换供应商/模型只改这里，主会话（agent）与子代理
+  # （subagent）不受影响。**这一档可以省**：没配时按 agent 档回退（FallbackRoles），
+  # 单账号安装照样能跑。默认并发高水位与 subagent 同口径（每个 teammate 一件活
+  # 一条会话），可用 max_concurrency 逐账号收紧。
+  teammate:
+    - model: replace-with-teammate-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
+      # max_concurrency: 8        # 可选：覆盖 teammate 默认高水位并发
+      # reasoning_effort: session # 可选：角色默认跟随会话 effort 档位
+
 # MCP 服务器清单（原 mcp_servers 段）已拆到 config/mcp.example.yaml：本档不再承载
 # MCP 接线，也不再读它。

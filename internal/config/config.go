@@ -76,6 +76,9 @@ type simplifiedConfig struct {
 		Agent    []simplifiedAccount `yaml:"agent"`
 		SubAgent []simplifiedAccount `yaml:"subagent"`
 		GoalPlan []simplifiedAccount `yaml:"goalplan"`
+		// Teammate 是 team 成员（一个 Work Item 一个 teammate 会话）用的账号档：
+		// 想给队友换供应商/模型时只改这一档，不动 agent/subagent。
+		Teammate []simplifiedAccount `yaml:"teammate"`
 	} `yaml:"roles"`
 }
 
@@ -95,15 +98,16 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("seelex: parse accounts: %w", err)
 	}
-	log.Printf("[config] parsed: agent=%d subagent=%d goalplan=%d",
-		len(cfg.Roles.Agent), len(cfg.Roles.SubAgent), len(cfg.Roles.GoalPlan))
+	log.Printf("[config] parsed: agent=%d subagent=%d goalplan=%d teammate=%d",
+		len(cfg.Roles.Agent), len(cfg.Roles.SubAgent), len(cfg.Roles.GoalPlan), len(cfg.Roles.Teammate))
 
 	roleMap := map[model.AccountRole][]simplifiedAccount{
 		model.RoleAgent:    cfg.Roles.Agent,
 		model.RoleSubAgent: cfg.Roles.SubAgent,
 		model.RoleGoalPlan: cfg.Roles.GoalPlan,
+		model.RoleTeammate: cfg.Roles.Teammate,
 	}
-	roleOrder := []model.AccountRole{model.RoleAgent, model.RoleSubAgent, model.RoleGoalPlan}
+	roleOrder := []model.AccountRole{model.RoleAgent, model.RoleSubAgent, model.RoleGoalPlan, model.RoleTeammate}
 	availableRoles := make([]model.AccountRole, 0, len(roleOrder))
 	for _, role := range roleOrder {
 		if len(roleMap[role]) > 0 {
@@ -120,7 +124,9 @@ func Load(path string) (Config, error) {
 		for index, entry := range roleMap[role] {
 			name := fmt.Sprintf("%s-%d", role, index+1)
 			maxConcurrency := defaultMaxConcurrency
-			if role == model.RoleSubAgent {
+			// subagent 与 teammate 都是"多个并发干活的执行体"，共用高水位默认；
+			// teammate 想再收，就在账号条目上显式写 max_concurrency。
+			if role == model.RoleSubAgent || role == model.RoleTeammate {
 				maxConcurrency = defaultSubagentMaxConcurrency
 			}
 			if entry.MaxConcurrency != nil {
