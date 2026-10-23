@@ -47,9 +47,84 @@ type rolePermissionPort interface {
 	SetRolePermissionVector(sessionID, role string, vector []string) error
 }
 
+// roleDefaultPort 是**角色级默认向量**的读写面（2026-10-23 新增）。
+//
+// 与 rolePermissionPort 的区别：那个是"这个会话里显式登记过什么"（键带 sessionID），
+// 这个是"这个角色在所有会话里的默认是什么"（键只有角色名）。两个都取同一份存储，
+// 但语义与优先级不同：会话登记永远压过角色默认。
+//
+// 方法带 sessionID 只是为了让适配层解析归属项目（默认按项目存一份）。
+type roleDefaultPort interface {
+	// RoleDefaultVectors 返回该数据根下所有显式定过的角色默认。
+	RoleDefaultVectors(sessionID string) (map[string][]string, error)
+	// RoleDefault 读单个角色的默认；第二个返回值报告"是否显式定过"。
+	RoleDefault(sessionID, role string) ([]string, bool, error)
+	// SetRoleDefault 写入一个角色的默认向量（空集合法，含义是默认什么都不给）。
+	SetRoleDefault(sessionID, role string, vector []string) error
+}
+
+// roleDefaultStore 取角色默认端口（未装配返回 nil）。
+func (service *Service) roleDefaultStore() roleDefaultPort {
+	if service == nil || service.Deps.Sessions == nil {
+		return nil
+	}
+	port, _ := service.Deps.Sessions.(roleDefaultPort)
+	return port
+}
+
+// RoleDefaultVector 读一个角色的默认向量；第二个返回值报告"是否显式定过"。
+//
+// 没定过时返回链路解析结果 + false：界面据此把状态写成"跟随默认"，而不是把一份
+// 解析结果冒充成用户的选择。
+func (service *Service) RoleDefaultVector(sessionID, role string) ([]string, bool, error) {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return nil, false, ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if role == "" {
+		return nil, false, errors.New("role default: role is required")
+	}
+	vector, explicit, err := port.RoleDefault(sessionID, role)
+	if err != nil {
+		return nil, false, err
+	}
+	if explicit {
+		if vector == nil {
+			return []string{}, true, nil
+		}
+		return vector, true, nil
+	}
+	// 没定过：给出链路解析结果供界面预览（判据仍只有 dto 一处）。
+	if layers := service.rolePermissionLayers(); layers != nil {
+		resolved := dto.ResolveRoleSettings(layers.RolePermissionLayers(sessionID, role).Ordered()...)
+		return resolved.PermissionVector, false, nil
+	}
+	return []string{}, false, nil
+}
+
+// SetRoleDefaultVector 写入一个角色的默认向量（写入侧先规整，非法项显式报错）。
+//
+// 语义边界：它写的是**默认**，不会改任何会话里已显式登记过的向量——那一条在会话
+// 里优先，改默认不改已定过的会话（要改会话请用 SetRolePermissionVector）。
+func (service *Service) SetRoleDefaultVector(sessionID, role string, vector []string) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if role == "" {
+		return errors.New("role default: role is required")
+	}
+	normalized, err := dto.NormalizePermissionVector(vector)
+	if err != nil {
+		return err
+	}
+	return port.SetRoleDefault(sessionID, role, normalized)
+}
+
 // rolePermissionLayerPort 是四级来源的读取面（user_allow / agent_dispatch /
 // session_default / global_default）。
-//
 // 由装配侧按会话与角色给出：user_allow 来自用户设置、agent_dispatch 来自派活的
 // 那一方、session_default 来自会话设置、global_default 来自配置派生。本包只消费
 // 已经排好序的一份，不自己读配置——否则"默认值从哪来"就会有第二份答案。

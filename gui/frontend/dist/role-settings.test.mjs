@@ -256,3 +256,23 @@ test("上下文窗口改完要读回来（send/ack），不能拿请求值当结
   assert.ok(render, "要找得到 renderAccountWindowRows");
   assert.doesNotMatch(render[0], /accountWindowsCommitted\.set\(account\.name/, "渲染不许用旧快照覆盖 ack 读数");
 });
+
+test("角色默认权限：按 role 一份、跨会话，且与面板里的会话向量分开两块", async () => {
+  const app = await read("app.js");
+  const index = await read("index.html");
+  // 两块必须是两个容器、两个提交路径
+  assert.match(index, /id="role-permission-vector"/, "会话向量那块还在");
+  assert.match(index, /id="permission-role"/, "要有角色选择器");
+  assert.match(index, /id="permission-role-vector"/, "要有角色默认向量那块");
+  // 角色名录来自后端（accounts.yaml roles.*），前端不自己造
+  assert.match(app, /await invoke\("PermissionRoles"\)/, "角色名录要向桥要");
+  assert.match(app, /await invoke\("SetRoleDefaultVector", permissionRoleSelected/, "提交走 SetRoleDefaultVector");
+  // 采纳后端读回值
+  assert.match(app, /applied\.permission_vector/, "要用后端读回的向量");
+  assert.match(app, /applied\.explicit === true/, "要采纳 explicit");
+  // 三种状态要分开说：定过 / 没定过（预览）/ 没走到后端
+  assert.match(app, /还没定过默认/, "没定过要明说显示的是解析预览");
+  assert.match(app, /角色目录（桥未装配 PermissionRoles）/, "读写失败要如实说");
+  // 打开设置时也要拉一次
+  assert.match(app, /await syncAccountWindowReading\(\);\s*\n\s*await syncPermissionRoles\(\);/, "打开设置要拉角色目录");
+});

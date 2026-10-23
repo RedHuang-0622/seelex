@@ -63,6 +63,24 @@ func PermissionTags() []string {
 	return PermissionGroupNames()
 }
 
+// PermissionRoleInfo 是权限面板「按角色」的一行：角色名 + 名下账号 + 该角色的默认向量。
+//
+// Role 用**账号角色**（agent / subagent / goalplan / teammate），与 accounts.yaml 的
+// roles.* 同一套词——界面不另造一套名字，否则"面板上的角色"与"配置里的角色"会成为
+// 两份对不上的事实。Accounts 是这一角色名下的账号实例（agent-1 / agent-2 …）；
+// Provider/Model 取第一个未禁用账号，只做展示，不参与任何判定。
+//
+// Explicit=false 表示"这个角色的默认没定过"：此时 Vector 是链路解析结果（只读参考），
+// 界面要据此把状态写成"未定过（跟随默认）"，不能假装它是用户选的。
+type PermissionRoleInfo struct {
+	Role     string   `json:"role"`
+	Accounts []string `json:"accounts,omitempty"`
+	Provider string   `json:"provider,omitempty"`
+	Model    string   `json:"model,omitempty"`
+	Vector   []string `json:"permission_vector"`
+	Explicit bool     `json:"explicit"`
+}
+
 // RoleSettings 是一个角色的设置。
 //
 // 边界：它只描述"这个角色被配成什么样"，不承载运行期状态（激活的插件实例、

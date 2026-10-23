@@ -14,6 +14,9 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui/terminal"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	// accountmodel 只借 AccountRoleFromName（账号名前缀 → 账号角色）；它与
+	// middle/protocol/model 同名但不同域，故用别名分开，不把两个 model 混成一个。
+	accountmodel "github.com/RedHuang-0622/seelex/internal/model"
 )
 
 const eventName = "seelex:event"
@@ -173,6 +176,10 @@ type roleSettingsApplication interface {
 	RolePermissionVector(sessionID, role string) ([]string, error)
 	// SetRolePermissionVector 写入某角色的权限向量（空集 = 显式不给任何能力）。
 	SetRolePermissionVector(sessionID, role string, vector []string) error
+	// RoleDefaultVector / SetRoleDefaultVector 是**角色级默认**（跨会话）：权限面板
+	// 给每个角色定的那一份默认向量，落在角色默认层，会话登记仍压在它之上。
+	RoleDefaultVector(sessionID, role string) ([]string, bool, error)
+	SetRoleDefaultVector(sessionID, role string, vector []string) error
 }
 
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
@@ -1029,6 +1036,103 @@ func (bridge *Bridge) PermissionVector() ([]string, error) {
 	}
 	sessionID := bridge.app.Snapshot().Session.ID
 	return app.RolePermissionVector(sessionID, sessionSelfRole)
+}
+
+// PermissionRoles 列出权限面板的「按角色」行：角色名 + 名下账号 + 该角色的默认向量。
+//
+// 角色名取自**账号名前缀**（agent-1 → agent），判据与 internal/model.AccountRoleFromName
+// 同一条：界面上的角色就是 accounts.yaml 里 roles.* 的那几个词，不另造一套名字，
+// 否则"面板上的角色"与"配置里的角色"会成为两份对不上的事实。
+//
+// 一次调用读回全部角色（面板打开时只要一次往返），每行的向量都带 explicit：
+// explicit=false 表示这个角色没定过默认，此时 Vector 是链路解析结果（只读预览）。
+func (bridge *Bridge) PermissionRoles() ([]dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return nil, err
+	}
+	snapshot := bridge.app.Snapshot()
+	order, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	out := make([]dto.PermissionRoleInfo, 0, len(order))
+	for _, role := range order {
+		info, err := permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// RoleDefaultVector 读一个角色的默认向量（explicit=false 时 Vector 是链路解析结果）。
+func (bridge *Bridge) RoleDefaultVector(role string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return dto.PermissionRoleInfo{}, errors.New("permission roles: role must not be empty")
+	}
+	snapshot := bridge.app.Snapshot()
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
+// SetRoleDefaultVector 写一个角色的默认向量，并返回**落盘后读回**的那一行。
+//
+// 与 SetPermissionVector 同一条口径：前端采纳返回值，不假定请求值生效——写进去的
+// 是"默认"，而生效值还要和三态规整（`!tag`、重复项）对一遍。
+func (bridge *Bridge) SetRoleDefaultVector(role string, tags []string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return dto.PermissionRoleInfo{}, errors.New("permission roles: role must not be empty")
+	}
+	sessionID := bridge.app.Snapshot().Session.ID
+	if err := app.SetRoleDefaultVector(sessionID, role, tags); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	snapshot := bridge.app.Snapshot()
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, sessionID, role, groups[role])
+}
+
+// permissionRoleGroups 把账号列表按角色归并：返回角色顺序（按账号出现顺序，稳定）
+// 与角色 → 账号列表。
+func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]model.AccountInfo) {
+	order := make([]string, 0, len(accounts))
+	groups := map[string][]model.AccountInfo{}
+	for _, account := range accounts {
+		role := string(accountmodel.AccountRoleFromName(account.Name))
+		if _, ok := groups[role]; !ok {
+			order = append(order, role)
+		}
+		groups[role] = append(groups[role], account)
+	}
+	return order, groups
+}
+
+// permissionRoleInfoFor 组装权限面板的一行：账号名 + 展示用供应商/模型 + 生效默认向量。
+// 供应商/模型取第一个未禁用账号（只做展示，任何判定都不看它）。
+func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, accounts []model.AccountInfo) (dto.PermissionRoleInfo, error) {
+	info := dto.PermissionRoleInfo{Role: role}
+	for _, account := range accounts {
+		info.Accounts = append(info.Accounts, account.Name)
+		if !account.Disabled && info.Model == "" {
+			info.Provider, info.Model = account.Provider, account.Model
+		}
+	}
+	vector, explicit, err := app.RoleDefaultVector(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	info.Vector = vector
+	info.Explicit = explicit
+	return info, nil
 }
 
 // SetPermissionVector 提交当前视图会话自持角色的**整组**权限标签（不是增删单格：

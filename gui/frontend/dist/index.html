@@ -488,6 +488,15 @@
           <div id="role-permission-vector" class="perm-vector" role="group" aria-label="权限向量"></div>
           <div id="role-permission-vector-status" class="muted"></div>
         </div>
+        <!-- 角色默认向量：按 role（agent / subagent / goalplan / teammate）各一份，
+             跨会话生效；会话里显式登记过的向量仍压在这一层之上。角色名录来自
+             accounts.yaml 的 roles.*（后端按账号名前缀归并下发）。 -->
+        <div class="settings-field role-settings-row">
+          <span class="settings-label">角色默认权限</span>
+          <select id="permission-role" aria-label="选择角色"></select>
+          <div id="permission-role-vector" class="perm-vector" role="group" aria-label="角色默认权限向量"></div>
+          <div id="permission-role-status" class="muted"></div>
+        </div>
         <label class="settings-field">默认 plugin
           <select id="role-default-plugin"></select>
         </label>

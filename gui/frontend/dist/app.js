@@ -136,7 +136,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "permission-role", "permission-role-vector", "permission-role-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -3708,6 +3708,7 @@ async function openSettings() {
   await syncToolRecordSetting();
   // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
   await syncAccountWindowReading();
+  await syncPermissionRoles();
 }
 
 function closeSettings() { setModal("settings-modal", false); }
@@ -5727,6 +5728,122 @@ elements["role-account"]?.addEventListener("change", async event => {
   } finally {
     event.target.disabled = false;
   }
+});
+
+// ── 角色默认权限（设置 → 角色设置 → 角色默认权限）────────────────────────────
+//
+// 与上面那格「权限向量」的区别（这是两块，不是一块的两份）：
+//   · 权限向量   = **这个会话**里主代理（root）显式登记的那一份（chip 也编辑它）；
+//   · 角色默认   = 按 role（agent / subagent / goalplan / teammate）各一份，**跨会话**
+//                  生效；会话里显式登记过的那一份永远压在这一层之上。
+// 角色名录来自 accounts.yaml 的 roles.*：后端按账号名前缀（agent-1 → agent）归并下发，
+// 界面不自己造别名，也不把"面板上的角色"与"配置里的角色"分成两份事实。
+let permissionRoleRows = [];        // [{ role, accounts, provider, model, vector, explicit }]
+let permissionRoleSelected = "";    // 当前停留在哪个角色
+let permissionRoleDraft = [];       // 该角色的草稿向量
+let permissionRoleApplied = true;   // 上一次读写是否走到后端（失败要如实说）
+
+function setPermissionRoleStatus(text) {
+  const status = elements["permission-role-status"];
+  if (status) status.textContent = text || "";
+}
+
+// syncPermissionRoles 拉一次角色目录并选定当前行（打开设置时调）。
+async function syncPermissionRoles() {
+  setPermissionRoleStatus("");
+  try {
+    const rows = await invoke("PermissionRoles");
+    permissionRoleRows = Array.isArray(rows) ? rows.filter(row => row && row.role) : [];
+    permissionRoleApplied = true;
+  } catch (error) {
+    permissionRoleRows = [];
+    permissionRoleApplied = false;
+  }
+  if (!permissionRoleRows.some(row => row.role === permissionRoleSelected)) {
+    permissionRoleSelected = permissionRoleRows[0]?.role || "";
+  }
+  applyPermissionRoleReading();
+  renderPermissionRoleRows();
+}
+
+// applyPermissionRoleReading 把"当前选中角色"的权威读数灌进草稿。
+function applyPermissionRoleReading() {
+  const row = permissionRoleRows.find(item => item.role === permissionRoleSelected) || null;
+  permissionRoleDraft = normalizePermissionVector(row?.vector || []);
+}
+
+// renderPermissionRoleRows 画角色下拉 + 该角色的标签排 + 状态行。
+//
+// 状态行要区分三件事（后端 explicit 就是为这个给的）：定过 / 没定过（显示的是链路
+// 解析预览）/ 读写没走到后端。把"没定过"写成"已选这几项"就是在替用户做决定。
+function renderPermissionRoleRows() {
+  const select = elements["permission-role"];
+  if (select) {
+    const previous = permissionRoleSelected;
+    select.innerHTML = permissionRoleRows.map(row => {
+      const detail = [row.accounts?.join("/"), [row.provider, row.model].filter(Boolean).join("/")].filter(Boolean).join(" · ");
+      const label = detail ? `${row.role}（${detail}）` : row.role;
+      return `<option value="${escapeHtml(row.role)}"${row.role === previous ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    if (!permissionRoleRows.length) {
+      select.innerHTML = '<option value="">（读不到角色列表）</option>';
+    }
+  }
+  const host = elements["permission-role-vector"];
+  if (host) host.innerHTML = renderPermissionVectorHTML(permissionRoleDraft);
+  if (!permissionRoleApplied) {
+    setPermissionRoleStatus("未生效：读不到角色目录（桥未装配 PermissionRoles）。");
+    return;
+  }
+  const row = permissionRoleRows.find(item => item.role === permissionRoleSelected) || null;
+  if (!row) {
+    setPermissionRoleStatus("先选一个角色。");
+    return;
+  }
+  const notes = [];
+  notes.push(row.explicit
+    ? `${row.role}：已定过默认（跨会话生效；会话里显式登记过的仍优先）`
+    : `${row.role}：还没定过默认，下面显示的是链路解析结果（只读预览）`);
+  for (const warning of permissionVectorLint(permissionRoleDraft)) notes.push(warning.message);
+  setPermissionRoleStatus(notes.join("　"));
+}
+
+// submitPermissionRoleDefault 提交整组默认向量，并采纳后端读回的那一行
+// （与 SetPermissionVector 同一口径：不拿请求值当结果）。
+async function submitPermissionRoleDefault() {
+  if (!permissionRoleSelected) return;
+  try {
+    const applied = await invoke("SetRoleDefaultVector", permissionRoleSelected, normalizePermissionVector(permissionRoleDraft));
+    const row = permissionRoleRows.find(item => item.role === permissionRoleSelected);
+    if (row && applied && applied.role) {
+      row.vector = normalizePermissionVector(applied.permission_vector || []);
+      row.explicit = applied.explicit === true;
+    }
+    permissionRoleApplied = true;
+  } catch (error) {
+    permissionRoleApplied = false;
+    setPermissionRoleStatus(`改 ${permissionRoleSelected} 的默认权限失败：${error}`);
+    showToast(error);
+    return;
+  }
+  applyPermissionRoleReading();
+  renderPermissionRoleRows();
+}
+
+elements["permission-role"]?.addEventListener("change", event => {
+  permissionRoleSelected = String(event.target.value || "").trim();
+  applyPermissionRoleReading();
+  renderPermissionRoleRows();
+});
+
+elements["permission-role-vector"]?.addEventListener("click", async event => {
+  const tag = event.target?.closest?.("button[data-perm-type]");
+  if (!tag) return;
+  const next = cyclePermissionVector(permissionRoleDraft, tag.dataset.permType);
+  if (next.join(",") === permissionRoleDraft.join(",")) return;
+  permissionRoleDraft = next;
+  renderPermissionRoleRows();
+  await submitPermissionRoleDefault();
 });
 
 elements["role-permission-vector"]?.addEventListener("click", async event => {

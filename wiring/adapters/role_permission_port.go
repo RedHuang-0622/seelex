@@ -73,6 +73,38 @@ func (port SessionPort) rolePermissionProject(sessionID string) string {
 	return port.granular().ResolveProjectForSession(sessionID)
 }
 
+// RoleDefaultVectors 实现 application/core 的 roleDefaultPort：该数据根下所有显式
+// 定过的角色默认向量（权限面板一次读回全部角色）。
+//
+// 归属项目的解析与会话级登记同一条（ResolveProjectForSession）：默认按项目存一份，
+// 换项目就是另一份——不把 A 项目的默认套到 B 项目上。
+func (port SessionPort) RoleDefaultVectors(sessionID string) (map[string][]string, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return nil, errors.New("role default: session storage is not assembled")
+	}
+	return storage.Defaults(port.rolePermissionProject(sessionID))
+}
+
+// RoleDefault 实现 roleDefaultPort：读单个角色的默认；第二个返回值报告"是否定过"。
+func (port SessionPort) RoleDefault(sessionID, role string) ([]string, bool, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return nil, false, errors.New("role default: session storage is not assembled")
+	}
+	return storage.Default(port.rolePermissionProject(sessionID), strings.TrimSpace(role))
+}
+
+// SetRoleDefault 实现 roleDefaultPort：写一个角色的默认向量。
+func (port SessionPort) SetRoleDefault(sessionID, role string, vector []string) error {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return errors.New("role default: session storage is not assembled")
+	}
+	_, err := storage.PutDefault(port.rolePermissionProject(sessionID), strings.TrimSpace(role), vector)
+	return err
+}
+
 // RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
 // **所有显式登记过**的角色 → 权限向量（会话加载点一次读回全部角色）。
 func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error) {
@@ -126,7 +158,7 @@ func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector [
 // 已知边界（写在这里，免得下一个人以为漏了）：员工权限按**角色名**落在进程级权责表，
 // 同一角色名在不同会话共享同一条派发约束——这是权责表今天的形状，不是本端口的取舍。
 func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers {
-	_ = sessionID // 四层来源今天都是进程级读数；签名保留会话维度给后续按会话的台账。
+	_ = sessionID // 四层来源今天都是进程级读数；签名保留会话维度给后续按会话的台账
 	role = strings.TrimSpace(role)
 	layers := dto.RoleSettingsLayers{
 		// 空层 = "这一层没表态"，不是"允许"（判据在 dto，不在本文件）。
@@ -159,6 +191,14 @@ func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSet
 	// 向量"判定员工的授权面，若这一层在员工身份不明时补一份 root 的全组位，那就等于
 	// "谁都不知道你是谁 ⇒ 给你主代理的全部能力"——典型的 fail-open。留空后，
 	// 未登记/未装配的角色由执行面按 ctx 身份（显式格子 → 档位）派生，方向上只会更窄。
+	// 角色级默认（权限面板里给这个角色定的"默认拿什么"）优先于进程全局默认表，
+	// 但仍然只填 **global_default** 这一层：会话里显式登记的那条（sessions）压在最上面，
+	// 谁也不动它。没定过默认时保持上面算出来的全局默认（留空就是留空，不编默认值）。
+	if storage := port.rolePermissionStore(); storage != nil {
+		if vector, ok, err := storage.Default(port.rolePermissionProject(sessionID), role); err == nil && ok {
+			layers.GlobalDefault = dto.RoleSettings{PermissionVector: vector}
+		}
+	}
 	return layers
 }
 

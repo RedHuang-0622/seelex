@@ -53,9 +53,17 @@ type RolePermissionRecord struct {
 }
 
 // rolePermissionFile 是磁盘形态：sessions[sessionID][role] = 记录。
+//
+// RoleDefaults 是**角色级默认向量**（2026-10-23 新增）：键 = 角色名（agent /
+// subagent / goalplan / teammate …），值 = 该角色在**所有会话**里的默认权限向量。
+// 它与 sessions 分开放，是因为两者的键空间不同（一个按会话，一个按角色），混在
+// 一张表里要靠哨兵 sessionID 才分得开，那是自找的 bug。
+//
+// 语义边界：这里存的是"默认"——会话里显式登记过（sessions 里那条）永远优先。
 type rolePermissionFile struct {
-	Version  int                                        `json:"version"`
-	Sessions map[string]map[string]RolePermissionRecord `json:"sessions,omitempty"`
+	Version      int                                        `json:"version"`
+	Sessions     map[string]map[string]RolePermissionRecord `json:"sessions,omitempty"`
+	RoleDefaults map[string]RolePermissionRecord            `json:"role_defaults,omitempty"`
 }
 
 // rolePermissionKey 是登记格的坐标（项目维度也进键：同一份 store 服务所有项目）。
@@ -221,6 +229,75 @@ func (store *RolePermissionStore) DropSession(projectID, sessionID string) error
 	})
 }
 
+// Defaults 返回项目下**所有**角色级默认向量（键 = 角色名）。
+//
+// 与 Vectors 的分工：Vectors 是"会话里显式登记过什么"，Defaults 是"这个角色在所有
+// 会话里的默认是什么"。读侧不猜，缺的角色由调用方按四级链路解析。
+func (store *RolePermissionStore) Defaults(projectID string) (map[string][]string, error) {
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return nil, err
+	}
+	defaults := map[string][]string{}
+	for role, record := range file.RoleDefaults {
+		defaults[role] = normalizedRoleVector(record.PermissionVector)
+	}
+	return defaults, nil
+}
+
+// Default 读单个角色的默认向量；第二个返回值报告"是否显式定过默认"。
+func (store *RolePermissionStore) Default(projectID, role string) ([]string, bool, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return nil, false, fmt.Errorf("session storage: role default requires a role")
+	}
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return nil, false, err
+	}
+	record, ok := file.RoleDefaults[role]
+	if !ok {
+		return nil, false, nil
+	}
+	// 显式空集必须交回非 nil 空切片（同 Vector 的理由）。
+	vector := make([]string, len(record.PermissionVector))
+	copy(vector, normalizedRoleVector(record.PermissionVector))
+	return vector, true, nil
+}
+
+// PutDefault 写入一个角色的默认向量（空集 = 该角色默认什么都不给，不删记录）。
+func (store *RolePermissionStore) PutDefault(projectID, role string, vector []string) (RolePermissionRecord, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return RolePermissionRecord{}, fmt.Errorf("session storage: role default requires a role")
+	}
+	record := RolePermissionRecord{
+		Role:             role,
+		PermissionVector: normalizedRoleVector(vector),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if err := store.mutate(projectID, func(file *rolePermissionFile) {
+		if file.RoleDefaults == nil {
+			file.RoleDefaults = map[string]RolePermissionRecord{}
+		}
+		file.RoleDefaults[role] = record
+	}); err != nil {
+		return RolePermissionRecord{}, err
+	}
+	return record, nil
+}
+
+// DropDefault 删除一个角色的默认向量（= 该角色回到链路解析）。
+func (store *RolePermissionStore) DropDefault(projectID, role string) error {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return fmt.Errorf("session storage: role default requires a role")
+	}
+	return store.mutate(projectID, func(file *rolePermissionFile) {
+		delete(file.RoleDefaults, role)
+	})
+}
+
 // sessionKeys 枚举该会话当前已建格的坐标（索引读锁内复制）。
 func (store *RolePermissionStore) sessionKeys(projectID, sessionID string) []rolePermissionKey {
 	store.indexMu.RLock()
@@ -365,6 +442,9 @@ func (repository *jsonRepository) readRolePermissionLayout(projectID string) (ro
 	}
 	if decoded.Sessions == nil {
 		decoded.Sessions = map[string]map[string]RolePermissionRecord{}
+	}
+	if decoded.RoleDefaults == nil {
+		decoded.RoleDefaults = map[string]RolePermissionRecord{}
 	}
 	decoded.Version = rolePermissionLayoutVer
 	return decoded, nil
