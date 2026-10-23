@@ -24,6 +24,7 @@ package assemble
 import (
 	"context"
 	"os"
+	"strings"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
@@ -65,10 +66,11 @@ func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 		Project: func(_ context.Context, sessionID string) string {
 			return r.sessionWorkspaceID(sessionID)
 		},
-		Endpoint: r.sshEndpointForProject,
-		Probe:    proberVerdict(prober),
-		ProbeNow: probeNow(prober),
-		Dial:     dialSSH,
+		Endpoint:    r.sshEndpointForProject,
+		EndpointFor: r.sshEndpointForEnv,
+		Probe:       proberVerdict(prober),
+		ProbeNow:    probeNow(prober),
+		Dial:        dialSSH,
 	}
 	return toolreg.TransportSelector(deps)
 }
@@ -88,17 +90,78 @@ func transportEnabled() bool {
 
 // sshEndpointForProject 读项目连接配置里的 SSH 端点（口令永远读不到，也不需要）。
 func (r *Runtime) sshEndpointForProject(projectID string) (toolreg.SSHEndpoint, bool, error) {
-	if router := r.HistoryRouter(); router != nil {
-		if port, ok := any(router).(contract.WorkspaceConnectionPort); ok {
-			connection, err := port.WorkspaceConnection(projectID)
-			if err != nil {
-				return toolreg.SSHEndpoint{}, false, err
-			}
-			return sshEndpoint(connection)
-		}
+	port := r.workspaceConnectionPort()
+	if port == nil {
+		// 没装配连接读面：等价于"未配连接"（本地执行，与今天一致）。
+		return toolreg.SSHEndpoint{}, false, nil
 	}
-	// 存储侧还没实现连接端口：等价于"未配连接"（本地执行，与今天一致）。
+	connection, err := port.WorkspaceConnection(projectID)
+	if err != nil {
+		return toolreg.SSHEndpoint{}, false, err
+	}
+	return sshEndpoint(connection)
+}
+
+// sshEndpointForEnv 按**环境名**读项目环境表里的端点（工具参数 env 指名）。
+//
+// 查不到返回 ok=false：决策段据此给 SSH_ENV_UNKNOWN，**不回落单条连接/默认环境**
+// ——回落会静默连到另一台机器上，比报错贵得多。host 为空也算"查不到"（表里有行
+// 但没填地址 = 这个环境今天不可用，不是"用默认顶上"）。
+func (r *Runtime) sshEndpointForEnv(projectID, env string) (toolreg.SSHEndpoint, bool, error) {
+	port := r.workspaceEnvironmentPort()
+	if port == nil || strings.TrimSpace(env) == "" {
+		return toolreg.SSHEndpoint{}, false, nil
+	}
+	list, _, err := port.WorkspaceEnvironments(projectID)
+	if err != nil {
+		return toolreg.SSHEndpoint{}, false, err
+	}
+	for _, item := range list {
+		if item.Name != env {
+			continue
+		}
+		if strings.TrimSpace(item.Host) == "" {
+			return toolreg.SSHEndpoint{}, false, nil
+		}
+		return toolreg.SSHEndpoint{
+			Host: item.Host, Port: item.Port, User: item.User, RemoteRoot: item.RemoteRoot,
+		}, true, nil
+	}
 	return toolreg.SSHEndpoint{}, false, nil
+}
+
+// SetWorkspaceEnvironmentPort 注入项目连接/环境表读面（装配期调用一次）。
+//
+// 一个端口两个用途：`WorkspaceConnection` 给"没指名环境"的兜底，
+// `WorkspaceEnvironments` 给按环境名解析。两者在 adapters.WorkspacePort 上是
+// 同一个实现，分开注入只会让两处读到不同实例（缓存各一份 = 判定链前后不一致）。
+func (r *Runtime) SetWorkspaceEnvironmentPort(port contract.WorkspaceEnvironmentPort) {
+	if r == nil {
+		return
+	}
+	r.workspacePortMu.Lock()
+	defer r.workspacePortMu.Unlock()
+	r.workspacePort = port
+}
+
+// workspaceEnvironmentPort 读注入的环境表读面（nil = 未装配）。
+func (r *Runtime) workspaceEnvironmentPort() contract.WorkspaceEnvironmentPort {
+	if r == nil {
+		return nil
+	}
+	r.workspacePortMu.RLock()
+	defer r.workspacePortMu.RUnlock()
+	return r.workspacePort
+}
+
+// workspaceConnectionPort 读注入的连接读面（同一份端口的窄视图）。
+func (r *Runtime) workspaceConnectionPort() contract.WorkspaceConnectionPort {
+	port := r.workspaceEnvironmentPort()
+	if port == nil {
+		return nil
+	}
+	connection, _ := any(port).(contract.WorkspaceConnectionPort)
+	return connection
 }
 
 // sshEndpoint 把连接配置折成选择器要的窄形状。

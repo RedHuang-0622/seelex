@@ -39,6 +39,15 @@ func InitApplication(
 	// 包级变量的隐含读取。
 	storePath string,
 ) (*application.Service, error) {
+	// 项目侧的连接配置 / 多环境 SSH 表读面注入给 Runtime：执行面的决策段要按
+	// 环境名解析端点（工具参数 env），而 Router 并不实现这两个端口——真正的实现
+	// 就是这里这个 workspace 仓库。注入同一个实例，不做第二份缓存。
+	//
+	// 顺序说明：Runtime 在 InitRuntime 里先建好（它要读账号档与 limits），环境表
+	// 读面是**事后注入**的读面，所以这里是一个 setter 而不是构造参数——构造期注入
+	// 会把 Runtime 的创建顺序绑死在 workspace 仓库上。
+	runtime.SetWorkspaceEnvironmentPort(adapters.WorkspacePort{Repo: workspaces})
+
 	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
 	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的
 	// 落盘路径完全隔离，不会被回合结束的记录重建覆盖。
@@ -78,6 +87,10 @@ func InitApplication(
 		// 每账号上下文窗口的落盘口：同一个覆盖层文件的 account_windows 表
 		// （设置 → 账号的挡位/自定义值）。
 		AccountWindowStore: overlay.StoreFile{Path: config.RuntimeLimitsPath(storePath)},
+		// 手动添加账号（设置 → 账户 → 添加）：写账号档 + 热注册进运行时。路径取
+		// config.AccountsPath()——**与启动装载同一份**（二进制旁的 config/accounts.yaml
+		// 优先，回退 CWD），否则会出现"界面加的那条不在启动读的那份里"。
+		AccountAdmin: adapters.AccountAdmin{Path: config.AccountsPath(), Runtime: runtime},
 		// 工具记录计数开关的落盘口：同一个覆盖层文件的 tool_record_enabled 格。
 		ToolRecordStore: overlay.StoreFile{Path: config.RuntimeLimitsPath(storePath)},
 		// 系统提示词的**环境段**：装配期解析一次"这台机器上 bash 工具实际落到哪个壳"，

@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
+	"github.com/RedHuang-0622/seelex/contract"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
@@ -296,6 +297,14 @@ type Runtime struct {
 	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
 	sessionWorkspacesMu sync.RWMutex
 	sessionWorkspaces   map[string]string
+	// workspacePort 是项目侧**连接配置 / 多环境 SSH 表**的读面（nil = 未装配）。
+	//
+	// 为什么不从 HistoryRouter 取：Router 管的是会话/项目存储，它既没有
+	// WorkspaceConnection 也没有 WorkspaceEnvironments（早前这里对它做类型断言，
+	// 结果永远是"未配连接"——SSH 端点解析一直空转）。真正的实现在
+	// adapters.WorkspacePort，装配期由 bootstrap 注入，运行期只读。
+	workspacePortMu sync.RWMutex
+	workspacePort   contract.WorkspaceEnvironmentPort
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
