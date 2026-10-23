@@ -790,6 +790,53 @@ type WorkspaceInfo struct {
 	Name      string `json:"name"`
 	RootPath  string `json:"root_path"`
 	GitRemote string `json:"git_remote,omitempty"`
+	// SSH / Git 是项目级连接配置的**非秘密摘要**（主机/端口/用户、git 账号名）。
+	// 口令永远不在这里：只以 SSHPasswordSet / GitPasswordSet 布尔出现。
+	SSH            *WorkspaceSSHInfo `json:"ssh,omitempty"`
+	Git            *WorkspaceGitInfo `json:"git,omitempty"`
+	SSHPasswordSet bool              `json:"ssh_password_set,omitempty"`
+	GitPasswordSet bool              `json:"git_password_set,omitempty"`
+}
+
+// WorkspaceSSHInfo 是项目级 SSH 端点的读面（无口令）。
+type WorkspaceSSHInfo struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	User string `json:"user"`
+}
+
+// WorkspaceGitInfo 是项目级 git 访问配置的读面（无口令）。
+type WorkspaceGitInfo struct {
+	Username string `json:"username"`
+	// Kind 是访问方式："https" | "ssh"；空 = 未声明。
+	Kind string `json:"kind,omitempty"`
+}
+
+// WorkspaceConnection 是连接配置的**权威读回**值（读写口共用这一个形状）。
+type WorkspaceConnection struct {
+	SSH            *WorkspaceSSHInfo `json:"ssh,omitempty"`
+	Git            *WorkspaceGitInfo `json:"git,omitempty"`
+	SSHPasswordSet bool              `json:"ssh_password_set"`
+	GitPasswordSet bool              `json:"git_password_set"`
+}
+
+// WorkspaceConnectionChange 是连接配置的写面。
+//
+// 口令三态由两个字段表达（**不要**用"空串"一个字段兼表两件事）：
+//
+//	SSHPassword 非空          → 写入（或轮换）
+//	ClearSSHPassword = true   → 清除
+//	两者都不给                → 保持原值
+//
+// UI 回填时拿不到旧口令，所以"保持原值"必须是默认行为，否则一次保存就会抹掉口令。
+type WorkspaceConnectionChange struct {
+	SSH *WorkspaceSSHInfo
+	Git *WorkspaceGitInfo
+
+	SSHPassword      string
+	ClearSSHPassword bool
+	GitPassword      string
+	ClearGitPassword bool
 }
 
 type SessionInfo struct {

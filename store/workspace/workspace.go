@@ -24,6 +24,11 @@ type Info struct {
 	RootPath  string    `json:"root_path"`
 	GitRemote string    `json:"git_remote,omitempty"` // e.g. https://github.com/user/repo
 	CreatedAt time.Time `json:"created_at"`
+	// SSH 是项目级 SSH 端点（**非秘密**部分：主机/端口/用户）。口令不进这里，
+	// 见 connection.go 的密文库。
+	SSH *SSHEndpoint `json:"ssh,omitempty"`
+	// Git 是项目级 git 远端访问配置（**非秘密**部分：账号名/访问方式）。
+	Git *GitAccess `json:"git,omitempty"`
 }
 
 // SessionBinding ties a session to at most one workspace.
@@ -48,6 +53,8 @@ type Repo struct {
 	workspaces map[string]Info
 	bindings   map[string]string // sessionID → workspaceID
 	savePath   string            // path to workspace_index.json (empty = no persistence)
+	// secrets 是口令密文库（与索引同目录、独立文件、独立锁）。nil = 不持久化。
+	secrets *secretStore
 }
 
 // NewRepo creates an empty workspace repository without persistence.
@@ -55,6 +62,8 @@ func NewRepo() *Repo {
 	return &Repo{
 		workspaces: make(map[string]Info),
 		bindings:   make(map[string]string),
+		// 无持久化模式：密文库只存在内存里（测试/临时宿主用），不落盘。
+		secrets: newSecretStore(""),
 	}
 }
 
@@ -67,6 +76,7 @@ func NewRepoWithStore(storePath string) (*Repo, error) {
 		bindings:   make(map[string]string),
 		savePath:   filepath.Join(storePath, "workspace_index.json"),
 	}
+	r.secrets = newSecretStore(r.savePath)
 	if err := r.Load(); err != nil && !errors.Is(err, ErrNotFound) && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("workspace: load index: %w", err)
 	}
@@ -228,6 +238,11 @@ func (r *Repo) Delete(id string) error {
 			r.bindings[sid] = wid
 		}
 		return err
+	}
+	// 项目没了，它的口令密文也不该留在盘上：否则重建同名项目会继承旧口令。
+	// 失败不让删除失败（索引已经删了，孤儿密文只是垃圾，不是安全事件）。
+	if r.secrets != nil {
+		_ = r.secrets.dropAll(id)
 	}
 	return nil
 }
