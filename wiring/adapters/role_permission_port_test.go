@@ -127,11 +127,18 @@ func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T) {
 		t.Fatalf("exec 生效向量 = %v, want [%s]（显式格子只开 ro；global 的 root 全位不得漏上来）", got, dto.PermissionTagRO)
 	}
 
-	// 没分配的员工：三层都空，只剩 global_default（宿主默认 root 全位）。
+	// 没分配的员工：**global_default 层故意留空**（2026-10-21 收紧），生效向量因此为空。
+	//
+	// 为什么不是"回落到 root 全组"：执行面按"这几层叠出来的向量"判授权，若身份不明时
+	// 补一份 root 的全组位，就等于"谁都不知道你是谁 ⇒ 给你主代理的全部能力"——典型
+	// fail-open。留空后由执行面按 ctx 身份（显式格子 → 档位）派生，方向上只会更窄。
 	unknown := port.RolePermissionLayers("sess-role-layers", "unassigned")
 	got := dto.ResolveRoleSettings(unknown.Ordered()...).PermissionVector
-	if len(got) != len(dto.PermissionGroupNames()) {
-		t.Fatalf("未分配角色的生效向量 = %v, want 全组（global_default 的 root 默认位）", got)
+	if len(got) != 0 {
+		t.Fatalf("未分配角色的生效向量 = %v, want 空（global_default 不兜底 root 全位：必须 fail-closed）", got)
+	}
+	if len(unknown.GlobalDefault.PermissionVector) != 0 {
+		t.Fatalf("未分配角色的 global_default 层 = %v, want 空层（不表态，不是允许）", unknown.GlobalDefault.PermissionVector)
 	}
 }
 
