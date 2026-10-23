@@ -297,6 +297,11 @@ const (
 	// 与 SSH_ENV_DISABLED 分开：那个是"这台宿主没有 SSH 能力"，这个是"项目里没有
 	// 这个环境"。混成一个码会让用户去查宿主的开关，而真正要改的是项目配置。
 	CodeSSHEnvUnknown = "SSH_ENV_UNKNOWN"
+	// CodeSSHEnvNotGranted 表示环境名存在，但**没有在本会话放权**。
+	//
+	// 与 SSH_ENV_UNKNOWN 分开：那个是"项目里没这个名字"，这个是"项目里有、但这个
+	// 会话没被放权"。前者要去项目配置里加环境，后者要在会话里放权——下一步动作不同。
+	CodeSSHEnvNotGranted = "SSH_ENV_NOT_GRANTED"
 )
 
 // TransportError 是传输选择的失败。Code 给机器判定，Msg 给人读的下一步。

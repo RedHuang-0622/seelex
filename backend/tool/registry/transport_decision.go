@@ -225,6 +225,24 @@ func resolveTransportDecision(
 		return decision
 	}
 
+	// 环境放权：指名了环境（或会话有缺省环境）就必须在本会话**被放权过**。
+	//
+	// 为什么这里还要判一次：写入侧已保证 CurrentEnv ⊆ AllowedEnvs ⊆ 项目环境表，
+	// 但**显式 env 参数**是绕过会话状态的一条直路——不在这一步卡住，任何能写工具
+	// 参数的调用方都能把调用指到未经放权的环境上，"缺省不放权"就成了摆设。
+	// 放权面未装配时同样拒绝（fail-closed）：环境是可选能力，装不上就当没有。
+	decision.Env = env
+	if env != "" {
+		if deps.EnvGranted == nil {
+			return unavailable(CodeSSHEnvNotGranted, "",
+				"环境 %q 需要会话放权，但放权面未装配：拒绝（缺省不放权）", env)
+		}
+		if !deps.EnvGranted(ctx, sessionID, env) {
+			return unavailable(CodeSSHEnvNotGranted, "",
+				"环境 %q 没有在本会话放权（先放权再使用；缺省不放权）", env)
+		}
+	}
+
 	// 项目连接配置：未配 = 没有远端可去（读面永不返回口令）。
 	var endpoint SSHEndpoint
 	configured := false
@@ -240,7 +258,6 @@ func resolveTransportDecision(
 			readEndpoint = func(pid string) (SSHEndpoint, bool, error) { return deps.EndpointFor(pid, env) }
 		}
 	}
-	decision.Env = env
 	if readEndpoint != nil && projectID != "" {
 		read, ok, err := readEndpoint(projectID)
 		if err != nil {

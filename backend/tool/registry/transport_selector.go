@@ -134,6 +134,11 @@ type TransportSelectorDeps struct {
 	// 调用方显式写了 env 参数时**不读它**：显式值永远优先，否则一次性的环境切换
 	// 会被会话状态悄悄改回去。
 	EnvFor func(ctx context.Context, sessionID string) string
+	// EnvGranted 报告某环境是否在**该会话**被放权（nil = 放权面未装配 → 一律拒绝）。
+	//
+	// 它挡的是"显式 env 参数绕过会话放权"这条直路：会话状态里没有放权的环境，
+	// 工具调用也不许指名。
+	EnvGranted func(ctx context.Context, sessionID, env string) bool
 	// Probe 读**缓存**的探测结论：ok=false 表示还没有结论（未探）。
 	//
 	// 它必须是一次纯读（内存缓存）：决策段在权限门之前跑，一次调用就会读一次。

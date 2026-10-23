@@ -69,6 +69,7 @@ func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 		Endpoint:    r.sshEndpointForProject,
 		EndpointFor: r.sshEndpointForEnv,
 		EnvFor:      func(_ context.Context, sessionID string) string { return r.sessionSSHEnvFor(sessionID) },
+		EnvGranted:  func(_ context.Context, sessionID, env string) bool { return r.sessionSSHEnvGranted(sessionID, env) },
 		Probe:       proberVerdict(prober),
 		ProbeNow:    probeNow(prober),
 		Dial:        dialSSH,
@@ -129,6 +130,37 @@ func (r *Runtime) sshEndpointForEnv(projectID, env string) (toolreg.SSHEndpoint,
 		}, true, nil
 	}
 	return toolreg.SSHEndpoint{}, false, nil
+}
+
+// SetSessionSSHEnvGrantedResolver 注入"环境是否在该会话被放权"读面（装配期一次）。
+//
+// nil = 放权面未装配：执行面据此**拒绝一切指名环境的调用**（fail-closed），而不是
+// 当成"都放权了"——缺省不放权是这条链的地基。
+func (r *Runtime) SetSessionSSHEnvGrantedResolver(resolver func(sessionID, projectID, env string) bool) {
+	if r == nil {
+		return
+	}
+	r.sessionSSHEnvGrantMu.Lock()
+	defer r.sessionSSHEnvGrantMu.Unlock()
+	r.sessionSSHEnvGrant = resolver
+}
+
+// sessionSSHEnvGranted 报告某环境是否在该会话被放权（装配缺失 → false）。
+func (r *Runtime) sessionSSHEnvGranted(sessionID, env string) bool {
+	if r == nil || sessionID == "" || env == "" {
+		return false
+	}
+	r.sessionSSHEnvGrantMu.RLock()
+	resolver := r.sessionSSHEnvGrant
+	r.sessionSSHEnvGrantMu.RUnlock()
+	if resolver == nil {
+		return false
+	}
+	projectID := ""
+	if resolve := r.sessionWorkspaceFor(sessionID); resolve != nil {
+		projectID = resolve()
+	}
+	return resolver(sessionID, projectID, env)
 }
 
 // SetSessionSSHEnvResolver 注入"会话当前环境"读面（装配期调用一次；nil = 没有缺省）。

@@ -130,6 +130,33 @@ func (port SessionPort) SetSessionSSHState(sessionID string, state model.Session
 	return bridge.put(port.rolePermissionProject(sessionID), state)
 }
 
+// SessionSSHEnvGrantedResolver 给执行面用的**放权判定**：报告某环境是否在该会话
+// 被放权过（读缓存，与端口写面同一个进程内实体）。
+//
+// 它挡的是"显式 env 参数绕过会话放权"：不在放权集合里的环境，工具调用也不许指名。
+// 读不出来（存储异常）一律按**未放权**处理——失败方向收紧。
+func SessionSSHEnvGrantedResolver(router *store.Router) func(sessionID, projectID, env string) bool {
+	bridge := sessionSSHBridgeFor(router)
+	if bridge == nil {
+		return nil
+	}
+	return func(sessionID, projectID, env string) bool {
+		if env == "" {
+			return false
+		}
+		state, err := bridge.state(projectID, sessionID)
+		if err != nil {
+			return false
+		}
+		for _, name := range state.AllowedEnvs {
+			if name == env {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // SessionSSHEnvResolver 给执行面用的**缺省环境**读面：返回该会话当前限定的环境名
 // （空 = 没有限定，工具就按"没指名环境"处理）。
 //

@@ -311,6 +311,9 @@ type Runtime struct {
 	// 缓存也只有装配层能提供（见 wiring/adapters 的 sessionSSHBridge）。
 	sessionSSHEnvMu sync.RWMutex
 	sessionSSHEnv   func(sessionID, projectID string) string
+	// sessionSSHEnvGrant 读"某环境是否在该会话被放权"（显式 env 参数的闸门）。
+	sessionSSHEnvGrantMu sync.RWMutex
+	sessionSSHEnvGrant   func(sessionID, projectID, env string) bool
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
