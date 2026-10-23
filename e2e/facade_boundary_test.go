@@ -108,7 +108,13 @@ const (
 // 这是一条"从 core 抽出的落点新建"，装配层现在 import 它；新包只依赖
 // `contract`/`contract/dto`/`middle/protocol/model` 与窄端口，没有第三方或反向依赖。
 // 因此上限抬到 85。
-const facadeClosureAllowListMax = 85
+// M-SSH（2026-10-23）：`backend/tool/ssh`（远端执行面的连接基座）进入闭包，上限抬到 86。
+// 与前几条不同，它不是"抽出来"的，而是**新能力**：内置工具族多了一个执行面
+// （read/write/edit/bash/bg_manage 可在远端跑），装配层经 `backend/tool/registry`
+// 的传输适配间接 import 它。抬高理由与 P21-10 同口径——闭包里的装配层本就在，
+// 它新引入的执行面基座自然跟着进闭包；该包只依赖标准库与 vendor 内的
+// `golang.org/x/crypto/ssh`，不 import 任何上层包，方向上不构成反向依赖。
+const facadeClosureAllowListMax = 86
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -254,6 +260,12 @@ var facadeClosureAllowList = []string{
 	// 闭包是纯标准库（`go list -deps ./store/root` 除自身外无带点的包）。
 	"github.com/RedHuang-0622/seelex/store/root",
 	"github.com/RedHuang-0622/seelex/store/schedule",
+	// M-SSH：远端执行面的连接基座（Dial / 认证 / 主机指纹 / 探针 / 远端作业）。
+	// **新增登记的理由**：它不是一个新能力层，而是"内置工具族的第二个执行面"——
+	// 门面闭包里的 `backend/tool/registry` 与 `backend/engine/assemble` 都要 import 它
+	// 才能把工具调用打到远端。自身只依赖标准库与 `golang.org/x/crypto/ssh`（vendor 内），
+	// 不 import 本仓库任何上层包，闭包方向上不构成反向依赖。
+	"github.com/RedHuang-0622/seelex/backend/tool/ssh",
 }
 
 // contractClosureAllowList 是契约层传递闭包里的**全部非 stdlib** 包（2026-10-17 实测）。
