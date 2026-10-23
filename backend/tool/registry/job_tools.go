@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	seelessh "github.com/RedHuang-0622/seelex/backend/tool/ssh"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -47,6 +48,10 @@ type jobManageInput struct {
 // 授权：句柄只对本会话有效（跨会话管理一律拒绝）；管理本身不重复弹审批——它管的
 // 是**已经获批的那次派发**（与旧取回工具同源的理由）。真正的门在 handler：
 // 句柄必须属于本会话。
+//
+// 两条执行面（本工作项）：本地 = 本机作业表（bt- / bs-），远端 = 远端作业目录句柄
+// （`ssh:` 族，见 backend/tool/ssh/job.go）。两者的句柄**语法上互不相认**，所以把本机
+// 句柄交给远端面（或反向）只会得到一句"该用哪张表"的错误，不会静默命中一条无关作业。
 func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, error) {
 	if !r.asyncEnabled() {
 		return "", fmt.Errorf("bg_manage: %s", asyncDisabledText)
@@ -68,16 +73,23 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 	if op != JobOpObserve && len(handles) == 0 {
 		return "", fmt.Errorf("bg_manage: op=%s 需要 handle（或 handles）", op)
 	}
-	// 句柄必须属于**本表**（bt- / bs-）：见 requireOwnedJobHandles。
-	if err := requireOwnedJobHandles(handles); err != nil {
-		return "", err
-	}
 	if op == JobOpKill || op == JobOpDone {
 		// 终止/销项一次只做一条：kill 会终止整批共用编排的子代理（一条 kill 影响 N 条
 		// 作业），销项是"我确认收到这一条"的动作——两者都不该被一个数组悄悄放大。
 		if len(handles) > 1 {
 			return "", fmt.Errorf("bg_manage: op=%s 一次只能给一条句柄（收到 %d 条）；多条请逐条确认", op, len(handles))
 		}
+	}
+	// 远端面：句柄以 `ssh:` 开头就是远端作业（判据在 ssh 包，一处）。
+	if transport, ok := RemoteTransport(ctx); ok && hasRemoteJobHandle(handles) {
+		if len(handles) > 1 {
+			return "", fmt.Errorf("bg_manage: 远端面一次只能管一条句柄（收到 %d 条）；远端作业各自独立，请逐条管理", len(handles))
+		}
+		return jobManageRemote(ctx, transport, op, handles[0], input.WaitMS)
+	}
+	// 句柄必须属于**本表**（bt- / bs-）：见 requireOwnedJobHandles。
+	if err := requireOwnedJobHandles(handles); err != nil {
+		return "", err
 	}
 	waitMS := input.WaitMS
 	manager := &jobManager{router: r}
@@ -111,7 +123,60 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 	}
 	// 工具边界上转 string：framework 的 ToolHandler / tool_result 都是 string，
 	// 契约内部保持 bytes（见 JobTool 的出参口径）。
-	return string(payload), nil
+	return markedJobPayload(ctx, "bg_manage", payload), nil
+}
+
+// hasRemoteJobHandle 报告句柄表里有没有远端作业句柄（`ssh:` 族）。
+func hasRemoteJobHandle(handles []string) bool {
+	for _, handle := range handles {
+		if seelessh.IsRemoteJobHandle(handle) {
+			return true
+		}
+	}
+	return false
+}
+
+// jobManageRemote 是 bg_manage 的远端面：四个 op 转给远端作业面，回执自报执行面。
+func jobManageRemote(ctx context.Context, transport Transport, op JobOp, handle string, waitMS int) (string, error) {
+	out, err := transport.Manage(ctx, TransportManageRequest{Op: string(op), Handle: handle, WaitMS: waitMS})
+	if err != nil {
+		return "", err
+	}
+	fields := withExecutionFace(ctx, map[string]any{
+		"status":        "ok",
+		"handle":        handle,
+		"op":            string(op),
+		"state":         out.State,
+		"exit_code":     out.ExitCode,
+		"still_running": out.StillRunning,
+		"truncated":     out.Truncated,
+	})
+	if out.Stdout != "" || op == JobOpFetch {
+		fields["stdout"] = out.Stdout
+		fields["stderr"] = out.Stderr
+	}
+	if out.LogPath != "" {
+		fields["log_path"] = out.LogPath
+	}
+	if out.Note != "" {
+		fields["note"] = out.Note
+	}
+	return receiptJSON("bg_manage", fields)
+}
+
+// markedJobPayload 给**本地**作业回执补上执行面两格（保持原键不动，加法式改动）。
+//
+// 载荷坏掉时原样返回：管理面的既有形状优先于这两格（多两格是信息，少一份载荷是故障）。
+func markedJobPayload(ctx context.Context, tool string, payload []byte) string {
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
+		return string(payload)
+	}
+	merged, err := receiptJSON(tool, withExecutionFace(ctx, fields))
+	if err != nil {
+		return string(payload)
+	}
+	return merged
 }
 
 // requireOwnedJobHandles 校验每个句柄都属于**本表**拥有的命名空间（后台工具作业 / 子代理作业）。

@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -43,8 +44,21 @@ const (
 type TransportRequest struct {
 	// Command 是要执行的命令或脚本正文。
 	Command string
+	// Stdin 是**命令的 stdin 数据**（与 Command 正交：命令走命令行，数据走内容通道）。
+	//
+	// 为什么要把它做成一个字段而不是让调用方 heredoc 拼接：数据一旦拼进命令正文，
+	// 就要经过 shell 词法（引号、`$`、反引号、代码页），任何一处漏转义都是**静默**
+	// 改数据；而数据通道是字节透明的。远端实现把它原样喂给进程 stdin（见
+	// backend/tool/ssh 的 Request.StdinData）。
+	Stdin string
 	// Workdir 是执行目录；空 = 实现的默认目录（远端为登录目录）。
+	//
+	// **远端面上它是远端路径**，不做本地解析：命令正文与路径的改写属权限模式表，
+	// 传输层不猜（见 transport_surface_test.go 的"远端路径不被本地改写"用例）。
 	Workdir string
+	// Timeout 是这次执行在本端的等待预算（0 = 实现方默认）。预算用尽**不是失败**：
+	// 远端作业仍在跑，回执里给 handle 与 log_path（见 TransportOutput）。
+	Timeout time.Duration
 }
 
 // TransportOutput 是一次传输执行的事实回报：不判业务成功（exit code 非零仍是
@@ -58,18 +72,109 @@ type TransportOutput struct {
 	StillRunning bool
 	AuthUsed     string
 	DurationMS   int64
+	// Handle / LogPath 只在"仍在跑"（或在远端脱钩）时有值：它们是**取回与终止的
+	// 唯一凭据**，没有它们就不许在回执里说"稍后取回"。
+	Handle  string
+	LogPath string
+	// Note 是事实提醒（不含秘密）：为什么拿不到输出、为什么调用方不该把它读成失败。
+	Note string
 }
 
-// Transport 是"执行一条命令"的能力面：ssh 一支由 registry 里的适配器实现
+// TransportReadRequest 是一次远端读请求。Path 是**远端路径**（原样，不解析）。
+type TransportReadRequest struct {
+	Path      string
+	StartLine int
+	EndLine   int
+}
+
+// TransportReadOutput 是一次远端读的事实回报（Content 已按窗口切好）。
+type TransportReadOutput struct {
+	Content    string
+	TotalLines int
+	Bytes      int
+	// Truncated 表示**内容在传输上限处被截断**：回执必须说出去，否则残缺内容会被
+	// 当成完整文件读（这是"静默损坏"里最贵的一类）。
+	Truncated bool
+	Note      string
+}
+
+// TransportWriteRequest 是一次远端写请求（覆盖写；Content 走数据通道）。
+type TransportWriteRequest struct {
+	Path    string
+	Content string
+}
+
+// TransportWriteOutput 是一次远端写的事实回报。
+type TransportWriteOutput struct {
+	Bytes int
+}
+
+// TransportEditRequest 是一次远端替换请求（语义与本地 actor 的 Edit 同口径：
+// 全部出现处替换，返回替换次数）。
+type TransportEditRequest struct {
+	Path      string
+	OldString string
+	NewString string
+}
+
+// TransportEditOutput 是一次远端替换的事实回报。
+type TransportEditOutput struct {
+	Replacements int
+}
+
+// TransportManageRequest 是一次远端作业管理请求（Op 词表与 bg_manage 同源：
+// observe / fetch / kill / done）。
+type TransportManageRequest struct {
+	Op       string
+	Handle   string
+	WaitMS   int
+	MaxBytes int
+}
+
+// TransportManageOutput 是一次远端作业管理的事实回报。
+type TransportManageOutput struct {
+	// State 是远端作业的状态（"running" / "exited" / "gone"）。
+	State        string
+	ExitCode     int
+	Stdout       string
+	Stderr       string
+	Truncated    bool
+	StillRunning bool
+	LogPath      string
+	Note         string
+}
+
+// 远端作业状态词表（与本地作业面的 running/done 语义对齐，词不同因为它们说的
+// 不是同一张表：这里是远端进程目录的事实）。
+const (
+	// RemoteJobRunning 表示远端进程还在（没有退出码文件）。
+	RemoteJobRunning = "running"
+	// RemoteJobExited 表示远端进程已结束（有退出码文件）。
+	RemoteJobExited = "exited"
+	// RemoteJobGone 表示远端作业目录不存在（被清理 / 换了机器）。
+	RemoteJobGone = "gone"
+)
+
+// Transport 是"一次远端调用"的能力面：ssh 一支由 registry 里的适配器实现
 // （ssh_transport.go，底座是 backend/tool/ssh），local 一支不实现（= 既有路径）。
 //
-// 方法名与设计稿 §4.1 的 Exec 对齐：后续的 Read/Write/Edit/Manage 四个能力面
-// （同一份 handler、两份传输）按同一形状往这个接口上加，不再另开接口。
+// 为什么一个接口装五个方法而不是五个接口：这五个能力面是**同一份 handler 的两份
+// 传输**（服务端差异只在"怎么连、怎么带字节"，不在"工具长什么样"）。拆成五个接口
+// 只会让每个 handler 各写一遍类型断言，且"全都要"这件事从此不可见（漏实现一个方法
+// 就到运行时才发现）。宽接口 + 唯一的 ssh 实现，编译器替我们钉住完整性。
 type Transport interface {
 	// Kind 返回这一支的标识（只有 ssh 实现；local 由"没有 Transport"表达）。
 	Kind() TransportKind
-	// Exec 执行一次请求。返回的 error 一律是可分类的传输错误（见 TransportError）。
+	// Exec 执行一次命令（命令正文 + stdin 数据）。
 	Exec(ctx context.Context, req TransportRequest) (TransportOutput, error)
+	// Read 读一个远端文件（按行窗口切好再回来）。
+	Read(ctx context.Context, req TransportReadRequest) (TransportReadOutput, error)
+	// Write 覆盖写一个远端文件（内容走数据通道，不经 shell 词法）。
+	Write(ctx context.Context, req TransportWriteRequest) (TransportWriteOutput, error)
+	// Edit 在远端文件里做一次"全部出现处替换"。
+	Edit(ctx context.Context, req TransportEditRequest) (TransportEditOutput, error)
+	// Manage 管理远端作业（observe / fetch / kill / done）。
+	Manage(ctx context.Context, req TransportManageRequest) (TransportManageOutput, error)
 }
 
 // TransportSelection 是"这次调用的执行面"——中间件写进 ctx、执行面读出来。
@@ -85,6 +190,9 @@ type TransportSelection struct {
 	ProjectID string
 	// Endpoint 是选中的端点（host:port）；local 时为空。**不含凭据**。
 	Endpoint string
+	// Env 是这次调用的**环境名**（回执里要写的那一格）：ssh = 端点的显示名
+	// （配置里有名字就用名字，否则 user@host:port），local = "local"。
+	Env string
 	// Reason 是这次选择的理由（留痕口径，取值见 transportReasons）。
 	Reason string
 	// Explicit 报告调用方是否显式指名了传输。
@@ -95,6 +203,39 @@ type TransportSelection struct {
 
 // Local 报告这次调用是否走本地执行面。
 func (s TransportSelection) Local() bool { return s.Kind != TransportSSH }
+
+// ExecutionSurface 返回回执里的执行面标识（"local" / "ssh"）。
+//
+// 判据只有一处：本地就是"没有选中 ssh"，不去看 Transport 是否为 nil——那会把
+// "选了 ssh 但装配漏了实例"报成 local，而这正是最危险的一种谎（跑本地却说远端）。
+func (s TransportSelection) ExecutionSurface() string {
+	if s.Local() {
+		return string(TransportLocal)
+	}
+	return string(TransportSSH)
+}
+
+// EnvLabel 返回回执里的环境名；没有选择（未装配选择器）时按本地报。
+func (s TransportSelection) EnvLabel() string {
+	if s.Local() {
+		if trimmed := strings.TrimSpace(s.Env); trimmed != "" {
+			return trimmed
+		}
+		return string(TransportLocal)
+	}
+	if trimmed := strings.TrimSpace(s.Env); trimmed != "" {
+		return trimmed
+	}
+	return trimmedOrString(s.Endpoint, string(TransportSSH))
+}
+
+// trimmedOrString 是"空则取 fallback"（本文件与选择器共用一处，别各写一份）。
+func trimmedOrString(value, fallback string) string {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		return trimmed
+	}
+	return fallback
+}
 
 type transportSelectionKey struct{}
 
@@ -120,6 +261,23 @@ func TransportFromContext(ctx context.Context) (Transport, bool) {
 		return nil, false
 	}
 	return selection.Transport, true
+}
+
+// ExecutionFace 返回回执里**必须**自报的两格：执行面（local|ssh）与环境名。
+//
+// 五份 handler 都从这里取（一份判据 = 一处函数）：远端回执少写这两格，模型就会把
+// 远端文件当本地文件、把远端输出当本机现场，而它下一次调用可能就落在另一侧。
+func ExecutionFace(ctx context.Context) (surface, env string) {
+	selection, ok := TransportSelectionFromContext(ctx)
+	if !ok {
+		return string(TransportLocal), string(TransportLocal)
+	}
+	return selection.ExecutionSurface(), selection.EnvLabel()
+}
+
+// RemoteTransport 返回"这次调用的远端执行面"（ok=false = 走本地既有路径）。
+func RemoteTransport(ctx context.Context) (Transport, bool) {
+	return TransportFromContext(ctx)
 }
 
 // 固定错误码。这五个是契约面：工具层/界面/用例都按它们判定，不许新增同义码。

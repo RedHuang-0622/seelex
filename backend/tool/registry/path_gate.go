@@ -26,6 +26,16 @@ func PathGate(deps Deps) frameworktools.MetaMiddleware {
 	}
 	return func(name string, _ frameworktools.ToolMeta, next frameworktools.ToolHandler) frameworktools.ToolHandler {
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
+			// 远端面例外：显式指名 ssh 的调用，路径属**对端**命名空间，本地项目根的
+			// 包含关系不成立（把远端 `/etc/nginx.conf` 判成"越界"会直接废掉远端面）。
+			//
+			// 只有**显式指名**才有这个例外：那是调用方自己说的"这次走远端"。
+			// 剩余缺口（如实记录，未在本轮修）：选择器自动选中 ssh（项目配了连接且探针
+			// 通、调用方未指名）时，本门仍在选择之前按本地根判——远端绝对路径会被误拒。
+			// 根治要把"选面"挪到本门之前，或让本门按面取根；那是链序决策，见 README。
+			if kind, explicit := explicitTransport(ctx, argsJSON); explicit && kind == TransportSSH {
+				return next.Execute(ctx, argsJSON)
+			}
 			for _, target := range pathGateTargets(name, argsJSON) {
 				if _, err := resolveScopedPath(deps, ctx, target.path, target.write); err != nil {
 					return "", err

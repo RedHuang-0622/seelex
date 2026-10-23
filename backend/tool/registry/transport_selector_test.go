@@ -31,20 +31,7 @@ import (
 	seelessh "github.com/RedHuang-0622/seelex/backend/tool/ssh"
 )
 
-// fakeTransport 是假执行面：记录被调用次数，返回值可编排。
-type fakeTransport struct {
-	name  string
-	calls int32
-}
-
-func (f *fakeTransport) Kind() TransportKind { return TransportSSH }
-
-func (f *fakeTransport) Exec(context.Context, TransportRequest) (TransportOutput, error) {
-	atomic.AddInt32(&f.calls, 1)
-	return TransportOutput{Stdout: f.name, ExitCode: 0, Status: "completed"}, nil
-}
-
-func (f *fakeTransport) Calls() int { return int(atomic.LoadInt32(&f.calls)) }
+// fakeTransport 的五个能力面实现见 transport_fake_test.go（同一个假面，两份用例共用）。
 
 // selectorHarness 是一套可编排的选择器依赖（六格矩阵用它逐格取值）。
 type selectorHarness struct {

@@ -142,6 +142,11 @@ func (r *Router) scopedReadFile(ctx context.Context, argsJSON string) (string, e
 	if input.Path == "" {
 		return "", fmt.Errorf("read_file: path is required")
 	}
+	// 远端面：路径是**远端路径**，不做本地根解析（那是本地作用域的判据；远端由对端的
+	// 权限面负责，本层不猜）。回执带 execution_surface / env，见远端读的回执注释。
+	if transport, ok := RemoteTransport(ctx); ok {
+		return readFileRemote(ctx, transport, input)
+	}
 	path, err := r.resolveNodePath(ctx, input.Path, false)
 	if err != nil {
 		return "", err
@@ -150,19 +155,31 @@ func (r *Router) scopedReadFile(ctx context.Context, argsJSON string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("read_file: read %q: %w", input.Path, err)
 	}
-	if input.StartLine <= 0 {
-		input.StartLine = 1
+	content, _, err := windowLines(string(data), input.StartLine, input.EndLine)
+	if err != nil {
+		return "", err
 	}
-	lines := strings.Split(string(data), "\n")
-	start := input.StartLine - 1
+	return content, nil
+}
+
+// windowLines 是 read_file 的**行窗口判据**（本地面与远端面同一份）。
+//
+// 行号 1 起、区间左闭右开；end_line 只在"给了、不小于 start、且小于总行数"时收窄
+// （与历史行为逐字一致：end_line 超出总行数等于读到底）。
+func windowLines(content string, startLine, endLine int) (string, int, error) {
+	if startLine <= 0 {
+		startLine = 1
+	}
+	lines := strings.Split(content, "\n")
+	start := startLine - 1
 	if start >= len(lines) {
-		return "", fmt.Errorf("read_file: start_line %d exceeds file length %d", input.StartLine, len(lines))
+		return "", len(lines), fmt.Errorf("read_file: start_line %d exceeds file length %d", startLine, len(lines))
 	}
 	end := len(lines)
-	if input.EndLine > 0 && input.EndLine >= input.StartLine && input.EndLine < end {
-		end = input.EndLine
+	if endLine > 0 && endLine >= startLine && endLine < end {
+		end = endLine
 	}
-	return strings.Join(lines[start:end], "\n"), nil
+	return strings.Join(lines[start:end], "\n"), len(lines), nil
 }
 
 type scopedGrepInput struct {
@@ -411,6 +428,10 @@ func (r *Router) scopedWriteFile(ctx context.Context, argsJSON string) (string, 
 	if input.Path == "" {
 		return "", fmt.Errorf("write_file: path is required")
 	}
+	// 远端面：路径是远端路径（不解析本地根），内容走内容通道（不经 shell 词法）。
+	if transport, ok := RemoteTransport(ctx); ok {
+		return writeFileRemote(ctx, transport, input)
+	}
 	path, err := r.resolveNodePath(ctx, input.Path, true)
 	if err != nil {
 		return "", err
@@ -420,7 +441,9 @@ func (r *Router) scopedWriteFile(ctx context.Context, argsJSON string) (string, 
 	if err := r.deps.FileSystem.Write(path, []byte(input.Content)); err != nil {
 		return "", fmt.Errorf("write_file: write %q: %w", input.Path, err)
 	}
-	return fmt.Sprintf(`{"status":"ok","path":%q,"size":%d}`, input.Path, len(input.Content)), nil
+	return receiptJSON("write_file", withExecutionFace(ctx, map[string]any{
+		"status": "ok", "path": input.Path, "size": len(input.Content),
+	}))
 }
 
 type scopedEditFileInput struct {
@@ -437,6 +460,10 @@ func (r *Router) scopedEditFile(ctx context.Context, argsJSON string) (string, e
 	if input.Path == "" || input.OldString == "" {
 		return "", fmt.Errorf("edit_file: path and old_string are required")
 	}
+	// 远端面：读-替换-写都在对端（替换判据与本地面同源：全部出现处替换 + 计数）。
+	if transport, ok := RemoteTransport(ctx); ok {
+		return editFileRemote(ctx, transport, input)
+	}
 	path, err := r.resolveNodePath(ctx, input.Path, true)
 	if err != nil {
 		return "", err
@@ -449,13 +476,19 @@ func (r *Router) scopedEditFile(ctx context.Context, argsJSON string) (string, e
 		}
 		return "", fmt.Errorf("edit_file: %q: %w", input.Path, err)
 	}
-	return fmt.Sprintf(`{"status":"ok","path":%q,"replacements":%d}`, input.Path, count), nil
+	return receiptJSON("edit_file", withExecutionFace(ctx, map[string]any{
+		"status": "ok", "path": input.Path, "replacements": count,
+	}))
 }
 
 type scopedBashInput struct {
 	Command string `json:"command"`
 	Timeout int    `json:"timeout,omitempty"`
 	Workdir string `json:"workdir,omitempty"`
+	// Stdin 是**命令的 stdin 数据**（与 command 正交）。它存在的理由见
+	// TransportRequest.Stdin：数据拼进命令正文就要过 shell 词法与代码页，任何一处
+	// 漏转义都是静默改数据；远端面把它当作内容通道原样喂给进程。
+	Stdin string `json:"stdin,omitempty"`
 	// Background 是**已废弃的旧入参**：它只被兼容解析，用来把老会话/老提示词送来的
 	// `background=true` 明确拒掉并指向 bash_bg。保留字段而不是删掉，是为了让这次拒绝
 	// 有话说——静默当成同步执行等于把"后台"偷偷变成"前台"。
@@ -503,10 +536,18 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", fmt.Errorf("bash: background=true 已废弃；后台受管命令改用 bash_bg（派发即返回受理回执，取回/终止/销项走 bg_manage）")
 	}
 	if input.Command == "" {
-		return `{"stdout":"","stderr":"","exit_code":0}`, nil
+		return receiptJSON("bash", withExecutionFace(ctx, map[string]any{
+			"stdout": "", "stderr": "", "exit_code": 0,
+		}))
 	}
 	if err := r.auditSerialTimeout("bash", input.Timeout); err != nil {
 		return "", err
+	}
+	// 远端面：命令正文与 stdin 数据都走内容通道，workdir 原样交给对端（不本地解析——
+	// 命令里的路径改写属权限模式表，见 pathGateTargets 的注释）。
+	if transport, ok := RemoteTransport(ctx); ok {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.remote.start", Session: r.sessionKey(ctx)})
+		return bashRemote(ctx, transport, input.Command, input.Stdin, input.Workdir, r.scopedToolTimeout(input.Timeout))
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.start"})
 	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
@@ -515,7 +556,7 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", err
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
-	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
+	return r.executeScopedBash(ctx, input.Command, input.Stdin, input.Timeout, workdir)
 }
 
 // newExecProcessTree 建"整棵树可终止"的执行域（Windows Job Object / POSIX 进程组）。
@@ -575,7 +616,7 @@ func startWithProcessTree(cmd *exec.Cmd, tree *security.ProcessTree) error {
 
 // executeScopedBash 是 bash 的同步执行路径：授权与路径解析已经在调用方完成，
 // 这里是"已经批准之后的执行"。
-func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutSec int, workdir string) (string, error) {
+func (r *Router) executeScopedBash(ctx context.Context, command, stdinData string, timeoutSec int, workdir string) (string, error) {
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
@@ -587,6 +628,11 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 	cmd, tree := newProcessTreeCommand(runCtx, shell, shellArgs, workdir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// stdin 数据：与命令正文正交（命令走 argv/脚本，数据走管道）。本地与远端同一条
+	// 契约；不给数据时不设 Stdin（不是给一个空管道——空管道会让交互式命令立即 EOF）。
+	if stdinData != "" {
+		cmd.Stdin = strings.NewReader(stdinData)
+	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell), Session: r.sessionKey(ctx)})
 	if err := startWithProcessTree(cmd, tree); err != nil {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), Err: err})
@@ -634,6 +680,9 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 			retryCmd, retryTree := newProcessTreeCommand(retryCtx, shell, shellArgs, workdir)
 			var retryOut, retryErrBuf bytes.Buffer
 			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
+			if stdinData != "" {
+				retryCmd.Stdin = strings.NewReader(stdinData)
+			}
 			runErr := startWithProcessTree(retryCmd, retryTree)
 			if runErr == nil {
 				r.noteProcessTreeDegraded(filepath.Base(shell), retryTree)
@@ -646,10 +695,9 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 			retryCancel()
 			if runErr == nil {
 				r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.ok", Shell: filepath.Base(shell)})
-				encoded, _ := json.Marshal(scopedBashResult{
+				return bashLocalReceipt(ctx, scopedBashResult{
 					Stdout: strings.TrimSpace(retryOut.String()), Stderr: strings.TrimSpace(retryErrBuf.String()), ExitCode: 0,
 				})
-				return string(encoded), nil
 			}
 			r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.failed", Shell: filepath.Base(shell)})
 			result.Stderr = strings.TrimSpace(retryErrBuf.String()) + r.deps.DockerHint(nil)
@@ -662,8 +710,7 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 			result.ExitCode = 1
 		}
 	}
-	encoded, _ := json.Marshal(result)
-	return string(encoded), nil
+	return bashLocalReceipt(ctx, result)
 }
 
 func (r *Router) observeBash(event BashDiagnosticEvent) {
@@ -794,6 +841,8 @@ func bashDescription() string {
 		"command runs — and it refuses a `timeout` above its " + serialBashBudgetLabel() +
 		" budget: commands expected to take longer belong to bash_bg, whose call returns only " +
 		"an acceptance receipt. " +
+		"Pass `stdin` for data the command should read on its standard input (byte-transparent); " +
+		"never splice data into `command`. " +
 		// 实际壳是**装配期解析一次的事实**（见 shell_fact.go）：模型写命令前必须知道
 		// 自己写的是哪种方言，否则命令会"过闸即死"（审计 D4）。
 		ResolveShellFact().DialectHint()
@@ -807,6 +856,13 @@ func bashSchema() map[string]interface{} {
 			"command": map[string]interface{}{"type": "string"},
 			"timeout": map[string]interface{}{"type": "integer"},
 			"workdir": map[string]interface{}{"type": "string"},
+			// stdin 是**数据通道**（与 command 正交）：数据拼进命令正文就要过 shell 词法
+			// 与代码页，任何一处漏转义都是静默改数据；这里原样喂给进程的标准输入。
+			"stdin": map[string]interface{}{
+				"type": "string",
+				"description": "Data piped to the command's stdin (byte-transparent). " +
+					"Use it instead of splicing data into `command`.",
+			},
 		},
 		"required": []string{"command"},
 	}

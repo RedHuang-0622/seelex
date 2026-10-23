@@ -43,6 +43,9 @@ type SSHEndpoint struct {
 	Host string
 	Port int
 	User string
+	// Name 是这次连接在**人眼里的名字**（项目连接配置里的显示名；空 = 没有名字）。
+	// 它进回执的 env 一格：模型看到的不该只是一个 IP——"哪台机器"是执行事实的一部分。
+	Name string
 }
 
 // Addr 返回 host:port 形态（端口缺省 22）。
@@ -52,6 +55,17 @@ func (e SSHEndpoint) Addr() string {
 		port = 22
 	}
 	return net.JoinHostPort(strings.TrimSpace(e.Host), strconv.Itoa(port))
+}
+
+// Label 返回环境名：有名字用名字，否则 user@host:port（回执 env 一格的判据只此一处）。
+func (e SSHEndpoint) Label() string {
+	if trimmed := strings.TrimSpace(e.Name); trimmed != "" {
+		return trimmed
+	}
+	if user := strings.TrimSpace(e.User); user != "" {
+		return user + "@" + e.Addr()
+	}
+	return e.Addr()
 }
 
 // Configured 报告这个端点是否真的被配置过（没配主机 = 未配）。
@@ -163,6 +177,8 @@ func resolveTransportSelection(
 
 	local := TransportSelection{
 		Kind: TransportLocal, ProjectID: projectID, Explicit: explicit,
+		// 本地回执的 env 一格：就是 "local"（不是空串——空格在回执里等于没说）。
+		Env: string(TransportLocal),
 	}
 	record := func(selection TransportSelection, degraded bool, code, probeClass string) {
 		if deps.Trace == nil {
@@ -278,7 +294,7 @@ func resolveTransportSelection(
 
 	selection := TransportSelection{
 		Kind: TransportSSH, Transport: transport, ProjectID: projectID,
-		Endpoint: endpoint.Addr(), Explicit: explicit, Reason: ReasonProbeOK,
+		Endpoint: endpoint.Addr(), Env: endpoint.Label(), Explicit: explicit, Reason: ReasonProbeOK,
 	}
 	if explicit {
 		selection.Reason = ReasonExplicitSSH

@@ -90,7 +90,46 @@ flowchart LR
   降级必带 reason——否则"为什么这次在本机跑"无从追查。
 - **消费者闸门**：`TransportSelectorDeps.Consumers` 空 ⇒ 中间件返回 nil（链上逐字
   等于旧行为）。把 ssh 写进 ctx 而 handler 不读，就是"说走远端其实跑了本地"，比不选
-  更危险；因此消费者名单与真实消费点必须同一个提交里改。
+  更危险；因此消费者名单与真实消费点必须同一个提交里改。名单唯一一份：
+  `RemoteFaceToolNames()`（read_file / write_file / edit_file / bash / bg_manage）。
+
+### 五个工具的远端面（`remote_face.go` + `ssh_transport.go`）
+
+| 工具 | 远端实现 | 回执里的执行面两格 |
+|---|---|---|
+| `read_file` | `Transport.Read`（远端 base64 流回，行窗口在本端切） | 有（信封里的 `content` + `execution_surface` + `env`） |
+| `write_file` | `Transport.Write`（内容走内容通道） | 有 |
+| `edit_file` | `Transport.Edit`（读-替换-写，替换判据与本地面同源） | 有 |
+| `bash` | `Transport.Exec`（命令正文与 `stdin` 数据都走内容通道） | 有（另带 `status` / `truncated` / `still_running` / `handle` / `log_path`） |
+| `bg_manage` | `Transport.Manage`（observe / fetch / kill / done） | 有 |
+
+四条硬约束（判据都在用例里）：
+
+1. **远端路径不过 shell 词法**：`backend/tool/ssh` 用 base64 承载路径，远端解码进
+   shell 变量（`files_test.go` 断言命令正文里没有路径原文）；
+2. **命令 + stdin 数据是两个字段**：`TransportRequest.Stdin` 与 `Command` 正交，
+   数据不拼进命令正文（`TestRemoteBashSendsCommandAndStdinSeparatelyAndKeepsWorkdir`）；
+3. **命令正文里的路径不做猜测式改写**：远端面上的 `path` / `workdir` 原样送给对端，
+   本层不做 `ProjectScope` 解析（这是本地作用域的判据）；
+4. **超时 / 截断 / 仍在跑分开**：`status`、`truncated`、`still_running` 三格互不顶替，
+   仍在跑时必须有 `handle` + `log_path`（否则不说"稍后取回"）。
+
+**远端作业句柄**是 `ssh:<base64url(dir)>` 族（`backend/tool/ssh/job.go`），与本机
+作业表的 `bt-` / `bs-` / `bteam-` **语法上互不相认**：把本机句柄交给远端面只会得到
+"该用哪张表"的显式错误，不会静默命中一条无关作业。
+
+**已知缺口（如实记录，未在本轮修）**：
+
+- **路径门与选面的顺序冲突**：`pathGate` 跑在传输选择**之前**，因此"选择器自动选中
+  ssh"（项目配了连接 + 探针通 + 调用方未指名）时，路径门仍按**本地根**判，远端绝对
+  路径会被误拒。当前只对**显式指名 ssh**（ctx 或入参 `transport=ssh`）豁免——那是
+  调用方自己说的"这次走远端"。根治要么把选面前移到路径门之前，要么让路径门按执行面
+  取根（链序决策，需 leader 裁）。
+- **远端无并发写互斥**：本地 `fs.FileSystem` 的 per-path actor 是进程内锁，跨机器不
+  成立；远端写只保证"原子替换"，不保证两个并发远端写之间的顺序。
+- **远端 `edit_file` 是两趟往返**（读 + 写），读与写之间远端文件可能被别处改动。
+- **`bash_bg` / `read_batch` / `grep_search` / `glob` 仍只有本地面**：不在消费者名单里，
+  因此选择器对它们一个判断都不做（本工作项范围是五个工具）。
 
 ## 核心实现
 

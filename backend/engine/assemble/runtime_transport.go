@@ -15,10 +15,11 @@ package assemble
 // Auth=auto（能用的只有 ssh-agent 与默认私钥位置）。口令认证要等凭据读面（
 // 从 OS 凭据库取引用）接上，届时只改这里的一行 Spec 构造，选择规则一行不动。
 //
-// 消费者名单今天是**空的**：bash/bash_bg 的 handler 还没有读执行面（
-// TransportFromContext），所以中间件返回 nil（直通）。这条闸门刻意如此——选择器
-// 把 ssh 写进 ctx 而 handler 不读，等于"说走远端其实跑了本地"，比不选更危险。
-// 接 bash 执行面的工作项落地时，把工具名加进 TransportConsumers 即可点亮。
+// 消费者名单 = 五个**真的有远端面**的工具（read_file / write_file / edit_file /
+// bash / bg_manage，名单见 toolreg.RemoteFaceToolNames）。闸门与消费点同一个提交里
+// 改：选择器把 ssh 写进 ctx 而 handler 不读，等于"说走远端其实跑了本地"，比不选更
+// 危险。其余工具（grep_search / glob / read_batch / bash_bg）仍只有本地面，因此不在
+// 名单里——它们连"这次走哪儿"都不判断，链上逐字等于旧行为。
 
 import (
 	"context"
@@ -51,7 +52,7 @@ func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 	prober := seelessh.NewProber(seelessh.DefaultProbeTTL, nil)
 	deps := toolreg.TransportSelectorDeps{
 		Enabled:   transportEnabled(),
-		Consumers: toolreg.TransportConsumers(),
+		Consumers: toolreg.TransportConsumers(toolreg.RemoteFaceToolNames()...),
 		SessionKey: func(ctx context.Context) string {
 			return seetelemetry.SessionIDFromContext(ctx)
 		},

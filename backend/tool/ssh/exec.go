@@ -56,14 +56,21 @@ type DetachRequest struct {
 
 // Run 执行一次命令并等待结束（或等到 channel 段超时）。
 func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
-	started := time.Now()
-	res := Result{Status: StatusFailed, AuthUsed: c.authUsed, ExitCode: -1}
-
 	resolved, err := c.resolve(req)
 	if err != nil {
-		res.DurationMS = time.Since(started).Milliseconds()
-		return res, err
+		return Result{Status: StatusFailed, AuthUsed: c.authUsed, ExitCode: -1}, err
 	}
+	return c.runCommand(ctx, resolved.command, resolved.stdin, req.Env, req.MaxOutputBytes, resolved.note)
+}
+
+// runCommand 是"一条命令在一条会话里跑完"的**唯一实现**：命令串 + 可选 stdin 内容。
+//
+// 抽出来是因为远端面有两种调用者：Run（命令来源经 resolve 归一）与
+// RunWithInput / StartJob（命令串由生成器给出、数据走内容通道）。三者共享同一套
+// 有界输出、三态收口与超时语义——**不许**为第二种调用者复制一份会话执行。
+func (c *Client) runCommand(ctx context.Context, command string, stdin io.Reader, env map[string]string, maxOut int, note string) (Result, error) {
+	started := time.Now()
+	res := Result{Status: StatusFailed, AuthUsed: c.authUsed, ExitCode: -1}
 
 	sess, err := c.client.NewSession()
 	if err != nil {
@@ -73,7 +80,7 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	defer func() { _ = sess.Close() }()
 
-	limit := req.MaxOutputBytes
+	limit := maxOut
 	if limit <= 0 {
 		limit = c.spec.maxOutput()
 	}
@@ -81,15 +88,15 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 	stderr := newCapBuffer(limit)
 	sess.Stdout = stdout
 	sess.Stderr = stderr
-	if resolved.stdin != nil {
-		sess.Stdin = resolved.stdin
+	if stdin != nil {
+		sess.Stdin = stdin
 	}
-	for k, v := range req.Env {
+	for k, v := range env {
 		// AcceptEnv 由远端 sshd 决定；失败不致命（Setenv 只是"请求"）。
 		_ = sess.Setenv(k, v)
 	}
 
-	if startErr := sess.Start(resolved.command); startErr != nil {
+	if startErr := sess.Start(command); startErr != nil {
 		res.DurationMS = time.Since(started).Milliseconds()
 		res.Class, res.Hint = ClassUnknown, "远端拒绝启动命令（可能是 shell 不存在或通道已被关闭）。"
 		return res, fmt.Errorf("ssh: start command: %w", startErr)
@@ -102,7 +109,7 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 	select {
 	case waitErr := <-done:
 		res.DurationMS = time.Since(started).Milliseconds()
-		fillOutput(&res, stdout, stderr, resolved.note)
+		fillOutput(&res, stdout, stderr, note)
 		c.applyWait(&res, waitErr)
 		return res, nil
 	case <-time.After(timeouts.Channel):
@@ -114,7 +121,7 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 		res.Segment = SegChannel
 		res.StillRunning = true
 		res.Note = fmt.Sprintf("本端在 %s 后停止等待；远端命令可能仍在运行。要拿回结果请用 detached 形态（日志路径可取回）。", timeouts.Channel)
-		fillOutput(&res, stdout, stderr, resolved.note)
+		fillOutput(&res, stdout, stderr, note)
 		return res, nil
 	case <-ctx.Done():
 		_ = sess.Signal(xssh.SIGTERM)
@@ -124,7 +131,7 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 		res.Segment = SegChannel
 		res.StillRunning = true
 		res.Note = "调用方取消（ctx）；远端命令可能仍在运行。"
-		fillOutput(&res, stdout, stderr, resolved.note)
+		fillOutput(&res, stdout, stderr, note)
 		return res, nil
 	}
 }
