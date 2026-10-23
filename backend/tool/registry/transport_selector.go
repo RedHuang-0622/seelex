@@ -123,6 +123,12 @@ type TransportSelectorDeps struct {
 	// Endpoint 读项目连接配置里的 SSH 端点（读面**永不返回口令**）。
 	// 返回 (endpoint, true, nil) = 配了；(_, false, nil) = 没配；error = 读失败。
 	Endpoint func(projectID string) (SSHEndpoint, bool, error)
+	// EndpointFor 按**环境名**读项目环境表里的端点（nil = 未装配环境表）。
+	//
+	// 与 Endpoint 的分工：Endpoint 是单条连接兜底（env 为空时用），EndpointFor 是
+	// 项目侧的多环境表（dev/test/prod）。一次调用只会走其中一条——不会"两个都查、
+	// 谁有值用谁"，那会让"环境表为空"和"环境名打错"变成同一个结果。
+	EndpointFor func(projectID, env string) (SSHEndpoint, bool, error)
 	// Probe 读**缓存**的探测结论：ok=false 表示还没有结论（未探）。
 	//
 	// 它必须是一次纯读（内存缓存）：决策段在权限门之前跑，一次调用就会读一次。
@@ -174,7 +180,7 @@ func TransportSelector(deps TransportSelectorDeps) frameworktools.MetaMiddleware
 			// 已有决策（决策段跑过）就**不重算**：一次调用只有一份选择事实。
 			decision, decided := TransportDecisionFromContext(ctx)
 			if !decided {
-				decision = resolveTransportDecision(ctx, deps, name, explicit, explicitKind)
+				decision = resolveTransportDecision(ctx, deps, name, explicit, explicitKind, explicitEnv(argsJSON))
 			}
 			if transportStageFromContext(ctx) == transportStageDecision {
 				// 决策段：只写事实，绝不建连（跑在权限门之前，被拒的调用也会经过）。
@@ -395,6 +401,27 @@ func explicitTransport(ctx context.Context, argsJSON string) (TransportKind, boo
 		}
 	}
 	return explicitTransportFromArgs(argsJSON)
+}
+
+// explicitEnv 读调用方指名的**环境名**（工具参数 env）。
+//
+// 与 explicitTransport 分开而不是塞进一个结构：两者是正交的——"走哪个面"（local /
+// ssh）与"用哪个环境"（dev / test / prod）可以各自独立指名，混在一起就会出现
+// "指名了 env 但传输是 local"这种自相矛盾的输入，还得再编一套优先级去解释它。
+//
+// 空串 = 没指名。不做任何猜测（不把 "default" 之类当成默认名）：环境名只在项目
+// 环境表里有意义，猜一个不存在的名字只会得到一条更远的报错。
+func explicitEnv(argsJSON string) string {
+	if strings.TrimSpace(argsJSON) == "" {
+		return ""
+	}
+	var args struct {
+		Env string `json:"env"`
+	}
+	if json.Unmarshal([]byte(argsJSON), &args) != nil {
+		return ""
+	}
+	return strings.TrimSpace(args.Env)
 }
 
 // explicitTransportFromArgs 读工具入参里的 transport 字段（"auto" / 空 = 未指名）。

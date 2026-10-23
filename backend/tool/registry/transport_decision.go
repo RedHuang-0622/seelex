@@ -48,6 +48,11 @@ type TransportDecision struct {
 	Kind TransportKind
 	// ProjectID 是这次调用归属的项目（工作区 ID）；空 = 没有项目归属。
 	ProjectID string
+	// Env 是调用方指名的**环境名**（工具参数 env）；空 = 没指名（走项目默认/单条连接）。
+	//
+	// 它只记录"指名了什么"，不代表解析成功：解析不到时 Kind 仍是 ssh、Feasible=false，
+	// 失败码 SSH_ENV_UNKNOWN（报错留给建连段，与显式指名 ssh 的口径一致）。
+	Env string
 	// Endpoint 是项目连接配置里的端点（含 RemoteRoot：远端项目根，未知时为空）。
 	Endpoint SSHEndpoint
 	// Configured 报告项目是否真的配了 SSH 端点（Endpoint 有值 ≠ 配了）。
@@ -168,6 +173,7 @@ func resolveTransportDecision(
 	toolName string,
 	explicit bool,
 	explicitKind TransportKind,
+	env string,
 ) TransportDecision {
 	sessionID := ""
 	if deps.SessionKey != nil {
@@ -212,8 +218,21 @@ func resolveTransportDecision(
 	// 项目连接配置：未配 = 没有远端可去（读面永不返回口令）。
 	var endpoint SSHEndpoint
 	configured := false
-	if deps.Endpoint != nil && projectID != "" {
-		read, ok, err := deps.Endpoint(projectID)
+	// 显式给的环境名（工具参数 env）：查项目环境表。查不到 = 显式失败，**不回落
+	// 默认环境**——回落会静默连到另一台机器上，那是这类设计最贵的一种错。
+	readEndpoint := deps.Endpoint
+	if env != "" {
+		if deps.EndpointFor == nil {
+			if sshIntent {
+				return unavailable(CodeSSHEnvUnknown, "", "项目环境表未装配，指名环境 %q 的调用无法解析端点", env)
+			}
+		} else {
+			readEndpoint = func(pid string) (SSHEndpoint, bool, error) { return deps.EndpointFor(pid, env) }
+		}
+	}
+	decision.Env = env
+	if readEndpoint != nil && projectID != "" {
+		read, ok, err := readEndpoint(projectID)
 		if err != nil {
 			if sshIntent {
 				return unavailable(CodeSSHUnreachable, "",
@@ -223,6 +242,11 @@ func resolveTransportDecision(
 			return decision
 		}
 		endpoint, configured = read, ok && read.Configured()
+	}
+	if !configured && env != "" {
+		return unavailable(CodeSSHEnvUnknown, "",
+			"环境 %q 不在项目 %s 的环境表里（或在表里但没填 host）：不回落默认环境，避免连错机器",
+			env, trimmedOr(projectID, "(未绑定项目)"))
 	}
 	if !configured {
 		if sshIntent {

@@ -292,6 +292,11 @@ const (
 	CodeSSHTimeout = "SSH_TIMEOUT"
 	// CodeSSHEnvDisabled 表示这台宿主上没有 SSH 能力（装配级开关关闭）。
 	CodeSSHEnvDisabled = "SSH_ENV_DISABLED"
+	// CodeSSHEnvUnknown 表示调用方指名的**环境名**不在项目环境表里（或表里没填 host）。
+	//
+	// 与 SSH_ENV_DISABLED 分开：那个是"这台宿主没有 SSH 能力"，这个是"项目里没有
+	// 这个环境"。混成一个码会让用户去查宿主的开关，而真正要改的是项目配置。
+	CodeSSHEnvUnknown = "SSH_ENV_UNKNOWN"
 )
 
 // TransportError 是传输选择的失败。Code 给机器判定，Msg 给人读的下一步。
