@@ -8,14 +8,13 @@ package store
 // 不必另立第二条写路径。
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func newUnitRecordWriterFixture(t *testing.T) (*NodeSessionStore, *NodeSessionRecordWriter) {
 	t.Helper()
-	router, err := NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

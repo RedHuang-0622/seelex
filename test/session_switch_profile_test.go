@@ -173,7 +173,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 // TestStorageConcurrentSessionLockProfile 存储层多会话并发读写（锁竞争/热点）。
 func TestStorageConcurrentSessionLockProfile(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

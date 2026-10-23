@@ -13,9 +13,9 @@ import (
 
 func TestListToolResultsAndCurrentGenerationAcrossBackends(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -61,9 +61,9 @@ func TestListToolResultsAndCurrentGenerationAcrossBackends(t *testing.T) {
 // 删父后子会话的 state/events/tool-results 全部可读（删父安全前提）。
 func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -107,13 +107,12 @@ func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 				t.Fatal(err)
 			}
 			state, err := repository.ReadState(ctx, child)
-			if config.Backend == BackendJSON {
-				if !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("json child state err=%v, want fs.ErrNotExist", err)
-				}
-			} else if err != nil || string(state) != string(childState) {
-				t.Fatalf("child state = %s err=%v", state, err)
+			// 唯一形态（jsonl + json）：state.json 停写停读，恒 fs.ErrNotExist。
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("json child state err=%v, want fs.ErrNotExist", err)
 			}
+			_ = state
+			_ = childState
 			events, err := repository.ReadEventRange(ctx, child, 1, 2)
 			if err != nil || len(events) != 1 || events[0].Seq != 1 {
 				t.Fatalf("child events = %#v err=%v", events, err)
@@ -135,7 +134,7 @@ func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 // 删父 → 子读回"，同时覆盖 resolver 重装与活跃写作用域漂移。每对的 content
 // 只属于自己（发散式隔离，不串写他域）。
 func TestForkToolResultsConcurrentDivergenceStayIsolated(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	store := NewSessionGranularStore(router)
 	const project = "project-fork-race"
 	resolver := func(string) string { return project }

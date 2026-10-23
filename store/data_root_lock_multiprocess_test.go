@@ -34,14 +34,14 @@ func TestJSONDataRootLockMultiProcessTwoArms(t *testing.T) {
 	}
 
 	// 臂一：默认单实例——被拒绝。
-	if _, err := Open(context.Background(), Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootLocked) {
+	if _, err := Open(context.Background(), Config{Path: root}); !errors.Is(err, storeroot.ErrDataRootLocked) {
 		t.Fatalf("default open under foreign live lock err = %v, want storeroot.ErrDataRootLocked", err)
 	}
 
 	// 臂二：允许多进程——放行。
 	allow := true
 	repository, err := Open(context.Background(), Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AllowMultiProcess: &allow},
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestJSONDataRootLockMultiProcessStaleBypass(t *testing.T) {
 
 	allow := true
 	repository, err := Open(context.Background(), Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AllowMultiProcess: &allow},
 	})
 	if err != nil {

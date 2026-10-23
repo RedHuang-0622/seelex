@@ -13,7 +13,7 @@ import (
 // 标题读正文"的存储层前提。
 func TestSessionTitleDurableThroughMessageHead(t *testing.T) {
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestSessionTitleDurableThroughMessageHead(t *testing.T) {
 // 标题，目录刷新退回读正文。
 func TestSessionTitleSurvivesMessageHeadRebuild(t *testing.T) {
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

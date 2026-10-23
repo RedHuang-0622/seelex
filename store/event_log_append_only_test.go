@@ -27,7 +27,7 @@ import (
 // eventLogFixture 打开一个 JSON v8 后端并返回具体实现（用例要取会话目录路径）。
 func eventLogFixture(t *testing.T) (*jsonRepository, Key) {
 	t.Helper()
-	opened, err := Open(context.Background(), Config{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")})
+	opened, err := Open(context.Background(), Config{Path: filepath.Join(t.TempDir(), "json")})
 	if err != nil {
 		t.Fatalf("open repository: %v", err)
 	}

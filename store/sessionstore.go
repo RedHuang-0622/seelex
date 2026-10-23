@@ -1,6 +1,6 @@
 // Package store provides atomic, project-scoped persistence for chat
-// sessions. The JSON v8 layout is the only active implementation; retired
-// backend enums return ErrBackendRetired.
+// sessions. jsonl + json（v8 布局）是**唯一形态**：没有后端枚举、没有运行期
+// 重配置入口，装配只有一条路径（默认值 ← limits ← 显式传入的覆盖）。
 package store
 
 import (
@@ -23,13 +23,10 @@ import (
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
-type Backend string
-
 const (
-	BackendJSON       Backend = "json"
-	BackendSQLite     Backend = "sqlite"
-	BackendPostgreSQL Backend = "postgres"
-	BackendRedis      Backend = "redis"
+	// storageLayoutName 是存储布局的自我标识（stats / 日志标记用）。它**不是**
+	// 「可选后端」的枚举：全仓库只有 jsonl + json 这一种形态。
+	storageLayoutName = "json"
 	// CompressedTurnRefPrefix 是压缩轮次原文在 tool-results 通道中的 ref
 	// 前缀（ref = "compressed:"+segment_id）。前缀属于存储通道命名空间，
 	// 压缩/检索与 fork 血缘共用同一常量，避免字符串漂移。
@@ -51,37 +48,18 @@ const (
 	eventLogTailChunk = 64 * 1024
 )
 
-// ErrBackendRetired 标识已退役的会话存储后端。R1 只保留 JSON v8 实现；
-// SQLite/PostgreSQL/Redis 枚举继续保留，便于配置层给出明确、可操作的提示，
-// 但 Open 不再静默回退或打开旧链路。
-var ErrBackendRetired = errors.New("session storage: backend retired/unsupported")
-
-func retiredBackendError(backend Backend) error {
-	return fmt.Errorf("%w: %s; use %s", ErrBackendRetired, backend, BackendJSON)
-}
-
+// Config 是打开会话存储所需的全部输入：落点 + §11 参数覆盖。
+// 没有「后端选择」字段——jsonl + json 是唯一形态，落点之外无第二份判据。
 type Config struct {
-	Backend Backend `json:"backend"`
-	Path    string  `json:"path,omitempty"`
-	DSN     string  `json:"dsn,omitempty"`
+	Path string `json:"path,omitempty"`
 	// SessionStorage 是 §11 存储运行参数覆盖（零值 = 用默认/limits 层）。
 	SessionStorage storeroot.Settings `json:"session_storage,omitempty"`
 }
 
+// Normalize 补齐默认落点并解析/校验参数覆盖链（默认值 ← limits ← 本配置）。
 func (config Config) Normalize(defaultPath string) (Config, error) {
-	config.Backend = Backend(strings.ToLower(strings.TrimSpace(string(config.Backend))))
-	if config.Backend == "" {
-		config.Backend = BackendJSON
-	}
-	switch config.Backend {
-	case BackendJSON:
-		if strings.TrimSpace(config.Path) == "" {
-			config.Path = filepath.Join(defaultPath, "sessions-json")
-		}
-	case BackendSQLite, BackendPostgreSQL, BackendRedis:
-		return Config{}, retiredBackendError(config.Backend)
-	default:
-		return Config{}, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
+	if strings.TrimSpace(config.Path) == "" {
+		config.Path = filepath.Join(defaultPath, "sessions-json")
 	}
 	// 覆盖链的最后一层：默认值 ← limits（由 NewRouter 注入）← 本配置。
 	config.SessionStorage = storeroot.ResolveSettings(config.SessionStorage)
@@ -89,16 +67,6 @@ func (config Config) Normalize(defaultPath string) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
-}
-
-// Safe returns a configuration suitable for the GUI. Credentials are never
-// returned to the renderer; leaving DSN empty means "keep current DSN".
-func (config Config) Safe() Config {
-	copy := config
-	if copy.DSN != "" {
-		copy.DSN = "configured"
-	}
-	return copy
 }
 
 type Key struct {
@@ -312,17 +280,13 @@ type Repository interface {
 	Close() error
 }
 
-// Router serializes access to the selected backend and supplies the active
-// project scope. Changing storage is atomic with respect to all repository
-// calls: existing operations finish on the old backend, then future calls use
-// the fully initialized replacement.
+// Router serializes access to the single session repository (jsonl + json)
+// and supplies the active project scope. 存储不可在运行期替换：没有
+// Configure/Config 之类入口，落点与参数在装配期一次定死。
 type Router struct {
-	mu          sync.RWMutex
-	repository  Repository
-	config      Config
-	configPath  string
-	defaultPath string
-	projectID   string
+	mu         sync.RWMutex
+	repository Repository
+	projectID  string
 	// projectBoardRootFor 是「会话 → 项目根」的解析器（装配期注入一次；nil = 未装配）。
 	// 项目看板的落点是项目目录，而存储层不认识工作区——只有会话删除时的投影回收需要
 	// 它（见 project_board.go 的 SetProjectBoardRootFor / ReclaimProjectBoard）。
@@ -336,17 +300,11 @@ type Router struct {
 	opsOnce   sync.Once
 }
 
-func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*Router, error) {
-	config, err := loadConfig(configPath)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	if errors.Is(err, fs.ErrNotExist) {
-		config = Config{Backend: BackendJSON}
-	}
-	// §11 覆盖链：默认值 ← seele.yaml limits.session_storage ← session-storage.json。
-	config.SessionStorage = storeroot.ResolveSettings(limits...)
-	config, err = config.Normalize(defaultPath)
+func NewRouter(defaultPath string, limits ...storeroot.Settings) (*Router, error) {
+	// §11 覆盖链：默认值 ← config/seelex.yaml limits.session_storage ← 调用方显式覆盖。
+	// 装配只有这一条路径：没有第二份落盘配置，也没有运行期重配置入口。
+	config := Config{SessionStorage: storeroot.ResolveSettings(limits...)}
+	config, err := config.Normalize(defaultPath)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +312,7 @@ func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*R
 	if err != nil {
 		return nil, err
 	}
-	router := &Router{repository: repository, config: config, configPath: configPath, defaultPath: defaultPath}
+	router := &Router{repository: repository}
 	router.opsCond = sync.NewCond(&router.opsMu)
 	return router, nil
 }
@@ -989,57 +947,6 @@ func (router *Router) MessageCount(sessionID string) (int, error) {
 	return len(messages), err
 }
 
-func (router *Router) Config() Config {
-	router.mu.RLock()
-	defer router.mu.RUnlock()
-	return router.config.Safe()
-}
-
-func (router *Router) Test(ctx context.Context, config Config) error {
-	router.mu.RLock()
-	defaultPath := router.defaultPath
-	router.mu.RUnlock()
-	normalized, err := config.Normalize(defaultPath)
-	if err != nil {
-		return err
-	}
-	repository, err := Open(ctx, normalized)
-	if err != nil {
-		return err
-	}
-	defer repository.Close()
-	return repository.Ping(ctx)
-}
-
-func (router *Router) Configure(ctx context.Context, config Config) error {
-	router.mu.RLock()
-	defaultPath := router.defaultPath
-	router.mu.RUnlock()
-	normalized, err := config.Normalize(defaultPath)
-	if err != nil {
-		return err
-	}
-	replacement, err := Open(ctx, normalized)
-	if err != nil {
-		return err
-	}
-	if err := replacement.Ping(ctx); err != nil {
-		replacement.Close()
-		return err
-	}
-	if err := saveConfig(router.configPath, normalized); err != nil {
-		replacement.Close()
-		return err
-	}
-	router.mu.Lock()
-	router.waitOpsIdleLocked()
-	old := router.repository
-	router.repository = replacement
-	router.config = normalized
-	router.mu.Unlock()
-	return old.Close()
-}
-
 func (router *Router) Close() error {
 	router.mu.Lock()
 	router.waitOpsIdleLocked()
@@ -1143,15 +1050,9 @@ func (router *Router) waitOpsIdleLocked() {
 	router.opsMu.Unlock()
 }
 
-func Open(ctx context.Context, config Config) (Repository, error) {
-	switch config.Backend {
-	case BackendJSON:
-		return newJSONRepository(config.Path, config.SessionStorage)
-	case BackendSQLite, BackendPostgreSQL, BackendRedis:
-		return nil, retiredBackendError(config.Backend)
-	default:
-		return nil, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
-	}
+func Open(_ context.Context, config Config) (Repository, error) {
+	// 唯一形态：jsonl + json。没有后端分派，也没有退役枚举的错误分支。
+	return newJSONRepository(config.Path, config.SessionStorage)
 }
 
 type jsonRepository struct {
@@ -1917,23 +1818,4 @@ func containsValue(values []string, value string) bool {
 		}
 	}
 	return false
-}
-func loadConfig(path string) (Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, err
-	}
-	var config Config
-	err = json.Unmarshal(data, &config)
-	return config, err
-}
-func saveConfig(path string, config Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-	return storeroot.WriteAtomic(path, data, 0o600)
 }

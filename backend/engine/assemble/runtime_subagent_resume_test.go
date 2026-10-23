@@ -2,7 +2,6 @@ package assemble
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +25,7 @@ type resumeTestFixture struct {
 func newResumeTestFixture(t *testing.T) *resumeTestFixture {
 	t.Helper()
 	runtime := newTestRuntime(t)
-	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

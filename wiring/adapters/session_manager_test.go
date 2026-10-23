@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/store"
@@ -38,7 +37,7 @@ func TestNewSessionManager(t *testing.T) {
 // 压缩原文一律写不出去（read_compressed_turn 永远读不到）。
 func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +74,7 @@ func TestSaveCommitWorkspaceWithoutRouterFailsLoud(t *testing.T) {
 
 func TestWithRouterAndWorkspace(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +87,6 @@ func TestWithRouterAndWorkspace(t *testing.T) {
 	m.SetWorkspace("project-a")
 	if got := m.Workspace(); got != "project-a" {
 		t.Fatalf("Workspace = %q, want project-a", got)
-	}
-	if _, err := m.StorageConfig(); err != nil {
-		t.Fatalf("StorageConfig: %v", err)
 	}
 }
 

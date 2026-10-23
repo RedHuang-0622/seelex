@@ -48,7 +48,7 @@ func TestRuntimeLimitsOverlayRoundTripsWindow(t *testing.T) {
 	if decoded["session_release_window"] != float64(3) {
 		t.Fatalf("落盘正文 = %v, want session_release_window=3", decoded)
 	}
-	// 覆盖层文件与 session-storage.json 同级（数据根），临时文件不留在现场。
+	// 覆盖层文件落在数据根（与 workspace_index.json 同级），临时文件不留在现场。
 	if entries, err := os.ReadDir(filepath.Dir(path)); err == nil {
 		for _, entry := range entries {
 			if strings.HasSuffix(entry.Name(), ".tmp") {

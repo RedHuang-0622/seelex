@@ -55,7 +55,7 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 	// 1) 会话媒体分区：真落盘、真读回（不绕过存储层直接喂内存字节）。
 	storePath := t.TempDir()
 	repository, err := store.Open(ctx, store.Config{
-		Backend: store.BackendJSON, Path: storePath,
+		Path: storePath,
 	})
 	if err != nil {
 		t.Fatalf("open session store: %v", err)

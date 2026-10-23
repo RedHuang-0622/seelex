@@ -21,7 +21,6 @@ package assemble
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	bridgesession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
@@ -34,7 +33,7 @@ import (
 // 产品写点 `markTeamUnitRunning` 落（不手搓 JSON：要钉的正是"写侧写出去什么形状"）。
 func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *store.NodeSessionStore)) (repo, scenePath string, router *store.Router, nodeStore *store.NodeSessionStore) {
 	t.Helper()
-	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +166,7 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 		roleSess = "sess-legacy-t-exec"
 	)
 	repo := setupGitRepo(t)
-	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

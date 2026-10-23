@@ -15,7 +15,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 type (
@@ -105,11 +104,6 @@ type (
 	PromptStack      = prompt.PromptStack
 	EffortManager    = prompt.EffortManager
 	WebSearchConfig  = search.WebSearchConfig
-	// 会话存储配置：`SessionStorageConfig` / `TestSessionStorage` /
-	// `ConfigureSessionStorage` 三处用例共用的形状（GUI 设置页数据源）。
-	// 终局（规划）：M3 store 归位后由 store 侧提供 DTO，本别名重指向即可，
-	// 前端零改动。
-	SessionStorageConfig = store.Config
 	// 会话历史检索结果（`SearchHistory` 用例的返回形状，GUI 历史检索面板
 	// 数据源）。终局（规划）：plan §2.1 的 `contract.SearchPort`（M4）。
 	SearchResult = seelexctxsearch.Result

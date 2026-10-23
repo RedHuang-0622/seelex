@@ -69,7 +69,7 @@ func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.
 	t.Cleanup(runtime.Shutdown)
 
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

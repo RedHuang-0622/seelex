@@ -109,16 +109,15 @@ func InitStore(storePath string) (*store.Router, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(storePath)
 	store.ApplyLimits(runtimeLimits.SummaryChars)
-	router, err := store.NewRouter(
-		filepath.Join(baseDir, "session-storage.json"), baseDir, sessionStorageLimits())
+	router, err := store.NewRouter(baseDir, sessionStorageLimits())
 	if err != nil {
 		return nil, fmt.Errorf("初始化嵌套存储失败: %w", err)
 	}
 	return router, nil
 }
 
-// sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
-// （my_design §11 覆盖链的中间一层：默认值 ← limits ← session-storage.json）。
+// sessionStorageLimits 把 seelex.yaml limits.session_storage 映射成存储覆盖层
+// （my_design §11 覆盖链：默认值 ← limits，这是唯一可调层）。
 // 分片行数沿用既有顶层键 limits.message_shard_size。
 func sessionStorageLimits() storeroot.Settings {
 	limits := runtimeLimits.SessionStorage
@@ -132,7 +131,6 @@ func sessionStorageLimits() storeroot.Settings {
 		WireRecentErrors:        limits.RetryCacheWireRecentErrors,
 		CompactFrameThreshold:   limits.RetentionCompactFrameThreshold,
 		RawBytesAlert:           uint64(limits.RetentionRawBytesAlert),
-		RetentionMode:           limits.RetentionMode,
 		QueuePersistPending:     limits.QueuePersistPending,
 		StaleAfterSeconds:       limits.LockStaleAfterSeconds,
 		AutoRecover:             limits.LockAutoRecover,

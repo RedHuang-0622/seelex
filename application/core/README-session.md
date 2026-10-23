@@ -809,11 +809,12 @@
 - `func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T)` — TestSessionStatusReflectsRunningWhileChatActive（状态机回归）：chat 启动
 - `func TestSwitchToRunningSessionPreservesState(t *testing.T)` — TestSwitchToRunningSessionPreservesState（T4.5/运行中切换）：A 运行中切到
 
-### session_storage.go
+### session_storage.go（2026-10 删除）
 
-- `func (service *Service) SessionStorageConfig() (store.Config, error)`
-- `func (service *Service) TestSessionStorage(ctx context.Context, config store.Config) error`
-- `func (service *Service) ConfigureSessionStorage(ctx context.Context, config store.Config) error`
+会话存储不再有「配置/自检/切换」三个用例：jsonl + json 是唯一形态，
+存储落点与参数在装配期定死（见 `store/sessionstore.go` 的 `NewRouter`/`Open`）。
+`Service` 上对应的三个方法连同 `application` 门面别名一并移除，
+会话域那条可选能力端口（存储设置面）也随之删除。
 
 ### session_stress_test.go
 

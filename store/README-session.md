@@ -257,9 +257,8 @@
 
 ### sessionstore.go
 
-- `func retiredBackendError(backend Backend) error`
-- `func (config Config) Normalize(defaultPath string) (Config, error)`
-- `func (config Config) Safe() Config` — Safe returns a configuration suitable for the GUI. Credentials are never
+- `func (config Config) Normalize(defaultPath string) (Config, error)` — 补默认落点并解析/校验参数覆盖链；
+  唯一形态是 jsonl + json，没有后端/策略选择字段可归一。
 - `func (key Key) Complete() bool` — Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
 - `func EventKindOf(event Event) string` — EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
 - `func (key Key) validate() error`

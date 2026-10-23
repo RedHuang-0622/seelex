@@ -14,9 +14,9 @@ import (
 // JSON v8 后端的追加-读取往返：追加顺序保持、Seq 排序、空库读取。
 func TestFrameworkEventLogRoundTrip(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -68,7 +68,7 @@ func TestFrameworkEventLogRoundTrip(t *testing.T) {
 // 连续两次 Commit 后旧 execution facts 仍可读）。framework events 是独立
 // append-only 模块，不随 generation rollover 失效。
 func TestFrameworkEventSurvivesGenerationRollover(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")})
+	repository, err := Open(context.Background(), Config{Path: filepath.Join(t.TempDir(), "json")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestFrameworkEventSurvivesGenerationRollover(t *testing.T) {
 // 事件合并可见，重复 Seq 幂等去重。
 
 func TestFrameworkEventLogMissingSessionReturnsEmpty(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")})
+	repository, err := Open(context.Background(), Config{Path: filepath.Join(t.TempDir(), "json")})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,6 @@
 package adapters
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -14,7 +13,7 @@ import (
 // 顺手抹掉档位，改档位也不得动别名/排序位。这条链是"档位跨重启记住"的物理面。
 func TestSessionPermissionTierRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

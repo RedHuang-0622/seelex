@@ -53,7 +53,7 @@ func (store *storeEngine) stackJournal() stackJournal {
 	return &jsonStackJournal{store: store}
 }
 
-func (journal *jsonStackJournal) backend() string { return string(BackendJSON) }
+func (journal *jsonStackJournal) backend() string { return storageLayoutName }
 
 // stackDir / 文件路径（§2.4 放置位置）。
 func (store *storeEngine) stackDir(key Key, kind StackKind) string {
@@ -295,7 +295,7 @@ func (journal *jsonStackJournal) dropCache(key Key) {
 
 // stats 返回 JSON 后端的延迟归因。
 func (journal *jsonStackJournal) stats() stackJournalStats {
-	return journal.store.stackStats().snapshot(string(BackendJSON))
+	return journal.store.stackStats().snapshot(storageLayoutName)
 }
 
 // ---------- JSONL 行编解码（§2.4 数据文件形状） ----------

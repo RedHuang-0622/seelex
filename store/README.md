@@ -2,12 +2,13 @@
 
 ## Application state sidecar
 
-Alongside framework message history, the JSON v8 backend persists an opaque
+Alongside framework message history, the JSON v8 layout persists an opaque
 application-owned state blob keyed by `(project_id, session_id)`.
-`Router.SaveState` and `LoadState` use the JSON backend selection as history.
 The store does not inspect the blob; application code uses it for the visible
 transcript, Plan projection, and provenance caches without putting those records
-into provider history.
+into provider history. 会话存储只有**一种形态**（jsonl + json v8）：没有后端枚举、
+没有运行期重配置入口——`store.Open` 恒开 v8 布局，`store.NewRouter` 只收数据根
+默认落点与可选的参数覆盖层。
 
 **v8 JSON 布局下 state/record 通道已退役（S20/D9）**：`WriteState` 为空操作、
 `ReadState` 恒 `fs.ErrNotExist`；会话 record 与 conversation 由
@@ -29,8 +30,7 @@ into provider history.
 The JSON v8 backend partitions first by `project_id`, then isolates `session_id`,
 then stores message event rows in fixed-size shards. Module heads publish each
 append-only channel, so readers observe either the preceding committed watermark
-or the next one. Retired backend enums are kept only for explicit configuration
-errors; they do not participate in range/recovery semantics.
+or the next one.
 
 ## 生态位
 
@@ -119,9 +119,9 @@ flowchart LR
 - `Read`/`ReadRange`/`List`/`Delete`：都显式接收 project scope。
 - `Ping`/`Close`：生命周期管理。
 
-## Backends
+## 存储布局（唯一形态）
 
-### JSON
+### jsonl + json（v8）
 
 **v8 布局（M1–M4 已实现，新会话默认）**：新会话不再写 generation/manifest，
 而是：
@@ -190,8 +190,8 @@ head 文件的"缺失"要按**业务状态**读，而不是当 IO 错误上抛�
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
 保留磁盘内容；新会话与新写入一律走 message 事件行 + 模块 head 布局。
-SQLite/PostgreSQL/Redis 后端实现已删除（R1）；枚举保留，`Open` 返回
-`ErrBackendRetired`，不会静默回退到其它后端。
+没有第二种后端可选（2026-10 删除「会话存储策略/后端选择」）：`Open` 不再分派、
+没有退役错误档，也没有运行期切换存储的入口。
 [`docs/2026-09-08-session-storage-architecture/README.md`](../docs/2026-09-08-session-storage-architecture/README.md)）。
 
 旧布局写路径描述（保留作 legacy 语义参考）：
@@ -213,17 +213,17 @@ generation 快照，属于派生投影。
 rollout 实现文件、读接口与双写已随旧链路删除（历史设计见
 [docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
 
-### Retired backends
+### 没有「退役后端」这一档
 
-`BackendSQLite`、`BackendPostgreSQL`、`BackendRedis` 枚举保留，避免旧配置被
-静默改写；`Config.Normalize` 与 `Open` 对三者统一返回
-`ErrBackendRetired`（错误文本附 `use json`）。旧 SQL 表、Redis key、
-manifest/generation/shard 实现和专属测试已删除（R1），磁盘上的旧数据目录不做
-清理。新增后端必须实现 `Repository` 与 `stackJournal` 契约后再恢复枚举入口。
+2026-10 删除了「会话存储策略/后端选择」这条能力：后端枚举、连接串、退役错误、
+以及 Router 的运行期配置/自检/读取三件套一并移除。旧 SQL 表、Redis key、
+manifest/generation/shard 实现与专属测试已删除；磁盘上的旧数据目录不做清理。
+要换落盘形态，只能改 `Repository` 与 `stackJournal` 契约本身——不存在
+「多实现 + 配置里挑一个」的第二条路。
 
 ## Router
 
-Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子视图。`Configure` 先 normalize/open/ping/save config，再在锁内 swap，最后关闭旧 backend。进行中的旧操作完成后，新操作才看到 replacement。
+Router 用 RWMutex 把 active repository 与 project ID 绑定为原子视图。存储不可在运行期替换：落点与参数在装配期一次定死，`Close` 之后不再服务新操作。
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
 
@@ -437,17 +437,16 @@ abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改
   不可见，崩溃残尾按 JSONL 行边界丢弃，head 记录的 `history_bytes` 让下一次
   提交 O(1) 回收「已落盘但未发布」的归档尾行。
 
-### 后端矩阵
+### 栈通道放置（唯一实现）
 
-`Repository` 暴露 `stackJournal()`（不可在包外实现）；R1 后 JSON v8 是唯一
-实现，新后端必须同时给出栈通道。通道语义（批次、水位、锚、迁移、fork、
-verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实现
+`Repository` 暴露 `stackJournal()`（不可在包外实现）；jsonl + json v8 是唯一
+实现。通道语义（批次、水位、锚、迁移、fork、verify）只在
+`stack_channel.go` + `stack_journal.go` 写一次，实现侧只给出
 `load / publish / anchor / watermark / recordEvents / dropCache / stats`：
 
-| 后端 | 数据放置 | 发布点 | 锚（message 坐标） |
+| 形态 | 数据放置 | 发布点 | 锚（message 坐标） |
 |---|---|---|---|
-| JSON | `{kind}/active.jsonl` + `history.jsonl` + `metadata/stack_{kind}.json` | 先数据后 head（rename），读侧按 revision 过滤 | 事件行 `message_id` + `seq` |
-| SQLite / PostgreSQL / Redis | 旧实现已删除（R1） | `Open` 返回 `ErrBackendRetired` | 不适用 |
+| jsonl + json | `{kind}/active.jsonl` + `history.jsonl` + `metadata/stack_{kind}.json` | 先数据后 head（rename），读侧按 revision 过滤 | 事件行 `message_id` + `seq` |
 
 ### 并发与读路径（为什么读者不等写者）
 
@@ -598,15 +597,15 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 事件库（"结论跟随 mainagent"），随后删除节点记录文件。删除后详情数据面保留
 在进程内存快照；重启后恢复锚点从主会话事件库重建。
 
-`NodeSessionStore`（JSON backend 已实现）提供 `Save/Load/List/Delete`，显式
-项目作用域，不改变 Router 的 active write scope；其它后端已退役，待按接口
-重写。
+`NodeSessionStore`（同一套 jsonl + json 布局已实现）提供 `Save/Load/List/Delete`，显式
+项目作用域，不改变 Router 的 active write scope。只有这一种实现。
 
 ## 配置与安全
 
-- JSON 使用本地 path；SQLite/PostgreSQL/Redis 枚举仍可被配置解析，但
-  `Open` 明确返回 `ErrBackendRetired`。
-- `Config.Safe` 不把 DSN 返回 GUI，只报告 configured。
+- 落点只有一个本地 path（`Config.Path`，缺省 `<数据根>/sessions-json`）：
+  没有 DSN，也没有远端存储配置。
+- 参数覆盖层只从 `config/seelex.yaml` 的 `limits.session_storage` 读，
+  装配期合并一次（`ResolveSettings`），运行期不再改。
 - 配置文件写入采用原子替换和私有权限。
 - project/session ID 进入路径前经过 hash/安全编码，不能直接形成逃逸路径。
 
@@ -688,13 +687,12 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 
 ## Review 指南
 
-- 新增后端是否实现同一逻辑 snapshot 语义，并显式实现 `stackJournal()`。
+- 改落盘形态时是否仍是同一逻辑 snapshot 语义，并显式实现 `stackJournal()`
+  （唯一形态：只有一份实现，不存在「多实现 + 配置里挑一个」）。
 - JSON 模块 head 是否最后提交；未发布行是否不可见。
-- 退役后端是否始终返回显式 `ErrBackendRetired`，没有静默回退。
-- Router 是否在任何错误路径关闭 replacement、保留 old repository。
 - Router 运行期出口是否只在 `router.mu` 读锁内取 repository 快照
-  （`jsonRepository()`）；裸读 `router.repository` 会与 `Configure`/`Close`
-  的 swap 在 `-race` 下形成数据竞争。
+  （`jsonRepository()`）；裸读 `router.repository` 会与 `Close` 在 `-race`
+  下形成数据竞争。
 - range offset/limit 和 empty history 的语义是否一致。
 - 栈通道：新增后端时 `stackJournal()` 是否实现（接口编译期强制，禁止用
   `ok=false` 兜底）；head 是否仍只装水位；写路径是否又开始解析 history。
@@ -720,8 +718,8 @@ go test ./store -run 'ProjectRecord|ProjectRefresh|ProjectKnowledge' -count=1
 
 Message events carry two distinct text facts for tool results: `content` is what the view/trace renders (e.g. the application's classified tool-error text or the `tr-<digest>` oversized warning), while the provider-only `provider_content` is the bytes **actually sent on the wire** (the framework's `{"error": %q}` JSON for failed tools; the processor's `result_ref=result:<callID>` warning for oversized results). Provider projections must prefer `provider_content` when set: mixing them rewrites already-sent bytes on the next turn and invalidates provider prefix caching from that point. Tool-call assistant output text is different: it is real model output and must be replayed verbatim together with reasoning and tool calls (see `application/core/README-context.md` §跨轮前缀与模型输出边界). Guards: `store/provider_content_test.go`, `store/provider_wire_output_boundary_test.go`, `prefix_invariant_fullchain_test.go`.
 
-测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役、显式 workspace
-read 不污染 active scope，以及退役后端的显式错误（`TestRetiredBackendsReturnExplicitError`）。
+测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役，以及显式 workspace
+read 不污染 active scope。
 plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只装水位、
 批次整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚
 重建、跨实例持久化）；另测物理放置、head 未发布不可见、崩溃残尾与归档回收，

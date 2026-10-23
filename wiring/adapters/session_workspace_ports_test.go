@@ -1,7 +1,6 @@
 package adapters
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 // 用真存储验证这条链。
 func TestSessionPortTitleRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +48,7 @@ func TestSessionPortTitleRoundTrip(t *testing.T) {
 // （跳过以 user 身份写盘的注入行）。
 func TestSessionPortFirstUserInputs(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

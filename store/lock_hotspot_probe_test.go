@@ -32,7 +32,7 @@ func TestProbeCommitVsFullRead(t *testing.T) {
 		payload   = 8 * 1024
 	)
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

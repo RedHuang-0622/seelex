@@ -76,13 +76,13 @@ func TestJSONDataRootTerminatedProcessLockIsStale(t *testing.T) {
 	// 1) 保守口径（auto_recover=false）必须报"陈旧锁"，而不是"被别人占用"：
 	//    前者给出可操作提示，后者会让用户以为另一个 seelex 还在跑。
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
+	if _, err := Open(ctx, Config{Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
 		t.Fatalf("conservative open err = %v, want storeroot.ErrDataRootStaleLock", err)
 	}
 
 	// 2) 默认口径（config 写死 lock_auto_recover=true）直接接管陈旧锁并打开。
 	repository, err := Open(ctx, Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {

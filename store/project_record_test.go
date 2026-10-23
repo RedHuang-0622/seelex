@@ -18,9 +18,9 @@ const projectRecordTestProjectID = "ws-0000000000000000001"
 
 func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -57,17 +57,17 @@ func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 
 func TestProjectRecordEmptyProjectIDRejected(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
 		repository, err := Open(context.Background(), config)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := repository.WriteProjectRecord(context.Background(), "  ", ProjectRecord{}); err == nil {
-			t.Fatalf("%s: empty project ID succeeded", config.Backend)
+			t.Fatalf("%s: empty project ID succeeded", storageLayoutName)
 		}
 		if _, err := repository.ReadProjectRecord(context.Background(), ""); err == nil {
-			t.Fatalf("%s: empty project ID read succeeded", config.Backend)
+			t.Fatalf("%s: empty project ID read succeeded", storageLayoutName)
 		}
 		repository.Close()
 	}

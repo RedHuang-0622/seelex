@@ -6,7 +6,6 @@
 package session_runtime
 
 import (
-	"context"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -154,13 +153,6 @@ type SessionTitlePort interface {
 // 范围内确实没有用户输入（LRU 前缀淘汰后可能如此），不必重试。
 type FirstUserInputPort interface {
 	FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)
-}
-
-// SessionStoragePort 是会话存储设置面（可选能力断言）。
-type SessionStoragePort interface {
-	StorageConfig() (store.Config, error)
-	TestStorage(context.Context, store.Config) error
-	ConfigureStorage(context.Context, store.Config) error
 }
 
 // ViewPort 是 Snapshot revision bump 的消费方窄接口（实现：view 域

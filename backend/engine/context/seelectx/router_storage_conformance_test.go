@@ -2,7 +2,6 @@ package seelexctx
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -19,7 +18,7 @@ import (
 // 而 I6 对测试文件同样成立。
 func TestRouterStorageWithContextActor(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

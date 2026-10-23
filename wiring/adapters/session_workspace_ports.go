@@ -342,15 +342,6 @@ func (port SessionPort) SaveCurrent(id string) error     { return port.Manager.S
 func (port SessionPort) Resume(id string) error          { return port.Manager.Resume(id) }
 func (port SessionPort) SetWorkspace(workspaceID string) { port.Manager.SetWorkspace(workspaceID) }
 func (port SessionPort) Workspace() string               { return port.Manager.Workspace() }
-func (port SessionPort) StorageConfig() (store.Config, error) {
-	return port.Manager.StorageConfig()
-}
-func (port SessionPort) TestStorage(ctx context.Context, config store.Config) error {
-	return port.Manager.TestStorage(ctx, config)
-}
-func (port SessionPort) ConfigureStorage(ctx context.Context, config store.Config) error {
-	return port.Manager.ConfigureStorage(ctx, config)
-}
 
 // Delete 以会话粒度删除会话（resolve 项目绑定后整键删除）。
 func (port SessionPort) Delete(id string) error {

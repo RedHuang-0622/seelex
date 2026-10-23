@@ -15,7 +15,6 @@ import (
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
 )
 
@@ -275,15 +274,6 @@ func (fake *fakeApplication) SetFullAccess(on bool) bool { return on }
 func (fake *fakeApplication) SetPermissionTier(tier string) (string, error) {
 	fake.selectedTier = tier
 	return tier, nil
-}
-func (fake *fakeApplication) SessionStorageConfig() (store.Config, error) {
-	return store.Config{Backend: store.BackendJSON, Path: "sessions"}, nil
-}
-func (fake *fakeApplication) TestSessionStorage(context.Context, store.Config) error {
-	return nil
-}
-func (fake *fakeApplication) ConfigureSessionStorage(context.Context, store.Config) error {
-	return nil
 }
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil

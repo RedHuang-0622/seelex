@@ -1,7 +1,6 @@
 package assemble
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,12 +26,11 @@ import (
 // 本用例钉住这条键空间事实：它现在**复现**缺陷（第二个 Runtime 读不到记录），
 // 修复后应改为 1 条（把 `wantRecords` 改成 1 并去掉下面的"复现"日志即可）。
 func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "session-storage.json")
 	storageDir := t.TempDir()
 
 	// ① 出生期：主会话 ID 还是早分配的草稿 SID（draft_…）。
 	const draftMainID = "draft_1790073103846285100_1"
-	born := newSessionKeyFixture(t, dsn, storageDir, draftMainID)
+	born := newSessionKeyFixture(t, storageDir, draftMainID)
 	record := store.NodeSessionRecord{
 		SchemaVersion: store.NodeSessionSchemaVersion,
 		NodeID:        "sub-draft", SessionID: "node-draft-1", MainSessionID: draftMainID,
@@ -49,7 +47,7 @@ func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T) {
 
 	// ② 重启后：同一份存储，会话以"物化/恢复后的 ID"打开。
 	const materializedMainID = "session_1790073103846285100"
-	resumed := newSessionKeyFixture(t, dsn, storageDir, materializedMainID)
+	resumed := newSessionKeyFixture(t, storageDir, materializedMainID)
 	defer resumed.shutdown()
 
 	if err := resumed.runtime.RestoreSubagentAnchors(materializedMainID); err != nil {
@@ -71,7 +69,7 @@ func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T) {
 }
 
 // sessionKeyFixture 是"按显式主会话 ID 打开一份持久化存储"的最小夹具：两个实例
-// 先后用同一个 dsn/storageDir，就等价于"进程重启后换了主会话 ID"。
+// 先后用同一个 storageDir，就等价于"进程重启后换了主会话 ID"。
 type sessionKeyFixture struct {
 	runtime   *Runtime
 	router    *store.Router
@@ -79,10 +77,10 @@ type sessionKeyFixture struct {
 	projectID string
 }
 
-func newSessionKeyFixture(t *testing.T, dsn, storageDir, mainSessionID string) *sessionKeyFixture {
+func newSessionKeyFixture(t *testing.T, storageDir, mainSessionID string) *sessionKeyFixture {
 	t.Helper()
 	runtime := newTestRuntime(t)
-	router, err := store.NewRouter(dsn, storageDir)
+	router, err := store.NewRouter(storageDir)
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

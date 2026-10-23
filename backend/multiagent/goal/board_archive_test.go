@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/store"
@@ -24,7 +23,7 @@ var boardArchiveCtx = context.Background()
 func newBoardArchiveRouter(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}

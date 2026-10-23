@@ -12,7 +12,6 @@ package assemble
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
@@ -32,7 +31,7 @@ func TestLifecycleOneImplementationAcrossLayers(t *testing.T) {
 	if err := nodeRuntime.BindProjectRoot(setupGitRepo(t)); err != nil {
 		t.Fatalf("bind project root: %v", err)
 	}
-	nodeRouter, err := store.NewRouter(filepath.Join(t.TempDir(), "node-storage.json"), t.TempDir())
+	nodeRouter, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

@@ -174,13 +174,13 @@ func TestSettingsDefaultsAndOverlayChain(t *testing.T) {
 	// 覆盖链：零值/nil = 未覆盖；非零值覆盖；显式 false 用指针表达。
 	overridden := MergeSettings(defaults, Settings{
 		MessageShardRows: defaults.MessageShardRows + 7,
-		RetentionMode:    "", // 空 = 不覆盖
+		WireRecentErrors: 0, // 空 = 不覆盖
 	})
 	if overridden.MessageShardRows != defaults.MessageShardRows+7 {
 		t.Fatalf("非零值必须覆盖：got %d, want %d", overridden.MessageShardRows, defaults.MessageShardRows+7)
 	}
-	if overridden.RetentionMode != defaults.RetentionMode {
-		t.Fatalf("空串不是覆盖（got %q）", overridden.RetentionMode)
+	if overridden.WireRecentErrors != defaults.WireRecentErrors {
+		t.Fatalf("零值不是覆盖（got %d）", overridden.WireRecentErrors)
 	}
 	if overridden.ShardRows() != overridden.MessageShardRows {
 		t.Fatalf("ShardRows 必须等于 MessageShardRows：%d vs %d", overridden.ShardRows(), overridden.MessageShardRows)

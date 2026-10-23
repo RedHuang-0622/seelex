@@ -31,7 +31,7 @@ func errorsIsSkipAll(err error) bool {
 // newLockProfileRouter 打开一个指向 tempdir 的 router（锁热点测试专用）。
 func newLockProfileRouter(t *testing.T, root string) *Router {
 	t.Helper()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

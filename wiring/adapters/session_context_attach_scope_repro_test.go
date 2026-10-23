@@ -31,7 +31,7 @@ import (
 // 仍然只落在会话自己的项目里。
 func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

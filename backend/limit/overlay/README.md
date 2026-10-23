@@ -115,7 +115,7 @@ go test ./backend/limit/... -count=1
 
 ### overlay.go
 
-- `func Path(dataRoot string) string` — Path 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。调用方（组合根）负责把数据根取出来传进来。
+- `func Path(dataRoot string) string` — Path 是覆盖层的落盘路径：数据根，与 workspace_index.json 同级。调用方（组合根）负责把数据根取出来传进来。
 - `func Read(path string) Overlay` — Read 读覆盖层。路径为空 / 文件不存在 / 内容损坏一律回落到
 - `func Apply(base limit.Limits, overlay Overlay) limit.Limits` — Apply 把覆盖层叠到 limits 上（覆盖层优先）。取值不合法的格子
 - `func WriteSessionReleaseWindow(path string, window int) error` — WriteSessionReleaseWindow 把覆盖层落盘：**读-改-写**（先读回现有正文再改要改的那一
