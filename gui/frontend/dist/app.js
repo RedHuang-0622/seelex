@@ -44,6 +44,15 @@ import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
 import { normalizeReleaseWindow, releaseWindowLabel, releaseWindowOptions } from "./release-window.js";
 import { ACCOUNT_WINDOW_CUSTOM, accountWindowLabel, accountWindowOptions, normalizeAccountWindowInput } from "./account-window.js";
+// 角色设置四项的取值面：权限向量的标签表 / 归一化 / 开关 / lint，以及三个选择器的选项串。
+import {
+  normalizePermissionVector,
+  permissionVectorLint,
+  renderPermissionVectorHTML,
+  roleAccountOptionsHTML,
+  rolePluginOptionsHTML,
+  togglePermissionVector,
+} from "./role-settings.js";
 import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
@@ -127,7 +136,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "release-window", "release-window-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -2456,6 +2465,8 @@ function renderPlugins(runtime) {
     }
   }
   renderSelectedPluginSkills(runtime);
+  // 「角色设置 → 默认 plugin」下拉同源：插件清单随快照来，刷一次就重画一次。
+  renderRoleSettingsOptions();
 }
 
 // 插件页的 Skill 目录：跟着**停留位**走（不是 runtime.plugin）。旧后端不带宽 skills
@@ -2523,6 +2534,8 @@ function renderAccounts(runtime) {
   }).join("");
   elements["account-list"].innerHTML = `<div class="account-providers" role="group" aria-label="供应商">${providerRow}</div>
     <div class="account-models" role="group" aria-label="${escapeHtml(active)} 的模型">${rows}</div>`;
+  // 设置里的「角色设置 → 账号」下拉同源：快照一刷新就跟着重画（弹窗开着也不落队）。
+  renderRoleSettingsOptions();
 }
 
 elements["account-list"]?.addEventListener("click", async event => {
@@ -3683,23 +3696,17 @@ function closeRuntime() {
 
 async function openSettings() {
   setModal("settings-modal", true);
-  elements["storage-status"].textContent = "";
   renderThemePicker();
+  // 角色设置：账号下拉与 plugin 下拉来自最近一份快照，权限向量先读一次权威值
+  // （读不到就进"预览态"，见 syncRoleSettings）。
+  await syncRoleSettings();
   // 会话驻留窗口：**进程级**读数，另拉一次（不进快照）；读不到只说明一句，不拖累
-  // 下面那段存储读取。
+  // 别的分段。
   await syncReleaseWindowReading();
   // 工具记录开关：**进程级**设置（落数据根 runtime-limits.json），与上面那条同一条读法。
   await syncToolRecordSetting();
   // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
   await syncAccountWindowReading();
-  try {
-    const config = await invoke("SessionStorageConfig");
-    elements["storage-backend"].value = config.backend || "json";
-    elements["storage-path"].value = config.path || "";
-    elements["storage-dsn"].value = "";
-    elements["storage-dsn"].placeholder = config.dsn === "configured" ? "已配置；留空则保持不变" : storageDSNPlaceholder();
-    updateStorageFields();
-  } catch (error) { showToast(error); }
 }
 
 function closeSettings() { setModal("settings-modal", false); }
@@ -3803,35 +3810,6 @@ elements["mode-picker"]?.addEventListener("click", event => {
   themeController.applyMode(card.dataset.modeId);
   renderThemePicker();
 });
-
-function storageConfig() {
-  return { backend: elements["storage-backend"].value, path: elements["storage-path"].value.trim(), dsn: elements["storage-dsn"].value.trim() };
-}
-
-function updateStorageFields() {
-  const remote = ["postgres", "redis"].includes(elements["storage-backend"].value);
-  elements["storage-path-field"].classList.toggle("hidden", remote);
-  elements["storage-dsn-field"].classList.toggle("hidden", !remote);
-  if (elements["storage-dsn"].value === "") elements["storage-dsn"].placeholder = storageDSNPlaceholder();
-}
-
-function storageDSNPlaceholder() {
-  return elements["storage-backend"].value === "redis"
-    ? "redis://:password@host:6379/0"
-    : "postgres://user:password@host:5432/database?sslmode=require";
-}
-
-async function testStorage() {
-  elements["storage-status"].textContent = "正在测试…";
-  try { await invoke("TestSessionStorage", storageConfig()); elements["storage-status"].textContent = "连接与读写初始化成功。"; }
-  catch (error) { elements["storage-status"].textContent = `失败：${error}`; }
-}
-
-async function saveStorage() {
-  elements["storage-status"].textContent = "正在切换…";
-  try { await invoke("ConfigureSessionStorage", storageConfig()); elements["storage-status"].textContent = "已保存；后续写入将使用该存储。"; }
-  catch (error) { elements["storage-status"].textContent = `失败：${error}`; }
-}
 
 // 输入前缀（sigil）契约：与后端 application/core/completion.go 同一条表，前端
 // 只消费不发明。权威说明见 docs/gui/modules/shell-and-interactions.md。
@@ -4503,9 +4481,6 @@ elements["runtime-button"].addEventListener("click", openRuntime);
 elements["runtime-close"].addEventListener("click", closeRuntime);
 elements["settings-button"].addEventListener("click", openSettings);
 elements["settings-close"].addEventListener("click", closeSettings);
-elements["storage-backend"].addEventListener("change", updateStorageFields);
-elements["storage-test"].addEventListener("click", testStorage);
-elements["storage-save"].addEventListener("click", saveStorage);
 elements["command-button"].addEventListener("click", () => openCommandPalette("/"));
 elements["command-close"].addEventListener("click", closeCommandPalette);
 
@@ -5555,7 +5530,7 @@ syncTerminalScrollbackSelect();
 //
 // 为什么不像拉条那样从快照读数：窗口是进程级设置，而快照的 runtime 是**按会话**组
 // 装的投影，把它塞进去会让"切会话时它跟着动"变成一个假事实（见 model.SessionRuntime
-// 的字段归属）。读法姿势与 SessionStorageConfig 一致。
+// 的字段归属）。同一姿势：进程级设置都在弹窗打开时拉一次、不进快照。
 //
 // releaseWindowCommitted 是"最后一份权威读数"：提交失败时把控件回滚到它（后端在写盘
 // 失败时**整步不改内存**，所以回滚是诚实的——不会回滚一个其实已经生效的值）。
@@ -5669,7 +5644,134 @@ elements["release-window"]?.addEventListener("change", async event => {
 
 renderReleaseWindowOptions();
 
-// ── 每账号上下文窗口（设置 → 账号）───────────────────────────────────
+// ── 角色设置（设置 → 角色设置）────────────────────────────────────────
+// 四项并列：账号 / 上下文窗口 / 权限向量 / 默认 plugin。
+//   · 账号：列表与当前值来自快照 runtime.accounts（后端下发），提交走 SelectAccount；
+//   · 上下文窗口：见下一条注释（挡位表 invoke AccountWindowPresets、提交 SetAccountWindow）；
+//   · 权限向量：取值面全在 role-settings.js（标签表 / 归一化 / lint），提交走
+//     invoke("SetPermissionVector", tags)。桥面**还没有**这个方法（permission-assembly 的
+//     M1–M3 在另一条工作项上），所以提交失败时这里如实标「未生效」并把草稿留着给人看，
+//     绝不假装写成了；
+//   · 默认 plugin：列表来自快照 runtime.plugins，提交走 invoke("SetDefaultPlugin", name)
+//     （同上：桥面待补，失败照实说）。
+// 三处"读不到"都只说明一句，不拖累另外几段。
+let permissionVectorCommitted = [];
+let permissionVectorDraft = [];
+let permissionVectorApplied = true;
+let defaultPluginCommitted = "";
+
+function setRoleSettingsStatus(text) {
+  const node = elements["role-settings-status"];
+  if (node) node.textContent = text || "";
+}
+
+function setPermissionVectorStatus(text) {
+  const node = elements["role-permission-vector-status"];
+  if (node) node.textContent = text || "";
+}
+
+// renderRoleSettingsOptions 画两个下拉（账号 / 默认 plugin）。快照一刷新就跟着重画，
+// 所以弹窗开着时换了账号或插件，这里立刻看到新值。
+function renderRoleSettingsOptions() {
+  const accountHost = elements["role-account"];
+  if (accountHost) {
+    const accounts = lastAccountsRuntime?.accounts || [];
+    accountHost.innerHTML = roleAccountOptionsHTML(accounts, lastAccountsRuntime?.account || "");
+    accountHost.disabled = !accounts.length;
+  }
+  const pluginHost = elements["role-default-plugin"];
+  if (pluginHost) {
+    const plugins = lastPluginsRuntime?.plugins || [];
+    pluginHost.innerHTML = rolePluginOptionsHTML(plugins, defaultPluginCommitted || lastPluginsRuntime?.plugin || "");
+    pluginHost.disabled = !plugins.length;
+  }
+}
+
+// renderRolePermissionVector 画多选标签。状态行只说两件事：没接上桥（未生效）、以及
+// lint 的四条"这组选择会走不通"——都是提示，不拦截（判定归后端 PermissionGate）。
+function renderRolePermissionVector() {
+  const host = elements["role-permission-vector"];
+  if (!host) return;
+  host.innerHTML = renderPermissionVectorHTML(permissionVectorDraft);
+  const notes = [];
+  if (!permissionVectorApplied) notes.push("未生效：桥面还没有 SetPermissionVector（permission-assembly M1–M3 待落地），下面是草稿");
+  for (const warning of permissionVectorLint(permissionVectorDraft)) notes.push(warning.message);
+  setPermissionVectorStatus(notes.join("；"));
+}
+
+async function syncRoleSettings() {
+  defaultPluginCommitted = "";
+  renderRoleSettingsOptions();
+  setRoleSettingsStatus("");
+  try {
+    permissionVectorCommitted = normalizePermissionVector(await invoke("PermissionVector"));
+    permissionVectorApplied = true;
+  } catch (error) {
+    permissionVectorCommitted = [];
+    permissionVectorApplied = false;
+  }
+  permissionVectorDraft = permissionVectorCommitted.slice();
+  renderRolePermissionVector();
+}
+
+// submitPermissionVector 提交整组标签（不是单个）：一次写入 = 一次完整状态，
+// 后端不用猜"这次是加还是减"。失败保留草稿并标未生效。
+async function submitPermissionVector() {
+  const wanted = normalizePermissionVector(permissionVectorDraft);
+  try {
+    const served = await invoke("SetPermissionVector", wanted);
+    const applied = normalizePermissionVector(Array.isArray(served) ? served : wanted);
+    permissionVectorCommitted = applied;
+    permissionVectorDraft = applied.slice();
+    permissionVectorApplied = true;
+  } catch (error) {
+    permissionVectorApplied = false;
+  }
+  renderRolePermissionVector();
+}
+
+elements["role-account"]?.addEventListener("change", async event => {
+  const name = String(event.target.value || "").trim();
+  if (!name) return;
+  event.target.disabled = true;
+  try {
+    await invoke("SelectAccount", name);
+    await refresh({ scroll: false });
+    setRoleSettingsStatus(`已切到账号 ${name}`);
+  } catch (error) {
+    setRoleSettingsStatus(`切账号失败：${error}`);
+    renderRoleSettingsOptions();
+    showToast(error);
+  } finally {
+    event.target.disabled = false;
+  }
+});
+
+elements["role-permission-vector"]?.addEventListener("click", async event => {
+  const tag = event.target?.closest?.("button[data-perm-type]");
+  if (!tag) return;
+  const next = togglePermissionVector(permissionVectorDraft, tag.dataset.permType);
+  if (next.join(",") === permissionVectorDraft.join(",")) return;
+  permissionVectorDraft = next;
+  renderRolePermissionVector();
+  await submitPermissionVector();
+});
+
+elements["role-default-plugin"]?.addEventListener("change", async event => {
+  const name = String(event.target.value || "").trim();
+  if (!name) return;
+  try {
+    await invoke("SetDefaultPlugin", name);
+    defaultPluginCommitted = name;
+    setRoleSettingsStatus(`默认 plugin 已设为 ${name}`);
+  } catch (error) {
+    defaultPluginCommitted = "";
+    renderRoleSettingsOptions();
+    setRoleSettingsStatus(`未生效：桥面还没有 SetDefaultPlugin（待后端补方法），当前仍是 ${lastPluginsRuntime?.plugin || "未定"}。`);
+  }
+});
+
+// ── 每账号上下文窗口（设置 → 角色设置 → 上下文窗口）─────────────────────
 // 权威在后端三跳：账号级覆盖（这里设的，落数据根 runtime-limits.json）>
 // config/seelex.yaml 的 limits.context_window > 账号档自报值——判定归
 // seelebridge 的 ContextWindowFor 一处。所以这里：

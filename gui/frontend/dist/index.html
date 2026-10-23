@@ -468,16 +468,34 @@
 
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
     <div class="modal-card settings-card">
-      <div class="modal-header"><div><span class="eyebrow">存储</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">切换后，新写入会话使用新的存储；已有历史不会自动迁移。数据库密码不会回显。</p>
-      <label class="settings-field">存储形式
-        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存存储）</option></select>
-      </label>
-      <label id="storage-path-field" class="settings-field">本地路径<input id="storage-path" type="text" autocomplete="off"></label>
-      <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
+      <div class="modal-header"><div><span class="eyebrow">设置</span><h2 id="settings-modal-title">设置</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <!-- 角色设置：账号 / 上下文窗口 / 权限向量 / 默认 plugin 四项并列。这里只做"选与提交"，
+           判据全在后端：账号与生效窗口随快照下发，挡位表来自 AccountWindowPresets，权限向量
+           的标签表在 role-settings.js（与 docs/arch/permission-assembly.md 的 PermType 同名）。 -->
+      <div class="settings-section" id="role-settings-section">
+        <div class="section-title">角色设置</div>
+        <p class="settings-note">四项各记各的；写入与生效口径由后端判定。</p>
+        <label class="settings-field">账号
+          <select id="role-account"></select>
+        </label>
+        <div class="settings-field role-settings-row">
+          <span class="settings-label">上下文窗口</span>
+          <div id="account-windows"></div>
+          <div id="account-windows-status" class="muted"></div>
+        </div>
+        <div class="settings-field role-settings-row">
+          <span class="settings-label">权限向量</span>
+          <div id="role-permission-vector" class="perm-vector" role="group" aria-label="权限向量"></div>
+          <div id="role-permission-vector-status" class="muted"></div>
+        </div>
+        <label class="settings-field">默认 plugin
+          <select id="role-default-plugin"></select>
+        </label>
+        <div id="role-settings-status" class="muted"></div>
+      </div>
       <div class="settings-section">
         <div class="section-title">外观</div>
-        <p class="settings-note">深浅（浅色 / 深色）与皮肤是两条独立的轴：深浅决定面、文本、描边的中性基座，皮肤只给主信号与环境渐变（契约见 <code>themes/README.md</code>）。组件结构、交互与可访问性都不随二者改变。</p>
+        <p class="settings-note">深浅定中性基座，皮肤只改主信号与环境渐变。</p>
         <div class="settings-subtitle">皮肤</div>
         <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="界面皮肤"></div>
         <div class="settings-subtitle">深浅</div>
@@ -485,14 +503,14 @@
       </div>
       <div class="settings-section">
         <div class="section-title">终端</div>
-        <p class="settings-note">回滚行数是每个终端标签各留一份的历史缓冲：越大能往上翻得越远，占用也越大（改后立刻作用于已打开的标签）。</p>
+        <p class="settings-note">每个终端标签各留一份回滚历史，改后立刻作用于已打开的标签。</p>
         <label class="settings-field">回滚行数
           <select id="terminal-scrollback"><option value="1000">1000 行</option><option value="2000" selected>2000 行（默认）</option><option value="5000">5000 行</option><option value="10000">10000 行</option></select>
         </label>
       </div>
       <div class="settings-section">
         <div class="section-title">会话驻留</div>
-        <p class="settings-note">「受保护集之外」最多保留几个已加载的会话。当前视图、待审批、运行中与正在恢复的会话永不释放；其余会话（切走之后回合跑完的那个）按最近使用释放。窗口越大，切回旧会话越顺滑，常驻内存也越多（默认 1 = 只保留上一个，切回更早的会话要冷加载）。改后立刻生效，并记到数据根，重启后照旧。</p>
+        <p class="settings-note">受保护集之外的会话按最近使用释放，改后立刻生效。</p>
         <label class="settings-field">保留窗口
           <select id="release-window"></select>
         </label>
@@ -500,24 +518,13 @@
       </div>
       <div class="settings-section">
         <div class="section-title">工具记录</div>
-        <p class="settings-note">开启后，每次工具调用（成功与失败都记）都累加进**会话自己的**存储
-          （<code>&lt;会话目录&gt;/tool-record.jsonl</code>，一回合批量写一次，不做逐次写盘）；失败还会记
-          原因，供「状态 → 工具记录」的柱形图与失败原因饼图看。关掉不删已经记下的读数；改后立刻生效，
-          并记到数据根 <code>runtime-limits.json</code>，重启后照旧。</p>
+        <p class="settings-note">开启后每次工具调用（含失败）都累加进会话自己的 <code>tool-record.jsonl</code>，供「状态 → 工具记录」看；关掉不删已记读数。</p>
         <label class="settings-field sched-toggle">
           <input id="tool-record-enabled-setting" type="checkbox">
           <span>记录工具调用（成功与失败）</span>
         </label>
         <div id="tool-record-setting-status" class="muted"></div>
       </div>
-      <div class="settings-section">
-        <div class="section-title">账号上下文窗口</div>
-        <p class="settings-note">每个账号各自的上下文窗口（token）：它是压缩预算的基数（预算 = 窗口 − 账号档 max_tokens − 窗口 ÷ 安全除数），而"主账号大、便宜的子代理账号小"是常态。挡位 200k / 400k / 600k / 1M，或选「自定义」自己填（纯数字）。没单独设过的账号用 <code>config/seelex.yaml</code> 的 <code>limits.context_window</code>；改后立刻生效，并记到数据根，重启后照旧。</p>
-        <div id="account-windows"></div>
-        <div id="account-windows-status" class="muted"></div>
-      </div>
-      <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
-      <div id="storage-status" class="muted"></div>
     </div>
   </div>
 

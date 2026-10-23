@@ -2987,11 +2987,10 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .tier-option-label { font-weight: 700; font-size: var(--text-sm); }
 .tier-option-desc { font-size: var(--text-xs); color: var(--faint); }
 
-/* 设置弹窗：内容比视口高时必须能滚（滚轮翻得到底部的「保存并切换」），并且随窗口
-   收缩。`.modal` 是 place-items:center 的 fixed 网格、自己不带 overflow —— 卡片一旦
-   高过视口，上下两端就被切在屏幕外，没有任何滚动容器能追回来（现场：小窗口里
-   终端 / 外观 两段读不到，按钮点不着）。给卡片封顶 + 自己滚，口径同
-   .runtime-card 的 max-height + overflow:auto；遮罩不必再复制一份滚动。 */
+/* 设置弹窗：内容比视口高时必须能滚（滚轮翻得到底部那几段），并且随窗口收缩。
+   `.modal` 是 place-items:center 的 fixed 网格、自己不带 overflow —— 卡片一旦高过
+   视口，上下两端就被切在屏幕外，没有任何滚动容器能追回来。给卡片封顶 + 自己滚，
+   口径同 .runtime-card 的 max-height + overflow:auto；遮罩不必再复制一份滚动。 */
 .settings-card {
   width: min(500px, calc(100vw - 28px));
   max-height: min(760px, calc(100vh - 48px));
@@ -3002,6 +3001,15 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: var(--text-sm); }
 .settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--text); font: 12px var(--font-mono); }
 .settings-field input:focus, .settings-field select:focus { border-color: var(--border-strong); }
+/* 角色设置的另外两行（上下文窗口 / 权限向量）不是"标题 + 一个输入框"，而是标题 + 自绘
+   内容：沿用 .settings-field 的网格与字号，只把间距收一点。 */
+.settings-field.role-settings-row { gap: 8px; }
+.settings-label { color: var(--faint); font-size: var(--text-sm); }
+/* 权限向量的一排多选标签：选中态用主色实心（aria-pressed 同步给读屏）。 */
+.perm-vector { display: flex; flex-wrap: wrap; gap: 6px; }
+.perm-tag { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--r-lg); color: var(--muted); background: transparent; font: 12px var(--font-mono); cursor: pointer; }
+.perm-tag:hover { border-color: var(--border-strong); color: var(--text); }
+.perm-tag.is-on { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
 .period-row { display: flex; align-items: center; gap: 8px; }
 .period-prefix { flex: none; color: var(--muted); font-size: var(--text-sm); }
 .period-row input { width: 84px; text-align: right; }

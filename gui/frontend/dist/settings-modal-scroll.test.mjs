@@ -40,13 +40,14 @@ test("遮罩不替卡片滚：fixed 网格 + 没有自己的滚动容器", async
   assert.doesNotMatch(overlay, /overflow(-y)?:\s*auto/, "遮罩不复制一份滚动：唯一的滚动容器是卡片");
 });
 
-test("设置面板确实是「三段 + 动作行」的高内容", async () => {
+test("设置面板确实是「多段」的高内容（角色设置 + 外观 + 终端 + 会话驻留 + 工具记录）", async () => {
   const html = await read("index.html");
   const modal = html.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/);
   assert.ok(modal, "要找得到 #settings-modal");
   assert.match(modal[0], /id="settings-modal-title"/, "标题还在");
-  for (const marker of ["storage-backend", "theme-picker", "mode-picker", "terminal-scrollback"]) {
+  for (const marker of ["role-settings-section", "theme-picker", "mode-picker", "terminal-scrollback"]) {
     assert.match(modal[0], new RegExp(`id="${marker}"`), `设置面板要保留 ${marker}`);
   }
-  assert.match(modal[0], /id="storage-save"/, "底部动作行要在（正是被切掉的那一颗）");
+  // 最下面那一段也要在（正是小窗口里会被切掉的那一头）。
+  assert.match(modal[0], /id="tool-record-enabled-setting"/, "末段（工具记录）要在");
 });
