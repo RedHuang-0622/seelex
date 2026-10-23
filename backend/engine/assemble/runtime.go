@@ -305,6 +305,12 @@ type Runtime struct {
 	// adapters.WorkspacePort，装配期由 bootstrap 注入，运行期只读。
 	workspacePortMu sync.RWMutex
 	workspacePort   contract.WorkspaceEnvironmentPort
+	// sessionSSHEnv 读会话当前限定的 SSH 环境名（工具没写 env 时的缺省）。
+	//
+	// 注入而不是直连存储：执行面（assemble）不持有会话存储，会话 SSH 状态的写穿
+	// 缓存也只有装配层能提供（见 wiring/adapters 的 sessionSSHBridge）。
+	sessionSSHEnvMu sync.RWMutex
+	sessionSSHEnv   func(sessionID, projectID string) string
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。

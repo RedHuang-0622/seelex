@@ -29,6 +29,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 )
@@ -182,6 +183,15 @@ func resolveTransportDecision(
 	projectID := ""
 	if deps.Project != nil {
 		projectID = deps.Project(ctx, sessionID)
+	}
+	// 环境名的优先级：**显式参数 env > 会话当前环境 > 都没有**。
+	//
+	// 会话那一档只提供"缺省"，不覆盖显式值：调用方写了 env 就以它为准（否则
+	// 一次性的环境切换会被会话状态悄悄改回去，用户看到的是"我明明指名了却连到
+	// 另一个环境"）。会话当前环境本身已在写入侧校验过 ⊆ 放权集合 ⊆ 项目环境表，
+	// 这里不再重复判定，只做取值。
+	if env == "" && deps.EnvFor != nil {
+		env = strings.TrimSpace(deps.EnvFor(ctx, sessionID))
 	}
 	decision := TransportDecision{
 		Decided: true, Kind: TransportLocal, ProjectID: projectID,

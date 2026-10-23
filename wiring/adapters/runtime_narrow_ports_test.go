@@ -55,6 +55,9 @@ var narrowPortForwarded = map[string]string{
 	// contract.AccountWindowPort（service_account_window.go，设置 → 账号的窗口）。
 	// 漏了它 = 界面上设的窗口推不到运行时（界面说改了、预算照旧算旧窗口）。
 	"contract.AccountWindowPort": "SetAccountWindow",
+	// contract.AccountBalancePort（service_account.go，设置 → 账户 → 查看余额）。
+	// 漏了它 = 断言恒 false = 每一行都报"宿主未提供余额查询能力"（整块功能消失）。
+	"contract.AccountBalancePort": "AccountBalance",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

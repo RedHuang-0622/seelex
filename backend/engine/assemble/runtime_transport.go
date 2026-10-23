@@ -68,6 +68,7 @@ func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 		},
 		Endpoint:    r.sshEndpointForProject,
 		EndpointFor: r.sshEndpointForEnv,
+		EnvFor:      func(_ context.Context, sessionID string) string { return r.sessionSSHEnvFor(sessionID) },
 		Probe:       proberVerdict(prober),
 		ProbeNow:    probeNow(prober),
 		Dial:        dialSSH,
@@ -128,6 +129,37 @@ func (r *Runtime) sshEndpointForEnv(projectID, env string) (toolreg.SSHEndpoint,
 		}, true, nil
 	}
 	return toolreg.SSHEndpoint{}, false, nil
+}
+
+// SetSessionSSHEnvResolver 注入"会话当前环境"读面（装配期调用一次；nil = 没有缺省）。
+//
+// 与 SetWorkspaceEnvironmentPort 分开注入：前者按会话取，后者按项目取，两者的
+// 事实源不同（会话状态 / 项目环境表），混成一个注入点会让"谁覆盖谁"失去依据。
+func (r *Runtime) SetSessionSSHEnvResolver(resolver func(sessionID, projectID string) string) {
+	if r == nil {
+		return
+	}
+	r.sessionSSHEnvMu.Lock()
+	defer r.sessionSSHEnvMu.Unlock()
+	r.sessionSSHEnv = resolver
+}
+
+// sessionSSHEnvFor 读会话当前限定的环境名（空 = 没有缺省）。
+func (r *Runtime) sessionSSHEnvFor(sessionID string) string {
+	if r == nil || sessionID == "" {
+		return ""
+	}
+	r.sessionSSHEnvMu.RLock()
+	resolver := r.sessionSSHEnv
+	r.sessionSSHEnvMu.RUnlock()
+	if resolver == nil {
+		return ""
+	}
+	projectID := ""
+	if resolve := r.sessionWorkspaceFor(sessionID); resolve != nil {
+		projectID = resolve()
+	}
+	return resolver(sessionID, projectID)
 }
 
 // SetWorkspaceEnvironmentPort 注入项目连接/环境表读面（装配期调用一次）。

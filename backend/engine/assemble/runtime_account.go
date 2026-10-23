@@ -2,6 +2,7 @@ package assemble
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -72,6 +73,38 @@ func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error) {
 // Accounts 返回账号池条目的路由摘要（按名称排序）。
 func (r *Runtime) Accounts() []Account {
 	return r.accounts.Accounts()
+}
+
+// RegisterAccount 把一个新账号注册进运行时（界面「手动添加账号」的落点）：
+// 先注册进 P2C 池（新账号真正能承流），再登记进账号管理器（路由、限额与窗口读数）。
+//
+// 顺序不能反：池注册失败时管理器不该先认下这条账号——否则账号列表里会出现一条
+// 永远承不了流的假条目。反向的残留（池里有、管理器没有）不会出现，因为管理器这步
+// 是纯内存登记，只会在重名时失败（重名在池那步就已经报错了）。
+func (r *Runtime) RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error {
+	if r == nil {
+		return fmt.Errorf("seelex: runtime is unavailable")
+	}
+	if err := account.RegisterAccounts(r.pool, []model.AccountSpec{spec}); err != nil {
+		return err
+	}
+	return r.accounts.Add(spec, limits)
+}
+
+// AccountBalance 查询指定账号此刻的余额。
+//
+// 认账号名不认索引：名字是界面唯一持有的身份（`agent-1`），未知名字报错而不是
+// 回退到"当前选中账号"——那会让用户看到另一个账号的钱。
+func (r *Runtime) AccountBalance(ctx context.Context, name string) (account.Balance, error) {
+	if r == nil {
+		return account.Balance{}, fmt.Errorf("seelex: runtime is unavailable")
+	}
+	for _, spec := range r.accounts.Specs() {
+		if spec.Name == name {
+			return account.QueryBalance(ctx, spec)
+		}
+	}
+	return account.Balance{}, fmt.Errorf("seelex: unknown account %q", name)
 }
 
 // Provider 返回当前 provider 过滤；未过滤时回退默认账号。

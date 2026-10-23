@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`backend/engine/assemble` 是 Seelex 与 Seele（当前 `v0.3.4`，见 `go.mod`）之间的防腐层**装配面**：
+`backend/engine/assemble` 是 Seelex 与 Seele（当前 `v0.3.6`，见 `go.mod`）之间的**装配面**（原集中式防腐层，已按域拆解——见下方迁移表与「迁移状态」一节）：
 它把 Seele 的
 `accountpool`（P2C 账号租约）、`agent`（NewWithComponents 装配）、`session`
 （主会话与节点子代理会话）、`tools`（Registry + 主体×路由组×位的权限门）、
@@ -136,7 +136,7 @@ flowchart TB
 | `runtime_task.go` | task 台账域的薄转发面（M5-R11-task-forwarder 从 `ports.go` 原样搬来）：`ledger()` + 台账/清单/批次 20 个方法 + `SetSessionWorkspace` + `RegisterTaskTerminalTools` |
 | `runtime_subagent.go` | 子代理执行装配与委托（子代理策略、fork 作业面、node Deps 闭包；Plan 执行器已退役） |
 | `runtime_context.go` | 上下文**接线**（Assembler/Controller/Compressor/窗口/stack/project/memory/归档）：组件工厂 + 五个判据的一行转发（判据在域包 [`wiring.go`](../../engine/context/README.md)：分片预算 / 摘要器理由 / 读尾预算 / 真空区补压 / 记忆块选取） |
-| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）——三条判据（入口过滤 / 改一格清一格 / **优先级**：账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）在 P21-8 下沉到 [`backend/engine/account.WindowOverlay`](../../engine/account/README.md)，本文件只剩三个薄转发 + `account.WindowDeps` 注入。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档。**路由事实注册表**（承接路由 / unpinned 去重 / 读即清）在 P21-3 下沉到 [`backend/engine/account.ServedRouteRegistry`](../../engine/account/README.md)，本文件只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发 |
+| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）——三条判据（入口过滤 / 改一格清一格 / **优先级**：账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）在 P21-8 下沉到 [`backend/engine/account.WindowOverlay`](../../engine/account/README.md)，本文件只剩三个薄转发 + `account.WindowDeps` 注入。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档。**路由事实注册表**（承接路由 / unpinned 去重 / 读即清）在 P21-3 下沉到 [`backend/engine/account.ServedRouteRegistry`](../../engine/account/README.md)，本文件只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发。**账号的两条界面链路**也挂在这里：`RegisterAccount`（手动添加账号的热注册：先进 P2C 池、再进 `account.Manager`——顺序不能反，池注册失败时管理器不该先认下这条账号，否则列表里会出现一条永远承不了流的假条目）与 `AccountBalance`（按账号名取 `AccountSpec` 后交给 `account.QueryBalance`；未知名字报错，**不**回退到"当前选中账号"，那会让用户看到另一个账号的钱） |
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events_unified.go` | 统一事件库的**宿主转发面**（P21-6：B 类 llm/tool 脱敏摘要 `SummaryLog`、统一查询 `UnifiedEventReader`、话题映射与过滤判据都在 [`backend/engine/obs`](../../engine/obs/README.md) 的 `unified_events.go`）：本文件只留同身份别名 + `NewSummaryLog()` 一行 + `Runtime.UnifiedEvents` / `Runtime.UnifiedEventsRange` 两个薄转发，宿主读数只有 `HistoryRouter` 与 tracer 查询闭包两格 |

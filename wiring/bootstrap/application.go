@@ -47,6 +47,9 @@ func InitApplication(
 	// 读面是**事后注入**的读面，所以这里是一个 setter 而不是构造参数——构造期注入
 	// 会把 Runtime 的创建顺序绑死在 workspace 仓库上。
 	runtime.SetWorkspaceEnvironmentPort(adapters.WorkspacePort{Repo: workspaces})
+	// 会话当前环境（工具没写 env 时的缺省）：读的是装配层的写穿缓存，不逐次回放
+	// 会话 SSH 状态的 JSONL——决策段跑在每一次工具调用上。
+	runtime.SetSessionSSHEnvResolver(adapters.SessionSSHEnvResolver(sessions.Router()))
 
 	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
 	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的

@@ -36,7 +36,10 @@ package adapters
 
 import (
 	"context"
+	"errors"
+	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -83,6 +86,52 @@ func (port RuntimePort) AccountWindowFor(name string) int {
 
 // AccountWindowPort 的转发面在这里成文（编译期钉住：漏一个方法这行就红）。
 var _ contract.AccountWindowPort = RuntimePort{}
+
+// AccountBalance 实现 contract.AccountBalancePort：界面「设置 → 账户 → 查看余额」的
+// 转发面，把账号域的读数（Balance）翻成界面契约（dto.AccountBalance）。
+//
+// 漏了它**不会报错**：core 侧的断言恒 false ⇒ 面板上每一行都报"宿主未提供余额查询
+// 能力"——与本文件头注释里那两处漏接同一类（bridge 上有方法、core 也在探测，中间
+// 少一行转发，功能整块消失）。
+//
+// 映射只在这一层做：账号域不认识 dto，界面也不认识账号域；两边形状变了只改这里，
+// 不牵动探测逻辑。
+func (port RuntimePort) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error) {
+	if port.Runtime == nil {
+		return dto.AccountBalance{}, errors.New("account balance: runtime is unavailable")
+	}
+	balance, err := port.Runtime.AccountBalance(ctx, name)
+	if err != nil {
+		return dto.AccountBalance{}, err
+	}
+	return accountBalanceDTO(name, balance, time.Now()), nil
+}
+
+// accountBalanceDTO 是纯映射（时间由调用方给）：域读数 → 界面契约。
+//
+// 单独抽出来是为了让"形状没搬错"成为一条可直接断言的判据（金额字符串原样、
+// 币种顺序不变、available 如实），而不必为了它构造整个运行时。
+func accountBalanceDTO(name string, balance account.Balance, fetchedAt time.Time) dto.AccountBalance {
+	result := dto.AccountBalance{
+		Name:      name,
+		Available: balance.Available,
+		Infos:     make([]dto.AccountBalanceInfo, 0, len(balance.Infos)),
+		FetchedAt: fetchedAt,
+	}
+	for _, info := range balance.Infos {
+		result.Infos = append(result.Infos, dto.AccountBalanceInfo{
+			Currency: info.Currency,
+			Total:    info.Total,
+			Granted:  info.Granted,
+			ToppedUp: info.ToppedUp,
+		})
+	}
+	return result
+}
+
+// contract.AccountBalancePort（application/core/service_account.go 的 AccountBalance）：
+// 逐账号查余额的转发面。
+var _ contract.AccountBalancePort = RuntimePort{}
 
 // TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
 // 的实时只读投影（这件事的会话此刻在说什么）。漏了它，"查看这件事的会话"就只能从会话库

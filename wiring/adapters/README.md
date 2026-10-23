@@ -34,6 +34,9 @@ flowchart LR
 - 引擎适配：`EnginePort` 包装框架 `session.Session` 的 ReAct 会话面。
 - 运行时适配：`RuntimePort` 代理 `backend/engine/assemble.Runtime` 的能力面（源码里
   该包仍以局部别名 `seelebridge` 引入，别名本身不改行为，收口随 M5 门面收窄一起做）。
+- 账号管理适配：`AccountAdmin` 落地「手动添加账号」（写账号档 + 热注册进运行时）。
+  它只依赖最小面 `AccountRegistrar`（一个方法），并把"读到哪条规格"交给**启动同一条
+  加载器**（`config.Load`），所以界面加出来的账号与重启后完全一致。
 - 会话/工作区/插件/Skill：对应 manager/repo/registry 的窄端口。
 - 会话标题的持久化面（`session_runtime.SessionTitlePort`）与"最早用户输入"的
   有界读面（`session_runtime.FirstUserInputPort`）也由 `SessionPort` 落地
@@ -114,6 +117,19 @@ go test ./wiring/adapters -count=1
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### account_admin.go
+
+- `func (admin AccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount 写入一条新账号并返回生效回执。
+
+### account_admin_test.go
+
+- `func TestAccountAdminWritesThenHandsResolvedSpecToRuntime(t *testing.T)`
+- `func TestAccountAdminReportsHotRegisterFailure(t *testing.T)`
+- `func TestAccountAdminValidationFailureLeavesFileUntouched(t *testing.T)`
+- `func TestAccountAdminNeedsPathAndRuntime(t *testing.T)`
+- `func TestAccountBalanceDTOKeepsProviderShape(t *testing.T)`
+- `func (registrar *fakeRegistrar) RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error`
 
 ### adapters_test.go
 
