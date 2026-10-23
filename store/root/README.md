@@ -26,8 +26,8 @@
 - 原子发布 `WriteAtomic`（同目录 tmp + rename + 有界退避）与目录删除退避 `RemoveAllWithBackoff`；
 - 内容哈希 `Hash`（目录名 `project-<hash>` / `session-<hash>` 的唯一来源）与
   `RandomID`（锁 owner token、临时文件名）；
-- `Settings`：v8 存储的运行参数与覆盖链合并/校验（默认值 ← `limits.session_storage.*` ←
-  `session-storage.json`）。
+- `Settings`：v8 存储的运行参数与覆盖链合并/校验（默认值 ← `limits.session_storage.*`）。
+  覆盖链只有装配期一层来源，没有第二份落盘配置，也没有「策略/后端」可选档。
 
 不做（刻意）：
 

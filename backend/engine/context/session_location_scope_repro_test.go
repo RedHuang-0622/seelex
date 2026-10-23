@@ -1,7 +1,6 @@
 package context_runtime
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
@@ -47,7 +46,7 @@ func TestCompactionCheckpointPersistMustNotLandInViewWorkspace(t *testing.T) {
 	const sessionID = "sess-compaction-scope"
 
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

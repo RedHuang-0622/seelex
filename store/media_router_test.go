@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 )
 
@@ -12,7 +11,7 @@ import (
 func openMediaRouter(t *testing.T) *Router {
 	t.Helper()
 	dir := t.TempDir()
-	router, err := NewRouter(filepath.Join(dir, "session-storage.json"), dir)
+	router, err := NewRouter(dir)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

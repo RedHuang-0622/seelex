@@ -1,7 +1,6 @@
 package adapters
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 // 带压缩记录）→ 重建端口（模拟重启）→ 读回。
 func TestSessionPortCompactionRecordsRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

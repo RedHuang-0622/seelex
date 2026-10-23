@@ -11,15 +11,15 @@ import (
 // project-A。否则重启后 B 的记录分裂在两个项目（A 项目里有 B、默认项目里
 // 只剩旧轮），目录/加载/删除全部错键（manifest 找不到 / A、B 同收消息）。
 func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 
 			const bID = "sess-unbound-B"
 			router.SetWorkspace("") // 默认项目
 			first := Commit{}
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				// v8 JSON 布局（S11）：正文以事件行落库（provider 整段缓存退役）。
 				first = Commit{Events: []Event{{Role: "user", Content: "first-turn-0", MessageID: "b-first"}}}
 			} else {
@@ -32,7 +32,7 @@ func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
 			// 视图切到带项目会话 A（活跃写作用域 = project-A）。
 			router.SetWorkspace("project-A")
 			second := Commit{}
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				second = Commit{Events: []Event{
 					{Role: "user", Content: "second-turn-0", MessageID: "b-second-0"},
 					{Role: "user", Content: "second-turn-1", MessageID: "b-second-1"},

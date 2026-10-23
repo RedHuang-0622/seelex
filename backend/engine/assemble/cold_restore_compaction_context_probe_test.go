@@ -75,7 +75,7 @@ func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixtu
 	t.Helper()
 	runtime := newTestRuntime(t)
 	t.Cleanup(runtime.Shutdown)
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

@@ -35,9 +35,9 @@ const conversationStateV3 = `{
 // 由 message 事件行派生（窗口切片、总数、越界收敛、limit<=0）。
 func TestConversationRangeFromMessageRows(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)

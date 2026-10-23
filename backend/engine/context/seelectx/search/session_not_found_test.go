@@ -21,9 +21,9 @@ import (
 //
 // 为什么以 store 的语义为准（证据，不是偏好）：
 //
-//   - `store/sessionstore.go:54-57` 定义 `ErrBackendRetired`，`Open` 只接受
-//     `BackendJSON`；SQLite / PostgreSQL / Redis 是**保留枚举**，一律返回
-//     `ErrBackendRetired`。也就是说今天没有任何代码路径能产生 `sql.ErrNoRows`。
+//   - `store/sessionstore.go` 只有一种存储形态（jsonl + json v8），`Open` 不做
+//     后端分派，也没有 SQL/Redis 链路。也就是说今天没有任何代码路径能产生
+//     `sql.ErrNoRows`。
 //   - `store` 侧对「会话不存在」的判据只有一条：`errors.Is(err, fs.ErrNotExist)`
 //     （`store/durable_history.go`）。store 是「未找到」错误的编码者，判据属于它。
 //

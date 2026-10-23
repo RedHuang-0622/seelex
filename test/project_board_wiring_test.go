@@ -34,7 +34,7 @@ func projectBoardWiringStore(t *testing.T) (router *store.Router, dataRoot, proj
 	t.Helper()
 	dataRoot = t.TempDir()
 	projectRoot = t.TempDir()
-	router, err := store.NewRouter(filepath.Join(dataRoot, "session-storage.json"), dataRoot)
+	router, err := store.NewRouter(dataRoot)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}

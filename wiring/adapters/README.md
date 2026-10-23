@@ -408,9 +408,6 @@ go test ./wiring/adapters -count=1
 - `func (m *SessionManager) Router() *store.Router` — Router 返回底层存储路由（context 模块装配等用途；未装配时 nil）。
 - `func (m *SessionManager) SetWorkspace(workspaceID string)` — SetWorkspace 设置当前 workspace 写作用域。
 - `func (m *SessionManager) Workspace() string` — Workspace 返回当前 workspace 写作用域。
-- `func (m *SessionManager) StorageConfig() (store.Config, error)` — StorageConfig 返回当前存储配置。
-- `func (m *SessionManager) TestStorage(ctx context.Context, config store.Config) error` — TestStorage 试探一份存储配置。
-- `func (m *SessionManager) ConfigureStorage(ctx context.Context, config store.Config) error` — ConfigureStorage 切换存储配置。
 - `func (m *SessionManager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error)` — InjectSaveLoad 注入保存/加载回调（由 wiring/bootstrap 装配时传入）。
 - `func (m *SessionManager) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error` — SaveCommitWorkspace 在显式项目作用域下把一个 commit 追加进会话存储
 - `func (m *SessionManager) SaveCurrent(sessionID string) error` — SaveCurrent 持久化当前会话。
@@ -486,9 +483,6 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) Resume(id string) error`
 - `func (port SessionPort) SetWorkspace(workspaceID string)`
 - `func (port SessionPort) Workspace() string`
-- `func (port SessionPort) StorageConfig() (store.Config, error)`
-- `func (port SessionPort) TestStorage(ctx context.Context, config store.Config) error`
-- `func (port SessionPort) ConfigureStorage(ctx context.Context, config store.Config) error`
 - `func (port SessionPort) Delete(id string) error` — Delete 以会话粒度删除会话（resolve 项目绑定后整键删除）。
 - `func (port SessionPort) LoadHistory(id string) ([]contract.EngineMessage, error)`
 - `func (port SessionPort) LoadHistoryRange(id string, offset, limit int) ([]contract.EngineMessage, int, error)`

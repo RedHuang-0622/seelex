@@ -14,9 +14,9 @@ import (
 
 func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -32,7 +32,7 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 			if !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("json ReadState err = %v, want fs.ErrNotExist", err)
 			}
-			history := testMessages(defaultMessageShardSize+5, string(config.Backend))
+			history := testMessages(defaultMessageShardSize+5, string(storageLayoutName))
 			// v8 JSON 布局（S11）：事件行为正文事实源，ReadRange 由行派生。
 			if err := repository.WriteCommit(context.Background(), key, Commit{
 				Events: messagesToEventRows(history),
@@ -55,9 +55,9 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 
 func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -127,9 +127,9 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 
 func TestWriteStateAfterCommitReturnsLatestState(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)

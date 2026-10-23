@@ -103,7 +103,6 @@
 
 | 门面导出 | 指向 | 消费用例 | 终局（规划，尚未实现） |
 |---|---|---|---|
-| `SessionStorageConfig` | `store.Config` | `SessionStorageConfig` / `TestSessionStorage` / `ConfigureSessionStorage` | M3 store 归位后由 store 侧提供，门面别名重指向 |
 | `SearchResult` / `SearchHit` / `SearchRecord` | `seelexctx/search` 的 `Result` / `Hit` / `ChatRecord` | `SearchHistory` | plan §2.1 的 `contract.SearchPort`（M4） |
 | `AccountWindowPresets()` | `backend/limit/accountwindow.Presets` | 账号上下文窗口挡位表（只下发一次，前端不写死） | **已归位（M2-C3）**，无待迁项 |
 

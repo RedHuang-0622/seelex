@@ -3,10 +3,10 @@
 // 设计稿的键是 `session_storage.<域>.<叶子>`；落到配置体系里保留同一条覆盖链，
 // 但键名用扁平叶子名（与 seele.yaml `limits:` 段的既有风格一致）：
 //
-//	默认值  ←  limits.session_storage.*（seele.yaml）  ←  session-storage.json
+//	默认值  ←  limits.session_storage.*（seelex.yaml，唯一可调层）
 //
-// 三层只在 `Router` 打开后端时合并一次（`ResolveSettings`），此后运行期
-// 不再改：各通道从 storeEngine.settings 读数，禁止再各自硬编码。
+// 合并只在装配期做一次（`ResolveSettings`），此后运行期不再改：各通道从
+// storeEngine.settings 读数，禁止再各自硬编码，也不存在第二份落盘配置。
 package root
 
 import (
@@ -27,7 +27,6 @@ type Settings struct {
 	WireRecentErrors      int    `json:"retry_cache_wire_recent_errors,omitempty"`
 	CompactFrameThreshold int    `json:"retention_compact_frame_threshold,omitempty"`
 	RawBytesAlert         uint64 `json:"retention_raw_bytes_alert,omitempty"`
-	RetentionMode         string `json:"retention_mode,omitempty"`
 	QueuePersistPending   *bool  `json:"queue_persist_pending,omitempty"`
 	StaleAfterSeconds     int    `json:"lock_stale_after_seconds,omitempty"`
 	AutoRecover           *bool  `json:"lock_auto_recover,omitempty"`
@@ -60,8 +59,9 @@ type Settings struct {
 	WireTargetRatio  float64 `json:"wire_target_ratio,omitempty"`
 }
 
-// RetentionModeManual 是当前唯一实现模式（用户确认后行删除；dry_run=true 为默认安全姿态，
-// 见 my_design §11）。
+// RetentionModeManual 是该布局**唯一**的保留模式标识（用户确认后行删除；
+// dry_run=true 为默认安全姿态，见 my_design §11）。它不是可配置的「策略选择」：
+// `RetentionPlan.Mode` 用它标记计划的来路，配置层没有对应开关。
 const RetentionModeManual = "manual"
 
 // 布尔项用指针：设计默认值里有 false（auto_recover），零值无法区分「未设置」。
@@ -83,7 +83,6 @@ func DefaultSettings() Settings {
 		WireRecentErrors:      3,
 		CompactFrameThreshold: 30,
 		RawBytesAlert:         256 << 20,
-		RetentionMode:         RetentionModeManual,
 		QueuePersistPending:   &persistPending,
 		StaleAfterSeconds:     300,
 		AutoRecover:           &autoRecover,
@@ -131,9 +130,6 @@ func MergeSettings(base, override Settings) Settings {
 	}
 	if override.RawBytesAlert != 0 {
 		base.RawBytesAlert = override.RawBytesAlert
-	}
-	if override.RetentionMode != "" {
-		base.RetentionMode = override.RetentionMode
 	}
 	if override.QueuePersistPending != nil {
 		base.QueuePersistPending = override.QueuePersistPending
@@ -205,9 +201,6 @@ func ValidateSettings(config Settings) error {
 	}
 	if config.MediaSessionQuotaBytes < config.MediaMaxItemBytes {
 		return errors.New("session storage: media session quota must cover media max item bytes")
-	}
-	if config.RetentionMode != RetentionModeManual {
-		return errors.New("session storage: retention mode must be manual (current implementation)")
 	}
 	if config.StaleAfterSeconds < 1 {
 		return errors.New("session storage: lock.stale_after_seconds must be > 0")

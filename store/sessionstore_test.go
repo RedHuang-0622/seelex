@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -20,9 +19,11 @@ func messages(count int, marker string) []types.Message {
 	return result
 }
 
-func TestRouterPersistsConfiguredBackend(t *testing.T) {
+// TestRouterPersistsSingleStorageForm：装配只有一条路径（jsonl + json v8）；
+// 写进去再从同一 Router 读回，跑的就是那条唯一链路。
+func TestRouterPersistsSingleStorageForm(t *testing.T) {
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,42 +34,31 @@ func TestRouterPersistsConfiguredBackend(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if router.Config().Backend != BackendJSON {
-		t.Fatalf("backend=%q", router.Config().Backend)
-	}
 	history, err := router.Load("session")
 	if err != nil || *history[0].Content != "json-0" {
 		t.Fatalf("history=%v err=%v", history, err)
 	}
 }
 
-func TestRetiredBackendsReturnExplicitError(t *testing.T) {
-	for _, backend := range []Backend{BackendSQLite, BackendPostgreSQL, BackendRedis} {
-		if _, err := Open(context.Background(), Config{Backend: backend}); !errors.Is(err, ErrBackendRetired) {
-			t.Fatalf("Open(%s) err = %v, want ErrBackendRetired", backend, err)
-		}
-		if _, err := (Config{Backend: backend}).Normalize(t.TempDir()); !errors.Is(err, ErrBackendRetired) {
-			t.Fatalf("Normalize(%s) err = %v, want ErrBackendRetired", backend, err)
-		}
-	}
-
+// TestConfigNormalizeFillsDefaultPath：零值 Config 补默认落点，参数覆盖链自洽
+// （默认值 ← limits ← 本配置）。这里不再有后端选择可断言。
+func TestConfigNormalizeFillsDefaultPath(t *testing.T) {
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	normalized, err := Config{}.Normalize(root)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Normalize: %v", err)
 	}
-	defer router.Close()
-	if err := router.Configure(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(root, "sessions.db")}); !errors.Is(err, ErrBackendRetired) {
-		t.Fatalf("Configure(retired) err = %v, want ErrBackendRetired", err)
+	if want := filepath.Join(root, "sessions-json"); normalized.Path != want {
+		t.Fatalf("Path = %q, want %q", normalized.Path, want)
 	}
-	if got := router.Config().Backend; got != BackendJSON {
-		t.Fatalf("retired Configure switched backend to %q", got)
+	if err := storeroot.ValidateSettings(normalized.SessionStorage); err != nil {
+		t.Fatalf("resolved settings must be valid: %v", err)
 	}
 }
 
 func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

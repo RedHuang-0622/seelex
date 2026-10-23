@@ -16,7 +16,7 @@ import (
 // checkpoint+record）后，metadata 白名单外文件与退役通道都不再产生；
 // 压缩只有 compact.jsonl + metadata/compact.json 一处来源。
 func TestRetiredChannelsAbsentAfterFullCommit(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: t.TempDir()})
+	repository, err := Open(context.Background(), Config{Path: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

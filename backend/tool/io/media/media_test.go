@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/agent"
@@ -40,7 +39,7 @@ func (h *stubHost) SessionProjectID(sessionID string) string {
 // 断言逐条不变；宿主的会话绑定改用 stubHost 提供）。
 func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	dir := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(dir, "session-storage.json"), dir)
+	router, err := store.NewRouter(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

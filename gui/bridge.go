@@ -72,9 +72,6 @@ type Application interface {
 	// SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回
 	// 真正生效的档位；未识别的档位 id 报错。会话级归属（G4）。
 	SetPermissionTier(string) (string, error)
-	SessionStorageConfig() (application.SessionStorageConfig, error)
-	TestSessionStorage(context.Context, application.SessionStorageConfig) error
-	ConfigureSessionStorage(context.Context, application.SessionStorageConfig) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 	ClearSubagentTree() error
 	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
@@ -975,19 +972,6 @@ func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 	return bridge.app.SetPermissionTier(tier)
 }
 
-func (bridge *Bridge) SessionStorageConfig() (application.SessionStorageConfig, error) {
-	return bridge.app.SessionStorageConfig()
-}
-
-func (bridge *Bridge) TestSessionStorage(config application.SessionStorageConfig) error {
-	return bridge.app.TestSessionStorage(bridge.requestContext(), config)
-}
-
-func (bridge *Bridge) ConfigureSessionStorage(config application.SessionStorageConfig) error {
-	return bridge.app.ConfigureSessionStorage(bridge.requestContext(), config)
-}
-
-// ScheduleTask 创建并启动一个定时/周期任务（后端调度器校验白名单/周期或 RunAt）。
 func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
 }

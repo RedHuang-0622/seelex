@@ -1,7 +1,6 @@
 package session_runtime
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -58,7 +57,7 @@ func (s *realStoreTitleSessions) FirstUserInputs(projectID, sessionID string, li
 // **首条用户输入**重建，且不能为此每轮读整片正文。
 func TestCatalogRefreshBackfillsLegacyTitleOnRealStore(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

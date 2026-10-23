@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// newSessionGranularRouter 构造 JSON v8 Router（R1 后仅保留该实现）。
-func newSessionGranularRouter(t *testing.T, _ Backend) *Router {
+// newSessionGranularRouter 构造唯一形态的 Router（jsonl + json v8）。
+func newSessionGranularRouter(t *testing.T) *Router {
 	t.Helper()
 	return newTestRouter(t)
 }
@@ -17,9 +17,9 @@ func newSessionGranularRouter(t *testing.T, _ Backend) *Router {
 // TestSessionGranularityPersistence（T2.6）：session:<id> 五片原子读写、
 // 项目索引、subagent 与 main 同构落盘。
 func TestSessionGranularityPersistence(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			const projectID = "project-a"
 			const mainID = "sess-main"
@@ -52,13 +52,13 @@ func TestSessionGranularityPersistence(t *testing.T) {
 
 			// history 片：框架工作历史句柄。
 			history := store.History(mainID)
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				// v8 JSON 布局（S11）：history.json 整段缓存退役，正文事实源
 				// = transcript 事件行（下方同一次提交），Load 由行派生。
 			} else if err := history.Save(context.Background(), messages(2, "hist")); err != nil {
 				t.Fatalf("save history: %v", err)
 			}
-			if backend != BackendJSON {
+			if backend != storageLayoutName {
 				loadedHistory, err := history.Load(context.Background())
 				if err != nil || len(loadedHistory) != 2 {
 					t.Fatalf("load history len=%d err=%v", len(loadedHistory), err)
@@ -79,7 +79,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			if transcript[0].Seq != 1 || transcript[1].Type != "assistant" {
 				t.Fatalf("transcript = %+v", transcript)
 			}
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				loadedHistory, err := history.Load(context.Background())
 				if err != nil || len(loadedHistory) != 2 {
 					t.Fatalf("v8 layout load history len=%d err=%v", len(loadedHistory), err)
@@ -128,7 +128,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			}
 			loadedSub, ok, err := store.LoadSession(projectID, subID)
 			wantSubKind, wantSubParent := KindSubagent, mainID
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				// S20：子侧血缘不再持久化（dev 丢字段已接受）。
 				wantSubKind, wantSubParent = KindMain, ""
 			}
@@ -152,7 +152,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 				t.Fatalf("project index = %+v, want 2 sessions", byID)
 			}
 			wantKind, wantParent := KindSubagent, mainID
-			if backend == BackendJSON {
+			if backend == storageLayoutName {
 				wantKind, wantParent = KindMain, ""
 			}
 			if byID[mainID].Kind != KindMain || byID[subID].Kind != wantKind || byID[subID].ParentID != wantParent {
@@ -164,9 +164,9 @@ func TestSessionGranularityPersistence(t *testing.T) {
 
 // TestPersistenceIdempotent（B6）：会话粒度重复写/恢复幂等，键不漂移。
 func TestPersistenceIdempotent(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			const projectID = "project-b"
 			const sessionID = "sess-idem"
@@ -191,7 +191,7 @@ func TestPersistenceIdempotent(t *testing.T) {
 				t.Fatalf("load ok=%v err=%v", ok, err)
 			}
 			wantTitle := "幂等"
-			if backend != BackendJSON {
+			if backend != storageLayoutName {
 				wantTitle = ""
 			}
 			if !reflect.DeepEqual(record.ID, loaded.ID) || loaded.Title != wantTitle ||
@@ -335,9 +335,9 @@ func TestSessionsOfDefaultProjectIndependentOfActiveScope(t *testing.T) {
 // 时间线字段丢弃成零值后，快照里 updated_at 恒为 0001-01-01T00:00:00Z，
 // 前端每条会话都渲染成同一个占位日期。
 func TestSessionsOfCarriesManifestTimeline(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			const projectID = "project-timeline"
 			const sessionID = "sess-timeline"

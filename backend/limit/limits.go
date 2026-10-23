@@ -18,18 +18,17 @@ import (
 // limits 段同文件；缺失 = 存储默认值）。键名与 my_design §11 的叶子一一对应
 // （`session_storage.<域>.<叶子>` → `session_storage.<域>_<叶子>`）。
 type SessionStorageLimits struct {
-	RetryCacheMaxItems             int    `yaml:"retry_cache_max_items"`             // 尝试缓存条目上限
-	RetryCacheMaxChars             int    `yaml:"retry_cache_max_chars"`             // 尝试缓存字符上限
-	RetryCacheWireRecentErrors     int    `yaml:"retry_cache_wire_recent_errors"`    // 同一操作最近 K 条
-	RetentionCompactFrameThreshold int    `yaml:"retention_compact_frame_threshold"` // 压缩帧数阈值
-	RetentionRawBytesAlert         int64  `yaml:"retention_raw_bytes_alert"`         // 原始 message 告警字节
-	RetentionMode                  string `yaml:"retention_mode"`                    // 当前只实现 manual
-	QueuePersistPending            *bool  `yaml:"queue_persist_pending"`             // 待发送队列落盘恢复
-	LockStaleAfterSeconds          int    `yaml:"lock_stale_after_seconds"`          // 数据根锁陈旧判定
-	LockAutoRecover                *bool  `yaml:"lock_auto_recover"`                 // 陈旧锁自动接管
-	BlobSoftLimitChars             int    `yaml:"big_tool_result_soft_limit_chars"`
-	BlobHardLimitBytes             int    `yaml:"big_tool_result_hard_limit_bytes"`
-	BlobSessionQuotaBytes          int    `yaml:"big_tool_result_session_quota_bytes"`
+	RetryCacheMaxItems             int   `yaml:"retry_cache_max_items"`             // 尝试缓存条目上限
+	RetryCacheMaxChars             int   `yaml:"retry_cache_max_chars"`             // 尝试缓存字符上限
+	RetryCacheWireRecentErrors     int   `yaml:"retry_cache_wire_recent_errors"`    // 同一操作最近 K 条
+	RetentionCompactFrameThreshold int   `yaml:"retention_compact_frame_threshold"` // 压缩帧数阈值
+	RetentionRawBytesAlert         int64 `yaml:"retention_raw_bytes_alert"`         // 原始 message 告警字节
+	QueuePersistPending            *bool `yaml:"queue_persist_pending"`             // 待发送队列落盘恢复
+	LockStaleAfterSeconds          int   `yaml:"lock_stale_after_seconds"`          // 数据根锁陈旧判定
+	LockAutoRecover                *bool `yaml:"lock_auto_recover"`                 // 陈旧锁自动接管
+	BlobSoftLimitChars             int   `yaml:"big_tool_result_soft_limit_chars"`
+	BlobHardLimitBytes             int   `yaml:"big_tool_result_hard_limit_bytes"`
+	BlobSessionQuotaBytes          int   `yaml:"big_tool_result_session_quota_bytes"`
 	// 媒体分区（my_design §10）：字节/像素硬限，无字符软限、永不截断。
 	MediaMaxItemBytes       int     `yaml:"media_max_item_bytes"`
 	MediaSessionQuotaBytes  int     `yaml:"media_session_quota_bytes"`

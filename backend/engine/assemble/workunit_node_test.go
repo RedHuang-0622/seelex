@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -219,7 +218,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatalf("bind project root: %v", err)
 	}
-	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

@@ -1,7 +1,6 @@
 package assemble
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -38,7 +37,7 @@ func TestRuntimeNewMainSessionWithIDKeepsDurableResumeIdentity(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +61,7 @@ func TestRuntimeSessionBundlesArePerSession(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

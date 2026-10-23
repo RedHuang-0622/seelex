@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -11,7 +10,7 @@ import (
 func newTestRouter(t *testing.T) *Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

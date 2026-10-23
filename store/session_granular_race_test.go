@@ -16,9 +16,9 @@ import (
 // 关注两件事：注入点与解析读取不得裸字段竞争；已绑定会话的归属不得随活跃写
 // 作用域漂移（漂移会让 record/事件拆到两个项目，manifest 错键、会话打不开）。
 func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			resolver := func(sessionID string) string {
 				if sessionID == "sess-bound" {
@@ -113,7 +113,7 @@ func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
 // 读取执行事实事件库，同时翻转解析器与活跃写作用域。断言每个会话读回自己的
 // 全部事件、Seq 严格递增、且不串到别会话的分片。
 func TestEventStoreConcurrentAppendAndLoad(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	store := NewEventStore(router)
 	const sessionCount = 4
 	const perSession = 25

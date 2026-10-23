@@ -16,7 +16,7 @@ import (
 // 的 message 事件行，Load 由行派生。断言每个会话读回的是自己的内容（不串写
 // 他域）且读取不受视图影响。
 func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	store := NewSessionGranularStore(router)
 	const project = "project-h"
 	resolver := func(string) string { return project }
@@ -126,7 +126,7 @@ func lastContentOr(messages []types.Message) string {
 // TestRouterConcurrentProjectIsolation（阶段 D6b，-race）：两个项目并发提交
 // 事件行与枚举，断言目录互不见面（列表不污染）且删除只影响自己项目。
 func TestRouterConcurrentProjectIsolation(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	store := NewSessionGranularStore(router)
 	const rounds = 10
 	var group sync.WaitGroup
@@ -191,7 +191,7 @@ func TestRouterConcurrentProjectIsolation(t *testing.T) {
 // TestProjectRecordConcurrentReadDoesNotTear（阶段 D6b，-race）：单写多读项目语义
 // 记录，读者每次拿到的必须是完整且属于该项目的记录（跨项目串读或半写都会显形）。
 func TestProjectRecordConcurrentReadDoesNotTear(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	const projects = 3
 	const rounds = 25
 	var group sync.WaitGroup
@@ -241,7 +241,7 @@ func TestProjectRecordConcurrentReadDoesNotTear(t *testing.T) {
 // tool-results，子会话并发读取并复制。父侧不变量是一次 commit 的一对 ref 成对
 // 可见；子侧不变量是复制集闭包于父 ref 且不丢已复制条目（fork 物理复制的底座）。
 func TestForkCopiesDoNotShareParentGeneration(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	store := NewSessionGranularStore(router)
 	const project = "project-fork"
 	parent, child := "sess-parent", "sess-child"

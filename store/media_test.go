@@ -37,7 +37,7 @@ func mediaTestPNG(t *testing.T, width, height int) []byte {
 func openMediaTestStore(t *testing.T, settings storeroot.Settings) (Repository, MediaStore) {
 	t.Helper()
 	repository, err := Open(context.Background(), Config{
-		Backend: BackendJSON, Path: t.TempDir(), SessionStorage: settings,
+		Path: t.TempDir(), SessionStorage: settings,
 	})
 	if err != nil {
 		t.Fatalf("open store: %v", err)

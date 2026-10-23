@@ -21,7 +21,7 @@ import (
 func newTestRouter(t testing.TB) *store.Router {
 	t.Helper()
 	baseDir := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
+	router, err := store.NewRouter(baseDir)
 	if err != nil {
 		t.Fatal(err)
 	}

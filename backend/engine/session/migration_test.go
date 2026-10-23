@@ -3,7 +3,6 @@ package session_runtime
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -17,7 +16,7 @@ import (
 // 保留为物理布局；暴露层切到会话粒度，键不漂移）。
 func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatal(err)
 	}

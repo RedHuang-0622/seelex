@@ -216,7 +216,7 @@ limits:
   plugins:
     per_teammate: 3              # 每会话插件装配上限（出厂 3；非正值按出厂默认）
   # ── v8 会话存储参数（my_design §11；全部缺省 = 存储内置默认，注释即为默认值）
-  # 覆盖链：存储内置默认 ← 本段 ← 数据根内 session-storage.json。
+  # 覆盖链：存储内置默认 ← 本段（唯一可调层；存储没有运行期重配置入口）。
   session_storage:
     # 尝试缓存（运行期，不落盘）
     # retry_cache_max_items: 64                 # 条目上限
@@ -229,7 +229,6 @@ limits:
     # retention（LRU 只删水位前连续前缀，且必须用户确认）
     # retention_compact_frame_threshold: 30
     # retention_raw_bytes_alert: 268435456      # 256 MB
-    # retention_mode: manual                    # 当前只实现 manual
     # queue_persist_pending: true               # 待发送队列落盘恢复
     # 数据根独占锁（§9）
     # lock_stale_after_seconds: 300             # 心跳超龄即判陈旧

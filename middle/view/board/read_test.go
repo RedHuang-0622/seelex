@@ -17,7 +17,7 @@ import (
 func projectBoardReadRouter(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}

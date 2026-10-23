@@ -462,7 +462,7 @@ func TestMessageRowsChecksumCorruptionSelfHeals(t *testing.T) {
 // internal 行（§2.7 检查点渲染正文）只要被公开读接口过一次就永久进不了 wire。
 func TestMessageRowsPublicReadersKeepCommitIDAndWireMaterial(t *testing.T) {
 	ctx := context.Background()
-	repository, err := Open(ctx, Config{Backend: BackendJSON, Path: t.TempDir()})
+	repository, err := Open(ctx, Config{Path: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

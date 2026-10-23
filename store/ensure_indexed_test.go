@@ -9,9 +9,9 @@ import (
 // 先 EnsureIndexed（空 commit 建 manifest/meta），再写 state 通道后即可被
 // SessionsOf 枚举；重复调用幂等（不重复建 commit）。
 func TestEnsureIndexedMakesRecordOnlySessionEnumerable(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			const projectID = "project-g"
 			const sessionID = "sess-draft"
@@ -46,7 +46,7 @@ func TestEnsureIndexedMakesRecordOnlySessionEnumerable(t *testing.T) {
 				if info.ID == sessionID {
 					found = true
 					wantStatus := StatusDraft
-					if backend == BackendJSON {
+					if backend == storageLayoutName {
 						// S20：草稿行判据 = input/draft.json 存在；仅写 record
 						// 不再产生 draft 状态。
 						wantStatus = StatusIdle

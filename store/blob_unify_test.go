@@ -13,7 +13,7 @@ import (
 // metadata/toolresult.json 不再产生，refs 索引是可重建派生物
 // （metadata-index/toolresult.json）。
 func TestToolResultLivesInBigToolResultChannel(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: t.TempDir()})
+	repository, err := Open(context.Background(), Config{Path: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

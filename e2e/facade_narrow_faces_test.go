@@ -42,7 +42,6 @@ var wantFaceMethods = map[string][]string{
 		"SessionInputIndex",
 		"SessionMeta",
 		"SessionReleaseWindow",
-		"SessionStorageConfig",
 		"Snapshot",
 		"SnapshotOf",
 		"SubagentSessionDetail",
@@ -109,7 +108,6 @@ var wantFaceMethods = map[string][]string{
 	"PolicyFace": {
 		"ActivateSkill",
 		"CancelScheduledTask",
-		"ConfigureSessionStorage",
 		"CreateRoleSession",
 		"ScheduleCancel",
 		"ScheduleFire",
@@ -127,7 +125,6 @@ var wantFaceMethods = map[string][]string{
 		"SetSessionReleaseWindow",
 		"SwitchEffort",
 		"SwitchPlugin",
-		"TestSessionStorage",
 		"UpdateScheduledTask",
 	},
 	"QueueFace": {

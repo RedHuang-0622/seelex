@@ -254,8 +254,8 @@ func realProbeLoadFacts(t *testing.T) *realProbeFacts {
 	facts.sessionID = realProbeSessionID(t, copied)
 	facts.projectID = realProbeProjectID(t, facts.root, facts.sessionID)
 
-	// 不拷 session-storage.json：Router 的既定缺省就是 json 后端 + <root>/sessions-json。
-	router, err := store.NewRouter(filepath.Join(tmp, "session-storage.json"), tmp)
+	// 存储没有第二份落盘配置：Router 的既定缺省就是 <root>/sessions-json。
+	router, err := store.NewRouter(tmp)
 	if err != nil {
 		t.Fatalf("NewRouter（临时副本）: %v", err)
 	}

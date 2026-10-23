@@ -2,7 +2,6 @@ package session
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 // newTestNodeSessionStore 构造 JSON 后端节点会话记录存储。
 func newTestNodeSessionStore(t *testing.T) *store.NodeSessionStore {
 	t.Helper()
-	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,6 @@ package adapters
 // store.SessionGranularStore（会话粒度五片）。
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -49,30 +48,6 @@ func (m *SessionManager) Workspace() string {
 		return m.router.Workspace()
 	}
 	return ""
-}
-
-// StorageConfig 返回当前存储配置。
-func (m *SessionManager) StorageConfig() (store.Config, error) {
-	if m.router == nil {
-		return store.Config{}, fmt.Errorf("session: configurable storage is unavailable")
-	}
-	return m.router.Config(), nil
-}
-
-// TestStorage 试探一份存储配置。
-func (m *SessionManager) TestStorage(ctx context.Context, config store.Config) error {
-	if m.router == nil {
-		return fmt.Errorf("session: configurable storage is unavailable")
-	}
-	return m.router.Test(ctx, config)
-}
-
-// ConfigureStorage 切换存储配置。
-func (m *SessionManager) ConfigureStorage(ctx context.Context, config store.Config) error {
-	if m.router == nil {
-		return fmt.Errorf("session: configurable storage is unavailable")
-	}
-	return m.router.Configure(ctx, config)
 }
 
 // InjectSaveLoad 注入保存/加载回调（由 wiring/bootstrap 装配时传入）。

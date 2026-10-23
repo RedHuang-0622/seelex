@@ -343,11 +343,11 @@ go test ./backend/engine/session -count=1
 - `func TestReaderNotBlockedBySessionWriter(t *testing.T)` — TestReaderNotBlockedBySessionWriter 写者持锁期间读路径正常返回（C2：读侧不
 - `func TestSessionWriterClosedDegradesToNoop(t *testing.T)` — TestSessionWriterClosedDegradesToNoop 关闭后写点退化为"直接执行"而不是卡死
 
-### storage.go
+### storage.go（2026-10 删除）
 
-- `func (c *Coordinator) SessionStorageConfig() (store.Config, error)` — SessionStorageConfig 返回会话存储设置（可选能力：无 storage 端口报错）。
-- `func (c *Coordinator) TestSessionStorage(ctx context.Context, config store.Config) error` — TestSessionStorage 验证会话存储配置可用性（可选能力）。
-- `func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config store.Config) error` — ConfigureSessionStorage 应用会话存储配置并清空标题缓存（可选能力）。
+会话存储不再有运行期配置面：会话域那条可选能力端口（存储设置面的三个方法）
+与 `Coordinator` 上对应的三个转发方法一并移除——jsonl + json 是唯一形态，
+落点与参数在装配期定死。
 
 ### transcript_range.go
 

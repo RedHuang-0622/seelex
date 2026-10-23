@@ -21,7 +21,7 @@ func TestJSONDataRootLockAcquiredAndReleased(t *testing.T) {
 
 	open := func() Repository {
 		t.Helper()
-		repository, err := Open(ctx, Config{Backend: BackendJSON, Path: root})
+		repository, err := Open(ctx, Config{Path: root})
 		if err != nil {
 			t.Fatalf("open JSON root: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestJSONDataRootLockForeignProcessRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Open(context.Background(), Config{Backend: BackendJSON, Path: root})
+	_, err := Open(context.Background(), Config{Path: root})
 	if !errors.Is(err, storeroot.ErrDataRootLocked) {
 		t.Fatalf("open under foreign live lock err = %v, want storeroot.ErrDataRootLocked", err)
 	}
@@ -102,12 +102,12 @@ func TestJSONDataRootStaleLockRespectsAutoRecover(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
+	if _, err := Open(ctx, Config{Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
 		t.Fatalf("open under stale lock (no recover) err = %v, want storeroot.ErrDataRootStaleLock", err)
 	}
 
 	repository, err := Open(ctx, Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {
@@ -145,13 +145,13 @@ func TestJSONDataRootCrashedGUIResidualLockRecovered(t *testing.T) {
 
 	// 2) 修复前口径（保守）：只报错，拒绝启动。
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
+	if _, err := Open(ctx, Config{Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
 		t.Fatalf("conservative open err = %v, want storeroot.ErrDataRootStaleLock", err)
 	}
 
 	// 3) 修复后默认口径：接管残留锁并正常打开，无需用户手工删锁。
 	repository, err := Open(ctx, Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {
@@ -176,7 +176,7 @@ func TestJSONDataRootCrashedGUIResidualLockRecovered(t *testing.T) {
 		t.Fatalf("lock.owner must be removed on clean Close (err=%v)", err)
 	}
 	clean, err := Open(ctx, Config{
-		Backend: BackendJSON, Path: root,
+		Path:           root,
 		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {

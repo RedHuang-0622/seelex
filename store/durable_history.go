@@ -18,11 +18,11 @@ import (
 //
 // 判据只看 `fs.ErrNotExist`，依据是**编码者**在 store 自己：
 //
-//   - 会话存储只有 JSON 布局在场（`store/sessionstore.go` 的 `ErrBackendRetired`：
-//     SQLite / PostgreSQL / Redis 是保留枚举，`Open` 直接拒绝），因此没有任何
-//     代码路径能产生 `sql.ErrNoRows`；「未找到」一律编码为 `fs.ErrNotExist`
-//     （见 `store/absent_state_reads_test.go` 对退役档的断言）。
-//   - 任何新增后端若换了「未找到」的编码，必须改这里一处，而不是让调用方
+//   - 会话存储只有一种形态（jsonl + json v8）：`store/sessionstore.go` 里没有
+//     后端分派，也没有 SQL/Redis 链路，因此没有任何代码路径能产生
+//     `sql.ErrNoRows`；「未找到」一律编码为 `fs.ErrNotExist`
+//     （见 `store/absent_state_reads_test.go` 的断言）。
+//   - 任何新增形态若换了「未找到」的编码，必须改这里一处，而不是让调用方
 //     各自兼容——这正是本函数导出的原因。
 func IsSessionNotFound(err error) bool {
 	return errors.Is(err, fs.ErrNotExist)

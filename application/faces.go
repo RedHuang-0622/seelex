@@ -94,7 +94,6 @@ var FaceTypeNames = []string{
 	"SessionSnapshot",
 	"SessionState",
 	"SessionStatus",
-	"SessionStorageConfig",
 	"SessionTitle",
 	"SkillInfo",
 	"SkillPort",
@@ -153,7 +152,6 @@ type ViewFace interface {
 	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
 	SessionMeta(sessionID string) (model.SessionMeta, error)
 	SessionReleaseWindow() int
-	SessionStorageConfig() (store.Config, error)
 	Snapshot() model.Snapshot
 	SnapshotOf(sessionID string) (model.SessionSnapshot, error)
 	Subscribe(buffer int) event.Subscription
@@ -220,11 +218,10 @@ type CommandFace interface {
 	ForkSession(parentID string, request model.ForkRequest) (string, error)
 }
 
-// PolicyFace 档位与策略（plan §1.3 D 组）：限制、档位、账号、存储配置、插件、角色与调度策略。
+// PolicyFace 档位与策略（plan §1.3 D 组）：限制、档位、账号、插件、角色与调度策略。
 type PolicyFace interface {
 	ActivateSkill(name string) (model.SkillInfo, error)
 	CancelScheduledTask(id string) error
-	ConfigureSessionStorage(ctx context.Context, config store.Config) error
 	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
@@ -242,7 +239,6 @@ type PolicyFace interface {
 	SetSessionReleaseWindow(_ context.Context, window int) (int, error)
 	SwitchEffort(_ context.Context, level string) error
 	SwitchPlugin(ctx context.Context, name string) error
-	TestSessionStorage(ctx context.Context, config store.Config) error
 	UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
 }
 

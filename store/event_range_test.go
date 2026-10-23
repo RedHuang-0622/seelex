@@ -22,9 +22,9 @@ func rangeEvents(count int) []Event {
 // 在 JSON v8 布局中跨 shard 边界连续、倒置范围显式报错。
 func TestEventRangeFromMessageRows(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)

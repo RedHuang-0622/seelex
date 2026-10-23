@@ -18,9 +18,9 @@ const sessionRecordStateV3 = `{"version":3,"id":"session","title":{"value":"t"},
 // SessionContextStore 与 SessionRecord 共用 state.json 会互相破坏）。
 func TestContextStateIsolatedFromSessionState(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -70,9 +70,9 @@ func TestContextStateIsolatedFromSessionState(t *testing.T) {
 // 破坏 state 通道；新实例 Load 读回 compact 帧。
 func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 	for _, config := range []Config{
-		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Path: filepath.Join(t.TempDir(), "json")},
 	} {
-		t.Run(string(config.Backend), func(t *testing.T) {
+		t.Run(string(storageLayoutName), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
 			if err != nil {
 				t.Fatal(err)

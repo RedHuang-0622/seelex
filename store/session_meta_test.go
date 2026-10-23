@@ -9,9 +9,9 @@ import (
 // TestSessionMetaStoreRoundTrip 验证项目级展示元数据 blob：读写、清除、项目隔离，
 // 以及最关键的一条 —— 承载 blob 的伪会话键不得出现在会话目录里（不造幽灵会话）。
 func TestSessionMetaStoreRoundTrip(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON} {
-		t.Run(string(backend), func(t *testing.T) {
-			router := newSessionGranularRouter(t, backend)
+	for _, backend := range []string{storageLayoutName} {
+		t.Run(backend, func(t *testing.T) {
+			router := newSessionGranularRouter(t)
 			store := NewSessionGranularStore(router)
 			meta := NewSessionMetaStore(router)
 
@@ -73,7 +73,7 @@ func TestSessionMetaStoreRoundTrip(t *testing.T) {
 // TestSessionMetaStoreConcurrentSets 并发写同项目不同会话（-race）：读改写必须
 // 串行化，否则后一个写会覆盖前一个的条目。
 func TestSessionMetaStoreConcurrentSets(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	meta := NewSessionMetaStore(router)
 	const writers = 8
 	var group sync.WaitGroup
@@ -102,7 +102,7 @@ func TestSessionMetaStoreConcurrentSets(t *testing.T) {
 // 项目 blob，但两个写面必须互不覆盖：置顶写入/清除都不得动档位；档位写入/清除也
 // 不得动置顶与排序位。档位是"跨重启记住用户这一 session 的权限设置"的存储面。
 func TestSessionMetaStorePermissionTierIsolation(t *testing.T) {
-	router := newSessionGranularRouter(t, BackendJSON)
+	router := newSessionGranularRouter(t)
 	meta := NewSessionMetaStore(router)
 
 	if _, err := meta.SetPermissionTier("project-tier", "sess-a", "full"); err != nil {

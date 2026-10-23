@@ -11,7 +11,7 @@ package overlay
 // 回写要重排注释、抹平格式差异，而且"界面上拧的一个数"与"用户写进配置的数"本是两件
 // 事——覆盖层让它们各自留在自己的地方，谁压谁一眼可解释。
 //
-// 落点与 session-storage.json / workspace_index.json / scheduled-tasks.jsonl 同级
+// 落点与 workspace_index.json / scheduled-tasks.jsonl 同级
 // （数据根 = store 的基目录），不往二进制目录或用户项目目录里凭空造文件。
 
 import (
@@ -45,7 +45,7 @@ type Overlay struct {
 	ToolRecordEnabled *bool `json:"tool_record_enabled,omitempty"`
 }
 
-// Path 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。调用方（组合根）负责把数据根取出来传进来。
+// Path 是覆盖层的落盘路径：数据根，与 workspace_index.json 同级。调用方（组合根）负责把数据根取出来传进来。
 func Path(dataRoot string) string {
 	return filepath.Join(dataRoot, FileName)
 }

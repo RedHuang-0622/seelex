@@ -21,8 +21,8 @@ import (
 //
 // 收口方向：判据归「未找到」错误的**编码者** store——唯一实现是
 // `store.IsSessionNotFound`（store/durable_history.go），其余消费方改为调用它。
-// 为什么保留 store 的语义（fs-only）而不是 search 的：SQL 后端已退役
-// （store/sessionstore.go 的 `ErrBackendRetired`，Open 只接受 BackendJSON），
+// 为什么保留 store 的语义（fs-only）而不是 search 的：SQL 后端早已不存在
+// （store/sessionstore.go 只有 jsonl + json 一种形态），
 // 今天没有任何代码路径能产生 `sql.ErrNoRows`；多认它只会让同一份输入得到两种答案。
 //
 // 两条机械断言：

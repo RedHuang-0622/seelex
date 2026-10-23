@@ -254,7 +254,7 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	// "重启"验收：存档真的落进存储后端（metadata/board_team.json），换一个
 	// Runtime 实例（活体计划面为空）冷读仍在——存档不在 Runtime 的内存里。
 	root := t.TempDir()
-	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
