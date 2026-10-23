@@ -1,0 +1,204 @@
+# 权限装配：用户组 × 权限类型（矩阵，不是阶梯）
+
+> 状态：**设计稿 + 已跑的孤立 MVP**。产品权限链未改；验证代码在 [`../2026-10-23-permission-assembly-mvp/`](../2026-10-23-permission-assembly-mvp/)（`go run ./docs/2026-10-23-permission-assembly-mvp`）。
+> 日期：2026-10-23
+> 关联：[`ssh-tool-transport.md`](ssh-tool-transport.md)（环境路由与传输策略）、[`ssh-tool.md`](ssh-tool.md)（连接基座）
+
+## 1. 现状（已核对到行）
+
+| 事实 | 出处 |
+| --- | --- |
+| 主体 4 类：`root` / `sub` / `emp_ro` / `emp_rw` | `backend/limit/policy/policy.go:69-80` |
+| 路由组 6 个：`ro` `rw` `rw_session` `rw_desktop` `ctl` `adm`，每组带 `Mode`(所需位) + `Default`(allow/ask) + `Match`(工具名 glob) + `Resource` | `DefaultPermissionGroupList()`（同文件，唯一事实源） |
+| 位 3 个：`BitRead` / `BitWrite` / `BitExecute` / `BitAll` | `policy.go:105-108`、`contract/dto/permission.go` |
+| **档位是全序阶梯**：`manual` → `edit` → `auto` → `full`；`ApplyTier` 只**删 ask 规则**，`full` 走 `BypassAll` 短路 | `backend/limit/policy/tiers.go` |
+| 工具簇属由路由组表**派生**（不另建表） | `backend/limit/policy/tool_meta.go` |
+| 判定在链上的位置：permission 中间件（第 3 层） | `backend/tool/registry/registry_state.go:38-44`、`:481` |
+
+**问题**：阶梯是**全序**。它只能表达"比上一档更松"，永远到不了 `full` 之外的形状。用户要的是**正交子集**——"只给 ssh"、"只给 write + ssh"。这两件事在阶梯上无解：`{write, ssh}` 里没有 read，而阶梯的任何一档都默认带着 read。
+
+而且**根本没有 ssh 这一类**：现有 6 个组是"改不改共享状态"的划分，与"本地还是远端"无关。
+
+## 2. 新模型：矩阵
+
+```
+             ro   rw   rw_session  rw_desktop  ctl  adm   ssh  ssh.userspace
+root         ✓    ✓      ✓           ✓         ✓    ✓     ✓       ✓
+sub          ✓    ✓      ✗           ✗         ✗    ✗     ✓       ✗
+emp_ro       ✓    ✗      ✗           ✗         ✗    ✗     ✓       ✗
+ci-robot     ✗    ✓      ✗           ✗         ✗    ✗     ✓       ✗   ← 自定义组：只给 write+ssh
+viewer       ✓    ✗      ✗           ✗         ✗    ✗     ✗       ✗
+```
+
+- **行 = 用户组**（`GroupID`）：既有 4 个主体 + 自定义组；
+- **列 = 权限类型**（`PermType`）：既有 6 个路由组 + **`ssh`** + **`ssh.userspace`**；
+- **格 = 授予**（`Effect`: allow/ask/deny，可带位）：**任意格子独立配**，没有"必须包含前缀"的隐含规则；
+- **缺格 = deny**（默认拒绝，不再"先 ask 到底最后全接受"）。
+
+### 2.1 一次调用需要**一组**权限，不是一个
+
+这是本设计最关键的一点，也是"只支持写权限和 ssh 权限"能被表达的原因：
+
+| 工具 | 本地所需 | 远端所需 |
+| --- | --- | --- |
+| `read_file` / `grep_search` / `glob` | `{ro}` | `{ro, ssh}` |
+| `write_file` / `edit_file` | `{rw}` | `{rw, ssh}` |
+| `bash` / `bg_manage` | `{rw}` | `{rw, ssh}` |
+| 任意远端工具 **且路径越出项目根** | — | `{…, ssh.userspace}` |
+
+判定规则：
+
+```
+required = 工具所需集合（按执行面展开）+ 越界时的 ssh.userspace
+若任一 required 格为 deny/缺格  → deny（并列出缺哪些）
+否则若任一 required 格为 ask    → ask（一次审批，覆盖整组）
+否则                            → allow
+```
+
+`{rw, ssh}` 的装配因此天然得出你要的语义：**远端能写、不能读、本地也写不了读不了**——不合理，但它是矩阵里的一个合法点，系统不该替用户否决（见 §5 的 lint）。
+
+### 2.2 两个新类型
+
+| 类型 | 含义 | 与谁独立 |
+| --- | --- | --- |
+| `ssh` | 允许把工具调用打到远端执行面 | 独立于操作类型：只给 `ssh` 不给 `rw`，等于"能连但不能动" |
+| `ssh.userspace` | 允许远端访问**项目根之外**的用户空间（`~`、绝对路径、家目录配置） | 独立于 `ssh`：给 `ssh` 不给它 = 只能动项目根内的文件 |
+
+`ssh.userspace` 是**安全的默认**：默认 deny。它的判据是"解析后的远端绝对路径是否落在项目根内"，与本地 `pathGate` 的 containment **共用同一份路径判据**（AGENTS §8：一份判据一处函数），不另写。
+
+### 2.3 与"环境"维度的关系（上一轮的叠合）
+
+上一轮定的是 `(策略, 环境, 权限)` 三坐标。这里的关系是：
+
+```
+EffectivePermissions(group, env) = Assembly[group] ∩ EnvProfile[env]
+```
+
+环境 profile 只能**收窄**不能放宽（与权限主体"只能收窄自己的位"同构）。所以 `test-readonly` 环境即使组里有 `rw`，也落不到 rw 上。
+
+## 3. 契约（先行，避免依赖倒置）
+
+端口定义在**消费方**（`contract`），实现方（`backend/limit/policy`、`wiring`）去满足它；registry 只认端口，不认具体实现。
+
+```go
+// ── 词表（唯一事实仍在 dto 与 policy.go 的组表）─────────────────────
+type PermType string   // "ro" "rw" "rw_session" "rw_desktop" "ctl" "adm" "ssh" "ssh.userspace"
+type GroupID  string   // "root" "sub" "emp_ro" "emp_rw" + 自定义
+type Effect   string   // "allow" | "ask" | "deny"
+
+// ── 装配（矩阵）────────────────────────────────────────────────
+type Grant struct {
+    Effect Effect
+    Bits   uint8          // rwx；0 = 用该类型的既有 Mode
+}
+type Assembly struct {
+    Version int
+    Cells   map[GroupID]map[PermType]Grant   // 缺格 = deny
+}
+
+// ── 读面端口（消费方定义）──────────────────────────────────────
+type AssemblyPort interface {
+    AssemblyFor(group GroupID) (Assembly, error)
+}
+
+// ── 判定端口 ───────────────────────────────────────────────────
+type Requirement struct {
+    Tool     string
+    Remote   bool        // 是否走远端执行面
+    OutOfRoot bool       // 远端路径是否越出项目根
+    Path     string
+}
+type Decision struct {
+    Effect   Effect
+    Required []PermType
+    Missing  []PermType
+    Warnings []string
+    Reason   string
+}
+type Gate interface {
+    Decide(ctx context.Context, group GroupID, req Requirement) (Decision, error)
+}
+
+// ── 中间件（产品语义就是 middleware）──────────────────────────────
+func PermissionMiddleware(gate Gate, groupOf func(context.Context) GroupID) frameworktools.MetaMiddleware
+```
+
+**为什么 `Requirement` 里放 `Remote`/`OutOfRoot` 而不是让上层拼 `[]PermType`**：拼集合的逻辑（哪个工具在哪个执行面需要哪几格）必须**只有一份**。放在实现方，五个工具各自的 handler 就不用知道自己需要什么权限——那正是"权限词表散落各处"的起点。
+
+## 4. 迁移与兼容
+
+老档位不删除，改成**矩阵预设**（preset），由 `ApplyTier` 翻译成 `Assembly`：
+
+| 老档位 | 预设形状 | 说明 |
+| --- | --- | --- |
+| `manual` | 按组表原样（`rw_desktop`/`ctl`/`adm` = ask） | 完全手动 |
+| `edit` | 同上，`rw` = allow | 写盘不再打断 |
+| `auto` | 同上，`bash` 的 ask 段也置 allow | 任意命令直跑，deny 仍硬拦 |
+| `full` | 全格 allow | 只在**显式**选择时生成；不再依赖 `BypassAll` 短路 |
+
+### 4.1 MVP 实测出的迁移缺口（必须先解决）
+
+**矩阵比阶梯粗一档。** 老 `edit` 档删的是**按工具名**的 ask 规则（`write_file`/`edit_file` 不问，`bash` 仍问）；矩阵的格是**按类型**的（`rw` 整类一个效果）。实测结论：`PresetForTier("edit")` 在矩阵里与 `manual` 同形——那一步的区分**表达不出来**。
+
+两条修法：
+
+- **D-1（推荐）** 格子上加可选细化：`Grant{Tools []string}`，只对列出的工具生效，未列出 = 整类；
+- D-2 另留"工具级 ask 例外表"作为补丁层 —— 会多一个事实源，不推荐。
+
+在 D-1 落地前，迁移必须按"更严"落地：`edit` 档的预设**不低于** `manual`，宁可多问一次，不可少拦一次。
+
+
+## 5. 可表达但可疑的装配：只报警不否决
+
+用户明确要求支持"看起来不合理"的装配。因此实现里加一条 **lint**（不参与判定）：
+
+| 形状 | 警告 |
+| --- | --- |
+| 只有 `ssh`，无任何操作类型 | `assembly_ssh_only`：能连不能动 |
+| 有 `rw`，无 `ro` | `assembly_write_without_read`：能写不能读回校验 |
+| `ssh.userspace` 有、`ssh` 无 | `assembly_userspace_without_ssh`：授予无效 |
+| 有 `adm` 无 `ctl` | `assembly_admin_without_control`：改能力面却停不了循环 |
+
+lint 只进轨迹与设置页提示，**不改变 allow/deny**——否决"不合理但用户明确要的"装配，等于把系统自己的偏好塞进用户策略。
+
+## 6. 中间件位置与语义
+
+产品语义是中间件，落点不变：仍是 `registry_state.go` 那一摞的第 3 层（event → pathGate → **permission** → diagnostic）。新增的两类权限判定发生在**同一个中间件内部**，不新增链层：
+
+```
+permission middleware
+  ├─ 组解析（subject → GroupID，含自定义组）
+  ├─ Requirement 组装（工具 + 执行面 + 路径 containment）
+  ├─ Assembly 判定（矩阵 → allow/ask/deny）
+  └─ ask 时走既有审批面（ApprovalHandler）
+```
+
+传输选择（上一轮）放在它**之后**：先判权限，再建连接——被拒的调用不该白连一次远端。
+
+## 7. 验收判据
+
+| 编号 | 判据 | 验证方式 |
+| --- | --- | --- |
+| P1 | 矩阵可表达任意正交子集（含 `{ssh}`、`{rw, ssh}`） | 表驱动 |
+| P2 | 缺格 = deny（默认拒绝） | 空装配下全 deny |
+| P3 | 一次调用需要**一组**权限，任一缺即 deny 并列出缺项 | 断言 `Missing` |
+| P4 | `ask` 覆盖整组（一次审批，不逐格问） | 断言只发一次 ask |
+| P5 | `ssh.userspace` 独立于 `ssh` | 根内/根外两条用例 |
+| P6 | 远端越界时自动追加 `ssh.userspace` 需求 | 断言 Required 含该项 |
+| P7 | 老档位可翻译成预设且判据不比原来宽 | 对照用例 |
+| P8 | lint 不改变判定结果 | 断言 Effect 不变、Warnings 非空 |
+| P9 | 环境 profile 只收窄不放宽 | 交集用例 |
+| P10 | 组解析与词表仍只有一份事实源 | 代码检查 |
+
+## 8. 分期
+
+| 期 | 内容 | 出口 |
+| --- | --- | --- |
+| **M0（本次）** | 孤立 MVP：矩阵 + 需求集合 + userspace + lint + 预设 + 中间件形状 | MVP 场景全 PASS（实测 10/10） |
+| M1 | 契约落 `contract`：`PermType`/`Assembly`/`AssemblyPort`/`Gate`/`Requirement` | 编译通过，registry 只依赖端口 |
+| M2 | `policy.go` 增 `ssh`/`ssh.userspace` 两组 + 组表派生（`DeclaredToolMeta` 自动跟随） | 既有测试零回归 |
+| M3 | `PermissionGate` 内部改走矩阵（保留老档位为预设） | P7 对照用例 |
+| M4 | 前端权限控制组件改矩阵编辑（格子开关 + lint 提示） | 手工冒烟 |
+| M5 | 环境 profile 收窄接入（与 ssh-tool-transport 的 M2 合流） | P9 |
+
+**M4（前端）与 M2/M3 未完成前，权限保持现行为**：本次不动产品代码。
