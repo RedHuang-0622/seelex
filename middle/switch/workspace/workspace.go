@@ -168,11 +168,87 @@ func (usecase *UseCase) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) 
 		if createErr != nil {
 			return result, fmt.Errorf("create workspace %q (#%d): %w", request.Name, index+1, createErr)
 		}
-		result.Workspaces = append(result.Workspaces, dto.WorkspaceCreateResult{
+		entry := dto.WorkspaceCreateResult{
 			ID: info.ID, Name: info.Name, RootPath: info.RootPath, GitRemote: info.GitRemote,
-		})
+		}
+		// 连接配置是**附带项**：写失败不回滚项目，也不中断整批，只把原因带回给调用方。
+		if change, hasChange := connectionChangeForCreate(request); hasChange {
+			conn, connErr := usecase.SetConnection(info.ID, change)
+			if connErr != nil {
+				entry.ConnectionError = connErr.Error()
+			} else {
+				applyConnectionToResult(&entry, conn)
+			}
+		}
+		result.Workspaces = append(result.Workspaces, entry)
 	}
 	return result, nil
+}
+
+// SetConnection 写项目级连接配置（SSH 端点 / git 访问），返回权威读回值。
+func (usecase *UseCase) SetConnection(id string, change model.WorkspaceConnectionChange) (model.WorkspaceConnection, error) {
+	port, err := usecase.connectionPort()
+	if err != nil {
+		return model.WorkspaceConnection{}, err
+	}
+	return port.SetWorkspaceConnection(id, change)
+}
+
+// Connection 读项目级连接配置（口令只以布尔出现）。
+func (usecase *UseCase) Connection(id string) (model.WorkspaceConnection, error) {
+	port, err := usecase.connectionPort()
+	if err != nil {
+		return model.WorkspaceConnection{}, err
+	}
+	return port.WorkspaceConnection(id)
+}
+
+// connectionPort 解析连接配置的窄可选端口（存储没实现就显式报错，不静默降级）。
+func (usecase *UseCase) connectionPort() (contract.WorkspaceConnectionPort, error) {
+	if usecase.deps.Store == nil {
+		return nil, errors.New("workspace store is not available")
+	}
+	port, ok := usecase.deps.Store.(contract.WorkspaceConnectionPort)
+	if !ok {
+		return nil, errors.New("workspace store does not support connection settings")
+	}
+	return port, nil
+}
+
+// connectionChangeForCreate 把新建请求里的连接字段翻成写面变更。
+func connectionChangeForCreate(request dto.WorkspaceCreateRequest) (model.WorkspaceConnectionChange, bool) {
+	change := model.WorkspaceConnectionChange{}
+	has := false
+	if request.SSH != nil {
+		change.SSH = &model.WorkspaceSSHInfo{
+			Host: strings.TrimSpace(request.SSH.Host),
+			Port: request.SSH.Port,
+			User: strings.TrimSpace(request.SSH.User),
+		}
+		change.SSHPassword = request.SSH.Password
+		has = true
+	}
+	if request.Git != nil {
+		change.Git = &model.WorkspaceGitInfo{
+			Username: strings.TrimSpace(request.Git.Username),
+			Kind:     strings.TrimSpace(request.Git.Kind),
+		}
+		change.GitPassword = request.Git.Password
+		has = true
+	}
+	return change, has
+}
+
+// applyConnectionToResult 把读回值填进新建结果（只填摘要与布尔）。
+func applyConnectionToResult(entry *dto.WorkspaceCreateResult, conn model.WorkspaceConnection) {
+	if conn.SSH != nil {
+		entry.SSH = &dto.WorkspaceSSHSummary{Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User}
+	}
+	if conn.Git != nil {
+		entry.Git = &dto.WorkspaceGitSummary{Username: conn.Git.Username, Kind: conn.Git.Kind}
+	}
+	entry.SSHPasswordSet = conn.SSHPasswordSet
+	entry.GitPasswordSet = conn.GitPasswordSet
 }
 
 func (usecase *UseCase) createWorkspace(name, rootPath, gitRemote string) (model.WorkspaceInfo, error) {
@@ -210,6 +286,9 @@ func normalizeWorkspaceCreateRequests(requests []dto.WorkspaceCreateRequest) ([]
 		roots[key] = struct{}{}
 		out[index] = dto.WorkspaceCreateRequest{
 			Name: name, RootPath: rootPath, GitRemote: strings.TrimSpace(request.GitRemote),
+			// 连接配置原样透传（口令的校验交给存储层：它才知道自己有没有密文库）。
+			SSH: request.SSH,
+			Git: request.Git,
 		}
 	}
 	return out, nil

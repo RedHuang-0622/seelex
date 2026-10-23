@@ -65,20 +65,20 @@ func (port WorkspacePort) Create(name, rootPath, gitRemote string) (model.Worksp
 	if err != nil {
 		return model.WorkspaceInfo{}, err
 	}
-	return adaptWorkspace(w), nil
+	return port.adapt(w), nil
 }
 func (port WorkspacePort) Get(id string) (model.WorkspaceInfo, error) {
 	w, err := port.Repo.Get(id)
 	if err != nil {
 		return model.WorkspaceInfo{}, err
 	}
-	return adaptWorkspace(w), nil
+	return port.adapt(w), nil
 }
 func (port WorkspacePort) List() []model.WorkspaceInfo {
 	list := port.Repo.List()
 	out := make([]model.WorkspaceInfo, len(list))
 	for i, w := range list {
-		out[i] = adaptWorkspace(w)
+		out[i] = port.adapt(w)
 	}
 	return out
 }
@@ -94,7 +94,7 @@ func (port WorkspacePort) SessionWorkspace(sessionID string) (model.WorkspaceInf
 	if !ok {
 		return model.WorkspaceInfo{}, false
 	}
-	return adaptWorkspace(w), true
+	return port.adapt(w), true
 }
 func (port WorkspacePort) AllBindings() map[string]string {
 	return port.Repo.AllBindings()
@@ -147,13 +147,82 @@ func (port WorkspacePort) WriteFile(root, relPath string, content []byte) (dto.F
 	return port.Repo.WriteFile(root, relPath, content)
 }
 
-func adaptWorkspace(item workspace.Info) model.WorkspaceInfo {
-	return model.WorkspaceInfo{
+// adapt 把存储层的工作区记录翻成应用层摘要，并带上**连接配置摘要**。
+//
+// 为什么在这里读 Connection：口令与非秘密字段分两个文件存（workspace_index.json
+// 与 workspace_secrets.json），摘要里的 `*PasswordSet` 必须来自密文库；把这一步
+// 放在适配层，可以让 model.WorkspaceInfo 只暴露"有没有口令"，永不携带明文。
+func (port WorkspacePort) adapt(item workspace.Info) model.WorkspaceInfo {
+	out := model.WorkspaceInfo{
 		ID:        item.ID,
 		Name:      workspaceDisplayName(item.RootPath, item.Name),
 		RootPath:  item.RootPath,
 		GitRemote: item.GitRemote,
 	}
+	if item.SSH != nil {
+		out.SSH = &model.WorkspaceSSHInfo{Host: item.SSH.Host, Port: item.SSH.Port, User: item.SSH.User}
+	}
+	if item.Git != nil {
+		out.Git = &model.WorkspaceGitInfo{Username: item.Git.Username, Kind: item.Git.Kind}
+	}
+	// 密文库不可用（或读失败）不该让工作区列表读不出来：那只是"不知道有没有口令"，
+	// 布尔保持 false，UI 会显示"未设置"——比整个列表报错可接受得多。
+	if conn, err := port.Repo.Connection(item.ID); err == nil {
+		out.SSHPasswordSet = conn.SSHPass
+		out.GitPasswordSet = conn.GitPass
+	}
+	return out
+}
+
+// WorkspaceConnection 实现 contract.WorkspaceConnectionPort：读连接配置。
+func (port WorkspacePort) WorkspaceConnection(id string) (model.WorkspaceConnection, error) {
+	conn, err := port.Repo.Connection(id)
+	if err != nil {
+		return model.WorkspaceConnection{}, err
+	}
+	return adaptConnection(conn), nil
+}
+
+// SetWorkspaceConnection 实现 contract.WorkspaceConnectionPort：写连接配置。
+// 口令三态在适配层还原成存储层的指针语义（nil = 不改）。
+func (port WorkspacePort) SetWorkspaceConnection(id string, change model.WorkspaceConnectionChange) (model.WorkspaceConnection, error) {
+	update := workspace.ConnectionUpdate{}
+	if change.SSH != nil {
+		update.SSH = &workspace.SSHEndpoint{Host: change.SSH.Host, Port: change.SSH.Port, User: change.SSH.User}
+	}
+	if change.Git != nil {
+		update.Git = &workspace.GitAccess{Username: change.Git.Username, Kind: change.Git.Kind}
+	}
+	if change.ClearSSHPassword {
+		empty := ""
+		update.SSHPassword = &empty
+	} else if change.SSHPassword != "" {
+		password := change.SSHPassword
+		update.SSHPassword = &password
+	}
+	if change.ClearGitPassword {
+		empty := ""
+		update.GitPassword = &empty
+	} else if change.GitPassword != "" {
+		password := change.GitPassword
+		update.GitPassword = &password
+	}
+	conn, err := port.Repo.SetConnection(id, update)
+	if err != nil {
+		return model.WorkspaceConnection{}, err
+	}
+	return adaptConnection(conn), nil
+}
+
+func adaptConnection(conn workspace.Connection) model.WorkspaceConnection {
+	out := model.WorkspaceConnection{SSHPasswordSet: conn.SSHPass, GitPasswordSet: conn.GitPass}
+	if conn.SSH != nil {
+		out.SSH = &model.WorkspaceSSHInfo{Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User}
+	}
+	if conn.Git != nil {
+		out.Git = &model.WorkspaceGitInfo{Username: conn.Git.Username, Kind: conn.Git.Kind}
+	}
+	return out
 }
 
 func workspaceDisplayName(rootPath, fallback string) string {
