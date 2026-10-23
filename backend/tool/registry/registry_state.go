@@ -29,17 +29,26 @@ type RegistryState struct {
 	undeclared   map[string]bool
 }
 
-// NewRegistryState 构造带超时/权限门/事件与诊断中间件的工具注册表。
+// NewRegistryState 构造带超时/权限门/传输选择/事件与诊断中间件的工具注册表。
 //
-// 事件、路径门与权限门走 MetaMiddleware（权限判定要吃工具自带的簇属 ToolMeta），
-// 诊断留在普通链上。框架先套普通中间件、再按顺序套 Meta 中间件，因此实际嵌套是
-// 事件 → 路径门 → 权限门 → 诊断 → handler。路径门在权限门之前（P1）：越界路径
-// 直接拒，不先弹一次没用的审批；pathGate 为 nil 时退回旧顺序。
-func NewRegistryState(timeout time.Duration, permission *PermissionGate, approvalTimeout time.Duration, pathGate frameworktools.MetaMiddleware, eventMiddleware, diagnosticMiddleware frameworktools.Middleware) *RegistryState {
+// 事件、路径门、权限门与传输选择走 MetaMiddleware（权限判定要吃工具自带的簇属
+// ToolMeta），诊断留在普通链上。框架先套普通中间件、再按顺序套 Meta 中间件，因此
+// 实际嵌套是：
+//
+//	事件 → 路径门 → 权限门 → **传输选择** → 诊断 → handler
+//
+// 两处前移各自的理由：路径门在权限门之前（P1，越界路径直接拒，不先弹一次没用的
+// 审批）；传输选择在权限门**之后**、诊断之前（越权/被拒的调用不白连一次远端，
+// 而诊断看到的是已经选完的那次调用）。transport 为 nil 时链上逐字等于旧顺序。
+func NewRegistryState(timeout time.Duration, permission *PermissionGate, approvalTimeout time.Duration, pathGate frameworktools.MetaMiddleware, transportMiddleware frameworktools.MetaMiddleware, eventMiddleware, diagnosticMiddleware frameworktools.Middleware) *RegistryState {
 	return &RegistryState{Registry: frameworktools.NewRegistry(
 		frameworktools.WithCallTimeout(timeout),
 		frameworktools.WithMiddleware(diagnosticMiddleware),
-		frameworktools.WithMetaMiddleware(asMetaMiddleware(eventMiddleware), pathGate, permission.Middleware(approvalTimeout)),
+		frameworktools.WithMetaMiddleware(
+			asMetaMiddleware(eventMiddleware), pathGate,
+			permission.Middleware(approvalTimeout),
+			transportMiddleware,
+		),
 	)}
 }
 

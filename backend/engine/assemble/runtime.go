@@ -462,8 +462,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
 	// 路径门在权限门之前（P1）：越界路径直接拒，不先弹一次没用的审批。
+	// 传输选择在权限门**之后**、诊断之前（越权/被拒的调用不白连一次远端）。
 	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout,
 		toolreg.PathGate(toolreg.Deps{ProjectScope: r.projectScope, SessionKey: seetelemetry.SessionIDFromContext}),
+		r.transportSelector(),
 		r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）

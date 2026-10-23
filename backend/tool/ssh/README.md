@@ -6,6 +6,9 @@ Seelex 内置 SSH 工具的**连接基座**：库内直连（`golang.org/x/crypt
 
 主要调用方：
 
+- `backend/tool/registry` 的**传输选择器**：探针通/被显式指名时，由
+  `registry/ssh_transport.go` 把本包的 `Backend` 适配成 `registry.Transport`
+  （执行面），选择规则与固定错误码在 registry 那一侧；
 - （规划）`backend/tool/registry` 的 `ssh_*` 工具族——把项目内 host 注册表的一行填成 `Spec` 交进来；
 - 现在：`backend/tool/ssh/sshprobe`（本目录的独立驱动，人/脚本用来排障）；
 - 测试：全部用例跑在进程内 sshd 上，不依赖真机。
@@ -36,9 +39,12 @@ Seelex 内置 SSH 工具的**连接基座**：库内直连（`golang.org/x/crypt
 | `hostkey.go` | `knownhosts` 校验器、哈希条目、`Trust` / `TrustFromProbe`、指纹错误分类 |
 | `exec.go` | `Run` / `RunDetached`、命令来源归一、非 ASCII 拒收、有界输出、三态收口 |
 | `probe.go` | `Probe` + `classifyDial` / `classifyAuth`（把裸错误翻成分类与下一步） |
+| `probe_cache.go` | `Prober`：带 TTL 的探测结论缓存（未探 ≠ 探通；键 = 端点+用户） |
+| `transport.go` | `Backend`：执行面（一次一连接）+ `commandRequest` 命令来源纪律 |
 | `result.go` | `Status` / `Segment` / `Result` 返回信封 |
 | `sshprobe/main.go` | 独立驱动：`main` → `run` → `parseFlags` / `buildSpec` / `doProbe` / `doTrust` / `doExec` |
 | `ssh_test.go` | 进程内 sshd 夹具 + 全部验收用例 |
+| `transport_test.go` | 不需要对端的那部分：命令来源纪律 + 探针缓存三态/并发 |
 
 ## 核心实现
 
