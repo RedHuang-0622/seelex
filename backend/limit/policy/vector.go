@@ -124,9 +124,16 @@ func NormalizeVectorTag(raw string) (string, bool) {
 func EmployeeGroupsForClass(class SubjectClass) map[string]uint8 {
 	switch class {
 	case SubjectClassEmployeeRO:
-		return map[string]uint8{GroupRO: BitRead, GroupRW: 0, GroupRWSession: 0, GroupCTL: 0, GroupADM: 0}
+		return map[string]uint8{
+			GroupRO: BitRead, GroupRW: 0, GroupRWSession: 0, GroupCTL: 0, GroupADM: 0,
+			// 只读员工能远端读：通道位默认给（与主体表同口径）。
+			GroupSSH: BitExecute, GroupSSHUserspace: 0,
+		}
 	case SubjectClassEmployeeRW:
-		return map[string]uint8{GroupRO: BitRead, GroupRW: BitRead | BitWrite, GroupRWSession: 0, GroupCTL: 0, GroupADM: 0}
+		return map[string]uint8{
+			GroupRO: BitRead, GroupRW: BitRead | BitWrite, GroupRWSession: 0, GroupCTL: 0, GroupADM: 0,
+			GroupSSH: BitExecute, GroupSSHUserspace: 0,
+		}
 	default:
 		return map[string]uint8{}
 	}

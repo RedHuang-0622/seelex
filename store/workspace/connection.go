@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,6 +27,12 @@ type SSHEndpoint struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 	User string `json:"user"`
+	// RemoteRoot 是**远端工作目录**（= 远端项目根，对端 POSIX 绝对路径）。
+	//
+	// 存的是字符串而不是 host 上的路径对象：它属于**对端**命名空间，本端不解析、
+	// 不 stat、不 Clean（用 path.Clean 归一，不用 filepath——Windows 宿主上
+	// filepath 会把 `/srv/app` 读成盘符相对路径）。空 = 未知。
+	RemoteRoot string `json:"remote_root,omitempty"`
 }
 
 // Empty 报告端点是否为空（空端点 = 该项目没有配 SSH）。
@@ -334,6 +341,9 @@ func (r *Repo) GitPassword(id string) (string, error) {
 }
 
 // normalizeEndpoint 归一 SSH 端点：trim、默认端口 22、端口范围校验。
+//
+// RemoteRoot 的归一单独一条（见 normalizeRemoteRoot）：它是**对端**路径，校验口径与
+// 本端路径不同，不借 filepath。
 func normalizeEndpoint(endpoint SSHEndpoint) (SSHEndpoint, error) {
 	out := SSHEndpoint{
 		Host: strings.TrimSpace(endpoint.Host),
@@ -355,5 +365,26 @@ func normalizeEndpoint(endpoint SSHEndpoint) (SSHEndpoint, error) {
 	if out.Port < 1 || out.Port > 65535 {
 		return SSHEndpoint{}, fmt.Errorf("workspace: ssh port out of range: %d", out.Port)
 	}
+	root, err := normalizeRemoteRoot(endpoint.RemoteRoot)
+	if err != nil {
+		return SSHEndpoint{}, err
+	}
+	out.RemoteRoot = root
 	return out, nil
+}
+
+// normalizeRemoteRoot 归一远端工作目录：trim、POSIX 归一、必须是对端绝对路径。
+//
+// 为什么要**拒**相对路径而不是替人补一个前缀：远端根是路径门的取根口径（根内路径
+// 不需要 ssh.userspace），一个猜出来的根会让"越界"这道闸门判错方向——宁可不填
+// （空 = 未知，路径门退回更保守的口径），也不填一个猜的值。
+func normalizeRemoteRoot(raw string) (string, error) {
+	root := strings.TrimSpace(raw)
+	if root == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(root, "/") {
+		return "", fmt.Errorf("workspace: ssh remote root must be an absolute POSIX path, got %q", root)
+	}
+	return path.Clean(root), nil
 }

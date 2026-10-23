@@ -224,6 +224,9 @@ func connectionChangeForCreate(request dto.WorkspaceCreateRequest) (model.Worksp
 			Host: strings.TrimSpace(request.SSH.Host),
 			Port: request.SSH.Port,
 			User: strings.TrimSpace(request.SSH.User),
+			// 远端工作目录（空 = 未知）原样带下去：校验（POSIX 绝对路径）在存储层，
+			// 本层不替人补前缀（猜一个根会让"越界"判错方向）。
+			RemoteRoot: strings.TrimSpace(request.SSH.RemoteRoot),
 		}
 		change.SSHPassword = request.SSH.Password
 		has = true
@@ -242,7 +245,10 @@ func connectionChangeForCreate(request dto.WorkspaceCreateRequest) (model.Worksp
 // applyConnectionToResult 把读回值填进新建结果（只填摘要与布尔）。
 func applyConnectionToResult(entry *dto.WorkspaceCreateResult, conn model.WorkspaceConnection) {
 	if conn.SSH != nil {
-		entry.SSH = &dto.WorkspaceSSHSummary{Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User}
+		entry.SSH = &dto.WorkspaceSSHSummary{
+			Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User,
+			RemoteRoot: conn.SSH.RemoteRoot,
+		}
 	}
 	if conn.Git != nil {
 		entry.Git = &dto.WorkspaceGitSummary{Username: conn.Git.Username, Kind: conn.Git.Kind}

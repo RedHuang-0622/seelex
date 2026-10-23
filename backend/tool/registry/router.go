@@ -44,6 +44,16 @@ type Deps struct {
 	// AsyncBatchID 解析某会话当前的 chat 请求 ID（= 工作表格的批次键）。后台执行
 	// 派发时要盖上它，否则投影出来的行会掉进"早期任务"批次里，看不出是谁起的。
 	AsyncBatchID func(sessionID string) string
+	// FacePermission 回答"本次调用在某个**按面判定**的路由组上位齐吗"（组名 →
+	// policy.GroupSSH / policy.GroupSSHUserspace）。第二个返回值报告判据是否接管：
+	// false = 不接管（配置未装配等）→ 调用方按旧行为处理。
+	//
+	// 为什么是函数值端口而不是直接拿 PermissionGate：路径门只要"给不给位"这一个答案，
+	// 不认识权限门的内部状态；而判据只有一份（PermissionGate.FacePermission 转发给
+	// 判定用的同一个 callVector），所以这里不会长出第二套"谁能干什么"。
+	//
+	// nil = 这道门没装（未装配）：路径门退回旧行为（远端面只留痕、不拒绝）。
+	FacePermission func(ctx context.Context, group string) (granted bool, decided bool)
 }
 
 // Router registers and executes the project-scoped tool family.

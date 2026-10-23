@@ -112,13 +112,18 @@ func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T) {
 
 	port := SessionPort{Manager: NewSessionManager().WithRouter(newRolePermissionTestRouter(t)), Runtime: runtime}
 
-	// readonly 员工：派发层没显式格子 → 空层；会话层按档位派生，只读。
+	// readonly 员工：派发层没显式格子 → 空层；会话层按档位派生，只读 + ssh 通道位。
 	review := port.RolePermissionLayers("sess-role-layers", "review")
 	if len(review.AgentDispatch.PermissionVector) != 0 {
 		t.Fatalf("review 的派发层 = %v, want 空层（没显式格子）", review.AgentDispatch.PermissionVector)
 	}
-	if got := dto.ResolveRoleSettings(review.Ordered()...).PermissionVector; len(got) != 1 || got[0] != dto.PermissionTagRO {
-		t.Fatalf("review 生效向量 = %v, want [%s]（读写/控制/属主都被会话层显式否掉）", got, dto.PermissionTagRO)
+	// ssh 出现在这一层是**刻意的**（2026-10-2x ssh 工作项）：通道位表达"能不能把
+	// 调用打到远端"，与操作类型（ro/rw）正交，派生口径里默认给（远端面在本工作项
+	// 之前就一直可达）。越界位 ssh.userspace 不在这一层——那是要立的那道闸门。
+	if got := dto.ResolveRoleSettings(review.Ordered()...).PermissionVector; len(got) != 2 ||
+		got[0] != dto.PermissionTagRO || got[1] != dto.PermissionGroupSSH {
+		t.Fatalf("review 生效向量 = %v, want [%s %s]（读写/控制/属主/越界都被会话层显式否掉）",
+			got, dto.PermissionTagRO, dto.PermissionGroupSSH)
 	}
 
 	// 显式格子的员工：派发层非空即封闭，只开 ro；档位派生那层不在（无可用档位）。

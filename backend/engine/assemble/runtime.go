@@ -464,7 +464,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 路径门在权限门之前（P1）：越界路径直接拒，不先弹一次没用的审批。
 	// 传输选择在权限门**之后**、诊断之前（越权/被拒的调用不白连一次远端）。
 	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout,
-		toolreg.PathGate(toolreg.Deps{ProjectScope: r.projectScope, SessionKey: seetelemetry.SessionIDFromContext}),
+		toolreg.PathGate(toolreg.Deps{
+			ProjectScope: r.projectScope,
+			SessionKey:   seetelemetry.SessionIDFromContext,
+			// 按面判定的两道门（ssh 通道位 / ssh.userspace 越界位）：判据接权限门本体
+			// （同一个 callVector），路径门在远端面上用它拒掉没有位的调用
+			// （见 registry 的 path_gate_face.go）。不接这一格 = 这道闸门没装。
+			FacePermission: r.permission.FacePermission,
+		}),
 		r.transportSelector(),
 		r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
 

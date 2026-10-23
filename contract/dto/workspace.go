@@ -13,6 +13,9 @@ type WorkspaceSSHInput struct {
 	User string `json:"user"`
 	// Password 只在写入方向存在；空 = 该项目不存口令（改用 agent/key）。
 	Password string `json:"password,omitempty"`
+	// RemoteRoot 是远端工作目录（= 远端项目根，对端 POSIX 绝对路径）。
+	// 空 = 未知：远端面上路径门就只能把"本地根也容不下的绝对路径"全算成越界候选。
+	RemoteRoot string `json:"remote_root,omitempty"`
 }
 
 // WorkspaceGitInput 是新建项目时填的 git 远端凭据。
@@ -40,6 +43,8 @@ type WorkspaceSSHSummary struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 	User string `json:"user"`
+	// RemoteRoot 是远端工作目录（无口令，可回读；空 = 未配置）。
+	RemoteRoot string `json:"remote_root,omitempty"`
 }
 
 // WorkspaceGitSummary 是 git 访问配置的读面（无口令）。
@@ -81,6 +86,9 @@ type WorkspaceConnectionInput struct {
 	SSHHost string `json:"ssh_host"`
 	SSHPort int    `json:"ssh_port"`
 	SSHUser string `json:"ssh_user"`
+	// SSHRemoteRoot 是远端工作目录（对端 POSIX 绝对路径；空 = 未知/未配置）。
+	// 它是路径门在远端面上的取根口径：根内路径不需要 ssh.userspace。
+	SSHRemoteRoot string `json:"ssh_remote_root,omitempty"`
 
 	SSHPassword      string `json:"ssh_password,omitempty"`
 	ClearSSHPassword bool   `json:"clear_ssh_password,omitempty"`

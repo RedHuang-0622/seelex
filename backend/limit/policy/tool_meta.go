@@ -64,6 +64,12 @@ func ToolKindForGroup(name string) frameworktools.ToolKind {
 		return frameworktools.ToolKindControl
 	case GroupADM:
 		return frameworktools.ToolKindAdmin
+	case GroupSSH, GroupSSHUserspace:
+		// 按面判定的两组**不改变工具的操作类型归类**：ssh 说的是"在哪台机器上改"，
+		// 不是"改什么"。返回零值（= 不归类）是诚实的答案——框架对非 control 类不作
+		// 额外限制，而这一族真正的判据在路径门里（按执行面 + 是否走出远端根）。
+		// 显式列出来，是为了让"新增组忘了归类"不能悄悄落进 default 分支。
+		return ""
 	default:
 		return ""
 	}

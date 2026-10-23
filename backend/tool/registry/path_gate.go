@@ -32,10 +32,15 @@ func PathGate(deps Deps) frameworktools.MetaMiddleware {
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 			targets := pathGateTargets(name, argsJSON)
 			if pathGateFace(ctx, argsJSON) == PathGateFaceRemote {
-				// 远端面：**不做本地根判定**。远端根已知时按它筛，未知时按本地根当筛子；
-				// 筛出来的只是"需要权限门过问"的候选，不是拒绝理由。
+				// 远端面：**不做本地根判定**。远端根已知时按它筛，未知时按本地根当筛子。
+				// 筛出来的越界候选要过 ssh.userspace（没有就拒，不静默放行），远端面本身
+				// 还要过 ssh 通道位——两道门都在 requireRemoteFacePermission 里。
 				remoteRoot := pathGateRemoteRoot(ctx)
-				if candidates := remoteEscapeCandidates(deps, ctx, remoteRoot, targets); len(candidates) > 0 {
+				candidates := remoteEscapeCandidates(deps, ctx, remoteRoot, targets)
+				if err := requireRemoteFacePermission(deps, ctx, candidates); err != nil {
+					return "", err
+				}
+				if len(candidates) > 0 {
 					ctx = WithRemotePathHandoff(ctx, RemotePathHandoff{
 						Face: PathGateFaceRemote, RemoteRoot: remoteRoot, Candidates: candidates,
 					})

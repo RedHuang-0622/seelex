@@ -160,7 +160,12 @@ func (port WorkspacePort) adapt(item workspace.Info) model.WorkspaceInfo {
 		GitRemote: item.GitRemote,
 	}
 	if item.SSH != nil {
-		out.SSH = &model.WorkspaceSSHInfo{Host: item.SSH.Host, Port: item.SSH.Port, User: item.SSH.User}
+		out.SSH = &model.WorkspaceSSHInfo{
+			Host: item.SSH.Host, Port: item.SSH.Port, User: item.SSH.User,
+			// 远端工作目录（对端 POSIX 绝对路径；空 = 未配置）也随摘要上去：
+			// 装配层要靠它折算 SSHEndpoint.RemoteRoot（路径门在远端面上的取根口径）。
+			RemoteRoot: item.SSH.RemoteRoot,
+		}
 	}
 	if item.Git != nil {
 		out.Git = &model.WorkspaceGitInfo{Username: item.Git.Username, Kind: item.Git.Kind}
@@ -188,7 +193,12 @@ func (port WorkspacePort) WorkspaceConnection(id string) (model.WorkspaceConnect
 func (port WorkspacePort) SetWorkspaceConnection(id string, change model.WorkspaceConnectionChange) (model.WorkspaceConnection, error) {
 	update := workspace.ConnectionUpdate{}
 	if change.SSH != nil {
-		update.SSH = &workspace.SSHEndpoint{Host: change.SSH.Host, Port: change.SSH.Port, User: change.SSH.User}
+		update.SSH = &workspace.SSHEndpoint{
+			Host: change.SSH.Host, Port: change.SSH.Port, User: change.SSH.User,
+			// 远端工作目录是写面的一部分（存储层会做 POSIX 绝对路径校验：
+			// 相对路径直接拒，不替人猜一个根）。
+			RemoteRoot: change.SSH.RemoteRoot,
+		}
 	}
 	if change.Git != nil {
 		update.Git = &workspace.GitAccess{Username: change.Git.Username, Kind: change.Git.Kind}
@@ -217,7 +227,10 @@ func (port WorkspacePort) SetWorkspaceConnection(id string, change model.Workspa
 func adaptConnection(conn workspace.Connection) model.WorkspaceConnection {
 	out := model.WorkspaceConnection{SSHPasswordSet: conn.SSHPass, GitPasswordSet: conn.GitPass}
 	if conn.SSH != nil {
-		out.SSH = &model.WorkspaceSSHInfo{Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User}
+		out.SSH = &model.WorkspaceSSHInfo{
+			Host: conn.SSH.Host, Port: conn.SSH.Port, User: conn.SSH.User,
+			RemoteRoot: conn.SSH.RemoteRoot,
+		}
 	}
 	if conn.Git != nil {
 		out.Git = &model.WorkspaceGitInfo{Username: conn.Git.Username, Kind: conn.Git.Kind}

@@ -103,16 +103,17 @@ func (r *Runtime) sshEndpointForProject(projectID string) (toolreg.SSHEndpoint, 
 
 // sshEndpoint 把连接配置折成选择器要的窄形状。
 //
-// 远端项目根（SSHEndpoint.RemoteRoot）今天**折不出来**：连接配置的读面只有
-// host/port/user（model.WorkspaceSSHInfo），没有"远端工作目录"这一格。后果是路径门
-// 在远端面上不做本地根判定，只把越界候选记成交接事实交给权限门按 ssh.userspace 判
-// （见 registry 的 path_gate_face.go）。连接配置补上这一格时，只在这里多填一个字段。
+// 远端项目根（SSHEndpoint.RemoteRoot）从连接配置的 SSH.RemoteRoot 折出来
+// （2026-10-2x）：那一格填了，路径门在远端面上就按它判"根内 / 越界"；没填（空 =
+// 未知）就退回更保守的口径——把"本地根也容不下的绝对路径"全算成越界候选，交给
+// ssh.userspace 过问。两种情形都不猜根，判据只有一处（path_gate_face.go）。
 func sshEndpoint(connection model.WorkspaceConnection) (toolreg.SSHEndpoint, bool, error) {
 	if connection.SSH == nil || connection.SSH.Host == "" {
 		return toolreg.SSHEndpoint{}, false, nil
 	}
 	return toolreg.SSHEndpoint{
 		Host: connection.SSH.Host, Port: connection.SSH.Port, User: connection.SSH.User,
+		RemoteRoot: connection.SSH.RemoteRoot,
 	}, true, nil
 }
 

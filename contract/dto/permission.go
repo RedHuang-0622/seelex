@@ -20,6 +20,19 @@ const (
 	PermissionGroupRWDesktop = "rw_desktop" // 写簇：共享外设（一块桌面）
 	PermissionGroupCTL       = "ctl"        // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
 	PermissionGroupADM       = "adm"        // 属主簇：改变能力面本身
+	// PermissionGroupSSH 是**通道能力**：允许把一次工具调用打到远端执行面。
+	//
+	// 它与操作类型正交（ro/rw 说的是"改不改共享状态"，这一格说的是"在哪台机器上改"），
+	// 位取 x（执行：有这条路）。判据按**已定执行面**判，不按工具名路由——同一支
+	// read_file 既能跑本地也能跑远端，名字路由分不出这两件事。
+	PermissionGroupSSH = "ssh"
+	// PermissionGroupSSHUserspace 是**远端用户空间访问**：允许在远端项目根之外活动
+	// （/etc/nginx/nginx.conf、~/.ssh/config 这类对端绝对路径）。
+	//
+	// 位取 r|w|x 全位（与 adm 同宽）：越界一旦放行，读、写、执行三种后果都在同一格
+	// 能力里——远端路径的"只读访问"不是一个可以单独立起来的档。`rwes` 里的 s 是
+	// 提权（sudo）维度，框架没有这一位，它由组的 Default（ask）与 missing_bit 表达。
+	PermissionGroupSSHUserspace = "ssh.userspace"
 )
 
 // 位值（r=4 / w=2 / x=1，与 Seele 权限框架的位口径同源）。
@@ -37,6 +50,10 @@ func PermissionGroupNames() []string {
 	return []string{
 		PermissionGroupRO, PermissionGroupRW, PermissionGroupRWSession,
 		PermissionGroupRWDesktop, PermissionGroupCTL, PermissionGroupADM,
+		// 远端两格（2026-10-2x）：ssh 是通道能力，ssh.userspace 是越界访问。
+		// 追加在末尾而不是插在中间：规范组序同时是装配面板的格子顺序，动既有格子的
+		// 位置会让已经落盘/已被引用的向量与面板排布跟着漂移。
+		PermissionGroupSSH, PermissionGroupSSHUserspace,
 	}
 }
 

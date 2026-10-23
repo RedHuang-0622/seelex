@@ -1,0 +1,39 @@
+feat(perm): ssh / ssh.userspace 两类权限从纸面变真闸门 + 远端根落地
+
+① 词表与路由组表（唯一事实源）
+- contract/dto：新增 PermissionGroupSSH(ssh) / PermissionGroupSSHUserspace(ssh.userspace)
+  并进 PermissionGroupNames()（追加在末尾，不动既有格子顺序）。
+- backend/limit/policy：组表增两组。ssh 位 x（通道能力）、ssh.userspace 位 r|w|x
+  （越界访问；rwes 里的 s 是 sudo 维度，框架无此位，由 Default/MissingBit 表达）。
+  两组放在表头：LMRW 由 ro/rw 胜出 ⇒ 不接管名字路由，本地行为逐字不变；Match 那一栏
+  改为声明"远端执行面工具清单"，registry.RemoteFaceToolNames() 由
+  policy.RemoteFaceToolsFromGroups 派生（不再有第二份字面量）。
+- DeclaredToolMeta / ToolKindForGroup / TagsForGroups 自动跟随。
+- 档位预设：ssh 四档全给（远端面在本工作项之前就可达，档位不该顺手收窄）；
+  ssh.userspace 只有 full 给。默认主体表同理（员工派生口径默认给 ssh，不给 userspace）。
+
+② 远端根落地（RemoteRoot 不再恒空）
+- model.WorkspaceSSHInfo / dto.WorkspaceSSHInput+Summary+ConnectionInput /
+  store.SSHEndpoint（normalizeRemoteRoot：POSIX 绝对路径 + path.Clean）/
+  wiring/adapters 三条读写路径 / middle/switch/workspace 透传 /
+  assemble.sshEndpoint 折进 registry.SSHEndpoint.RemoteRoot。
+
+③ 越界真拦截（path_gate_face.go）
+- 远端面：先要 ssh 通道位，越界候选再要 ssh.userspace；未授予即拒，带固定码
+  PERM_SSH_REQUIRED / PERM_SSH_USERSPACE_REQUIRED（FacePermissionError，可 errors.As
+  并定位组与路径；刻意不复用 SSH_* 传输码，两类失败结构性可分）。
+- 判据端口 Deps.FacePermission ← PermissionGate.FacePermission（与 Enforce 同一个
+  callVector，含子代理落回主体表）。nil = 未装配 = 旧行为（只留痕不拒绝）。
+- 远端路径判包含关系改用 POSIX 语义（path.Clean/HasPrefix），修正 Windows 宿主上
+  filepath.IsAbs("/etc/x")==false 造成的闸门静默失效；宿主形态的根仍走 ResolveInside。
+- 本地执行面一行未动（越界仍报 bound project，不弹审批）。
+
+用例：registry/path_face_permission_test.go（根内不需 userspace / 越界授予放行+留痕 /
+越界未授予拒且码可分 / 收回通道位即拒 / 本地面逐字不变 / 两角色并发不污染 /
+组表=远端面名册）、policy/ssh_groups_test.go、
+store/workspace/connection_remote_root_test.go、
+wiring/adapters/session_workspace_connection_test.go、
+assemble/runtime_transport_remote_root_test.go。
+
+验收：go build ./... = 0、go vet ./... = 0；
+registry / policy / store(含 workspace) / wiring/adapters / assemble / dto / middle 全绿。

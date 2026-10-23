@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 )
 
 // RemoteFaceToolNames 是**真的有远端面**的工具名单（唯一一份）。
@@ -31,10 +33,12 @@ import (
 // 它是传输选择器的消费者闸门：只有会读执行面的工具才进这份名单，选择器才对它们做
 // "这次走哪儿"的判断。名字写错或漏写都会让"选了 ssh 但 handler 跑本地"重新变成可能，
 // 所以名单与 handler 的 `RemoteTransport(ctx)` 分支必须同一个提交里改。
+//
+// 名单**不在本文件里再写一遍**：它从权限路由组表的 `ssh` 组 Match 那一栏派生
+// （policy.RemoteFaceToolsFromGroups），因为那张表已经是"哪些工具落在通道能力上"的
+// 唯一写法。第二份字面量必然漂移，而漂移没有任何报错面（表现是"选了远端却跑本地"）。
 func RemoteFaceToolNames() []string {
-	return []string{
-		ReadFileToolName, WriteFileToolName, EditFileToolName, BashToolName, bgManageToolName,
-	}
+	return policy.RemoteFaceToolsFromGroups(policy.DefaultPermissionGroupList())
 }
 
 // executionFaceFields 是回执里"这是哪台机器"的两格（判据只此一处）。

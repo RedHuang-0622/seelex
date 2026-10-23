@@ -803,6 +803,12 @@ type WorkspaceSSHInfo struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 	User string `json:"user"`
+	// RemoteRoot 是**远端工作目录**（= 远端项目根，对端 POSIX 绝对路径）。
+	//
+	// 它让路径门在远端面上有一个真正的根可比对（registry 的 SSHEndpoint.RemoteRoot
+	// 由它折出）：根内路径不需要 ssh.userspace，走出它才需要。空 = 未知——此时路径门
+	// 只能把"本地根也容不下的绝对路径"全算成越界候选（更保守，不是更松）。
+	RemoteRoot string `json:"remote_root,omitempty"`
 }
 
 // WorkspaceGitInfo 是项目级 git 访问配置的读面（无口令）。

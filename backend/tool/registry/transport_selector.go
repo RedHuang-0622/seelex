@@ -54,10 +54,10 @@ type SSHEndpoint struct {
 	Name string
 	// RemoteRoot 是**远端项目根**（路径门的远端取根口径；空 = 未知）。
 	//
-	// 今天恒为空：项目连接配置的读面只有 host/port/user（见 model.WorkspaceSSHInfo），
-	// 没有"远端工作目录"这一格。因此路径门在远端面上不做本地根判定，把越界候选交给
-	// 权限门按 ssh.userspace 判（见 path_gate_face.go）。等连接配置补上这一格时，
-	// 只需装配层填进这里，路径门判据一行不动。
+	// 来源是项目连接配置的 SSH.RemoteRoot（远端工作目录，对端 POSIX 绝对路径），
+	// 由装配层折进来（assemble.sshEndpoint）。它让"根内 / 越界"在远端面上有真正的
+	// 判据：根内路径不需要 ssh.userspace，走出它才需要（见 path_gate_face.go）。
+	// 空（未配置）时路径门退回保守口径：把本地根也容不下的绝对路径全算成越界候选。
 	RemoteRoot string
 }
 

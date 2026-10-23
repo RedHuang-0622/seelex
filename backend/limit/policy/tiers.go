@@ -28,7 +28,7 @@ package policy
 //	manual  读 + 本会话工作台 + 控制流            项目写与命令仍提权
 //	edit    再加项目写（rw）                      命令与项目写免审批
 //	auto    同 edit（保留独立 id 以便持久化兼容）   —— 见下方 D-tier 说明
-//	full    全部六组                              含共享桌面与能力面；仅危险命令硬拦
+//	full    全部八组                              含共享桌面、能力面与远端越界；仅危险命令硬拦
 //
 // D-tier（待产品裁决，明写在这里免得当下一个人是 bug）：旧实现里 edit 与 auto 的
 // 差别是"剪不剪 bash 的 ask 规则"，而 bash 与 write_file 同属 rw 组 ⇒ 在**组级**
@@ -56,11 +56,18 @@ func DefaultPermissionTiers() []dto.PermissionTierInfo {
 // 用有序切片而不是 map：档位目录的展示顺序由 dto 定，这里的顺序只影响"更宽的档
 // 在更后面"这一可读性，不参与判定。
 var tierPresets = map[string]TierPreset{
-	dto.PermissionTierManual: {Groups: []string{GroupRO, GroupRWSession, GroupCTL}},
-	dto.PermissionTierEdit:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW}},
-	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW}},
+	// ssh（通道位）四档全给：把调用打到远端不是"更宽的自动度"，而是"这台机器在哪"
+	// ——它在档位之前就一直可达（连项目 + 探针通即走远端），档位不该顺手收窄它。
+	// ssh.userspace（越界访问远端用户空间）**只有 full 给**：越界是本工作项要立的
+	// 那道闸门，默认档位放行等于没装；要放开就由用户显式选 full。
+	dto.PermissionTierManual: {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupSSH}},
+	dto.PermissionTierEdit:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
+	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
 	dto.PermissionTierFull: {
-		Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM},
+		Groups: []string{
+			GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM,
+			GroupSSH, GroupSSHUserspace,
+		},
 	},
 }
 

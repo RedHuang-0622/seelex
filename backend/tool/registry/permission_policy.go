@@ -332,6 +332,47 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 	return cells.Covers(group.Name, group.Mode)
 }
 
+// FacePermission 回答"本次调用在某个**按面判定**的路由组上位齐吗"（group 取
+// policy.GroupSSH / policy.GroupSSHUserspace）。
+//
+// 这是路径门那道闸门的判据入口（Deps.FacePermission 直接接这个方法）。它与
+// Enforce/ToolFaceForContext 读的是**同一个** callVector，因此不会出现"权限门说
+// 有、路径门说没有"的两套结论。
+//
+// 第二个返回值的三态纪律（与 employeeVector 的 decided 同款）：
+//   - (true, true)  / (false, true)：判据接管了，结论就是给 / 不给；
+//   - (false, false)：判据**不接管**（配置未装配、主体表里没有这个主体）——调用方
+//     按旧行为处理，绝不把"不知道"读成"拒绝"，也不读成"允许"。
+func (state *PermissionGate) FacePermission(ctx context.Context, group string) (bool, bool) {
+	if state == nil || strings.TrimSpace(group) == "" {
+		return false, false
+	}
+	cfg := state.configSnapshot()
+	if !state.policyReady(cfg) {
+		return false, false
+	}
+	if cells, _, ok := state.callVector(ctx); ok {
+		// 向量给了这一格就是整族可用（CellsForVector 把组的 Mode 给足），
+		// 所以这里只问"有没有"，不另要位——组的位只有一个事实源（组表 Mode）。
+		return cells.Covers(group, 0), true
+	}
+	// 没有向量（子代理：它没有"角色登记"这一维）：落回框架主体表，与 Enforce 的
+	// 落回同源（框架按 cfg.Subjects[subject] 的组位判定）。
+	grant, exists := cfg.Subjects[policy.SubjectForClass(state.classFor(ctx))]
+	if !exists {
+		return false, false
+	}
+	entry, ok := grant.Bits[group]
+	if !ok {
+		return false, true
+	}
+	mode, known := policy.RemoteFaceGroupBits(cfg.Groups, group)
+	if !known || mode == 0 {
+		return entry.Bits != 0, true
+	}
+	return entry.Bits&mode == mode, true
+}
+
 // EmployeeSubjectPrefix 是"员工主体"的命名前缀：**一个员工 = 一个主体**，
 // 与 root / sub 平权地放在同一张授权表（主体 × 路由组 × 位）里。
 //
@@ -411,9 +452,18 @@ type EmployeePermission struct {
 func EmployeeGroupsForPolicy(toolsPolicy string) map[string]uint8 {
 	switch strings.ToLower(strings.TrimSpace(toolsPolicy)) {
 	case "readonly":
-		return map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0}
+		return map[string]uint8{
+			policy.GroupRO: policy.BitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0,
+			// 通道位（ssh）默认给：只读员工今天就能远端读（连项目 + 探针通即走远端），
+			// 派生口径不该顺手收窄它；越界位（ssh.userspace）不给——那是要立的那道闸门。
+			policy.GroupSSH: policy.BitExecute, policy.GroupSSHUserspace: 0,
+		}
 	case "readwrite":
-		return map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite, policy.GroupCTL: 0, policy.GroupADM: 0}
+		return map[string]uint8{
+			policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite,
+			policy.GroupCTL: 0, policy.GroupADM: 0,
+			policy.GroupSSH: policy.BitExecute, policy.GroupSSHUserspace: 0,
+		}
 	default:
 		return nil
 	}
