@@ -1519,18 +1519,19 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		!strings.Contains(string(script), "onDiag: stats => liveDiag.update(stats)") {
 		t.Fatal("GUI must wire the live freshness diagnostic badge (event/refresh/gap/buffer counters)")
 	}
-	// 档位控件的读面已抽到 ./permission-tier.js（纯函数，可由 node --test 直接钉住），
-	// 因此这里既查 app.js 的接线（import + 提交路径），也查该模块的权威读面。
-	tierModule, err := embeddedFrontend.ReadFile("frontend/dist/permission-tier.js")
-	if err != nil {
-		t.Fatalf("embedded frontend permission-tier.js: %v", err)
-	}
+	// 底部权限芯片的读面已在 2026-10-23 改成**主代理权限向量**：芯片、芯片下拉、设置面板
+	// 三处读同一份后端回执（PermissionVector / SetPermissionVector）。档位（permission_tier /
+	// SetPermissionTier）只留在后端预设里，UI 不再暴露——所以这里同时钉"新面在"与"旧面不在"。
 	if strings.Contains(string(script), "let fullAccessOn") ||
-		!strings.Contains(string(script), `invoke("SetPermissionTier"`) ||
-		!strings.Contains(string(script), `from "./permission-tier.js"`) ||
-		!strings.Contains(string(tierModule), `runtime?.permission_tier`) ||
-		!strings.Contains(string(tierModule), `Boolean(runtime?.full_access)`) {
-		t.Fatal("权限档位控件必须走后端权威快照（permission_tier/permission_tiers）与 SetPermissionTier")
+		!strings.Contains(string(script), `invoke("PermissionVector")`) ||
+		!strings.Contains(string(script), `invoke("SetPermissionVector"`) ||
+		strings.Contains(string(script), `invoke("SetPermissionTier"`) ||
+		!strings.Contains(string(script), "permissionVectorSummary(permissionVectorCommitted)") {
+		t.Fatal("底部权限芯片必须是主代理权限向量（PermissionVector / SetPermissionVector），档位入口已退场")
+	}
+	// permission-tier.js 现在只剩"上下键循环取模"这一件纯计算（nextTierIndex），仍由模块提供。
+	if !strings.Contains(string(script), `from "./permission-tier.js"`) {
+		t.Fatal("芯片下拉的键盘循环要复用 ./permission-tier.js 的 nextTierIndex")
 	}
 	if !strings.Contains(string(script), `from "./perf-hooks.js"`) || !strings.Contains(string(script), `createPerfHooks`) || !strings.Contains(string(script), `invoke("PerfStats")`) || !strings.Contains(string(script), `invoke("ToolResultContent"`) {
 		t.Fatal("embedded frontend must wire performance hooks and result_ref loading")

@@ -3013,6 +3013,11 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 /* 显式拒绝：不是「没选」，是「明确不给」。用虚线框 + 删除线，和「给」一眼分开。 */
 .perm-tag.is-denied { border-style: dashed; border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); text-decoration: line-through; }
 .perm-tag.is-denied:hover { border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); }
+/* 权限芯片下拉里的标签排 + 一行说明（芯片下拉与设置面板共用同一组标签样式）。 */
+.perm-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.perm-menu-head { padding: 2px 2px 8px; color: var(--muted); font: 12px var(--font-mono); }
+.perm-menu-hint { padding: 8px 2px 2px; color: var(--muted); font: 12px var(--font-mono); line-height: 1.5; }
+.perm-vector { display: flex; flex-direction: column; gap: 4px; }
 .period-row { display: flex; align-items: center; gap: 8px; }
 .period-prefix { flex: none; color: var(--muted); font-size: var(--text-sm); }
 .period-row input { width: 84px; text-align: right; }

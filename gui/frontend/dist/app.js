@@ -18,7 +18,7 @@ import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createComposerKnobs, REASONING_EFFORT_LEVELS, REASONING_EFFORT_LABELS } from "./composer-knobs.js";
-import { permissionTierCatalog, permissionTierChip, permissionTierChipForRuntime, permissionTierMenuItems, permissionTierOptions, nextTierIndex } from "./permission-tier.js";
+import { nextTierIndex } from "./permission-tier.js";
 import {
   planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
 } from "./plan-dsl.js";
@@ -2347,50 +2347,51 @@ function renderRuntime(runtime) {
   composerKnobs.setLoopLimit(runtime.loop_limit);
 }
 
-// permissionTierCatalog / currentPermissionTier 已抽到 ./permission-tier.js（纯函数，
-// 由 node --test 直接钉住）。这里只做 DOM 写入。
+// 纯函数在 ./permission-tier.js（nextTierIndex 用来给标签做 ↑/↓ 循环）与
+// ./role-settings.js（标签表 / 三态 / lint），这里只做 DOM 写入。
 //
-// renderPermissionTier 渲染权限档：composer 芯片显示当前档短名（全权档保留 ✓），
-// **芯片本身就是切换入口**——点它就地展开下拉（见下方 togglePermissionMenu），
-// 一步切档；运行状态弹窗里的档位列表仍在，两处同源（permissionTierMenuItems），
-// 所以不会出现"下拉一份、弹窗一份"的漂移。
+// renderPermissionTier 渲染 composer 的**主代理权限向量**入口（2026-10-23 改口径）。
+//
+// 为什么不再是档位：档位（手动 / 改文件免问 / 命令免问 / 全权）只能"往松里拨一格"，
+// 表达不了"只给 SSH 不给写"或"明确拒掉 SSH"这类逐格点名——而权限装配已经是按组配的、
+// ssh / ssh.userspace 是两把独立的钥匙。所以底部这颗芯片渲染的是**本会话主代理的向量**，
+// 点开就地展开同一组标签（三态：空 / 给 / 显式拒绝），改一格立即整组提交。
+//
+// 芯片读的是 permissionVectorCommitted（后端回执），不读档位目录——两处各记一份就会漂移。
 function renderPermissionTier(runtime) {
-  const chipModel = permissionTierChipForRuntime(runtime);
-  const chip = elements["perm-toggle"];
-  if (chip) {
-    chip.dataset.tier = chipModel.id;
-    chip.classList.toggle("is-on", chipModel.isFull);
-    chip.innerHTML = permissionChipInner(chipModel);
-  }
+  renderPermissionVectorChip();
   renderPermissionMenu(runtime);
+  // 运行状态弹窗里只放**只读镜像**：同一组标签在这里看一眼，改仍走芯片/设置面板
+  // （`inert` 让这排标签不可聚焦、不可点——不然会变成第二个“点了没反应”的入口）。
   const host = elements["permission-tier-list"];
   if (!host) return;
-  host.innerHTML = permissionTierOptions(runtime).map(item => `
-    <button type="button" class="tier-option ${item.active ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="radio" aria-checked="${item.active}">
-      <span class="tier-option-label">${escapeHtml(item.label)}</span>
-      <span class="tier-option-desc">${escapeHtml(item.description)}</span>
-    </button>`).join("");
+  host.innerHTML = `<div class="perm-tag-row" inert>${renderPermissionVectorHTML(permissionVectorCommitted)}</div>`
+    + `<div class="perm-menu-hint">在输入框下方的权限芯片里修改（点一下给 / 两下拒 / 三下空）</div>`;
 }
 
-// permissionChipInner 是芯片内容：当前档短名（全权档缀 ✓）+ 下拉箭头（可点开）。
-function permissionChipInner(model) {
-  const short = escapeHtml(model.short);
-  const check = model.isFull ? ` ${icon("check", 12)}` : "";
-  return `${short}${check} <span class="perm-caret" aria-hidden="true">▾</span>`;
+// renderPermissionVectorChip 芯片内容 = 主代理当前向量的一行读数（空向量说"未选"）。
+// 不再有"全权"这一档：全权 = 七个标签全给，那就是一行读数本身，不需要另设一枚芯片值。
+function renderPermissionVectorChip() {
+  const chip = elements["perm-toggle"];
+  if (!chip) return;
+  const summary = permissionVectorSummary(permissionVectorCommitted);
+  chip.classList.remove("is-on");
+  chip.dataset.permission = "vector";
+  chip.innerHTML = `${escapeHtml(summary)} <span class="perm-caret" aria-hidden="true">▾</span>`;
 }
 
-// renderPermissionMenu 把档位条目写进芯片下拉。模型来自纯函数 permissionTierMenuItems
-// （后端目录 + 本会话生效档），这里只做 DOM 写入与转义；条目的选中态由后端真值决定，
-// 前端不自己记一份"我以为选了什么"。
+// renderPermissionMenu 把**同一组权限标签**写进芯片下拉：与设置面板共用
+// renderPermissionVectorHTML（一份标签表、一份三态渲染），lint 提示一并给出（只提示、不拦）。
 function renderPermissionMenu(runtime) {
   const menu = elements["perm-menu"];
   if (!menu) return;
-  menu.innerHTML = permissionTierMenuItems(runtime).map(item => `
-    <button type="button" class="perm-menu-item ${item.active ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="menuitemradio" aria-checked="${item.active}" title="${escapeHtml(item.description)}">
-      <span class="perm-menu-label">${escapeHtml(item.label)}</span>
-      <span class="perm-menu-mark">${item.active ? icon("check", 12) : ""}</span>
-      <span class="perm-menu-desc">${escapeHtml(item.description)}</span>
-    </button>`).join("");
+  const warnings = permissionVectorLint(permissionVectorCommitted);
+  const notes = warnings.length
+    ? `<div class="perm-menu-hint">${warnings.map(item => escapeHtml(item.message)).join("<br/>")}</div>`
+    : "";
+  menu.innerHTML = `<div class="perm-menu-head">主代理权限（本会话）· 点一下给 / 两下拒 / 三下空</div>`
+    + `<div class="perm-tag-row" role="group" aria-label="主代理权限向量">${renderPermissionVectorHTML(permissionVectorCommitted)}</div>`
+    + notes;
 }
 
 // renderPlugins 渲染左栏「插件 Skill」页的插件列表 + 该插件的 Skill 目录。
@@ -4880,30 +4881,39 @@ document.addEventListener("keydown", event => {
   }
 });
 
-// 权限档 chip：点击**就地展开下拉**切换档位（档位是**主 agent 在本会话**的粒度）。
-// 一步到位，不用先打开运行状态弹窗、再在大面板里找档位——切档不该是一次"进入配置页"。
+// 权限芯片：点击**就地展开**主代理权限向量（不再是档位；档位只能往松里拨一格，
+// 表达不了“只给 SSH”或“明确拒掉 SSH”这类逐格点名）。
 elements["perm-toggle"].addEventListener("click", function(event) {
   event.stopPropagation();
   togglePermissionMenu();
 });
 
-// 下拉条目：点一条即提交（同 applyPermissionTier 单一路径，与运行状态里的列表共用）。
+// 下拉条目 = 主代理权限标签：点一下三态循环（空→给→拒→空），改完立刻整组提交。
+// 与设置面板的向量编辑走同一条提交路径（submitPermissionVector），不各写一份。
 elements["perm-menu"].addEventListener("click", async function(event) {
-  const button = event.target.closest("[data-tier]");
-  if (!button || button.classList.contains("is-active")) return;
-  await applyPermissionTier(button.dataset.tier);
+  const tag = event.target?.closest?.("button[data-perm-type]");
+  if (!tag) return;
+  event.stopPropagation();
+  const next = cyclePermissionVector(permissionVectorDraft, tag.dataset.permType);
+  if (next.join(",") === permissionVectorDraft.join(",")) return;
+  permissionVectorDraft = next;
+  renderPermissionMenu(client.current()?.runtime || {});
+  await submitPermissionVector();
 });
 
-// 下拉键盘：↑/↓ 在档位间循环（nextTierIndex 纯函数），Enter/空格提交。
+// 下拉键盘：↑/↓ 在标签间循环（nextTierIndex 是通用循环取模），Enter/空格 = 点一下。
 elements["perm-menu"].addEventListener("keydown", async function(event) {
   if (!["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
-  const items = Array.from(this.querySelectorAll(".perm-menu-item"));
+  const items = Array.from(this.querySelectorAll("button[data-perm-type]"));
   if (!items.length) return;
   event.preventDefault();
   const current = items.indexOf(document.activeElement);
   if (event.key === "Enter" || event.key === " ") {
     const target = current >= 0 ? items[current] : null;
-    if (target) await applyPermissionTier(target.dataset.tier);
+    if (!target) return;
+    permissionVectorDraft = cyclePermissionVector(permissionVectorDraft, target.dataset.permType);
+    renderPermissionMenu(client.current()?.runtime || {});
+    await submitPermissionVector();
     return;
   }
   items[nextTierIndex(items.length, current, event.key === "ArrowDown" ? 1 : -1)]?.focus?.();
@@ -4924,44 +4934,11 @@ function togglePermissionMenu(force) {
   menu.hidden = !open;
   chip.setAttribute("aria-expanded", open ? "true" : "false");
   chip.classList.toggle("is-open", open);
-  if (open) menu.querySelector(".perm-menu-item:not(.is-active)")?.focus?.();
+  if (open) menu.querySelector("button[data-perm-type]")?.focus?.();
 }
 
 function closePermissionMenu() {
   togglePermissionMenu(false);
-}
-
-// applyPermissionTier 是唯一的切档路径（下拉与运行状态列表共用）：
-// 按 Bridge 返回的**真正生效档位**渲染芯片，再拉整份快照（档位是会话级投影，切会话即换）。
-async function applyPermissionTier(tier) {
-  if (!tier) return;
-  try {
-    // Bridge 返回真正生效的档位：避免快照滞后造成"点了没生效"的滞后观感。
-    const effective = await invoke("SetPermissionTier", tier);
-    renderPermissionChip(effective);
-    closePermissionMenu();
-    await refresh({ scroll: false });
-  } catch (error) {
-    showToast(error);
-  }
-}
-
-// 档位列表（运行状态弹窗）：与下拉同一条提交路径。
-elements["permission-tier-list"].addEventListener("click", async function(event) {
-  const button = event.target.closest("[data-tier]");
-  if (!button || button.classList.contains("is-active")) return;
-  await applyPermissionTier(button.dataset.tier);
-});
-
-// renderPermissionChip 只改芯片本身（乐观回执），完整运行时投影仍随后端快照刷新。
-function renderPermissionChip(tier) {
-  const chip = elements["perm-toggle"];
-  if (!chip) return;
-  const id = typeof tier === "string" && tier ? tier : String(tier?.id || "");
-  const model = permissionTierChip(permissionTierCatalog(client.current()?.runtime || {}), id);
-  chip.dataset.tier = model.id;
-  chip.classList.toggle("is-on", model.isFull);
-  chip.innerHTML = permissionChipInner(model);
 }
 
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────
@@ -5712,6 +5689,9 @@ async function syncRoleSettings() {
   }
   permissionVectorDraft = permissionVectorCommitted.slice();
   renderRolePermissionVector();
+  // 芯片与下拉读的是同一份回执：主代理向量在下方设置面板与底部芯片之间只有一个真值。
+  renderPermissionVectorChip();
+  renderPermissionMenu(client.current()?.runtime || {});
 }
 
 // submitPermissionVector 提交整组标签（不是单个）：一次写入 = 一次完整状态，
@@ -5728,6 +5708,8 @@ async function submitPermissionVector() {
     permissionVectorApplied = false;
   }
   renderRolePermissionVector();
+  renderPermissionVectorChip();
+  renderPermissionMenu(client.current()?.runtime || {});
 }
 
 elements["role-account"]?.addEventListener("change", async event => {
@@ -5934,6 +5916,9 @@ async function initialise() {
     elements["app-title"].textContent = info.title || "Seelex";
     elements["app-version"].textContent = info.version || "dev";
     await refresh({ scroll: "bottom" });
+    // 底部权限芯片读的是主代理权限向量（后端回执），首帧必须先拉一次——
+    // 否则在用户打开设置面板之前，芯片会一直显示"未选"这个假读数。
+    await syncRoleSettings();
     // 面板上次是展开的就恢复展开（VS Code 同口径）：恢复时按需要新建一个终端。
     if (terminalPanel.state().open) terminalPanel.open();
   } catch (error) {

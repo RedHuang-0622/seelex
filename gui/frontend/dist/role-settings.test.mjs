@@ -210,3 +210,29 @@ test("app.js 用三态循环接线（不是两态 toggle）", async () => {
   assert.match(app, /cyclePermissionVector\(permissionVectorDraft, tag\.dataset\.permType\)/, "点击要用三态循环");
   assert.doesNotMatch(app, /togglePermissionVector\(permissionVectorDraft/, "不能再走两态 toggle");
 });
+
+test("底部芯片是主代理权限向量，不再是档位", async () => {
+  const app = await read("app.js");
+  // 芯片内容来自向量读数（permissionVectorSummary），不再读档位目录
+  assert.match(app, /function renderPermissionVectorChip\(\)/, "要有芯片的向量渲染函数");
+  assert.match(app, /permissionVectorSummary\(permissionVectorCommitted\)/, "芯片读数来自后端回执的向量");
+  // 档位那套入口必须从 app.js 消失：芯片值 / 切换路径 / 弹窗列表都不能再挂档位
+  for (const gone of ["permissionTierChipForRuntime", "permissionTierMenuItems", "permissionTierOptions", "SetPermissionTier", "permissionChipInner", "applyPermissionTier"]) {
+    assert.doesNotMatch(app, new RegExp(gone), `${gone} 不能还留在 app.js（档位入口已由向量接管）`);
+  }
+  // 下拉里点标签 = 三态循环 + 整组提交（与设置面板同一条路径）
+  assert.match(app, /perm-menu\"\]\.addEventListener\(\"click\"[\s\S]*?cyclePermissionVector\(permissionVectorDraft/, "下拉点击要走三态循环");
+  assert.match(app, /perm-menu\"\]\.addEventListener\(\"click\"[\s\S]*?await submitPermissionVector\(\)/, "下拉点击要整组提交");
+  // 运行状态弹窗里只能是只读镜像（inert），不能变成第二个点了没反应的入口
+  assert.match(app, /host\.innerHTML = `<div class="perm-tag-row" inert>/, "弹窗里是 inert 只读镜像");
+});
+
+test("权限检查器里三个入口共用一份真值", async () => {
+  const app = await read("app.js");
+  // 芯片 / 下拉 / 设置面板都读 permissionVectorCommitted，提交后三处一起重绘
+  const submit = app.match(/async function submitPermissionVector\(\)[\s\S]*?\n\}/);
+  assert.ok(submit, "要找得到 submitPermissionVector");
+  assert.match(submit[0], /renderPermissionVectorChip\(\)/, "提交后要重绘芯片");
+  assert.match(submit[0], /renderPermissionMenu\(/, "提交后要重绘下拉");
+  assert.match(submit[0], /renderRolePermissionVector\(\)/, "提交后要重绘设置面板");
+});
