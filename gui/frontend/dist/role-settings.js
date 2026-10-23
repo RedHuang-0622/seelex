@@ -14,6 +14,9 @@
 //   3. 未知标签一律丢弃（既不渲染也不提交）：标签表是这一份，别处不再兜底。
 //   4. lint 的 id 与 docs/arch/permission-assembly.md §5 的四条同名（assembly_*），
 //      只做提示、不做拦截——最终判定归后端 PermissionGate。
+//   5. 标签有**三态**：不选 / 给（`id`）/ 显式拒绝（`!id`）。第三态不是装饰：后端的
+//      "非空即封闭"会把员工没列出的组投影成 `!组`，所以前端**必须原样保留** `!id`——
+//      旧实现把它当未知标签丢掉，等于用户一按保存就把"明确拒绝"擦成"继承"，是静默放权。
 
 import { escapeHtml } from "./components.js";
 
@@ -36,12 +39,47 @@ export function permissionVectorLabel(id) {
   return found ? found.label : "";
 }
 
+// splitPermissionTag 拆出"这一项是给还是拒"。`!` 前缀是后端契约（显式拒绝），
+// 前端只做识别，不另造标记。
+function splitPermissionTag(raw) {
+  const text = String(raw ?? "").trim();
+  return text.startsWith("!") ? { id: text.slice(1), denied: true } : { id: text, denied: false };
+}
+
 // normalizePermissionVector 把任意输入（后端返回值、脏 JSON、用户点出来的数组）收成
-// "已知标签 + 去重 + 声明顺序"的数组。非数组输入 → 空数组。
+// "已知标签 + 去重 + 声明顺序"的数组，**保留 `!id` 显式拒绝**。非数组输入 → 空数组。
+//
+// 同一标签既给又拒时按**拒绝**落地（fail-closed）：两者并存只可能是上游拼装出错，
+// 此时宁可少给能力。输出里永远只有一个形态（`id` 或 `!id`），不会同时出现。
 export function normalizePermissionVector(input) {
   const list = Array.isArray(input) ? input : [];
-  const picked = new Set(list.map(item => String(item || "").trim()).filter(id => PERMISSION_VECTOR_IDS.includes(id)));
-  return PERMISSION_VECTOR_IDS.filter(id => picked.has(id));
+  const allowed = new Set();
+  const denied = new Set();
+  for (const item of list) {
+    const parsed = splitPermissionTag(item);
+    if (!PERMISSION_VECTOR_IDS.includes(parsed.id)) continue;
+    if (parsed.denied) denied.add(parsed.id);
+    else allowed.add(parsed.id);
+  }
+  for (const id of denied) allowed.delete(id);
+  return PERMISSION_VECTOR_IDS
+    .filter(id => allowed.has(id) || denied.has(id))
+    .map(id => (denied.has(id) ? `!${id}` : id));
+}
+
+// cyclePermissionVector 是"点一下标签"的三态循环：不选 → 给 → 拒 → 不选。
+// 三态而不是两态，是因为"没列出来"（继承）与"明确不给"在后端是两个事实。
+export function cyclePermissionVector(current, id) {
+  const base = normalizePermissionVector(current);
+  const target = String(id || "").trim();
+  if (!PERMISSION_VECTOR_IDS.includes(target)) return base;
+  if (base.includes(target)) {
+    return normalizePermissionVector(base.filter(item => item !== target).concat([`!${target}`]));
+  }
+  if (base.includes(`!${target}`)) {
+    return base.filter(item => item !== `!${target}`);
+  }
+  return normalizePermissionVector(base.concat([target]));
 }
 
 // togglePermissionVector 是"点一下标签"的纯函数：已选则去掉，未选则加上，
@@ -53,10 +91,11 @@ export function togglePermissionVector(current, id) {
   return base.includes(target) ? base.filter(item => item !== target) : normalizePermissionVector([...base, target]);
 }
 
-// permissionVectorSummary 给一行短读数（没选任何标签时说"未选"）。
+// permissionVectorSummary 给一行短读数（没选任何标签时说"未选"；显式拒绝标"拒 x"）。
 export function permissionVectorSummary(selected) {
   const list = normalizePermissionVector(selected);
-  return list.length ? list.join(" · ") : "未选";
+  if (!list.length) return "未选";
+  return list.map(id => (id.startsWith("!") ? `拒 ${id.slice(1)}` : id)).join(" · ");
 }
 
 // permissionVectorLint 是"这组选择会走不通"的四条提示，与 permission-assembly §5 同 id：
@@ -80,16 +119,26 @@ export function permissionVectorLint(selected) {
   if (has("admin") && !has("control")) {
     warnings.push({ id: "assembly_admin_without_control", message: "选了管理却没选控制：管装配却管不了会话" });
   }
+  if (list.length && list.every(id => id.startsWith("!"))) {
+    warnings.push({ id: "assembly_nothing_allowed", message: "全部是显式拒绝：这组装配等于什么都不给" });
+  }
   return warnings;
 }
 
-// renderPermissionVectorHTML 渲染一排多选标签（按声明顺序）。选中态走 aria-pressed，
-// 键盘/读屏都能读到"这一枚按下了没有"。
+// renderPermissionVectorHTML 渲染一排多选标签（按声明顺序）。三态：不选 / 给（is-on）/
+// 显式拒绝（is-denied，文字后缀「（拒）」）。两态都算"按下了"（aria-pressed=true）——
+// 对读屏来说"我明确表过态"才是这一格的信息，具体给还是拒由 title 与后缀说清。
 export function renderPermissionVectorHTML(selected) {
   const list = normalizePermissionVector(selected);
+  const allowed = new Set(list.filter(id => !id.startsWith("!")));
+  const denied = new Set(list.filter(id => id.startsWith("!")).map(id => id.slice(1)));
   return PERMISSION_VECTOR_TAGS.map(tag => {
-    const on = list.includes(tag.id);
-    return `<button type="button" class="perm-tag${on ? " is-on" : ""}" data-perm-type="${escapeHtml(tag.id)}" aria-pressed="${on}" title="${escapeHtml(tag.tip)}">${escapeHtml(tag.label)}</button>`;
+    const on = allowed.has(tag.id);
+    const isDenied = denied.has(tag.id);
+    const classes = `perm-tag${on ? " is-on" : ""}${isDenied ? " is-denied" : ""}`;
+    const tip = isDenied ? `${tag.tip}（显式拒绝：不是"没提"，是"不给"）` : tag.tip;
+    const text = isDenied ? `${tag.label}（拒）` : tag.label;
+    return `<button type="button" class="${classes}" data-perm-type="${escapeHtml(tag.id)}" aria-pressed="${on || isDenied}" title="${escapeHtml(tip)}">${escapeHtml(text)}</button>`;
   }).join("");
 }
 

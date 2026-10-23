@@ -51,7 +51,7 @@ import {
   renderPermissionVectorHTML,
   roleAccountOptionsHTML,
   rolePluginOptionsHTML,
-  togglePermissionVector,
+  cyclePermissionVector,
 } from "./role-settings.js";
 import {
   bindHorizontalDragDelegate,
@@ -5750,7 +5750,7 @@ elements["role-account"]?.addEventListener("change", async event => {
 elements["role-permission-vector"]?.addEventListener("click", async event => {
   const tag = event.target?.closest?.("button[data-perm-type]");
   if (!tag) return;
-  const next = togglePermissionVector(permissionVectorDraft, tag.dataset.permType);
+  const next = cyclePermissionVector(permissionVectorDraft, tag.dataset.permType);
   if (next.join(",") === permissionVectorDraft.join(",")) return;
   permissionVectorDraft = next;
   renderRolePermissionVector();

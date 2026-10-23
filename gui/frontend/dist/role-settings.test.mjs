@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   PERMISSION_VECTOR_TAGS,
+  cyclePermissionVector,
   normalizePermissionVector,
   permissionVectorLint,
   permissionVectorSummary,
@@ -159,4 +160,53 @@ test("app.js 接线：注册表 + 四项各自的动作 + 权限向量未生效�
   for (const gone of ["SessionStorageConfig", "TestSessionStorage", "ConfigureSessionStorage", "storage-status"]) {
     assert.doesNotMatch(app, new RegExp(gone), `${gone} 的 JS 逻辑必须一并删掉`);
   }
+});
+
+test("显式拒绝（!tag）必须原样保留：丢掉它就等于把「明确不给」擦成「继承」", () => {
+  // 后端"非空即封闭"会把员工没列出的组投影成 `!组`；存量员工的显式格子就是这种形状。
+  // 旧实现把它当未知标签丢掉 → 用户一按保存就把"拒绝"变成"继承"，是静默放权。
+  assert.deepEqual(normalizePermissionVector(["read", "!ssh"]), ["read", "!ssh"]);
+  assert.deepEqual(normalizePermissionVector(["!ssh.userspace", "ssh", "read"]), ["read", "ssh", "!ssh.userspace"]);
+  // 去重
+  assert.deepEqual(normalizePermissionVector(["!ssh", "!ssh"]), ["!ssh"]);
+  // 同一标签既给又拒 → 按拒绝落地（fail-closed），且只保留一个形态
+  assert.deepEqual(normalizePermissionVector(["ssh", "!ssh"]), ["!ssh"]);
+  assert.deepEqual(normalizePermissionVector(["!ssh", "ssh"]), ["!ssh"]);
+  // 未知标签即便带 ! 也丢弃
+  assert.deepEqual(normalizePermissionVector(["!root"]), []);
+});
+
+test("三态循环：不选 → 给 → 拒 → 不选", () => {
+  assert.deepEqual(cyclePermissionVector([], "write"), ["write"]);
+  assert.deepEqual(cyclePermissionVector(["write"], "write"), ["!write"]);
+  assert.deepEqual(cyclePermissionVector(["!write"], "write"), []);
+  // 未知 id 不动现有选择（与 toggle 同口径）
+  assert.deepEqual(cyclePermissionVector(["read"], "root"), ["read"]);
+  // 拒态不影响别的标签
+  assert.deepEqual(cyclePermissionVector(["read", "!ssh"], "write"), ["read", "write", "!ssh"]);
+});
+
+test("读数与渲染都认得拒态", () => {
+  assert.equal(permissionVectorSummary(["read", "!ssh"]), "read · 拒 ssh");
+  assert.equal(permissionVectorSummary(["!ssh"]), "拒 ssh");
+  const html = renderPermissionVectorHTML(["!ssh"]);
+  assert.match(html, /data-perm-type="ssh"[^>]*class=|class="perm-tag is-denied"/);
+  assert.match(html, /aria-pressed="true"/);
+  assert.match(html, /SSH（拒）/);
+  // 给态仍然是 is-on
+  assert.match(renderPermissionVectorHTML(["ssh"]), /perm-tag is-on/);
+});
+
+test("全拒配方要报 assembly_nothing_allowed", () => {
+  const warnings = permissionVectorLint(["!ssh", "!read"]);
+  assert.ok(warnings.some(item => item.id === "assembly_nothing_allowed"), JSON.stringify(warnings));
+  // 只要有一个"给"，就不报这条
+  assert.ok(!permissionVectorLint(["read", "!ssh"]).some(item => item.id === "assembly_nothing_allowed"));
+});
+
+test("app.js 用三态循环接线（不是两态 toggle）", async () => {
+  const app = await read("app.js");
+  assert.match(app, /cyclePermissionVector,\s*\n\} from "\.\/role-settings\.js";/, "要从 role-settings 引三态循环");
+  assert.match(app, /cyclePermissionVector\(permissionVectorDraft, tag\.dataset\.permType\)/, "点击要用三态循环");
+  assert.doesNotMatch(app, /togglePermissionVector\(permissionVectorDraft/, "不能再走两态 toggle");
 });

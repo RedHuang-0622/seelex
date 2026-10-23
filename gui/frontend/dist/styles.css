@@ -3010,6 +3010,9 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .perm-tag { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--r-lg); color: var(--muted); background: transparent; font: 12px var(--font-mono); cursor: pointer; }
 .perm-tag:hover { border-color: var(--border-strong); color: var(--text); }
 .perm-tag.is-on { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
+/* 显式拒绝：不是「没选」，是「明确不给」。用虚线框 + 删除线，和「给」一眼分开。 */
+.perm-tag.is-denied { border-style: dashed; border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); text-decoration: line-through; }
+.perm-tag.is-denied:hover { border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); }
 .period-row { display: flex; align-items: center; gap: 8px; }
 .period-prefix { flex: none; color: var(--muted); font-size: var(--text-sm); }
 .period-row input { width: 84px; text-align: right; }
