@@ -1023,6 +1023,105 @@ func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {
 	return app, nil
 }
 
+// ── 会话 SSH（项目环境表 + 会话状态）─────────────────────────────────────────
+//
+// 两块分开，口径不混（2026-10-23 用户定调）：
+//   · 环境表挂在**项目**上（dev / test / prod …）——连接信息的唯一事实源；
+//   · 会话只持有"限定用哪个环境"与"放权了哪些环境"——缺省两者都空 = 用不了 SSH。
+//
+// 桥面照抄 roleSettings 的做法：窄接口 + 类型断言，不往 Application 那条约面上
+// 加方法（那条面是所有 fake 都要满足的最小集）。
+
+// sessionSSHApplication 是会话 SSH 要用到的应用层方法（窄接口，由本包声明）。
+type sessionSSHApplication interface {
+	WorkspaceEnvironments(sessionID string) ([]model.WorkspaceEnvironmentInfo, string, error)
+	SetWorkspaceEnvironment(sessionID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)
+	DeleteWorkspaceEnvironment(sessionID, name string) error
+	SetDefaultWorkspaceEnvironment(sessionID, name string) error
+	SessionSSHState(sessionID string) (model.SessionSSHInfo, error)
+	SetSessionSSHEnv(sessionID, env string) (model.SessionSSHInfo, error)
+	SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)
+}
+
+func (bridge *Bridge) sessionSSH() (sessionSSHApplication, error) {
+	if bridge == nil || bridge.app == nil {
+		return nil, errors.New("bridge is not assembled")
+	}
+	app, ok := bridge.app.(sessionSSHApplication)
+	if !ok {
+		return nil, errors.New("当前 Application 未装配会话 SSH 面（WorkspaceEnvironments / SessionSSHState）")
+	}
+	return app, nil
+}
+
+// WorkspaceEnvironments 读当前会话所属项目的环境表与默认环境名。
+func (bridge *Bridge) WorkspaceEnvironments() ([]model.WorkspaceEnvironmentInfo, string, error) {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return nil, "", err
+	}
+	return app.WorkspaceEnvironments(bridge.app.Snapshot().Session.ID)
+}
+
+// SetWorkspaceEnvironment 写一个项目环境（口令三态；Delete=true 则删除）。
+func (bridge *Bridge) SetWorkspaceEnvironment(name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error) {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return model.WorkspaceEnvironmentInfo{}, err
+	}
+	return app.SetWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name, change)
+}
+
+// DeleteWorkspaceEnvironment 删除一个项目环境（连同它的口令）。
+func (bridge *Bridge) DeleteWorkspaceEnvironment(name string) error {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return err
+	}
+	return app.DeleteWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name)
+}
+
+// SetDefaultWorkspaceEnvironment 指定项目默认环境（空串 = 取消默认）。
+func (bridge *Bridge) SetDefaultWorkspaceEnvironment(name string) error {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return err
+	}
+	return app.SetDefaultWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name)
+}
+
+// SessionSSHState 读**当前视图会话**的 SSH 状态（当前环境 + 放权集合）。
+func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return model.SessionSSHInfo{}, err
+	}
+	return app.SessionSSHState(bridge.app.Snapshot().Session.ID)
+}
+
+// SetSessionSSHEnv 限定当前视图会话的 SSH 环境（空串 = 取消限定）。
+//
+// 只接受**已在本会话放权**的名字（应用层校验）：设了环境却没放权 = 仍然用不了，
+// 在写入这一步就说清楚，比让执行侧拒绝更有用。
+func (bridge *Bridge) SetSessionSSHEnv(env string) (model.SessionSSHInfo, error) {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return model.SessionSSHInfo{}, err
+	}
+	return app.SetSessionSSHEnv(bridge.app.Snapshot().Session.ID, env)
+}
+
+// SetSessionSSHAllowed 设置当前视图会话的放权集合，返回**落盘后读回**的状态。
+//
+// 放权集合必须是项目环境表的子集（应用层校验）：写进不存在的名字会显式失败。
+func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo, error) {
+	app, err := bridge.sessionSSH()
+	if err != nil {
+		return model.SessionSSHInfo{}, err
+	}
+	return app.SetSessionSSHAllowed(bridge.app.Snapshot().Session.ID, envs)
+}
+
 // PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按四级
 // 链路解析（user_allow > agent_dispatch > session_default > global_default）。
 //
