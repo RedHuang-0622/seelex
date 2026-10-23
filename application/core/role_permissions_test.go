@@ -1,0 +1,226 @@
+package core
+
+import (
+	"errors"
+	"reflect"
+	"sync"
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+)
+
+// role_permissions_test.go 钉住「会话加载时恢复每个角色权限」这条跳：
+// 登记优先（含显式空集）、缺失走四级链路、未装配显式失败、并发读不串。
+//
+// 存储侧的并发保证（每角色一格各自持锁、每项目一把文件锁）由 store 包的
+// role_permission_test.go 钉；这里钉的是应用层的**判据顺序**，两者不重复。
+
+// rolePermissionFakeSessions 是实现了可选的登记/四层端口的会话端口桩。
+type rolePermissionFakeSessions struct {
+	fakeSessions
+	mu      sync.Mutex
+	vectors map[string]map[string][]string
+	layers  dto.RoleSettingsLayers
+}
+
+func newRolePermissionFakeSessions() *rolePermissionFakeSessions {
+	return &rolePermissionFakeSessions{vectors: map[string]map[string][]string{}}
+}
+
+func (fake *rolePermissionFakeSessions) RolePermissionVectors(sessionID string) (map[string][]string, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	out := map[string][]string{}
+	for role, vector := range fake.vectors[sessionID] {
+		out[role] = append([]string{}, vector...)
+	}
+	return out, nil
+}
+
+func (fake *rolePermissionFakeSessions) RolePermissionVector(sessionID, role string) ([]string, bool, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	vector, ok := fake.vectors[sessionID][role]
+	if !ok {
+		return nil, false, nil
+	}
+	return append([]string{}, vector...), true, nil
+}
+
+func (fake *rolePermissionFakeSessions) SetRolePermissionVector(sessionID, role string, vector []string) error {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.vectors[sessionID] == nil {
+		fake.vectors[sessionID] = map[string][]string{}
+	}
+	fake.vectors[sessionID][role] = append([]string{}, vector...)
+	return nil
+}
+
+func (fake *rolePermissionFakeSessions) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.layers
+}
+
+// fourLayerFixture 是四层都配了一遍、且**互相冲突**的一组来源：
+// user_allow 只给 ro；agent_dispatch 否决 rw；session_default 给 rw+ctl；
+// global_default 给 adm。链路解析结果应为 [ro ctl adm]：rw 被高层的否决压住，
+// ctl 没有任何高层否认（低层授予成立），adm 只出现在最低层（同样成立）。
+func fourLayerFixture() dto.RoleSettingsLayers {
+	return dto.RoleSettingsLayers{
+		UserAllow: dto.RoleSettings{
+			Account:          "worker-a",
+			PermissionVector: []string{dto.PermissionTagRO},
+		},
+		AgentDispatch: dto.RoleSettings{
+			PermissionVector: []string{"!" + dto.PermissionTagRW},
+		},
+		SessionDefault: dto.RoleSettings{
+			ContextWindow:    128000,
+			DefaultPlugin:    "review",
+			PermissionVector: []string{dto.PermissionTagRW, dto.PermissionTagCTL},
+		},
+		GlobalDefault: dto.RoleSettings{
+			PermissionVector: []string{dto.PermissionTagADM},
+		},
+	}
+}
+
+func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	sessions.layers = fourLayerFixture()
+	if err := sessions.SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRWSession}); err != nil {
+		t.Fatalf("SetRolePermissionVector: %v", err)
+	}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	restored, err := service.RestoreRolePermissions("sess-1", []string{"tl", "coworker"})
+	if err != nil {
+		t.Fatalf("RestoreRolePermissions: %v", err)
+	}
+	if want := ([]string{dto.PermissionTagRWSession}); !reflect.DeepEqual(restored["tl"].PermissionVector, want) {
+		t.Fatalf("tl 向量 = %v, want %v（登记里定过的不能被链路覆盖）", restored["tl"].PermissionVector, want)
+	}
+	// 未登记的角色走链路：向量按四级优先级合成，标量字段取首个非零层。
+	coworker := restored["coworker"]
+	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagADM}); !reflect.DeepEqual(coworker.PermissionVector, want) {
+		t.Fatalf("coworker 向量 = %v, want %v", coworker.PermissionVector, want)
+	}
+	if coworker.Account != "worker-a" || coworker.ContextWindow != 128000 || coworker.DefaultPlugin != "review" {
+		t.Fatalf("coworker 标量 = %+v, want account=worker-a window=128000 plugin=review", coworker)
+	}
+}
+
+// TestRestoreRolePermissionsExplicitEmptyVectorWins 是三态纪律的核心用例：
+// 登记存在但向量为空 = "显式不给任何能力"，不得回落到链路（那是权限放大方向）。
+func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	sessions.layers = fourLayerFixture()
+	if err := sessions.SetRolePermissionVector("sess-1", "coworker", nil); err != nil {
+		t.Fatalf("SetRolePermissionVector: %v", err)
+	}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	restored, err := service.RestoreRolePermissions("sess-1", []string{"coworker"})
+	if err != nil {
+		t.Fatalf("RestoreRolePermissions: %v", err)
+	}
+	vector := restored["coworker"].PermissionVector
+	if vector == nil || len(vector) != 0 {
+		t.Fatalf("向量 = %v, want 非 nil 空切片（显式空集不得被链路补回来）", vector)
+	}
+}
+
+func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
+	service := newTestService(t, &fakeEngine{}) // 默认 fakeSessions 不暴露登记能力
+	if _, err := service.RestoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
+		t.Fatalf("错误 = %v, want ErrRolePermissionsUnavailable", err)
+	}
+	if _, err := service.RolePermissionVector("sess-1", "tl"); !errors.Is(err, ErrRolePermissionsUnavailable) {
+		t.Fatalf("单角色读错误 = %v, want ErrRolePermissionsUnavailable", err)
+	}
+	if err := service.SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRO}); !errors.Is(err, ErrRolePermissionsUnavailable) {
+		t.Fatalf("写错误 = %v, want ErrRolePermissionsUnavailable", err)
+	}
+	if _, err := service.RestoreRolePermissions("  ", []string{"tl"}); err == nil {
+		t.Fatal("缺会话号必须报错")
+	}
+}
+
+func TestRolePermissionVectorSingleRole(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	sessions.layers = fourLayerFixture()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	vector, err := service.RolePermissionVector("sess-1", "coworker")
+	if err != nil {
+		t.Fatalf("RolePermissionVector: %v", err)
+	}
+	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagADM}); !reflect.DeepEqual(vector, want) {
+		t.Fatalf("向量 = %v, want %v（与整会话恢复同一判据）", vector, want)
+	}
+
+	// 登记过之后单角色读也走登记。
+	if err := service.SetRolePermissionVector("sess-1", "coworker", []string{" RW ", "!adm", "rw"}); err != nil {
+		t.Fatalf("SetRolePermissionVector: %v", err)
+	}
+	vector, err = service.RolePermissionVector("sess-1", "coworker")
+	if err != nil {
+		t.Fatalf("RolePermissionVector: %v", err)
+	}
+	if want := ([]string{dto.PermissionTagRW, "!" + dto.PermissionTagADM}); !reflect.DeepEqual(vector, want) {
+		t.Fatalf("写入后向量 = %v, want %v（写入侧已规整去重）", vector, want)
+	}
+}
+
+func TestSetRolePermissionVectorRejectsMalformedEntries(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if err := service.SetRolePermissionVector("sess-1", "tl", []string{"bad tag"}); err == nil {
+		t.Fatal("非法项必须显式报错（静默丢项 = 用户以为给了能力）")
+	}
+	if vectors, _ := sessions.RolePermissionVectors("sess-1"); len(vectors) != 0 {
+		t.Fatalf("报错时不得落任何登记，得到 %+v", vectors)
+	}
+}
+
+// TestRestoreRolePermissionsConcurrentRoles 让多个角色同时恢复：判据无共享可变
+// 状态（每个角色现算现返回），所以既不该丢角色，也不该有跨角色的写入竞争。
+func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	sessions.layers = fourLayerFixture()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	roles := []string{"r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"}
+	for _, role := range roles {
+		if err := service.SetRolePermissionVector("sess-1", role, []string{dto.PermissionTagRO, role}); err != nil {
+			t.Fatalf("Set(%s): %v", role, err)
+		}
+	}
+	var wait sync.WaitGroup
+	for _, role := range roles {
+		role := role
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			vector, err := service.RolePermissionVector("sess-1", role)
+			if err != nil {
+				t.Errorf("RolePermissionVector(%s): %v", role, err)
+				return
+			}
+			if len(vector) != 2 || vector[1] != role {
+				t.Errorf("角色 %s 向量 = %v，被别的角色串了", role, vector)
+			}
+		}()
+	}
+	wait.Wait()
+
+	restored, err := service.RestoreRolePermissions("sess-1", roles)
+	if err != nil {
+		t.Fatalf("RestoreRolePermissions: %v", err)
+	}
+	if len(restored) != len(roles) {
+		t.Fatalf("恢复角色 %d 个, want %d", len(restored), len(roles))
+	}
+}
