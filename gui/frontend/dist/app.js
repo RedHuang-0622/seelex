@@ -44,6 +44,8 @@ import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
 import { normalizeReleaseWindow, releaseWindowLabel, releaseWindowOptions } from "./release-window.js";
 import { ACCOUNT_WINDOW_CUSTOM, accountWindowLabel, accountWindowOptions, normalizeAccountWindowInput } from "./account-window.js";
+// 账户的两条链路（手动添加 / 查余额）：判据是纯函数，DOM 与 invoke 接线在本文件。
+import { accountBalanceRows, accountDraftFromForm, balanceReadingText } from "./account-admin.js";
 // 角色设置四项的取值面：权限向量的标签表 / 归一化 / 开关 / lint，以及三个选择器的选项串。
 import {
   normalizePermissionVector,
@@ -136,7 +138,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "permission-role", "permission-role-vector", "permission-role-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "permission-role", "permission-role-vector", "permission-role-status", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "session-ssh-env", "session-ssh-allowed", "session-ssh-status", "account-windows", "account-windows-status", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-balance-list", "account-balance-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -2587,6 +2589,9 @@ function renderAccounts(runtime) {
     <div class="account-models" role="group" aria-label="${escapeHtml(active)} 的模型">${rows}</div>`;
   // 设置里的「角色设置 → 账号」下拉同源：快照一刷新就跟着重画（弹窗开着也不落队）。
   renderRoleSettingsOptions();
+  // 设置里的「账户 → 余额」逐行同源：账号列表变了，余额行也要跟着变（读数按名字
+  // 回读 accountBalances，重画不会把刚查到的读数冲掉）。
+  renderAccountBalanceRows();
 }
 
 elements["account-list"]?.addEventListener("click", async event => {
@@ -3759,6 +3764,9 @@ async function openSettings() {
   // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
   await syncAccountWindowReading();
   await syncPermissionRoles();
+  await syncSSHEnvironments();
+  // 账户：角色词表（宿主下发）+ 逐账号余额行。读数不进快照，点一次查一次。
+  await syncAccountAdminForm();
 }
 
 function closeSettings() { setModal("settings-modal", false); }
@@ -5880,6 +5888,219 @@ async function submitPermissionRoleDefault() {
   renderPermissionRoleRows();
 }
 
+// ── SSH 环境（项目侧环境表 + 会话侧限定与放权）────────────────────────
+//
+// 两块边界（用户口径）：
+//   · **项目**持有环境表（dev / test / prod 的连接信息，唯一事实源）；
+//   · **会话**只持有「当前限定哪个」与「放权了哪些」，缺省两者都空 = 用不了 SSH。
+//
+// 所以这一段的界面必须分开：项目侧那张表是增删改，会话侧只能**从项目表里选**
+// （放权集合是项目环境的子集，选项不从别处来），而且没勾放权就没有"当前环境"。
+let sshEnvRows = [];       // 项目环境表读面（[{name, host, port, user, remote_root, password_set, default}]）
+let sshEnvDefault = "";    // 项目默认环境名
+let sshEnvAvailable = true;
+let sessionSSH = { current_env: "", allowed_envs: [] };
+let sessionSSHAvailable = true;
+
+function setSSHEnvStatus(text) {
+  const status = elements["ssh-env-status"];
+  if (status) status.textContent = text || "";
+}
+
+function setSessionSSHStatus(text) {
+  const status = elements["session-ssh-status"];
+  if (status) status.textContent = text || "";
+}
+
+// syncSSHEnvironments 拉一次两块读数并重画（打开设置时调）。
+async function syncSSHEnvironments() {
+  setSSHEnvStatus("");
+  try {
+    const [list, defaultEnv] = await invoke("WorkspaceEnvironments");
+    sshEnvRows = Array.isArray(list) ? list : [];
+    sshEnvDefault = String(defaultEnv || "");
+    sshEnvAvailable = true;
+  } catch (error) {
+    sshEnvRows = [];
+    sshEnvDefault = "";
+    sshEnvAvailable = false;
+  }
+  try {
+    const state = await invoke("SessionSSHState");
+    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
+    sessionSSHAvailable = true;
+  } catch (error) {
+    sessionSSH = { current_env: "", allowed_envs: [] };
+    sessionSSHAvailable = false;
+  }
+  renderSSHEnvRows();
+  renderSessionSSH();
+}
+
+function renderSSHEnvRows() {
+  const host = elements["ssh-env-list"];
+  if (!host) return;
+  if (!sshEnvAvailable) {
+    host.innerHTML = '<span class="muted list-empty">读不到项目环境表（桥未装配 WorkspaceEnvironments，或当前会话没绑定项目）</span>';
+    return;
+  }
+  if (!sshEnvRows.length) {
+    host.innerHTML = '<span class="muted list-empty">这个项目还没有环境：用下面的表单加一个（例如 dev）</span>';
+    return;
+  }
+  host.innerHTML = sshEnvRows.map(row => {
+    const address = [row.host, row.port ? `:${row.port}` : ""].filter(Boolean).join("");
+    const flags = [row.default ? "默认" : "", row.password_set ? "已设口令" : ""].filter(Boolean).join(" · ");
+    const account = row.user ? `${address} @${row.user}` : address;
+    return `<button type="button" class="ssh-env-row" data-ssh-env="${escapeHtml(row.name)}" title="点一下载入下面的表单">
+      <strong>${escapeHtml(row.name)}</strong>
+      <span class="muted">${escapeHtml(account || "（未填主机）")}</span>
+      ${row.remote_root ? `<span class="muted">${escapeHtml(row.remote_root)}</span>` : ""}
+      ${flags ? `<em>${escapeHtml(flags)}</em>` : ""}
+    </button>`;
+  }).join("");
+}
+
+// renderSessionSSH 画会话侧：当前环境下拉（**只列已放权的**）+ 放权勾选（只列项目表里的）。
+function renderSessionSSH() {
+  const allowed = Array.isArray(sessionSSH.allowed_envs) ? sessionSSH.allowed_envs : [];
+  const select = elements["session-ssh-env"];
+  if (select) {
+    const options = ['<option value="">（不限定）</option>'];
+    for (const name of allowed) {
+      options.push(`<option value="${escapeHtml(name)}"${sessionSSH.current_env === name ? " selected" : ""}>${escapeHtml(name)}</option>`);
+    }
+    select.innerHTML = options.join("");
+    select.value = sessionSSH.current_env && allowed.includes(sessionSSH.current_env) ? sessionSSH.current_env : "";
+  }
+  const host = elements["session-ssh-allowed"];
+  if (host) {
+    if (!sshEnvRows.length) {
+      host.innerHTML = '<span class="muted">项目里还没有环境可放权</span>';
+    } else {
+      host.innerHTML = sshEnvRows.map(row => {
+        const on = allowed.includes(row.name);
+        return `<button type="button" class="perm-chip${on ? " is-on" : ""}" data-ssh-grant="${escapeHtml(row.name)}" aria-pressed="${on ? "true" : "false"}" title="放权 = 允许本会话使用这个环境">${escapeHtml(row.name)}</button>`;
+      }).join("");
+    }
+  }
+  const notes = [];
+  if (!sessionSSHAvailable) notes.push("读不到本会话的 SSH 状态（桥未装配 SessionSSHState）");
+  else if (!allowed.length) notes.push("本会话没有放权任何环境 → SSH 用不了（缺省不放权）");
+  else notes.push(`已放权：${allowed.join(" / ")}；当前限定：${sessionSSH.current_env || "未限定"}`);
+  if (sshEnvDefault) notes.push(`项目默认环境：${sshEnvDefault}`);
+  setSessionSSHStatus(notes.join("　"));
+}
+
+// submitSSHEnvironment 保存一个项目环境（口令留空 = 不改，是后端的三态语义）。
+async function submitSSHEnvironment() {
+  const name = String(elements["ssh-env-name"]?.value || "").trim();
+  if (!name) {
+    setSSHEnvStatus("先填环境名（dev / test / prod 这类，字母数字 - _ .）。");
+    return;
+  }
+  const portText = String(elements["ssh-env-port"]?.value || "").trim();
+  const passwordText = String(elements["ssh-env-password"]?.value || "");
+  const change = {
+    Host: String(elements["ssh-env-host"]?.value || "").trim(),
+    Port: portText ? Number(portText) : 0,
+    User: String(elements["ssh-env-user"]?.value || "").trim(),
+    RemoteRoot: String(elements["ssh-env-remote-root"]?.value || "").trim(),
+    // 口令三态：null = 不改（留空就是"我没动它"），空串才表示清除。
+    Password: passwordText === "" ? null : passwordText,
+    MakeDefault: Boolean(elements["ssh-env-default"]?.checked),
+    Delete: false,
+  };
+  try {
+    const applied = await invoke("SetWorkspaceEnvironment", name, change);
+    await syncSSHEnvironments();
+    setSSHEnvStatus(applied && applied.host
+      ? `${name}：已保存（${applied.host}${applied.port ? ":" + applied.port : ""}）`
+      : `${name}：空端点已按删除处理`);
+  } catch (error) {
+    setSSHEnvStatus(`保存 ${name} 失败：${error}`);
+    showToast(error);
+  }
+}
+
+// submitSessionSSHAllowed 提交放权集合：后端返回落盘后的状态（以它为准重画）。
+async function submitSessionSSHAllowed(envs) {
+  try {
+    const state = await invoke("SetSessionSSHAllowed", envs);
+    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
+    sessionSSHAvailable = true;
+  } catch (error) {
+    sessionSSHAvailable = false;
+    setSessionSSHStatus(`改放权集合失败：${error}`);
+    showToast(error);
+    return;
+  }
+  renderSessionSSH();
+}
+
+async function submitSessionSSHEnv(env) {
+  try {
+    const state = await invoke("SetSessionSSHEnv", env);
+    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
+    sessionSSHAvailable = true;
+  } catch (error) {
+    sessionSSHAvailable = false;
+    setSessionSSHStatus(`设当前环境失败：${error}`);
+    showToast(error);
+    return;
+  }
+  renderSessionSSH();
+}
+
+elements["ssh-env-list"]?.addEventListener("click", event => {
+  const row = event.target?.closest?.("[data-ssh-env]");
+  if (!row) return;
+  const name = row.dataset.sshEnv;
+  const found = sshEnvRows.find(item => item.name === name);
+  if (!found) return;
+  elements["ssh-env-name"].value = found.name;
+  elements["ssh-env-host"].value = found.host || "";
+  elements["ssh-env-port"].value = found.port ? String(found.port) : "";
+  elements["ssh-env-user"].value = found.user || "";
+  elements["ssh-env-remote-root"].value = found.remote_root || "";
+  elements["ssh-env-password"].value = "";
+  elements["ssh-env-default"].checked = Boolean(found.default);
+  setSSHEnvStatus(`已载入 ${name}（口令不回填：留空 = 不改，填了才覆盖）`);
+});
+
+elements["ssh-env-save"]?.addEventListener("click", submitSSHEnvironment);
+
+elements["ssh-env-delete"]?.addEventListener("click", async () => {
+  const name = String(elements["ssh-env-name"]?.value || "").trim();
+  if (!name) {
+    setSSHEnvStatus("先点上面一行载入要删的环境。");
+    return;
+  }
+  try {
+    await invoke("DeleteWorkspaceEnvironment", name);
+    await syncSSHEnvironments();
+    setSSHEnvStatus(`${name}：已删除`);
+  } catch (error) {
+    setSSHEnvStatus(`删除 ${name} 失败：${error}`);
+    showToast(error);
+  }
+});
+
+elements["session-ssh-allowed"]?.addEventListener("click", async event => {
+  const chip = event.target?.closest?.("[data-ssh-grant]");
+  if (!chip) return;
+  const name = chip.dataset.sshGrant;
+  const allowed = Array.isArray(sessionSSH.allowed_envs) ? [...sessionSSH.allowed_envs] : [];
+  const index = allowed.indexOf(name);
+  if (index >= 0) allowed.splice(index, 1);
+  else allowed.push(name);
+  await submitSessionSSHAllowed(allowed);
+});
+
+elements["session-ssh-env"]?.addEventListener("change", async event => {
+  await submitSessionSSHEnv(String(event.target.value || ""));
+});
+
 elements["permission-role"]?.addEventListener("change", event => {
   permissionRoleSelected = String(event.target.value || "").trim();
   applyPermissionRoleReading();
@@ -6082,6 +6303,146 @@ document.addEventListener("keydown", event => {
   event.preventDefault();
   if (event.shiftKey) terminalPanel.newTerminal();
   else terminalPanel.toggle();
+});
+
+// ── 账户（设置 → 账户）：手动添加 与 逐账号查余额 ─────────────────────────
+// 两条链路的判据都在后端，这里只做三件事：把表单整理成草稿、把草稿递过去、把回执
+// 与读数显示出来。
+//   · 添加：invoke("AddAccount", draft) 回的是**生效的账号名**（`agent-2` 由账号档
+//     里的位置推导）——后续选中/改窗口/查余额都按这个名字打，界面不自己猜序号；
+//   · 余额：invoke("AccountBalance", name) **点一次查一次**（余额是查询当下的快照，
+//     不进快照缓存）。读数按账号名存在 accountBalances 里，快照重画时回读，所以
+//     "画一遍就把刚查到的读数冲掉"不会发生。
+let accountBalances = new Map(); // 账号名 → { balance } | { error }
+
+function setAccountAddStatus(text) {
+  const status = elements["account-add-status"];
+  if (status) status.textContent = text || "";
+}
+
+function setAccountBalanceStatus(text) {
+  const status = elements["account-balance-status"];
+  if (status) status.textContent = text || "";
+}
+
+// syncAccountAdminForm 打开弹窗时补两件事：角色词表（宿主下发）与余额行。
+async function syncAccountAdminForm() {
+  await syncAccountRoles();
+  renderAccountBalanceRows();
+}
+
+// syncAccountRoles 拉角色词表并填下拉；顺带把思考强度下拉填好（词表来自
+// composer-knobs 的 provider 词表 + 账号特有的 session）。
+async function syncAccountRoles() {
+  renderAccountEffortOptions();
+  const host = elements["account-add-role"];
+  if (!host) return;
+  let roles = [];
+  try {
+    const result = await invoke("AccountRoles");
+    roles = Array.isArray(result) ? result : [];
+  } catch {
+    roles = [];
+  }
+  if (!roles.length) {
+    // 读不到就说读不到：不拿一份写死的词表顶上（那会在后端加角色时悄悄失配）。
+    host.innerHTML = '<option value="">读不到角色词表</option>';
+    host.disabled = true;
+    return;
+  }
+  const previous = host.value;
+  host.disabled = false;
+  host.innerHTML = roles.map(role => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join("");
+  if (roles.includes(previous)) host.value = previous;
+}
+
+// renderAccountEffortOptions 填思考强度下拉：空 = 继承 defaults（账号档里通常就是它），
+// session = 跟随会话档位，其余是 provider 词表。
+function renderAccountEffortOptions() {
+  const select = elements["account-add-effort"];
+  if (!select) return;
+  const previous = select.value;
+  const options = ['<option value="">继承 defaults</option>', '<option value="session">session（跟随会话档位）</option>'];
+  for (const level of REASONING_EFFORT_LEVELS) {
+    options.push(`<option value="${escapeHtml(level)}">${escapeHtml(REASONING_EFFORT_LABELS[level] || level)}</option>`);
+  }
+  select.innerHTML = options.join("");
+  select.value = options.some(option => option.includes(`value="${previous}"`)) ? previous : "";
+}
+
+// renderAccountBalanceRows 逐账号一行：名字/供应商/模型 + 「查看余额」+ 读数。
+// 行模型由 account-admin.js 的 accountBalanceRows 给（与它的单测同一份口径）。
+function renderAccountBalanceRows() {
+  const host = elements["account-balance-list"];
+  if (!host) return;
+  const rows = accountBalanceRows(lastAccountsRuntime?.accounts || [], accountBalances);
+  if (!rows.length) {
+    host.innerHTML = '<span class="muted list-empty">读不到账号列表（快照未就绪）</span>';
+    return;
+  }
+  host.innerHTML = rows.map(row => `
+    <div class="settings-field account-balance-row" data-account="${escapeHtml(row.name)}">
+      <span class="account-window-name">${escapeHtml(row.label)}</span>
+      <button type="button" class="text-button" data-account-balance="${escapeHtml(row.name)}">查看余额</button>
+      <span class="muted" data-account-balance-reading="${escapeHtml(row.name)}">${escapeHtml(row.reading)}</span>
+    </div>`).join("");
+}
+
+// queryAccountBalance 查一个账号的余额：成功与失败都落到这一行的读数上（失败不当成
+// "余额为 0"——那是两回事）。
+async function queryAccountBalance(name) {
+  if (!name) return;
+  setAccountBalanceStatus(`正在查 ${name} 的余额…`);
+  try {
+    const balance = await invoke("AccountBalance", name);
+    accountBalances.set(name, { balance });
+    setAccountBalanceStatus(`${name}：${balanceReadingText({ balance })}`);
+  } catch (error) {
+    accountBalances.set(name, { error: error?.message || String(error) });
+    setAccountBalanceStatus(`${name}：查不到（${error?.message || error}）`);
+  }
+  renderAccountBalanceRows();
+}
+
+// submitAccountAdd 提交新账号。
+//
+// 成功后必须**拉一份新快照**：热注册让账号池立刻多了一条，快照是界面看见它的唯一
+// 通道（顺带把「角色设置 → 账号」下拉一起刷新）。失败按后端给的原话显示——其中
+// "已写入账号档，重启后生效"这一句要原样透出来，否则用户会以为没加上而重复添加。
+async function submitAccountAdd() {
+  const parsed = accountDraftFromForm({
+    role: elements["account-add-role"]?.value,
+    model: elements["account-add-model"]?.value,
+    apiKey: elements["account-add-api-key"]?.value,
+    provider: elements["account-add-provider"]?.value,
+    baseUrl: elements["account-add-base-url"]?.value,
+    reasoningEffort: elements["account-add-effort"]?.value,
+  });
+  if (parsed.error) {
+    setAccountAddStatus(parsed.error);
+    return;
+  }
+  setAccountAddStatus("正在写入账号档…");
+  try {
+    const result = await invoke("AddAccount", parsed.draft);
+    // 密钥不留在输入框里；模型也是"这次要加的那条"，清掉免得重复提交同一条。
+    if (elements["account-add-api-key"]) elements["account-add-api-key"].value = "";
+    if (elements["account-add-model"]) elements["account-add-model"].value = "";
+    await refresh({ scroll: false });
+    renderAccountBalanceRows();
+    const summary = [result?.provider, result?.model].filter(Boolean).join(" / ");
+    setAccountAddStatus(`已添加 ${result?.name || ""}${summary ? `（${summary}）` : ""}，已生效。`);
+  } catch (error) {
+    setAccountAddStatus(`添加失败：${error?.message || error}`);
+    showToast(error);
+  }
+}
+
+elements["account-add-submit"]?.addEventListener("click", () => { void submitAccountAdd(); });
+elements["account-balance-list"]?.addEventListener("click", event => {
+  const button = event.target?.closest?.("[data-account-balance]");
+  const name = button?.dataset?.accountBalance;
+  if (name) void queryAccountBalance(name);
 });
 
 function resizePrompt() {

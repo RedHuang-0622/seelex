@@ -5836,3 +5836,10 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 
 /* 会话行就地改名：与标题按钮同高同宽，回车提交、Esc/失焦取消。 */
 .session-rename-input { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--r-lg); background: var(--surface, transparent); color: var(--text); font: 12px var(--font-mono); }
+
+/* SSH 环境：项目表行（可点载入）+ 表单一行铺开。 */
+.ssh-env-row { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 4px 8px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: var(--r-lg); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.ssh-env-row:hover { border-color: var(--accent); }
+.ssh-env-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ssh-env-form input { min-width: 0; flex: 1 1 120px; }
+.ssh-env-default { display: inline-flex; gap: 4px; align-items: center; }

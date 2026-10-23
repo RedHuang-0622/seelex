@@ -502,6 +502,64 @@
         </label>
         <div id="role-settings-status" class="muted"></div>
       </div>
+      <!-- 账户：手动添加（写 accounts.yaml + 热注册，不重启就生效）与逐账号余额（点一次
+           查一次，余额是快照不进快照缓存）。角色词表由宿主下发（invoke AccountRoles），
+           与挡位表同一条口径：只有一处真相。 -->
+      <div class="settings-section" id="account-settings-section">
+        <div class="section-title">账户</div>
+        <p class="settings-note">添加会写进 <code>config/accounts.yaml</code> 并立即生效；余额是查询当下的读数。</p>
+        <div class="settings-subtitle">添加账户</div>
+        <label class="settings-field">角色
+          <select id="account-add-role"></select>
+        </label>
+        <label class="settings-field">模型
+          <input id="account-add-model" type="text" placeholder="如 deepseek-flash" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="settings-field">API Key
+          <input id="account-add-api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="settings-field">供应商（留空继承 defaults）
+          <input id="account-add-provider" type="text" placeholder="如 openai" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="settings-field">接口地址（留空继承 defaults）
+          <input id="account-add-base-url" type="text" placeholder="如 https://api.deepseek.com" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="settings-field">思考强度（留空继承 defaults）
+          <select id="account-add-effort"></select>
+        </label>
+        <div class="settings-field role-settings-row">
+          <button id="account-add-submit" type="button" class="primary">添加账户</button>
+          <div id="account-add-status" class="muted"></div>
+        </div>
+        <div class="settings-subtitle">余额</div>
+        <div id="account-balance-list" class="account-balance-list"></div>
+        <div id="account-balance-status" class="muted"></div>
+      </div>
+      <!-- SSH 环境：**项目**侧一张表（连接信息的唯一事实源）+ **会话**侧的限定与放权。
+           缺省不放权：一个环境都没勾 = 这个会话用不了 SSH；勾了才谈得上"限定哪个"。 -->
+      <div class="settings-section" id="ssh-env-section">
+        <div class="section-title">SSH 环境</div>
+        <p class="settings-note">环境表挂在项目上（连接信息只此一份）；会话只持有「当前限定哪个」与「放权了哪些」。缺省不放权。</p>
+        <div id="ssh-env-list" class="settings-field"></div>
+        <div class="settings-field ssh-env-form">
+          <input id="ssh-env-name" type="text" placeholder="环境名（dev / test / prod）" aria-label="环境名" />
+          <input id="ssh-env-host" type="text" placeholder="主机" aria-label="主机" />
+          <input id="ssh-env-port" type="number" placeholder="端口" aria-label="端口" />
+          <input id="ssh-env-user" type="text" placeholder="用户" aria-label="用户" />
+          <input id="ssh-env-remote-root" type="text" placeholder="远端项目根（可选）" aria-label="远端项目根" />
+          <input id="ssh-env-password" type="password" placeholder="口令（留空 = 不改）" aria-label="口令" />
+          <label class="ssh-env-default"><input id="ssh-env-default" type="checkbox" />设为默认</label>
+          <button id="ssh-env-save" type="button">保存环境</button>
+          <button id="ssh-env-delete" type="button">删除</button>
+        </div>
+        <div id="ssh-env-status" class="muted"></div>
+        <div class="settings-field role-settings-row">
+          <span class="settings-label">本会话 SSH</span>
+          <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
+          <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
+          <div id="session-ssh-status" class="muted"></div>
+        </div>
+      </div>
       <div class="settings-section">
         <div class="section-title">外观</div>
         <p class="settings-note">深浅定中性基座，皮肤只改主信号与环境渐变。</p>

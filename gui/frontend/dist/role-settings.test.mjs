@@ -294,3 +294,29 @@ test("会话改名：菜单入口 + 就地输入 + 走 SetSessionMeta 的别名"
   assert.match(fn[0], /event\.key === "Enter"[\s\S]*finish\(true\)/, "Enter 提交");
   assert.match(css, /\.session-rename-input/, "要有就地输入的样式");
 });
+
+test("SSH 环境：项目表可增删改，会话侧只能从项目表里选（缺省不放权）", async () => {
+  const app = await read("app.js");
+  const index = await read("index.html");
+  assert.match(index, /id="ssh-env-list"/, "要有项目环境表");
+  assert.match(index, /id="ssh-env-save"/, "要有保存环境");
+  assert.match(index, /id="session-ssh-allowed"/, "要有会话放权区");
+  assert.match(index, /id="session-ssh-env"/, "要有会话当前环境");
+  // 读数来自后端，前端不自己造环境名
+  assert.match(app, /await invoke\("WorkspaceEnvironments"\)/, "环境表要向桥要");
+  assert.match(app, /await invoke\("SessionSSHState"\)/, "会话状态要向桥要");
+  assert.match(app, /await invoke\("SetWorkspaceEnvironment", name, change\)/, "保存走 SetWorkspaceEnvironment");
+  assert.match(app, /await invoke\("DeleteWorkspaceEnvironment", name\)/, "删除走 DeleteWorkspaceEnvironment");
+  assert.match(app, /await invoke\("SetSessionSSHAllowed", envs\)/, "放权走 SetSessionSSHAllowed");
+  assert.match(app, /await invoke\("SetSessionSSHEnv", env\)/, "限定走 SetSessionSSHEnv");
+  // 口令三态：留空 = 不改（null），不是空串
+  assert.match(app, /Password: passwordText === "" \? null : passwordText/, "口令留空必须是 null（不改），空串才表示清除");
+  // 会话侧下拉只列已放权的环境
+  const render = app.match(/function renderSessionSSH\(\)[\s\S]*?\n\}/);
+  assert.ok(render, "要找得到 renderSessionSSH");
+  assert.match(render[0], /for \(const name of allowed\)/, "当前环境下拉只列已放权的环境");
+  // 缺省不放权要明说
+  assert.match(render[0], /缺省不放权/, "空放权集合要说明为什么用不了");
+  // 打开设置时两块读数一起拉
+  assert.match(app, /await syncPermissionRoles\(\);\s*\n\s*await syncSSHEnvironments\(\);/, "打开设置要拉 SSH 两块读数");
+});
