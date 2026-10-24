@@ -58,15 +58,12 @@ func DefaultPermissionTiers() []dto.PermissionTierInfo {
 var tierPresets = map[string]TierPreset{
 	// ssh（通道位）四档全给：把调用打到远端不是"更宽的自动度"，而是"这台机器在哪"
 	// ——它在档位之前就一直可达（连项目 + 探针通即走远端），档位不该顺手收窄它。
-	// ssh.userspace（越界访问远端用户空间）**只有 full 给**：越界是本工作项要立的
-	// 那道闸门，默认档位放行等于没装；要放开就由用户显式选 full。
 	dto.PermissionTierManual: {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupSSH}},
 	dto.PermissionTierEdit:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
 	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
 	dto.PermissionTierFull: {
 		Groups: []string{
-			GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM,
-			GroupSSH, GroupSSHUserspace,
+			GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM, GroupSSH,
 		},
 	},
 }

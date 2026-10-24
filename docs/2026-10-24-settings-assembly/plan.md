@@ -8,7 +8,7 @@
   `user_allow > agent_dispatch > session_default > role_default > global_default`。
 - 角色默认存储不再写入 `global_default`；`PermissionRoleInfo` 同时给出生效向量、默认
   向量、`inherit_main_agent` 与 `ssh_user_spaces`。subagent / teammate 默认继承
-  mainagent 的权限和远端路径范围。
+  mainagent 的权限和 `ssh` 路径白名单。
 - 账号档支持稳定 `name:`；界面新增或首次编辑/删除时冻结位置名，账户 CRUD 不会导致
   同角色其它账号改名。
 
@@ -18,8 +18,16 @@
 - 角色与权限：四张 agent role 卡；卡内折叠展示候选/确认权限栏、继承 chip、账户、
   余额与上下文窗口。账户新增/编辑与删除各走独立二级弹窗。
 - 会话权限：只做当前会话按 agent role 的覆盖；全局继承开关不锁会话覆盖。
-- SSH 用户空间：勾选时先弹窗列出远端绝对路径，保存后才授予权限。
-- 项目设置：从项目标题区打开独立弹窗，仅管理项目 SSH 环境表。
+- SSH：权限向量只有一枚 `ssh`；勾选时弹窗列出该能力允许的远端绝对路径。路径是
+  能力内的白名单，不是独立的 `ssh.userspace` 权限。角色默认路径按项目保存，
+  当前会话可按 agent role 写独立覆盖；未覆盖时回落角色默认。
+- 项目设置：从项目标题区打开独立弹窗，管理命名工作环境与地址；主机留空 = 本地。
+  会话首次从项目环境表固定环境，固定后本会话、subagent、teammate 与后台工具都继承，
+  agent 与工具入参不能切换；换环境需新建会话。
+- 环境事实由适配器无感注入，不作为工具参数暴露；项目环境清单与地址放在请求尾部
+  动态块，mainagent 可将同一事实用于分派，子代理实际执行仍走同一绑定。
+- 子代理权限向量按 `agent role`（subagent / teammate）解析，业务成员名（如
+  `impl_ui`）只用于主体与派发归属。
 - 所有相关弹窗的关闭按钮固定在上沿，内容滚动时位置不变。
 
 ## 3. 兼容
@@ -35,4 +43,4 @@
 3. 前端：`node --test gui/frontend/dist/*.test.mjs`。
 4. 全仓：`go test ./... -count=1 -timeout=120s`、`go build ./...`、`go vet ./...`。
 5. 提交后由 `post-commit` 重建 dev GUI，再逐项冒烟设置层级、账户新增、角色权限、
-   项目 SSH、会话放行和旧会话打开。
+   项目工作环境、会话固定环境、角色 SSH 路径和旧会话打开。

@@ -3010,6 +3010,7 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .project-settings-card > .modal-header,
 .account-add-card > .modal-header,
 .account-delete-card > .modal-header,
+.session-environment-card > .modal-header,
 .ssh-userspace-card > .modal-header {
   position: sticky;
   top: 0;
@@ -3190,6 +3191,7 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .role-account-empty,
 .role-permission-empty { padding: 16px 4px; color: var(--faint); font: 11px var(--font-mono); }
 .ssh-userspace-card { width: min(600px, calc(100vw - 28px)); }
+.session-environment-card { width: min(520px, calc(100vw - 28px)); }
 .account-delete-card { width: min(480px, calc(100vw - 28px)); }
 .account-delete-card .danger { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
 .ssh-userspace-card textarea {

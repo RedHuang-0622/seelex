@@ -59,16 +59,28 @@ test("继承只锁角色默认，当前会话仍可按 agent role 覆盖", () =>
   assert.doesNotMatch(html, /data-role-inherit="teammate"/, "继承 chip 只属于角色默认页");
 });
 
-test("选中 SSH 用户空间后显示路径编辑入口", () => {
+test("SSH 是单一能力，选中后显示路径范围入口", () => {
   const html = rolePermissionBoardHTML([{
     role: "agent",
     accounts: [],
-    permission_vector: ["read", "ssh", "ssh.userspace"],
-    default_permission_vector: ["read", "ssh", "ssh.userspace"],
-    ssh_user_spaces: ["/home/seelex/.cache"],
+    permission_vector: ["read", "ssh"],
+    default_permission_vector: ["read", "ssh"],
+    default_ssh_user_spaces: ["/home/seelex/.cache"],
+    session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
   }], { mode: "default", expanded: new Set(["agent"]) });
   assert.match(html, /data-role-user-spaces="agent"/);
   assert.match(html, /路径 1/);
+  assert.doesNotMatch(html, /ssh\.userspace/);
+
+  const sessionHTML = rolePermissionBoardHTML([{
+    role: "agent",
+    accounts: [],
+    permission_vector: ["read", "ssh"],
+    default_permission_vector: ["read", "ssh"],
+    default_ssh_user_spaces: ["/home/seelex/.cache"],
+    session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
+  }], { mode: "session", expanded: new Set(["agent"]) });
+  assert.match(sessionHTML, /路径 2/, "会话板必须显示会话覆盖的路径数量");
 });
 
 test("账号行在所属角色内展示上下文窗口，不把账户平铺回全局", () => {

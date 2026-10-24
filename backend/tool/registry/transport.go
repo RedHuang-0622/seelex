@@ -133,6 +133,8 @@ type TransportManageRequest struct {
 
 // TransportManageOutput 是一次远端作业管理的事实回报。
 type TransportManageOutput struct {
+	// Handle 是新建远端作业时返回的自描述句柄（`ssh:` 族）。
+	Handle string
 	// State 是远端作业的状态（"running" / "exited" / "gone"）。
 	State        string
 	ExitCode     int
@@ -167,6 +169,8 @@ type Transport interface {
 	Kind() TransportKind
 	// Exec 执行一次命令（命令正文 + stdin 数据）。
 	Exec(ctx context.Context, req TransportRequest) (TransportOutput, error)
+	// Start 派发一条脱钩后台作业，只返回受理回执，不等待命令结束。
+	Start(ctx context.Context, req TransportRequest) (TransportManageOutput, error)
 	// Read 读一个远端文件（按行窗口切好再回来）。
 	Read(ctx context.Context, req TransportReadRequest) (TransportReadOutput, error)
 	// Write 覆盖写一个远端文件（内容走数据通道，不经 shell 词法）。
@@ -292,16 +296,13 @@ const (
 	CodeSSHTimeout = "SSH_TIMEOUT"
 	// CodeSSHEnvDisabled 表示这台宿主上没有 SSH 能力（装配级开关关闭）。
 	CodeSSHEnvDisabled = "SSH_ENV_DISABLED"
-	// CodeSSHEnvUnknown 表示调用方指名的**环境名**不在项目环境表里（或表里没填 host）。
+	// CodeSSHEnvUnknown 表示调用方指名的**环境名**不在项目环境表里。
 	//
 	// 与 SSH_ENV_DISABLED 分开：那个是"这台宿主没有 SSH 能力"，这个是"项目里没有
 	// 这个环境"。混成一个码会让用户去查宿主的开关，而真正要改的是项目配置。
 	CodeSSHEnvUnknown = "SSH_ENV_UNKNOWN"
-	// CodeSSHEnvNotGranted 表示环境名存在，但**没有在本会话放权**。
-	//
-	// 与 SSH_ENV_UNKNOWN 分开：那个是"项目里没这个名字"，这个是"项目里有、但这个
-	// 会话没被放权"。前者要去项目配置里加环境，后者要在会话里放权——下一步动作不同。
-	CodeSSHEnvNotGranted = "SSH_ENV_NOT_GRANTED"
+	// CodeSSHEnvConflict 表示工具同时指名了环境与相反的传输类型。
+	CodeSSHEnvConflict = "SSH_ENV_CONFLICT"
 )
 
 // TransportError 是传输选择的失败。Code 给机器判定，Msg 给人读的下一步。
@@ -381,6 +382,14 @@ const (
 	ReasonProbeOK = "probe_ok"
 	// ReasonExplicitSSH 表示调用方显式指名 ssh 且探测通过。
 	ReasonExplicitSSH = "explicit_ssh"
+	// ReasonEnvironmentLocal 表示命名环境本身要求本地执行。
+	ReasonEnvironmentLocal = "environment_local"
+	// ReasonEnvironmentSSH 表示命名环境本身要求 SSH 执行。
+	ReasonEnvironmentSSH = "environment_ssh"
+	// ReasonEnvironmentConflict 表示命名环境与显式 transport 互相矛盾。
+	ReasonEnvironmentConflict = "environment_conflict"
+	// ReasonSessionEnvironmentUnbound 表示会话还没有固定命名环境，按本地执行。
+	ReasonSessionEnvironmentUnbound = "session_environment_unbound"
 	// ReasonDialFailed 表示探测通过但建连失败（降级到本地并留痕）。
 	ReasonDialFailed = "dial_failed"
 )

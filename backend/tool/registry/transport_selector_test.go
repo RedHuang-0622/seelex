@@ -94,6 +94,22 @@ func (h *selectorHarness) deps() TransportSelectorDeps {
 	}
 }
 
+// bindHarnessEnvironment 模拟宿主从会话绑定注入固定环境；模型入参不参与这项装配。
+func bindHarnessEnvironment(h *selectorHarness, deps TransportSelectorDeps, env string, kind TransportKind) TransportSelectorDeps {
+	deps.EnvFor = func(context.Context, string) string { return env }
+	deps.EnvironmentFor = func(_ string, name string) (TransportEnvironment, bool, error) {
+		if name != env {
+			return TransportEnvironment{}, false, nil
+		}
+		target := TransportEnvironment{Name: env, Kind: kind}
+		if kind == TransportSSH {
+			target.Endpoint = h.endpoint
+		}
+		return target, true, nil
+	}
+	return deps
+}
+
 // run 走一遍中间件，并把 handler 看到的执行面原样带回来。
 func (h *selectorHarness) run(t *testing.T, deps TransportSelectorDeps, argsJSON string) (TransportSelection, bool, error) {
 	t.Helper()
@@ -116,9 +132,8 @@ func (h *selectorHarness) run(t *testing.T, deps TransportSelectorDeps, argsJSON
 
 // TestTransportSelectorSixCellMatrix 钉住六格矩阵：选了哪一支、理由是什么、有没有留痕。
 func TestTransportSelectorSixCellMatrix(t *testing.T) {
-	t.Run("未配连接→本地且不记降级", func(t *testing.T) {
+	t.Run("未固定环境→本地且不读项目端点", func(t *testing.T) {
 		h := newSelectorHarness()
-		h.configured = false
 		selection, held, err := h.run(t, h.deps(), `{}`)
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
@@ -126,8 +141,8 @@ func TestTransportSelectorSixCellMatrix(t *testing.T) {
 		if !held || selection.Kind != TransportLocal {
 			t.Fatalf("selection = %+v, want local", selection)
 		}
-		if selection.Reason != ReasonUnconfigured {
-			t.Fatalf("reason = %q, want %q", selection.Reason, ReasonUnconfigured)
+		if selection.Reason != ReasonSessionEnvironmentUnbound {
+			t.Fatalf("reason = %q, want %q", selection.Reason, ReasonSessionEnvironmentUnbound)
 		}
 		if selection.Transport != nil {
 			t.Fatal("本地选择不应带 Transport")
@@ -135,79 +150,71 @@ func TestTransportSelectorSixCellMatrix(t *testing.T) {
 		if entries := h.trace.Entries(); len(entries) != 1 || entries[0].Degraded {
 			t.Fatalf("trace = %+v, want 一条非降级记录", entries)
 		}
+		if atomic.LoadInt32(&h.probeCalls) != 0 {
+			t.Fatal("未固定环境不该读取探针缓存")
+		}
 	})
 
-	t.Run("配置未启用→本地", func(t *testing.T) {
+	t.Run("固定 SSH 但能力关闭→报错不降级", func(t *testing.T) {
 		h := newSelectorHarness()
 		h.enabled = false
-		selection, _, err := h.run(t, h.deps(), `{}`)
-		if err != nil {
-			t.Fatalf("err = %v, want nil", err)
-		}
-		if selection.Kind != TransportLocal || selection.Reason != ReasonEnvDisabled {
-			t.Fatalf("selection = %+v, want local/env_disabled", selection)
+		_, _, err := h.run(t, bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH), `{}`)
+		if TransportErrorCode(err) != CodeSSHEnvDisabled {
+			t.Fatalf("err = %v, want %s", err, CodeSSHEnvDisabled)
 		}
 		if h.transport.Calls() != 0 || atomic.LoadInt32(&h.probeCalls) != 0 {
 			t.Fatal("能力关闭时不应探针/建连")
 		}
 	})
 
-	t.Run("探针未探→降级本地并留痕且不替人探", func(t *testing.T) {
+	t.Run("固定 SSH 且未探→当场探针", func(t *testing.T) {
 		h := newSelectorHarness()
-		selection, _, err := h.run(t, h.deps(), `{}`)
+		h.verdict = TransportProbeVerdict{State: TransportProbeOK}
+		selection, _, err := h.run(t, bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH), `{}`)
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
 		}
-		if selection.Kind != TransportLocal || selection.Reason != ReasonProbeNotRun {
-			t.Fatalf("selection = %+v, want local/probe_not_run", selection)
+		if selection.Kind != TransportSSH || selection.Reason != ReasonEnvironmentSSH {
+			t.Fatalf("selection = %+v, want ssh/environment_ssh", selection)
 		}
-		if atomic.LoadInt32(&h.probeNow) != 0 {
-			t.Fatal("未指名时不许当场探针（连接是花钱的动作）")
+		if atomic.LoadInt32(&h.probeNow) != 1 {
+			t.Fatalf("probeNow = %d, want 1", h.probeNow)
 		}
 		entries := h.trace.Entries()
-		if len(entries) != 1 || !entries[0].Degraded {
-			t.Fatalf("trace = %+v, want 一条降级记录", entries)
-		}
-		if entries[0].Reason == "" {
-			t.Fatal("降级必须带 reason（否则\"为什么这次在本机跑\"无从追查）")
+		if len(entries) != 1 || entries[0].Degraded || entries[0].Reason != ReasonEnvironmentSSH {
+			t.Fatalf("trace = %+v, want 一条 environment_ssh 非降级记录", entries)
 		}
 	})
 
-	t.Run("探针通→ssh", func(t *testing.T) {
+	t.Run("固定 SSH 且探针通→ssh", func(t *testing.T) {
 		h := newSelectorHarness()
 		h.verdict, h.probed = TransportProbeVerdict{State: TransportProbeOK}, true
-		selection, _, err := h.run(t, h.deps(), `{}`)
+		selection, _, err := h.run(t, bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH), `{}`)
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
 		}
 		if selection.Kind != TransportSSH || selection.Transport == nil {
 			t.Fatalf("selection = %+v, want ssh", selection)
 		}
-		if selection.Reason != ReasonProbeOK {
-			t.Fatalf("reason = %q, want %q", selection.Reason, ReasonProbeOK)
+		if selection.Reason != ReasonEnvironmentSSH {
+			t.Fatalf("reason = %q, want %q", selection.Reason, ReasonEnvironmentSSH)
 		}
 		if selection.Endpoint != "deploy.example:22" {
 			t.Fatalf("endpoint = %q, want deploy.example:22", selection.Endpoint)
 		}
 	})
 
-	t.Run("探针挂→降级本地并带上分类", func(t *testing.T) {
+	t.Run("固定 SSH 且探针挂→报错不切换本地", func(t *testing.T) {
 		h := newSelectorHarness()
 		h.verdict = TransportProbeVerdict{State: TransportProbeFailed, Class: seelessh.ClassAuthRejected}
 		h.probed = true
-		selection, _, err := h.run(t, h.deps(), `{}`)
-		if err != nil {
-			t.Fatalf("err = %v, want nil", err)
-		}
-		if selection.Kind != TransportLocal || selection.Reason != ReasonProbeFailed {
-			t.Fatalf("selection = %+v, want local/probe_failed", selection)
-		}
-		if selection.ProbeClass != seelessh.ClassAuthRejected {
-			t.Fatalf("probe class = %q, want %q", selection.ProbeClass, seelessh.ClassAuthRejected)
+		_, _, err := h.run(t, bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH), `{}`)
+		if TransportErrorCode(err) != CodeSSHAuthFailed {
+			t.Fatalf("err = %v, want %s", err, CodeSSHAuthFailed)
 		}
 		entries := h.trace.Degradations()
 		if len(entries) != 1 || entries[0].ProbeClass != seelessh.ClassAuthRejected {
-			t.Fatalf("degradations = %+v, want 一条带分类", entries)
+			t.Fatalf("trace = %+v, want 一条带分类的失败记录", entries)
 		}
 		if h.transport.Calls() != 0 {
 			t.Fatal("探针挂了就不该再建连")
@@ -405,16 +412,16 @@ func TestTransportErrorsDistinguishableFromPermissionDenial(t *testing.T) {
 
 // TestTransportSelectorConcurrentSessionsIsolated 并发两个会话各选各的：选择不互相污染。
 func TestTransportSelectorConcurrentSessionsIsolated(t *testing.T) {
-	// 会话 A：项目 ws-A，探针通 → ssh；会话 B：项目 ws-B，未配连接 → local。
+	// 会话 A：固定 prod（SSH）且探针通；会话 B：未固定环境 → local。
 	depsA := newSelectorHarness()
 	depsA.sessionID, depsA.projectID = "sess-A", "ws-A"
 	depsA.verdict, depsA.probed = TransportProbeVerdict{State: TransportProbeOK}, true
 
 	depsB := newSelectorHarness()
 	depsB.sessionID, depsB.projectID = "sess-B", "ws-B"
-	depsB.configured = false
 
-	middlewareA, middlewareB := TransportSelector(depsA.deps()), TransportSelector(depsB.deps())
+	middlewareA := TransportSelector(bindHarnessEnvironment(depsA, depsA.deps(), "prod", TransportSSH))
+	middlewareB := TransportSelector(depsB.deps())
 	if middlewareA == nil || middlewareB == nil {
 		t.Fatal("两个会话的选择器都应存在")
 	}
@@ -503,8 +510,9 @@ func TestRegistryStateTransportInsertionPoint(t *testing.T) {
 		}, nil)
 
 		var diagnosed int32
+		deps := bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH)
 		state := NewRegistryState(5*time.Second, gate, time.Second, nil,
-			TransportSelector(h.deps()),
+			TransportSelector(deps),
 			nil,
 			func(_ string, next frameworktools.ToolHandler) frameworktools.ToolHandler {
 				return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
@@ -550,8 +558,9 @@ func TestRegistryStateTransportInsertionPoint(t *testing.T) {
 			executed bool
 		}
 		var got observation
+		deps := bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH)
 		state := NewRegistryState(5*time.Second, gate, time.Second, nil,
-			TransportSelector(h.deps()),
+			TransportSelector(deps),
 			nil,
 			func(_ string, next frameworktools.ToolHandler) frameworktools.ToolHandler {
 				return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
@@ -574,8 +583,8 @@ func TestRegistryStateTransportInsertionPoint(t *testing.T) {
 		if !got.held {
 			t.Fatal("诊断阶段必须已经能读到执行面（选完才进诊断）")
 		}
-		if got.kind != TransportSSH || got.reason != ReasonProbeOK {
-			t.Fatalf("诊断看到的执行面 = %+v, want ssh/probe_ok", got)
+		if got.kind != TransportSSH || got.reason != ReasonEnvironmentSSH {
+			t.Fatalf("诊断看到的执行面 = %+v, want ssh/environment_ssh", got)
 		}
 		if !got.executed {
 			t.Fatal("handler 应被执行")

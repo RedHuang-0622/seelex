@@ -60,6 +60,7 @@ type Coordinator struct {
 	view            ViewPort
 	history         HistoryPort
 	workTable       func(sessionID string) string
+	environment     func(sessionID string) string
 	compactionIndex CompactionIndexPort
 
 	// pendingCompactMu 保护 pendingForceCompact：显式压缩（/compact、
@@ -110,6 +111,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		view:                deps.View,
 		history:             deps.History,
 		workTable:           deps.WorkTableTraceBlock,
+		environment:         deps.EnvironmentTraceBlock,
 		compactionIndex:     deps.CompactionIndex,
 		pendingForceCompact: make(map[string]bool),
 	}
@@ -595,16 +597,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit()); err != nil {
 		return "", err
 	}
-	// 工作打点表：请求尾部的只读标记块（system 前缀保持不变 → 缓存友好；
-	// 无活动任务时块为空 → 自动删除；不落历史 → 不参与压缩）。打点按正在
-	// 组装上下文的会话取数：后台会话只见自己的 scope 分区，不串活跃会话。
-	if block := c.workTable(sessionID); block != "" {
-		if currentInput == "" {
-			currentInput = block
-		} else {
-			currentInput = block + "\n\n" + currentInput
-		}
+	// 工作打点表是当前输入前的动态只读块；环境块必须追加在用户输入之后。
+	// 两块都不落历史、不参与压缩，也都不进入稳定的 system 前缀。
+	workTable := c.workTable(sessionID)
+	environment := ""
+	if c.environment != nil {
+		environment = c.environment(sessionID)
 	}
+	currentInput = composeRequestTail(currentInput, workTable, environment)
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
 	tools := c.Deps.Runtime.VisibleTools(context.Background())
 	existing := c.sessionHistory(sessionID)
@@ -1252,6 +1252,23 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		}
 	}
 	return currentInput, nil
+}
+
+// composeRequestTail 是动态请求尾块的唯一组装点：
+// 工作表格在前、用户输入居中、环境清单在后缀。环境不能放前面，因为项目环境配置
+// 会被用户高频修改；放在尾部只影响当前这一轮的可缓存后缀区。
+func composeRequestTail(currentInput, workTable, environment string) string {
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(workTable) != "" {
+		parts = append(parts, workTable)
+	}
+	if currentInput != "" {
+		parts = append(parts, currentInput)
+	}
+	if strings.TrimSpace(environment) != "" {
+		parts = append(parts, environment)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→

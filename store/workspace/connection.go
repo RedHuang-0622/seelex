@@ -376,7 +376,7 @@ func normalizeEndpoint(endpoint SSHEndpoint) (SSHEndpoint, error) {
 // normalizeRemoteRoot 归一远端工作目录：trim、POSIX 归一、必须是对端绝对路径。
 //
 // 为什么要**拒**相对路径而不是替人补一个前缀：远端根是路径门的取根口径（根内路径
-// 不需要 ssh.userspace），一个猜出来的根会让"越界"这道闸门判错方向——宁可不填
+// 直接受 ssh 通道位约束），一个猜出来的根会让路径白名单判错方向——宁可不填
 // （空 = 未知，路径门退回更保守的口径），也不填一个猜的值。
 func normalizeRemoteRoot(raw string) (string, error) {
 	root := strings.TrimSpace(raw)

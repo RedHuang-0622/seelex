@@ -28,7 +28,6 @@ func TestGroupTableShape(t *testing.T) {
 		// LMRW（最后匹配胜出），ro/rw 在它们后面覆盖同名工具，因此这两组"声明了远端面
 		// 工具清单，但不接管名字路由"。真实判据在路径门（按已定执行面 + 是否走出远端根）。
 		{GroupSSH, BitExecute, toolspermission.ActionAllow, "read_file"},
-		{GroupSSHUserspace, BitRead | BitWrite | BitExecute, toolspermission.ActionAsk, "read_file"},
 		{GroupRO, BitRead, toolspermission.ActionAllow, "read_file"},
 		{GroupRW, BitRead | BitWrite, toolspermission.ActionAllow, "write_file"},
 		{GroupRWSession, BitRead | BitWrite, toolspermission.ActionAllow, "compact_context"},

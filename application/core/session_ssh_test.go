@@ -2,11 +2,14 @@ package core
 
 import (
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // session_ssh_test.go 钉住两条不变式的判据（纯函数层）：
 //  1. 放权集合必须是项目环境表的**子集**（写进不存在的名字要显式失败）；
-//  2. 收回放权时当前环境自动回落到"没有限定"，不留悬空值。
+//  2. 首次绑定的会话工作环境不可切换或清空。
 //
 // 端到端（会话端口 + 项目环境表）的路径由装配侧的测试覆盖；这两条是**规则本身**，
 // 放在纯函数上跑得最快，也最难被后续重构悄悄改掉。
@@ -46,22 +49,38 @@ func TestValidateAllowedEnvsRejectsNamesOutsideProject(t *testing.T) {
 	}
 }
 
-func TestResolveCurrentEnvFallsBackWhenRevoked(t *testing.T) {
-	cases := []struct {
-		name    string
-		allowed []string
-		current string
-		want    string
-	}{
-		{"仍被放权", []string{"dev", "test"}, "test", "test"},
-		{"已被收回", []string{"dev"}, "test", ""},
-		{"本来没限定", []string{"dev"}, "", ""},
-		{"放权清空", nil, "dev", ""},
-		{"空白当前环境", []string{"dev"}, "   ", ""},
+func TestSessionEnvironmentCanBeFixedOnceAndNeverChanged(t *testing.T) {
+	workspace := &environmentTraceWorkspace{
+		fakeWorkspace: newFakeWorkspace(),
+		environments: []model.WorkspaceEnvironmentInfo{
+			{Name: "dev"},
+			{Name: "test", Host: "test.example.com", User: "qa"},
+		},
 	}
-	for _, item := range cases {
-		if got := resolveCurrentEnv(item.allowed, item.current); got != item.want {
-			t.Fatalf("%s: resolveCurrentEnv = %q, want %q", item.name, got, item.want)
-		}
+	project, err := workspace.Create("app", "/workspace/app", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.BindSession("sess-fixed", project.ID)
+	sessions := &environmentTraceSessions{}
+	service := newTestService(t, &fakeEngine{},
+		func(deps *contract.Dependencies) { deps.Workspace = workspace },
+		withTestSessions(sessions),
+	)
+	state, err := service.SetSessionSSHEnv("sess-fixed", "test")
+	if err != nil || state.CurrentEnv != "test" {
+		t.Fatalf("bind = %+v err=%v", state, err)
+	}
+	if _, err := service.SetSessionSSHEnv("sess-fixed", "test"); err != nil {
+		t.Fatalf("重复固定同一环境应幂等: %v", err)
+	}
+	if _, err := service.SetSessionSSHEnv("sess-fixed", "dev"); err == nil {
+		t.Fatal("固定环境不得被 agent/工具切换")
+	}
+	if _, err := service.SetSessionSSHEnv("sess-fixed", ""); err == nil {
+		t.Fatal("固定环境不得被清空")
+	}
+	if _, err := service.SetSessionSSHEnv("sess-fixed", "missing"); err == nil {
+		t.Fatal("未知环境也不得替换固定值")
 	}
 }

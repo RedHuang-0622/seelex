@@ -39,7 +39,7 @@ flowchart TB
     CLASS -->|root<br/>主代理 / plan entry / goalplan| ROOT["读本会话档位表<br/>ApplyTier 剪掉若干 ask"]
     CLASS -->|sub<br/>节点子代理| BASE1["读 base 表（无 ctl / adm 位）"]
     CLASS -->|emp_ro / emp_rw<br/>角色员工| BASE2["读 base 表 + 角色权责"]
-    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm"]
+    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm / ssh"]
     BASE1 --> GROUP
     BASE2 --> GROUP
     GROUP --> BITS{"该主体有位？"}
@@ -86,12 +86,12 @@ flowchart LR
   - **建连段**：permission **之后**、diagnostic 之前。真正的探测/拨号在这里——
     被拒的调用因此不白探、不白连，显式指名不可用的报错也不会顶掉权限拒绝。
 - **选择规则**（`resolveTransportDecision` 判面 + `bindTransportSelection` 落地，顺序即
-  优先级）：项目已配连接 + 探针通 → ssh；未配 / 未探 / 探针挂 / 建连失败 **且调用方
-  没有显式指名** → 降级 local 并留痕；**显式指名而不可用 → 报错，不降级**（本地跑一条
-  `rm` 与远端跑一条 `rm` 是两件事）；显式指名 local → 尊重调用方。判据只有一处：决策段
-  给结论，建连段只落地。
-- **错误码固定五个**：`SSH_UNREACHABLE` / `SSH_AUTH_FAILED` / `SSH_HOST_UNTRUSTED` /
-  `SSH_TIMEOUT` / `SSH_ENV_DISABLED`；映射表只有一张
+  优先级）：会话未固定命名环境 → local；固定环境无地址 → local；固定环境有地址 →
+  ssh（探针或建连失败即报错，**不偷偷切回本地**）。环境与显式 `transport` 冲突时
+  拒绝执行。环境名由宿主从会话绑定注入，模型入参不暴露也不能覆盖。判据只有一处：
+  决策段给结论，建连段只落地。
+- **错误码固定词表**：`SSH_UNREACHABLE` / `SSH_AUTH_FAILED` / `SSH_HOST_UNTRUSTED` /
+  `SSH_TIMEOUT` / `SSH_ENV_DISABLED` / `SSH_ENV_UNKNOWN` / `SSH_ENV_CONFLICT`；映射表只有一张
   （`transportCodeForProbeClass`，输入是 `backend/tool/ssh` 的 `Class*`）。权限拒绝
   unwrap 到 `ErrPermissionDenied` 且不带任何码，见 `IsTransportErrorCode` 的用例。
 - **留痕**：`TransportTrace{Degraded, Reason, ProbeClass, ...}`（不含命令、不含凭据）。
@@ -99,9 +99,9 @@ flowchart LR
 - **消费者闸门**：`TransportSelectorDeps.Consumers` 空 ⇒ 中间件返回 nil（链上逐字
   等于旧行为）。把 ssh 写进 ctx 而 handler 不读，就是"说走远端其实跑了本地"，比不选
   更危险；因此消费者名单与真实消费点必须同一个提交里改。名单唯一一份：
-  `RemoteFaceToolNames()`（read_file / write_file / edit_file / bash / bg_manage）。
+  `RemoteFaceToolNames()`（read_file / write_file / edit_file / bash / bash_bg / bg_manage）。
 
-### 五个工具的远端面（`remote_face.go` + `ssh_transport.go`）
+### 远端工具面（`remote_face.go` + `ssh_transport.go`）
 
 | 工具 | 远端实现 | 回执里的执行面两格 |
 |---|---|---|
@@ -109,6 +109,7 @@ flowchart LR
 | `write_file` | `Transport.Write`（内容走内容通道） | 有 |
 | `edit_file` | `Transport.Edit`（读-替换-写，替换判据与本地面同源） | 有 |
 | `bash` | `Transport.Exec`（命令正文与 `stdin` 数据都走内容通道） | 有（另带 `status` / `truncated` / `still_running` / `handle` / `log_path`） |
+| `bash_bg` | `Transport.Start`（远端脱钩作业，返回 `ssh:` 句柄） | 有 |
 | `bg_manage` | `Transport.Manage`（observe / fetch / kill / done） | 有 |
 
 四条硬约束（判据都在用例里）：
@@ -126,20 +127,19 @@ flowchart LR
 作业表的 `bt-` / `bs-` / `bteam-` **语法上互不相认**：把本机句柄交给远端面只会得到
 "该用哪张表"的显式错误，不会静默命中一条无关作业。
 
-**已知缺口（如实记录，未在本轮修）**：
+**边界（如实记录）**：
 
-- **`ssh.userspace` 的规则行还没接上**：路径门现在按已定执行面取根（`path_gate_face.go`）
-  ——本地面按项目根判、越界直接拒；远端面**不做本地根判定**，只把"本地根容不下"的
-  绝对路径记成 `RemotePathHandoff`（ctx 事实）。按设计这类候选该由权限门的
-  `ssh.userspace` 组判，但该组的规则行（组表条目 + 路由）尚未接入，因此本轮只交付
-  交接事实与判定顺序，**不假装已经判过**（远端越界目前等于放行到对端）。
+- **SSH 只有一枚能力**：路径门先按已定执行面取根（`path_gate_face.go`）——本地面按
+  项目根判、越界直接拒；远端面不做本地根判定，但远端项目根之外的绝对路径必须落在
+  当前 agent role 的 SSH 路径白名单里，否则以 `PERM_SSH_PATH_DENIED` 拒绝。白名单是
+  `ssh` 能力的作用范围，不是第二枚权限。
 - **远端项目根未知**：连接配置读面只有 host/port/user，没有"远端工作目录"，所以
   `SSHEndpoint.RemoteRoot` 恒为空；等它有了值，路径门判据一行不动（只多一个比对根）。
 - **远端无并发写互斥**：本地 `fs.FileSystem` 的 per-path actor 是进程内锁，跨机器不
   成立；远端写只保证"原子替换"，不保证两个并发远端写之间的顺序。
 - **远端 `edit_file` 是两趟往返**（读 + 写），读与写之间远端文件可能被别处改动。
-- **`bash_bg` / `read_batch` / `grep_search` / `glob` 仍只有本地面**：不在消费者名单里，
-  因此选择器对它们一个判断都不做（本工作项范围是五个工具）。
+- **`read_batch` / `grep_search` / `glob` 仍只有本地面**：不在消费者名单里，因此选择器
+  对它们一个判断都不做。
 
 ## 核心实现
 
@@ -288,7 +288,8 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   `workdir`）与按面分派。
 - `path_gate_face.go`：路径门**按已定执行面取根**——本地面按项目根判（越界直接拒）；
   远端面不做本地根判定（远端路径属对端命名空间），只把"本地根容不下"的绝对路径记成
-  `RemotePathHandoff` 交给权限门按 `ssh.userspace` 判；远端面上相对路径不按本地根判。
+  `RemotePathHandoff`，并交给同一 `ssh` 能力下的路径白名单裁定；远端面上相对路径
+  不按本地根判。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。

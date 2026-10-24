@@ -199,4 +199,7 @@ type Deps struct {
 	// 注入）。sessionID 指明正在组装执行上下文的会话：打点必须取自该会话
 	// 自己的 task scope，多会话并行时后台会话不得看到活跃会话的打点。
 	WorkTableTraceBlock func(sessionID string) string
+	// EnvironmentTraceBlock 返回项目工作环境块（名称、local/ssh 与地址）。
+	// 它追加在当前输入之后，避免高频变化的项目配置污染 system 前缀。
+	EnvironmentTraceBlock func(sessionID string) string
 }

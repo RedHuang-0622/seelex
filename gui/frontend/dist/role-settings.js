@@ -7,7 +7,7 @@
 //
 // 口径：
 //   1. 权限向量的**标签 id 就是发给后端的字面量**（read / write / computeruse / control /
-//      admin / ssh / ssh.userspace），前端不另起一套别名，也不做 ro→read 这类对照表——
+//      admin / ssh），前端不另起一套别名，也不做 ro→read 这类对照表——
 //      对照表一旦出现就会有两份真相。中文只作 label（展示）。
 //   2. 顺序固定为 PERMISSION_VECTOR_TAGS 的声明顺序：同一组选择永远渲染成同一行，
 //      后端拿到的数组也稳定（便于比对与去抖）。
@@ -28,8 +28,7 @@ export const PERMISSION_VECTOR_TAGS = [
   { id: "computeruse", label: "用电脑", tip: "截屏与桌面操作" },
   { id: "control", label: "控制", tip: "结束/恢复执行、派生任务、调度团队" },
   { id: "admin", label: "管理", tip: "切换插件、Skill、MCP 与运行模式（不含授予权限）" },
-  { id: "ssh", label: "SSH", tip: "连远程主机（命令与文件传输）" },
-  { id: "ssh.userspace", label: "SSH 用户空间", tip: "远程落在工作区之外（含 ~ 与系统路径）" },
+  { id: "ssh", label: "SSH", tip: "在会话固定环境上执行远程命令与文件操作（路径范围在该能力内配置）" },
 ];
 
 const PERMISSION_VECTOR_IDS = PERMISSION_VECTOR_TAGS.map(tag => tag.id);
@@ -98,10 +97,9 @@ export function permissionVectorSummary(selected) {
   return list.map(id => (id.startsWith("!") ? `拒 ${id.slice(1)}` : id)).join(" · ");
 }
 
-// permissionVectorLint 是"这组选择会走不通"的四条提示，与 permission-assembly §5 同 id：
+// permissionVectorLint 是"这组选择会走不通"的提示，与 permission-assembly §5 同 id：
 //   assembly_ssh_only                只给 ssh 不给 read：远程列目录/读文件都走不通
 //   assembly_write_without_read    写而无读：改文件前先要能读
-//   assembly_userspace_without_ssh  用户空间没有 ssh 打底
 //   assembly_admin_without_control   管装配却管不了会话
 export function permissionVectorLint(selected) {
   const list = normalizePermissionVector(selected);
@@ -112,9 +110,6 @@ export function permissionVectorLint(selected) {
   }
   if (has("write") && !has("read")) {
     warnings.push({ id: "assembly_write_without_read", message: "选了写却没选读：改文件前先得能读" });
-  }
-  if (has("ssh.userspace") && !has("ssh")) {
-    warnings.push({ id: "assembly_userspace_without_ssh", message: "选了 SSH 用户空间却没选 SSH：它只是放宽范围，不能单独生效" });
   }
   if (has("admin") && !has("control")) {
     warnings.push({ id: "assembly_admin_without_control", message: "选了管理却没选控制：管装配却管不了会话" });

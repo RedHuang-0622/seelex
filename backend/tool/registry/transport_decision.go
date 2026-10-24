@@ -8,9 +8,8 @@ package registry
 //	新链序：事件 → **执行面决策（只读）** → 路径门 → 权限门 → **建连（迟绑定）** → 诊断 → handler
 //
 // 旧链序的病：路径门按**本地**项目根判包含关系，而"这次到底走不走远端"要等权限门
-// 之后才知道。于是"项目配了连接 + 探针通 + 调用方未指名"这种**自动选中 ssh** 的调用，
-// 远端绝对路径（例如 /etc/nginx/nginx.conf）会被本地根判成越界直接拒掉——旧口径只对
-// **显式指名 ssh** 豁免，自动选中那一格至今是误拒。
+// 之后才知道。会话固定到 SSH 环境后，远端绝对路径（例如 /etc/nginx/nginx.conf）
+// 会被本地根判成越界直接拒掉；现在决策前移到路径门之前。
 //
 // 拆开的两条硬约束（各自都不可省）：
 //
@@ -49,10 +48,10 @@ type TransportDecision struct {
 	Kind TransportKind
 	// ProjectID 是这次调用归属的项目（工作区 ID）；空 = 没有项目归属。
 	ProjectID string
-	// Env 是调用方指名的**环境名**（工具参数 env）；空 = 没指名（走项目默认/单条连接）。
+	// Env 是宿主从**会话固定绑定**注入的环境名；空 = 会话尚未固定命名环境。
 	//
-	// 它只记录"指名了什么"，不代表解析成功：解析不到时 Kind 仍是 ssh、Feasible=false，
-	// 失败码 SSH_ENV_UNKNOWN（报错留给建连段，与显式指名 ssh 的口径一致）。
+	// 它只记录宿主的绑定事实，不代表解析成功：解析不到时 Kind 仍是 ssh、
+	// Feasible=false，失败码 SSH_ENV_UNKNOWN（报错留给建连段）。
 	Env string
 	// Endpoint 是项目连接配置里的端点（含 RemoteRoot：远端项目根，未知时为空）。
 	Endpoint SSHEndpoint
@@ -83,6 +82,30 @@ type TransportDecision struct {
 func (d TransportDecision) Remote() bool { return d.Kind == TransportSSH }
 
 type transportDecisionKey struct{}
+
+// TransportBinding 是宿主为一次执行树绑定的固定环境事实。主会话创建后由用户固定；
+// 主代理、teammate、subagent 与后台工具共用同一份，模型不能从工具入参修改。
+type TransportBinding struct {
+	ProjectID string
+	Env       string
+}
+
+type transportBindingKey struct{}
+
+// WithTransportBinding 把一个固定环境绑定到执行 ctx。
+func WithTransportBinding(ctx context.Context, binding TransportBinding) context.Context {
+	return context.WithValue(ctx, transportBindingKey{}, binding)
+}
+
+// TransportBindingFromContext 读回固定环境绑定。
+func TransportBindingFromContext(ctx context.Context) (TransportBinding, bool) {
+	if ctx == nil {
+		return TransportBinding{}, false
+	}
+	binding, ok := ctx.Value(transportBindingKey{}).(TransportBinding)
+	return binding, ok &&
+		(strings.TrimSpace(binding.ProjectID) != "" || strings.TrimSpace(binding.Env) != "")
+}
 
 // WithTransportDecision 把一次调用的执行面决策写进 ctx。
 func WithTransportDecision(ctx context.Context, decision TransportDecision) context.Context {
@@ -184,30 +207,95 @@ func resolveTransportDecision(
 	if deps.Project != nil {
 		projectID = deps.Project(ctx, sessionID)
 	}
-	// 环境名的优先级：**显式参数 env > 会话当前环境 > 都没有**。
-	//
-	// 会话那一档只提供"缺省"，不覆盖显式值：调用方写了 env 就以它为准（否则
-	// 一次性的环境切换会被会话状态悄悄改回去，用户看到的是"我明明指名了却连到
-	// 另一个环境"）。会话当前环境本身已在写入侧校验过 ⊆ 放权集合 ⊆ 项目环境表，
-	// 这里不再重复判定，只做取值。
+	// 环境名只来自会话固定绑定。模型工具参数中的同名字段不会被读取，避免一次调用
+	// 绕过会话级固定环境。
 	if env == "" && deps.EnvFor != nil {
 		env = strings.TrimSpace(deps.EnvFor(ctx, sessionID))
 	}
 	decision := TransportDecision{
 		Decided: true, Kind: TransportLocal, ProjectID: projectID,
-		Explicit: explicit, Reason: ReasonUnconfigured,
+		Env: env, Explicit: explicit, Reason: ReasonUnconfigured,
 	}
 	// 显式指名 ssh 却不可用：只记事实（码 + 文案），报错留给建连段。
 	unavailable := func(code, class, format string, args ...any) TransportDecision {
 		decision.Kind = TransportSSH
-		decision.Reason = ReasonExplicitSSH
+		if decision.Explicit {
+			decision.Reason = ReasonExplicitSSH
+		} else if decision.Env != "" {
+			decision.Reason = ReasonEnvironmentSSH
+		}
 		decision.Feasible = false
 		decision.FailureCode = code
 		decision.ProbeClass = class
 		decision.FailureMsg = fmt.Sprintf(format, args...)
 		return decision
 	}
-	sshIntent := explicit && explicitKind == TransportSSH
+	unavailableLocal := func(code, format string, args ...any) TransportDecision {
+		decision.Kind = TransportLocal
+		decision.Reason = ReasonEnvironmentConflict
+		decision.Feasible = false
+		decision.FailureCode = code
+		decision.FailureMsg = fmt.Sprintf(format, args...)
+		return decision
+	}
+
+	// 命名环境先决定执行面：地址为空 = 本地，有端点 = SSH。这里的结论比
+	// transport 参数更强，因为它是项目配置中的稳定事实；两者冲突时显式报错，
+	// 不静默让其中一个覆盖另一个。
+	var environment TransportEnvironment
+	hasEnvironment := false
+	if env != "" {
+		if deps.EnvironmentFor == nil {
+			return unavailable(CodeSSHEnvUnknown, "",
+				"项目环境表未装配，指名环境 %q 的调用无法解析执行面", env)
+		}
+		target, ok, err := deps.EnvironmentFor(projectID, env)
+		if err != nil {
+			return unavailable(CodeSSHUnreachable, "",
+				"读取项目 %s 的环境 %q 失败: %v", trimmedOr(projectID, "(未绑定项目)"), env, err)
+		}
+		if !ok {
+			return unavailable(CodeSSHEnvUnknown, "",
+				"环境 %q 不在项目 %s 的环境表里（不回落默认环境，避免连错机器）",
+				env, trimmedOr(projectID, "(未绑定项目)"))
+		}
+		if target.Kind != TransportLocal && target.Kind != TransportSSH {
+			return unavailable(CodeSSHEnvUnknown, "",
+				"环境 %q 的执行面 %q 非法（只支持 local / ssh）", env, target.Kind)
+		}
+		if explicit && explicitKind != target.Kind {
+			return unavailableLocal(CodeSSHEnvConflict,
+				"环境 %q 要求 %s，但调用同时指名了 transport=%s；环境与传输冲突，拒绝执行",
+				env, target.Kind, explicitKind)
+		}
+		environment, hasEnvironment = target, true
+		if target.Kind == TransportLocal {
+			decision.Reason = ReasonEnvironmentLocal
+			decision.Feasible = true
+			return decision
+		}
+		decision.Kind = TransportSSH
+		decision.Reason = ReasonEnvironmentSSH
+		decision.Endpoint = target.Endpoint
+		decision.Configured = target.Endpoint.Configured()
+		if !decision.Configured {
+			return unavailable(CodeSSHEnvUnknown, "",
+				"环境 %q 要求 SSH 但没有配置端点（host/user）", env)
+		}
+	}
+
+	// 没固定命名环境 = 本地面。即使项目里还留有旧的单条 SSH 连接，也不得
+	// 自动借用它：否则界面说"未绑定环境在本地执行"，后台却可能连到远端。
+	// 仅保留显式 transport=ssh 的兼容入口，由宿主/诊断调用，模型 schema 不暴露。
+	if env == "" && !(explicit && explicitKind == TransportSSH) {
+		if explicit && explicitKind == TransportLocal {
+			decision.Reason = ReasonExplicitLocal
+		} else {
+			decision.Reason = ReasonSessionEnvironmentUnbound
+		}
+		return decision
+	}
+	sshIntent := (explicit && explicitKind == TransportSSH) || (hasEnvironment && decision.Kind == TransportSSH)
 
 	// ④ 显式指名 local：尊重调用方，不去连远端，也不记成降级。
 	if explicit && explicitKind == TransportLocal {
@@ -225,41 +313,13 @@ func resolveTransportDecision(
 		return decision
 	}
 
-	// 环境放权：指名了环境（或会话有缺省环境）就必须在本会话**被放权过**。
-	//
-	// 为什么这里还要判一次：写入侧已保证 CurrentEnv ⊆ AllowedEnvs ⊆ 项目环境表，
-	// 但**显式 env 参数**是绕过会话状态的一条直路——不在这一步卡住，任何能写工具
-	// 参数的调用方都能把调用指到未经放权的环境上，"缺省不放权"就成了摆设。
-	// 放权面未装配时同样拒绝（fail-closed）：环境是可选能力，装不上就当没有。
-	decision.Env = env
-	if env != "" {
-		if deps.EnvGranted == nil {
-			return unavailable(CodeSSHEnvNotGranted, "",
-				"环境 %q 需要会话放权，但放权面未装配：拒绝（缺省不放权）", env)
-		}
-		if !deps.EnvGranted(ctx, sessionID, env) {
-			return unavailable(CodeSSHEnvNotGranted, "",
-				"环境 %q 没有在本会话放权（先放权再使用；缺省不放权）", env)
-		}
-	}
-
 	// 项目连接配置：未配 = 没有远端可去（读面永不返回口令）。
 	var endpoint SSHEndpoint
 	configured := false
-	// 显式给的环境名（工具参数 env）：查项目环境表。查不到 = 显式失败，**不回落
-	// 默认环境**——回落会静默连到另一台机器上，那是这类设计最贵的一种错。
-	readEndpoint := deps.Endpoint
-	if env != "" {
-		if deps.EndpointFor == nil {
-			if sshIntent {
-				return unavailable(CodeSSHEnvUnknown, "", "项目环境表未装配，指名环境 %q 的调用无法解析端点", env)
-			}
-		} else {
-			readEndpoint = func(pid string) (SSHEndpoint, bool, error) { return deps.EndpointFor(pid, env) }
-		}
-	}
-	if readEndpoint != nil && projectID != "" {
-		read, ok, err := readEndpoint(projectID)
+	if hasEnvironment {
+		endpoint, configured = environment.Endpoint, environment.Endpoint.Configured()
+	} else if deps.Endpoint != nil && projectID != "" {
+		read, ok, err := deps.Endpoint(projectID)
 		if err != nil {
 			if sshIntent {
 				return unavailable(CodeSSHUnreachable, "",
@@ -269,11 +329,6 @@ func resolveTransportDecision(
 			return decision
 		}
 		endpoint, configured = read, ok && read.Configured()
-	}
-	if !configured && env != "" {
-		return unavailable(CodeSSHEnvUnknown, "",
-			"环境 %q 不在项目 %s 的环境表里（或在表里但没填 host）：不回落默认环境，避免连错机器",
-			env, trimmedOr(projectID, "(未绑定项目)"))
 	}
 	if !configured {
 		if sshIntent {
@@ -298,7 +353,9 @@ func resolveTransportDecision(
 		if sshIntent {
 			// 指名者付探测费：这一次例外推迟到建连段付（决策段不发网络包）。
 			decision.Kind = TransportSSH
-			decision.Reason = ReasonExplicitSSH
+			if explicit && explicitKind == TransportSSH {
+				decision.Reason = ReasonExplicitSSH
+			}
 			decision.NeedsProbe = true
 			return decision
 		}
@@ -323,8 +380,10 @@ func resolveTransportDecision(
 	decision.Kind = TransportSSH
 	decision.Feasible = true
 	decision.Reason = ReasonProbeOK
-	if sshIntent {
+	if explicit && explicitKind == TransportSSH {
 		decision.Reason = ReasonExplicitSSH
+	} else if hasEnvironment {
+		decision.Reason = ReasonEnvironmentSSH
 	}
 	return decision
 }

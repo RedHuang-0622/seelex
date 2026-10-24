@@ -32,12 +32,11 @@
 | `rw_desktop` | 写簇：共享外设（一块桌面） | `computeruse` | 已实现 |
 | `ctl` | 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构 | `control` | 已实现 |
 | `adm` | 属主簇：改变能力面本身 | `admin` | 已实现 |
-| `ssh` | 允许把工具调用打到远端执行面（独立于操作类型） | `ssh` | **目标**：`permission-assembly` M2 才进词表 |
-| `ssh.userspace` | 允许远端访问项目根之外的用户空间 | `userspace` | **目标**：同上 |
+| `ssh` | 允许把工具调用打到远端执行面（独立于操作类型）；远程路径白名单属于该能力 | `ssh` | 已实现 |
 
 纪律：
 
-1. **规范名进存储，UI 别名只出不进**。别名是展示层的那一个词（`read/write/session/computeruse/control/admin/ssh/userspace`），前端渲染用；任何写入路径只接受规范名。别名表与规范表一对一，放在同一处，不散落。
+1. **规范名进存储，UI 别名只出不进**。别名是展示层的那一个词（`read/write/session/computeruse/control/admin/ssh`），前端渲染用；任何写入路径只接受规范名。别名表与规范表一对一，放在同一处，不散落。旧 `ssh.userspace` 只作为读取兼容别名，写入归一到 `ssh`。
 2. **未知标签必须报错，不许当 0 位**。既有判据已把这条写死在 `contract/dto/permission.go` 的 `ValidPermissionGroup` / `NormalizePermissionGroups`（注释里给了理由：一个拼写错误在运行时等价于"这一格没分配"，且没有报错面）。登记侧复用同一处校验，不另写一份白名单。
 3. **授予 = (Effect, Bits)**。`Bits` 为 0 时用该类型的既有 `Mode`（与矩阵的 `Grant` 同形）。
 4. **`0` 位 ≠ 未出现**。显式写 `{"rw": 0}` 是"这一族明确收回"，与"这一层没说话"是两件事——`NormalizePermissionGroups` 的注释已经把这条钉死，§3 的逐标签优先完全依赖它。
@@ -186,10 +185,10 @@ RoleSettings {
 
 `docs/arch/permission-assembly.md`（并行工作项交付）把权限表达成「行 = 用户组 × 列 = 权限类型」的矩阵，格 = `(Effect, Bits)`，缺格 = deny。本文的向量与它同词表、同格形状，差别只在**谁在问**。四条由关系推出的纪律：
 
-1. **不另立词表、不另立 `Effect` 取值**。向量标签集合必须能由 `dto.PermissionGroupNames()`（扩展后含 `ssh` / `ssh.userspace`）派生出全部；`Effect` 只有 `allow/ask/deny`。
+1. **不另立词表、不另立 `Effect` 取值**。向量标签集合必须能由 `dto.PermissionGroupNames()`（含单一 `ssh`）派生出全部；`Effect` 只有 `allow/ask/deny`。
 2. **向量不能超出矩阵行**。登记表是矩阵的**子集筛选器**，不是旁路：一个标签若在该用户组的那一行里是缺格/deny，向量里给 allow 只能是错误（或被 §3 的高层显式放宽且可审计）。
 3. **缺格 = deny 在两层同义**（矩阵同一条），所以 §3 的"五层都没出现 → deny"不是新规则，是把它落到层叠上。
-4. **`ssh` 标签必须先扩词表再开写**。在 `permission-assembly` M2 落地前，`ValidPermissionGroup` 会直接拒 `ssh`——这是对的：先写后补的结果是读回时"未知标签→0 位"，静默变成"没给"，而用户以为给了远端权限。
+4. **SSH 只有 `ssh` 标签**。`ssh.userspace` 是旧存储兼容别名，归一到 `ssh`；新写入与前端候选不得再产生第二枚 SSH 权限。路径白名单在 `ssh` 能力内按 agent role 配置。
 
 ## 8. 判据
 

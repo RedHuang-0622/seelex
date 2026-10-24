@@ -88,6 +88,34 @@ func TestPermissionVectorTakesOverJudgement(t *testing.T) {
 	}
 }
 
+func TestEmployeePermissionVectorUsesAccountRoleNotMemberName(t *testing.T) {
+	resolvedRole := ""
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		resolvedRole = role
+		if role == string(dto.RoleSubAgent) {
+			return []string{dto.PermissionTagRO, dto.PermissionGroupSSH}, true, nil
+		}
+		return nil, false, nil
+	})
+	ctx := WithEmployeeSubject(
+		toolspermission.WithSessionID(context.Background(), "role-session-sub"),
+		"impl_ui",
+		"readonly",
+	)
+	ctx = WithEmployeeAccountRole(ctx, string(dto.RoleSubAgent))
+
+	cells, _, ok := state.callVector(ctx)
+	if !ok {
+		t.Fatal("account-role 权限向量应接管员工判定")
+	}
+	if resolvedRole != string(dto.RoleSubAgent) {
+		t.Fatalf("权限向量按成员名解析成 %q，want subagent", resolvedRole)
+	}
+	if !cells.Covers(policy.GroupSSH, policy.BitExecute) {
+		t.Fatalf("subagent 的 ssh 权限未生效: %+v", cells)
+	}
+}
+
 // TestPermissionVectorClaimsDoNotTouchSharedTable：② 判定不再写共享主体表——
 // 员工调用过之后，配置里的 Subjects 与调用前逐字节相同（没有派生条目、没有 rebuild）。
 func TestPermissionVectorClaimsDoNotTouchSharedTable(t *testing.T) {

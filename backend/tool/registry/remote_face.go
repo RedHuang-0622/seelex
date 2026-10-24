@@ -1,6 +1,6 @@
 package registry
 
-// remote_face.go —— 五个内置工具的**远端执行面**（一份 handler，两条传输）。
+// remote_face.go —— 六个内置工具的**远端执行面**（一份 handler，两条传输）。
 //
 // 这一层只做三件事，别的不做：
 //

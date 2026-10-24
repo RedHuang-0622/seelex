@@ -45,8 +45,10 @@
 - `func (store *RolePermissionStore) SetRoleAccount(projectID, role, account string) error` — SetRoleAccount 与权限默认共用一条角色记录，写入账号不擦权限向量。
 - `func (store *RolePermissionStore) RoleInheritance(projectID, role string) (bool, bool, error)` — 读取显式继承开关并报告是否存在。
 - `func (store *RolePermissionStore) SetRoleInheritance(projectID, role string, inherit bool) error` — 写入 subagent / teammate 的 mainagent 继承开关。
-- `func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error)` — 读取角色自己的 SSH 用户空间路径。
-- `func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error` — 与角色默认权限共用记录写入 SSH 用户空间路径。
+- `func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error)` — 读取角色自己的 SSH 路径白名单。
+- `func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error` — 与角色默认权限共用记录写入 `ssh` 能力下的路径白名单。
+- `func (store *RolePermissionStore) RoleEffectiveSSHUserSpaces(projectID, sessionID, role string) ([]string, error)` — 读取会话覆盖优先、角色默认兜底的 SSH 路径白名单。
+- `func (store *RolePermissionStore) SetRoleSessionSSHUserSpaces(projectID, sessionID, role string, paths []string) error` — 写入当前会话中该 agent role 的 SSH 路径覆盖。
 - `func (store *RolePermissionStore) sessionKeys(projectID, sessionID string) []rolePermissionKey` — sessionKeys 返回该会话在索引里的全部登记格坐标。
 - `func (store *RolePermissionStore) entry(key rolePermissionKey) *rolePermissionEntry` — entry 取（或建）一个角色登记格（只增不删）。
 - `func (store *RolePermissionStore) loadEntry(entry *rolePermissionEntry, projectID, sessionID, role string) error` — loadEntry 首次访问时从盘上装载该登记格（调用方持条目锁）。

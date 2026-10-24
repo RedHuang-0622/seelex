@@ -193,7 +193,9 @@ type roleSettingsApplication interface {
 	RoleInheritMainAgent(sessionID, role string) (bool, error)
 	SetRoleInheritMainAgent(sessionID, role string, inherit bool) error
 	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
+	RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)
 	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
+	SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error
 }
 
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
@@ -1147,7 +1149,7 @@ func (bridge *Bridge) SetDefaultWorkspaceEnvironment(name string) error {
 	return app.SetDefaultWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name)
 }
 
-// SessionSSHState 读**当前视图会话**的 SSH 状态（当前环境 + 放权集合）。
+// SessionSSHState 读当前视图会话的固定工作环境。
 func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
@@ -1156,10 +1158,8 @@ func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
 	return app.SessionSSHState(bridge.app.Snapshot().Session.ID)
 }
 
-// SetSessionSSHEnv 限定当前视图会话的 SSH 环境（空串 = 取消限定）。
-//
-// 只接受**已在本会话放权**的名字（应用层校验）：设了环境却没放权 = 仍然用不了，
-// 在写入这一步就说清楚，比让执行侧拒绝更有用。
+// SetSessionSSHEnv 首次固定当前视图会话的工作环境。绑定后不可修改或清空；
+// 换环境必须新建会话。
 func (bridge *Bridge) SetSessionSSHEnv(env string) (model.SessionSSHInfo, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
@@ -1168,9 +1168,7 @@ func (bridge *Bridge) SetSessionSSHEnv(env string) (model.SessionSSHInfo, error)
 	return app.SetSessionSSHEnv(bridge.app.Snapshot().Session.ID, env)
 }
 
-// SetSessionSSHAllowed 设置当前视图会话的放权集合，返回**落盘后读回**的状态。
-//
-// 放权集合必须是项目环境表的子集（应用层校验）：写进不存在的名字会显式失败。
+// SetSessionSSHAllowed 是旧会话放权状态的兼容写面；新流程以固定环境为准。
 func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
@@ -1316,6 +1314,21 @@ func (bridge *Bridge) SetRoleSSHUserSpaces(role string, paths []string) (dto.Per
 	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
 }
 
+// SetRoleSessionSSHUserSpaces 写当前会话中单个 agent role 的 SSH 路径覆盖。
+func (bridge *Bridge) SetRoleSessionSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	snapshot := bridge.app.Snapshot()
+	if err := app.SetRoleSessionSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
 // SetRoleSessionPermission 写本会话里某个 agent role 的显式权限覆盖。
 // 它只影响当前会话，不改变角色的跨会话默认。
 func (bridge *Bridge) SetRoleSessionPermission(role string, tags []string) (dto.PermissionRoleInfo, error) {
@@ -1392,6 +1405,11 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
+	info.DefaultSSHUserSpaces, err = app.RoleDefaultSSHUserSpaces(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	info.SessionSSHUserSpaces = append([]string{}, info.SSHUserSpaces...)
 	account, _, err := app.RoleAccount(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err

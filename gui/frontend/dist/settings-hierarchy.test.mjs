@@ -43,13 +43,14 @@ test("项目 SSH 连接表只在项目设置，全局应用设置不含 SSH", as
   const project = modal(html, "project-settings-modal");
   const settings = modal(html, "settings-modal");
   assert.ok(project, "必须有 project-settings-modal");
+  assert.match(project, /主机留空即本地环境/, "项目环境表要说明 local/ssh 判据");
   assert.match(project, /id="ssh-env-list"/);
   assert.match(project, /id="ssh-env-host"/);
   assert.match(project, /id="ssh-env-save"/);
   assert.doesNotMatch(project, /id="session-ssh-allowed"/, "会话放权不属于项目连接表");
   assert.doesNotMatch(settings, /SSH 环境|ssh-env-list|session-ssh-allowed/, "全局设置不得包含 SSH 设置");
   assert.match(html, /id="project-settings-button"/, "项目标题区要有项目设置入口");
-  assert.match(html, /id="project-settings-button"[^>]*>SSH 环境<\/button>/, "项目入口要明确写 SSH 环境");
+  assert.match(html, /id="project-settings-button"[^>]*>管理环境<\/button>/, "项目入口要明确管理工作环境");
 });
 
 test("角色页使用角色卡、候选/确认权限栏，并支持继承 chip", async () => {
@@ -64,7 +65,7 @@ test("角色页使用角色卡、候选/确认权限栏，并支持继承 chip",
   assert.match(app, /data-role-perm-add/);
   assert.match(app, /SetRoleSessionPermission/, "会话权限必须按 agent role 更新");
   assert.match(app, /invoke\("SetRoleAccount"/, "角色账号要写回后端");
-  assert.match(app, /ssh-userspace-modal/, "勾选 SSH 用户空间要打开路径弹窗");
+  assert.match(app, /add\.value === "ssh"[\s\S]*openSSHUserSpaceDialog/, "勾选 SSH 要打开路径弹窗");
 });
 
 test("弹窗关闭按钮固定在弹窗上沿，不随内容滚动", async () => {

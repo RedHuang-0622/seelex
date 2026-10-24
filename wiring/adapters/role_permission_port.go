@@ -142,6 +142,16 @@ func (port SessionPort) RoleSSHUserSpaces(sessionID, role string) ([]string, err
 	if storage == nil {
 		return nil, errors.New("role user spaces: session storage is not assembled")
 	}
+	return storage.RoleEffectiveSSHUserSpaces(
+		port.rolePermissionProject(sessionID), strings.TrimSpace(sessionID), strings.TrimSpace(role),
+	)
+}
+
+func (port SessionPort) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return nil, errors.New("role user spaces: session storage is not assembled")
+	}
 	return storage.RoleSSHUserSpaces(port.rolePermissionProject(sessionID), strings.TrimSpace(role))
 }
 
@@ -151,6 +161,16 @@ func (port SessionPort) SetRoleSSHUserSpaces(sessionID, role string, paths []str
 		return errors.New("role user spaces: session storage is not assembled")
 	}
 	return storage.SetRoleSSHUserSpaces(port.rolePermissionProject(sessionID), strings.TrimSpace(role), paths)
+}
+
+func (port SessionPort) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return errors.New("role user spaces: session storage is not assembled")
+	}
+	return storage.SetRoleSessionSSHUserSpaces(
+		port.rolePermissionProject(sessionID), strings.TrimSpace(sessionID), strings.TrimSpace(role), paths,
+	)
 }
 
 // RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下

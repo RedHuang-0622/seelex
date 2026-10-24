@@ -43,8 +43,8 @@ function permissionChipsHTML(vector, role, mode, disabled, userSpaceCount = 0) {
     ? selected.map(tag => {
         const denied = tag.startsWith("!");
         const id = denied ? tag.slice(1) : tag;
-        const pathEditor = id === "ssh.userspace" && !denied
-          ? `<button type="button" class="perm-path-edit" data-board="${mode}" data-role="${escapeHtml(role)}" data-role-user-spaces="${escapeHtml(role)}" title="编辑远端用户空间放行路径"${disabled ? " disabled" : ""}>路径 ${userSpaceCount}</button>`
+        const pathEditor = id === "ssh" && !denied
+          ? `<button type="button" class="perm-path-edit" data-board="${mode}" data-role="${escapeHtml(role)}" data-role-user-spaces="${escapeHtml(role)}" title="编辑 SSH 允许路径范围"${disabled ? " disabled" : ""}>路径 ${userSpaceCount}</button>`
           : "";
         return `<span class="perm-selected-pair"><button type="button" class="perm-tag ${denied ? "is-denied" : "is-on"}" data-board="${mode}" data-role="${escapeHtml(role)}" data-role-perm-cycle="${escapeHtml(id)}" title="${denied ? "点击改为允许，再点移除" : "点击改为显式拒绝，再点移除"}"${disabled ? " disabled" : ""}>${escapeHtml(permissionVectorLabel(id) || id)}${denied ? "（拒）" : ""}</button>${pathEditor}</span>`;
       }).join("")
@@ -142,7 +142,13 @@ export function rolePermissionBoardHTML(rows, options = {}) {
       </button>
       <div class="role-permission-body"${open ? "" : " hidden"}>
         ${(role === "subagent" || role === "teammate") && mode === "default" ? `<button type="button" class="role-inherit-chip${inherit ? " is-on" : ""}" data-role-inherit="${escapeHtml(role)}" aria-pressed="${inherit}">继承 mainagent 权限</button>` : ""}
-        ${permissionChipsHTML(draft, role, mode, inheritedLocked, row.ssh_user_spaces?.length || 0)}
+        ${permissionChipsHTML(
+          draft,
+          role,
+          mode,
+          inheritedLocked,
+          (mode === "session" ? row.session_ssh_user_spaces : row.default_ssh_user_spaces)?.length || 0,
+        )}
         <div class="role-accounts-head"><span>账户与余额</span><button type="button" class="text-button" data-role-add-account="${escapeHtml(role)}">添加账户</button></div>
         <div class="role-account-list">${accountRowsHTML(role, roleAccounts, balances, row.account, windowPresets, windowReadings)}</div>
       </div>

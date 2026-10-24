@@ -234,6 +234,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		WorkTableTraceBlock: func(sessionID string) string {
 			return service.workTableTraceBlockFor(sessionID)
 		},
+		EnvironmentTraceBlock: func(sessionID string) string {
+			return service.environmentTraceBlockFor(sessionID)
+		},
 		CompactionIndex: compactionIndex,
 	})
 	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{

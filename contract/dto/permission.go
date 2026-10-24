@@ -26,13 +26,6 @@ const (
 	// 位取 x（执行：有这条路）。判据按**已定执行面**判，不按工具名路由——同一支
 	// read_file 既能跑本地也能跑远端，名字路由分不出这两件事。
 	PermissionGroupSSH = "ssh"
-	// PermissionGroupSSHUserspace 是**远端用户空间访问**：允许在远端项目根之外活动
-	// （/etc/nginx/nginx.conf、~/.ssh/config 这类对端绝对路径）。
-	//
-	// 位取 r|w|x 全位（与 adm 同宽）：越界一旦放行，读、写、执行三种后果都在同一格
-	// 能力里——远端路径的"只读访问"不是一个可以单独立起来的档。`rwes` 里的 s 是
-	// 提权（sudo）维度，框架没有这一位，它由组的 Default（ask）与 missing_bit 表达。
-	PermissionGroupSSHUserspace = "ssh.userspace"
 )
 
 // 位值（r=4 / w=2 / x=1，与 Seele 权限框架的位口径同源）。
@@ -50,10 +43,9 @@ func PermissionGroupNames() []string {
 	return []string{
 		PermissionGroupRO, PermissionGroupRW, PermissionGroupRWSession,
 		PermissionGroupRWDesktop, PermissionGroupCTL, PermissionGroupADM,
-		// 远端两格（2026-10-2x）：ssh 是通道能力，ssh.userspace 是越界访问。
-		// 追加在末尾而不是插在中间：规范组序同时是装配面板的格子顺序，动既有格子的
-		// 位置会让已经落盘/已被引用的向量与面板排布跟着漂移。
-		PermissionGroupSSH, PermissionGroupSSHUserspace,
+		// SSH 是单一远端能力；远端根内/外由该能力下的路径白名单细分，不再拆成
+		// 第二枚权限。追加在末尾保持既有组序稳定。
+		PermissionGroupSSH,
 	}
 }
 
@@ -91,15 +83,29 @@ func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error
 	}
 	normalized := make(map[string]uint8, len(groups))
 	for group, bits := range groups {
-		if !ValidPermissionGroup(group) {
+		canonical := CanonicalPermissionGroup(group)
+		if !ValidPermissionGroup(canonical) {
 			return nil, &PermissionGroupError{Group: group, Reason: "未知路由组（取值见 dto.PermissionGroupNames）"}
 		}
 		if bits&^PermissionBitAll != 0 {
 			return nil, &PermissionGroupError{Group: group, Reason: "位值越界（r=4 / w=2 / x=1，最大 7）"}
 		}
-		normalized[group] = bits
+		normalized[canonical] |= bits
 	}
 	return normalized, nil
+}
+
+// CanonicalPermissionGroup 把旧版保存值迁移到当前能力词表。
+//
+// 2026-10-24 起 `ssh.userspace` 并入 `ssh`：权限只有一枚 SSH 钥匙，路径白名单
+// 只是该能力的装配细节。旧向量与旧权限表继续可读，写入侧统一落成 `ssh`。
+func CanonicalPermissionGroup(group string) string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "ssh.userspace":
+		return PermissionGroupSSH
+	default:
+		return strings.ToLower(strings.TrimSpace(group))
+	}
 }
 
 // 主会话权限档位（tier）的 id：**主 agent（root 主体）在本会话的自动度档位**。

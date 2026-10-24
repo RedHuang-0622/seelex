@@ -132,6 +132,13 @@ func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T) {
 		}
 		return nil
 	})
+	runtime.SetSessionWorkspace("s-main", "project-main")
+	runtime.SetSessionSSHEnvResolver(func(sessionID, _ string) string {
+		if sessionID == "s-main" {
+			return "test"
+		}
+		return ""
+	})
 
 	if _, err := runtime.runRoleRound(context.Background(), runtime.workerRoleRoundSpec(teamwork.WorkerRequest{
 		MainSessionID: "s-main", Role: "impl_ui", RoleSessionID: "role-impl-ui",
@@ -159,6 +166,10 @@ func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T) {
 	userSpaces, ok := toolreg.RemoteUserSpacesFromContext(ctxs[0])
 	if !ok || len(userSpaces) != 1 || userSpaces[0] != "/home/seelex/.cache" {
 		t.Fatalf("角色回合必须带入用户空间允许范围，得到 %v ok=%v", userSpaces, ok)
+	}
+	binding, ok := toolreg.TransportBindingFromContext(ctxs[0])
+	if !ok || binding.ProjectID != "project-main" || binding.Env != "test" {
+		t.Fatalf("角色回合必须继承 mainagent 的固定环境，得到 %+v ok=%v", binding, ok)
 	}
 }
 

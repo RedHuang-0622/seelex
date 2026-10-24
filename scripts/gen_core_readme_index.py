@@ -146,7 +146,7 @@ ROOT_GROUPS = (
     VolumeSpec("subagent", "子代理投影集成测试", ("subagent",)),
     VolumeSpec("goal", "goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归", ("goal",)),
     VolumeSpec("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ("agentteam", "role_session"), ("role_turn.go", "role_turn_test.go")),
-    VolumeSpec("permission", "角色默认/会话覆盖的权限向量、账号选择、继承与 SSH 用户空间范围", ("role_permissions",)),
+    VolumeSpec("permission", "角色默认/会话覆盖的权限向量、账号选择、继承与 SSH 路径白名单", ("role_permissions",)),
     VolumeSpec("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ("composer",)),
     VolumeSpec("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ("archive",), ("close_semantics_test.go",)),
     # P8/R10b（2026-10-17）：`aliases.go` 已删，拆成 `vocabulary.go`（词表与错误值）与

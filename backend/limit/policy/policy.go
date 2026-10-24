@@ -91,11 +91,9 @@ const (
 	GroupRWDesktop = dto.PermissionGroupRWDesktop // 写簇：共享外设（一块桌面，子代理无位）
 	GroupCTL       = dto.PermissionGroupCTL       // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
 	GroupADM       = dto.PermissionGroupADM       // 属主簇：改变能力面本身（仅 root）
-	// GroupSSH / GroupSSHUserspace 是**按面判定的两组**（2026-10-2x，ssh 工作项）：
-	// 它们说的不是"改不改共享状态"（操作类型），而是"这次调用打到哪台机器、以及要不要
-	// 走出对端的项目根"。判据接在路径门上（见 backend/tool/registry 的 path_gate_face.go）。
-	GroupSSH          = dto.PermissionGroupSSH
-	GroupSSHUserspace = dto.PermissionGroupSSHUserspace
+	// GroupSSH 是**唯一的远端能力**：允许把调用打到会话固定环境对应的远端执行面。
+	// 远端根内/外由该能力下的路径白名单细分，不再拆成第二枚权限。
+	GroupSSH = dto.PermissionGroupSSH
 )
 
 // RemoteFaceGroupBits 返回"按面判定"两组的组位（判据单点）。
@@ -157,15 +155,15 @@ const (
 // adm 改能力面本身。
 func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 	return []toolspermission.PermissionGroup{
-		// ── 按**面**判定的两组（2026-10-2x，ssh 工作项）──────────────────────
+		// ── SSH 远端能力（单组）────────────────────────────────────────────
 		//
 		// 为什么放在表头：路由是 LMRW（最后匹配胜出），这两组**不接管任何工具的名字
 		// 路由**——同一支 read_file / bash 既能跑本地也能跑远端，名字里没有这个信息，
 		// 名字路由再怎么排也分不出这两件事。真正的判据在"已定的执行面"上（决策段
 		// 写进 ctx，路径门读它，见 registry 的 path_gate_face.go）：
 		//
-		//	远端面本身        → 要 ssh 位（x，通道能力）
-		//	远端面上走出远端根 → 要 ssh.userspace 位（r|w|x）
+		//	远端面本身        → 要 ssh 位（x）
+		//	远端面上走出远端根 → 仍用同一 ssh 位；路径白名单是它的配置细节
 		//
 		// 那 Match 这一栏在这里是什么？**声明远端执行面的工具清单**：组的 Match 是
 		// "这一族能力会落在哪些工具上"的唯一写法，registry 的 RemoteFaceToolNames()
@@ -179,18 +177,8 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Match: []string{
 				// 与 registry.RemoteFaceToolNames() 是同一份数据（它从这一栏派生）。
 				// 新增远端面工具时改这里一处，选择器的消费者闸门跟着变。
-				"read_file", "write_file", "edit_file", "bash", "bg_manage",
+				"read_file", "write_file", "edit_file", "bash", "bash_bg", "bg_manage",
 			},
-		},
-		{
-			Name: GroupSSHUserspace,
-			// 位 = r|w|x：越界一旦放行，读/写/执行三种后果同在一个格子里，
-			// "远端只读越界"不是一个能单独立起来的档（见 dto 的组注释）。
-			Mode: BitRead | BitWrite | BitExecute,
-			// 默认 ask 表达"越界要先问人"。真正的硬判据在路径门（无位即拒，带固定
-			// 错误码），这一格只在有人把这组挂到工具名上时才参与框架判定。
-			Default: toolspermission.ActionAsk,
-			Match:   []string{"read_file", "write_file", "edit_file", "bash", "bg_manage"},
 		},
 		{
 			Name:    GroupRO,
@@ -292,46 +280,37 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 // root 全位（含 desktop / session）；sub 拿满项目写位但 ctl/adm 断位、无共享外设位；
 // 员工按 ToolsPolicy 两档（只读 / 读+项目写），ctl/adm 与共享外设同样断位。
 //
-// 远端两格的口径（2026-10-2x，ssh 工作项）：
-//   - `ssh`（通道位 x）**默认给所有主体**：把调用打到远端不是新能力，这条路径在
-//     本工作项之前就一直可达（连项目 + 探针通即走远端）。默认给位 = 行为不变；要收回
-//     就在向量里写 `!ssh`，那会真的拦住（判据见路径门）。
-//   - `ssh.userspace`（越界位）**默认谁都不给**：它是本工作项要立的那道闸门，默认
-//     放行等于没装。
+// `ssh`（x）是唯一的远端能力位；默认给所有主体，向量里的 `!ssh` 会真正拦住。
 func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.SubjectGrant {
 	root := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:           {Bits: BitRead},
-		GroupRW:           {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
-		GroupRWSession:    {Bits: BitRead | BitWrite, Resources: []string{ResourceSession}},
-		GroupRWDesktop:    {Bits: BitRead | BitWrite, Resources: []string{ResourceDesktop}},
-		GroupCTL:          {Bits: BitExecute},
-		GroupADM:          {Bits: BitAll},
-		GroupSSH:          {Bits: BitExecute},
-		GroupSSHUserspace: {Bits: BitRead | BitWrite | BitExecute},
+		GroupRO:        {Bits: BitRead},
+		GroupRW:        {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
+		GroupRWSession: {Bits: BitRead | BitWrite, Resources: []string{ResourceSession}},
+		GroupRWDesktop: {Bits: BitRead | BitWrite, Resources: []string{ResourceDesktop}},
+		GroupCTL:       {Bits: BitExecute},
+		GroupADM:       {Bits: BitAll},
+		GroupSSH:       {Bits: BitExecute},
 	}}
 	sub := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:           {Bits: BitRead},
-		GroupRW:           {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
-		GroupCTL:          {Bits: 0},
-		GroupADM:          {Bits: 0},
-		GroupSSH:          {Bits: BitExecute},
-		GroupSSHUserspace: {Bits: 0},
+		GroupRO:  {Bits: BitRead},
+		GroupRW:  {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
+		GroupCTL: {Bits: 0},
+		GroupADM: {Bits: 0},
+		GroupSSH: {Bits: BitExecute},
 	}}
 	employeeRO := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:           {Bits: BitRead},
-		GroupRW:           {Bits: 0},
-		GroupCTL:          {Bits: 0},
-		GroupADM:          {Bits: 0},
-		GroupSSH:          {Bits: BitExecute},
-		GroupSSHUserspace: {Bits: 0},
+		GroupRO:  {Bits: BitRead},
+		GroupRW:  {Bits: 0},
+		GroupCTL: {Bits: 0},
+		GroupADM: {Bits: 0},
+		GroupSSH: {Bits: BitExecute},
 	}}
 	employeeRW := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:           {Bits: BitRead},
-		GroupRW:           {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
-		GroupCTL:          {Bits: 0},
-		GroupADM:          {Bits: 0},
-		GroupSSH:          {Bits: BitExecute},
-		GroupSSHUserspace: {Bits: 0},
+		GroupRO:  {Bits: BitRead},
+		GroupRW:  {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
+		GroupCTL: {Bits: 0},
+		GroupADM: {Bits: 0},
+		GroupSSH: {Bits: BitExecute},
 	}}
 	return map[toolspermission.Subject]toolspermission.SubjectGrant{
 		SubjectForClass(SubjectClassRoot):       root,

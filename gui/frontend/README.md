@@ -463,7 +463,8 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
   应用」。角色页只保留 goalplan / mainagent / subagent / teammate 四张角色卡；权限、
   账户、余额与上下文窗口都在所属角色卡内，账户增改走 `#account-add-modal`、删除走
   `#account-delete-modal`。角色默认与会话覆盖是两块独立的板；继承 chip 只锁角色默认。
-  项目 SSH 连接表只在 `#project-settings-modal`，全局设置不含 SSH。
+  项目工作环境表只在 `#project-settings-modal`；会话首次固定的工作环境在项目标题区
+  独立入口。全局设置不含 SSH。
 - **对话里的 EXEC / ADVISOR 区分（2026-09-15 二改：颜色高亮也去掉）**：两个 agent
   的 provider role 都是 `assistant`，`components.js` 仍按 `role_name` 给消息加
   `is-exec` / `is-advisor` 类，但 `styles.css` 第 20 节**只保留发言人名的着色**

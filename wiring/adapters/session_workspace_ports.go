@@ -717,6 +717,18 @@ func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID 
 	return pendingTailDTO(report), ok, err
 }
 
+// AppendDraftSnapshotWorkspace 把 transcript 后缀映射成 message 事件行并写入
+// 草稿尾；返回实际追加行数。
+func (port SessionPort) AppendDraftSnapshotWorkspace(projectID, sessionID string, events []model.TranscriptEvent) (int, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return 0, false, nil
+	}
+	rows, ok, err := port.Manager.Router().AppendMessageDraftWorkspace(
+		projectID, sessionID, storeTranscriptEvents(events),
+	)
+	return len(rows), ok, err
+}
+
 // pendingTailDTO 把存储层报告映射成跨层 DTO（正文行本身不跨层：应用侧只需要
 // 状态/行数/区间来做「探测 → 决策 → 恢复|丢弃」与向用户呈现）。
 func pendingTailDTO(report store.PendingTailReport) dto.PendingMessageTailReport {
@@ -1175,6 +1187,33 @@ func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (mode
 		return model.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
+}
+
+// LoadSessionResumeRecordWorkspace 是冷加载专用读面：有 compact 指针时只
+// 派生指针之后的可见后缀，并带回完整总数；没有 compact 指针时与完整 record
+// 派生语义相同。bool=false 表示存储未提供 v8 布局能力。
+func (port SessionPort) LoadSessionResumeRecordWorkspace(workspaceID, id string) (model.SessionRecord, int, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return model.SessionRecord{}, 0, false, nil
+	}
+	payload, total, handled, err := port.Manager.Router().DerivedResumeRecordWorkspace(workspaceID, id)
+	if err != nil {
+		if store.IsSessionNotFound(err) {
+			return model.SessionRecord{}, 0, false, nil
+		}
+		return model.SessionRecord{}, 0, handled, err
+	}
+	if !handled {
+		return model.SessionRecord{}, 0, false, nil
+	}
+	record, err := decodeSessionRecord(payload, id)
+	if err != nil {
+		return model.SessionRecord{}, 0, true, err
+	}
+	if total <= 0 {
+		total = len(record.Conversation.Messages)
+	}
+	return record, total, true, nil
 }
 
 // deriveSessionRecord 从该会话自身的事件流构造最小 SessionRecord（S20：

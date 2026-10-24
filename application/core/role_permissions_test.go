@@ -18,22 +18,26 @@ import (
 // rolePermissionFakeSessions 是实现了可选的登记/五层端口的会话端口桩。
 type rolePermissionFakeSessions struct {
 	fakeSessions
-	mu       sync.Mutex
-	vectors  map[string]map[string][]string
-	defaults map[string]map[string][]string
-	accounts map[string]map[string]string
-	inherits map[string]map[string]bool
-	spaces   map[string]map[string][]string
-	layers   dto.RoleSettingsLayers
+	mu          sync.Mutex
+	vectors     map[string]map[string][]string
+	defaults    map[string]map[string][]string
+	accounts    map[string]map[string]string
+	inherits    map[string]map[string]bool
+	spaces      map[string]map[string][]string
+	spacesSet   map[string]map[string]bool
+	defaultsSSH map[string][]string
+	layers      dto.RoleSettingsLayers
 }
 
 func newRolePermissionFakeSessions() *rolePermissionFakeSessions {
 	return &rolePermissionFakeSessions{
-		vectors:  map[string]map[string][]string{},
-		defaults: map[string]map[string][]string{},
-		accounts: map[string]map[string]string{},
-		inherits: map[string]map[string]bool{},
-		spaces:   map[string]map[string][]string{},
+		vectors:     map[string]map[string][]string{},
+		defaults:    map[string]map[string][]string{},
+		accounts:    map[string]map[string]string{},
+		inherits:    map[string]map[string]bool{},
+		spaces:      map[string]map[string][]string{},
+		spacesSet:   map[string]map[string]bool{},
+		defaultsSSH: map[string][]string{},
 	}
 }
 
@@ -137,16 +141,36 @@ func (fake *rolePermissionFakeSessions) SetRoleInheritance(sessionID, role strin
 func (fake *rolePermissionFakeSessions) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	return append([]string{}, fake.spaces[sessionID][role]...), nil
+	if fake.spacesSet[sessionID][role] {
+		return append([]string{}, fake.spaces[sessionID][role]...), nil
+	}
+	return append([]string{}, fake.defaultsSSH[role]...), nil
+}
+
+func (fake *rolePermissionFakeSessions) RoleDefaultSSHUserSpaces(_ string, role string) ([]string, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return append([]string{}, fake.defaultsSSH[role]...), nil
 }
 
 func (fake *rolePermissionFakeSessions) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
+	fake.defaultsSSH[role] = append([]string{}, paths...)
+	return nil
+}
+
+func (fake *rolePermissionFakeSessions) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
 	if fake.spaces[sessionID] == nil {
 		fake.spaces[sessionID] = map[string][]string{}
 	}
+	if fake.spacesSet[sessionID] == nil {
+		fake.spacesSet[sessionID] = map[string]bool{}
+	}
 	fake.spaces[sessionID][role] = append([]string{}, paths...)
+	fake.spacesSet[sessionID][role] = true
 	return nil
 }
 
@@ -378,6 +402,26 @@ func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T) {
 	paths, err = service.RoleSSHUserSpaces("sess-1", "teammate")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/tmp/stale"}) {
 		t.Fatalf("关闭继承后 paths=%v err=%v，want 角色自己的 /tmp/stale", paths, err)
+	}
+}
+
+func TestSessionSSHUserSpacesOverrideDefaultAndFollowInheritance(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if err := service.SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/default"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetRoleSessionSSHUserSpaces("sess-1", "agent", []string{"/srv/session"}); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/session"}) {
+		t.Fatalf("teammate 应继承 mainagent 的会话覆盖: paths=%v err=%v", paths, err)
+	}
+	paths, err = service.RoleSSHUserSpaces("sess-2", "agent")
+	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/default"}) {
+		t.Fatalf("其它会话应回落角色默认: paths=%v err=%v", paths, err)
 	}
 }
 

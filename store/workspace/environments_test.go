@@ -9,7 +9,7 @@ import (
 // environments_test.go 钉住项目侧多环境表的口径：
 //  1. 环境名 → 端点，逐环境口令分开存（给 dev 存的口令不能被 prod 读到）；
 //  2. 第一个环境自动成为默认；默认可以显式改，但不能指向不存在的环境；
-//  3. 空端点保存 = 删除该环境（UI 清空表单就是撤销）；
+//  3. 空端点保存 = 本地环境（不经过 SSH）；删除必须显式调用删除面；
 //  4. 换一个 Repo 实例（重新读盘）也读得回来。
 func newEnvironmentRepo(t *testing.T) (*Repo, string) {
 	t.Helper()
@@ -106,21 +106,31 @@ func TestEnvironmentDefaultValidation(t *testing.T) {
 	}
 }
 
-func TestEnvironmentEmptyEndpointDeletes(t *testing.T) {
+func TestEnvironmentEmptyEndpointPersistsAsLocal(t *testing.T) {
 	repo, id := newEnvironmentRepo(t)
 	pass := "x"
 	if _, err := repo.SetEnvironment(id, "dev", Environment{SSHEndpoint: SSHEndpoint{Host: "dev.example.com", User: "u"}}, &pass); err != nil {
 		t.Fatalf("SetEnvironment: %v", err)
 	}
 	if _, err := repo.SetEnvironment(id, "dev", Environment{}, nil); err != nil {
-		t.Fatalf("空端点保存该等于删除: %v", err)
+		t.Fatalf("空端点应保存为本地环境: %v", err)
 	}
 	list, defaultEnv, err := repo.Environments(id)
 	if err != nil {
 		t.Fatalf("Environments: %v", err)
 	}
+	if len(list) != 1 || list[0].Name != "dev" || list[0].Host != "" || defaultEnv != "dev" {
+		t.Fatalf("本地环境 = %#v default=%q, want dev + 空 host", list, defaultEnv)
+	}
+	if list[0].PasswordSet {
+		t.Fatal("本地环境不该保留 SSH 口令")
+	}
+	if err := repo.DeleteEnvironment(id, "dev"); err != nil {
+		t.Fatalf("显式删除: %v", err)
+	}
+	list, defaultEnv, _ = repo.Environments(id)
 	if len(list) != 0 || defaultEnv != "" {
-		t.Fatalf("删除后 = %#v default=%q, want 空表 + 空默认", list, defaultEnv)
+		t.Fatalf("删除后 = %#v default=%q", list, defaultEnv)
 	}
 }
 
@@ -138,6 +148,25 @@ func TestEnvironmentNameValidation(t *testing.T) {
 		if _, err := repo.SetEnvironment(id, name, Environment{SSHEndpoint: SSHEndpoint{Host: "h", User: "u"}}, &pass); err != nil {
 			t.Fatalf("环境名 %q 该被接受: %v", name, err)
 		}
+	}
+}
+
+func TestLocalEnvironmentRejectsSSHPasswordAndSurvivesReload(t *testing.T) {
+	repo, id := newEnvironmentRepo(t)
+	password := "should-not-exist"
+	if _, err := repo.SetEnvironment(id, "dev", Environment{}, &password); err == nil {
+		t.Fatal("本地环境不该接受 SSH 口令")
+	}
+	if _, err := repo.SetEnvironment(id, "dev", Environment{Note: "local checkout"}, nil); err != nil {
+		t.Fatalf("SetEnvironment(local): %v", err)
+	}
+	reopened, err := NewRepoWithStore(filepath.Dir(repo.savePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, defaultEnv, err := reopened.Environments(id)
+	if err != nil || len(list) != 1 || list[0].Host != "" || list[0].Note != "local checkout" || defaultEnv != "dev" {
+		t.Fatalf("list=%+v default=%q err=%v", list, defaultEnv, err)
 	}
 }
 

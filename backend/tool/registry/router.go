@@ -44,8 +44,7 @@ type Deps struct {
 	// AsyncBatchID 解析某会话当前的 chat 请求 ID（= 工作表格的批次键）。后台执行
 	// 派发时要盖上它，否则投影出来的行会掉进"早期任务"批次里，看不出是谁起的。
 	AsyncBatchID func(sessionID string) string
-	// FacePermission 回答"本次调用在某个**按面判定**的路由组上位齐吗"（组名 →
-	// policy.GroupSSH / policy.GroupSSHUserspace）。第二个返回值报告判据是否接管：
+	// FacePermission 回答"本次调用在 SSH 能力组上位齐吗"。第二个返回值报告判据是否接管：
 	// false = 不接管（配置未装配等）→ 调用方按旧行为处理。
 	//
 	// 为什么是函数值端口而不是直接拿 PermissionGate：路径门只要"给不给位"这一个答案，

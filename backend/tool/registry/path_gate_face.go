@@ -3,8 +3,8 @@ package registry
 // path_gate_face.go —— 路径门**按已定执行面取根**（本工作项的第二个落点）。
 //
 // 之前的口径：路径门一律按**本地**项目根判包含关系。问题是"这次走不走远端"要等
-// 权限门之后的选择段才知道，于是**自动选中 ssh** 的调用（项目配了连接 + 探针通 +
-// 调用方未指名）会被本地根判成越界直接拒——远端绝对路径（/etc/nginx/nginx.conf）
+// 权限门之后的选择段才知道，于是会话固定到 SSH 环境的调用会被本地根判成越界
+// 直接拒——远端绝对路径（/etc/nginx/nginx.conf）
 // 根本不是本地路径。旧口径只给**显式指名 ssh** 开了豁免，自动选中那一格是误拒。
 //
 // 现在：决策段已经在路径门之前把"这次走哪个面"算成 ctx 上的事实
@@ -13,10 +13,10 @@ package registry
 //	本地面（local，含所有降级）→ **项目根**（resolveScopedPath，判据仍是那一处），
 //	                              越界直接拒（P1：不先弹一次没用的审批）。
 //	远端面（ssh）             → **远端项目根**；远端根未知时**不做本地根判定**。远端
-//	                              路径属对端命名空间，越界与否由 `ssh.userspace` 判。
-//	                              本门是**那道闸门的落点**（2026-10-2x）：越界候选不再
-//	                              只是"交接事实"，而是"没有 ssh.userspace 就拒"，并
-//	                              带可结构化区分的错误码；远端面本身另要 `ssh` 通道位。
+//	                              路径属对端命名空间，越界者由同一 `ssh` 能力下的路径
+//	                              白名单裁定；远端面本身还要求 `ssh` 通道位。
+//	                              越界候选不再只是"交接事实"，而是"不在白名单就拒"，
+//	                              并带可结构化区分的错误码。
 //	                              （RemotePathHandoff 仍然写进 ctx，供诊断与用例读。）
 //
 // 相对路径：本地面照旧按项目根解析（`../..` 这类越界必须在这里就拒，不能等到 handler
@@ -98,19 +98,20 @@ func localPathRoot(deps Deps, ctx context.Context) string {
 //
 // 它的角色在 2026-10-2x 变了：以前是**唯一的**结论（"交给权限门，本门不下判断"），
 // 现在它只是**留痕**——判据已经在路径门里落地（requireRemoteFacePermission），越界
-// 而无 ssh.userspace 的调用根本走不到这里。保留这一格是为了诊断与用例能读出"这次
-// 为什么用了 userspace 权限"（哪几条路径在外面）。
+// 且不在 SSH 路径白名单内的调用根本走不到这里。保留这一格是为了诊断与用例能读出
+// "哪几条路径越过了远端项目根"。
 type RemotePathHandoff struct {
 	Face PathGateFace
 	// RemoteRoot 是本次用的远端项目根（空 = 未知，此时按本地根当筛子得出的候选）。
 	RemoteRoot string
-	// Candidates 是已按 ssh.userspace 过问过的路径（原样，未改写）。
+	// Candidates 是已按 SSH 路径白名单过问过的路径（原样，未改写）。
 	Candidates []string
 }
 
 type remotePathHandoffKey struct{}
 
-// remoteUserSpacesContext 是**显式安装的** ssh.userspace 路径允许范围。
+// remoteUserSpacesContext 是**显式安装的** SSH 路径允许范围。它属于 `ssh` 能力，
+// 不是第二枚权限。
 // present=false（没有这个值）表示调用面没有接路径列表，保持旧行为；
 // present=true 且 paths 为空表示 fail-closed。
 type remoteUserSpacesContext struct {
@@ -138,7 +139,7 @@ func remoteUserSpacesFromContext(ctx context.Context) (remoteUserSpacesContext, 
 	return value, ok
 }
 
-// RemoteUserSpacesFromContext 读回本轮的 ssh.userspace 路径允许范围。
+// RemoteUserSpacesFromContext 读回本轮的 SSH 路径允许范围。
 func RemoteUserSpacesFromContext(ctx context.Context) ([]string, bool) {
 	value, ok := remoteUserSpacesFromContext(ctx)
 	return append([]string{}, value.paths...), ok
@@ -221,7 +222,7 @@ func remotePathInside(root, candidate string) bool {
 	return true
 }
 
-// ── 两道按面判定的闸门（本工作项的核心）────────────────────────────────
+// ── SSH 能力与路径白名单 ──────────────────────────────────────────────
 
 // 按面判定的错误码。它们**不是** TransportError 的码：那五个码说的是"连不上/认证
 // 失败"，而这里说的是"权限不足"。两面混用会让"被拒"与"连不上"在同一处被判成同一件
@@ -229,22 +230,17 @@ func remotePathInside(root, candidate string) bool {
 const (
 	// CodePermSSHRequired 表示这次调用要打远端，但主体没有 ssh 通道位。
 	CodePermSSHRequired = "PERM_SSH_REQUIRED"
-	// CodePermSSHUserspaceRequired 表示这次调用要走远端项目根之外，但主体没有
-	// ssh.userspace 位。
-	CodePermSSHUserspaceRequired = "PERM_SSH_USERSPACE_REQUIRED"
-	// CodePermSSHUserspacePathDenied 表示已有 ssh.userspace 能力，但目标路径不在
-	// 角色明确列出的远端用户空间允许范围内。
-	CodePermSSHUserspacePathDenied = "PERM_SSH_USERSPACE_PATH_DENIED"
+	// CodePermSSHPathDenied 表示已有 ssh 能力，但目标路径不在角色允许范围内。
+	CodePermSSHPathDenied = "PERM_SSH_PATH_DENIED"
 )
 
 // FacePermissionError 是"按面判定的权限不足"（结构化：带组名与固定码）。
 //
-// 结构化而不是一句文案：界面/用例/工具层要能分开回答"缺的是通道位还是越界位"，
-// 并把这个结论原样报给宿主人类（缺哪一格就补哪一格）。
+// 结构化而不是一句文案：界面/用例/工具层要能区分"缺 ssh 能力"与"路径不白名单"。
 type FacePermissionError struct {
-	// Code 是固定码（CodePermSSHRequired / CodePermSSHUserspaceRequired）。
+	// Code 是固定码（CodePermSSHRequired / CodePermSSHPathDenied）。
 	Code string
-	// Group 是缺位的路由组名（policy.GroupSSH / policy.GroupSSHUserspace）。
+	// Group 是缺位的路由组名（当前只有 policy.GroupSSH）。
 	Group string
 	// Paths 是触发这次拒绝的远端路径（通道位缺失时为空）。
 	Paths []string
@@ -285,12 +281,10 @@ func IsFacePermissionError(err error, groups ...string) bool {
 	return false
 }
 
-// requireRemoteFacePermission 是远端面上的两道门（顺序即优先级）。
+// requireRemoteFacePermission 是远端面的同一道 SSH 能力门 + 路径白名单。
 //
-//	① 通道位：远端面本身要 `ssh`（x）。没有就拒——这是"这次调用打到对端"这件事的
-//	   授权，与它做什么无关。
-//	② 越界位：路径走出远端根时再要 `ssh.userspace`（r|w|x）。没有就拒，**绝不静默
-//	   放行到对端**（静默放行等于把"远端项目根"这条边界当成装饰）。
+// `ssh` 是唯一能力位；远端根内/外是同一能力的路径范围问题。路径不在角色白名单内
+// 就拒，**绝不静默放行到对端**。
 //
 // 判据来自 Deps.FacePermission（装配层接的是权限门本体，与 Enforce 同一份向量），
 // 因此这里不会长出第二套"谁能干什么"。未装配（nil）或判据不接管（decided=false）时
@@ -303,19 +297,11 @@ func requireRemoteFacePermission(deps Deps, ctx context.Context, candidates []st
 		return &FacePermissionError{
 			Code: CodePermSSHRequired, Group: policy.GroupSSH,
 			Msg: "这次调用要打到远端执行面，但当前主体没有 ssh 通道权限（位 x）；" +
-				"在权限装配里授予 ssh，或显式指名 transport=local 在本机执行",
+				"请为该 agent role 授予 ssh；会话工作环境固定后不能由 agent 切换",
 		}
 	}
 	if len(candidates) == 0 {
 		return nil
-	}
-	if granted, decided := deps.FacePermission(ctx, policy.GroupSSHUserspace); decided && !granted {
-		return &FacePermissionError{
-			Code: CodePermSSHUserspaceRequired, Group: policy.GroupSSHUserspace,
-			Paths: append([]string(nil), candidates...),
-			Msg: "这些路径在远端项目根之外（远端用户空间），当前主体没有 ssh.userspace 权限；" +
-				"改用远端项目根内的路径（或在项目连接配置里填对远端工作目录），或授予 ssh.userspace",
-		}
 	}
 	if spaces, installed := remoteUserSpacesFromContext(ctx); installed {
 		denied := make([]string, 0, len(candidates))
@@ -333,10 +319,10 @@ func requireRemoteFacePermission(deps Deps, ctx context.Context, candidates []st
 		}
 		if len(denied) > 0 {
 			return &FacePermissionError{
-				Code: CodePermSSHUserspacePathDenied, Group: policy.GroupSSHUserspace,
+				Code: CodePermSSHPathDenied, Group: policy.GroupSSH,
 				Paths: denied,
-				Msg: "这些远端用户空间路径不在该角色明确放行的目录内；" +
-					"请角色设置里补充对应路径，或改用远端项目根内路径",
+				Msg: "这些远端路径不在该角色允许的目录内；" +
+					"请在 SSH 能力设置里补充路径，或改用远端项目根内路径",
 			}
 		}
 	}

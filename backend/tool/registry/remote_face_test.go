@@ -1,10 +1,10 @@
 package registry
 
-// remote_face_test.go —— 五个内置工具的**远端面判据**（假传输驱动，不碰网络）。
+// remote_face_test.go —— 六个内置工具的**远端面判据**（假传输驱动，不碰网络）。
 //
 // 六个判据，每个都对应一条硬缺口：
 //
-//  1. 读/写/改/跑/后台五个工具在选中 ssh 时**真的走远端面**，且回执自报
+//  1. 读/写/改/跑/前台与后台六个工具在选中 ssh 时**真的走远端面**，且回执自报
 //     execution_surface 与 env；
 //  2. 远端路径与命令正文**原样**送到对端（不做本地根解析、不改写命令里的路径）；
 //  3. 内容与 stdin 数据作为**独立字段**送出（不拼进命令正文）；
@@ -296,6 +296,34 @@ func TestLocalBashReceiptMarksSurface(t *testing.T) {
 }
 
 // ── 5) bg_manage：远端面 ────────────────────────────────────────────
+
+func TestRemoteBashBackgroundUsesRemoteStartAndKeepsReceiptShape(t *testing.T) {
+	fake := &fakeTransport{
+		name: "ssh-bg",
+		startOut: TransportManageOutput{
+			Handle: "ssh:Li4vc3J2L2FwcA", LogPath: "/tmp/seelex-job/out",
+		},
+	}
+	router := remoteFaceRouter(t)
+	payload, err := router.scopedBashBg(sshContext(fake, "project-1", "test"),
+		`{"command":"npm run dev","description":"启动测试服务","workdir":"/srv/app"}`)
+	if err != nil {
+		t.Fatalf("scopedBashBg: %v", err)
+	}
+	fields := decodeReceipt(t, payload)
+	requireFace(t, fields, "ssh", "test")
+	if fields["status"] != "accepted" || fields["handle"] != "ssh:Li4vc3J2L2FwcA" ||
+		fields["log_path"] != "/tmp/seelex-job/out" {
+		t.Fatalf("remote bash_bg receipt = %v", fields)
+	}
+	calls := fake.startCalls()
+	if len(calls) != 1 || calls[0].Command != "npm run dev" || calls[0].Workdir != "/srv/app" {
+		t.Fatalf("remote Start calls = %+v", calls)
+	}
+	if len(fake.execCalls()) != 0 {
+		t.Fatal("background dispatch must not wait through Exec")
+	}
+}
 
 func TestRemoteBgManageRoutesRemoteHandles(t *testing.T) {
 	fake := &fakeTransport{manageOut: TransportManageOutput{

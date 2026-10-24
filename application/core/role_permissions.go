@@ -69,7 +69,9 @@ type roleDefaultPort interface {
 	RoleInheritance(sessionID, role string) (bool, bool, error)
 	SetRoleInheritance(sessionID, role string, inherit bool) error
 	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
+	RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)
 	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
+	SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error
 }
 
 // roleDefaultStore 取角色默认端口（未装配返回 nil）。
@@ -222,7 +224,7 @@ func (service *Service) SetRoleInheritMainAgent(sessionID, role string, inherit 
 	return port.SetRoleInheritance(sessionID, role, inherit)
 }
 
-// RoleSSHUserSpaces 读 ssh.userspace 的路径允许范围。
+// RoleSSHUserSpaces 读 SSH 能力的路径允许范围。
 func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
 	port := service.roleDefaultStore()
 	if port == nil {
@@ -234,9 +236,9 @@ func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, err
 		if err != nil {
 			return nil, err
 		}
-		// ssh.userspace 的路径范围与权限向量同属一份继承语义：默认继承时读
+		// SSH 路径范围与权限向量同属一份继承语义：默认继承时读
 		// mainagent 的范围；关闭继承后才读该角色自己的覆盖。否则子角色会显示
-		// “继承了 ssh.userspace”却因空路径而全部 fail-closed。
+		// “继承了 ssh”却因空路径而全部 fail-closed。
 		if !explicit || inherit {
 			return port.RoleSSHUserSpaces(sessionID, string(dto.RoleAgent))
 		}
@@ -244,7 +246,20 @@ func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, err
 	return port.RoleSSHUserSpaces(sessionID, role)
 }
 
-// SetRoleSSHUserSpaces 写 ssh.userspace 的路径允许范围（远端 POSIX 绝对路径）。
+// RoleDefaultSSHUserSpaces 读角色跨会话默认的 SSH 路径白名单，不叠加会话覆盖。
+func (service *Service) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error) {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return nil, ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if role == "" {
+		return nil, errors.New("role user spaces: role is required")
+	}
+	return port.RoleDefaultSSHUserSpaces(sessionID, role)
+}
+
+// SetRoleSSHUserSpaces 写 SSH 能力的路径允许范围（远端 POSIX 绝对路径）。
 func (service *Service) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
 	port := service.roleDefaultStore()
 	if port == nil {
@@ -259,6 +274,23 @@ func (service *Service) SetRoleSSHUserSpaces(sessionID, role string, paths []str
 		return err
 	}
 	return port.SetRoleSSHUserSpaces(sessionID, role, normalized)
+}
+
+// SetRoleSessionSSHUserSpaces 写当前会话中单个 agent role 的 SSH 路径覆盖。
+func (service *Service) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if sessionID == "" || role == "" {
+		return errors.New("role user spaces: session and role are required")
+	}
+	normalized, err := normalizeRemoteUserSpaces(paths)
+	if err != nil {
+		return err
+	}
+	return port.SetRoleSessionSSHUserSpaces(sessionID, role, normalized)
 }
 
 func normalizeRemoteUserSpaces(paths []string) ([]string, error) {

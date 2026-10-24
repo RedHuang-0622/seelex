@@ -3,7 +3,7 @@ package workspace
 // connection_remote_root_test.go —— **远端工作目录**（RemoteRoot）的存储判据。
 //
 // 为什么它值得单独一组：这一格是路径门在远端面上的取根口径（根内不需要
-// ssh.userspace，走出它才需要）。存错一个值，闸门就会judge错方向，而且不会有任何
+// SSH 路径白名单）。存错一个值，闸门就会判错方向，而且不会有任何
 // 报错面——所以"能存、能读回、坏值被拒"必须有用例钉住。
 
 import (

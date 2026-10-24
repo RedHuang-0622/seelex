@@ -60,7 +60,7 @@ type EnginePort struct {
 	sessionMaxLoops map[string]int
 	sessionBacked   bool
 	releaseWorking  bool
-	// roleUserSpaces 按主会话 + 账号角色读取 ssh.userspace 路径范围。
+	// roleUserSpaces 按主会话 + 账号角色读取 SSH 路径范围。
 	// 主代理走 ChatStream/ChatStreamFor，不经过 role-turn 的上下文包装，因此必须
 	// 在这里给主会话补同一份范围；角色回合随后用自己的 role 覆盖这一格。
 	roleUserSpaces func(sessionID, role string) []string
@@ -271,7 +271,7 @@ func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *te
 // 应用层不得在回调中重入 Engine 历史操作（见 chat.go ToolHookBridge）。
 func (port *EnginePort) SessionBacked() bool { return port.sessionBacked }
 
-// SetRoleUserSpacesProvider 注入主会话的 ssh.userspace 路径范围读面。
+// SetRoleUserSpacesProvider 注入主会话的 SSH 路径范围读面。
 func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string) {
 	if port == nil {
 		return

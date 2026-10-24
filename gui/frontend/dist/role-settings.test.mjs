@@ -29,7 +29,7 @@ const read = (name) => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 test("标签表就是那七项，id 即提交字面量", () => {
   assert.deepEqual(
     PERMISSION_VECTOR_TAGS.map(tag => tag.id),
-    ["read", "write", "computeruse", "control", "admin", "ssh", "ssh.userspace"],
+    ["read", "write", "computeruse", "control", "admin", "ssh"],
   );
   for (const tag of PERMISSION_VECTOR_TAGS) {
     assert.ok(tag.label && tag.tip, `${tag.id} 要有中文标签与一句说明`);
@@ -60,7 +60,6 @@ test("lint 与 permission-assembly §5 的四个 id 同名，只提示不拦截"
   assert.deepEqual(permissionVectorLint(["read"]), []);
   assert.deepEqual(permissionVectorLint(["ssh"]).map(w => w.id), ["assembly_ssh_only"]);
   assert.deepEqual(permissionVectorLint(["write"]).map(w => w.id), ["assembly_write_without_read"]);
-  assert.deepEqual(permissionVectorLint(["ssh.userspace"]).map(w => w.id), ["assembly_userspace_without_ssh"]);
   assert.deepEqual(permissionVectorLint(["admin"]).map(w => w.id), ["assembly_admin_without_control"]);
   // 成组的合规选择不出提示（ssh + read 是最常见的一组）。
   assert.deepEqual(permissionVectorLint(["read", "write", "ssh"]), []);
@@ -73,7 +72,7 @@ test("标签渲染：aria-pressed 跟着选择走，文本要转义", () => {
   const html = renderPermissionVectorHTML(["read", "ssh"]);
   assert.match(html, /data-perm-type="read"[^>]*aria-pressed="true"/);
   assert.match(html, /data-perm-type="write"[^>]*aria-pressed="false"/);
-  assert.match(html, /data-perm-type="ssh\.userspace"/);
+  assert.match(html, /data-perm-type="ssh"/);
   // 七枚都在（不多不少）。
   assert.equal((html.match(/data-perm-type=/g) || []).length, PERMISSION_VECTOR_TAGS.length);
   assert.doesNotMatch(renderPermissionVectorHTML(["nope"]), /data-perm-type="nope"/);
@@ -182,7 +181,7 @@ test("显式拒绝（!tag）必须原样保留：丢掉它就等于把「明确�
   // 后端"非空即封闭"会把员工没列出的组投影成 `!组`；存量员工的显式格子就是这种形状。
   // 旧实现把它当未知标签丢掉 → 用户一按保存就把"拒绝"变成"继承"，是静默放权。
   assert.deepEqual(normalizePermissionVector(["read", "!ssh"]), ["read", "!ssh"]);
-  assert.deepEqual(normalizePermissionVector(["!ssh.userspace", "ssh", "read"]), ["read", "ssh", "!ssh.userspace"]);
+  assert.deepEqual(normalizePermissionVector(["!ssh", "ssh", "read"]), ["read", "!ssh"]);
   // 去重
   assert.deepEqual(normalizePermissionVector(["!ssh", "!ssh"]), ["!ssh"]);
   // 同一标签既给又拒 → 按拒绝落地（fail-closed），且只保留一个形态
@@ -281,7 +280,10 @@ test("角色默认权限与会话权限分成两块 agent-role 面板", async ()
   assert.doesNotMatch(app, /SetRoleDefaultVector", permissionRoleSelected/, "单角色选择器已经退场");
   assert.match(app, /SetRoleSessionPermission/, "会话覆盖走独立提交路径");
   assert.match(app, /SetRoleInheritance/, "继承 chip 要写回后端");
-  assert.match(app, /SetRoleSSHUserSpaces/, "SSH 用户空间路径要写回后端");
+  assert.match(app, /SetRoleSessionSSHUserSpaces/, "会话 SSH 路径覆盖要写回后端");
+  assert.match(app, /SetRoleSSHUserSpaces/, "角色默认 SSH 路径要写回后端");
+  assert.match(app, /mode === "session" \? "SetRoleSessionSSHUserSpaces" : "SetRoleSSHUserSpaces"/);
+  assert.match(app, /mode === "session" \? row\?\.session_ssh_user_spaces : row\?\.default_ssh_user_spaces/);
   assert.doesNotMatch(app, /renderAccountBalanceRows\(\)/, "已退场的全局余额表不得留下悬空调用");
 });
 

@@ -63,16 +63,23 @@ func (r *Runtime) transportSelector() frameworktools.MetaMiddleware {
 		SessionKey: func(ctx context.Context) string {
 			return seetelemetry.SessionIDFromContext(ctx)
 		},
-		Project: func(_ context.Context, sessionID string) string {
+		Project: func(ctx context.Context, sessionID string) string {
+			if binding, ok := toolreg.TransportBindingFromContext(ctx); ok && binding.ProjectID != "" {
+				return binding.ProjectID
+			}
 			return r.sessionWorkspaceID(sessionID)
 		},
-		Endpoint:    r.sshEndpointForProject,
-		EndpointFor: r.sshEndpointForEnv,
-		EnvFor:      func(_ context.Context, sessionID string) string { return r.sessionSSHEnvFor(sessionID) },
-		EnvGranted:  func(_ context.Context, sessionID, env string) bool { return r.sessionSSHEnvGranted(sessionID, env) },
-		Probe:       proberVerdict(prober),
-		ProbeNow:    probeNow(prober),
-		Dial:        dialSSH,
+		Endpoint:       r.sshEndpointForProject,
+		EnvironmentFor: r.transportEnvironmentForEnv,
+		EnvFor: func(ctx context.Context, sessionID string) string {
+			if binding, ok := toolreg.TransportBindingFromContext(ctx); ok {
+				return binding.Env
+			}
+			return r.sessionSSHEnvFor(sessionID)
+		},
+		Probe:    proberVerdict(prober),
+		ProbeNow: probeNow(prober),
+		Dial:     dialSSH,
 	}
 	return toolreg.TransportSelector(deps)
 }
@@ -104,63 +111,38 @@ func (r *Runtime) sshEndpointForProject(projectID string) (toolreg.SSHEndpoint, 
 	return sshEndpoint(connection)
 }
 
-// sshEndpointForEnv 按**环境名**读项目环境表里的端点（工具参数 env 指名）。
+// transportEnvironmentForEnv 按会话固定环境名读项目环境表里的执行面。
 //
-// 查不到返回 ok=false：决策段据此给 SSH_ENV_UNKNOWN，**不回落单条连接/默认环境**
-// ——回落会静默连到另一台机器上，比报错贵得多。host 为空也算"查不到"（表里有行
-// 但没填地址 = 这个环境今天不可用，不是"用默认顶上"）。
-func (r *Runtime) sshEndpointForEnv(projectID, env string) (toolreg.SSHEndpoint, bool, error) {
+// 地址为空的环境是 local（例如 dev）；有端点才是 ssh（test/prod）。查不到仍返回
+// ok=false，绝不回落单条连接/默认环境。
+func (r *Runtime) transportEnvironmentForEnv(projectID, env string) (toolreg.TransportEnvironment, bool, error) {
 	port := r.workspaceEnvironmentPort()
 	if port == nil || strings.TrimSpace(env) == "" {
-		return toolreg.SSHEndpoint{}, false, nil
+		return toolreg.TransportEnvironment{}, false, nil
 	}
 	list, _, err := port.WorkspaceEnvironments(projectID)
 	if err != nil {
-		return toolreg.SSHEndpoint{}, false, err
+		return toolreg.TransportEnvironment{}, false, err
 	}
 	for _, item := range list {
 		if item.Name != env {
 			continue
 		}
-		if strings.TrimSpace(item.Host) == "" {
-			return toolreg.SSHEndpoint{}, false, nil
+		host, user := strings.TrimSpace(item.Host), strings.TrimSpace(item.User)
+		if host == "" && user == "" {
+			return toolreg.TransportEnvironment{Name: item.Name, Kind: toolreg.TransportLocal}, true, nil
 		}
-		return toolreg.SSHEndpoint{
-			Host: item.Host, Port: item.Port, User: item.User, RemoteRoot: item.RemoteRoot,
+		if host == "" || user == "" {
+			return toolreg.TransportEnvironment{}, false, nil
+		}
+		return toolreg.TransportEnvironment{
+			Name: item.Name, Kind: toolreg.TransportSSH,
+			Endpoint: toolreg.SSHEndpoint{
+				Host: host, Port: item.Port, User: user, RemoteRoot: item.RemoteRoot, Name: item.Name,
+			},
 		}, true, nil
 	}
-	return toolreg.SSHEndpoint{}, false, nil
-}
-
-// SetSessionSSHEnvGrantedResolver 注入"环境是否在该会话被放权"读面（装配期一次）。
-//
-// nil = 放权面未装配：执行面据此**拒绝一切指名环境的调用**（fail-closed），而不是
-// 当成"都放权了"——缺省不放权是这条链的地基。
-func (r *Runtime) SetSessionSSHEnvGrantedResolver(resolver func(sessionID, projectID, env string) bool) {
-	if r == nil {
-		return
-	}
-	r.sessionSSHEnvGrantMu.Lock()
-	defer r.sessionSSHEnvGrantMu.Unlock()
-	r.sessionSSHEnvGrant = resolver
-}
-
-// sessionSSHEnvGranted 报告某环境是否在该会话被放权（装配缺失 → false）。
-func (r *Runtime) sessionSSHEnvGranted(sessionID, env string) bool {
-	if r == nil || sessionID == "" || env == "" {
-		return false
-	}
-	r.sessionSSHEnvGrantMu.RLock()
-	resolver := r.sessionSSHEnvGrant
-	r.sessionSSHEnvGrantMu.RUnlock()
-	if resolver == nil {
-		return false
-	}
-	projectID := ""
-	if resolve := r.sessionWorkspaceFor(sessionID); resolve != nil {
-		projectID = resolve()
-	}
-	return resolver(sessionID, projectID, env)
+	return toolreg.TransportEnvironment{}, false, nil
 }
 
 // SetSessionSSHEnvResolver 注入"会话当前环境"读面（装配期调用一次；nil = 没有缺省）。
@@ -233,7 +215,7 @@ func (r *Runtime) workspaceConnectionPort() contract.WorkspaceConnectionPort {
 // 远端项目根（SSHEndpoint.RemoteRoot）从连接配置的 SSH.RemoteRoot 折出来
 // （2026-10-2x）：那一格填了，路径门在远端面上就按它判"根内 / 越界"；没填（空 =
 // 未知）就退回更保守的口径——把"本地根也容不下的绝对路径"全算成越界候选，交给
-// ssh.userspace 过问。两种情形都不猜根，判据只有一处（path_gate_face.go）。
+// SSH 路径白名单过问。两种情形都不猜根，判据只有一处（path_gate_face.go）。
 func sshEndpoint(connection model.WorkspaceConnection) (toolreg.SSHEndpoint, bool, error) {
 	if connection.SSH == nil || connection.SSH.Host == "" {
 		return toolreg.SSHEndpoint{}, false, nil

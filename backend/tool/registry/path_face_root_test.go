@@ -7,8 +7,8 @@ package registry
 //	1. 判据按面分派：无决策 = 本地面（旧口径，越界拒）；决策 = ssh → 不做本地根判定，
 //	   把越界候选交给权限门（RemotePathHandoff）；决策 = local → 仍按项目根拒。
 //	2. 远端面上相对路径不按本地根判（它是远端相对路径）；本地面照旧拒。
-//	3. 端到端（真实 NewRegistryState）：**自动选中 ssh**（配了连接 + 探针通 + 未指名）
-//	   + 远端绝对路径 → 不再被本地根误拒，且路径门确实跑在决策之后。
+//	3. 端到端（真实 NewRegistryState）：会话固定 SSH + 远端绝对路径 → 不再被本地根
+//	   误拒，且路径门确实跑在决策之后。
 //	4. 显式指名不可用仍报错不降级；决策段不探不建连（探针费在建连段付）。
 //
 // 全部用假传输/假探针驱动：不碰网络、不碰 sshd。
@@ -125,7 +125,7 @@ func TestPathGateJudgesByDecidedFace(t *testing.T) {
 			t.Fatalf("路径不得被改写：%s", seenPath)
 		}
 		if !heldOff || len(handoff.Candidates) != 1 || handoff.Candidates[0] != outside {
-			t.Fatalf("越界候选应作为交接事实交给权限门（ssh.userspace）：%+v held=%v", handoff, heldOff)
+			t.Fatalf("越界候选应作为交接事实交给 SSH 路径白名单：%+v held=%v", handoff, heldOff)
 		}
 	})
 }
@@ -146,14 +146,14 @@ func TestPathGateRemoteFaceKeepsRelativePathsUnjudged(t *testing.T) {
 	}
 }
 
-// TestAutoSelectedSSHNotRejectedByLocalRoot 是端到端判据：自动选中 ssh（未指名）时，
+// TestFixedSSHEnvironmentNotRejectedByLocalRoot 是端到端判据：会话固定 SSH 环境后，
 // 远端绝对路径不再被本地根误拒；并且路径门确实跑在决策段之后。
-func TestAutoSelectedSSHNotRejectedByLocalRoot(t *testing.T) {
+func TestFixedSSHEnvironmentNotRejectedByLocalRoot(t *testing.T) {
 	h := newSelectorHarness()
 	h.verdict, h.probed = TransportProbeVerdict{State: TransportProbeOK}, true
 	scope, _, outside := boundScope(t, h.sessionID)
 
-	deps := h.deps()
+	deps := bindHarnessEnvironment(h, h.deps(), "prod", TransportSSH)
 	deps.Consumers = TransportConsumers(ReadFileToolName)
 	// 路径门外面套一层探针：进入路径门时就**必须**已经能读到决策（链序的一部分）。
 	realGate := PathGate(faceDeps(scope, h.sessionID))
@@ -183,20 +183,19 @@ func TestAutoSelectedSSHNotRejectedByLocalRoot(t *testing.T) {
 	args := `{"path":` + quoteJSON(outside) + `}`
 	if _, err := state.Registry.Dispatch(context.Background(),
 		frameworktools.ToolCall{Name: ReadFileToolName, ArgumentsJSON: args}); err != nil {
-		t.Fatalf("自动选中 ssh 时远端绝对路径不该被拒：%v", err)
+		t.Fatalf("固定 SSH 环境时远端绝对路径不该被拒：%v", err)
 	}
 	if surface != string(TransportSSH) {
-		t.Fatalf("执行面 = %q, want ssh（自动选中的那一支）", surface)
+		t.Fatalf("执行面 = %q, want ssh（会话固定环境）", surface)
 	}
 	if atomic.LoadInt32(&h.dialCalls) != 1 {
 		t.Fatalf("探针通的调用应建连一次：dialCalls=%d", atomic.LoadInt32(&h.dialCalls))
 	}
 }
 
-// TestAutoSelectedSSHDegradedStillJudgesLocalFace：探针未探 → 降级 local（决策仍只读），
-// 这条调用**是**本地执行面，越界路径照旧直接拒。
-func TestAutoSelectedSSHDegradedStillJudgesLocalFace(t *testing.T) {
-	h := newSelectorHarness() // probed=false → 未探 → 降级 local
+// TestUnboundSessionStillJudgesLocalFace：未固定命名环境 → local，越界路径直接拒。
+func TestUnboundSessionStillJudgesLocalFace(t *testing.T) {
+	h := newSelectorHarness()
 	scope, _, outside := boundScope(t, h.sessionID)
 	deps := h.deps()
 	deps.Consumers = TransportConsumers(ReadFileToolName)
@@ -216,13 +215,13 @@ func TestAutoSelectedSSHDegradedStillJudgesLocalFace(t *testing.T) {
 	_, err := state.Registry.Dispatch(context.Background(),
 		frameworktools.ToolCall{Name: ReadFileToolName, ArgumentsJSON: `{"path":` + quoteJSON(outside) + `}`})
 	if err == nil || !strings.Contains(err.Error(), "bound project") {
-		t.Fatalf("降级到本地面后越界路径仍须直接拒，err=%v", err)
+		t.Fatalf("未固定环境按本地面执行时越界路径须直接拒，err=%v", err)
 	}
 	if ran != 0 {
 		t.Fatalf("被拒的调用不得执行 handler：ran=%d", ran)
 	}
 	if atomic.LoadInt32(&h.dialCalls) != 0 || h.transport.Calls() != 0 {
-		t.Fatal("降级的调用不该建连/执行")
+		t.Fatal("本地调用不该建连/执行")
 	}
 }
 

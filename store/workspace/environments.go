@@ -1,17 +1,16 @@
 package workspace
 
-// environments.go —— **项目侧的多环境 SSH 表**。
+// environments.go —— **项目侧的工作环境表**。
 //
-// 口径（2026-10-23 用户定调）：
-//   - SSH 信息挂在**项目**上，按**环境名**分组（dev / test / prod …）——一台项目
-//     可能对应好几套机器，用一个"当前连接"表达不了；
-//   - **会话不持有连接信息**：会话只有"现在限定用哪个环境"和"放权了哪些环境"
-//     （见 store 的 SessionSSHState），环境本身的 host/port/user/口令全在这里；
-//   - 会话**按权限与需要读取**这张表：名字来自这里，判定在权限面，两者不混。
+// 口径（2026-10-24 用户定调）：
+//   - 环境挂在**项目**上，按名字分组；无端点 = local，有端点 = SSH；
+//   - 会话不持有连接信息，只记录首次固定、之后不可切换的环境名；
+//   - 适配器按会话绑定注入环境；环境是否存在、地址与 local/ssh 都由本表决定，
+//     模型工具入参不暴露环境选择。
 //
 // 与前一代单条 `Info.SSH` 的关系：
-//   - 单条端点**保留**（老配置与"只有一个环境"的项目继续能用），但它是**兜底**：
-//     环境表非空时以环境表为准，会话解析环境名时先查表、查不到显式报错；
+//   - 单条端点仅为旧配置兼容保留；新执行链路按命名环境工作，未固定环境时本地执行，
+//     不再自动借用旧端点；
 //   - 迁移不自动做（存储层不猜用户想给老端点取什么名字）。
 //
 // 秘密纪律不变：host/port/user/远端根进 `workspace_index.json`（不含秘密），
@@ -23,10 +22,9 @@ import (
 	"strings"
 )
 
-// Environment 是项目下**一个命名环境**的 SSH 配置（非秘密部分）。
+// Environment 是项目下**一个命名环境**的配置（非秘密部分）。
 //
-// 嵌入 SSHEndpoint 而不是复制字段：环境就是"带名字的端点 + 一句说明"，字段集
-// 必须与单条端点逐字一致，否则两条读法迟早漂移。
+// 嵌入 SSHEndpoint；空端点表示这个环境就在本地项目根执行，非空才走 SSH。
 type Environment struct {
 	SSHEndpoint
 	// Note 是给人看的说明（"测试机，只读"之类），不参与任何判定。
@@ -134,8 +132,8 @@ func (r *Repo) Environment(id, name string) (Environment, bool, error) {
 //	password == nil  → 不改（保留既有口令）
 //	password != nil  → 写入；指向空串表示清除
 //
-// 空端点（host 与 user 都空）= 删除这个环境：UI 里"清空表单保存"就是撤销，
-// 不必要求用户再点一次删除。
+// 空端点（host 与 user 都空）不是删除，而是**本地环境**：它让会话可以固定
+// dev 这类不经过 SSH 的工作环境。删除必须走显式 DeleteEnvironment。
 func (r *Repo) SetEnvironment(id, name string, environment Environment, password *string) (EnvironmentInfo, error) {
 	if _, err := r.Get(id); err != nil {
 		return EnvironmentInfo{}, err
@@ -148,25 +146,21 @@ func (r *Repo) SetEnvironment(id, name string, environment Environment, password
 	if err != nil {
 		return EnvironmentInfo{}, err
 	}
+	local := endpoint.Empty()
+	if local && password != nil && *password != "" {
+		return EnvironmentInfo{}, fmt.Errorf("workspace: local environment %q cannot have an SSH password", normalized)
+	}
 	note := strings.TrimSpace(environment.Note)
 
 	r.mu.Lock()
 	info := r.workspaces[id]
-	deleted := endpoint.Empty()
-	if deleted {
-		delete(info.Environments, normalized)
-		if info.DefaultEnv == normalized {
-			info.DefaultEnv = ""
-		}
-	} else {
-		if info.Environments == nil {
-			info.Environments = map[string]Environment{}
-		}
-		info.Environments[normalized] = Environment{SSHEndpoint: endpoint, Note: note}
-		// 第一个环境自动成为默认：否则"配了环境但没默认"会让会话无从选起。
-		if info.DefaultEnv == "" {
-			info.DefaultEnv = normalized
-		}
+	if info.Environments == nil {
+		info.Environments = map[string]Environment{}
+	}
+	info.Environments[normalized] = Environment{SSHEndpoint: endpoint, Note: note}
+	// 第一个环境自动成为默认：否则"配了环境但没默认"会让会话无从选起。
+	if info.DefaultEnv == "" {
+		info.DefaultEnv = normalized
 	}
 	r.workspaces[id] = info
 	if err := r.saveLocked(); err != nil {
@@ -176,14 +170,16 @@ func (r *Repo) SetEnvironment(id, name string, environment Environment, password
 	r.mu.Unlock()
 
 	// 秘密与索引分开落盘（同 SetConnection 的理由：口令写失败不该回滚非秘密字段）。
-	if r.secrets != nil && password != nil {
-		if err := r.secrets.put(secretKindSSH, environmentSecretKey(id, normalized), *password, *password == "" || deleted); err != nil {
+	if r.secrets != nil && (local || password != nil) {
+		secret := ""
+		clear := local
+		if password != nil {
+			secret = *password
+			clear = clear || secret == ""
+		}
+		if err := r.secrets.put(secretKindSSH, environmentSecretKey(id, normalized), secret, clear); err != nil {
 			return EnvironmentInfo{}, err
 		}
-	}
-	if deleted {
-		// 删掉的环境没有读面可返回：如实给回"这个名字现在不存在"，不要假装写成功。
-		return EnvironmentInfo{Name: normalized}, nil
 	}
 	return r.environmentInfo(id, normalized)
 }

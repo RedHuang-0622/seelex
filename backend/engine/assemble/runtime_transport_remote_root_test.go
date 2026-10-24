@@ -4,7 +4,7 @@ package assemble
 //
 // 这一格是"远端根不再是恒空"的落点：model.WorkspaceSSHInfo.RemoteRoot 由本层的
 // sshEndpoint 折进 registry.SSHEndpoint.RemoteRoot，路径门在远端面上才有一个真正的根
-// 可比对（根内路径不需要 ssh.userspace）。折算丢了这一格不会报错，只会让判据悄悄退回
+// 可比对（根外路径还要检查 SSH 路径白名单）。折算丢了这一格不会报错，只会让判据悄悄退回
 // 保守口径——所以钉一条。
 
 import (

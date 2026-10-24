@@ -56,7 +56,7 @@ type SSHEndpoint struct {
 	//
 	// 来源是项目连接配置的 SSH.RemoteRoot（远端工作目录，对端 POSIX 绝对路径），
 	// 由装配层折进来（assemble.sshEndpoint）。它让"根内 / 越界"在远端面上有真正的
-	// 判据：根内路径不需要 ssh.userspace，走出它才需要（见 path_gate_face.go）。
+	// 判据：根内路径直接受 ssh 通道位约束，走出它才检查同一能力下的路径白名单。
 	// 空（未配置）时路径门退回保守口径：把本地根也容不下的绝对路径全算成越界候选。
 	RemoteRoot string
 }
@@ -83,6 +83,16 @@ func (e SSHEndpoint) Label() string {
 
 // Configured 报告这个端点是否真的被配置过（没配主机 = 未配）。
 func (e SSHEndpoint) Configured() bool { return strings.TrimSpace(e.Host) != "" }
+
+// TransportEnvironment 是项目环境表的一项执行面事实。
+//
+// Kind=local 时 Endpoint 必须为空（在当前项目根执行）；Kind=ssh 时 Endpoint
+// 必须是已配置端点。环境名用于回执与诊断；工具入参不暴露环境选择。
+type TransportEnvironment struct {
+	Name     string
+	Kind     TransportKind
+	Endpoint SSHEndpoint
+}
 
 // TransportProbeState 是探测结论的三态。
 type TransportProbeState string
@@ -123,22 +133,13 @@ type TransportSelectorDeps struct {
 	// Endpoint 读项目连接配置里的 SSH 端点（读面**永不返回口令**）。
 	// 返回 (endpoint, true, nil) = 配了；(_, false, nil) = 没配；error = 读失败。
 	Endpoint func(projectID string) (SSHEndpoint, bool, error)
-	// EndpointFor 按**环境名**读项目环境表里的端点（nil = 未装配环境表）。
-	//
-	// 与 Endpoint 的分工：Endpoint 是单条连接兜底（env 为空时用），EndpointFor 是
-	// 项目侧的多环境表（dev/test/prod）。一次调用只会走其中一条——不会"两个都查、
-	// 谁有值用谁"，那会让"环境表为空"和"环境名打错"变成同一个结果。
-	EndpointFor func(projectID, env string) (SSHEndpoint, bool, error)
+	// EnvironmentFor 按环境名读项目环境表的执行面（nil = 未装配环境表）。
+	// 环境存在但地址为空 = local；有地址 = ssh。这一步是"环境决定传输"的落点。
+	EnvironmentFor func(projectID, env string) (TransportEnvironment, bool, error)
 	// EnvFor 读**会话当前限定的环境名**（缺省环境）；nil 或空串 = 没有缺省。
 	//
-	// 调用方显式写了 env 参数时**不读它**：显式值永远优先，否则一次性的环境切换
-	// 会被会话状态悄悄改回去。
+	// 这是宿主注入的唯一环境来源；模型工具参数中的 env 字段不会被读取。
 	EnvFor func(ctx context.Context, sessionID string) string
-	// EnvGranted 报告某环境是否在**该会话**被放权（nil = 放权面未装配 → 一律拒绝）。
-	//
-	// 它挡的是"显式 env 参数绕过会话放权"这条直路：会话状态里没有放权的环境，
-	// 工具调用也不许指名。
-	EnvGranted func(ctx context.Context, sessionID, env string) bool
 	// Probe 读**缓存**的探测结论：ok=false 表示还没有结论（未探）。
 	//
 	// 它必须是一次纯读（内存缓存）：决策段在权限门之前跑，一次调用就会读一次。
@@ -190,7 +191,8 @@ func TransportSelector(deps TransportSelectorDeps) frameworktools.MetaMiddleware
 			// 已有决策（决策段跑过）就**不重算**：一次调用只有一份选择事实。
 			decision, decided := TransportDecisionFromContext(ctx)
 			if !decided {
-				decision = resolveTransportDecision(ctx, deps, name, explicit, explicitKind, explicitEnv(argsJSON))
+				// env 由会话绑定经 EnvFor 注入；模型即使伪造 env 参数也不会被读取。
+				decision = resolveTransportDecision(ctx, deps, name, explicit, explicitKind, "")
 			}
 			if transportStageFromContext(ctx) == transportStageDecision {
 				// 决策段：只写事实，绝不建连（跑在权限门之前，被拒的调用也会经过）。
@@ -221,8 +223,8 @@ func bindTransportSelection(
 	}
 	local := TransportSelection{
 		Kind: TransportLocal, ProjectID: decision.ProjectID, Explicit: decision.Explicit,
-		// 本地回执的 env 一格：就是 "local"（不是空串——空格在回执里等于没说）。
-		Env: string(TransportLocal),
+		// 本地回执的 env 一格：有命名环境就写名字，否则写 "local"。
+		Env: trimmedOr(decision.Env, string(TransportLocal)),
 	}
 	record := func(selection TransportSelection, degraded bool, code, probeClass string) {
 		if deps.Trace == nil {
@@ -247,20 +249,27 @@ func bindTransportSelection(
 		return local, nil
 	}
 
+	// 决策已判失败（含 local 环境与 transport 冲突）：失败码优先于"本地直通"，
+	// 否则冲突会被当成成功并静默跑本地。
+	if decision.FailureCode != "" {
+		if decision.Kind == TransportLocal {
+			local.Reason = decision.Reason
+			record(local, true, decision.FailureCode, decision.ProbeClass)
+			return TransportSelection{}, &TransportError{Code: decision.FailureCode, Msg: decision.FailureMsg}
+		}
+		// 远端命名空间但已判不可用：报错或降级（判据：调用方是否显式指名）。
+		if !decision.Explicit && decision.Env == "" {
+			return degrade(ReasonUnconfigured, decision.FailureCode, decision.ProbeClass)
+		}
+		record(local, true, decision.FailureCode, decision.ProbeClass)
+		return TransportSelection{}, &TransportError{Code: decision.FailureCode, Msg: decision.FailureMsg}
+	}
+
 	// 本地面：决策已经落定（未配 / 未探 / 探针挂 / 显式指名 local / 开关关闭）。
 	if !decision.Remote() {
 		local.Reason, local.ProbeClass = decision.Reason, decision.ProbeClass
 		record(local, decision.Degraded, "", decision.ProbeClass)
 		return local, nil
-	}
-
-	// 远端命名空间但已判不可用：报错或降级（判据：调用方是否显式指名）。
-	if decision.FailureCode != "" {
-		if !decision.Explicit {
-			return degrade(ReasonUnconfigured, decision.FailureCode, decision.ProbeClass)
-		}
-		record(local, true, decision.FailureCode, decision.ProbeClass)
-		return TransportSelection{}, &TransportError{Code: decision.FailureCode, Msg: decision.FailureMsg}
 	}
 
 	// 显式指名 + 未探：探测费由指名者付（这一段的唯一一次网络动作）。
@@ -284,7 +293,7 @@ func bindTransportSelection(
 		// 结构上不该到这里（不可用已在决策段记成 FailureCode）：宁可显式报错，也不
 		// 假装"可以走远端"然后跑本地。
 		code := transportCodeForProbeClass(decision.ProbeClass)
-		if !decision.Explicit {
+		if !decision.Explicit && decision.Env == "" {
 			return degrade(ReasonProbeFailed, code, decision.ProbeClass)
 		}
 		return fail(code, decision.ProbeClass,
@@ -296,7 +305,7 @@ func bindTransportSelection(
 	transport, err := dialTransport(ctx, deps, decision.ProjectID, decision.Endpoint)
 	if err != nil {
 		code := transportCodeForProbeClass(errProbeClass(err))
-		if !decision.Explicit {
+		if !decision.Explicit && decision.Env == "" {
 			return degrade(ReasonDialFailed, code, errProbeClass(err))
 		}
 		return fail(code, errProbeClass(err),
@@ -306,7 +315,7 @@ func bindTransportSelection(
 
 	selection := TransportSelection{
 		Kind: TransportSSH, Transport: transport, ProjectID: decision.ProjectID,
-		Endpoint: decision.Endpoint.Addr(), Env: decision.Endpoint.Label(),
+		Endpoint: decision.Endpoint.Addr(), Env: trimmedOr(decision.Env, decision.Endpoint.Label()),
 		Explicit: decision.Explicit, Reason: decision.Reason,
 	}
 	record(selection, false, "", "")
@@ -411,27 +420,6 @@ func explicitTransport(ctx context.Context, argsJSON string) (TransportKind, boo
 		}
 	}
 	return explicitTransportFromArgs(argsJSON)
-}
-
-// explicitEnv 读调用方指名的**环境名**（工具参数 env）。
-//
-// 与 explicitTransport 分开而不是塞进一个结构：两者是正交的——"走哪个面"（local /
-// ssh）与"用哪个环境"（dev / test / prod）可以各自独立指名，混在一起就会出现
-// "指名了 env 但传输是 local"这种自相矛盾的输入，还得再编一套优先级去解释它。
-//
-// 空串 = 没指名。不做任何猜测（不把 "default" 之类当成默认名）：环境名只在项目
-// 环境表里有意义，猜一个不存在的名字只会得到一条更远的报错。
-func explicitEnv(argsJSON string) string {
-	if strings.TrimSpace(argsJSON) == "" {
-		return ""
-	}
-	var args struct {
-		Env string `json:"env"`
-	}
-	if json.Unmarshal([]byte(argsJSON), &args) != nil {
-		return ""
-	}
-	return strings.TrimSpace(args.Env)
 }
 
 // explicitTransportFromArgs 读工具入参里的 transport 字段（"auto" / 空 = 未指名）。

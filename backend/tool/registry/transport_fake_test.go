@@ -1,6 +1,6 @@
 package registry
 
-// transport_fake_test.go —— **假执行面**：五个能力面都实现，入参与返回值都可编排。
+// transport_fake_test.go —— **假执行面**：六个能力面都实现，入参与返回值都可编排。
 //
 // 为什么要一个全能力假面：远端面的判据全在**工具层**（路径不被改写、内容走内容通道、
 // 回执自报执行面、超时/截断/仍在跑分开），只有把传输换掉才测得到。真连一台机器既不可
@@ -21,6 +21,7 @@ type fakeTransport struct {
 
 	mu      sync.Mutex
 	execs   []TransportRequest
+	starts  []TransportRequest
 	reads   []TransportReadRequest
 	writes  []TransportWriteRequest
 	edits   []TransportEditRequest
@@ -28,6 +29,8 @@ type fakeTransport struct {
 
 	execOut   TransportOutput
 	execErr   error
+	startOut  TransportManageOutput
+	startErr  error
 	readOut   TransportReadOutput
 	readErr   error
 	writeOut  TransportWriteOutput
@@ -40,7 +43,7 @@ type fakeTransport struct {
 
 func (f *fakeTransport) Kind() TransportKind { return TransportSSH }
 
-// Calls 返回五个能力面被调用的总次数（选择器用例用"零调用"钉住"权限拒绝不连远端"）。
+// Calls 返回六个能力面被调用的总次数（选择器用例用"零调用"钉住"权限拒绝不连远端"）。
 func (f *fakeTransport) Calls() int { return int(atomic.LoadInt32(&f.calls)) }
 
 func (f *fakeTransport) record() {
@@ -60,6 +63,14 @@ func (f *fakeTransport) Exec(_ context.Context, req TransportRequest) (Transport
 		out.Stdout = f.name
 	}
 	return out, f.execErr
+}
+
+func (f *fakeTransport) Start(_ context.Context, req TransportRequest) (TransportManageOutput, error) {
+	f.record()
+	f.mu.Lock()
+	f.starts = append(f.starts, req)
+	f.mu.Unlock()
+	return f.startOut, f.startErr
 }
 
 func (f *fakeTransport) Read(_ context.Context, req TransportReadRequest) (TransportReadOutput, error) {
@@ -104,6 +115,12 @@ func (f *fakeTransport) execCalls() []TransportRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]TransportRequest(nil), f.execs...)
+}
+
+func (f *fakeTransport) startCalls() []TransportRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]TransportRequest(nil), f.starts...)
 }
 
 func (f *fakeTransport) readCalls() []TransportReadRequest {

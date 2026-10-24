@@ -164,7 +164,7 @@ type Runtime struct {
 	// rolePrompt 同构的一次注入只读面，见 runtime_role_plugins.go。
 	rolePluginsMu sync.RWMutex
 	rolePlugins   func(roleName string) []string
-	// roleUserSpaces 按主会话 + 账号角色读取 ssh.userspace 路径允许范围。
+	// roleUserSpaces 按主会话 + 账号角色读取 SSH 路径允许范围。
 	roleUserSpacesMu sync.RWMutex
 	roleUserSpaces   func(sessionID, role string) []string
 
@@ -314,9 +314,6 @@ type Runtime struct {
 	// 缓存也只有装配层能提供（见 wiring/adapters 的 sessionSSHBridge）。
 	sessionSSHEnvMu sync.RWMutex
 	sessionSSHEnv   func(sessionID, projectID string) string
-	// sessionSSHEnvGrant 读"某环境是否在该会话被放权"（显式 env 参数的闸门）。
-	sessionSSHEnvGrantMu sync.RWMutex
-	sessionSSHEnvGrant   func(sessionID, projectID, env string) bool
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
@@ -488,7 +485,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		toolreg.PathGate(toolreg.Deps{
 			ProjectScope: r.projectScope,
 			SessionKey:   seetelemetry.SessionIDFromContext,
-			// 按面判定的两道门（ssh 通道位 / ssh.userspace 越界位）：判据接权限门本体
+			// 远端面判据接权限门本体（唯一 ssh 能力位）
 			// （同一个 callVector），路径门在远端面上用它拒掉没有位的调用
 			// （见 registry 的 path_gate_face.go）。不接这一格 = 这道闸门没装。
 			FacePermission: r.permission.FacePermission,

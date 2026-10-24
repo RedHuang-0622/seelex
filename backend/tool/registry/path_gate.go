@@ -23,7 +23,7 @@ import (
 // PathGate 返回路径检查中间件。scope 为 nil 时返回 nil（未装配 = 不启用）。
 //
 // 判据按**已定执行面**取根（见 path_gate_face.go）：本地面仍按项目根判、越界直接拒；
-// 远端面不做本地根判定（远端路径属对端命名空间，越界候选交给权限门的 ssh.userspace）。
+// 远端面不做本地根判定（远端路径属对端命名空间，越界候选交给 ssh 能力下的路径白名单）。
 func PathGate(deps Deps) frameworktools.MetaMiddleware {
 	if deps.ProjectScope == nil {
 		return nil
@@ -33,7 +33,7 @@ func PathGate(deps Deps) frameworktools.MetaMiddleware {
 			targets := pathGateTargets(name, argsJSON)
 			if pathGateFace(ctx, argsJSON) == PathGateFaceRemote {
 				// 远端面：**不做本地根判定**。远端根已知时按它筛，未知时按本地根当筛子。
-				// 筛出来的越界候选要过 ssh.userspace（没有就拒，不静默放行），远端面本身
+				// 筛出来的越界候选要过 SSH 路径白名单（不在里面就拒，不静默放行），远端面本身
 				// 还要过 ssh 通道位——两道门都在 requireRemoteFacePermission 里。
 				remoteRoot := pathGateRemoteRoot(ctx)
 				candidates := remoteEscapeCandidates(deps, ctx, remoteRoot, targets)

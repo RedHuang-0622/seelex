@@ -88,9 +88,13 @@ type PermissionRoleInfo struct {
 	// InheritMainAgent 只对 subagent / teammate 有意义：开启时角色默认权限
 	// 跟随 mainagent，关闭后才使用 DefaultVector 的显式设置。
 	InheritMainAgent bool `json:"inherit_main_agent"`
-	// SSHUserSpaces 是 ssh.userspace 的路径允许范围。空集表示没有显式路径；
-	// 未授予 ssh.userspace 时本字段不参与判定。
+	// SSHUserSpaces 是 SSH 能力允许的远端路径范围。空集表示没有显式路径；
+	// 未授予 ssh 时本字段不参与判定。
 	SSHUserSpaces []string `json:"ssh_user_spaces"`
+	// DefaultSSHUserSpaces 是角色跨会话默认的 SSH 路径白名单。
+	DefaultSSHUserSpaces []string `json:"default_ssh_user_spaces"`
+	// SessionSSHUserSpaces 是当前会话按 agent role 生效的 SSH 路径白名单。
+	SessionSSHUserSpaces []string `json:"session_ssh_user_spaces"`
 }
 
 // RoleSettings 是一个角色的设置。
@@ -290,6 +294,7 @@ func parsePermissionTag(raw string) (string, bool, bool) {
 	if trimmed == "" || strings.ContainsAny(trimmed, " \t\r\n") {
 		return "", false, false
 	}
+	trimmed = CanonicalPermissionGroup(trimmed)
 	return trimmed, allow, true
 }
 

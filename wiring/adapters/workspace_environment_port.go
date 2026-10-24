@@ -1,6 +1,6 @@
 package adapters
 
-// workspace_environment_port.go —— 项目侧多环境 SSH 表在装配侧的落地：
+// workspace_environment_port.go —— 项目侧工作环境表在装配侧的落地：
 // 把 store/workspace 的环境表 API 翻成 contract.WorkspaceEnvironmentPort 的读面/写面
 // （读面无口令，写面口令三态）。
 //

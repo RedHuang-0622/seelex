@@ -28,9 +28,10 @@ func TestPermissionRoleGroupsUseExplicitAccountRole(t *testing.T) {
 
 type roleSettingsFakeApplication struct {
 	*fakeApplication
-	account   string
-	inherit   bool
-	userSpace []string
+	account      string
+	inherit      bool
+	userSpace    []string
+	defaultSpace []string
 }
 
 func (fake *roleSettingsFakeApplication) RolePermissionVector(_, _ string) ([]string, error) {
@@ -71,7 +72,17 @@ func (fake *roleSettingsFakeApplication) RoleSSHUserSpaces(_, _ string) ([]strin
 	return append([]string{}, fake.userSpace...), nil
 }
 
+func (fake *roleSettingsFakeApplication) RoleDefaultSSHUserSpaces(_, _ string) ([]string, error) {
+	return append([]string{}, fake.defaultSpace...), nil
+}
+
 func (fake *roleSettingsFakeApplication) SetRoleSSHUserSpaces(_, _ string, paths []string) error {
+	fake.defaultSpace = append([]string{}, paths...)
+	fake.userSpace = append([]string{}, paths...)
+	return nil
+}
+
+func (fake *roleSettingsFakeApplication) SetRoleSessionSSHUserSpaces(_, _ string, paths []string) error {
 	fake.userSpace = append([]string{}, paths...)
 	return nil
 }
@@ -97,5 +108,28 @@ func TestBridgeSetRoleAccountRejectsCrossRoleAccount(t *testing.T) {
 	}
 	if !reflect.DeepEqual(info.Accounts, []string{"teammate-1"}) || info.Account != "teammate-1" {
 		t.Fatalf("角色账号回执 = %+v", info)
+	}
+}
+
+func TestBridgeSessionSSHPathsReturnSessionScope(t *testing.T) {
+	base := newFakeApplication()
+	base.snapshot.Session.ID = "sess-role-paths"
+	base.snapshot.Runtime.Accounts = []model.AccountInfo{{Name: "subagent-1", Role: "subagent"}}
+	fake := &roleSettingsFakeApplication{
+		fakeApplication: base,
+		defaultSpace:    []string{"/srv/default"},
+	}
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := bridge.SetRoleSessionSSHUserSpaces("subagent", []string{"/srv/session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fake.userSpace, []string{"/srv/session"}) ||
+		!reflect.DeepEqual(info.SessionSSHUserSpaces, []string{"/srv/session"}) ||
+		!reflect.DeepEqual(info.DefaultSSHUserSpaces, []string{"/srv/default"}) {
+		t.Fatalf("session paths = %+v fake=%v default=%v", info, fake.userSpace, fake.defaultSpace)
 	}
 }

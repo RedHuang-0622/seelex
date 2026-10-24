@@ -43,6 +43,9 @@ flowchart LR
   （`SaveSessionTitle`/`SessionTitle` 走会话头；`FirstUserInputs` 只打开首个
   消息分片）。这些是可选能力断言：装配缺方法时应用层会静默降级（标题不落盘、
   老会话标题回填失效），因此包内有编译期契约断言与真存储回归测试。
+- 冷加载的紧凑 record 读面由 `LoadSessionResumeRecordWorkspace` 落地：v8
+  存储从最新 compact 指针派生可见后缀并带回总数；未实现该可选能力时，会话域
+  自动回退完整 `LoadSessionRecordWorkspace`，不改变旧存储兼容性。
 
 ## 并发与锁纪律（EnginePort）
 
@@ -178,7 +181,7 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) runHandoff(handoff historyHandoff)` — runHandoff 在 port.mu **之外**把历史交给宿主。已被后续决定取代的那次直接丢弃。
 - `func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort`
 - `func (port *EnginePort) SessionBacked() bool` — SessionBacked 报告底层 reactor 是否为 session.Session。
-- `func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入主会话的 ssh.userspace 路径范围读面。
+- `func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入主会话的 SSH 路径白名单读面；白名单属于单一 `ssh` 能力。
 - `func (port *EnginePort) withRoleUserSpaces(ctx context.Context, sessionID string) context.Context`
 - `func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 是会话路由的 ChatStream：多会话并行执行时，runChat 用
@@ -356,7 +359,9 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) RoleInheritance(sessionID, role string) (bool, bool, error)`
 - `func (port SessionPort) SetRoleInheritance(sessionID, role string, inherit bool) error`
 - `func (port SessionPort) RoleSSHUserSpaces(sessionID, role string) ([]string, error)`
+- `func (port SessionPort) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)`
 - `func (port SessionPort) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
+- `func (port SessionPort) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error`
 - `func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error)` — RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
 - `func (port SessionPort) RolePermissionVector(sessionID, role string) ([]string, bool, error)` — RolePermissionVector 实现 rolePermissionPort：读单个角色；第二个返回值报告
 - `func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector []string) error` — SetRolePermissionVector 实现 rolePermissionPort：写入一个角色的权限向量
@@ -510,8 +515,7 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) sessionSSHBridge() *sessionSSHBridge` — sessionSSHBridge 取本端口的共享体（存储未装配时 nil）。
 - `func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)` — SessionSSHState 实现 application/core 的 sessionSSHPort：读会话 SSH 状态。
 - `func (port SessionPort) SetSessionSSHState(sessionID string, state model.SessionSSHInfo) error` — SetSessionSSHState 实现 sessionSSHPort：写会话 SSH 状态（整份写入，后写覆盖先写）。
-- `func SessionSSHEnvGrantedResolver(router *store.Router) func(sessionID, projectID, env string) bool` — SessionSSHEnvGrantedResolver 给执行面用的**放权判定**：报告某环境是否在该会话
-- `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面用的**缺省环境**读面：返回该会话当前限定的环境名
+- `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面读取会话首次固定、之后不可切换的工作环境名
 
 ### session_ssh_state_port_test.go
 

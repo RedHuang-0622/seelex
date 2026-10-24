@@ -51,6 +51,7 @@ type RolePermissionRecord struct {
 	Account          string    `json:"account,omitempty"`
 	InheritMainAgent *bool     `json:"inherit_main_agent,omitempty"`
 	SSHUserSpaces    []string  `json:"ssh_user_spaces,omitempty"`
+	SSHUserSpacesSet bool      `json:"ssh_user_spaces_set,omitempty"`
 	PermissionVector []string  `json:"permission_vector"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -161,12 +162,7 @@ func (store *RolePermissionStore) Put(projectID, sessionID, role string, vector 
 	}
 	key := rolePermissionKey{projectID: projectID, sessionID: sessionID, role: role}
 	entry := store.entry(key)
-	record := RolePermissionRecord{
-		SessionID:        sessionID,
-		Role:             role,
-		PermissionVector: normalizedRoleVector(vector),
-		UpdatedAt:        time.Now().UTC(),
-	}
+	var record RolePermissionRecord
 	// 锁序：先条目锁（同一个角色的并发写在这里排队），再文件锁（mutate 内）。
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
@@ -176,6 +172,11 @@ func (store *RolePermissionStore) Put(projectID, sessionID, role string, vector 
 			sessions = map[string]RolePermissionRecord{}
 			file.Sessions[sessionID] = sessions
 		}
+		record = sessions[role]
+		record.SessionID = sessionID
+		record.Role = role
+		record.PermissionVector = normalizedRoleVector(vector)
+		record.UpdatedAt = time.Now().UTC()
 		sessions[role] = record
 	}); err != nil {
 		return RolePermissionRecord{}, err
@@ -342,7 +343,7 @@ func (store *RolePermissionStore) SetRoleInheritance(projectID, role string, inh
 	})
 }
 
-// RoleSSHUserSpaces 读取 ssh.userspace 可访问的远端路径前缀。
+// RoleSSHUserSpaces 读取 SSH 能力可访问的远端路径前缀。
 func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error) {
 	role = strings.TrimSpace(role)
 	if role == "" {
@@ -355,7 +356,7 @@ func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]s
 	return append([]string{}, file.RoleDefaults[role].SSHUserSpaces...), nil
 }
 
-// SetRoleSSHUserSpaces 写 ssh.userspace 路径前缀。空切片表示显式不放行任何路径；
+// SetRoleSSHUserSpaces 写 SSH 路径前缀。空切片表示显式不放行任何路径；
 // 规范化与校验由调用方完成，本层保持原字节语义。
 func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error {
 	role = strings.TrimSpace(role)
@@ -369,9 +370,54 @@ func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, p
 		record := file.RoleDefaults[role]
 		record.Role = role
 		record.SSHUserSpaces = append([]string{}, paths...)
+		record.SSHUserSpacesSet = true
 		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
 		record.UpdatedAt = time.Now().UTC()
 		file.RoleDefaults[role] = record
+	})
+}
+
+// RoleEffectiveSSHUserSpaces 返回某会话中角色生效的 SSH 路径白名单：
+// 会话显式保存过覆盖时用它，否则回落到项目级角色默认。
+func (store *RolePermissionStore) RoleEffectiveSSHUserSpaces(projectID, sessionID, role string) ([]string, error) {
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if sessionID == "" || role == "" {
+		return nil, fmt.Errorf("session storage: role user spaces require session and role")
+	}
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if record, ok := file.Sessions[sessionID][role]; ok && record.SSHUserSpacesSet {
+		return append([]string{}, record.SSHUserSpaces...), nil
+	}
+	return append([]string{}, file.RoleDefaults[role].SSHUserSpaces...), nil
+}
+
+// SetRoleSessionSSHUserSpaces 写入某会话中单个角色的 SSH 路径覆盖。
+// 空切片是合法的显式覆盖，表示该会话不给这个角色任何远端根外路径。
+func (store *RolePermissionStore) SetRoleSessionSSHUserSpaces(projectID, sessionID, role string, paths []string) error {
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if sessionID == "" || role == "" {
+		return fmt.Errorf("session storage: role user spaces require session and role")
+	}
+	return store.mutate(projectID, func(file *rolePermissionFile) {
+		if file.Sessions == nil {
+			file.Sessions = map[string]map[string]RolePermissionRecord{}
+		}
+		sessions := file.Sessions[sessionID]
+		if sessions == nil {
+			sessions = map[string]RolePermissionRecord{}
+			file.Sessions[sessionID] = sessions
+		}
+		record := sessions[role]
+		record.SessionID = sessionID
+		record.Role = role
+		record.SSHUserSpaces = append([]string{}, paths...)
+		record.SSHUserSpacesSet = true
+		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
+		record.UpdatedAt = time.Now().UTC()
+		sessions[role] = record
 	})
 }
 

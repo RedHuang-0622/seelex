@@ -220,8 +220,12 @@ func (state *PermissionGate) employeeVector(sessionID string, identity employeeI
 	state.mu.RLock()
 	resolver := state.RolePermissionVector
 	state.mu.RUnlock()
-	if resolver != nil && strings.TrimSpace(identity.RoleName) != "" {
-		if vector, decided, err := resolver(sessionID, identity.RoleName); err == nil && decided {
+	permissionRole := strings.TrimSpace(identity.AccountRole)
+	if permissionRole == "" {
+		permissionRole = strings.TrimSpace(identity.RoleName)
+	}
+	if resolver != nil && permissionRole != "" {
+		if vector, decided, err := resolver(sessionID, permissionRole); err == nil && decided {
 			return vector
 		}
 	}
@@ -332,8 +336,7 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 	return cells.Covers(group.Name, group.Mode)
 }
 
-// FacePermission 回答"本次调用在某个**按面判定**的路由组上位齐吗"（group 取
-// policy.GroupSSH / policy.GroupSSHUserspace）。
+// FacePermission 回答"本次调用在 SSH 能力组上位齐吗"。
 //
 // 这是路径门那道闸门的判据入口（Deps.FacePermission 直接接这个方法）。它与
 // Enforce/ToolFaceForContext 读的是**同一个** callVector，因此不会出现"权限门说
@@ -455,14 +458,13 @@ func EmployeeGroupsForPolicy(toolsPolicy string) map[string]uint8 {
 		return map[string]uint8{
 			policy.GroupRO: policy.BitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0,
 			// 通道位（ssh）默认给：只读员工今天就能远端读（连项目 + 探针通即走远端），
-			// 派生口径不该顺手收窄它；越界位（ssh.userspace）不给——那是要立的那道闸门。
-			policy.GroupSSH: policy.BitExecute, policy.GroupSSHUserspace: 0,
+			policy.GroupSSH: policy.BitExecute,
 		}
 	case "readwrite":
 		return map[string]uint8{
 			policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite,
 			policy.GroupCTL: 0, policy.GroupADM: 0,
-			policy.GroupSSH: policy.BitExecute, policy.GroupSSHUserspace: 0,
+			policy.GroupSSH: policy.BitExecute,
 		}
 	default:
 		return nil
@@ -527,7 +529,11 @@ type employeeSubjectCtxKey struct{}
 // employeeIdentity 是一次调用里已确定的员工身份。
 type employeeIdentity struct {
 	RoleName string
-	Policy   string
+	// AccountRole 是权限面板使用的 agent role（agent / subagent / goalplan /
+	// teammate）。RoleName 是业务成员名（如 impl_ui），只用于员工主体与派发归属；
+	// 权限向量必须按 AccountRole 解析，否则设置页里的 agent-role 选择不会生效。
+	AccountRole string
+	Policy      string
 	// Groups 是**逐格装配**的权限（路由组 → 位）；空 = 按 Policy 档位派生。
 	Groups map[string]uint8
 }
@@ -581,6 +587,13 @@ func WithEmployeeGrant(ctx context.Context, roleName, toolsPolicy string, groups
 	}
 	ctx = context.WithValue(ctx, employeeSubjectCtxKey{}, identity)
 	return withSubjectClass(ctx, ClassForEmployeeGrant(toolsPolicy, groups))
+}
+
+// WithEmployeeAccountRole 给员工执行 ctx 补上权限面板使用的 agent role。
+func WithEmployeeAccountRole(ctx context.Context, accountRole string) context.Context {
+	identity, _ := employeeFromContext(ctx)
+	identity.AccountRole = strings.TrimSpace(accountRole)
+	return context.WithValue(ctx, employeeSubjectCtxKey{}, identity)
 }
 
 // ClassForEmployeeGrant 把（档位 + 显式格子）映射成员工主体类。

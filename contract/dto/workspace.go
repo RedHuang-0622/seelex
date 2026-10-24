@@ -87,7 +87,7 @@ type WorkspaceConnectionInput struct {
 	SSHPort int    `json:"ssh_port"`
 	SSHUser string `json:"ssh_user"`
 	// SSHRemoteRoot 是远端工作目录（对端 POSIX 绝对路径；空 = 未知/未配置）。
-	// 它是路径门在远端面上的取根口径：根内路径不需要 ssh.userspace。
+	// 它是路径门在远端面上的取根口径：根内路径不查额外路径白名单。
 	SSHRemoteRoot string `json:"ssh_remote_root,omitempty"`
 
 	SSHPassword      string `json:"ssh_password,omitempty"`

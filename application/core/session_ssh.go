@@ -7,9 +7,9 @@ package core
 //	1. AllowedEnvs ⊆ 项目环境表——放权集合是**项目环境表的子集**，不许放一个
 //	   项目里不存在的名字（否则环境被删掉之后那条放权会变成"永远命不中的僵尸权限"，
 //	   更糟的是将来同名环境重建时它悄悄复活）。
-//	2. CurrentEnv ∈ AllowedEnvs——设了当前环境却没放权 = 仍然用不了；反过来，
-//	   收回放权时自动把落在它里面的当前环境清掉（不留悬空值）。
-//	3. 缺省两者都空 = 这个会话用不了 SSH。SSH 是用户在会话里推动的放权，不是默认能力。
+//	2. CurrentEnv 是**会话固定环境**：首次由用户绑定，之后 agent 与工具入参都不能改；
+//	   要换环境必须新开会话（与 VS Code 的 remote workspace 同口径）。
+//	3. 缺省 CurrentEnv 为空 = 不绑定命名环境，环境感知工具在本地项目根执行。
 //
 // 环境表的事实源只有一处：项目（contract.WorkspaceEnvironmentPort）。会话侧只存名字。
 // 这条边界决定了"热更新"是免费的——项目改表之后，会话下一次读就看见新表，不需要
@@ -71,11 +71,11 @@ func (service *Service) SessionSSHState(sessionID string) (model.SessionSSHInfo,
 	return port.SessionSSHState(strings.TrimSpace(sessionID))
 }
 
-// SetSessionSSHAllowed 设置会话的放权集合，并返回**落盘后读回**的状态。
+// SetSessionSSHAllowed 是旧版放权集合的兼容写面，并返回落盘后读回的状态。
 //
 // 校验口径：
 //   - 每个名字都必须在项目环境表里（AllowedEnvs ⊆ 项目环境表）；
-//   - 收权之后若当前环境已不在集合里，当前环境一并清空（不留悬空值）。
+//   - 当前会话已经固定环境时，不能从兼容集合中撤销该环境；换环境必须新开会话。
 func (service *Service) SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error) {
 	port := service.sessionSSHStore()
 	if port == nil {
@@ -101,18 +101,27 @@ func (service *Service) SetSessionSSHAllowed(sessionID string, envs []string) (m
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
+	if current := strings.TrimSpace(state.CurrentEnv); current != "" {
+		found := false
+		for _, name := range allowed {
+			if name == current {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return model.SessionSSHInfo{}, errors.New("session ssh: 固定环境 " + current + " 不能从会话放权集合中撤销；请新建会话")
+		}
+	}
 	state.AllowedEnvs = allowed
-	state.CurrentEnv = resolveCurrentEnv(allowed, state.CurrentEnv)
 	if err := port.SetSessionSSHState(sessionID, state); err != nil {
 		return model.SessionSSHInfo{}, err
 	}
 	return port.SessionSSHState(sessionID)
 }
 
-// SetSessionSSHEnv 设置会话当前限定的环境（空串 = 取消限定）。
-//
-// 当前环境必须已在**本会话**被放权：设了环境却没放权 = 仍然用不了，与其写进去
-// 让执行侧拒绝，不如在写入这一步就说清楚。
+// SetSessionSSHEnv 首次为用户会话绑定固定环境。绑定后不可修改或清空：环境是
+// 会话身份的一部分，工具与 agent 都不获得改写它的入口。
 func (service *Service) SetSessionSSHEnv(sessionID, env string) (model.SessionSSHInfo, error) {
 	port := service.sessionSSHStore()
 	if port == nil {
@@ -126,22 +135,14 @@ func (service *Service) SetSessionSSHEnv(sessionID, env string) (model.SessionSS
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
+	if current := strings.TrimSpace(state.CurrentEnv); current != "" {
+		if current == env {
+			return state, nil
+		}
+		return model.SessionSSHInfo{}, errors.New("session ssh: 固定环境 " + current + " 不可更改；请新建会话选择其它环境")
+	}
 	if env == "" {
-		state.CurrentEnv = ""
-		if err := port.SetSessionSSHState(sessionID, state); err != nil {
-			return model.SessionSSHInfo{}, err
-		}
-		return port.SessionSSHState(sessionID)
-	}
-	granted := false
-	for _, name := range state.AllowedEnvs {
-		if name == env {
-			granted = true
-			break
-		}
-	}
-	if !granted {
-		return model.SessionSSHInfo{}, errors.New("session ssh: 环境 " + env + " 没有在本会话放权（先放权再限定，缺省不放权）")
+		return model.SessionSSHInfo{}, errors.New("session ssh: 请选择一个项目工作环境")
 	}
 	// 项目环境表可能已经把这个名字删掉了（项目侧改了表）：这里兜一次，避免把
 	// 一个已经不存在于项目里的名字写进会话状态。
@@ -190,19 +191,4 @@ func validateAllowedEnvs(known map[string]struct{}, envs []string) ([]string, er
 		allowed = append(allowed, name)
 	}
 	return allowed, nil
-}
-
-// resolveCurrentEnv 收回放权之后把当前环境拉回合法状态：当前环境已不在放权集合里
-// 就清空（不留悬空值），否则原样保留。
-func resolveCurrentEnv(allowed []string, current string) string {
-	current = strings.TrimSpace(current)
-	if current == "" {
-		return ""
-	}
-	for _, name := range allowed {
-		if name == current {
-			return current
-		}
-	}
-	return ""
 }

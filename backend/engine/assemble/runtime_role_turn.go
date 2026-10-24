@@ -271,9 +271,16 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
 	turnCtx = obs.WithTelemetrySessionID(turnCtx, roleSessionID)
 	if spec.AccountRole != "" {
+		turnCtx = toolreg.WithEmployeeAccountRole(turnCtx, string(spec.AccountRole))
 		turnCtx = dto.WithSceneScope(turnCtx, dto.SceneScope{
 			SceneID: roleSessionID, Role: spec.AccountRole, BranchID: roleSessionID,
 		})
+		if mainSessionID := strings.TrimSpace(spec.MainSessionID); mainSessionID != "" {
+			turnCtx = toolreg.WithTransportBinding(turnCtx, toolreg.TransportBinding{
+				ProjectID: r.sessionWorkspaceID(mainSessionID),
+				Env:       r.sessionSSHEnvFor(mainSessionID),
+			})
+		}
 		turnCtx = toolreg.WithRemoteUserSpaces(
 			turnCtx,
 			r.roleUserSpacesFor(spec.MainSessionID, string(spec.AccountRole)),

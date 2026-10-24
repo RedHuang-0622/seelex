@@ -297,7 +297,8 @@
       <section class="project-heading">
         <div class="project-heading-bar">
           <div class="section-title">项目</div>
-          <button id="project-settings-button" class="text-button project-settings-action" type="button" title="管理当前项目的 SSH 环境" aria-label="打开项目 SSH 环境设置">SSH 环境</button>
+          <button id="session-environment-button" class="text-button project-settings-action" type="button" title="查看或首次固定本会话工作环境" aria-label="打开会话工作环境">本会话环境</button>
+          <button id="project-settings-button" class="text-button project-settings-action" type="button" title="管理当前项目的工作环境" aria-label="打开项目工作环境设置">管理环境</button>
         </div>
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
@@ -574,6 +575,21 @@
     </div>
   </div>
 
+  <div id="session-environment-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="session-environment-title">
+    <div class="modal-card session-environment-card">
+      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="session-environment-title">固定工作环境</h2></div><button id="session-environment-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p id="session-environment-summary" class="settings-note">环境决定本会话所有工具的本地/SSH 执行面。首次固定后不可切换；换环境请新建会话。</p>
+      <label class="settings-field">工作环境
+        <select id="session-environment-select"></select>
+      </label>
+      <div class="settings-actions">
+        <button id="session-environment-cancel" type="button" class="secondary">取消</button>
+        <button id="session-environment-confirm" type="button" class="primary">固定此环境</button>
+      </div>
+      <div id="session-environment-status" class="muted"></div>
+    </div>
+  </div>
+
   <div id="account-delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="account-delete-title">
     <div class="modal-card account-delete-card">
       <div class="modal-header"><div><span class="eyebrow">账户</span><h2 id="account-delete-title">删除账户</h2></div><button id="account-delete-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
@@ -590,12 +606,12 @@
     <div class="modal-card project-settings-card">
       <div class="modal-header"><div><span class="eyebrow">项目</span><h2 id="project-settings-title">项目设置</h2><p id="project-settings-name" class="settings-note">当前项目</p></div><button id="project-settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="settings-section" id="ssh-env-section">
-        <div class="section-title">SSH 环境</div>
-        <p class="settings-note">连接信息只属于这个项目，按环境名分组。口令留空表示保持原值；会话是否可用由「设置 → 本会话」单独放权。</p>
+        <div class="section-title">工作环境</div>
+        <p class="settings-note">按环境名维护当前项目可用的本地或 SSH 执行面；主机留空即本地环境。口令留空表示保持原值。</p>
         <div id="ssh-env-list" class="settings-field"></div>
         <div class="settings-field ssh-env-form">
           <input id="ssh-env-name" type="text" placeholder="环境名（dev / test / prod）" aria-label="环境名" />
-          <input id="ssh-env-host" type="text" placeholder="主机" aria-label="主机" />
+          <input id="ssh-env-host" type="text" placeholder="主机（留空 = 本地）" aria-label="主机" />
           <input id="ssh-env-port" type="number" placeholder="端口" aria-label="端口" />
           <input id="ssh-env-user" type="text" placeholder="用户" aria-label="用户" />
           <input id="ssh-env-remote-root" type="text" placeholder="远端项目根（可选）" aria-label="远端项目根" />
@@ -611,15 +627,15 @@
 
   <div id="ssh-userspace-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="ssh-userspace-title">
     <div class="modal-card ssh-userspace-card">
-      <div class="modal-header"><div><span class="eyebrow">SSH 用户空间</span><h2 id="ssh-userspace-title">放行路径</h2></div><button id="ssh-userspace-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">开启“SSH 用户空间”前，列清远端项目根之外允许访问的 POSIX 绝对路径。只列出目录，不使用 <code>/</code>。</p>
+      <div class="modal-header"><div><span class="eyebrow">SSH</span><h2 id="ssh-userspace-title">允许路径</h2></div><button id="ssh-userspace-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p class="settings-note">开启 SSH 前，列清远端项目根之外允许访问的 POSIX 绝对路径。路径是这个能力的作用范围，不是第二枚权限；只列出目录，不使用 <code>/</code>。</p>
       <label class="settings-field">允许的路径（每行一个）
         <textarea id="ssh-userspace-paths" rows="7" placeholder="/home/seelex/.cache&#10;/etc/nginx/conf.d"></textarea>
       </label>
       <div id="ssh-userspace-status" class="muted"></div>
       <div class="settings-actions">
         <button id="ssh-userspace-cancel" type="button" class="secondary">取消</button>
-        <button id="ssh-userspace-save" type="button" class="primary">保存路径并授权</button>
+        <button id="ssh-userspace-save" type="button" class="primary">保存路径并启用 SSH</button>
       </div>
     </div>
   </div>

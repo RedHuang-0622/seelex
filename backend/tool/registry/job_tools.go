@@ -81,7 +81,13 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 		}
 	}
 	// 远端面：句柄以 `ssh:` 开头就是远端作业（判据在 ssh 包，一处）。
-	if transport, ok := RemoteTransport(ctx); ok && hasRemoteJobHandle(handles) {
+	if transport, ok := RemoteTransport(ctx); ok {
+		if len(handles) == 0 {
+			return "", fmt.Errorf("bg_manage: 当前会话固定为 SSH 环境；远端作业没有本地总表，请提供 ssh: 句柄")
+		}
+		if !hasRemoteJobHandle(handles) {
+			return "", fmt.Errorf("bg_manage: 当前会话固定为 SSH 环境，但句柄 %q 不是远端句柄（应为 ssh: 族）", handles[0])
+		}
 		if len(handles) > 1 {
 			return "", fmt.Errorf("bg_manage: 远端面一次只能管一条句柄（收到 %d 条）；远端作业各自独立，请逐条管理", len(handles))
 		}
@@ -299,6 +305,23 @@ func (r *Router) scopedBashBg(ctx context.Context, argsJSON string) (string, err
 	// 行标题只能来自派发时的这句话——没有别的诚实来源（它会活过这一轮）。
 	if strings.TrimSpace(input.Description) == "" {
 		return "", fmt.Errorf("bash_bg: description is required（一句话说明这条命令在做什么，它会成为工作打点表的行标题）")
+	}
+	if transport, ok := RemoteTransport(ctx); ok {
+		started, startErr := transport.Start(ctx, TransportRequest{
+			Command: input.Command,
+			Workdir: input.Workdir,
+		})
+		if startErr != nil {
+			return "", startErr
+		}
+		payload, err := renderJobAccepted(JobHandle{
+			Handle: started.Handle, LogPath: started.LogPath,
+			Title: clampProbeLine(input.Description),
+		})
+		if err != nil {
+			return "", err
+		}
+		return markedJobPayload(ctx, "bash_bg", payload), nil
 	}
 	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
 	if err != nil {

@@ -59,6 +59,19 @@ func (t *sshTransport) Exec(ctx context.Context, req TransportRequest) (Transpor
 	}, nil
 }
 
+// Start 派发一条远端后台作业并立即返回 `ssh:` 句柄。
+func (t *sshTransport) Start(ctx context.Context, req TransportRequest) (TransportManageOutput, error) {
+	started, err := t.backend.StartJob(ctx, req.Command, req.Workdir)
+	if err != nil {
+		return TransportManageOutput{}, t.faceError(err)
+	}
+	return TransportManageOutput{
+		Handle: started.Handle, State: seelessh.JobRunning, StillRunning: true,
+		LogPath: started.OutPath,
+		Note:    "远端后台作业已受理；用 bg_manage(op=observe|fetch|kill) 管理该 ssh: 句柄。",
+	}, nil
+}
+
 // Read 读一个远端文件并按行窗口切好（窗口判据与本地面同一份：windowLines）。
 func (t *sshTransport) Read(ctx context.Context, req TransportReadRequest) (TransportReadOutput, error) {
 	content, err := t.backend.ReadFile(ctx, req.Path)

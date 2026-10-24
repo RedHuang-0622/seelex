@@ -39,19 +39,17 @@ func InitApplication(
 	// 包级变量的隐含读取。
 	storePath string,
 ) (*application.Service, error) {
-	// 项目侧的连接配置 / 多环境 SSH 表读面注入给 Runtime：执行面的决策段要按
-	// 环境名解析端点（工具参数 env），而 Router 并不实现这两个端口——真正的实现
-	// 就是这里这个 workspace 仓库。注入同一个实例，不做第二份缓存。
+	// 项目侧的连接配置 / 多环境 SSH 表读面注入给 Runtime：执行面的决策段按会话
+	// 固定环境名解析本地/SSH 执行面；环境名由适配器注入，不来自模型工具参数。
+	// Router 不认识项目配置，真正的实现就是这里这个 workspace 仓库。
 	//
 	// 顺序说明：Runtime 在 InitRuntime 里先建好（它要读账号档与 limits），环境表
 	// 读面是**事后注入**的读面，所以这里是一个 setter 而不是构造参数——构造期注入
 	// 会把 Runtime 的创建顺序绑死在 workspace 仓库上。
 	runtime.SetWorkspaceEnvironmentPort(adapters.WorkspacePort{Repo: workspaces})
-	// 会话当前环境（工具没写 env 时的缺省）：读的是装配层的写穿缓存，不逐次回放
-	// 会话 SSH 状态的 JSONL——决策段跑在每一次工具调用上。
+	// 会话固定环境：读装配层的写穿缓存，不逐次回放会话 SSH 状态的 JSONL——
+	// 决策段跑在每一次工具调用上。
 	runtime.SetSessionSSHEnvResolver(adapters.SessionSSHEnvResolver(sessions.Router()))
-	// 环境放权判定（显式 env 参数的闸门）：未放权的环境一律拒绝，放权面未装配也拒绝。
-	runtime.SetSessionSSHEnvGrantedResolver(adapters.SessionSSHEnvGrantedResolver(sessions.Router()))
 
 	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
 	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的

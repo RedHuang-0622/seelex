@@ -29,9 +29,9 @@ Computer Use 原生通道在本机返回 `failed to connect native pipe: 系统�
 - 角色页切换到 `teammate`，账号下拉只出现 `teammate-1` / `teammate-2`；
 - 选择角色账号触发并收到 `SetRoleAccount` 回执；
 - “添加账户”打开独立二级弹窗；
-- 项目设置可打开并包含 SSH 环境表；
-- 会话 SSH 控件不在项目设置弹窗内；
-- 项目 SSH 环境保存触发 `SetWorkspaceEnvironment`。
+- 项目设置可打开并包含工作环境表；
+- 会话固定环境控件独立于项目设置与全局设置；
+- 项目工作环境保存触发 `SetWorkspaceEnvironment`。
 
 第一轮冒烟发现并修复了 `app.js` 缺少 `permissionVectorSummary` import 的真实运行时错误；
 修复后同一套点击步骤全部通过。
@@ -49,10 +49,29 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
 - `go vet ./...`、`git diff --check` 与 README 引用检查通过。
 - `go build ./...` 与 `go build -tags "gui,desktop,production" ./...` 通过。
 - 无头浏览器注入 Bridge 桩后完成点击冒烟：四个角色固定出现；角色卡折叠；继承开关只锁
-  角色默认；会话覆盖仍可编辑并回显 `permission_vector`；SSH 用户空间弹窗写入两条路径；
+  角色默认；会话覆盖仍可编辑并回显 `permission_vector`；SSH 路径弹窗写入两条路径；
   账户新增、编辑（空密钥保留）、删除确认均触发对应 Bridge；设置弹窗滚动前后关闭按钮
   相对卡片上沿位置均为 45px。
 - 冒烟现场发现并修复 `renderAccountBalanceRows` 悬空调用与后端 `permission_vector` /
   前端 `vector` 字段错位，两处均已由结构用例钉住。
 - Computer Use 原生 pipe 仍不可用；上述冒烟使用真实 `gui/frontend/dist` 页面与浏览器
   DOM 事件，Wails 宿主窗口未由 Computer Use 驱动。
+
+## 2026-10-24 单一 SSH 权限与会话固定环境
+
+- 权限向量只保留一枚 `ssh`；旧 `ssh.userspace` 在读取/写入规整时迁移为 `ssh`，
+  不再作为独立 chip 或权限组出现。
+- 项目设置维护本地/SSH 命名环境；会话首次固定后不可切换，未固定会话明确按本地执行，
+  不再借用旧单条 SSH 连接自动转远端。
+- mainagent、subagent、teammate 与后台工具共用同一执行树环境绑定；模型工具 schema
+  不暴露 `env`，伪造入参不能覆盖会话绑定。
+- 环境清单与地址作为请求尾部块注入，位于用户输入之后；工作打点表仍在输入之前。
+- SSH 路径白名单支持项目级角色默认与当前会话 agent-role 覆盖；会话覆盖优先，
+  未覆盖时回落角色默认，更新权限向量不会擦除路径。
+- 子代理权限向量解析使用 `subagent` / `teammate` 这类 agent role，而不是 `impl_ui`
+  一类业务成员名；主/子代理因此读取同一份设置页选择。
+- 自动化门禁：`go test ./... -count=1 -timeout=600s` 通过；
+  `go vet -tags "gui,desktop,production" ./...` 通过；
+  `go build ./...` 与 `go build -tags "gui,desktop,production" ./...` 通过；
+  `node --test gui/frontend/dist/*.test.mjs` 862/862 通过；`git diff --check` 通过。
+- 交互冒烟需在 post-commit 重建 dev GUI 后补记，当前不把自动化门禁冒充窗口点击结果。

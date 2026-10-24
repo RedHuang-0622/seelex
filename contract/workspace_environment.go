@@ -1,13 +1,13 @@
 package contract
 
-// workspace_environment.go —— 项目侧**多环境 SSH 表**的窄可选端口。
+// workspace_environment.go —— 项目侧**工作环境表**的窄可选端口。
 //
 // 与 workspace_connection.go 同一条做法（窄可选端口 + type-assert 探测）：环境表需要
 // 密文库与索引写面，没有持久化的宿主只能读不能写，不该逼所有 WorkspacePort 实现
 // （含测试 fake）跟着长方法。
 //
-// 口径（2026-10-23）：SSH 连接信息**只挂在项目上**，按环境名分组；会话不持有连接
-// 信息，只持有"限定用哪个环境"与"放权了哪些环境"（见 model.SessionSSHInfo）。
+// 口径（2026-10-24）：工作环境**只挂在项目上**，按环境名分组。环境有端点时
+// 执行面为 SSH，无端点时在本地项目根执行；会话只可选择缺省环境。
 
 import "github.com/RedHuang-0622/seelex/middle/protocol/model"
 
