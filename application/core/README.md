@@ -456,18 +456,24 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 `application/core/role_permissions.go` 是「会话级角色权限登记」的应用层读取面：
 `RestoreRolePermissions`（会话加载点的整会话恢复）、`RolePermissionVector`（单角色
 生效向量）与 `SetRolePermissionVector`（写入，空集 = 显式不给）三条。判据只有一份
-（`contract/dto` 的 `ResolvePermissionVector` / `ResolveRoleSettings`，四级来源
-`user_allow > agent_dispatch > session_default > global_default`），事实源只有一处
+（`contract/dto` 的 `ResolvePermissionVector` / `ResolveRoleSettings`，五级来源
+`user_allow > agent_dispatch > session_default > role_default > global_default`），事实源只有一处
 （存储层的会话级登记格，键 `(sessionID, role)`）；本包**不缓存第二份向量**、也**不把
 解析结果写回盘**。
 
-登记能力与四层来源都是会话端口上的**可选**能力（`rolePermissionPort` /
+登记能力与五层来源都是会话端口上的**可选**能力（`rolePermissionPort` /
 `rolePermissionLayerPort`，类型断言发现；生产装配在
 `wiring/adapters/role_permission_port.go`）。未装配时显式返回
 `ErrRolePermissionsUnavailable`，不静默给空权限。会话加载处
 （`service_assembler.go`）对会话自持角色（权责表 root 主体）调一次恢复：作用是让装配
 缺口与坏配置在加载时暴露、并把该会话的登记格热起来；CLI/headless 一类未装配登记能力的
 宿主不因此启动失败。
+
+角色默认账号与权限默认共用项目级 `role-permissions.json` 记录，但字段互不覆盖。
+`SetRoleAccount` 先经运行时校验账号属于该角色，再落盘并立即更新账号路由；
+`RestoreRoleAccounts` 在会话加载时把保存值推回运行时。团队 worker 回合以
+`SceneScope.Role=teammate` 进入账号选择，因此 `accounts.yaml` 的 teammate 账号
+不会被主 agent 账号抢占。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
 `assistant/tool` 行写 `role_name=main`、给 `system`/internal 状态材料写

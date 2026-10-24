@@ -446,6 +446,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   background: var(--bg);
 }
 .right-panel > .project-heading { padding: 16px 14px 10px; flex: none; }
+.project-heading-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.project-heading-bar .section-title { margin: 0; }
+.project-settings-button { width: 28px; height: 28px; min-height: 28px; }
 .panel section + section { margin-top: 20px; }
 /* 左栏的高度链：section 只把高度让下去（flex 列 + min-height: 0），会话列表吃掉
    剩余高度自滚——max-height 归零后它才是"吃掉剩余空间"的那一环，否则限高（100%）
@@ -2997,7 +3000,66 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.settings-card--wide { width: min(860px, calc(100vw - 28px)); }
+.settings-layout {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 5px;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+}
+.settings-nav-item {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-nav-item:hover { color: var(--text); background: var(--surface-2); }
+.settings-nav-item.is-active {
+  color: var(--text-bright);
+  border-color: var(--border);
+  background: var(--tint-running);
+}
+.settings-pages { min-width: 0; }
+.settings-page > .settings-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.settings-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.settings-page-head .settings-note { max-width: 560px; }
+.project-settings-card { width: min(720px, calc(100vw - 28px)); }
+.account-add-card { width: min(560px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 48px)); overflow-y: auto; }
+.settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.permission-vector-readonly { opacity: .86; }
+.permission-vector-readonly .perm-tag { cursor: default; }
 .settings-note { margin: 0 0 14px; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
+@media (max-width: 640px) {
+  .settings-layout { grid-template-columns: 1fr; gap: 12px; }
+  .settings-nav {
+    position: static;
+    display: flex;
+    gap: 4px;
+    padding: 0 0 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .settings-nav-item { width: auto; flex: none; text-align: center; white-space: nowrap; }
+  .settings-page-head { display: grid; }
+}
 .settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: var(--text-sm); }
 .settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--text); font: 12px var(--font-mono); }
 .settings-field input:focus, .settings-field select:focus { border-color: var(--border-strong); }

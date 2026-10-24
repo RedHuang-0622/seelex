@@ -487,6 +487,10 @@ type Dependencies struct {
 	// 自定义值）。纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
 	// nil = 界面上改的值只在本次运行有效。
 	AccountWindowStore AccountWindowStore
+	// AccountAdmin 是「手动添加账号」的宿主能力面（界面「设置 → 账户 → 添加」）。
+	// 它管两件宿主侧的事：写账号档 + 把新账号热注册进运行时。nil = 该宿主不支持
+	// 界面添加（用例返回可展示错误），界面照常显示既有账号。
+	AccountAdmin AccountAdminPort
 	// ToolRecordStore 是「工具记录计数开关」的落盘口（界面「设置 → 工具记录」的开关）。
 	// 纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
 	// nil = 界面上改的开关只在本次运行有效。
@@ -555,6 +559,34 @@ type AccountWindowPort interface {
 	SetAccountWindow(name string, window int)
 	// AccountWindowFor 返回该账号生效的窗口（token）。
 	AccountWindowFor(name string) int
+}
+
+// AccountRoleSelectionPort 是「角色默认账号」的运行时写面：角色配置保存成功后，
+// 账号路由立即按角色固定到该账号，不需要重启。
+type AccountRoleSelectionPort interface {
+	SetRoleAccount(role, account string) error
+}
+
+// AccountAdminPort 是「手动添加账号」的宿主能力面（界面「设置 → 账户 → 添加」）。
+//
+// 为什么是可选端口而不是 Dependencies 的必填字段：添加账号要同时做两件宿主侧的事
+// ——**写账号档**（文件路径与 YAML 形状是宿主的方向）与**热注册进运行时**（新账号
+// 不重启就能承流）。这两件的实现都在装配根，应用层只负责把界面输入原样递过去。
+// 没装这个端口的 fake/harness 会得到一句明确错误（"宿主未提供账号管理能力"），
+// 而不是看起来成功、实际什么都没发生。
+type AccountAdminPort interface {
+	// AddAccount 写入一条新账号并返回生效回执（含推导出来的账号名）。
+	AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)
+}
+
+// AccountBalancePort 是「查一个账号的余额」的**窄可选**能力面。
+//
+// 余额是账号凭据的属性：只有宿主（Runtime）手里有 AccountSpec 与 api_key，所以
+// 探测在账号域完成（backend/engine/account），应用层只拿到读数或一条可展示错误。
+// 未装配该能力的宿主上调它会得到明确错误（同 AccountWindowPort 的口径）。
+type AccountBalancePort interface {
+	// AccountBalance 查询指定账号此刻的余额。
+	AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)
 }
 
 // EmployeePermissionPort 把"装配团队时写入的员工角色"翻译成**员工权限分配**。

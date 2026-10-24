@@ -778,6 +778,14 @@ type AccountInfo struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	Disabled bool   `json:"disabled"`
+	// Role 是账号在 accounts.yaml 中的显式角色。名称前缀只用于兼容旧快照，
+	// 界面分组和权限装配不得再把展示名当作角色事实。
+	Role string `json:"role,omitempty"`
+	// APIKeySet 只报告“该账号有可用的凭据”，绝不携带密钥明文。
+	APIKeySet bool `json:"api_key_set"`
+	// Fallback 标记启动期因账号档不可用而启用的内置兜底账号。界面据此提示
+	// “当前使用的不是用户配置”，避免把 fallback 误认成正确凭据。
+	Fallback bool `json:"fallback,omitempty"`
 	// ContextWindow 是该账号**生效**的上下文窗口（token）：账号级覆盖（界面「设置 →
 	// 账号」设过的）> seelex.yaml 的 limits.context_window > 账号档自报值。界面按它
 	// 显示当前挡位；改值走 Bridge 的 SetAccountWindow，不在这里回写。

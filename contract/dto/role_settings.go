@@ -5,13 +5,14 @@ import (
 	"strings"
 )
 
-// role_settings.go 是「角色设置」的跨层词汇，也是**四级权限向量解析的唯一实现**。
+// role_settings.go 是「角色设置」的跨层词汇，也是**五级权限向量解析的唯一实现**。
 //
-// 生态位：一个角色（teammate / 群聊成员）的设置由四层来源叠出来，优先级**高→低**：
+// 生态位：一个角色（teammate / 群聊成员）的设置由五层来源叠出来，优先级**高→低**：
 //
 //	user_allow      用户在会话里对某个角色的显式允许（人说的话最硬）
 //	agent_dispatch  派发方在派活时给出的约束（"这次只让它读"）
 //	session_default 会话默认（这个会话里员工默认能做什么）
+//	role_default    用户在角色设置里定下的跨会话默认（"这个角色平时能做什么"）
 //	global_default  进程全局默认（seele.yaml / limits 派生）
 //
 // 判据只有一条：**逐标签取首个出现者**——同一个标签在多层出现时，最高优先层的
@@ -42,19 +43,20 @@ const (
 // PermissionTagDenyPrefix 是"这一层明确不给该标签"的前缀。
 const PermissionTagDenyPrefix = "!"
 
-// 四级来源名字（诊断、日志与前端展示用；顺序即优先级，高→低）。
+// 五级来源名字（诊断、日志与前端展示用；顺序即优先级，高→低）。
 const (
 	PermissionLayerUserAllow      = "user_allow"
 	PermissionLayerAgentDispatch  = "agent_dispatch"
 	PermissionLayerSessionDefault = "session_default"
+	PermissionLayerRoleDefault    = "role_default"
 	PermissionLayerGlobalDefault  = "global_default"
 )
 
-// PermissionLayerNames 返回四级来源的规范顺序（高→低）。
+// PermissionLayerNames 返回五级来源的规范顺序（高→低）。
 func PermissionLayerNames() []string {
 	return []string{
 		PermissionLayerUserAllow, PermissionLayerAgentDispatch,
-		PermissionLayerSessionDefault, PermissionLayerGlobalDefault,
+		PermissionLayerSessionDefault, PermissionLayerRoleDefault, PermissionLayerGlobalDefault,
 	}
 }
 
@@ -68,17 +70,21 @@ func PermissionTags() []string {
 // Role 用**账号角色**（agent / subagent / goalplan / teammate），与 accounts.yaml 的
 // roles.* 同一套词——界面不另造一套名字，否则"面板上的角色"与"配置里的角色"会成为
 // 两份对不上的事实。Accounts 是这一角色名下的账号实例（agent-1 / agent-2 …）；
-// Provider/Model 取第一个未禁用账号，只做展示，不参与任何判定。
+// Provider/Model 取第一个未禁用账号，只做展示，不参与任何判定。Vector 是当前会话
+// 叠加五层后的生效向量；DefaultVector 是用户为该角色显式设定的跨会话默认。两者分开
+// 后，界面不会再把“当前碰巧生效的值”冒充成“用户设过的默认”。
 //
-// Explicit=false 表示"这个角色的默认没定过"：此时 Vector 是链路解析结果（只读参考），
-// 界面要据此把状态写成"未定过（跟随默认）"，不能假装它是用户选的。
+// Explicit=false 表示"这个角色的默认没定过"。此时 DefaultVector 为空，界面必须写成
+// "未定过（跟随链路）"，不能把 Vector 冒充成用户的选择。
 type PermissionRoleInfo struct {
-	Role     string   `json:"role"`
-	Accounts []string `json:"accounts,omitempty"`
-	Provider string   `json:"provider,omitempty"`
-	Model    string   `json:"model,omitempty"`
-	Vector   []string `json:"permission_vector"`
-	Explicit bool     `json:"explicit"`
+	Role          string   `json:"role"`
+	Accounts      []string `json:"accounts,omitempty"`
+	Account       string   `json:"account,omitempty"`
+	Provider      string   `json:"provider,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	Vector        []string `json:"permission_vector"`
+	DefaultVector []string `json:"default_permission_vector"`
+	Explicit      bool     `json:"explicit"`
 }
 
 // RoleSettings 是一个角色的设置。
@@ -103,26 +109,28 @@ func (settings RoleSettings) Empty() bool {
 		len(settings.PermissionVector) == 0 && settings.DefaultPlugin == ""
 }
 
-// RoleSettingsLayers 是四级来源的一份取值。
+// RoleSettingsLayers 是五级来源的一份取值。
 //
 // 用"每层一份 RoleSettings"而不是"每层一个 []string"：Account / ContextWindow /
-// DefaultPlugin 也走同一条四级链路（首个非零层说了算），把它们拆到两个结构里会
+// DefaultPlugin 也走同一条五级链路（首个非零层说了算），把它们拆到两个结构里会
 // 让调用方不得不做两次解析。
 type RoleSettingsLayers struct {
 	UserAllow      RoleSettings
 	AgentDispatch  RoleSettings
 	SessionDefault RoleSettings
+	RoleDefault    RoleSettings
 	GlobalDefault  RoleSettings
 }
 
-// Ordered 返回按优先级高→低排列的四层（新切片，顺序即 PermissionLayerNames）。
+// Ordered 返回按优先级高→低排列的五层（新切片，顺序即 PermissionLayerNames）。
 func (layers RoleSettingsLayers) Ordered() []RoleSettings {
 	return []RoleSettings{
-		layers.UserAllow, layers.AgentDispatch, layers.SessionDefault, layers.GlobalDefault,
+		layers.UserAllow, layers.AgentDispatch, layers.SessionDefault,
+		layers.RoleDefault, layers.GlobalDefault,
 	}
 }
 
-// PermissionVectors 返回四层的权限向量（顺序同上）。
+// PermissionVectors 返回五层的权限向量（顺序同上）。
 func (layers RoleSettingsLayers) PermissionVectors() [][]string {
 	ordered := layers.Ordered()
 	vectors := make([][]string, 0, len(ordered))
@@ -132,7 +140,7 @@ func (layers RoleSettingsLayers) PermissionVectors() [][]string {
 	return vectors
 }
 
-// ResolvePermissionVector 按四级优先级解析权限向量：**逐标签取首个出现者**，
+// ResolvePermissionVector 按五级优先级解析权限向量：**逐标签取首个出现者**，
 // 返回最终**允许**的标签集合（高优先层的否定不会出现在结果里）。
 //
 // 参数顺序即优先级：`layers[0]` 最高。典型调用是
@@ -163,7 +171,7 @@ type PermissionVectorDecision struct {
 	Denied []string
 }
 
-// ResolvePermissionVectorDecision 是四级优先级解析的**唯一实现**
+// ResolvePermissionVectorDecision 是五级优先级解析的**唯一实现**
 // （ResolvePermissionVector 是它的 Allowed 投影，不另算一遍）。
 func ResolvePermissionVectorDecision(layers ...[]string) PermissionVectorDecision {
 	decided := make(map[string]bool, 8)
@@ -196,7 +204,7 @@ func ResolvePermissionVectorDecision(layers ...[]string) PermissionVectorDecisio
 	return PermissionVectorDecision{Allowed: allowed, Denied: denied}
 }
 
-// ResolveRoleSettings 按四级优先级解析整份角色设置（高→低参数序）：
+// ResolveRoleSettings 按五级优先级解析整份角色设置（高→低参数序）：
 // Account / ContextWindow / DefaultPlugin 取**首个非零层**，PermissionVector
 // 交给 ResolvePermissionVector（同一份判据，不在这里重算）。
 func ResolveRoleSettings(layers ...RoleSettings) RoleSettings {

@@ -10,8 +10,15 @@
 ## 职责与非职责
 
 - 职责：`ClientFor` 构造 client、`RegisterAccounts` 注册账号池、
-  `ResolveForBranch`/`ForRole`/`ByName`/`StableIndex` 选择与查找。
-- 非职责：不持有账号池状态（池在 Runtime）、不决定 UI 展示。
+  `ResolveForBranch`/`ForRole`/`ByName`/`StableIndex` 选择与查找、
+  `QueryBalance`/`BalanceEndpoint` 余额探测、`Manager.Add` 热注册新账号。
+  `Manager.Accounts` 的界面摘要携带**显式角色**、`APIKeySet` 与 `Fallback`；密钥明文
+  不进入摘要或快照。
+- `Manager.SetRoleAccount` 固定某个账号角色的首选账号。作用域请求（subagent /
+  goalplan / teammate）优先按该固定值租赁；主链路在未显式选择账号时也可使用 agent
+  角色的固定值。
+- 非职责：不持有账号池状态（池在 Runtime）、不决定 UI 展示、**不写账号档**
+  （账号档的写入在 `internal/config`）。
 
 ## 与其它域的关系
 
@@ -50,6 +57,19 @@ flowchart LR
   `limits.context_window` 全局值 > 账号档自报（遗留兜底），三个读数由 `WindowDeps` 在装配点注入
   （函数值，域包因此不认识配置与账号池）。落盘在 `backend/limit/overlay`，界面侧校验在
   `backend/limit/accountwindow`，两边都只校验/落盘/读生效值，不各判一次优先级。
+- `QueryBalance(ctx, spec)` / `BalanceEndpoint(spec)`（`balance.go`）：**账号余额探测**（界面
+  「设置 → 账户 → 查看余额」）。判据三条：① 供应商是**显式白名单**——目前只有 DeepSeek 的
+  `GET {base}/user/balance`；其它 OpenAI 兼容供应商没有等价端点，返回 `ErrBalanceUnsupported`
+  （可展示原话），绝不猜一个 URL 去打人家的服务；② 端点推导要把 `base_url` 尾部的 `/v1` 去掉
+  （DeepSeek 的余额端点挂在域名根上，不在 `/v1` 之下）；③ 金额保持 provider 给的**字符串原样**
+  （`"110.00"` 解析成 float 再格式化回去会丢掉末尾的 0，读数与账单就对不上）。
+  `is_available` 独立于金额透出：额度耗尽时它为 false，这是 `402 Insufficient Balance` 之前
+  唯一能提前看到的信号。这里是**一问一答的短查询**，与下节「流式超时纪律」相反——它带 20s
+  整请求上限（宁可在界面上说"查不到"，也不让一次探测把界面挂住）。凭据只用于 `Authorization`
+  头，不进错误文案。
+- `Manager.Add(spec, limits)`：把界面刚加的账号**热注册**进管理器的规格与预算表（`Runtime
+  .RegisterAccount` 先注册进池、再调它）。三条判据：空名拒绝；重名**报错而不是覆盖**（覆盖会
+  让新账号悄悄替换一条正在承流的账号）；不动选中项与默认账号（加账号不等于切账号）。
 
 ## 流式超时纪律（2026-09-29 事故）
 
@@ -76,6 +96,18 @@ reading body)`——这句话区分不了「上游挂了」与「上游还在推
 NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 `accountSelector` 把选中账号/provider 过滤转为 `AcquireRequest` → P2C 租赁。
 
+账号角色解析只在“该角色块不存在”时回退 `agent`。若角色块存在但没有可用
+`api_key`，解析显式报错，绝不会拿另一角色的密钥继续运行；内置 fallback 账号在
+快照里标记 `fallback=true`，避免与用户配置混为一谈。
+
+界面加账号是另一条不经过启动装载的短链：GUI `AddAccount` → `internal/config.AddAccount`
+（写账号档）→ `config.Load` 读回规格 → `Runtime.RegisterAccount` →
+`RegisterAccounts`（进池）+ `Manager.Add`（进路由/预算）→ 下一份快照里就多一行。
+
+余额：GUI `AccountBalance(name)` → `Runtime.AccountBalance` 按名字取 `AccountSpec` →
+`QueryBalance`（DeepSeek `/user/balance`）→ `adapters.RuntimePort.AccountBalance` 映射成
+`dto.AccountBalance` → 界面逐行显示（不进快照、不缓存）。
+
 ## 依赖方向
 
 允许依赖：`internal/model`、`accountpool`、`agent`、`api`、`types`。
@@ -100,7 +132,8 @@ NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 
 ## 测试与验证
 
-`go test ./backend/engine/account/...`：`manager_test.go`（账号选择/provider 过滤）+
+`go test ./backend/engine/account/...`：`manager_test.go`（账号选择/provider 过滤 +
+`Add` 的空名/重名/限额判据）+
 `transport_test.go` / `transport_watchdog_test.go`——后者用 httptest 的 OpenAI 兼容
 SSE 上游钉住事故形状（整请求超时会掐断健康慢流、复现那句措辞；换成空闲看门狗后
 同一条流活下来，真停滞则报可读错误）。稳定选择由根包
@@ -108,3 +141,6 @@ SSE 上游钉住事故形状（整请求超时会掐断健康慢流、复现那�
 `served_route_test.go` / `window_overlay_test.go` 是两片域级状态判据（去重与读即清、
 入口过滤/改清一格/优先级三条支路/值拷贝与 nil 接收者），端到端那一跳留在装配层
 `runtime_account_test.go`（经 `SetAccountWindow` → `ContextWindowFor` 走同一条链）。
+`balance_test.go` 是余额探测的判据：端点推导（含 `/v1` 去尾与只写模型名的兜底）、真实响应
+形状的解析（金额字符串原样）、非 200 把状态码与响应体摘要带出来且**不含** Authorization、
+不支持的供应商**不发请求**、`balance_infos` 空表报"读不到"（不当成余额为 0）。

@@ -122,18 +122,40 @@ func TestResolvePermissionVectorLayersOrder(t *testing.T) {
 		UserAllow:      RoleSettings{PermissionVector: []string{PermissionTagRO}},
 		AgentDispatch:  RoleSettings{PermissionVector: []string{"!" + PermissionTagRW}},
 		SessionDefault: RoleSettings{PermissionVector: []string{PermissionTagRW}},
+		RoleDefault:    RoleSettings{PermissionVector: []string{"!" + PermissionTagCTL}},
 		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagADM}},
 	}
-	if ordered := (RoleSettingsLayers{}).Ordered(); !reflect.DeepEqual(ordered, make([]RoleSettings, 4)) {
-		t.Fatalf("空层 Ordered = %v, want 四份零值", ordered)
+	if ordered := (RoleSettingsLayers{}).Ordered(); !reflect.DeepEqual(ordered, make([]RoleSettings, 5)) {
+		t.Fatalf("空层 Ordered = %v, want 五份零值", ordered)
 	}
 	got := ResolvePermissionVector(layers.PermissionVectors()...)
 	want := []string{PermissionTagRO, PermissionTagADM}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("层序解析 = %v, want %v（user_allow > agent_dispatch > session_default > global_default）", got, want)
+		t.Fatalf("层序解析 = %v, want %v（user_allow > agent_dispatch > session_default > role_default > global_default）", got, want)
 	}
-	if names := PermissionLayerNames(); len(names) != 4 || names[0] != PermissionLayerUserAllow || names[3] != PermissionLayerGlobalDefault {
+	if names := PermissionLayerNames(); len(names) != 5 || names[0] != PermissionLayerUserAllow ||
+		names[3] != PermissionLayerRoleDefault || names[4] != PermissionLayerGlobalDefault {
 		t.Fatalf("PermissionLayerNames = %v，顺序必须是高→低", names)
+	}
+}
+
+// TestRoleDefaultIsIndependentOfGlobalDefault 钉住角色默认的真实位置：它可以压住
+// 全局默认，但不能冒充全局层；派发/会话层仍可显式覆盖它。
+func TestRoleDefaultIsIndependentOfGlobalDefault(t *testing.T) {
+	layers := RoleSettingsLayers{
+		SessionDefault: RoleSettings{PermissionVector: []string{PermissionTagRO}},
+		RoleDefault:    RoleSettings{PermissionVector: []string{PermissionTagRW}},
+		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagADM}},
+	}
+	got := ResolvePermissionVector(layers.PermissionVectors()...)
+	if want := ([]string{PermissionTagRO, PermissionTagRW, PermissionTagADM}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("向量 = %v, want %v", got, want)
+	}
+
+	layers.SessionDefault = RoleSettings{PermissionVector: []string{"!" + PermissionTagRW}}
+	got = ResolvePermissionVector(layers.PermissionVectors()...)
+	if want := ([]string{PermissionTagADM}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("会话层覆盖后向量 = %v, want %v", got, want)
 	}
 }
 

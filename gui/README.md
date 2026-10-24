@@ -175,10 +175,10 @@ application 层（v1 仅支持 `todo:` 前缀行的 pending/doing/done）。已�
 todo 行 ID 的号不是清单索引，而回写按索引解析它（
 `docs/devlog/2026-09-19-worktable-global-scope.md` §7.5）。
 
-启动配置容错：`Options.StartupWarning` 非空时，窗口就绪（`OnDomReady`）后
-弹出原生错误对话框展示启动期配置警告（如 `accounts.yaml` 解析失败）。警告同时
-以系统通知进入会话可见区（`application.Service.AddNotice`），应用照常启动，
-不闪退。
+启动配置容错：`Options.StartupWarning` 非空时，启动期配置警告（如
+`accounts.yaml` 解析失败）以系统通知进入会话可见区（`application.Service.AddNotice`）。
+GUI 不再弹阻塞式原生对话框，旧会话窗口即使当前账号档异常也能立即进入；涉及模型调用的
+操作再按真实错误提示。
 
 task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 relay；主动
 `taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。

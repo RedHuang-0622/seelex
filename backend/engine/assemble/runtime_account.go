@@ -3,6 +3,7 @@ package assemble
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -73,6 +74,26 @@ func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error) {
 // Accounts 返回账号池条目的路由摘要（按名称排序）。
 func (r *Runtime) Accounts() []Account {
 	return r.accounts.Accounts()
+}
+
+// SetRoleAccount 把角色默认账号推入运行时账号路由；刷新后由角色回合按
+// SceneScope.Role 选取。账号存在性与角色归属由账号管理器校验。
+func (r *Runtime) SetRoleAccount(role, account string) error {
+	if r == nil || r.accounts == nil {
+		return fmt.Errorf("seelex: runtime accounts are not assembled")
+	}
+	role = strings.TrimSpace(strings.ToLower(role))
+	valid := false
+	for _, candidate := range dto.AccountRoleVocabulary() {
+		if role == candidate {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("seelex: role %q is not an account role", role)
+	}
+	return r.accounts.SetRoleAccount(model.AccountRole(role), account)
 }
 
 // RegisterAccount 把一个新账号注册进运行时（界面「手动添加账号」的落点）：

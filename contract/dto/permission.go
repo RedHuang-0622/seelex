@@ -111,7 +111,7 @@ func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error
 //
 // 边界（产品决定，不是可选配置）：
 //   - 档位只作用在 root（主 agent）主体上；员工/子代理的授权面来自它们自己的
-//     权限向量（(会话, 角色) 的登记或四级链路），档位一字不改。
+//     权限向量（(会话, 角色) 的登记或五级链路），档位一字不改。
 //   - 档位是**会话粒度**（跟着 SessionUnit 的槽走，切会话即换档位）。
 //   - 共享桌面（rw_desktop）与能力面（adm）只有 full 档才在向量里（安全底线）。
 const (

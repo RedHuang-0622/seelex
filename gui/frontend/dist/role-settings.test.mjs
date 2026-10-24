@@ -15,6 +15,7 @@ import {
   PERMISSION_VECTOR_TAGS,
   cyclePermissionVector,
   normalizePermissionVector,
+  permissionRoleAccountOptionsHTML,
   permissionVectorLint,
   permissionVectorSummary,
   renderPermissionVectorHTML,
@@ -81,16 +82,35 @@ test("标签渲染：aria-pressed 跟着选择走，文本要转义", () => {
 test("两个下拉：空清单给一句可读的占位，当前项标（当前）", () => {
   assert.match(roleAccountOptionsHTML([], "x"), /读不到账号列表/);
   const accounts = [
-    { name: "main", provider: "deepseek", model: "v3" },
+    { name: "main", provider: "deepseek", model: "v3", api_key_set: true },
     { name: "cheap", provider: "deepseek", model: "lite", disabled: true },
+    { name: "fallback", provider: "openai", model: "gpt-4o", api_key_set: false, fallback: true },
   ];
   const html = roleAccountOptionsHTML(accounts, "main");
   assert.match(html, /<option value="main" selected>main · deepseek \/ v3（当前）<\/option>/);
   assert.match(html, /<option value="cheap" disabled>cheap · deepseek \/ lite<\/option>/);
+  assert.match(html, /fallback · openai \/ gpt-4o · 未配置密钥 \/ 内置兜底<\/option>/);
 
   assert.match(rolePluginOptionsHTML([], "x"), /读不到插件列表/);
   const plugins = [{ name: "core" }, { name: "goal" }];
   assert.match(rolePluginOptionsHTML(plugins, "goal"), /<option value="goal" selected>goal（当前）<\/option>/);
+});
+
+test("角色账号下拉只列该角色账号，并显示密钥与 fallback 状态", () => {
+  const html = permissionRoleAccountOptionsHTML(
+    ["teammate-1", "teammate-2"],
+    "teammate-2",
+    [
+      { name: "teammate-1", provider: "deepseek", model: "v3", api_key_set: true },
+      { name: "teammate-2", provider: "openai", model: "gpt-4o", api_key_set: false, fallback: true },
+      { name: "agent-1", provider: "openai", model: "other", api_key_set: true },
+    ],
+    "teammate-2",
+  );
+  assert.match(html, /自动（按角色账号池）/);
+  assert.match(html, /teammate-1 · deepseek \/ v3/);
+  assert.match(html, /teammate-2 · openai \/ gpt-4o · 未配置密钥 \/ 内置兜底（当前）/);
+  assert.doesNotMatch(html, /agent-1/, "不得把别的角色账号放进下拉");
 });
 
 test("设置弹窗：存储策略整段没了，角色设置占了它原来的位置", async () => {
@@ -105,9 +125,10 @@ test("设置弹窗：存储策略整段没了，角色设置占了它原来的�
   }
   assert.doesNotMatch(body, /存储形式|保存并切换|测试连接/, "存储策略的文案也要一起删");
 
-  // ② 角色设置四项并列：账号 / 上下文窗口 / 权限向量 / 默认 plugin。
+  // ② 角色页：当前会话主代理 + 角色默认装配 + 账号运行参数。
   assert.match(body, /id="role-settings-section"/, "角色设置要自成一段");
-  assert.match(body, /<div class="section-title">角色设置<\/div>/);
+  assert.match(body, /<div class="section-title">当前会话主代理<\/div>/);
+  assert.match(body, /<div class="section-title">角色默认装配<\/div>/);
   assert.match(body, /<select id="role-account"><\/select>/, "账号下拉是空的（选项由快照填）");
   assert.match(body, /id="account-windows"><\/div>/, "上下文窗口的行由前端渲染（容器是空的）");
   assert.match(body, /id="account-windows-status"/, "上下文窗口要有一行读数/说明落点");
@@ -116,9 +137,9 @@ test("设置弹窗：存储策略整段没了，角色设置占了它原来的�
   assert.match(body, /<select id="role-default-plugin"><\/select>/, "默认 plugin 下拉是空的（选项由快照填）");
   assert.match(body, /id="role-settings-status"/, "四项的提交结果要有一行落点");
 
-  // 四项都在同一段里（顺序即并列顺序），且「账号上下文窗口」不再自成一段。
-  const section = body.match(/id="role-settings-section"[\s\S]*?\n      <\/div>/);
-  assert.ok(section, "要找得到角色设置那一段");
+  // 当前会话项在首段，账号运行参数在角色页后段；同属 roles 页面。
+  const section = body.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="session"/);
+  assert.ok(section, "要找得到角色与权限页面");
   for (const id of ["role-account", "account-windows", "role-permission-vector", "role-default-plugin"]) {
     assert.match(section[0], new RegExp(`id="${id}"`), `${id} 必须落在角色设置这一段里`);
   }
@@ -270,8 +291,10 @@ test("角色默认权限：按 role 一份、跨会话，且与面板里的会�
   // 采纳后端读回值
   assert.match(app, /applied\.permission_vector/, "要用后端读回的向量");
   assert.match(app, /applied\.explicit === true/, "要采纳 explicit");
-  // 三种状态要分开说：定过 / 没定过（预览）/ 没走到后端
-  assert.match(app, /还没定过默认/, "没定过要明说显示的是解析预览");
+  // 三种状态要分开说：定过 / 没定过（当前生效另列）/ 没走到后端
+  assert.match(app, /还没定过跨会话默认/, "没定过要明说，且不能把当前生效冒充成默认");
+  assert.match(index, /id="permission-role-effective"/, "当前生效向量要有独立只读落点");
+  assert.match(app, /row\.default_vector/, "默认编辑读取独立字段");
   assert.match(app, /角色目录（桥未装配 PermissionRoles）/, "读写失败要如实说");
   // 打开设置时也要拉一次
   assert.match(app, /await syncAccountWindowReading\(\);\s*\n\s*await syncPermissionRoles\(\);/, "打开设置要拉角色目录");
@@ -317,6 +340,7 @@ test("SSH 环境：项目表可增删改，会话侧只能从项目表里选（�
   assert.match(render[0], /for \(const name of allowed\)/, "当前环境下拉只列已放权的环境");
   // 缺省不放权要明说
   assert.match(render[0], /缺省不放权/, "空放权集合要说明为什么用不了");
-  // 打开设置时两块读数一起拉
-  assert.match(app, /await syncPermissionRoles\(\);\s*\n\s*await syncSSHEnvironments\(\);/, "打开设置要拉 SSH 两块读数");
+  // 应用设置只拉会话读数；项目连接表由项目设置入口单独拉。
+  assert.match(app, /await syncPermissionRoles\(\);\s*\n\s*await syncSessionSSHEnvironments\(\);/, "打开设置要拉本会话 SSH 读数");
+  assert.match(app, /async function openProjectSettings\(\)[\s\S]*?await syncWorkspaceEnvironments\(\)/, "项目设置要拉项目连接表");
 });

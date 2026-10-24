@@ -37,6 +37,23 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 - `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
 
+### service_account.go
+
+- `func (service *Service) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount 把一个新账号写进账号档并热注册进运行时（界面「设置 → 账户 → 添加」）。
+- `func (service *Service) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — AccountBalance 查询一个账号此刻的余额（界面「设置 → 账户」的逐行读数）。
+
+### service_account_test.go
+
+- `func TestAddAccountNeedsHostPort(t *testing.T)`
+- `func TestAddAccountForwardsDraftVerbatim(t *testing.T)`
+- `func TestAddAccountPropagatesHostError(t *testing.T)`
+- `func TestAccountBalanceNeedsHostPort(t *testing.T)`
+- `func TestAccountBalanceForwardsName(t *testing.T)`
+- `func TestAccountBalancePropagatesHostError(t *testing.T)`
+- `func TestAccountMethodsNilServiceGuard(t *testing.T)`
+- `func (admin *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)`
+- `func (runtime *balanceFakeRuntime) AccountBalance(_ context.Context, name string) (dto.AccountBalance, error)`
+
 ### service_account_window.go
 
 - `func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。

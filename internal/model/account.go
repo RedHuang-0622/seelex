@@ -69,6 +69,9 @@ type AccountSpec struct {
 	Temperature     float64
 	ReasoningEffort string
 	Role            AccountRole
+	// Fallback 表示该规格来自“账号档读取失败”时的内置兜底，而不是用户配置。
+	// 它不参与账号选择，只用于让界面说清当前凭据来源。
+	Fallback bool
 }
 
 // ReasoningEffortSession 与角色默认思考强度统一登记在 contract/dto
@@ -99,34 +102,29 @@ func FallbackRoles(role AccountRole) []AccountRole {
 	}
 }
 
-// AccountRoleFromName 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
-//
-// 顺序即优先级：teammate 与 agent 都以字母开头，但前缀匹配是"整段前缀相等"，
-// 不会互相吃掉（teammate-1 推出 teammate，agent-1 推出 agent）。
-func AccountRoleFromName(name string) AccountRole {
-	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan, RoleTeammate} {
-		if len(name) > len(role) && name[:len(role)] == string(role) {
-			return role
-		}
-	}
-	return RoleAgent
-}
+// AccountRoleFromName 从账号 ID 推断角色。唯一实现已下沉到 contract/dto，
+// 继续在这里保留别名只是为了让引擎侧调用方不必同时关心契约包。
+func AccountRoleFromName(name string) AccountRole { return dto.AccountRoleFromName(name) }
 
-// ResolveAccountSpec picks an account spec from the loaded config for the
-// given role. Roles fall back to the primary agent role when they are not
-// configured, preserving single-account installations.
+// ResolveAccountSpec picks an account spec from the loaded config for the given
+// role. A role may fall back to agent only when that role block is absent; a
+// present role block with no usable API key is a configuration error and must
+// never silently execute with another role's credential.
 func ResolveAccountSpec(specs []AccountSpec, role AccountRole) (AccountSpec, error) {
 	roles := append([]AccountRole{role}, FallbackRoles(role)...)
 	for _, candidate := range roles {
+		configured := false
 		for _, spec := range specs {
-			if spec.Role == candidate && spec.APIKey != "" {
+			if spec.Role != candidate {
+				continue
+			}
+			configured = true
+			if spec.APIKey != "" {
 				return spec, nil
 			}
 		}
-	}
-	for _, spec := range specs {
-		if spec.APIKey != "" {
-			return spec, nil
+		if configured {
+			return AccountSpec{}, fmt.Errorf("seelex: role %q is configured but no account has api_key", role)
 		}
 	}
 	return AccountSpec{}, fmt.Errorf("seelex: no accounts available")

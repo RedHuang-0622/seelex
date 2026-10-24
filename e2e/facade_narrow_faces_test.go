@@ -18,6 +18,7 @@ import (
 // wantFaceMethods 是四组行为面的方法集快照（逐字，排序后比较）。
 var wantFaceMethods = map[string][]string{
 	"ViewFace": {
+		"AccountBalance",
 		"ActiveSkillIDs",
 		"AnyChatRunning",
 		"AssembleRoleWire",
@@ -107,6 +108,7 @@ var wantFaceMethods = map[string][]string{
 	},
 	"PolicyFace": {
 		"ActivateSkill",
+		"AddAccount",
 		"CancelScheduledTask",
 		"CreateRoleSession",
 		"ScheduleCancel",

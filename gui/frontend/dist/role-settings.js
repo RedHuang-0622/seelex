@@ -149,8 +149,12 @@ export function roleAccountOptionsHTML(accounts, current) {
   if (!list.length) return '<option value="">（读不到账号列表）</option>';
   return list.map(account => {
     const detail = [account.provider, account.model].filter(Boolean).join(" / ");
+    const health = [];
+    if (account.api_key_set === false) health.push("未配置密钥");
+    if (account.fallback) health.push("内置兜底");
     const suffix = account.name === current ? "（当前）" : "";
-    const label = detail ? `${account.name} · ${detail}${suffix}` : `${account.name}${suffix}`;
+    const base = detail ? `${account.name} · ${detail}` : account.name;
+    const label = `${base}${health.length ? ` · ${health.join(" / ")}` : ""}${suffix}`;
     return `<option value="${escapeHtml(account.name)}"${account.name === current ? " selected" : ""}${account.disabled ? " disabled" : ""}>${escapeHtml(label)}</option>`;
   }).join("");
 }
@@ -163,4 +167,25 @@ export function rolePluginOptionsHTML(plugins, current) {
     const suffix = plugin.name === current ? "（当前）" : "";
     return `<option value="${escapeHtml(plugin.name)}"${plugin.name === current ? " selected" : ""}>${escapeHtml(`${plugin.name}${suffix}`)}</option>`;
   }).join("");
+}
+
+// permissionRoleAccountOptionsHTML 是角色页的账号下拉：只列该角色组自己的账号。
+// 空值 = 自动选择（账号池按角色负载），不是“没有权限”。
+export function permissionRoleAccountOptionsHTML(names, selected, accounts = [], current = "") {
+  const list = Array.isArray(names) ? names.filter(Boolean) : [];
+  if (!list.length) return '<option value="">（该角色没有可用账号）</option>';
+  const details = new Map((Array.isArray(accounts) ? accounts : []).map(account => [account?.name, account]));
+  const options = ['<option value="">自动（按角色账号池）</option>'];
+  for (const name of list) {
+    const account = details.get(name) || {};
+    const detail = [account.provider, account.model].filter(Boolean).join(" / ");
+    const health = [];
+    if (account.api_key_set === false) health.push("未配置密钥");
+    if (account.fallback) health.push("内置兜底");
+    let label = detail ? `${name} · ${detail}` : name;
+    if (health.length) label += ` · ${health.join(" / ")}`;
+    if (name === current) label += "（当前）";
+    options.push(`<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}${account.disabled ? " disabled" : ""}>${escapeHtml(label)}</option>`);
+  }
+  return options.join("");
 }

@@ -15,6 +15,10 @@
 调用方——配置写错时应用照常启动，错误原因由 GUI/TUI 展示，而不是启动即退出。
 配置文件缺失仍视为正常回退（无警告）。
 
+兜底规格带 `Fallback=true`，快照据此提示“当前不是用户配置的账号”。角色解析只在
+角色块缺失时回退 `agent`；角色块存在但没有可用 `api_key` 会显式报错，不会跨角色
+借用另一把密钥。
+
 ## 数据流图
 
 ```mermaid
@@ -29,6 +33,26 @@ flowchart LR
     FALLBACK --> RUNTIME
 ```
 
+## 手动添加账号（accounts_write.go）
+
+`AddAccount(path, NewAccountInput) (name, error)` 是界面「设置 → 账户 → 添加」的落盘路径，
+判据三条：
+
+1. **行级插入，不重排文件**。账号档是用户手写、带注释的配置；yaml.v3 的 Node 往返虽保留注释，
+   却会按自己的缩进规则重排每个序列条目（`  - model:` → `    - model:`），造成全文件 diff。
+   所以只往角色块尾追加一段条目文本，其余字节一个不动（换行风格 CRLF/LF 也跟随原文件）。
+2. **插入点按结构定位**：`roles:` → `  <role>:` → 该块最后一条内容行。条目与角色键同缩进
+   （`  - model:`）也属于该块——这正是 yaml.v3 写块序列的既有形状。角色块写成行内 flow
+   风格时明确报错不写（否则会插出第二个同名键）。
+3. **落盘前用真实加载器复核**：插入后的整份字节再走 `parseAccounts`（与 `Load` 同一条代码），
+   要求"该角色账号数 +1"且"新条目的字段与输入逐字相符"。任何一项不符即放弃写入，配置不会
+   停在半改状态。写盘是同目录临时文件 → 原子替换（权限沿用原文件，新建 0600）。
+
+名字由加载器按位置推导（`agent-2`），`AddAccount` 只把它**回传**给界面，不自己编序号。
+"读 → 插 → 复核 → 写"整段由包内互斥量串行化：并发两次添加会读到同一份文件、算出同一个
+序号，后写的覆盖先写的（用户看到"加了两条只剩一条"）。跨进程写入不在本层处理——那种情况
+由插入后的整份复核把"读到的不是我以为的那份"暴露成错误。
+
 ## 账号并发租约
 
 账号条目可选 `max_concurrency`（必须 > 0），按角色有默认值：`agent` 与
@@ -41,13 +65,35 @@ flowchart LR
 ## 验证
 
 ```text
-go test ./seelebridge -count=1
+go test ./internal/config -count=1
 ```
+
+`accounts_write_test.go` 钉的是写入器的四条判据：只追加不重排（落盘内容与期望逐字比较）、
+缺失角色块/缺失文件/空文件各自的建块路径、CRLF 不被改写、以及"校验失败或解析失败时文件
+字节一个不变"（不以半改状态收场）。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### accounts_write.go
+
+- `func AddAccount(path string, input NewAccountInput) (string, error)` — AddAccount 把一个新账号追加进账号档并返回它**生效的名字**（`<role>-<序号>`，序号由加载器按条目位置推导，本函数不自己编）。
+- `func AccountRoles() []string` — AccountRoles 返回可手动添加的角色名（界面下拉的数据源；词表本体在 contract/dto）。
+
+### accounts_write_test.go
+
+- `func TestAddAccountAppendsIntoExistingRoleBlock(t *testing.T)`
+- `func TestAddAccountCreatesMissingRoleBlock(t *testing.T)`
+- `func TestAddAccountCreatesFileWhenMissing(t *testing.T)`
+- `func TestAddAccountKeepsCRLF(t *testing.T)`
+- `func TestAddAccountRefusesWithoutTouchingFile(t *testing.T)`
+- `func TestAddAccountRefusesBrokenFile(t *testing.T)`
+- `func TestAddAccountRefusesFlowStyleRole(t *testing.T)`
+- `func TestAddAccountRepeatedlyKeepsOrdering(t *testing.T)`
+- `func TestAddAccountBlankFile(t *testing.T)`
+- `func TestAddAccountConcurrentAddsDoNotLoseEntries(t *testing.T)`
 
 ### config.go
 

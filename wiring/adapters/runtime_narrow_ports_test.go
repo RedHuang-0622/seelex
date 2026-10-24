@@ -58,6 +58,9 @@ var narrowPortForwarded = map[string]string{
 	// contract.AccountBalancePort（service_account.go，设置 → 账户 → 查看余额）。
 	// 漏了它 = 断言恒 false = 每一行都报"宿主未提供余额查询能力"（整块功能消失）。
 	"contract.AccountBalancePort": "AccountBalance",
+	// contract.AccountRoleSelectionPort（role_permissions.go，角色默认账号）。
+	// 漏了它 = 设置落盘后运行时仍按旧账号池路由。
+	"contract.AccountRoleSelectionPort": "SetRoleAccount",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

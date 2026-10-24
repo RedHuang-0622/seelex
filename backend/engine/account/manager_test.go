@@ -6,6 +6,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
@@ -88,5 +89,89 @@ func TestManagerSelectorMainChainRoleFallback(t *testing.T) {
 	request := manager.Selector()(context.Background(), nil, nil)
 	if request.Predicate != nil && !request.Predicate(accountpool.AccountSnapshot{ID: "subagent-1"}) {
 		t.Fatal("fallback: no agent-role accounts means the predicate must not exclude the only account")
+	}
+}
+
+// TestManagerAddRegistersSpecAndLimits 覆盖热注册在管理器这一侧的判据：空名拒绝、
+// 重名拒绝（不静默覆盖正在承流的账号）、新账号的限额按名字可读。
+func TestManagerAddRegistersSpecAndLimits(t *testing.T) {
+	manager := NewManager(
+		[]model.AccountSpec{{Name: "agent-1", Provider: "openai", Model: "m", Role: model.RoleAgent}},
+		map[string]config.AccountLimits{"agent-1": {ContextWindow: 100_000, MaxOutputTokens: 8_192}},
+		"agent-1",
+		nil,
+	)
+
+	if err := manager.Add(model.AccountSpec{Name: "  "}, config.AccountLimits{}); err == nil {
+		t.Fatalf("空名应被拒绝")
+	}
+	if err := manager.Add(
+		model.AccountSpec{Name: "agent-2", Provider: "openai", Model: "m2", Role: model.RoleAgent},
+		config.AccountLimits{ContextWindow: 300_000, MaxOutputTokens: 8_192},
+	); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if got := manager.LimitsFor("agent-2").ContextWindow; got != 300_000 {
+		t.Fatalf("agent-2 的窗口 = %d，期望 300000", got)
+	}
+	// 重名：报错，且既有条目（agent-1）的限额一个字节都没被改。
+	if err := manager.Add(
+		model.AccountSpec{Name: "agent-1", Provider: "openai", Model: "hijack", Role: model.RoleAgent},
+		config.AccountLimits{ContextWindow: 1, MaxOutputTokens: 1},
+	); err == nil {
+		t.Fatalf("重名应被拒绝")
+	}
+	if got := manager.LimitsFor("agent-1").ContextWindow; got != 100_000 {
+		t.Fatalf("重名注册污染了既有账号: %d", got)
+	}
+	// 加账号不等于切账号：选中项与默认账号都不动。
+	if got := manager.Selected(); got != "" {
+		t.Fatalf("Add 不该改选中账号，实际 %q", got)
+	}
+	var nilManager *Manager
+	if err := nilManager.Add(model.AccountSpec{Name: "x"}, config.AccountLimits{}); err == nil {
+		t.Fatalf("nil manager 应报错")
+	}
+}
+
+func TestManagerAccountsCarryExplicitRoleAndCredentialState(t *testing.T) {
+	pool := accountpool.New[agent.Completer]()
+	registerCompleterAccount(t, pool, "teammate-7", "deepseek", "v3")
+	manager := NewManager(
+		[]model.AccountSpec{{
+			Name: "teammate-7", Provider: "deepseek", Model: "v3",
+			Role: model.RoleTeammate, APIKey: "secret-not-exposed",
+		}},
+		nil, "teammate-7", pool,
+	)
+	accounts := manager.Accounts()
+	if len(accounts) != 1 {
+		t.Fatalf("Accounts = %+v", accounts)
+	}
+	if accounts[0].Role != string(model.RoleTeammate) {
+		t.Fatalf("Role = %q, want teammate（不能由名字或默认 agent 猜）", accounts[0].Role)
+	}
+	if !accounts[0].APIKeySet {
+		t.Fatal("APIKeySet=false，want true")
+	}
+}
+
+func TestManagerRoleAccountPinsScopedRequest(t *testing.T) {
+	manager := NewManager([]model.AccountSpec{
+		{Name: "teammate-1", Role: model.RoleTeammate},
+		{Name: "teammate-2", Role: model.RoleTeammate},
+	}, nil, "teammate-1", nil)
+	if err := manager.SetRoleAccount(model.RoleTeammate, "teammate-2"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := dto.WithSceneScope(context.Background(), dto.SceneScope{
+		SceneID: "role-1", Role: dto.RoleTeammate, BranchID: "branch-1",
+	})
+	request := manager.Selector()(ctx, nil, nil)
+	if request.AccountID != "teammate-2" {
+		t.Fatalf("AccountID = %q, want teammate-2", request.AccountID)
+	}
+	if err := manager.SetRoleAccount(model.RoleTeammate, "teammate-1b"); err == nil {
+		t.Fatal("未知账号必须报错")
 	}
 }

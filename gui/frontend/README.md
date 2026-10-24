@@ -86,6 +86,7 @@ flowchart TB
 | `dist/knob-slider.js` | composer 运行参数拉条的**唯一**滑杆实现（拖动只预览 / 松手提交一次 / pending 守护 / 采纳后端返回的生效值 / 失败回滚到权威值 / 快照覆盖 / 运行中上锁）；三条差异只由停位表与 `data-*` 参数表达。 |
 | `dist/composer-knobs.js` | composer 两条**独立**运行参数拉条的停位表与装配：推理强度（`low/medium/high/max` 四档）与循环次数（`1..9999`，步长恒为 1）；各改一项，互不影响。 |
 | `dist/release-window.js` | **会话驻留窗口**的取值面（设置弹窗「会话驻留」段）：`1..16` 的选项表 + 文案 + `normalizeReleaseWindow`（把不可信读数判成 `null`——区分"后端说了个数"与"这格没有权威读数"，不兜底成默认值）。边界与后端 `backend/limit` 的 `SessionReleaseWindowMin/Max` 同值，由 `settings-release-window.test.mjs` 逐值对账；DOM 与 `Bridge.SessionReleaseWindow` / `SetSessionReleaseWindow` 接线在 `app.js`。 |
+| `dist/account-admin.js` | **设置 → 账户**两条链路的判据层（纯函数，DOM/`Bridge` 接线在 `app.js`）：`accountDraftFromForm`（表单值 → `AddAccount` 草稿；必填缺一不提交，可选字段**留空即不发送**——后端按 `accounts.yaml` 的 `defaults` 继承）、`formatBalanceInfo`/`balanceReadingText`（余额读数 → 文案，金额一律按后端给的字符串原样显示，精度归供应商；「不可用」与「查不到」是两回事）、`accountBalanceRows`（一行一个账号的行模型：带显式角色、provider/model 与「未配置密钥/内置兜底」健康提示）。完整凭据表单在独立二级弹窗 `#account-add-modal`；加账号的**账号名由后端回传**（`agent-2` 按账号档位置推导），界面不猜序号。快照只携带 `api_key_set`，密钥明文不进入前端。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
 | `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。另含「按会话身份认会话事实」的入口 `isDraftSession`/`stripDraftSessionFacts`：草稿会话（新建会话 / 卸载后就地新建）结构上没有任务面与已读文件，若宿主镜像还带着上一个会话的 `task`（压缩记录 `context_compactions` 挂在它上面）/`read_files`，在快照入口就地把它们去掉——用户口径「上下文压缩总是污染前端、在新开会话时带到新建会话」的渲染层闸门（`client-state.test.mjs` 钉住 `client.current()` 与 `onSnapshot` 拿到同一份已归一快照）。 |
 | `dist/sidebar.js` | 左栏纯显示工具：重名消歧编号（渲染期派生）。标题截断已删除——会话条目改成「标题段 + ⋯ 段」后由 CSS 省略号按栏宽截断，完整标题 + 时间 + token 走共享提示气泡（数据层砍字会让同前缀会话无法区分）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
@@ -457,6 +458,13 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
 - **状态 / 账户两个折叠块默认收起**：`index.html` 里 `#status-panel`、
   `#accounts-section` 都不带 `open`，展开才拉数据。避免右栏一进来就被两张长表占满。
   （第三块 `#team-section` 已随 Agent Team 面板退场删除，见「右侧栏子页」一节。）
+- **设置按作用域分层（2026-10-24）**：全局设置左侧分类为「账户 / 角色与权限 /
+  本会话 / 应用」。账户新增是从账户页打开的 `#account-add-modal` 二级弹窗；项目 SSH
+  连接表只存在于项目标题旁的 `#project-settings-modal`；`#settings-modal` 的「本会话」
+  页只保留 SSH 放行集合与当前限定环境。角色页把当前会话生效向量与可编辑的角色默认
+  向量分开显示，避免把生效值冒充成默认值；每个角色另有自己的账号下拉，只列该角色组
+  的账号，并显示“未配置密钥 / 内置兜底”状态。角色账号按项目持久化，并推入运行时
+  账号路由，团队回合按 `teammate` 作用域选用。
 - **对话里的 EXEC / ADVISOR 区分（2026-09-15 二改：颜色高亮也去掉）**：两个 agent
   的 provider role 都是 `assistant`，`components.js` 仍按 `role_name` 给消息加
   `is-exec` / `is-advisor` 类，但 `styles.css` 第 20 节**只保留发言人名的着色**

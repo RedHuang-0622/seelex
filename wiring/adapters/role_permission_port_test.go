@@ -5,7 +5,7 @@ package adapters
 //  1. 登记（事实源）住在 store：按 (项目, 会话, 角色) 落键，经**同一个**存储实例
 //     读写（同一数据根必须共用实例，否则两个实例各持一份缓存，写后读会读到旧副本）；
 //     且"显式空集"与"从未登记"分得开。
-//  2. 四层来源的组装在**封闭世界**下自洽：某一层说了"这一组 0 位"，就必须投影成
+//  2. 五层来源的组装在**封闭世界**下自洽：某一层说了"这一组 0 位"，就必须投影成
 //     `!tag`，不能让沉默把低层（尤其 global_default 的 root 全位）读成放行。
 //     解析判据仍是 contract/dto 的唯一实现，本测试只喂层、只看结果。
 
@@ -20,7 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// newRolePermissionTestPort 建一个会话端口（真实 Router；无 Runtime 时四层里
+// newRolePermissionTestPort 建一个会话端口（真实 Router；无 Runtime 时五层里
 // 派发/会话两层自然为空层）。
 func newRolePermissionTestPort(t *testing.T, router *store.Router) SessionPort {
 	t.Helper()
@@ -70,6 +70,22 @@ func TestRolePermissionPortStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRoleDefaultOccupiesItsOwnLayer(t *testing.T) {
+	router := newRolePermissionTestRouter(t)
+	const sessionID = "sess-role-default-layer"
+	port := newRolePermissionTestPort(t, router)
+	if err := port.SetRoleDefault(sessionID, "review", []string{dto.PermissionTagRO}); err != nil {
+		t.Fatalf("SetRoleDefault: %v", err)
+	}
+	layers := port.RolePermissionLayers(sessionID, "review")
+	if got := layers.RoleDefault.PermissionVector; len(got) != 1 || got[0] != dto.PermissionTagRO {
+		t.Fatalf("role_default 层 = %v, want [ro]", got)
+	}
+	if len(layers.GlobalDefault.PermissionVector) != 0 {
+		t.Fatalf("角色默认不得再写进 global_default：%v", layers.GlobalDefault.PermissionVector)
+	}
+}
+
 // TestRolePermissionPortWritesLandOnlyInOwnProject：登记按会话归属项目落键，
 // 不跟着"用户现在在看哪个项目"漂移。
 func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T) {
@@ -89,8 +105,8 @@ func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T) {
 	}
 }
 
-// TestRolePermissionLayersProjectEachGroupClosedWorld 是四层来源的核心断言：
-// 位为 0 的组必须投影成 `!tag`，否则四层解析会把"这一层明确不给"读成"没提"，
+// TestRolePermissionLayersProjectEachGroupClosedWorld 是五层来源的核心断言：
+// 位为 0 的组必须投影成 `!tag`，否则五层解析会把"这一层明确不给"读成"没提"，
 // 让 global_default（root 全位）反手放行。
 func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T) {
 	accounts := filepath.Join(t.TempDir(), "accounts.yaml")

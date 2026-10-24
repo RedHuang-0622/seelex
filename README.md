@@ -99,19 +99,23 @@ flowchart TB
 
     subgraph L2["application/ 应用层：用例编排 + 权威状态"]
         SVC["Service 用例门面"]
-        STATE["权威状态<br/>model · event · approval · contract · prompt"]
+        STATE["权威状态（分区 + 修订号）"]
+        VIEW["middle/view · middle/protocol<br/>快照投影与事件"]
     end
 
-    subgraph L3["backend/engine/assemble/ 防腐层：运行时能力适配"]
-        RT["Runtime 装配与关停"]
-        TOOLS["tools：Router · RegistryState · PermissionGate"]
-        ORCH["plan · node · fork · scheduler · task"]
-        CAP["account · mcp · plugin · session · search"]
+    subgraph L3["backend/ 领域层：类型 + 状态 + 判据同包"]
+        ENG["engine：account · context · obs · prompt · schedule<br/>session · skill · task · mcp · plugin · react"]
+        TOOLD["tool：registry · jobs · computer · node<br/>worktree · search · review · fork"]
+        MA["multiagent：subagent · teamwork · team · goal · resume<br/>workunit"]
+        POL["limit/policy：主体类 · 路由组表 · 位值 · 档位"]
     end
 
-    CTX["backend/engine/context/seelectx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
-    PERSIST["store/ · session/ · workspace/"]
-    EXT["backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack"]
+    subgraph L4["装配层：只做拓扑装配与逆序关机"]
+        WIRE["wiring：config · bootstrap · registry · adapters"]
+        ASM["engine/assemble（staging，终局仅留 4 个文件）"]
+    end
+
+    STORE["store/：record · root · workspace · schedule"]
     SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
 
     TUI --> SVC
@@ -119,18 +123,20 @@ flowchart TB
     HL --> SVC
     BE --> SVC
     SVC --> STATE
-    SVC --> RT
-    SVC --> CTX
-    SVC --> PERSIST
-    RT --> TOOLS
-    RT --> ORCH
-    RT --> CAP
-    CTX --> RT
-    EXT --> RT
-    TOOLS --> SEELE
-    ORCH --> SEELE
-    CAP --> SEELE
-    PERSIST -.->|历史 / 记录| RT
+    SVC --> VIEW
+    SVC --> ENG
+    SVC --> TOOLD
+    SVC --> MA
+    POL -.->|判据唯一一处| TOOLD
+    WIRE --> ASM
+    ASM --> ENG
+    ASM --> TOOLD
+    ASM --> MA
+    ENG --> STORE
+    ENG --> SEELE
+    TOOLD --> SEELE
+    MA --> SEELE
+    STORE -.->|历史 / 记录| ENG
 ```
 
 ### 用户视角用例
@@ -282,15 +288,17 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 
 这一节描述当前代码中已经落地的设计选择，以及这些选择试图解决的工程问题。它们也是 Seelex 与普通 AI Chat Client、Prompt Wrapper 或单文件 Agent Demo 的主要区别。
 
-### 1. 用 Ports and Adapters 隔离 Agent Runtime 与产品语义
+### 1. 依赖方向保留端口的语义，但集中式防腐层已解散
 
-Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
+Seelex 保留 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
 
-- <code>contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
-- 根目录 adapter、<code>backend/engine/assemble/</code> 和存储模块实现这些端口。
-- TUI 与 GUI 只依赖 Application DTO、Snapshot 和 Event，不直接调用 Seele Engine、数据库或 Plugin Manager。
+- <code>contract</code> 与 <code>contract/dto</code> 定义跨层契约与数据传输对象。
+- 前端（TUI / GUI / headless / backend 控制台）只依赖 Application 的 Snapshot 与 Event，不直接调用 Seele Engine、存储或 Plugin Manager。
+- 应用层与领域层消费 Seele 原语，装配层（<code>wiring/</code> + <code>backend/engine/assemble/</code>）负责把具体实现注入端口。
 
-这个决策把“模型如何执行”和“产品如何解释执行结果”分开。Seele 可以继续演进 Agent、Session、Tool Registry 和 WorkPlan 原语；Seelex 则保持 Task、Plan、审批、Workspace 和前端协议稳定。上游类型变化被限制在 **Anti-Corruption Layer** <code>backend/engine/assemble/</code> 内，而不是扩散到整个代码库。
+但**集中式防腐层已经解散**：早期把上游类型变化全部挡在单一适配包内的做法，随着领域机制变多，演化成一个“什么都知道一点”的中转层——判据写在适配层、领域包只持数据结构、同一判据出现两份实现。项目随后逐片执行“域方法随类型走”，把每个机制的状态与**判据**一起迁回它所属的领域包（<code>engine/*</code>、<code>tool/*</code>、<code>multiagent/*</code>、<code>limit/policy</code>），装配层只保留拓扑装配与逆序关机。
+
+**这条取舍的代价是显式的**：应用层现在直接消费上游类型（<code>application/core</code> 252 个 Go 文件中有 222 个直接引用 Seele 包），一旦上游发生破坏性变更，影响面会扩散到多个领域包，而不是被收在一个包里。项目接受这个代价，因为在当前阶段“自身机制复杂”比“上游不稳定”更主要；若上游重新变得不稳定，应重新引入隔离层或加上导入白名单检查。详见 <code>backend/engine/assemble/README.md</code> 的迁移表与 <code>docs/2026-10-15-architecture-reshape/</code>。
 
 ### 2. Application Snapshot 是权威状态，Event 只负责增量同步
 
@@ -648,7 +656,7 @@ permission:
 | 目录 | 职责 |
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
+| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | **装配面（staging，拆解中）**：拓扑装配与逆序关机；原集中式防腐层的内容已按域下沉到 <code>engine/*</code>、<code>tool/*</code>、<code>multiagent/*</code>、<code>limit/policy</code> |
 | [<code>backend/engine/context/seelectx/</code>](backend/engine/context/seelectx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back（M5-R7 迁出仓库根 `seelexctx/`，包名不变） |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>middle/switch/sessionusecase/</code>](middle/switch/sessionusecase/README.md) | 会话领域模型与投影（Go 包名仍为 `session`） |

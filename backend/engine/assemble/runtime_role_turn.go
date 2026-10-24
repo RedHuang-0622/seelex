@@ -145,6 +145,7 @@ type roleRoundSpec struct {
 	MainSessionID    string
 	RoleName         string
 	RoleSessionID    string
+	AccountRole      dto.AccountRole
 	ToolsPolicy      string
 	PermissionGroups map[string]uint8
 	// Plugins 是这一轮的角色会话装配的插件集合（能力轴）。**空/缺失 = 不覆盖**：
@@ -269,6 +270,11 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	turnCtx = toolreg.WithRolePlugins(turnCtx, assembly)
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
 	turnCtx = obs.WithTelemetrySessionID(turnCtx, roleSessionID)
+	if spec.AccountRole != "" {
+		turnCtx = dto.WithSceneScope(turnCtx, dto.SceneScope{
+			SceneID: roleSessionID, Role: spec.AccountRole, BranchID: roleSessionID,
+		})
+	}
 
 	// 在飞标记挂到**本轮**的 ctx 上：检测在上方（进函数处），标记在这里——ChatStream
 	// 与它派生的工具调用因此都能看到"这一轮正在跑哪个角色会话"，本轮之内的重入请求

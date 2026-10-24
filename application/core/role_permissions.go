@@ -4,19 +4,20 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // role_permissions.go 是「角色权限登记」的应用层读取面：会话加载时把每个角色的
-// 权限恢复出来，**没有登记的按四级链路解析**。
+// 权限恢复出来，**没有登记的按五级链路解析**。
 //
 // 生态位（为什么这里只有读面、没有第二份内存表）：
 //   - 登记的**事实源**只有一处——存储层的会话级角色权限登记（键 (sessionID, role)，
 //     见 store 的 RolePermissionStore）。那里每个角色一格、各自持锁，跨角色并发
 //     读写不会落到同一把锁或同一张裸 map 上；
-//   - 四级优先级的**判据**也只有一处——`dto.ResolvePermissionVector` /
+//   - 五级优先级的**判据**也只有一处——`dto.ResolvePermissionVector` /
 //     `dto.ResolveRoleSettings`；
-//   - 本文件因此只做装配缝：把会话端口上可选的两项能力（登记读写、四层来源）类型
+//   - 本文件因此只做装配缝：把会话端口上可选的两项能力（登记读写、五层来源）类型
 //     断言出来，按"登记优先、缺失走链路"合成为每角色的生效设置。
 //
 // 刻意**不**在应用层缓存一份权限向量：那会变成第二份事实源，且两份之间没有任何
@@ -61,6 +62,9 @@ type roleDefaultPort interface {
 	RoleDefault(sessionID, role string) ([]string, bool, error)
 	// SetRoleDefault 写入一个角色的默认向量（空集合法，含义是默认什么都不给）。
 	SetRoleDefault(sessionID, role string, vector []string) error
+	// RoleAccount / SetRoleAccount 读写该角色优先使用的账号（项目作用域）。
+	RoleAccount(sessionID, role string) (string, bool, error)
+	SetRoleAccount(sessionID, role, account string) error
 }
 
 // roleDefaultStore 取角色默认端口（未装配返回 nil）。
@@ -74,8 +78,8 @@ func (service *Service) roleDefaultStore() roleDefaultPort {
 
 // RoleDefaultVector 读一个角色的默认向量；第二个返回值报告"是否显式定过"。
 //
-// 没定过时返回链路解析结果 + false：界面据此把状态写成"跟随默认"，而不是把一份
-// 解析结果冒充成用户的选择。
+// 没定过时返回空向量 + false：界面据此把状态写成"未设置"，而不是把当前生效值
+// 冒充成用户的选择。当前生效值由 RolePermissionVector 单独读取。
 func (service *Service) RoleDefaultVector(sessionID, role string) ([]string, bool, error) {
 	port := service.roleDefaultStore()
 	if port == nil {
@@ -94,11 +98,6 @@ func (service *Service) RoleDefaultVector(sessionID, role string) ([]string, boo
 			return []string{}, true, nil
 		}
 		return vector, true, nil
-	}
-	// 没定过：给出链路解析结果供界面预览（判据仍只有 dto 一处）。
-	if layers := service.rolePermissionLayers(); layers != nil {
-		resolved := dto.ResolveRoleSettings(layers.RolePermissionLayers(sessionID, role).Ordered()...)
-		return resolved.PermissionVector, false, nil
 	}
 	return []string{}, false, nil
 }
@@ -123,8 +122,72 @@ func (service *Service) SetRoleDefaultVector(sessionID, role string, vector []st
 	return port.SetRoleDefault(sessionID, role, normalized)
 }
 
-// rolePermissionLayerPort 是四级来源的读取面（user_allow / agent_dispatch /
-// session_default / global_default）。
+// RoleAccount 读角色默认账号；第二个返回值报告是否显式设置过。
+func (service *Service) RoleAccount(sessionID, role string) (string, bool, error) {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return "", false, ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if role == "" {
+		return "", false, errors.New("role account: role is required")
+	}
+	return port.RoleAccount(sessionID, role)
+}
+
+// SetRoleAccount 写角色默认账号。账号是否属于该角色由 Bridge 按当前快照校验。
+func (service *Service) SetRoleAccount(sessionID, role, account string) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	sessionID, role, account = strings.TrimSpace(sessionID), strings.TrimSpace(role), strings.TrimSpace(account)
+	if role == "" || account == "" {
+		return errors.New("role account: role and account are required")
+	}
+	runtimePort, _ := service.Deps.Runtime.(contract.AccountRoleSelectionPort)
+	if runtimePort != nil {
+		if err := runtimePort.SetRoleAccount(role, account); err != nil {
+			return err
+		}
+	}
+	if err := port.SetRoleAccount(sessionID, role, account); err != nil {
+		if runtimePort != nil {
+			_ = runtimePort.SetRoleAccount(role, "")
+		}
+		return err
+	}
+	return nil
+}
+
+// RestoreRoleAccounts 在会话加载点把项目里保存的角色账号推回运行时。
+// 没有保存值或宿主不支持该窄能力时保持角色账号池的默认选择。
+func (service *Service) RestoreRoleAccounts(sessionID string) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	runtimePort, _ := service.Deps.Runtime.(contract.AccountRoleSelectionPort)
+	if runtimePort == nil {
+		return nil
+	}
+	for _, role := range dto.AccountRoleVocabulary() {
+		account, ok, err := port.RoleAccount(sessionID, role)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if err := runtimePort.SetRoleAccount(role, account); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rolePermissionLayerPort 是五层来源的读取面（user_allow / agent_dispatch /
+// session_default / role_default / global_default）。
 // 由装配侧按会话与角色给出：user_allow 来自用户设置、agent_dispatch 来自派活的
 // 那一方、session_default 来自会话设置、global_default 来自配置派生。本包只消费
 // 已经排好序的一份，不自己读配置——否则"默认值从哪来"就会有第二份答案。
@@ -141,7 +204,7 @@ func (service *Service) rolePermissionStore() rolePermissionPort {
 	return port
 }
 
-// rolePermissionLayers 取四层来源端口（未装配返回 nil）。
+// rolePermissionLayers 取五层来源端口（未装配返回 nil）。
 func (service *Service) rolePermissionLayers() rolePermissionLayerPort {
 	if service == nil || service.Deps.Sessions == nil {
 		return nil
@@ -151,7 +214,7 @@ func (service *Service) rolePermissionLayers() rolePermissionLayerPort {
 }
 
 // RestoreRolePermissions 是**会话加载点**的恢复入口：为 roles 里的每个角色恢复
-// 生效设置——先读登记，登记缺失则按四级链路解析。
+// 生效设置——先读登记，登记缺失则按五级链路解析。
 //
 // 参数 roles 是该会话在装配角色时认定的角色名列表（去重由调用方保证；这里只跳过
 // 空白项）。返回的 map 键是规整后的角色名，每份设置的 PermissionVector 非 nil。

@@ -2,7 +2,9 @@ package account
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
@@ -16,10 +18,13 @@ import (
 
 // Account 是账号路由摘要（GUI/快照消费）。
 type Account struct {
-	Name     string
-	Provider string
-	Model    string
-	Disabled bool
+	Name      string
+	Provider  string
+	Model     string
+	Disabled  bool
+	Role      string
+	APIKeySet bool
+	Fallback  bool
 }
 
 // Manager 收拢 Runtime 的账号路由状态：账号规格、限额、选中账号与 provider
@@ -31,21 +36,47 @@ type Manager struct {
 	defaultID      string
 	selectedID     string
 	providerFilter string
+	roleAccounts   map[model.AccountRole]string
 	pool           *accountpool.P2CPool[agent.Completer]
 }
 
 // NewManager 构造账号管理器。
 func NewManager(specs []model.AccountSpec, limits map[string]config.AccountLimits, defaultID string, pool *accountpool.P2CPool[agent.Completer]) *Manager {
 	m := &Manager{
-		specs:     make(map[string]model.AccountSpec, len(specs)),
-		limits:    limits,
-		defaultID: defaultID,
-		pool:      pool,
+		specs:        make(map[string]model.AccountSpec, len(specs)),
+		limits:       limits,
+		defaultID:    defaultID,
+		roleAccounts: make(map[model.AccountRole]string),
+		pool:         pool,
 	}
 	for _, spec := range specs {
 		m.specs[spec.Name] = spec
 	}
 	return m
+}
+
+// SetRoleAccount 固定某个账号角色优先使用的账号。账号必须存在且确实属于该角色；
+// 空 account 清除固定，回到角色池选择。
+func (m *Manager) SetRoleAccount(role model.AccountRole, account string) error {
+	if m == nil {
+		return fmt.Errorf("seelex: account manager is unavailable")
+	}
+	account = strings.TrimSpace(account)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if account == "" {
+		delete(m.roleAccounts, role)
+		return nil
+	}
+	spec, ok := m.specs[account]
+	if !ok {
+		return fmt.Errorf("seelex: account %q does not exist", account)
+	}
+	if spec.Role != role {
+		return fmt.Errorf("seelex: account %q belongs to role %q, not %q", account, spec.Role, role)
+	}
+	m.roleAccounts[role] = account
+	return nil
 }
 
 // Select 切换主链路选中账号（provider 过滤跟随账号规格）；未知账号返回 false。
@@ -59,6 +90,33 @@ func (m *Manager) Select(name string) bool {
 	m.selectedID = spec.Name
 	m.providerFilter = spec.Provider
 	return true
+}
+
+// Add 登记一个新账号的规格与预算（界面「手动添加账号」的热注册落点：账号档刚多了
+// 一条，不重启也要能选中、能承流）。
+//
+// 三条判据：① 空名拒绝；② 重名**报错而不是覆盖**——覆盖会让"刚加的那条"悄悄替换掉
+// 一条正在承流的账号；③ 不动选中项与默认账号：加账号不等于切账号。
+func (m *Manager) Add(spec model.AccountSpec, limits config.AccountLimits) error {
+	if m == nil {
+		return fmt.Errorf("seelex: account manager is unavailable")
+	}
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		return fmt.Errorf("seelex: account name is empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.specs[name]; exists {
+		return fmt.Errorf("seelex: account %q already exists", name)
+	}
+	spec.Name = name
+	m.specs[name] = spec
+	if m.limits == nil {
+		m.limits = make(map[string]config.AccountLimits)
+	}
+	m.limits[name] = limits
+	return nil
 }
 
 // SetSelected 设置选中账号（不校验规格；plan 分支冻结路径用）。
@@ -103,14 +161,28 @@ func (m *Manager) Accounts() []Account {
 	if m.pool == nil {
 		return nil
 	}
+	m.mu.RLock()
+	specs := make(map[string]model.AccountSpec, len(m.specs))
+	for name, spec := range m.specs {
+		specs[name] = spec
+	}
+	m.mu.RUnlock()
 	entries := m.pool.Entries()
 	result := make([]Account, 0, len(entries))
 	for _, entry := range entries {
+		spec := specs[entry.Snapshot.ID]
+		role := spec.Role
+		if role == "" {
+			role = model.AccountRoleFromName(entry.Snapshot.ID)
+		}
 		result = append(result, Account{
-			Name:     entry.Snapshot.ID,
-			Provider: entry.Snapshot.Metadata["provider"],
-			Model:    entry.Snapshot.Metadata["model"],
-			Disabled: entry.Snapshot.Disabled,
+			Name:      entry.Snapshot.ID,
+			Provider:  entry.Snapshot.Metadata["provider"],
+			Model:     entry.Snapshot.Metadata["model"],
+			Disabled:  entry.Snapshot.Disabled,
+			Role:      string(role),
+			APIKeySet: spec.APIKey != "",
+			Fallback:  spec.Fallback,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
@@ -168,12 +240,15 @@ func (m *Manager) Selector() func(ctx context.Context, messages []types.Message,
 		m.mu.RLock()
 		selected := m.selectedID
 		provider := m.providerFilter
+		agentAccount := m.roleAccounts[model.RoleAgent]
 		m.mu.RUnlock()
 		request := accountpool.AcquireRequest{}
 		if selected != "" {
 			request.AccountID = selected
+		} else if agentAccount != "" {
+			request.AccountID = agentAccount
 		}
-		if provider != "" {
+		if provider != "" && request.AccountID == "" {
 			if request.Metadata == nil {
 				request.Metadata = make(map[string]string)
 			}
@@ -215,6 +290,13 @@ func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.Accou
 // pin；否则按 role + planID:branchID 确定性 hash 选择。
 func (m *Manager) nodeRequest(scope dto.SceneScope) accountpool.AcquireRequest {
 	request := accountpool.AcquireRequest{}
+	m.mu.RLock()
+	pinned := m.roleAccounts[scope.Role]
+	m.mu.RUnlock()
+	if pinned != "" {
+		request.AccountID = pinned
+		return request
+	}
 	if scope.BranchID == "" {
 		// 无显式 branch 钉扎（fork 双子代理/plan 默认）：按角色选当前仍有
 		// 并发余量的账号，让并发节点分散到空闲槽而不是确定性哈希撞车排队。

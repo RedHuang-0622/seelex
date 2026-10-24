@@ -5,7 +5,6 @@ package gui
 import (
 	"context"
 	"io/fs"
-	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	wailsoptions "github.com/wailsapp/wails/v2/pkg/options"
@@ -62,15 +61,9 @@ func Run(app Application, config Options) error {
 				runtime.EventsEmit(ctx, name, payload)
 			})
 		},
-		OnDomReady: func(ctx context.Context) {
-			if warning := strings.TrimSpace(config.StartupWarning); warning != "" {
-				_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-					Type:    runtime.ErrorDialog,
-					Title:   "Seelex 配置警告",
-					Message: warning,
-				})
-			}
-		},
+		// 启动配置警告已经由 bootstrap 写入会话可见区。这里不再使用原生
+		// 原生对话框：它会形成阻塞模态框，配置异常时旧会话看起来“打不开”。
+		OnDomReady:    func(context.Context) {},
 		OnBeforeClose: func(context.Context) bool { return closer.BeforeClose() },
 		OnShutdown:    func(context.Context) { bridge.Stop() },
 		Bind:          []interface{}{bridge},

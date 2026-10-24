@@ -14,9 +14,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui/terminal"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	// accountmodel 只借 AccountRoleFromName（账号名前缀 → 账号角色）；它与
-	// middle/protocol/model 同名但不同域，故用别名分开，不把两个 model 混成一个。
-	accountmodel "github.com/RedHuang-0622/seelex/internal/model"
 )
 
 const eventName = "seelex:event"
@@ -52,6 +49,13 @@ type Application interface {
 	// 先落盘（宿主自己的覆盖层）再改运行时，返回**真正生效**的窗口；window <= 0 =
 	// 清掉该账号的覆盖（回落 config/seelex.yaml 的 limits.context_window）。
 	SetAccountWindow(context.Context, string, int) (int, error)
+	// AddAccount 是「手动添加账号」的写面（设置 → 账户 → 添加）：写账号档 + 热注册，
+	// 返回生效的账号名。校验/落盘失败时什么都没变；已落盘但热注册失败时错误里会写明
+	// "重启后生效"。
+	AddAccount(context.Context, application.AccountDraft) (application.AccountAddResult, error)
+	// AccountBalance 是「查一个账号此刻的余额」的读面（设置 → 账户 的逐行读数）。
+	// 余额是快照：点一次查一次，不进快照缓存。
+	AccountBalance(context.Context, string) (application.AccountBalance, error)
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
 	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
@@ -172,7 +176,7 @@ type queueAwareApplication interface {
 // 登记），还没装配的宿主（GUI 的假应用、headless 假面）不该被逼着写空实现——缺了就
 // 在桥面显式报"未装配"，不静默退化成"空权限"（与 queueAwareApplication 同一条口径）。
 type roleSettingsApplication interface {
-	// RolePermissionVector 读某角色在某会话的生效权限向量（登记优先，缺失按四级链路）。
+	// RolePermissionVector 读某角色在某会话的生效权限向量（登记优先，缺失按五级链路）。
 	RolePermissionVector(sessionID, role string) ([]string, error)
 	// SetRolePermissionVector 写入某角色的权限向量（空集 = 显式不给任何能力）。
 	SetRolePermissionVector(sessionID, role string, vector []string) error
@@ -180,6 +184,9 @@ type roleSettingsApplication interface {
 	// 给每个角色定的那一份默认向量，落在角色默认层，会话登记仍压在它之上。
 	RoleDefaultVector(sessionID, role string) ([]string, bool, error)
 	SetRoleDefaultVector(sessionID, role string, vector []string) error
+	// 角色默认账号（项目作用域）。空 account = 未设置，由账号池按角色选择。
+	RoleAccount(sessionID, role string) (string, bool, error)
+	SetRoleAccount(sessionID, role, account string) error
 }
 
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
@@ -236,8 +243,8 @@ type Options struct {
 	ProjectRoot string
 	Width       int
 	Height      int
-	// StartupWarning 非空时，GUI 窗口就绪后会弹出原生错误对话框展示启动
-	// 配置警告（配置损坏仍可启动，不闪退）。
+	// StartupWarning 是启动期配置问题的可见文本。bootstrap 同时把它写入会话
+	// 通知区；GUI 不再用原生模态框阻塞窗口打开。
 	StartupWarning string
 	// AppearancePath 是 GUI 外观设置（当前皮肤 + 由它派生的窗口材质）的落盘路径，
 	// 由宿主按配置责任链给出（见 wiring/config 的 GUIAppearancePath）。建窗期读它决定窗口
@@ -902,6 +909,34 @@ func (bridge *Bridge) AccountWindowPresets() []int {
 	return application.AccountWindowPresets()
 }
 
+// AccountRoles 返回「手动添加账号」的角色词表（设置 → 账户 → 添加 的下拉数据源）。
+//
+// 与 AccountWindowPresets 同一姿势：**后端下发**，前端不写死一份。
+func (bridge *Bridge) AccountRoles() []string {
+	return application.AccountRoles()
+}
+
+// AddAccount 手动添加一个账号（设置 → 账户 → 添加）：写账号档 + 热注册进运行时。
+//
+// 返回**生效的账号名**（`agent-2` 这种由账号档位置推导的名字）——界面必须采纳它，
+// 因为下一步"选中它/改窗口/查余额"都按名字打；自己猜下一个序号会在并发添加或
+// 账号档被人手改过时错位。
+//
+// 错误语义：校验或落盘失败 ⇒ 什么都没变；已落盘但热注册失败 ⇒ 错误里会写明
+// "重启后生效"，此时账号档确实改了（界面不要报成"添加失败"让用户重复加）。
+func (bridge *Bridge) AddAccount(draft application.AccountDraft) (application.AccountAddResult, error) {
+	return bridge.app.AddAccount(bridge.requestContext(), draft)
+}
+
+// AccountBalance 查一个账号此刻的余额（设置 → 账户 的逐行读数）。
+//
+// 余额是**快照**：不进快照、不缓存，点一次查一次（供应商侧一次账单请求，读的是
+// 当下真实值）。供应商没有余额接口时返回一句可展示的原话（ErrBalanceUnsupported
+// 的措辞），而不是猜一个 URL。
+func (bridge *Bridge) AccountBalance(name string) (application.AccountBalance, error) {
+	return bridge.app.AccountBalance(bridge.requestContext(), name)
+}
+
 func (bridge *Bridge) SwitchPlugin(name string) error {
 	return bridge.app.SwitchPlugin(bridge.requestContext(), name)
 }
@@ -1122,7 +1157,7 @@ func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo,
 	return app.SetSessionSSHAllowed(bridge.app.Snapshot().Session.ID, envs)
 }
 
-// PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按四级
+// PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按五级
 // 链路解析（user_allow > agent_dispatch > session_default > global_default）。
 //
 // 返回的是解析结果（允许的标签，规范组序），不含 `!` 否定项——否定项是层内表达，
@@ -1200,13 +1235,46 @@ func (bridge *Bridge) SetRoleDefaultVector(role string, tags []string) (dto.Perm
 	return permissionRoleInfoFor(app, sessionID, role, groups[role])
 }
 
+// SetRoleAccount 设置某个角色优先使用的账号，并返回落盘后读回的整行。
+// 账号必须来自同名角色组；跨角色账号会让下一次回合使用错误凭据。
+func (bridge *Bridge) SetRoleAccount(role, account string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role, account = strings.TrimSpace(role), strings.TrimSpace(account)
+	if role == "" || account == "" {
+		return dto.PermissionRoleInfo{}, errors.New("permission roles: role and account are required")
+	}
+	snapshot := bridge.app.Snapshot()
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	valid := false
+	for _, candidate := range groups[role] {
+		if candidate.Name == account {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return dto.PermissionRoleInfo{}, fmt.Errorf("permission roles: account %q does not belong to role %q", account, role)
+	}
+	if err := app.SetRoleAccount(snapshot.Session.ID, role, account); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
 // permissionRoleGroups 把账号列表按角色归并：返回角色顺序（按账号出现顺序，稳定）
 // 与角色 → 账号列表。
 func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]model.AccountInfo) {
 	order := make([]string, 0, len(accounts))
 	groups := map[string][]model.AccountInfo{}
 	for _, account := range accounts {
-		role := string(accountmodel.AccountRoleFromName(account.Name))
+		role := strings.TrimSpace(account.Role)
+		if role == "" {
+			// 兼容旧宿主快照：新快照总是携带显式 Role。
+			role = string(dto.AccountRoleFromName(account.Name))
+		}
 		if _, ok := groups[role]; !ok {
 			order = append(order, role)
 		}
@@ -1225,12 +1293,31 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 			info.Provider, info.Model = account.Provider, account.Model
 		}
 	}
-	vector, explicit, err := app.RoleDefaultVector(sessionID, role)
+	defaultVector, explicit, err := app.RoleDefaultVector(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	info.Vector = vector
+	effectiveVector, err := app.RolePermissionVector(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	info.Vector = effectiveVector
+	if explicit {
+		info.DefaultVector = defaultVector
+	} else {
+		info.DefaultVector = []string{}
+	}
 	info.Explicit = explicit
+	account, _, err := app.RoleAccount(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	for _, candidate := range info.Accounts {
+		if candidate == account {
+			info.Account = account
+			break
+		}
+	}
 	return info, nil
 }
 

@@ -41,6 +41,8 @@
 - `func (store *RolePermissionStore) Put(projectID, sessionID, role string, vector []string) (RolePermissionRecord, error)` — Put 写入一个角色的权限向量（空集合法 = 显式不给任何能力）。
 - `func (store *RolePermissionStore) Drop(projectID, sessionID, role string) error` — Drop 删除一条登记（与"显式空集"是两件事）。
 - `func (store *RolePermissionStore) DropSession(projectID, sessionID string) error` — DropSession 删除该会话下的全部登记。
+- `func (store *RolePermissionStore) RoleAccount(projectID, role string) (string, bool, error)` — RoleAccount 读取角色默认账号。
+- `func (store *RolePermissionStore) SetRoleAccount(projectID, role, account string) error` — SetRoleAccount 与权限默认共用一条角色记录，写入账号不擦权限向量。
 - `func (store *RolePermissionStore) sessionKeys(projectID, sessionID string) []rolePermissionKey` — sessionKeys 返回该会话在索引里的全部登记格坐标。
 - `func (store *RolePermissionStore) entry(key rolePermissionKey) *rolePermissionEntry` — entry 取（或建）一个角色登记格（只增不删）。
 - `func (store *RolePermissionStore) loadEntry(entry *rolePermissionEntry, projectID, sessionID, role string) error` — loadEntry 首次访问时从盘上装载该登记格（调用方持条目锁）。

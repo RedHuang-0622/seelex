@@ -34,6 +34,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -619,6 +620,7 @@ func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessio
 		MainSessionID:    mainSessionID,
 		RoleName:         request.Role,
 		RoleSessionID:    request.RoleSessionID,
+		AccountRole:      dto.RoleTeammate,
 		ToolsPolicy:      request.ToolsPolicy,
 		PermissionGroups: request.PermissionGroups,
 		Plugins:          request.Plugins,

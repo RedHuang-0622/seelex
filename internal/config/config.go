@@ -93,7 +93,15 @@ func Load(path string) (Config, error) {
 		}
 		return Config{}, err
 	}
+	return parseAccounts(data)
+}
 
+// parseAccounts 是 Load 的可测内核（字节进、配置出）：界面「手动添加账号」要在
+// **落盘前后**各读一次字节来判断"这一条真的成了账号"，读盘那一步由调用方负责。
+//
+// 它与 Load 逐字同口径：同样的兜底、同样的 name 推导（`<role>-<序号>`）、同样的
+// 校验错误——新增账号的写入路径因此不必自己再判一次字段合法性。
+func parseAccounts(data []byte) (Config, error) {
 	var cfg simplifiedConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("seelex: parse accounts: %w", err)
@@ -200,6 +208,7 @@ func fallbackConfig() Config {
 		Temperature:     model.DefaultTemperature,
 		ReasoningEffort: model.DefaultReasoningEffortForRole(model.RoleAgent),
 		Role:            model.RoleAgent,
+		Fallback:        true,
 	}
 	return Config{
 		Specs:          []model.AccountSpec{spec},

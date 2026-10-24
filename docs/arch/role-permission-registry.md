@@ -1,4 +1,4 @@
-# 角色权限登记：权限向量、四级优先级、键与并发纪律
+# 角色权限登记：权限向量、五级优先级、键与并发纪律
 
 > 状态：**目标设计（未落地）**。本文只写长期有效的架构事实与判据，逐节标注"当前实现"与"目标设计"的差距。
 > 日期：2026-10-23
@@ -42,12 +42,12 @@
 3. **授予 = (Effect, Bits)**。`Bits` 为 0 时用该类型的既有 `Mode`（与矩阵的 `Grant` 同形）。
 4. **`0` 位 ≠ 未出现**。显式写 `{"rw": 0}` 是"这一族明确收回"，与"这一层没说话"是两件事——`NormalizePermissionGroups` 的注释已经把这条钉死，§3 的逐标签优先完全依赖它。
 
-## 3. 四级优先级：逐标签取首个出现者
+## 3. 五级优先级：逐标签取首个出现者
 
 层序（高 → 低）：
 
 ```
-user_allow  >  agent_dispatch  >  session_default  >  global_default
+user_allow  >  agent_dispatch  >  session_default  >  role_default  >  global_default
 ```
 
 每层贡献一份**稀疏**的 `map[PermType]Grant`。合并规则是**逐标签取首个出现者**：
@@ -58,7 +58,7 @@ for label in vocabulary:
         if label ∈ layer:            # "出现"，含显式 0 位 / deny
             vector[label] = layer[label]; break
     else:
-        vector[label] = deny          # 四层都没出现 = 缺格 = deny（与矩阵同义）
+        vector[label] = deny          # 五层都没出现 = 缺格 = deny（与矩阵同义）
 ```
 
 **这不是"整份覆盖"。** 高层只接管它显式点到的标签，其余标签继续从低层取——否则"派发时只想加一条 ssh"会把 `ro` 也一起抹掉（见下面示例 B）。
@@ -69,17 +69,19 @@ for label in vocabulary:
 | --- | --- | --- |
 | `global_default` | `backend/limit/policy/policy.go` 的 `DefaultPermissionConfig()`（组表 + 主体表 + `missing_bit` + `rules`），叠加 `config/seelex.yaml` 的 `permission.*` 覆盖 | 已实现（"只覆盖不替换"） |
 | `session_default` | `backend/limit/tier` 的会话档位：`Deps.EffectiveTier`（会话槽优先，未选择回退进程默认），会话级持久化走 `session.SessionSettingPort` | 已实现（档位是声明式覆盖层，从不新增 allow、从不触碰 deny） |
+| `role_default` | 角色设置里按 role 保存的跨会话默认（项目作用域）；只压住 `global_default`，低于会话与派发约束 | 已实现 |
 | `agent_dispatch` | 派发时下发的角色声明：`contract/dto/agentteam.go` 的 `RoleSpec.{ToolsPolicy, PermissionGroups, Plugins}` → `Runtime.AssignEmployeePermissions` | 部分实现；键有缺陷（§4） |
 | `user_allow` | 审批面的人类显式放行（`ApprovalBroker` / `SetPermissionAutoApprovalFor`） | **只有 once 与会话级 full 两种，台账未持久**（`agent-permission-subjects.md` §7） |
 
 ### 3.1 冲突示例
 
-**示例 A：四层各点一个标签**
+**示例 A：五层各点一个标签**
 
 | 层 | 该层写的内容 |
 | --- | --- |
 | `global_default` | `{ro: allow, rw: allow, ctl: ask}` |
 | `session_default` | `{rw: 0 位}`（本会话显式收回写） |
+| `role_default` | `{ssh: allow}` |
 | `agent_dispatch` | `{ssh: allow}` |
 | `user_allow` | `{rw: allow, scope: once}`（人类刚在审批页点了一次放行） |
 
@@ -186,7 +188,7 @@ RoleSettings {
 
 1. **不另立词表、不另立 `Effect` 取值**。向量标签集合必须能由 `dto.PermissionGroupNames()`（扩展后含 `ssh` / `ssh.userspace`）派生出全部；`Effect` 只有 `allow/ask/deny`。
 2. **向量不能超出矩阵行**。登记表是矩阵的**子集筛选器**，不是旁路：一个标签若在该用户组的那一行里是缺格/deny，向量里给 allow 只能是错误（或被 §3 的高层显式放宽且可审计）。
-3. **缺格 = deny 在两层同义**（矩阵同一条），所以 §3 的"四层都没出现 → deny"不是新规则，是把它落到层叠上。
+3. **缺格 = deny 在两层同义**（矩阵同一条），所以 §3 的"五层都没出现 → deny"不是新规则，是把它落到层叠上。
 4. **`ssh` 标签必须先扩词表再开写**。在 `permission-assembly` M2 落地前，`ValidPermissionGroup` 会直接拒 `ssh`——这是对的：先写后补的结果是读回时"未知标签→0 位"，静默变成"没给"，而用户以为给了远端权限。
 
 ## 8. 判据
@@ -196,7 +198,7 @@ RoleSettings {
 | A1 | 词表唯一：向量标签集合由 `dto.PermissionGroupNames()` 派生，仓库内无第二份列表 | 代码检查 + 用例遍历词表 |
 | A2 | 逐标签：高层只写一个标签时，低层其余标签原样生效（不是整份覆盖） | 示例 B 的表驱动用例 |
 | A3 | 全序：同一标签只被 `user_allow > agent_dispatch > session_default > global_default` 中最高出现层决定 | 逐层单变量用例 |
-| A4 | 缺格 deny：四层都未出现的标签判 deny，不回落到矩阵行的 allow | 空登记下全 deny |
+| A4 | 缺格 deny：五层都未出现的标签判 deny，不回落到矩阵行的 allow | 空登记下全 deny |
 | A5 | `0` 位 ≠ 未出现：显式 `{rw: 0}` 收掉该标签，且仍可被更高层改写 | 两个相邻用例 |
 | A6 | 键隔离：`(s1, arch)` 与 `(s2, arch)` 各自独立；同角色不同格并发写不互相覆盖 | 并发用例 + `-race` |
 | A7 | 无裸写：登记 map 只在持锁临界区读写，`go test -race` 无 `concurrent map writes`；判定与审批不持锁 | `-race` + 锁序检查 |
@@ -208,7 +210,7 @@ RoleSettings {
 
 | 期 | 内容 | 出口 |
 | --- | --- | --- |
-| **R0（本次）** | 本文：词表、四级优先级、键与并发、恢复顺序、账号维度三格、与矩阵的关系、判据 A1–A10 | 文档评审通过 |
+| **R0（本次）** | 本文：词表、五级优先级、键与并发、恢复顺序、账号维度三格、与矩阵的关系、判据 A1–A10 | 文档评审通过 |
 | R1 | registry 骨架：键 `(sessionID, role)`、条目自带锁、优先级唯一一处判据函数、单测 + `-race` | A2/A3/A4/A5/A6/A7 绿 |
 | R2 | 落盘与恢复：接 `session.SessionSettingPort` 形状的会话级设置端口，恢复顺序按 §5 | A8/A9 绿 |
 | R3 | 接线 `PermissionGate`：删掉"判定路径上补默认条目"的那份派生，`cfg.Subjects` 退回纯快照（由登记表显式派生一次） | 既有权限测试零回归 |

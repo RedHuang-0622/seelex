@@ -339,7 +339,7 @@ go test ./wiring/adapters -count=1
 
 - `func TestRolePermissionPortStoreRoundTrip(t *testing.T)` — TestRolePermissionPortStoreRoundTrip：写入 → 换一个端口值读回；空集与"没登记"分开；
 - `func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T)` — TestRolePermissionPortWritesLandOnlyInOwnProject：登记按会话归属项目落键，
-- `func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T)` — TestRolePermissionLayersProjectEachGroupClosedWorld 是四层来源的核心断言：
+- `func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T)` — TestRolePermissionLayersProjectEachGroupClosedWorld 是五层来源的核心断言：
 - `func TestPermissionVectorTagsMarksZeroBitsAsDeny(t *testing.T)` — TestPermissionVectorTagsMarksZeroBitsAsDeny 钉住投影规则本身（一条判据一处实现）。
 
 ### runtime_narrow_ports.go

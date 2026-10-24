@@ -44,57 +44,64 @@ type fakeApplication struct {
 	releaseWindowErr      error
 	accountWindows        map[string]int
 	accountWindowErr      error
-	selectedPlugin        string
-	selectedTier          string
-	loadedHistory         int
-	loadedLatest          bool
-	suggestionsInput      string
-	beganNewSession       bool
-	composerText          string
-	resumedSession        string
-	forkedSession         string
-	scheduledSpec         assemble.ScheduledTaskSpec
-	updatedTaskID         string
-	cancelledTaskID       string
-	searchQuery           string
-	searchLimit           int
-	searchResult          seelexctxsearch.Result
-	workItemID            string
-	workItemStatus        string
-	workItemErr           error
-	treeListing           dto.TreeListing
-	treeCount             dto.TreeCount
-	treeRel               string
-	treeDepth             int
-	treeErr               error
-	gitLog                dto.GitLogResult
-	gitLimit              int
-	gitRepo               string
-	gitRepos              dto.GitReposResult
-	gitCommit             dto.GitCommitDetail
-	gitCommitHash         string
-	commitContent         dto.FileContent
-	commitRel             string
-	commitLimit           int64
-	changes               dto.WorkspaceChangesResult
-	changesLimit          int
-	fileContent           dto.FileContent
-	fileRel               string
-	fileLimit             int64
-	fileErr               error
-	writeRel              string
-	writeContent          string
-	writeResult           dto.FileWriteResult
-	writeErr              error
-	metaSessionID         string
-	sessionMeta           application.SessionMeta
-	archivedSession       string
-	listSessionsCalls     int
-	transcriptSession     string
-	transcriptFrom        uint64
-	transcriptTo          uint64
-	catalogSettles        int
-	catalogGate           chan struct{}
+	// 账户的两条链路（设置 → 账户）：添加走草稿 + 回执，余额走账号名 + 读数。
+	accountDraft       application.AccountDraft
+	accountAddResult   application.AccountAddResult
+	accountAddErr      error
+	accountBalanceName string
+	accountBalanceRead application.AccountBalance
+	accountBalanceErr  error
+	selectedPlugin     string
+	selectedTier       string
+	loadedHistory      int
+	loadedLatest       bool
+	suggestionsInput   string
+	beganNewSession    bool
+	composerText       string
+	resumedSession     string
+	forkedSession      string
+	scheduledSpec      assemble.ScheduledTaskSpec
+	updatedTaskID      string
+	cancelledTaskID    string
+	searchQuery        string
+	searchLimit        int
+	searchResult       seelexctxsearch.Result
+	workItemID         string
+	workItemStatus     string
+	workItemErr        error
+	treeListing        dto.TreeListing
+	treeCount          dto.TreeCount
+	treeRel            string
+	treeDepth          int
+	treeErr            error
+	gitLog             dto.GitLogResult
+	gitLimit           int
+	gitRepo            string
+	gitRepos           dto.GitReposResult
+	gitCommit          dto.GitCommitDetail
+	gitCommitHash      string
+	commitContent      dto.FileContent
+	commitRel          string
+	commitLimit        int64
+	changes            dto.WorkspaceChangesResult
+	changesLimit       int
+	fileContent        dto.FileContent
+	fileRel            string
+	fileLimit          int64
+	fileErr            error
+	writeRel           string
+	writeContent       string
+	writeResult        dto.FileWriteResult
+	writeErr           error
+	metaSessionID      string
+	sessionMeta        application.SessionMeta
+	archivedSession    string
+	listSessionsCalls  int
+	transcriptSession  string
+	transcriptFrom     uint64
+	transcriptTo       uint64
+	catalogSettles     int
+	catalogGate        chan struct{}
 }
 
 // recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
@@ -198,6 +205,24 @@ func (fake *fakeApplication) SetAccountWindow(_ context.Context, name string, wi
 	}
 	delete(fake.accountWindows, name)
 	return 0, nil
+}
+
+// AddAccount 记录被转发的草稿，回执由测试摆。
+func (fake *fakeApplication) AddAccount(_ context.Context, draft application.AccountDraft) (application.AccountAddResult, error) {
+	fake.accountDraft = draft
+	if fake.accountAddErr != nil {
+		return application.AccountAddResult{}, fake.accountAddErr
+	}
+	return fake.accountAddResult, nil
+}
+
+// AccountBalance 记录被查询的账号名，读数由测试摆。
+func (fake *fakeApplication) AccountBalance(_ context.Context, name string) (application.AccountBalance, error) {
+	fake.accountBalanceName = name
+	if fake.accountBalanceErr != nil {
+		return application.AccountBalance{}, fake.accountBalanceErr
+	}
+	return fake.accountBalanceRead, nil
 }
 func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error {
 	fake.selectedPlugin = name
@@ -493,6 +518,49 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	if presets := bridge.AccountWindowPresets(); len(presets) != 4 || presets[0] != 200000 || presets[3] != 1000000 {
 		t.Fatalf("挡位表 = %v, want [200000 400000 600000 1000000]", presets)
 	}
+	// 角色词表同样由后端下发（源头 contract/dto 的 AccountRole 常量）：界面添加账号
+	// 的下拉从宿主读，不写死一份。
+	if roles := bridge.AccountRoles(); len(roles) != 4 || roles[0] != "agent" || roles[3] != "teammate" {
+		t.Fatalf("角色词表 = %v, want [agent subagent goalplan teammate]", roles)
+	}
+	// 手动添加账号（设置 → 账户 → 添加）：Bridge 只转发草稿并返回生效回执（含账号名）。
+	fake.accountAddResult = application.AccountAddResult{Name: "agent-2", Role: "agent", Provider: "openai", Model: "deepseek-flash"}
+	draft := application.AccountDraft{Role: "agent", Model: "deepseek-flash", APIKey: "sk-draft"}
+	result, err := bridge.AddAccount(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Name != "agent-2" {
+		t.Fatalf("添加回执的名字 = %q, want agent-2", result.Name)
+	}
+	if fake.accountDraft != draft {
+		t.Fatalf("草稿没原样透传: %#v", fake.accountDraft)
+	}
+	fake.accountAddErr = errors.New("account admin: 账号档已写入 \"agent-2\"，但热注册失败（重启后生效）")
+	if _, err := bridge.AddAccount(draft); err == nil {
+		t.Fatal("后端报错必须原样冒出来（界面据此区分「什么都没变」与「已落盘、重启生效」）")
+	}
+	fake.accountAddErr = nil
+	// 逐账号查余额（设置 → 账户 → 查看余额）：按**账号名**查，读数原样返回。
+	fake.accountBalanceRead = application.AccountBalance{
+		Name: "agent-1", Available: true,
+		Infos: []application.AccountBalanceInfo{{Currency: "CNY", Total: "110.00"}},
+	}
+	balance, err := bridge.AccountBalance("agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.accountBalanceName != "agent-1" {
+		t.Fatalf("余额查询的账号名 = %q, want agent-1", fake.accountBalanceName)
+	}
+	if !balance.Available || len(balance.Infos) != 1 || balance.Infos[0].Total != "110.00" {
+		t.Fatalf("余额读数没原样返回: %#v", balance)
+	}
+	fake.accountBalanceErr = errors.New("seelex: 该供应商没有可查询的余额接口")
+	if _, err := bridge.AccountBalance("agent-1"); err == nil {
+		t.Fatal("探测失败必须原样冒出来（界面显示原因，不显示成 0）")
+	}
+	fake.accountBalanceErr = nil
 	if err := bridge.SwitchPlugin("default"); err != nil {
 		t.Fatal(err)
 	}

@@ -43,7 +43,7 @@
 | [`agent-team-work-vs-market.md`](agent-team-work-vs-market.md) | Agent Team「team work」与市场常见多代理方案的机制差异、收益与数据依据（含实测/静态度量/外部未复核口径的分层标注与局限清单）。**席位制部分已于 2026-10-03 退场，按历史口径阅读** |
 | [`effort-system-design.md`](effort-system-design.md) | Effort 系统完整设计方案。**历史设计稿**：Effort Provider 扩展未实现；当前 Effort profile 与预算以 `application/prompt/effort.go` 为准，Skill 传输见 [`skill-effort-architecture.md`](skill-effort-architecture.md) |
 | [`permission-path-gating.md`](permission-path-gating.md) | Permission Gate 路径归属判定详细设计 |
-| [`role-permission-registry.md`](role-permission-registry.md) | 角色权限登记（目标设计）：权限向量词表（含 UI 别名）、四级优先级 `user_allow > agent_dispatch > session_default > global_default` 的逐标签语义、登记键 `(sessionID, role)` 与并发纪律、会话加载恢复顺序与降级、账号维度三格（`context_window`/`permission_vector`/`default_plugin`）、与权限矩阵的子集关系、判据 A1–A10 与分期 R0–R5 |
+| [`role-permission-registry.md`](role-permission-registry.md) | 角色权限登记（目标设计）：权限向量词表（含 UI 别名）、五级优先级 `user_allow > agent_dispatch > session_default > role_default > global_default` 的逐标签语义、登记键 `(sessionID, role)` 与并发纪律、会话加载恢复顺序与降级、账号维度三格（`context_window`/`permission_vector`/`default_plugin`）、与权限矩阵的子集关系、判据 A1–A10 与分期 R0–R5 |
 | [`plan-executor.md`](plan-executor.md) | Plan Executor（plan 执行域组件）架构（已实现） |
 | [`plan-visualization-design.md`](plan-visualization-design.md) | Plan 可视化系统设计（设计稿） |
 | [`plugin-skill-restructure.md`](plugin-skill-restructure.md) | Plugin / Skill 文件架构重构方案（2026-07-19） |

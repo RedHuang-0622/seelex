@@ -13,6 +13,7 @@ import (
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
@@ -82,19 +83,26 @@ type (
 	SkillInfo                  = model.SkillInfo
 	PluginInfo                 = model.PluginInfo
 	AccountInfo                = model.AccountInfo
-	SessionInfo                = model.SessionInfo
-	SessionMeta                = model.SessionMeta
-	WorkspaceInfo              = model.WorkspaceInfo
-	Interaction                = model.Interaction
-	InteractionOption          = model.InteractionOption
-	Capabilities               = model.Capabilities
-	EventKind                  = event.EventKind
-	Event                      = event.Event
-	MessageDelta               = event.MessageDelta
-	CompactionProgress         = event.CompactionProgress
-	ReplayResult               = event.ReplayResult
-	Subscription               = event.Subscription
-	EventHub                   = event.EventHub
+	// 账号的两条界面链路（添加 / 查余额）：dto 是跨层纯数据，别名与上面几个同一条
+	// 口径——前端只借类型身份，不直接引 contract/dto。
+	AccountDraft     = dto.AccountDraft
+	AccountAddResult = dto.AccountAddResult
+	AccountBalance   = dto.AccountBalance
+	// AccountBalanceInfo 是余额读数里的一种币种（界面对账要按币种显示）。
+	AccountBalanceInfo = dto.AccountBalanceInfo
+	SessionInfo        = model.SessionInfo
+	SessionMeta        = model.SessionMeta
+	WorkspaceInfo      = model.WorkspaceInfo
+	Interaction        = model.Interaction
+	InteractionOption  = model.InteractionOption
+	Capabilities       = model.Capabilities
+	EventKind          = event.EventKind
+	Event              = event.Event
+	MessageDelta       = event.MessageDelta
+	CompactionProgress = event.CompactionProgress
+	ReplayResult       = event.ReplayResult
+	Subscription       = event.Subscription
+	EventHub           = event.EventHub
 	// 审批端口形状的事实源在 contract（见 contract/approval.go）；实现体在
 	// backend/limit/approval。门面这里只是把两者按既有名字再导出。
 	ApprovalRequest  = contract.ApprovalRequest
@@ -202,6 +210,12 @@ func ValidEffortLevels() []string { return prompt.ValidEffortLevels() }
 // 挡位表只有一处（`seelexctx` 的 limits 段），前端不自己写死一份——与权限档位、
 // effort 档位同一条口径（门面 E 组：无状态纯函数）。
 func AccountWindowPresets() []int { return accountwindow.Presets() }
+
+// AccountRoles 返回可手动添加的账号角色名（界面「设置 → 账户 → 添加」的角色下拉）。
+//
+// 与 AccountWindowPresets 同一条口径：**词表只有一处**（contract/dto 的 AccountRole
+// 常量），前端从宿主读，不自己写死一份——加角色时不会出现"后端认、界面不认"。
+func AccountRoles() []string { return dto.AccountRoleVocabulary() }
 
 // RenderDiag 构建诊断文本，供 `/diag` 命令使用（门面 E 组：无状态纯函数）。
 func RenderDiag(snapshot Snapshot) string { return core.RenderDiag(snapshot) }

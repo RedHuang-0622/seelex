@@ -76,6 +76,14 @@ func (port RuntimePort) SetAccountWindow(name string, window int) {
 	port.Runtime.SetAccountWindow(name, window)
 }
 
+// SetRoleAccount 把角色默认账号推到运行时账号管理器。
+func (port RuntimePort) SetRoleAccount(role, account string) error {
+	if port.Runtime == nil {
+		return errors.New("runtime is not assembled")
+	}
+	return port.Runtime.SetRoleAccount(role, account)
+}
+
 // AccountWindowFor 返回该账号**生效**的窗口（token；账号级 > 全局 > 账号档）。
 func (port RuntimePort) AccountWindowFor(name string) int {
 	if port.Runtime == nil {
@@ -132,6 +140,7 @@ func accountBalanceDTO(name string, balance account.Balance, fetchedAt time.Time
 // contract.AccountBalancePort（application/core/service_account.go 的 AccountBalance）：
 // 逐账号查余额的转发面。
 var _ contract.AccountBalancePort = RuntimePort{}
+var _ contract.AccountRoleSelectionPort = RuntimePort{}
 
 // TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
 // 的实时只读投影（这件事的会话此刻在说什么）。漏了它，"查看这件事的会话"就只能从会话库

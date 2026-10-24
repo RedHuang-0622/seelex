@@ -39,6 +39,10 @@ import (
 // `application/application.go` 里指向 `contract` / `middle/protocol` 的类型别名，按字母序。
 // 新增/删除别名必须显式改这份清单（`e2e/facade_narrow_faces_test.go`解析事实源源码比对）。
 var FaceTypeNames = []string{
+	"AccountAddResult",
+	"AccountBalance",
+	"AccountBalanceInfo",
+	"AccountDraft",
 	"AccountInfo",
 	"ActivePlanProjection",
 	"ActiveSkill",
@@ -128,6 +132,7 @@ var FaceTypeNames = []string{
 
 // ViewFace 读投影（plan §1.3 B 组）：只读查询、订阅与历史窗口读回；不改内存/磁盘状态。
 type ViewFace interface {
+	AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)
 	ActiveSkillIDs() []string
 	AnyChatRunning() bool
 	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
@@ -221,6 +226,9 @@ type CommandFace interface {
 // PolicyFace 档位与策略（plan §1.3 D 组）：限制、档位、账号、插件、角色与调度策略。
 type PolicyFace interface {
 	ActivateSkill(name string) (model.SkillInfo, error)
+	// AddAccount 写账号档 + 热注册（界面「设置 → 账户 → 添加」）：账号是策略面
+	// （与 SelectAccount / SetAccountWindow 同一类"用户对账号的显式决定"）。
+	AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)
 	CancelScheduledTask(id string) error
 	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error

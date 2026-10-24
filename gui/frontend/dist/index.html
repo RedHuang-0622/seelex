@@ -295,7 +295,10 @@
         <button id="toggle-right-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开右栏 (Ctrl+J)" aria-label="收起/展开右栏" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-right" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-left" data-icon-size="14"></span></button>
       </div>
       <section class="project-heading">
-        <div class="section-title">项目</div>
+        <div class="project-heading-bar">
+          <div class="section-title">项目</div>
+          <button id="project-settings-button" class="icon-button subtle project-settings-button" type="button" title="项目设置" aria-label="打开项目设置" data-icon="settings" disabled></button>
+        </div>
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
       </section>
@@ -467,79 +470,163 @@
   </div>
 
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
-    <div class="modal-card settings-card">
+    <div class="modal-card settings-card settings-card--wide">
       <div class="modal-header"><div><span class="eyebrow">设置</span><h2 id="settings-modal-title">设置</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <!-- 角色设置：账号 / 上下文窗口 / 权限向量 / 默认 plugin 四项并列。这里只做"选与提交"，
-           判据全在后端：账号与生效窗口随快照下发，挡位表来自 AccountWindowPresets，权限向量
-           的标签表在 role-settings.js（与 docs/arch/permission-assembly.md 的 PermType 同名）。 -->
-      <div class="settings-section" id="role-settings-section">
-        <div class="section-title">角色设置</div>
-        <p class="settings-note">四项各记各的；写入与生效口径由后端判定。</p>
-        <label class="settings-field">账号
-          <select id="role-account"></select>
-        </label>
-        <div class="settings-field role-settings-row">
-          <span class="settings-label">上下文窗口</span>
-          <div id="account-windows"></div>
-          <div id="account-windows-status" class="muted"></div>
+      <div class="settings-layout">
+        <nav id="settings-nav" class="settings-nav" aria-label="设置分类">
+          <button type="button" class="settings-nav-item is-active" data-settings-page="account">账户</button>
+          <button type="button" class="settings-nav-item" data-settings-page="roles">角色与权限</button>
+          <button type="button" class="settings-nav-item" data-settings-page="session">本会话</button>
+          <button type="button" class="settings-nav-item" data-settings-page="application">应用</button>
+        </nav>
+        <div class="settings-pages">
+          <section class="settings-page" data-settings-page-panel="account">
+            <div class="settings-section" id="account-settings-section">
+              <div class="settings-page-head">
+                <div><div class="section-title">账户</div><p class="settings-note">账号属于应用配置；新增账户在独立窗口中完成。密文只留在宿主侧，界面仅显示是否已配置。</p></div>
+                <button id="account-add-open" type="button" class="primary">添加账户</button>
+              </div>
+              <div class="settings-subtitle">余额与状态</div>
+              <div id="account-balance-list" class="account-balance-list"></div>
+              <div id="account-balance-status" class="muted"></div>
+            </div>
+          </section>
+
+          <section class="settings-page hidden" data-settings-page-panel="roles">
+            <div class="settings-section" id="role-settings-section">
+              <div class="section-title">当前会话主代理</div>
+              <p class="settings-note">这里只改当前会话自己使用的账号和权限向量；不会改其它会话。</p>
+              <label class="settings-field">主代理账号
+                <select id="role-account"></select>
+              </label>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">会话权限向量</span>
+                <div id="role-permission-vector" class="perm-vector" role="group" aria-label="权限向量"></div>
+                <div id="role-permission-vector-status" class="muted"></div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="section-title">角色默认装配</div>
+              <p class="settings-note">默认只压住全局基线；团队派发和本会话显式设置仍可覆盖。界面分别显示“当前生效”和“你设的默认”。</p>
+              <label class="settings-field">角色
+                <select id="permission-role" aria-label="选择角色"></select>
+              </label>
+              <label class="settings-field">角色账号
+                <select id="permission-role-account" aria-label="该角色优先使用的账号"></select>
+                <small id="permission-role-account-status" class="muted"></small>
+              </label>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">当前生效（只读）</span>
+                <div id="permission-role-effective" class="perm-vector permission-vector-readonly" role="group" aria-label="角色当前生效权限"></div>
+              </div>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">角色默认（编辑）</span>
+                <div id="permission-role-vector" class="perm-vector" role="group" aria-label="角色默认权限向量"></div>
+                <div id="permission-role-status" class="muted"></div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="section-title">账号运行参数</div>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">每账号上下文窗口</span>
+                <div id="account-windows"></div>
+                <div id="account-windows-status" class="muted"></div>
+              </div>
+              <label class="settings-field">默认 plugin
+                <select id="role-default-plugin"></select>
+              </label>
+              <div id="role-settings-status" class="muted"></div>
+            </div>
+          </section>
+
+          <section class="settings-page hidden" data-settings-page-panel="session">
+            <div class="settings-section">
+              <div class="section-title">本会话 SSH</div>
+              <p class="settings-note">连接信息属于项目，在项目设置中维护。本会话只决定使用哪个已放权环境；缺省不放权。</p>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">当前限定环境</span>
+                <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
+                <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
+                <div id="session-ssh-status" class="muted"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page hidden" data-settings-page-panel="application">
+            <div class="settings-section">
+              <div class="section-title">外观</div>
+              <p class="settings-note">深浅定中性基座，皮肤只改主信号与环境渐变。</p>
+              <div class="settings-subtitle">皮肤</div>
+              <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="界面皮肤"></div>
+              <div class="settings-subtitle">深浅</div>
+              <div id="mode-picker" class="theme-picker mode-picker" role="radiogroup" aria-label="深浅色"></div>
+            </div>
+            <div class="settings-section">
+              <div class="section-title">终端</div>
+              <p class="settings-note">每个终端标签各留一份回滚历史，改后立刻作用于已打开的标签。</p>
+              <label class="settings-field">回滚行数
+                <select id="terminal-scrollback"><option value="1000">1000 行</option><option value="2000" selected>2000 行（默认）</option><option value="5000">5000 行</option><option value="10000">10000 行</option></select>
+              </label>
+            </div>
+            <div class="settings-section">
+              <div class="section-title">会话驻留</div>
+              <p class="settings-note">受保护集之外的会话按最近使用释放，改后立刻生效。</p>
+              <label class="settings-field">保留窗口
+                <select id="release-window"></select>
+              </label>
+              <div id="release-window-status" class="muted"></div>
+            </div>
+            <div class="settings-section">
+              <div class="section-title">工具记录</div>
+              <p class="settings-note">开启后每次工具调用（含失败）都累加进会话自己的 <code>tool-record.jsonl</code>，供「状态 → 工具记录」看；关掉不删已记读数。</p>
+              <label class="settings-field sched-toggle">
+                <input id="tool-record-enabled-setting" type="checkbox">
+                <span>记录工具调用（成功与失败）</span>
+              </label>
+              <div id="tool-record-setting-status" class="muted"></div>
+            </div>
+          </section>
         </div>
-        <div class="settings-field role-settings-row">
-          <span class="settings-label">权限向量</span>
-          <div id="role-permission-vector" class="perm-vector" role="group" aria-label="权限向量"></div>
-          <div id="role-permission-vector-status" class="muted"></div>
-        </div>
-        <!-- 角色默认向量：按 role（agent / subagent / goalplan / teammate）各一份，
-             跨会话生效；会话里显式登记过的向量仍压在这一层之上。角色名录来自
-             accounts.yaml 的 roles.*（后端按账号名前缀归并下发）。 -->
-        <div class="settings-field role-settings-row">
-          <span class="settings-label">角色默认权限</span>
-          <select id="permission-role" aria-label="选择角色"></select>
-          <div id="permission-role-vector" class="perm-vector" role="group" aria-label="角色默认权限向量"></div>
-          <div id="permission-role-status" class="muted"></div>
-        </div>
-        <label class="settings-field">默认 plugin
-          <select id="role-default-plugin"></select>
-        </label>
-        <div id="role-settings-status" class="muted"></div>
       </div>
-      <!-- 账户：手动添加（写 accounts.yaml + 热注册，不重启就生效）与逐账号余额（点一次
-           查一次，余额是快照不进快照缓存）。角色词表由宿主下发（invoke AccountRoles），
-           与挡位表同一条口径：只有一处真相。 -->
-      <div class="settings-section" id="account-settings-section">
-        <div class="section-title">账户</div>
-        <p class="settings-note">添加会写进 <code>config/accounts.yaml</code> 并立即生效；余额是查询当下的读数。</p>
-        <div class="settings-subtitle">添加账户</div>
-        <label class="settings-field">角色
-          <select id="account-add-role"></select>
-        </label>
-        <label class="settings-field">模型
-          <input id="account-add-model" type="text" placeholder="如 deepseek-flash" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="settings-field">API Key
-          <input id="account-add-api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="settings-field">供应商（留空继承 defaults）
-          <input id="account-add-provider" type="text" placeholder="如 openai" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="settings-field">接口地址（留空继承 defaults）
-          <input id="account-add-base-url" type="text" placeholder="如 https://api.deepseek.com" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="settings-field">思考强度（留空继承 defaults）
-          <select id="account-add-effort"></select>
-        </label>
-        <div class="settings-field role-settings-row">
-          <button id="account-add-submit" type="button" class="primary">添加账户</button>
-          <div id="account-add-status" class="muted"></div>
-        </div>
-        <div class="settings-subtitle">余额</div>
-        <div id="account-balance-list" class="account-balance-list"></div>
-        <div id="account-balance-status" class="muted"></div>
+    </div>
+  </div>
+
+  <div id="account-add-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="account-add-modal-title">
+    <div class="modal-card account-add-card">
+      <div class="modal-header"><div><span class="eyebrow">账户</span><h2 id="account-add-modal-title">添加账户</h2></div><button id="account-add-cancel" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p class="settings-note">完整表单写入 <code>config/accounts.yaml</code> 并热注册；API Key 只在宿主侧读取，不进入快照或界面回读。</p>
+      <label class="settings-field">角色
+        <select id="account-add-role"></select>
+      </label>
+      <label class="settings-field">模型
+        <input id="account-add-model" type="text" placeholder="如 deepseek-flash" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="settings-field">API Key
+        <input id="account-add-api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="settings-field">供应商（留空继承 defaults）
+        <input id="account-add-provider" type="text" placeholder="如 openai" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="settings-field">接口地址（留空继承 defaults）
+        <input id="account-add-base-url" type="text" placeholder="如 https://api.deepseek.com" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="settings-field">思考强度（留空继承 defaults）
+        <select id="account-add-effort"></select>
+      </label>
+      <div class="settings-actions">
+        <button id="account-add-cancel-footer" type="button" class="secondary">取消</button>
+        <button id="account-add-submit" type="button" class="primary">添加账户</button>
       </div>
-      <!-- SSH 环境：**项目**侧一张表（连接信息的唯一事实源）+ **会话**侧的限定与放权。
-           缺省不放权：一个环境都没勾 = 这个会话用不了 SSH；勾了才谈得上"限定哪个"。 -->
+      <div id="account-add-status" class="muted"></div>
+    </div>
+  </div>
+
+  <div id="project-settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+    <div class="modal-card project-settings-card">
+      <div class="modal-header"><div><span class="eyebrow">项目</span><h2 id="project-settings-title">项目设置</h2><p id="project-settings-name" class="settings-note">当前项目</p></div><button id="project-settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="settings-section" id="ssh-env-section">
         <div class="section-title">SSH 环境</div>
-        <p class="settings-note">环境表挂在项目上（连接信息只此一份）；会话只持有「当前限定哪个」与「放权了哪些」。缺省不放权。</p>
+        <p class="settings-note">连接信息只属于这个项目，按环境名分组。口令留空表示保持原值；会话是否可用由「设置 → 本会话」单独放权。</p>
         <div id="ssh-env-list" class="settings-field"></div>
         <div class="settings-field ssh-env-form">
           <input id="ssh-env-name" type="text" placeholder="环境名（dev / test / prod）" aria-label="环境名" />
@@ -553,44 +640,6 @@
           <button id="ssh-env-delete" type="button">删除</button>
         </div>
         <div id="ssh-env-status" class="muted"></div>
-        <div class="settings-field role-settings-row">
-          <span class="settings-label">本会话 SSH</span>
-          <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
-          <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
-          <div id="session-ssh-status" class="muted"></div>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="section-title">外观</div>
-        <p class="settings-note">深浅定中性基座，皮肤只改主信号与环境渐变。</p>
-        <div class="settings-subtitle">皮肤</div>
-        <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="界面皮肤"></div>
-        <div class="settings-subtitle">深浅</div>
-        <div id="mode-picker" class="theme-picker mode-picker" role="radiogroup" aria-label="深浅色"></div>
-      </div>
-      <div class="settings-section">
-        <div class="section-title">终端</div>
-        <p class="settings-note">每个终端标签各留一份回滚历史，改后立刻作用于已打开的标签。</p>
-        <label class="settings-field">回滚行数
-          <select id="terminal-scrollback"><option value="1000">1000 行</option><option value="2000" selected>2000 行（默认）</option><option value="5000">5000 行</option><option value="10000">10000 行</option></select>
-        </label>
-      </div>
-      <div class="settings-section">
-        <div class="section-title">会话驻留</div>
-        <p class="settings-note">受保护集之外的会话按最近使用释放，改后立刻生效。</p>
-        <label class="settings-field">保留窗口
-          <select id="release-window"></select>
-        </label>
-        <div id="release-window-status" class="muted"></div>
-      </div>
-      <div class="settings-section">
-        <div class="section-title">工具记录</div>
-        <p class="settings-note">开启后每次工具调用（含失败）都累加进会话自己的 <code>tool-record.jsonl</code>，供「状态 → 工具记录」看；关掉不删已记读数。</p>
-        <label class="settings-field sched-toggle">
-          <input id="tool-record-enabled-setting" type="checkbox">
-          <span>记录工具调用（成功与失败）</span>
-        </label>
-        <div id="tool-record-setting-status" class="muted"></div>
       </div>
     </div>
   </div>

@@ -23,7 +23,7 @@ Seele 的定位是通用 Agent 开发框架；Seelex 是使用该框架构建的
 | Session 使用策略、context 快照与合并 | Seelex | 产品上下文模型 |
 | 权限规则和审批体验 | Seelex 应用层；执行钩子由 Seele 框架提供 | 策略属于产品，调度拦截点属于框架 |
 
-`seelebridge` 只承担 Anti-Corruption Layer：把 Seele 的框架 primitive 转换成 Seelex 稳定接口，不解析 `plugin.md`，不扫描 Skill，不持有 TUI 状态，不实现 Agent/Engine/MCP 协议。
+`seelebridge` 只承担 Anti-Corruption Layer（**此为迁移前口径**：该包已更名并拆解为 `backend/engine/assemble`，终局只剩拓扑装配与逆序关机，见 [架构重排方案 §2.5](../2026-10-15-architecture-reshape/plan.md)）：把 Seele 的框架 primitive 转换成 Seelex 稳定接口，不解析 `plugin.md`，不扫描 Skill，不持有 TUI 状态，不实现 Agent/Engine/MCP 协议。
 
 ## 已确认的 Seele 能力
 

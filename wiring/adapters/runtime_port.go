@@ -171,6 +171,7 @@ func (port RuntimePort) Accounts() []model.AccountInfo {
 	for _, account := range accounts {
 		result = append(result, model.AccountInfo{
 			Name: account.Name, Provider: account.Provider, Model: account.Model, Disabled: account.Disabled,
+			Role: account.Role, APIKeySet: account.APIKeySet, Fallback: account.Fallback,
 			// 逐账号读各自的生效窗口（账号级覆盖 > 全局 > 账号档）：界面按账号显示
 			// 挡位时需要它，拿当前账号的值顶替会让别的行显示成假的。
 			ContextWindow: port.Runtime.ContextWindowFor(account.Name),

@@ -4,8 +4,8 @@ package adapters
 // application/core 用类型断言发现的两个可选能力——
 //
 //	rolePermissionPort      —— 会话级角色权限登记（键 (sessionID, role)，落盘在 store）
-//	rolePermissionLayerPort —— 四层向量来源（user_allow > agent_dispatch >
-//	                           session_default > global_default）
+//	rolePermissionLayerPort —— 五层向量来源（user_allow > agent_dispatch >
+//	                           session_default > role_default > global_default）
 //
 // 生态位（为什么是适配层、为什么带一份按 Router 的实例表）：
 //   - 登记的**事实源**只有一处：store.RolePermissionStore（每 (项目, 会话, 角色) 一格、
@@ -15,7 +15,7 @@ package adapters
 //     RolePermissionStore 实例：装配期由本文件按 Router 建一次并复用。若每次调用新建
 //     一个实例，两个实例各持一份缓存，A 写入后 B 读到的还是它加载时的旧副本——
 //     判定链前后不一致（正是 store 注释里点名的失败形态）。
-//   - 四层来源的**判据**不在这里（在 dto.ResolvePermissionVector / ResolveRoleSettings）；
+//   - 五层来源的**判据**不在这里（在 dto.ResolvePermissionVector / ResolveRoleSettings）；
 //     这里只负责"每一层今天从哪读、没有就留空层"。空层 = 这一层没表态，不是"允许"。
 //
 // 与权限门的边界：这里产出的是**组级**向量标签（ro / rw / rw_session / rw_desktop /
@@ -105,6 +105,22 @@ func (port SessionPort) SetRoleDefault(sessionID, role string, vector []string) 
 	return err
 }
 
+func (port SessionPort) RoleAccount(sessionID, role string) (string, bool, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return "", false, errors.New("role account: session storage is not assembled")
+	}
+	return storage.RoleAccount(port.rolePermissionProject(sessionID), strings.TrimSpace(role))
+}
+
+func (port SessionPort) SetRoleAccount(sessionID, role, account string) error {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return errors.New("role account: session storage is not assembled")
+	}
+	return storage.SetRoleAccount(port.rolePermissionProject(sessionID), strings.TrimSpace(role), strings.TrimSpace(account))
+}
+
 // RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
 // **所有显式登记过**的角色 → 权限向量（会话加载点一次读回全部角色）。
 func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error) {
@@ -140,9 +156,9 @@ func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector [
 }
 
 // RolePermissionLayers 实现 application/core 的 rolePermissionLayerPort：给出该角色
-// 在四层来源上的取值（层序由 dto.RoleSettingsLayers.Ordered 定死，本文件不重排）。
+// 在五层来源上的取值（层序由 dto.RoleSettingsLayers.Ordered 定死，本文件不重排）。
 //
-// 四层今天的事实来源（缺一个来源就是那层留空，**不编默认值**）：
+// 五层今天的事实来源（缺一个来源就是那层留空，**不编默认值**）：
 //
 //	user_allow      用户的显式允许。会话内"用户点过头"的台账今天不存在（审批面板的
 //	                放行是即时决定，不落会话台账），故这一层恒为空层。
@@ -158,7 +174,7 @@ func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector [
 // 已知边界（写在这里，免得下一个人以为漏了）：员工权限按**角色名**落在进程级权责表，
 // 同一角色名在不同会话共享同一条派发约束——这是权责表今天的形状，不是本端口的取舍。
 func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers {
-	_ = sessionID // 四层来源今天都是进程级读数；签名保留会话维度给后续按会话的台账
+	_ = sessionID // 五层来源今天都是进程级读数；签名保留会话维度给后续按会话的台账
 	role = strings.TrimSpace(role)
 	layers := dto.RoleSettingsLayers{
 		// 空层 = "这一层没表态"，不是"允许"（判据在 dto，不在本文件）。
@@ -191,12 +207,12 @@ func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSet
 	// 向量"判定员工的授权面，若这一层在员工身份不明时补一份 root 的全组位，那就等于
 	// "谁都不知道你是谁 ⇒ 给你主代理的全部能力"——典型的 fail-open。留空后，
 	// 未登记/未装配的角色由执行面按 ctx 身份（显式格子 → 档位）派生，方向上只会更窄。
-	// 角色级默认（权限面板里给这个角色定的"默认拿什么"）优先于进程全局默认表，
-	// 但仍然只填 **global_default** 这一层：会话里显式登记的那条（sessions）压在最上面，
-	// 谁也不动它。没定过默认时保持上面算出来的全局默认（留空就是留空，不编默认值）。
+	// 角色级默认（权限面板里给这个角色定的"默认拿什么"）是一个独立层：它压住
+	// global_default，但仍低于会话、派发与用户显式允许。过去把它塞进 global_default
+	// 会让 UI 写着“角色默认”而实际被 session_default 静默盖掉，属于两份语义共用一格。
 	if storage := port.rolePermissionStore(); storage != nil {
 		if vector, ok, err := storage.Default(port.rolePermissionProject(sessionID), role); err == nil && ok {
-			layers.GlobalDefault = dto.RoleSettings{PermissionVector: vector}
+			layers.RoleDefault = dto.RoleSettings{PermissionVector: vector}
 		}
 	}
 	return layers

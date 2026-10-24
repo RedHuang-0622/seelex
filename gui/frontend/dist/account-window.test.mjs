@@ -33,14 +33,14 @@ test("取值面：短标签 / 挡位选项 / 自定义输入归一", () => {
   }
 });
 
-test("设置弹窗的「角色设置」里有上下文窗口一行：标题 + 容器 + 读数落点 + 说明来源", async () => {
+test("设置弹窗的角色页里有每账号上下文窗口：标题 + 容器 + 读数落点 + 说明来源", async () => {
   const html = await read("index.html");
   const modal = html.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/);
   assert.ok(modal, "要找得到 #settings-modal");
   const body = modal[0];
-  // 2026-10-23 起它是「角色设置」四项之一（不再自成一段，标题降为行标签）。
-  assert.match(body, /id="role-settings-section"/, "角色设置那一段要在");
-  assert.match(body, /<span class="settings-label">上下文窗口<\/span>/, "行标签要在");
+  // 2026-10-24 起它位于「角色与权限 → 账号运行参数」，属于角色页而不属于账户新增窗口。
+  assert.match(body, /id="role-settings-section"/, "角色页要在");
+  assert.match(body, /<span class="settings-label">每账号上下文窗口<\/span>/, "行标签要在");
   assert.match(body, /<div id="account-windows"><\/div>/, "账号行由前端渲染（容器是空的）");
   assert.match(body, /id="account-windows-status"/, "要有一行读数/说明落点");
   // 优先级与来源的解说留在 app.js 的那一段注释里（弹窗只留一句必要说明）。

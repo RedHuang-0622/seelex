@@ -48,6 +48,7 @@ const (
 type RolePermissionRecord struct {
 	SessionID        string    `json:"session_id"`
 	Role             string    `json:"role"`
+	Account          string    `json:"account,omitempty"`
 	PermissionVector []string  `json:"permission_vector"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -265,21 +266,58 @@ func (store *RolePermissionStore) Default(projectID, role string) ([]string, boo
 	return vector, true, nil
 }
 
+// RoleAccount 读取角色默认使用的账号名；第二个返回值报告是否显式设置过。
+func (store *RolePermissionStore) RoleAccount(projectID, role string) (string, bool, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return "", false, fmt.Errorf("session storage: role account requires a role")
+	}
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return "", false, err
+	}
+	record, ok := file.RoleDefaults[role]
+	if !ok || strings.TrimSpace(record.Account) == "" {
+		return "", false, nil
+	}
+	return strings.TrimSpace(record.Account), true, nil
+}
+
+// SetRoleAccount 设置角色默认账号。账号与权限默认共用同一条记录，
+// 因此写入账号时必须保留已有权限向量。
+func (store *RolePermissionStore) SetRoleAccount(projectID, role, account string) error {
+	role, account = strings.TrimSpace(role), strings.TrimSpace(account)
+	if role == "" || account == "" {
+		return fmt.Errorf("session storage: role account requires role and account")
+	}
+	return store.mutate(projectID, func(file *rolePermissionFile) {
+		if file.RoleDefaults == nil {
+			file.RoleDefaults = map[string]RolePermissionRecord{}
+		}
+		record := file.RoleDefaults[role]
+		record.Role = role
+		record.Account = account
+		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
+		record.UpdatedAt = time.Now().UTC()
+		file.RoleDefaults[role] = record
+	})
+}
+
 // PutDefault 写入一个角色的默认向量（空集 = 该角色默认什么都不给，不删记录）。
 func (store *RolePermissionStore) PutDefault(projectID, role string, vector []string) (RolePermissionRecord, error) {
 	role = strings.TrimSpace(role)
 	if role == "" {
 		return RolePermissionRecord{}, fmt.Errorf("session storage: role default requires a role")
 	}
-	record := RolePermissionRecord{
-		Role:             role,
-		PermissionVector: normalizedRoleVector(vector),
-		UpdatedAt:        time.Now().UTC(),
-	}
+	var record RolePermissionRecord
 	if err := store.mutate(projectID, func(file *rolePermissionFile) {
 		if file.RoleDefaults == nil {
 			file.RoleDefaults = map[string]RolePermissionRecord{}
 		}
+		record = file.RoleDefaults[role]
+		record.Role = role
+		record.PermissionVector = normalizedRoleVector(vector)
+		record.UpdatedAt = time.Now().UTC()
 		file.RoleDefaults[role] = record
 	}); err != nil {
 		return RolePermissionRecord{}, err

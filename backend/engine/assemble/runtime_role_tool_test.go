@@ -145,6 +145,10 @@ func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T) {
 	if scope != want {
 		t.Fatalf("本轮身份不符：%+v，want %+v", scope, want)
 	}
+	accountScope, ok := dto.SceneScopeFromContext(ctxs[0])
+	if !ok || accountScope.Role != dto.RoleTeammate {
+		t.Fatalf("角色回合必须进入 teammate 账号作用域，得到 %+v ok=%v", accountScope, ok)
+	}
 }
 
 // TestRoleWorkScopeIsPerRound 钉住"身份是按轮的事实"：同一条钩子（同一个 Runtime）在

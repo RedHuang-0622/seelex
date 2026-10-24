@@ -28,6 +28,7 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 | 对话 | `Submit`、`CancelChat`、`LoadMoreHistory`、`LoadLatestHistory` |
 | 交互 | `ResolveInteraction` |
 | Runtime | `SelectAccount`、`SwitchEffort`、`SwitchPlugin` |
+| 账号 | `SelectAccount`、`SetAccountWindow`、`AddAccount`、`AccountBalance`（加账号写账号档 + 热注册，返回生效账号名；余额点一次查一次，是快照不是缓存） |
 | 指令 | `Suggestions` |
 
 新增 GUI 功能时只有 Core 已存在稳定业务动作才扩展此接口。
