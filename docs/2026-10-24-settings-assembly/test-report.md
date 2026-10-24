@@ -75,3 +75,23 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
   `go build ./...` 与 `go build -tags "gui,desktop,production" ./...` 通过；
   `node --test gui/frontend/dist/*.test.mjs` 862/862 通过；`git diff --check` 通过。
 - 交互冒烟需在 post-commit 重建 dev GUI 后补记，当前不把自动化门禁冒充窗口点击结果。
+
+### Post-commit 与交互冒烟（2026-10-25）
+
+- 重建前备份 dev 包内 `config/` 与 `plugins/` 到本机临时目录；当时无 Seelex 进程运行。
+- `SEELEX_POST_COMMIT_BUILD=1 .githooks/post-commit` 成功重建
+  `dist/dev/seelex.exe` 与 `dist/seelex-gui-dev/seelex-gui.exe`。
+- 新 GUI 启动成功，窗口标题 `Seelex`、`Responding=true`，WebView2 环境创建成功。
+- Computer Use 原生 pipe 仍返回 `os error 2`，无法在 Wails 窗口内注入点击；同一份
+  `gui/frontend/dist` 通过本机 Chrome CDP 完成 DOM 事件冒烟。
+- 已点击验证：全局设置为「角色与权限 / 会话权限 / 应用」三类；角色固定为
+  goalplan / mainagent / subagent / teammate；全局设置内没有项目 SSH 环境表，
+  也没有 `ssh.userspace` 权限项。
+- 未选中 SSH 的 agent role 点击候选 SSH 会打开「允许路径」弹窗；会话权限页的同一
+  入口读取会话覆盖路径（夹具为 `/srv/session`），而非角色默认路径。
+- 弹窗标题、说明和按钮均为单一 SSH 口径；弹窗头 `position=sticky`，关闭按钮保持
+  上沿位置。
+- 项目设置显示「工作环境」，主机占位为「留空 = 本地」；会话环境弹窗列出本地
+  `dev` 与 SSH `test`，固定后按钮显示 `本会话环境 · test`，选择框锁为 disabled，
+  状态明确说明 agent 与工具入参不能切换。
+- 角色卡中的「添加账户」打开独立二级「添加账户」弹窗，含 API Key 字段。
