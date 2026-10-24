@@ -26,7 +26,7 @@ if [[ "$force" != "1" ]]; then
   # 搬迁前 test 文件散在仓库根，与入口源码混在同一层，所以旧口径只能"见到 .go 就建"。
   changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
   source_changed="$(printf '%s\n' "$changed" | grep -E '\.go$' | grep -vE '(_test\.go$|^test/|^e2e/)' || true)"
-  other_changed="$(printf '%s\n' "$changed" | grep -E '^(go\.mod|go\.sum|config/.*\.ya?ml|scripts/[^/]*|plugins/.*|Makefile)$' || true)"
+  other_changed="$(printf '%s\n' "$changed" | grep -E '^(go\.mod|go\.sum|config/.*\.ya?ml|scripts/[^/]*|plugins/.*|gui/frontend/dist/.*|Makefile)$' || true)"
   if [[ -z "$source_changed" && -z "$other_changed" ]]; then
     echo "[post-commit] 本次提交未触及构建相关路径，跳过 dev 构建（要强制：SEELEX_POST_COMMIT_BUILD=1）"
     exit 0

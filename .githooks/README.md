@@ -11,7 +11,7 @@ git config core.hooksPath .githooks
 | 钩子 | 何时触发 | 做什么 | 怎么跳过 |
 |---|---|---|---|
 | `pre-commit` | 每次 `git commit`（写对象之前） | **快速护栏**：暂存区里的 `.go` 文件必须 `gofmt` 干净、不得带 UTF-8 BOM 或 CRLF；不得暂存 `tmp/`、`_tmp/`、`_scratch/`、`_logs/`、`dist/`；不得暂存真实配置（`config/accounts.yaml`、`config/*.local.yaml`、`config/mcp.yaml`、`config/search_engine.yaml`）。空白错误只提示、不拦 | `SEELEX_SKIP_HOOKS=1`（会打印原因） |
-| `post-commit` | 每次 `git commit` 之后 | **按需重建 dev 二进制**：只有本次提交动了"构建相关路径"才跑 `scripts/build-dev.sh`——判据是"产物会变"：非用例的 `.go`（**排除** `test/`、`e2e/`、`*_test.go`）、`go.mod`/`go.sum`、`config/*.yaml`、`scripts/*`、`plugins/*`、`Makefile`。纯文档提交与**纯用例提交**直接跳过（省下两个 30MB 二进制的构建，也不去动 `dist/` 里的数据） | `SEELEX_POST_COMMIT_BUILD=0` 强制跳过；`=1` 强制总是构建；`SKIP_BUILD=1` 仍然等价于跳过（向后兼容）；`SEELEX_BUILD_COMMAND=…` 只给自测替换构建命令 |
+| `post-commit` | 每次 `git commit` 之后 | **按需重建 dev 二进制**：只有本次提交动了"构建相关路径"才跑 `scripts/build-dev.sh`——判据是"产物会变"：非用例的 `.go`（**排除** `test/`、`e2e/`、`*_test.go`）、`go.mod`/`go.sum`、`config/*.yaml`、`scripts/*`、`plugins/*`、内嵌前端 `gui/frontend/dist/**`、`Makefile`。纯文档提交与**纯用例提交**直接跳过（省下两个 30MB 二进制的构建，也不去动 `dist/` 里的数据） | `SEELEX_POST_COMMIT_BUILD=0` 强制跳过；`=1` 强制总是构建；`SKIP_BUILD=1` 仍然等价于跳过（向后兼容）；`SEELEX_BUILD_COMMAND=…` 只给自测替换构建命令 |
 | `pre-push` | 每次 `git push`（发数据之前） | `go build ./...` + `go vet ./...` 必须过；不过就拒绝推送（防止把红的树推上去）。**找不到 Go 工具链时显式拒绝**并给出去向（把 Go 加进 PATH），而不是打一句 `command not found` 的糊涂红 | `SEELEX_SKIP_HOOKS=1` |
 
 ## 工具链解析（2026-10-16 补）

@@ -50,6 +50,7 @@ import { accountBalanceRows, accountDraftFromForm, balanceReadingText } from "./
 import {
   normalizePermissionVector,
   permissionRoleAccountOptionsHTML,
+  permissionVectorSummary,
   permissionVectorLint,
   renderPermissionVectorHTML,
   roleAccountOptionsHTML,

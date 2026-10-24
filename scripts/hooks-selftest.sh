@@ -159,5 +159,12 @@ git mv test/sample_test.go sample_live.go >/dev/null 2>&1
 commit_and_hook "refactor: self-test rename"
 expect_post_commit rename-to-source build
 
+# 6) 内嵌前端改动 → 构建（前端资源 embed 在 Go 二进制里，产物会变）
+mkdir -p gui/frontend/dist
+printf 'console.log("probe")\n' > gui/frontend/dist/probe.js
+git add -f gui/frontend/dist/probe.js >/dev/null 2>&1
+commit_and_hook "feat: self-test embedded frontend"
+expect_post_commit frontend build
+
 note "---- hooks self-test: pass=$pass fail=$fail"
 [[ $fail -eq 0 ]]
