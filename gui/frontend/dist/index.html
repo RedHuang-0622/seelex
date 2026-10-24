@@ -474,90 +474,38 @@
       <div class="modal-header"><div><span class="eyebrow">设置</span><h2 id="settings-modal-title">设置</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="settings-layout">
         <nav id="settings-nav" class="settings-nav" aria-label="设置分类">
-          <button type="button" class="settings-nav-item is-active" data-settings-page="account">账户</button>
-          <button type="button" class="settings-nav-item" data-settings-page="roles">角色与权限</button>
-          <button type="button" class="settings-nav-item" data-settings-page="session">SSH 环境</button>
+          <button type="button" class="settings-nav-item is-active" data-settings-page="roles">角色与权限</button>
+          <button type="button" class="settings-nav-item" data-settings-page="session">会话权限</button>
           <button type="button" class="settings-nav-item" data-settings-page="application">应用</button>
         </nav>
         <div class="settings-pages">
-          <section class="settings-page" data-settings-page-panel="account">
-            <div class="settings-section" id="account-settings-section">
-              <div class="settings-page-head">
-                <div><div class="section-title">账户</div><p class="settings-note">账号属于应用配置；新增账户在独立窗口中完成。密文只留在宿主侧，界面仅显示是否已配置。</p></div>
-                <button id="account-add-open" type="button" class="primary">添加账户</button>
-              </div>
-              <div class="settings-subtitle">余额与状态</div>
-              <div id="account-balance-list" class="account-balance-list"></div>
-              <div id="account-balance-status" class="muted"></div>
-            </div>
-          </section>
-
-          <section class="settings-page hidden" data-settings-page-panel="roles">
+          <section class="settings-page" data-settings-page-panel="roles">
             <div class="settings-section" id="role-settings-section">
-              <div class="section-title">当前会话主代理</div>
-              <p class="settings-note">这里只改当前会话自己使用的账号和权限向量；不会改其它会话。</p>
-              <label class="settings-field">主代理账号
-                <select id="role-account"></select>
-              </label>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">会话权限向量</span>
-                <div id="role-permission-vector" class="perm-vector" role="group" aria-label="权限向量"></div>
-                <div id="role-permission-vector-status" class="muted"></div>
-              </div>
-            </div>
-            <div class="settings-section">
-              <div class="section-title">角色默认装配</div>
-              <p class="settings-note">默认只压住全局基线；团队派发和本会话显式设置仍可覆盖。界面分别显示“当前生效”和“你设的默认”。</p>
-              <label class="settings-field">角色
-                <select id="permission-role" aria-label="选择角色"></select>
-              </label>
-              <label class="settings-field">角色账号
-                <select id="permission-role-account" aria-label="该角色优先使用的账号"></select>
-                <small id="permission-role-account-status" class="muted"></small>
-              </label>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">当前生效（只读）</span>
-                <div id="permission-role-effective" class="perm-vector permission-vector-readonly" role="group" aria-label="角色当前生效权限"></div>
-              </div>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">角色默认（编辑）</span>
-                <div id="permission-role-vector" class="perm-vector" role="group" aria-label="角色默认权限向量"></div>
-                <div id="permission-role-status" class="muted"></div>
-              </div>
-            </div>
-            <div class="settings-section">
-              <div class="section-title">账号运行参数</div>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">每账号上下文窗口</span>
-                <div id="account-windows"></div>
-                <div id="account-windows-status" class="muted"></div>
-              </div>
-              <label class="settings-field">默认 plugin
-                <select id="role-default-plugin"></select>
-              </label>
+              <div class="section-title">Agent roles</div>
+              <p class="settings-note">角色权限是账户权限的唯一来源。展开角色后可组合权限并查看该角色账户与余额。</p>
+              <div id="permission-role-board" class="role-permission-board"></div>
               <div id="role-settings-status" class="muted"></div>
+              <p class="settings-note permission-semantics-note"><strong>控制</strong>：结束/恢复执行、派生任务、调度团队；<strong>管理</strong>：装载或切换插件、Skill、MCP 与运行模式。两者正交；管理不包含授予权限，也不会自动包含控制。</p>
             </div>
           </section>
 
           <section class="settings-page hidden" data-settings-page-panel="session">
             <div class="settings-section">
-              <div class="section-title">SSH 环境</div>
-              <p class="settings-note">连接信息属于当前项目，在这里进入项目设置维护；下方只决定本会话放行哪些环境。</p>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">项目连接表</span>
-                <button id="project-settings-from-session" class="secondary" type="button">打开项目设置，管理 SSH 环境</button>
-              </div>
-              <div class="settings-subtitle">本会话放权</div>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">当前限定环境</span>
-                <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
-                <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
-                <div id="session-ssh-status" class="muted"></div>
-              </div>
+              <div class="section-title">会话权限覆盖</div>
+              <p class="settings-note">只有这里能按 agent role 修改当前会话。未覆盖时使用角色默认；账户没有独立权限。</p>
+              <div id="session-role-board" class="role-permission-board"></div>
             </div>
           </section>
 
           <section class="settings-page hidden" data-settings-page-panel="application">
+            <div class="settings-section">
+              <div class="section-title">能力面默认值</div>
+              <p class="settings-note">只决定新会话默认装载哪个 plugin；权限仍由 agent role 与会话覆盖决定。</p>
+              <label class="settings-field">默认 plugin
+                <select id="role-default-plugin"></select>
+              </label>
+              <div id="default-plugin-status" class="muted"></div>
+            </div>
             <div class="settings-section">
               <div class="section-title">外观</div>
               <p class="settings-note">深浅定中性基座，皮肤只改主信号与环境渐变。</p>
@@ -599,7 +547,7 @@
   <div id="account-add-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="account-add-modal-title">
     <div class="modal-card account-add-card">
       <div class="modal-header"><div><span class="eyebrow">账户</span><h2 id="account-add-modal-title">添加账户</h2></div><button id="account-add-cancel" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">完整表单写入 <code>config/accounts.yaml</code> 并热注册；API Key 只在宿主侧读取，不进入快照或界面回读。</p>
+      <p id="account-add-note" class="settings-note">完整表单写入 <code>config/accounts.yaml</code> 并热注册；API Key 只在宿主侧读取，不进入快照或界面回读。</p>
       <label class="settings-field">角色
         <select id="account-add-role"></select>
       </label>
@@ -626,6 +574,18 @@
     </div>
   </div>
 
+  <div id="account-delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="account-delete-title">
+    <div class="modal-card account-delete-card">
+      <div class="modal-header"><div><span class="eyebrow">账户</span><h2 id="account-delete-title">删除账户</h2></div><button id="account-delete-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p id="account-delete-message" class="settings-note"></p>
+      <div class="settings-actions">
+        <button id="account-delete-cancel" type="button" class="secondary">取消</button>
+        <button id="account-delete-confirm" type="button" class="primary danger">删除账户</button>
+      </div>
+      <div id="account-delete-status" class="muted"></div>
+    </div>
+  </div>
+
   <div id="project-settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
     <div class="modal-card project-settings-card">
       <div class="modal-header"><div><span class="eyebrow">项目</span><h2 id="project-settings-title">项目设置</h2><p id="project-settings-name" class="settings-note">当前项目</p></div><button id="project-settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
@@ -645,6 +605,21 @@
           <button id="ssh-env-delete" type="button">删除</button>
         </div>
         <div id="ssh-env-status" class="muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="ssh-userspace-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="ssh-userspace-title">
+    <div class="modal-card ssh-userspace-card">
+      <div class="modal-header"><div><span class="eyebrow">SSH 用户空间</span><h2 id="ssh-userspace-title">放行路径</h2></div><button id="ssh-userspace-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p class="settings-note">开启“SSH 用户空间”前，列清远端项目根之外允许访问的 POSIX 绝对路径。只列出目录，不使用 <code>/</code>。</p>
+      <label class="settings-field">允许的路径（每行一个）
+        <textarea id="ssh-userspace-paths" rows="7" placeholder="/home/seelex/.cache&#10;/etc/nginx/conf.d"></textarea>
+      </label>
+      <div id="ssh-userspace-status" class="muted"></div>
+      <div class="settings-actions">
+        <button id="ssh-userspace-cancel" type="button" class="secondary">取消</button>
+        <button id="ssh-userspace-save" type="button" class="primary">保存路径并授权</button>
       </div>
     </div>
   </div>

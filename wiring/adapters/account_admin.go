@@ -28,6 +28,8 @@ import (
 // 结构上就满足它。
 type AccountRegistrar interface {
 	RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error
+	ReplaceAccount(spec model.AccountSpec, limits config.AccountLimits) error
+	UnregisterAccount(name string) error
 }
 
 // AccountAdmin 实现 contract.AccountAdminPort。
@@ -83,6 +85,85 @@ func (admin AccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResu
 		Provider: spec.Provider,
 		Model:    spec.Model,
 	}, nil
+}
+
+// AccountDetails 读取账号编辑所需的非秘密字段；APIKey 只报告是否已配置。
+func (admin AccountAdmin) AccountDetails(name string) (dto.AccountDetails, error) {
+	if strings.TrimSpace(admin.Path) == "" {
+		return dto.AccountDetails{}, errors.New("account admin: 账号档路径不可用（宿主未解析出 accounts.yaml）")
+	}
+	record, err := config.ReadAccount(admin.Path, name)
+	if err != nil {
+		return dto.AccountDetails{}, err
+	}
+	return accountDetailsDTO(record), nil
+}
+
+// UpdateAccount 先改账号档，再把新规格热替换进运行时。热替换失败时账号档已经
+// 是用户看到的新值，错误必须明确写“重启后生效”。
+func (admin AccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error) {
+	if strings.TrimSpace(admin.Path) == "" {
+		return dto.AccountDetails{}, errors.New("account admin: 账号档路径不可用（宿主未解析出 accounts.yaml）")
+	}
+	if admin.Runtime == nil {
+		return dto.AccountDetails{}, errors.New("account admin: runtime 不可用")
+	}
+	record, err := config.UpdateAccount(admin.Path, config.UpdateAccountInput{
+		Name:            update.Name,
+		Provider:        update.Provider,
+		Model:           update.Model,
+		BaseURL:         update.BaseURL,
+		APIKey:          update.APIKey,
+		ReasoningEffort: update.ReasoningEffort,
+	})
+	if err != nil {
+		return dto.AccountDetails{}, err
+	}
+	if err := admin.hotReplace(record.Name); err != nil {
+		return accountDetailsDTO(record), err
+	}
+	return accountDetailsDTO(record), nil
+}
+
+// DeleteAccount 先删账号档，再从运行时退租。账号仍在承流时池会拒绝退租，此时
+// 文件已经删除，错误明确要求重启（不能让界面以为删除没发生）。
+func (admin AccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error) {
+	if strings.TrimSpace(admin.Path) == "" {
+		return dto.AccountDetails{}, errors.New("account admin: 账号档路径不可用（宿主未解析出 accounts.yaml）")
+	}
+	if admin.Runtime == nil {
+		return dto.AccountDetails{}, errors.New("account admin: runtime 不可用")
+	}
+	record, err := config.DeleteAccount(admin.Path, name)
+	if err != nil {
+		return dto.AccountDetails{}, err
+	}
+	if err := admin.Runtime.UnregisterAccount(record.Name); err != nil {
+		return accountDetailsDTO(record), fmt.Errorf("account admin: 账号档已删除 %q，但运行时仍在承流（重启后生效）: %w", record.Name, err)
+	}
+	return accountDetailsDTO(record), nil
+}
+
+func (admin AccountAdmin) hotReplace(name string) error {
+	loaded, err := config.Load(admin.Path)
+	if err != nil {
+		return fmt.Errorf("account admin: 账号档已更新，但读回失败（重启后生效）: %w", err)
+	}
+	spec, ok := specNamed(loaded.Specs, name)
+	if !ok {
+		return fmt.Errorf("account admin: 账号档已更新 %q，但加载器没有产出这条账号（重启后请检查账号档）", name)
+	}
+	if err := admin.Runtime.ReplaceAccount(spec, loaded.Limits[name]); err != nil {
+		return fmt.Errorf("account admin: 账号档已更新 %q，但热替换失败（重启后生效）: %w", name, err)
+	}
+	return nil
+}
+
+func accountDetailsDTO(record config.AccountRecord) dto.AccountDetails {
+	return dto.AccountDetails{
+		Name: record.Name, Role: record.Role, Provider: record.Provider, Model: record.Model,
+		BaseURL: record.BaseURL, ReasoningEffort: record.ReasoningEffort, APIKeySet: record.APIKeySet,
+	}
 }
 
 // specNamed 按名字取加载结果里的规格（名字由加载器推导，是唯一身份）。

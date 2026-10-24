@@ -247,6 +247,15 @@ func Run(opts Options) (*App, error) {
 		return nil, boot.fail(err)
 	}
 	boot.addCleanup(app.Shutdown)
+	roleUserSpaces := func(sessionID, role string) []string {
+		paths, err := app.RoleSSHUserSpaces(sessionID, role)
+		if err != nil {
+			return nil
+		}
+		return paths
+	}
+	runtime.SetRoleUserSpacesProvider(roleUserSpaces)
+	appEngine.SetRoleUserSpacesProvider(roleUserSpaces)
 	console.LogStageIf(backendTrace, "startup.application.ready")
 	// 子代理中断恢复的「补历史」步骤：父侧缺失的工具结果（含中断的
 	// subagent 派发）在续跑前补齐 provider-only tool 占位。

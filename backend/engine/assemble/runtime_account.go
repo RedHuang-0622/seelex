@@ -112,6 +112,61 @@ func (r *Runtime) RegisterAccount(spec model.AccountSpec, limits config.AccountL
 	return r.accounts.Add(spec, limits)
 }
 
+// ReplaceAccount 用更新后的规格热替换同一账号。池条目先退租再重新注册；
+// 任一步失败都回滚旧条目，账号档与运行时的差异由适配器用“重启后生效”报出。
+func (r *Runtime) ReplaceAccount(spec model.AccountSpec, limits config.AccountLimits) error {
+	if r == nil || r.accounts == nil {
+		return fmt.Errorf("seelex: runtime accounts are not assembled")
+	}
+	name := strings.TrimSpace(spec.Name)
+	old, ok := r.accounts.Spec(name)
+	if !ok {
+		return fmt.Errorf("seelex: unknown account %q", name)
+	}
+	if old.Role != spec.Role {
+		return fmt.Errorf("seelex: account %q cannot move from role %q to %q", name, old.Role, spec.Role)
+	}
+	oldLimits := r.accounts.LimitsFor(name)
+	if err := r.pool.Unregister(name); err != nil {
+		return fmt.Errorf("seelex: replace account %q: %w", name, err)
+	}
+	if err := account.RegisterAccounts(r.pool, []model.AccountSpec{spec}); err != nil {
+		_ = account.RegisterAccounts(r.pool, []model.AccountSpec{old})
+		return err
+	}
+	if err := r.accounts.Replace(spec, limits); err != nil {
+		_ = r.pool.Unregister(name)
+		_ = account.RegisterAccounts(r.pool, []model.AccountSpec{old})
+		_ = r.accounts.Replace(old, oldLimits)
+		return err
+	}
+	return nil
+}
+
+// UnregisterAccount 从运行时退租并移除账号；正在承流时池会拒绝，文件层由适配器
+// 先行删除并提示重启，不能在“还有租约”时假装账号已经消失。
+func (r *Runtime) UnregisterAccount(name string) error {
+	if r == nil || r.accounts == nil {
+		return fmt.Errorf("seelex: runtime accounts are not assembled")
+	}
+	name = strings.TrimSpace(name)
+	old, ok := r.accounts.Spec(name)
+	if !ok {
+		return fmt.Errorf("seelex: unknown account %q", name)
+	}
+	oldLimits := r.accounts.LimitsFor(name)
+	if err := r.pool.Unregister(name); err != nil {
+		return err
+	}
+	if err := r.accounts.Remove(name); err != nil {
+		_ = account.RegisterAccounts(r.pool, []model.AccountSpec{old})
+		_ = r.accounts.Add(old, oldLimits)
+		return err
+	}
+	r.accountWindows.Set(name, 0)
+	return nil
+}
+
 // AccountBalance 查询指定账号此刻的余额。
 //
 // 认账号名不认索引：名字是界面唯一持有的身份（`agent-1`），未知名字报错而不是

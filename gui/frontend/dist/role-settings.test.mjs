@@ -113,7 +113,7 @@ test("角色账号下拉只列该角色账号，并显示密钥与 fallback 状�
   assert.doesNotMatch(html, /agent-1/, "不得把别的角色账号放进下拉");
 });
 
-test("设置弹窗：存储策略整段没了，角色设置占了它原来的位置", async () => {
+test("设置弹窗：角色页用角色卡承载权限与账户，不再平铺会话向量", async () => {
   const html = await read("index.html");
   const modal = html.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/);
   assert.ok(modal, "要找得到 #settings-modal");
@@ -125,25 +125,20 @@ test("设置弹窗：存储策略整段没了，角色设置占了它原来的�
   }
   assert.doesNotMatch(body, /存储形式|保存并切换|测试连接/, "存储策略的文案也要一起删");
 
-  // ② 角色页：当前会话主代理 + 角色默认装配 + 账号运行参数。
+  // ② 角色页只保留角色卡；账号与上下文窗口都在所属角色卡内。
   assert.match(body, /id="role-settings-section"/, "角色设置要自成一段");
-  assert.match(body, /<div class="section-title">当前会话主代理<\/div>/);
-  assert.match(body, /<div class="section-title">角色默认装配<\/div>/);
-  assert.match(body, /<select id="role-account"><\/select>/, "账号下拉是空的（选项由快照填）");
-  assert.match(body, /id="account-windows"><\/div>/, "上下文窗口的行由前端渲染（容器是空的）");
-  assert.match(body, /id="account-windows-status"/, "上下文窗口要有一行读数/说明落点");
-  assert.match(body, /id="role-permission-vector" class="perm-vector"/, "权限向量是多选标签容器");
-  assert.match(body, /id="role-permission-vector-status"/, "权限向量要有提示行（lint / 未生效）");
-  assert.match(body, /<select id="role-default-plugin"><\/select>/, "默认 plugin 下拉是空的（选项由快照填）");
-  assert.match(body, /id="role-settings-status"/, "四项的提交结果要有一行落点");
+  assert.match(body, /<div id="permission-role-board" class="role-permission-board"><\/div>/);
+  assert.doesNotMatch(body, /id="permission-role"/, "不再用单角色选择器承载全部角色");
+  assert.doesNotMatch(body, /id="account-windows"|id="account-windows-status"/, "账户不得在角色页再平铺一张全局表");
+  assert.match(body, /id="role-settings-status"/, "角色卡内的提交结果要有一行落点");
+  assert.match(body, /<select id="role-default-plugin"><\/select>/, "默认 plugin 下拉移到应用页");
+  assert.match(body, /id="default-plugin-status"/, "应用默认值要有一行落点");
 
-  // 当前会话项在首段，账号运行参数在角色页后段；同属 roles 页面。
+  // 角色页只承载层级；应用级默认值不能回流到角色页。
   const section = body.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="session"/);
   assert.ok(section, "要找得到角色与权限页面");
-  for (const id of ["role-account", "account-windows", "role-permission-vector", "role-default-plugin"]) {
-    assert.match(section[0], new RegExp(`id="${id}"`), `${id} 必须落在角色设置这一段里`);
-  }
-  assert.doesNotMatch(body, /<div class="section-title">账号上下文窗口<\/div>/, "它已经并入角色设置");
+  assert.match(section[0], /id="permission-role-board"/);
+  assert.doesNotMatch(section[0], /id="role-default-plugin"|id="account-windows"/);
 
   // ④ 大段解说文案删了：每一段只留一句话（< 120 字）。
   for (const note of body.matchAll(/<p class="settings-note">([\s\S]*?)<\/p>/g)) {
@@ -152,16 +147,17 @@ test("设置弹窗：存储策略整段没了，角色设置占了它原来的�
   }
 });
 
-test("app.js 接线：注册表 + 四项各自的动作 + 权限向量未生效不谎报", async () => {
+test("app.js 接线：角色卡、权限组合、账号与余额", async () => {
   const app = await read("app.js");
-  for (const id of ["role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status"]) {
+  for (const id of ["permission-role-board", "session-role-board", "role-default-plugin", "default-plugin-status", "role-settings-status"]) {
     assert.match(app, new RegExp(`"${id}"`), `${id} 必须注册进 elements`);
   }
   assert.match(app, /from "\.\/role-settings\.js"/, "取值面必须来自纯模块，而不是 app.js 里另抄一份");
+  assert.match(app, /from "\.\/role-permission-board\.js"/, "角色卡渲染必须来自独立模块");
   assert.match(app, /await syncRoleSettings\(\);/, "openSettings 要调它");
-
-  // 账号：切账号走既有的 SelectAccount（不另造桥面方法）。
-  assert.match(app, /invoke\("SelectAccount", name\)/);
+  assert.match(app, /SetRoleAccount/);
+  assert.match(app, /SetRoleDefaultVector/);
+  assert.match(app, /SetRoleSessionPermission/);
   // 上下文窗口：仍走 AccountWindowPresets / SetAccountWindow（判据在后端）。
   assert.match(app, /await invoke\("AccountWindowPresets"\)/);
   assert.match(app, /invoke\("SetAccountWindow", name, window\)/);
@@ -170,12 +166,11 @@ test("app.js 接线：注册表 + 四项各自的动作 + 权限向量未生效�
   // 默认 plugin：名字透传。
   assert.match(app, /invoke\("SetDefaultPlugin", name\)/);
 
-  // 提交失败 → permissionVectorApplied = false，且状态行说「未生效」。
+  // 主代理底部芯片仍保留 root 向量提交；角色卡走自己的作用域提交。
   const submit = app.match(/async function submitPermissionVector\(\)[\s\S]*?\n\}/);
   assert.ok(submit, "要找得到 submitPermissionVector");
   assert.match(submit[0], /catch \(error\) \{\s*permissionVectorApplied = false;/, "失败要落到未生效");
-  assert.match(app, /permissionVectorApplied\) notes\.push\("未生效/, "未生效必须显式写在状态行上");
-  assert.match(app, /permissionVectorLint\(permissionVectorDraft\)/, "lint 提示要跟着当前选择走");
+  assert.match(app, /permissionVectorLint\(normalized\)/, "角色卡提交要带上 lint 提示");
 
   // 存储策略的读写整条不能再有残留（否则删了 DOM 也会在打开时抛）。
   for (const gone of ["SessionStorageConfig", "TestSessionStorage", "ConfigureSessionStorage", "storage-status"]) {
@@ -255,7 +250,7 @@ test("权限检查器里三个入口共用一份真值", async () => {
   assert.ok(submit, "要找得到 submitPermissionVector");
   assert.match(submit[0], /renderPermissionVectorChip\(\)/, "提交后要重绘芯片");
   assert.match(submit[0], /renderPermissionMenu\(/, "提交后要重绘下拉");
-  assert.match(submit[0], /renderRolePermissionVector\(\)/, "提交后要重绘设置面板");
+  assert.doesNotMatch(submit[0], /renderRolePermissionVector\(\)/, "旧单角色设置面板已退场");
 });
 
 test("上下文窗口改完要读回来（send/ack），不能拿请求值当结果", async () => {
@@ -271,33 +266,23 @@ test("上下文窗口改完要读回来（send/ack），不能拿请求值当结
   assert.match(body, /accountWindowFromSnapshot\(name\)/, "要以读回来的快照值为准");
   assert.match(body, /读回生效窗口/, "要把读回的值说出来");
   // 渲染必须优先用 ack 读数，不能被旧快照覆盖（这正是"改了没反应"的根因）
-  assert.match(app, /function accountWindowReading\(account\)/, "要有统一的读数函数");
-  assert.match(app, /accountWindowsCommitted\.has\(account\.name\)/, "ack 读数优先于快照");
-  const render = app.match(/function renderAccountWindowRows\(\)[\s\S]*?\n\}/);
-  assert.ok(render, "要找得到 renderAccountWindowRows");
-  assert.doesNotMatch(render[0], /accountWindowsCommitted\.set\(account\.name/, "渲染不许用旧快照覆盖 ack 读数");
+  assert.match(app, /windowReadings: accountWindowsCommitted/, "角色卡渲染必须采纳 ack 读数");
+  assert.match(app, /windowPresets: accountWindowPresets/, "挡位仍由后端下发");
+  assert.doesNotMatch(app, /function renderAccountWindowRows\(\)/, "账户运行参数不得再单独平铺");
 });
 
-test("角色默认权限：按 role 一份、跨会话，且与面板里的会话向量分开两块", async () => {
+test("角色默认权限与会话权限分成两块 agent-role 面板", async () => {
   const app = await read("app.js");
   const index = await read("index.html");
-  // 两块必须是两个容器、两个提交路径
-  assert.match(index, /id="role-permission-vector"/, "会话向量那块还在");
-  assert.match(index, /id="permission-role"/, "要有角色选择器");
-  assert.match(index, /id="permission-role-vector"/, "要有角色默认向量那块");
-  // 角色名录来自后端（accounts.yaml roles.*），前端不自己造
+  assert.match(index, /id="permission-role-board"/, "角色默认板要在");
+  assert.match(index, /id="session-role-board"/, "会话覆盖板要在");
   assert.match(app, /await invoke\("PermissionRoles"\)/, "角色名录要向桥要");
-  assert.match(app, /await invoke\("SetRoleDefaultVector", permissionRoleSelected/, "提交走 SetRoleDefaultVector");
-  // 采纳后端读回值
-  assert.match(app, /applied\.permission_vector/, "要用后端读回的向量");
-  assert.match(app, /applied\.explicit === true/, "要采纳 explicit");
-  // 三种状态要分开说：定过 / 没定过（当前生效另列）/ 没走到后端
-  assert.match(app, /还没定过跨会话默认/, "没定过要明说，且不能把当前生效冒充成默认");
-  assert.match(index, /id="permission-role-effective"/, "当前生效向量要有独立只读落点");
-  assert.match(app, /row\.default_vector/, "默认编辑读取独立字段");
-  assert.match(app, /角色目录（桥未装配 PermissionRoles）/, "读写失败要如实说");
-  // 打开设置时也要拉一次
-  assert.match(app, /await syncAccountWindowReading\(\);\s*\n\s*await syncPermissionRoles\(\);/, "打开设置要拉角色目录");
+  assert.match(app, /const method = mode === "session" \? "SetRoleSessionPermission" : "SetRoleDefaultVector"/, "提交按作用域选择桥面方法");
+  assert.doesNotMatch(app, /SetRoleDefaultVector", permissionRoleSelected/, "单角色选择器已经退场");
+  assert.match(app, /SetRoleSessionPermission/, "会话覆盖走独立提交路径");
+  assert.match(app, /SetRoleInheritance/, "继承 chip 要写回后端");
+  assert.match(app, /SetRoleSSHUserSpaces/, "SSH 用户空间路径要写回后端");
+  assert.doesNotMatch(app, /renderAccountBalanceRows\(\)/, "已退场的全局余额表不得留下悬空调用");
 });
 
 test("会话改名：菜单入口 + 就地输入 + 走 SetSessionMeta 的别名", async () => {
@@ -318,29 +303,17 @@ test("会话改名：菜单入口 + 就地输入 + 走 SetSessionMeta 的别名"
   assert.match(css, /\.session-rename-input/, "要有就地输入的样式");
 });
 
-test("SSH 环境：项目表可增删改，会话侧只能从项目表里选（缺省不放权）", async () => {
+test("SSH 环境：项目表只在项目设置维护，应用设置不再包含 SSH", async () => {
   const app = await read("app.js");
   const index = await read("index.html");
   assert.match(index, /id="ssh-env-list"/, "要有项目环境表");
   assert.match(index, /id="ssh-env-save"/, "要有保存环境");
-  assert.match(index, /id="session-ssh-allowed"/, "要有会话放权区");
-  assert.match(index, /id="session-ssh-env"/, "要有会话当前环境");
+  assert.doesNotMatch(index.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/)?.[0] || '', /session-ssh-allowed|SSH 环境/, "应用设置不含 SSH");
   // 读数来自后端，前端不自己造环境名
   assert.match(app, /await invoke\("WorkspaceEnvironments"\)/, "环境表要向桥要");
-  assert.match(app, /await invoke\("SessionSSHState"\)/, "会话状态要向桥要");
   assert.match(app, /await invoke\("SetWorkspaceEnvironment", name, change\)/, "保存走 SetWorkspaceEnvironment");
   assert.match(app, /await invoke\("DeleteWorkspaceEnvironment", name\)/, "删除走 DeleteWorkspaceEnvironment");
-  assert.match(app, /await invoke\("SetSessionSSHAllowed", envs\)/, "放权走 SetSessionSSHAllowed");
-  assert.match(app, /await invoke\("SetSessionSSHEnv", env\)/, "限定走 SetSessionSSHEnv");
   // 口令三态：留空 = 不改（null），不是空串
   assert.match(app, /Password: passwordText === "" \? null : passwordText/, "口令留空必须是 null（不改），空串才表示清除");
-  // 会话侧下拉只列已放权的环境
-  const render = app.match(/function renderSessionSSH\(\)[\s\S]*?\n\}/);
-  assert.ok(render, "要找得到 renderSessionSSH");
-  assert.match(render[0], /for \(const name of allowed\)/, "当前环境下拉只列已放权的环境");
-  // 缺省不放权要明说
-  assert.match(render[0], /缺省不放权/, "空放权集合要说明为什么用不了");
-  // 应用设置只拉会话读数；项目连接表由项目设置入口单独拉。
-  assert.match(app, /await syncPermissionRoles\(\);\s*\n\s*await syncSessionSSHEnvironments\(\);/, "打开设置要拉本会话 SSH 读数");
   assert.match(app, /async function openProjectSettings\(\)[\s\S]*?await syncWorkspaceEnvironments\(\)/, "项目设置要拉项目连接表");
 });

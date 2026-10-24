@@ -107,10 +107,12 @@ var wantFaceMethods = map[string][]string{
 		"WorkspaceWriteFile",
 	},
 	"PolicyFace": {
+		"AccountDetails",
 		"ActivateSkill",
 		"AddAccount",
 		"CancelScheduledTask",
 		"CreateRoleSession",
+		"DeleteAccount",
 		"ScheduleCancel",
 		"ScheduleFire",
 		"ScheduleRegister",
@@ -127,6 +129,7 @@ var wantFaceMethods = map[string][]string{
 		"SetSessionReleaseWindow",
 		"SwitchEffort",
 		"SwitchPlugin",
+		"UpdateAccount",
 		"UpdateScheduledTask",
 	},
 	"QueueFace": {

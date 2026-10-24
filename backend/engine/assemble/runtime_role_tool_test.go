@@ -23,6 +23,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -125,6 +126,12 @@ func TestRoleLoopHooksStaySilentWithoutWorkScope(t *testing.T) {
 func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T) {
 	runtime, engine, _ := newRoleTurnRuntime(t)
 	defer runtime.Shutdown()
+	runtime.SetRoleUserSpacesProvider(func(_, role string) []string {
+		if role == string(dto.RoleTeammate) {
+			return []string{"/home/seelex/.cache"}
+		}
+		return nil
+	})
 
 	if _, err := runtime.runRoleRound(context.Background(), runtime.workerRoleRoundSpec(teamwork.WorkerRequest{
 		MainSessionID: "s-main", Role: "impl_ui", RoleSessionID: "role-impl-ui",
@@ -148,6 +155,10 @@ func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T) {
 	accountScope, ok := dto.SceneScopeFromContext(ctxs[0])
 	if !ok || accountScope.Role != dto.RoleTeammate {
 		t.Fatalf("角色回合必须进入 teammate 账号作用域，得到 %+v ok=%v", accountScope, ok)
+	}
+	userSpaces, ok := toolreg.RemoteUserSpacesFromContext(ctxs[0])
+	if !ok || len(userSpaces) != 1 || userSpaces[0] != "/home/seelex/.cache" {
+		t.Fatalf("角色回合必须带入用户空间允许范围，得到 %v ok=%v", userSpaces, ok)
 	}
 }
 

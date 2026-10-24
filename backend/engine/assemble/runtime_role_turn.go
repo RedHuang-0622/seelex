@@ -274,6 +274,10 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 		turnCtx = dto.WithSceneScope(turnCtx, dto.SceneScope{
 			SceneID: roleSessionID, Role: spec.AccountRole, BranchID: roleSessionID,
 		})
+		turnCtx = toolreg.WithRemoteUserSpaces(
+			turnCtx,
+			r.roleUserSpacesFor(spec.MainSessionID, string(spec.AccountRole)),
+		)
 	}
 
 	// 在飞标记挂到**本轮**的 ctx 上：检测在上方（进函数处），标记在这里——ChatStream

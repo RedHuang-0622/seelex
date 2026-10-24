@@ -193,3 +193,33 @@ func TestRegisterAccountRefusesWhenPoolWouldReject(t *testing.T) {
 		t.Fatalf("失败的注册污染了管理器里的账号限额: %#v", got)
 	}
 }
+
+func TestReplaceAndUnregisterAccountStayInPoolAndManager(t *testing.T) {
+	runtime := newHotAddRuntime(t)
+	old, ok := runtime.accounts.Spec("agent-1")
+	if !ok {
+		t.Fatal("fixture 缺少 agent-1")
+	}
+	updated := old
+	updated.Provider = "deepseek"
+	updated.Model = "deepseek-reasoner"
+	if err := runtime.ReplaceAccount(updated, config.AccountLimits{ContextWindow: 250_000, MaxOutputTokens: 8192}); err != nil {
+		t.Fatalf("ReplaceAccount: %v", err)
+	}
+	accounts := runtime.Accounts()
+	if len(accounts) != 1 || accounts[0].Provider != "deepseek" || accounts[0].Model != "deepseek-reasoner" {
+		t.Fatalf("热替换后的账号列表 = %+v", accounts)
+	}
+	if got := runtime.accounts.LimitsFor("agent-1").ContextWindow; got != 250_000 {
+		t.Fatalf("热替换后的限额 = %d", got)
+	}
+	if err := runtime.UnregisterAccount("agent-1"); err != nil {
+		t.Fatalf("UnregisterAccount: %v", err)
+	}
+	if len(runtime.Accounts()) != 0 {
+		t.Fatalf("删除后账号仍在池里: %+v", runtime.Accounts())
+	}
+	if _, ok := runtime.accounts.Spec("agent-1"); ok {
+		t.Fatal("删除后管理器仍保留规格")
+	}
+}

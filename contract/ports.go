@@ -487,7 +487,7 @@ type Dependencies struct {
 	// 自定义值）。纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
 	// nil = 界面上改的值只在本次运行有效。
 	AccountWindowStore AccountWindowStore
-	// AccountAdmin 是「手动添加账号」的宿主能力面（界面「设置 → 账户 → 添加」）。
+	// AccountAdmin 是角色卡下账户增删改查的宿主能力面。
 	// 它管两件宿主侧的事：写账号档 + 把新账号热注册进运行时。nil = 该宿主不支持
 	// 界面添加（用例返回可展示错误），界面照常显示既有账号。
 	AccountAdmin AccountAdminPort
@@ -567,7 +567,7 @@ type AccountRoleSelectionPort interface {
 	SetRoleAccount(role, account string) error
 }
 
-// AccountAdminPort 是「手动添加账号」的宿主能力面（界面「设置 → 账户 → 添加」）。
+// AccountAdminPort 是角色卡下账户增删改查的宿主能力面。
 //
 // 为什么是可选端口而不是 Dependencies 的必填字段：添加账号要同时做两件宿主侧的事
 // ——**写账号档**（文件路径与 YAML 形状是宿主的方向）与**热注册进运行时**（新账号
@@ -577,6 +577,12 @@ type AccountRoleSelectionPort interface {
 type AccountAdminPort interface {
 	// AddAccount 写入一条新账号并返回生效回执（含推导出来的账号名）。
 	AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)
+	// AccountDetails 读取一个账号的非秘密配置（密钥只报告是否存在）。
+	AccountDetails(name string) (dto.AccountDetails, error)
+	// UpdateAccount 原位更新账号；APIKey 留空保留原密钥。
+	UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)
+	// DeleteAccount 删除账号并返回被删条目的非秘密回执。
+	DeleteAccount(name string) (dto.AccountDetails, error)
 }
 
 // AccountBalancePort 是「查一个账号的余额」的**窄可选**能力面。

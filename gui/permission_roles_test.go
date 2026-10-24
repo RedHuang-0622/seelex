@@ -14,17 +14,23 @@ func TestPermissionRoleGroupsUseExplicitAccountRole(t *testing.T) {
 		{Name: "subagent-2"},
 	}
 	order, groups := permissionRoleGroups(accounts)
-	if len(order) != 3 || order[0] != "teammate" || order[1] != "agent" || order[2] != "subagent" {
+	wantOrder := []string{"agent", "subagent", "goalplan", "teammate"}
+	if !reflect.DeepEqual(order, wantOrder) {
 		t.Fatalf("order = %v", order)
 	}
 	if len(groups["teammate"]) != 1 || groups["teammate"][0].Name != "credential-for-teammate" {
 		t.Fatalf("teammate group = %+v", groups["teammate"])
 	}
+	if len(groups["goalplan"]) != 0 {
+		t.Fatalf("没有账号的标准角色也必须保留空组，goalplan = %+v", groups["goalplan"])
+	}
 }
 
 type roleSettingsFakeApplication struct {
 	*fakeApplication
-	account string
+	account   string
+	inherit   bool
+	userSpace []string
 }
 
 func (fake *roleSettingsFakeApplication) RolePermissionVector(_, _ string) ([]string, error) {
@@ -49,6 +55,24 @@ func (fake *roleSettingsFakeApplication) RoleAccount(_, _ string) (string, bool,
 
 func (fake *roleSettingsFakeApplication) SetRoleAccount(_, _, account string) error {
 	fake.account = account
+	return nil
+}
+
+func (fake *roleSettingsFakeApplication) RoleInheritMainAgent(_, _ string) (bool, error) {
+	return fake.inherit, nil
+}
+
+func (fake *roleSettingsFakeApplication) SetRoleInheritMainAgent(_, _ string, inherit bool) error {
+	fake.inherit = inherit
+	return nil
+}
+
+func (fake *roleSettingsFakeApplication) RoleSSHUserSpaces(_, _ string) ([]string, error) {
+	return append([]string{}, fake.userSpace...), nil
+}
+
+func (fake *roleSettingsFakeApplication) SetRoleSSHUserSpaces(_, _ string, paths []string) error {
+	fake.userSpace = append([]string{}, paths...)
 	return nil
 }
 

@@ -43,20 +43,21 @@ import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
 import { normalizeReleaseWindow, releaseWindowLabel, releaseWindowOptions } from "./release-window.js";
-import { ACCOUNT_WINDOW_CUSTOM, accountWindowLabel, accountWindowOptions, normalizeAccountWindowInput } from "./account-window.js";
-// 账户的两条链路（手动添加 / 查余额）：判据是纯函数，DOM 与 invoke 接线在本文件。
-import { accountBalanceRows, accountDraftFromForm, balanceReadingText } from "./account-admin.js";
+import { ACCOUNT_WINDOW_CUSTOM, accountWindowLabel, normalizeAccountWindowInput } from "./account-window.js";
+// 角色卡下账户的增删改查与查余额：判据是纯函数，DOM 与 invoke 接线在本文件。
+import { accountDraftFromForm } from "./account-admin.js";
 // 角色设置四项的取值面：权限向量的标签表 / 归一化 / 开关 / lint，以及三个选择器的选项串。
 import {
   normalizePermissionVector,
-  permissionRoleAccountOptionsHTML,
   permissionVectorSummary,
   permissionVectorLint,
   renderPermissionVectorHTML,
-  roleAccountOptionsHTML,
   rolePluginOptionsHTML,
   cyclePermissionVector,
 } from "./role-settings.js";
+import {
+  rolePermissionBoardHTML,
+} from "./role-permission-board.js";
 import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
@@ -130,7 +131,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
-  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-from-session", "project-settings-modal", "project-settings-close", "project-settings-name", "worktree-view", "file-count", "context-compactions",
+  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-modal", "project-settings-close", "project-settings-name", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
@@ -140,7 +141,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-account", "role-permission-vector", "role-permission-vector-status", "role-default-plugin", "role-settings-status", "permission-role", "permission-role-account", "permission-role-account-status", "permission-role-vector", "permission-role-effective", "permission-role-status", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "session-ssh-env", "session-ssh-allowed", "session-ssh-status", "account-windows", "account-windows-status", "account-add-open", "account-add-modal", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-balance-list", "account-balance-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-default-plugin", "default-plugin-status", "role-settings-status", "permission-role-board", "session-role-board", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "account-add-modal", "account-add-modal-title", "account-add-note", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-delete-modal", "account-delete-title", "account-delete-message", "account-delete-close", "account-delete-cancel", "account-delete-confirm", "account-delete-status", "ssh-userspace-modal", "ssh-userspace-close", "ssh-userspace-cancel", "ssh-userspace-paths", "ssh-userspace-save", "ssh-userspace-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -1746,11 +1747,6 @@ function renderProject(snapshot) {
       ? `${workspace.name || "当前项目"} · ${workspace.root_path || ""}`
       : "当前没有绑定项目";
   }
-  if (elements["project-settings-from-session"]) {
-    elements["project-settings-from-session"].textContent = workspace?.id
-      ? `打开项目设置：${workspace.name || "当前项目"}`
-      : "先选择一个项目";
-  }
   renderProjectStatus(snapshot, running);
   // 概要区不再放那句英文作用域说明：用户口径是「概要有且仅有压缩栈表格」，而它说的
   // 两件事（哪个工作区、能不能跑）分别由项目名/根路径与上面的状态行承载。
@@ -2608,9 +2604,8 @@ function renderAccounts(runtime) {
     <div class="account-models" role="group" aria-label="${escapeHtml(active)} 的模型">${rows}</div>`;
   // 设置里的「角色设置 → 账号」下拉同源：快照一刷新就跟着重画（弹窗开着也不落队）。
   renderRoleSettingsOptions();
-  // 设置里的「账户 → 余额」逐行同源：账号列表变了，余额行也要跟着变（读数按名字
-  // 回读 accountBalances，重画不会把刚查到的读数冲掉）。
-  renderAccountBalanceRows();
+  // 余额、窗口与账户操作都挂在角色卡里的账号行上。
+  renderPermissionRoleRows();
 }
 
 elements["account-list"]?.addEventListener("click", async event => {
@@ -3769,12 +3764,12 @@ function closeRuntime() {
   setModal("runtime-modal", false);
 }
 
-const SETTINGS_PAGES = ["account", "roles", "session", "application"];
+const SETTINGS_PAGES = ["roles", "session", "application"];
 
 // setSettingsPage 只切换设置弹窗内部的页面，不触碰快照或业务状态。页面归属是
 // 结构契约：账户新增在二级弹窗，项目连接在项目设置，会话只保留放权。
 function setSettingsPage(page) {
-  const target = SETTINGS_PAGES.includes(page) ? page : "account";
+  const target = SETTINGS_PAGES.includes(page) ? page : "roles";
   for (const button of elements["settings-nav"]?.querySelectorAll?.("[data-settings-page]") || []) {
     const active = button.dataset.settingsPage === target;
     button.classList.toggle("is-active", active);
@@ -3787,7 +3782,7 @@ function setSettingsPage(page) {
 
 async function openSettings() {
   setModal("settings-modal", true);
-  setSettingsPage("account");
+  setSettingsPage("roles");
   renderThemePicker();
   // 角色设置：账号下拉与 plugin 下拉来自最近一份快照，权限向量先读一次权威值
   // （读不到就进"预览态"，见 syncRoleSettings）。
@@ -3800,22 +3795,84 @@ async function openSettings() {
   // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
   await syncAccountWindowReading();
   await syncPermissionRoles();
-  await syncSessionSSHEnvironments();
   // 账户：角色词表（宿主下发）+ 逐账号余额行。读数不进快照，点一次查一次。
   await syncAccountAdminForm();
 }
 
 function closeSettings() { setModal("settings-modal", false); }
 
-async function openAccountAdd() {
-  setModal("account-add-modal", true);
+let editingAccountName = "";
+
+function configureAccountForm(mode, details = {}) {
+  const editing = mode === "edit";
+  if (elements["account-add-modal-title"]) {
+    elements["account-add-modal-title"].textContent = editing ? `编辑账户 ${details.name || ""}` : "添加账户";
+  }
+  if (elements["account-add-note"]) {
+    elements["account-add-note"].textContent = editing
+      ? "只改这条账户；API Key 留空表示保留原密钥。角色与账户名是身份，不从编辑窗口迁移。"
+      : "完整表单写入 config/accounts.yaml 并热注册；API Key 只在宿主侧读取，不进入快照或界面回读。";
+  }
+  if (elements["account-add-submit"]) elements["account-add-submit"].textContent = editing ? "保存修改" : "添加账户";
+  if (elements["account-add-role"]) elements["account-add-role"].disabled = editing;
+  if (elements["account-add-model"]) elements["account-add-model"].value = details.model || "";
+  if (elements["account-add-provider"]) elements["account-add-provider"].value = details.provider || "";
+  if (elements["account-add-base-url"]) elements["account-add-base-url"].value = details.base_url || "";
+  if (elements["account-add-effort"]) elements["account-add-effort"].value = details.reasoning_effort || "";
+  if (elements["account-add-api-key"]) {
+    elements["account-add-api-key"].value = "";
+    elements["account-add-api-key"].placeholder = editing && details.api_key_set ? "留空保留现有密钥" : "sk-…";
+  }
+}
+
+async function openAccountAdd(role = "") {
+  editingAccountName = "";
   setAccountAddStatus("");
   await syncAccountAdminForm();
+  configureAccountForm("add");
+  if (role && elements["account-add-role"]) {
+    elements["account-add-role"].value = role;
+  }
+  setModal("account-add-modal", true);
 }
 
 function closeAccountAdd() {
   if (elements["account-add-api-key"]) elements["account-add-api-key"].value = "";
+  editingAccountName = "";
   setModal("account-add-modal", false);
+  configureAccountForm("add");
+}
+
+let deletingAccountName = "";
+
+async function openAccountEdit(name) {
+  if (!name) return;
+  try {
+    const details = await invoke("AccountDetails", name);
+    editingAccountName = name;
+    setAccountAddStatus("");
+    await syncAccountAdminForm();
+    configureAccountForm("edit", details || {});
+    if (elements["account-add-role"]) elements["account-add-role"].value = details?.role || "";
+    setModal("account-add-modal", true);
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+function openAccountDelete(name, role = "") {
+  deletingAccountName = name || "";
+  if (elements["account-delete-message"]) {
+    elements["account-delete-message"].textContent =
+      `确定删除 ${name || "这条账户"}${role ? `（${role}）` : ""}？删除会改写 config/accounts.yaml；正在承流时需重启后彻底释放。`;
+  }
+  if (elements["account-delete-status"]) elements["account-delete-status"].textContent = "";
+  setModal("account-delete-modal", true);
+}
+
+function closeAccountDelete() {
+  deletingAccountName = "";
+  setModal("account-delete-modal", false);
 }
 
 async function openProjectSettings() {
@@ -4606,11 +4663,9 @@ elements["settings-nav"]?.addEventListener("click", event => {
   const button = event.target?.closest?.("[data-settings-page]");
   if (button?.dataset.settingsPage) setSettingsPage(button.dataset.settingsPage);
 });
-elements["account-add-open"]?.addEventListener("click", () => { void openAccountAdd(); });
 elements["account-add-cancel"]?.addEventListener("click", closeAccountAdd);
 elements["account-add-cancel-footer"]?.addEventListener("click", closeAccountAdd);
 elements["project-settings-button"]?.addEventListener("click", () => { void openProjectSettings(); });
-elements["project-settings-from-session"]?.addEventListener("click", () => { void openProjectSettings(); });
 elements["project-settings-close"]?.addEventListener("click", closeProjectSettings);
 elements["command-button"].addEventListener("click", () => openCommandPalette("/"));
 elements["command-close"].addEventListener("click", closeCommandPalette);
@@ -5781,25 +5836,13 @@ let permissionVectorDraft = [];
 let permissionVectorApplied = true;
 let defaultPluginCommitted = "";
 
-function setRoleSettingsStatus(text) {
-  const node = elements["role-settings-status"];
+function setDefaultPluginStatus(text) {
+  const node = elements["default-plugin-status"];
   if (node) node.textContent = text || "";
 }
 
-function setPermissionVectorStatus(text) {
-  const node = elements["role-permission-vector-status"];
-  if (node) node.textContent = text || "";
-}
-
-// renderRoleSettingsOptions 画两个下拉（账号 / 默认 plugin）。快照一刷新就跟着重画，
-// 所以弹窗开着时换了账号或插件，这里立刻看到新值。
+// renderRoleSettingsOptions 画默认 plugin 下拉。
 function renderRoleSettingsOptions() {
-  const accountHost = elements["role-account"];
-  if (accountHost) {
-    const accounts = lastAccountsRuntime?.accounts || [];
-    accountHost.innerHTML = roleAccountOptionsHTML(accounts, lastAccountsRuntime?.account || "");
-    accountHost.disabled = !accounts.length;
-  }
   const pluginHost = elements["role-default-plugin"];
   if (pluginHost) {
     const plugins = lastPluginsRuntime?.plugins || [];
@@ -5808,22 +5851,10 @@ function renderRoleSettingsOptions() {
   }
 }
 
-// renderRolePermissionVector 画多选标签。状态行只说两件事：没接上桥（未生效）、以及
-// lint 的四条"这组选择会走不通"——都是提示，不拦截（判定归后端 PermissionGate）。
-function renderRolePermissionVector() {
-  const host = elements["role-permission-vector"];
-  if (!host) return;
-  host.innerHTML = renderPermissionVectorHTML(permissionVectorDraft);
-  const notes = [];
-  if (!permissionVectorApplied) notes.push("未生效：桥面还没有 SetPermissionVector（permission-assembly M1–M3 待落地），下面是草稿");
-  for (const warning of permissionVectorLint(permissionVectorDraft)) notes.push(warning.message);
-  setPermissionVectorStatus(notes.join("；"));
-}
-
 async function syncRoleSettings() {
   defaultPluginCommitted = "";
   renderRoleSettingsOptions();
-  setRoleSettingsStatus("");
+  setDefaultPluginStatus("");
   try {
     permissionVectorCommitted = normalizePermissionVector(await invoke("PermissionVector"));
     permissionVectorApplied = true;
@@ -5832,7 +5863,6 @@ async function syncRoleSettings() {
     permissionVectorApplied = false;
   }
   permissionVectorDraft = permissionVectorCommitted.slice();
-  renderRolePermissionVector();
   // 芯片与下拉读的是同一份回执：主代理向量在下方设置面板与底部芯片之间只有一个真值。
   renderPermissionVectorChip();
   renderPermissionMenu(client.current()?.runtime || {});
@@ -5851,27 +5881,9 @@ async function submitPermissionVector() {
   } catch (error) {
     permissionVectorApplied = false;
   }
-  renderRolePermissionVector();
   renderPermissionVectorChip();
   renderPermissionMenu(client.current()?.runtime || {});
 }
-
-elements["role-account"]?.addEventListener("change", async event => {
-  const name = String(event.target.value || "").trim();
-  if (!name) return;
-  event.target.disabled = true;
-  try {
-    await invoke("SelectAccount", name);
-    await refresh({ scroll: false });
-    setRoleSettingsStatus(`已切到账号 ${name}`);
-  } catch (error) {
-    setRoleSettingsStatus(`切账号失败：${error}`);
-    renderRoleSettingsOptions();
-    showToast(error);
-  } finally {
-    event.target.disabled = false;
-  }
-});
 
 // ── 角色默认权限（设置 → 角色设置 → 角色默认权限）────────────────────────────
 //
@@ -5881,135 +5893,200 @@ elements["role-account"]?.addEventListener("change", async event => {
 //                  生效；会话里显式登记过的那一份永远压在这一层之上。
 // 角色名录来自 accounts.yaml 的 roles.*：后端按账号名前缀（agent-1 → agent）归并下发，
 // 界面不自己造别名，也不把"面板上的角色"与"配置里的角色"分成两份事实。
-let permissionRoleRows = [];        // [{ role, accounts, provider, model, vector, default_vector, explicit }]
-let permissionRoleSelected = "";    // 当前停留在哪个角色
-let permissionRoleDraft = [];       // 该角色的草稿向量
-let permissionRoleEffective = [];   // 当前会话叠加全部权限层后的只读生效向量
-let permissionRoleApplied = true;   // 上一次读写是否走到后端（失败要如实说）
+let permissionRoleRows = [];
+const roleBoardDrafts = { default: new Map(), session: new Map() };
+const roleBoardExpanded = { default: new Set(["agent"]), session: new Set(["agent"]) };
+let pendingSSHUserSpace = null;
 
-function setPermissionRoleStatus(text) {
-  const status = elements["permission-role-status"];
-  if (status) status.textContent = text || "";
+function roleBoardElements() {
+  return {
+    default: elements["permission-role-board"],
+    session: elements["session-role-board"],
+  };
 }
 
-// syncPermissionRoles 拉一次角色目录并选定当前行（打开设置时调）。
+function replacePermissionRoleRow(applied) {
+  if (!applied?.role) return;
+  const index = permissionRoleRows.findIndex(row => row.role === applied.role);
+  if (index >= 0) permissionRoleRows[index] = applied;
+  else permissionRoleRows.push(applied);
+  roleBoardDrafts.default.delete(applied.role);
+  roleBoardDrafts.session.delete(applied.role);
+}
+
+function renderPermissionRoleRows() {
+  const boards = roleBoardElements();
+  const accounts = lastAccountsRuntime?.accounts || [];
+  for (const mode of ["default", "session"]) {
+    const host = boards[mode];
+    if (!host) continue;
+    host.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
+      mode,
+      accounts,
+      balances: accountBalances,
+      drafts: roleBoardDrafts[mode],
+      expanded: roleBoardExpanded[mode],
+      windowPresets: accountWindowPresets,
+      windowReadings: accountWindowsCommitted,
+    });
+  }
+}
+
 async function syncPermissionRoles() {
-  setPermissionRoleStatus("");
   try {
     const rows = await invoke("PermissionRoles");
     permissionRoleRows = Array.isArray(rows) ? rows.filter(row => row && row.role) : [];
-    permissionRoleApplied = true;
   } catch (error) {
     permissionRoleRows = [];
-    permissionRoleApplied = false;
   }
-  if (!permissionRoleRows.some(row => row.role === permissionRoleSelected)) {
-    permissionRoleSelected = permissionRoleRows[0]?.role || "";
-  }
-  applyPermissionRoleReading();
   renderPermissionRoleRows();
 }
 
-// applyPermissionRoleReading 把"当前选中角色"的权威读数灌进草稿。
-function applyPermissionRoleReading() {
-  const row = permissionRoleRows.find(item => item.role === permissionRoleSelected) || null;
-  permissionRoleEffective = normalizePermissionVector(row?.vector || []);
-  // 没定过默认时，以当前生效值作为编辑起点；用户点下第一格后才形成显式默认。
-  permissionRoleDraft = normalizePermissionVector(row?.explicit ? row?.default_vector || [] : row?.vector || []);
+function roleBoardTarget(event, attribute) {
+  const node = event.target?.closest?.(`[${attribute}]`);
+  return node ? { node, value: node.getAttribute(attribute) || "" } : null;
 }
 
-// renderPermissionRoleRows 画角色下拉 + 该角色的标签排 + 状态行。
-//
-// 状态行要区分三件事（后端 explicit 就是为这个给的）：定过 / 没定过（显示的是链路
-// 解析预览）/ 读写没走到后端。把"没定过"写成"已选这几项"就是在替用户做决定。
-function renderPermissionRoleRows() {
-  const select = elements["permission-role"];
-  if (select) {
-    const previous = permissionRoleSelected;
-    select.innerHTML = permissionRoleRows.map(row => {
-      const detail = [row.accounts?.join("/"), [row.provider, row.model].filter(Boolean).join("/")].filter(Boolean).join(" · ");
-      const label = detail ? `${row.role}（${detail}）` : row.role;
-      return `<option value="${escapeHtml(row.role)}"${row.role === previous ? " selected" : ""}>${escapeHtml(label)}</option>`;
-    }).join("");
-    if (!permissionRoleRows.length) {
-      select.innerHTML = '<option value="">（读不到角色列表）</option>';
-    }
-  }
-  const host = elements["permission-role-vector"];
-  if (host) host.innerHTML = renderPermissionVectorHTML(permissionRoleDraft);
-  const accountSelect = elements["permission-role-account"];
-  const row = permissionRoleRows.find(item => item.role === permissionRoleSelected) || null;
-  if (accountSelect) {
-    accountSelect.innerHTML = permissionRoleAccountOptionsHTML(
-      row?.accounts || [],
-      row?.account || "",
-      lastAccountsRuntime?.accounts || [],
-      lastAccountsRuntime?.account || "",
-    );
-    accountSelect.disabled = !row?.accounts?.length;
-  }
-  if (elements["permission-role-account-status"]) {
-    if (!row) {
-      elements["permission-role-account-status"].textContent = "";
-    } else if (row.account) {
-      elements["permission-role-account-status"].textContent = `${row.role} 优先使用 ${row.account}`;
-    } else {
-      elements["permission-role-account-status"].textContent = `${row.role} 尚未固定账号，由角色账号池自动选择`;
-    }
-  }
-  const effectiveHost = elements["permission-role-effective"];
-  if (effectiveHost) {
-    effectiveHost.innerHTML = permissionRoleEffective.length
-      ? renderPermissionVectorHTML(permissionRoleEffective)
-      : '<span class="muted">当前生效：无任何权限</span>';
-  }
-  if (!permissionRoleApplied) {
-    setPermissionRoleStatus("未生效：读不到角色目录（桥未装配 PermissionRoles）。");
-    return;
-  }
-  if (!row) {
-    setPermissionRoleStatus("先选一个角色。");
-    return;
-  }
-  const notes = [];
-  notes.push(row.explicit
-    ? `${row.role}：已定过跨会话默认；当前生效值已叠加会话与派发层`
-    : `${row.role}：还没定过跨会话默认；编辑起点取自当前生效值`);
-  if (row.explicit && !samePermissionVector(permissionRoleEffective, permissionRoleDraft)) {
-    notes.push("当前生效值与角色默认不同：更高的会话/派发/用户层正在覆盖");
-  }
-  for (const warning of permissionVectorLint(permissionRoleDraft)) notes.push(warning.message);
-  setPermissionRoleStatus(notes.join("　"));
-}
-
-function samePermissionVector(left, right) {
-  const a = normalizePermissionVector(left);
-  const b = normalizePermissionVector(right);
-  return a.length === b.length && a.every((tag, index) => tag === b[index]);
-}
-
-// submitPermissionRoleDefault 提交整组默认向量，并采纳后端读回的那一行
-// （与 SetPermissionVector 同一口径：不拿请求值当结果）。
-async function submitPermissionRoleDefault() {
-  if (!permissionRoleSelected) return;
+async function submitRolePermission(mode, role, vector) {
+  const normalized = normalizePermissionVector(vector);
+  const method = mode === "session" ? "SetRoleSessionPermission" : "SetRoleDefaultVector";
   try {
-    const applied = await invoke("SetRoleDefaultVector", permissionRoleSelected, normalizePermissionVector(permissionRoleDraft));
-    const row = permissionRoleRows.find(item => item.role === permissionRoleSelected);
-    if (row && applied && applied.role) {
-      row.vector = normalizePermissionVector(applied.permission_vector || []);
-      row.default_vector = normalizePermissionVector(applied.default_permission_vector || []);
-      row.explicit = applied.explicit === true;
-    }
-    permissionRoleApplied = true;
+    const applied = await invoke(method, role, normalized);
+    replacePermissionRoleRow(applied);
+    renderPermissionRoleRows();
+    const warnings = permissionVectorLint(normalized);
+    if (warnings.length) showToast(warnings.map(item => item.message).join("；"));
   } catch (error) {
-    permissionRoleApplied = false;
-    setPermissionRoleStatus(`改 ${permissionRoleSelected} 的默认权限失败：${error}`);
+    roleBoardDrafts[mode].delete(role);
     showToast(error);
+    renderPermissionRoleRows();
+  }
+}
+
+function openSSHUserSpaceDialog(mode, role, toggle = true) {
+  const row = permissionRoleRows.find(item => item.role === role);
+  pendingSSHUserSpace = { mode, role, toggle };
+  if (elements["ssh-userspace-paths"]) {
+    elements["ssh-userspace-paths"].value = (row?.ssh_user_spaces || []).join("\n");
+  }
+  if (elements["ssh-userspace-status"]) {
+    elements["ssh-userspace-status"].textContent = "路径会写入角色的 SSH 用户空间允许范围。";
+  }
+  setModal("ssh-userspace-modal", true);
+}
+
+function closeSSHUserSpaceDialog() {
+  pendingSSHUserSpace = null;
+  setModal("ssh-userspace-modal", false);
+}
+
+elements["permission-role-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
+elements["session-role-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
+
+async function handleRoleBoardClick(event) {
+  const toggle = roleBoardTarget(event, "data-role-toggle");
+  if (toggle) {
+    const mode = toggle.node.closest("[data-settings-page-panel]")?.dataset.settingsPagePanel === "session" ? "session" : "default";
+    const set = roleBoardExpanded[mode];
+    if (set.has(toggle.value)) set.delete(toggle.value);
+    else set.add(toggle.value);
+    renderPermissionRoleRows();
     return;
   }
-  applyPermissionRoleReading();
-  renderPermissionRoleRows();
+  const add = roleBoardTarget(event, "data-role-perm-add");
+  if (add) {
+    const mode = add.node.dataset.board === "session" ? "session" : "default";
+    const role = add.node.dataset.role;
+    if (add.value === "ssh.userspace") {
+      openSSHUserSpaceDialog(mode, role);
+      return;
+    }
+    const row = permissionRoleRows.find(item => item.role === role);
+    const current = roleBoardDrafts[mode].get(role) ||
+      (mode === "session" ? row?.permission_vector : row?.default_permission_vector) || [];
+    const next = cyclePermissionVector(current, add.value);
+    roleBoardDrafts[mode].set(role, next);
+    await submitRolePermission(mode, role, next);
+    return;
+  }
+  const userSpaces = roleBoardTarget(event, "data-role-user-spaces");
+  if (userSpaces) {
+    const mode = userSpaces.node.dataset.board === "session" ? "session" : "default";
+    openSSHUserSpaceDialog(mode, userSpaces.value, false);
+    return;
+  }
+  const cycle = roleBoardTarget(event, "data-role-perm-cycle");
+  if (cycle) {
+    const mode = cycle.node.dataset.board === "session" ? "session" : "default";
+    const role = cycle.node.dataset.role;
+    const row = permissionRoleRows.find(item => item.role === role);
+    const current = roleBoardDrafts[mode].get(role) || (mode === "session" ? row?.permission_vector : row?.default_permission_vector) || [];
+    const next = cyclePermissionVector(current, cycle.value);
+    roleBoardDrafts[mode].set(role, next);
+    await submitRolePermission(mode, role, next);
+    return;
+  }
+  const inherit = roleBoardTarget(event, "data-role-inherit");
+  if (inherit) {
+    const row = permissionRoleRows.find(item => item.role === inherit.value);
+    try {
+      replacePermissionRoleRow(await invoke("SetRoleInheritance", inherit.value, !row?.inherit_main_agent));
+      renderPermissionRoleRows();
+    } catch (error) { showToast(error); }
+    return;
+  }
+  const pickAccount = roleBoardTarget(event, "data-role-account-pick");
+  if (pickAccount) {
+    try {
+      replacePermissionRoleRow(await invoke("SetRoleAccount", pickAccount.node.dataset.role, pickAccount.value));
+      renderPermissionRoleRows();
+    } catch (error) { showToast(error); }
+    return;
+  }
+  const balance = roleBoardTarget(event, "data-role-account-balance");
+  if (balance) {
+    await queryAccountBalance(balance.value);
+    return;
+  }
+  const editAccount = roleBoardTarget(event, "data-role-account-edit");
+  if (editAccount) {
+    await openAccountEdit(editAccount.value);
+    return;
+  }
+  const deleteAccount = roleBoardTarget(event, "data-role-account-delete");
+  if (deleteAccount) {
+    openAccountDelete(deleteAccount.value, deleteAccount.node.dataset.role || "");
+    return;
+  }
+  const addAccount = roleBoardTarget(event, "data-role-add-account");
+  if (addAccount) {
+    await openAccountAdd(addAccount.value);
+  }
 }
+
+elements["ssh-userspace-close"]?.addEventListener("click", closeSSHUserSpaceDialog);
+elements["ssh-userspace-cancel"]?.addEventListener("click", closeSSHUserSpaceDialog);
+elements["ssh-userspace-save"]?.addEventListener("click", async () => {
+  if (!pendingSSHUserSpace) return;
+  const { mode, role, toggle } = pendingSSHUserSpace;
+  const paths = String(elements["ssh-userspace-paths"]?.value || "").split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  try {
+    replacePermissionRoleRow(await invoke("SetRoleSSHUserSpaces", role, paths));
+    if (toggle) {
+      const row = permissionRoleRows.find(item => item.role === role);
+      const current = roleBoardDrafts[mode].get(role) ||
+        (mode === "session" ? row?.permission_vector : row?.default_permission_vector) || [];
+      const next = cyclePermissionVector(current, "ssh.userspace");
+      roleBoardDrafts[mode].set(role, next);
+      await submitRolePermission(mode, role, next);
+    } else {
+      renderPermissionRoleRows();
+    }
+    closeSSHUserSpaceDialog();
+  } catch (error) {
+    if (elements["ssh-userspace-status"]) elements["ssh-userspace-status"].textContent = `保存失败：${error?.message || error}`;
+  }
+});
 
 // ── SSH 环境（项目侧环境表 + 会话侧限定与放权）────────────────────────
 //
@@ -6022,16 +6099,9 @@ async function submitPermissionRoleDefault() {
 let sshEnvRows = [];       // 项目环境表读面（[{name, host, port, user, remote_root, password_set, default}]）
 let sshEnvDefault = "";    // 项目默认环境名
 let sshEnvAvailable = true;
-let sessionSSH = { current_env: "", allowed_envs: [] };
-let sessionSSHAvailable = true;
 
 function setSSHEnvStatus(text) {
   const status = elements["ssh-env-status"];
-  if (status) status.textContent = text || "";
-}
-
-function setSessionSSHStatus(text) {
-  const status = elements["session-ssh-status"];
   if (status) status.textContent = text || "";
 }
 
@@ -6050,21 +6120,6 @@ async function syncWorkspaceEnvironments() {
     sshEnvAvailable = false;
   }
   renderSSHEnvRows();
-}
-
-// syncSessionSSHEnvironments 拉项目环境名（只作勾选项）与本会话状态。项目连接
-// 的增删改不在这里发生。
-async function syncSessionSSHEnvironments() {
-  if (!sshEnvAvailable) await syncWorkspaceEnvironments();
-  try {
-    const state = await invoke("SessionSSHState");
-    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
-    sessionSSHAvailable = true;
-  } catch (error) {
-    sessionSSH = { current_env: "", allowed_envs: [] };
-    sessionSSHAvailable = false;
-  }
-  renderSessionSSH();
 }
 
 function renderSSHEnvRows() {
@@ -6091,38 +6146,6 @@ function renderSSHEnvRows() {
   }).join("");
 }
 
-// renderSessionSSH 画会话侧：当前环境下拉（**只列已放权的**）+ 放权勾选（只列项目表里的）。
-function renderSessionSSH() {
-  const allowed = Array.isArray(sessionSSH.allowed_envs) ? sessionSSH.allowed_envs : [];
-  const select = elements["session-ssh-env"];
-  if (select) {
-    const options = ['<option value="">（不限定）</option>'];
-    for (const name of allowed) {
-      options.push(`<option value="${escapeHtml(name)}"${sessionSSH.current_env === name ? " selected" : ""}>${escapeHtml(name)}</option>`);
-    }
-    select.innerHTML = options.join("");
-    select.value = sessionSSH.current_env && allowed.includes(sessionSSH.current_env) ? sessionSSH.current_env : "";
-  }
-  const host = elements["session-ssh-allowed"];
-  if (host) {
-    if (!sshEnvRows.length) {
-      host.innerHTML = '<span class="muted">项目里还没有环境可放权</span>';
-    } else {
-      host.innerHTML = sshEnvRows.map(row => {
-        const on = allowed.includes(row.name);
-        return `<button type="button" class="perm-chip${on ? " is-on" : ""}" data-ssh-grant="${escapeHtml(row.name)}" aria-pressed="${on ? "true" : "false"}" title="放权 = 允许本会话使用这个环境">${escapeHtml(row.name)}</button>`;
-      }).join("");
-    }
-  }
-  const notes = [];
-  if (!sshEnvAvailable) notes.push("读不到项目环境表（当前会话可能未绑定项目）");
-  if (!sessionSSHAvailable) notes.push("读不到本会话的 SSH 状态（桥未装配 SessionSSHState）");
-  else if (!allowed.length) notes.push("本会话没有放权任何环境 → SSH 用不了（缺省不放权）");
-  else notes.push(`已放权：${allowed.join(" / ")}；当前限定：${sessionSSH.current_env || "未限定"}`);
-  if (sshEnvDefault) notes.push(`项目默认环境：${sshEnvDefault}`);
-  setSessionSSHStatus(notes.join("　"));
-}
-
 // submitSSHEnvironment 保存一个项目环境（口令留空 = 不改，是后端的三态语义）。
 async function submitSSHEnvironment() {
   const name = String(elements["ssh-env-name"]?.value || "").trim();
@@ -6145,7 +6168,6 @@ async function submitSSHEnvironment() {
   try {
     const applied = await invoke("SetWorkspaceEnvironment", name, change);
     await syncWorkspaceEnvironments();
-    await syncSessionSSHEnvironments();
     setSSHEnvStatus(applied && applied.host
       ? `${name}：已保存（${applied.host}${applied.port ? ":" + applied.port : ""}）`
       : `${name}：空端点已按删除处理`);
@@ -6153,35 +6175,6 @@ async function submitSSHEnvironment() {
     setSSHEnvStatus(`保存 ${name} 失败：${error}`);
     showToast(error);
   }
-}
-
-// submitSessionSSHAllowed 提交放权集合：后端返回落盘后的状态（以它为准重画）。
-async function submitSessionSSHAllowed(envs) {
-  try {
-    const state = await invoke("SetSessionSSHAllowed", envs);
-    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
-    sessionSSHAvailable = true;
-  } catch (error) {
-    sessionSSHAvailable = false;
-    setSessionSSHStatus(`改放权集合失败：${error}`);
-    showToast(error);
-    return;
-  }
-  renderSessionSSH();
-}
-
-async function submitSessionSSHEnv(env) {
-  try {
-    const state = await invoke("SetSessionSSHEnv", env);
-    sessionSSH = state && typeof state === "object" ? state : { current_env: "", allowed_envs: [] };
-    sessionSSHAvailable = true;
-  } catch (error) {
-    sessionSSHAvailable = false;
-    setSessionSSHStatus(`设当前环境失败：${error}`);
-    showToast(error);
-    return;
-  }
-  renderSessionSSH();
 }
 
 elements["ssh-env-list"]?.addEventListener("click", event => {
@@ -6211,76 +6204,11 @@ elements["ssh-env-delete"]?.addEventListener("click", async () => {
   try {
     await invoke("DeleteWorkspaceEnvironment", name);
     await syncWorkspaceEnvironments();
-    await syncSessionSSHEnvironments();
     setSSHEnvStatus(`${name}：已删除`);
   } catch (error) {
     setSSHEnvStatus(`删除 ${name} 失败：${error}`);
     showToast(error);
   }
-});
-
-elements["session-ssh-allowed"]?.addEventListener("click", async event => {
-  const chip = event.target?.closest?.("[data-ssh-grant]");
-  if (!chip) return;
-  const name = chip.dataset.sshGrant;
-  const allowed = Array.isArray(sessionSSH.allowed_envs) ? [...sessionSSH.allowed_envs] : [];
-  const index = allowed.indexOf(name);
-  if (index >= 0) allowed.splice(index, 1);
-  else allowed.push(name);
-  await submitSessionSSHAllowed(allowed);
-});
-
-elements["session-ssh-env"]?.addEventListener("change", async event => {
-  await submitSessionSSHEnv(String(event.target.value || ""));
-});
-
-elements["permission-role"]?.addEventListener("change", event => {
-  permissionRoleSelected = String(event.target.value || "").trim();
-  applyPermissionRoleReading();
-  renderPermissionRoleRows();
-});
-
-elements["permission-role-account"]?.addEventListener("change", async event => {
-  const account = String(event.target.value || "").trim();
-  if (!permissionRoleSelected || !account) {
-    renderPermissionRoleRows();
-    return;
-  }
-  try {
-    const applied = await invoke("SetRoleAccount", permissionRoleSelected, account);
-    const row = permissionRoleRows.find(item => item.role === permissionRoleSelected);
-    if (row && applied?.role) {
-      row.account = String(applied.account || account);
-      row.accounts = Array.isArray(applied.accounts) ? applied.accounts : row.accounts;
-      row.provider = applied.provider || row.provider;
-      row.model = applied.model || row.model;
-    }
-    renderPermissionRoleRows();
-  } catch (error) {
-    setPermissionRoleStatus(`设置 ${permissionRoleSelected} 的账号失败：${error}`);
-    showToast(error);
-    renderPermissionRoleRows();
-  }
-});
-
-elements["permission-role-vector"]?.addEventListener("click", async event => {
-  const tag = event.target?.closest?.("button[data-perm-type]");
-  if (!tag) return;
-  const next = cyclePermissionVector(permissionRoleDraft, tag.dataset.permType);
-  if (next.join(",") === permissionRoleDraft.join(",")) return;
-  permissionRoleDraft = next;
-  renderPermissionRoleRows();
-  await submitPermissionRoleDefault();
-});
-
-elements["role-permission-vector"]?.addEventListener("click", async event => {
-  const tag = event.target?.closest?.("button[data-perm-type]");
-  if (!tag) return;
-  const next = cyclePermissionVector(permissionVectorDraft, tag.dataset.permType);
-  if (next.join(",") === permissionVectorDraft.join(",")) return;
-  permissionVectorDraft = next;
-  renderRolePermissionVector();
-  await submitPermissionVector();
 });
 
 elements["role-default-plugin"]?.addEventListener("change", async event => {
@@ -6289,11 +6217,11 @@ elements["role-default-plugin"]?.addEventListener("change", async event => {
   try {
     await invoke("SetDefaultPlugin", name);
     defaultPluginCommitted = name;
-    setRoleSettingsStatus(`默认 plugin 已设为 ${name}`);
+    setDefaultPluginStatus(`默认 plugin 已设为 ${name}`);
   } catch (error) {
     defaultPluginCommitted = "";
     renderRoleSettingsOptions();
-    setRoleSettingsStatus(`未生效：桥面还没有 SetDefaultPlugin（待后端补方法），当前仍是 ${lastPluginsRuntime?.plugin || "未定"}。`);
+    setDefaultPluginStatus(`未生效：桥面还没有 SetDefaultPlugin（待后端补方法），当前仍是 ${lastPluginsRuntime?.plugin || "未定"}。`);
   }
 });
 
@@ -6312,71 +6240,8 @@ let accountWindowsCommitted = new Map();
 let accountWindowPresets = [];
 
 function setAccountWindowsStatus(text) {
-  const status = elements["account-windows-status"];
+  const status = elements["role-settings-status"];
   if (status) status.textContent = text || "";
-}
-
-// accountWindowReading 给出一个账号**当前显示的生效窗口**。
-//
-// ack 优先：accountWindowsCommitted 里的是"提交后读回来的生效值"，比快照新（快照可能
-// 是在提交之前拍的）；没有 ack 读数时才退回快照里的 context_window。旧实现在渲染里
-// 无条件用快照值覆盖 committed，于是"改完之后再画一遍"画回的还是旧值——这就是用户说的
-// "数据没有及时更新"。
-function accountWindowReading(account) {
-  if (account && accountWindowsCommitted.has(account.name)) return accountWindowsCommitted.get(account.name);
-  const fromSnapshot = Number(account?.context_window);
-  return fromSnapshot > 0 ? fromSnapshot : null;
-}
-
-// renderAccountWindowRows 一行一个账号：名字（供应商/模型）+ 挡位选择器（+ 自定义输入框）。
-function renderAccountWindowRows() {
-  const host = elements["account-windows"];
-  if (!host) return;
-  const accounts = lastAccountsRuntime?.accounts || [];
-  if (!accounts.length) {
-    host.innerHTML = '<span class="muted list-empty">读不到账号列表（快照未就绪）</span>';
-    return;
-  }
-  host.innerHTML = "";
-  for (const account of accounts) {
-    const effective = accountWindowReading(account);
-
-    const row = document.createElement("div");
-    row.className = "settings-field account-window-row";
-    row.dataset.account = account.name;
-
-    const name = document.createElement("span");
-    name.className = "account-window-name";
-    name.textContent = `${account.name}（${account.provider || "未标注供应商"} / ${account.model || "未标注模型"}）`;
-
-    const select = document.createElement("select");
-    select.className = "account-window-select";
-    for (const option of accountWindowOptions(accountWindowPresets)) {
-      const node = document.createElement("option");
-      node.value = option.value;
-      node.textContent = option.label;
-      select.append(node);
-    }
-    const isPreset = effective !== null && accountWindowPresets.includes(effective);
-    select.value = isPreset ? String(effective) : ACCOUNT_WINDOW_CUSTOM;
-
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "1";
-    input.step = "1000";
-    input.className = "account-window-input";
-    input.placeholder = "自定义 token 数";
-    input.value = !isPreset && effective !== null ? String(effective) : "";
-    input.classList.toggle("hidden", select.value !== ACCOUNT_WINDOW_CUSTOM);
-
-    const reading = document.createElement("span");
-    reading.className = "muted";
-    reading.textContent = `当前 ${accountWindowLabel(effective ?? 0)}`;
-
-    row.append(name, select, input, reading);
-    host.append(row);
-  }
-  setAccountWindowsStatus("");
 }
 
 // syncAccountWindowReading 打开弹窗时拉一次挡位表并重画（账号读数来自最近一份快照）。
@@ -6388,7 +6253,7 @@ async function syncAccountWindowReading() {
     accountWindowPresets = [];
     setAccountWindowsStatus("读不到挡位表（桥未就绪）；仍可用「自定义」填 token 数。");
   }
-  renderAccountWindowRows();
+  renderPermissionRoleRows();
 }
 
 // submitAccountWindow 提交一个账号的窗口，然后**读回来一嘴**（用户口径的 send/ack）：
@@ -6404,7 +6269,7 @@ async function submitAccountWindow(name, window) {
     await refresh({ scroll: false });
     const confirmed = accountWindowFromSnapshot(name);
     accountWindowsCommitted.set(name, confirmed !== null ? confirmed : (applied > 0 ? applied : null));
-    renderAccountWindowRows();
+    renderPermissionRoleRows();
     const shown = accountWindowsCommitted.get(name);
     if (shown === null || shown === undefined) {
       setAccountWindowsStatus(`${name}：已改，读回的是账号档默认（这一层没有覆盖）。`);
@@ -6413,7 +6278,7 @@ async function submitAccountWindow(name, window) {
     const drift = applied > 0 && applied !== shown ? `（写入 ${accountWindowLabel(applied)}，读回 ${accountWindowLabel(shown)}：被上限夹过或按默认值落地）` : "";
     setAccountWindowsStatus(`${name}：读回生效窗口 ${accountWindowLabel(shown)}${drift}`);
   } catch (error) {
-    renderAccountWindowRows(); // 回滚到最后一份权威读数（后端失败时整步不改）
+    renderPermissionRoleRows(); // 回滚到最后一份权威读数（后端失败时整步不改）
     setAccountWindowsStatus(`改 ${name} 的窗口失败：${error}`);
     showToast(error);
   }
@@ -6427,31 +6292,37 @@ function accountWindowFromSnapshot(name) {
   return value > 0 ? value : null;
 }
 
-elements["account-windows"]?.addEventListener("change", async event => {
-  const row = event.target.closest(".account-window-row");
-  const name = row?.dataset.account;
-  if (!name) return;
-  if (event.target.classList.contains("account-window-select")) {
-    const input = row.querySelector(".account-window-input");
-    const custom = event.target.value === ACCOUNT_WINDOW_CUSTOM;
-    input?.classList.toggle("hidden", !custom);
+async function handleRoleBoardChange(event) {
+  const select = event.target?.closest?.("[data-role-account-window-select]");
+  if (select) {
+    const row = select.closest(".role-account-window");
+    const name = select.getAttribute("data-role-account-window-select") || "";
+    const input = row?.querySelector?.("[data-role-account-window-input]");
+    const custom = select.value === ACCOUNT_WINDOW_CUSTOM;
+    if (input) input.hidden = !custom;
     if (custom) {
       input?.focus();
       return; // 等自定义输入框确认后再提交
     }
-    await submitAccountWindow(name, normalizeAccountWindowInput(event.target.value));
+    await submitAccountWindow(name, normalizeAccountWindowInput(select.value));
     return;
   }
-  if (event.target.classList.contains("account-window-input")) {
-    const window = normalizeAccountWindowInput(event.target.value);
+  const input = event.target?.closest?.("[data-role-account-window-input]");
+  if (input) {
+    const name = input.getAttribute("data-role-account-window-input") || "";
+    const window = normalizeAccountWindowInput(input.value);
     if (window === null) {
       setAccountWindowsStatus("自定义窗口要填正整数（token 数，例如 500000）。");
-      renderAccountWindowRows();
+      renderPermissionRoleRows();
       return;
     }
     await submitAccountWindow(name, window);
   }
-});
+}
+
+for (const id of ["permission-role-board", "session-role-board"]) {
+  elements[id]?.addEventListener("change", event => { void handleRoleBoardChange(event); });
+}
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -6461,7 +6332,7 @@ document.addEventListener("keydown", event => {
   else terminalPanel.toggle();
 });
 
-// ── 账户（设置 → 账户）：手动添加 与 逐账号查余额 ─────────────────────────
+// ── 角色卡下账户：增删改查 与 逐账号查余额 ────────────────────────────────
 // 两条链路的判据都在后端，这里只做三件事：把表单整理成草稿、把草稿递过去、把回执
 // 与读数显示出来。
 //   · 添加：invoke("AddAccount", draft) 回的是**生效的账号名**（`agent-2` 由账号档
@@ -6476,15 +6347,9 @@ function setAccountAddStatus(text) {
   if (status) status.textContent = text || "";
 }
 
-function setAccountBalanceStatus(text) {
-  const status = elements["account-balance-status"];
-  if (status) status.textContent = text || "";
-}
-
 // syncAccountAdminForm 打开弹窗时补两件事：角色词表（宿主下发）与余额行。
 async function syncAccountAdminForm() {
   await syncAccountRoles();
-  renderAccountBalanceRows();
 }
 
 // syncAccountRoles 拉角色词表并填下拉；顺带把思考强度下拉填好（词表来自
@@ -6526,38 +6391,17 @@ function renderAccountEffortOptions() {
   select.value = options.some(option => option.includes(`value="${previous}"`)) ? previous : "";
 }
 
-// renderAccountBalanceRows 逐账号一行：名字/供应商/模型 + 「查看余额」+ 读数。
-// 行模型由 account-admin.js 的 accountBalanceRows 给（与它的单测同一份口径）。
-function renderAccountBalanceRows() {
-  const host = elements["account-balance-list"];
-  if (!host) return;
-  const rows = accountBalanceRows(lastAccountsRuntime?.accounts || [], accountBalances);
-  if (!rows.length) {
-    host.innerHTML = '<span class="muted list-empty">读不到账号列表（快照未就绪）</span>';
-    return;
-  }
-  host.innerHTML = rows.map(row => `
-    <div class="settings-field account-balance-row" data-account="${escapeHtml(row.name)}">
-      <span class="account-window-name">${escapeHtml(row.label)}${row.role ? ` · ${escapeHtml(row.role)}` : ""}${row.health ? ` · ${escapeHtml(row.health)}` : ""}</span>
-      <button type="button" class="text-button" data-account-balance="${escapeHtml(row.name)}">查看余额</button>
-      <span class="muted" data-account-balance-reading="${escapeHtml(row.name)}">${escapeHtml(row.reading)}</span>
-    </div>`).join("");
-}
-
 // queryAccountBalance 查一个账号的余额：成功与失败都落到这一行的读数上（失败不当成
 // "余额为 0"——那是两回事）。
 async function queryAccountBalance(name) {
   if (!name) return;
-  setAccountBalanceStatus(`正在查 ${name} 的余额…`);
   try {
     const balance = await invoke("AccountBalance", name);
     accountBalances.set(name, { balance });
-    setAccountBalanceStatus(`${name}：${balanceReadingText({ balance })}`);
   } catch (error) {
     accountBalances.set(name, { error: error?.message || String(error) });
-    setAccountBalanceStatus(`${name}：查不到（${error?.message || error}）`);
   }
-  renderAccountBalanceRows();
+  renderPermissionRoleRows();
 }
 
 // submitAccountAdd 提交新账号。
@@ -6566,6 +6410,33 @@ async function queryAccountBalance(name) {
 // 通道（顺带把「角色设置 → 账号」下拉一起刷新）。失败按后端给的原话显示——其中
 // "已写入账号档，重启后生效"这一句要原样透出来，否则用户会以为没加上而重复添加。
 async function submitAccountAdd() {
+  if (editingAccountName) {
+    const model = String(elements["account-add-model"]?.value || "").trim();
+    if (!model) {
+      setAccountAddStatus("模型是必填项。");
+      return;
+    }
+    setAccountAddStatus("正在更新账号档…");
+    try {
+      const result = await invoke("UpdateAccount", {
+        name: editingAccountName,
+        provider: String(elements["account-add-provider"]?.value || "").trim(),
+        model,
+        base_url: String(elements["account-add-base-url"]?.value || "").trim(),
+        api_key: String(elements["account-add-api-key"]?.value || ""),
+        reasoning_effort: String(elements["account-add-effort"]?.value || "").trim(),
+      });
+      if (elements["account-add-api-key"]) elements["account-add-api-key"].value = "";
+      await refresh({ scroll: false });
+      await syncPermissionRoles();
+      setAccountAddStatus(`已更新 ${result?.name || editingAccountName}。`);
+      showToast(`账户 ${result?.name || editingAccountName} 已更新`);
+    } catch (error) {
+      setAccountAddStatus(`更新失败：${error?.message || error}`);
+      showToast(error);
+    }
+    return;
+  }
   const parsed = accountDraftFromForm({
     role: elements["account-add-role"]?.value,
     model: elements["account-add-model"]?.value,
@@ -6585,7 +6456,7 @@ async function submitAccountAdd() {
     if (elements["account-add-api-key"]) elements["account-add-api-key"].value = "";
     if (elements["account-add-model"]) elements["account-add-model"].value = "";
     await refresh({ scroll: false });
-    renderAccountBalanceRows();
+    await syncPermissionRoles();
     const summary = [result?.provider, result?.model].filter(Boolean).join(" / ");
     setAccountAddStatus(`已添加 ${result?.name || ""}${summary ? `（${summary}）` : ""}，已生效。`);
     showToast(`账户 ${result?.name || ""} 已添加并生效`);
@@ -6596,12 +6467,29 @@ async function submitAccountAdd() {
 }
 
 elements["account-add-submit"]?.addEventListener("click", () => { void submitAccountAdd(); });
-elements["account-balance-list"]?.addEventListener("click", event => {
-  const button = event.target?.closest?.("[data-account-balance]");
-  const name = button?.dataset?.accountBalance;
-  if (name) void queryAccountBalance(name);
+elements["account-delete-close"]?.addEventListener("click", closeAccountDelete);
+elements["account-delete-cancel"]?.addEventListener("click", closeAccountDelete);
+elements["account-delete-confirm"]?.addEventListener("click", async () => {
+  if (!deletingAccountName) return;
+  const name = deletingAccountName;
+  if (elements["account-delete-confirm"]) elements["account-delete-confirm"].disabled = true;
+  if (elements["account-delete-status"]) elements["account-delete-status"].textContent = `正在删除 ${name}…`;
+  try {
+    await invoke("DeleteAccount", name);
+    accountBalances.delete(name);
+    accountWindowsCommitted.delete(name);
+    await refresh({ scroll: false });
+    await syncPermissionRoles();
+    closeAccountDelete();
+    setAccountWindowsStatus(`${name}：已删除。`);
+    showToast(`账户 ${name} 已删除`);
+  } catch (error) {
+    if (elements["account-delete-status"]) elements["account-delete-status"].textContent = `删除失败：${error?.message || error}`;
+    showToast(error);
+  } finally {
+    if (elements["account-delete-confirm"]) elements["account-delete-confirm"].disabled = false;
+  }
 });
-
 function resizePrompt() {
   elements.prompt.style.height = "auto";
   elements.prompt.style.height = `${Math.min(elements.prompt.scrollHeight, 180)}px`;

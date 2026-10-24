@@ -26,8 +26,8 @@ export const PERMISSION_VECTOR_TAGS = [
   { id: "read", label: "读", tip: "读文件、搜内容、列目录" },
   { id: "write", label: "写", tip: "写文件、改文件、跑命令" },
   { id: "computeruse", label: "用电脑", tip: "截屏与桌面操作" },
-  { id: "control", label: "控制", tip: "会话与作业的调度控制" },
-  { id: "admin", label: "管理", tip: "装配、插件与策略本身" },
+  { id: "control", label: "控制", tip: "结束/恢复执行、派生任务、调度团队" },
+  { id: "admin", label: "管理", tip: "切换插件、Skill、MCP 与运行模式（不含授予权限）" },
   { id: "ssh", label: "SSH", tip: "连远程主机（命令与文件传输）" },
   { id: "ssh.userspace", label: "SSH 用户空间", tip: "远程落在工作区之外（含 ~ 与系统路径）" },
 ];

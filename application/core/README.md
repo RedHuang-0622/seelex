@@ -170,6 +170,7 @@ flowchart LR
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
 | [README-agentteam.md](README-agentteam.md) | `role_session.go`（`agentteam_runtime.go` 已删除） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分（`spec.go`：`RoleSessionID` / `Normalize*` / `ValidToolPolicy`）已于 M5-R8b 归位 `backend/multiagent/team/` |
+| [README-permission.md](README-permission.md) | `role_permissions.go` | 角色默认/会话覆盖、继承与 SSH 用户空间路径 |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
@@ -469,11 +470,18 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 缺口与坏配置在加载时暴露、并把该会话的登记格热起来；CLI/headless 一类未装配登记能力的
 宿主不因此启动失败。
 
-角色默认账号与权限默认共用项目级 `role-permissions.json` 记录，但字段互不覆盖。
+角色默认账号与权限默认共用项目级角色权限记录，但字段互不覆盖。
 `SetRoleAccount` 先经运行时校验账号属于该角色，再落盘并立即更新账号路由；
 `RestoreRoleAccounts` 在会话加载时把保存值推回运行时。团队 worker 回合以
 `SceneScope.Role=teammate` 进入账号选择，因此 `accounts.yaml` 的 teammate 账号
 不会被主 agent 账号抢占。
+
+`RoleInheritMainAgent` / `SetRoleInheritMainAgent` 只作用于 subagent 与 teammate；
+未显式设置时二者默认继承 mainagent。继承同时覆盖权限向量与 `ssh.userspace` 路径
+允许范围；关闭继承后才使用角色自己的 `DefaultVector` 与 `SSHUserSpaces`。
+`RoleSSHUserSpaces` / `SetRoleSSHUserSpaces` 在应用层归一并拒绝相对路径、`/`、
+超量或空路径，存储层保持原字节。账户的增删改查由 `service_account.go` 转发到
+可选 `AccountAdminPort`，账户本身没有独立权限向量。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
 `assistant/tool` 行写 `role_name=main`、给 `system`/internal 状态材料写

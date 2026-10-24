@@ -20,7 +20,7 @@ func AccountRoleFromName(name string) AccountRole {
 	return RoleAgent
 }
 
-// AccountDraft 是「设置 → 账户 → 手动添加」的输入面。
+// AccountDraft 是角色卡下「添加账户」的输入面。
 //
 // 口径与 accounts.yaml 的一条账号条目一致：留空的字段即继承 `defaults`
 // （Provider/BaseURL/ReasoningEffort 都可留空），所以界面可以只填"角色 + 模型 +
@@ -45,6 +45,29 @@ type AccountAddResult struct {
 	Role     string `json:"role"`
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+}
+
+// AccountDetails 是账号编辑窗口可读的非秘密字段。APIKey 永不回传；界面只在
+// APIKeySet=false 时提示“尚未配置密钥”，编辑时留空表示保留原密钥。
+type AccountDetails struct {
+	Name            string `json:"name"`
+	Role            string `json:"role"`
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	BaseURL         string `json:"base_url"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	APIKeySet       bool   `json:"api_key_set"`
+}
+
+// AccountUpdate 是账号编辑的输入。Name 与 Role 是身份，不允许借编辑改名或搬家；
+// APIKey 留空 = 保留原密钥。
+type AccountUpdate struct {
+	Name            string `json:"name"`
+	Provider        string `json:"provider,omitempty"`
+	Model           string `json:"model"`
+	BaseURL         string `json:"base_url,omitempty"`
+	APIKey          string `json:"api_key,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // AccountBalance 是一个账号此刻的余额读数（界面「账户」列表的逐行读数）。

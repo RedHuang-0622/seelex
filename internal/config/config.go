@@ -57,6 +57,9 @@ type simplifiedDefaults struct {
 
 // simplifiedAccount is a single entry in the role-based config format.
 type simplifiedAccount struct {
+	// Name 是界面写入的稳定账号 ID。旧手写条目可以省略，加载时仍按角色内位置
+	// 推导 `<role>-<n>`；一旦经过编辑/删除冻结，则名字不再随位置漂移。
+	Name     string `yaml:"name"`
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
 	BaseURL  string `yaml:"base_url"`
@@ -128,9 +131,20 @@ func parseAccounts(data []byte) (Config, error) {
 
 	specs := make([]model.AccountSpec, 0)
 	limitsByAccount := make(map[string]AccountLimits)
+	seenNames := make(map[string]struct{})
 	for _, role := range roleOrder {
 		for index, entry := range roleMap[role] {
-			name := fmt.Sprintf("%s-%d", role, index+1)
+			name := strings.TrimSpace(entry.Name)
+			if name == "" {
+				name = fmt.Sprintf("%s-%d", role, index+1)
+			}
+			if model.AccountRoleFromName(name) != role {
+				return Config{}, fmt.Errorf("seelex: account name %q must start with role %q", name, role)
+			}
+			if _, duplicate := seenNames[name]; duplicate {
+				return Config{}, fmt.Errorf("seelex: duplicate account name %q", name)
+			}
+			seenNames[name] = struct{}{}
 			maxConcurrency := defaultMaxConcurrency
 			// subagent 与 teammate 都是"多个并发干活的执行体"，共用高水位默认；
 			// teammate 想再收，就在账号条目上显式写 max_concurrency。

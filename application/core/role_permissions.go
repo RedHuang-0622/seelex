@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"path"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
@@ -65,6 +66,10 @@ type roleDefaultPort interface {
 	// RoleAccount / SetRoleAccount 读写该角色优先使用的账号（项目作用域）。
 	RoleAccount(sessionID, role string) (string, bool, error)
 	SetRoleAccount(sessionID, role, account string) error
+	RoleInheritance(sessionID, role string) (bool, bool, error)
+	SetRoleInheritance(sessionID, role string, inherit bool) error
+	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
+	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
 }
 
 // roleDefaultStore 取角色默认端口（未装配返回 nil）。
@@ -184,6 +189,106 @@ func (service *Service) RestoreRoleAccounts(sessionID string) error {
 		}
 	}
 	return nil
+}
+
+// RoleInheritMainAgent 读角色默认权限是否继承 mainagent。未设置时对外返回
+// subagent / teammate 的默认继承口径。
+func (service *Service) RoleInheritMainAgent(sessionID, role string) (bool, error) {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return false, ErrRolePermissionsUnavailable
+	}
+	role = strings.TrimSpace(role)
+	inherit, explicit, err := port.RoleInheritance(sessionID, role)
+	if err != nil {
+		return false, err
+	}
+	if explicit {
+		return inherit, nil
+	}
+	return role == string(dto.RoleSubAgent) || role == string(dto.RoleTeammate), nil
+}
+
+// SetRoleInheritMainAgent 设置 subagent / teammate 是否继承 mainagent 默认权限。
+func (service *Service) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	role = strings.TrimSpace(role)
+	if role != string(dto.RoleSubAgent) && role != string(dto.RoleTeammate) {
+		return errors.New("role inheritance: only subagent and teammate can inherit mainagent")
+	}
+	return port.SetRoleInheritance(sessionID, role, inherit)
+}
+
+// RoleSSHUserSpaces 读 ssh.userspace 的路径允许范围。
+func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return nil, ErrRolePermissionsUnavailable
+	}
+	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
+	if role == string(dto.RoleSubAgent) || role == string(dto.RoleTeammate) {
+		inherit, explicit, err := port.RoleInheritance(sessionID, role)
+		if err != nil {
+			return nil, err
+		}
+		// ssh.userspace 的路径范围与权限向量同属一份继承语义：默认继承时读
+		// mainagent 的范围；关闭继承后才读该角色自己的覆盖。否则子角色会显示
+		// “继承了 ssh.userspace”却因空路径而全部 fail-closed。
+		if !explicit || inherit {
+			return port.RoleSSHUserSpaces(sessionID, string(dto.RoleAgent))
+		}
+	}
+	return port.RoleSSHUserSpaces(sessionID, role)
+}
+
+// SetRoleSSHUserSpaces 写 ssh.userspace 的路径允许范围（远端 POSIX 绝对路径）。
+func (service *Service) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
+	port := service.roleDefaultStore()
+	if port == nil {
+		return ErrRolePermissionsUnavailable
+	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return errors.New("role user spaces: role is required")
+	}
+	normalized, err := normalizeRemoteUserSpaces(paths)
+	if err != nil {
+		return err
+	}
+	return port.SetRoleSSHUserSpaces(sessionID, role, normalized)
+}
+
+func normalizeRemoteUserSpaces(paths []string) ([]string, error) {
+	if len(paths) > 64 {
+		return nil, errors.New("role user spaces: at most 64 paths are allowed")
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(paths))
+	for _, raw := range paths {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			continue
+		}
+		if len(item) > 512 || !strings.HasPrefix(item, "/") {
+			return nil, errors.New("role user spaces: every path must be an absolute remote POSIX path")
+		}
+		clean := path.Clean(item)
+		if clean == "/" {
+			return nil, errors.New("role user spaces: root path is too broad; list specific directories")
+		}
+		if _, exists := seen[clean]; exists {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("role user spaces: list at least one absolute remote path")
+	}
+	return out, nil
 }
 
 // rolePermissionLayerPort 是五层来源的读取面（user_allow / agent_dispatch /

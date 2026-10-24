@@ -279,6 +279,37 @@ func TestFaceGateConcurrentRolesDoNotPollute(t *testing.T) {
 	}
 }
 
+func TestRemoteUserspaceAllowlistIsFailClosed(t *testing.T) {
+	const sessionID = "sess-user-space-list"
+	scope, _, _ := boundScope(t, sessionID)
+	gateway := newFaceGate(t)
+	gated := PathGate(faceDepsWithGate(gateway, scope, sessionID))
+	ctx := WithEmployeeGrant(faceCtx(sessionID), "deployer", "readwrite", map[string]uint8{
+		policy.GroupRO:           policy.BitRead,
+		policy.GroupRW:           policy.BitRead | policy.BitWrite,
+		policy.GroupSSH:          policy.BitExecute,
+		policy.GroupSSHUserspace: policy.BitRead | policy.BitWrite | policy.BitExecute,
+	})
+
+	allowedCtx := remoteDecisionContext(WithRemoteUserSpaces(ctx, []string{"/home/seelex/.cache"}), "/srv/app")
+	ran, err, _, _ := runPathGate(t, gated, allowedCtx, ReadFileToolName, `{"path":"/home/seelex/.cache/build.log"}`)
+	if err != nil || !ran {
+		t.Fatalf("允许目录内路径应放行：err=%v ran=%v", err, ran)
+	}
+
+	deniedCtx := remoteDecisionContext(WithRemoteUserSpaces(ctx, []string{"/home/seelex/.cache"}), "/srv/app")
+	ran, err, _, _ = runPathGate(t, gated, deniedCtx, ReadFileToolName, `{"path":"/etc/passwd"}`)
+	if ran || FacePermissionErrorCode(err) != CodePermSSHUserspacePathDenied {
+		t.Fatalf("允许目录外必须拒：ran=%v err=%v", ran, err)
+	}
+
+	emptyCtx := remoteDecisionContext(WithRemoteUserSpaces(ctx, nil), "/srv/app")
+	ran, err, _, _ = runPathGate(t, gated, emptyCtx, ReadFileToolName, `{"path":"/home/seelex/.cache/build.log"}`)
+	if ran || FacePermissionErrorCode(err) != CodePermSSHUserspacePathDenied {
+		t.Fatalf("空路径列表必须 fail-closed：ran=%v err=%v", ran, err)
+	}
+}
+
 func errString(err error) string {
 	if err == nil {
 		return "<nil>"

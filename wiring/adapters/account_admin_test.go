@@ -35,15 +35,30 @@ roles:
 
 // fakeRegistrar 记录"交给运行时的那条账号"。
 type fakeRegistrar struct {
-	got    *model.AccountSpec
-	limits config.AccountLimits
-	err    error
+	got           *model.AccountSpec
+	replaced      *model.AccountSpec
+	removed       string
+	limits        config.AccountLimits
+	err           error
+	replaceErr    error
+	unregisterErr error
 }
 
 func (registrar *fakeRegistrar) RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error {
 	registrar.got = &spec
 	registrar.limits = limits
 	return registrar.err
+}
+
+func (registrar *fakeRegistrar) ReplaceAccount(spec model.AccountSpec, limits config.AccountLimits) error {
+	registrar.replaced = &spec
+	registrar.limits = limits
+	return registrar.replaceErr
+}
+
+func (registrar *fakeRegistrar) UnregisterAccount(name string) error {
+	registrar.removed = name
+	return registrar.unregisterErr
 }
 
 func writeAdminFixture(t *testing.T) string {
@@ -125,6 +140,43 @@ func TestAccountAdminReportsHotRegisterFailure(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "sk\n") && !strings.Contains(string(raw), "api_key: sk") {
 		t.Fatalf("已落盘的条目不该被回滚:\n%s", raw)
+	}
+}
+
+func TestAccountAdminDetailsUpdateDeleteRoundTrip(t *testing.T) {
+	path := writeAdminFixture(t)
+	registrar := &fakeRegistrar{}
+	admin := AccountAdmin{Path: path, Runtime: registrar}
+
+	details, err := admin.AccountDetails("agent-1")
+	if err != nil {
+		t.Fatalf("AccountDetails: %v", err)
+	}
+	if details.Model != "deepseek-flash" || !details.APIKeySet || details.Role != "agent" ||
+		details.Provider != "" || details.ReasoningEffort != "session" {
+		t.Fatalf("details = %+v", details)
+	}
+	updated, err := admin.UpdateAccount(dto.AccountUpdate{
+		Name: "agent-1", Provider: "openai", Model: "gpt-5", BaseURL: "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+	if updated.Model != "gpt-5" || registrar.replaced == nil || registrar.replaced.Model != "gpt-5" {
+		t.Fatalf("更新回执/热替换 = %+v / %+v", updated, registrar.replaced)
+	}
+	if registrar.replaced.APIKey != "sk-old" {
+		t.Fatalf("空 api_key 更新应保留旧密钥，得到 %q", registrar.replaced.APIKey)
+	}
+	if _, err := admin.AddAccount(dto.AccountDraft{Role: "agent", Model: "gpt-5-mini", APIKey: "sk-second"}); err != nil {
+		t.Fatalf("准备第二条账号: %v", err)
+	}
+	deleted, err := admin.DeleteAccount("agent-1")
+	if err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+	if deleted.Name != "agent-1" || registrar.removed != "agent-1" {
+		t.Fatalf("删除回执/运行时退租 = %+v / %q", deleted, registrar.removed)
 	}
 }
 

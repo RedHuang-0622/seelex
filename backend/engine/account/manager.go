@@ -119,6 +119,70 @@ func (m *Manager) Add(spec model.AccountSpec, limits config.AccountLimits) error
 	return nil
 }
 
+// Spec 返回一个账号规格的只读拷贝。
+func (m *Manager) Spec(name string) (model.AccountSpec, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	spec, ok := m.specs[strings.TrimSpace(name)]
+	return spec, ok
+}
+
+// Replace 原位替换一个账号规格与限额。名称是身份，角色不允许借编辑迁移；
+// 选中账号的 provider 过滤随规格更新，账号列表仍然读同一个池条目。
+func (m *Manager) Replace(spec model.AccountSpec, limits config.AccountLimits) error {
+	if m == nil {
+		return fmt.Errorf("seelex: account manager is unavailable")
+	}
+	name := strings.TrimSpace(spec.Name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old, exists := m.specs[name]
+	if !exists {
+		return fmt.Errorf("seelex: account %q does not exist", name)
+	}
+	if old.Role != spec.Role {
+		return fmt.Errorf("seelex: account %q cannot move from role %q to %q", name, old.Role, spec.Role)
+	}
+	spec.Name = name
+	m.specs[name] = spec
+	if m.limits == nil {
+		m.limits = make(map[string]config.AccountLimits)
+	}
+	m.limits[name] = limits
+	if m.selectedID == name {
+		m.providerFilter = spec.Provider
+	}
+	return nil
+}
+
+// Remove 移除账号管理器里的规格，并清掉所有指向它的选择与默认槽。
+func (m *Manager) Remove(name string) error {
+	if m == nil {
+		return fmt.Errorf("seelex: account manager is unavailable")
+	}
+	name = strings.TrimSpace(name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.specs[name]; !exists {
+		return fmt.Errorf("seelex: account %q does not exist", name)
+	}
+	delete(m.specs, name)
+	delete(m.limits, name)
+	if m.selectedID == name {
+		m.selectedID = ""
+		m.providerFilter = ""
+	}
+	if m.defaultID == name {
+		m.defaultID = ""
+	}
+	for role, account := range m.roleAccounts {
+		if account == name {
+			delete(m.roleAccounts, role)
+		}
+	}
+	return nil
+}
+
 // SetSelected 设置选中账号（不校验规格；plan 分支冻结路径用）。
 func (m *Manager) SetSelected(name string) {
 	m.mu.Lock()

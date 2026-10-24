@@ -58,7 +58,7 @@ flowchart LR
   （函数值，域包因此不认识配置与账号池）。落盘在 `backend/limit/overlay`，界面侧校验在
   `backend/limit/accountwindow`，两边都只校验/落盘/读生效值，不各判一次优先级。
 - `QueryBalance(ctx, spec)` / `BalanceEndpoint(spec)`（`balance.go`）：**账号余额探测**（界面
-  「设置 → 账户 → 查看余额」）。判据三条：① 供应商是**显式白名单**——目前只有 DeepSeek 的
+  「角色卡账户行的余额」）。判据三条：① 供应商是**显式白名单**——目前只有 DeepSeek 的
   `GET {base}/user/balance`；其它 OpenAI 兼容供应商没有等价端点，返回 `ErrBalanceUnsupported`
   （可展示原话），绝不猜一个 URL 去打人家的服务；② 端点推导要把 `base_url` 尾部的 `/v1` 去掉
   （DeepSeek 的余额端点挂在域名根上，不在 `/v1` 之下）；③ 金额保持 provider 给的**字符串原样**

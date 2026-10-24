@@ -19,14 +19,14 @@
 
 | 文件 | 承载 |
 |---|---|
-| `account.go` | 账号的两条界面链路：`AccountDraft` / `AccountAddResult`（手动添加的输入与生效回执，含推导出来的账号名）、`AccountBalance` / `AccountBalanceInfo`（逐账号余额读数，金额保持供应商给的字符串原样），以及 `AccountRoleVocabulary()`（可添加角色的唯一词表，界面下拉从它来）。 |
+| `account.go` | 角色卡下的账户管理契约：`AccountDraft` / `AccountAddResult`（新增）、`AccountDetails` / `AccountUpdate`（读取与编辑，密钥只报告 `api_key_set`，编辑留空保留原密钥）、`AccountBalance` / `AccountBalanceInfo`（逐账号余额读数，金额保持供应商字符串原样），以及 `AccountRoleVocabulary()`（角色词表唯一来源）。 |
 | `plan.go` | `PlanEdge` 与 Plan 可序列化形状、`AccountRole`（agent / subagent / goalplan）。 |
 | `task.go` | 包文档、`TaskStatus` 生命周期、`TaskPhase*` worktable 阶段常量。 |
 | `projection.go` | `RuntimeVisibilityProjection`（application → runtime 的不可变可见性投影）、`GoalGovernanceView`（goal 治理只读投影）。 |
 | `agentteam.go` | `RoleKind` / `OrderPolicy` / `TeamKind` 等 A2A 角色工厂枚举与 `TeamSpec` / `RoleSpec`。 |
 | `rolesession.go` | R2/R4 群聊角色会话纯 DTO（`Event` / `RoleDraftRow` / `RoleSnapshot` 的应用层形状）。 |
 | `permission.go` | 员工权限装配词汇：路由组名 + 位值（前端按组渲染「逐格装配」面板）。 |
-| `role_settings.go` | 角色设置（`RoleSettings`：账号 / 上下文窗口 / 权限向量 / 默认 plugin）与**五级权限向量解析的唯一实现**（`RoleSettingsLayers` + `ResolvePermissionVector` / `ResolveRoleSettings`；层序 `user_allow > agent_dispatch > session_default > role_default > global_default`，`!tag` 表示这一层明确不给）。`PermissionRoleInfo` 分开给出生效向量与角色默认向量。标签是 `permission.go` 路由组的别名，不另造词表。 |
+| `role_settings.go` | 角色设置（`RoleSettings`：账号 / 上下文窗口 / 权限向量 / 默认 plugin）与**五级权限向量解析的唯一实现**（`RoleSettingsLayers` + `ResolvePermissionVector` / `ResolveRoleSettings`；层序 `user_allow > agent_dispatch > session_default > role_default > global_default`，`!tag` 表示这一层明确不给）。`PermissionRoleInfo` 同时携带生效/默认向量、`inherit_main_agent` 与 `ssh_user_spaces`；subagent / teammate 的继承同时覆盖权限与远端路径范围。 |
 | `scene_scope.go` | `SceneScope`：后台工作现场/子代理的执行作用域（SceneID / 角色 / 分支 / 工作区 / TaskID），ctx 携带；各读者只取自己需要的字段。原 Plan 节点 `NodeScope` 已退役。 |
 | `scheduler.go` | `ScheduledTaskKind` / `PeriodUnit` 定时与周期任务契约。 |
 | `subagent.go` | 子代理树只读投影（状态、节点、紧凑上下文）。 |

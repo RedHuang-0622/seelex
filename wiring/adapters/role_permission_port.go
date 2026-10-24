@@ -121,6 +121,38 @@ func (port SessionPort) SetRoleAccount(sessionID, role, account string) error {
 	return storage.SetRoleAccount(port.rolePermissionProject(sessionID), strings.TrimSpace(role), strings.TrimSpace(account))
 }
 
+func (port SessionPort) RoleInheritance(sessionID, role string) (bool, bool, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return false, false, errors.New("role inheritance: session storage is not assembled")
+	}
+	return storage.RoleInheritance(port.rolePermissionProject(sessionID), strings.TrimSpace(role))
+}
+
+func (port SessionPort) SetRoleInheritance(sessionID, role string, inherit bool) error {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return errors.New("role inheritance: session storage is not assembled")
+	}
+	return storage.SetRoleInheritance(port.rolePermissionProject(sessionID), strings.TrimSpace(role), inherit)
+}
+
+func (port SessionPort) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return nil, errors.New("role user spaces: session storage is not assembled")
+	}
+	return storage.RoleSSHUserSpaces(port.rolePermissionProject(sessionID), strings.TrimSpace(role))
+}
+
+func (port SessionPort) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
+	storage := port.rolePermissionStore()
+	if storage == nil {
+		return errors.New("role user spaces: session storage is not assembled")
+	}
+	return storage.SetRoleSSHUserSpaces(port.rolePermissionProject(sessionID), strings.TrimSpace(role), paths)
+}
+
 // RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
 // **所有显式登记过**的角色 → 权限向量（会话加载点一次读回全部角色）。
 func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error) {
@@ -211,7 +243,16 @@ func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSet
 	// global_default，但仍低于会话、派发与用户显式允许。过去把它塞进 global_default
 	// 会让 UI 写着“角色默认”而实际被 session_default 静默盖掉，属于两份语义共用一格。
 	if storage := port.rolePermissionStore(); storage != nil {
-		if vector, ok, err := storage.Default(port.rolePermissionProject(sessionID), role); err == nil && ok {
+		projectID := port.rolePermissionProject(sessionID)
+		inheritMain := role == string(dto.RoleSubAgent) || role == string(dto.RoleTeammate)
+		if value, explicit, err := storage.RoleInheritance(projectID, role); err == nil && explicit {
+			inheritMain = value
+		}
+		defaultRole := role
+		if inheritMain && role != string(dto.RoleAgent) {
+			defaultRole = string(dto.RoleAgent)
+		}
+		if vector, ok, err := storage.Default(projectID, defaultRole); err == nil && ok {
 			layers.RoleDefault = dto.RoleSettings{PermissionVector: vector}
 		}
 	}

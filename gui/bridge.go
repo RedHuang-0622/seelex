@@ -49,11 +49,14 @@ type Application interface {
 	// 先落盘（宿主自己的覆盖层）再改运行时，返回**真正生效**的窗口；window <= 0 =
 	// 清掉该账号的覆盖（回落 config/seelex.yaml 的 limits.context_window）。
 	SetAccountWindow(context.Context, string, int) (int, error)
-	// AddAccount 是「手动添加账号」的写面（设置 → 账户 → 添加）：写账号档 + 热注册，
+	// AddAccount 是角色卡下「添加账户」的写面：写账号档 + 热注册，
 	// 返回生效的账号名。校验/落盘失败时什么都没变；已落盘但热注册失败时错误里会写明
 	// "重启后生效"。
 	AddAccount(context.Context, application.AccountDraft) (application.AccountAddResult, error)
-	// AccountBalance 是「查一个账号此刻的余额」的读面（设置 → 账户 的逐行读数）。
+	AccountDetails(string) (application.AccountDetails, error)
+	UpdateAccount(application.AccountUpdate) (application.AccountDetails, error)
+	DeleteAccount(string) (application.AccountDetails, error)
+	// AccountBalance 是「查一个账号此刻的余额」的读面（角色卡账户行）。
 	// 余额是快照：点一次查一次，不进快照缓存。
 	AccountBalance(context.Context, string) (application.AccountBalance, error)
 	SwitchPlugin(context.Context, string) error
@@ -187,6 +190,10 @@ type roleSettingsApplication interface {
 	// 角色默认账号（项目作用域）。空 account = 未设置，由账号池按角色选择。
 	RoleAccount(sessionID, role string) (string, bool, error)
 	SetRoleAccount(sessionID, role, account string) error
+	RoleInheritMainAgent(sessionID, role string) (bool, error)
+	SetRoleInheritMainAgent(sessionID, role string, inherit bool) error
+	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
+	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
 }
 
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
@@ -909,14 +916,14 @@ func (bridge *Bridge) AccountWindowPresets() []int {
 	return application.AccountWindowPresets()
 }
 
-// AccountRoles 返回「手动添加账号」的角色词表（设置 → 账户 → 添加 的下拉数据源）。
+// AccountRoles 返回角色卡下账户新增/编辑的角色词表。
 //
 // 与 AccountWindowPresets 同一姿势：**后端下发**，前端不写死一份。
 func (bridge *Bridge) AccountRoles() []string {
 	return application.AccountRoles()
 }
 
-// AddAccount 手动添加一个账号（设置 → 账户 → 添加）：写账号档 + 热注册进运行时。
+// AddAccount 在角色卡下新增账号：写账号档 + 热注册进运行时。
 //
 // 返回**生效的账号名**（`agent-2` 这种由账号档位置推导的名字）——界面必须采纳它，
 // 因为下一步"选中它/改窗口/查余额"都按名字打；自己猜下一个序号会在并发添加或
@@ -928,7 +935,22 @@ func (bridge *Bridge) AddAccount(draft application.AccountDraft) (application.Ac
 	return bridge.app.AddAccount(bridge.requestContext(), draft)
 }
 
-// AccountBalance 查一个账号此刻的余额（设置 → 账户 的逐行读数）。
+// AccountDetails 读取编辑账户窗口需要的非秘密字段（密钥永不回传）。
+func (bridge *Bridge) AccountDetails(name string) (application.AccountDetails, error) {
+	return bridge.app.AccountDetails(strings.TrimSpace(name))
+}
+
+// UpdateAccount 原位更新账户；api_key 留空保留原密钥。
+func (bridge *Bridge) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error) {
+	return bridge.app.UpdateAccount(update)
+}
+
+// DeleteAccount 删除账户并返回被删条目的非秘密回执。
+func (bridge *Bridge) DeleteAccount(name string) (application.AccountDetails, error) {
+	return bridge.app.DeleteAccount(strings.TrimSpace(name))
+}
+
+// AccountBalance 查一个账号此刻的余额（角色卡账户行）。
 //
 // 余额是**快照**：不进快照、不缓存，点一次查一次（供应商侧一次账单请求，读的是
 // 当下真实值）。供应商没有余额接口时返回一句可展示的原话（ErrBalanceUnsupported
@@ -1264,11 +1286,64 @@ func (bridge *Bridge) SetRoleAccount(role, account string) (dto.PermissionRoleIn
 	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
 }
 
+// SetRoleInheritance 切换 subagent / teammate 是否继承 mainagent 的默认权限。
+func (bridge *Bridge) SetRoleInheritance(role string, inherit bool) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	snapshot := bridge.app.Snapshot()
+	if err := app.SetRoleInheritMainAgent(snapshot.Session.ID, role, inherit); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
+// SetRoleSSHUserSpaces 写角色在远端项目根之外的路径允许范围。
+func (bridge *Bridge) SetRoleSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	snapshot := bridge.app.Snapshot()
+	if err := app.SetRoleSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
+// SetRoleSessionPermission 写本会话里某个 agent role 的显式权限覆盖。
+// 它只影响当前会话，不改变角色的跨会话默认。
+func (bridge *Bridge) SetRoleSessionPermission(role string, tags []string) (dto.PermissionRoleInfo, error) {
+	app, err := bridge.roleSettings()
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	role = strings.TrimSpace(role)
+	snapshot := bridge.app.Snapshot()
+	if err := app.SetRolePermissionVector(snapshot.Session.ID, role, tags); err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
+	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+}
+
 // permissionRoleGroups 把账号列表按角色归并：返回角色顺序（按账号出现顺序，稳定）
 // 与角色 → 账号列表。
 func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]model.AccountInfo) {
-	order := make([]string, 0, len(accounts))
+	order := make([]string, 0, len(accounts)+len(dto.AccountRoleVocabulary()))
 	groups := map[string][]model.AccountInfo{}
+	// 四个标准 agent role 是权限板的固定骨架：即使某个角色今天没有账号，用户仍要能
+	// 先配置它的默认权限，再从该角色卡添加账号。账号只是角色的子项，不能反过来决定
+	// 角色是否存在。
+	for _, role := range dto.AccountRoleVocabulary() {
+		order = append(order, role)
+		groups[role] = []model.AccountInfo{}
+	}
 	for _, account := range accounts {
 		role := strings.TrimSpace(account.Role)
 		if role == "" {
@@ -1277,6 +1352,7 @@ func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]
 		}
 		if _, ok := groups[role]; !ok {
 			order = append(order, role)
+			groups[role] = []model.AccountInfo{}
 		}
 		groups[role] = append(groups[role], account)
 	}
@@ -1308,6 +1384,14 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 		info.DefaultVector = []string{}
 	}
 	info.Explicit = explicit
+	info.InheritMainAgent, err = app.RoleInheritMainAgent(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
+	info.SSHUserSpaces, err = app.RoleSSHUserSpaces(sessionID, role)
+	if err != nil {
+		return dto.PermissionRoleInfo{}, err
+	}
 	account, _, err := app.RoleAccount(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err

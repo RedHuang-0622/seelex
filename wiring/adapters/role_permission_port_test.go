@@ -86,6 +86,29 @@ func TestRoleDefaultOccupiesItsOwnLayer(t *testing.T) {
 	}
 }
 
+func TestTeammateInheritsMainAgentDefaultUntilDisabled(t *testing.T) {
+	router := newRolePermissionTestRouter(t)
+	const sessionID = "sess-role-inherit"
+	port := newRolePermissionTestPort(t, router)
+	if err := port.SetRoleDefault(sessionID, "agent", []string{dto.PermissionTagRO}); err != nil {
+		t.Fatal(err)
+	}
+	if err := port.SetRoleDefault(sessionID, "teammate", []string{dto.PermissionTagRW}); err != nil {
+		t.Fatal(err)
+	}
+	layers := port.RolePermissionLayers(sessionID, "teammate")
+	if got := layers.RoleDefault.PermissionVector; len(got) != 1 || got[0] != dto.PermissionTagRO {
+		t.Fatalf("默认继承 mainagent，得到 %v", got)
+	}
+	if err := port.SetRoleInheritance(sessionID, "teammate", false); err != nil {
+		t.Fatal(err)
+	}
+	layers = port.RolePermissionLayers(sessionID, "teammate")
+	if got := layers.RoleDefault.PermissionVector; len(got) != 1 || got[0] != dto.PermissionTagRW {
+		t.Fatalf("关闭继承后应使用 teammate 默认，得到 %v", got)
+	}
+}
+
 // TestRolePermissionPortWritesLandOnlyInOwnProject：登记按会话归属项目落键，
 // 不跟着"用户现在在看哪个项目"漂移。
 func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T) {

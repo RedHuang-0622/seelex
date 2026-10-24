@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -59,6 +60,10 @@ type EnginePort struct {
 	sessionMaxLoops map[string]int
 	sessionBacked   bool
 	releaseWorking  bool
+	// roleUserSpaces 按主会话 + 账号角色读取 ssh.userspace 路径范围。
+	// 主代理走 ChatStream/ChatStreamFor，不经过 role-turn 的上下文包装，因此必须
+	// 在这里给主会话补同一份范围；角色回合随后用自己的 role 覆盖这一格。
+	roleUserSpaces func(sessionID, role string) []string
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
 	// 只读子代理 actor，安全——不经过主会话锁）。
 	nodeConversations func(string) ([]types.Message, bool)
@@ -266,6 +271,26 @@ func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *te
 // 应用层不得在回调中重入 Engine 历史操作（见 chat.go ToolHookBridge）。
 func (port *EnginePort) SessionBacked() bool { return port.sessionBacked }
 
+// SetRoleUserSpacesProvider 注入主会话的 ssh.userspace 路径范围读面。
+func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string) {
+	if port == nil {
+		return
+	}
+	port.mu.Lock()
+	port.roleUserSpaces = provider
+	port.mu.Unlock()
+}
+
+func (port *EnginePort) withRoleUserSpaces(ctx context.Context, sessionID string) context.Context {
+	port.mu.RLock()
+	provider := port.roleUserSpaces
+	port.mu.RUnlock()
+	if provider == nil || strings.TrimSpace(sessionID) == "" {
+		return ctx
+	}
+	return toolreg.WithRemoteUserSpaces(ctx, provider(sessionID, string(dto.RoleAgent)))
+}
+
 func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	port.mu.Lock()
 	current := port.engine
@@ -282,6 +307,7 @@ func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk fu
 	// 会话 ID，否则 SessionTagHook 在生产侧无标签可打，per-session trace
 	// 查询（TokenCountFor/TraceText 按会话）退回全局求和。
 	ctx = obs.WithTelemetrySessionID(ctx, sessionID)
+	ctx = port.withRoleUserSpaces(ctx, sessionID)
 	result, err := current.ChatStream(ctx, input, onChunk)
 
 	port.mu.Lock()
@@ -313,6 +339,7 @@ func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, inp
 	// 路由键。Seele loop 原样把该 ctx 传给 hooks 与工具 handler，因此 llm/tool
 	// 的 intent-effect 事件都带 session_id，可按会话查询（INV-T1/T2 生产成立）。
 	ctx = obs.WithTelemetrySessionID(ctx, sessionID)
+	ctx = port.withRoleUserSpaces(ctx, sessionID)
 	result, err := engine.ChatStream(ctx, input, onChunk)
 
 	port.mu.Lock()

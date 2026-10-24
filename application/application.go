@@ -87,6 +87,8 @@ type (
 	// 口径——前端只借类型身份，不直接引 contract/dto。
 	AccountDraft     = dto.AccountDraft
 	AccountAddResult = dto.AccountAddResult
+	AccountDetails   = dto.AccountDetails
+	AccountUpdate    = dto.AccountUpdate
 	AccountBalance   = dto.AccountBalance
 	// AccountBalanceInfo 是余额读数里的一种币种（界面对账要按币种显示）。
 	AccountBalanceInfo = dto.AccountBalanceInfo

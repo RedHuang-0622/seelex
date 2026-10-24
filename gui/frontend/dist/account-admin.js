@@ -1,4 +1,4 @@
-// account-admin.js — 「设置 → 账户」两条链路的判据层：手动添加 与 逐账号查余额。
+// account-admin.js — 角色卡下账户的判据层：新增/编辑草稿 与 逐账号查余额。
 //
 // 这里只放**纯函数**（表单值 → 草稿、读数 → 文案）：DOM 与 invoke 的接线留在
 // app.js。分开的理由与 account-window.js / role-settings.js 一致——判据能被

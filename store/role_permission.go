@@ -49,6 +49,8 @@ type RolePermissionRecord struct {
 	SessionID        string    `json:"session_id"`
 	Role             string    `json:"role"`
 	Account          string    `json:"account,omitempty"`
+	InheritMainAgent *bool     `json:"inherit_main_agent,omitempty"`
+	SSHUserSpaces    []string  `json:"ssh_user_spaces,omitempty"`
 	PermissionVector []string  `json:"permission_vector"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -297,6 +299,76 @@ func (store *RolePermissionStore) SetRoleAccount(projectID, role, account string
 		record := file.RoleDefaults[role]
 		record.Role = role
 		record.Account = account
+		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
+		record.UpdatedAt = time.Now().UTC()
+		file.RoleDefaults[role] = record
+	})
+}
+
+// RoleInheritance 读角色是否继承 mainagent 的默认权限。第二个返回值报告是否显式
+// 设置过；subagent / teammate 的“未设置即继承”由上层口径决定。
+func (store *RolePermissionStore) RoleInheritance(projectID, role string) (bool, bool, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return false, false, fmt.Errorf("session storage: role inheritance requires a role")
+	}
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return false, false, err
+	}
+	record, ok := file.RoleDefaults[role]
+	if !ok || record.InheritMainAgent == nil {
+		return false, false, nil
+	}
+	return *record.InheritMainAgent, true, nil
+}
+
+// SetRoleInheritance 设置角色默认权限是否继承 mainagent；不影响会话显式登记。
+func (store *RolePermissionStore) SetRoleInheritance(projectID, role string, inherit bool) error {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return fmt.Errorf("session storage: role inheritance requires a role")
+	}
+	return store.mutate(projectID, func(file *rolePermissionFile) {
+		if file.RoleDefaults == nil {
+			file.RoleDefaults = map[string]RolePermissionRecord{}
+		}
+		record := file.RoleDefaults[role]
+		record.Role = role
+		record.InheritMainAgent = &inherit
+		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
+		record.UpdatedAt = time.Now().UTC()
+		file.RoleDefaults[role] = record
+	})
+}
+
+// RoleSSHUserSpaces 读取 ssh.userspace 可访问的远端路径前缀。
+func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return nil, fmt.Errorf("session storage: role user spaces require a role")
+	}
+	file, err := store.snapshot(projectID)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{}, file.RoleDefaults[role].SSHUserSpaces...), nil
+}
+
+// SetRoleSSHUserSpaces 写 ssh.userspace 路径前缀。空切片表示显式不放行任何路径；
+// 规范化与校验由调用方完成，本层保持原字节语义。
+func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return fmt.Errorf("session storage: role user spaces require a role")
+	}
+	return store.mutate(projectID, func(file *rolePermissionFile) {
+		if file.RoleDefaults == nil {
+			file.RoleDefaults = map[string]RolePermissionRecord{}
+		}
+		record := file.RoleDefaults[role]
+		record.Role = role
+		record.SSHUserSpaces = append([]string{}, paths...)
 		record.PermissionVector = normalizedRoleVector(record.PermissionVector)
 		record.UpdatedAt = time.Now().UTC()
 		file.RoleDefaults[role] = record

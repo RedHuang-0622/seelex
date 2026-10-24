@@ -24,11 +24,13 @@ import (
 	"strings"
 	"sync"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
-// NewAccountInput 是「设置 → 账户 → 手动添加」的输入（非敏感字段 + 凭据）。
+// NewAccountInput 是角色卡下「添加账户」的输入（非敏感字段 + 凭据）。
 //
 // 字段口径与 accounts.yaml 的账号条目一致：能留空的都留空即继承 `defaults`，
 // 与手写一条账号的效果完全相同（同一份加载器解析）。
@@ -36,6 +38,28 @@ type NewAccountInput struct {
 	// Role 是账号角色（agent / subagent / goalplan / teammate）；决定它落进哪个
 	// 角色块，也决定生成的名字（`<role>-<序号>`）。
 	Role            string
+	Provider        string
+	Model           string
+	BaseURL         string
+	APIKey          string
+	ReasoningEffort string
+}
+
+// AccountRecord 是账号管理界面可读的非秘密字段（APIKeySet 只报告是否已有密钥）。
+type AccountRecord struct {
+	Name            string
+	Role            string
+	Provider        string
+	Model           string
+	BaseURL         string
+	ReasoningEffort string
+	APIKeySet       bool
+}
+
+// UpdateAccountInput 是账号编辑的输入。Name 与 Role 是身份，不允许借编辑改名或搬家；
+// APIKey 留空表示保留原密钥，避免界面为了改模型而要求重新输入凭据。
+type UpdateAccountInput struct {
+	Name            string
 	Provider        string
 	Model           string
 	BaseURL         string
@@ -59,7 +83,7 @@ func normalizeAccountRole(role string) (model.AccountRole, error) {
 	return "", fmt.Errorf("seelex: account role %q is not valid, want one of %v", role, AccountRoles())
 }
 
-// addAccountMu 把"读 → 插 → 复核 → 写"整段串行化。
+// accountWriteMu 把账号档的"读 → 改 → 复核 → 写"整段串行化。
 //
 // 为什么要它：这段是**读改写**，而账号名是"位置推导"的。两个界面请求并发进来时，
 // 两边都会读到同一份文件、都算出 `agent-2`，后写的那次把先写的整条覆盖掉——用户看到
@@ -68,7 +92,7 @@ func normalizeAccountRole(role string) (model.AccountRole, error) {
 // 边界：只串行化**本进程内**的写入。跨进程（同一份账号档被另一个实例改）不在本层
 // 处理——那种情况靠插入后的整份复核把"读到的不是我以为的那份"暴露成错误，而不是
 // 静默写坏。
-var addAccountMu sync.Mutex
+var accountWriteMu sync.Mutex
 
 // AddAccount 把一个新账号追加进账号档并返回它**生效的名字**（`<role>-<序号>`，
 // 序号由加载器按条目位置推导，本函数不自己编）。
@@ -77,8 +101,8 @@ var addAccountMu sync.Mutex
 // 文件不存在时按最小骨架新建（`defaults` + 该角色一条）——这与"配置缺失时加载器
 // 用内置兜底账号"并不冲突：新建之后这份文件就是账号档本身。
 func AddAccount(path string, input NewAccountInput) (string, error) {
-	addAccountMu.Lock()
-	defer addAccountMu.Unlock()
+	accountWriteMu.Lock()
+	defer accountWriteMu.Unlock()
 
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("seelex: accounts path is empty")
@@ -121,6 +145,7 @@ func AddAccount(path string, input NewAccountInput) (string, error) {
 
 	entry := pendingAccount{
 		role:     role,
+		name:     nextAccountName(before.Specs, role),
 		model:    modelName,
 		baseURL:  strings.TrimSpace(input.BaseURL),
 		apiKey:   apiKey,
@@ -143,9 +168,208 @@ func AddAccount(path string, input NewAccountInput) (string, error) {
 	return name, nil
 }
 
+// ReadAccount 读取一个账号的非秘密字段。
+func ReadAccount(path, name string) (AccountRecord, error) {
+	if strings.TrimSpace(path) == "" {
+		return AccountRecord{}, fmt.Errorf("seelex: accounts path is empty")
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	spec := accountSpecByName(loaded.Specs, strings.TrimSpace(name))
+	if spec == nil {
+		return AccountRecord{}, fmt.Errorf("seelex: unknown account %q", name)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	var source simplifiedConfig
+	if err := yaml.Unmarshal(raw, &source); err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: read account %q: %w", name, err)
+	}
+	roleEntries := map[model.AccountRole][]simplifiedAccount{
+		model.RoleAgent:    source.Roles.Agent,
+		model.RoleSubAgent: source.Roles.SubAgent,
+		model.RoleGoalPlan: source.Roles.GoalPlan,
+		model.RoleTeammate: source.Roles.Teammate,
+	}[spec.Role]
+	ordinal := 0
+	for _, candidate := range loaded.Specs {
+		if candidate.Role != spec.Role {
+			continue
+		}
+		ordinal++
+		if candidate.Name == spec.Name {
+			break
+		}
+	}
+	if ordinal <= 0 || ordinal > len(roleEntries) {
+		return AccountRecord{}, fmt.Errorf("seelex: account %q has no matching YAML entry", name)
+	}
+	entry := roleEntries[ordinal-1]
+	return AccountRecord{
+		Name:            spec.Name,
+		Role:            string(spec.Role),
+		Provider:        strings.TrimSpace(entry.Provider),
+		Model:           strings.TrimSpace(entry.Model),
+		BaseURL:         strings.TrimSpace(entry.BaseURL),
+		ReasoningEffort: strings.TrimSpace(entry.ReasoningEffort),
+		APIKeySet:       strings.TrimSpace(entry.APIKey) != "",
+	}, nil
+}
+
+// UpdateAccount 原位更新一条账号，保留条目外的注释与其它账号字节。
+func UpdateAccount(path string, input UpdateAccountInput) (AccountRecord, error) {
+	accountWriteMu.Lock()
+	defer accountWriteMu.Unlock()
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return AccountRecord{}, fmt.Errorf("seelex: account name is required")
+	}
+	modelName := strings.TrimSpace(input.Model)
+	if modelName == "" {
+		return AccountRecord{}, fmt.Errorf("seelex: account model is required")
+	}
+	effort := strings.TrimSpace(input.ReasoningEffort)
+	if effort != "" && !model.ValidReasoningEffort(effort) {
+		return AccountRecord{}, fmt.Errorf("seelex: reasoning_effort %q is not valid, want one of %v",
+			input.ReasoningEffort, model.ReasoningEffortVocabulary())
+	}
+
+	raw, mode, exists, err := readAccountsFile(path)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if !exists || len(strings.TrimSpace(string(raw))) == 0 {
+		return AccountRecord{}, fmt.Errorf("seelex: accounts path %s is empty", path)
+	}
+	before, err := parseAccounts(raw)
+	if err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: %s 当前内容无法解析（未改动文件）: %w", path, err)
+	}
+	old := accountSpecByName(before.Specs, name)
+	if old == nil {
+		return AccountRecord{}, fmt.Errorf("seelex: unknown account %q", name)
+	}
+	apiKey := strings.TrimSpace(input.APIKey)
+	if apiKey == "" {
+		apiKey = old.APIKey
+	}
+	entry := pendingAccount{
+		role:     old.Role,
+		name:     old.Name,
+		model:    modelName,
+		baseURL:  strings.TrimSpace(input.BaseURL),
+		apiKey:   apiKey,
+		effort:   effort,
+		provider: strings.TrimSpace(input.Provider),
+	}
+
+	lines, eol, trailing := splitAccountLines(raw)
+	lines, err = freezeRoleAccountNames(lines, old.Role, before.Specs)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	staged := joinAccountLines(lines, eol, trailing)
+	stagedCfg, err := parseAccounts(staged)
+	if err != nil || !sameRoleAccountNames(before.Specs, stagedCfg.Specs, old.Role) {
+		return AccountRecord{}, fmt.Errorf("seelex: 冻结账号名失败（已放弃写入）")
+	}
+	lines, eol, trailing = splitAccountLines(staged)
+	start, end, itemIndent, err := findAccountItem(lines, old.Role, name)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	contentEnd := trimItemTail(lines, start, end)
+	replacement := entry.entryLines(itemIndent)
+	updated := replaceLineRange(lines, start, contentEnd, replacement)
+	payload := joinAccountLines(updated, eol, trailing)
+	after, err := parseAccounts(payload)
+	if err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: 更新账号后账号档无法解析（已放弃写入）: %w", err)
+	}
+	got := accountSpecByName(after.Specs, name)
+	if got == nil || got.Role != old.Role || got.Model != entry.model || got.BaseURL != entry.baseURL ||
+		got.APIKey != entry.apiKey {
+		return AccountRecord{}, fmt.Errorf("seelex: 更新账号 %q 的校验失败（已放弃写入）", name)
+	}
+	if countRole(after.Specs, old.Role) != countRole(before.Specs, old.Role) {
+		return AccountRecord{}, fmt.Errorf("seelex: 更新账号 %q 改变了角色条目数（已放弃写入）", name)
+	}
+	if err := writeFileAtomic(path, payload, mode); err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: write %s: %w", path, err)
+	}
+	return accountRecordFromSpec(*got), nil
+}
+
+// DeleteAccount 删除一条账号；删除前先把该角色现有名字冻结，避免后续条目因位置
+// 重排而被“改名复活”。
+func DeleteAccount(path, name string) (AccountRecord, error) {
+	accountWriteMu.Lock()
+	defer accountWriteMu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return AccountRecord{}, fmt.Errorf("seelex: account name is required")
+	}
+	raw, mode, exists, err := readAccountsFile(path)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if !exists || len(strings.TrimSpace(string(raw))) == 0 {
+		return AccountRecord{}, fmt.Errorf("seelex: accounts path %s is empty", path)
+	}
+	before, err := parseAccounts(raw)
+	if err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: %s 当前内容无法解析（未改动文件）: %w", path, err)
+	}
+	old := accountSpecByName(before.Specs, name)
+	if old == nil {
+		return AccountRecord{}, fmt.Errorf("seelex: unknown account %q", name)
+	}
+	if len(before.Specs) == 1 {
+		return AccountRecord{}, fmt.Errorf("seelex: 不能删除最后一条账号（配置会没有任何可用凭据）")
+	}
+	lines, eol, trailing := splitAccountLines(raw)
+	lines, err = freezeRoleAccountNames(lines, old.Role, before.Specs)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	staged := joinAccountLines(lines, eol, trailing)
+	stagedCfg, err := parseAccounts(staged)
+	if err != nil || !sameRoleAccountNames(before.Specs, stagedCfg.Specs, old.Role) {
+		return AccountRecord{}, fmt.Errorf("seelex: 冻结账号名失败（已放弃写入）")
+	}
+	lines, eol, trailing = splitAccountLines(staged)
+	start, end, _, err := findAccountItem(lines, old.Role, name)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	updated := removeLineRange(lines, start, trimItemTail(lines, start, end))
+	payload := joinAccountLines(updated, eol, trailing)
+	after, err := parseAccounts(payload)
+	if err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: 删除账号后账号档无法解析（已放弃写入）: %w", err)
+	}
+	if accountSpecByName(after.Specs, name) != nil || len(after.Specs) != len(before.Specs)-1 {
+		return AccountRecord{}, fmt.Errorf("seelex: 删除账号 %q 的校验失败（已放弃写入）", name)
+	}
+	if countRole(after.Specs, old.Role) != countRole(before.Specs, old.Role)-1 {
+		return AccountRecord{}, fmt.Errorf("seelex: 删除账号 %q 后角色条目数不符（已放弃写入）", name)
+	}
+	if err := writeFileAtomic(path, payload, mode); err != nil {
+		return AccountRecord{}, fmt.Errorf("seelex: write %s: %w", path, err)
+	}
+	return accountRecordFromSpec(*old), nil
+}
+
 // pendingAccount 是一条待写入的账号条目（AddAccount 校验之后的规范形态）。
 type pendingAccount struct {
 	role     model.AccountRole
+	name     string
 	model    string
 	baseURL  string
 	apiKey   string
@@ -159,7 +383,8 @@ type pendingAccount struct {
 func (entry pendingAccount) entryLines(itemIndent int) []string {
 	pad := strings.Repeat(" ", itemIndent)
 	field := strings.Repeat(" ", itemIndent+2)
-	lines := []string{pad + "- model: " + yamlScalar(entry.model)}
+	lines := []string{pad + "- name: " + yamlScalar(entry.name)}
+	lines = append(lines, field+"model: "+yamlScalar(entry.model))
 	if entry.baseURL != "" {
 		lines = append(lines, field+"base_url: "+yamlScalar(entry.baseURL))
 	}
@@ -225,7 +450,7 @@ func insertAccountEntry(raw []byte, blank bool, entry pendingAccount) ([]byte, e
 
 	if blank {
 		skeleton := []string{
-			"# 账号档（由界面「设置 → 账户 → 添加」创建；字段口径同 accounts.example.yaml）。",
+			"# 账号档（由角色卡下的「添加账户」创建；字段口径同 accounts.example.yaml）。",
 			"roles:",
 			"  " + roleKey + ":",
 		}
@@ -392,14 +617,8 @@ func verifyInsertedAccount(updated []byte, before Config, role model.AccountRole
 		return "", fmt.Errorf("seelex: 插入校验失败：roles.%s 条目数 %d → %d（期望 %d，已放弃写入）",
 			role, beforeCount, afterCount, beforeCount+1)
 	}
-	name := fmt.Sprintf("%s-%d", role, afterCount)
-	var created *model.AccountSpec
-	for index := range after.Specs {
-		if after.Specs[index].Name == name {
-			created = &after.Specs[index]
-			break
-		}
-	}
+	name := entry.name
+	created := accountSpecByName(after.Specs, name)
 	if created == nil {
 		return "", fmt.Errorf("seelex: 插入校验失败：解析结果里没有 %q（已放弃写入）", name)
 	}
@@ -412,6 +631,234 @@ func verifyInsertedAccount(updated []byte, before Config, role model.AccountRole
 			name, created.Provider, entry.provider)
 	}
 	return name, nil
+}
+
+func accountSpecByName(specs []model.AccountSpec, name string) *model.AccountSpec {
+	for index := range specs {
+		if specs[index].Name == name {
+			return &specs[index]
+		}
+	}
+	return nil
+}
+
+func nextAccountName(specs []model.AccountSpec, role model.AccountRole) string {
+	used := make(map[string]struct{})
+	for _, spec := range specs {
+		used[spec.Name] = struct{}{}
+	}
+	for suffix := 1; ; suffix++ {
+		name := fmt.Sprintf("%s-%d", role, suffix)
+		if _, exists := used[name]; !exists {
+			return name
+		}
+	}
+}
+
+func accountRecordFromSpec(spec model.AccountSpec) AccountRecord {
+	return AccountRecord{
+		Name:            spec.Name,
+		Role:            string(spec.Role),
+		Provider:        spec.Provider,
+		Model:           spec.Model,
+		BaseURL:         spec.BaseURL,
+		ReasoningEffort: spec.ReasoningEffort,
+		APIKeySet:       spec.APIKey != "",
+	}
+}
+
+func splitAccountLines(raw []byte) ([]string, string, bool) {
+	text := string(raw)
+	eol := "\n"
+	if strings.Contains(text, "\r\n") {
+		eol = "\r\n"
+	}
+	trailing := strings.HasSuffix(text, "\n")
+	lines := strings.Split(text, "\n")
+	if trailing {
+		lines = lines[:len(lines)-1]
+	}
+	for index := range lines {
+		lines[index] = strings.TrimSuffix(lines[index], "\r")
+	}
+	return lines, eol, trailing
+}
+
+func joinAccountLines(lines []string, eol string, trailing bool) []byte {
+	text := strings.Join(lines, eol)
+	if trailing || len(lines) == 0 {
+		text += eol
+	}
+	return []byte(text)
+}
+
+func replaceLineRange(lines []string, start, end int, replacement []string) []string {
+	next := make([]string, 0, len(lines)-(end-start)+len(replacement))
+	next = append(next, lines[:start]...)
+	next = append(next, replacement...)
+	next = append(next, lines[end:]...)
+	return next
+}
+
+func removeLineRange(lines []string, start, end int) []string {
+	return replaceLineRange(lines, start, end, nil)
+}
+
+// trimItemTail 保留条目与下一条之间的空行和注释（它们可能是下一条的说明），
+// 只替换/删除真正属于该账号的内容。
+func trimItemTail(lines []string, start, end int) int {
+	contentEnd := end
+	for contentEnd > start+1 {
+		trimmed := strings.TrimSpace(lines[contentEnd-1])
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			break
+		}
+		contentEnd--
+	}
+	return contentEnd
+}
+
+func locateRoleItems(lines []string, role model.AccountRole) (roleIndex, roleIndent, roleEnd int, starts []int, err error) {
+	roleKey := string(role)
+	rolesIndex := -1
+	for index, line := range lines {
+		if line == "roles:" {
+			rolesIndex = index
+			break
+		}
+	}
+	if rolesIndex < 0 {
+		return 0, 0, 0, nil, fmt.Errorf("seelex: accounts.yaml has no roles block")
+	}
+	roleIndex, roleIndent = -1, -1
+	for index := rolesIndex + 1; index < len(lines); index++ {
+		trimmed := strings.TrimSpace(lines[index])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := leadingSpaces(lines[index])
+		if indent == 0 {
+			break
+		}
+		if trimmed == roleKey+":" {
+			roleIndex, roleIndent = index, indent
+			break
+		}
+		if isFlowRoleKey(lines[index], roleKey) {
+			return 0, 0, 0, nil, fmt.Errorf("seelex: accounts.yaml 的 roles.%s 是行内写法，无法安全编辑", roleKey)
+		}
+	}
+	if roleIndex < 0 {
+		return 0, 0, 0, nil, fmt.Errorf("seelex: accounts.yaml has no roles.%s block", roleKey)
+	}
+	roleEnd = roleBlockEnd(lines, roleIndex, roleIndent)
+	for index := roleIndex + 1; index < roleEnd; index++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[index]), "- ") {
+			starts = append(starts, index)
+		}
+	}
+	if len(starts) == 0 {
+		return 0, 0, 0, nil, fmt.Errorf("seelex: roles.%s has no account entries", roleKey)
+	}
+	return roleIndex, roleIndent, roleEnd, starts, nil
+}
+
+func freezeRoleAccountNames(lines []string, role model.AccountRole, specs []model.AccountSpec) ([]string, error) {
+	_, _, roleEnd, starts, err := locateRoleItems(lines, role)
+	if err != nil {
+		return nil, err
+	}
+	roleSpecs := make([]model.AccountSpec, 0)
+	for _, spec := range specs {
+		if spec.Role == role {
+			roleSpecs = append(roleSpecs, spec)
+		}
+	}
+	if len(roleSpecs) != len(starts) {
+		return nil, fmt.Errorf("seelex: roles.%s 条目数 %d 与解析结果 %d 不一致（已放弃写入）", role, len(starts), len(roleSpecs))
+	}
+	for index := len(starts) - 1; index >= 0; index-- {
+		start := starts[index]
+		end := roleEnd
+		if index+1 < len(starts) {
+			end = starts[index+1]
+		}
+		if hasAccountField(lines[start:end], "name:") {
+			continue
+		}
+		indent := leadingSpaces(lines[start]) + 2
+		nameLine := strings.Repeat(" ", indent) + "name: " + yamlScalar(roleSpecs[index].Name)
+		lines = replaceLineRange(lines, start+1, start+1, []string{nameLine})
+	}
+	return lines, nil
+}
+
+func hasAccountField(lines []string, prefix string) bool {
+	for _, line := range lines {
+		for _, candidate := range []string{prefix, "- " + prefix} {
+			if strings.HasPrefix(strings.TrimSpace(line), candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func findAccountItem(lines []string, role model.AccountRole, name string) (start, end, itemIndent int, err error) {
+	_, _, roleEnd, starts, err := locateRoleItems(lines, role)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for index, start := range starts {
+		end = roleEnd
+		if index+1 < len(starts) {
+			end = starts[index+1]
+		}
+		for _, line := range lines[start:end] {
+			trimmed := strings.TrimSpace(line)
+			value := ""
+			switch {
+			case strings.HasPrefix(trimmed, "- name:"):
+				value = strings.TrimSpace(strings.TrimPrefix(trimmed, "- name:"))
+			case strings.HasPrefix(trimmed, "name:"):
+				value = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
+			}
+			if value == "" {
+				continue
+			}
+			if strings.HasPrefix(value, `"`) {
+				if unquoted, unquoteErr := strconv.Unquote(value); unquoteErr == nil {
+					value = unquoted
+				}
+			}
+			if value == name {
+				return start, end, leadingSpaces(lines[start]), nil
+			}
+		}
+	}
+	return 0, 0, 0, fmt.Errorf("seelex: account %q not found in roles.%s", name, role)
+}
+
+func sameRoleAccountNames(before, after []model.AccountSpec, role model.AccountRole) bool {
+	names := func(specs []model.AccountSpec) []string {
+		result := make([]string, 0)
+		for _, spec := range specs {
+			if spec.Role == role {
+				result = append(result, spec.Name)
+			}
+		}
+		return result
+	}
+	a, b := names(before), names(after)
+	if len(a) != len(b) {
+		return false
+	}
+	for index := range a {
+		if a[index] != b[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func countRole(specs []model.AccountSpec, role model.AccountRole) int {

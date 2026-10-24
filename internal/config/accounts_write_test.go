@@ -67,12 +67,13 @@ func TestAddAccountAppendsIntoExistingRoleBlock(t *testing.T) {
 	want := strings.Replace(commentedAccounts,
 		"    reasoning_effort: session\n",
 		"    reasoning_effort: session\n"+
-			"  - model: deepseek-flash\n"+
+			"  - name: agent-2\n"+
+			"    model: deepseek-flash\n"+
 			"    base_url: https://api.deepseek.com\n"+
 			"    api_key: sk-new-agent\n",
 		1)
 	if string(got) != want {
-		t.Fatalf("落盘内容与期望不一致（只应多出三行）。\n--- got ---\n%s\n--- want ---\n%s", got, want)
+		t.Fatalf("落盘内容与期望不一致（只应多出条目四行）。\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 
 	cfg, err := Load(path)
@@ -113,7 +114,7 @@ func TestAddAccountCreatesMissingRoleBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读回失败: %v", err)
 	}
-	if !strings.HasSuffix(string(got), "  teammate:\n  - model: deepseek-flash\n    api_key: sk-team\n    reasoning_effort: session\n") {
+	if !strings.HasSuffix(string(got), "  teammate:\n  - name: teammate-1\n    model: deepseek-flash\n    api_key: sk-team\n    reasoning_effort: session\n") {
 		t.Fatalf("未在 roles 块尾建出 teammate 块:\n%s", got)
 	}
 	cfg, err := Load(path)
@@ -333,6 +334,71 @@ func TestAddAccountConcurrentAddsDoNotLoseEntries(t *testing.T) {
 	}
 	if got := countRole(cfg.Specs, model.RoleAgent); got != 1+workers {
 		t.Fatalf("agent 账号数 = %d，期望 %d（原有 1 条 + 并发加的 %d 条）", got, 1+workers, workers)
+	}
+}
+
+func TestUpdateAccountChangesOnlyTargetAndKeepsBlankAPIKey(t *testing.T) {
+	path := writeFixture(t, "accounts.yaml", commentedAccounts)
+	record, err := UpdateAccount(path, UpdateAccountInput{
+		Name:            "agent-1",
+		Provider:        "deepseek",
+		Model:           "deepseek-reasoner",
+		BaseURL:         "https://api.deepseek.com/v1",
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccount: %v", err)
+	}
+	if record.Name != "agent-1" || !record.APIKeySet {
+		t.Fatalf("更新回执 = %+v，want agent-1 且密钥仍存在", record)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := findSpec(cfg, "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Model != "deepseek-reasoner" || spec.Provider != "deepseek" ||
+		spec.BaseURL != "https://api.deepseek.com/v1" || spec.ReasoningEffort != "high" {
+		t.Fatalf("更新后的字段不符：%+v", spec)
+	}
+	if spec.APIKey != "sk-old-agent" {
+		t.Fatalf("API key 留空应保留旧值，得到 %q", spec.APIKey)
+	}
+	if countRole(cfg.Specs, model.RoleSubAgent) != 1 {
+		t.Fatal("更新 agent 不得影响 subagent")
+	}
+}
+
+func TestDeleteAccountKeepsRemainingNamesStable(t *testing.T) {
+	path := writeFixture(t, "accounts.yaml", `roles:
+  agent:
+  - model: first
+    api_key: sk-first
+  - model: second
+    api_key: sk-second
+`)
+	record, err := DeleteAccount(path, "agent-1")
+	if err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+	if record.Name != "agent-1" {
+		t.Fatalf("删除回执 = %+v", record)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Specs) != 1 {
+		t.Fatalf("剩余账号 = %+v，want 1 条", cfg.Specs)
+	}
+	if _, err := findSpec(cfg, "agent-2"); err != nil {
+		t.Fatalf("删除 agent-1 后，原 agent-2 必须保持名字稳定：%v", err)
+	}
+	if _, err := findSpec(cfg, "agent-1"); err == nil {
+		t.Fatal("被删除的 agent-1 不得因位置重排而复活")
 	}
 }
 

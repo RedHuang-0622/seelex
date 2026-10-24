@@ -45,6 +45,9 @@ defaults:
 # 而本档因含模型密钥继续留在 .gitignore 里。
 
 roles:
+  # 界面创建的账号会带上可选 `name:`（例如 `name: agent-1`），这样编辑/删除其中一条
+  # 不会让同角色其它账号因位置变化而改名。手写条目可以省略；加载器仍按
+  # `<角色>-<位置>` 推导。
   # SubAgent: fast, isolated task execution.
   # Subagent 只是“角色 + 模型供应商”：默认并发租约不设实用上限
   # （框架水位 1024，实际受供应商/API 限流约束）；可用每账号

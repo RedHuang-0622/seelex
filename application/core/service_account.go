@@ -14,12 +14,13 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// AddAccount 把一个新账号写进账号档并热注册进运行时（界面「设置 → 账户 → 添加」）。
+// AddAccount 把一个新账号写进账号档并热注册进运行时（角色卡下的「添加账户」）。
 //
 // 返回的**账号名**必须被界面采纳：名字由账号档里的位置推导（`agent-1`、`agent-2`…），
 // 界面自己猜不出下一个是谁。
@@ -33,7 +34,41 @@ func (service *Service) AddAccount(_ context.Context, draft dto.AccountDraft) (d
 	return service.Deps.AccountAdmin.AddAccount(draft)
 }
 
-// AccountBalance 查询一个账号此刻的余额（界面「设置 → 账户」的逐行读数）。
+// AccountDetails 读取账号编辑所需的非秘密字段。
+func (service *Service) AccountDetails(name string) (dto.AccountDetails, error) {
+	if service == nil {
+		return dto.AccountDetails{}, errors.New("account admin: service is unavailable")
+	}
+	if service.Deps.AccountAdmin == nil {
+		return dto.AccountDetails{}, errors.New("account admin: 宿主未提供账号管理能力（无法读取账号档）")
+	}
+	return service.Deps.AccountAdmin.AccountDetails(strings.TrimSpace(name))
+}
+
+// UpdateAccount 原位更新一条账号（APIKey 留空保留原密钥）。
+func (service *Service) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error) {
+	if service == nil {
+		return dto.AccountDetails{}, errors.New("account admin: service is unavailable")
+	}
+	if service.Deps.AccountAdmin == nil {
+		return dto.AccountDetails{}, errors.New("account admin: 宿主未提供账号管理能力（无法更新账号档）")
+	}
+	update.Name = strings.TrimSpace(update.Name)
+	return service.Deps.AccountAdmin.UpdateAccount(update)
+}
+
+// DeleteAccount 删除一条账号；账户所属角色与名称不允许借更新迁移。
+func (service *Service) DeleteAccount(name string) (dto.AccountDetails, error) {
+	if service == nil {
+		return dto.AccountDetails{}, errors.New("account admin: service is unavailable")
+	}
+	if service.Deps.AccountAdmin == nil {
+		return dto.AccountDetails{}, errors.New("account admin: 宿主未提供账号管理能力（无法删除账号档）")
+	}
+	return service.Deps.AccountAdmin.DeleteAccount(strings.TrimSpace(name))
+}
+
+// AccountBalance 查询一个账号此刻的余额（角色卡下账户行的逐行读数）。
 //
 // ctx 会一路传到 HTTP 请求：界面关掉/切走时这次探测随之取消，不留悬挂请求。
 func (service *Service) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error) {

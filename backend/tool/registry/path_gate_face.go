@@ -110,6 +110,40 @@ type RemotePathHandoff struct {
 
 type remotePathHandoffKey struct{}
 
+// remoteUserSpacesContext 是**显式安装的** ssh.userspace 路径允许范围。
+// present=false（没有这个值）表示调用面没有接路径列表，保持旧行为；
+// present=true 且 paths 为空表示 fail-closed。
+type remoteUserSpacesContext struct {
+	present bool
+	paths   []string
+}
+
+type remoteUserSpacesKey struct{}
+
+func WithRemoteUserSpaces(ctx context.Context, paths []string) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, remoteUserSpacesKey{}, remoteUserSpacesContext{
+		present: true,
+		paths:   append([]string{}, paths...),
+	})
+}
+
+func remoteUserSpacesFromContext(ctx context.Context) (remoteUserSpacesContext, bool) {
+	if ctx == nil {
+		return remoteUserSpacesContext{}, false
+	}
+	value, ok := ctx.Value(remoteUserSpacesKey{}).(remoteUserSpacesContext)
+	return value, ok
+}
+
+// RemoteUserSpacesFromContext 读回本轮的 ssh.userspace 路径允许范围。
+func RemoteUserSpacesFromContext(ctx context.Context) ([]string, bool) {
+	value, ok := remoteUserSpacesFromContext(ctx)
+	return append([]string{}, value.paths...), ok
+}
+
 // WithRemotePathHandoff 把交接事务写进 ctx（权限门/诊断可读）。
 func WithRemotePathHandoff(ctx context.Context, handoff RemotePathHandoff) context.Context {
 	return context.WithValue(ctx, remotePathHandoffKey{}, handoff)
@@ -198,6 +232,9 @@ const (
 	// CodePermSSHUserspaceRequired 表示这次调用要走远端项目根之外，但主体没有
 	// ssh.userspace 位。
 	CodePermSSHUserspaceRequired = "PERM_SSH_USERSPACE_REQUIRED"
+	// CodePermSSHUserspacePathDenied 表示已有 ssh.userspace 能力，但目标路径不在
+	// 角色明确列出的远端用户空间允许范围内。
+	CodePermSSHUserspacePathDenied = "PERM_SSH_USERSPACE_PATH_DENIED"
 )
 
 // FacePermissionError 是"按面判定的权限不足"（结构化：带组名与固定码）。
@@ -278,6 +315,29 @@ func requireRemoteFacePermission(deps Deps, ctx context.Context, candidates []st
 			Paths: append([]string(nil), candidates...),
 			Msg: "这些路径在远端项目根之外（远端用户空间），当前主体没有 ssh.userspace 权限；" +
 				"改用远端项目根内的路径（或在项目连接配置里填对远端工作目录），或授予 ssh.userspace",
+		}
+	}
+	if spaces, installed := remoteUserSpacesFromContext(ctx); installed {
+		denied := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			allowed := false
+			for _, root := range spaces.paths {
+				if remotePathInside(root, candidate) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				denied = append(denied, candidate)
+			}
+		}
+		if len(denied) > 0 {
+			return &FacePermissionError{
+				Code: CodePermSSHUserspacePathDenied, Group: policy.GroupSSHUserspace,
+				Paths: denied,
+				Msg: "这些远端用户空间路径不在该角色明确放行的目录内；" +
+					"请角色设置里补充对应路径，或改用远端项目根内路径",
+			}
 		}
 	}
 	return nil

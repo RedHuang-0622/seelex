@@ -46,18 +46,28 @@ test("余额：按账号名查（不是「当前选中账号」），读数按�
 });
 
 test("余额：每个账号一行，行里带查看按钮与读数落点", async () => {
-  const app = await read("app.js");
-  const render = app.match(/function renderAccountBalanceRows\(\)[\s\S]*?\n}/);
-  assert.ok(render, "找不到 renderAccountBalanceRows");
-  assert.match(render[0], /accountBalanceRows\(lastAccountsRuntime\?\.accounts \|\| \[\], accountBalances\)/);
-  assert.match(render[0], /data-account-balance="\$\{escapeHtml\(row\.name\)\}"/);
-  assert.match(render[0], /data-account-balance-reading=/);
+  const board = await read("role-permission-board.js");
+  assert.match(board, /balanceReadingText\(balances instanceof Map/);
+  assert.match(board, /data-role-account-balance="\$\{escapeHtml\(name\)\}"/);
+  assert.match(board, /role-account-credit/);
 });
 
-test("设置弹窗打开会补词表与余额行；快照刷新会重画余额行", async () => {
+test("设置弹窗打开会补词表；快照刷新会重画角色账户与余额", async () => {
   const app = await read("app.js");
   assert.match(app, /await syncAccountAdminForm\(\);/);
   const renderAccounts = app.match(/function renderAccounts\(runtime\)[\s\S]*?\n}/);
   assert.ok(renderAccounts, "找不到 renderAccounts");
-  assert.match(renderAccounts[0], /renderAccountBalanceRows\(\);/);
+  assert.match(renderAccounts[0], /renderPermissionRoleRows\(\);/);
+});
+
+test("账户增删改查都在所属角色卡下接线", async () => {
+  const app = await read("app.js");
+  const board = await read("role-permission-board.js");
+  assert.match(board, /data-role-account-edit=/);
+  assert.match(board, /data-role-account-delete=/);
+  assert.match(app, /invoke\("AccountDetails", name\)/);
+  assert.match(app, /invoke\("UpdateAccount", \{/);
+  assert.match(app, /invoke\("DeleteAccount", name\)/);
+  assert.match(app, /editingAccountName/);
+  assert.match(app, /api_key: String\(elements\["account-add-api-key"\]\?\.value \|\| ""\)/);
 });

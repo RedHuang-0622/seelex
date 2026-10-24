@@ -24,9 +24,10 @@ func withTestAccountAdmin(admin contract.AccountAdminPort) testServiceOption {
 
 // fakeAccountAdmin 记录被转发的草稿并回执一个名字。
 type fakeAccountAdmin struct {
-	got  dto.AccountDraft
-	name string
-	err  error
+	got    dto.AccountDraft
+	update dto.AccountUpdate
+	name   string
+	err    error
 }
 
 func (admin *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error) {
@@ -35,6 +36,19 @@ func (admin *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAd
 		return dto.AccountAddResult{}, admin.err
 	}
 	return dto.AccountAddResult{Name: admin.name, Role: draft.Role, Model: draft.Model}, nil
+}
+
+func (admin *fakeAccountAdmin) AccountDetails(name string) (dto.AccountDetails, error) {
+	return dto.AccountDetails{Name: name}, admin.err
+}
+
+func (admin *fakeAccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error) {
+	admin.update = update
+	return dto.AccountDetails{Name: update.Name, Model: update.Model}, admin.err
+}
+
+func (admin *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error) {
+	return dto.AccountDetails{Name: name}, admin.err
 }
 
 // TestAddAccountNeedsHostPort：宿主没装 AccountAdmin 时要给一句明确错误，而不是
@@ -77,6 +91,25 @@ func TestAddAccountPropagatesHostError(t *testing.T) {
 	_, err := service.AddAccount(context.Background(), dto.AccountDraft{Role: "agent", Model: "m", APIKey: "sk"})
 	if !errors.Is(err, hostErr) {
 		t.Fatalf("宿主错误未被原样透传: %v", err)
+	}
+}
+
+func TestUpdateAndDeleteAccountForwardIdentities(t *testing.T) {
+	admin := &fakeAccountAdmin{name: "agent-1"}
+	service := newTestService(t, &fakeEngine{}, withTestAccountAdmin(admin))
+	update := dto.AccountUpdate{Name: "agent-1", Provider: "openai", Model: "gpt-5"}
+	if _, err := service.UpdateAccount(update); err != nil {
+		t.Fatal(err)
+	}
+	if admin.update != update {
+		t.Fatalf("更新输入被改写: %+v", admin.update)
+	}
+	deleted, err := service.DeleteAccount(" agent-1 ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Name != "agent-1" {
+		t.Fatalf("删除回执 = %+v", deleted)
 	}
 }
 

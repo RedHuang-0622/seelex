@@ -40,6 +40,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_account.go
 
 - `func (service *Service) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount 把一个新账号写进账号档并热注册进运行时（界面「设置 → 账户 → 添加」）。
+- `func (service *Service) AccountDetails(name string) (dto.AccountDetails, error)` — 读取账号编辑所需的非秘密字段。
+- `func (service *Service) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)` — 原位更新账号；空 API Key 保留原密钥。
+- `func (service *Service) DeleteAccount(name string) (dto.AccountDetails, error)` — 删除账号并返回被删条目的非秘密回执。
 - `func (service *Service) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — AccountBalance 查询一个账号此刻的余额（界面「设置 → 账户」的逐行读数）。
 
 ### service_account_test.go
@@ -52,6 +55,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestAccountBalancePropagatesHostError(t *testing.T)`
 - `func TestAccountMethodsNilServiceGuard(t *testing.T)`
 - `func (admin *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)`
+- `func (admin *fakeAccountAdmin) AccountDetails(name string) (dto.AccountDetails, error)`
+- `func (admin *fakeAccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
+- `func (admin *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error)`
 - `func (runtime *balanceFakeRuntime) AccountBalance(_ context.Context, name string) (dto.AccountBalance, error)`
 
 ### service_account_window.go

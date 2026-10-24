@@ -48,6 +48,10 @@ type fakeApplication struct {
 	accountDraft       application.AccountDraft
 	accountAddResult   application.AccountAddResult
 	accountAddErr      error
+	accountDetails     application.AccountDetails
+	accountDetailsErr  error
+	accountUpdate      application.AccountUpdate
+	accountDeleteName  string
 	accountBalanceName string
 	accountBalanceRead application.AccountBalance
 	accountBalanceErr  error
@@ -214,6 +218,24 @@ func (fake *fakeApplication) AddAccount(_ context.Context, draft application.Acc
 		return application.AccountAddResult{}, fake.accountAddErr
 	}
 	return fake.accountAddResult, nil
+}
+
+func (fake *fakeApplication) AccountDetails(name string) (application.AccountDetails, error) {
+	details := fake.accountDetails
+	if details.Name == "" {
+		details.Name = name
+	}
+	return details, fake.accountDetailsErr
+}
+
+func (fake *fakeApplication) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error) {
+	fake.accountUpdate = update
+	return application.AccountDetails{Name: update.Name, Model: update.Model}, fake.accountDetailsErr
+}
+
+func (fake *fakeApplication) DeleteAccount(name string) (application.AccountDetails, error) {
+	fake.accountDeleteName = name
+	return application.AccountDetails{Name: name}, fake.accountDetailsErr
 }
 
 // AccountBalance 记录被查询的账号名，读数由测试摆。

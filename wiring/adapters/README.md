@@ -34,9 +34,9 @@ flowchart LR
 - 引擎适配：`EnginePort` 包装框架 `session.Session` 的 ReAct 会话面。
 - 运行时适配：`RuntimePort` 代理 `backend/engine/assemble.Runtime` 的能力面（源码里
   该包仍以局部别名 `seelebridge` 引入，别名本身不改行为，收口随 M5 门面收窄一起做）。
-- 账号管理适配：`AccountAdmin` 落地「手动添加账号」（写账号档 + 热注册进运行时）。
-  它只依赖最小面 `AccountRegistrar`（一个方法），并把"读到哪条规格"交给**启动同一条
-  加载器**（`config.Load`），所以界面加出来的账号与重启后完全一致。
+- 账号管理适配：`AccountAdmin` 落地角色卡下账户的增删改查（写账号档 + 热替换/退租
+  运行时）。它依赖窄面 `AccountRegistrar`（注册 / 替换 / 退租），并把"读到哪条规格"
+  交给**启动同一条加载器**（`config.Load`），所以界面改出来的账号与重启后完全一致。
 - 会话/工作区/插件/Skill：对应 manager/repo/registry 的窄端口。
 - 会话标题的持久化面（`session_runtime.SessionTitlePort`）与"最早用户输入"的
   有界读面（`session_runtime.FirstUserInputPort`）也由 `SessionPort` 落地
@@ -121,15 +121,25 @@ go test ./wiring/adapters -count=1
 ### account_admin.go
 
 - `func (admin AccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount 写入一条新账号并返回生效回执。
+- `func (admin AccountAdmin) AccountDetails(name string) (dto.AccountDetails, error)` — AccountDetails 读取账号编辑所需的非秘密字段；APIKey 只报告是否已配置。
+- `func (admin AccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)` — UpdateAccount 先改账号档，再把新规格热替换进运行时。热替换失败时账号档已经
+- `func (admin AccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error)` — DeleteAccount 先删账号档，再从运行时退租。账号仍在承流时池会拒绝退租，此时
+- `func (admin AccountAdmin) hotReplace(name string) error`
+- `func accountDetailsDTO(record config.AccountRecord) dto.AccountDetails`
+- `func specNamed(specs []model.AccountSpec, name string) (model.AccountSpec, bool)` — specNamed 按名字取加载结果里的规格（名字由加载器推导，是唯一身份）。
 
 ### account_admin_test.go
 
-- `func TestAccountAdminWritesThenHandsResolvedSpecToRuntime(t *testing.T)`
-- `func TestAccountAdminReportsHotRegisterFailure(t *testing.T)`
-- `func TestAccountAdminValidationFailureLeavesFileUntouched(t *testing.T)`
-- `func TestAccountAdminNeedsPathAndRuntime(t *testing.T)`
-- `func TestAccountBalanceDTOKeepsProviderShape(t *testing.T)`
 - `func (registrar *fakeRegistrar) RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error`
+- `func (registrar *fakeRegistrar) ReplaceAccount(spec model.AccountSpec, limits config.AccountLimits) error`
+- `func (registrar *fakeRegistrar) UnregisterAccount(name string) error`
+- `func writeAdminFixture(t *testing.T) string`
+- `func TestAccountAdminWritesThenHandsResolvedSpecToRuntime(t *testing.T)` — TestAccountAdminWritesThenHandsResolvedSpecToRuntime：写盘 → 加载器读回 →
+- `func TestAccountAdminReportsHotRegisterFailure(t *testing.T)` — TestAccountAdminReportsHotRegisterFailure：已落盘但热注册失败时，错误必须说明
+- `func TestAccountAdminDetailsUpdateDeleteRoundTrip(t *testing.T)`
+- `func TestAccountAdminValidationFailureLeavesFileUntouched(t *testing.T)` — TestAccountAdminValidationFailureLeavesFileUntouched：校验失败时不落盘、也不碰运行时。
+- `func TestAccountAdminNeedsPathAndRuntime(t *testing.T)` — TestAccountAdminNeedsPathAndRuntime：宿主没解析出路径 / 没装运行时时给明确错误。
+- `func TestAccountBalanceDTOKeepsProviderShape(t *testing.T)` — TestAccountBalanceDTOKeepsProviderShape：余额映射必须原样搬字符串（"110.00" 不能
 
 ### adapters_test.go
 
@@ -168,6 +178,8 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) runHandoff(handoff historyHandoff)` — runHandoff 在 port.mu **之外**把历史交给宿主。已被后续决定取代的那次直接丢弃。
 - `func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort`
 - `func (port *EnginePort) SessionBacked() bool` — SessionBacked 报告底层 reactor 是否为 session.Session。
+- `func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入主会话的 ssh.userspace 路径范围读面。
+- `func (port *EnginePort) withRoleUserSpaces(ctx context.Context, sessionID string) context.Context`
 - `func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 是会话路由的 ChatStream：多会话并行执行时，runChat 用
 - `func (port *EnginePort) engineForSessionLocked(sessionID string) ReactorEngine` — engineForSessionLocked 返回指定会话的引擎；未注册会话返回 nil（阶段 0：
@@ -296,6 +308,11 @@ go test ./wiring/adapters -count=1
 - `func TestEnginePortReleaseSessionBundleForwardsToBridge(t *testing.T)` — TestEnginePortReleaseSessionBundleForwardsToBridge：端口只把释放面转给桥
 - `func TestUnloadSessionClearsHandoffLedger(t *testing.T)` — TestUnloadSessionClearsHandoffLedger：卸载后端口对该会话不留任何状态——
 
+### engine_port_role_user_spaces_test.go
+
+- `func (engine *userSpacesReactorEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func TestEnginePortInjectsMainAgentSSHUserSpaces(t *testing.T)`
+
 ### engine_port_session_loops_test.go
 
 - `func (engine *loopRecordingEngine) SetMaxLoops(loops int)`
@@ -318,26 +335,43 @@ go test ./wiring/adapters -count=1
 - `func ApprovalAccepted(optionID string) bool`
 - `func ConvertPermissionOptions(opts []toolspermission.ApproveOption) []model.InteractionOption` — convertPermissionOptions 将 permission.ApproveOption 转为 model.InteractionOption。
 
+### plugin_info_skills_test.go
+
+- `func TestAdaptPluginCarriesSkillCatalog(t *testing.T)` — TestAdaptPluginCarriesSkillCatalog 钉住插件页「按插件看 Skill」的数据面：
+
 ### role_fields_test.go
 
 - `func TestTranscriptRoleFieldsRoundTrip(t *testing.T)` — TestTranscriptRoleFieldsRoundTrip 钉住 R2/R4 字段不会在 model ↔
 
 ### role_permission_port.go
 
-- `func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore` — role_permission_port.go 是「角色设置」在装配侧的落地：把**会话端口**补上
-- `func (port SessionPort) rolePermissionStore() *store.RolePermissionStore`
+- `func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore` — rolePermissionStoreFor 取该数据根的登记存储（首次调用建实例，其后复用）。
+- `func (port SessionPort) rolePermissionStore() *store.RolePermissionStore` — rolePermissionStore 返回本端口的登记存储（存储未装配时 nil）。
 - `func (port SessionPort) rolePermissionProject(sessionID string) string` — rolePermissionProject 解析会话归属的项目（登记的键是 (项目, 会话, 角色)）。
+- `func (port SessionPort) RoleDefaultVectors(sessionID string) (map[string][]string, error)` — RoleDefaultVectors 实现 application/core 的 roleDefaultPort：该数据根下所有显式
+- `func (port SessionPort) RoleDefault(sessionID, role string) ([]string, bool, error)` — RoleDefault 实现 roleDefaultPort：读单个角色的默认；第二个返回值报告"是否定过"。
+- `func (port SessionPort) SetRoleDefault(sessionID, role string, vector []string) error` — SetRoleDefault 实现 roleDefaultPort：写一个角色的默认向量。
+- `func (port SessionPort) RoleAccount(sessionID, role string) (string, bool, error)`
+- `func (port SessionPort) SetRoleAccount(sessionID, role, account string) error`
+- `func (port SessionPort) RoleInheritance(sessionID, role string) (bool, bool, error)`
+- `func (port SessionPort) SetRoleInheritance(sessionID, role string, inherit bool) error`
+- `func (port SessionPort) RoleSSHUserSpaces(sessionID, role string) ([]string, error)`
+- `func (port SessionPort) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
 - `func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error)` — RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
 - `func (port SessionPort) RolePermissionVector(sessionID, role string) ([]string, bool, error)` — RolePermissionVector 实现 rolePermissionPort：读单个角色；第二个返回值报告
 - `func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector []string) error` — SetRolePermissionVector 实现 rolePermissionPort：写入一个角色的权限向量
 - `func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers` — RolePermissionLayers 实现 application/core 的 rolePermissionLayerPort：给出该角色
 - `func (port SessionPort) employeePermission(role string) (toolreg.EmployeePermission, bool)` — employeePermission 取该角色在权责表上的装配期分配（未分配 → ok=false）。
 - `func grantBits(grant toolspermission.SubjectGrant) map[string]uint8` — grantBits 把框架授权条目投影成"路由组 → 位值"（只取位，资源限定留给权限门）。
-- `func permissionVectorTags(bits map[string]uint8) []string` — permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序）。
+- `func permissionVectorTags(bits map[string]uint8) []string` — permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序，位 0 → `!tag`）。
 
 ### role_permission_port_test.go
 
+- `func newRolePermissionTestPort(t *testing.T, router *store.Router) SessionPort` — newRolePermissionTestPort 建一个会话端口（真实 Router；无 Runtime 时五层里
+- `func newRolePermissionTestRouter(t *testing.T) *store.Router`
 - `func TestRolePermissionPortStoreRoundTrip(t *testing.T)` — TestRolePermissionPortStoreRoundTrip：写入 → 换一个端口值读回；空集与"没登记"分开；
+- `func TestRoleDefaultOccupiesItsOwnLayer(t *testing.T)`
+- `func TestTeammateInheritsMainAgentDefaultUntilDisabled(t *testing.T)`
 - `func TestRolePermissionPortWritesLandOnlyInOwnProject(t *testing.T)` — TestRolePermissionPortWritesLandOnlyInOwnProject：登记按会话归属项目落键，
 - `func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T)` — TestRolePermissionLayersProjectEachGroupClosedWorld 是五层来源的核心断言：
 - `func TestPermissionVectorTagsMarksZeroBitsAsDeny(t *testing.T)` — TestPermissionVectorTagsMarksZeroBitsAsDeny 钉住投影规则本身（一条判据一处实现）。
@@ -347,7 +381,10 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
 - `func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore` — SessionContextStoreFor 实现 application/core 的会话上下文存储取用面：goal 第五栈
 - `func (port RuntimePort) SetAccountWindow(name string, window int)` — SetAccountWindow 实现 contract.AccountWindowPort：界面「设置 → 账号」设的窗口经这里
+- `func (port RuntimePort) SetRoleAccount(role, account string) error` — SetRoleAccount 把角色默认账号推到运行时账号管理器。
 - `func (port RuntimePort) AccountWindowFor(name string) int` — AccountWindowFor 返回该账号**生效**的窗口（token；账号级 > 全局 > 账号档）。
+- `func (port RuntimePort) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — AccountBalance 实现 contract.AccountBalancePort：界面「设置 → 账户 → 查看余额」的
+- `func accountBalanceDTO(name string, balance account.Balance, fetchedAt time.Time) dto.AccountBalance` — accountBalanceDTO 是纯映射（时间由调用方给）：域读数 → 界面契约。
 - `func (port RuntimePort) TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
 - `func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePage 是同一份读数的**分页读法**（"只有尾巴"改成"有界窗口 +
 - `func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
@@ -465,6 +502,23 @@ go test ./wiring/adapters -count=1
 
 - `func TestSessionPermissionTierRoundTrip(t *testing.T)` — TestSessionPermissionTierRoundTrip：会话级权限档位设置经适配层落到真实存储
 
+### session_ssh_state_port.go
+
+- `func sessionSSHBridgeFor(router *store.Router) *sessionSSHBridge` — sessionSSHBridgeFor 取该数据根的共享体（首次调用建实例，其后复用）。
+- `func (bridge *sessionSSHBridge) state(projectID, sessionID string) (model.SessionSSHInfo, error)` — state 读会话状态：缓存优先，miss 才回放 JSONL 并回填。
+- `func (bridge *sessionSSHBridge) put(projectID string, state model.SessionSSHInfo) error` — put 写会话状态：先落盘（权限状态必须持久），成功后再更新缓存。
+- `func (port SessionPort) sessionSSHBridge() *sessionSSHBridge` — sessionSSHBridge 取本端口的共享体（存储未装配时 nil）。
+- `func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)` — SessionSSHState 实现 application/core 的 sessionSSHPort：读会话 SSH 状态。
+- `func (port SessionPort) SetSessionSSHState(sessionID string, state model.SessionSSHInfo) error` — SetSessionSSHState 实现 sessionSSHPort：写会话 SSH 状态（整份写入，后写覆盖先写）。
+- `func SessionSSHEnvGrantedResolver(router *store.Router) func(sessionID, projectID, env string) bool` — SessionSSHEnvGrantedResolver 给执行面用的**放权判定**：报告某环境是否在该会话
+- `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面用的**缺省环境**读面：返回该会话当前限定的环境名
+
+### session_ssh_state_port_test.go
+
+- `func newSSHBridgeRouter(t *testing.T) *store.Router`
+- `func TestSessionSSHEnvResolverReadsWrittenState(t *testing.T)`
+- `func TestSessionSSHEnvResolverWithoutRouterIsNil(t *testing.T)`
+
 ### session_status_record.go
 
 - `func sessionStatusOfRecord(wire store.Status) dto.SessionStatus` — session_status_record.go — 会话可见状态在**存储面**上的转换点（全仓唯一一处）。
@@ -473,6 +527,10 @@ go test ./wiring/adapters -count=1
 
 - `func TestSessionStatusOfRecordLocksTheStoreVocabulary(t *testing.T)` — session_status_record_test.go — 存储面的会话可见状态读回：**跨包同一份词**的互锁。
 - `func TestSessionStatusUnknownIsNotAKnownState(t *testing.T)` — TestSessionStatusUnknownIsNotAKnownState：unknown 不是 idle/running 的别名——
+
+### session_workspace_connection_test.go
+
+- `func TestWorkspacePortCarriesRemoteRoot(t *testing.T)` — TestWorkspacePortCarriesRemoteRoot：读面、写面、摘要三条路都带着远端工作目录。
 
 ### session_workspace_ports.go
 
@@ -495,10 +553,14 @@ go test ./wiring/adapters -count=1
 - `func (port WorkspacePort) GitLog(root string, limit int) (dto.GitLogResult, error)`
 - `func (port WorkspacePort) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)`
 - `func (port WorkspacePort) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (port WorkspacePort) GitRepos(root string, limit int) (dto.GitReposResult, error)` — WorkspaceGitReposPort 实现：转发给 Repo（工作区内多仓库发现；BFS 边界与
 - `func (port WorkspacePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFilePort 实现：转发给 Repo（文件预览读取；root/relPath
 - `func (port WorkspacePort) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)`
 - `func (port WorkspacePort) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error)` — WorkspaceFileWritePort 实现：转发给 Repo（文件详情编辑保存；可见性边界与
-- `func adaptWorkspace(item workspace.Info) model.WorkspaceInfo`
+- `func (port WorkspacePort) adapt(item workspace.Info) model.WorkspaceInfo` — adapt 把存储层的工作区记录翻成应用层摘要，并带上**连接配置摘要**。
+- `func (port WorkspacePort) WorkspaceConnection(id string) (model.WorkspaceConnection, error)` — WorkspaceConnection 实现 contract.WorkspaceConnectionPort：读连接配置。
+- `func (port WorkspacePort) SetWorkspaceConnection(id string, change model.WorkspaceConnectionChange) (model.WorkspaceConnection, error)` — SetWorkspaceConnection 实现 contract.WorkspaceConnectionPort：写连接配置。
+- `func adaptConnection(conn workspace.Connection) model.WorkspaceConnection`
 - `func workspaceDisplayName(rootPath, fallback string) string`
 - `func (port SkillPort) Get(name string) (model.SkillInfo, bool)`
 - `func (port SkillPort) All() []model.SkillInfo`
@@ -601,4 +663,12 @@ go test ./wiring/adapters -count=1
 ### toolcall_status_record_test.go
 
 - `func TestToolCallStatusOfRecordLocksTheStoreVocabulary(t *testing.T)` — toolcall_status_record_test.go — "工具调用视图词"这一格在**存储面 → 契约枚举**的互锁。
+
+### workspace_environment_port.go
+
+- `func (port WorkspacePort) WorkspaceEnvironments(id string) ([]model.WorkspaceEnvironmentInfo, string, error)` — WorkspaceEnvironments 实现 contract.WorkspaceEnvironmentPort：返回该项目全部环境
+- `func (port WorkspacePort) SetWorkspaceEnvironment(id, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)` — SetWorkspaceEnvironment 实现写面：Delete=true 走删除；否则写入并（可选）设为默认。
+- `func (port WorkspacePort) DeleteWorkspaceEnvironment(id, name string) error` — DeleteWorkspaceEnvironment 实现写面：删除环境（连同口令）。
+- `func (port WorkspacePort) SetDefaultWorkspaceEnvironment(id, name string) error` — SetDefaultWorkspaceEnvironment 实现写面：指定默认环境（空串 = 取消默认）。
+- `func adaptEnvironment(workspaceID string, item workspace.EnvironmentInfo) model.WorkspaceEnvironmentInfo` — adaptEnvironment 把存储层读面翻成跨层读面（字段逐个搬，不做任何推断）。
 

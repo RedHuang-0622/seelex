@@ -42,8 +42,10 @@ var FaceTypeNames = []string{
 	"AccountAddResult",
 	"AccountBalance",
 	"AccountBalanceInfo",
+	"AccountDetails",
 	"AccountDraft",
 	"AccountInfo",
+	"AccountUpdate",
 	"ActivePlanProjection",
 	"ActiveSkill",
 	"ApprovalBroker",
@@ -226,9 +228,12 @@ type CommandFace interface {
 // PolicyFace 档位与策略（plan §1.3 D 组）：限制、档位、账号、插件、角色与调度策略。
 type PolicyFace interface {
 	ActivateSkill(name string) (model.SkillInfo, error)
-	// AddAccount 写账号档 + 热注册（界面「设置 → 账户 → 添加」）：账号是策略面
+	AccountDetails(name string) (dto.AccountDetails, error)
+	// AddAccount 写账号档 + 热注册（角色卡下的「添加账户」）：账号是策略面
 	// （与 SelectAccount / SetAccountWindow 同一类"用户对账号的显式决定"）。
 	AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)
+	DeleteAccount(name string) (dto.AccountDetails, error)
+	UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)
 	CancelScheduledTask(id string) error
 	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error

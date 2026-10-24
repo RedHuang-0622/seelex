@@ -85,6 +85,12 @@ type PermissionRoleInfo struct {
 	Vector        []string `json:"permission_vector"`
 	DefaultVector []string `json:"default_permission_vector"`
 	Explicit      bool     `json:"explicit"`
+	// InheritMainAgent 只对 subagent / teammate 有意义：开启时角色默认权限
+	// 跟随 mainagent，关闭后才使用 DefaultVector 的显式设置。
+	InheritMainAgent bool `json:"inherit_main_agent"`
+	// SSHUserSpaces 是 ssh.userspace 的路径允许范围。空集表示没有显式路径；
+	// 未授予 ssh.userspace 时本字段不参与判定。
+	SSHUserSpaces []string `json:"ssh_user_spaces"`
 }
 
 // RoleSettings 是一个角色的设置。

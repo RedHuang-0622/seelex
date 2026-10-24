@@ -33,16 +33,17 @@ test("取值面：短标签 / 挡位选项 / 自定义输入归一", () => {
   }
 });
 
-test("设置弹窗的角色页里有每账号上下文窗口：标题 + 容器 + 读数落点 + 说明来源", async () => {
+test("每账号上下文窗口落在所属角色卡内，不再单开全局账户表", async () => {
   const html = await read("index.html");
   const modal = html.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/);
   assert.ok(modal, "要找得到 #settings-modal");
   const body = modal[0];
-  // 2026-10-24 起它位于「角色与权限 → 账号运行参数」，属于角色页而不属于账户新增窗口。
+  // 2026-10-24 起账户属于角色；窗口控件由 role-permission-board 逐账号渲染。
   assert.match(body, /id="role-settings-section"/, "角色页要在");
-  assert.match(body, /<span class="settings-label">每账号上下文窗口<\/span>/, "行标签要在");
-  assert.match(body, /<div id="account-windows"><\/div>/, "账号行由前端渲染（容器是空的）");
-  assert.match(body, /id="account-windows-status"/, "要有一行读数/说明落点");
+  assert.match(body, /id="permission-role-board"/, "角色卡是唯一账户层级");
+  assert.doesNotMatch(body, /id="account-windows"|id="account-windows-status"/, "不再平铺全局账户表");
+  const board = await read("role-permission-board.js");
+  assert.match(board, /data-role-account-window-select=/, "账号行要在所属角色卡里渲染窗口控件");
   // 优先级与来源的解说留在 app.js 的那一段注释里（弹窗只留一句必要说明）。
   const app = await read("app.js");
   assert.match(app, /limits\.context_window/, "要说明窗口的来源与优先级");
@@ -50,16 +51,16 @@ test("设置弹窗的角色页里有每账号上下文窗口：标题 + 容器 +
 
 test("app.js 注册并接线：开弹窗拉挡位表、提交采纳生效值、失败回滚", async () => {
   const app = await read("app.js");
-  assert.match(app, /"account-windows", "account-windows-status"/, "elements 注册表要有这两个 id（否则又是静默失效）");
+  assert.match(app, /"default-plugin-status", "role-settings-status", "permission-role-board"/, "角色卡与状态落点都要注册");
   assert.match(app, /from "\.\/account-window\.js"/, "取值面必须来自纯模块，而不是 app.js 里另抄一份");
   assert.match(app, /await invoke\("AccountWindowPresets"\)/, "挡位表必须由后端下发");
   assert.match(app, /syncAccountWindowReading\(\);/, "openSettings 要调它");
   assert.match(app, /invoke\("SetAccountWindow", name, window\)/, "提交要透传账号名与整数");
-  assert.match(app, /elements\["account-windows"\]\?\.addEventListener\("change"/, "change 是提交时机（行内事件委托）");
+  assert.match(app, /elements\[id\]\?\.addEventListener\("change"/, "角色卡用 change 事件委托提交账号窗口");
   // 失败回滚：catch 分支必须重画到最后一份权威读数，并露出错误。
   const handler = app.match(/async function submitAccountWindow[\s\S]*?\n\}/);
   assert.ok(handler, "要找得到 submitAccountWindow");
-  assert.match(handler[0], /catch \(error\)[\s\S]*renderAccountWindowRows\(\)[\s\S]*showToast\(error\)/, "失败要回滚并露出来");
+  assert.match(handler[0], /catch \(error\)[\s\S]*renderPermissionRoleRows\(\)[\s\S]*showToast\(error\)/, "失败要回滚并露出来");
 });
 
 test("挡位表两端同源（backend/limit/accountwindow 是唯一事实源）", async () => {

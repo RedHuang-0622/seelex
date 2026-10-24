@@ -164,6 +164,9 @@ type Runtime struct {
 	// rolePrompt 同构的一次注入只读面，见 runtime_role_plugins.go。
 	rolePluginsMu sync.RWMutex
 	rolePlugins   func(roleName string) []string
+	// roleUserSpaces 按主会话 + 账号角色读取 ssh.userspace 路径允许范围。
+	roleUserSpacesMu sync.RWMutex
+	roleUserSpaces   func(sessionID, role string) []string
 
 	projectScope *security.ProjectScope
 	filesystem   fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）

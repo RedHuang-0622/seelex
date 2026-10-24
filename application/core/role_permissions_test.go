@@ -22,6 +22,8 @@ type rolePermissionFakeSessions struct {
 	vectors  map[string]map[string][]string
 	defaults map[string]map[string][]string
 	accounts map[string]map[string]string
+	inherits map[string]map[string]bool
+	spaces   map[string]map[string][]string
 	layers   dto.RoleSettingsLayers
 }
 
@@ -30,6 +32,8 @@ func newRolePermissionFakeSessions() *rolePermissionFakeSessions {
 		vectors:  map[string]map[string][]string{},
 		defaults: map[string]map[string][]string{},
 		accounts: map[string]map[string]string{},
+		inherits: map[string]map[string]bool{},
+		spaces:   map[string]map[string][]string{},
 	}
 }
 
@@ -110,6 +114,39 @@ func (fake *rolePermissionFakeSessions) SetRoleAccount(sessionID, role, account 
 		fake.accounts[sessionID] = map[string]string{}
 	}
 	fake.accounts[sessionID][role] = account
+	return nil
+}
+
+func (fake *rolePermissionFakeSessions) RoleInheritance(sessionID, role string) (bool, bool, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	inherit, ok := fake.inherits[sessionID][role]
+	return inherit, ok, nil
+}
+
+func (fake *rolePermissionFakeSessions) SetRoleInheritance(sessionID, role string, inherit bool) error {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.inherits[sessionID] == nil {
+		fake.inherits[sessionID] = map[string]bool{}
+	}
+	fake.inherits[sessionID][role] = inherit
+	return nil
+}
+
+func (fake *rolePermissionFakeSessions) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return append([]string{}, fake.spaces[sessionID][role]...), nil
+}
+
+func (fake *rolePermissionFakeSessions) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.spaces[sessionID] == nil {
+		fake.spaces[sessionID] = map[string][]string{}
+	}
+	fake.spaces[sessionID][role] = append([]string{}, paths...)
 	return nil
 }
 
@@ -289,6 +326,58 @@ func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T) {
 	}
 	if runtime.role != "teammate" || runtime.account != "teammate-2" {
 		t.Fatalf("恢复后运行时收到 %q %q", runtime.role, runtime.account)
+	}
+}
+
+func TestRoleInheritanceDefaultsAndUserSpaceNormalization(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if inherit, err := service.RoleInheritMainAgent("sess-1", "teammate"); err != nil || !inherit {
+		t.Fatalf("teammate 默认应继承 mainagent：%v %v", inherit, err)
+	}
+	if inherit, err := service.RoleInheritMainAgent("sess-1", "goalplan"); err != nil || inherit {
+		t.Fatalf("goalplan 不默认继承：%v %v", inherit, err)
+	}
+	if err := service.SetRoleInheritMainAgent("sess-1", "goalplan", true); err == nil {
+		t.Fatal("goalplan 不允许切继承")
+	}
+	if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/home/u/.cache", " /srv/shared ", "/home/u/.cache"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	if err != nil || !reflect.DeepEqual(paths, []string{"/home/u/.cache", "/srv/shared"}) {
+		t.Fatalf("paths=%v err=%v", paths, err)
+	}
+	for _, invalid := range [][]string{{"relative"}, {"/"}, {}} {
+		if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", invalid); err == nil {
+			t.Fatalf("非法路径 %v 必须报错", invalid)
+		}
+	}
+}
+
+func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T) {
+	sessions := newRolePermissionFakeSessions()
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if err := service.SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/shared"}); err != nil {
+		t.Fatal(err)
+	}
+	// teammate 默认继承；自己的旧路径不能偷偷覆盖继承来的允许范围。
+	if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/tmp/stale"}); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/shared"}) {
+		t.Fatalf("继承态 paths=%v err=%v，want mainagent 的 /srv/shared", paths, err)
+	}
+	if err := service.SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
+		t.Fatal(err)
+	}
+	paths, err = service.RoleSSHUserSpaces("sess-1", "teammate")
+	if err != nil || !reflect.DeepEqual(paths, []string{"/tmp/stale"}) {
+		t.Fatalf("关闭继承后 paths=%v err=%v，want 角色自己的 /tmp/stale", paths, err)
 	}
 }
 
