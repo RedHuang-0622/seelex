@@ -476,7 +476,7 @@
         <nav id="settings-nav" class="settings-nav" aria-label="设置分类">
           <button type="button" class="settings-nav-item is-active" data-settings-page="account">账户</button>
           <button type="button" class="settings-nav-item" data-settings-page="roles">角色与权限</button>
-          <button type="button" class="settings-nav-item" data-settings-page="session">本会话</button>
+          <button type="button" class="settings-nav-item" data-settings-page="session">SSH 环境</button>
           <button type="button" class="settings-nav-item" data-settings-page="application">应用</button>
         </nav>
         <div class="settings-pages">
@@ -541,17 +541,18 @@
 
           <section class="settings-page hidden" data-settings-page-panel="session">
             <div class="settings-section">
-              <div class="section-title">本会话 SSH</div>
-              <p class="settings-note">连接信息属于项目，在项目设置中维护。本会话只决定使用哪个已放权环境；缺省不放权。</p>
+              <div class="section-title">SSH 环境</div>
+              <p class="settings-note">连接信息属于当前项目，在这里进入项目设置维护；下方只决定本会话放行哪些环境。</p>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">项目连接表</span>
+                <button id="project-settings-from-session" class="secondary" type="button">打开项目设置，管理 SSH 环境</button>
+              </div>
+              <div class="settings-subtitle">本会话放权</div>
               <div class="settings-field role-settings-row">
                 <span class="settings-label">当前限定环境</span>
                 <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
                 <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
                 <div id="session-ssh-status" class="muted"></div>
-              </div>
-              <div class="settings-field role-settings-row">
-                <span class="settings-label">项目连接</span>
-                <button id="project-settings-from-session" class="secondary" type="button">打开项目设置，管理 SSH 环境</button>
               </div>
             </div>
           </section>

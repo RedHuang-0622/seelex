@@ -1746,6 +1746,11 @@ function renderProject(snapshot) {
       ? `${workspace.name || "当前项目"} · ${workspace.root_path || ""}`
       : "当前没有绑定项目";
   }
+  if (elements["project-settings-from-session"]) {
+    elements["project-settings-from-session"].textContent = workspace?.id
+      ? `打开项目设置：${workspace.name || "当前项目"}`
+      : "先选择一个项目";
+  }
   renderProjectStatus(snapshot, running);
   // 概要区不再放那句英文作用域说明：用户口径是「概要有且仅有压缩栈表格」，而它说的
   // 两件事（哪个工作区、能不能跑）分别由项目名/根路径与上面的状态行承载。
