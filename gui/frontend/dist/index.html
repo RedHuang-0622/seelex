@@ -297,7 +297,7 @@
       <section class="project-heading">
         <div class="project-heading-bar">
           <div class="section-title">项目</div>
-          <button id="project-settings-button" class="icon-button subtle project-settings-button" type="button" title="项目设置" aria-label="打开项目设置" data-icon="settings" disabled></button>
+          <button id="project-settings-button" class="text-button project-settings-action" type="button" title="管理当前项目的 SSH 环境" aria-label="打开项目 SSH 环境设置">SSH 环境</button>
         </div>
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
@@ -548,6 +548,10 @@
                 <select id="session-ssh-env" aria-label="当前限定的 SSH 环境"></select>
                 <div id="session-ssh-allowed" class="perm-vector" role="group" aria-label="本会话放权的 SSH 环境"></div>
                 <div id="session-ssh-status" class="muted"></div>
+              </div>
+              <div class="settings-field role-settings-row">
+                <span class="settings-label">项目连接</span>
+                <button id="project-settings-from-session" class="secondary" type="button">打开项目设置，管理 SSH 环境</button>
               </div>
             </div>
           </section>

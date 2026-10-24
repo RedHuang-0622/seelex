@@ -44,7 +44,9 @@ test("项目 SSH 连接表在项目设置，会话只保留限定与放行", asy
   assert.doesNotMatch(project, /id="session-ssh-allowed"/, "会话放权不属于项目连接表");
   assert.match(settings, /id="session-ssh-allowed"/);
   assert.match(settings, /id="session-ssh-env"/);
+  assert.match(settings, /id="project-settings-from-session"/, "全局设置要能跳转到项目设置");
   assert.match(html, /id="project-settings-button"/, "项目标题区要有项目设置入口");
+  assert.match(html, /id="project-settings-button"[^>]*>SSH 环境<\/button>/, "项目入口要明确写 SSH 环境");
 });
 
 test("角色页把当前会话生效值与角色默认分开呈现", async () => {

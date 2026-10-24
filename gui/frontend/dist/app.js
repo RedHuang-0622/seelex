@@ -130,7 +130,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
-  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-modal", "project-settings-close", "project-settings-name", "worktree-view", "file-count", "context-compactions",
+  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-from-session", "project-settings-modal", "project-settings-close", "project-settings-name", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
@@ -1736,10 +1736,10 @@ function renderProject(snapshot) {
   elements["project-root"].textContent = workspace?.root_path || "";
   const projectSettingsButton = elements["project-settings-button"];
   if (projectSettingsButton) {
-    projectSettingsButton.disabled = !workspace?.id;
+    projectSettingsButton.disabled = false;
     projectSettingsButton.title = workspace?.id
-      ? `项目设置：${workspace.name || "当前项目"}`
-      : "先选择一个项目";
+      ? `管理 ${workspace.name || "当前项目"} 的 SSH 环境`
+      : "先选择一个项目，再管理 SSH 环境";
   }
   if (elements["project-settings-name"]) {
     elements["project-settings-name"].textContent = workspace?.id
@@ -3814,7 +3814,11 @@ function closeAccountAdd() {
 }
 
 async function openProjectSettings() {
-  if (!client.current()?.current_workspace?.id) return;
+  if (!client.current()?.current_workspace?.id) {
+    showToast("先选择一个项目，再管理项目 SSH 环境");
+    return;
+  }
+  setModal("settings-modal", false);
   setModal("project-settings-modal", true);
   await syncWorkspaceEnvironments();
 }
@@ -4601,6 +4605,7 @@ elements["account-add-open"]?.addEventListener("click", () => { void openAccount
 elements["account-add-cancel"]?.addEventListener("click", closeAccountAdd);
 elements["account-add-cancel-footer"]?.addEventListener("click", closeAccountAdd);
 elements["project-settings-button"]?.addEventListener("click", () => { void openProjectSettings(); });
+elements["project-settings-from-session"]?.addEventListener("click", () => { void openProjectSettings(); });
 elements["project-settings-close"]?.addEventListener("click", closeProjectSettings);
 elements["command-button"].addEventListener("click", () => openCommandPalette("/"));
 elements["command-close"].addEventListener("click", closeCommandPalette);

@@ -448,7 +448,12 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .right-panel > .project-heading { padding: 16px 14px 10px; flex: none; }
 .project-heading-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .project-heading-bar .section-title { margin: 0; }
-.project-settings-button { width: 28px; height: 28px; min-height: 28px; }
+.project-settings-action {
+  min-height: 26px;
+  padding: 3px 9px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
 .panel section + section { margin-top: 20px; }
 /* 左栏的高度链：section 只把高度让下去（flex 列 + min-height: 0），会话列表吃掉
    剩余高度自滚——max-height 归零后它才是"吃掉剩余空间"的那一环，否则限高（100%）
