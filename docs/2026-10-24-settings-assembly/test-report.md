@@ -84,7 +84,7 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
 - 新 GUI 启动成功，窗口标题 `Seelex`、`Responding=true`，WebView2 环境创建成功。
 - Computer Use 原生 pipe 仍返回 `os error 2`，无法在 Wails 窗口内注入点击；同一份
   `gui/frontend/dist` 通过本机 Chrome CDP 完成 DOM 事件冒烟。
-- 已点击验证：全局设置为「角色与权限 / 会话权限 / 应用」三类；角色固定为
+- 上一版已点击验证：全局设置为「角色与权限 / 会话权限 / 应用」三类；角色固定为
   goalplan / mainagent / subagent / teammate；全局设置内没有项目 SSH 环境表，
   也没有 `ssh.userspace` 权限项。
 - 未选中 SSH 的 agent role 点击候选 SSH 会打开「允许路径」弹窗；会话权限页的同一
@@ -95,3 +95,12 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
   `dev` 与 SSH `test`，固定后按钮显示 `本会话环境 · test`，选择框锁为 disabled，
   状态明确说明 agent 与工具入参不能切换。
 - 角色卡中的「添加账户」打开独立二级「添加账户」弹窗，含 API Key 字段。
+
+### 2026-10-25 项目环境与会话设置层级修正
+
+- 项目环境读写改为显式项目 ID：项目已登记但会话尚未持久绑定时，仍可读取和写入
+  1:N 环境表；会话首次固定环境时同样由当前项目 ID 校验，不再反查 session binding。
+- 设置一级分类合并为「角色与权限 / 应用」。每张角色卡内部并列显示“角色默认”和
+  “本会话覆盖”，继承 chip 只锁默认栏。
+- 上下文窗口从角色设置契约和视觉层级中移除；它只存在于具体账户模型条目内，文案
+  使用“甜点上下文”，避免被读成角色级继承项。

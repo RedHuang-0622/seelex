@@ -105,8 +105,6 @@ type PermissionRoleInfo struct {
 type RoleSettings struct {
 	// Account 是该角色使用的账号名（provider 账号；空 = 跟随会话/全局）。
 	Account string `json:"account,omitempty"`
-	// ContextWindow 是该角色的上下文窗口（token；0 = 跟随会话/全局）。
-	ContextWindow int `json:"context_window,omitempty"`
 	// PermissionVector 是能力标签集合（见 PermissionTag*；可带 `!` 前缀表示明确不给）。
 	PermissionVector []string `json:"permission_vector,omitempty"`
 	// DefaultPlugin 是该角色默认装载的插件名（空 = 不预装，走会话默认）。
@@ -115,15 +113,14 @@ type RoleSettings struct {
 
 // Empty 报告这份设置是否什么都没配（调用方据此跳过写入/覆盖）。
 func (settings RoleSettings) Empty() bool {
-	return settings.Account == "" && settings.ContextWindow == 0 &&
-		len(settings.PermissionVector) == 0 && settings.DefaultPlugin == ""
+	return settings.Account == "" && len(settings.PermissionVector) == 0 && settings.DefaultPlugin == ""
 }
 
 // RoleSettingsLayers 是五级来源的一份取值。
 //
-// 用"每层一份 RoleSettings"而不是"每层一个 []string"：Account / ContextWindow /
-// DefaultPlugin 也走同一条五级链路（首个非零层说了算），把它们拆到两个结构里会
-// 让调用方不得不做两次解析。
+// 用"每层一份 RoleSettings"而不是"每层一个 []string"：Account / DefaultPlugin
+// 也走同一条五级链路（首个非空层说了算）。ContextWindow 不在这里：它属于具体
+// 账户与模型，不随角色继承。
 type RoleSettingsLayers struct {
 	UserAllow      RoleSettings
 	AgentDispatch  RoleSettings
@@ -215,7 +212,7 @@ func ResolvePermissionVectorDecision(layers ...[]string) PermissionVectorDecisio
 }
 
 // ResolveRoleSettings 按五级优先级解析整份角色设置（高→低参数序）：
-// Account / ContextWindow / DefaultPlugin 取**首个非零层**，PermissionVector
+// Account / DefaultPlugin 取**首个非空层**，PermissionVector
 // 交给 ResolvePermissionVector（同一份判据，不在这里重算）。
 func ResolveRoleSettings(layers ...RoleSettings) RoleSettings {
 	resolved := RoleSettings{}
@@ -223,9 +220,6 @@ func ResolveRoleSettings(layers ...RoleSettings) RoleSettings {
 	for _, layer := range layers {
 		if resolved.Account == "" && layer.Account != "" {
 			resolved.Account = layer.Account
-		}
-		if resolved.ContextWindow == 0 && layer.ContextWindow > 0 {
-			resolved.ContextWindow = layer.ContextWindow
 		}
 		if resolved.DefaultPlugin == "" && layer.DefaultPlugin != "" {
 			resolved.DefaultPlugin = layer.DefaultPlugin

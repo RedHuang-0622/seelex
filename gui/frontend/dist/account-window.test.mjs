@@ -56,7 +56,7 @@ test("app.js 注册并接线：开弹窗拉挡位表、提交采纳生效值、�
   assert.match(app, /await invoke\("AccountWindowPresets"\)/, "挡位表必须由后端下发");
   assert.match(app, /syncAccountWindowReading\(\);/, "openSettings 要调它");
   assert.match(app, /invoke\("SetAccountWindow", name, window\)/, "提交要透传账号名与整数");
-  assert.match(app, /elements\[id\]\?\.addEventListener\("change"/, "角色卡用 change 事件委托提交账号窗口");
+  assert.match(app, /elements\["permission-role-board"\]\?\.addEventListener\("change"/, "合一角色卡用 change 事件委托提交账号窗口");
   // 失败回滚：catch 分支必须重画到最后一份权威读数，并露出错误。
   const handler = app.match(/async function submitAccountWindow[\s\S]*?\n\}/);
   assert.ok(handler, "要找得到 submitAccountWindow");

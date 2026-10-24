@@ -141,7 +141,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-default-plugin", "default-plugin-status", "role-settings-status", "permission-role-board", "session-role-board", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "account-add-modal", "account-add-modal-title", "account-add-note", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-delete-modal", "account-delete-title", "account-delete-message", "account-delete-close", "account-delete-cancel", "account-delete-confirm", "account-delete-status", "ssh-userspace-modal", "ssh-userspace-close", "ssh-userspace-cancel", "ssh-userspace-paths", "ssh-userspace-save", "ssh-userspace-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-default-plugin", "default-plugin-status", "role-settings-status", "permission-role-board", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "account-add-modal", "account-add-modal-title", "account-add-note", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-delete-modal", "account-delete-title", "account-delete-message", "account-delete-close", "account-delete-cancel", "account-delete-confirm", "account-delete-status", "ssh-userspace-modal", "ssh-userspace-close", "ssh-userspace-cancel", "ssh-userspace-paths", "ssh-userspace-save", "ssh-userspace-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -3771,7 +3771,7 @@ function closeRuntime() {
   setModal("runtime-modal", false);
 }
 
-const SETTINGS_PAGES = ["roles", "session", "application"];
+const SETTINGS_PAGES = ["roles", "application"];
 
 // setSettingsPage 只切换设置弹窗内部的页面，不触碰快照或业务状态。页面归属是
 // 结构契约：账户新增在二级弹窗，项目连接在项目设置，会话只保留放权。
@@ -3824,7 +3824,7 @@ async function syncSessionEnvironment() {
   }
   try {
     const [environmentResult, sessionState] = await Promise.all([
-      invoke("WorkspaceEnvironments"),
+      invoke("WorkspaceEnvironments", workspaceID),
       invoke("SessionSSHState"),
     ]);
     sessionEnvironmentEnvs = Array.isArray(environmentResult?.[0]) ? environmentResult[0] : [];
@@ -4768,7 +4768,7 @@ elements["session-environment-confirm"]?.addEventListener("click", async () => {
   if (elements["session-environment-confirm"]) elements["session-environment-confirm"].disabled = true;
   if (elements["session-environment-status"]) elements["session-environment-status"].textContent = `正在固定 ${env}…`;
   try {
-    const state = await invoke("SetSessionSSHEnv", env);
+    const state = await invoke("SetSessionSSHEnv", currentWorkspaceID(), env);
     sessionEnvironmentCurrent = String(state?.current_env || env);
     renderSessionEnvironmentButton();
     renderSessionEnvironmentModal();
@@ -5932,17 +5932,9 @@ elements["release-window"]?.addEventListener("change", async event => {
 
 renderReleaseWindowOptions();
 
-// ── 角色设置（设置 → 角色设置）────────────────────────────────────────
-// 四项并列：账号 / 上下文窗口 / 权限向量 / 默认 plugin。
-//   · 账号：列表与当前值来自快照 runtime.accounts（后端下发），提交走 SelectAccount；
-//   · 上下文窗口：见下一条注释（挡位表 invoke AccountWindowPresets、提交 SetAccountWindow）；
-//   · 权限向量：取值面全在 role-settings.js（标签表 / 归一化 / lint），提交走
-//     invoke("SetPermissionVector", tags)。桥面**还没有**这个方法（permission-assembly 的
-//     M1–M3 在另一条工作项上），所以提交失败时这里如实标「未生效」并把草稿留着给人看，
-//     绝不假装写成了；
-//   · 默认 plugin：列表来自快照 runtime.plugins，提交走 invoke("SetDefaultPlugin", name)
-//     （同上：桥面待补，失败照实说）。
-// 三处"读不到"都只说明一句，不拖累另外几段。
+// ── 角色设置（设置 → 角色与权限）──────────────────────────────────────
+// 角色卡统一承载：角色默认权限 / 本会话覆盖 / 继承 / 账户 / 默认 plugin。
+// 上下文窗口不在这条角色链上：它属于具体账户模型，由账户行内的甜点上下文控件编辑。
 let permissionVectorCommitted = [];
 let permissionVectorDraft = [];
 let permissionVectorApplied = true;
@@ -6007,15 +5999,8 @@ async function submitPermissionVector() {
 // 界面不自己造别名，也不把"面板上的角色"与"配置里的角色"分成两份事实。
 let permissionRoleRows = [];
 const roleBoardDrafts = { default: new Map(), session: new Map() };
-const roleBoardExpanded = { default: new Set(["agent"]), session: new Set(["agent"]) };
+const roleBoardExpanded = new Set(["agent"]);
 let pendingSSHUserSpace = null;
-
-function roleBoardElements() {
-  return {
-    default: elements["permission-role-board"],
-    session: elements["session-role-board"],
-  };
-}
 
 function replacePermissionRoleRow(applied) {
   if (!applied?.role) return;
@@ -6027,21 +6012,18 @@ function replacePermissionRoleRow(applied) {
 }
 
 function renderPermissionRoleRows() {
-  const boards = roleBoardElements();
+  const host = elements["permission-role-board"];
+  if (!host) return;
   const accounts = lastAccountsRuntime?.accounts || [];
-  for (const mode of ["default", "session"]) {
-    const host = boards[mode];
-    if (!host) continue;
-    host.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
-      mode,
-      accounts,
-      balances: accountBalances,
-      drafts: roleBoardDrafts[mode],
-      expanded: roleBoardExpanded[mode],
-      windowPresets: accountWindowPresets,
-      windowReadings: accountWindowsCommitted,
-    });
-  }
+  host.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
+    accounts,
+    balances: accountBalances,
+    defaultDrafts: roleBoardDrafts.default,
+    sessionDrafts: roleBoardDrafts.session,
+    expanded: roleBoardExpanded,
+    windowPresets: accountWindowPresets,
+    windowReadings: accountWindowsCommitted,
+  });
 }
 
 async function syncPermissionRoles() {
@@ -6094,15 +6076,12 @@ function closeSSHUserSpaceDialog() {
 }
 
 elements["permission-role-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
-elements["session-role-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
 
 async function handleRoleBoardClick(event) {
   const toggle = roleBoardTarget(event, "data-role-toggle");
   if (toggle) {
-    const mode = toggle.node.closest("[data-settings-page-panel]")?.dataset.settingsPagePanel === "session" ? "session" : "default";
-    const set = roleBoardExpanded[mode];
-    if (set.has(toggle.value)) set.delete(toggle.value);
-    else set.add(toggle.value);
+    if (roleBoardExpanded.has(toggle.value)) roleBoardExpanded.delete(toggle.value);
+    else roleBoardExpanded.add(toggle.value);
     renderPermissionRoleRows();
     return;
   }
@@ -6220,7 +6199,7 @@ function setSSHEnvStatus(text) {
 async function syncWorkspaceEnvironments() {
   setSSHEnvStatus("");
   try {
-    const [list, defaultEnv] = await invoke("WorkspaceEnvironments");
+    const [list, defaultEnv] = await invoke("WorkspaceEnvironments", currentWorkspaceID());
     sshEnvRows = Array.isArray(list) ? list : [];
     sshEnvDefault = String(defaultEnv || "");
     sshEnvAvailable = true;
@@ -6236,7 +6215,7 @@ function renderSSHEnvRows() {
   const host = elements["ssh-env-list"];
   if (!host) return;
   if (!sshEnvAvailable) {
-    host.innerHTML = '<span class="muted list-empty">读不到项目环境表（桥未装配 WorkspaceEnvironments，或当前会话没绑定项目）</span>';
+    host.innerHTML = '<span class="muted list-empty">读不到项目环境表（请先选择项目；环境属于项目，不依赖会话绑定）</span>';
     return;
   }
   if (!sshEnvRows.length) {
@@ -6277,7 +6256,7 @@ async function submitSSHEnvironment() {
     Delete: false,
   };
   try {
-    const applied = await invoke("SetWorkspaceEnvironment", name, change);
+    const applied = await invoke("SetWorkspaceEnvironment", currentWorkspaceID(), name, change);
     await syncWorkspaceEnvironments();
     setSSHEnvStatus(applied && applied.host
       ? `${name}：已保存 SSH 环境（${applied.host}${applied.port ? ":" + applied.port : ""}）`
@@ -6313,7 +6292,7 @@ elements["ssh-env-delete"]?.addEventListener("click", async () => {
     return;
   }
   try {
-    await invoke("DeleteWorkspaceEnvironment", name);
+    await invoke("DeleteWorkspaceEnvironment", currentWorkspaceID(), name);
     await syncWorkspaceEnvironments();
     setSSHEnvStatus(`${name}：已删除`);
   } catch (error) {
@@ -6431,9 +6410,7 @@ async function handleRoleBoardChange(event) {
   }
 }
 
-for (const id of ["permission-role-board", "session-role-board"]) {
-  elements[id]?.addEventListener("change", event => { void handleRoleBoardChange(event); });
-}
+elements["permission-role-board"]?.addEventListener("change", event => { void handleRoleBoardChange(event); });
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;

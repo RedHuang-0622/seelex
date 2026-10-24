@@ -134,7 +134,7 @@ test("设置弹窗：角色页用角色卡承载权限与账户，不再平铺�
   assert.match(body, /id="default-plugin-status"/, "应用默认值要有一行落点");
 
   // 角色页只承载层级；应用级默认值不能回流到角色页。
-  const section = body.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="session"/);
+  const section = body.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="application"/);
   assert.ok(section, "要找得到角色与权限页面");
   assert.match(section[0], /id="permission-role-board"/);
   assert.doesNotMatch(section[0], /id="role-default-plugin"|id="account-windows"/);
@@ -148,9 +148,10 @@ test("设置弹窗：角色页用角色卡承载权限与账户，不再平铺�
 
 test("app.js 接线：角色卡、权限组合、账号与余额", async () => {
   const app = await read("app.js");
-  for (const id of ["permission-role-board", "session-role-board", "role-default-plugin", "default-plugin-status", "role-settings-status"]) {
+  for (const id of ["permission-role-board", "role-default-plugin", "default-plugin-status", "role-settings-status"]) {
     assert.match(app, new RegExp(`"${id}"`), `${id} 必须注册进 elements`);
   }
+  assert.doesNotMatch(app, /session-role-board/, "会话权限已并入同一角色卡，不再保留第二个宿主席位");
   assert.match(app, /from "\.\/role-settings\.js"/, "取值面必须来自纯模块，而不是 app.js 里另抄一份");
   assert.match(app, /from "\.\/role-permission-board\.js"/, "角色卡渲染必须来自独立模块");
   assert.match(app, /await syncRoleSettings\(\);/, "openSettings 要调它");
@@ -270,12 +271,15 @@ test("上下文窗口改完要读回来（send/ack），不能拿请求值当结
   assert.doesNotMatch(app, /function renderAccountWindowRows\(\)/, "账户运行参数不得再单独平铺");
 });
 
-test("角色默认权限与会话权限分成两块 agent-role 面板", async () => {
+test("角色默认权限与本会话覆盖合并在同一 agent-role 角色卡", async () => {
   const app = await read("app.js");
   const index = await read("index.html");
-  assert.match(index, /id="permission-role-board"/, "角色默认板要在");
-  assert.match(index, /id="session-role-board"/, "会话覆盖板要在");
+  assert.match(index, /id="permission-role-board"/, "合一的角色卡要在");
+  assert.doesNotMatch(index, /id="session-role-board"/, "不再保留独立会话权限板");
+  assert.doesNotMatch(index, /data-settings-page="session"/, "不再保留会话权限一级导航");
   assert.match(app, /await invoke\("PermissionRoles"\)/, "角色名录要向桥要");
+  assert.match(app, /defaultDrafts: roleBoardDrafts\.default/, "默认权限草稿进同一角色卡");
+  assert.match(app, /sessionDrafts: roleBoardDrafts\.session/, "会话覆盖草稿进同一角色卡");
   assert.match(app, /const method = mode === "session" \? "SetRoleSessionPermission" : "SetRoleDefaultVector"/, "提交按作用域选择桥面方法");
   assert.doesNotMatch(app, /SetRoleDefaultVector", permissionRoleSelected/, "单角色选择器已经退场");
   assert.match(app, /SetRoleSessionPermission/, "会话覆盖走独立提交路径");
@@ -312,9 +316,9 @@ test("SSH 环境：项目表只在项目设置维护，应用设置不再包含 
   assert.match(index, /id="ssh-env-save"/, "要有保存环境");
   assert.doesNotMatch(index.match(/<div id="settings-modal"[\s\S]*?\n  <\/div>/)?.[0] || '', /session-ssh-allowed|SSH 环境/, "应用设置不含 SSH");
   // 读数来自后端，前端不自己造环境名
-  assert.match(app, /await invoke\("WorkspaceEnvironments"\)/, "环境表要向桥要");
-  assert.match(app, /await invoke\("SetWorkspaceEnvironment", name, change\)/, "保存走 SetWorkspaceEnvironment");
-  assert.match(app, /await invoke\("DeleteWorkspaceEnvironment", name\)/, "删除走 DeleteWorkspaceEnvironment");
+  assert.match(app, /await invoke\("WorkspaceEnvironments", currentWorkspaceID\(\)\)/, "环境表要按当前项目 ID 向桥要");
+  assert.match(app, /await invoke\("SetWorkspaceEnvironment", currentWorkspaceID\(\), name, change\)/, "保存走项目作用域 SetWorkspaceEnvironment");
+  assert.match(app, /await invoke\("DeleteWorkspaceEnvironment", currentWorkspaceID\(\), name\)/, "删除走项目作用域 DeleteWorkspaceEnvironment");
   // 口令三态：留空 = 不改（null），不是空串
   assert.match(app, /Password: passwordText === "" \? null : passwordText/, "口令留空必须是 null（不改），空串才表示清除");
   assert.match(app, /async function openProjectSettings\(\)[\s\S]*?await syncWorkspaceEnvironments\(\)/, "项目设置要拉项目连接表");

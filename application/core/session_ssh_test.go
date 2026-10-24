@@ -61,26 +61,29 @@ func TestSessionEnvironmentCanBeFixedOnceAndNeverChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.BindSession("sess-fixed", project.ID)
 	sessions := &environmentTraceSessions{}
 	service := newTestService(t, &fakeEngine{},
 		func(deps *contract.Dependencies) { deps.Workspace = workspace },
 		withTestSessions(sessions),
 	)
-	state, err := service.SetSessionSSHEnv("sess-fixed", "test")
+	list, _, err := service.WorkspaceEnvironments(project.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("项目已存在但会话未绑定时仍须读到环境表: list=%v err=%v", list, err)
+	}
+	state, err := service.SetSessionSSHEnv("sess-fixed", project.ID, "test")
 	if err != nil || state.CurrentEnv != "test" {
 		t.Fatalf("bind = %+v err=%v", state, err)
 	}
-	if _, err := service.SetSessionSSHEnv("sess-fixed", "test"); err != nil {
+	if _, err := service.SetSessionSSHEnv("sess-fixed", project.ID, "test"); err != nil {
 		t.Fatalf("重复固定同一环境应幂等: %v", err)
 	}
-	if _, err := service.SetSessionSSHEnv("sess-fixed", "dev"); err == nil {
+	if _, err := service.SetSessionSSHEnv("sess-fixed", project.ID, "dev"); err == nil {
 		t.Fatal("固定环境不得被 agent/工具切换")
 	}
-	if _, err := service.SetSessionSSHEnv("sess-fixed", ""); err == nil {
+	if _, err := service.SetSessionSSHEnv("sess-fixed", project.ID, ""); err == nil {
 		t.Fatal("固定环境不得被清空")
 	}
-	if _, err := service.SetSessionSSHEnv("sess-fixed", "missing"); err == nil {
+	if _, err := service.SetSessionSSHEnv("sess-fixed", project.ID, "missing"); err == nil {
 		t.Fatal("未知环境也不得替换固定值")
 	}
 }

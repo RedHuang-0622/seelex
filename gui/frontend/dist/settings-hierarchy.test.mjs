@@ -10,16 +10,17 @@ function modal(html, id) {
   return html.match(new RegExp(`<div id="${id}"[\\s\\S]*?\\n  </div>`))?.[0] || "";
 }
 
-test("应用设置有角色权限与会话权限分类，账户新增不再平铺在首页", async () => {
+test("应用设置把角色默认与会话权限合并在同一角色页", async () => {
   const html = await read("index.html");
   const settings = modal(html, "settings-modal");
   assert.match(settings, /id="settings-nav"/);
-  for (const page of ["roles", "session", "application"]) {
+  for (const page of ["roles", "application"]) {
     assert.match(settings, new RegExp(`data-settings-page="${page}"`));
     assert.match(settings, new RegExp(`data-settings-page-panel="${page}"`));
   }
+  assert.doesNotMatch(settings, /data-settings-page="session"/, "会话权限不再是独立一级分类");
   assert.match(settings, /id="permission-role-board"/, "角色页要有角色权限板");
-  assert.match(settings, /id="session-role-board"/, "会话页要有按 agent role 的覆盖板");
+  assert.doesNotMatch(settings, /id="session-role-board"/, "会话覆盖并入同一角色卡");
   assert.doesNotMatch(settings, /id="account-add-api-key"/, "API Key 表单不得平铺在一级设置");
   assert.doesNotMatch(settings, /id="ssh-env-host"/, "项目 SSH 连接表单不得平铺在应用设置");
 });
@@ -58,8 +59,8 @@ test("角色页使用角色卡、候选/确认权限栏，并支持继承 chip",
   const app = await read("app.js");
   const settings = modal(html, "settings-modal");
   assert.match(settings, /id="permission-role-board"/);
-  assert.match(settings, /id="session-role-board"/);
-  assert.doesNotMatch(settings.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="session"/)?.[0] || "", /id="account-windows"|id="role-default-plugin"/, "角色页只保留角色层级；账户运行参数落在角色卡内，应用参数落在应用页");
+  assert.doesNotMatch(settings, /id="session-role-board"/);
+  assert.doesNotMatch(settings.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="application"/)?.[0] || "", /id="account-windows"|id="role-default-plugin"/, "角色页只保留角色层级；账户运行参数落在角色卡内，应用参数落在应用页");
   assert.match(app, /rolePermissionBoardHTML/);
   assert.match(app, /data-role-inherit/);
   assert.match(app, /data-role-perm-add/);

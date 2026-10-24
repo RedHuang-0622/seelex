@@ -476,25 +476,16 @@
       <div class="settings-layout">
         <nav id="settings-nav" class="settings-nav" aria-label="设置分类">
           <button type="button" class="settings-nav-item is-active" data-settings-page="roles">角色与权限</button>
-          <button type="button" class="settings-nav-item" data-settings-page="session">会话权限</button>
           <button type="button" class="settings-nav-item" data-settings-page="application">应用</button>
         </nav>
         <div class="settings-pages">
           <section class="settings-page" data-settings-page-panel="roles">
             <div class="settings-section" id="role-settings-section">
               <div class="section-title">Agent roles</div>
-              <p class="settings-note">角色权限是账户权限的唯一来源。展开角色后可组合权限并查看该角色账户与余额。</p>
+              <p class="settings-note">每个角色同时管理跨会话默认权限与本会话覆盖；账户只继承角色权限。上下文窗口属于具体账户，因为不同模型的甜点上下文不同。</p>
               <div id="permission-role-board" class="role-permission-board"></div>
               <div id="role-settings-status" class="muted"></div>
               <p class="settings-note permission-semantics-note"><strong>控制</strong>：结束/恢复执行、派生任务、调度团队；<strong>管理</strong>：装载或切换插件、Skill、MCP 与运行模式。两者正交；管理不包含授予权限，也不会自动包含控制。</p>
-            </div>
-          </section>
-
-          <section class="settings-page hidden" data-settings-page-panel="session">
-            <div class="settings-section">
-              <div class="section-title">会话权限覆盖</div>
-              <p class="settings-note">只有这里能按 agent role 修改当前会话。未覆盖时使用角色默认；账户没有独立权限。</p>
-              <div id="session-role-board" class="role-permission-board"></div>
             </div>
           </section>
 

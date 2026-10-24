@@ -188,7 +188,6 @@ func fourLayerFixture() dto.RoleSettingsLayers {
 			PermissionVector: []string{"!" + dto.PermissionTagRW},
 		},
 		SessionDefault: dto.RoleSettings{
-			ContextWindow:    128000,
 			DefaultPlugin:    "review",
 			PermissionVector: []string{dto.PermissionTagRW, dto.PermissionTagCTL},
 		},
@@ -218,8 +217,8 @@ func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T) {
 	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagADM}); !reflect.DeepEqual(coworker.PermissionVector, want) {
 		t.Fatalf("coworker 向量 = %v, want %v", coworker.PermissionVector, want)
 	}
-	if coworker.Account != "worker-a" || coworker.ContextWindow != 128000 || coworker.DefaultPlugin != "review" {
-		t.Fatalf("coworker 标量 = %+v, want account=worker-a window=128000 plugin=review", coworker)
+	if coworker.Account != "worker-a" || coworker.DefaultPlugin != "review" {
+		t.Fatalf("coworker 标量 = %+v, want account=worker-a plugin=review", coworker)
 	}
 }
 

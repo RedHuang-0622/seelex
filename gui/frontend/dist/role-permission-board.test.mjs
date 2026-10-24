@@ -48,15 +48,17 @@ test("subagent / teammate 默认继承 mainagent，账户只读继承", () => {
 
 test("继承只锁角色默认，当前会话仍可按 agent role 覆盖", () => {
   const html = rolePermissionBoardHTML(rows, {
-    mode: "session",
     expanded: new Set(["teammate"]),
     accounts: [
       { name: "teammate-1", role: "teammate", provider: "deepseek", model: "v3", api_key_set: true },
     ],
   });
-  assert.match(html, /data-role-perm-cycle="read"/, "会话覆盖必须仍可编辑");
-  assert.doesNotMatch(html, /data-role-perm-add="write"[^>]*disabled/, "会话覆盖不受角色默认继承开关影响");
-  assert.doesNotMatch(html, /data-role-inherit="teammate"/, "继承 chip 只属于角色默认页");
+  const defaultScope = html.match(/aria-label="teammate 角色默认权限"[\s\S]*?<\/section>/)?.[0] || "";
+  const sessionScope = html.match(/aria-label="teammate 本会话权限"[\s\S]*?<\/section>/)?.[0] || "";
+  assert.match(defaultScope, /data-role-perm-cycle="read"[^>]*disabled/, "角色默认继承锁只锁默认栏");
+  assert.match(sessionScope, /data-role-perm-cycle="ssh"/, "本会话覆盖仍可编辑");
+  assert.doesNotMatch(sessionScope, /data-role-perm-cycle="ssh"[^>]*disabled/, "会话覆盖不受继承锁影响");
+  assert.equal((html.match(/data-role-inherit="teammate"/g) || []).length, 1, "同一角色卡只出现一个继承开关");
 });
 
 test("SSH 是单一能力，选中后显示路径范围入口", () => {
@@ -67,25 +69,16 @@ test("SSH 是单一能力，选中后显示路径范围入口", () => {
     default_permission_vector: ["read", "ssh"],
     default_ssh_user_spaces: ["/home/seelex/.cache"],
     session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
-  }], { mode: "default", expanded: new Set(["agent"]) });
+  }], { expanded: new Set(["agent"]) });
   assert.match(html, /data-role-user-spaces="agent"/);
   assert.match(html, /路径 1/);
   assert.doesNotMatch(html, /ssh\.userspace/);
 
-  const sessionHTML = rolePermissionBoardHTML([{
-    role: "agent",
-    accounts: [],
-    permission_vector: ["read", "ssh"],
-    default_permission_vector: ["read", "ssh"],
-    default_ssh_user_spaces: ["/home/seelex/.cache"],
-    session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
-  }], { mode: "session", expanded: new Set(["agent"]) });
-  assert.match(sessionHTML, /路径 2/, "会话板必须显示会话覆盖的路径数量");
+  assert.match(html, /路径 2/, "同一角色卡必须同时显示会话覆盖的路径数量");
 });
 
 test("账号行在所属角色内展示上下文窗口，不把账户平铺回全局", () => {
   const html = rolePermissionBoardHTML(rows, {
-    mode: "default",
     expanded: new Set(["agent"]),
     windowPresets: [200000, 400000],
     accounts: [
@@ -94,4 +87,7 @@ test("账号行在所属角色内展示上下文窗口，不把账户平铺回�
   });
   assert.match(html, /data-role-account-window-select="agent-1"/);
   assert.match(html, /<option value="200000" selected>200k<\/option>/);
+  const row = html.match(/<div class="role-account-row[\s\S]*?<\/div>\s*<\/div>/)?.[0] || "";
+  assert.match(row, /data-role-account-pick="agent-1"[\s\S]*role-account-window[\s\S]*data-role-account-window-select="agent-1"/, "上下文窗口必须嵌在账户条目内部");
+  assert.match(row, /甜点上下文/, "账户内的窗口要说明它是该模型的甜点上下文");
 });

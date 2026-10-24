@@ -1084,21 +1084,22 @@ func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {
 
 // ── 会话 SSH（项目环境表 + 会话状态）─────────────────────────────────────────
 //
-// 两块分开，口径不混（2026-10-23 用户定调）：
+// 两块分开，口径不混（2026-10-25 用户定调）：
 //   · 环境表挂在**项目**上（dev / test / prod …）——连接信息的唯一事实源；
-//   · 会话只持有"限定用哪个环境"与"放权了哪些环境"——缺省两者都空 = 用不了 SSH。
+//     项目操作直接收项目 ID，与会话是否已经建立持久 binding 无关；
+//   · 会话只持有首次固定、之后不可切换的环境名。
 //
 // 桥面照抄 roleSettings 的做法：窄接口 + 类型断言，不往 Application 那条约面上
 // 加方法（那条面是所有 fake 都要满足的最小集）。
 
 // sessionSSHApplication 是会话 SSH 要用到的应用层方法（窄接口，由本包声明）。
 type sessionSSHApplication interface {
-	WorkspaceEnvironments(sessionID string) ([]model.WorkspaceEnvironmentInfo, string, error)
-	SetWorkspaceEnvironment(sessionID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)
-	DeleteWorkspaceEnvironment(sessionID, name string) error
-	SetDefaultWorkspaceEnvironment(sessionID, name string) error
+	WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)
+	SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)
+	DeleteWorkspaceEnvironment(projectID, name string) error
+	SetDefaultWorkspaceEnvironment(projectID, name string) error
 	SessionSSHState(sessionID string) (model.SessionSSHInfo, error)
-	SetSessionSSHEnv(sessionID, env string) (model.SessionSSHInfo, error)
+	SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error)
 	SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)
 }
 
@@ -1113,40 +1114,40 @@ func (bridge *Bridge) sessionSSH() (sessionSSHApplication, error) {
 	return app, nil
 }
 
-// WorkspaceEnvironments 读当前会话所属项目的环境表与默认环境名。
-func (bridge *Bridge) WorkspaceEnvironments() ([]model.WorkspaceEnvironmentInfo, string, error) {
+// WorkspaceEnvironments 读指定项目的环境表与默认环境名。
+func (bridge *Bridge) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
 		return nil, "", err
 	}
-	return app.WorkspaceEnvironments(bridge.app.Snapshot().Session.ID)
+	return app.WorkspaceEnvironments(strings.TrimSpace(projectID))
 }
 
 // SetWorkspaceEnvironment 写一个项目环境（口令三态；Delete=true 则删除）。
-func (bridge *Bridge) SetWorkspaceEnvironment(name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error) {
+func (bridge *Bridge) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
 		return model.WorkspaceEnvironmentInfo{}, err
 	}
-	return app.SetWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name, change)
+	return app.SetWorkspaceEnvironment(strings.TrimSpace(projectID), name, change)
 }
 
 // DeleteWorkspaceEnvironment 删除一个项目环境（连同它的口令）。
-func (bridge *Bridge) DeleteWorkspaceEnvironment(name string) error {
+func (bridge *Bridge) DeleteWorkspaceEnvironment(projectID, name string) error {
 	app, err := bridge.sessionSSH()
 	if err != nil {
 		return err
 	}
-	return app.DeleteWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name)
+	return app.DeleteWorkspaceEnvironment(strings.TrimSpace(projectID), name)
 }
 
 // SetDefaultWorkspaceEnvironment 指定项目默认环境（空串 = 取消默认）。
-func (bridge *Bridge) SetDefaultWorkspaceEnvironment(name string) error {
+func (bridge *Bridge) SetDefaultWorkspaceEnvironment(projectID, name string) error {
 	app, err := bridge.sessionSSH()
 	if err != nil {
 		return err
 	}
-	return app.SetDefaultWorkspaceEnvironment(bridge.app.Snapshot().Session.ID, name)
+	return app.SetDefaultWorkspaceEnvironment(strings.TrimSpace(projectID), name)
 }
 
 // SessionSSHState 读当前视图会话的固定工作环境。
@@ -1160,12 +1161,12 @@ func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
 
 // SetSessionSSHEnv 首次固定当前视图会话的工作环境。绑定后不可修改或清空；
 // 换环境必须新建会话。
-func (bridge *Bridge) SetSessionSSHEnv(env string) (model.SessionSSHInfo, error) {
+func (bridge *Bridge) SetSessionSSHEnv(projectID, env string) (model.SessionSSHInfo, error) {
 	app, err := bridge.sessionSSH()
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
-	return app.SetSessionSSHEnv(bridge.app.Snapshot().Session.ID, env)
+	return app.SetSessionSSHEnv(bridge.app.Snapshot().Session.ID, strings.TrimSpace(projectID), env)
 }
 
 // SetSessionSSHAllowed 是旧会话放权状态的兼容写面；新流程以固定环境为准。

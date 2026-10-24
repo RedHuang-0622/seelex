@@ -55,11 +55,23 @@ func (service *Service) projectEnvironments(sessionID string) ([]model.Workspace
 	if !ok || strings.TrimSpace(bound.ID) == "" {
 		return nil, "", errors.New("session ssh: 会话没有绑定项目，SSH 环境表挂在项目上")
 	}
+	return service.projectEnvironmentsFor(bound.ID)
+}
+
+// projectEnvironmentsFor 直接读指定项目的环境表，不要求会话已完成持久绑定。
+func (service *Service) projectEnvironmentsFor(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error) {
+	if service == nil || service.Deps.Workspace == nil {
+		return nil, "", errors.New("session ssh: workspace port is not assembled")
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil, "", errors.New("session ssh: project id is required")
+	}
 	port, ok := service.Deps.Workspace.(contract.WorkspaceEnvironmentPort)
 	if !ok {
 		return nil, "", errors.New("session ssh: workspace port does not expose the environment table")
 	}
-	return port.WorkspaceEnvironments(bound.ID)
+	return port.WorkspaceEnvironments(projectID)
 }
 
 // SessionSSHState 读一个会话的 SSH 状态（缺省 = 没环境、没放权）。
@@ -122,14 +134,17 @@ func (service *Service) SetSessionSSHAllowed(sessionID string, envs []string) (m
 
 // SetSessionSSHEnv 首次为用户会话绑定固定环境。绑定后不可修改或清空：环境是
 // 会话身份的一部分，工具与 agent 都不获得改写它的入口。
-func (service *Service) SetSessionSSHEnv(sessionID, env string) (model.SessionSSHInfo, error) {
+func (service *Service) SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error) {
 	port := service.sessionSSHStore()
 	if port == nil {
 		return model.SessionSSHInfo{}, ErrSessionSSHUnavailable
 	}
-	sessionID, env = strings.TrimSpace(sessionID), strings.TrimSpace(env)
+	sessionID, projectID, env = strings.TrimSpace(sessionID), strings.TrimSpace(projectID), strings.TrimSpace(env)
 	if sessionID == "" {
 		return model.SessionSSHInfo{}, errors.New("session ssh: session id is required")
+	}
+	if projectID == "" {
+		return model.SessionSSHInfo{}, errors.New("session ssh: project id is required")
 	}
 	state, err := port.SessionSSHState(sessionID)
 	if err != nil {
@@ -146,7 +161,7 @@ func (service *Service) SetSessionSSHEnv(sessionID, env string) (model.SessionSS
 	}
 	// 项目环境表可能已经把这个名字删掉了（项目侧改了表）：这里兜一次，避免把
 	// 一个已经不存在于项目里的名字写进会话状态。
-	list, _, err := service.projectEnvironments(sessionID)
+	list, _, err := service.projectEnvironmentsFor(projectID)
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}

@@ -73,11 +73,11 @@ function accountWindowHTML(role, account, windowPresets, windowReadings) {
   const optionHTML = options.map(option =>
     `<option value="${escapeHtml(option.value)}"${option.value === selected ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
   const customValue = selected === ACCOUNT_WINDOW_CUSTOM && effective !== null ? String(effective) : "";
-  return `<label class="role-account-window">
-    <span>上下文</span>
+  return `<label class="role-account-window" title="按账户模型设置甜点上下文区间">
+    <span>甜点上下文</span>
     <select data-role-account-window-select="${escapeHtml(name)}" data-role="${escapeHtml(role)}" aria-label="${escapeHtml(name)} 的上下文窗口">${optionHTML}</select>
     <input type="number" min="1" step="1000" data-role-account-window-input="${escapeHtml(name)}" data-role="${escapeHtml(role)}" value="${escapeHtml(customValue)}" placeholder="token 数"${selected === ACCOUNT_WINDOW_CUSTOM ? "" : " hidden"}>
-    <em>当前 ${escapeHtml(accountWindowLabel(effective ?? 0))}</em>
+    <em>${escapeHtml(accountWindowLabel(effective ?? 0))}</em>
   </label>`;
 }
 
@@ -97,20 +97,24 @@ function accountRowsHTML(role, accounts, balances, selectedAccount, windowPreset
         <span>${escapeHtml([account.provider, account.model].filter(Boolean).join(" / ") || "未标注模型")}</span>
         ${state ? `<em>${escapeHtml(state)}</em>` : ""}
       </button>
+      ${accountWindowHTML(role, account, windowPresets, windowReadings)}
       <div class="role-account-actions">
         <button type="button" class="text-button" data-role-account-balance="${escapeHtml(name)}">余额</button>
         <button type="button" class="text-button" data-role-account-edit="${escapeHtml(name)}" data-role="${escapeHtml(role)}">编辑</button>
         <button type="button" class="text-button danger" data-role-account-delete="${escapeHtml(name)}" data-role="${escapeHtml(role)}">删除</button>
       </div>
       <span class="role-account-credit${reading ? "" : " muted"}">${escapeHtml(reading || "未查询")}</span>
-      ${accountWindowHTML(role, account, windowPresets, windowReadings)}
     </div>`;
   }).join("");
 }
 
 export function rolePermissionBoardHTML(rows, options = {}) {
-  const mode = options.mode === "session" ? "session" : "default";
-  const drafts = options.drafts instanceof Map ? options.drafts : new Map();
+  const defaultDrafts = options.defaultDrafts instanceof Map
+    ? options.defaultDrafts
+    : (options.mode === "session" ? new Map() : (options.drafts instanceof Map ? options.drafts : new Map()));
+  const sessionDrafts = options.sessionDrafts instanceof Map
+    ? options.sessionDrafts
+    : (options.mode === "session" && options.drafts instanceof Map ? options.drafts : new Map());
   const expanded = options.expanded instanceof Set ? options.expanded : new Set();
   const accounts = Array.isArray(options.accounts) ? options.accounts : [];
   const balances = options.balances instanceof Map ? options.balances : new Map();
@@ -118,37 +122,49 @@ export function rolePermissionBoardHTML(rows, options = {}) {
   const windowReadings = options.windowReadings instanceof Map ? options.windowReadings : new Map();
   const ordered = orderedPermissionRoles(rows);
   const mainAgent = ordered.find(row => row.role === "agent");
-  const mainVector = normalizePermissionVector(
-    mode === "session" ? mainAgent?.permission_vector : mainAgent?.default_permission_vector || [],
-  );
+  const mainDefaultVector = normalizePermissionVector(mainAgent?.default_permission_vector || []);
   if (!ordered.length) return '<div class="role-permission-empty">读不到角色目录</div>';
   return ordered.map(row => {
     const role = String(row.role);
     const inherit = role !== "agent" && (role === "subagent" || role === "teammate") && row.inherit_main_agent === true;
-    const baseVector = mode === "session"
-      ? row.permission_vector || []
-      : (inherit ? mainVector : row.default_permission_vector || []);
-    const draft = drafts.has(role) ? drafts.get(role) : baseVector;
+    const defaultBase = inherit ? mainDefaultVector : row.default_permission_vector || [];
+    const sessionBase = row.permission_vector || [];
+    const defaultDraft = defaultDrafts.has(role) ? defaultDrafts.get(role) : defaultBase;
+    const sessionDraft = sessionDrafts.has(role) ? sessionDrafts.get(role) : sessionBase;
     const roleAccounts = accounts.filter(account => account?.role === role);
     const open = expanded.has(role);
     const accountCount = roleAccounts.length || row.accounts?.length || 0;
-    const inheritedLocked = mode === "default" && inherit;
     return `<article class="role-permission-card${open ? " is-expanded" : ""}" data-role-card="${escapeHtml(role)}">
       <button type="button" class="role-permission-head" data-role-toggle="${escapeHtml(role)}" aria-expanded="${open}">
         <span class="role-permission-name">${escapeHtml(permissionRoleLabel(role))}</span>
-        <span class="role-permission-summary">${escapeHtml(permissionVectorSummary(draft))}</span>
+        <span class="role-permission-summary">默认 ${escapeHtml(permissionVectorSummary(defaultDraft))} · 会话 ${escapeHtml(permissionVectorSummary(sessionDraft))}</span>
         <span class="role-permission-account-count">${accountCount} 个账户</span>
         <span class="role-permission-chevron" aria-hidden="true">${open ? "−" : "+"}</span>
       </button>
       <div class="role-permission-body"${open ? "" : " hidden"}>
-        ${(role === "subagent" || role === "teammate") && mode === "default" ? `<button type="button" class="role-inherit-chip${inherit ? " is-on" : ""}" data-role-inherit="${escapeHtml(role)}" aria-pressed="${inherit}">继承 mainagent 权限</button>` : ""}
-        ${permissionChipsHTML(
-          draft,
-          role,
-          mode,
-          inheritedLocked,
-          (mode === "session" ? row.session_ssh_user_spaces : row.default_ssh_user_spaces)?.length || 0,
-        )}
+        <div class="role-permission-scopes">
+          <section class="role-permission-scope" aria-label="${escapeHtml(permissionRoleLabel(role))} 角色默认权限">
+            <div class="role-permission-scope-head"><strong>角色默认</strong><span>跨会话</span></div>
+            ${(role === "subagent" || role === "teammate") ? `<button type="button" class="role-inherit-chip${inherit ? " is-on" : ""}" data-role-inherit="${escapeHtml(role)}" aria-pressed="${inherit}">继承 mainagent 权限</button>` : ""}
+            ${permissionChipsHTML(
+              defaultDraft,
+              role,
+              "default",
+              inherit,
+              row.default_ssh_user_spaces?.length || 0,
+            )}
+          </section>
+          <section class="role-permission-scope" aria-label="${escapeHtml(permissionRoleLabel(role))} 本会话权限">
+            <div class="role-permission-scope-head"><strong>本会话</strong><span>覆盖角色默认</span></div>
+            ${permissionChipsHTML(
+              sessionDraft,
+              role,
+              "session",
+              false,
+              row.session_ssh_user_spaces?.length || 0,
+            )}
+          </section>
+        </div>
         <div class="role-accounts-head"><span>账户与余额</span><button type="button" class="text-button" data-role-add-account="${escapeHtml(role)}">添加账户</button></div>
         <div class="role-account-list">${accountRowsHTML(role, roleAccounts, balances, row.account, windowPresets, windowReadings)}</div>
       </div>

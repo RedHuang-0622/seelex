@@ -159,25 +159,22 @@ func TestRoleDefaultIsIndependentOfGlobalDefault(t *testing.T) {
 	}
 }
 
-func TestResolveRoleSettingsFirstNonZeroWins(t *testing.T) {
+func TestResolveRoleSettingsFirstNonEmptyWins(t *testing.T) {
 	layers := []RoleSettings{
 		{}, // user_allow 什么都没配
-		{Account: "worker-a", ContextWindow: 64000, PermissionVector: []string{"!" + PermissionTagADM}},
-		{Account: "worker-b", ContextWindow: 128000, DefaultPlugin: "review", PermissionVector: []string{PermissionTagRW}},
+		{Account: "worker-a", PermissionVector: []string{"!" + PermissionTagADM}},
+		{Account: "worker-b", DefaultPlugin: "review", PermissionVector: []string{PermissionTagRW}},
 		{Account: "fallback", DefaultPlugin: "search"},
 	}
 	got := ResolveRoleSettings(layers...)
-	if got.Account != "worker-a" || got.ContextWindow != 64000 || got.DefaultPlugin != "review" {
-		t.Fatalf("标量字段 = %+v，want account=worker-a window=64000 plugin=review（首个非零层说了算）", got)
+	if got.Account != "worker-a" || got.DefaultPlugin != "review" {
+		t.Fatalf("标量字段 = %+v，want account=worker-a plugin=review（首个非空层说了算）", got)
 	}
 	if want := ([]string{PermissionTagRW}); !reflect.DeepEqual(got.PermissionVector, want) {
 		t.Fatalf("向量 = %v, want %v", got.PermissionVector, want)
 	}
 	if !(RoleSettings{}).Empty() {
 		t.Fatal("零值设置必须是 Empty")
-	}
-	if (RoleSettings{ContextWindow: 1}).Empty() {
-		t.Fatal("配了 ContextWindow 的设置不是 Empty")
 	}
 }
 
