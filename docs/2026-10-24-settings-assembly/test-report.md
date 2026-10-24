@@ -104,3 +104,10 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
   “本会话覆盖”，继承 chip 只锁默认栏。
 - 上下文窗口从角色设置契约和视觉层级中移除；它只存在于具体账户模型条目内，文案
   使用“甜点上下文”，避免被读成角色级继承项。
+- 回归覆盖：项目已创建但会话未绑定时，项目环境读面仍返回该项目的 1:N 环境；
+  `SetSessionSSHEnv` 按显式项目 ID 校验环境，不再要求 session binding 先落盘。
+- 全仓 `go test ./... -count=1 -timeout=600s`、`go vet -tags "gui,desktop,production" ./...`、
+  普通与 GUI production 构建通过；前端 `862/862` 通过。
+- post-commit 已重建 dev CLI/GUI；新 GUI 窗口标题 `Seelex`、WebView2 环境创建成功、
+  `Responding=true`。浏览器截图复核确认一级分类只剩「角色与权限 / 应用」，每张角色卡
+  同时包含默认/会话两个权限作用域，账户行内直接展示该模型账户的甜点上下文。
