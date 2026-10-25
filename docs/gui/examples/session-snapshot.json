@@ -3,6 +3,7 @@
   "scope": "session",
   "session_id": "sess-design-01",
   "revision": 42,
+  "conversation_revision": 42,
   "generation_id": "gen-20260724-0007",
   "captured_at": "2026-07-24T09:31:12Z",
   "conversation": [
