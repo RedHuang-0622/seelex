@@ -18,6 +18,7 @@ import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createComposerKnobs, REASONING_EFFORT_LEVELS, REASONING_EFFORT_LABELS } from "./composer-knobs.js";
+import { approvalRiskLabel } from "./interaction-risk.js";
 import { nextTierIndex } from "./permission-tier.js";
 import {
   planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
@@ -3715,7 +3716,7 @@ function renderInteraction(interaction) {
   if (!interaction) return;
   // 诊断日志（权限弹窗排查用；正常运行时无副作用）。
   console.log("[interaction] opened:", interaction.id, interaction.tool_name || interaction.kind);
-  elements["interaction-risk"].textContent = interaction.risk || interaction.kind || "approval";
+  elements["interaction-risk"].textContent = approvalRiskLabel(interaction.risk);
   elements["interaction-title"].textContent = interaction.title || "需要确认";
   elements["interaction-question"].textContent = interaction.question || interaction.tool_name || "是否继续？";
   elements["interaction-preview"].textContent = interaction.preview || "";

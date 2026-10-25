@@ -136,6 +136,27 @@ func TestMainAgentRolePermissionAllowSkipsApproval(t *testing.T) {
 	}
 }
 
+func TestMainAgentFullAccessBypassesBashApprovalEvenWithNarrowRoleVector(t *testing.T) {
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		if role == string(dto.RoleAgent) {
+			return []string{dto.PermissionTagRO}, true, nil
+		}
+		return nil, false, nil
+	})
+	const sessionID = "sess-full-bash"
+	state.SetFullAccessFor(sessionID, true)
+	action, decided := state.Enforce(
+		toolspermission.WithSessionID(context.Background(), sessionID),
+		toolspermission.Subject("root"),
+		frameworktools.ToolMeta{},
+		"bash",
+		`{"command":"npm install"}`,
+	)
+	if !decided || action != toolspermission.ActionAllow {
+		t.Fatalf("全权下 bash 必须直接 allow，得到 action=%v decided=%v", action, decided)
+	}
+}
+
 // TestPermissionVectorClaimsDoNotTouchSharedTable：② 判定不再写共享主体表——
 // 员工调用过之后，配置里的 Subjects 与调用前逐字节相同（没有派生条目、没有 rebuild）。
 func TestPermissionVectorClaimsDoNotTouchSharedTable(t *testing.T) {
