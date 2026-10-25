@@ -319,6 +319,16 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if contextRecord.SchemaVersion != store.SessionContextSchemaVersion {
 		t.Fatalf("fork context schema = %d, want %d", contextRecord.SchemaVersion, store.SessionContextSchemaVersion)
 	}
+	if len(contextRecord.ForkedFrom) == 0 {
+		t.Fatal("fork context must persist lineage for reload")
+	}
+	var persistedLineage model.SessionForkRef
+	if err := json.Unmarshal(contextRecord.ForkedFrom, &persistedLineage); err != nil {
+		t.Fatalf("decode persisted lineage: %v", err)
+	}
+	if persistedLineage.ParentSessionID != "parent" || persistedLineage.ForkPoint.EventSeq != 3 {
+		t.Fatalf("persisted lineage = %#v", persistedLineage)
+	}
 	if len(contextRecord.CompactStack) != 1 {
 		t.Fatalf("compact stack = %#v, want only the inherited crossing frame", contextRecord.CompactStack)
 	}
@@ -381,6 +391,9 @@ func TestPrepareForkRejectsInvalidCutPoints(t *testing.T) {
 	}
 	if _, err := coordinator.PrepareFork(location, "child", "parent", model.ForkRequest{RequestID: "chat-1", EventSeq: 3}); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("both selectors error = %v", err)
+	}
+	if _, err := coordinator.PrepareFork(location, "child", "parent", model.ForkRequest{EventSeq: 3, ExpectedEventSeq: 4}); err == nil || !strings.Contains(err.Error(), "parent advanced") {
+		t.Fatalf("stale parent CAS error = %v", err)
 	}
 }
 

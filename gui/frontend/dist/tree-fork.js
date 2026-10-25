@@ -26,6 +26,20 @@ export const MAX_FORK_LANES = 8;
 // 泳道调色板长度（styles.css 里 --fork-lane-0..5 六档）。
 export const FORK_LANE_TOKENS = 6;
 
+// sessionForkOrigin 把会话快照里的显式 forked_from 折成 UI 文案模型。
+// 它只消费 SessionForkRef；绝不从会话列表顺序、标题或 git parents 推血缘。
+export function sessionForkOrigin(forkedFrom) {
+  if (!forkedFrom || typeof forkedFrom !== "object") return null;
+  const parentID = textValue(forkedFrom.parent_session_id);
+  if (!parentID) return null;
+  return {
+    parentID,
+    forkPoint: Number(forkedFrom.fork_point?.event_seq || 0),
+    sourceEventSeq: Number(forkedFrom.source_event_seq || 0),
+    label: `从 ${parentID} 分叉`
+  };
+}
+
 // ── 树轨 ────────────────────────────────────────────────
 
 // treeRowAttrs 把「层级 + 是否末子 + 祖先轨是否续行」折算成树行所需的

@@ -129,6 +129,19 @@ go test ./backend/engine/session -count=1
 
 根包 `service_test.go` session 组与 `session_archive_test.go` 覆盖跨域集成。
 
+## 消息编辑分叉与血缘持久化（2026-10-25）
+
+`PrepareFork` 仍是所有会话分叉的唯一继承实现。消息编辑只在 `ForkRequest` 上补充两类
+不参与截断的信息：
+
+- `SourceEventSeq/SourceMessageID`：触发 fork 的原父消息，写进 `SessionForkRef`；
+- `ExpectedEventSeq`：读盘后校验父事件流最大 Seq，构成 fork 快照的 CAS。
+
+`forkConversationMessages` 在事件流有稳定 MessageID 时只按 MessageID 判断继承，避免
+旧 record 的零 `CreatedAt` 把切点后的消息放回 child。`SessionForkRef` 同时写入会话
+context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不需要依赖 protocol
+类型。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -249,7 +262,7 @@ go test ./backend/engine/session -count=1
 - `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
 - `func reachableToolResultRefs(events []store.Event, record model.SessionRecord, frames []store.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
-- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []store.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
+- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string, forkedFrom json.RawMessage) ([]byte, []store.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
 - `func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame`
 - `func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
 

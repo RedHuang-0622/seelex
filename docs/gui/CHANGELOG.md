@@ -2,6 +2,24 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-10-25
+
+### Added
+
+- **用户消息复制与编辑分叉**：用户行 hover/focus 提供复制、编辑；复制复用既有
+  `copyText` 通道和原始文本 payload，编辑由后端 `event_seq/editable/reason` 授权。
+- **`Bridge.EditUserMessageAndFork`**：一次 RPC 完成“上一完整段落边界 fork +
+  切换到 child + 提交修改文本”，前端不再拼 `ForkSession` 与 `Submit`。
+  `operation_id` 收口双击，`Snapshot.ConversationRevision` 做父事件流 CAS。
+- **子会话血缘条**：只消费 `session.forked_from`，展示父会话并提供返回入口；
+  不使用会话列表顺序或 git commit parents 推导 session 血缘。
+
+### Compatibility
+
+- Session Snapshot 新增可选 `conversation_revision`；Message 新增可选
+  `event_seq/editable/edit_disabled_reason`；SessionState 新增可选 `forked_from`。
+  旧快照缺字段时按“不可编辑/无血缘”处理。
+
 ## 2026-10-08
 
 ### Changed

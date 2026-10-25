@@ -4,12 +4,17 @@
   "title": "Seelex session snapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol_version", "scope", "session_id", "revision", "generation_id", "captured_at", "conversation", "history", "chat", "runtime"],
+  "required": ["protocol_version", "scope", "session_id", "revision", "conversation_revision", "generation_id", "captured_at", "conversation", "history", "chat", "runtime"],
   "properties": {
     "protocol_version": { "$ref": "common.schema.json#/$defs/protocolVersion" },
     "scope": { "const": "session" },
     "session_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "conversation_revision": {
+      "description": "当前会话事件流最大 Seq；用户消息编辑的 CAS 令牌，与进程级 revision 分离。",
+      "type": "integer",
+      "minimum": 0
+    },
     "generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "captured_at": { "$ref": "common.schema.json#/$defs/timestamp" },
     "review_request": {
@@ -111,7 +116,6 @@
         "end_line": { "type": "integer", "minimum": 1 }
       }
     },
-
     "message": {
       "type": "object",
       "additionalProperties": false,
@@ -125,7 +129,21 @@
         },
         "content": { "type": "string", "maxLength": 200000 },
         "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
-        "card_id": { "$ref": "common.schema.json#/$defs/identifier" }
+        "card_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "event_seq": {
+          "description": "持久事件行 Seq；0/缺失 = 旧数据或不在完整段落中，不可编辑。",
+          "type": "integer",
+          "minimum": 1
+        },
+        "editable": {
+          "description": "后端按 running、完整段落与上下文压缩保留窗口生成的权威可编辑性。",
+          "type": "boolean"
+        },
+        "edit_disabled_reason": {
+          "description": "editable=false 时的可展示原因。",
+          "type": "string",
+          "maxLength": 240
+        }
       }
     }
   }

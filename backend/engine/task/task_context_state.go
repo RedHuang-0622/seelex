@@ -151,6 +151,57 @@ func (c *Coordinator) RoleRoundFor(sessionID string) uint64 {
 	return c.sessionStateLocked(sessionID).roleRoundID
 }
 
+// RetainedWindowFirstEventSeqFor 返回当前上下文保留窗口的首个事件序号。
+//
+// ContextRetainedFrom 是 transcript 数组下标，不是 EventSeq；消息可编辑性必须
+// 使用这里换算后的序号。ok=false 表示整个 transcript 都已进入压缩前缀，当前
+// 没有可编辑的保留窗口。未压缩会话返回 (0,true)。
+func (c *Coordinator) RetainedWindowFirstEventSeqFor(sessionID string) (uint64, bool) {
+	if c == nil {
+		return 0, true
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	st := c.sessionStateLocked(sessionID)
+	if st.taskExecution == nil {
+		return 0, true
+	}
+	retainedFrom := st.taskExecution.ContextRetainedFrom
+	if retainedFrom <= 0 {
+		// 有成功压缩记录却推不出保留起点时，冷加载的尾部窗口可能不包含压缩
+		// 边界。此时不能把 0 当成“未压缩”放行旧消息。
+		for _, compaction := range st.taskExecution.ContextCompactions {
+			if !compaction.Failed {
+				return 0, false
+			}
+		}
+		return 0, true
+	}
+	if retainedFrom < len(st.transcript) {
+		return st.transcript[retainedFrom].Seq, true
+	}
+	if retainedFrom == len(st.transcript) {
+		return 0, false
+	}
+	// 下标超出当前 transcript 是状态失配；宁可不给编辑入口，也不猜边界。
+	return 0, false
+}
+
+// LatestTranscriptSeqFor 返回指定会话 transcript 的最新事件序号（空为 0）。
+// 它是消息编辑 CAS 的会话级令牌，不受进程目录 revision 影响。
+func (c *Coordinator) LatestTranscriptSeqFor(sessionID string) uint64 {
+	if c == nil {
+		return 0
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	transcript := c.sessionStateLocked(sessionID).transcript
+	if len(transcript) == 0 {
+		return 0
+	}
+	return transcript[len(transcript)-1].Seq
+}
+
 // SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
 // 的最大序号（只增不减，幂等）。fork 子会话专用：子会话的磁盘快照继承了
 // 父会话的事件序号区间，而内存状态可能没有任何基线（子引擎冷启动为空、

@@ -22,6 +22,8 @@ export function createConversationView(container, options = {}) {
   let canLoadMore = false;
   let loadingOlder = false;
   let sentinelArmed = true;
+  let currentRevision = 0;
+  let editor = null;
   const sentinel = document.createElement("div");
   sentinel.className = "conversation-sentinel";
   sentinel.dataset.conversationSentinel = "top";
@@ -77,19 +79,152 @@ export function createConversationView(container, options = {}) {
     if (container.scrollTop > 240) sentinelArmed = true;
     else if (typeof IntersectionObserver !== "function") void loadOlder();
   }, { passive: true });
-  container.addEventListener("click", event => handleAction(event, () => payloads, options));
+  container.addEventListener("click", event => {
+    const editButton = event.target.closest?.("[data-edit-message]");
+    if (editButton) {
+      event.preventDefault();
+      if (editButton.disabled || editButton.dataset.editDisabled === "true") {
+        options.notify?.(editButton.title || "这条消息不能编辑");
+        return;
+      }
+      openMessageEditor(editButton);
+      return;
+    }
+    return handleAction(event, () => payloads, options);
+  });
+
+  function openMessageEditor(button) {
+    const key = String(button.dataset.editMessage || "");
+    const article = button.closest?.(".message");
+    if (!key || !article) return;
+    captureEditorText();
+    closeMessageEditor();
+    const original = payloads.get(`message-copy:${key}`) || "";
+    editor = {
+      key,
+      original,
+      text: original,
+      eventSeq: Number(button.dataset.eventSeq || 0),
+      expectedRevision: currentRevision,
+      operationID: newEditOperationID(),
+      loading: false,
+      status: ""
+    };
+    mountMessageEditor(article);
+  }
+
+  function closeMessageEditor() {
+    container.querySelectorAll(".message-edit-panel").forEach(panel => panel.remove());
+    editor = null;
+  }
+
+  function captureEditorText() {
+    if (!editor) return;
+    const panel = container.querySelector(".message-edit-panel");
+    const textarea = panel?.querySelector("textarea");
+    if (textarea) editor.text = textarea.value;
+  }
+
+  function mountMessageEditor(article) {
+    if (!editor || !article) return;
+    article.querySelectorAll(".message-edit-panel").forEach(panel => panel.remove());
+    const panel = document.createElement("section");
+    panel.className = "message-edit-panel";
+    panel.dataset.editKey = editor.key;
+    panel.innerHTML = `<div class="message-edit-head"><strong>编辑并分叉</strong><span>原会话保持不变，新输入会提交到子会话</span></div>
+      <textarea aria-label="编辑用户消息原文"></textarea>
+      <div class="message-edit-actions">
+        <span class="message-edit-status" role="status"></span>
+        <button type="button" class="message-action" data-edit-cancel>取消</button>
+        <button type="button" class="message-action" data-edit-copy>重新复制原文</button>
+        <button type="button" class="message-edit-submit" data-edit-submit>${editor.loading ? "正在创建分支…" : "编辑并分叉发送"}</button>
+      </div>`;
+    const textarea = panel.querySelector("textarea");
+    textarea.value = editor.text;
+    const status = panel.querySelector(".message-edit-status");
+    if (status) status.textContent = editor.status;
+    panel.querySelector("[data-edit-cancel]")?.addEventListener("click", closeMessageEditor);
+    panel.querySelector("[data-edit-copy]")?.addEventListener("click", async () => {
+      try {
+        await options.copyText(editor.original);
+        options.notify?.("已复制原文");
+      } catch (error) {
+        options.notify?.(error);
+      }
+    });
+    panel.querySelector("[data-edit-submit]")?.addEventListener("click", () => {
+      void submitMessageEditor(panel, textarea);
+    });
+    const submit = panel.querySelector("[data-edit-submit]");
+    if (submit) submit.disabled = Boolean(editor.loading);
+    article.appendChild(panel);
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }
+
+  async function submitMessageEditor(panel, textarea) {
+    if (!editor || editor.loading) return;
+    const currentEditor = editor;
+    const text = String(textarea.value || "").trim();
+    const status = panel.querySelector(".message-edit-status");
+    const submit = panel.querySelector("[data-edit-submit]");
+    if (!text) {
+      if (status) status.textContent = "编辑后的输入不能为空";
+      textarea.focus();
+      return;
+    }
+    if (typeof options.editFork !== "function") {
+      if (status) status.textContent = "当前宿主未装配编辑分叉能力";
+      return;
+    }
+    currentEditor.text = textarea.value;
+    currentEditor.loading = true;
+    currentEditor.status = "";
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = "正在创建分支…";
+    }
+    if (status) status.textContent = "";
+    try {
+      const result = await options.editFork({
+        targetEventSeq: currentEditor.eventSeq,
+        newText: text,
+        expectedRevision: currentEditor.expectedRevision,
+        operationId: currentEditor.operationID
+      });
+      options.notify?.(`已创建分支 ${shortSessionID(result?.child_session_id || result?.ChildSessionID || "")}`);
+      closeMessageEditor();
+    } catch (error) {
+      currentEditor.loading = false;
+      currentEditor.status = `提交失败：${error?.message || String(error)}；编辑内容已保留`;
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = "编辑并分叉发送";
+      }
+      const article = container.querySelector(`[data-conversation-key="${CSS.escape(currentEditor.key)}"]`);
+      if (article) mountMessageEditor(article);
+      else if (status) status.textContent = currentEditor.status;
+    }
+  }
 
   return {
     render(model, options = {}) {
+      captureEditorText();
       const before = scrollState(container, followsTail);
       const anchor = captureScrollAnchor(container);
       payloads = model.payloads;
+      currentRevision = Number(options.revision || 0);
       canLoadMore = Boolean(options.hasMoreHistory);
       // 流式标记：会话还在跑的时候一帧都不许新建（见 embed-buffering.js 的
       // shouldDeferMount）。chat-view.js 传的是 chat.running。
       embedBuffer.setStreaming(Boolean(options.streaming));
       reconcile(container, model.items, htmlByKey, payloads, { streaming: Boolean(options.streaming), embedBuffer });
       restoreScroll(container, before, options.scrollMode || "auto", anchor);
+      if (editor) {
+        const article = container.querySelector(`[data-conversation-key="${CSS.escape(editor.key)}"]`);
+        if (article) mountMessageEditor(article);
+        else if (!editor.loading) closeMessageEditor();
+      }
       // 几何来自 DOM：加载更早历史/增量新消息/换行后线表自动重建。
       wheel.refresh();
       followsTail = isNearBottom(container);
@@ -101,6 +236,16 @@ export function createConversationView(container, options = {}) {
     // wheelRounds 返回当前刻度表（宿主定位编排/诊断用）。
     wheelRounds() { return wheel.rounds(); }
   };
+}
+
+function newEditOperationID() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function shortSessionID(sessionID) {
+  const value = String(sessionID || "");
+  return value.length > 14 ? `${value.slice(0, 7)}…${value.slice(-5)}` : value;
 }
 
 async function handleAction(event, getPayloads, options) {

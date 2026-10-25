@@ -505,6 +505,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		HistoryOffset:      offset,
 		HasMoreHistory:     offset > 0,
 		ConversationWindow: Limits().HistoryWindow,
+		ForkedFrom:         service.loadSessionForkRef(location, sessionID),
 	}
 	if hasRecord {
 		service.advanceMessageSeqLocked(sessionID, record.Conversation.Messages)
@@ -519,6 +520,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			service.components.view.SetSessionViewLocked(sessionID, view)
 		}
 		if mayActivate {
+			service.Core.Snapshot.Session.ForkedFrom = model.CloneSessionForkRef(view.ForkedFrom)
 			if record.Execution.Task != nil {
 				task := *record.Execution.Task
 				task.ContextCompactions = append([]model.ContextCompaction(nil), record.Execution.Task.ContextCompactions...)

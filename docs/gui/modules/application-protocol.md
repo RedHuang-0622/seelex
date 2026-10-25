@@ -26,12 +26,18 @@
 |------|------|-------|
 | `protocol_version` | DTO 契约版本 | 当前固定为 1 |
 | `revision` | 业务状态修订号 | 每次可观察状态修改后递增 |
+| `conversation_revision` | 当前会话事件流最大 Seq | 与进程级 `revision` 分离；消息编辑用它做 CAS |
 | `session/sessions` | 当前会话与持久化列表 | 当前 ID 与 Engine 保持一致 |
 | `conversation` | 当前窗口内的消息 | 每个 UI 实体具有稳定 ID |
 | `chat` | running、request、queue、error | 同一时刻至多一个运行请求 |
 | `runtime` | model/provider/plugin/effort/tools/plan | 以 Core 运行时为准 |
 | `interaction` | 当前审批/选择交互 | nil 表示无阻塞交互 |
 | `history_*` | 历史分页游标 | 窗口 = `[history_offset, history_offset + 窗口条数)` 的连续区间；`has_more_history == history_offset > 0`；`history_offset + 可见条数 < total_messages` 表示窗口已离开尾部（用户在回看更早历史，尾部新消息不回卷窗口，前端提示「回到最新」） |
+
+用户消息额外携带 `event_seq`、`editable`、`edit_disabled_reason`。`editable` 只由
+Application 按父会话 running、完整段落与 `ContextRetainedFrom` 保留窗口生成；
+frontend 不得按已加载条数或 `history_window` 推导。子会话的
+`session.forked_from` 是权威血缘，UI 不从列表顺序猜分支。
 
 ### Event
 

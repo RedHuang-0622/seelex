@@ -165,6 +165,20 @@ ChatView 负责空状态、会话 model 和 composer controls。运行中 send �
 
 替换后按相同 details 顺序恢复，并从最新 payload Map 恢复完整 OUT。滚动、展开、复制都属于客户端交互态，不进入 Snapshot。
 
+### 用户消息复制与编辑分叉
+
+- 用户行 hover/focus 时显示“复制”和“编辑”；移动端与 `hover: none` 环境常显。
+- 复制 payload 是该消息的原始 `content`，走既有 `data-copy` → `copyText` 通道；
+  不复制 Markdown DOM、ID、角色或隐藏标记。
+- 编辑按钮只在后端 `editable=true && event_seq>0` 时可进入；不可编辑时保留按钮并显示
+  `edit_disabled_reason`，仅复制仍可用。
+- 编辑器预填原文，提供取消、重新复制原文和“编辑并分叉发送”。提交按钮 loading，
+  防止双击；失败保留 textarea 与稳定 `operation_id`。
+- 成功只调用一次 `Bridge.EditUserMessageAndFork`；`expected_revision` 取打开编辑器时
+  的 `Snapshot.ConversationRevision`。成功后 app refresh 并显示 child 血缘条。
+- 编辑器状态由 conversation view 自有：reconcile 前捕获 textarea，重建行后按原 key
+  重新挂载；loading 期间行暂时消失也不丢弃提交状态。
+
 ## 9. 自动化证据
 
 - `components.test.mjs:9-51`：activity、队列安全 Markdown、稳定 message/tool keys。

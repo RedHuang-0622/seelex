@@ -180,6 +180,13 @@ seq 单调、checkpoint 有界、终态判定依赖收敛的 Plan 投影。
 会话分区是否已清理（否则读到陈旧分片）；"未装配宿主"的读/写语义是否仍是
 nil / 显式错误。
 
+## 消息编辑窗口读面（2026-10-25）
+
+`RetainedWindowFirstEventSeqFor` 把 `ContextRetainedFrom` 的数组下标换算成保留
+窗口首个 transcript 事件 Seq；整个 transcript 都已压缩时返回 `ok=false`。
+`LatestTranscriptSeqFor` 返回当前会话事件流最大 Seq，供 Application 生成消息编辑
+CAS 令牌。两者只读任务运行时状态，不改变压缩或回合生命周期。
+
 ## 测试
 
 ```text
@@ -450,6 +457,8 @@ go test ./backend/engine/task -count=1
 - `func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
 - `func (c *Coordinator) RoleRoundFor(sessionID string) uint64` — RoleRoundFor 返回指定会话当前的群聊轮次（user 行开启新 round；未开轮 = 0）。
+- `func (c *Coordinator) RetainedWindowFirstEventSeqFor(sessionID string) (uint64, bool)` — RetainedWindowFirstEventSeqFor 返回当前上下文保留窗口的首个事件序号。
+- `func (c *Coordinator) LatestTranscriptSeqFor(sessionID string) uint64` — LatestTranscriptSeqFor 返回指定会话 transcript 的最新事件序号（空为 0）。
 - `func (c *Coordinator) SeedTranscriptSeqFor(sessionID string, seq uint64)` — SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
 - `func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)` — ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话

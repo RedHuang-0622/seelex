@@ -42,6 +42,10 @@ type serviceState struct {
 	// 但作用域是"执行单元"而不是"会话"：读数在这里先攒、收口时才交给会话累计。
 	toolStages *toolRecordStages
 
+	// editForkOps 是「编辑用户消息并分叉」的幂等操作表（Core.ViewMu 保护）：
+	// operation_id → 在飞/短期完成结果。双击与传输重试因此只产生一个 child。
+	editForkOps map[string]*editForkOperation
+
 	// draft 是"新建会话"草稿槽位（Core.ViewMu 保护）：早分配 SID 的草稿
 	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
 	// 首次提交（materializeDraftSession）时消费并清空。

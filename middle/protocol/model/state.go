@@ -13,21 +13,24 @@ import (
 const ProtocolVersion = 1
 
 type Snapshot struct {
-	ProtocolVersion    int           `json:"protocol_version"`
-	Revision           uint64        `json:"revision"`
-	Session            SessionState  `json:"session"`
-	Sessions           []SessionInfo `json:"sessions"`
-	Conversation       []Message     `json:"conversation"`
-	Chat               ChatState     `json:"chat"`
-	Task               *TaskState    `json:"task,omitempty"`
-	Runtime            RuntimeState  `json:"runtime"`
-	Interaction        *Interaction  `json:"interaction,omitempty"`
-	Capabilities       Capabilities  `json:"capabilities"`
-	HistoryOffset      int           `json:"history_offset"`
-	TotalMessages      int           `json:"total_messages"`
-	HasMoreHistory     bool          `json:"has_more_history"`
-	ConversationWindow int           `json:"conversation_window"`
-	ReadFiles          []ReadFileRef `json:"read_files,omitempty"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Revision        uint64 `json:"revision"`
+	// ConversationRevision 是当前会话事件流最大 Seq，用作消息编辑的 CAS 令牌；
+	// 与进程级 Revision 分离，目录刷新等无关变更不会让编辑失败。
+	ConversationRevision uint64        `json:"conversation_revision"`
+	Session              SessionState  `json:"session"`
+	Sessions             []SessionInfo `json:"sessions"`
+	Conversation         []Message     `json:"conversation"`
+	Chat                 ChatState     `json:"chat"`
+	Task                 *TaskState    `json:"task,omitempty"`
+	Runtime              RuntimeState  `json:"runtime"`
+	Interaction          *Interaction  `json:"interaction,omitempty"`
+	Capabilities         Capabilities  `json:"capabilities"`
+	HistoryOffset        int           `json:"history_offset"`
+	TotalMessages        int           `json:"total_messages"`
+	HasMoreHistory       bool          `json:"has_more_history"`
+	ConversationWindow   int           `json:"conversation_window"`
+	ReadFiles            []ReadFileRef `json:"read_files,omitempty"`
 	// ReviewRequest 是 agent 发起的「请 GUI 在侧边资源管理器打开这些待审阅文件」
 	// 批处理请求的只读投影（会话作用域的可重放状态；GUI 未开/被重连时，起来后
 	// 按这份快照补放——不是一次性事件）。nil = 该会话当前没有待审阅请求。
@@ -190,6 +193,8 @@ type SessionState struct {
 	// Composer 已撤回：未发送输入不再作为"草稿会话"持久化/恢复（draft 语义改由
 	// 「未完成会话」承担）。字段保留仅为落盘兼容，当前恒为空。
 	Composer string `json:"composer,omitempty"`
+	// ForkedFrom 是当前会话的权威血缘（子会话侧事实源）；nil = 非 fork 会话。
+	ForkedFrom *SessionForkRef `json:"forked_from,omitempty"`
 }
 
 // ComposerDraft 是已撤回的「会话未发送输入草稿」载荷（字段保留仅为落盘兼容；
@@ -223,6 +228,13 @@ type Message struct {
 	ID      string `json:"id"`
 	Role    string `json:"role"`
 	Content string `json:"content,omitempty"`
+	// EventSeq 是这条可见消息对应的持久事件行序号（0 = 旧数据/消息不在完整
+	// 段落中）。编辑与 fork 只认这个后端事实，不按前端窗口位置猜。
+	EventSeq uint64 `json:"event_seq,omitempty"`
+	// Editable / EditDisabledReason 由应用层按父会话运行态、段落完整性和
+	// 上下文压缩保留窗口统一生成。前端只消费，不自行推导。
+	Editable           bool   `json:"editable,omitempty"`
+	EditDisabledReason string `json:"edit_disabled_reason,omitempty"`
 	// Kind 是消息在多线谱中的显式类别（llm/tool_call/tool_output/user_input/…）。
 	// 空串 = 旧数据未标注，前端按 Role/Tool 回退分类。
 	Kind string `json:"kind,omitempty"`
@@ -263,6 +275,8 @@ type MessageOrigin struct {
 	RoleSessionID string
 	RoundID       uint64
 	UnitSeq       uint64
+	// EventSeq 是该消息对应的 transcript 事件序号（用户消息编辑/fork 定位用）。
+	EventSeq uint64
 	// Kind 是这条可见消息的多线谱类别（同 Message.Kind）。生产者只在"这条行是
 	// 什么"不能由 Role 推断时才填（例如 b→a 的裁决行 tl_directive）——轨迹区/
 	// 探针据此按类别取行，不靠正文措辞猜。空 = 按 Role/Tool 回退分类。
@@ -989,13 +1003,14 @@ type SessionRuntime struct {
 // 该会话的事实（会话身份/可见对话/聊天运行态/会话运行原件/task/工作表格/
 // 子代理树/revision/窗口游标）。进程级目录与能力清单在 ProcessSnapshot。
 type SessionSnapshot struct {
-	ProtocolVersion int            `json:"protocol_version"`
-	Revision        uint64         `json:"revision"`
-	Session         SessionState   `json:"session"`
-	Conversation    []Message      `json:"conversation"`
-	Chat            ChatState      `json:"chat"`
-	Task            *TaskState     `json:"task,omitempty"`
-	Runtime         SessionRuntime `json:"runtime"`
+	ProtocolVersion      int            `json:"protocol_version"`
+	Revision             uint64         `json:"revision"`
+	ConversationRevision uint64         `json:"conversation_revision"`
+	Session              SessionState   `json:"session"`
+	Conversation         []Message      `json:"conversation"`
+	Chat                 ChatState      `json:"chat"`
+	Task                 *TaskState     `json:"task,omitempty"`
+	Runtime              SessionRuntime `json:"runtime"`
 	// Approvals 是本会话待批请求（G4 归属进 Unit 后填充；当前为预留）。
 	Approvals          []Interaction `json:"approvals,omitempty"`
 	Capabilities       Capabilities  `json:"capabilities"`
@@ -1045,6 +1060,7 @@ type ProcessSnapshot struct {
 // CloneSnapshot returns an independent copy suitable for concurrent readers.
 func CloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
+	copySnapshot.Session.ForkedFrom = CloneSessionForkRef(snapshot.Session.ForkedFrom)
 	copySnapshot.Sessions = append([]SessionInfo(nil), snapshot.Sessions...)
 	if snapshot.SessionWorkspaces != nil {
 		copySnapshot.SessionWorkspaces = make(map[string]string, len(snapshot.SessionWorkspaces))
@@ -1081,6 +1097,15 @@ func CloneSnapshot(snapshot Snapshot) Snapshot {
 		copySnapshot.Interaction = &interaction
 	}
 	return copySnapshot
+}
+
+// CloneSessionForkRef 返回会话血缘的独立副本。
+func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef {
+	if ref == nil {
+		return nil
+	}
+	copyRef := *ref
+	return &copyRef
 }
 
 // CloneRuntimeState returns an independent copy of mutable runtime slices.

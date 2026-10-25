@@ -10,6 +10,7 @@ const ICONS = {
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   terminal: '<path d="m5 7 4 4-4 4M11 17h8"/>',
   copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   expand: '<path d="m8 3-5 5M3 3v5h5M16 3l5 5M21 3v5h-5M8 21l-5-5M3 21v-5h5M16 21l5-5M21 21v-5h-5"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h5"/>',
   folder: '<path d="M3 6h7l2 2h9v11H3z"/>',
@@ -210,7 +211,7 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
         ? item.html
         : item.kind === "tool"
           ? renderToolCall(item, key, joinedAbove, joinedBelow)
-          : renderMessage(item.message, key, joinedAbove, joinedBelow);
+          : renderMessage(item.message, key, joinedAbove, joinedBelow, payloads);
     const meta = item.kind === "message"
       ? {
         kind: "message",
@@ -474,7 +475,7 @@ function renderMessageBody(message, role, key = "") {
   return role === "user" ? markdown(content, { ...options, fileRefs: true }) : markdown(content, options);
 }
 
-function renderMessage(message, key, above = false, below = false) {
+function renderMessage(message, key, above = false, below = false, payloads = new Map()) {
   const role = message.role || "assistant";
   const joined = joinedAttrs(above, below);
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
@@ -495,12 +496,33 @@ function renderMessage(message, key, above = false, below = false) {
     : "";
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
+  const actions = renderUserMessageActions(message, key, payloads);
   return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}"${joined.dataAttrs}>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${routeMeta}
     ${thinking}
     <div class="message-body">${renderMessageBody(message, role, key)}</div>
+    ${actions}
   </article>`;
+}
+
+// renderUserMessageActions 只给真实用户行生成复制/编辑动作。复制正文进入既有
+// payload Map（由 conversation-view 的 copyText 通道消费）；编辑是否可用只认
+// 后端字段 editable/event_seq，前端不按窗口条数推断。
+function renderUserMessageActions(message, key, payloads) {
+  if (message?.role !== "user") return "";
+  const content = String(message.content ?? "");
+  if (!content.trim()) return "";
+  const copyKey = `message-copy:${key}`;
+  payloads.set(copyKey, content);
+  const eventSeq = Number(message.event_seq || 0);
+  const editable = message.editable === true && Number.isSafeInteger(eventSeq) && eventSeq > 0;
+  const reason = String(message.edit_disabled_reason || "").trim();
+  const editTitle = editable ? "编辑并分叉发送" : (reason || "这条消息不能编辑");
+  return `<div class="message-actions" role="group" aria-label="用户消息操作">
+    <button type="button" class="message-action" data-copy="${escapeHtml(copyKey)}" title="复制原文" aria-label="复制这条用户消息">${icon("copy", 14)}<span>复制</span></button>
+    <button type="button" class="message-action" data-edit-message="${escapeHtml(key)}" data-event-seq="${eventSeq}" data-edit-disabled="${editable ? "false" : "true"}" title="${escapeHtml(editTitle)}" aria-label="${editable ? "编辑这条用户消息并分叉" : escapeHtml(`不能编辑：${editTitle}`)}" aria-disabled="${editable ? "false" : "true"}">${icon("edit", 14)}<span>${editable ? "编辑" : "不可编辑"}</span></button>
+  </div>`;
 }
 
 // renderMessageRouteMeta 渲染 message 块的第二行元数据：message id + 实际

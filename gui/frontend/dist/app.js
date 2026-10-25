@@ -14,6 +14,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
 import { createConversationView } from "./conversation-view.js";
+import { branchOriginModel } from "./branch-origin.js";
 import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
@@ -129,7 +130,7 @@ const elements = Object.fromEntries([
   "perf-badge-host", "live-diag-host",
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "plugin-management", "plugin-management-title", "plugin-management-description", "plugin-management-state", "plugin-management-meta", "plugin-skill-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
-  "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
+  "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button", "branch-origin",
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
   "project-name", "project-root", "project-status", "project-settings-button", "project-settings-modal", "project-settings-close", "project-settings-name", "session-environment-summary", "session-environment-select", "session-environment-confirm", "session-environment-status", "worktree-view", "file-count", "context-compactions",
@@ -336,7 +337,8 @@ function runViewActivation(view) {
       snapshot.session?.status === "restoring",
       Boolean(state.resumingSessionID),
       composerDraftPageText(snapshot),
-      snapshot.task?.context_compactions || []
+      snapshot.task?.context_compactions || [],
+      snapshot.conversation_revision || 0
     );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
@@ -469,6 +471,13 @@ bindDockTabs("right");
 const conversationView = createConversationView(elements.conversation, {
   copyText: value => navigator.clipboard.writeText(value),
   notify: showToast,
+  editFork: async request => {
+    const parentID = client.current()?.session?.id || "";
+    if (!parentID) throw new Error("当前没有可编辑的会话");
+    const result = await invoke("EditUserMessageAndFork", parentID, request);
+    await refresh({ scroll: "bottom" });
+    return result;
+  },
   loadMore: loadOlderHistory,
   // 右侧全量用户输入索引：刻度数据面由 refreshInputIndex 推入，点击尚未加载
   // 的刻度时经本通道按页回读再定位（见 locateInputByReadBack；未装配时轮轴
@@ -731,6 +740,32 @@ function showToast(error) {
   showToast.timer = window.setTimeout(() => elements.toast.classList.add("hidden"), 4200);
 }
 
+function renderBranchOrigin(snapshot) {
+  const host = elements["branch-origin"];
+  if (!host) return;
+  const origin = branchOriginModel(snapshot?.session?.forked_from, snapshot?.sessions || []);
+  if (!origin) {
+    host.classList.add("hidden");
+    host.replaceChildren();
+    return;
+  }
+  host.classList.remove("hidden");
+  host.innerHTML = `<span class="branch-origin-mark" aria-hidden="true">${icon("branch", 14)}</span>
+    <span>从 <strong>${escapeHtml(origin.parentName)}</strong> 分叉</span>
+    <button type="button" class="branch-origin-return" data-return-parent="${escapeHtml(origin.parentID)}" aria-label="${escapeHtml(origin.returnLabel)}">返回父会话</button>`;
+}
+
+elements["branch-origin"]?.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-return-parent]");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  try {
+    await resumeSessionFromList(button.dataset.returnParent || "");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 async function refresh(options = {}) {
   return client.refresh(options);
 }
@@ -884,6 +919,7 @@ function render(snapshot, options = {}) {
   syncComposerSession(snapshot);
   restoreComposerDraft(snapshot);
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
+  renderBranchOrigin(snapshot);
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
@@ -913,7 +949,17 @@ function renderIncremental(snapshot, kind, payload) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID), composerDraftPageText(snapshot), snapshot.task?.context_compactions || []);
+    chatView.renderConversation(
+      snapshot.conversation || [],
+      snapshot.chat || {},
+      "auto",
+      snapshot.has_more_history,
+      snapshot.session?.status === "restoring",
+      Boolean(state.resumingSessionID),
+      composerDraftPageText(snapshot),
+      snapshot.task?.context_compactions || [],
+      snapshot.conversation_revision || 0
+    );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。

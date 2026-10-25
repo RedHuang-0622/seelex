@@ -190,14 +190,17 @@ type CompactFrame struct {
 // （goal 域第五栈，活栈投影，只服务治理/恢复，不渲染进模型上下文）
 // + GoalAudit（goal 生命周期审计，append-only，只追加不回改）。
 type SessionContextRecord struct {
-	SchemaVersion int              `json:"schema_version"`
-	SystemPrompt  string           `json:"system_prompt,omitempty"`
-	PlanStack     []PlanFrame      `json:"plan_stack"`
-	TaskStack     []TaskFrame      `json:"task_stack"`
-	SkillStack    []SkillFrame     `json:"skill_stack"`
-	CompactStack  []CompactFrame   `json:"compact_stack"`
-	GoalStack     []GoalFrame      `json:"goal_stack"`
-	GoalAudit     []GoalAuditEntry `json:"goal_audit"`
+	SchemaVersion int    `json:"schema_version"`
+	SystemPrompt  string `json:"system_prompt,omitempty"`
+	// ForkedFrom 保存会话血缘的不透明 JSON；存储层不解释其结构，应用层负责
+	// 编码/解码 model.SessionForkRef。nil = 非 fork 会话或旧记录。
+	ForkedFrom   json.RawMessage  `json:"forked_from,omitempty"`
+	PlanStack    []PlanFrame      `json:"plan_stack"`
+	TaskStack    []TaskFrame      `json:"task_stack"`
+	SkillStack   []SkillFrame     `json:"skill_stack"`
+	CompactStack []CompactFrame   `json:"compact_stack"`
+	GoalStack    []GoalFrame      `json:"goal_stack"`
+	GoalAudit    []GoalAuditEntry `json:"goal_audit"`
 }
 
 // SessionContextStore 读写 Router 的独立 context 通道（WriteContextState/

@@ -26,13 +26,29 @@ type forkServiceSessions struct {
 	savedRecord  model.SessionRecord
 	savedEvents  []model.TranscriptEvent
 	savedResults []model.StoredToolResult
+	savedContext []byte
+	records      map[string]model.SessionRecord
+	eventsByID   map[string][]model.TranscriptEvent
+	contextByID  map[string][]byte
+	deleted      []string
 }
 
 func (s *forkServiceSessions) LoadSessionRecord(string) (model.SessionRecord, error) {
 	return s.parent, nil
 }
 
+func (s *forkServiceSessions) Delete(sessionID string) error {
+	s.deleted = append(s.deleted, sessionID)
+	delete(s.records, sessionID)
+	delete(s.eventsByID, sessionID)
+	delete(s.contextByID, sessionID)
+	return nil
+}
+
 func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (model.SessionRecord, error) {
+	if record, ok := s.records[sessionID]; ok {
+		return record, nil
+	}
 	if sessionID == s.savedChild {
 		return s.savedRecord, nil
 	}
@@ -45,7 +61,50 @@ func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, model.S
 }
 
 func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
+	if events, ok := s.eventsByID[sessionID]; ok {
+		result := make([]store.Event, 0, len(events))
+		for _, event := range events {
+			if event.Seq < fromSeq || event.Seq > toSeq {
+				continue
+			}
+			calls := make([]store.EventToolCall, len(event.ToolCalls))
+			for index, call := range event.ToolCalls {
+				calls[index] = store.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+			}
+			result = append(result, store.Event{
+				Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Kind: event.Kind,
+				Role: event.Role, ReasoningContent: event.ReasoningContent, Content: event.Content,
+				ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+				ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+				RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+				RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+			})
+		}
+		return result, nil
+	}
 	return s.events, nil
+}
+
+func (s *forkServiceSessions) LoadTranscriptTailWorkspace(projectID, sessionID string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error) {
+	if events, ok := s.eventsByID[sessionID]; ok {
+		return append([]model.TranscriptEvent(nil), events...), nil
+	}
+	events := make([]model.TranscriptEvent, 0, len(s.events))
+	for _, event := range s.events {
+		calls := make([]model.TranscriptToolCall, len(event.ToolCalls))
+		for index, call := range event.ToolCalls {
+			calls[index] = model.TranscriptToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		events = append(events, model.TranscriptEvent{
+			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Kind: event.Kind,
+			Role: event.Role, ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+		})
+	}
+	return events, nil
 }
 
 func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
@@ -57,14 +116,33 @@ func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID 
 	s.savedRecord = record
 	s.savedEvents = events
 	s.savedResults = results
+	if s.records == nil {
+		s.records = make(map[string]model.SessionRecord)
+	}
+	if s.eventsByID == nil {
+		s.eventsByID = make(map[string][]model.TranscriptEvent)
+	}
+	s.records[sessionID] = record
+	s.eventsByID[sessionID] = append([]model.TranscriptEvent(nil), events...)
 	return nil
 }
 
 func (s *forkServiceSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	if payload, ok := s.contextByID[sessionID]; ok {
+		return payload, nil
+	}
+	if sessionID == s.savedChild && len(s.savedContext) > 0 {
+		return s.savedContext, nil
+	}
 	return s.context, nil
 }
 
 func (s *forkServiceSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error {
+	s.savedContext = append([]byte(nil), payload...)
+	if s.contextByID == nil {
+		s.contextByID = make(map[string][]byte)
+	}
+	s.contextByID[sessionID] = append([]byte(nil), payload...)
 	return nil
 }
 

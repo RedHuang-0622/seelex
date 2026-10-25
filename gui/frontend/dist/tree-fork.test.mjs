@@ -10,8 +10,25 @@ import {
   layoutCommitGraph,
   railOffset,
   renderCommitGraph,
+  sessionForkOrigin,
   treeRowAttrs
 } from "./tree-fork.js";
+
+test("session fork origin comes only from explicit forked_from lineage", () => {
+  assert.equal(sessionForkOrigin(null), null);
+  assert.equal(sessionForkOrigin({ parent_session_id: "" }), null);
+  const origin = sessionForkOrigin({
+    parent_session_id: "parent-session",
+    fork_point: { event_seq: 42 },
+    source_event_seq: 43
+  });
+  assert.deepEqual(origin, {
+    parentID: "parent-session",
+    forkPoint: 42,
+    sourceEventSeq: 43,
+    label: "从 parent-session 分叉"
+  });
+});
 
 // ── 树轨 ────────────────────────────────────────────────
 

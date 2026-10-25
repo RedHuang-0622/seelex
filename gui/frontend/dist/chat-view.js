@@ -15,11 +15,11 @@ export function createChatView(elements, conversationView) {
   // 它派生**一条**分界（会话单例，落点与文案由 conversationCompactionAnchor 判定），
   // 插在最新被折出的那条消息之后；记录逐条可查的地方是右栏「上下文压缩」与轨迹
   // 「压缩」轨。
-  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "", compactions = []) {
+  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "", compactions = [], revision = 0) {
     const draftText = String(draft ?? "");
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory, streaming: Boolean(chat.running) });
+    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory, streaming: Boolean(chat.running), revision });
     renderMessageQueueHost(chat);
   }
 
@@ -89,7 +89,8 @@ export function createChatView(elements, conversationView) {
         snapshot.session?.status === "restoring",
         switching,
         draft,
-        snapshot.task?.context_compactions || []
+        snapshot.task?.context_compactions || [],
+        snapshot.conversation_revision || 0
       );
       renderControls(snapshot, switching);
     },

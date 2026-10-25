@@ -47,6 +47,9 @@ type View struct {
 	HasMoreHistory     bool
 	ConversationWindow int
 	Revision           uint64
+	// ForkedFrom 是当前会话的权威血缘（子会话侧事实源）。值随会话视图保存，
+	// 热切换不丢；冷恢复由 application 从持久 context 元数据回填。
+	ForkedFrom *model.SessionForkRef
 	// ReviewRequest 是 agent 发起的「请 GUI 打开这些待审阅文件」批处理请求
 	// （会话作用域的可重放状态；每会话各持一份，镜像到 Snapshot 的那一份是
 	// 当前活跃会话的）。它是**会话事实之外的"现在请你看一下"**，因此不落盘：
@@ -92,6 +95,7 @@ func (view *View) Clone() *View {
 		clone.HasMoreHistory = source.HasMoreHistory
 		clone.ConversationWindow = source.ConversationWindow
 		clone.Revision = source.Revision
+		clone.ForkedFrom = model.CloneSessionForkRef(source.ForkedFrom)
 		clone.ReviewRequest = dto.CloneReviewRequest(source.ReviewRequest)
 		clone.ContentUnloaded = source.ContentUnloaded
 	})

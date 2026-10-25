@@ -35,7 +35,7 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 	plan := task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
 	snapshot := model.SessionSnapshot{
 		ProtocolVersion: ProtocolVersion,
-		Session:         model.SessionState{ID: sessionID, Name: title},
+		Session:         model.SessionState{ID: sessionID, Name: title, ForkedFrom: service.loadSessionForkRef(location, sessionID)},
 		Conversation:    conversation,
 		Chat:            model.ChatState{},
 		Runtime: model.SessionRuntime{
@@ -49,6 +49,13 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 		ConversationWindow: len(conversation),
 		ReadFiles:          append([]model.ReadFileRef(nil), record.Execution.ReadFiles...),
 		Resident:           false,
+	}
+	for index := range snapshot.Conversation {
+		message := &snapshot.Conversation[index]
+		if message.Role == "user" && inputIndexUserText(*message) != "" {
+			message.Editable = false
+			message.EditDisabledReason = "会话尚未加载；打开会话后可编辑"
+		}
 	}
 	// 工作表格是项目/全局台账：冷读面 = 进程全局表 + 本会话持久化的自身
 	// 条目（冷会话未驻留，其条目只在 record 里），合并后投影成同一张表。

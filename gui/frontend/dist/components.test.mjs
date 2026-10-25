@@ -32,6 +32,44 @@ test("assigns each message the identity of the agent that owns the round", () =>
   assert.doesNotMatch(rendered.html, /<strong>AGENT<\/strong>/);
 });
 
+test("user messages expose copy and edit only when the backend marks them editable", () => {
+  const rendered = renderConversationComponent([
+    {
+      id: "user-editable", role: "user", role_name: "user", content: "原始输入",
+      event_seq: 7, editable: true
+    },
+    {
+      id: "user-compressed", role: "user", role_name: "user", content: "已压缩输入",
+      event_seq: 1, editable: false, edit_disabled_reason: "该消息已在上下文压缩前缀中"
+    },
+    { id: "assistant", role: "assistant", content: "回答" }
+  ], { running: false });
+
+  const editable = rendered.html.match(/<article class="message user[\s\S]*?<\/article>/)?.[0] || "";
+  const compressed = rendered.html.match(/<article class="message user[\s\S]*?<\/article>/g)?.[1] || "";
+  const assistant = rendered.html.match(/<article class="message assistant[\s\S]*?<\/article>/)?.[0] || "";
+
+  assert.match(editable, /data-copy="message-copy:message:user-editable"/);
+  assert.match(editable, /data-edit-message="message:user-editable"/);
+  assert.match(editable, /aria-label="复制这条用户消息"/);
+  assert.match(editable, /aria-label="编辑这条用户消息并分叉"/);
+
+  assert.match(compressed, /aria-label="复制这条用户消息"/);
+  assert.match(compressed, /data-edit-disabled="true"/);
+  assert.match(compressed, /上下文压缩前缀/);
+
+  assert.doesNotMatch(assistant, /data-edit-message=/);
+  assert.doesNotMatch(assistant, /data-copy=/);
+});
+
+test("user copy payload is the original content, not rendered markdown", () => {
+  const model = renderConversationModel([
+    { id: "u1", role: "user", content: "**原文** <script>x</script>", event_seq: 2, editable: true }
+  ]);
+  assert.equal(model.payloads.get("message-copy:message:u1"), "**原文** <script>x</script>");
+  assert.match(model.items[0].html, /&lt;script&gt;x&lt;\/script&gt;/);
+});
+
 test("distinguishes EXEC and ADVISOR rounds by their own background band", () => {
   const rendered = renderConversationComponent([
     { id: "m-1", role: "assistant", role_name: "tl", content: "裁决：not_done" },

@@ -128,7 +128,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	var user, assistant model.Message
 	userOrigin := model.MessageOrigin{
 		RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
-		RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
+		RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq, EventSeq: userEvent.Seq,
 	}
 	// EXEC（main）的回合行：角色会话即主会话，round 与用户行同轮；正文随后由
 	// 流式增量写入同一条消息，归属字段不会丢。
@@ -368,7 +368,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		userOrigin := model.MessageOrigin{
 			RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
-			RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
+			RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq, EventSeq: userEvent.Seq,
 		}
 		mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 		if active {

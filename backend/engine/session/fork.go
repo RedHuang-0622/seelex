@@ -77,6 +77,17 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 	if err != nil {
 		return ForkContext{}, fmt.Errorf("session fork: load parent transcript: %w", err)
 	}
+	if request.ExpectedEventSeq != 0 {
+		latest := uint64(0)
+		for _, event := range rawEvents {
+			if event.Seq > latest {
+				latest = event.Seq
+			}
+		}
+		if latest != request.ExpectedEventSeq {
+			return ForkContext{}, fmt.Errorf("session fork: parent advanced (expected event_seq %d, current %d)", request.ExpectedEventSeq, latest)
+		}
+	}
 	if derivedParent {
 		// S20：record 退役后父会话正文由 message 事件行派生（fork 截断仍按
 		// 既有 cut 语义在该派生化 conversation 上执行）。
@@ -93,14 +104,16 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 		cutMessageID = cutEvent.MessageID
 	}
 	inherited := forkInheritedEvents(rawEvents, cut)
-
-	contextPayload, inheritedFrames, err := c.forkContextRecord(location, parentID, cut, cutTime, cutMessageID)
-	if err != nil {
-		return ForkContext{}, err
+	requestID := strings.TrimSpace(request.RequestID)
+	if requestID == "" && cutEvent != nil {
+		requestID = strings.TrimSpace(cutEvent.TaskID)
 	}
-	record = truncateForkRecord(record, inherited, inheritedFrames, cutTime, c.displayUserInput)
 	forkedAt := time.Now().UTC()
-	record.ForkedFrom = &model.SessionForkRef{
+	messageCount := 0
+	if cut > 0 {
+		messageCount = len(forkConversationMessages(record.Conversation.Messages, inherited, cutTime))
+	}
+	forkRef := &model.SessionForkRef{
 		ParentSessionID:   parentID,
 		ParentWorkspaceID: location.WorkspaceID,
 		ParentGeneration:  generation,
@@ -108,12 +121,24 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 			EventSeq:     cut,
 			EventCount:   uint64(len(inherited)),
 			Round:        uint64(len(store.EventParagraphs(inherited))),
-			RequestID:    strings.TrimSpace(request.RequestID),
+			RequestID:    requestID,
 			MessageID:    cutMessageID,
-			MessageCount: len(c.RecordConversation(record)),
+			MessageCount: messageCount,
 		},
-		ForkedAt: forkedAt,
+		SourceEventSeq:  request.SourceEventSeq,
+		SourceMessageID: strings.TrimSpace(request.SourceMessageID),
+		ForkedAt:        forkedAt,
 	}
+	forkRefPayload, err := json.Marshal(forkRef)
+	if err != nil {
+		return ForkContext{}, fmt.Errorf("session fork: encode lineage: %w", err)
+	}
+	contextPayload, inheritedFrames, err := c.forkContextRecord(location, parentID, cut, cutTime, cutMessageID, forkRefPayload)
+	if err != nil {
+		return ForkContext{}, err
+	}
+	record = truncateForkRecord(record, inherited, inheritedFrames, cutTime, c.displayUserInput)
+	record.ForkedFrom = forkRef
 	rawResults, err := forkPort.LoadToolResultsWorkspace(location.WorkspaceID, parentID)
 	if err != nil {
 		return ForkContext{}, fmt.Errorf("session fork: enumerate parent tool results: %w", err)
@@ -174,7 +199,7 @@ func conversationMessagesFromEvents(events []store.Event) []model.Message {
 			id = fmt.Sprintf("seq-%d", event.Seq)
 		}
 		messages = append(messages, model.Message{
-			ID: id, Role: event.Role, Content: event.Content, CreatedAt: event.CreatedAt,
+			ID: id, Role: event.Role, Content: event.Content, EventSeq: event.Seq, CreatedAt: event.CreatedAt,
 		})
 	}
 	return messages
@@ -323,6 +348,9 @@ func inheritedForkTitle(title model.SessionTitle, messages []model.Message, now 
 }
 
 func forkConversationMessages(messages []model.Message, events []store.Event, cutTime time.Time) []model.Message {
+	if len(events) == 0 {
+		return nil
+	}
 	inheritedIDs := make(map[string]struct{}, len(events))
 	for _, event := range events {
 		if event.MessageID != "" {
@@ -332,10 +360,13 @@ func forkConversationMessages(messages []model.Message, events []store.Event, cu
 	result := make([]model.Message, 0, len(messages))
 	for _, message := range messages {
 		keep := false
-		if message.ID != "" {
-			_, keep = inheritedIDs[message.ID]
-		}
-		if !keep && (message.CreatedAt.IsZero() || !message.CreatedAt.After(cutTime)) {
+		if len(inheritedIDs) > 0 {
+			// 事件流有稳定 MessageID 时只认身份：不能因为旧 record 的
+			// CreatedAt 为零就把切点之后的消息放回 child。
+			if message.ID != "" {
+				_, keep = inheritedIDs[message.ID]
+			}
+		} else if message.CreatedAt.IsZero() || !message.CreatedAt.After(cutTime) {
 			keep = true
 		}
 		if !keep {
@@ -504,7 +535,7 @@ func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]str
 // goal）不在这里处理——它们的权威是 §2.4 栈通道，fork 时由存储层按 message
 // 锚重建（storeEngine.stackSnapshotAt）；GoalAudit 与 goal 治理状态默认不
 // 继承（D4）。
-func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []store.CompactFrame, error) {
+func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string, forkedFrom json.RawMessage) ([]byte, []store.CompactFrame, error) {
 	forkPort, ok := c.Core.Deps.Sessions.(SessionForkPort)
 	if !ok {
 		return nil, nil, errors.New("session fork: durable fork storage is unavailable")
@@ -512,7 +543,10 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	payload, err := forkPort.LoadContextStateWorkspace(location.WorkspaceID, parentID)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			data, _ := json.Marshal(store.SessionContextRecord{SchemaVersion: store.SessionContextSchemaVersion})
+			data, _ := json.Marshal(store.SessionContextRecord{
+				SchemaVersion: store.SessionContextSchemaVersion,
+				ForkedFrom:    append(json.RawMessage(nil), forkedFrom...),
+			})
 			return data, nil, nil
 		}
 		return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
@@ -528,6 +562,7 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	record.TaskStack = nil
 	record.GoalStack = nil
 	record.GoalAudit = nil
+	record.ForkedFrom = append(json.RawMessage(nil), forkedFrom...)
 	record.SkillStack = forkContextSkillFrames(record.SkillStack, cutTime)
 	frames := rewriteForkCompactStack(record.CompactStack, cut, cutMessageID)
 	record.CompactStack = frames

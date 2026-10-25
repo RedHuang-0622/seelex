@@ -50,6 +50,12 @@ func (service *Service) Snapshot() model.Snapshot {
 			}}, snapshot.Sessions...)
 		}
 	}
+	snapshot.Conversation = service.annotateConversationForEditLocked(
+		snapshot.Session.ID,
+		snapshot.Conversation,
+		snapshot.Chat.Running,
+	)
+	snapshot.ConversationRevision = service.components.tasks.LatestTranscriptSeqFor(snapshot.Session.ID)
 	service.projectDraftWorkspaceLocked(&snapshot)
 	snapshot.Sessions = service.withLiveSessionRowsLocked(snapshot.Sessions)
 	snapshot.Sessions = service.enrichDirectoryRowsLocked(snapshot.Sessions)

@@ -619,23 +619,25 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 		revision = service.Core.Snapshot.Revision
 	}
 	snapshot := model.SessionSnapshot{
-		ProtocolVersion:    ProtocolVersion,
-		Revision:           revision,
-		Session:            model.SessionState{ID: sessionID, Name: name},
-		Conversation:       append([]model.Message(nil), view.Conversation...),
-		Chat:               unit.ChatState(),
-		Runtime:            sessionRuntimeOf(runtime),
-		Capabilities:       model.Capabilities{SessionResume: true, SessionSnapshot: true},
-		Resident:           true,
-		HistoryOffset:      view.HistoryOffset,
-		TotalMessages:      view.TotalMessages,
-		HasMoreHistory:     view.HasMoreHistory,
-		ConversationWindow: view.ConversationWindow,
-		ReadFiles:          append([]model.ReadFileRef(nil), view.ReadFiles...),
+		ProtocolVersion:      ProtocolVersion,
+		Revision:             revision,
+		ConversationRevision: service.components.tasks.LatestTranscriptSeqFor(sessionID),
+		Session:              model.SessionState{ID: sessionID, Name: name, ForkedFrom: model.CloneSessionForkRef(view.ForkedFrom)},
+		Conversation:         append([]model.Message(nil), view.Conversation...),
+		Chat:                 unit.ChatState(),
+		Runtime:              sessionRuntimeOf(runtime),
+		Capabilities:         model.Capabilities{SessionResume: true, SessionSnapshot: true},
+		Resident:             true,
+		HistoryOffset:        view.HistoryOffset,
+		TotalMessages:        view.TotalMessages,
+		HasMoreHistory:       view.HasMoreHistory,
+		ConversationWindow:   view.ConversationWindow,
+		ReadFiles:            append([]model.ReadFileRef(nil), view.ReadFiles...),
 		// 待审阅请求随会话快照一起下发（会话作用域的可重放状态；前端起来/切回
 		// 该会话时按它补放）。冷读路径为空（不落盘）。
 		ReviewRequest: dto.CloneReviewRequest(view.ReviewRequest),
 	}
+	snapshot.Conversation = service.annotateConversationForEditLocked(sessionID, snapshot.Conversation, unit.ChatState().Running)
 	if len(approvals) > 0 {
 		snapshot.Approvals = append([]model.Interaction(nil), approvals...)
 	}

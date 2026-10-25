@@ -127,6 +127,26 @@
 复现与回归：`session_draft_context_attach_test.go`（三处挂接 + 运行中会话不解绑）、
 `backend/engine/assemble/runtime_compaction_unbound_test.go`（未绑定的确切报错文案）。
 
+## 用户消息编辑分叉（2026-10-25）
+
+`EditUserMessageAndFork` 是 GUI 编辑用户消息的唯一写入口，语义固定为：
+
+1. 目标 `TargetEventSeq` 必须是保留窗口内、属于完整段落起点且不是内部注入的真实
+   user 事件；
+2. fork cut 取目标段落**上一段**的 `EventTo`，因此原用户消息及其后续回复不进入 child；
+3. child 创建后自动切换，并把修改文本交给既有 `submitConversationFor` 作为首条新输入；
+4. `ExpectedRevision` 是打开编辑器时的会话事件最大 Seq，`ForkRequest.ExpectedEventSeq`
+   在真正读盘构建 child 时再次校验，避免父会话在编辑期间推进；
+5. `OperationID` 在应用层做短期幂等：双击/重试复用同一个成功 child；失败不缓存，
+   允许修正后重试；不同 operation 即便同一 fork 点也创建不同 child；
+6. child 首轮启动失败时删除本次刚创建的 child 并恢复 parent 视图。
+
+快照中的 `Message.EventSeq`、`Editable`、`EditDisabledReason` 与
+`Snapshot.ConversationRevision` 都由应用层生成：保留窗口起点从
+`TaskExecutionState.ContextRetainedFrom` 下标映射到首个保留事件的 Seq，前端不得按
+已加载消息数或本地滚窗判断。子会话 `SessionState.ForkedFrom` 含来源
+`SourceEventSeq/SourceMessageID`，冷恢复从会话 context 的 `forked_from` 元数据回填。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -400,10 +420,12 @@
 ### session_fork_test.go
 
 - `func (s *forkServiceSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
+- `func (s *forkServiceSessions) Delete(sessionID string) error`
 - `func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (model.SessionRecord, error)`
 - `func (s *forkServiceSessions) SaveSessionRecord(string, model.SessionRecord) error`
 - `func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error`
 - `func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
+- `func (s *forkServiceSessions) LoadTranscriptTailWorkspace(projectID, sessionID string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error)`
 - `func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)`
 - `func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
 - `func (s *forkServiceSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
@@ -562,6 +584,34 @@
 - `func (service *Service) wakeCatalogRefresh()` — wakeCatalogRefresh 唤醒会话目录 worker 重拉（元数据/标题变化后让所有客户端看到新排序）。
 - `func (service *Service) SetSessionMeta(sessionID string, meta model.SessionMeta) error` — SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
 - `func (service *Service) SessionMeta(sessionID string) (model.SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
+
+### session_message_edit.go
+
+- `func (service *Service) EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)` — EditUserMessageAndFork 原子地完成“编辑用户消息 → 从上一完整段落边界 fork →
+- `func (service *Service) beginEditForkOperation(parentID string, request model.EditUserMessageForkRequest) (*editForkOperation, bool, error)`
+- `func (service *Service) finishEditForkOperation(operation *editForkOperation, result model.EditUserMessageForkResult, err error)`
+- `func (service *Service) runEditUserMessageFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)`
+- `func (service *Service) resolveEditForkTarget(parentID string, targetSeq uint64) (store.Event, uint64, uint64, error)`
+- `func (service *Service) validateEditForkParent(parentID string, parentRevision uint64, expectedRevision uint64, targetSeq uint64) error`
+- `func (service *Service) rollbackEditFork(parentID, childID string, cause error) error`
+- `func (service *Service) annotateConversationForEditLocked(sessionID string, messages []model.Message, running bool) []model.Message` — annotateConversationForEditLocked 给可见用户消息补权威 EventSeq 与编辑判据。
+- `func (service *Service) loadSessionForkRef(location session_runtime.Location, sessionID string) *model.SessionForkRef`
+
+### session_message_edit_test.go
+
+- `func editForkFixture(t *testing.T) (*Service, *forkServiceSessions, *multiSessionEngine)`
+- `func editForkRetainedWindow(t *testing.T, service *Service, retainedFrom int)`
+- `func userTexts(messages []model.Message) []string`
+- `func TestEditUserMessageAndForkUsesPreviousParagraphAndSubmitsReplacement(t *testing.T)`
+- `func TestEditUserMessageAndForkCanReplaceLatestUserMessage(t *testing.T)`
+- `func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T)`
+- `func TestEditUserMessageAndForkRejectsStaleParentRevision(t *testing.T)`
+- `func TestEditUserMessageAndForkSameOperationIsIdempotent(t *testing.T)`
+- `func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testing.T)`
+- `func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing.T)`
+- `func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T)`
+- `func TestEditUserMessageAndForkExplainsMissingEventSeq(t *testing.T)`
+- `func TestAnnotateConversationUsesRetainedWindowAndRunningState(t *testing.T)`
 
 ### session_parallel_test.go
 

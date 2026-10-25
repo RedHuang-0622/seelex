@@ -312,7 +312,8 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 		message := model.Message{
 			ID: fmt.Sprintf("message-%d", event.Seq), Role: event.Role,
 			Content: event.Content, ReasoningContent: event.ReasoningContent,
-			Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
+			EventSeq: event.Seq,
+			Kind:     messageKindForEvent(event), CreatedAt: event.CreatedAt,
 			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 			ConfigRole: event.ConfigRole, ConfigModel: event.ConfigModel, ConfigProvider: event.ConfigProvider,
@@ -329,6 +330,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						ID:               fmt.Sprintf("message-%d", event.Seq),
 						Role:             "assistant",
 						Content:          event.Content,
+						EventSeq:         event.Seq,
 						ReasoningContent: event.ReasoningContent,
 						Kind:             model.TranscriptEventKindLLM,
 						CreatedAt:        event.CreatedAt,
@@ -346,7 +348,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						// L4：同一 assistant 事件的多个 tool call 必须有独立
 						// 消息 ID，避免前端按 ID 增量路由时串更新。
 						ID:   fmt.Sprintf("message-%d-%d", event.Seq, callIndex),
-						Role: "tool", Kind: model.TranscriptEventKindToolCall, CreatedAt: event.CreatedAt,
+						Role: "tool", EventSeq: event.Seq, Kind: model.TranscriptEventKindToolCall, CreatedAt: event.CreatedAt,
 						Tool:     &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess},
 						RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 						RoundID: event.RoundID, UnitSeq: event.UnitSeq,

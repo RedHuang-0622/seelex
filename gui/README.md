@@ -17,7 +17,7 @@ flowchart TB
     BR --> WEB
 
     subgraph FACES["Bridge 暴露的调用面"]
-        F1["聊天与会话：Submit / BeginNewSession / ResumeSession / ForkSessionLatest"]
+        F1["聊天与会话：Submit / BeginNewSession / ResumeSession / ForkSessionLatest / EditUserMessageAndFork"]
         F2["审批：ResolveInteraction"]
         F3["运行时：SetPermissionTier（权限档位）"]
         F4["团队与目标：team.* / goal.*"]
@@ -81,7 +81,15 @@ sequenceDiagram
 
 ## Bridge 契约
 
-`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、`ReorderQueuedInput`/`RecallQueuedInput`（排队中的输入调换顺序/撤回到输入框，只作用于回合运行期间的会话队列）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
+`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、`EditUserMessageAndFork`（编辑一条保留窗口内的用户输入，从其上一完整段落边界创建 child 并原子提交修改文本）、`ReorderQueuedInput`/`RecallQueuedInput`（排队中的输入调换顺序/撤回到输入框，只作用于回合运行期间的会话队列）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
+
+消息编辑不是 `ForkSessionLatest` 的前端组合：renderer 只调用
+`EditUserMessageAndFork(parent, request)`。`request.operation_id` 在打开编辑器时生成，
+提交重试复用；`request.expected_revision` 取 `Snapshot.ConversationRevision`。成功
+回执后 Bridge 等待目录收敛并重订阅 child；失败时编辑器保留用户文本，不切换视图。
+消息的复制/编辑动作只消费快照里的 `event_seq`、`editable`、`edit_disabled_reason`，
+复制正文仍走 conversation view 既有的 `copyText` 通道。子会话顶部血缘条只读取
+`session.forked_from`，返回入口使用 `parent_session_id`。
 
 `CreateWorkspaces` 是项目 temp list 的批量提交口：它只登记 workspace，不绑定当前会话。
 前端确认多个目录后一次调用，随后用户从刷新后的项目列表选择一个开始会话；单条
@@ -120,7 +128,7 @@ python scripts/check_gui_ports.py
 的 `seelex:event` / `seelex:ready` / `seelex:terminal` 一致。动态变量方法名
 无法静态解析时脚本会显式报数，不用“没查到”冒充“对齐”。
 
-会改变会话目录的命令（`BeginNewSession`/`DeleteSession`/`ArchiveSession`/`ForkSessionLatest`/`SetSessionMeta`）在返回前调用 `settleCatalog()`：等 `Application.WaitCatalogRefresh` 的目录刷新回执（预算 `sessionCatalogSettleTimeout`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威列表。等待超时不算失败也不向上报错——命令本身已成功，未收敛的列表由 worker 发布的 `snapshot.changed` 补齐，前端不得为此回填旧列表。
+会改变会话目录的命令（`BeginNewSession`/`DeleteSession`/`ArchiveSession`/`ForkSessionLatest`/`EditUserMessageAndFork`/`SetSessionMeta`）在返回前调用 `settleCatalog()`：等 `Application.WaitCatalogRefresh` 的目录刷新回执（预算 `sessionCatalogSettleTimeout`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威列表。等待超时不算失败也不向上报错——命令本身已成功，未收敛的列表由 worker 发布的 `snapshot.changed` 补齐，前端不得为此回填旧列表。
 
 `ArchiveSession` 的目录收敛按目标会话所在项目做范围刷新：归档行从该项目格子
 过滤（record 状态 archived 是唯一标记，不存在全局数组上的归档位），其它项目

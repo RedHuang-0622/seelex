@@ -63,6 +63,9 @@ func TestConversationRangeFromMessageRows(t *testing.T) {
 			if total != 4 || len(messages) != 2 || messages[0].ID != "message-1" || messages[1].ID != "message-2" {
 				t.Fatalf("window = %#v total=%d, want message-1..message-2 total=4", messages, total)
 			}
+			if messages[0].EventSeq != 1 || messages[1].EventSeq != 2 {
+				t.Fatalf("derived EventSeq = %d/%d, want 1/2", messages[0].EventSeq, messages[1].EventSeq)
+			}
 			if messages[1].Role != "assistant" || messages[1].Content != "hi" || messages[1].Tool != nil {
 				t.Fatalf("assistant body = %#v", messages[1])
 			}

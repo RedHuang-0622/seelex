@@ -161,6 +161,13 @@ type replayAwareApplication interface {
 	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (application.Subscription, error)
 }
 
+// messageEditForkApplication 是「编辑用户消息并自动 fork」的原子能力面。
+// 它刻意是可选窄接口：未装配的宿主明确报错，不能由 Bridge 拆成
+// ForkSession + Submit 两条请求。
+type messageEditForkApplication interface {
+	EditUserMessageAndFork(context.Context, string, model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)
+}
+
 // queueAwareApplication 是 Application 的可选排队输入编辑面：调换排队顺序 +
 // 撤回到输入框。只作用于「排队中」的输入（回合运行期间的队列），不触碰正在
 // 运行的回合；未装配时 Bridge 方法返回可展示错误，不静默退化。
@@ -233,12 +240,13 @@ type roleSessionApplication interface {
 var (
 	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
 	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
-	_ Application             = (*application.Service)(nil)
-	_ sessionAwareApplication = (*application.Service)(nil)
-	_ replayAwareApplication  = (*application.Service)(nil)
-	_ roleSessionApplication  = (*application.Service)(nil)
-	_ queueAwareApplication   = (*application.Service)(nil)
-	_ roleSettingsApplication = (*application.Service)(nil)
+	_ Application                = (*application.Service)(nil)
+	_ sessionAwareApplication    = (*application.Service)(nil)
+	_ replayAwareApplication     = (*application.Service)(nil)
+	_ roleSessionApplication     = (*application.Service)(nil)
+	_ queueAwareApplication      = (*application.Service)(nil)
+	_ roleSettingsApplication    = (*application.Service)(nil)
+	_ messageEditForkApplication = (*application.Service)(nil)
 )
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -286,7 +294,7 @@ type Bridge struct {
 	info AppInfo
 	mu   sync.Mutex
 	// switchMu 串行化“视图会话切换类”命令（BeginNewSession/ResumeSession/
-	// ActivateSession/ForkSessionLatest）：忙时会话产生高频事件时，并发点击
+	// ActivateSession/ForkSessionLatest/EditUserMessageAndFork）：忙时会话产生高频事件时，并发点击
 	// 多个会话会导致多次 resubscribe 交错；串行后一次只处理一次切换。
 	switchMu sync.Mutex
 	ctx      context.Context
@@ -742,6 +750,24 @@ func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
 	bridge.settleCatalog()
 	bridge.syncSubscriptionToView()
 	return childID, nil
+}
+
+// EditUserMessageAndFork 是最小 GUI 写面：一次 RPC 内完成编辑源消息的分叉与
+// 修改后输入提交。请求里的 operation_id 由前端稳定生成，后端负责双击幂等。
+func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
+	app, ok := bridge.app.(messageEditForkApplication)
+	if !ok {
+		return model.EditUserMessageForkResult{}, errors.New("当前 Application 未装配消息编辑分叉面")
+	}
+	bridge.switchMu.Lock()
+	defer bridge.switchMu.Unlock()
+	result, err := app.EditUserMessageAndFork(bridge.requestContext(), parentSessionID, request)
+	if err != nil {
+		return model.EditUserMessageForkResult{}, err
+	}
+	bridge.settleCatalog()
+	bridge.syncSubscriptionToView()
+	return result, nil
 }
 
 // CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，

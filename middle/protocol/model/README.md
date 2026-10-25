@@ -61,9 +61,9 @@ flowchart LR
 
 - `Snapshot`：session、conversation、chat、task、runtime、interaction、history window、workspace 和 binding 的完整视图。
 - `TaskState`：最近一次请求的可观察结果，只能是 `progressing`、`completed`、`needs_user_decision`、`blocked`、`interrupted` 或 `failed`；不承载模型推理、系统提示词或原始工具日志。
-- `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。可见 `Status` 含 `draft | idle | running | queued | restoring | awaiting_approval | archived`；`restoring` 是运行中切换到未驻留会话时“后台冷加载中”的权威状态（视图已切到目标空壳，内容基线由装载完成事件发布）。
+- `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。可见 `Status` 含 `draft | idle | running | queued | restoring | awaiting_approval | archived`；`restoring` 是运行中切换到未驻留会话时“后台冷加载中”的权威状态（视图已切到目标空壳，内容基线由装载完成事件发布）。`SessionState.ForkedFrom` 是子会话的权威血缘，nil = 非 fork 会话。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
-- `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/core/README-service.md` 的 `appendMessageWithOriginLocked`）。
+- `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/core/README-service.md` 的 `appendMessageWithOriginLocked`）。`EventSeq`、`Editable`、`EditDisabledReason` 是消息编辑的权威后端投影；`Snapshot.ConversationRevision` 是编辑 CAS 令牌，与进程级 `Revision` 分离。
 - `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、权威**权限档位**（`permission_tier` 生效档 + `permission_tiers` 目录）、工具和 Plan DAG 的投影；嵌套 `PlanNode` 包含有界生命周期 `events` 和子代理 `tool_events`。`full_access` 保留为派生位（`full` 档 ⇒ true），不再是有独立语义的开关。
 - `SubagentEvent`/`SubagentToolEvent`：前端增量协议；前者携带完整节点及 Plan 进度，后者携带单次子代理工具 started/completed 状态。
 - `WorkTableEvent`：`worktable.changed` 增量载荷（`items` + 可选 `batches` + 可选 `subagent_tree`）；树只在内容变化时携带，空数组表示已清空，缺失/`null` 表示保留既有树——前端据此把工作表格行解析成详情弹窗节点。
@@ -117,6 +117,7 @@ node --test gui/frontend/dist/protocol.test.mjs gui/frontend/dist/client-state.t
 - `func messageRangeLabel(from, to string) string` — messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
 - `func CloneWorkItems(items []WorkItem) []WorkItem` — CloneWorkItems 返回工作表格行的深拷贝（并发读者安全；供快照克隆与事件发布）。
 - `func CloneSnapshot(snapshot Snapshot) Snapshot` — CloneSnapshot returns an independent copy suitable for concurrent readers.
+- `func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef` — CloneSessionForkRef 返回会话血缘的独立副本。
 - `func CloneRuntimeState(runtime RuntimeState) RuntimeState` — CloneRuntimeState returns an independent copy of mutable runtime slices.
 - `func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView` — CloneTeamworkBoardView 深拷贝团队看板投影：切片**与元素内嵌的切片**都要独立。
 - `func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch` — CloneWorkTableBatches 深拷贝批次头（Counts map 必须独立，避免并发读者

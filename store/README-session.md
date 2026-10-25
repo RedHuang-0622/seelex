@@ -6,6 +6,16 @@
 
 覆盖：`sessionstore*.go`、`session_granular*.go`、`session_context*.go`、`session_meta*.go`、`durable_history*.go`、`runtime_api*.go`、`conversation*.go`、`history_resume_readers*.go`；未归属文件由覆盖自检拦下。
 
+## 消息 EventSeq 与会话血缘（2026-10-25）
+
+`ConversationMessage.EventSeq` 由 message 事件行派生，只有落在
+`CompleteEventUnits` 完整单元内的事件才携带该值。它供应用层生成用户消息的编辑
+判据与 fork 源定位；不是 UI 序列号，也不按窗口位置推算。
+
+`SessionContextRecord.ForkedFrom` 以 `json.RawMessage` 保存不透明会话血缘，
+避免 store 反向依赖 protocol/model。写入由 session fork 通道负责，恢复时由应用层
+解码为 `SessionForkRef`。旧记录缺这两个字段时分别按“不可定位/无血缘”处理。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。

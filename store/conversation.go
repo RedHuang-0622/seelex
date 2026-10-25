@@ -15,6 +15,8 @@ type ConversationMessage struct {
 	ID      string `json:"id"`
 	Role    string `json:"role"`
 	Content string `json:"content,omitempty"`
+	// EventSeq 是该行对应的持久事件序号（0 = 旧数据/无法稳定定位）。
+	EventSeq uint64 `json:"event_seq,omitempty"`
 	// ReasoningContent 是模型推理内容（thinking）。可见会话里与 Content
 	// 分离：聊天区只做一行带过，轨迹区完整查看。恢复路径必须带上它，否则
 	// 长会话里「助手步骤」只剩工具痕迹，读起来像工具挤成一坨。

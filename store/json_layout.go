@@ -303,14 +303,24 @@ func (repository *jsonRepository) derivedRecordPayload(key Key) ([]byte, error) 
 // 「工具挤成一坨、助手正文掉队」。
 func derivedConversationMessages(rows []Event) []ConversationMessage {
 	messages := make([]ConversationMessage, 0, len(rows))
+	completeEvent := make(map[uint64]struct{})
+	for _, unit := range CompleteEventUnits(rows) {
+		for _, event := range unit {
+			completeEvent[event.Seq] = struct{}{}
+		}
+	}
 	for _, row := range rows {
 		id := row.MessageID
 		if id == "" {
 			id = fmt.Sprintf("seq-%d", row.Seq)
 		}
+		var eventSeq uint64
+		if _, ok := completeEvent[row.Seq]; ok {
+			eventSeq = row.Seq
+		}
 		if row.Role != "tool" && (row.Content != "" || row.ReasoningContent != "") {
 			messages = append(messages, ConversationMessage{
-				ID: id, Role: row.Role, Content: row.Content,
+				ID: id, Role: row.Role, Content: row.Content, EventSeq: eventSeq,
 				ReasoningContent: row.ReasoningContent, CreatedAt: row.CreatedAt,
 				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
@@ -319,7 +329,7 @@ func derivedConversationMessages(rows []Event) []ConversationMessage {
 		}
 		for index, call := range row.ToolCalls {
 			messages = append(messages, ConversationMessage{
-				ID: derivedToolCallMessageID(id, index), Role: "tool", CreatedAt: row.CreatedAt,
+				ID: derivedToolCallMessageID(id, index), Role: "tool", EventSeq: eventSeq, CreatedAt: row.CreatedAt,
 				Tool:     &ConversationToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: ConversationToolCallStatusSuccess},
 				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
@@ -327,7 +337,7 @@ func derivedConversationMessages(rows []Event) []ConversationMessage {
 		}
 		if row.Role == "tool" {
 			messages = append(messages, ConversationMessage{
-				ID: id, Role: "tool_result", Content: row.Content, CreatedAt: row.CreatedAt,
+				ID: id, Role: "tool_result", Content: row.Content, EventSeq: eventSeq, CreatedAt: row.CreatedAt,
 				Tool:     &ConversationToolCall{ID: row.ToolCallID, Name: row.Name, Status: ConversationToolCallStatusSuccess, Result: row.Content},
 				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 				RoundID: row.RoundID, UnitSeq: row.UnitSeq,

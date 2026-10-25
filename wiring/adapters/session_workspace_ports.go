@@ -1258,7 +1258,7 @@ func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, o
 // （Tool 指针独立拷贝，避免共享内部状态）。
 func adaptStoredConversationMessage(message store.ConversationMessage) model.Message {
 	adapted := model.Message{
-		ID: message.ID, Role: message.Role, Content: message.Content,
+		ID: message.ID, Role: message.Role, Content: message.Content, EventSeq: message.EventSeq,
 		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
 		RoleName: message.RoleName, RoleSessionID: message.RoleSessionID,
 		RoundID: message.RoundID, UnitSeq: message.UnitSeq,

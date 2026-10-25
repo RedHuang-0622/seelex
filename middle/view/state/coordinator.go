@@ -364,7 +364,7 @@ func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content 
 		c.messageSeq[sessionID]++
 		next := model.Message{
 			ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now(),
-			Kind:     origin.Kind,
+			Kind: origin.Kind, EventSeq: origin.EventSeq,
 			RoleName: origin.RoleName, RoleSessionID: origin.RoleSessionID,
 			RoundID: origin.RoundID, UnitSeq: origin.UnitSeq,
 		}
@@ -474,6 +474,7 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 		target.HistoryOffset = view.HistoryOffset
 		target.HasMoreHistory = view.HasMoreHistory
 		target.ConversationWindow = view.ConversationWindow
+		target.ForkedFrom = model.CloneSessionForkRef(view.ForkedFrom)
 		// 内容 LRU 标志随装载复制：冷加载/恢复安装的窗口是「已加载正文」，
 		// 被卸载的会话不经此路径（卸载只清正文，不动装载入口）。
 		target.ContentUnloaded = view.ContentUnloaded
@@ -546,6 +547,7 @@ func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.Vie
 		c.Snapshot.HistoryOffset = v.HistoryOffset
 		c.Snapshot.HasMoreHistory = v.HasMoreHistory
 		c.Snapshot.ConversationWindow = v.ConversationWindow
+		c.Snapshot.Session.ForkedFrom = model.CloneSessionForkRef(v.ForkedFrom)
 	})
 }
 

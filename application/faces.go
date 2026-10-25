@@ -201,6 +201,7 @@ type CommandFace interface {
 	CreateWorkspace(name, rootPath, gitRemote string) error
 	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
 	DeleteSession(sessionID string) error
+	EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)
 	ForkSessionLatest(parentID string) (string, error)
 	ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)
 	GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)

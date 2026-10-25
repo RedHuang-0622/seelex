@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { shouldAutoLoadOlder } from "./conversation-view.js";
 
 // 这一份钉的是「顶部 sentinel 自动翻更早页」的准入纪律：**用户停在尾部时一律不翻**。
@@ -38,4 +39,21 @@ test("没有更早历史 / 正在翻页 / 未武装 / 无加载器时都不翻",
 test("缺省/畸形状态按不翻处理（绝不因为状态缺失就去翻页）", () => {
   assert.equal(shouldAutoLoadOlder(undefined), false);
   assert.equal(shouldAutoLoadOlder({}), false);
+});
+
+test("消息编辑器复用 copyText 通道，并用稳定 operation_id 调一次原子 editFork", async () => {
+  const source = await readFile(new URL("./conversation-view.js", import.meta.url), "utf8");
+  assert.match(source, /data-edit-message/);
+  assert.match(source, /operationID:\s*newEditOperationID\(\)/);
+  assert.match(source, /options\.editFork\(\{/);
+  assert.match(source, /expectedRevision:\s*currentEditor\.expectedRevision/);
+  assert.match(source, /options\.copyText\(editor\.original\)/);
+  assert.doesNotMatch(source, /navigator\.clipboard/);
+  assert.match(source, /编辑内容已保留/);
+});
+
+test("app 只调用原子 EditUserMessageAndFork，不在前端拼 Fork + Submit", async () => {
+  const source = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  assert.match(source, /invoke\("EditUserMessageAndFork", parentID, request\)/);
+  assert.doesNotMatch(source, /invoke\("ForkSession",\s*parentID[\s\S]{0,200}invoke\("SubmitToSession"/);
 });
