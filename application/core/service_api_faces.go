@@ -310,21 +310,47 @@ type SessionAPI interface {
 	WaitCatalogRefresh(ctx context.Context) error
 }
 
-// ExecutionQueryAPI 覆盖 WorkItem、 teammate、子代理与历史的只读执行面。
-type ExecutionQueryAPI interface {
-	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
-	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
-	ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan
-	ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState
-	SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)
-	SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)
+// WorkItemQueryAPI 覆盖工作项进度、执行记录与工作表格只读投影。
+type WorkItemQueryAPI interface {
+	WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
+	WorkTableRowsFor(sessionID string) []model.WorkItem
+}
+
+// TeammateQueryAPI 覆盖 teammate 安全详情与 WorkItem 会话实时只读投影。
+type TeammateQueryAPI interface {
 	TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
+}
+
+// TeamworkQueryAPI 覆盖团队看板和项目看板的只读事实面。
+type TeamworkQueryAPI interface {
+	ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan
+	ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState
 	TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
+}
+
+// SubagentQueryAPI 覆盖子代理详情与中断恢复目录。
+type SubagentQueryAPI interface {
+	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
+	SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)
+}
+
+// TranscriptQueryAPI 覆盖会话 transcript、检索与工具结果正文回读。
+type TranscriptQueryAPI interface {
+	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
+	SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)
 	ToolResultContent(ctx context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)
-	WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
-	WorkTableRowsFor(sessionID string) []model.WorkItem
+}
+
+// ExecutionQueryAPI 是 AP-002 的组合兼容面；新调用方应按实际能力依赖下列切片，
+// 不再为了一个查询依赖全部 13 个方法。
+type ExecutionQueryAPI interface {
+	WorkItemQueryAPI
+	TeammateQueryAPI
+	TeamworkQueryAPI
+	SubagentQueryAPI
+	TranscriptQueryAPI
 }
 
 // ExecutionCommandAPI 覆盖执行读模型里唯一的用户可写动作。

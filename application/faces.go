@@ -14,6 +14,11 @@ type (
 	ConversationAPI          = core.ConversationAPI
 	SessionAPI               = core.SessionAPI
 	ExecutionQueryAPI        = core.ExecutionQueryAPI
+	WorkItemQueryAPI         = core.WorkItemQueryAPI
+	TeammateQueryAPI         = core.TeammateQueryAPI
+	TeamworkQueryAPI         = core.TeamworkQueryAPI
+	SubagentQueryAPI         = core.SubagentQueryAPI
+	TranscriptQueryAPI       = core.TranscriptQueryAPI
 	ExecutionCommandAPI      = core.ExecutionCommandAPI
 	WorkspaceAPI             = core.WorkspaceAPI
 	GoalAPI                  = core.GoalAPI

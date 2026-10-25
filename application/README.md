@@ -75,6 +75,11 @@
 | `ConversationAPI` | 10 | 提交、取消、恢复、对话视图与审批决议 |
 | `SessionAPI` | 19 | 会话目录、快照、历史窗口、订阅、恢复与 fork |
 | `ExecutionQueryAPI` | 13 | WorkItem、teammate、子代理、历史与工作表格只读投影 |
+| `WorkItemQueryAPI` | 2 | WorkItem 执行记录与工作表格只读投影 |
+| `TeammateQueryAPI` | 3 | teammate 安全详情与 WorkItem 会话实时只读投影 |
+| `TeamworkQueryAPI` | 3 | 团队看板与项目看板只读事实 |
+| `SubagentQueryAPI` | 2 | 子代理详情与中断恢复目录 |
+| `TranscriptQueryAPI` | 3 | transcript、历史检索与工具结果正文回读 |
 | `ExecutionCommandAPI` | 1 | WorkItem 用户可写状态 |
 | `WorkspaceAPI` | 15 | 工作区生命周期、文件/Git 读取、写入与审阅 |
 | `GoalAPI` | 9 | Goal 状态机与治理视图 |

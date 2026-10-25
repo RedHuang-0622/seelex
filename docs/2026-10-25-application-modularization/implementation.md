@@ -16,7 +16,8 @@
 | AP-003 | 阻塞 | 依赖 `contract/dto` 共享模型迁移 | Backend/Middle 会话负责 |
 | AP-004 | 已完成 | 抽只读 `SessionQuery`：目录、项目根、元数据、目录刷新等待 | `application/query_faces_test.go`、`application/core/session_query.go` |
 | AP-005 | 已完成 | 抽 `ConversationHistoryQuery`；冷读移出共享写锁 | 历史分页回归、慢 I/O 锁行为测试 |
-| AP-006+ | 不在本轮 | Conversation 聚合、Session 生命周期、聊天主循环 | 计划中 |
+| AP-006 | 已完成 | 将 `ExecutionQueryAPI` 拆成 5 个只读能力切片，旧组合面保持兼容 | `application/api_partition_test.go` |
+| AP-007+ | 未开始 | Conversation 聚合、Session 生命周期、聊天主循环 | 计划中 |
 
 ## 基线指标
 
@@ -62,7 +63,7 @@
 
 ## AP-002 实施记录
 
-新增的 13 个接口都由 `Service` 结构满足，单接口方法数 1–15。GUI/TUI 本轮
+能力型接口都由 `Service` 结构满足，单接口方法数 1–19。GUI/TUI 本轮
 不迁移，因此旧 `ViewFace`/`CommandFace`/`PolicyFace`/`QueueFace` 继续作为
 兼容入口，方法集和行为均未改变。`api_partition_test.go` 钉住两条不变量：
 
@@ -94,6 +95,23 @@
 - 慢历史存储读取期间 `Snapshot` 必须可读，证明查询不持共享写锁；
 - 171 方法总数不变，旧入口全部保留；
 - 直接内部依赖保持 39，38 目标因 I1 闭包约束仍未完成。
+
+## AP-006 实施记录
+
+`ExecutionQueryAPI` 的 13 个方法按消费能力拆为五个只读接口：
+
+- `WorkItemQueryAPI`：2 个方法；
+- `TeammateQueryAPI`：3 个方法；
+- `TeamworkQueryAPI`：3 个方法；
+- `SubagentQueryAPI`：2 个方法；
+- `TranscriptQueryAPI`：3 个方法。
+
+旧 `ExecutionQueryAPI` 通过嵌入五个接口保留，方法集与行为不变；根
+`application/faces.go` 继续只做同身份 alias。门禁同时钉住三件事：
+
+1. 每个切片最多 4 个方法；
+2. 同一个方法不得落入两个切片；
+3. 旧组合面的每个方法都必须被某个切片覆盖。
 
 ## 跨会话阻塞项
 

@@ -24,6 +24,11 @@ var smallApplicationAPIs = []reflect.Type{
 	reflect.TypeOf((*application.StateAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.QueueAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.LifecycleAPI)(nil)).Elem(),
+	reflect.TypeOf((*application.WorkItemQueryAPI)(nil)).Elem(),
+	reflect.TypeOf((*application.TeammateQueryAPI)(nil)).Elem(),
+	reflect.TypeOf((*application.TeamworkQueryAPI)(nil)).Elem(),
+	reflect.TypeOf((*application.SubagentQueryAPI)(nil)).Elem(),
+	reflect.TypeOf((*application.TranscriptQueryAPI)(nil)).Elem(),
 }
 
 func TestSmallApplicationAPIsStayNarrow(t *testing.T) {
@@ -59,5 +64,39 @@ func TestSmallApplicationAPIsCoverCompatibilityFaces(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Fatalf("能力小接口未完整覆盖旧兼容面：%v", missing)
+	}
+}
+
+func TestExecutionQueryAPIIsCoveredByReadOnlyCapabilitySlices(t *testing.T) {
+	capabilities := []reflect.Type{
+		reflect.TypeOf((*application.WorkItemQueryAPI)(nil)).Elem(),
+		reflect.TypeOf((*application.TeammateQueryAPI)(nil)).Elem(),
+		reflect.TypeOf((*application.TeamworkQueryAPI)(nil)).Elem(),
+		reflect.TypeOf((*application.SubagentQueryAPI)(nil)).Elem(),
+		reflect.TypeOf((*application.TranscriptQueryAPI)(nil)).Elem(),
+	}
+	covered := map[string]bool{}
+	for _, capability := range capabilities {
+		if capability.NumMethod() > 4 {
+			t.Fatalf("%s 有 %d 个方法；执行查询切片上限为 4", capability.Name(), capability.NumMethod())
+		}
+		for index := 0; index < capability.NumMethod(); index++ {
+			name := capability.Method(index).Name
+			if covered[name] {
+				t.Fatalf("执行查询方法 %s 同时落在多个能力切片中", name)
+			}
+			covered[name] = true
+		}
+	}
+	combined := reflect.TypeOf((*application.ExecutionQueryAPI)(nil)).Elem()
+	var missing []string
+	for index := 0; index < combined.NumMethod(); index++ {
+		name := combined.Method(index).Name
+		if !covered[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("ExecutionQueryAPI 仍有未切分的方法：%v", missing)
 	}
 }
