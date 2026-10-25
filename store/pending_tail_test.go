@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -53,6 +54,63 @@ func lastShardName(t *testing.T, store *storeEngine, key Key) string {
 		t.Fatal("fixture: 无分片索引")
 	}
 	return head.Shards[len(head.Shards)-1].Path
+}
+
+// TestPendingTailProbeDecodesOnlyCandidateTail 钉住冷加载探测的读放大边界：
+// 已发布分片应只按 head.Bytes 读取未索引后缀，索引外分片才允许整片读取；
+// 不允许为了寻找尾部而重新解码整个事实源前缀。
+func TestPendingTailProbeDecodesOnlyCandidateTail(t *testing.T) {
+	store, key := messageFixture(t, 100)
+	rows := make([]Event, 0, 950)
+	for index := 0; index < 950; index++ {
+		role := "user"
+		kind := EventKindUserInput
+		if index%2 == 1 {
+			role = "assistant"
+			kind = EventKindLLM
+		}
+		row := messageRow(0, "published-"+time.Unix(int64(index), 0).Format("150405"), role, kind, "published")
+		row.TokenCount = 1
+		rows = append(rows, row)
+	}
+	if _, err := store.messageCommit(key, "published", rows); err != nil {
+		t.Fatal(err)
+	}
+
+	var decodes atomic.Int64
+	shardDecodeHook = func() { decodes.Add(1) }
+	t.Cleanup(func() { shardDecodeHook = nil })
+
+	appendPendingTail(t, store, key, lastShardName(t, store, key), []Event{
+		messageRow(0, "tail-1", "user", EventKindUserInput, "tail"),
+	})
+	decodes.Store(0)
+	report, err := store.pendingTailReport(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != PendingTailRecoverable || report.RowCount() != 1 {
+		t.Fatalf("report = %+v, want one recoverable tail row", report)
+	}
+	if got := decodes.Load(); got > 1 {
+		t.Fatalf("探测一个末分片后缀解码了 %d 个分片，want <=1（前缀不应重读）", got)
+	}
+
+	appendRawPendingTail(t, store, key, "message_952_952.jsonl", []Event{{
+		Seq: 952, MessageID: "tail-2", Role: "assistant", Kind: EventKindLLM,
+		Content: "tail", CommitID: "tail-commit",
+	}})
+	decodes.Store(0)
+	report, err = store.pendingTailReport(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != PendingTailRecoverable || report.RowCount() != 2 {
+		t.Fatalf("report = %+v, want two recoverable tail rows", report)
+	}
+	if got := decodes.Load(); got > 2 {
+		t.Fatalf("探测末分片后缀 + 索引外分片解码了 %d 个分片，want <=2（前缀不应重读）", got)
+	}
 }
 
 // TestPendingTailCleanAfterNormalCommit 正常提交后没有草稿尾部。

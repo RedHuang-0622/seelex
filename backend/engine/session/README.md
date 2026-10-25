@@ -3,14 +3,16 @@
 ## 生态位
 
 会话域协调器：会话持久化（SessionRecord v3 / transcript / tool-result 原子
-提交）、目录与标题恢复、项目 binding、storage 设置与会话三读
-（record/history/transcript）。根包 Service 负责跨域事务编排
+提交）、目录与标题恢复、项目 binding、storage 设置与恢复读取。v8 冷加载走
+`LoadSessionResumeRecord`（compact 指针后的后缀）+ transcript 尾窗；provider
+history 只服务无 record 的旧格式会话。根包 Service 负责跨域事务编排
 （BeginNewSession/ResumeSession/BindWorkspace），本包只提供原子域操作。
 
 ## 职责与非职责
 
 - 做：`PersistCurrentSession`、`SessionRecordLocked`、`LoadSessionRecord`/
-  `LoadSessionTranscript`/`LoadHistoryTailWindow`、目录发现与标题缓存、
+  `LoadSessionResumeRecord`/`LoadSessionTranscript`/`LoadHistoryTailWindow`、
+  目录发现与标题缓存、
   `LocateSession`、storage 设置、`RecordReadFileLocked`、catalog worker
   生命周期（`StartCatalogRefresh`/`StopCatalogRefresh`）与刷新完成回执
   （`RequestCatalogRefresh` 返回的 channel）。
@@ -34,6 +36,16 @@
 状态经 `TaskPersistencePort` 读取）→ 锁外合并/写入 → 锁内清理已提交
 tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只发布
 内存态拷贝（bump → 锁外 Publish）。
+
+`SessionResumeRecordPort` 是可选紧凑读面：生产适配器用最新 compact 指针只
+读取 `MessageToSeq+1` 之后的可见后缀；未实现该端口时自动回退
+`LoadSessionRecord`。上下文由 `assembleWire` 使用同一 compact 摘要装配，
+`PrefixDigest` 的 SHA-256 在重启前后必须一致。
+
+`AppendDraftSnapshot` 是长任务的周期草稿写面：调用方只提交 `(left,right]`
+后缀，方法在会话单写者内写 message 草稿尾但不推进发布点。最终提交仍由
+`PersistCurrentSession` 接管；存储不可用或非 v8 布局时返回 unsupported，
+应用侧停止周期快照并继续原路径。
 
 ### 时序图：持久化一次会话
 

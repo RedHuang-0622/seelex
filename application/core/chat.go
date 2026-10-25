@@ -177,6 +177,8 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
 	ctx = withSessionID(ctx, sessionID)
+	stopDraftSnapshot := service.startDraftSnapshotLoop(ctx, sessionID, requestID)
+	defer stopDraftSnapshot()
 	// 工具面项目根按执行会话绑定：视图可能停在别的项目的会话上，后台会话
 	// 不得借用它的根（工作区污染回归，见 session_project_root_test.go）。
 	service.bindSessionProjectRoot(sessionID)
@@ -276,6 +278,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.recordUnhandledTaskErrorLocked(sessionID, requestID, err)
 		service.ViewMu.Unlock()
 	}
+	stopDraftSnapshot()
 	location := service.components.sessions.LocateSession(sessionID)
 	saveErr := service.components.sessions.PersistCurrentSession(location, sessionID)
 	if saveErr != nil {

@@ -428,6 +428,26 @@ func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromS
 	return events, err
 }
 
+// AppendMessageDraftWorkspace 把尚未快照的 transcript 后缀写入 message
+// 草稿尾；不推进发布点，冷加载由既有 pending-tail 协议恢复。
+func (router *Router) AppendMessageDraftWorkspace(projectID, sessionID string, rows []Event) ([]Event, bool, error) {
+	var assigned []Event
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		var inner error
+		assigned, _, inner = jsonRepository.appendDraftRowsWorkspace(
+			Key{ProjectID: projectID, SessionID: sessionID}, rows,
+		)
+		return inner
+	})
+	return assigned, handled, err
+}
+
 func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error) {
 	return router.LoadToolResultWorkspace(router.Workspace(), sessionID, resultRef)
 }
@@ -823,6 +843,22 @@ func (router *Router) DerivedRecordWorkspace(projectID, sessionID string) ([]byt
 		return err
 	})
 	return payload, handled, err
+}
+
+// DerivedResumeRecordWorkspace 返回冷加载可见后缀的派生 record，并以最新
+// compact 指针跳过已折出的前缀；total 用于保持历史偏移连续。
+func (router *Router) DerivedResumeRecordWorkspace(projectID, sessionID string) (payload []byte, total int, handled bool, err error) {
+	err = router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		var inner error
+		payload, total, inner = jsonRepository.derivedResumeRecordPayload(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	return payload, total, handled, err
 }
 
 // AppendGoalAuditEvent 把 goal 审计条目写进 EVENT 通道（S19：GoalAudit 的

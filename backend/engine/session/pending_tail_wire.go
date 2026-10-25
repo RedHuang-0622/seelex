@@ -2,6 +2,7 @@ package session_runtime
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // 草稿尾部（seq_draft）在会话域的窄端口面。
@@ -23,6 +24,12 @@ type SessionPendingTailPort interface {
 	RecoverPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)
 	// DiscardPendingMessageTailWorkspace 显式丢弃草稿尾部。
 	DiscardPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)
+}
+
+// SessionDraftSnapshotPort 把运行期尚未落快照的 transcript 后缀追加到
+// message 草稿尾；不推进发布点，最终仍由完整会话提交接管。
+type SessionDraftSnapshotPort interface {
+	AppendDraftSnapshotWorkspace(projectID, sessionID string, events []model.TranscriptEvent) (int, bool, error)
 }
 
 // pendingTailPort 解析存储侧草稿尾部能力（未装配时 ok=false）。
@@ -65,4 +72,22 @@ func (c *Coordinator) DiscardPendingMessageTail(location Location, sessionID str
 		return dto.PendingMessageTailReport{}, false, nil
 	}
 	return port.DiscardPendingMessageTailWorkspace(location.WorkspaceID, sessionID)
+}
+
+// AppendDraftSnapshot 在会话单写者内追加 draft 后缀，避免与回合收尾快照并发。
+func (c *Coordinator) AppendDraftSnapshot(location Location, sessionID string, events []model.TranscriptEvent) (int, bool, error) {
+	port, ok := c.Core.Deps.Sessions.(SessionDraftSnapshotPort)
+	if !ok {
+		return 0, false, nil
+	}
+	var (
+		appended  int
+		supported bool
+	)
+	err := c.RunSessionWrite(sessionID, func() error {
+		var inner error
+		appended, supported, inner = port.AppendDraftSnapshotWorkspace(location.WorkspaceID, sessionID, events)
+		return inner
+	})
+	return appended, supported, err
 }

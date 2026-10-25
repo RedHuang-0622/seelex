@@ -97,9 +97,9 @@ func (store *storeEngine) messageShardFilesLocked(key Key) ([]string, error) {
 // 层面的不一致，只能报告不能发布）。
 func (store *storeEngine) pendingTailLocked(key Key, head messageHead) ([]Event, []string, bool, error) {
 	dir := store.messageDir(key)
-	indexed := make(map[string]bool, len(head.Shards))
+	indexed := make(map[string]shardInfo, len(head.Shards))
 	for _, shard := range head.Shards {
-		indexed[filepath.Clean(shard.Path)] = true
+		indexed[filepath.Clean(shard.Path)] = shard
 	}
 	names, err := store.messageShardFilesLocked(key)
 	if err != nil {
@@ -110,13 +110,22 @@ func (store *storeEngine) pendingTailLocked(key Key, head messageHead) ([]Event,
 	seen := make(map[uint64]bool)
 	duplicate := false
 	for _, name := range names {
-		fileRows, err := readMessageRowsFileAt(filepath.Join(dir, name))
-		if err != nil {
-			return nil, nil, false, err
-		}
-		if !indexed[filepath.Clean(name)] {
+		path := filepath.Join(dir, name)
+		shard, isIndexed := indexed[filepath.Clean(name)]
+		var fileRows []Event
+		if !isIndexed {
 			// head 未索引的分片文件：整个文件都是草稿（分片滚动后崩溃）。
 			extra = append(extra, name)
+			fileRows, err = readMessageRowsFileAt(path)
+		} else if shard.Bytes > 0 && fileSize(path) > shard.Bytes {
+			// 已发布前缀的字节数可信：只读发布点之后的新后缀。
+			fileRows, err = readMessageRowsFileAtOffset(path, shard.Bytes)
+		} else if shard.Bytes == 0 {
+			// 老 head 没有字节水位，只能回退整片读取。
+			fileRows, err = readMessageRowsFileAt(path)
+		}
+		if err != nil {
+			return nil, nil, false, err
 		}
 		for _, row := range fileRows {
 			if row.Seq <= head.LastSeq {
@@ -240,9 +249,17 @@ func (store *storeEngine) appendDraftRowsLocked(key Key, commitID string, rows [
 	if err != nil {
 		return nil, err
 	}
-	base, err := store.draftBaseSeqLocked(key, head)
-	if err != nil {
-		return nil, err
+	locks := store.locks(key)
+	base := head.LastSeq
+	trusted := store.trustedTailFor(key, head)
+	if cached := locks.draftTail.Load(); cached != nil && cached.ToSeq >= head.LastSeq {
+		base = cached.ToSeq
+		trusted = cached
+	} else if trusted == nil {
+		base, err = store.draftBaseSeqLocked(key, head)
+		if err != nil {
+			return nil, err
+		}
 	}
 	delta, err := assignRowSeqs(rows, base, commitID)
 	if err != nil {
@@ -251,8 +268,13 @@ func (store *storeEngine) appendDraftRowsLocked(key Key, commitID string, rows [
 	if len(delta) == 0 {
 		return []Event{}, nil
 	}
-	if _, err := store.writeShardRowsLocked(key, delta, nil); err != nil {
+	written, err := store.writeShardRowsLocked(key, delta, trusted)
+	if err != nil {
 		return nil, err
+	}
+	if len(written) > 0 {
+		last := written[len(written)-1]
+		locks.draftTail.Store(&last)
 	}
 	return delta, nil
 }
@@ -364,6 +386,7 @@ func (store *storeEngine) publishPendingTailLocked(key Key, head messageHead, ro
 	if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
 		return err
 	}
+	store.locks(key).draftTail.Store(nil)
 	store.rememberMessageAnchor(key, head)
 	return nil
 }
@@ -403,6 +426,16 @@ func (repository *jsonRepository) pendingTailWorkspace(key Key) (PendingTailRepo
 		return PendingTailReport{}, true, err
 	}
 	return report, true, nil
+}
+
+// appendDraftRowsWorkspace 追加运行期草稿后缀，但不推进 message head。
+// 调用方只传内存 transcript 中尚未快照的 `(left,right]` 行。
+func (repository *jsonRepository) appendDraftRowsWorkspace(key Key, rows []Event) ([]Event, bool, error) {
+	if !repository.active(key) {
+		return []Event{}, false, nil
+	}
+	assigned, err := repository.layout.appendDraftRows(key, "", rows)
+	return assigned, true, err
 }
 
 func (repository *jsonRepository) recoverPendingTailWorkspace(key Key) (PendingTailReport, bool, error) {

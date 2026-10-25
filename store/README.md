@@ -25,6 +25,19 @@ into provider history. 会话存储只有**一种形态**（jsonl + json v8）�
 「调用 + 结果」两条，会让恢复后的长会话丢掉调用却留着结果、把同一次调用重复
 计入窗口，表现为「工具挤成一坨、助手正文掉队」。
 
+**冷加载紧凑读面（2026-10-24）**：最新 compact 帧的 `MessageToSeq` 是已折出
+前缀的右端点。`DerivedResumeRecordWorkspace` 只读取该指针之后的 message
+分片，并在 `conversation.total_messages` 带回完整序号规模；没有 compact 指针
+时仍完整派生。草稿尾部探测同样按 `head.Bytes` 只读末分片未索引后缀与 head
+之外的分片——已发布前缀只在正常全量读面出现一次，不再为“找尾部”重新解析。
+`session_cold_load_bench_test.go` 的 `parallel_reads_legacy` /
+`parallel_reads` 固定同现场 A/B 与 shard 解码次数。
+
+运行期 draft 周期快照使用同一 `(left,right]` 语义。`appendDraftRows` 的
+末分片索引缓存在会话短临界区状态中：首次快照用 head 的可信末分片，
+后续快照复用 `shardInfo`，不再反复解码整个 JSONL；普通提交、reap、LRU
+回收会清掉该指针。草稿行仍不推进 head，冷加载由 pending-tail 协议恢复。
+
 ## Unified partition and shard contract
 
 The JSON v8 backend partitions first by `project_id`, then isolates `session_id`,

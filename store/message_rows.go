@@ -499,6 +499,7 @@ func (store *storeEngine) readMessageHeadLocked(key Key) (messageHead, error) {
 //     行——append 后 head 替换前崩溃的恢复语义：head 不前进、行不可见，
 //     下次提交前清掉，避免与重试行重复）。
 func (store *storeEngine) reapUnpublishedLocked(key Key, head messageHead) error {
+	defer store.locks(key).draftTail.Store(nil)
 	dir := store.messageDir(key)
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -806,6 +807,13 @@ func (store *storeEngine) physicalLastShardLocked(key Key) (string, error) {
 }
 
 func readMessageRowsFileAt(path string) ([]Event, error) {
+	return readMessageRowsFileAtOffset(path, 0)
+}
+
+// readMessageRowsFileAtOffset 从 JSONL 分片的指定字节偏移读取到文件尾。
+// 调用方必须给出完整行边界（head.Bytes 是发布时记录的整片字节数）。偏移
+// 等于文件尾时直接返回空集，不触碰前缀内容。
+func readMessageRowsFileAtOffset(path string, offset int64) ([]Event, error) {
 	// 只读 + FILE_SHARE_DELETE：读者不再挡淘汰删除（LRU/reap/压缩重写），自己也不
 	// 会在删除窗口里 open 失败；O_RDWR 是历史形状，本函数只读。
 	file, err := storeroot.OpenSharedRead(path)
@@ -816,6 +824,23 @@ func readMessageRowsFileAt(path string) ([]Event, error) {
 		return nil, err
 	}
 	defer file.Close()
+	if offset > 0 {
+		stat, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if offset >= stat.Size() {
+			return []Event{}, nil
+		}
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, err
+		}
+		return decodeMessageRows(data), nil
+	}
 	return readMessageRowsFile(file)
 }
 

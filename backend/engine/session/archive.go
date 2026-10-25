@@ -447,6 +447,36 @@ func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (mo
 	return record, true, nil
 }
 
+// LoadSessionResumeRecord 是冷加载的 record 读面：存储支持 compact 指针时
+// 只返回指针后的后缀并带回完整总数；未装配该能力时回退完整 record。
+func (c *Coordinator) LoadSessionResumeRecord(location Location, sessionID string) (model.SessionRecord, int, bool, error) {
+	if sessionStore, ok := c.Core.Deps.Sessions.(SessionResumeRecordPort); ok {
+		record, total, hasRecord, err := sessionStore.LoadSessionResumeRecordWorkspace(location.WorkspaceID, sessionID)
+		if err != nil {
+			return record, total, false, err
+		}
+		if hasRecord {
+			if record.Version == 2 && record.ID == sessionID {
+				record.Version = SessionRecordVersion
+			}
+			if record.Version != SessionRecordVersion || record.ID != sessionID {
+				return model.SessionRecord{}, 0, false, nil
+			}
+			if total < len(record.Conversation.Messages) {
+				total = len(record.Conversation.Messages)
+			}
+			return record, total, true, nil
+		}
+	}
+	record, hasRecord, err := c.LoadSessionRecord(location, sessionID)
+	if !hasRecord || err != nil {
+		return record, 0, hasRecord, err
+	}
+	// 回退路径的 record 是完整可见集合，应用侧会按自身内部行判据计算总数；
+	// 这里不返回原始条数，避免把内部标记行算进 TotalMessages。
+	return record, 0, true, nil
+}
+
 // MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
 // record 状态通道，不动 history/transcript/tool-results/context 其余四片；
 // 目录分格枚举过滤归档行后，会话从常规列表隐藏，仍可按 ID 冷读/重开

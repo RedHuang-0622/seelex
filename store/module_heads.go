@@ -162,6 +162,9 @@ type sessionModuleLocks struct {
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
 	// metadata/message.json）。
 	anchor atomic.Pointer[messageAnchorPoint]
+	// draftTail 是周期草稿快照的末分片指针。它只缓存索引已核对的
+	// shardInfo，使连续 `(left,right]` 快照不需要反复解码同一分片。
+	draftTail atomic.Pointer[shardInfo]
 }
 
 // readSelfHealHook 是自愈读的测试钩子：head 首次校验失败后、重读前被

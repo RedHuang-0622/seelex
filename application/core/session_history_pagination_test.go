@@ -45,12 +45,13 @@ func withHistoryWindow(window int) func() {
 // 「内存窗口领先磁盘」的在飞回合。
 type pagedSessionStore struct {
 	fakeSessions
-	mu        sync.Mutex
-	sessionID string
-	title     string
-	messages  []model.Message
-	published int
-	rangeRead int
+	mu          sync.Mutex
+	sessionID   string
+	title       string
+	messages    []model.Message
+	published   int
+	rangeRead   int
+	historyRead int
 }
 
 func newPagedSessionStore(sessionID string, count int) *pagedSessionStore {
@@ -91,6 +92,9 @@ func (store *pagedSessionStore) LoadHistory(sessionID string) ([]contract.Engine
 }
 
 func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
+	store.mu.Lock()
+	store.historyRead++
+	store.mu.Unlock()
 	history, err := store.LoadHistory(sessionID)
 	if err != nil {
 		return nil, 0, err
@@ -185,6 +189,12 @@ func (store *pagedSessionStore) rangeReads() int {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	return store.rangeRead
+}
+
+func (store *pagedSessionStore) historyReads() int {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.historyRead
 }
 
 func sliceWindow[T any](items *[]T, offset, limit int) []T {
@@ -428,5 +438,20 @@ func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T) {
 	if snapshot.HistoryOffset+len(visibleContents(snapshot)) >= snapshot.TotalMessages {
 		t.Fatalf("窗口未贴尾时前端需要能判断下方还有新内容：offset=%d visible=%d total=%d",
 			snapshot.HistoryOffset, len(visibleContents(snapshot)), snapshot.TotalMessages)
+	}
+}
+
+// TestColdLoadRecordDoesNotReadProviderHistory 钉住 v8 冷加载的重复读边界：
+// record 已由 message 事实源派生时，provider history 不再是正文来源，恢复不得
+// 为了探测总数再全量构造一遍同一条会话。
+func TestColdLoadRecordDoesNotReadProviderHistory(t *testing.T) {
+	store := newPagedSessionStore("record-cold-load", 20)
+	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
+
+	if err := service.ResumeSession("record-cold-load"); err != nil {
+		t.Fatalf("resume record session: %v", err)
+	}
+	if got := store.historyReads(); got != 0 {
+		t.Fatalf("record 冷加载读取 provider history %d 次，want 0（事实源不应重复构造）", got)
 	}
 }

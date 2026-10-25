@@ -269,6 +269,45 @@ func (repository *jsonRepository) derivedRecordPayload(key Key) ([]byte, error) 
 		return nil, err
 	}
 	messages := derivedConversationMessages(rows)
+	return repository.encodeDerivedRecord(key, meta, messages, len(messages))
+}
+
+// derivedResumeRecordPayload 从最新 compact 指针恢复冷加载所需的可见后缀。
+// compact 摘要代表指针之前的上下文，后缀由 message 行直接派生；没有 compact
+// 指针时仍是未压缩会话，只能回退完整派生。total 是“指针 + 后缀”的可见序号
+// 规模，用于保持历史偏移连续，不把已折出的前缀重新解码。
+func (repository *jsonRepository) derivedResumeRecordPayload(key Key) ([]byte, int, error) {
+	meta, ok := repository.sessionMeta(key)
+	if !ok {
+		return nil, 0, fs.ErrNotExist
+	}
+	compactHead, err := repository.layout.readCompactHead(key)
+	if err != nil {
+		return nil, 0, err
+	}
+	fromSeq := uint64(1)
+	if compactHead.LatestFrame != nil {
+		fromSeq = compactHead.LatestFrame.MessageToSeq + 1
+	}
+	rows, err := repository.layout.readRows(key, fromSeq, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	messages := derivedConversationMessages(rows)
+	total := len(messages)
+	if fromSeq > 1 {
+		total += int(fromSeq - 1)
+	}
+	payload, err := repository.encodeDerivedRecord(key, meta, messages, total)
+	return payload, total, err
+}
+
+func (repository *jsonRepository) encodeDerivedRecord(
+	key Key,
+	meta frameworkStorage.SessionMeta,
+	messages []ConversationMessage,
+	total int,
+) ([]byte, error) {
 	status := "idle"
 	if archivedAt, err := repository.layout.lifecycleArchivedAt(key); err == nil && !archivedAt.IsZero() {
 		status = "archived"
@@ -281,11 +320,15 @@ func (repository *jsonRepository) derivedRecordPayload(key Key) ([]byte, error) 
 		Status       string    `json:"status,omitempty"`
 		UpdatedAt    time.Time `json:"updated_at,omitempty"`
 		Conversation struct {
-			Messages  []ConversationMessage `json:"messages,omitempty"`
-			UpdatedAt time.Time             `json:"updated_at,omitempty"`
+			Messages      []ConversationMessage `json:"messages,omitempty"`
+			TotalMessages int                   `json:"total_messages,omitempty"`
+			UpdatedAt     time.Time             `json:"updated_at,omitempty"`
 		} `json:"conversation"`
 	}{Version: 3, ID: key.SessionID, Status: status, UpdatedAt: meta.UpdatedAt}
 	payload.Conversation.Messages = messages
+	if total != len(messages) {
+		payload.Conversation.TotalMessages = total
+	}
 	payload.Conversation.UpdatedAt = meta.UpdatedAt
 	return json.Marshal(payload)
 }

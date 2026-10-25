@@ -74,6 +74,7 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 // lRUDelete 删除 watermark 之前的连续前缀（用户确认后调用）。
 // upToSeq 含端点：删除 [watermark+1, upToSeq]。
 func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (retentionHead, error) {
+	defer store.locks(key).draftTail.Store(nil)
 	store.mu(key, moduleRetention).Lock()
 	defer store.mu(key, moduleRetention).Unlock()
 	threshold, alertBytes := store.retentionThresholds()

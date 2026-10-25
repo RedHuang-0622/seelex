@@ -1306,10 +1306,18 @@ func (c *Coordinator) _Transcript() []model.TranscriptEvent {
 func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return c._TranscriptFor(
+	events := c._TranscriptFor(
 
 		// PendingToolResults 返回活跃会话尚未随会话原子提交的工具结果。
 		sessionID)
+	// 周期快照在另一 goroutine 上读取 transcript；返回独立副本，调用方
+	// 不会与 stateMu 内的流式事件更新共享底层数组。
+	copied := make([]model.TranscriptEvent, len(events))
+	for index, event := range events {
+		copied[index] = event
+		copied[index].ToolCalls = append([]model.TranscriptToolCall(nil), event.ToolCalls...)
+	}
+	return copied
 }
 
 func (c *Coordinator) _TranscriptFor(sessionID string) []model.TranscriptEvent {

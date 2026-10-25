@@ -427,8 +427,11 @@ type SessionTitle struct {
 // projection. It is intentionally distinct from provider history, which is an
 // execution cache and may be compacted or replaced.
 type ConversationRecord struct {
-	Messages  []Message `json:"messages,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Messages []Message `json:"messages,omitempty"`
+	// TotalMessages 是持久会话的完整可见序号规模；Messages 可以是冷加载只
+	// 恢复的后缀窗口（compact 指针之后）。0 = 旧记录，调用方回退 len(Messages)。
+	TotalMessages int       `json:"total_messages,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at,omitempty"`
 }
 
 // SessionPlanFrame preserves one loaded Plan revision. ActivePlanID identifies

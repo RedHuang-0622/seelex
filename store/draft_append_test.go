@@ -1,9 +1,73 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
+
+// TestAppendMessageDraftWorkspaceKeepsPublishedPoint 覆盖运行期周期快照的
+// 存储接口：草稿后缀可恢复，但对已发布读者不可见。
+func TestAppendMessageDraftWorkspaceKeepsPublishedPoint(t *testing.T) {
+	router, err := NewRouter(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = router.Close() })
+	const projectID = "p-draft-snapshot"
+	const sessionID = "s-draft-snapshot"
+	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{Events: []Event{
+		messageRow(1, "u1", "user", EventKindUserInput, "question"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "answer"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	assigned, supported, err := router.AppendMessageDraftWorkspace(projectID, sessionID, []Event{
+		messageRow(3, "u2", "user", EventKindUserInput, "draft question"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "draft answer"),
+	})
+	if err != nil || !supported || len(assigned) != 2 {
+		t.Fatalf("append draft = %d/%v/%v, want 2/true/nil", len(assigned), supported, err)
+	}
+	published, total, err := router.LoadRangeWorkspace(projectID, sessionID, 0, 0)
+	if err != nil || total != 2 || len(published) != 0 {
+		t.Fatalf("published view = rows:%d total:%d err:%v, want 0/2/nil", len(published), total, err)
+	}
+	report, supported, err := router.PendingMessageTailWorkspace(projectID, sessionID)
+	if err != nil || !supported || report.Status != PendingTailRecoverable ||
+		report.TailFrom != 3 || report.TailTo != 4 || report.RowCount() != 2 {
+		t.Fatalf("pending report = %+v supported=%v err=%v", report, supported, err)
+	}
+}
+
+// TestDraftSnapshotReusesTailPointer 钉住周期快照的双指针写侧：
+// 连续追加 `(left,right]` 时，已核对的末分片索引可直接续写，
+// 不再为每一次快照解码整片 JSONL。
+func TestDraftSnapshotReusesTailPointer(t *testing.T) {
+	store, key := messageFixture(t, 100)
+	if _, err := store.messageCommit(key, "published", roundRows(50)); err != nil {
+		t.Fatal(err)
+	}
+	var decodes atomic.Int64
+	shardDecodeHook = func() { decodes.Add(1) }
+	t.Cleanup(func() { shardDecodeHook = nil })
+
+	for seq := uint64(51); seq <= 60; seq++ {
+		rows, err := store.appendDraftRows(key, "turn-draft", []Event{
+			messageRow(seq, fmt.Sprintf("draft-%d", seq), "assistant", EventKindLLM, "draft"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].Seq != seq {
+			t.Fatalf("draft append seq=%d rows=%+v", seq, rows)
+		}
+	}
+	if got := decodes.Load(); got != 0 {
+		t.Fatalf("连续 10 次草稿快照解码了 %d 个分片，want 0（复用末分片指针）", got)
+	}
+}
 
 // 逐步 append（A2）：message 通道的 seq 分配基准脱离发布点 + 写者草稿尾。
 //

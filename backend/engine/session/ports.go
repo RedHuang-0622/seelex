@@ -46,6 +46,12 @@ type SessionRecordPort interface {
 	SaveSessionRecordWorkspace(string, string, model.SessionRecord) error
 }
 
+// SessionResumeRecordPort 是冷加载专用可选能力：返回 compact 指针之后的
+// 可见后缀 record 与完整总数，避免为了恢复窗口再次解码整个事实源前缀。
+type SessionResumeRecordPort interface {
+	LoadSessionResumeRecordWorkspace(projectID, sessionID string) (model.SessionRecord, int, bool, error)
+}
+
 // SessionSnapshotPort 是会话原子快照写入面（可选能力断言：record +
 // transcript + tool-result 一次性提交）。
 type SessionSnapshotPort interface {

@@ -1,8 +1,10 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -374,6 +376,86 @@ func TestWireAssemblyBudgetStopsAtUnitBoundary(t *testing.T) {
 	if len(result.Messages) != 1 || result.Messages[0].Seq != 1 {
 		t.Fatalf("wire len=%d want 1 (完整单元边界)", len(result.Messages))
 	}
+}
+
+// TestResumeRecordUsesCompactPointerAndKeepsContextDigest 覆盖冷加载的压缩
+// 指针链路：只派生 compact 之后的后缀，同时重启前后 wire 的 SHA-256 前缀摘要
+// 必须逐字一致。这里不比较“压缩前全文”和“压缩后摘要+后缀”，而比较同一份
+// compact 事实在冷加载前后的装配结果。
+func TestResumeRecordUsesCompactPointerAndKeepsContextDigest(t *testing.T) {
+	root := t.TempDir()
+	repository, err := newJSONRepository(root, storeroot.Settings{MessageShardRows: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := Key{ProjectID: "p-resume-pointer", SessionID: "s-resume-pointer"}
+	rows := roundRows(1000)
+	for start := 0; start < len(rows); start += 100 {
+		end := min(start+100, len(rows))
+		if _, err := repository.layout.messageCommit(key, fmt.Sprintf("seed-%d", start), rows[start:end]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	frame := compactFrameRecord{
+		FrameID: "frame-1", MessageFrom: "msg1", MessageTo: "msg900",
+		MessageFromSeq: 1, MessageToSeq: 900,
+		Summary: "compacted context summary", BoundaryStatus: CompactBoundaryComplete,
+	}
+	if _, err := repository.layout.compactCommit(key, frame); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repository.layout.assembleWire(key, repository.attempts, wireParams{Budget: 200_000, K: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedDigest := assembleWireRows(&frame, rows[900:], nil, wireParams{Budget: 200_000, K: 3}).PrefixDigest
+
+	var decodes atomic.Int64
+	shardDecodeHook = func() { decodes.Add(1) }
+	t.Cleanup(func() { shardDecodeHook = nil })
+	payload, total, err := repository.derivedResumeRecordPayload(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1000 {
+		t.Fatalf("resume record total = %d, want 1000", total)
+	}
+	if got := decodes.Load(); got != 1 {
+		t.Fatalf("压缩指针恢复解码了 %d 个分片，want 1（只读 compact 后缀）", got)
+	}
+	var resumed struct {
+		Conversation struct {
+			Messages      []ConversationMessage `json:"messages"`
+			TotalMessages int                   `json:"total_messages"`
+		} `json:"conversation"`
+	}
+	if err := json.Unmarshal(payload, &resumed); err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Conversation.Messages) != 100 || resumed.Conversation.TotalMessages != 1000 {
+		t.Fatalf("resume suffix = %d/%d, want 100 messages with total 1000",
+			len(resumed.Conversation.Messages), resumed.Conversation.TotalMessages)
+	}
+	if err := repository.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := newJSONRepository(root, storeroot.Settings{MessageShardRows: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	after, err := reopened.layout.assembleWire(key, reopened.attempts, wireParams{Budget: 200_000, K: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.PrefixDigest == "" || before.PrefixDigest != after.PrefixDigest {
+		t.Fatalf("cold-load context digest changed: before=%s after=%s", before.PrefixDigest, after.PrefixDigest)
+	}
+	if expectedDigest != after.PrefixDigest {
+		t.Fatalf("digest does not match compact summary+suffix assembly: want=%s got=%s", expectedDigest, after.PrefixDigest)
+	}
+	t.Logf("context_sha256=%s (cold reopen and compact-pointer assembly identical)", after.PrefixDigest)
 }
 
 // TestWireAssemblyEventMissingNoEffect 对应 T-R2-10：删除 event.json 条目（短窗口

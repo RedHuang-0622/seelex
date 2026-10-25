@@ -6,6 +6,39 @@
 
 覆盖：`session*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
+## 冷加载紧凑读面（2026-10-24）
+
+冷加载把事实源看成“compact 指针 + 指针后的后缀”，不再把 provider history
+当作 v8 record 的重复来源：
+
+1. `recoverPendingMessageTailAtLoad` 只检查 `head.Bytes` 之后的末分片后缀与
+   head 未索引的分片，不重读已发布前缀。
+2. `LoadSessionResumeRecord` 从最新 compact 帧的 `MessageToSeq+1` 派生可见
+   后缀，并带回完整总数；没有 record 的旧格式会话才调用
+   `LoadHistoryTailWindow`。
+3. `AssembleWireHistoryWorkspace` 仍由 compact 摘要 + 后缀 + 最近 K 次尝试
+   生成同一份 provider 上下文。回归用例比较冷重启前后的
+   `PrefixDigest`（SHA-256），要求逐字一致。
+
+性能夹具：`store/session_cold_load_bench_test.go` 提供同现场
+`parallel_reads_legacy` / `parallel_reads` A/B；
+`session_recovery_bench_test.go` 对照应用层 hot/cold 恢复路径。
+冻结指针之前仍保留完整 record 回退，不改变旧会话可见性。
+
+## Draft 双指针周期快照（2026-10-24）
+
+长任务只维护两个内存序号：
+
+1. `left`：已经写入 message 草稿尾的最大 seq；
+2. `right`：当前 transcript 的最新 seq。
+
+每 5 秒尝试追加 `(left,right]`，成功后推进 `left`。短于一个周期的回合不做
+draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 transcript。回合
+收尾先停止快照循环，再由 `PersistCurrentSession` 按既有提交协议一次性发布。
+如果中途 checkpoint 已发布部分行，下一次草稿追加由存储层跳过已发布 seq；
+不会重复占号。快照失败保持左指针不变并在下个周期重试；能力未装配或回合取消
+时停止循环。回归见 `session_draft_snapshot_test.go`。
+
 ## 历史分页契约（2026-09-11 / 2026-09-25 / 2026-09-29）
 
 `LoadMoreHistory` / `LoadLatestHistory` 是 GUI 顶部 sentinel 与历史栏的应用

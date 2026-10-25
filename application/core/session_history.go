@@ -269,13 +269,13 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// 恢复出来的行才能进本次加载的可见会话（见 session_pending_tail.go）。
 	pendingTailNotice := service.recoverPendingMessageTailAtLoad(sessionID)
 	location := service.components.sessions.LocateSession(sessionID)
-	// 会话恢复三读（record/history/transcript）相互独立，并行加载：
-	// 大会话（数 MB）下全量解析总耗时从串行求和变为三路取最大值。
-	// history 路径为尾部窗口读：先 (0,0) 取总数（只读 manifest，不解析 shard），
-	// 再 (total-window, window) 只解析覆盖尾部窗口的 1-2 个 shard。
+	// v8 会话的 record 与 transcript 相互独立，并行加载。provider history 只是
+	// 旧格式缓存：record 命中时不再探测/读取它，否则会在同一次冷加载里把完整
+	// message 事实源再构造一遍。
 	var (
 		record        model.SessionRecord
 		hasRecord     bool
+		recordTotal   int
 		history       []contract.EngineMessage
 		historyTotal  int
 		historyErr    error
@@ -284,14 +284,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		recordErr     error
 	)
 	var loadGroup sync.WaitGroup
-	loadGroup.Add(3)
+	loadGroup.Add(2)
 	go func() {
 		defer loadGroup.Done()
-		record, hasRecord, recordErr = service.components.sessions.LoadSessionRecord(location, sessionID)
-	}()
-	go func() {
-		defer loadGroup.Done()
-		history, historyTotal, historyErr = service.components.sessions.LoadHistoryTailWindow(location)
+		record, recordTotal, hasRecord, recordErr = service.components.sessions.LoadSessionResumeRecord(location, sessionID)
 	}()
 	go func() {
 		defer loadGroup.Done()
@@ -302,6 +298,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	loadGroup.Wait()
 	if recordErr != nil {
 		return fmt.Errorf("load session record %q: %w", sessionID, recordErr)
+	}
+	if !hasRecord {
+		// 仅旧格式会话没有 record，provider history 仍是其唯一可见正文来源。
+		history, historyTotal, historyErr = service.components.sessions.LoadHistoryTailWindow(location)
 	}
 	if historyErr != nil && !hasRecord {
 		return fmt.Errorf("load session %q: %w", sessionID, historyErr)
@@ -381,6 +381,9 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	total := historyTotal // 尾部窗口读返回的真实总数（无 record 的旧格式会话）
 	if hasRecord {
 		total = len(service.components.sessions.RecordConversation(record))
+		if recordTotal > total {
+			total = recordTotal
+		}
 	}
 	offset := total - Limits().HistoryWindow
 	if offset < 0 {
