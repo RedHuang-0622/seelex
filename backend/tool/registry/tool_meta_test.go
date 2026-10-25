@@ -22,7 +22,7 @@ func TestDeclaredToolMetaFollowsRouteTable(t *testing.T) {
 		{"read_file", frameworktools.ToolKindRead, policy.GroupRO},
 		{"grep_search", frameworktools.ToolKindRead, policy.GroupRO},
 		{"write_file", frameworktools.ToolKindWrite, policy.GroupRW},
-		{"bash", frameworktools.ToolKindWrite, policy.GroupRW},
+		{"bash", frameworktools.ToolKindWrite, policy.GroupBash},
 		{"compact_context", frameworktools.ToolKindWrite, policy.GroupRWSession},
 		{"computer_click", frameworktools.ToolKindWrite, policy.GroupRWDesktop},
 		{"task_complete", frameworktools.ToolKindControl, policy.GroupCTL},

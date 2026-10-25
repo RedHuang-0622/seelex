@@ -192,7 +192,7 @@ func fourLayerFixture() dto.RoleSettingsLayers {
 			PermissionVector: []string{dto.PermissionTagRW, dto.PermissionTagCTL},
 		},
 		GlobalDefault: dto.RoleSettings{
-			PermissionVector: []string{dto.PermissionTagADM},
+			PermissionVector: []string{dto.PermissionTagBash},
 		},
 	}
 }
@@ -214,7 +214,7 @@ func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T) {
 	}
 	// 未登记的角色走链路：向量按五级优先级合成，标量字段取首个非零层。
 	coworker := restored["coworker"]
-	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagADM}); !reflect.DeepEqual(coworker.PermissionVector, want) {
+	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagBash}); !reflect.DeepEqual(coworker.PermissionVector, want) {
 		t.Fatalf("coworker 向量 = %v, want %v", coworker.PermissionVector, want)
 	}
 	if coworker.Account != "worker-a" || coworker.DefaultPlugin != "review" {
@@ -267,7 +267,7 @@ func TestRolePermissionVectorSingleRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RolePermissionVector: %v", err)
 	}
-	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagADM}); !reflect.DeepEqual(vector, want) {
+	if want := ([]string{dto.PermissionTagRO, dto.PermissionTagCTL, dto.PermissionTagBash}); !reflect.DeepEqual(vector, want) {
 		t.Fatalf("向量 = %v, want %v（与整会话恢复同一判据）", vector, want)
 	}
 
@@ -279,7 +279,7 @@ func TestRolePermissionVectorSingleRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RolePermissionVector: %v", err)
 	}
-	if want := ([]string{dto.PermissionTagRW, "!" + dto.PermissionTagADM}); !reflect.DeepEqual(vector, want) {
+	if want := ([]string{dto.PermissionTagRW, "!" + dto.PermissionTagBash}); !reflect.DeepEqual(vector, want) {
 		t.Fatalf("写入后向量 = %v, want %v（写入侧已规整去重）", vector, want)
 	}
 }

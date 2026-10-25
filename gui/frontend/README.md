@@ -84,7 +84,7 @@ flowchart TB
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管；文件预览已落地）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/knob-slider.js` | composer 运行参数拉条的**唯一**滑杆实现（拖动只预览 / 松手提交一次 / pending 守护 / 采纳后端返回的生效值 / 失败回滚到权威值 / 快照覆盖 / 运行中上锁）；三条差异只由停位表与 `data-*` 参数表达。 |
-| `dist/composer-knobs.js` | composer 两条**独立**运行参数拉条的停位表与装配：推理强度（`low/medium/high/max` 四档）与循环次数（`1..9999`，步长恒为 1）；各改一项，互不影响。 |
+| `dist/composer-knobs.js` | composer 两条**独立**运行参数拉条的停位表与装配：推理强度（`low/medium/high/max` 四档）与循环次数（`1..9999`，步长恒为 1）；各改一项，互不影响。权限面板的 `Bash` 是 shell 执行权限，与这两个运行参数无关。 |
 | `dist/release-window.js` | **会话驻留窗口**的取值面（设置弹窗「会话驻留」段）：`1..16` 的选项表 + 文案 + `normalizeReleaseWindow`（把不可信读数判成 `null`——区分"后端说了个数"与"这格没有权威读数"，不兜底成默认值）。边界与后端 `backend/limit` 的 `SessionReleaseWindowMin/Max` 同值，由 `settings-release-window.test.mjs` 逐值对账；DOM 与 `Bridge.SessionReleaseWindow` / `SetSessionReleaseWindow` 接线在 `app.js`。 |
 | `dist/account-admin.js` | **角色下账户**的判据层（纯函数，DOM/`Bridge` 接线在 `app.js`）：`accountDraftFromForm`（新增草稿；必填缺一不提交，可选字段留空即不发送）、`formatBalanceInfo`/`balanceReadingText`（余额读数 → 文案；「不可用」与「查不到」分开）。完整增改表单在二级弹窗 `#account-add-modal`，删除有独立确认弹窗；详情走 `AccountDetails`，更新走 `AccountUpdate`（API Key 留空保留原密钥），删除走 `DeleteAccount`。快照只携带 `api_key_set`，密钥明文不进入前端。 |
 | `dist/role-permission-board.js` | **Agent role 权限板**的纯渲染面：固定 goalplan / mainagent / subagent / teammate 四卡、可折叠详情、候选/确认双栏权限 chip、subagent/teammate 继承 chip、角色下账户/余额与增删改查入口。同一渲染件按作用域复用于“设置里的角色默认”和“会话里的本会话覆盖”；继承开启时只锁角色默认。上下文窗口嵌在具体账户条目里，因为它属于模型而不是角色。 |

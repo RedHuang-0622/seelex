@@ -31,12 +31,12 @@
 | `rw_session` | 写簇：本会话可变 transcript | `session` | 已实现 |
 | `rw_desktop` | 写簇：共享外设（一块桌面） | `computeruse` | 已实现 |
 | `ctl` | 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构 | `control` | 已实现 |
-| `adm` | 属主簇：改变能力面本身 | `admin` | 已实现 |
+| `bash` | 命令执行簇：`bash` / `bash_bg` / `bg_manage` | `Bash` | 已实现 |
 | `ssh` | 允许把工具调用打到远端执行面（独立于操作类型）；远程路径白名单属于该能力 | `ssh` | 已实现 |
 
 纪律：
 
-1. **规范名进存储，UI 别名只出不进**。别名是展示层的那一个词（`read/write/session/computeruse/control/admin/ssh`），前端渲染用；任何写入路径只接受规范名。别名表与规范表一对一，放在同一处，不散落。旧 `ssh.userspace` 只作为读取兼容别名，写入归一到 `ssh`。
+1. **规范名进存储，UI 别名只出不进**。别名是展示层的那一个词（`read/write/session/computeruse/control/bash/ssh`），前端渲染用；任何写入路径只接受规范名。别名表与规范表一对一，放在同一处，不散落。旧 `admin` / `ssh.userspace` 只作为读取兼容别名，写入分别归一到 `bash` / `ssh`。
 2. **未知标签必须报错，不许当 0 位**。既有判据已把这条写死在 `contract/dto/permission.go` 的 `ValidPermissionGroup` / `NormalizePermissionGroups`（注释里给了理由：一个拼写错误在运行时等价于"这一格没分配"，且没有报错面）。登记侧复用同一处校验，不另写一份白名单。
 3. **授予 = (Effect, Bits)**。`Bits` 为 0 时用该类型的既有 `Mode`（与矩阵的 `Grant` 同形）。
 4. **`0` 位 ≠ 未出现**。显式写 `{"rw": 0}` 是"这一族明确收回"，与"这一层没说话"是两件事——`NormalizePermissionGroups` 的注释已经把这条钉死，§3 的逐标签优先完全依赖它。

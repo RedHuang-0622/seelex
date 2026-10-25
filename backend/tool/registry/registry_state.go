@@ -543,9 +543,9 @@ func policyArgsFor(name, argsJSON string) string {
 // gate 组装框架判定器：checker 与审批处理器在调用瞬间快照，因此 Set 重建
 // checker 不会让在途调用落在旧表或 nil 上。
 //
-// checker 的选择是"主体类 + 会话档位"的函数：root 按本会话档位选规则表
-// （permission_tiers.go 的 ApplyTier 覆盖），sub/员工一律用 base 表。这让档位
-// 只改主 agent 的"问不问"，不改任何主体的"有没有位"。
+// checker 的选择是"主体类 + 会话档位向量"的函数：root 按本会话 TierVector /
+// TierCells 展开组位，sub/员工一律用 base 表。这让档位只改主 agent 的公开能力
+// 授予面，不改任何主体的"有没有位"。
 //
 // DenyWithoutPrompt：seelex 的 deny 是用户显式配置的拒绝，维持"直接拒绝"的
 // 语义（返回可 errors.Is 归类的英文错误：策略拒绝 / 不在该 engine 的命名

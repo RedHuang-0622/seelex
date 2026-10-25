@@ -12,7 +12,7 @@ package policy
 //	主体（谁在调用）   root（主代理 / entry 节点 / goalplan 节点，uid 0）
 //	                   sub（子代理：plan kind:agent 节点 / fork_subagents 派生）
 //	                   emp_ro / emp_rw（员工：由 dto.RoleSpec.ToolsPolicy 决定）
-//	路由组（哪一族）   ro / rw / rw_session / rw_desktop / ctl / adm（按名字 glob 路由）
+//	路由组（哪一族）   ro / rw / rw_session / rw_desktop / ctl / adm / bash（按名字 glob 路由）
 //	位（rwx）          组给 mode，主体给 grant；位齐 → 组默认动作，位缺 → 不可路由
 //	动作              组默认 allow/ask；rules 做最细粒度覆盖（LMRW 最后匹配胜出）
 //
@@ -46,7 +46,7 @@ import (
 //	主体（谁在调用）   root（主代理 / entry 节点 / goalplan 节点，uid 0）
 //	                   sub（子代理：plan kind:agent 节点 / fork_subagents 派生）
 //	                   emp_ro / emp_rw（员工：由 dto.RoleSpec.ToolsPolicy 决定）
-//	路由组（哪一族）   ro / rw / rw_session / rw_desktop / ctl / adm（按名字 glob 路由）
+//	路由组（哪一族）   ro / rw / rw_session / rw_desktop / ctl / adm / bash（按名字 glob 路由）
 //	位（rwx）          组给 mode，主体给 grant；位齐 → 组默认动作，位缺 → 不可路由
 //	动作              组默认 allow/ask；rules 做最细粒度覆盖（LMRW 最后匹配胜出）
 //
@@ -91,6 +91,7 @@ const (
 	GroupRWDesktop = dto.PermissionGroupRWDesktop // 写簇：共享外设（一块桌面，子代理无位）
 	GroupCTL       = dto.PermissionGroupCTL       // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
 	GroupADM       = dto.PermissionGroupADM       // 属主簇：改变能力面本身（仅 root）
+	GroupBash      = dto.PermissionGroupBash      // 命令执行：bash / bash_bg / bg_manage
 	// GroupSSH 是**唯一的远端能力**：允许把调用打到会话固定环境对应的远端执行面。
 	// 远端根内/外由该能力下的路径白名单细分，不再拆成第二枚权限。
 	GroupSSH = dto.PermissionGroupSSH
@@ -150,9 +151,9 @@ const (
 
 // DefaultPermissionGroupList 是默认路由组表：按工具名 glob 路由，组带对象 mode 与默认动作。
 //
-// 路由是 LMRW（最后匹配胜出，与框架 routeLocked 同语义），因此组之间不重叠；
-// 语义判据见设计稿 §2.2：ro 不碰共享状态、rw 写项目/工作台、ctl 改循环控制流、
-// adm 改能力面本身。
+// 路由是 LMRW（最后匹配胜出，与框架 routeLocked 同语义），因此工具名只落入最终
+// 命中的组；语义判据见设计稿 §2.2：ro 不碰共享状态、rw 写项目/工作台、bash 执行
+// 命令、ctl 改循环控制流、adm 改能力面本身。adm 是内部组，不进入公开权限标签。
 func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 	return []toolspermission.PermissionGroup{
 		// ── SSH 远端能力（单组）────────────────────────────────────────────
@@ -188,7 +189,7 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
 				"search_history", "grep_search", "glob",
 				// read_batch 派发的是一批**只读**扇出作业（Kind=inline），不碰共享状态：
-				// 派发面免打断，取回/终止/销项走 bg_manage（rw 簇）。
+				// 派发面免打断，取回/终止/销项走 bg_manage（bash 簇）。
 				"read_batch",
 				"get_time", "web_search",
 				"todo_status", "todolist_status", "goal_status",
@@ -213,13 +214,10 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Resource: ResourceProject,
 			Default:  toolspermission.ActionAllow,
 			Match: []string{
-				"write_file", "edit_file", "bash",
-				// bash_bg / bg_manage 与 bash 同组：它们管的正是 bash 起的执行体。
-				// 放 CTL 会让 sub/员工断位，它们自己派发的后台作业就谁也取不回、杀不掉；
-				// 真正的门是 handler 里的"句柄必须属于本会话"。
-				"bash_bg", "bg_manage",
+				"write_file", "edit_file",
 				// jobs_manage 是 Seele jobs 的**通用管理工具**（observe/fetch/kill/done），
-				// 与 bash_bg/bg_manage 同组：它管的正是作业面的执行体（含 teammate 作业）。
+				// 也管理 teammate 等非 shell 作业，因此留在项目写簇；bash_bg / bg_manage
+				// 只管理本会话 shell 执行体，归独立的 bash 簇。
 				"jobs_manage",
 				"todo_init", "todo_add", "todo_done",
 				"todolist_init", "todolist_add", "todolist_done",
@@ -272,6 +270,12 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"plugins_reload", "mcp_create", "mcp_load",
 			},
 		},
+		{
+			Name:    GroupBash,
+			Mode:    BitExecute,
+			Default: toolspermission.ActionAllow,
+			Match:   []string{"bash", "bash_bg", "bg_manage"},
+		},
 	}
 }
 
@@ -290,13 +294,15 @@ func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.Sub
 		GroupCTL:       {Bits: BitExecute},
 		GroupADM:       {Bits: BitAll},
 		GroupSSH:       {Bits: BitExecute},
+		GroupBash:      {Bits: BitExecute},
 	}}
 	sub := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:  {Bits: BitRead},
-		GroupRW:  {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
-		GroupCTL: {Bits: 0},
-		GroupADM: {Bits: 0},
-		GroupSSH: {Bits: BitExecute},
+		GroupRO:   {Bits: BitRead},
+		GroupRW:   {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
+		GroupCTL:  {Bits: 0},
+		GroupADM:  {Bits: 0},
+		GroupSSH:  {Bits: BitExecute},
+		GroupBash: {Bits: BitExecute},
 	}}
 	employeeRO := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
 		GroupRO:  {Bits: BitRead},
@@ -306,11 +312,12 @@ func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.Sub
 		GroupSSH: {Bits: BitExecute},
 	}}
 	employeeRW := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:  {Bits: BitRead},
-		GroupRW:  {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
-		GroupCTL: {Bits: 0},
-		GroupADM: {Bits: 0},
-		GroupSSH: {Bits: BitExecute},
+		GroupRO:   {Bits: BitRead},
+		GroupRW:   {Bits: BitRead | BitWrite, Resources: []string{ResourceProject}},
+		GroupCTL:  {Bits: 0},
+		GroupADM:  {Bits: 0},
+		GroupSSH:  {Bits: BitExecute},
+		GroupBash: {Bits: BitExecute},
 	}}
 	return map[toolspermission.Subject]toolspermission.SubjectGrant{
 		SubjectForClass(SubjectClassRoot):       root,

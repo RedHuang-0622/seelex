@@ -26,14 +26,12 @@ package policy
 // 分级（升序 = 自动度递增；id 是持久化键，不可改，语义由下面的预设表定义）：
 //
 //	manual  读 + 本会话工作台 + 控制流            项目写与命令仍提权
-//	edit    再加项目写（rw）                      命令与项目写免审批
-//	auto    同 edit（保留独立 id 以便持久化兼容）   —— 见下方 D-tier 说明
-//	full    全部八组                              含共享桌面、能力面与远端越界；仅危险命令硬拦
+//	edit    再加项目写（rw）                      文件写免审批，命令仍提权
+//	auto    再加命令执行（bash）                  命令免审批，危险命令仍硬拦
+//	full    全部七组公开能力                      含共享桌面；仅危险命令硬拦
 //
-// D-tier（待产品裁决，明写在这里免得当下一个人是 bug）：旧实现里 edit 与 auto 的
-// 差别是"剪不剪 bash 的 ask 规则"，而 bash 与 write_file 同属 rw 组 ⇒ 在**组级**
-// 向量下这两档给出同一族能力（rw），无法再分开。恢复区分需要新增独立的命令组
-// （例如 exec）或工具级词表——那是词表变更，不在本次改动内。
+// 2026-10-25 起命令执行从 rw 拆到独立 bash 组，edit 与 auto 因此恢复可表达的
+// 产品差异；内部 adm 路由组不进入公开档位向量。
 
 import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
@@ -60,10 +58,10 @@ var tierPresets = map[string]TierPreset{
 	// ——它在档位之前就一直可达（连项目 + 探针通即走远端），档位不该顺手收窄它。
 	dto.PermissionTierManual: {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupSSH}},
 	dto.PermissionTierEdit:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
-	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupSSH}},
+	dto.PermissionTierAuto:   {Groups: []string{GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupBash, GroupSSH}},
 	dto.PermissionTierFull: {
 		Groups: []string{
-			GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupADM, GroupSSH,
+			GroupRO, GroupRWSession, GroupCTL, GroupRW, GroupRWDesktop, GroupBash, GroupSSH,
 		},
 	},
 }

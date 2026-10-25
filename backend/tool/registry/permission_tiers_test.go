@@ -51,21 +51,22 @@ func TestTierDecisionMatrix(t *testing.T) {
 		{dto.PermissionTierManual, false, "read_file", toolspermission.ActionAllow, "manual 只读免审"},
 		{dto.PermissionTierManual, true, "rm -rf /", toolspermission.ActionDeny, "manual 危险命令拒绝"},
 
-		// edit：再授予 rw（项目写 + 命令同属 rw 组）。
+		// edit：再授予 rw（只含项目文件写，不连带命令执行）。
 		{dto.PermissionTierEdit, false, "write_file", toolspermission.ActionAllow, "edit 写文件免审"},
 		{dto.PermissionTierEdit, false, "edit_file", toolspermission.ActionAllow, "edit 编辑免审"},
+		{dto.PermissionTierEdit, true, "python x.py", toolspermission.ActionAsk, "edit 命令仍提权"},
 		{dto.PermissionTierEdit, false, "computer_click", toolspermission.ActionAsk, "edit 桌面仍提权"},
 		{dto.PermissionTierEdit, false, "mcp_load", toolspermission.ActionAsk, "edit 能力面仍提权"},
 		{dto.PermissionTierEdit, true, "rm -rf /", toolspermission.ActionDeny, "edit 危险命令仍拒绝"},
 
-		// auto：当前与 edit 同一份向量预设（命令与项目写同属 rw 组，见 D-tier 说明）。
+		// auto：在 edit 基础上再授予 bash。
 		{dto.PermissionTierAuto, false, "write_file", toolspermission.ActionAllow, "auto 写文件免审"},
 		{dto.PermissionTierAuto, true, "python x.py", toolspermission.ActionAllow, "auto 任意命令免审"},
 		{dto.PermissionTierAuto, true, "rm -rf /", toolspermission.ActionDeny, "auto 危险命令仍拒绝"},
 		{dto.PermissionTierAuto, true, "dd if=/dev/zero of=/dev/sda", toolspermission.ActionDeny, "auto dd 仍拒绝"},
 		{dto.PermissionTierAuto, false, "computer_click", toolspermission.ActionAsk, "auto 桌面仍提权"},
 
-		// full：全部六组，只剩"危险命令"这一道硬拦。
+		// full：全部公开能力，只剩"危险命令"这一道硬拦。
 		{dto.PermissionTierFull, false, "write_file", toolspermission.ActionAllow, "full 写文件免审"},
 		{dto.PermissionTierFull, false, "computer_click", toolspermission.ActionAllow, "full 桌面免审"},
 		{dto.PermissionTierFull, false, "mcp_load", toolspermission.ActionAllow, "full 能力面免审"},
@@ -104,7 +105,7 @@ func TestTierDecisionMatrix(t *testing.T) {
 
 // TestTierVectorPresetsMonotone 钉住预设的两条不变量：
 //   - 档位升序时授予的组**只增不减**（否则"切到更宽的档"会静默收回能力）；
-//   - 共享桌面（rw_desktop）与能力面（adm）只在 full 档的向量里（产品安全底线）；
+//   - 共享桌面（rw_desktop）只在 full 档的向量里；内部 adm 不进入公开向量；
 //   - 未识别 / 空档位按 manual（最窄）处理。
 func TestTierVectorPresetsMonotone(t *testing.T) {
 	order := []string{dto.PermissionTierManual, dto.PermissionTierEdit, dto.PermissionTierAuto, dto.PermissionTierFull}
@@ -113,8 +114,11 @@ func TestTierVectorPresetsMonotone(t *testing.T) {
 		current := make(map[string]bool, len(order))
 		for _, tag := range policy.TierVector(tier) {
 			current[tag] = true
-			if tier != dto.PermissionTierFull && (tag == policy.GroupRWDesktop || tag == policy.GroupADM) {
-				t.Fatalf("档位 %q 不该授予共享桌面/能力面（只有 full 才在向量里）", tier)
+			if tier != dto.PermissionTierFull && tag == policy.GroupRWDesktop {
+				t.Fatalf("档位 %q 不该授予共享桌面（只有 full 才在向量里）", tier)
+			}
+			if tag == policy.GroupADM {
+				t.Fatalf("档位 %q 不该把内部 adm 暴露为公开权限", tier)
 			}
 		}
 		for tag := range previous {

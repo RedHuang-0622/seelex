@@ -19,7 +19,12 @@ const (
 	PermissionGroupRWSession = "rw_session" // 写簇：本会话可变 transcript
 	PermissionGroupRWDesktop = "rw_desktop" // 写簇：共享外设（一块桌面）
 	PermissionGroupCTL       = "ctl"        // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
-	PermissionGroupADM       = "adm"        // 属主簇：改变能力面本身
+	// PermissionGroupADM 是内部路由组：承载改变能力面本身的工具（插件 / Skill /
+	// MCP 装载等）。它不是用户可勾选的权限标签；旧 admin / adm 读取时迁移为 bash。
+	PermissionGroupADM = "adm"
+	// PermissionGroupBash 是命令执行能力：bash / bash_bg / bg_manage。
+	// 它与文件写入分开，避免“能改文件”被误读成“能执行任意 shell”。
+	PermissionGroupBash = "bash"
 	// PermissionGroupSSH 是**通道能力**：允许把一次工具调用打到远端执行面。
 	//
 	// 它与操作类型正交（ro/rw 说的是"改不改共享状态"，这一格说的是"在哪台机器上改"），
@@ -42,7 +47,7 @@ const (
 func PermissionGroupNames() []string {
 	return []string{
 		PermissionGroupRO, PermissionGroupRW, PermissionGroupRWSession,
-		PermissionGroupRWDesktop, PermissionGroupCTL, PermissionGroupADM,
+		PermissionGroupRWDesktop, PermissionGroupCTL, PermissionGroupBash,
 		// SSH 是单一远端能力；远端根内/外由该能力下的路径白名单细分，不再拆成
 		// 第二枚权限。追加在末尾保持既有组序稳定。
 		PermissionGroupSSH,
@@ -99,10 +104,16 @@ func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error
 //
 // 2026-10-24 起 `ssh.userspace` 并入 `ssh`：权限只有一枚 SSH 钥匙，路径白名单
 // 只是该能力的装配细节。旧向量与旧权限表继续可读，写入侧统一落成 `ssh`。
+//
+// 2026-10-25 起用户侧 `admin` 改名为 `bash`：命令执行与文件写入分离。旧
+// `admin` / `adm` 继续可读，写入侧统一落成 `bash`；内部 adm 路由组仍承载能力面
+// 管理工具，但不进入公开权限标签表。
 func CanonicalPermissionGroup(group string) string {
 	switch strings.ToLower(strings.TrimSpace(group)) {
 	case "ssh.userspace":
 		return PermissionGroupSSH
+	case "admin", "adm":
+		return PermissionGroupBash
 	default:
 		return strings.ToLower(strings.TrimSpace(group))
 	}
@@ -119,7 +130,8 @@ func CanonicalPermissionGroup(group string) string {
 //   - 档位只作用在 root（主 agent）主体上；员工/子代理的授权面来自它们自己的
 //     权限向量（(会话, 角色) 的登记或五级链路），档位一字不改。
 //   - 档位是**会话粒度**（跟着 SessionUnit 的槽走，切会话即换档位）。
-//   - 共享桌面（rw_desktop）与能力面（adm）只有 full 档才在向量里（安全底线）。
+//   - 共享桌面（rw_desktop）只有 full 档才在向量里；内部 adm 路由组不属于
+//     公开权限向量。
 const (
 	PermissionTierManual = "manual" // 手动（默认）：完全按权责表问/放
 	PermissionTierEdit   = "edit"   // 自动改文件：write_file/edit_file 不再问人
@@ -141,13 +153,13 @@ type PermissionTierInfo struct {
 func PermissionTiers() []PermissionTierInfo {
 	return []PermissionTierInfo{
 		{ID: PermissionTierManual, Label: "手动", Short: "手动",
-			Description: "只读、本会话工作台与控制流免审；项目写、命令、桌面与能力面都提权（默认）"},
+			Description: "只读、本会话工作台与控制流免审；项目写、Bash、桌面与能力管理都提权（默认）"},
 		{ID: PermissionTierEdit, Label: "自动改文件", Short: "改文件",
-			Description: "再授予项目写（含命令）：文件写与任意命令免审批；桌面与能力面仍提权"},
+			Description: "再授予项目写：文件写免审批；Bash、桌面与能力管理仍提权"},
 		{ID: PermissionTierAuto, Label: "自动执行", Short: "自动",
-			Description: "当前与「自动改文件」同一份向量预设（命令与项目写同属 rw 组）；危险命令仍硬拦"},
+			Description: "在改文件基础上再授予 Bash：命令免审批；危险命令仍硬拦"},
 		{ID: PermissionTierFull, Label: "全权", Short: "全权",
-			Description: "授予全部能力面（含共享桌面与 adm）；仅危险命令被硬拦，只作用于主 agent"},
+			Description: "授予全部公开能力（含共享桌面）；Bash 仍受危险命令硬拦，只作用于主 agent"},
 	}
 }
 

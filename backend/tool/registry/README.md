@@ -36,10 +36,10 @@ flowchart LR
 flowchart TB
     CALL["一次工具调度"] --> CTX["从执行 ctx 取会话与主体<br/>SessionFromContext / WithEngine"]
     CTX --> CLASS{"主体类"}
-    CLASS -->|root<br/>主代理 / plan entry / goalplan| ROOT["读本会话档位表<br/>ApplyTier 剪掉若干 ask"]
+    CLASS -->|root<br/>主代理 / plan entry / goalplan| ROOT["读本会话档位向量<br/>TierVector / TierCells"]
     CLASS -->|sub<br/>节点子代理| BASE1["读 base 表（无 ctl / adm 位）"]
     CLASS -->|emp_ro / emp_rw<br/>角色员工| BASE2["读 base 表 + 角色权责"]
-    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm / ssh"]
+    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm / bash / ssh"]
     BASE1 --> GROUP
     BASE2 --> GROUP
     GROUP --> BITS{"该主体有位？"}
@@ -51,9 +51,9 @@ flowchart TB
     ACT -->|deny| BLOCK["硬拒（危险命令在任何档位都拦）"]
 ```
 
-**这一层的分工（2026-10-16 M2-C1/C4 后）**：图上"路由组表 / base 表 / 档位覆盖 /
+**这一层的分工（2026-10-16 M2-C1/C4 后）**：图上"路由组表 / base 表 / 档位向量 /
 工具簇属声明 / 壳类别"这些**判据**已归位 `backend/limit/policy`
-（`DefaultPermissionGroupList` / `DefaultPermissionSubjects` / `ApplyTier` /
+（`DefaultPermissionGroupList` / `DefaultPermissionSubjects` / `TierVector` /
 `DeclaredToolMeta` / `ShellKind`），本包只保留**执行门**（`PermissionGate` 的
 类解析、可见性、工具面、员工主体解析与缓存）与注册表；审批落
 `backend/limit/approval` 的 broker（本包只注入超时并消费）。判据改在 policy 改，
@@ -165,7 +165,7 @@ flowchart LR
   把这两条并成一条，要么后台命令被回执后的 ctx 杀掉，要么前台命令再也停不下来。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
-- `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`backend/limit/policy/tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
+- `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位向量"选 checker——root 读本会话 `TierVector` / `TierCells`，`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
 - `computer/`（子包）：桌面 computer use 原语 + Seelex 侧工具族（`computer_*`）；
   工具面只依赖注入闭包（注册面/媒体分区/随图队列），原语平台无关桩保持跨平台
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的

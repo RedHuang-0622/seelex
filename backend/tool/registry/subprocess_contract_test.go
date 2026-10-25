@@ -82,12 +82,13 @@ func TestJobContractToolFaceRoutingTable(t *testing.T) {
 		{"glob", policy.GroupRO, "只读列举"},
 		// bash 工具族（打点 K-3）：只读面免打断，后台面与串行面同组。
 		{"read_batch", policy.GroupRO, "只读扇出作业（Kind=inline），不碰共享状态"},
-		// 写簇：跟 bash 同组，sub/员工才能取回/杀掉自己派发的后台作业。
+		// 文件写簇：与 shell 执行能力分开。
 		{"write_file", policy.GroupRW, "写项目文件"},
 		{"edit_file", policy.GroupRW, "改项目文件"},
-		{"bash", policy.GroupRW, "同步串行命令：保守归类为写"},
-		{"bash_bg", policy.GroupRW, "后台受管：实现 §A.1 的 Add，回执不是结果"},
-		{"bg_manage", policy.GroupRW, "取回/终止/销项管的正是 bash 起的执行体"},
+		// 命令执行簇：bash 及后台作业共同受 bash 权限约束。
+		{"bash", policy.GroupBash, "同步串行命令"},
+		{"bash_bg", policy.GroupBash, "后台受管：实现 §A.1 的 Add，回执不是结果"},
+		{"bg_manage", policy.GroupBash, "取回/终止/销项管的正是 bash 起的执行体"},
 		// 循环控制流 / 能力面。
 		{"task_complete", policy.GroupCTL, "结束 loop"},
 		{"fork_subagents", policy.GroupCTL, "派生执行结构"},

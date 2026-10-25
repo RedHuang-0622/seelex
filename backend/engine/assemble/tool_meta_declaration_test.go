@@ -31,7 +31,7 @@ func TestBuiltinToolsDeclareGroupsAndMetas(t *testing.T) {
 		group string
 	}{
 		{"read_file", "ro"},
-		{"bash", "rw"},
+		{"bash", "bash"},
 		{"todo_init", "rw"},
 		{"fork_subagents", "ctl"},
 	}

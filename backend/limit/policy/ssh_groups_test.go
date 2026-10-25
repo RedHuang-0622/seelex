@@ -43,6 +43,9 @@ func TestSSHVectorTagAndLegacyAliasMapToOneCapability(t *testing.T) {
 	if got := dto.CanonicalPermissionGroup("ssh.userspace"); got != dto.PermissionGroupSSH {
 		t.Fatalf("legacy alias = %q", got)
 	}
+	if got := dto.CanonicalPermissionGroup("admin"); got != dto.PermissionGroupBash {
+		t.Fatalf("旧 admin 权限应迁移为 bash，得到 %q", got)
+	}
 }
 
 func TestSSHIsAvailableAcrossTierPresets(t *testing.T) {

@@ -36,6 +36,7 @@ func TestGroupTableShape(t *testing.T) {
 		// 在授权表里 ctl 位 = 0，所以它们仍然进不来）——这是迁移前的既有口径。
 		{GroupCTL, BitExecute, toolspermission.ActionAllow, "task_complete"},
 		{GroupADM, BitAll, toolspermission.ActionAsk, "switch_plugin"},
+		{GroupBash, BitExecute, toolspermission.ActionAllow, "bash"},
 	}
 	groups := DefaultPermissionGroupList()
 	if len(groups) != len(cases) {
@@ -59,7 +60,7 @@ func TestGroupTableShape(t *testing.T) {
 }
 
 // TestDenyRulesFormTrailingBlock 钉住"危险命令 deny 在最末"这条顺序判据：
-// 它在 ApplyTier 与框架的 LMRW 路由下都是硬拦的最后一层，因此 deny 必须构成
+// 它在 TierVector 与框架的 LMRW 路由下都是硬拦的最后一层，因此 deny 必须构成
 // **尾部连续块**——中间夹一条 deny 会让它被后面的 ask/allow 覆盖掉。
 func TestDenyRulesComeLast(t *testing.T) {
 	rules := DefaultPermissionRules()

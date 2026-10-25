@@ -1,7 +1,8 @@
 # 权限装配：用户组 × 权限类型（矩阵，不是阶梯）
 
 > 状态：**产品已实现角色权限向量；本文记录矩阵模型与落地边界**。2026-10-24 起 SSH 只有
-> 一枚能力，路径白名单不再作为独立权限。早期孤立 MVP 保留在
+> 一枚能力，路径白名单不再作为独立权限；2026-10-25 起命令执行从 `rw` 拆为公开的
+> `bash` 能力，旧 `admin` / `adm` 读取时迁移为 `bash`。早期孤立 MVP 保留在
 > [`../2026-10-23-permission-assembly-mvp/`](../2026-10-23-permission-assembly-mvp/) 作为历史记录。
 > 日期：2026-10-23
 > 关联：[`ssh-tool-transport.md`](ssh-tool-transport.md)（环境路由与传输策略）、[`ssh-tool.md`](ssh-tool.md)（连接基座）
@@ -11,9 +12,10 @@
 | 事实 | 出处 |
 | --- | --- |
 | 主体 4 类：`root` / `sub` / `emp_ro` / `emp_rw` | `backend/limit/policy/policy.go:69-80` |
-| 路由组 7 个：`ro` `rw` `rw_session` `rw_desktop` `ctl` `adm` `ssh`，每组带 `Mode`(所需位) + `Default`(allow/ask) + `Match`(工具名 glob) + `Resource` | `DefaultPermissionGroupList()`（同文件，唯一事实源） |
+| 内部路由组 8 个：`ro` `rw` `rw_session` `rw_desktop` `ctl` `adm` `bash` `ssh`，每组带 `Mode`(所需位) + `Default`(allow/ask) + `Match`(工具名 glob) + `Resource` | `DefaultPermissionGroupList()`（同文件，唯一事实源） |
+| 用户权限标签 7 个：`read` `write` `session` `computeruse` `control` `bash` `ssh`；`adm` 只承载内部能力管理，不是用户可选项 | `contract/dto`、`gui/frontend/dist/role-settings.js` |
 | 位 3 个：`BitRead` / `BitWrite` / `BitExecute` / `BitAll` | `policy.go:105-108`、`contract/dto/permission.go` |
-| **档位是全序阶梯**：`manual` → `edit` → `auto` → `full`；`ApplyTier` 只**删 ask 规则**，`full` 走 `BypassAll` 短路 | `backend/limit/policy/tiers.go` |
+| **档位是权限向量预设**：`manual` → `edit` → `auto` → `full`；`TierVector` / `TierCells` 决定授予哪些组，危险命令 `deny` 不受档位影响 | `backend/limit/policy/tiers.go` |
 | 工具簇属由路由组表**派生**（不另建表） | `backend/limit/policy/tool_meta.go` |
 | 判定在链上的位置：permission 中间件（第 3 层） | `backend/tool/registry/registry_state.go:38-44`、`:481` |
 
@@ -24,16 +26,17 @@
 ## 2. 新模型：矩阵
 
 ```
-             ro   rw   rw_session  rw_desktop  ctl  adm   ssh
-root         ✓    ✓      ✓           ✓         ✓    ✓     ✓
-sub          ✓    ✓      ✗           ✗         ✗    ✗     ✓
-emp_ro       ✓    ✗      ✗           ✗         ✗    ✗     ✓
-ci-robot     ✗    ✓      ✗           ✗         ✗    ✗     ✓   ← 自定义组：只给 write+ssh
-viewer       ✓    ✗      ✗           ✗         ✗    ✗     ✗
+             ro   rw   rw_session  rw_desktop  ctl  adm*  bash  ssh
+root         ✓    ✓      ✓           ✓         ✓    ✓     ✓     ✓
+sub          ✓    ✓      ✗           ✗         ✗    ✗     ✓     ✓
+emp_ro       ✓    ✗      ✗           ✗         ✗    ✗     ✗     ✓
+ci-robot     ✗    ✓      ✗           ✗         ✗    ✗     ✓     ✓   ← 自定义组：write+bash+ssh
+viewer       ✓    ✗      ✗           ✗         ✗    ✗     ✗     ✗
 ```
 
 - **行 = 用户组**（`GroupID`）：既有 4 个主体 + 自定义组；
-- **列 = 权限类型**（`PermType`）：既有 6 个路由组 + **`ssh`**；
+- **列 = 权限类型**（`PermType`）：公开的 7 枚用户标签；`adm*` 是内部路由组，
+  继续承载插件 / Skill / MCP 等能力管理工具，但不出现在角色权限候选栏；
 - **格 = 授予**（`Effect`: allow/ask/deny，可带位）：**任意格子独立配**，没有"必须包含前缀"的隐含规则；
 - **缺格 = deny**（默认拒绝，不再"先 ask 到底最后全接受"）。
 
@@ -45,7 +48,7 @@ viewer       ✓    ✗      ✗           ✗         ✗    ✗     ✗
 | --- | --- | --- |
 | `read_file` / `grep_search` / `glob` | `{ro}` | `{ro, ssh}` |
 | `write_file` / `edit_file` | `{rw}` | `{rw, ssh}` |
-| `bash` / `bg_manage` | `{rw}` | `{rw, ssh}` |
+| `bash` / `bash_bg` / `bg_manage` | `{bash}` | `{bash, ssh}` |
 | 任意远端工具 **且路径越出远端项目根** | — | `{…, ssh}` + 当前角色 SSH 路径白名单 |
 
 判定规则：
@@ -85,7 +88,7 @@ EffectivePermissions(group, env) = Assembly[group] ∩ EnvProfile[env]
 
 ```go
 // ── 词表（唯一事实仍在 dto 与 policy.go 的组表）─────────────────────
-type PermType string   // "ro" "rw" "rw_session" "rw_desktop" "ctl" "adm" "ssh"
+type PermType string   // "ro" "rw" "rw_session" "rw_desktop" "ctl" "adm" "bash" "ssh"
 type GroupID  string   // "root" "sub" "emp_ro" "emp_rw" + 自定义
 type Effect   string   // "allow" | "ask" | "deny"
 
@@ -130,25 +133,20 @@ func PermissionMiddleware(gate Gate, groupOf func(context.Context) GroupID) fram
 
 ## 4. 迁移与兼容
 
-老档位不删除，改成**矩阵预设**（preset），由 `ApplyTier` 翻译成 `Assembly`：
+老档位不删除，改成**权限向量预设**（preset），由 `TierVector` / `TierCells` 展开：
 
 | 老档位 | 预设形状 | 说明 |
 | --- | --- | --- |
-| `manual` | 按组表原样（`rw_desktop`/`ctl`/`adm` = ask） | 完全手动 |
-| `edit` | 同上，`rw` = allow | 写盘不再打断 |
-| `auto` | 同上，`bash` 的 ask 段也置 allow | 任意命令直跑，deny 仍硬拦 |
-| `full` | 全格 allow | 只在**显式**选择时生成；不再依赖 `BypassAll` 短路 |
+| `manual` | 按组表原样（`rw_desktop` 等 = ask） | 完全手动 |
+| `edit` | 加上 `rw` | 文件写入不再打断，命令仍问 |
+| `auto` | 再加上 `bash` | 任意命令直跑，deny 仍硬拦 |
+| `full` | 全公开格 allow | 只在**显式**选择时生成；不再依赖 `BypassAll` 短路 |
 
-### 4.1 MVP 实测出的迁移缺口（必须先解决）
+### 4.1 `edit` / `auto` 的区分已落地
 
-**矩阵比阶梯粗一档。** 老 `edit` 档删的是**按工具名**的 ask 规则（`write_file`/`edit_file` 不问，`bash` 仍问）；矩阵的格是**按类型**的（`rw` 整类一个效果）。实测结论：`PresetForTier("edit")` 在矩阵里与 `manual` 同形——那一步的区分**表达不出来**。
-
-两条修法：
-
-- **D-1（推荐）** 格子上加可选细化：`Grant{Tools []string}`，只对列出的工具生效，未列出 = 整类；
-- D-2 另留"工具级 ask 例外表"作为补丁层 —— 会多一个事实源，不推荐。
-
-在 D-1 落地前，迁移必须按"更严"落地：`edit` 档的预设**不低于** `manual`，宁可多问一次，不可少拦一次。
+2026-10-25 起 `bash` / `bash_bg` / `bg_manage` 从 `rw` 路由簇拆到独立 `bash`
+簇。`edit` 只授予文件写，`auto` 额外授予命令执行，两档不再共用同一份能力向量；
+也不再需要工具级 ask 例外表作为补丁。
 
 
 ## 5. 可表达但可疑的装配：只报警不否决
@@ -159,7 +157,6 @@ func PermissionMiddleware(gate Gate, groupOf func(context.Context) GroupID) fram
 | --- | --- |
 | 只有 `ssh`，无任何操作类型 | `assembly_ssh_only`：能连不能动 |
 | 有 `rw`，无 `ro` | `assembly_write_without_read`：能写不能读回校验 |
-| 有 `adm` 无 `ctl` | `assembly_admin_without_control`：改能力面却停不了循环 |
 
 lint 只进轨迹与设置页提示，**不改变 allow/deny**——否决"不合理但用户明确要的"装配，等于把系统自己的偏好塞进用户策略。
 

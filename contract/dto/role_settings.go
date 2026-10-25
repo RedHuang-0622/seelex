@@ -37,7 +37,7 @@ const (
 	PermissionTagRWSession = PermissionGroupRWSession // 写：本会话 transcript
 	PermissionTagRWDesktop = PermissionGroupRWDesktop // 写：共享桌面
 	PermissionTagCTL       = PermissionGroupCTL       // 控制：叫停 / 派生 / 装载
-	PermissionTagADM       = PermissionGroupADM       // 属主：改变能力面本身
+	PermissionTagBash      = PermissionGroupBash      // 命令执行：bash / bash_bg / bg_manage
 )
 
 // PermissionTagDenyPrefix 是"这一层明确不给该标签"的前缀。

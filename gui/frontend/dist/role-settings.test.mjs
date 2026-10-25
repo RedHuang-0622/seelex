@@ -26,14 +26,18 @@ import {
 
 const read = (name) => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 
-test("标签表就是那七项，id 即提交字面量", () => {
+test("标签表就是那六项，id 即提交字面量", () => {
   assert.deepEqual(
     PERMISSION_VECTOR_TAGS.map(tag => tag.id),
-    ["read", "write", "computeruse", "control", "admin", "ssh"],
+    ["read", "write", "computeruse", "control", "bash", "ssh"],
   );
   for (const tag of PERMISSION_VECTOR_TAGS) {
     assert.ok(tag.label && tag.tip, `${tag.id} 要有中文标签与一句说明`);
   }
+  const write = PERMISSION_VECTOR_TAGS.find(tag => tag.id === "write");
+  const bash = PERMISSION_VECTOR_TAGS.find(tag => tag.id === "bash");
+  assert.doesNotMatch(write.tip, /跑命令|执行命令/, "写权限不再隐式包含命令执行");
+  assert.match(bash.tip, /命令/, "Bash 权限要说明负责命令执行");
 });
 
 test("归一化：丢弃未知、去重、按声明顺序稳定", () => {
@@ -60,10 +64,9 @@ test("lint 与 permission-assembly §5 的四个 id 同名，只提示不拦截"
   assert.deepEqual(permissionVectorLint(["read"]), []);
   assert.deepEqual(permissionVectorLint(["ssh"]).map(w => w.id), ["assembly_ssh_only"]);
   assert.deepEqual(permissionVectorLint(["write"]).map(w => w.id), ["assembly_write_without_read"]);
-  assert.deepEqual(permissionVectorLint(["admin"]).map(w => w.id), ["assembly_admin_without_control"]);
   // 成组的合规选择不出提示（ssh + read 是最常见的一组）。
   assert.deepEqual(permissionVectorLint(["read", "write", "ssh"]), []);
-  for (const warning of permissionVectorLint(["ssh", "write", "admin"])) {
+  for (const warning of permissionVectorLint(["ssh", "write", "bash"])) {
     assert.ok(warning.message, "每条提示都要有一句人能读懂的话");
   }
 });
@@ -73,7 +76,7 @@ test("标签渲染：aria-pressed 跟着选择走，文本要转义", () => {
   assert.match(html, /data-perm-type="read"[^>]*aria-pressed="true"/);
   assert.match(html, /data-perm-type="write"[^>]*aria-pressed="false"/);
   assert.match(html, /data-perm-type="ssh"/);
-  // 七枚都在（不多不少）。
+  // 六枚都在（不多不少）。
   assert.equal((html.match(/data-perm-type=/g) || []).length, PERMISSION_VECTOR_TAGS.length);
   assert.doesNotMatch(renderPermissionVectorHTML(["nope"]), /data-perm-type="nope"/);
 });

@@ -64,6 +64,8 @@ func ToolKindForGroup(name string) frameworktools.ToolKind {
 		return frameworktools.ToolKindControl
 	case GroupADM:
 		return frameworktools.ToolKindAdmin
+	case GroupBash:
+		return frameworktools.ToolKindWrite
 	case GroupSSH:
 		// 按面判定的两组**不改变工具的操作类型归类**：ssh 说的是"在哪台机器上改"，
 		// 不是"改什么"。返回零值（= 不归类）是诚实的答案——框架对非 control 类不作

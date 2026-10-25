@@ -233,8 +233,8 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
    `PlanNodeEvent`，订阅者（Application）实时更新 Plan 状态与前端快照。
 6. `Shutdown` 关闭 MCP、账号池和后台资源。
 
-权限门始终保存一份 `manual` 基线表。主会话档位是**声明式覆盖**（`backend/limit/policy/tiers.go:ApplyTier`）：
-只剪掉若干 `ask` 规则，从不新增 allow、从不触碰危险 `deny`，因此 `rm -rf` 根目录、
+权限门始终保存一份 `manual` 基线表。主会话档位是**权限向量预设**（`backend/limit/policy/tiers.go:TierVector`）：
+向量授予对应组位，`deny` 不受档位影响，因此 `rm -rf` 根目录、
 `dd if=* of=*`、`mkfs*` 在任何档位下都保持硬拦。`Runtime.SetPermissionTierFor(sessionID, tier)`
 按会话切换 `manual` / `edit` / `auto` / `full`；`full` 档的执行门短路**只对 root 主体成立**
 （`class == root`），所以子代理与员工不会因为主会话切到 full 而被连带放行，它们仍走

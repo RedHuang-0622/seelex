@@ -3,7 +3,7 @@
 ## 生态位
 
 `policy` 是权限**判据**的**唯一落点**：谁在调用（主体类）、工具属于哪一族（路由组表）、
-每一族要哪些位与默认动作（规则表）、某档位要不要放开某一族（档位覆盖）、某个工具该声明
+每一族要哪些位与默认动作（规则表）、某档位授予哪些族（权限向量预设）、某个工具该声明
 什么簇属（声明路径）、以及"执行壳是什么类别"这份词表——这几件事上一共只有**一份**实现。
 
 它是 limit 板块里"表最多、状态最少"的一层：只有词表与纯函数，没有注册表、没有审批、
@@ -18,7 +18,7 @@
 
 ## 职责与非职责
 
-- 做：登记权责模型表（主体 × 路由组 × 位 × 动作）、按壳给规则表、按档位剪 ask 规则、
+- 做：登记权责模型表（主体 × 路由组 × 位 × 动作）、按壳给规则表、按档位展开权限向量、
   把节点作用域/工具策略映射成主体类、把工具名路由到路由组、派生工具簇属。
 - 不做：不持有任何运行期状态（角色会话的策略缓存、注册表、审批 broker、当前档位与
   配置快照都在 `backend/tool/registry` 与消费方）；不做权限**判定**（判定委托给上游
@@ -30,7 +30,7 @@
 | 文件 | 职责 |
 |---|---|
 | [`policy.go`](policy.go) | 主体类词表与位常量、路由组表、主体授权表、规则表（按壳折叠）、主体类映射、按名字路由、glob 匹配 |
-| [`tiers.go`](tiers.go) | 档位目录转发与档位覆盖实现（只剪 `ask`，`deny` 永不碰） |
+| [`tiers.go`](tiers.go) | 档位目录转发与向量预设（组位决定赋权；`deny` 规则永不碰） |
 | [`tool_meta.go`](tool_meta.go) | 工具簇属的声明路径（路由组表 → `Kind`/`Groups`/`Resource`），未命中不猜 |
 | [`shellkind.go`](shellkind.go) | 执行壳类别词表（`ShellKind` / `ShellBash` / `ShellPowerShell` / `ShellCmd`） |
 | [`policy_test.go`](policy_test.go) | 把表本体钉住：组名/位/默认动作/顺序、档位目录单一来源 |
@@ -38,7 +38,7 @@
 ## 核心实现
 
 ```text
-DefaultPermissionGroupList()      → 6 个路由组（LMRW：最后匹配胜出）
+DefaultPermissionGroupList()      → 8 个内部路由组（含内部 adm 与公开 bash；LMRW）
 DefaultPermissionSubjects()       → 主体 → 逐组位与 resource 限定
 DefaultPermissionRules()          → 规则表（写类 ask、bash 白名单 allow、危险命令 deny）
 PermissionRulesForShell(kind)     → 同一张表按**实际壳**折叠 bash 白名单那一层
@@ -53,7 +53,8 @@ RoutePermissionGroup(groups, name)→ 工具名 → 路由组（未命中 = 未�
 DeclaredToolMeta(name)            → 工具名 → 簇属声明（从路由组表派生，不新增第二张表）
 ToolKindForGroup(group)           → 组名 → 框架簇属类别
 DefaultPermissionTiers()          → 档位目录（唯一事实在 contract/dto）
-ApplyTier(base, tier)             → 档位覆盖：只删该档要放开的 ask 规则
+TierVector(tier)                   → 档位授予的公开权限组（edit 不含 bash，auto 含）
+TierCells(tier, groups)            → 档位向量展开成组位；缺组 = 断位
 ```
 
 搬迁口径（2026-10-16 M2-C4，来自 `seelebridge/tools`）：**判据正文逐字节未改**，
@@ -69,7 +70,7 @@ config/seelex.yaml 的 permission 段 ──┐
                                       ├─→ DefaultPermission* / PermissionRulesForShell
 执行壳解析结果（tools.ResolveShellFact）┘        │
                                                 ├─→ backend/tool/registry 的 PermissionGate
-档位（dto.PermissionTier*）──→ ApplyTier ────────┤   （判定仍委托框架 permission.Gate）
+档位（dto.PermissionTier*）──→ TierVector/TierCells ┤   （判定仍委托框架 permission.Gate）
                                                 │
 工具名 ──→ RoutePermissionGroup ──→ DeclaredToolMeta ──→ 注册表条目的簇属
 ```
@@ -98,14 +99,14 @@ config/seelex.yaml 的 permission 段 ──┐
 
 - 新增工具：改**路由组表**（`DefaultPermissionGroupList` 的 `Match`）即可——簇属声明
   与路由是同一张表派生的，不要另加"工具 → 组"的第二张表。
-- 新增档位：先在 `contract/dto` 登记目录（前端按它渲染），再在 `tierStopAskingTools`
-  决定剪哪些 ask；`deny` 一律不剪。
+- 新增档位：先在 `contract/dto` 登记目录（前端按它渲染），再在 `tierPresets`
+  定义授予组；`deny` 规则不受档位影响。
 - 新增执行壳：在 `shellkind.go` 加常量，并在 `bashAllowPatterns` 补方言槽。
 
 ## Review 指南
 
 - 最容易错的是"顺手多写一份表"：任何第二张"工具 → 组"或第二份档位目录都是缺陷。
-- `ApplyTier` 只允许**删 ask**；出现新增 allow 或触碰 deny 的改动一律退回。
+- 档位只通过 `TierVector` / `TierCells` 表达授予；另起一份规则剪裁表或触碰 deny 都是缺陷。
 - `ClassForNodeScope` 只按 `NodeID != "" && Role == dto.RoleSubAgent` 收窄，
   与工具可见性判定同源；改动它等于改子代理的授权面。
 - 位的 resource 限定（project/session/desktop）与组 `Mode` 必须一致：
@@ -122,7 +123,7 @@ go test ./backend/limit/policy/ ./backend/tool/registry/ ./backend/limit/... -co
 go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 ```
 
-判据层的消费侧用例在 `backend/tool/registry`（同包测试：权限主体、员工授权、档位覆盖、
+判据层的消费侧用例在 `backend/tool/registry`（同包测试：权限主体、员工授权、档位向量、
 工具簇属、壳方言白名单），它们经 `policy.*` 的导出面覆盖同一份判据。
 
 ## 文件与函数索引
@@ -155,8 +156,8 @@ go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 ### tiers.go
 
 - `func DefaultPermissionTiers() []dto.PermissionTierInfo` — DefaultPermissionTiers 返回档位目录（跨层词表的唯一事实在 dto）。
-- `func ApplyTier(base toolspermission.PermissionConfig, tier string) toolspermission.PermissionConfig` — ApplyTier 把档位声明式覆盖到 base 权责配置上，返回应用后的配置。
-- `func tierStopAskingTools(tier string) map[string]bool` — tierStopAskingTools 返回该档位下"不再问人"的工具名集合（空 = 不覆盖）。
+- `func TierVector(tier string) []string` — TierVector 返回档位授予的公开权限组；未识别档位回落到 manual。
+- `func TierCells(tier string, groups []toolspermission.PermissionGroup) PermissionVectorCells` — TierCells 把档位向量展开成组位表。
 
 ### tool_meta.go
 

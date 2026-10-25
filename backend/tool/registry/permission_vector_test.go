@@ -136,6 +136,82 @@ func TestMainAgentRolePermissionAllowSkipsApproval(t *testing.T) {
 	}
 }
 
+// TestMainAgentBashPermissionAllowSkipsApproval 钉住用户实际勾选 Bash 后的产品
+// 语义：命令执行是赋权即免审批，不再落回 bash 规则层的 ask。
+func TestMainAgentBashPermissionAllowSkipsApproval(t *testing.T) {
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		if role == string(dto.RoleAgent) {
+			return []string{dto.PermissionTagBash}, true, nil
+		}
+		return nil, false, nil
+	})
+	ctx := toolspermission.WithSessionID(context.Background(), "sess-main-bash")
+	for _, tool := range []string{"bash", "bash_bg", "bg_manage"} {
+		action, decided := state.Enforce(
+			ctx,
+			toolspermission.Subject("root"),
+			frameworktools.ToolMeta{},
+			tool,
+			`{"command":"npm install"}`,
+		)
+		if !decided || action != toolspermission.ActionAllow {
+			t.Fatalf("mainagent 选中 bash 后 %s 应直接 allow，得到 action=%v decided=%v", tool, action, decided)
+		}
+	}
+}
+
+// TestMainAgentWriteDoesNotGrantBashApproval 钉住两枚权限已经真正分开：只有
+// write 时文件写入直通，但 shell 执行仍需 Bash 权限或审批。
+func TestMainAgentWriteDoesNotGrantBashApproval(t *testing.T) {
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		if role == string(dto.RoleAgent) {
+			return []string{dto.PermissionTagRW}, true, nil
+		}
+		return nil, false, nil
+	})
+	ctx := toolspermission.WithSessionID(context.Background(), "sess-main-write")
+	action, decided := state.Enforce(
+		ctx,
+		toolspermission.Subject("root"),
+		frameworktools.ToolMeta{},
+		"bash",
+		`{"command":"npm install"}`,
+	)
+	if decided {
+		t.Fatalf("只授予 write 时 bash 不应由权限向量直通，得到 action=%v", action)
+	}
+	result, handled := state.decideFor(
+		toolspermission.Subject("root"),
+		"bash",
+		frameworktools.ToolMeta{},
+		`{"command":"npm install"}`,
+	)
+	if !handled || result != toolspermission.ResultAsk {
+		t.Fatalf("只授予 write 时 bash 应回落到规则层 ask，得到 result=%v handled=%v", result, handled)
+	}
+}
+
+// TestLegacyAdminPermissionMigratesToBash 钉住旧配置兼容：历史角色向量里的
+// admin 读取后等同于 bash，不能让已有用户的命令权限在升级后失效。
+func TestLegacyAdminPermissionMigratesToBash(t *testing.T) {
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		if role == string(dto.RoleAgent) {
+			return []string{"admin"}, true, nil
+		}
+		return nil, false, nil
+	})
+	action, decided := state.Enforce(
+		toolspermission.WithSessionID(context.Background(), "sess-legacy-admin"),
+		toolspermission.Subject("root"),
+		frameworktools.ToolMeta{},
+		"bash",
+		`{"command":"npm install"}`,
+	)
+	if !decided || action != toolspermission.ActionAllow {
+		t.Fatalf("旧 admin 向量应迁移为 bash 并直接 allow，得到 action=%v decided=%v", action, decided)
+	}
+}
+
 func TestMainAgentFullAccessBypassesBashApprovalEvenWithNarrowRoleVector(t *testing.T) {
 	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
 		if role == string(dto.RoleAgent) {
@@ -253,6 +329,25 @@ func TestUnregisteredRoleFallbackMatchesExplicitAssignment(t *testing.T) {
 	}
 }
 
+// TestEmployeeReadwriteFallbackIncludesBash 钉住没有角色向量时的 readwrite
+// 兼容口径：拆分 bash 组后，历史 readwrite 员工仍保留 README 承诺的写+执行面。
+func TestEmployeeReadwriteFallbackIncludesBash(t *testing.T) {
+	state := vectorGate(t, func(string, string) ([]string, bool, error) {
+		return nil, false, nil
+	})
+	ctx := WithEmployeeSubject(
+		toolspermission.WithSessionID(context.Background(), "role-session-rw"),
+		"worker", "readwrite",
+	)
+	cells, _, ok := state.callVector(ctx)
+	if !ok {
+		t.Fatal("readwrite 员工应走主体类兜底向量")
+	}
+	if !cells.Covers(policy.GroupBash, policy.BitExecute) {
+		t.Fatalf("readwrite 员工兜底向量缺少 bash 执行位: %+v", cells)
+	}
+}
+
 // TestTierPresetIsVectorNotRulePruning：③ 档位是向量预设——执行面按 TierVector
 // 展开的组位判定，规则表里没有任何"按档位剪过的副本"。
 func TestTierPresetIsVectorNotRulePruning(t *testing.T) {
@@ -265,9 +360,9 @@ func TestTierPresetIsVectorNotRulePruning(t *testing.T) {
 			}
 		}
 	}
-	// full 的向量含全部六组；其余档位不含共享桌面与能力面。
+	// full 的向量覆盖全部公开权限标签；内部 adm 路由不再暴露为用户权限。
 	if got := len(policy.TierVector(dto.PermissionTierFull)); got != len(dto.PermissionGroupNames()) {
-		t.Fatalf("full 档向量应覆盖全部 %d 组，得到 %d", len(dto.PermissionGroupNames()), got)
+		t.Fatalf("full 档向量应覆盖全部 %d 个公开组，得到 %d", len(dto.PermissionGroupNames()), got)
 	}
 	for _, tier := range []string{dto.PermissionTierManual, dto.PermissionTierEdit, dto.PermissionTierAuto} {
 		for _, tag := range policy.TierVector(tier) {

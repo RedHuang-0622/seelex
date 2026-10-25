@@ -6,7 +6,7 @@
 > [`docs/2026-09-15-agent-permission-routing-groups/`](../2026-09-15-agent-permission-routing-groups/README.md)，
 > 当次接入的落地差异见该目录的 `seele-integration-status.md`。
 
-日期：2026-09-15 · 状态：**当前实现**（§7 明确列出目标设计中仍未落地的部分）
+日期：2026-09-15 · 更新：2026-10-25 · 状态：**当前实现**（§7 明确列出目标设计中仍未落地的部分）
 
 ---
 
@@ -17,7 +17,7 @@
 | 框架（Seele） | `tools/permission/{checker,middleware,approval}.go` | 组/位/规则/审批的**判定与错误语义**；`Gate` 是唯一判定入口 |
 | 框架 | `tools/tools.go` `ToolMeta{Kind,Groups,Bits,Resource}` | 工具自报门第（**可选**，见 §7） |
 | 产品（Seelex） | `backend/limit/policy/policy.go`（授权表 / 路由组 / 主体位，判据）+ `backend/tool/registry/permission_policy.go`（主体类策略 Enforcer） | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
-| 产品 | `backend/limit/policy/tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
+| 产品 | `backend/limit/policy/tiers.go` | **主会话权限档位**的向量预设（`TierVector` / `TierCells`：授予组，不碰 deny） |
 | 产品 | `backend/tool/registry/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
 | 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥。**注（2026-10-12 J-1a）**：`SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 的注入已随之退场——它们的事实源是 Agent Team 反向索引（随退场删除），未注入时的口径是"员工主体识别按调用 ctx 判、审批归属按调用会话原样归属"；员工主体识别的权威通路仍是角色回合执行体按构造写 ctx（`tools.WithEmployeeGrant`，`backend/engine/assemble/runtime_role_turn.go`）。 |
 | 配置 | `config/seele.yaml` | **只写覆盖**（`missing_bit` + 最细粒度 `rules`） |
@@ -65,7 +65,8 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 | `rw_session` | `rw-` (6) | `session` | allow | 写本会话可变 transcript（`compact_context`） |
 | `rw_desktop` | `rw-` (6) | `desktop` | ask | 写**共享外设**（一块桌面，所有并行代理共用） |
 | `ctl` | `--x` (1) | — | allow | 改变 agent 循环的控制流（结束/挂起/派生/装载执行结构） |
-| `adm` | `rwx` (7) | — | ask | 改变**能力面本身**（换插件/Skill/reload/MCP） |
+| `adm` | `rwx` (7) | — | ask | 改变**能力面本身**（内部组，不进入用户权限标签） |
+| `bash` | `--x` (1) | — | allow | 执行 `bash` / `bash_bg` / 管理本会话 shell 作业的 `bg_manage` |
 
 两个刻意的归组口径（与设计稿的差异，实现为准）：
 
@@ -76,12 +77,12 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 
 ### 2.3 位与缺位 —— 主体 × 组的授权表
 
-| 主体 | `ro` | `rw`(project) | `rw_session` | `rw_desktop` | `ctl` | `adm` |
-| --- | --- | --- | --- | --- | --- | --- |
-| `root` | 4 | 6 | 6 | 6 | 1 | 7 |
-| `sub` | 4 | 6 | 0 | 0 | 0 | 0 |
-| `emp_ro` | 4 | 0 | 0 | 0 | 0 | 0 |
-| `emp_rw` | 4 | 6 | 0 | 0 | 0 | 0 |
+| 主体 | `ro` | `rw`(project) | `rw_session` | `rw_desktop` | `ctl` | `adm` | `bash` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `root` | 4 | 6 | 6 | 6 | 1 | 7 | 1 |
+| `sub` | 4 | 6 | 0 | 0 | 0 | 0 | 1 |
+| `emp_ro` | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `emp_rw` | 4 | 6 | 0 | 0 | 0 | 0 | 1 |
 
 - **位齐** → 按组的默认动作（allow / ask），再被 `rules` 覆盖。
 - **位缺** → 该工具对**该主体不可路由（= 不在 PATH）**，不是"调用时报错"。缺位在配置里
@@ -100,19 +101,19 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 
 ### 2.5 权限档位（主 agent 的会话粒度覆盖）
 
-档位（tier）是 **root 主体在本会话的自动度**，不是新判定机制：它是把 §2.4 的 `rules`
-按档位**剪掉若干 `ask`** 的一层声明式覆盖（`ApplyTier`），**从不新增 allow、从不触碰
-deny**（危险命令段在任何档位下都硬拦）。
+档位（tier）是 **root 主体在本会话的自动度**，不是新判定机制：它是一份权限向量预设
+（`TierVector`），展开成组位后决定该族是否可见；`deny` 规则不受档位影响（危险命令段
+在任何档位下都硬拦）。
 
 | 档位 id | 覆盖 | 语义 |
 | --- | --- | --- |
-| `manual`（默认） | 无 | 完全按权责表问/放 |
-| `edit` | 剪 `write_file`/`edit_file` 的 ask | 项目文件写不再打断 |
-| `auto` | 再剪 `bash` 的全部 ask | 任意命令直跑（危险 deny 仍在） |
-| `full` | 执行门短路 | 本会话全部放行（= 旧 `full_access`） |
+| `manual`（默认） | `ro` + `rw_session` + `ctl` + `ssh` | 完全按权责表问/放 |
+| `edit` | 再加 `rw` | 项目文件写不再打断，命令仍问 |
+| `auto` | 再加 `bash` | 任意命令直跑（危险 deny 仍在） |
+| `full` | 全部公开组 | 本会话公开能力免审（危险 deny 仍在） |
 
 - 词表（id/标签/说明）的唯一事实在 `contract/dto`（前端按它渲染列表）；
-  覆盖实现在 `backend/limit/policy/tiers.go`。
+  预设实现在 `backend/limit/policy/tiers.go`。内部 `adm` 不属于公开向量。
 - **只对 root 生效**：`gate()` 按"主体类 + 会话档位"选表——非 root（`sub`/`emp_*`）
   一律用 base 表；`full` 档的短路条件收紧为 `class == root`。因此档位只改主 agent 的
   "问不问"，不改任何主体的"有没有位"（员工越权照旧审批提权）。

@@ -473,7 +473,8 @@ func EmployeeGroupsForPolicy(toolsPolicy string) map[string]uint8 {
 		return map[string]uint8{
 			policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite,
 			policy.GroupCTL: 0, policy.GroupADM: 0,
-			policy.GroupSSH: policy.BitExecute,
+			policy.GroupBash: policy.BitExecute,
+			policy.GroupSSH:  policy.BitExecute,
 		}
 	default:
 		return nil

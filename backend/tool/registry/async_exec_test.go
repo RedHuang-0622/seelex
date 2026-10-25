@@ -593,9 +593,9 @@ func TestBashFamilyRoutingTable(t *testing.T) {
 		tool  string
 		group string
 	}{
-		{"bash", policy.GroupRW},
-		{"bash_bg", policy.GroupRW},
-		{"bg_manage", policy.GroupRW},
+		{"bash", policy.GroupBash},
+		{"bash_bg", policy.GroupBash},
+		{"bg_manage", policy.GroupBash},
 		{"read_batch", policy.GroupRO},
 	}
 	groups := policy.DefaultPermissionGroupList()

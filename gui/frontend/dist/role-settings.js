@@ -7,7 +7,7 @@
 //
 // 口径：
 //   1. 权限向量的**标签 id 就是发给后端的字面量**（read / write / computeruse / control /
-//      admin / ssh），前端不另起一套别名，也不做 ro→read 这类对照表——
+//      bash / ssh），前端不另起一套别名，也不做 ro→read 这类对照表——
 //      对照表一旦出现就会有两份真相。中文只作 label（展示）。
 //   2. 顺序固定为 PERMISSION_VECTOR_TAGS 的声明顺序：同一组选择永远渲染成同一行，
 //      后端拿到的数组也稳定（便于比对与去抖）。
@@ -24,10 +24,10 @@ import { escapeHtml } from "./components.js";
 // "这把钥匙开什么门"；两列都不参与提交。
 export const PERMISSION_VECTOR_TAGS = [
   { id: "read", label: "读", tip: "读文件、搜内容、列目录" },
-  { id: "write", label: "写", tip: "写文件、改文件、跑命令" },
+  { id: "write", label: "写", tip: "写文件、改文件（不含命令执行）" },
   { id: "computeruse", label: "用电脑", tip: "截屏与桌面操作" },
   { id: "control", label: "控制", tip: "结束/恢复执行、派生任务、调度团队" },
-  { id: "admin", label: "管理", tip: "切换插件、Skill、MCP 与运行模式（不含授予权限）" },
+  { id: "bash", label: "Bash", tip: "直接执行 shell 命令与后台命令" },
   { id: "ssh", label: "SSH", tip: "在会话固定环境上执行远程命令与文件操作（路径范围在该能力内配置）" },
 ];
 
@@ -100,7 +100,6 @@ export function permissionVectorSummary(selected) {
 // permissionVectorLint 是"这组选择会走不通"的提示，与 permission-assembly §5 同 id：
 //   assembly_ssh_only                只给 ssh 不给 read：远程列目录/读文件都走不通
 //   assembly_write_without_read    写而无读：改文件前先要能读
-//   assembly_admin_without_control   管装配却管不了会话
 export function permissionVectorLint(selected) {
   const list = normalizePermissionVector(selected);
   const has = id => list.includes(id);
@@ -110,9 +109,6 @@ export function permissionVectorLint(selected) {
   }
   if (has("write") && !has("read")) {
     warnings.push({ id: "assembly_write_without_read", message: "选了写却没选读：改文件前先得能读" });
-  }
-  if (has("admin") && !has("control")) {
-    warnings.push({ id: "assembly_admin_without_control", message: "选了管理却没选控制：管装配却管不了会话" });
   }
   if (list.length && list.every(id => id.startsWith("!"))) {
     warnings.push({ id: "assembly_nothing_allowed", message: "全部是显式拒绝：这组装配等于什么都不给" });

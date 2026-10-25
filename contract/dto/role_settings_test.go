@@ -55,14 +55,14 @@ func TestResolvePermissionVectorTable(t *testing.T) {
 		{
 			name: "同层重复以先出现者为准",
 			layers: [][]string{
-				{PermissionTagADM, "!" + PermissionTagADM},
+				{PermissionTagBash, "!" + PermissionTagBash},
 			},
-			want: []string{PermissionTagADM},
+			want: []string{PermissionTagBash},
 		},
 		{
 			name: "大小写与空白归一",
 			layers: [][]string{
-				{"  RW  ", "!" + PermissionTagADM},
+				{"  RW  ", "!" + PermissionTagBash},
 			},
 			want: []string{PermissionTagRW},
 		},
@@ -83,9 +83,9 @@ func TestResolvePermissionVectorTable(t *testing.T) {
 		{
 			name: "输出按规范标签序而非输入序",
 			layers: [][]string{
-				{PermissionTagADM, PermissionTagRWSession, PermissionTagRO},
+				{PermissionTagBash, PermissionTagRWSession, PermissionTagRO},
 			},
-			want: []string{PermissionTagRO, PermissionTagRWSession, PermissionTagADM},
+			want: []string{PermissionTagRO, PermissionTagRWSession, PermissionTagBash},
 		},
 		{
 			name: "未知标签排在已知标签之后并按字典序",
@@ -123,13 +123,13 @@ func TestResolvePermissionVectorLayersOrder(t *testing.T) {
 		AgentDispatch:  RoleSettings{PermissionVector: []string{"!" + PermissionTagRW}},
 		SessionDefault: RoleSettings{PermissionVector: []string{PermissionTagRW}},
 		RoleDefault:    RoleSettings{PermissionVector: []string{"!" + PermissionTagCTL}},
-		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagADM}},
+		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagBash}},
 	}
 	if ordered := (RoleSettingsLayers{}).Ordered(); !reflect.DeepEqual(ordered, make([]RoleSettings, 5)) {
 		t.Fatalf("空层 Ordered = %v, want 五份零值", ordered)
 	}
 	got := ResolvePermissionVector(layers.PermissionVectors()...)
-	want := []string{PermissionTagRO, PermissionTagADM}
+	want := []string{PermissionTagRO, PermissionTagBash}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("层序解析 = %v, want %v（user_allow > agent_dispatch > session_default > role_default > global_default）", got, want)
 	}
@@ -145,16 +145,16 @@ func TestRoleDefaultIsIndependentOfGlobalDefault(t *testing.T) {
 	layers := RoleSettingsLayers{
 		SessionDefault: RoleSettings{PermissionVector: []string{PermissionTagRO}},
 		RoleDefault:    RoleSettings{PermissionVector: []string{PermissionTagRW}},
-		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagADM}},
+		GlobalDefault:  RoleSettings{PermissionVector: []string{PermissionTagBash}},
 	}
 	got := ResolvePermissionVector(layers.PermissionVectors()...)
-	if want := ([]string{PermissionTagRO, PermissionTagRW, PermissionTagADM}); !reflect.DeepEqual(got, want) {
+	if want := ([]string{PermissionTagRO, PermissionTagRW, PermissionTagBash}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("向量 = %v, want %v", got, want)
 	}
 
 	layers.SessionDefault = RoleSettings{PermissionVector: []string{"!" + PermissionTagRW}}
 	got = ResolvePermissionVector(layers.PermissionVectors()...)
-	if want := ([]string{PermissionTagADM}); !reflect.DeepEqual(got, want) {
+	if want := ([]string{PermissionTagBash}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("会话层覆盖后向量 = %v, want %v", got, want)
 	}
 }
@@ -162,7 +162,7 @@ func TestRoleDefaultIsIndependentOfGlobalDefault(t *testing.T) {
 func TestResolveRoleSettingsFirstNonEmptyWins(t *testing.T) {
 	layers := []RoleSettings{
 		{}, // user_allow 什么都没配
-		{Account: "worker-a", PermissionVector: []string{"!" + PermissionTagADM}},
+		{Account: "worker-a", PermissionVector: []string{"!" + PermissionTagBash}},
 		{Account: "worker-b", DefaultPlugin: "review", PermissionVector: []string{PermissionTagRW}},
 		{Account: "fallback", DefaultPlugin: "search"},
 	}
@@ -183,7 +183,7 @@ func TestNormalizePermissionVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizePermissionVector: %v", err)
 	}
-	want := []string{PermissionTagRW, "!" + PermissionTagADM, PermissionTagRO}
+	want := []string{PermissionTagRW, "!" + PermissionTagBash, PermissionTagRO}
 	if !reflect.DeepEqual(normalized, want) {
 		t.Fatalf("规整结果 = %v, want %v（保留单个 ! 前缀、去重、保序）", normalized, want)
 	}
