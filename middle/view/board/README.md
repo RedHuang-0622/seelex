@@ -73,17 +73,16 @@ sequenceDiagram
 
 允许依赖：`store`（投影行与写侧端口形状）、`middle/protocol/model`（`WorkItem` 等行类型）、
 `contract/dto`、`middle/view/worktable`（证据截断的唯一实现 `TruncateWorkEvidence`）、
-`backend/limit`（进程级 limits 快照读数）、标准库。
+标准库。文本截断上限由装配根通过 `ProjectBoardDeps.EvidenceChars` 注入，本包不依赖
+`backend/limit`。
 
 禁止：反向依赖 `application/*`（本包是中间层，只被应用层消费）与 `backend/engine/assemble`
 （装配层反过来 import 本包）；不得把 `Snapshot` /
 前端协议类型引进来（投影不是 Snapshot 的输入，也不是它的输出）。
 
-BM-003 迁移中：行映射实际只需 `EvidenceChars` 一个只读读数，不需要完整
-`backend/limit`。由于现有 `BuildProjectBoardRows` 与 `ProjectBoardDeps` 的公开
-签名尚未携带该读数，`middle/view/board -> backend/limit` 仍被预算冻结。迁移请求
-是由 Wiring 在构造 `ProjectBoardDeps` 时注入 `EvidenceChars func() int`，随后删除
-该 import 与门禁白名单。
+BM-003 已完成：Wiring 在构造 `ProjectBoardDeps` 时注入 `EvidenceChars func() int`，
+`BuildProjectBoardRows` 接收同一读数。`middle/view/board -> backend/limit` 已删除，
+架构预算把该边归零。
 
 ## 并发与错误语义
 
@@ -125,16 +124,16 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 
 ### projection.go
 
-- `func BuildProjectBoardRows( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, ) []store.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
+- `func BuildProjectBoardRows( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, evidenceChars int, ) []store.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
 - `func projectBoardRow( scope store.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) store.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
-- `func projectBoardWorkPayload(item model.WorkItem) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
-- `func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
+- `func projectBoardWorkPayload(item model.WorkItem, evidenceChars int) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
+- `func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState, evidenceChars int) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
 - `func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
-- `func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
+- `func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem, evidenceChars int) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
 - `func projectBoardTeamState(plan *store.TeamworkPlan, state *store.TeamworkState) store.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
 - `func projectBoardPutText(payload map[string]any, key, value string)` — projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
 - `func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
-- `func projectBoardRowsForFile( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, file string, ) []store.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
+- `func projectBoardRowsForFile( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, file string, evidenceChars int, ) []store.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
 - `func projectBoardRowsFingerprint(rows []store.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
 - `func ProjectBoardHookModes() []string` — ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
 - `func TriggerFor(hookMode string) ProjectBoardTrigger` — TriggerFor 由档名编译出触发面：off / todo_list（= 空串，默认档）/ task_complete /

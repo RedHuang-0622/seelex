@@ -147,7 +147,9 @@ sequenceDiagram
 
 ## 依赖方向
 
-依赖 `state.Core` + 注入端口（prompt 栈、limits、错误呈现、队列引用）；
+依赖 `state.Core` + 注入端口（prompt 栈、limits、错误呈现、队列引用）；跨层
+`PromptLayer` 与执行预算类型分别来自 `contract/dto` 与 `backend/limit/loop`，
+**不依赖 `application/prompt`**；
 满足 `session_runtime.TaskPersistencePort` 与 context 域 `TaskPort`（编译期
 断言见 `ports.go` 与根包 compat）。
 
@@ -252,10 +254,10 @@ go test ./backend/engine/task -count=1
 - `func (c *Coordinator) _MarkReplanInFlight(interactionID string)`
 - `func (c *Coordinator) DeleteReplanInFlight(interactionID string)`
 - `func (c *Coordinator) _DeleteReplanInFlight(interactionID string)`
-- `func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)` — StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
-- `func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)`
-- `func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget)` — StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
-- `func (c *Coordinator) _StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget)`
+- `func (c *Coordinator) StartReActBudgetLocked(requestID string, budget loop.Budget)` — StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget loop.Budget)`
+- `func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget loop.Budget)` — StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
+- `func (c *Coordinator) _StartReActBudgetForLocked(sessionID, requestID string, budget loop.Budget)`
 - `func (c *Coordinator) SetReActBudgetExhaustedLocked(requestID, reason string)` — SetReActBudgetExhaustedLocked 直接置位预算终止原因（测试模拟预算耗尽；
 - `func (c *Coordinator) _SetReActBudgetExhaustedLocked(requestID, reason string)`
 - `func (c *Coordinator) ClearReActBudget(requestID string)` — ClearReActBudget 清除请求级预算（自行加锁）。
@@ -447,9 +449,9 @@ go test ./backend/engine/task -count=1
 
 ### task_context_state.go
 
-- `func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)` — ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
-- `func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)`
-- `func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []prompt.PromptLayer, logged map[string]struct{})` — ensureActiveSkillEventsLocked 只追加本任务尚未落盘的技能正文事件（logged 里
+- `func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []dto.PromptLayer)` — ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
+- `func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []dto.PromptLayer)`
+- `func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []dto.PromptLayer, logged map[string]struct{})` — ensureActiveSkillEventsLocked 只追加本任务尚未落盘的技能正文事件（logged 里
 - `func (c *Coordinator) SyncGoalSkillActiveLocked()` — SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
 - `func (c *Coordinator) _SyncGoalSkillActiveLocked()`
 - `func (c *Coordinator) syncGoalSkillActiveLocked()`

@@ -81,7 +81,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		filepath.Join("contract", "dto", "agentteam.go"):             readRepoFile(t, "contract", "dto", "agentteam.go"),
 		filepath.Join("contract", "dto", "teammate_session_live.go"): readRepoFile(t, "contract", "dto", "teammate_session_live.go"),
 		filepath.Join("contract", "dto", "subagent_live.go"):         readRepoFile(t, "contract", "dto", "subagent_live.go"),
-		filepath.Join("middle", "protocol", "model", "state.go"):     readRepoFile(t, "middle", "protocol", "model", "state.go"),
+		filepath.Join("contract", "protocol", "state.go"):            readRepoFile(t, "contract", "protocol", "state.go"),
 	}
 	required := map[string]map[string][]string{
 		filepath.Join("contract", "dto", "rolesession.go"): {
@@ -101,7 +101,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		// 聊天区按这些字段名读可见会话消息（components.js roleIdentity 用
 		// role_name 渲染 EXEC/ADVISOR，round_id 渲染 R 徽标）：改名会让前端
 		// 又退回"两个 teammate 都叫 AGENT"。
-		filepath.Join("middle", "protocol", "model", "state.go"): {
+		filepath.Join("contract", "protocol", "state.go"): {
 			"Message": {"role_name", "role_session_id", "round_id", "unit_seq"},
 		},
 		// 「这件事的会话」实时读面（team-board-view.js 的 renderTeammateLiveSession

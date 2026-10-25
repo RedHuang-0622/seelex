@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -14,8 +13,8 @@ import (
 func testCoordinator() *Coordinator {
 	return NewCoordinator(Deps{
 		Core: &state.Core{},
-		Limits: func() limit.Limits {
-			return limit.DefaultLimits()
+		Limits: func() dto.ViewLimits {
+			return dto.ViewLimits{PlanNodeEvents: 100, EvidenceChars: 800}
 		},
 	})
 }

@@ -25,7 +25,7 @@ func TestBuildProjectBoardRowsNoJudgement(t *testing.T) {
 	}}}
 	state := &store.TeamworkState{Milestones: map[string]string{"m1": "runtime-weird"}}
 
-	rows := BuildProjectBoardRows(scope, 3, boardtest.At, items, plan, state)
+	rows := BuildProjectBoardRows(scope, 3, boardtest.At, items, plan, state, 800)
 
 	todo, ok := boardtest.RowByKey(rows, "work:todo:0")
 	if !ok {
@@ -61,7 +61,7 @@ func TestBuildProjectBoardRowsNoJudgement(t *testing.T) {
 	emptyPlan := &store.TeamworkPlan{Milestones: []store.TeamworkMilestone{{
 		ID: "m2", Items: []store.TeamworkWorkItem{{ID: "wi2", Role: "exec", Status: ""}},
 	}}}
-	empty := BuildProjectBoardRows(scope, 3, boardtest.At, nil, emptyPlan, nil)
+	empty := BuildProjectBoardRows(scope, 3, boardtest.At, nil, emptyPlan, nil, 800)
 	for _, key := range []string{"milestone:m2", "milestone_item:wi2"} {
 		row, found := boardtest.RowByKey(empty, key)
 		if !found {
@@ -86,7 +86,7 @@ func TestBuildProjectBoardRowsKindMapping(t *testing.T) {
 		{ID: "subagent:2", Kind: "subagent", Phase: "subagent", Task: "s", Status: "running"},
 		{ID: "weird:3", Kind: "tasklist", Phase: "tasklist", Task: "w", Status: "running"},
 	}
-	rows := BuildProjectBoardRows(scope, 1, boardtest.At, items, nil, nil)
+	rows := BuildProjectBoardRows(scope, 1, boardtest.At, items, nil, nil, 800)
 	// 每种 kind 显式一句：投影 / 不投影 + 理由（理由与 project_board.go 的判据表一致）。
 	cases := []struct {
 		kind      string
@@ -128,7 +128,7 @@ func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
 
 	// 运行态优先：m1 在运行态里是 active（计划里声明的是 pending）；m2 运行态没说 ⇒ 声明兜底。
 	state := &store.TeamworkState{Milestones: map[string]string{"m1": store.TeamworkMilestoneActive}}
-	rows := BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, state)
+	rows := BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, state, 800)
 	m1, _ := boardtest.RowByKey(rows, "milestone:m1")
 	if got := boardtest.PayloadText(m1, "status"); got != store.TeamworkMilestoneActive {
 		t.Fatalf("m1 status = %q，希望运行态 active（运行态优先）", got)
@@ -139,14 +139,14 @@ func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
 	}
 
 	// 运行态整份缺席 ⇒ 全用声明态。
-	rows = BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, nil)
+	rows = BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, nil, 800)
 	m1, _ = boardtest.RowByKey(rows, "milestone:m1")
 	if got := boardtest.PayloadText(m1, "status"); got != store.TeamworkMilestonePending {
 		t.Fatalf("无运行态时 m1 status = %q，希望声明态 pending", got)
 	}
 
 	// 整队收口读 TeamworkState.State：空 = 未收口；closed = 已收口（**不是**别的字段）。
-	open := BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, &store.TeamworkState{})
+	open := BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan, &store.TeamworkState{}, 800)
 	openRow, _ := boardtest.RowByKey(open, "milestone:m1")
 	if openRow.Payload["team_closed"] != false {
 		t.Fatalf("未收口时 team_closed = %v，希望 false", openRow.Payload["team_closed"])
@@ -155,7 +155,7 @@ func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
 		t.Fatalf("未收口时空 State 不该落 team_state（%v）", openRow.Payload["team_state"])
 	}
 	closed := BuildProjectBoardRows(scope, 1, boardtest.At, nil, plan,
-		&store.TeamworkState{State: store.TeamworkStateClosed})
+		&store.TeamworkState{State: store.TeamworkStateClosed}, 800)
 	closedRow, _ := boardtest.RowByKey(closed, "milestone:m1")
 	if closedRow.Payload["team_closed"] != true {
 		t.Fatalf("收口后 team_closed = %v，希望 true", closedRow.Payload["team_closed"])

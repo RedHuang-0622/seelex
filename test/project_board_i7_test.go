@@ -126,6 +126,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 		onLimits.ProjectBoard, on.st,
 		on.app.WorkTableRowsFor, on.app.ProjectBoardTeamPlanFor,
 		on.app.ProjectBoardTeamStateFor, on.app.ProjectRootFor,
+		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
@@ -165,6 +166,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 		limits.ProjectBoard, harness.st,
 		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
 		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
+		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)

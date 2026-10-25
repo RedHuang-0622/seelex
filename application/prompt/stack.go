@@ -5,14 +5,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PromptLayer 表示 system prompt 或活动 Skill 的一个上下文分层。
-type PromptLayer struct {
-	Kind string // "identity" | "base" | "effort" | "instructions" | "skill"
-	Name string // plugin name / effort level / skill name
-	Text string // prompt 内容
-}
+// 这是契约类型的同身份别名，保证 backend 不依赖 Application 实现。
+type PromptLayer = dto.PromptLayer
 
 // PromptStack 保存 system prompt 层和当前活动 Skill。
 // Skill 作为用户消息上下文发送，Render 不将其写入 system prompt。

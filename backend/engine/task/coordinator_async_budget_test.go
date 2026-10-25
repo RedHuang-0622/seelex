@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 )
 
 // D1 的红→绿对照：一条**安静**的长命令（还在跑，但没有新输出）被反复取回时，
@@ -39,7 +39,7 @@ func TestQuietAsyncPollingIsNotCountedAsNoProgress(t *testing.T) {
 			runtime := coordinator.sessionStateLocked(sessionID)
 			// 进展计数固定在同一个 epoch：模拟"两次取回逐字节相同"。
 			runtime.taskExecution = &TaskExecutionState{RequestID: requestID, ProgressEpoch: 7}
-			coordinator._StartReActBudgetForLocked(sessionID, requestID, prompt.ReActBudget{
+			coordinator._StartReActBudgetForLocked(sessionID, requestID, loop.Budget{
 				MaxToolRounds: 0, MaxToolCalls: 0, MaxNoProgressRounds: 3,
 			})
 			allowed := true
@@ -77,7 +77,7 @@ func TestNoAsyncReaderFallsBackToPlainNoProgressBudget(t *testing.T) {
 	defer coordinator.stateMu.Unlock()
 	runtime := coordinator.sessionStateLocked("sess-x")
 	runtime.taskExecution = &TaskExecutionState{RequestID: "req-x", ProgressEpoch: 4}
-	coordinator._StartReActBudgetForLocked("sess-x", "req-x", prompt.ReActBudget{MaxNoProgressRounds: 2})
+	coordinator._StartReActBudgetForLocked("sess-x", "req-x", loop.Budget{MaxNoProgressRounds: 2})
 
 	// 第一轮只登记基线 epoch（此时还没有"重复"可言），之后每轮各计一次：
 	// 上限 2 → 最迟第 3 轮必须停。

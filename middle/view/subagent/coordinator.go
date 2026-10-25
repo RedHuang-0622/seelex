@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -29,7 +28,7 @@ type Deps struct {
 	// View 用于事件增量 revision bump（锁内调用）。
 	View ViewPort
 	// Limits 返回当前生效的运行时上限（截断配置）。
-	Limits func() limit.Limits
+	Limits func() dto.ViewLimits
 	// RecordToolOutcome 是工具记录的**叶子暂存入口**（装配处注入 core 的实现）。
 	//
 	// 口径（2026-10-19 方向 C，阶梯提交）：本包只报"这笔读数属于哪个执行单元
@@ -55,7 +54,7 @@ type ViewPort interface {
 type Coordinator struct {
 	*state.Core
 	view              ViewPort
-	limits            func() limit.Limits
+	limits            func() dto.ViewLimits
 	recordToolOutcome func(ownerSessionID string, event dto.SubagentToolEvent)
 	commitToolRecord  func(ownerSessionID, nodeID string)
 }

@@ -26,6 +26,8 @@
 | `agentteam.go` | `RoleKind` / `OrderPolicy` / `TeamKind` 等 A2A 角色工厂枚举与 `TeamSpec` / `RoleSpec`。 |
 | `rolesession.go` | R2/R4 群聊角色会话纯 DTO（`Event` / `RoleDraftRow` / `RoleSnapshot` 的应用层形状）。 |
 | `permission.go` | 权限装配词汇：公开标签（`read/write/session/computeruse/control/bash/ssh`）、内部 `adm` 路由组与位值；旧 `admin/adm` 读取迁移为 `bash`。 |
+| `prompt_layer.go` | `PromptLayer`：system prompt / 活动 Skill 分层的跨层只读形状。`application/prompt` 以同身份 alias 复用，backend 任务域不反向依赖 Application。 |
+| `view_limits.go` | `ViewLimits`：中间层展示投影所需的 `HistoryWindow` / `PlanNodeEvents` / `EvidenceChars` 窄读数面。 |
 | `role_settings.go` | 角色设置（`RoleSettings`：账号 / 权限向量 / 默认 plugin）与**五级权限向量解析的唯一实现**（`RoleSettingsLayers` + `ResolvePermissionVector` / `ResolveRoleSettings`；层序 `user_allow > agent_dispatch > session_default > role_default > global_default`，`!tag` 表示这一层明确不给）。`PermissionRoleInfo` 同时携带生效/默认向量、`inherit_main_agent`、角色默认与当前会话的 SSH 路径白名单；subagent / teammate 的继承同时覆盖权限与单一 `ssh` 能力下的路径白名单。上下文窗口不属于角色设置，而是账号模型字段。 |
 | `scene_scope.go` | `SceneScope`：后台工作现场/子代理的执行作用域（SceneID / 角色 / 分支 / 工作区 / TaskID），ctx 携带；各读者只取自己需要的字段。原 Plan 节点 `NodeScope` 已退役。 |
 | `scheduler.go` | `ScheduledTaskKind` / `PeriodUnit` 定时与周期任务契约。 |
@@ -178,6 +180,10 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func NormalizePermissionTier(tier string) (string, error)` — NormalizePermissionTier 规整档位 id：空（未选择）→ manual（进程默认）；未识别
 - `func (e *PermissionTierError) Error() string`
 - `func PermissionTierFromFullAccess(on bool) string` — PermissionTierFromFullAccess 把旧的二元 full_access 口径映射成档位（兼容壳：
+
+### prompt_layer.go
+
+- `type PromptLayer struct` — PromptLayer 是一层 system prompt 或活动 Skill 的跨层只读形状。
 - `func PermissionTierIsFullAccess(tier string) bool` — PermissionTierIsFullAccess 报告档位是否等价旧 full_access（诊断/兼容读面）。
 - `func (e *PermissionGroupError) Error() string`
 
@@ -315,4 +321,8 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s UnitStatus) Active() bool` — Active 报告这一单元是否要续跑（唯一判据：`Unit.Active()` 转调它）。
 - `func (s UnitStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
 - `func (s *UnitStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### view_limits.go
+
+- `type ViewLimits struct` — ViewLimits 是中间层只读投影需要的运行时上限窄面。
 

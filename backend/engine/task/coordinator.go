@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -454,13 +454,13 @@ func (c *Coordinator) _DeleteReplanInFlight(interactionID string) {
 }
 
 // StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
-func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget) {
+func (c *Coordinator) StartReActBudgetLocked(requestID string, budget loop.Budget) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c._StartReActBudgetLocked(requestID, budget)
 }
 
-func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget prompt.ReActBudget) {
+func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget loop.Budget) {
 	st := c.activeSessionLocked()
 	st.reactBudget = &activeReActBudget{requestID: requestID, budget: budget}
 	c.bindRequestLocked(requestID, c.activeSessionIDLocked())
@@ -468,13 +468,13 @@ func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget prompt.Re
 
 // StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
 // Core.ViewMu）。
-func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget) {
+func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget loop.Budget) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c._StartReActBudgetForLocked(sessionID, requestID, budget)
 }
 
-func (c *Coordinator) _StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget) {
+func (c *Coordinator) _StartReActBudgetForLocked(sessionID, requestID string, budget loop.Budget) {
 	st := c.sessionStateLocked(sessionID)
 	st.reactBudget = &activeReActBudget{requestID: requestID, budget: budget}
 	c.bindRequestLocked(requestID, sessionID)
@@ -604,7 +604,7 @@ func (c *Coordinator) _ReActBudgetError(requestID string) error {
 // 轮数）。
 type activeReActBudget struct {
 	requestID         string
-	budget            prompt.ReActBudget
+	budget            loop.Budget
 	toolCalls         int
 	lastProgressEpoch uint64
 	noProgressRounds  int

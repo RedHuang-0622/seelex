@@ -11,7 +11,6 @@ package subagent_view
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -35,8 +34,8 @@ func newProbedCoordinator(t *testing.T, probe *readingProbe) *Coordinator {
 	core.Snapshot.Session = model.SessionState{ID: "view-session-B"}
 	return NewCoordinator(Deps{
 		Core: core,
-		Limits: func() limit.Limits {
-			return limit.DefaultLimits()
+		Limits: func() dto.ViewLimits {
+			return dto.ViewLimits{PlanNodeEvents: 100, EvidenceChars: 800}
 		},
 		RecordToolOutcome: probe.record,
 	})
@@ -93,8 +92,8 @@ func TestSubagentCommitEntersByOwnerAndNode(t *testing.T) {
 	var got [][2]string
 	coordinator := NewCoordinator(Deps{
 		Core: &state.Core{},
-		Limits: func() limit.Limits {
-			return limit.DefaultLimits()
+		Limits: func() dto.ViewLimits {
+			return dto.ViewLimits{PlanNodeEvents: 100, EvidenceChars: 800}
 		},
 		CommitToolRecord: func(ownerSessionID, nodeID string) {
 			got = append(got, [2]string{ownerSessionID, nodeID})

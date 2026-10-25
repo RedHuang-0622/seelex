@@ -57,7 +57,11 @@ flowchart LR
 
 ## PromptStack
 
-`PromptLayer` 以 `kind + name + text` 标识一层。固定 system 顺序为 identity、base/plugin、effort、instructions；Skill 请求内容不永久写入 system prompt，而随用户 turn 进入结构化上下文。
+`PromptLayer` 以 `kind + name + text` 标识一层。权威形状在
+`contract/dto.PromptLayer`，本包保留同身份 alias，使 backend 任务域可直接使用
+契约类型而不反向依赖 Application。固定 system 顺序为 identity、base/plugin、
+effort、instructions；Skill 请求内容不永久写入 system prompt，而随用户 turn
+进入结构化上下文。
 
 主要操作：
 

@@ -866,6 +866,7 @@ func ProjectBoardSinkFor(
 	teamPlanFor func(sessionID string) *store.TeamworkPlan,
 	teamStateFor func(sessionID string) *store.TeamworkState,
 	projectRootFor func(sessionID string) string,
+	evidenceChars func() int,
 ) (board.ProjectBoardSink, func(), error) {
 	if !limits.Enabled {
 		return nil, func() {}, nil
@@ -880,6 +881,7 @@ func ProjectBoardSinkFor(
 		TeamPlanFor:    teamPlanFor,
 		TeamStateFor:   teamStateFor,
 		ProjectRootFor: projectRootFor,
+		EvidenceChars:  evidenceChars,
 		Triggers:       board.TriggerFor(hook),
 		FlushIdle:      time.Duration(limits.FlushIdleMS) * time.Millisecond,
 	})

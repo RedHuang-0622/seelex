@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -37,13 +37,13 @@ const (
 // ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
 // Core.ViewMu）。激活的技能正文以 internal 事件 append 进 transcript
 // （append-only：同名同正文只落一次；后续轮次不再重建或改写）。
-func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
+func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []dto.PromptLayer) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c._ActivateTaskSkillsLocked(state, layers)
 }
 
-func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
+func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []dto.PromptLayer) {
 	if state == nil {
 		return
 	}
@@ -56,7 +56,7 @@ func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layer
 	for _, active := range state.ActiveSkills {
 		logged[active.SkillID] = struct{}{}
 	}
-	state.TrustedSkillLayers = append([]prompt.PromptLayer(nil), layers...)
+	state.TrustedSkillLayers = append([]dto.PromptLayer(nil), layers...)
 	state.ActiveSkills = make([]model.ActiveSkill, 0, len(layers))
 	for _, layer := range layers {
 		digest := sha256.Sum256([]byte(layer.Text))
@@ -74,7 +74,7 @@ func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layer
 // 已存在的层名跳过）。事件作为 internal user 轮次进入 transcript（append-only：
 // 每份正文只写一次，随定稿轮次作为稳定前缀缓存；压缩窗口裁剪后技能随旧轮次
 // 自然消失，长历史由压缩帧/会话存档检索）。
-func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []prompt.PromptLayer, logged map[string]struct{}) {
+func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []dto.PromptLayer, logged map[string]struct{}) {
 	for _, layer := range layers {
 		text := strings.TrimSpace(layer.Text)
 		if text == "" {
@@ -1019,7 +1019,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restor
 		if hex.EncodeToString(digest[:]) != active.ContentHash {
 			continue
 		}
-		layer := prompt.PromptLayer{Kind: "skill", Name: skill.Name, Text: skill.Prompt}
+		layer := dto.PromptLayer{Kind: "skill", Name: skill.Name, Text: skill.Prompt}
 		state.TrustedSkillLayers = append(state.TrustedSkillLayers, layer)
 		c.prompt.PushSkillLayer(layer.Kind, layer.Name, layer.Text)
 	}

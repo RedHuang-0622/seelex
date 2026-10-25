@@ -47,8 +47,8 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 	}
 
 	scope := store.ProjectBoardScope{Project: boardtest.Project, Session: session}
-	rows := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil)
-	again := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil)
+	rows := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil, 800)
+	again := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil, 800)
 	if boardtest.MarshalRows(t, rows) != boardtest.MarshalRows(t, again) {
 		t.Fatalf("同一输入跑两遍结果不同：%s vs %s", boardtest.MarshalRows(t, rows), boardtest.MarshalRows(t, again))
 	}
@@ -133,7 +133,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 	// 投影输入（活体取数）也不受文件影响：再映射一次仍是 doing。
 	rows := board.BuildProjectBoardRows(store.ProjectBoardScope{Project: boardtest.Project, Session: session},
-		1, boardtest.At, service.WorkTableRowsFor(session), nil, nil)
+		1, boardtest.At, service.WorkTableRowsFor(session), nil, nil, 800)
 	if len(rows) != 1 || boardtest.PayloadText(rows[0], "status") != "doing" {
 		t.Fatalf("活体输入映射出的行 = %+v，希望 status=doing", rows)
 	}
@@ -276,6 +276,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	syncer := board.NewProjectBoardSyncer(board.ProjectBoardDeps{
 		Store:          st,
 		WorkTableRows:  service.WorkTableRowsFor,
+		EvidenceChars:  func() int { return 800 },
 		ProjectRootFor: func(string) string { return boardtest.ProjectRoot },
 		Triggers:       board.TriggerFor(board.ProjectBoardHookModeTodoList),
 		FlushIdle:      idle,

@@ -189,7 +189,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 			service.refreshWorkTableLocked(tasks, asyncRuns)
 		},
-		Limits: Limits,
+		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
@@ -244,7 +244,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{
 		Core:   kernel,
 		View:   service.components.view,
-		Limits: Limits,
+		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
 		// 工具记录走 core 里那**唯一**一处判据（toolStatusFailed + toolRecordReason），
 		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
 		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。

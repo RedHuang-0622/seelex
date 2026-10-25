@@ -3,8 +3,8 @@ package task_context
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sort"
 	"strings"
@@ -76,7 +76,7 @@ type TaskExecutionState struct {
 	ContextRetainedFrom int
 	TokenAudit          model.TokenAudit
 	ActiveSkills        []model.ActiveSkill
-	TrustedSkillLayers  []prompt.PromptLayer
+	TrustedSkillLayers  []dto.PromptLayer
 	ContextCompactions  []model.ContextCompaction
 
 	checkpoints         map[string]*NodeCheckpoint

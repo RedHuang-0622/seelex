@@ -1,6 +1,6 @@
 # Backend / Middle 领域化与契约化修正方案
 
-日期：2026-10-25
+日期：2026-10-26
 
 状态：**实施中**。本文与
 [`2026-10-25-application-modularization/plan.md`](../2026-10-25-application-modularization/plan.md)
@@ -10,26 +10,11 @@
 
 | 批次 | 状态 | 证据 |
 |---|---|---|
-| BM-001 依赖预算 | 已完成 | [`contract/architecture_test.go`](../../contract/architecture_test.go) 冻结 106 条 backend 内部生产包边、16 条 backend → middle、6 条 middle → backend、2 条 backend → application，并冻结 34 个超 500 行存量文件；`go test ./contract -run TestBM001 -count=1` 通过。 |
+| BM-001 依赖预算 | 已完成 | [`contract/architecture_test.go`](../../contract/architecture_test.go) 冻结 backend 内部生产包边、backend → middle、middle → backend、backend → application 四组预算，并冻结存量文件规模；`go test ./contract -run TestBM001 -count=1` 通过。 |
 | BM-002 协议模型分层 | 已完成 | wire 模型权威定义迁至 `contract/protocol`；54 个 backend 生产/测试文件改指契约包，`middle/protocol/model` 保留同身份 alias；backend → middle 从 16 降至 6（剩余 3 条 assemble 接线与 3 条 event 投递中间件边）。 |
-| BM-003 Middle 只读端口 | 受阻 | 从 6 降至 3：subagent 事件/快照改用 `contract/dto`，state 的 react helper 下沉 `contract/protocol`；剩余 3 条均为 `limit.Limits`，需 Application/Wiring 注入只读读数。 |
-| BM-004 Backend 反向依赖清理 | 部分完成 | `engine/prompt` 改用本地消费者端口，backend → application 从 2 降至 1；剩余 task → application/prompt 需 Application 将 `PromptLayer` 改为契约 alias。 |
-| BM-005 Runtime 装配归属 | 未开始 | BM-001 至 BM-004 完成前不启动。 |
-
-### 待 Application / Wiring 配合
-
-1. `view_state.Deps.Limits`、`subagent_view.Deps.Limits` 改为
-   `func() dto.ViewLimits`。Application 构造点从 `Limits` 改为
-   `func() dto.ViewLimits { return Limits().ViewLimits() }`，投影规则只放在
-   `backend/limit.Limits.ViewLimits`。
-2. `board.ProjectBoardDeps` 增加 `EvidenceChars func() int`，Wiring 用生效 limits
-   注入；删除 board 内的全局 `limit.Get()` 读取。
-3. `application/prompt.PromptLayer` 改为
-   `type PromptLayer = dto.PromptLayer`，权威结构下沉契约后，backend task 改指契约。
-
-这些改动分别触及 `application/core/service_assembler.go`、
-`wiring/registry/registry.go` 与 `application/prompt/stack.go`；本轮按用户边界
-未修改。
+| BM-003 Middle 只读端口 | 已完成 | `dto.ViewLimits` 与 `Limits.ViewLimits()` 成为唯一窄投影；state/subagent 改收契约型，board 改由 Wiring 注入 `EvidenceChars`；middle → backend 归零。 |
+| BM-004 Backend 反向依赖清理 | 已完成 | `PromptLayer` 下沉 `contract/dto` 并由 Application 保留 alias；task 改用 `dto.PromptLayer` 与 `limit/loop.Budget`，backend → application 归零。 |
+| BM-005 Runtime 装配归属 | 未开始 | BM-001 至 BM-004 已完成，可进入下一阶段。 |
 
 ## 1. 背景与基线
 

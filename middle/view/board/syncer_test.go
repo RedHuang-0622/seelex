@@ -16,6 +16,7 @@ func boardDeps(st ProjectBoardStore, idle time.Duration, rows func(string) []mod
 	return ProjectBoardDeps{
 		Store:          st,
 		WorkTableRows:  rows,
+		EvidenceChars:  func() int { return 800 },
 		ProjectRootFor: func(sessionID string) string { return boardtest.ProjectRoot },
 		Triggers:       TriggerFor("todo_list"),
 		FlushIdle:      idle,

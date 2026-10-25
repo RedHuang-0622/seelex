@@ -123,7 +123,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "工具调用视图词",
 		files: map[string]string{
-			"middle/protocol/model/state.go":             "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
+			"contract/protocol/state.go":                 "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
 			"application/core/tool_hooks.go":             "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
 			"application/core/chat.go":                   "写：引擎历史回灌的可见工具行",
 			"application/core/session_history.go":        "写：引擎消息折成可见消息时的工具行",

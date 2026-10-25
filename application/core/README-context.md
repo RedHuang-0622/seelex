@@ -29,7 +29,7 @@ DeepSeek 的模型输出缓存单元：provider 会在 user input 结束和 mode
   文本只属于视图**。工具失败时 wire 上是框架合成的 `{"error": %q}`；超限时 wire 上是
   处理器归档引用（`result_ref=result:<callID>`），而视图/轨迹读的是应用呈现文本
   （`presentToolError` / `tr-<digest>` 归档引用）。记录侧为此增 provider-only 字段
-  `provider_content`（`middle/protocol/model/context.go` 的 `TranscriptEvent`、
+  `provider_content`（`contract/protocol/context.go` 的 `TranscriptEvent`、
   `store/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
   `store/durable_history.go` 的 `eventsToMessages`、`store/wire_assembler.go`
   的会话 wire 装配、`backend/engine/task/plan_transcript.go` 的

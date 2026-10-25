@@ -127,7 +127,7 @@ func TestProjectBoardDisabledInjectsNothing(t *testing.T) {
 
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: false, Hook: "", FlushIdleMS: 20},
-		router, rows, plan, state, projectRootFor,
+		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
@@ -151,7 +151,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: "todo-list", FlushIdleMS: 20},
-		router, rows, plan, state, projectRootFor,
+		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
 	if err == nil {
 		closeSink()
@@ -168,7 +168,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 	for _, hook := range []string{"", " todo_list ", "TOOL_COMPLETE"} {
 		if _, closeIdle, err := registry.ProjectBoardSinkFor(
 			limit.ProjectBoardLimits{Enabled: true, Hook: hook, FlushIdleMS: 20},
-			router, rows, plan, state, projectRootFor,
+			router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 		); err != nil {
 			t.Fatalf("hook=%q 被拒绝：%v", hook, err)
 		} else {
@@ -185,7 +185,7 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: board.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
-		router, rows, plan, state, projectRootFor,
+		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)

@@ -44,7 +44,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
@@ -98,6 +97,7 @@ func BuildProjectBoardRows(
 	workItems []model.WorkItem,
 	teamPlan *store.TeamworkPlan,
 	teamState *store.TeamworkState,
+	evidenceChars int,
 ) []store.ProjectBoardRow {
 	rows := make([]store.ProjectBoardRow, 0, len(workItems)+8)
 	for _, item := range workItems {
@@ -109,7 +109,7 @@ func BuildProjectBoardRows(
 			continue // 没有身份的行上不了板（折叠读也按 key 去重，空 key 无意义）
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
-			store.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item)))
+			store.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item, evidenceChars)))
 	}
 	if teamPlan == nil {
 		return rows
@@ -122,7 +122,7 @@ func BuildProjectBoardRows(
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
 			store.ProjectBoardKindMilestone, "milestone:"+milestoneID,
-			projectBoardMilestonePayload(milestone, state)))
+			projectBoardMilestonePayload(milestone, state, evidenceChars)))
 		for _, item := range milestone.Items {
 			itemID := strings.TrimSpace(item.ID)
 			if itemID == "" {
@@ -130,7 +130,7 @@ func BuildProjectBoardRows(
 			}
 			rows = append(rows, projectBoardRow(scope, seq, at,
 				store.ProjectBoardKindMilestoneItem, "milestone_item:"+itemID,
-				projectBoardMilestoneItemPayload(milestoneID, item)))
+				projectBoardMilestoneItemPayload(milestoneID, item, evidenceChars)))
 		}
 	}
 	return rows
@@ -156,7 +156,7 @@ func projectBoardRow(
 }
 
 // projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
-func projectBoardWorkPayload(item model.WorkItem) map[string]any {
+func projectBoardWorkPayload(item model.WorkItem, evidenceChars int) map[string]any {
 	payload := map[string]any{
 		"id":    strings.TrimSpace(item.ID),
 		"kind":  strings.TrimSpace(item.Kind),
@@ -164,7 +164,7 @@ func projectBoardWorkPayload(item model.WorkItem) map[string]any {
 	}
 	projectBoardPutText(payload, "task", item.Task)
 	projectBoardPutText(payload, "status", item.Status)
-	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, limit.Get().EvidenceChars))
+	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, evidenceChars))
 	projectBoardPutText(payload, "assignee", item.Assignee)
 	projectBoardPutText(payload, "session_id", item.SessionID)
 	projectBoardPutText(payload, "source_id", item.SourceID)
@@ -193,11 +193,11 @@ func projectBoardWorkPayload(item model.WorkItem) map[string]any {
 // 整队收口写在里程碑行上（载荷 team_state / team_closed）：它是"这一板还在不在册"的唯一读法，
 // 而里程碑行是**团队块**的锚（work 行是"活"，里程碑行是"编排"）。没有里程碑时无从表达——
 // 没有编排就没有"收口"这一问（不是漏读）。
-func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState) map[string]any {
+func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState, evidenceChars int) map[string]any {
 	payload := map[string]any{"id": strings.TrimSpace(milestone.ID)}
 	projectBoardPutText(payload, "name", milestone.Name)
 	projectBoardPutText(payload, "status", projectBoardMilestoneStatus(milestone, state))
-	projectBoardPutText(payload, "content", worktable.TruncateWorkEvidence(milestone.Content, limit.Get().EvidenceChars))
+	projectBoardPutText(payload, "content", worktable.TruncateWorkEvidence(milestone.Content, evidenceChars))
 	if len(milestone.DependsOn) > 0 {
 		payload["depends_on"] = append([]string(nil), milestone.DependsOn...)
 	}
@@ -224,7 +224,7 @@ func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.
 //
 // milestone 取**父节点 id**：归属就是 plan 的结构，而声明的 item.Milestone 在
 // ValidateTeamworkPlan 里必须与父节点一致（不一致整份计划被拒），读侧不再二次判定。
-func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem) map[string]any {
+func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem, evidenceChars int) map[string]any {
 	payload := map[string]any{
 		"id":        strings.TrimSpace(item.ID),
 		"milestone": milestoneID,
@@ -232,10 +232,10 @@ func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWor
 	projectBoardPutText(payload, "role", item.Role)
 	projectBoardPutText(payload, "name", item.Name)
 	projectBoardPutText(payload, "status", item.Status)
-	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, limit.Get().EvidenceChars))
-	projectBoardPutText(payload, "goal", worktable.TruncateWorkEvidence(item.Goal, limit.Get().EvidenceChars))
+	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, evidenceChars))
+	projectBoardPutText(payload, "goal", worktable.TruncateWorkEvidence(item.Goal, evidenceChars))
 	projectBoardPutText(payload, "session_id", item.SessionID)
-	projectBoardPutText(payload, "note", worktable.TruncateWorkEvidence(item.Note, limit.Get().EvidenceChars))
+	projectBoardPutText(payload, "note", worktable.TruncateWorkEvidence(item.Note, evidenceChars))
 	if len(item.DependsOn) > 0 {
 		payload["depends_on"] = append([]string(nil), item.DependsOn...)
 	}
@@ -298,8 +298,9 @@ func projectBoardRowsForFile(
 	teamPlan *store.TeamworkPlan,
 	teamState *store.TeamworkState,
 	file string,
+	evidenceChars int,
 ) []store.ProjectBoardRow {
-	work, teamwork := projectBoardBlocks(BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState))
+	work, teamwork := projectBoardBlocks(BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState, evidenceChars))
 	if file == store.ProjectBoardTeamworkFile {
 		return teamwork
 	}

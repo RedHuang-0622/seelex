@@ -118,7 +118,9 @@ const (
 // View/Chat/Recover 契约）与 `backend/multiagent/agentsession`（WorkItem/子代理
 // 独立 DurableHistory 工厂）。两者都是新领域落点，自身不反向依赖 application；
 // 按“新模块可 +1”的既有规则，上限从 86 抬到 88。
-const facadeClosureAllowListMax = 88
+// BM-002 共享协议下沉：`contract/protocol` 成为门面依赖闭包内的新契约子包。
+// 这是一次换落点后的新包登记，且自身只依赖标准库与 `contract/dto`，上限抬到 89。
+const facadeClosureAllowListMax = 89
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -174,6 +176,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/limit/policy",
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
+	// BM-002：共享 wire 形状从 middle/protocol/model 下沉；旧路径以 alias 保留。
+	"github.com/RedHuang-0622/seelex/contract/protocol",
 	"github.com/RedHuang-0622/seelex/internal/frontmatter",
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets",
 	// M5-R2：工具调用读数的内存累计从 `internal/toolrecord` 归位到 store 板块
@@ -284,13 +288,16 @@ var facadeClosureAllowList = []string{
 //
 // 与 facadeClosureAllowListMax 同理：这张表**只许缩小**，契约层新增任何非 stdlib
 // 依赖都必须先删条旧条目（即先做减法），不允许直接顶到上限以上。
-const contractClosureAllowListMax = 4
+// BM-002 后新增 `contract/protocol` 自身这一格；它是 contract 的模式子包，
+// 依赖仍只有标准库与 contract/dto。上限由 4 调整为 5。
+const contractClosureAllowListMax = 5
 
 var contractClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/model",
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
+	"github.com/RedHuang-0622/seelex/contract/protocol",
 }
 
 // frontendDirectImportAllowList 是四个前端入口的**直接** import 允许清单（只许收缩）。

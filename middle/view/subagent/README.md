@@ -24,9 +24,8 @@
 `contract/dto`（`SubagentToolEvent` / `ContextSnapshot`），不再 import
 `backend/multiagent/subagent` 或 seelectx snapshot。
 
-BM-003 迁移中：`Deps.Limits` 仍需接收完整 limits 值；剩余
-`middle/view/subagent -> backend/limit` 由依赖门禁冻结，待 Application 改为注入
-`dto.ViewLimits` 后删除。
+BM-003 已完成：`Deps.Limits` 接收 `func() dto.ViewLimits`，Application 从生效
+`limit.Limits` 的唯一 `ViewLimits()` 投影注入；本包到 `backend/limit` 的边已删除。
 
 ## 数据流图
 

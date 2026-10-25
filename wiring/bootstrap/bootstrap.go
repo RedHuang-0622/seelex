@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
@@ -333,6 +334,7 @@ func Run(opts Options) (*App, error) {
 		runtimeLimits.ProjectBoard, st,
 		app.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
 		app.ProjectBoardTeamStateFor, app.ProjectRootFor,
+		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		return nil, boot.fail(err)

@@ -45,7 +45,8 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
   Seele `permission.Gate`），执行门仍在 `backend/tool/registry`。
 - 不做"读一处、判一处"的第二份实现：默认值表、比例校验、窗口边界都只在本包出现，
   上层不得复制。
-- 不 import 任何 Seelex 包（见「依赖方向」）。
+- 只 import 纯契约 `contract/dto`，用于 `ViewLimits()` 的唯一窄投影；不 import
+  任何 backend/middle/application 实现包（见「依赖方向」）。
 
 **规划，尚未实现**（plan §2.8 的其余行）：
 权限三件套 + `tool_meta.go` → `policy/`（需先把 `backend/tool/registry` 的依赖抽成接口）；
@@ -128,10 +129,10 @@ flowchart LR
 
 ## 依赖方向
 
-允许：标准库 + `gopkg.in/yaml.v3`（`go list -deps ./backend/limit` 只多出这一个第三方包）。
-**禁止**：`seelexctx`、`application/*`、`seelebridge/*`、`store` 及任何 Seelex
-包。方向是单向的——上层可以 import 本包，本包不得回指（回指即成环，且会把
-"最底层判据"变成又一处分层人质）。
+允许：标准库 + `gopkg.in/yaml.v3` + 纯契约 `contract/dto`。
+**禁止**：`seelexctx`、`application/*`、`middle/*`、`seelebridge/*`、`store` 及
+其他 Seelex 实现包。方向是单向的——上层可以 import 本包，本包不得回指（回指即成环，
+且会把"最底层判据"变成又一处分层人质）。
 
 ## 并发、存储与错误语义
 
@@ -153,7 +154,8 @@ flowchart LR
    "显式值"（→ 不补默认，并在注释里写明为什么）；bool 且需要区分"没写"时，
    走 YAML 节点级的键存在性判定。
 3. 决定是否需要**启动期校验**（负值、比例区间、相对关系），并加进 `LoadLimits`。
-4. 消费点优先**构造注入**生效值；确需进程级读数的走 `Get()`，不要各自缓存一份。
+4. 消费点优先**构造注入**生效值；中间层只读投影走 `Limits.ViewLimits()` 的唯一
+   窄映射，确需进程级读数的走 `Get()`，不要各自缓存一份。
 5. 改键名或默认值必须同步：`config/seelex.yaml`、
    `internal/bootseed/assets/config/seelex.yaml`（经 `scripts/sync-bootseed-defaults.ps1`
    保持同源）、`config/README.md` 与对应测试；源码 doc 注释变化后刷新
@@ -167,7 +169,7 @@ flowchart LR
   是出厂档取值，两者只在"整块缺失"时交接，不得在第三处再写一遍数字。
 - **原子性是否被破坏**：任何"改一格"的写路径不得退化成非原子的读-改-写，也不得
   顺手重跑 `WithDefaults`。
-- **依赖方向是否被破**：新增 import 超出"标准库 + yaml"就是越界。
+- **依赖方向是否被破**：新增 import 超出"标准库 + yaml + contract/dto"就是越界。
 - **窗口判据是否唯一**：前端挡位表（`gui/frontend/dist/release-window.js`）与
   `SessionReleaseWindowMin/Max` 由用例逐值对账，改边界要同时改三处（本包常量、
   前端表、两侧用例）。
@@ -202,6 +204,10 @@ go list -deps ./backend/limit
 - `func Apply(l Limits)` — Apply 应用 seele.yaml limits 段（零值字段自动补默认）。
 - `func SetSessionReleaseWindow(window int)` — SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
 - `func Get() Limits` — Get 返回当前生效的运行时上限（只读拷贝语义）。
+
+### view_limits.go
+
+- `func (limits Limits) ViewLimits() dto.ViewLimits` — ViewLimits 把完整运行时上限投影为中间层只读视图需要的窄契约。
 
 ### async_exec_config_test.go
 

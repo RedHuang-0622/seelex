@@ -65,9 +65,12 @@ type ProjectBoardDeps struct {
 	// 不落盘）。落点就是 `<项目根>/.seelex/board/`；不再要工作区 ID——它是
 	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
 	ProjectRootFor func(sessionID string) string
-	Triggers       ProjectBoardTrigger
-	FlushIdle      time.Duration
-	Now            func() time.Time
+	// EvidenceChars 是投影文本的字符上限（0 = 不限）。由装配根从生效
+	// limit.Limits 投影后注入，避免 middle 反向依赖 backend/limit。
+	EvidenceChars func() int
+	Triggers      ProjectBoardTrigger
+	FlushIdle     time.Duration
+	Now           func() time.Time
 }
 
 // ProjectBoardSyncer 是投影同步器：唯一写盘路径 + 唯一 flush goroutine。
@@ -243,8 +246,12 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 	// 两者一致，不一致直接拒绝——那是"往别人的目录里塞行"）。
 	scope := store.ProjectBoardScope{Session: sessionID}
 	at := s.now().UTC().Unix()
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardWorkFile, at, items, plan, state)
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardTeamworkFile, at, items, plan, state)
+	evidenceChars := 0
+	if s.deps.EvidenceChars != nil {
+		evidenceChars = s.deps.EvidenceChars()
+	}
+	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardWorkFile, at, items, plan, state, evidenceChars)
+	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardTeamworkFile, at, items, plan, state, evidenceChars)
 }
 
 // flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
@@ -262,13 +269,14 @@ func (s *ProjectBoardSyncer) flushFile(
 	items []model.WorkItem,
 	plan *store.TeamworkPlan,
 	state *store.TeamworkState,
+	evidenceChars int,
 ) {
 	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, sessionID, file)
 	if err != nil {
 		log.Printf("[project-board] 读水位失败（%s/%s），本次不落盘：%v", sessionID, file, err)
 		return
 	}
-	rows := projectBoardRowsForFile(scope, watermark+1, at, items, plan, state, file)
+	rows := projectBoardRowsForFile(scope, watermark+1, at, items, plan, state, file, evidenceChars)
 	fingerprint := projectBoardRowsFingerprint(rows)
 	kinds := make(map[string]string, len(rows))
 	for _, row := range rows {

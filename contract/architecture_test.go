@@ -89,6 +89,7 @@ var backendEdgeBudget = map[string]string{
 	"backend/engine/task -> backend/engine/context/seelectx/tokens":                         "任务 token 预算",
 	"backend/engine/task -> backend/engine/session":                                         "任务持久化端口",
 	"backend/engine/task -> backend/limit":                                                  "任务预算读数",
+	"backend/engine/task -> backend/limit/loop":                                             "任务执行预算类型",
 	"backend/engine/task -> backend/tool/task":                                              "任务台账宿主",
 	"backend/limit/effort -> backend/limit/loop":                                            "档位策略",
 	"backend/limit/overlay -> backend/limit":                                                "运行上限覆盖",
@@ -137,15 +138,9 @@ var backendMiddleBudget = map[string]string{
 	"backend/limit/approval -> middle/protocol/event":      "event delivery middleware remains until its port is split",
 }
 
-var middleBackendBudget = map[string]string{
-	"middle/view/board -> backend/limit":    "BM-003 limits DTO (requires wiring injection)",
-	"middle/view/state -> backend/limit":    "BM-003 limits DTO (requires Application injection)",
-	"middle/view/subagent -> backend/limit": "BM-003 limits DTO (requires Application injection)",
-}
+var middleBackendBudget = map[string]string{}
 
-var backendApplicationBudget = map[string]string{
-	"backend/engine/task -> application/prompt": "BM-004 prompt DTO (requires Application alias)",
-}
+var backendApplicationBudget = map[string]string{}
 
 // oversizedFileBudget freezes the current sizes of legacy files above the
 // repository's 500-line guideline. Existing files may shrink but never grow;

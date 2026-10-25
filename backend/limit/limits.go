@@ -2,8 +2,8 @@
 // 的 `limits` 段）的类型、默认值、校验、加载，以及进程级生效快照（active.go）。
 //
 // 依赖方向红线（docs/2026-10-15-architecture-reshape/plan.md §1.2）：本包只允许依赖
-// 标准库与 `gopkg.in/yaml.v3`，**不得** import `seelexctx`、`application/*`、
-// `seelebridge/*`。它是全仓库最底层的判据落点，上层只消费判定，不各自重算。
+// 标准库、`gopkg.in/yaml.v3` 与纯契约 `contract/dto`，不得 import `seelexctx`、
+// `application/*`、`seelebridge/*`；它是全仓库最底层的判据落点，上层不各自重算。
 package limit
 
 import (
