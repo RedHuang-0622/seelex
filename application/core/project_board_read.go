@@ -47,17 +47,10 @@ func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem {
 // 未绑定工作区的会话返回 ""（**没有落点**：不落盘，契约 §3）。这里**不**回退到
 // Sessions.Workspace()：那是"视图当前工作区"，拿它当落点等于把别的项目的看板写进去。
 func (service *Service) ProjectRootFor(sessionID string) string {
-	if service == nil || service.Deps.Workspace == nil {
+	if service == nil {
 		return ""
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return ""
-	}
-	if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
-		return strings.TrimSpace(workspace.RootPath)
-	}
-	return ""
+	return service.components.sessionQuery.ProjectRootFor(sessionID)
 }
 
 // ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。

@@ -669,47 +669,7 @@ func (service *Service) ResumeSession(sessionID string) error {
 //     行：一页读回来先按**行身份**找接缝（窗口首行在页里的位置），只把接缝
 //     之前的那段可见行前置进窗口；接缝对不上就不假装连续（见 installVisibleHistory）。
 func (service *Service) LoadMoreHistory(limit int) error {
-	window := Limits().HistoryWindow
-	if window <= 0 {
-		window = 1
-	}
-	if limit <= 0 || limit > window {
-		limit = window
-	}
-
-	service.ViewMu.RLock()
-	offset := service.Core.Snapshot.HistoryOffset
-	sessionID := service.Core.Snapshot.Session.ID
-	workspaceID := currentWorkspaceIDLocked(service)
-	service.ViewMu.RUnlock()
-	if service.sessionContentUnloaded(sessionID) {
-		// 内容 LRU 卸载后再分页：窗口当前不在内存，先把尾部窗口从磁盘回读
-		// （offset 回到尾部），再按本页请求向更早推进；否则「加载更早」会从
-		// 一个不存在的窗口出发（页错位）。
-		if err := service.reloadSessionContent(sessionID); err != nil {
-			return err
-		}
-		service.ViewMu.RLock()
-		offset = service.Core.Snapshot.HistoryOffset
-		service.ViewMu.RUnlock()
-	}
-	if offset <= 0 {
-		return nil
-	}
-
-	loadOffset := offset - limit
-	if loadOffset < 0 {
-		loadOffset = 0
-	}
-	// 冷读面的下标是**未过滤**空间（内部标记行同样占位），可见下标不能直接当
-	// 冷读下标用：这里多带一个窗口并按几何扩读，由接缝（窗口首行）对位确定这一
-	// 页的右界（见 loadEarlierVisiblePage），再按行身份前置进窗口。
-	seam := service.visibleWindowFirstRow(sessionID)
-	page, err := service.loadEarlierVisiblePage(workspaceID, sessionID, offset, offset-loadOffset, window, seam)
-	if err != nil {
-		return err
-	}
-	return service.installVisibleHistory(sessionID, page, window, historyPagePrepend)
+	return service.components.conversationHistoryQuery.LoadMoreHistory(limit)
 }
 
 // LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
@@ -720,28 +680,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 // 没有任何可加载的东西——冷读面的右界是发布点，换上来的必然是更旧的一页，
 // 把本轮尚未落盘的尾部整窗删掉。此时直接返回，内存即答案。
 func (service *Service) LoadLatestHistory() error {
-	window := Limits().HistoryWindow
-	if window <= 0 {
-		window = 1
-	}
-	service.ViewMu.RLock()
-	sessionID := service.Core.Snapshot.Session.ID
-	workspaceID := currentWorkspaceIDLocked(service)
-	service.ViewMu.RUnlock()
-	if service.sessionContentUnloaded(sessionID) {
-		// 内容 LRU 卸载后「回到最新」= 从磁盘整窗回读（回读本身按尾部窗口安装
-		// 并清除「内容未加载」标志，无需再读一次）。
-		return service.reloadSessionContent(sessionID)
-	}
-	if service.visibleTailServedFromMemory(sessionID) {
-		return nil
-	}
-
-	page, err := service.loadConversationTailPage(workspaceID, sessionID, window)
-	if err != nil {
-		return err
-	}
-	return service.installVisibleHistory(sessionID, page, window, historyPageReplace)
+	return service.components.conversationHistoryQuery.LoadLatestHistory()
 }
 
 // visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且

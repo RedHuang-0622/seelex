@@ -6,6 +6,15 @@
 
 覆盖：`session*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
+## 查询端口（2026-10-25，AP-004/AP-005）
+
+`session_query.go` 提供会话目录、项目根、展示元数据与目录刷新等待的只读对象；
+`session_conversation_history_query.go` 提供历史分页窗口对象。二者只持窄读依赖，
+不持完整 `Service`。历史冷读在共享 `ViewMu` 之外执行，锁内只安装可见窗口；
+公开 `Service` 方法只做一行转发。回归见
+`session_conversation_history_query_test.go` 与根包
+`architecture_budget_test.go`。
+
 ## 冷加载紧凑读面（2026-10-24）
 
 冷加载把事实源看成“compact 指针 + 指针后的后缀”，不再把 provider history
@@ -335,6 +344,18 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestConcurrentSessionsKeepOwnContent(t *testing.T)`
 - `func concurrentTranscriptText(events []model.TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
 - `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
+
+### session_conversation_history_query.go
+
+- `func newConversationHistoryQuery(deps conversationHistoryQueryDeps) *conversationHistoryQuery`
+- `func (query *conversationHistoryQuery) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到当前可见窗口。
+- `func (query *conversationHistoryQuery) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页。
+- `func newServiceConversationHistoryQuery(service *Service) *conversationHistoryQuery` — newServiceConversationHistoryQuery 复用现有唯一历史窗口判据与安装路径。
+
+### session_conversation_history_query_test.go
+
+- `func (store *blockingConversationRangeStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]model.Message, int, error)`
+- `func TestLoadMoreHistoryReadsOutsideSharedWriteLock(t *testing.T)`
 
 ### session_cross_session_cold_load_repro_test.go
 
@@ -750,6 +771,16 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)`
 - `func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T)` — TestBackgroundSessionKeepsOwnProjectRoot 复现工作区污染：会话 A 绑定项目 A，
 - `func waitSessionIdle(t *testing.T, service *Service)` — waitSessionIdle 等待全部会话回合结束（多会话并行时视图 Chat 状态不代表进程空闲）。
+
+### session_query.go
+
+- `func newSessionQuery(deps sessionQueryDeps) *sessionQuery`
+- `func (query *sessionQuery) ListSessions() []model.SessionInfo` — ListSessions 返回当前权威会话目录；读锁只覆盖内存快照和投影组合。
+- `func (query *sessionQuery) ProjectRootFor(sessionID string) string` — ProjectRootFor 从会话绑定事实读取项目根，不回退到当前视图工作区。
+- `func (query *sessionQuery) SessionMeta(sessionID string) (model.SessionMeta, error)` — SessionMeta 读取会话展示元数据；元数据端口缺失的语义由 middle/switch 统一返回。
+- `func (query *sessionQuery) WaitCatalogRefresh(ctx context.Context) error` — WaitCatalogRefresh 等待目录 worker 覆盖本轮刷新；等待期间不持有 ViewMu。
+- `func newServiceSessionQuery(service *Service) *sessionQuery` — newServiceSessionQuery 将既有唯一判据装配成查询端口。
+- `func (service *Service) waitCatalogRefresh(ctx context.Context) error` — waitCatalogRefresh 是既有一行宿主转发的内部入口，供无状态查询对象注入。
 
 ### session_queue_recover.go
 

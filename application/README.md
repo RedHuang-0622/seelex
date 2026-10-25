@@ -17,7 +17,7 @@
   `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
   [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
 
-## 五组窄接口（`faces.go`，M5-R10a）
+## 五组窄接口（`core/service_api_faces.go`，M5-R10a）
 
 门面按 plan §1.3 的「用例方法面收窄成五组」落地（契约
 [`docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md`](../docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md) §1）：
@@ -32,7 +32,7 @@
 
 - 四个接口的方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/core`，
   共 141 个公开方法）：不新增、不删除、不改名、不改签名——它们就是 gui/tui 今天消费的契约（I5）。
-- `Service` 在**结构上**满足四个面：`application/faces.go` 末尾有编译期钉子
+- `Service` 在**结构上**满足四个面：`application/core/service_api_faces.go` 末尾有编译期钉子
   `var _ ViewFace = (*Service)(nil)` 一族（契约 §1.2 第 1 条）。
 - 不在四组的第三类共 29 个方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：装配注入口
   （`SetProjectBoardSink` / `SetToolRecordSnapshotStore` / `SetGoalTLEvaluator` / `ApplyToolRecordEnabled` /
@@ -47,6 +47,61 @@
 - 分类口径：B = 只读投影/订阅；C = 会改会话、对话或工作区状态的动作；D = 档位与策略（含账号、存储配置、
   插件、角色、调度）；E = 队列与输入建议。逐方法分组理由是生成器
   `tmp/reshape/r10a_groups.py` 的显式清单，新增方法必须显式归类（断言 ② 会拦住漏网）。
+
+### Application 结构预算（AP-001，已实现）
+
+[`architecture_budget_test.go`](architecture_budget_test.go) 以
+[`testdata/application_budget.json`](testdata/application_budget.json) 和
+[`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
+
+- 冻结 `Service` 当前 171 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
+  当前事实基线为 39，预算只允许下降；
+- 校验
+  [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
+  中的兼容层台账存在。
+
+本轮 AP-001 只增加门禁和台账，不改变 API 行为；AP-002 起的小接口仍须让
+`Service` 结构满足，旧四组接口在调用方归零前保留。
+
+### 按能力拆分的入站 API（AP-002，已实现）
+
+[`core/service_api_faces.go`](core/service_api_faces.go) 在旧四组兼容接口之外
+新增能力型入站面；[`faces.go`](faces.go) 只做类型别名再导出。每个接口不超过
+20 个方法，调用方可以直接声明所需能力：
+
+| 接口 | 方法数 | 用途 |
+|---|---:|---|
+| `ConversationAPI` | 10 | 提交、取消、恢复、对话视图与审批决议 |
+| `SessionAPI` | 19 | 会话目录、快照、历史窗口、订阅、恢复与 fork |
+| `ExecutionQueryAPI` | 13 | WorkItem、teammate、子代理、历史与工作表格只读投影 |
+| `ExecutionCommandAPI` | 1 | WorkItem 用户可写状态 |
+| `WorkspaceAPI` | 15 | 工作区生命周期、文件/Git 读取、写入与审阅 |
+| `GoalAPI` | 9 | Goal 状态机与治理视图 |
+| `PolicyAPI` | 9 | 当前会话/进程策略与能力切换 |
+| `AdminAPI` | 13 | 账号与调度任务管理 |
+| `RoleAPI` | 11 | 角色会话、草稿、顺序与权限读面 |
+| `SubagentAPI` | 6 | 子代理派发、详情、恢复与树清理 |
+| `StateAPI` | 9 | Snapshot、订阅、空闲与只读运行投影 |
+| `QueueAPI` | 3 | 排队输入编辑与建议 |
+| `LifecycleAPI` | 2 | 优雅停机与强制关闭 |
+
+`var _ ConversationAPI = (*Service)(nil)` 一族是编译期结构断言；
+[`api_partition_test.go`](api_partition_test.go) 另有机械断言：单个 API 不超过
+20 方法，且旧 `ViewFace`/`CommandFace`/`PolicyFace`/`QueueFace` 的方法全部
+被新接口联合覆盖。此批只新增接口，不迁移 GUI/TUI 调用点，wire 字段与行为不变。
+
+### 只读查询面（AP-004 / AP-005，已实现）
+
+- `SessionQuery`：`ListSessions`、`ProjectRootFor`、`SessionMeta`、
+  `WaitCatalogRefresh`；查询对象只持窄读依赖，不持完整 `Service`。
+- `ConversationHistoryQuery`：`LoadMoreHistory`、`LoadLatestHistory`；磁盘冷读在
+  共享 `ViewMu` 之外完成，锁内只安装可见窗口。
+
+旧 `Service` 方法保留为一行转发。历史窗口算法仍只有
+[`middle/switch/history`](../middle/switch/history/README.md) 一份实现；
+`application/core` 继续直接消费该唯一实现。新增 Application 适配包会触发门面
+闭包禁止新增依赖的门禁，因此直接内部依赖保持 39，38 差值待 Middle 收口处理。
 
 ## 子模块
 

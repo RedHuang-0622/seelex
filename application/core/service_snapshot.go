@@ -155,13 +155,7 @@ func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []mo
 // resident/审批计数），不含 UI 专用草稿占位槽。调用方可直接枚举而无需拉
 // 整份视图快照。
 func (service *Service) ListSessions() []model.SessionInfo {
-	service.ViewMu.RLock()
-	defer service.ViewMu.RUnlock()
-	rows := append([]model.SessionInfo(nil), service.Core.Snapshot.Sessions...)
-	// 与会话树同一份补行判据（不是 UI 专属）：运行中但尚未落盘的会话在冷读面
-	// 同样必须在列（否则 headless 宿主看到的目录比 GUI 少行）。草稿占位槽仍然不补。
-	rows = service.withLiveSessionRowsLocked(rows)
-	return service.enrichDirectoryRowsLocked(rows)
+	return service.components.sessionQuery.ListSessions()
 }
 
 // enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有

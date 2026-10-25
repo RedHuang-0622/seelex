@@ -141,6 +141,16 @@ flowchart LR
 
 `Service` 是稳定的应用门面与跨组件编排层，本身只保存 `serviceState` 和 `serviceComponents`。共享状态按基础设施、会话、计划、任务上下文、提示词、生命周期和前端快照分组，避免继续扩张成平铺字段集合。
 
+查询面（AP-004/AP-005）单独装配为 `sessionQuery` 与
+`conversationHistoryQuery`。两者不持完整 `Service`：
+
+- `session_query.go` 组合会话目录、项目根、展示元数据和目录刷新等待；
+- `session_conversation_history_query.go` 组合历史窗口分页；磁盘冷读在共享
+  `ViewMu` 之外，写锁内只安装可见窗口。
+
+对应公开方法只保留一行转发。历史行身份与窗口边界继续复用
+`middle/switch/history` 的唯一实现；本轮没有为改变指标增加第二份适配实现。
+
 `service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`middle/switch/workspace`](../../middle/switch/workspace/README.md)，本包公开方法只做一行转发，视图投影写面仍由本包持有。
 
 `service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。

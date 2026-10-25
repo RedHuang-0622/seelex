@@ -28,6 +28,11 @@ type serviceComponents struct {
 	subagent *subagent_view.Coordinator
 	input    inputDispatcher
 
+	// sessionQuery 与 conversationHistoryQuery 是 Application 查询面：
+	// 只持窄读依赖，不持完整 Service，也不承担会话生命周期状态机。
+	sessionQuery             *sessionQuery
+	conversationHistoryQuery *conversationHistoryQuery
+
 	// projectBoard 是装配期注入的**可选写侧端口**（项目看板投影的订阅口，M3）。
 	//
 	// 为什么落在这里而不是 facade 的第三个字段：facade 只允许 state + components

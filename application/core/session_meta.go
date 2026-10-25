@@ -55,5 +55,8 @@ func (service *Service) SetSessionMeta(sessionID string, meta model.SessionMeta)
 
 // SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
 func (service *Service) SessionMeta(sessionID string) (model.SessionMeta, error) {
-	return switching.ReadMeta(service.metaDeps(), sessionID)
+	if service == nil {
+		return switching.ReadMeta(switching.MetaDeps{}, sessionID)
+	}
+	return service.components.sessionQuery.SessionMeta(sessionID)
 }
