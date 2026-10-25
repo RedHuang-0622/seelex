@@ -19,7 +19,6 @@ import (
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/console"
-	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
@@ -109,7 +108,7 @@ func Run(opts Options) (*App, error) {
 		boot.Trace = console.NewEventLogger(output, time.Now)
 		boot.Trace.LogStage("startup.flags.parsed")
 	}
-	if frontend == "gui" && !gui.Available() {
+	if frontend == "gui" && !guiAvailable() {
 		return nil, boot.fail(fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`))
 	}
 	mode, err := config.ParsePermissionMode(flags.PermissionMode)

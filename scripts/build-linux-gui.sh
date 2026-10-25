@@ -86,6 +86,9 @@ pack() {
   cp config/mcp.example.yaml config/search_engine.example.yaml "$OUTDIR/config/"
   rm -rf -- "$OUTDIR/plugins"
   cp -r plugins "$OUTDIR/"
+  rm -rf -- "$OUTDIR/frontend/vendor"
+  mkdir -p "$OUTDIR/frontend"
+  cp -r gui/frontend/dist/vendor "$OUTDIR/frontend/"
   cp LICENSE CHANGELOG.md README.md "$OUTDIR/"
   [[ ! -f README_EN.md ]] || cp README_EN.md "$OUTDIR/"
   # 品牌图：每个交付文件夹各备份一份，交付树自足（唯一事实源是 gui/icons/seelex-logo.png）
@@ -214,8 +217,8 @@ docker run "${DOCKER_ARGS[@]}" \
     echo "[container] gtk+-3.0=$(pkg-config --modversion gtk+-3.0) ${PC_VER}=$(pkg-config --modversion "$PC_VER") | $(go version)"
     export GOFLAGS=-mod=vendor GOPROXY=off GOCACHE=/tmp/gocache
     CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
-      -tags "gui,desktop,production,${TAG}" -trimpath \
-      -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=${VERSION} -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" \
+      -tags "gui,desktop,production,${TAG}" -trimpath -buildvcs=false \
+      -ldflags "-s -w -buildid= -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=${VERSION} -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" \
       -o /out/seelex-gui .
     echo "--- ABI ---"
     readelf -d /out/seelex-gui | grep NEEDED

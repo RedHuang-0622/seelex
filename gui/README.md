@@ -6,6 +6,13 @@
 
 主要调用方：组合根 `main.go`（`-frontend gui`）与 `gui/frontend/dist` 前端模块。
 
+发行布局把前端分成两层：启动核心（HTML/CSS/业务 JS）嵌入可执行文件，
+约 5.4 MiB 的离线 vendor（mermaid/pdf.js/docx-preview/xterm/highlight）放在
+`<exe>/frontend/vendor`，由 `frontendAssets` 覆盖到同一 `fs.FS`。构建脚本
+必须一并交付该目录；单拷 exe 仍能启动，但对应预览/终端会走前端既有降级分支。
+开发时若目录缺失，会从仓库祖先目录的 `gui/frontend/dist/vendor` 自动定位。
+GUI 构建标签不再链接 TUI；TUI 使用不带 `gui` 标签的独立二进制。
+
 ## 架构图
 
 ```mermaid

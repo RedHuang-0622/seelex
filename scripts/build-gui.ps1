@@ -58,8 +58,8 @@ if (Test-Path $StageRoot) {
 New-Item -ItemType Directory -Force -Path (Join-Path $StageRoot "config") | Out-Null
 
 $binary = Join-Path $StageRoot "seelex-gui.exe"
-go build -C $Root -tags "gui,desktop,production" -trimpath `
-    -ldflags "-s -w -H windowsgui -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$Version -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" `
+go build -C $Root -tags "gui,desktop,production" -trimpath -buildvcs=false `
+    -ldflags "-s -w -buildid= -H windowsgui -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$Version -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" `
     -o $binary .
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -83,6 +83,9 @@ if ($BuildKind -eq "Dev") {
     }
 }
 Copy-Item -Recurse (Join-Path $Root "plugins") (Join-Path $StageRoot "plugins")
+$frontendOut = Join-Path $StageRoot "frontend"
+New-Item -ItemType Directory -Force -Path $frontendOut | Out-Null
+Copy-Item -Recurse (Join-Path $Root "gui/frontend/dist/vendor") (Join-Path $frontendOut "vendor")
 Copy-Item (Join-Path $Root "config/seele.yaml") (Join-Path $StageRoot "config/")  # permission rules
 Copy-Item (Join-Path $Root "config/seelex.yaml") (Join-Path $StageRoot "config/")  # runtime settings
 Copy-Item (Join-Path $Root "LICENSE") $StageRoot

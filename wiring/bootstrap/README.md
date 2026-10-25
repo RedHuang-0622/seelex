@@ -46,8 +46,10 @@ mmcpstack/configm 各自拥有自己的段）。
 - **权限门**：先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），mconfig/seele.yamlm
   的 mpermissionm 段按字段覆盖；免打断白名单按**装配期解析出的实际壳**分派
   （mpolicy.PermissionConfigForShellm）。
-- **前端分派**：mStartFrontendm 是四态 switch；GUI 不可用时（未带 mgui,desktop,productionm
-  标签）在装配早期就给出可读错误，而不是等到建窗。
+- **前端分派**：mStartFrontendm 仍是四态 switch，但具体实现按构建标签拆开：
+  默认二进制提供 TUI/headless/backend，mgui m 二进制提供 GUI/headless/backend。
+  因此 GUI 不链接 Bubble Tea/TUI，TUI 不链接 GUI terminal/PTY；未包含的形态
+  在装配期给出可读错误，而不是等到建窗。
 
 ## 数据流
 

@@ -205,8 +205,8 @@ function Invoke-Stage {
     Write-Host "[stage] 版本: $ver" -ForegroundColor Cyan
     Write-Host "[stage] 输出: $StagedExe (暂存区, 不触碰基线工作区)" -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $StagingRoot | Out-Null
-    & go build -C $Root -tags "gui,desktop,production" -trimpath `
-        -ldflags "-s -w -H windowsgui -X $VersionPkg.Version=$ver -X $VersionPkg.DefaultFrontend=gui" `
+    & go build -C $Root -tags "gui,desktop,production" -trimpath -buildvcs=false `
+        -ldflags "-s -w -buildid= -H windowsgui -X $VersionPkg.Version=$ver -X $VersionPkg.DefaultFrontend=gui" `
         -o $StagedExe "."
     if ($LASTEXITCODE -ne 0) { throw "暂存区构建失败" }
     $size = (Get-Item -LiteralPath $StagedExe).Length

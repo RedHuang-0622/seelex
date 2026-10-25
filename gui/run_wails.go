@@ -4,7 +4,6 @@ package gui
 
 import (
 	"context"
-	"io/fs"
 
 	"github.com/wailsapp/wails/v2"
 	wailsoptions "github.com/wailsapp/wails/v2/pkg/options"
@@ -31,7 +30,7 @@ func Run(app Application, config Options) error {
 	if err != nil {
 		return err
 	}
-	assets, err := fs.Sub(embeddedFrontend, "frontend/dist")
+	assets, err := frontendAssets()
 	if err != nil {
 		return err
 	}
