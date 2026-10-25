@@ -48,12 +48,21 @@ test("项目 SSH 连接表只在项目设置，全局应用设置不含 SSH", as
   assert.ok(project, "必须有 project-settings-modal");
   assert.match(project, /主机留空即本地环境/, "项目环境表要说明 local/ssh 判据");
   assert.match(project, /id="ssh-env-list"/);
-  assert.match(project, /id="ssh-env-host"/);
-  assert.match(project, /id="ssh-env-save"/);
+  assert.match(project, /id="ssh-env-add"/, "添加环境从环境管理打开二级弹窗");
+  assert.match(project, /id="session-environment-select"/, "会话环境选择属于同一个环境管理面");
+  assert.match(project, /id="session-environment-confirm"/);
+  assert.doesNotMatch(project, /id="ssh-env-host"/, "环境字段不在一级管理面平铺");
   assert.doesNotMatch(project, /id="session-ssh-allowed"/, "会话放权不属于项目连接表");
   assert.doesNotMatch(settings, /SSH 环境|ssh-env-list|session-ssh-allowed/, "全局设置不得包含 SSH 设置");
   assert.match(html, /id="project-settings-button"/, "项目标题区要有项目设置入口");
-  assert.match(html, /id="project-settings-button"[^>]*>管理环境<\/button>/, "项目入口要明确管理工作环境");
+  assert.match(html, /id="project-settings-button"[^>]*>环境管理<\/button>/, "项目入口要明确管理工作环境");
+  assert.doesNotMatch(html, /id="session-environment-button"/, "环境只保留一个入口");
+  assert.doesNotMatch(html, /id="session-environment-modal"/, "会话环境不另开顶层面板");
+  const editor = modal(html, "environment-editor-modal");
+  assert.ok(editor, "添加/调整环境使用二级弹窗");
+  for (const id of ["ssh-env-name", "ssh-env-host", "ssh-env-save", "ssh-env-delete"]) {
+    assert.match(editor, new RegExp(`id="${id}"`), `${id} 要落在环境二级弹窗`);
+  }
 });
 
 test("角色页使用角色卡、候选/确认权限栏，并支持继承 chip", async () => {
@@ -63,11 +72,13 @@ test("角色页使用角色卡、候选/确认权限栏，并支持继承 chip",
   assert.match(settings, /id="permission-role-board"/);
   assert.doesNotMatch(settings, /id="session-role-board"/);
   assert.doesNotMatch(settings, /id="session-permission-board"/, "会话权限不得回流全局设置");
-  assert.match(html, /id="session-permission-button"/);
+  assert.doesNotMatch(html, /id="session-permission-button"/, "项目标题旁不再放会话权限入口");
+  assert.match(html, /id="perm-toggle"/, "输入框下方权限芯片是唯一会话权限入口");
   assert.doesNotMatch(settings.match(/data-settings-page-panel="roles"[\s\S]*?data-settings-page-panel="application"/)?.[0] || "", /id="account-windows"|id="role-default-plugin"/, "角色页只保留角色层级；账户运行参数落在角色卡内，应用参数落在应用页");
   assert.match(app, /rolePermissionBoardHTML/);
   assert.match(app, /data-role-inherit/);
   assert.match(app, /data-role-perm-add/);
+  assert.match(app, /data-open-session-permissions/, "权限芯片菜单要能打开按角色管理的会话权限");
   assert.match(app, /SetRoleSessionPermission/, "会话权限必须按 agent role 更新");
   assert.match(app, /invoke\("SetRoleAccount"/, "角色账号要写回后端");
   assert.match(app, /add\.value === "ssh"[\s\S]*openSSHUserSpaceDialog/, "勾选 SSH 要打开路径弹窗");

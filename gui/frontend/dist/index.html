@@ -297,9 +297,7 @@
       <section class="project-heading">
         <div class="project-heading-bar">
           <div class="section-title">项目</div>
-          <button id="session-permission-button" class="text-button project-settings-action" type="button" title="选择当前会话的 agent role 权限覆盖" aria-label="打开会话权限">会话权限</button>
-          <button id="session-environment-button" class="text-button project-settings-action" type="button" title="查看或首次固定本会话工作环境" aria-label="打开会话工作环境">本会话环境</button>
-          <button id="project-settings-button" class="text-button project-settings-action" type="button" title="管理当前项目的工作环境" aria-label="打开项目工作环境设置">管理环境</button>
+          <button id="project-settings-button" class="text-button project-settings-action" type="button" title="管理当前项目的环境" aria-label="打开环境管理">环境管理</button>
         </div>
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
@@ -567,21 +565,6 @@
     </div>
   </div>
 
-  <div id="session-environment-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="session-environment-title">
-    <div class="modal-card session-environment-card">
-      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="session-environment-title">固定工作环境</h2></div><button id="session-environment-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p id="session-environment-summary" class="settings-note">环境决定本会话所有工具的本地/SSH 执行面。首次固定后不可切换；换环境请新建会话。</p>
-      <label class="settings-field">工作环境
-        <select id="session-environment-select"></select>
-      </label>
-      <div class="settings-actions">
-        <button id="session-environment-cancel" type="button" class="secondary">取消</button>
-        <button id="session-environment-confirm" type="button" class="primary">固定此环境</button>
-      </div>
-      <div id="session-environment-status" class="muted"></div>
-    </div>
-  </div>
-
   <div id="session-permission-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="session-permission-title">
     <div class="modal-card settings-card settings-card--wide session-permission-card">
       <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="session-permission-title">本会话权限</h2><p class="settings-note">这里只覆盖当前会话；选中即直接放行，不再询问。跨会话默认权限在设置里。</p></div><button id="session-permission-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
@@ -603,23 +586,57 @@
 
   <div id="project-settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
     <div class="modal-card project-settings-card">
-      <div class="modal-header"><div><span class="eyebrow">项目</span><h2 id="project-settings-title">项目设置</h2><p id="project-settings-name" class="settings-note">当前项目</p></div><button id="project-settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">项目</span><h2 id="project-settings-title">环境管理</h2><p id="project-settings-name" class="settings-note">当前项目</p></div><button id="project-settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="settings-section" id="ssh-env-section">
-        <div class="section-title">工作环境</div>
-        <p class="settings-note">按环境名维护当前项目可用的本地或 SSH 执行面；主机留空即本地环境。口令留空表示保持原值。</p>
+        <div class="section-title">本会话环境</div>
+        <p id="session-environment-summary" class="settings-note">环境决定本会话所有工具的本地/SSH 执行面。首次固定后不可切换；换环境请新建会话。</p>
+        <div class="environment-session-picker">
+          <select id="session-environment-select" aria-label="本会话工作环境"></select>
+          <button id="session-environment-confirm" type="button" class="primary">固定此环境</button>
+        </div>
+        <div id="session-environment-status" class="muted"></div>
+      </div>
+      <div class="settings-section">
+        <div class="section-title">项目环境</div>
+        <p class="settings-note">按环境名维护当前项目可用的本地或 SSH 执行面；主机留空即本地环境。点条目调整，添加环境使用二级弹窗。</p>
         <div id="ssh-env-list" class="settings-field"></div>
-        <div class="settings-field ssh-env-form">
-          <input id="ssh-env-name" type="text" placeholder="环境名（dev / test / prod）" aria-label="环境名" />
-          <input id="ssh-env-host" type="text" placeholder="主机（留空 = 本地）" aria-label="主机" />
-          <input id="ssh-env-port" type="number" placeholder="端口" aria-label="端口" />
-          <input id="ssh-env-user" type="text" placeholder="用户" aria-label="用户" />
-          <input id="ssh-env-remote-root" type="text" placeholder="远端项目根（可选）" aria-label="远端项目根" />
-          <input id="ssh-env-password" type="password" placeholder="口令（留空 = 不改）" aria-label="口令" />
-          <label class="ssh-env-default"><input id="ssh-env-default" type="checkbox" />设为默认</label>
-          <button id="ssh-env-save" type="button">保存环境</button>
-          <button id="ssh-env-delete" type="button">删除</button>
+        <div class="settings-actions">
+          <button id="ssh-env-add" type="button" class="primary">添加环境</button>
         </div>
         <div id="ssh-env-status" class="muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="environment-editor-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="environment-editor-title">
+    <div class="modal-card environment-editor-card">
+      <div class="modal-header"><div><span class="eyebrow">环境</span><h2 id="environment-editor-title">添加环境</h2><p id="environment-editor-note" class="settings-note">主机留空即本地环境；口令留空表示保持原值。</p></div><button id="environment-editor-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <label class="settings-field">环境名
+        <input id="ssh-env-name" type="text" placeholder="dev / test / prod" aria-label="环境名" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="settings-field">主机（留空 = 本地）
+        <input id="ssh-env-host" type="text" placeholder="如 10.0.0.8" aria-label="主机" autocomplete="off" spellcheck="false" />
+      </label>
+      <div class="environment-editor-grid">
+        <label class="settings-field">端口
+          <input id="ssh-env-port" type="number" placeholder="22" aria-label="端口" />
+        </label>
+        <label class="settings-field">用户
+          <input id="ssh-env-user" type="text" placeholder="远端用户" aria-label="用户" autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
+      <label class="settings-field">远端项目根（可选）
+        <input id="ssh-env-remote-root" type="text" placeholder="/srv/project" aria-label="远端项目根" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="settings-field">口令（留空 = 不改）
+        <input id="ssh-env-password" type="password" placeholder="留空保持原值" aria-label="口令" autocomplete="off" />
+      </label>
+      <label class="ssh-env-default"><input id="ssh-env-default" type="checkbox" />设为项目默认环境</label>
+      <div id="environment-editor-status" class="muted"></div>
+      <div class="settings-actions">
+        <button id="ssh-env-delete" type="button" class="danger">删除</button>
+        <button id="environment-editor-cancel" type="button" class="secondary">取消</button>
+        <button id="ssh-env-save" type="button" class="primary">保存环境</button>
       </div>
     </div>
   </div>

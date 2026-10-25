@@ -132,7 +132,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "workbench-summary-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-editor", "scheduled-task-modal-title", "scheduled-task-close", "scheduled-task-cancel", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "left-nav", "toggle-left-nav", "task-list-context", "left-page-tasks", "left-page-scheduled", "left-page-plugins",
-  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-modal", "project-settings-close", "project-settings-name", "session-environment-button", "session-environment-modal", "session-environment-close", "session-environment-summary", "session-environment-select", "session-environment-cancel", "session-environment-confirm", "session-environment-status", "worktree-view", "file-count", "context-compactions",
+  "project-name", "project-root", "project-status", "project-settings-button", "project-settings-modal", "project-settings-close", "project-settings-name", "session-environment-summary", "session-environment-select", "session-environment-confirm", "session-environment-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
@@ -142,7 +142,7 @@ const elements = Object.fromEntries([
   "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-default-plugin", "default-plugin-status", "role-settings-status", "permission-role-board", "ssh-env-list", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "account-add-modal", "account-add-modal-title", "account-add-note", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-delete-modal", "account-delete-title", "account-delete-message", "account-delete-close", "account-delete-cancel", "account-delete-confirm", "account-delete-status", "ssh-userspace-modal", "ssh-userspace-close", "ssh-userspace-cancel", "ssh-userspace-paths", "ssh-userspace-save", "ssh-userspace-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "settings-nav", "terminal-scrollback", "release-window", "release-window-status", "role-default-plugin", "default-plugin-status", "role-settings-status", "permission-role-board", "ssh-env-list", "ssh-env-add", "ssh-env-name", "ssh-env-host", "ssh-env-port", "ssh-env-user", "ssh-env-remote-root", "ssh-env-password", "ssh-env-default", "ssh-env-save", "ssh-env-delete", "ssh-env-status", "environment-editor-modal", "environment-editor-title", "environment-editor-note", "environment-editor-close", "environment-editor-cancel", "environment-editor-status", "account-add-modal", "account-add-modal-title", "account-add-note", "account-add-cancel", "account-add-cancel-footer", "account-add-role", "account-add-model", "account-add-api-key", "account-add-provider", "account-add-base-url", "account-add-effort", "account-add-submit", "account-add-status", "account-delete-modal", "account-delete-title", "account-delete-message", "account-delete-close", "account-delete-cancel", "account-delete-confirm", "account-delete-status", "ssh-userspace-modal", "ssh-userspace-close", "ssh-userspace-cancel", "ssh-userspace-paths", "ssh-userspace-save", "ssh-userspace-status", "theme-picker", "mode-picker", "inline-suggestions",
   "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
@@ -155,7 +155,7 @@ const elements = Object.fromEntries([
   "message-queue",
   "terminal-panel", "terminal-body", "terminal-tabs", "terminal-resize", "terminal-collapse",
   "terminal-new", "terminal-close", "terminal-hide", "terminal-button",
-  "session-permission-button", "session-permission-modal", "session-permission-close", "session-permission-board"
+  "session-permission-modal", "session-permission-close", "session-permission-board"
 ].map(id => [id, document.getElementById(id)]));
 
 // ── 左侧主导航 ───────────────────────────────────────────────
@@ -1741,18 +1741,8 @@ function renderProject(snapshot) {
   if (projectSettingsButton) {
     projectSettingsButton.disabled = !workspace?.id;
     projectSettingsButton.title = workspace?.id
-      ? `管理 ${workspace.name || "当前项目"} 的工作环境`
-      : "先选择一个项目，再管理工作环境";
-  }
-  if (elements["session-environment-button"]) {
-    elements["session-environment-button"].disabled = !workspace?.id;
-  }
-  if (elements["session-permission-button"]) {
-    elements["session-permission-button"].disabled = !snapshot.session?.id;
-  }
-  if ((workspace?.id || "") !== sessionEnvironmentWorkspaceID) {
-    sessionEnvironmentWorkspaceID = workspace?.id || "";
-    void syncSessionEnvironment();
+      ? `管理 ${workspace.name || "当前项目"} 的环境`
+      : "先选择一个项目，再管理环境";
   }
   if (elements["project-settings-name"]) {
     elements["project-settings-name"].textContent = workspace?.id
@@ -2470,7 +2460,8 @@ function renderPermissionMenu(runtime) {
     : "";
   menu.innerHTML = `<div class="perm-menu-head">主代理权限（本会话）· 点一下给 / 两下拒 / 三下空</div>`
     + `<div class="perm-tag-row" role="group" aria-label="主代理权限向量">${renderPermissionVectorHTML(permissionVectorCommitted)}</div>`
-    + notes;
+    + notes
+    + `<button type="button" class="perm-menu-action" data-open-session-permissions>按 Agent role 管理本会话权限</button>`;
 }
 
 // renderPlugins 渲染左栏「插件 Skill」页的插件列表 + 该插件的 Skill 目录。
@@ -3826,7 +3817,6 @@ function closeSessionPermissions() {
   setModal("session-permission-modal", false);
 }
 
-let sessionEnvironmentWorkspaceID = null;
 let sessionEnvironmentEnvs = [];
 let sessionEnvironmentDefault = "";
 let sessionEnvironmentCurrent = "";
@@ -3837,36 +3827,18 @@ async function syncSessionEnvironment() {
     sessionEnvironmentEnvs = [];
     sessionEnvironmentDefault = "";
     sessionEnvironmentCurrent = "";
-    if (elements["session-environment-button"]) elements["session-environment-button"].textContent = "本会话环境";
+    renderSessionEnvironmentSection();
     return;
   }
+  sessionEnvironmentEnvs = sshEnvRows.slice();
+  sessionEnvironmentDefault = sshEnvDefault;
   try {
-    const [environmentResult, sessionState] = await Promise.all([
-      invoke("WorkspaceEnvironments", workspaceID),
-      invoke("SessionSSHState"),
-    ]);
-    sessionEnvironmentEnvs = Array.isArray(environmentResult?.[0]) ? environmentResult[0] : [];
-    sessionEnvironmentDefault = String(environmentResult?.[1] || "");
+    const sessionState = await invoke("SessionSSHState");
     sessionEnvironmentCurrent = String(sessionState?.current_env || "").trim();
-    renderSessionEnvironmentButton();
-    if (elements["session-environment-modal"]?.classList?.contains("hidden") === false) {
-      renderSessionEnvironmentModal();
-    }
   } catch {
-    sessionEnvironmentEnvs = [];
     sessionEnvironmentCurrent = "";
-    if (elements["session-environment-button"]) elements["session-environment-button"].textContent = "本会话环境 · 读取失败";
   }
-}
-
-function renderSessionEnvironmentButton() {
-  const button = elements["session-environment-button"];
-  if (!button) return;
-  const current = sessionEnvironmentCurrent || (sessionEnvironmentEnvs.length ? "未固定" : "本地");
-  button.textContent = `本会话环境 · ${current}`;
-  button.title = sessionEnvironmentCurrent
-    ? `本会话固定环境：${sessionEnvironmentCurrent}（不可切换）`
-    : "查看或首次固定本会话工作环境";
+  renderSessionEnvironmentSection();
 }
 
 function sessionEnvironmentOptionLabel(item) {
@@ -3875,9 +3847,10 @@ function sessionEnvironmentOptionLabel(item) {
     : `${item.name} · 本地`;
 }
 
-function renderSessionEnvironmentModal() {
+function renderSessionEnvironmentSection() {
   const select = elements["session-environment-select"];
   if (!select) return;
+  const hasSession = Boolean(client.current()?.session?.id);
   const fixed = Boolean(sessionEnvironmentCurrent);
   select.innerHTML = sessionEnvironmentEnvs.length
     ? sessionEnvironmentEnvs.map(item => {
@@ -3885,30 +3858,20 @@ function renderSessionEnvironmentModal() {
       return `<option value="${escapeHtml(item.name)}"${selected ? " selected" : ""}>${escapeHtml(sessionEnvironmentOptionLabel(item))}</option>`;
     }).join("")
     : '<option value="">项目还没有工作环境</option>';
-  select.disabled = fixed || !sessionEnvironmentEnvs.length;
+  select.disabled = fixed || !hasSession || !sessionEnvironmentEnvs.length;
   if (elements["session-environment-confirm"]) {
-    elements["session-environment-confirm"].disabled = fixed || !sessionEnvironmentEnvs.length;
+    elements["session-environment-confirm"].disabled = fixed || !hasSession || !sessionEnvironmentEnvs.length;
     elements["session-environment-confirm"].textContent = fixed ? "已固定" : "固定此环境";
   }
   if (elements["session-environment-status"]) {
-    elements["session-environment-status"].textContent = fixed
-      ? `已固定为 ${sessionEnvironmentCurrent}；agent 与工具入参都不能切换，换环境请新建会话。`
-      : "固定后本会话、其 subagent/teammate 与后台工具都使用该环境。";
+    elements["session-environment-status"].textContent = !hasSession
+      ? "当前没有打开的会话；项目环境仍可维护，固定操作需在会话中完成。"
+      : fixed
+        ? `已固定为 ${sessionEnvironmentCurrent}；agent 与工具入参都不能切换，换环境请新建会话。`
+        : sessionEnvironmentEnvs.length
+          ? "固定后本会话、其 subagent/teammate 与后台工具都使用该环境。"
+          : "先在下方添加一个项目环境，再回到这里固定。";
   }
-}
-
-async function openSessionEnvironment() {
-  if (!client.current()?.current_workspace?.id) {
-    showToast("先选择一个项目，再固定本会话工作环境");
-    return;
-  }
-  await syncSessionEnvironment();
-  renderSessionEnvironmentModal();
-  setModal("session-environment-modal", true);
-}
-
-function closeSessionEnvironment() {
-  setModal("session-environment-modal", false);
 }
 
 let editingAccountName = "";
@@ -3987,15 +3950,17 @@ function closeAccountDelete() {
 
 async function openProjectSettings() {
   if (!client.current()?.current_workspace?.id) {
-    showToast("先选择一个项目，再管理项目工作环境");
+    showToast("先选择一个项目，再管理环境");
     return;
   }
   setModal("settings-modal", false);
   setModal("project-settings-modal", true);
   await syncWorkspaceEnvironments();
+  await syncSessionEnvironment();
 }
 
 function closeProjectSettings() {
+  closeEnvironmentEditor();
   setModal("project-settings-modal", false);
 }
 
@@ -4776,11 +4741,7 @@ elements["settings-nav"]?.addEventListener("click", event => {
 elements["account-add-cancel"]?.addEventListener("click", closeAccountAdd);
 elements["account-add-cancel-footer"]?.addEventListener("click", closeAccountAdd);
 elements["project-settings-button"]?.addEventListener("click", () => { void openProjectSettings(); });
-elements["session-permission-button"]?.addEventListener("click", () => { void openSessionPermissions(); });
 elements["session-permission-close"]?.addEventListener("click", closeSessionPermissions);
-elements["session-environment-button"]?.addEventListener("click", () => { void openSessionEnvironment(); });
-elements["session-environment-close"]?.addEventListener("click", closeSessionEnvironment);
-elements["session-environment-cancel"]?.addEventListener("click", closeSessionEnvironment);
 elements["session-environment-confirm"]?.addEventListener("click", async () => {
   const select = elements["session-environment-select"];
   const env = String(select?.value || "").trim();
@@ -4790,8 +4751,7 @@ elements["session-environment-confirm"]?.addEventListener("click", async () => {
   try {
     const state = await invoke("SetSessionSSHEnv", currentWorkspaceID(), env);
     sessionEnvironmentCurrent = String(state?.current_env || env);
-    renderSessionEnvironmentButton();
-    renderSessionEnvironmentModal();
+    renderSessionEnvironmentSection();
     showToast(`本会话已固定工作环境：${sessionEnvironmentCurrent}`);
   } catch (error) {
     if (elements["session-environment-status"]) elements["session-environment-status"].textContent = `固定失败：${error?.message || error}`;
@@ -5086,7 +5046,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["session-permission-modal", closeSessionPermissions], ["session-environment-modal", closeSessionEnvironment], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["session-permission-modal", closeSessionPermissions], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -5191,6 +5151,10 @@ document.addEventListener("keydown", event => {
       closeAccountAdd();
       return;
     }
+    if (!elements["environment-editor-modal"]?.classList.contains("hidden")) {
+      closeEnvironmentEditor();
+      return;
+    }
     if (!elements["project-settings-modal"]?.classList.contains("hidden")) {
       closeProjectSettings();
       return;
@@ -5211,6 +5175,9 @@ elements["account-add-modal"]?.addEventListener("click", event => {
 elements["project-settings-modal"]?.addEventListener("click", event => {
   if (event.target === elements["project-settings-modal"]) closeProjectSettings();
 });
+elements["environment-editor-modal"]?.addEventListener("click", event => {
+  if (event.target === elements["environment-editor-modal"]) closeEnvironmentEditor();
+});
 
 // 权限芯片：点击**就地展开**主代理权限向量（不再是档位；档位只能往松里拨一格，
 // 表达不了“只给 SSH”或“明确拒掉 SSH”这类逐格点名）。
@@ -5223,7 +5190,14 @@ elements["perm-toggle"].addEventListener("click", function(event) {
 // 与设置面板的向量编辑走同一条提交路径（submitPermissionVector），不各写一份。
 elements["perm-menu"].addEventListener("click", async function(event) {
   const tag = event.target?.closest?.("button[data-perm-type]");
-  if (!tag) return;
+  if (!tag) {
+    if (event.target?.closest?.("[data-open-session-permissions]")) {
+      event.stopPropagation();
+      closePermissionMenu();
+      await openSessionPermissions();
+    }
+    return;
+  }
   event.stopPropagation();
   const next = cyclePermissionVector(permissionVectorDraft, tag.dataset.permType);
   if (next.join(",") === permissionVectorDraft.join(",")) return;
@@ -6222,9 +6196,16 @@ elements["ssh-userspace-save"]?.addEventListener("click", async () => {
 let sshEnvRows = [];       // 项目环境表读面（host 空 = local）
 let sshEnvDefault = "";    // 项目默认环境名
 let sshEnvAvailable = true;
+let environmentEditorMode = "add";
+let environmentEditorOriginalName = "";
 
 function setSSHEnvStatus(text) {
   const status = elements["ssh-env-status"];
+  if (status) status.textContent = text || "";
+}
+
+function setEnvironmentEditorStatus(text) {
+  const status = elements["environment-editor-status"];
   if (status) status.textContent = text || "";
 }
 
@@ -6253,7 +6234,7 @@ function renderSSHEnvRows() {
     return;
   }
   if (!sshEnvRows.length) {
-    host.innerHTML = '<span class="muted list-empty">这个项目还没有环境：用下面的表单加一个（例如 dev）</span>';
+    host.innerHTML = '<span class="muted list-empty">这个项目还没有环境：点「添加环境」创建一个（例如 dev）。</span>';
     return;
   }
   host.innerHTML = sshEnvRows.map(row => {
@@ -6261,7 +6242,7 @@ function renderSSHEnvRows() {
     const mode = row.host ? "ssh" : "local";
     const flags = [mode, row.default ? "默认" : "", row.password_set ? "已设口令" : ""].filter(Boolean).join(" · ");
     const account = row.host ? (row.user ? `${address} @${row.user}` : address) : "本地项目根";
-    return `<button type="button" class="ssh-env-row" data-ssh-env="${escapeHtml(row.name)}" title="点一下载入下面的表单">
+    return `<button type="button" class="ssh-env-row" data-ssh-env="${escapeHtml(row.name)}" title="点击调整 ${escapeHtml(row.name)}">
       <strong>${escapeHtml(row.name)}</strong>
       <span class="muted">${escapeHtml(account)}</span>
       ${row.remote_root ? `<span class="muted">${escapeHtml(row.remote_root)}</span>` : ""}
@@ -6270,11 +6251,62 @@ function renderSSHEnvRows() {
   }).join("");
 }
 
+function openEnvironmentEditor(name = "") {
+  if (!client.current()?.current_workspace?.id) {
+    showToast("先选择一个项目，再管理环境");
+    return;
+  }
+  const found = name ? sshEnvRows.find(item => item.name === name) : null;
+  if (name && !found) {
+    showToast(`环境 ${name} 已不存在，请刷新后再试`);
+    return;
+  }
+  const editing = Boolean(found);
+  environmentEditorMode = editing ? "edit" : "add";
+  environmentEditorOriginalName = found?.name || "";
+  if (elements["environment-editor-title"]) {
+    elements["environment-editor-title"].textContent = editing ? `调整环境 · ${found.name}` : "添加环境";
+  }
+  if (elements["environment-editor-note"]) {
+    elements["environment-editor-note"].textContent = editing
+      ? "环境名是项目内的稳定主键；这里调整连接信息与默认环境。口令留空表示保持原值。"
+      : "创建后会在环境列表里出现；主机留空即本地环境。口令留空表示不设置口令。";
+  }
+  const nameInput = elements["ssh-env-name"];
+  if (nameInput) {
+    nameInput.value = found?.name || "";
+    nameInput.disabled = editing;
+  }
+  if (elements["ssh-env-host"]) elements["ssh-env-host"].value = found?.host || "";
+  if (elements["ssh-env-port"]) elements["ssh-env-port"].value = found?.port ? String(found.port) : "";
+  if (elements["ssh-env-user"]) elements["ssh-env-user"].value = found?.user || "";
+  if (elements["ssh-env-remote-root"]) elements["ssh-env-remote-root"].value = found?.remote_root || "";
+  if (elements["ssh-env-password"]) elements["ssh-env-password"].value = "";
+  if (elements["ssh-env-default"]) elements["ssh-env-default"].checked = Boolean(found?.default);
+  if (elements["ssh-env-delete"]) elements["ssh-env-delete"].hidden = !editing;
+  setEnvironmentEditorStatus("");
+  setModal("environment-editor-modal", true);
+}
+
+function closeEnvironmentEditor() {
+  setModal("environment-editor-modal", false);
+  environmentEditorMode = "add";
+  environmentEditorOriginalName = "";
+  setEnvironmentEditorStatus("");
+  if (elements["ssh-env-password"]) elements["ssh-env-password"].value = "";
+  if (elements["ssh-env-name"]) elements["ssh-env-name"].disabled = false;
+}
+
+async function refreshEnvironmentViews() {
+  await syncWorkspaceEnvironments();
+  await syncSessionEnvironment();
+}
+
 // submitSSHEnvironment 保存一个项目环境（口令留空 = 不改，是后端的三态语义）。
 async function submitSSHEnvironment() {
   const name = String(elements["ssh-env-name"]?.value || "").trim();
   if (!name) {
-    setSSHEnvStatus("先填环境名（dev / test / prod 这类，字母数字 - _ .）。");
+    setEnvironmentEditorStatus("先填环境名（dev / test / prod 这类，字母数字 - _ .）。");
     return;
   }
   const portText = String(elements["ssh-env-port"]?.value || "").trim();
@@ -6291,12 +6323,13 @@ async function submitSSHEnvironment() {
   };
   try {
     const applied = await invoke("SetWorkspaceEnvironment", currentWorkspaceID(), name, change);
-    await syncWorkspaceEnvironments();
+    await refreshEnvironmentViews();
     setSSHEnvStatus(applied && applied.host
       ? `${name}：已保存 SSH 环境（${applied.host}${applied.port ? ":" + applied.port : ""}）`
       : `${name}：已保存本地环境`);
+    closeEnvironmentEditor();
   } catch (error) {
-    setSSHEnvStatus(`保存 ${name} 失败：${error}`);
+    setEnvironmentEditorStatus(`保存 ${name} 失败：${error}`);
     showToast(error);
   }
 }
@@ -6304,33 +6337,28 @@ async function submitSSHEnvironment() {
 elements["ssh-env-list"]?.addEventListener("click", event => {
   const row = event.target?.closest?.("[data-ssh-env]");
   if (!row) return;
-  const name = row.dataset.sshEnv;
-  const found = sshEnvRows.find(item => item.name === name);
-  if (!found) return;
-  elements["ssh-env-name"].value = found.name;
-  elements["ssh-env-host"].value = found.host || "";
-  elements["ssh-env-port"].value = found.port ? String(found.port) : "";
-  elements["ssh-env-user"].value = found.user || "";
-  elements["ssh-env-remote-root"].value = found.remote_root || "";
-  elements["ssh-env-password"].value = "";
-  elements["ssh-env-default"].checked = Boolean(found.default);
-  setSSHEnvStatus(`已载入 ${name}（口令不回填：留空 = 不改，填了才覆盖）`);
+  const name = String(row.dataset.sshEnv || "");
+  openEnvironmentEditor(name);
 });
 
+elements["ssh-env-add"]?.addEventListener("click", () => openEnvironmentEditor());
 elements["ssh-env-save"]?.addEventListener("click", submitSSHEnvironment);
+elements["environment-editor-close"]?.addEventListener("click", closeEnvironmentEditor);
+elements["environment-editor-cancel"]?.addEventListener("click", closeEnvironmentEditor);
 
 elements["ssh-env-delete"]?.addEventListener("click", async () => {
-  const name = String(elements["ssh-env-name"]?.value || "").trim();
-  if (!name) {
-    setSSHEnvStatus("先点上面一行载入要删的环境。");
+  const name = environmentEditorOriginalName;
+  if (environmentEditorMode !== "edit" || !name) {
+    setEnvironmentEditorStatus("只有已有环境可以删除。");
     return;
   }
   try {
     await invoke("DeleteWorkspaceEnvironment", currentWorkspaceID(), name);
-    await syncWorkspaceEnvironments();
+    await refreshEnvironmentViews();
     setSSHEnvStatus(`${name}：已删除`);
+    closeEnvironmentEditor();
   } catch (error) {
-    setSSHEnvStatus(`删除 ${name} 失败：${error}`);
+    setEnvironmentEditorStatus(`删除 ${name} 失败：${error}`);
     showToast(error);
   }
 });

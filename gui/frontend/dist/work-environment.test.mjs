@@ -7,7 +7,7 @@ const read = name => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 test("项目工作环境支持本地与 SSH 两种执行面", async () => {
   const html = await read("index.html");
   assert.match(html, /主机留空即本地环境/);
-  assert.match(html, /placeholder="主机（留空 = 本地）"/);
+  assert.match(html, /主机（留空 = 本地）/);
 
   const app = await read("app.js");
   assert.match(app, /const mode = row\.host \? "ssh" : "local"/);
@@ -21,11 +21,26 @@ test("项目工作环境支持本地与 SSH 两种执行面", async () => {
 test("工作环境固定在会话层，绑定后 UI 不允许 agent 或用户切换", async () => {
   const html = await read("index.html");
   const app = await read("app.js");
-  assert.match(html, /id="session-environment-button"/);
-  assert.match(html, /id="session-environment-modal"/);
+  assert.doesNotMatch(html, /id="session-environment-button"/, "环境入口只在项目标题的「环境管理」");
+  assert.doesNotMatch(html, /id="session-environment-modal"/, "会话环境不再另开一级弹窗");
+  assert.match(html, /id="session-environment-select"/, "会话环境选择收进环境管理");
   assert.match(html, /首次固定后不可切换/);
   assert.match(app, /invoke\("SetSessionSSHEnv", currentWorkspaceID\(\), env\)/);
   assert.match(app, /select\.disabled = fixed/);
   assert.match(app, /agent 与工具入参都不能切换/);
-  assert.doesNotMatch(app, /elements\["session-environment-modal"\][\s\S]{0,200}settings-modal/, "会话环境不是全局设置项");
+  assert.doesNotMatch(app, /elements\["session-environment-modal"\]/, "已退场的独立会话环境弹窗不得回流");
+});
+
+test("环境管理用条目选择，添加与调整走同一二级弹窗", async () => {
+  const html = await read("index.html");
+  const app = await read("app.js");
+  assert.match(html, /id="ssh-env-list"[^>]*class="[^"]*settings-field/);
+  assert.match(html, /id="ssh-env-add"[^>]*>添加环境<\/button>/);
+  assert.match(html, /id="environment-editor-modal"/);
+  assert.match(html, /id="environment-editor-title"/);
+  assert.match(app, /function openEnvironmentEditor\(/);
+  assert.match(app, /openEnvironmentEditor\(name\)/, "点击环境条目进入调整弹窗");
+  assert.match(app, /openEnvironmentEditor\(\)/, "添加按钮打开空表单");
+  assert.match(app, /mode === "edit"/, "同一个弹窗区分新增与调整");
+  assert.match(app, /nameInput\.disabled = editing/, "调整已有环境时不靠重命名偷换主键");
 });

@@ -3010,7 +3010,7 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .project-settings-card > .modal-header,
 .account-add-card > .modal-header,
 .account-delete-card > .modal-header,
-.session-environment-card > .modal-header,
+.environment-editor-card > .modal-header,
 .ssh-userspace-card > .modal-header {
   position: sticky;
   top: 0;
@@ -3060,6 +3060,9 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .settings-page-head .settings-note { max-width: 560px; }
 .project-settings-card { width: min(720px, calc(100vw - 28px)); }
 .account-add-card { width: min(560px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 48px)); overflow-y: auto; }
+.environment-editor-card { width: min(600px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 48px)); overflow-y: auto; }
+.environment-editor-grid { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 10px; }
+.environment-session-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .permission-vector-readonly { opacity: .86; }
 .permission-vector-readonly .perm-tag { cursor: default; }
@@ -3203,7 +3206,6 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .role-account-empty,
 .role-permission-empty { padding: 16px 4px; color: var(--faint); font: 11px var(--font-mono); }
 .ssh-userspace-card { width: min(600px, calc(100vw - 28px)); }
-.session-environment-card { width: min(520px, calc(100vw - 28px)); }
 .account-delete-card { width: min(480px, calc(100vw - 28px)); }
 .account-delete-card .danger { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
 .ssh-userspace-card textarea {
@@ -3248,6 +3250,10 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
     border-left: 0;
   }
   .role-account-window em { grid-column: 1 / -1; }
+  .environment-session-picker,
+  .environment-editor-grid { grid-template-columns: 1fr; }
+  .ssh-env-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ssh-env-row span { grid-column: 1 / -1; }
 }
 .settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: var(--text-sm); }
 .settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--text); font: 12px var(--font-mono); }
@@ -3268,6 +3274,9 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .perm-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .perm-menu-head { padding: 2px 2px 8px; color: var(--muted); font: 12px var(--font-mono); }
 .perm-menu-hint { padding: 8px 2px 2px; color: var(--muted); font: 12px var(--font-mono); line-height: 1.5; }
+.perm-menu-action { margin-top: 7px; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); background: var(--surface-2); text-align: left; font: 11px var(--font-mono); cursor: pointer; }
+.perm-menu-action:hover,
+.perm-menu-action:focus-visible { border-color: var(--accent); outline: none; }
 .perm-vector { display: flex; flex-direction: column; gap: 4px; }
 .period-row { display: flex; align-items: center; gap: 8px; }
 .period-prefix { flex: none; color: var(--muted); font-size: var(--text-sm); }
@@ -6088,9 +6097,8 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 /* 会话行就地改名：与标题按钮同高同宽，回车提交、Esc/失焦取消。 */
 .session-rename-input { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--r-lg); background: var(--surface, transparent); color: var(--text); font: 12px var(--font-mono); }
 
-/* SSH 环境：项目表行（可点载入）+ 表单一行铺开。 */
-.ssh-env-row { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 4px 8px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: var(--r-lg); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+/* 环境管理：列表条目可点开二级弹窗调整。 */
+.ssh-env-row { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: baseline; width: 100%; padding: 8px 10px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: var(--r-lg); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .ssh-env-row:hover { border-color: var(--accent); }
-.ssh-env-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.ssh-env-form input { min-width: 0; flex: 1 1 120px; }
+.ssh-env-row em { color: var(--faint); font-style: normal; white-space: nowrap; }
 .ssh-env-default { display: inline-flex; gap: 4px; align-items: center; }

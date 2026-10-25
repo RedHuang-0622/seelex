@@ -280,12 +280,14 @@ test("设置只编辑全局角色权限，本会话覆盖在会话入口", async
   assert.match(index, /id="permission-role-board"/, "全局角色卡要在");
   assert.doesNotMatch(index, /id="session-role-board"/, "不再保留独立会话权限板");
   assert.doesNotMatch(index, /data-settings-page="session"/, "不再保留会话权限一级导航");
-  assert.match(index, /id="session-permission-button"/, "会话区要有权限入口");
+  assert.doesNotMatch(index, /id="session-permission-button"/, "项目标题旁不再保留会话权限入口");
+  assert.match(index, /id="perm-toggle"/, "输入框下方权限芯片是会话权限入口");
   assert.match(index, /id="session-permission-board"/, "会话权限弹窗要有落点");
   assert.match(app, /await invoke\("PermissionRoles"\)/, "角色名录要向桥要");
   assert.match(app, /mode: "default"[\s\S]{0,180}accounts/, "设置页只按默认作用域渲染");
   assert.match(app, /mode: "session"[\s\S]{0,180}showAccounts: false/, "会话弹窗只渲染权限，不重复账户");
-  assert.match(app, /openSessionPermissions/, "会话入口要打开会话权限弹窗");
+  assert.match(app, /data-open-session-permissions/, "权限芯片菜单要打开按角色管理的会话权限");
+  assert.match(app, /openSessionPermissions/, "会话权限弹窗仍由唯一入口打开");
   assert.match(app, /const method = mode === "session" \? "SetRoleSessionPermission" : "SetRoleDefaultVector"/, "提交按作用域选择桥面方法");
   assert.doesNotMatch(app, /SetRoleDefaultVector", permissionRoleSelected/, "单角色选择器已经退场");
   assert.match(app, /SetRoleSessionPermission/, "会话覆盖走独立提交路径");
