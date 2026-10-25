@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // SkillLookup 是"按名查技能"的窄读口（结构满足 `contract.SkillPort` 的 Get）。

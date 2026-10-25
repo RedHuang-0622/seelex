@@ -6,7 +6,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 装配层压缩（prepareExecutionContextFor）把折出保留窗口的区间推进会话压缩栈的

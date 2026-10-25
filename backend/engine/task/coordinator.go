@@ -9,8 +9,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // Coordinator 是任务执行域协调器：task 子状态、plan 子状态与 token 审计

@@ -831,8 +831,9 @@ type WorkspaceSSHInfo struct {
 	// RemoteRoot 是**远端工作目录**（= 远端项目根，对端 POSIX 绝对路径）。
 	//
 	// 它让路径门在远端面上有一个真正的根可比对（registry 的 SSHEndpoint.RemoteRoot
-	// 由它折出）：根内路径不需要 ssh.userspace，走出它才需要。空 = 未知——此时路径门
-	// 只能把"本地根也容不下的绝对路径"全算成越界候选（更保守，不是更松）。
+	// 由它折出）：根内路径直接受 ssh 通道位约束，走出它才检查 SSH 路径白名单。
+	// 空 = 未知——此时路径门只能把"本地根也容不下的绝对路径"全算成越界候选
+	// （更保守，不是更松）。
 	RemoteRoot string `json:"remote_root,omitempty"`
 }
 
@@ -851,10 +852,10 @@ type WorkspaceConnection struct {
 	GitPasswordSet bool              `json:"git_password_set"`
 }
 
-// WorkspaceEnvironmentInfo 是项目侧**一个环境**的读面（无口令，只给布尔）。
+// WorkspaceEnvironmentInfo 是项目侧**一个工作环境**的读面（无口令，只给布尔）。
 //
-// 环境 = 项目下按名字分组的一套 SSH 端点（dev / test / prod …）。会话不持有这些
-// 字段，只持有名字（见 SessionSSHInfo）：连接信息只有项目一个事实源。
+// Host/User 都为空 = 本地环境（在项目根执行）；有端点 = SSH 环境。
+// 会话不持有连接字段，只持有名字（见 SessionSSHInfo）。
 type WorkspaceEnvironmentInfo struct {
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	Name        string `json:"name"`
@@ -882,14 +883,16 @@ type WorkspaceEnvironmentChange struct {
 	Delete bool
 }
 
-// SessionSSHInfo 是**会话级 SSH 状态**的读面：限定用哪个环境 + 被放权哪些环境。
+// SessionSSHInfo 是**会话级 SSH 状态**的读面：固定环境 + 旧版放权集合兼容字段。
 //
 // 不变式（在应用层强制，读侧再兜一次）：
 //   - AllowedEnvs ⊆ 项目环境表；
-//   - CurrentEnv ∈ AllowedEnvs（空 = 没有限定）；
-//   - 缺省两者都空 = 这个会话用不了 SSH（SSH 是会话内由用户推动的放权）。
+//   - CurrentEnv 为空 = 未固定命名环境，工具在本地项目根执行；
+//   - CurrentEnv 首次由用户固定，之后 agent 与工具入参都不能修改或清空；
+//   - AllowedEnvs 仅为旧状态兼容保留，新链路不再以它作为 SSH 使用闸门。
 type SessionSSHInfo struct {
-	SessionID   string   `json:"session_id"`
+	SessionID string `json:"session_id"`
+	// CurrentEnv 是会话首次绑定的固定工作环境；空 = 本地执行。绑定后不可切换。
 	CurrentEnv  string   `json:"current_env,omitempty"`
 	AllowedEnvs []string `json:"allowed_envs"`
 }

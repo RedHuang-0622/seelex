@@ -8,7 +8,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 本文件是 composer 底部两条「独立拉条」的落点：思考强度与循环次数。

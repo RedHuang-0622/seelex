@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sort"
 	"strings"
 	"time"

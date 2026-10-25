@@ -20,7 +20,13 @@
 ## 依赖方向
 
 依赖 `state.Core` + `contract.ChatEngine` Node 查询面（只读子代理 actor）+
-`ViewPort`（bump）+ `Limits`。
+`ViewPort`（bump）+ limits 只读读数。工具事件与上下文直接使用
+`contract/dto`（`SubagentToolEvent` / `ContextSnapshot`），不再 import
+`backend/multiagent/subagent` 或 seelectx snapshot。
+
+BM-003 迁移中：`Deps.Limits` 仍需接收完整 limits 值；剩余
+`middle/view/subagent -> backend/limit` 由依赖门禁冻结，待 Application 改为注入
+`dto.ViewLimits` 后删除。
 
 ## 数据流图
 

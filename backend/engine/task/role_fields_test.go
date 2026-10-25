@@ -3,7 +3,7 @@ package task_context
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TestTranscriptRoleFieldsDefaults 钉住 R4 生产者默认：user 行开启新 round，

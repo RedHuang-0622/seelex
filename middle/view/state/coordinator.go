@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -346,7 +345,7 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 // （旧数据仍按 provider role 渲染）。
 func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
 	if role == "assistant" || role == "tool_result" {
-		content = chat.StripThoughtBlocks(content)
+		content = model.StripThoughtBlocks(content)
 	}
 	view := c.sessionViewLocked(sessionID)
 	var message *model.Message

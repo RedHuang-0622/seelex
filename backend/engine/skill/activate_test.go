@@ -3,7 +3,7 @@ package skill
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // fakeLookup 是最小的 SkillLookup 结构满足实现。

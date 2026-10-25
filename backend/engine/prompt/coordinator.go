@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -27,11 +26,26 @@ type TaskContextView interface {
 	PlanSequenceFor(sessionID string) uint64
 }
 
+// PromptStackPort 是 prompt 域需要的 system prompt 栈只读/写入面。
+// Application 的 *prompt.PromptStack 结构满足该端口，装配层无需适配器。
+type PromptStackPort interface {
+	ClearKind(kind string)
+	Push(kind, name, text string)
+	Render() string
+}
+
+// EffortManagerPort 是 prompt 域需要的档位应用面。Application 的
+// *prompt.EffortManager 结构满足该端口；backend 不反向依赖 application。
+type EffortManagerPort interface {
+	Apply(level string) error
+	Current() string
+}
+
 // Deps 是 prompt_layer 的装配输入。
 type Deps struct {
 	Core          *state.Core
-	PromptStack   *prompt.PromptStack
-	EffortManager *prompt.EffortManager
+	PromptStack   PromptStackPort
+	EffortManager EffortManagerPort
 	Tasks         TaskContextView
 	// SkillSigil 是应用侧的 Skill 输入前缀（core.SigilSkill）：技能目录的
 	// 激活纪律句里要引用它，而前缀契约归 core 的 sigil 表——由装配根注入，
@@ -48,8 +62,8 @@ type Deps struct {
 // Coordinator 拥有 prompt 层组装与 provider 同步。
 type Coordinator struct {
 	*state.Core
-	promptStack   *prompt.PromptStack
-	effortManager *prompt.EffortManager
+	promptStack   PromptStackPort
+	effortManager EffortManagerPort
 	tasks         TaskContextView
 	skillSigil    string
 	environment   string

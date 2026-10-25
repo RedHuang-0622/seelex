@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 本文件原在 `application/core/reference_tools_test.go`，随判据（M5-R-tool-reference）一起归位；

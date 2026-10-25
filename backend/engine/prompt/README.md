@@ -14,8 +14,11 @@ skill 层 + Plan 执行策略；前缀缓存友好（内容不变不重复 `SetS
 
 ## 依赖方向
 
-依赖 `state.Core` + 注入的 `PromptStack`/`EffortManager` 引用 +
+依赖 `state.Core` + 注入的 `PromptStackPort`/`EffortManagerPort` +
 `TaskContextView` 窄只读面（`task_context.Coordinator` 满足）。
+
+本域不再 import `application/prompt`：装配层仍可传 `*prompt.PromptStack` 与
+`*prompt.EffortManager`，它们结构满足本包消费者端口，无需适配器。
 
 ## 文件
 
@@ -55,7 +58,7 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 
 ## 测试
 
-根包 `service_input_test.go` 等覆盖组装与缓存稳定性。
+`go test ./backend/engine/prompt -count=1` 覆盖组装、缓存稳定性与端口注入。
 
 ## 文件与函数索引
 

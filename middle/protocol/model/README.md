@@ -1,11 +1,13 @@
-# Application Model
+# Application Model（兼容 facade）
 
 ## 生态位
 
-`model` 是 Application 与所有前端共享的版本化 DTO 层。这里的字段是进程内 GUI/TUI 协议的一部分，不是随意的内部结构。
+`model` 保留既有 import path 的兼容 facade。BM-002 起，权威定义与 clamp/
+clone 实现位于 [`contract/protocol`](../../../contract/protocol/README.md)；
+本包通过类型 alias 与一行转发保持源码和 JSON 身份不变，不持有第二份 DTO。
 
-主要调用方：`application/core`（组装权威 `Snapshot`）、`gui` 与 `tui`（消费并渲染）、
-`middle/protocol/event`（增量载荷）、`e2e/scenario`（断言可观察结果）。
+主要调用方仍为 `application/core`、`gui`、`tui`、`middle/protocol/event` 与
+`e2e/scenario`。backend 的生产代码已改为直接依赖 `contract/protocol`。
 
 ## 架构图
 
@@ -88,6 +90,12 @@ DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的
 - 修改嵌套 slice/map 时必须更新 clone helper。
 - JSON tag 是客户端契约，重命名必须更新 GUI tests 和 docs schemas。
 
+## 迁移与退场
+
+当前阶段为 D1：本包只含同身份 alias、常量转发和 helper 一行转发。生产调用方
+归零后可进入 D2/D3，并在 BM-007 兼容退场时删除本包。新增类型或 helper 必须落在
+`contract/protocol`，不得在本包恢复定义。
+
 ## Review 指南
 
 - 名称是否被误当作索引；恢复/删除/绑定必须继续使用 ID。
@@ -110,7 +118,7 @@ node --test gui/frontend/dist/protocol.test.mjs gui/frontend/dist/client-state.t
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### state.go
+### model.go（兼容转发）
 
 - `func ExplicitCompactionOrigin(origin string) bool` — ExplicitCompactionOrigin 报告该来源是否为显式要求（用户 /compact 或模型
 - `func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string` — CompactionRangeLabel 把压缩区间（消息号 + transcript 事件序号）渲染成一句

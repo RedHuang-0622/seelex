@@ -79,6 +79,12 @@ sequenceDiagram
 （装配层反过来 import 本包）；不得把 `Snapshot` /
 前端协议类型引进来（投影不是 Snapshot 的输入，也不是它的输出）。
 
+BM-003 迁移中：行映射实际只需 `EvidenceChars` 一个只读读数，不需要完整
+`backend/limit`。由于现有 `BuildProjectBoardRows` 与 `ProjectBoardDeps` 的公开
+签名尚未携带该读数，`middle/view/board -> backend/limit` 仍被预算冻结。迁移请求
+是由 Wiring 在构造 `ProjectBoardDeps` 时注入 `EvidenceChars func() int`，随后删除
+该 import 与门禁白名单。
+
 ## 并发与错误语义
 
 - 同步器内部状态由自己的 `mu` 保护；落盘在唯一 flush goroutine 上，落盘期间不持视图锁。

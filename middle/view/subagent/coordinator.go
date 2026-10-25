@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -76,7 +74,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 //
 // **兼容面**：这条入口没有 owner 归属（历史调用方只有事件）。读数因此不记
 // （记账要求 owner 显式，见 HandleSubagentToolEventFor），Plan 投影照旧。
-func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
+func (c *Coordinator) HandleSubagentToolEvent(e dto.SubagentToolEvent) {
 	c.HandleSubagentToolEventFor("", e)
 }
 
@@ -87,7 +85,7 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 //     单元键（旧实现把这类事件整条丢了，病灶 #9）；
 //  2. 再做 Plan 投影，早退分支（无 NodeID/无 ID、无计划、节点不在树里）只表示
 //     "这条消息不进投影"，不代表这次工具调用没发生过。
-func (c *Coordinator) HandleSubagentToolEventFor(ownerSessionID string, e seelsession.SubagentToolEvent) {
+func (c *Coordinator) HandleSubagentToolEventFor(ownerSessionID string, e dto.SubagentToolEvent) {
 	// ① 记账（叶子暂存的本地累加：不碰 ViewMu、不碰磁盘）。
 	if c.recordToolOutcome != nil {
 		c.recordToolOutcome(ownerSessionID, e)
@@ -375,7 +373,7 @@ func (c *Coordinator) nodeWorktreeInfo(nodeID string) *model.SubagentWorktreeInf
 	}
 }
 
-func (c *Coordinator) adaptSubagentContext(snap *snapshot.ContextSnapshot) *model.SubagentContext {
+func (c *Coordinator) adaptSubagentContext(snap *dto.ContextSnapshot) *model.SubagentContext {
 	if snap == nil {
 		return nil
 	}

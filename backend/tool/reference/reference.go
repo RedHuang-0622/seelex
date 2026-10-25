@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // NodeResultRef 解析 `node:<nodeID>:...` 前缀的子代理结果引用；非节点引用 → false。

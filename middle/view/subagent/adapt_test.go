@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -57,13 +56,13 @@ func TestAdaptSubagentContext(t *testing.T) {
 	for index := range findings {
 		findings[index] = long
 	}
-	adapted := c.adaptSubagentContext(&snapshot.ContextSnapshot{
+	adapted := c.adaptSubagentContext(&dto.ContextSnapshot{
 		Goal:          long,
 		Progress:      "in progress",
 		MessageCount:  42,
 		TokenEstimate: 1234,
 		Findings:      findings,
-		Decisions:     []snapshot.Decision{{What: long, Why: long}},
+		Decisions:     []dto.Decision{{What: long, Why: long}},
 		Constraints:   []string{long},
 		PendingWork:   []string{"work"},
 	})

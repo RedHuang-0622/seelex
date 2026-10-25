@@ -28,7 +28,12 @@ revision 在此自持。
 ## 依赖方向
 
 依赖 `state.Core` + 注入端口（`CurrentEffort`、`RefreshWorkTableLocked`、
-`Limits`）。
+limits 只读读数）。thought 块过滤已改为 `contract/protocol` 的唯一实现，
+本包不再 import `backend/engine/react`。
+
+BM-003 迁移中：`Deps.Limits` 仍需接收完整 limits 值；剩余
+`middle/view/state -> backend/limit` 由依赖门禁冻结，待 Application 改为注入
+`dto.ViewLimits` 后删除。
 
 ## 数据流图
 

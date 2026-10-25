@@ -8,9 +8,9 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	pl "github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestEnvironmentSectionIsInjectedAndStable：**执行面的环境事实**（这台机器上 bash 工具落到

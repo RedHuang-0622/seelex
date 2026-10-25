@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // fakeKnobsHost 是 `KnobsHost` 的结构满足实现：把"宿主锁内的调用"记下来，

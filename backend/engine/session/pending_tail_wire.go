@@ -2,7 +2,7 @@ package session_runtime
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 草稿尾部（seq_draft）在会话域的窄端口面。

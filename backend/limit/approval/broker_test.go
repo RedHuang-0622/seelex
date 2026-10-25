@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestResolveAllReleasesPendingApprovals(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // FirstUserInputProbeRows 是标题回填一次取几条候选用户输入（首个分片内的

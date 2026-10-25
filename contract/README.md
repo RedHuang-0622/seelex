@@ -12,6 +12,12 @@ M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包
 主要调用方：`application/core`（只依赖端口）、`wiring/adapters`、`backend/engine/assemble/`、
 `backend/engine/plugin/`、`backend/engine/skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
 
+子包边界：
+
+- `contract/dto`：稳定枚举、跨层纯 DTO 与词表；
+- `contract/protocol`：Snapshot/事件 payload/会话记录等版本化 wire 形状（BM-002 从
+  `middle/protocol/model` 下沉，旧路径保留同身份 alias）。
+
 ## 架构图
 
 ```mermaid
@@ -125,6 +131,22 @@ flowchart LR
 
 ```text
 go test ./application/... ./e2e/scenario . -count=1
+```
+
+## 架构门禁
+
+`architecture_test.go` 是 Backend / Middle 领域化的结构门禁（BM-001）：
+
+- 冻结 backend 内部直接包边、backend → middle、middle → backend、
+  backend → application 四组生产依赖；
+- 目标门禁要求 `middle → backend` 与 `backend → application` 最终归零；
+- 超 500 行的存量生产文件按当前行数冻结，只允许缩短；新增文件上限为 500 行。
+
+这里只解析生产 `.go` 文件的 import，不把测试辅助依赖计入跨层预算。新增边必须
+同时给出业务理由并修改白名单；单纯换一条边不算债务下降。
+
+```text
+go test ./contract -run 'TestBM00' -count=1
 ```
 
 ## 文件与函数索引

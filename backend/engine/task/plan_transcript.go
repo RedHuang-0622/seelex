@@ -5,7 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // PlanNodeStatus 把框架/事件里的节点状态词折成我们的节点状态；第二个返回值报告

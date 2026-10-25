@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // ssh_env_endpoint_test.go 钉住"按环境名解析执行面"的判据：

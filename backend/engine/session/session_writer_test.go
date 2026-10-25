@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // A3 单写者：会话落盘收口到 per-session actor（同会话串行 FIFO、跨会话并行），

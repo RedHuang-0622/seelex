@@ -30,8 +30,8 @@ import (
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	seelessh "github.com/RedHuang-0622/seelex/backend/tool/ssh"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // sessionWorkspaceID 返回会话绑定的工作区 ID（未绑定 = ""，即"没有项目归属"）。

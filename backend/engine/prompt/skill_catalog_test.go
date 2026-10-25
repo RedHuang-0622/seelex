@@ -8,8 +8,8 @@ import (
 	pl "github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ── 桩：只读 Skill 端口（按当前插件返回技能表，模拟 skill.Registry 隔离） ──
