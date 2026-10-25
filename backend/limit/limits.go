@@ -191,8 +191,11 @@ type Limits struct {
 	// 变成真摘要（Errors and Fixes / Pending / Next Step 三节不再恒 (none)），
 	// 从而给 search_history 的词法初筛提供有区分度的关键词。
 	ContextCompactionSummary CompactionSummaryLimits `yaml:"context_compaction_summary"`
-	// Team 是 teamwork 的产品级约束块（人数上限等），见 TeamLimits。
+	// Team 是 teamwork 的产品级约束块（role 数、active job 数等），见 TeamLimits。
 	Team TeamLimits `yaml:"team"`
+	// Concurrency 是可选的路由级窄化限制。默认关闭：团队作业仍由
+	// Team.MaxJobs 统一约束；开启后才为 teammate / subagent 路由再叠一层限制。
+	Concurrency ConcurrencyLimits `yaml:"concurrency"`
 	// Plugins 是**按会话插件装配**的约束块（能力轴：一个 teammate 身上挂几个插件），
 	// 见 PluginLimits。
 	Plugins PluginLimits `yaml:"plugins"`
@@ -268,23 +271,38 @@ type CompactionSummaryLimits struct {
 	Chapter2Tokens int `yaml:"chapter2_tokens"`
 }
 
-// TeamLimits 是 **teamwork 产品级约束块**（leader + 异步 worker 作业面，
-// 见 docs/arch/teamwork-leader-worker-architecture.md §4.3）：
-// 由 Seelex 掌控、框架不可替代的那几个数字。
-//
-// 为什么必须有这一块，而不是只靠框架的 jobs 在途上限：teammate 不挂子代理
-// （D6 硬移除 `fork_subagents`）⇒ worktree 数量被 teammate 数量封顶 ⇒
-// 「人数上限」就是「工作区不累积残留」的那条产品级约束。框架在途上限
-// （jobs.Limits.InFlight，默认 32）只是兜底：撞到它说明产品约束已经失效，
-// 用户看到的是一个与"团队"无关的数字。
+// TeamLimits 是 teamwork 产品级约束块：role 数与 active worker job 数
+// 是两个独立维度，不能互相推导。MaxTeammates 是旧键名，继续表示 role 数；
+// MaxRoles 是同一语义的新键；MaxJobs 只限制团队当前 active KindWorker 作业数。
 type TeamLimits struct {
-	// MaxTeammates 是**同时在编 teammate 人数**的上限（默认 6，与
-	// ResidentSessionLimit 同量级取整）。超限的 team_dispatch / team_plan
-	// **显式拒绝**（不静默排队——排队会把"人满了"伪装成"在跑"）。
-	//
-	// 处置口径：0 = 未配置 → 默认 6；负值在 LoadLimits 显式报错（不为负数
-	// 造语义：它既不是"无限制"也不是"禁用"，两种解读都会让配置看不出来）。
+	// MaxTeammates 是兼容旧配置的 role 数键，不表示 job 并发数。
 	MaxTeammates int `yaml:"max_teammates"`
+	// MaxRoles 是 role 数上限的新键，与 MaxTeammates 同义。两者同时出现且
+	// 不同时，启动期显式报错，不替用户猜哪一个是意图。
+	MaxRoles int `yaml:"max_roles"`
+	// MaxJobs 是同一团队 active worker job 的硬上限（默认 6）。
+	MaxJobs int `yaml:"max_jobs"`
+	// WorkItemToolFailure 是连续显式工具失败后的交权策略，默认关闭。
+	WorkItemToolFailure WorkItemToolFailureLimits `yaml:"workitem_tool_failure"`
+}
+
+// WorkItemToolFailureLimits 是 WorkItem worker 连续显式工具失败返回策略。
+type WorkItemToolFailureLimits struct {
+	Enabled   bool `yaml:"enabled"`
+	Threshold int  `yaml:"threshold"`
+}
+
+// ConcurrencyLimits 是可选路由级并发限制块。
+type ConcurrencyLimits struct {
+	Teammate RouteConcurrencyLimit `yaml:"teammate"`
+	Subagent RouteConcurrencyLimit `yaml:"subagent"`
+}
+
+// RouteConcurrencyLimit 是单一路由的可选窄化限制。Enabled=false 时 Max
+// 不参与判据，允许保持 0；Enabled=true 时 Max 必须为正。
+type RouteConcurrencyLimit struct {
+	Enabled bool `yaml:"enabled"`
+	Max     int  `yaml:"max"`
 }
 
 // RuntimeLimits 是**进程级启动行为**块（limits.runtime）。与 TeamLimits 不同，
@@ -303,9 +321,14 @@ type RuntimeLimits struct {
 	AllowMultiProcess bool `yaml:"allow_multi_process"`
 }
 
-// DefaultTeamMaxTeammates 是 teammate 人数上限的出厂默认值（决策：暂定 6，
-// 与留守引擎上限同量级；M1 实测后调，不改契约）。
+// DefaultTeamMaxTeammates 是 role 数上限的出厂默认值（兼容旧名）。
 const DefaultTeamMaxTeammates = 6
+
+// DefaultTeamMaxJobs 是团队 active worker job 数的出厂默认值。
+const DefaultTeamMaxJobs = 6
+
+// DefaultWorkItemToolFailureThreshold 是连续失败返回策略的默认阈值。
+const DefaultWorkItemToolFailureThreshold = 3
 
 // PluginLimits 是**按会话插件装配**的产品级约束块（limits.plugins）。
 //
@@ -379,8 +402,16 @@ func DefaultLimits() Limits {
 		SnapshotToolOutputChars: 8000,
 		DockerStartTimeoutSec:   60,
 		ForkTimeoutSec:          7200,
-		// teamwork：teammate 人数上限默认 6（与留守引擎上限同量级）。
-		Team: TeamLimits{MaxTeammates: DefaultTeamMaxTeammates},
+		// teamwork：role 数与 active worker job 数各默认 6，语义互相独立。
+		Team: TeamLimits{
+			MaxTeammates: DefaultTeamMaxTeammates,
+			MaxRoles:     DefaultTeamMaxTeammates,
+			MaxJobs:      DefaultTeamMaxJobs,
+			WorkItemToolFailure: WorkItemToolFailureLimits{
+				Enabled:   false,
+				Threshold: DefaultWorkItemToolFailureThreshold,
+			},
+		},
 		// 按会话插件装配：每会话上限默认 3（能力包的常驻代价见 PluginLimits）。
 		Plugins: PluginLimits{PerTeammate: DefaultPluginsPerTeammate},
 		// 压缩处厚摘要（前缀重放 LLM 章节化摘要）：**缺省即开**（2026-10-04 起，
@@ -554,8 +585,20 @@ func (l Limits) WithDefaults() Limits {
 	if l.ForkTimeoutSec == 0 {
 		l.ForkTimeoutSec = def.ForkTimeoutSec
 	}
-	if l.Team.MaxTeammates == 0 {
+	switch {
+	case l.Team.MaxTeammates == 0 && l.Team.MaxRoles == 0:
 		l.Team.MaxTeammates = def.Team.MaxTeammates
+		l.Team.MaxRoles = def.Team.MaxRoles
+	case l.Team.MaxTeammates == 0:
+		l.Team.MaxTeammates = l.Team.MaxRoles
+	case l.Team.MaxRoles == 0:
+		l.Team.MaxRoles = l.Team.MaxTeammates
+	}
+	if l.Team.MaxJobs == 0 {
+		l.Team.MaxJobs = def.Team.MaxJobs
+	}
+	if l.Team.WorkItemToolFailure.Threshold == 0 {
+		l.Team.WorkItemToolFailure.Threshold = def.Team.WorkItemToolFailure.Threshold
 	}
 	if l.Plugins.PerTeammate == 0 {
 		l.Plugins.PerTeammate = def.Plugins.PerTeammate
@@ -604,6 +647,31 @@ func LoadLimits(path string) (Limits, error) {
 	if err := limitsNode.Decode(&check); err != nil {
 		return Limits{}, fmt.Errorf("limits: parse config: %w", err)
 	}
+	teamContent := documentContent(limitsContent["team"])
+	_, legacyRolesWritten := teamContent["max_teammates"]
+	_, rolesWritten := teamContent["max_roles"]
+	if legacyRolesWritten && rolesWritten && check.Team.MaxTeammates != check.Team.MaxRoles {
+		return Limits{}, fmt.Errorf(
+			"limits: team.max_roles (%d) must equal legacy team.max_teammates (%d)",
+			check.Team.MaxRoles, check.Team.MaxTeammates)
+	}
+	if rolesWritten && !legacyRolesWritten {
+		check.Team.MaxTeammates = check.Team.MaxRoles
+	}
+	if legacyRolesWritten && !rolesWritten {
+		check.Team.MaxRoles = check.Team.MaxTeammates
+	}
+	for name, route := range map[string]RouteConcurrencyLimit{
+		"concurrency.teammate": check.Concurrency.Teammate,
+		"concurrency.subagent": check.Concurrency.Subagent,
+	} {
+		if route.Max < 0 {
+			return Limits{}, fmt.Errorf("limits: %s.max must not be negative", name)
+		}
+		if route.Enabled && route.Max <= 0 {
+			return Limits{}, fmt.Errorf("limits: %s.max must be positive when enabled", name)
+		}
+	}
 	if check.ToolCallTimeoutSec < 0 || check.ApprovalTimeoutSec < 0 || check.PlanDecisionTimeoutSec < 0 ||
 		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.SearchTimeoutSec < 0 || check.TavilyTimeoutSec < 0 ||
 		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 || check.SessionReleaseWindow < 0 || check.ResidentSessionLimit < 0 ||
@@ -619,7 +687,8 @@ func LoadLimits(path string) (Limits, error) {
 		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 ||
 		check.Plugins.PerTeammate < 0 ||
 		check.ProjectBoard.FlushIdleMS < 0 ||
-		check.Team.MaxTeammates < 0 {
+		check.Team.MaxTeammates < 0 || check.Team.MaxRoles < 0 ||
+		check.Team.MaxJobs < 0 || check.Team.WorkItemToolFailure.Threshold < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	// 比例类旋钮的超界不再静默回退默认值（那会把「用户写错了」吞成「看起来生效」）：

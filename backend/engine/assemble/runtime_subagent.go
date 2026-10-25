@@ -78,13 +78,21 @@ func (r *Runtime) currentSubagentPolicy(ctx context.Context) dto.SubagentPolicy 
 		return dto.SubagentPolicy{}
 	}
 	r.subagentPolicyMu.RLock()
-	defer r.subagentPolicyMu.RUnlock()
+	policy := r.subagentPolicy
 	if sessionID := seetelemetry.SessionIDFromContext(ctx); sessionID != "" {
-		if policy, ok := r.subagentPolicyBySID[sessionID]; ok {
-			return policy
+		if sessionPolicy, ok := r.subagentPolicyBySID[sessionID]; ok {
+			policy = sessionPolicy
 		}
 	}
-	return r.subagentPolicy
+	r.subagentPolicyMu.RUnlock()
+	// 可选路由限制只做更窄的 min：默认不启用时策略原样；启用时同时收窄
+	// “未设上限”（0）与更大的人工策略，绝不反向放大。
+	route := r.limits.Concurrency.Subagent
+	if route.Enabled && route.Max > 0 &&
+		(policy.MaxForkConcurrency <= 0 || policy.MaxForkConcurrency > route.Max) {
+		policy.MaxForkConcurrency = route.Max
+	}
+	return policy
 }
 
 // agentDispatch 统一工具分发入口（agent.DirectDispatch 语义等价）。

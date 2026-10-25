@@ -138,6 +138,7 @@ type ViewFace interface {
 	ActiveSkillIDs() []string
 	AnyChatRunning() bool
 	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
+	ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
 	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 	GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	GoalSkillActive() bool
@@ -165,12 +166,14 @@ type ViewFace interface {
 	SubscribeSession(sessionID string, buffer int) (event.Subscription, error)
 	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (event.Subscription, error)
 	SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)
+	TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 	TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	ToolRecordBoard() dto.ToolRecordBoard
 	ToolRecordEnabled() bool
 	ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)
+	WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
 	WaitCatalogRefresh(ctx context.Context) error
 	WaitForIdle(ctx context.Context) error
 	WorkTableRowsFor(sessionID string) []model.WorkItem
@@ -198,6 +201,7 @@ type CommandFace interface {
 	CancelChat(requestID string) bool
 	ClearSubagentTree() error
 	CompactContextNow(ctx context.Context) (core.ContextCompactionResult, error)
+	ConversationChat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)
 	CreateWorkspace(name, rootPath, gitRemote string) error
 	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
 	DeleteSession(sessionID string) error
@@ -211,6 +215,7 @@ type CommandFace interface {
 	GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
 	GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
 	RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)
+	RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
 	ResolveInteraction(ctx context.Context, id, optionID string) error
 	ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)
 	ResumeSession(sessionID string) error

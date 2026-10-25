@@ -29,6 +29,9 @@ import (
 const (
 	// KindWorker 是 teammate 作业：在角色会话里跑限量回合。
 	KindWorker jobs.Kind = "worker"
+	// DefaultMaxJobs 是团队 active worker job 的出厂硬上限。role 数另有
+	// MaxTeammates；两者不得互相推导。
+	DefaultMaxJobs = 6
 )
 
 // SubjectForRole 是 teammate 的主体名：既是权限主体，也是作业作用域的第二
@@ -91,6 +94,9 @@ type WorkerRequest struct {
 	// 有权限"是这条硬规则要挡住的那种读法。
 	Plugins  []string `json:"plugins,omitempty"`
 	Worktree string   `json:"worktree,omitempty"`
+	// WorkspaceMode 是本次执行的显式工作区策略：worktree | main。空值按 worktree
+	// 兼容旧载荷；main 只允许由批准后的团队工具显式选择。
+	WorkspaceMode string `json:"workspace_mode,omitempty"`
 	// WorkItemID / Milestone 是这一轮工作属于甘特图的哪个节点。**一 Work Item 一个
 	// Session + 一个 worktree** 的隔离与回收都以它为准（空 = 非 Work Item 口径的
 	// 派发，走 teammate 级的老口径）。
@@ -99,7 +105,16 @@ type WorkerRequest struct {
 	// 留着它就会出现"作业归属到底是 stage 还是 milestone"的两套答案。
 	WorkItemID string `json:"work_item_id,omitempty"`
 	Milestone  string `json:"milestone,omitempty"`
-	Goal       string `json:"goal"`
+	// DialogueOnly 标记 team_message 的对话轮次：复用同一个 worker 执行面，
+	// 但禁止 WorkItem settle、状态写入与 worktree 合并/释放。
+	DialogueOnly bool `json:"dialogue_only,omitempty"`
+	// DialogueMessage / SystemPrompt 只用于 DialogueOnly：前者是这一轮 user
+	// 正文，后者是该 WorkItem 当前生效的 system prompt。
+	DialogueMessage string `json:"dialogue_message,omitempty"`
+	SystemPrompt    string `json:"system_prompt,omitempty"`
+	// ToolFailure 是这一轮 WorkItem worker 的连续工具失败返回策略。
+	ToolFailure ToolFailurePolicy `json:"tool_failure,omitempty"`
+	Goal        string            `json:"goal"`
 	// MaxTurns 是本轮在角色会话里允许的回合上限（0 = 装配层默认）。
 	MaxTurns int `json:"max_turns,omitempty"`
 	// OutputPath 是本轮正文的落点（**产品自有**文件；空 = 交回框架自建）。
@@ -143,8 +158,23 @@ type WorkspaceBinding struct {
 	Role          string `json:"role"`
 	SessionID     string `json:"session_id"`
 	Worktree      string `json:"worktree"`
+	WorkspaceMode string `json:"workspace_mode,omitempty"`
 	Path          string `json:"path,omitempty"`
 	Branch        string `json:"branch,omitempty"`
+}
+
+// WorkspaceMode 是 Work Item 工作区策略。main 不是 worktree 失败时的自动兜底；
+// 它只能由用户逐次批准后，在重试调用里显式给出。
+type WorkspaceMode string
+
+const (
+	WorkspaceWorktree WorkspaceMode = "worktree"
+	WorkspaceMain     WorkspaceMode = "main"
+)
+
+// DispatchOptions 是 Work Item 派发的可选策略。
+type DispatchOptions struct {
+	Workspace WorkspaceMode
 }
 
 // Workspaces 是**一个 Work Item 一个 worktree** 的端口：建、并、释放。
@@ -246,9 +276,17 @@ type Options struct {
 	// JobOutputs 分配 / 清理 teammate 作业的输出文件（缺失 ⇒ 交回框架自建文件，
 	// 按框架语义在销项 / 驱逐 / Close 时删除）。
 	JobOutputs JobOutputs
-	// MaxTeammates 是产品级人数上限（limit.TeamLimits.MaxTeammates）。
+	// MaxTeammates 是产品级 role 数上限（limit.TeamLimits.MaxRoles/MaxTeammates）。
 	// <= 0 = 不限制（不推荐：框架在途上限会先于产品约束生效）。
 	MaxTeammates int
+	// MaxJobs 是同一团队 active worker job 的硬上限，与 role 数无关。
+	MaxJobs int
+	// TeammateConcurrencyEnabled / Max 是可选的路由级更窄限制。关闭时不增加
+	// 任何判据；开启时同一 role 的 active worker job 达到 Max 即拒绝。
+	TeammateConcurrencyEnabled bool
+	TeammateConcurrencyMax     int
+	// ToolFailure 是 WorkItem 连续显式工具失败返回策略。
+	ToolFailure ToolFailurePolicy
 	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
 	MaxTurns int
 	// DeriveRoleSessionID 覆盖角色会话号的派生（默认 DefaultRoleSessionID）。
@@ -263,20 +301,24 @@ type Options struct {
 // 掌控顺序、作用域与收口——这正是"leader 阻塞与否与 worker 是否推进正交"的
 // 落点（§6.3）。
 type Coordinator struct {
-	key        store.Key
-	st         PlanStore
-	jobs       jobs.Manager
-	workers    WorkerRunner
-	worktrees  WorkspaceReleaser
-	sessions   SessionResetter
-	boards     BoardCloser
-	jobOutputs JobOutputs
-	spaces     Workspaces
-	teammates  TeammateQueue
-	maxMembers int
-	maxTurns   int
-	derive     func(mainSessionID, teamID, roleName string) string
-	clock      func() time.Time
+	key                        store.Key
+	st                         PlanStore
+	jobs                       jobs.Manager
+	workers                    WorkerRunner
+	worktrees                  WorkspaceReleaser
+	sessions                   SessionResetter
+	boards                     BoardCloser
+	jobOutputs                 JobOutputs
+	spaces                     Workspaces
+	teammates                  TeammateQueue
+	maxMembers                 int
+	maxJobs                    int
+	teammateConcurrencyEnabled bool
+	teammateConcurrencyMax     int
+	toolFailure                ToolFailurePolicy
+	maxTurns                   int
+	derive                     func(mainSessionID, teamID, roleName string) string
+	clock                      func() time.Time
 }
 
 // New 装配一个 Coordinator。
@@ -298,21 +340,29 @@ func New(options Options) (*Coordinator, error) {
 	if clock == nil {
 		clock = time.Now
 	}
+	maxJobs := options.MaxJobs
+	if maxJobs <= 0 {
+		maxJobs = DefaultMaxJobs
+	}
 	return &Coordinator{
-		key:        options.Key,
-		st:         options.Store,
-		jobs:       options.Jobs,
-		workers:    options.Workers,
-		worktrees:  options.Worktrees,
-		sessions:   options.Sessions,
-		boards:     options.Boards,
-		jobOutputs: options.JobOutputs,
-		spaces:     options.Spaces,
-		teammates:  options.Teammates,
-		maxMembers: options.MaxTeammates,
-		maxTurns:   options.MaxTurns,
-		derive:     derive,
-		clock:      clock,
+		key:                        options.Key,
+		st:                         options.Store,
+		jobs:                       options.Jobs,
+		workers:                    options.Workers,
+		worktrees:                  options.Worktrees,
+		sessions:                   options.Sessions,
+		boards:                     options.Boards,
+		jobOutputs:                 options.JobOutputs,
+		spaces:                     options.Spaces,
+		teammates:                  options.Teammates,
+		maxMembers:                 options.MaxTeammates,
+		maxJobs:                    maxJobs,
+		teammateConcurrencyEnabled: options.TeammateConcurrencyEnabled,
+		teammateConcurrencyMax:     options.TeammateConcurrencyMax,
+		toolFailure:                options.ToolFailure,
+		maxTurns:                   options.MaxTurns,
+		derive:                     derive,
+		clock:                      clock,
 	}, nil
 }
 
@@ -366,6 +416,12 @@ func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, erro
 		groups[group] = uint8(bits)
 	}
 	return groups, nil
+}
+
+// MemberPermissionGroups exposes the existing permission-bit folding rule to
+// the host adapter. The decision stays in this domain; callers do not copy it.
+func MemberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error) {
+	return memberPermissionGroups(member)
 }
 
 func describeHandle(handle jobs.Handle) string { return string(handle) }

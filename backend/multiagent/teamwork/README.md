@@ -44,7 +44,7 @@ stateDiagram-v2
     Enrolled --> Worked: team_work（按里程碑排活：只给依赖已 done 的里程碑）
     Worked --> Dispatched: team_dispatch(item=…)（屏障 + 里程碑内依赖双闸门）
     Dispatched --> Settled: 回合结束自动尾插（先合并 worktree → 有界回执进消息队列）
-    Settled --> Accepted: team_accept（销项 + 结束这件事的隔离）/ team_fail（留现场与记忆，可重派）
+    Settled --> Accepted: team_accept（销项 + 只释放该 WorkItem worktree，保留 Session）/ team_fail（留现场与记忆，可重派）
     Accepted --> Worked: 本里程碑全部 done → 屏障打开 → 给下一个里程碑排活
     Worked --> Recovered: team_recover（额度中断 / 重启：列出可重派，不动会话与现场）
     Recovered --> Dispatched: 重派复用原会话号（记忆建在）
@@ -64,19 +64,32 @@ stateDiagram-v2
   `WorkItemSessionID(...)` = `<role_session>-wi-<itemID>`；worktree 指派名
   `seelex/<role>-<itemID>`（与 worktree 管理器的 nodeID 同一套命名）。
   绑定落**追加型 JSONL**（`teamwork/worktrees.jsonl`，KV 语义：按 work_item 取最后一行）。
+  `workspace_mode=main` 只允许用户在 worktree 创建失败后逐次批准并显式重试；它不是静默降级。
+  派发事务固定为 `worktree → jobs.Declare → binding/audit/plan → jobs.Start`；Start
+  之前执行体不会启动，Start 失败保留现场并把工作项标为 failed。
+- **对话窗口固定为 WorkItem Session**：`team_message(role,item,message,wait_ms?)` 走统一
+  `ConversationSession.Chat`，默认等 30 秒，超时只返回 job handle；它不 settle、不验收、
+  不 merge，也不接受没有 item 的角色级私聊。
+- **连续工具失败返回**：`limits.team.workitem_tool_failure` 默认关闭；开启后只统计显式工具
+  错误的连续次数，成功调用清零。达到阈值时取消当前回合并把结构化原因交还 leader，
+  worktree、Session 与已有产出全部保留，不自动 git reset 或删除现场。
 - **尾插是自动的**：`workerExecutor` 在回合结束后调 `ItemSettler.SettleWorkItem` ——
   **先合并**这件事的 worktree，再把有界一行插进 teammate 的消息队列（= 审计流里
   `kind=message` 的行，按 `role_session_id` 读）。合并失败也插，正文写明
   「插入失败 → 请 leader 亲自执行」并把 bug 原文带上。
 - **中断恢复不清会话**：额度中断 / 进程重启之后，`Recover` 只把"句柄已作废、可重派"显式化；
   重派同一个工作项会**复用原会话号**（记忆必须建在）。
+- **可从中断处续跑**：WorkItem 单元记录保存该 WorkItem Session 的完整 History，
+  并在显式工具边界增量刷新；冷恢复的下一轮 worker/team_message 会先把该快照注入
+  Session，再消费 `workunit.RecoveryNote`，因此不会从空白上下文重来。
 
 ## 职责与非职责
 
 职责：
 
 - 计划校验与持久化（`SetPlan`）：会话作用域、`PlanStore` / `jobs.Manager` 装配、成员权限格子
-  合法性（0..255）、里程碑与工作项的 id 与依赖闸门、人数上限（`limits.team.max_teammates`，
+  合法性（0..255）、里程碑与工作项的 id 与依赖闸门、role 数上限（`max_roles`，兼容
+  `max_teammates`）、active worker job 上限（`max_jobs`，默认 6，
   超限**显式拒绝**，不静默排队）——**在持久化点再校验一次**（计划可被 leader 重写，
   第二道闸必须存在）；
 - 派发（含去重与超员拒绝）、有界汇合、里程碑、退场四步与整队收口（`Close`）；
@@ -100,7 +113,7 @@ stateDiagram-v2
 | `board.go` | **团队看板读面**（原 `application/core/teamwork_service.go`，M5-R8c 归位）：`BoardReader` 只做转发与"未装配 / 宿主不支持该投影"时的空视图口径（不解释、不缓存、不做判定）；`application/core` 侧只留同名门面方法 |
 | `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
 | `board_view.go` | **团队看板的投影判据**（P21-20 从 `backend/engine/assemble/runtime_teamwork_board.go` 归位，plan §2.7）：`BuildBoardView`（下发与存档**同一条**路径）+ `MemberViews` / `MemberStatus`（人的状态只有 running/free 两值）/ `MemberCurrent`（“此刻那件事的会话”三段优先，不用长期角色会话顶替）/ `WorkItemViews`（Live 与卡点都走编排面同一处判据 `ItemGateOf`）/ `MilestoneViews` / `JobViews` + `RoleFromSubject`（`emp_<role>` 反解）/ `EventViews`（审计只取最近 `BoardEventLimit` 条）/ `ProjectionStale`（句柄过期提示位）/ `PlanHasOrchestration` |
-| `tool_shapes.go` | **leader 编排工具的 12 组形状**（P21-21 从 装配层同名文件（已删除）整份归位，plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）：`Team<X>ToolName` 常量 ×12 + `Team<X>Description()` / `Team<X>Schema()` ×12（计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单）。描述与 schema 面向**提示词**：既是准入面也是文档面 |
+| `tool_shapes.go` | **leader 编排工具的 13 组形状**：计划 / 派发 / 汇合 / 里程碑 / 关闭 / 上下文 / 做工 / 工作项 / 验收 / 判负 / 回收 / 清单 / WorkItem 对话。描述与 schema 面向**提示词**：既是准入面也是文档面 |
 | `tool_requests.go` | **工具入参形状与解码**（P21-37 从 `backend/engine/assemble/runtime_teamwork.go` 的十个 handler 搬进本域）：`PlanRequest` / `DispatchRequest` / `WorkRequest` / `ItemRequest` / `ItemNoteRequest` / `JoinRequest` / `MilestoneRequest` + 七个 `Decode*`（默认值：plan version 缺省 1、join 预算缺省 5s 并丢弃空白句柄；trim 口径：role/item/id/milestone trim，goal/note/content **原样**——它们是给模型/人看的正文）。与 `tool_shapes.go` 的 schema 同处一域：schema 改了、解析结构没跟上会让模型按 schema 发的东西被静默丢掉 |
 | `tool_requests_test.go` | 七个解码入口的默认值/trim 口径/逐字段搬运/顺序保持/非 JSON 报错 |
 | `context_view.go` | **成员工作上下文读面的投影与判据**（P21-22 从 `backend/engine/assemble/runtime_teamwork_context.go` 归位，plan §2.7）：`BuildContextView`（唯一组装路径）+ `MemberJobsPort`（只 Peek/Snapshot/Observe——"它绝不会 Fetch/Done/Kill"写进类型）/ `MemberOutputsPort` + 最新作业行选取（优先在跑、否则登记序号最大）/ 行不在册时按角色名**回读残边**（`Evicted=true`）/ `RoleMilestone` / 角色过滤 / `ContextBodyBudget`（缺省 4KB、硬上限 32KB）+ `TruncateContextBody`（按字节裁且**不切碎 UTF-8 字符**）+ `ReadOutputHead` |
@@ -277,6 +290,7 @@ go test ./backend/multiagent/... -count=1
 
 - `func SubjectPrefix() string` — SubjectPrefix 与 `SubjectForRole` 同源（`emp_<role>`）：装配层用它把作业行的作用域主体
 - `func BuildBoardView( plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardView 是把（计划 + 审计 + 作业行 + 装配读数）组装成下发前端的
+- `func BuildBoardViewWithLimits( plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers, maxJobs int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardViewWithLimits adds the independent role/job limit readings to
 - `func PlanHasOrchestration(plan store.TeamworkPlan) bool` — PlanHasOrchestration 报告一份计划有没有**可看的编排**。
 - `func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView` — MemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
 - `func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string` — MemberStatus 把一个人名下工作项的状态折算成人的状态，**只有两个值**（2026-10-04 用户口径）：
@@ -343,7 +357,7 @@ go test ./backend/multiagent/... -count=1
 - `func (c *Coordinator) AliveSceneNodes(ctx context.Context) (map[string]bool, error)` — AliveSceneNodes 返回计划里"本进程还有执行面"的现场 nodeID 集合（契约命名：
 - `func (c *Coordinator) Close(ctx context.Context) (bool, error)` — Close 收口整支团队（team_close）：逐在编成员走同一套四步（这里 reclaim=true，回收
 - `func (c *Coordinator) observe(handles []jobs.Handle) ([]jobs.Record, int)` — observe 汇总一组句柄的只读读数，并返回仍在跑的条数。
-- `func (c *Coordinator) ensureCapacity(role string) error` — ensureCapacity 是**产品级**人数约束的闸门（§4.3）。
+- `func (c *Coordinator) ensureCapacity(role string) error` — ensureCapacity 是**产品级 active worker job** 约束的闸门。
 - `func milestoneDone(plan store.TeamworkPlan, id string) bool` — milestoneDone 报告某个里程碑是否已 done（不在计划里 = 未完成，不静默放过）。
 - `func minDuration(left, right time.Duration) time.Duration`
 
@@ -376,6 +390,8 @@ go test ./backend/multiagent/... -count=1
 - `func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, specs []WorkItemSpec) error` — PlanMilestone 给一个里程碑**安排工作**（分里程碑排活）。
 - `func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkItemSpec) error` — AdjustItem 调整一条**尚未开始**的工作项（人 / 名称 / 描述 / 达成目标 / 依赖）。
 - `func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Handle, error)` — DispatchItem 派发**一个工作项**。
+- `func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, options DispatchOptions) (jobs.Handle, error)` — DispatchItemWith 是带显式工作区策略的派发入口。只有 raw workspace=main（用户
+- `func (c *Coordinator) abortDeclaredJob(ctx context.Context, handle jobs.Handle, binding WorkspaceBinding, created string)` — abortDeclaredJob 撤销一条尚未启动或启动失败的声明行。未启动作业的 Kill 会直接
 - `func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest, runErr error) error` — SettleWorkItem 是 teammate 一轮跑完之后的**尾插程序**：先合并这件事的 worktree，
 - `func (c *Coordinator) SettleWorkItemOutcome(ctx context.Context, request WorkerRequest, runErr error) (workunit.Outcome, error)` — SettleWorkItemOutcome 与 SettleWorkItem 是**同一段**尾插程序，只是把这一轮的收尾
 - `func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest, runErr error) (workunit.Outcome, error)` — settleWorkItem 是尾插程序的完整一段：合并半段 + 写态半段，**合并只做一次**。
@@ -385,10 +401,13 @@ go test ./backend/multiagent/... -count=1
 - `func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequest, runErr, mergeErr error) (workunit.Outcome, error)` — SettleWorkItemWith 是尾插程序的**写态半段**：合并结果由调用方给（非空即采信，绝不
 - `func applySettleOutcome(plan *store.TeamworkPlan, item *store.TeamworkWorkItem, outcome workunit.Outcome, receipt string)` — applySettleOutcome 把收尾分类写到工作项上（**唯一**映射，写回与读侧都认这一张表）：
 - `func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error` — AcceptItem 是 leader 的**验收通过**：工作项 → done，销项。**不动现场与会话**——
+- `func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item store.TeamworkWorkItem) error` — cleanupAcceptedItem 是 team_accept 的唯一清理段：只释放该 WorkItem 的
 - `func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error` — FailItem 是 leader 的**判定不通过**：状态 → failed（现场与记忆都留着，可重派）。
 - `func (c *Coordinator) Items(ctx context.Context) ([]ItemView, error)` — Items 读回全部工作项（按里程碑顺序、里程碑内按排活顺序）。
 - `func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error)` — Recover 做**中断恢复**：把计划与绑定账本读回来，把"句柄已作废"显式化。
 - `func (c *Coordinator) releaseBinding(ctx context.Context, binding store.TeamworkBinding, teamID, reason string) error` — releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
+- `func (c *Coordinator) releaseWorktree(ctx context.Context, binding store.TeamworkBinding, teamID string) error` — releaseWorktree 是「只释放 worktree」的单责动作。
+- `func (c *Coordinator) resetBindingSession(ctx context.Context, binding store.TeamworkBinding) error` — resetBindingSession 是「只清 WorkItem Session」的单责动作，仅用于 team_close。
 - `func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding store.TeamworkBinding, reason string) error` — appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
 - `func (c *Coordinator) releaseRoleItemScenes(ctx context.Context, role, teamID, reason string) error` — releaseRoleItemScenes 释放某角色名下**每一个**已派发 Work Item 的现场（收口步 2
 - `func teammateLevelBinding(binding store.TeamworkBinding, role string) bool` — teammateLevelBinding 报告一行账本是不是**角色级**（teammate 级）现场：它的指派名
@@ -479,11 +498,13 @@ go test ./backend/multiagent/... -count=1
 - `func (s *fakeSpaces) MergeWorkspace(_ context.Context, binding WorkspaceBinding) error`
 - `func (s *fakeSpaces) ReleaseWorkspaceItem(_ context.Context, binding WorkspaceBinding) error`
 - `func (s *fakeSpaces) snapshot() (bound, merged, released []string)`
+- `func (s *fakeSpaces) setReleaseError(err error)`
 - `func itemIDs(bindings []WorkspaceBinding) []string`
 - `func (q *fakeQueue) EnqueueTeammateMessage(_ context.Context, message TeammateMessage) error`
 - `func (q *fakeQueue) texts() []string`
 - `func (h *settlerHolder) SettleWorkItem(ctx context.Context, request WorkerRequest, runErr error) error`
 - `func newItemFixture(t *testing.T, maxTeammates int) *itemFixture`
+- `func newItemFixtureWithJobs(t *testing.T, maxTeammates, maxJobs int) *itemFixture`
 - `func itemPlan() store.TeamworkPlan` — itemPlan 是里程碑 + Work Item 口径的 V 模型计划：
 - `func buildWork() []WorkItemSpec`
 - `func setupItemPlan(t *testing.T, fixture *itemFixture)` — setupItemPlan 建团队 + 给 m-build 排活。
@@ -520,6 +541,14 @@ go test ./backend/multiagent/... -count=1
 - `func TestJobCompletionFromCarriesEveryColumn(t *testing.T)` — TestJobCompletionFromCarriesEveryColumn 钉住"投影只搬、不漏列"：一条作业读数的每一列都要到
 - `func TestAsyncStateFromJobsFoldsOnlyKnownWords(t *testing.T)` — TestAsyncStateFromJobsFoldsOnlyKnownWords：状态词由**框架**定义，折一次；
 - `func TestProjectJobCompletionsKeepsOrderAndNormalizesEmpty(t *testing.T)` — TestProjectJobCompletionsKeepsOrderAndNormalizesEmpty：顺序保持、空表归一为 nil。
+
+### milestone_lifecycle.go
+
+- `func MilestoneClosed(plan store.TeamworkPlan, milestoneID string) bool` — MilestoneClosed 是「里程碑已收口」的唯一判据。done 是终态：允许只读查看，
+- `func closedMilestoneError(milestoneID string) error`
+- `func (e *AcceptedWithCleanupPendingError) Error() string`
+- `func (e *AcceptedWithCleanupPendingError) Unwrap() error`
+- `func IsAcceptedWithCleanupPending(err error) bool` — IsAcceptedWithCleanupPending 是上述中间态的唯一判据。
 
 ### output_store.go
 
@@ -611,6 +640,55 @@ go test ./backend/multiagent/... -count=1
 - `func (s planStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
 - `func (s planStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)`
 
+### target_hardening_test.go
+
+- `func TestClosedMilestoneRejectsWorkAdjustmentAndDispatch(t *testing.T)` — TestClosedMilestoneRejectsWorkAdjustmentAndDispatch 钉住已收口里程碑的唯一闸门：
+- `func TestAcceptReleasesOnlyTheWorkItemWorktree(t *testing.T)` — TestAcceptReleasesOnlyTheWorkItemWorktree 钉住 accept / close 的生命周期边界：
+- `func TestAcceptCleanupFailureIsIdempotentlyRetryable(t *testing.T)` — TestAcceptCleanupFailureIsIdempotentlyRetryable 钉住验收先落 done、再清理的
+- `func (m *recordingJobs) record(call string)`
+- `func (m *recordingJobs) Dispatch(ctx context.Context, spec jobs.Spec) (jobs.Handle, error)`
+- `func (m *recordingJobs) Declare(ctx context.Context, spec jobs.Spec) (jobs.Handle, error)`
+- `func (m *recordingJobs) Start(ctx context.Context, handle jobs.Handle) error`
+- `func (s orderedPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error`
+- `func (s orderedPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
+- `func (s orderedPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error`
+- `func TestDispatchUsesDeclarePersistThenStart(t *testing.T)` — TestDispatchUsesDeclarePersistThenStart 钉住派发事务屏障：执行体启动时，
+- `func TestDispatchWorktreeFailureStopsBeforeDeclare(t *testing.T)` — TestDispatchWorktreeFailureStopsBeforeDeclare 钉住 strict worktree 失败的边界：
+- `func (s *failingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error`
+- `func TestDispatchPersistFailureDoesNotStartExecutor(t *testing.T)` — TestDispatchPersistFailureDoesNotStartExecutor 钉住 Start 提交屏障：running 计划
+- `func TestDispatchMainWorkspaceRequiresExplicitOption(t *testing.T)` — TestDispatchMainWorkspaceRequiresExplicitOption 钉住降级边界：默认仍建 worktree；
+- `func TestMaxJobsLimitsActiveJobsNotRoles(t *testing.T)` — TestMaxJobsLimitsActiveJobsNotRoles 钉住 max_teammates 与 max_jobs 的分离：
+- `func TestTeammateRouteConcurrencyIsNarrowerThanMaxJobs(t *testing.T)` — TestTeammateRouteConcurrencyIsNarrowerThanMaxJobs 钉住可选的第二层限制：
+- `func containsCall(calls []string, want string) bool`
+- `func assertCallBefore(t *testing.T, calls []string, first, second string)`
+
+### team_message.go
+
+- `func DecodeTeammateMessageRequest(argsJSON string) (TeammateMessageRequest, error)` — DecodeTeammateMessageRequest 解析并校验 team_message。message 是给 teammate
+
+### team_message_dispatch.go
+
+- `func (c *Coordinator) DeclareTeammateMessage( ctx context.Context, ref dto.ConversationSessionRef, message string, systemPrompt string, ) (TeammateMessageDispatch, error)` — DeclareTeammateMessage registers and starts one dialogue-only worker job.
+
+### team_message_dispatch_test.go
+
+- `func TestDialogueDispatchKeepsTheWorkItemState(t *testing.T)` — TestDialogueDispatchKeepsTheWorkItemState 钉住 team_message 不是派活：
+
+### team_message_runtime.go
+
+- `func (c *Coordinator) TeammateConversationRef(ctx context.Context, role, itemID string) (dto.ConversationSessionRef, error)` — TeammateConversationRef resolves the only valid conversation window for a
+
+### team_message_runtime_test.go
+
+- `func TestTeammateConversationRefUsesTheWorkItemSession(t *testing.T)` — TestTeammateConversationRefUsesTheWorkItemSession 钉住 team_message 的窗口：
+- `func TestTeammateConversationRefRejectsRoutingMistakes(t *testing.T)` — TestTeammateConversationRefRejectsRoutingMistakes 钉住显式失败：没有 WorkItem、
+
+### team_message_test.go
+
+- `func TestDecodeTeammateMessageRequestRequiresRoleItemMessage(t *testing.T)`
+- `func TestDecodeTeammateMessageRequestDefaultsAndBoundsWait(t *testing.T)`
+- `func TestTeamMessageSchemaNamesTheWorkItemWindow(t *testing.T)`
+
 ### teammate_live.go
 
 - `func TeammateSessionLive(sessionID string, deps TeammateLiveDeps) dto.TeammateSessionLiveView` — TeammateSessionLive 实现 `contract.TeammateSessionProjection`：**默认页**。
@@ -642,6 +720,7 @@ go test ./backend/multiagent/... -count=1
 - `func memberFor(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool)` — memberFor 返回在编成员。
 - `func maxTurnsFor(member store.TeamworkMember, fallback int) int` — maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
 - `func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error)` — memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
+- `func MemberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error)` — MemberPermissionGroups exposes the existing permission-bit folding rule to
 - `func describeHandle(handle jobs.Handle) string`
 - `func summarize(records []jobs.Record) string`
 
@@ -668,7 +747,7 @@ go test ./backend/multiagent/... -count=1
 - `func TestDispatchJoinMilestoneLifecycle(t *testing.T)`
 - `func TestMilestoneRefusesMilestoneBehindTheBarrier(t *testing.T)` — TestMilestoneRefusesMilestoneBehindTheBarrier：屏障（依赖的里程碑）还没 done 就声明
 - `func TestDispatchRefusesUnknownRole(t *testing.T)`
-- `func TestDispatchRefusesWhenTeamIsFull(t *testing.T)`
+- `func TestDispatchRefusesWhenMaxJobsIsFull(t *testing.T)`
 - `func TestDispatchDedupsSameRole(t *testing.T)`
 - `func TestCloseReclaimsEveryJobOnTheRoster(t *testing.T)` — TestCloseReclaimsEveryJobOnTheRoster：回收统一在整队收口这一处——Close 之前两个角色
 - `func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T)` — TestCloseRequiresWorkspaceAndSessionPorts：回收唯一入口是整队收口——缺工作区端口时
@@ -678,16 +757,34 @@ go test ./backend/multiagent/... -count=1
 - `func TestWorkerExecutorWithoutRunnerFails(t *testing.T)`
 - `func TestCoordinatorCloseSealsBoard(t *testing.T)` — TestCoordinatorCloseSealsBoard：整队收口 —— 逐在编成员走同一套四步（reclaim=true）
 - `func TestCloseIdempotentAlreadyClosed(t *testing.T)` — TestCloseIdempotentAlreadyClosed：重复收口是幂等的读事实——第二次报 already_closed，
-- `func TestRedispatchSameRoleIsNotRefusedByCapacity(t *testing.T)` — TestRedispatchSameRoleIsNotRefusedByCapacity：作业只在一处回收（整队收口），于是"在跑
+- `func TestMaxJobsCountsEveryActiveJob(t *testing.T)` — TestMaxJobsCountsEveryActiveJob：max_jobs 是团队 active worker job 的硬上限。
 
 ### testnamer_test.go
 
 - `func (testNamer) Name(spec jobs.Spec, seq int) jobs.Handle`
 
+### tool_failure.go
+
+- `func (e *WorkItemToolFailureError) Error() string`
+- `func (e *WorkItemToolFailureError) Unwrap() error`
+- `func IsWorkItemToolFailure(err error) bool` — IsWorkItemToolFailure is the single classification used by the worker
+- `func NewWorkItemToolFailureTracker(itemID string, policy ToolFailurePolicy) *WorkItemToolFailureTracker`
+- `func (t *WorkItemToolFailureTracker) Observe(tool string, toolErr error) bool` — Observe 记录一次工具收口。返回 true 表示本次调用达到阈值，调用方应立即
+- `func (t *WorkItemToolFailureTracker) ConsecutiveFailures() int`
+- `func (t *WorkItemToolFailureTracker) Stopped() bool`
+- `func (t *WorkItemToolFailureTracker) Error() error`
+
+### tool_failure_test.go
+
+- `func TestWorkItemToolFailureTrackerCountsOnlyConsecutiveExplicitErrors(t *testing.T)`
+- `func TestWorkItemToolFailureTrackerDisabledIsZeroBehavior(t *testing.T)`
+- `func TestWorkItemToolFailureErrorKeepsArtifacts(t *testing.T)`
+
 ### tool_requests.go
 
 - `func DecodePlanRequest(argsJSON string) (store.TeamworkPlan, error)` — DecodePlanRequest 解析 `team_plan` 入参并补默认值（version 缺省 1；其余字段原样）。
 - `func DecodeDispatchRequest(argsJSON string) (DispatchRequest, error)` — DecodeDispatchRequest 解析 `team_dispatch` 入参：role / item trim；goal **原样**
+- `func (e *UnknownWorkspaceError) Error() string`
 - `func DecodeWorkRequest(argsJSON string) (string, []WorkItemSpec, error)` — DecodeWorkRequest 解析 `team_work` 入参：里程碑 trim，工作项原样搬成规格。
 - `func DecodeItemRequest(argsJSON string) (string, WorkItemSpec, error)` — DecodeItemRequest 解析 `team_item` 入参：id trim，其余字段搬成规格。
 - `func DecodeItemNoteRequest(argsJSON string) (string, string, error)` — DecodeItemNoteRequest 解析验收/判负入参：id trim；note 原样（那是给 leader 看的原文）。
@@ -705,6 +802,8 @@ go test ./backend/multiagent/... -count=1
 
 ### tool_shapes.go
 
+- `func TeamMessageDescription() string`
+- `func TeamMessageSchema() map[string]interface`
 - `func TeamPlanDescription() string`
 - `func TeamPlanSchema() map[string]interface`
 - `func TeamDispatchDescription() string`
@@ -765,6 +864,16 @@ go test ./backend/multiagent/... -count=1
 - `func TestInterruptedUnitsJudgesInFlightWithoutSurface(t *testing.T)` — TestInterruptedUnitsJudgesInFlightWithoutSurface：记录说在跑 + 执行面不在 ⇒ 中断并生成恢复说明；
 - `func TestInterruptedUnitsCoversLedgerSideWithoutRecord(t *testing.T)` — TestInterruptedUnitsCoversLedgerSideWithoutRecord：账本报"状态说在跑、句柄不在册"的工作项，
 - `func TestInterruptedUnitsDedupesAcrossSources(t *testing.T)` — TestInterruptedUnitsDedupesAcrossSources：记录侧与账本侧指向同一个单元 ⇒ 只列一次（保序：
+
+### worker_failure_policy_test.go
+
+- `func (failurePolicyRunner) RunWorker(context.Context, WorkerRequest, jobs.Sink) error`
+- `func (s *recordingSettler) SettleWorkItem(context.Context, WorkerRequest, error) error`
+- `func (s *recordingSink) Note(string)`
+- `func (s *recordingSink) SignalBytes()`
+- `func (s *recordingSink) Exit(int)`
+- `func (s *recordingSink) Complete(state jobs.State, _ string)`
+- `func TestWorkItemToolFailureBypassesSettlePreservingArtifacts(t *testing.T)` — TestWorkItemToolFailureBypassesSettlePreservingArtifacts 钉住失败返回策略的
 
 ### worker_round.go
 

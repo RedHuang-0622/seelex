@@ -221,6 +221,11 @@ type Runtime struct {
 	shutdownOnce     sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *visibility.Manager // 插件可见性配置（plugin/ 域）
+	// pluginCapabilities is a safe, read-only projection provider injected by
+	// the composition root. It must expose names/descriptions/skills/MCP
+	// identity only, never prompt bodies, commands, env, URLs, or local paths.
+	pluginCapabilitiesMu sync.RWMutex
+	pluginCapabilities   func(names []string) []dto.PluginCapabilityView
 
 	permission *toolreg.PermissionGate
 

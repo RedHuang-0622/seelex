@@ -54,7 +54,9 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession"
 	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -90,9 +92,11 @@ type roleEngine interface {
 type roleSessionHandle struct {
 	id string
 	// role 是这一轮的 teammate 角色名（实时读面要知道"这是谁在干"）。
-	role      string
-	engine    roleEngine
-	roundGate sync.Mutex
+	role         string
+	engine       roleEngine
+	roundGate    sync.Mutex
+	promptMu     sync.RWMutex
+	systemPrompt string
 }
 
 // inFlight 报告这一轮**此刻**是否还在跑（不阻塞：闸门被占着 = 有回合在飞）。
@@ -105,6 +109,24 @@ func (h *roleSessionHandle) inFlight() bool {
 		return false
 	}
 	return true
+}
+
+func (h *roleSessionHandle) setSystemPrompt(prompt string) {
+	if h == nil {
+		return
+	}
+	h.promptMu.Lock()
+	h.systemPrompt = prompt
+	h.promptMu.Unlock()
+}
+
+func (h *roleSessionHandle) effectiveSystemPrompt() string {
+	if h == nil {
+		return ""
+	}
+	h.promptMu.RLock()
+	defer h.promptMu.RUnlock()
+	return h.systemPrompt
 }
 
 // ErrRoleRoundReentrant 表示同一角色会话在**本轮之内**被再次驱动（同 goroutine
@@ -183,6 +205,32 @@ type roleRoundSpec struct {
 	// 事件）——"这一轮是谁的活"只有调用方知道，猜错了就会把评审回合的活动也当员工活动
 	// 播出去（或反之），两边的面板都开始说谎。空值 = 只走 TLStep sink（评审/内部回合）。
 	WorkScope roleWorkScope
+	// WorkItemID / ToolFailure 只对 teammate WorkItem 回合生效。工具失败返回
+	// 策略默认关闭；开启后由本轮 tracker 统计显式错误并在阈值处取消回合。
+	WorkItemID  string
+	ToolFailure teamwork.ToolFailurePolicy
+	// ResumeHistory is the last durable snapshot for a cold session. The
+	// framework consumes it once during the next history load.
+	ResumeHistory []types.Message
+}
+
+type roleToolFailureRunKey struct{}
+
+type roleToolFailureRun struct {
+	tracker *teamwork.WorkItemToolFailureTracker
+	cancel  context.CancelFunc
+}
+
+func withRoleToolFailureRun(ctx context.Context, run *roleToolFailureRun) context.Context {
+	return context.WithValue(ctx, roleToolFailureRunKey{}, run)
+}
+
+func roleToolFailureRunFrom(ctx context.Context) (*roleToolFailureRun, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	run, ok := ctx.Value(roleToolFailureRunKey{}).(*roleToolFailureRun)
+	return run, ok && run != nil && run.tracker != nil
 }
 
 // roleWorkScope / withRoleWorkScope / roleWorkScopeFrom 是团队域 `WorkScope` /
@@ -294,6 +342,16 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// 员工做工身份也挂在本轮 ctx 上：ReAct 钩子是挂在引擎上的（活得比一轮长），
 	// 只有 ctx 能告诉它"这一轮是谁的活"（见 roleRoundSpec.WorkScope）。
 	turnCtx = withRoleWorkScope(turnCtx, spec.WorkScope)
+	var toolFailureRun *roleToolFailureRun
+	if spec.ToolFailure.Enabled && strings.TrimSpace(spec.WorkItemID) != "" {
+		turnCtx, cancel := context.WithCancel(turnCtx)
+		defer cancel()
+		toolFailureRun = &roleToolFailureRun{
+			tracker: teamwork.NewWorkItemToolFailureTracker(spec.WorkItemID, spec.ToolFailure),
+			cancel:  cancel,
+		}
+		turnCtx = withRoleToolFailureRun(turnCtx, toolFailureRun)
+	}
 
 	// 闸门只包"跑一轮"这一段（准入在内、执行在外）。引擎读在闸门外：handle 经
 	// state.mu 发布、engine 在发布前写入，因此是安全的只读。
@@ -302,12 +360,16 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// 系统提示按轮重设：技能目录随装配集合变，而引擎的 prompt 是建会话那一刻
 	// 定死的（同值重设幂等；空集时不改动任何字节）。
 	engine.SetSystemPrompt(spec.SystemPrompt)
+	handle.setSystemPrompt(spec.SystemPrompt)
 	if spec.FreshContext {
 		// 隔离由构造保证：本轮的上下文完全由 spec.Input 自带（见 roleRoundSpec.FreshContext）。
 		engine.ClearHistory()
 	}
 	output, err := engine.ChatStream(turnCtx, spec.Input, spec.OnDelta)
 	handle.roundGate.Unlock()
+	if toolFailureRun != nil && toolFailureRun.tracker.Stopped() {
+		err = toolFailureRun.tracker.Error()
+	}
 	// 员工回合收口（阶梯提交）：这一轮结束 ⇒ 该角色会话的工具记录暂存一次性交给
 	// 主会话累计（同步、返回即已入账；不丢 goroutine）。放在闸门之外——它只碰台账
 	// 锁，与引擎回合闸门无关。失败路径同样收口：已经跑过的工具是发生过的读数。
@@ -348,7 +410,7 @@ func (r *Runtime) roleSessionFor(spec roleRoundSpec) (*roleSessionHandle, error)
 		return nil, fmt.Errorf("角色回合：分配角色权限失败: %w", err)
 	}
 
-	engine, err := r.newRoleEngine(roleSessionID)
+	engine, err := r.newRoleEngineWithHistory(roleSessionID, spec.SystemPrompt, spec.ResumeHistory)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +419,10 @@ func (r *Runtime) roleSessionFor(spec roleRoundSpec) (*roleSessionHandle, error)
 		engine.SetMaxLoops(spec.MaxLoops)
 	}
 
-	handle := &roleSessionHandle{id: roleSessionID, role: strings.TrimSpace(spec.RoleName), engine: engine}
+	handle := &roleSessionHandle{
+		id: roleSessionID, role: strings.TrimSpace(spec.RoleName), engine: engine,
+		systemPrompt: spec.SystemPrompt,
+	}
 	state.mu.Lock()
 	if state.sessions == nil {
 		state.sessions = make(map[string]*roleSessionHandle)
@@ -380,9 +445,13 @@ func (r *Runtime) roleSessionFor(spec roleRoundSpec) (*roleSessionHandle, error)
 // 触发压缩，帧就会写进**主会话**的压缩栈——那是跨会话写，不是隔离面。节点级
 // 控制器用内存压缩栈 + "node" 段 ID，角色回合的上下文因此完全自成一体。
 //
-// 刻意**不接 DurableHistory**：角色历史与主会话存储是两件事；把角色回合写进主
-// 会话的 provider 历史会污染主会话上下文（而且角色会话号不含主会话身份）。
+// 使用共享 AgentSessionFactory 为每个 WorkItem Session 建独立的
+// DurableHistory：历史只落该 WorkItem 的 Session 键，不写主会话上下文。
 func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
+	return r.newRoleEngineWithHistory(sessionID, "", nil)
+}
+
+func (r *Runtime) newRoleEngineWithHistory(sessionID, systemPrompt string, resumeHistory []types.Message) (roleEngine, error) {
 	state := r.roleTurnState()
 	state.mu.Lock()
 	factory := state.newEngine
@@ -399,29 +468,29 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 		// 隔离性降级（压缩栈会锚到活跃会话）。生产装配里 r.node 始终就绪。
 		context = r.mainContextComponents()
 	}
-	sess, err := session.NewSession(session.SessionComponents{
-		// Agent 是 teammate 工具面：在框架 Agent 之上**硬移除** fork_subagents（D6，见
-		// teammateToolFace）——角色会话里根本不存在这个工具，而不是靠运行期开关。
-		Agent:     teammateToolFace(r.agt),
-		Context:   context,
-		Telemetry: r.hook,
-		// ReAct 钩子把角色回合的**工具步骤**接到两处观察面（按本轮身份分流，见
-		// roleRoundSpec.WorkScope）：
-		//   ① 员工做工回合（team_dispatch 派出的 teammate）→ **teammate 工具活动事件**
-		//      （roleLoopHooks 里那条 work scope 分支）：前端据此实时更新开着的员工详情。
-		//      修前这一路是缺的——钩子只送 goal 域的 TLStep sink，而那个 sink 只有
-		//      ADVISOR 回合挂得上，于是 teammate 在做工时前端一无所知，只能等这一轮
-		//      跑完（leader 写里程碑那一刻）才看得到结果（2026-10-03 现场）。
-		//   ② ADVISOR 评审回合 → goal 域的过程观察面（tl_steps.go）：评审的只读工具
-		//      调用因此能被看见（"评审过程"）。钩子按 ctx 取 sink，员工回合取到 nil。
-		Hooks:     r.roleLoopHooks(),
-		SessionID: sessionID,
-		ModelName: r.model,
-		Config:    session.SessionConfig{MaxLoops: roleTurnMaxLoops},
+	context.SystemPrompt = strings.TrimSpace(systemPrompt)
+	sessionFactory := agentsession.New(agentsession.Deps{
+		Components: func() session.SessionComponents {
+			return session.SessionComponents{
+				// Agent 是 teammate 工具面：在框架 Agent 之上硬移除 fork_subagents。
+				Agent:     teammateToolFace(r.agt),
+				Context:   context,
+				Telemetry: r.hook,
+				Config:    session.SessionConfig{MaxLoops: roleTurnMaxLoops},
+			}
+		},
+		ModelName:         func() string { return r.model },
+		HistoryRouter:     r.HistoryRouter,
+		WorkspaceResolver: r.sessionWorkspaceFor,
+		InitialHistory: func(string) []types.Message {
+			return append([]types.Message(nil), resumeHistory...)
+		},
 	})
+	sess, err := sessionFactory.NewWithID(sessionID, r.roleLoopHooks())
 	if err != nil {
 		return nil, fmt.Errorf("角色回合：创建角色会话 %q 失败: %w", sessionID, err)
 	}
+	sess.SetMaxLoops(roleTurnMaxLoops)
 	return sess, nil
 }
 
@@ -462,6 +531,7 @@ func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCall
 	if !ok {
 		return
 	}
+	r.snapshotRoleWorkItemTranscript(ctx)
 	r.publishRoleToolActivity(dto.RoleToolActivity{
 		ID:            roleToolActivityID(info),
 		MainSessionID: scope.MainSessionID,
@@ -477,10 +547,16 @@ func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCall
 
 // reportRoleToolComplete 报告员工回合的一次工具调用收口（成功/出错都在这一条上）。
 func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolCallInfo) {
+	if run, ok := roleToolFailureRunFrom(ctx); ok && run.tracker.Observe(info.Name, info.Error) {
+		if run.cancel != nil {
+			run.cancel()
+		}
+	}
 	scope, ok := roleWorkScopeFrom(ctx)
 	if !ok {
 		return
 	}
+	r.snapshotRoleWorkItemTranscript(ctx)
 	status, message := dto.ToolEventSuccess, ""
 	if info.Error != nil {
 		status, message = dto.ToolEventError, info.Error.Error()
@@ -500,6 +576,21 @@ func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolC
 		StartedAt: time.Now().Add(-info.Duration),
 		Duration:  info.Duration,
 		Turn:      info.Turn,
+	})
+}
+
+// snapshotRoleWorkItemTranscript 在显式工具边界补一次 WorkItem transcript 快照。
+// 进程在长工具或模型流中断时，恢复链至少能拿到最后一个已观察到的工具边界；
+// 它只更新既有单元记录，不改变 WorkItem/作业状态。
+func (r *Runtime) snapshotRoleWorkItemTranscript(ctx context.Context) {
+	scope, ok := roleWorkScopeFrom(ctx)
+	if !ok || strings.TrimSpace(scope.WorkItemID) == "" {
+		return
+	}
+	r.saveTeamUnitTranscript(scope.MainSessionID, teamUnitRecordKey{
+		NodeID:        teamwork.SceneNodeID(scope.RoleName, scope.WorkItemID),
+		RoleSessionID: scope.RoleSessionID,
+		Role:          scope.RoleName,
 	})
 }
 

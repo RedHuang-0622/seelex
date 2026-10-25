@@ -53,7 +53,10 @@ func (e *workerExecutor) Start(ctx context.Context, spec jobs.Spec, sink jobs.Si
 	// 尾插：跑完（成功或失败）都插——失败时"bug 也要直接打印到 teammate 的消息中"。
 	// 尾插自身的错误**不改判终态**：结论已经产生，收尾动作失败不该把一次成功的
 	// 工作说成失败的（它的痕迹在审计行与消息正文里）。
-	if e.settler != nil {
+	// Dialogue-only turns and explicit tool-failure returns must not enter settle:
+	// neither is a normal completed WorkItem round, and the latter must preserve
+	// the worktree/session/output while returning control to the leader.
+	if e.settler != nil && !request.DialogueOnly && !IsWorkItemToolFailure(runErr) {
 		if settleErr := e.settler.SettleWorkItem(ctx, request, runErr); settleErr != nil {
 			sink.Note("\n[teamwork] 尾插失败：" + settleErr.Error() + "\n")
 		}

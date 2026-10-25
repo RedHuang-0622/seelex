@@ -547,9 +547,10 @@ test("④ 上一版真甘特的几何随「不画箭头」一起退场（不留�
 });
 
 test("看板头报工作项口径的计数，不再写「阶段」", () => {
-  const html = renderTeamBoard({ plan: MS_PLAN, jobs: [{ handle: "a7", state: "running" }], maxMembers: 6 });
+  const html = renderTeamBoard({ plan: MS_PLAN, jobs: [{ handle: "a7", state: "running" }], maxMembers: 6, maxJobs: 4 });
   assert.match(html, /工作项 1\/4 完成/);
   assert.match(html, /在编 3\/6/);
+  assert.match(html, /1\/4 运行作业/, "active job 上限与 role 上限分开显示");
   assert.match(html, /里程碑 0\/2/);
   assert.doesNotMatch(html, /阶段/);
 });
@@ -646,6 +647,30 @@ test("(h) 里程碑详情页：五个页签，基本信息的字段与 Work Item
   assert.match(html, /<th>ID<\/th><th>名称<\/th><th>负责人<\/th><th>依赖<\/th><th>状态<\/th>/);
   assert.match(html, /data-team-page-open="item:wi-impl"[^>]*>wi-impl</);
   assert.match(html, /data-team-page-open="teammate:exec"[^>]*>exec</);
+});
+
+test("(h2) 里程碑 Work Item 页签增量整合四字段条目，不删除原表", () => {
+  const plan = structuredClone(MS_PLAN);
+  const impl = plan.work_items.find(item => item.id === "wi-impl");
+  impl.gate = "job_interrupted";
+  impl.next = "redispatch";
+  impl.workspace_mode = "main";
+  const html = renderTeamPage({ plan, ref: "milestone:m-build", tab: "items" });
+  assert.match(html, /<table class="team-table">/, "既有 Work Item 表必须保留");
+  assert.match(html, /四字段条目视图/);
+  assert.match(html, /team-wi-entry[^>]*data-item="wi-impl"/);
+  for (const label of ["前置依赖", "工作内容", "负责 teammate", "工作状态"]) {
+    assert.match(html, new RegExp(`team-label">${label}<`), `条目必须显示 ${label}`);
+  }
+  assert.match(html, /wi-req · done/, "前置依赖要带依赖状态");
+  assert.match(html, /改 team-board-view\.js 的渲染口径/, "工作内容要保留 description");
+  assert.match(html, /看板能看见里程碑下的工作项/, "工作内容要保留 goal");
+  assert.match(html, /data-team-page-open="teammate:exec"/, "负责 teammate 必须可下钻");
+  assert.match(html, /gate: job_interrupted/, "work status 要解释 gate");
+  assert.match(html, /live: 现场在册/, "work status 要解释 live");
+  assert.match(html, /interrupted: 可重派/, "work status 要解释 interrupted");
+  assert.match(renderTeamPage({ plan, ref: "item:wi-impl" }), /主工作区（已批准）/, "显式主工作区批准必须可见");
+  assert.doesNotMatch(html, /\bsprint\b|story point|燃尽|预计工时/i);
 });
 
 test("(i) 里程碑详情页：依赖页签逐条列全（含状态与反向边），不画箭头", () => {
@@ -824,13 +849,13 @@ test("(p) 页签：tab 原样带回（刷新不把用户拽回第一页），认
 
 // ── 详情页 ④：teammate（含插件装配）──────────────────────────────
 
-test("(q) teammate 详情页：四个页签，基本信息 / 负责的 Work Item 表 / 装配 / 动态", () => {
+test("(q) teammate 详情页：六个页签，保留原有能力并整合会话与 Limit/权限", () => {
   const html = renderTeamPage({ plan: MS_PLAN, ref: "teammate:exec" });
-  assert.deepEqual(tilesOf(html), ["basic", "items", "assembly", "events"]);
+  assert.deepEqual(tilesOf(html), ["basic", "items", "session", "assembly", "limits", "events"]);
   assert.match(html, /data-team-page="teammate:exec"/);
   assert.match(html, /<span class="team-page-kind">teammate<\/span>/);
   assert.match(html, /data-team-tab="items"[^>]*><span class="team-page-tab-label">负责的 Work Item<\/span><span class="team-page-tab-count">2<\/span>/);
-  for (const key of ["角色", "状态", "权责", "工作区", "长期角色会话", "此刻那件事", "此刻那件事的会话", "负责"]) {
+  for (const key of ["角色", "状态", "权责", "工作区", "长期角色会话", "当前 WorkItem", "所属里程碑", "当前 WorkItem 会话", "当前 WorkItem 状态", "负责"]) {
     assert.match(html, new RegExp(`team-kv-key">${key}<`), `基本信息要读得到「${key}」`);
   }
   assert.match(html, /s-v-model-exec/, "长期角色会话号照写（那是员工的历史会话，与「此刻那件事」是两码事）");
@@ -869,6 +894,76 @@ test("(r) teammate 详情页：装配页签 = 同一个 renderMemberAssembly + t
   // 名下每一件有作业行的都列出来（装配对哪些会话生效 = 这一串工作项）。
   assert.match(html, /wi-1 · 实现[\s\S]*?<code class="team-dag-id">a1<\/code>/);
   assert.doesNotMatch(html, /wi-2 · 另一件/, "没有作业行的工作项不画空表");
+});
+
+test("(r2) teammate 详情整合 prompt / 插件能力 / limit / 权限，并复用 WorkItemExecution 组件", () => {
+  const execution = {
+    work_item: { id: "wi-impl", name: "实现", role: "exec", milestone: "m-build", session_id: "s-v-model-exec-wi-wi-impl", status: "running" },
+    progress: {
+      kind: "teammate", node_id: "exec-wi-impl", session_id: "s-v-model-exec-wi-wi-impl",
+      goal: "实现", status: "running", in_flight: true, summary: "正在实现",
+      stages: [{ stage: "running", preview: "已读取文件" }],
+    },
+    session: {
+      session_id: "s-v-model-exec-wi-wi-impl", recovery: "live", status: "running",
+      offset: 0, limit: 40, total: 8, has_more: false, truncated: true,
+      records: [
+        { kind: "system", role: "system", content: "base" },
+        { kind: "user", role: "user", content: "实现" },
+        { kind: "assistant", role: "assistant", content: "开始" },
+        { kind: "reasoning", role: "assistant", reasoning_content: "分析" },
+        { kind: "tool_call", role: "assistant", tool_name: "read_file", tool_call_id: "c1", content: "{\"path\":\"x\"}" },
+        { kind: "tool_result", role: "tool", tool_name: "read_file", tool_call_id: "c1", content: "ok", status: "success" },
+        { kind: "stage", content: "running", reasoning: "已读取文件" },
+        { kind: "recovery_note", role: "system", content: "恢复说明" },
+      ],
+    },
+  };
+  const inspection = {
+    team_id: "v-model", role: "exec", role_session_id: "s-v-model-exec",
+    current_work_item: execution.work_item,
+    base_system_prompt: "BASE_ROLE_PROMPT", effective_system_prompt: "EFFECTIVE_ROLE_PROMPT",
+    plugins: [{
+      name: "docs", description: "文档能力", include: ["read_*"], exclude: ["write_*"],
+      tools: ["read_file"], skills: [{ name: "docs-guide", description: "guide" }],
+      mcp_servers: [{ name: "safe-mcp", transport: "stdio" }], source: "builtin",
+      command: "SECRET_COMMAND", env: "SECRET_ENV", url: "https://secret.example", prompt: "SECRET_PROMPT",
+    }],
+    limits: { max_jobs: 6, max_turns_configured: 9, max_turns_effective: 9, max_plugins_per_member: 3 },
+    permissions: {
+      tools_policy: "readwrite", groups: { ro: 4, rw: 6 },
+      grants: [
+        { group: "ro", bits: 4, abilities: ["r"], explicit: true },
+        { group: "rw", bits: 6, abilities: ["r", "w"], explicit: true },
+      ],
+      effective_tools: ["read_file"],
+    },
+    current_execution: execution,
+  };
+  const html = renderTeamPage({ plan: MS_PLAN, ref: "teammate:exec", inspection, tab: "limits" });
+  assert.match(html, /BASE_ROLE_PROMPT/);
+  assert.match(html, /EFFECTIVE_ROLE_PROMPT/);
+  assert.match(html, /插件能力（安全投影）/);
+  assert.match(html, /safe-mcp · stdio/);
+  assert.match(html, /configured max_turns[\s\S]*?9/);
+  assert.match(html, /effective max_turns[\s\S]*?9/);
+  assert.match(html, /max_jobs[\s\S]*?6/);
+  assert.match(html, /<td>rw<\/td>[\s\S]*?<td>6<\/td>[\s\S]*?<td>r \/ w<\/td>/);
+  assert.match(html, /plugin ∩ permission[\s\S]*?read_file/);
+  assert.match(html, /插件面与权限面的交集/);
+  for (const secret of ["SECRET_COMMAND", "SECRET_ENV", "https://secret.example", "SECRET_PROMPT"]) {
+    assert.doesNotMatch(html, new RegExp(secret), "插件能力不得泄漏 command/env/url/prompt");
+  }
+  const itemHTML = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", execution, tab: "session" });
+  const teammateSession = renderTeamPage({ plan: MS_PLAN, ref: "teammate:exec", inspection, tab: "session" });
+  assert.match(itemHTML, /data-execution-item="wi-impl"/);
+  assert.match(teammateSession, /data-execution-item="wi-impl"/);
+  for (const kind of ["system", "user", "assistant", "reasoning", "tool_call", "tool_result", "stage", "recovery_note"]) {
+    assert.match(itemHTML, new RegExp(`data-record-kind="${kind}"`), `完整记录必须包含 ${kind}`);
+    assert.match(teammateSession, new RegExp(`data-record-kind="${kind}"`));
+  }
+  assert.match(itemHTML, /has_more/);
+  assert.match(itemHTML, /truncated/);
 });
 
 // ── 样式与接线 ───────────────────────────────────────────────────

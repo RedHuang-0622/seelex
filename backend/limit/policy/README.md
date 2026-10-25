@@ -133,6 +133,8 @@ go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 
 ### policy.go
 
+- `func RemoteFaceGroupBits(groups []toolspermission.PermissionGroup, name string) (uint8, bool)` — RemoteFaceGroupBits 返回"按面判定"两组的组位（判据单点）。
+- `func RemoteFaceToolsFromGroups(groups []toolspermission.PermissionGroup) []string` — RemoteFaceToolsFromGroups 从路由组表里读出"真的有远端执行面"的工具名清单。
 - `func DefaultPermissionGroupList() []toolspermission.PermissionGroup` — DefaultPermissionGroupList 是默认路由组表：按工具名 glob 路由，组带对象 mode 与默认动作。
 - `func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.SubjectGrant` — DefaultPermissionSubjects 是默认授权表：主体 → 各组位与 resource 限定。
 - `func DefaultPermissionRules() []toolspermission.PermissionRule` — DefaultPermissionRules 是默认的最细粒度覆盖层（args 级）：把"必须问人"和
@@ -153,14 +155,30 @@ go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 - `func TestTierCatalogHasSingleSource(t *testing.T)` — TestTierCatalogHasSingleSource 钉住"档位目录的唯一事实在 contract/dto"：
 - `func TestDeclaredToolMetaNeverGuesses(t *testing.T)` — TestDeclaredToolMetaNeverGuesses 钉住"派生不出来就不猜"：
 
+### ssh_groups_test.go
+
+- `func TestSSHIsOneRemoteCapability(t *testing.T)`
+- `func TestSSHVectorTagAndLegacyAliasMapToOneCapability(t *testing.T)`
+- `func TestSSHIsAvailableAcrossTierPresets(t *testing.T)`
+
 ### tiers.go
 
 - `func DefaultPermissionTiers() []dto.PermissionTierInfo` — DefaultPermissionTiers 返回档位目录（跨层词表的唯一事实在 dto）。
-- `func TierVector(tier string) []string` — TierVector 返回档位授予的公开权限组；未识别档位回落到 manual。
-- `func TierCells(tier string, groups []toolspermission.PermissionGroup) PermissionVectorCells` — TierCells 把档位向量展开成组位表。
+- `func TierVector(tier string) []string` — TierVector 返回档位的权限向量预设（= 该档授予的组）。
+- `func TierCells(tier string, groups []toolspermission.PermissionGroup) PermissionVectorCells` — TierCells 把档位展开成"组 → 位"格位表（执行面直接读它做判定）。
 
 ### tool_meta.go
 
 - `func DeclaredToolMeta(name string) frameworktools.ToolMeta` — DeclaredToolMeta 返回某工具**声明的**簇属：按名字在默认路由组表里路由，
 - `func ToolKindForGroup(name string) frameworktools.ToolKind` — ToolKindForGroup 把路由组翻译成框架的簇属类别。
+
+### vector.go
+
+- `func CellsForVector(decision dto.PermissionVectorDecision, groups []toolspermission.PermissionGroup) PermissionVectorCells` — CellsForVector 把一次解析结论按本次配置的路由组表展开成格位。
+- `func (cells PermissionVectorCells) Covers(group string, required uint8) bool` — Covers 报告该组是否被授予（且位足够）。required 为 0 时按"组在表里且位非 0"判。
+- `func (cells PermissionVectorCells) ExplicitlyDenied(group string) bool` — ExplicitlyDenied 报告该组是否被**显式**否掉（`!tag`）：执行面据此直接拒绝，
+- `func TagsForGroups(bits map[string]uint8) []string` — TagsForGroups 把"组 → 位"投影成权限向量标签（规范组序）。
+- `func VectorForGroups(bits map[string]uint8) []string` — VectorForGroups 是 TagsForGroups 的语义别名（读起来更像"给这份格位一条向量"）。
+- `func NormalizeVectorTag(raw string) (string, bool)` — NormalizeVectorTag 把单个标签规整成规范形态（小写、去空白、保留单个 `!`）。
+- `func EmployeeGroupsForClass(class SubjectClass) map[string]uint8` — EmployeeGroupsForClass 把员工主体类（emp_ro / emp_rw）折成默认逐组位。
 

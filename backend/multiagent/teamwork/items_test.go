@@ -22,8 +22,14 @@ type fakeSpaces struct {
 	bound    []WorkspaceBinding
 	merged   []string
 	released []string
+	// bindErr reproduces strict worktree creation failure without pretending the
+	// WorkItem can fall back to the main workspace.
+	bindErr error
 	// mergeErr 让"合并失败"这条残边可复现（插入失败 → 让 leader 亲自执行）。
 	mergeErr error
+	// releaseErr reproduces a cleanup failure after team_accept has already
+	// persisted the done state.
+	releaseErr error
 	// mergeGate（可选）在"合并"这一步被调用（参数是这次合并的现场）。并发用例用它把
 	// 各家 settle 的"合并"钉成确定的会合点——陈旧快照的窗口因此变成被安排好的时序，
 	// 而不是靠调度碰运气（见 items_concurrent_test.go 的 rendezvous）。
@@ -34,6 +40,9 @@ func (s *fakeSpaces) BindWorkspace(_ context.Context, binding WorkspaceBinding) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bound = append(s.bound, binding)
+	if s.bindErr != nil {
+		return WorkspaceBinding{}, s.bindErr
+	}
 	return binding, nil
 }
 
@@ -51,13 +60,19 @@ func (s *fakeSpaces) ReleaseWorkspaceItem(_ context.Context, binding WorkspaceBi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.released = append(s.released, binding.WorkItem)
-	return nil
+	return s.releaseErr
 }
 
 func (s *fakeSpaces) snapshot() (bound, merged, released []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), itemIDs(s.bound)...), append([]string(nil), s.merged...), append([]string(nil), s.released...)
+}
+
+func (s *fakeSpaces) setReleaseError(err error) {
+	s.mu.Lock()
+	s.releaseErr = err
+	s.mu.Unlock()
 }
 
 func itemIDs(bindings []WorkspaceBinding) []string {
@@ -113,6 +128,10 @@ type itemFixture struct {
 }
 
 func newItemFixture(t *testing.T, maxTeammates int) *itemFixture {
+	return newItemFixtureWithJobs(t, maxTeammates, DefaultMaxJobs)
+}
+
+func newItemFixtureWithJobs(t *testing.T, maxTeammates, maxJobs int) *itemFixture {
 	t.Helper()
 	st := &memoryPlanStore{}
 	runner := &fakeRunner{}
@@ -140,6 +159,7 @@ func newItemFixture(t *testing.T, maxTeammates int) *itemFixture {
 		Spaces:       spaces,
 		Teammates:    queue,
 		MaxTeammates: maxTeammates,
+		MaxJobs:      maxJobs,
 	})
 	if err != nil {
 		t.Fatalf("teamwork.New: %v", err)
@@ -354,12 +374,12 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	}
 	itemA := itemState(t, fixture, "wi-a")
 	itemB := itemState(t, fixture, "wi-b")
-	// 验收**只销状态**：A 的现场与会话指针留着（归 team 托管，收口时才拆）。
+	// 验收只销状态并释放 A 的 worktree；Session 指针保留到 team_close。
 	if itemA.StatusOrPending() != store.TeamworkItemDone {
 		t.Fatalf("A 应当已验收: %+v", itemA)
 	}
 	if itemA.SessionID == "" || itemA.Worktree == "" {
-		t.Fatalf("验收不该抹掉现场指针（现场活到 team_close）: %+v", itemA)
+		t.Fatalf("验收不该抹掉会话/现场指针（Session 活到 team_close）: %+v", itemA)
 	}
 	if itemB.SessionID == "" || itemB.Worktree == "" {
 		t.Fatalf("B 应当有自己的会话与工作区: %+v", itemB)
@@ -374,16 +394,16 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	if bound[0] == bound[1] {
 		t.Fatalf("两件事的工作区不能同名：%v", bound)
 	}
-	if len(released) != 0 {
-		t.Fatalf("验收不再是回收点（唯一入口是整队收口），却释放了 %v", released)
+	if len(released) != 1 || released[0] != "wi-a" {
+		t.Fatalf("验收应只释放 A 的 worktree，得到 %v", released)
 	}
-	// 唯一回收点：收口把两件事的现场一并结束（先把 B 的事落定，收口闸门才放行）。
+	// A 的现场已在验收时释放；收口只补收 B 的现场并清理两边 Session。
 	waitItemStatus(t, fixture, "wi-b", store.TeamworkItemReview)
 	if _, err := fixture.coordinator.Close(ctx); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, _, released = fixture.spaces.snapshot(); len(released) != 2 {
-		t.Fatalf("整队收口应把两件事的现场一并结束，得到 %v", released)
+	if _, _, released = fixture.spaces.snapshot(); len(released) != 2 || released[1] != "wi-b" {
+		t.Fatalf("整队收口应补收 B 的现场（A 不重复释放），得到 %v", released)
 	}
 	// 校验会话号按 (主会话, team, 角色, work_item) 派生。
 	want := WorkItemSessionID(fixture.coordinator.derive, "s", "v-model", "exec", "wi-b")
@@ -446,21 +466,21 @@ func TestWorktreeAndSessionSurviveUntilTeamClose(t *testing.T) {
 	if len(released) != 0 {
 		t.Fatalf("跑完但还没验收，工作区不该提前挂掉: %v", released)
 	}
-	// 验收通过 → **仍然不动现场**：teammate 的现场与会话归 team 托管。
+	// 验收通过 → 释放该 WorkItem 的 worktree；Session 留到 team_close。
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
 	_, _, released = fixture.spaces.snapshot()
-	if len(released) != 0 {
-		t.Fatalf("验收不再是回收点（现场活到整队收口），却释放了 %v", released)
+	if len(released) != 1 || released[0] != "wi-req" {
+		t.Fatalf("验收应释放该 WorkItem 的现场，得到 %v", released)
 	}
-	// 整队收口 = 唯一回收点：现场 + 会话内容一并结束。
+	// 整队收口清两边 Session，且不重复释放已清理的 worktree。
 	if _, err := fixture.coordinator.Close(ctx); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	_, _, released = fixture.spaces.snapshot()
 	if len(released) != 1 || released[0] != "wi-req" {
-		t.Fatalf("整队收口应当释放这件事的现场: %v", released)
+		t.Fatalf("整队收口不得重复释放已清理的现场: %v", released)
 	}
 	calls := fixture.calls.snapshot()
 	found := false

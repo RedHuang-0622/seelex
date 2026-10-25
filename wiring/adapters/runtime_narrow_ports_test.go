@@ -61,6 +61,11 @@ var narrowPortForwarded = map[string]string{
 	// contract.AccountRoleSelectionPort（role_permissions.go，角色默认账号）。
 	// 漏了它 = 设置落盘后运行时仍按旧账号池路由。
 	"contract.AccountRoleSelectionPort": "SetRoleAccount",
+	// 统一会话 / WorkItem 执行 / teammate inspection：application/core 通过类型
+	// 断言选择适配器；漏接会让 teammate、subagent 与详情页整块不可用。
+	"contract.AgentConversationPort":  "ViewAgentConversation",
+	"contract.WorkItemExecutionPort":  "WorkItemExecution",
+	"contract.TeammateInspectionPort": "TeammateInspection",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

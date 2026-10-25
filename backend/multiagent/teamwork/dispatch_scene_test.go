@@ -282,8 +282,9 @@ func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
 		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
-		// 销项（现场仍归 team 托管：验收不再是回收点），让收口闸门放行。
-		if err := fixture.coordinator.AcceptItem(ctx, id, "销项，现场留到收口"); err != nil {
+		// 销项会释放该 WorkItem 的 worktree；wi-b 的清理失败是明确的
+		// accepted_with_cleanup_pending 中间态，由后续 team_close 再兜底重试。
+		if err := fixture.coordinator.AcceptItem(ctx, id, "销项"); err != nil && !IsAcceptedWithCleanupPending(err) {
 			t.Fatalf("AcceptItem(%s): %v", id, err)
 		}
 	}

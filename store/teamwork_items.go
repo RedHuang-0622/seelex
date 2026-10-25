@@ -64,8 +64,9 @@ type TeamworkWorkItem struct {
 	// Status 空 = pending；取值见 TeamworkItem* 常量。
 	Status string `json:"status,omitempty"`
 	// SessionID / Worktree 是这一件事自己的执行隔离（一 Work Item 一套）。
-	SessionID string `json:"session_id,omitempty"`
-	Worktree  string `json:"worktree,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	Worktree      string `json:"worktree,omitempty"`
+	WorkspaceMode string `json:"workspace_mode,omitempty"`
 	// Handle 是最近一次派发的作业句柄——**只是投影**（jobs I-4：句柄只在内存，
 	// 进程重启即作废），读侧一律以 Observe 的返回为准。
 	Handle string `json:"handle,omitempty"`
@@ -100,12 +101,13 @@ func (item TeamworkWorkItem) Terminal() bool {
 // （Released=true）。读侧按 WorkItem 取最后一行 = 当前绑定；生命周期（team_close
 // 之后一并结束）由最后一行是不是 Released 表达，而不是靠"删掉那一行"。
 type TeamworkBinding struct {
-	WorkItem  string `json:"work_item"`
-	Milestone string `json:"milestone,omitempty"`
-	Role      string `json:"role"`
-	SessionID string `json:"session_id"`
-	Worktree  string `json:"worktree,omitempty"`
-	At        int64  `json:"at"`
+	WorkItem      string `json:"work_item"`
+	Milestone     string `json:"milestone,omitempty"`
+	Role          string `json:"role"`
+	SessionID     string `json:"session_id"`
+	Worktree      string `json:"worktree,omitempty"`
+	WorkspaceMode string `json:"workspace_mode,omitempty"`
+	At            int64  `json:"at"`
 	// Released=true 表示这一份绑定已经结束（验收销项 / 整队收口）。
 	Released bool   `json:"released,omitempty"`
 	Reason   string `json:"reason,omitempty"`

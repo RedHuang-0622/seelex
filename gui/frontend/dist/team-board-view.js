@@ -817,6 +817,45 @@ function workItemTable(plan, items, { milestoneColumn = false, roleColumn = fals
   return `<table class="team-table"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 
+// milestoneWorkItemEntries 是里程碑「Work Item」页签的增量条目视图。
+// 固定只读四项：前置依赖及状态、工作内容（name + description + goal）、
+// 负责 teammate、真实工作状态（并用 gate/live/interrupted 解释）。
+// 这不是敏捷看板：没有 sprint、story point、工时、燃尽或虚拟优先级。
+function milestoneWorkItemEntries(plan, items) {
+  if (!items.length) return '<p class="team-page-note">这块里程碑还没有工作项条目。</p>';
+  const rows = items.map(item => {
+    const id = String(item.id || "");
+    const deps = itemDepsOf(item);
+    const depHTML = deps.length ? deps.map(dep => depChip(plan, dep)).join("") : '<span class="muted">无前置依赖</span>';
+    const status = itemStatus(item);
+    const explanation = [
+      item.gate ? `gate: ${String(item.gate)}${item.next ? ` → ${String(item.next)}` : ""}` : "",
+      item.live === true ? "live: 现场在册" : "",
+      item.interrupted === true ? "interrupted: 可重派（执行面不在本进程）" : "",
+    ].filter(Boolean);
+    return `<article class="team-wi-entry" data-item="${escapeHtml(id)}" data-eff="${escapeHtml(effStatus(item))}">
+        <div class="team-wi-entry-head">
+          ${teamLink("item", id, id)}
+          <span class="team-wi-entry-name">${escapeHtml(String(item.name || "未命名工作项"))}</span>
+          ${teamStatusChip(effStatus(item), status, "工作项真实状态")}
+        </div>
+        <div class="team-wi-entry-grid">
+          <div><span class="team-label">前置依赖</span><div class="team-chip-row">${depHTML}</div></div>
+          <div><span class="team-label">工作内容</span><div class="team-wi-entry-content">
+            <span>${escapeHtml(String(item.description || "无描述"))}</span>
+            <span class="team-wi-entry-goal">${escapeHtml(String(item.goal || "无达成目标"))}</span>
+          </div></div>
+          <div><span class="team-label">负责 teammate</span><div>${teamLink("teammate", item.role, item.role ? "@" + item.role : "")}</div></div>
+          <div><span class="team-label">工作状态</span><div class="team-wi-entry-state">
+            ${teamStatusChip(effStatus(item), status)}
+            ${explanation.length ? explanation.map(text => `<span class="chip team-wi-entry-hint">${escapeHtml(text)}</span>`).join("") : '<span class="muted">无 gate / live / interrupted 附加标记</span>'}
+          </div></div>
+        </div>
+      </article>`;
+  }).join("");
+  return `<div class="team-wi-entries">${rows}</div>`;
+}
+
 // auditRows 渲染审计流水（详情页的「动态」页签）：不复用侧边栏那一节——那边是有界的
 // "最近几条"，这边要的是**这一页自己的**全部相关行（按里程碑 / 工作项 / teammate 过滤）。
 function auditRows(events, match, empty = "还没有与这一页相关的审计行。") {
@@ -925,7 +964,14 @@ export function renderMilestoneDetail(input = {}) {
         ["内容", frame.content],
       ]) + `<div class="team-chip-row">${wis || '<span class="muted">尚未排活</span>'}</div>`,
     },
-    { key: "items", label: "Work Item", count: items.length, html: workItemTable(plan, items, { roleColumn: true }) },
+    {
+      key: "items",
+      label: "Work Item",
+      count: items.length,
+      html: workItemTable(plan, items, { roleColumn: true })
+        + `<div class="team-page-sub">四字段条目视图</div>`
+        + milestoneWorkItemEntries(plan, items),
+    },
     { key: "members", label: "成员", count: members.length, html: teamChipRow("执行 teammate", memberChips, "这一块还没有排活") },
     {
       key: "deps",
@@ -987,11 +1033,13 @@ export function renderWorkItemDetail(input = {}) {
     .filter(message => String(message.work_item || "") === id)
     .map(message => `<li class="team-item-message"><span class="team-event-at">${escapeHtml(formatEventTime(message.at || ""))}</span><span>${escapeHtml(String(message.text || ""))}</span></li>`)
     .join("");
-  const sessionPanel = !session
-    ? `<p class="team-page-note">这件事还没有自己的会话（未派发 / 已销项）。${escapeHtml(noOwnSessionNote(role || "这一位"))}</p>`
-    : input.liveLoading === true
-      ? '<p class="team-page-note">正在读这一轮的执行面…（正文不落盘，只能从执行面实时读）</p>'
-      : renderTeammateLiveSession(input.live, { role, work_item: id });
+  const sessionPanel = input.execution
+    ? renderWorkItemExecution(input.execution)
+    : !session
+      ? `<p class="team-page-note">这件事还没有自己的会话（未派发 / 已销项）。${escapeHtml(noOwnSessionNote(role || "这一位"))}</p>`
+      : input.liveLoading === true
+        ? '<p class="team-page-note">正在读这一轮的执行面…</p>'
+        : renderTeammateLiveSession(input.live, { role, work_item: id });
   const nodeJobs = (Array.isArray(jobs) ? jobs : []).filter(job => String(job?.node || "") === id).length;
   const tabs = [
     {
@@ -1006,7 +1054,7 @@ export function renderWorkItemDetail(input = {}) {
         ["依赖槽位", `槽 ${slot}（1 格 = 1 层依赖；**不是工期**）`],
         ["依赖", deps.length ? deps.join(" → ") : ""],
         ["句柄", String(item.handle || "")],
-        ["工作区", String(item.worktree || "")],
+        ["工作区", String(item.workspace_mode || "") === "main" ? "主工作区（已批准）" : String(item.worktree || "")],
         ["会话", session],
         ["达成目标", String(item.goal || "")],
         ["描述", String(item.description || "")],
@@ -1050,12 +1098,15 @@ export function renderTeammateDetail(input = {}) {
   const role = String(input.spec?.id || "");
   const events = Array.isArray(input.events) ? input.events : [];
   const jobs = Array.isArray(input.jobs) ? input.jobs : [];
+  const inspection = input.inspection && typeof input.inspection === "object" ? input.inspection : null;
   if (!role) return '<div class="team-page is-empty">角色名为空。</div>';
   const member = memberOf(plan, role);
   const status = memberStatusOf(plan, role);
   const owned = memberWorkOf(plan, role);
   const done = owned.filter(item => itemStatus(item) === "done").length;
   const current = memberCurrentSessionOf(plan, role);
+  const currentItem = inspection?.current_work_item || workItemsOf(plan).find(item => String(item.id || "") === String(current.work_item || "")) || null;
+  const currentExecution = inspection?.current_execution || input.execution || null;
   const entry = teammateSessionEntry(plan, role);
   const policy = String(member?.tools_policy || "").trim();
   const worktree = String(member?.worktree || "").trim();
@@ -1099,19 +1150,35 @@ export function renderTeammateDetail(input = {}) {
         ["权责", policy],
         ["工作区", worktree],
         ["长期角色会话", String(member?.role_session_id || "")],
-        ["此刻那件事", current.work_item ? `${current.work_item}${current.name ? " · " + current.name : ""}` : ""],
-        ["此刻那件事的会话", current.session_id],
+        ["当前 WorkItem", currentItem ? `${String(currentItem.id || "")}${currentItem.name ? " · " + String(currentItem.name) : ""}` : ""],
+        ["所属里程碑", currentItem ? String(currentItem.milestone || "") : ""],
+        ["当前 WorkItem 会话", String(currentItem?.session_id || current.session_id || "")],
+        ["当前 WorkItem 状态", String(currentItem?.status || "")],
         ["负责", `${owned.length} 件事（已完成 ${done} 件）`],
-      ]) + `<div class="team-chip-row"><span class="team-label">入口</span>${live}</div>`,
+      ]) + `<div class="team-chip-row"><span class="team-label">入口</span>${live}</div>`
+        + promptPanel(inspection),
     },
     { key: "items", label: "负责的 Work Item", count: owned.length, html: workItemTable(plan, owned, { milestoneColumn: true }) },
+    {
+      key: "session",
+      label: "会话",
+      html: currentExecution
+        ? renderWorkItemExecution(currentExecution)
+        : '<p class="team-page-note">这位当前没有可打开的 WorkItem 会话；teammate 不提供绕过 WorkItem 的角色私聊窗口。</p>',
+    },
     {
       key: "assembly",
       label: "插件装配",
       html: (renderMemberAssembly(member) || '<p class="team-page-note">这一位既没有声明面，也没有生效读数（空集 = 不覆盖由 mode=inherit-host 回答；读数为空 = 桥这一侧给不出）。</p>')
+        + renderPluginCapabilities(inspection)
         + `<p class="team-page-note">装配是 <b>teammate 级</b>：一位 teammate = 一条长期角色会话 + 每个工作项自己的会话，这份装配对它手上的每个工作项会话都生效。</p>`
         + `<div class="team-page-sub">名下工作项的作业行</div>`
         + ownedWithJobs,
+    },
+    {
+      key: "limits",
+      label: "Limit / 权限",
+      html: renderTeammateLimits(inspection, member),
     },
     {
       key: "events",
@@ -1124,6 +1191,121 @@ export function renderTeammateDetail(input = {}) {
   return teamPageShell({ ref: teamPageRef("teammate", role), head, tabs, active: input.tab, parent: input.parent });
 }
 
+function renderWorkItemExecution(execution) {
+  if (!execution || typeof execution !== "object") return '<p class="team-page-note">没有可显示的执行记录。</p>';
+  const item = execution.work_item || {};
+  const progress = execution.progress || {};
+  const session = execution.session || {};
+  const records = Array.isArray(session.records) ? session.records : [];
+  const status = String(progress.status || session.status || "");
+  const recovery = String(session.recovery || "missing");
+  const progressMeta = [
+    status ? `状态 ${status}` : "",
+    progress.in_flight === true ? "in-flight" : "",
+    recovery,
+    String(session.session_id || item.session_id || ""),
+  ].filter(Boolean).map(text => `<span class="chip">${escapeHtml(text)}</span>`).join("");
+  const stages = (Array.isArray(progress.stages) ? progress.stages : [])
+    .map(stage => `<li><code class="team-dag-id">${escapeHtml(String(stage.stage || ""))}</code>${stage.preview ? ` · ${escapeHtml(String(stage.preview))}` : ""}</li>`)
+    .join("");
+  const labels = {
+    system: "SYSTEM", user: "USER", assistant: "ASSISTANT", reasoning: "REASONING",
+    tool_call: "TOOL CALL", tool_result: "TOOL RESULT", stage: "STAGE", recovery_note: "RECOVERY",
+  };
+  const rowOf = record => {
+    const kind = String(record.kind || "");
+    const content = String(record.content || record.reasoning_content || "").trim();
+    const tool = [record.tool_name, record.tool_call_id].filter(Boolean).join(" · ");
+    return `<li class="team-execution-row is-${escapeHtml(kind)}" data-record-kind="${escapeHtml(kind)}">
+        <span class="team-execution-kind">${escapeHtml(labels[kind] || kind || "RECORD")}</span>
+        ${record.role ? `<span class="chip team-role">${escapeHtml(String(record.role))}</span>` : ""}
+        ${tool ? `<span class="team-execution-tool">${escapeHtml(tool)}</span>` : ""}
+        ${record.status ? `<span class="chip">${escapeHtml(String(record.status))}</span>` : ""}
+        ${content ? `<span class="team-execution-content" title="${escapeHtml(content)}">${escapeHtml(content)}</span>` : ""}
+        ${record.error ? `<span class="team-execution-error">${escapeHtml(String(record.error))}</span>` : ""}
+        ${record.truncated === true ? '<span class="chip team-wi-entry-hint">已裁剪</span>' : ""}
+      </li>`;
+  };
+  const pageMeta = [
+    `offset ${Number(session.offset) || 0}`,
+    `limit ${Number(session.limit) || 0}`,
+    `total ${Number(session.total) || records.length}`,
+    `has_more ${session.has_more === true}`,
+    `truncated ${session.truncated === true}`,
+  ].filter(Boolean).join(" · ");
+  return `<div class="team-workitem-execution" data-execution-item="${escapeHtml(String(item.id || ""))}">
+      <div class="role-session-head">
+        <span class="chip team-item-ref">${escapeHtml(String(item.id || "WorkItem"))}</span>
+        ${item.name ? `<span class="chip">${escapeHtml(String(item.name))}</span>` : ""}
+        ${progressMeta}
+      </div>
+      ${progress.summary ? `<p class="team-page-note">${escapeHtml(String(progress.summary))}</p>` : ""}
+      ${progress.error ? `<p class="team-page-warn">${escapeHtml(String(progress.error))}</p>` : ""}
+      ${stages ? `<div class="team-page-sub">阶段</div><ul class="team-execution-stages">${stages}</ul>` : ""}
+      <div class="team-page-sub">完整执行记录</div>
+      <ol class="team-execution-records">${records.map(rowOf).join("") || '<li class="team-page-note">这个会话还没有执行记录。</li>'}</ol>
+      <div class="team-page-note">${escapeHtml(pageMeta)}</div>
+    </div>`;
+}
+
+function promptPanel(inspection) {
+  const base = String(inspection?.base_system_prompt || "");
+  const effective = String(inspection?.effective_system_prompt || "");
+  if (!base && !effective) return "";
+  const block = (label, text) => text ? `<details class="team-prompt"><summary>${escapeHtml(label)}</summary><pre>${escapeHtml(text)}</pre></details>` : "";
+  return `<div class="team-page-sub">System Prompt</div><div class="team-prompts">${block("base system prompt", base)}${block("effective system prompt", effective)}</div>`;
+}
+function renderPluginCapabilities(inspection) {
+  const plugins = Array.isArray(inspection?.plugins) ? inspection.plugins : [];
+  if (!plugins.length) return "";
+  const list = values => (Array.isArray(values) && values.length)
+    ? values.map(value => `<span class="chip">${escapeHtml(String(value))}</span>`).join("")
+    : '<span class="muted">—</span>';
+  const blocks = plugins.map(plugin => {
+    const skills = list((plugin.skills || []).map(skill => skill.name));
+    const servers = list((plugin.mcp_servers || []).map(server => [server.name, server.transport].filter(Boolean).join(" · ")));
+    return `<article class="team-plugin-capability">
+        <div class="team-wi-entry-head"><strong>${escapeHtml(String(plugin.name || ""))}</strong>
+          ${plugin.fault ? '<span class="chip team-assembly-faulted">失灵</span>' : ""}
+          ${plugin.yellow === true ? '<span class="chip team-assembly-yellow">黄牌</span>' : ""}
+        </div>
+        ${plugin.description ? `<p class="team-page-note">${escapeHtml(String(plugin.description))}</p>` : ""}
+        <div class="team-chip-row"><span class="team-label">include</span>${list(plugin.include)}</div>
+        <div class="team-chip-row"><span class="team-label">exclude</span>${list(plugin.exclude)}</div>
+        <div class="team-chip-row"><span class="team-label">工具</span>${list(plugin.tools)}</div>
+        <div class="team-chip-row"><span class="team-label">技能</span>${skills}</div>
+        <div class="team-chip-row"><span class="team-label">MCP</span>${servers}</div>
+        ${plugin.source ? `<div class="team-page-note">来源：${escapeHtml(String(plugin.source))}</div>` : ""}
+      </article>`;
+  }).join("");
+  return `<div class="team-page-sub">插件能力（安全投影）</div><div class="team-plugin-capabilities">${blocks}</div>`;
+}
+function renderTeammateLimits(inspection, member) {
+  const limits = inspection?.limits || {};
+  const permissions = inspection?.permissions || {};
+  const policy = String(permissions.tools_policy || member?.tools_policy || "");
+  const groups = permissions.groups && typeof permissions.groups === "object" ? Object.entries(permissions.groups) : [];
+  const grants = Array.isArray(permissions.grants) && permissions.grants.length
+    ? permissions.grants
+    : groups.map(([group, bits]) => ({ group, bits, abilities: [], explicit: true }));
+  const grantHTML = grants.length
+    ? `<table class="team-table"><thead><tr><th>group</th><th>bits</th><th>abilities</th><th>来源</th></tr></thead><tbody>${grants.map(grant => `<tr>
+        <td>${escapeHtml(String(grant.group || ""))}</td><td>${escapeHtml(String(grant.bits ?? 0))}</td>
+        <td>${escapeHtml((grant.abilities || []).join(" / "))}</td>
+        <td>${grant.explicit === true ? "显式格子" : "按档位继承"}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="team-page-note">没有逐组权限格子：按 tools_policy 继承。</p>';
+  const tools = Array.isArray(permissions.effective_tools) ? permissions.effective_tools : [];
+  return teamKV([
+    ["tools_policy", policy],
+    ["configured max_turns", String(limits.max_turns_configured ?? "")],
+    ["effective max_turns", String(limits.max_turns_effective ?? "")],
+    ["max_jobs", String(limits.max_jobs ?? "")],
+    ["插件上限", String(limits.max_plugins_per_member ?? "")],
+  ]) + `<div class="team-page-sub">权限向量（原始 bits + 解码）</div>${grantHTML}`
+    + `<div class="team-page-sub">最终可用工具交集</div><div class="team-chip-row"><span class="team-label">plugin ∩ permission</span>${tools.length ? tools.map(tool => `<span class="chip">${escapeHtml(String(tool))}</span>`).join("") : '<span class="muted">—</span>'}</div>`
+    + '<p class="team-page-note">插件只负责收窄工具面；最终可用能力是插件面与权限面的交集。插件读数不包含 MCP command/env/URL、绝对路径或 Prompt 正文。</p>';
+}
+
 // ── 渲染 ────────────────────────────────────────────────────────
 
 // renderTeamBoard 渲染整块看板：看板头 + 里程碑格栅 + teammate 条目 + 审计。
@@ -1131,13 +1313,13 @@ export function renderTeammateDetail(input = {}) {
 // 没有里程碑也没有工作项 → ""（不留空壳，口径同目标看板）。判据只看里程碑与工作项：
 // 阶段口径已删除，不存在"计划的形状里有阶段"这回事。
 export function renderTeamBoard(input = {}) {
-  const { plan = null, jobs = [], events = [], maxMembers = 0, stale = false, recovered = false } = input;
+  const { plan = null, jobs = [], events = [], maxMembers = 0, maxJobs = 0, stale = false, recovered = false } = input;
   const milestones = milestonesOf(plan);
   const items = workItemsOf(plan);
   if (milestones.length === 0 && items.length === 0) return "";
   const summary = summarizeTeam(plan, jobs);
   return `<div class="team-board" data-team-board data-team-id="${escapeHtml(String(plan?.team_id || ""))}">
-      ${renderTeamHead(plan, summary, maxMembers, stale, recovered)}
+      ${renderTeamHead(plan, summary, maxMembers, maxJobs, stale, recovered)}
       ${renderTeamGantt(plan)}
       ${renderTeamQueue(plan)}
       ${renderTeamAudit(events)}
@@ -1150,17 +1332,18 @@ export function renderTeamBoard(input = {}) {
 //   - recovered：这份看板来自存档快照（活体投影给不出时兜底），不是活体算出来的；
 //   - stale：里面的作业行句柄来自上一个进程（jobs I-4），真值以 Observe 为准。
 // 恢复出来的看板两者同时为真，所以同屏出现（不是二选一）。
-export function renderTeamHead(plan, summary, maxMembers = 0, stale = false, recovered = false) {
+export function renderTeamHead(plan, summary, maxMembers = 0, maxJobs = 0, stale = false, recovered = false) {
   const version = Number(plan?.version) || 0;
   const teamID = String(plan?.team_id || "未命名团队");
   const roster = maxMembers > 0 ? `在编 ${summary.members}/${maxMembers}` : `在编 ${summary.members}`;
+  const jobsCeiling = maxJobs > 0 ? `${summary.jobs_running}/${maxJobs} 运行作业` : `${summary.jobs_running} 运行作业`;
   const counts = [
     `工作项 ${summary.items_done}/${summary.items_total} 完成`,
     summary.items_running ? `${summary.items_running} 在跑` : "",
     summary.items_review ? `${summary.items_review} 待验收` : "",
     summary.items_failed ? `${summary.items_failed} 未通过` : "",
     roster,
-    `作业 ${summary.jobs_running} 跑 / ${summary.jobs_done} 完 / ${summary.jobs_failed} 败`,
+    `${jobsCeiling} · ${summary.jobs_done} 完 / ${summary.jobs_failed} 败`,
     `里程碑 ${summary.milestones_done}/${summary.milestones_total}`,
   ].filter(Boolean).join(" · ");
   const recoveredChip = recovered
@@ -1535,6 +1718,30 @@ export const TEAM_BOARD_CSS = `
 .team-dag-wi-meta { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 9.5px; color: var(--faint); }
 .team-dag-wi-role { display: inline-flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .team-wi { display: inline-flex; align-items: center; gap: 3px; padding: 0 4px; border: 1px solid var(--row-line, var(--border-hairline)); border-radius: 3px; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-mid); }
+.team-wi-entries { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.team-wi-entry { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 8px; border: 1px solid var(--border-hairline); border-left: 3px solid var(--row-line, var(--border-strong)); border-radius: 6px; background: var(--panel); }
+.team-wi-entry-head { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.team-wi-entry-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text-strong); }
+.team-wi-entry-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px 10px; }
+.team-wi-entry-content, .team-wi-entry-state { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--text-mid); }
+.team-wi-entry-goal { color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
+.team-wi-entry-hint { color: var(--text-dim); white-space: normal; }
+.team-workitem-execution, .team-plugin-capability, .team-prompt { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px; border: 1px solid var(--border-hairline); border-radius: 6px; background: var(--panel); }
+.team-prompts, .team-plugin-capabilities { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.team-prompt summary { cursor: pointer; color: var(--text-mid); font-family: var(--font-mono); font-size: 10px; }
+.team-prompt pre { max-height: 240px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 10px; color: var(--text-mid); }
+.team-execution-records, .team-execution-stages { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.team-execution-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; min-width: 0; padding: 5px 6px; border-left: 2px solid var(--border-strong); background: var(--panel-solid); }
+.team-execution-row.is-system { border-left-color: var(--status-idle); }
+.team-execution-row.is-user { border-left-color: var(--status-info); }
+.team-execution-row.is-assistant { border-left-color: var(--status-done); }
+.team-execution-row.is-reasoning { border-left-color: var(--text-dim); }
+.team-execution-row.is-tool_call, .team-execution-row.is-tool_result { border-left-color: var(--status-running); }
+.team-execution-row.is-stage, .team-execution-row.is-recovery_note { border-left-color: var(--status-failed); }
+.team-execution-kind { flex: none; min-width: 74px; font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: var(--faint); }
+.team-execution-tool { font-family: var(--font-mono); font-size: 10px; color: var(--text-mid); }
+.team-execution-content { flex: 1 1 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-mid); }
+.team-execution-error { flex: 1 1 100%; color: var(--status-failed); white-space: pre-wrap; }
 .team-dag-ms-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; font-size: 9.5px; color: var(--faint); }
 .team-dag-ms-deps { flex: none; font-family: var(--font-mono); color: var(--text-dim); }
 .team-dag-ms-broad { flex: none; font-family: var(--font-mono); color: var(--text-dim); }

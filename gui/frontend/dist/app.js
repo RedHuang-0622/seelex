@@ -2718,6 +2718,7 @@ function renderTeam(snapshot) {
   const badge = elements["team-board-badge"];
   if (!section || !view) return;
   const input = teamBoardInput(snapshot?.runtime || {});
+  if (input) input.mainSessionID = String(snapshot?.session?.id || "");
   // 「这位 teammate 此刻那件事的会话」的解析面留给会话入口用（见 openRoleSessionDetail）：
   // 团队看板是这条事实的权威投影（在编行的角色名/会话号都出自它），少了这一份，
   // 入口就只能退到角色会话（那是主代理的会话，不是 teammate 自己的）。
@@ -2784,6 +2785,7 @@ function teamBoardInput(runtime) {
         status: item?.status || "",
         session_id: item?.session_id || "",
         worktree: item?.worktree || "",
+        workspace_mode: item?.workspace_mode || "",
         handle: item?.handle || "",
         note: item?.note || "",
         live: item?.live === true,
@@ -2793,6 +2795,7 @@ function teamBoardInput(runtime) {
     // 在编上限来自后端（TeamworkBackend.MaxTeammates）；缺失/0 = 不限制，
     // 渲染件据此把「在编 n」写成「在编 n/max」。
     maxMembers: Number(board.max_members) || 0,
+    maxJobs: Number(board.max_jobs) || 0,
     jobs: (Array.isArray(board.jobs) ? board.jobs : []).map(job => ({
       handle: job?.handle || "",
       state: job?.state || "",
@@ -2851,6 +2854,8 @@ const teamPageStack = [];
 // 按页记 + 只在**切到那个页签时**才去读：进详情页就为每个工作项拉一次正文，等于把一次
 // 点击变成一串 RPC，而用户多半只是想看一眼字段。
 let teamPageLive = null;
+let teamPageExecution = null;
+let teamPageInspection = null;
 
 function teamPageTop() {
   return teamPageStack[teamPageStack.length - 1] || null;
@@ -2866,6 +2871,8 @@ function openTeamPage(kind, id) {
   }
   teamPageStack.push({ ref, kind: String(kind), id: String(id), tab: "" });
   teamPageLive = null;
+  teamPageExecution = null;
+  teamPageInspection = null;
   ensureTeamBoardStyles();
   setModal("team-page-modal", true);
   refreshTeamPage();
@@ -2876,6 +2883,8 @@ function teamPageBack() {
   if (teamPageStack.length === 0) return;
   teamPageStack.pop();
   teamPageLive = null;
+  teamPageExecution = null;
+  teamPageInspection = null;
   if (teamPageStack.length === 0) {
     closeTeamPage();
     return;
@@ -2886,6 +2895,8 @@ function teamPageBack() {
 function closeTeamPage() {
   teamPageStack.length = 0;
   teamPageLive = null;
+  teamPageExecution = null;
+  teamPageInspection = null;
   setModal("team-page-modal", false);
 }
 
@@ -2913,6 +2924,8 @@ function paintTeamPage() {
     tab: top.tab,
     // 只画**属于这一页**的读数：换页时上一页的执行面正文不许跟着漂过来。
     live: teamPageLive?.ref === top.ref ? teamPageLive.view : null,
+    execution: teamPageExecution?.ref === top.ref ? teamPageExecution.view : null,
+    inspection: teamPageInspection?.ref === top.ref ? teamPageInspection.view : null,
     liveLoading: top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref,
     parent: parent ? { ref: parent.ref, label: teamPageTitle({ plan: input.plan, ref: parent.ref }) } : null,
   });
@@ -2951,6 +2964,38 @@ async function loadTeamPageSession(top) {
   paintTeamPage();
 }
 
+async function loadWorkItemExecution(top, itemID) {
+  const mainSessionID = String(currentTeamBoardInput?.mainSessionID || "").trim();
+  if (!top || !mainSessionID || !itemID) return;
+  try {
+    const view = await invoke("WorkItemExecution", mainSessionID, String(itemID), 0, TEAMMATE_LIVE_PAGE_SIZE);
+    if (teamPageTop()?.ref !== top.ref) return;
+    teamPageExecution = { ref: top.ref, itemID: String(itemID), view };
+    paintTeamPage();
+  } catch {
+    if (teamPageTop()?.ref !== top.ref) return;
+    teamPageExecution = { ref: top.ref, itemID: String(itemID), view: null };
+    paintTeamPage();
+  }
+}
+
+async function loadTeammateInspection(top) {
+  const mainSessionID = String(currentTeamBoardInput?.mainSessionID || "").trim();
+  if (!top || top.kind !== "teammate" || !mainSessionID) return;
+  try {
+    const view = await invoke("TeammateInspection", mainSessionID, top.id);
+    if (teamPageTop()?.ref !== top.ref) return;
+    teamPageInspection = { ref: top.ref, view };
+    paintTeamPage();
+    const currentItemID = String(view?.current_work_item?.id || "").trim();
+    if (currentItemID) await loadWorkItemExecution(top, currentItemID);
+  } catch {
+    if (teamPageTop()?.ref !== top.ref) return;
+    teamPageInspection = { ref: top.ref, view: null };
+    paintTeamPage();
+  }
+}
+
 // openTeamPageLivePage 翻「这一页的执行会话」的一页（读法是后端的 TeammateSessionLivePage：
 // 判据只有一份，前端只搬 offset）。
 async function openTeamPageLivePage(offset) {
@@ -2985,9 +3030,13 @@ function switchTeamPageTab(key) {
       panel.classList.toggle("is-active", panel.dataset.teamPanel === top.tab);
     }
   }
-  if (top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref) {
-    paintTeamPage();
-    loadTeamPageSession(top);
+  paintTeamPage();
+  if (top.kind === "item" && top.tab === "session" && teamPageExecution?.ref !== top.ref) {
+    loadWorkItemExecution(top, top.id);
+  }
+  if (top.kind === "teammate" && top.tab === "session" && teamPageExecution?.ref !== top.ref) {
+    if (teamPageInspection?.ref !== top.ref) loadTeammateInspection(top);
+    else loadWorkItemExecution(top, teamPageInspection.view?.current_work_item?.id || "");
   }
 }
 
@@ -3000,8 +3049,10 @@ async function refreshTeamPage() {
     return;
   }
   paintTeamPage();
-  if (top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref) {
-    await loadTeamPageSession(top);
+  if (top.kind === "teammate" && teamPageInspection?.ref !== top.ref) {
+    await loadTeammateInspection(top);
+  } else if (top.kind === "item" && top.tab === "session" && teamPageExecution?.ref !== top.ref) {
+    await loadWorkItemExecution(top, top.id);
   }
 }
 

@@ -15,6 +15,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/store"
@@ -63,6 +64,11 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 		return
 	}
 	record := teamwork.UnitRecord(key, scope.SessionID, status, summary, stage, r.teamUnitWorktreeRecord(key.NodeID))
+	// Durable transcript 与主/子代理同一策略：记录里保存当前执行面的工作历史，
+	// 进程重启后 WorkItem 会话可从该记录冷恢复；只写本 WorkItem Session，不碰主会话。
+	if handle := r.roleSessionHandleFor(key.RoleSessionID); handle != nil && handle.engine != nil {
+		record.History = handle.engine.History()
+	}
 	// 身份（Unit：Kind/Role/Plugins/SystemPrompt）**不在这里拼**：它是写链上 teammate 那一环
 	// 的事实（`teamUnitUnitRecordLink`），子代理那一环只填空缺。
 	if err := writer.Save(scope.ProjectID, scope.SessionID, record); err != nil {
@@ -123,6 +129,46 @@ func (r *Runtime) recordTeamUnitRoundOutput(mainSessionID string, key teamUnitRe
 		return
 	}
 	r.saveTeamUnitRecord(mainSessionID, key, teamUnitStatusRunning, preview, "round_output")
+}
+
+// saveTeamUnitTranscript 把当前 WorkItem Session 的工作历史写回既有单元记录，
+// 不改 WorkItem 状态、不追加 stage。它用于 DialogueOnly：对话不属于做工回合，
+// 但必须与普通回合一样在重启后可恢复。
+func (r *Runtime) saveTeamUnitTranscript(mainSessionID string, key teamUnitRecordKey) {
+	if r == nil || r.unitRecordWriter == nil || r.nodeSessionStore == nil || strings.TrimSpace(key.NodeID) == "" {
+		return
+	}
+	scope, ok := r.teamUnitScope(mainSessionID)
+	if !ok {
+		return
+	}
+	record, err := r.nodeSessionStore.Load(scope.ProjectID, scope.SessionID, key.RoleSessionID)
+	if err != nil {
+		return
+	}
+	if handle := r.roleSessionHandleFor(key.RoleSessionID); handle != nil && handle.engine != nil {
+		record.History = handle.engine.History()
+	}
+	if err := r.teamUnitRecordWriter(key).Save(scope.ProjectID, scope.SessionID, record); err != nil {
+		log.Printf("seelex: 更新 teammate 对话记录 %q（会话 %s）失败：%v", key.NodeID, key.RoleSessionID, err)
+	}
+}
+
+// teamUnitResumeHistory 返回冷恢复要注入下一轮的历史。现场角色会话仍在本进程时
+// 不读盘（已有内存历史）；只有冷会话才读取该 WorkItem Session 自己的记录。
+func (r *Runtime) teamUnitResumeHistory(mainSessionID, roleSessionID string) []types.Message {
+	if r == nil || r.nodeSessionStore == nil || r.roleSessionHandleFor(roleSessionID) != nil {
+		return nil
+	}
+	scope, ok := r.teamUnitScope(mainSessionID)
+	if !ok {
+		return nil
+	}
+	record, err := r.nodeSessionStore.Load(scope.ProjectID, scope.SessionID, roleSessionID)
+	if err != nil {
+		return nil
+	}
+	return append([]types.Message(nil), record.History...)
 }
 
 // settleTeamUnitRecord 把尾插的收尾分类写成记录的终态。分类本身就是写进计划的那一份

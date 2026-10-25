@@ -65,6 +65,49 @@ type NodeWorktreeInfo = dto.NodeWorktreeInfo
 // import 本包去认它们。这里是**引用**而不是定义，`errors.Is` 链上一路照旧。
 var ErrUncommittedChanges = workunit.ErrUncommittedChanges
 
+// WorktreeErrorCode 是严格创建路径的稳定失败分类。调用方据此决定是否请求
+// 用户批准回退主工作区，不靠匹配 git 的自由文本。
+type WorktreeErrorCode string
+
+const (
+	WorktreeErrorNotGitRepository WorktreeErrorCode = "worktree_not_git_repository"
+	WorktreeErrorInvalidHead      WorktreeErrorCode = "worktree_invalid_head"
+	WorktreeErrorPathConflict     WorktreeErrorCode = "worktree_path_conflict"
+	WorktreeErrorBranch           WorktreeErrorCode = "worktree_branch_error"
+	WorktreeErrorCreateFailed     WorktreeErrorCode = "worktree_create_failed"
+	WorktreeErrorUnavailable      WorktreeErrorCode = "worktree_unavailable"
+)
+
+// WorktreeCreateError 是严格 worktree 创建失败的 Typed Error。它绝不把失败
+// 伪装成 nil；ApprovalRequired 表示调用方可以显式请求用户批准后改用主工作区。
+type WorktreeCreateError struct {
+	Code             WorktreeErrorCode
+	NodeID           string
+	ApprovalRequired bool
+	Err              error
+}
+
+func (e *WorktreeCreateError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("worktree %q: %s: %v", e.NodeID, e.Code, e.Err)
+	}
+	return fmt.Sprintf("worktree %q: %s", e.NodeID, e.Code)
+}
+
+func (e *WorktreeCreateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func strictWorktreeError(nodeID string, code WorktreeErrorCode, err error) *WorktreeCreateError {
+	return &WorktreeCreateError{Code: code, NodeID: nodeID, ApprovalRequired: true, Err: err}
+}
+
 // IsUncommittedChanges 判定 err 是否属于「未提交改动」类收尾失败。
 //
 // 转调契约那唯一一份判据（本包不再自己写 `errors.Is`）：卫语句留在这里只为"本包的调用点
@@ -318,7 +361,20 @@ func (w *WorktreeManager) Begin(scope dto.SceneScope, nodeID string) *NodeWorktr
 // BeginNamed 为非子代理的**编排节点**创建 worktree：teammate 的每一个 Work Item 都是
 // 这样一个节点（一 Work Item 一个 worktree）。它与 Begin 走同一条实现、同一套命名与
 // 幂等规则，只是不要求调用方先构造一个 SceneScope——编排面只认"这件事的 id"。
-func (w *WorktreeManager) BeginNamed(nodeID string) *NodeWorktree { return w.beginNamed(nodeID) }
+func (w *WorktreeManager) BeginNamed(nodeID string) *NodeWorktree {
+	wt, _ := w.BeginNamedStrict(nodeID)
+	return wt
+}
+
+// BeginNamedStrict 是 teammate / Work Item 的严格创建入口：任何失败都返回 typed
+// error，调用方不得自行降级。现有 BeginNamed 只保留为旧调用方的兼容 wrapper。
+func (w *WorktreeManager) BeginNamedStrict(nodeID string) (*NodeWorktree, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	if w == nil || nodeID == "" {
+		return nil, strictWorktreeError(nodeID, WorktreeErrorUnavailable, errors.New("worktree manager or node id is empty"))
+	}
+	return w.beginNamedStrict(nodeID)
+}
 
 // WorktreeForNode 返回在册现场（无 → nil）。合并/释放按 id 取现场时用。
 func (w *WorktreeManager) WorktreeForNode(nodeID string) *NodeWorktree { return w.worktreeFor(nodeID) }
@@ -335,24 +391,32 @@ func (w *WorktreeManager) WorktreeForNode(nodeID string) *NodeWorktree { return 
 // 未提交产出 + `branch -D`），第 ③ 条因 `add -b` 撞上已存在的分支而必然失败——两条合在
 // 一起就是"重启后现场被当孤儿删掉 / 重派丢未提交产出"（F4/F5）。
 func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree {
+	wt, _ := w.beginNamedStrict(nodeID)
+	return wt
+}
+
+func (w *WorktreeManager) beginNamedStrict(nodeID string) (*NodeWorktree, error) {
 	// 幂等：同一 nodeID 已有在册现场就直接复用，绝不重建。路径/分支只按 nodeID
 	// 命名（`<repo>-seelex-<nodeID>` / `seelex/<nodeID>`），所以跨会话、跨批次同名
 	// 的第二次 Begin 会指向**同一个目录**——重建前那句 `worktree remove --force`
 	// 会把一个正在被使用的现场删掉。
 	if existing := w.worktreeFor(nodeID); existing != nil {
-		return existing
+		return existing, nil
 	}
 	root := w.deps.Root()
-	if root == "" || !w.isGitRepository(root) {
-		return nil
+	if root == "" {
+		return nil, strictWorktreeError(nodeID, WorktreeErrorUnavailable, errors.New("project root is not configured"))
+	}
+	if !w.isGitRepository(root) {
+		return nil, strictWorktreeError(nodeID, WorktreeErrorNotGitRepository, errors.New("project root is not a git repository"))
 	}
 	mainBranch, err := w.git(root, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil || mainBranch == "" {
-		return nil
+		return nil, strictWorktreeError(nodeID, WorktreeErrorInvalidHead, err)
 	}
 	baseCommit, err := w.git(root, "rev-parse", "HEAD")
 	if err != nil {
-		return nil
+		return nil, strictWorktreeError(nodeID, WorktreeErrorInvalidHead, err)
 	}
 	wtPath := w.scenePath(root, nodeID)
 	branch := "seelex/" + nodeID
@@ -360,31 +424,32 @@ func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree {
 	// ① 既有现场：认领而不是重建。重启（新管理器、空注册表）之后重派同一个 nodeID
 	//    走的就是这一条——旧目录与它里面的未提交产出原样留下。
 	if adopted := w.Adopt(nodeID); adopted != nil {
-		return adopted
+		return adopted, nil
 	}
 	// ② 目录在、却不在 `git worktree list` 里：那不是本管理器的资产（别人放的目录、
-	//    或不是工作树的残留）。删它等于替人决定丢东西——不碰，降级。
+	//    或不是工作树的残留）。删它等于替人决定丢东西——不碰，显式失败。
 	if _, statErr := os.Stat(wtPath); statErr == nil {
-		return nil
+		return nil, strictWorktreeError(nodeID, WorktreeErrorPathConflict,
+			fmt.Errorf("path already exists and is not a managed worktree: %s", wtPath))
 	}
 	// ③ 分支已在而目录不在：用**既有分支**建现场（`worktree add <path> <branch>`，
 	//    不用 `-b`）。分支上已经提交的产出因此能找回，而不是被 `branch -D` 丢掉。
 	if w.branchExists(root, branch) {
 		if _, err := w.git(root, "worktree", "add", wtPath, branch); err != nil {
-			return nil
+			return nil, strictWorktreeError(nodeID, WorktreeErrorBranch, err)
 		}
 		return w.register(nodeID, &NodeWorktree{
 			Path: wtPath, Branch: branch,
 			BaseCommit: w.baselineFor(branch, mainBranch), MainBranch: mainBranch,
-		})
+		}), nil
 	}
 	// ④ 目录与分支都不在：新建。
 	if _, err := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); err != nil {
-		return nil
+		return nil, strictWorktreeError(nodeID, WorktreeErrorCreateFailed, err)
 	}
 	return w.register(nodeID, &NodeWorktree{
 		Path: wtPath, Branch: branch, BaseCommit: baseCommit, MainBranch: mainBranch,
-	})
+	}), nil
 }
 
 // Adopt 认领一个**既有的**现场（按 nodeID）：把磁盘上已经建好、且确实是本 repo 的

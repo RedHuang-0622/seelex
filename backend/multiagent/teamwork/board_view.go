@@ -72,6 +72,21 @@ func BuildBoardView(
 	return view
 }
 
+// BuildBoardViewWithLimits adds the independent role/job limit readings to
+// the single board projection path.
+func BuildBoardViewWithLimits(
+	plan store.TeamworkPlan,
+	events []store.TeamworkEvent,
+	bindings []store.TeamworkBinding,
+	records []jobs.Record,
+	maxMembers, maxJobs int,
+	assemblies []dto.PluginAssemblyView,
+) dto.TeamworkBoardView {
+	view := BuildBoardView(plan, events, bindings, records, maxMembers, assemblies)
+	view.MaxJobs = maxJobs
+	return view
+}
+
 // PlanHasOrchestration 报告一份计划有没有**可看的编排**。
 //
 // 判据 = 有里程碑（阶段口径 2026-10-04 整条退场：计划里**没有** stages 这个概念了）。
@@ -226,7 +241,8 @@ func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, re
 				Description: item.Description, Goal: item.Goal,
 				DependsOn: append([]string(nil), item.DependsOn...),
 				Status:    item.StatusOrPending(), SessionID: item.SessionID, Worktree: item.Worktree,
-				Handle: item.Handle, Note: item.Note,
+				WorkspaceMode: item.WorkspaceMode,
+				Handle:        item.Handle, Note: item.Note,
 				StartedAt: item.StartedAt, FinishedAt: item.FinishedAt,
 				// Interrupted 与卡点是同一事实的两种渲染（判据仍是 ItemGateOf）。
 				Live: live, Interrupted: gate == ItemGateJobInterrupted,

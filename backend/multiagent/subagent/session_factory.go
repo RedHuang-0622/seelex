@@ -19,7 +19,9 @@ import (
 	"strings"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -34,6 +36,9 @@ type SessionFactoryDeps struct {
 	HistoryRouter func() *store.Router
 	// WorkspaceResolver 取该会话的"工作区解析器"（写进 durable history）。
 	WorkspaceResolver func(sessionID string) func() string
+	// InitialHistory supplies a persisted snapshot when a cold subagent chat
+	// resumes after interruption.
+	InitialHistory func(sessionID string) []types.Message
 	// Registry 是子代理会话注册表（**同域**的 actor）；nil = 未装配，只建不注册。
 	Registry *SubagentSessions
 }
@@ -41,17 +46,40 @@ type SessionFactoryDeps struct {
 // SessionFactory 是会话工厂（无状态：状态在宿主装配的组件与同域的注册表上）。
 type SessionFactory struct {
 	deps SessionFactoryDeps
+	base *agentsession.Factory
 }
 
 // NewSessionFactory 装配一例（装配点是组合根 `assemble.Runtime` 的构造器）。
 func NewSessionFactory(deps SessionFactoryDeps) *SessionFactory {
-	return &SessionFactory{deps: deps}
+	return &SessionFactory{
+		deps: deps,
+		base: agentsession.New(agentsession.Deps{
+			Components:        deps.Components,
+			ModelName:         deps.ModelName,
+			HistoryRouter:     deps.HistoryRouter,
+			WorkspaceResolver: deps.WorkspaceResolver,
+			InitialHistory:    deps.InitialHistory,
+		}),
+	}
 }
 
 // NewWithID 创建独立子代理会话单元：与主会话同构（框架 Session + DurableHistory），
 // 但使用节点上下文组件（own context/loop）。会话 ID 即节点 ID；注册后可从
 // `SubagentSessions` 读取运行中 History。
 func (factory *SessionFactory) NewWithID(sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error) {
+	return factory.NewWithIDFor("", sessionID, hooks)
+}
+
+// NewWithIDFor creates an independent session in an explicit main-session
+// scope. It is used by the unified conversation adapter when a cold subagent
+// window receives a new chat turn.
+func (factory *SessionFactory) NewWithIDFor(mainSessionID, sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error) {
+	return factory.NewWithIDForWithHistory(mainSessionID, sessionID, hooks, nil)
+}
+
+// NewWithIDForWithHistory creates a cold subagent session seeded from its last
+// durable snapshot when a conversation resumes after interruption.
+func (factory *SessionFactory) NewWithIDForWithHistory(mainSessionID, sessionID string, hooks *frameworkSession.LoopHooks, initial []types.Message) (*frameworkSession.Session, error) {
 	if factory == nil || factory.deps.Components == nil {
 		return nil, errors.New("seelex: runtime is nil")
 	}
@@ -63,27 +91,12 @@ func (factory *SessionFactory) NewWithID(sessionID string, hooks *frameworkSessi
 	if registry != nil && registry.Session(sessionID) != nil {
 		return nil, fmt.Errorf("seelex: subagent session %q already exists", sessionID)
 	}
-	components := factory.deps.Components()
-	components.Hooks = hooks
-	components.SessionID = sessionID
-	if factory.deps.ModelName != nil {
-		components.ModelName = factory.deps.ModelName()
-	}
-	if factory.deps.HistoryRouter != nil {
-		if router := factory.deps.HistoryRouter(); router != nil {
-			history := store.NewDurableHistory(router, sessionID)
-			if factory.deps.WorkspaceResolver != nil {
-				history.SetWorkspaceResolver(factory.deps.WorkspaceResolver(sessionID))
-			}
-			components.History = history
-		}
-	}
-	sess, err := frameworkSession.NewSession(components)
+	sess, err := factory.base.NewWithIDWithHistory(sessionID, hooks, initial)
 	if err != nil {
 		return nil, fmt.Errorf("seelex: create subagent session: %w", err)
 	}
 	if registry != nil {
-		registry.Register(sessionID, sess, "")
+		registry.RegisterFor(mainSessionID, sessionID, sess, "")
 	}
 	return sess, nil
 }

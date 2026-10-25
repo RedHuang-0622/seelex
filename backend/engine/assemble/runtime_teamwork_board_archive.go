@@ -67,7 +67,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if bindErr != nil {
 		bindings = nil // 绑定读不出来不该让整份存档作废（与采集面同口径）。
 	}
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, r.teamBoardAssemblies(plan)))
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, teamworkJobLimit(backend.MaxJobs), r.teamBoardAssemblies(plan)))
 	if err != nil {
 		log.Printf("seelex: 团队看板存档编码失败（会话 %s）：%v", key.SessionID, err)
 		return

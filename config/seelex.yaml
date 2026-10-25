@@ -197,14 +197,31 @@ limits:
   # disable_docker_auto_start: false
   # docker_start_timeout: 60     # 启动等待上限（秒；默认 60）
   # ── teamwork（leader + 异步 worker 作业面）───────────────────────
-  # 产品级约束块（docs/arch/teamwork-leader-worker-architecture.md §4.3）。
-  # 为什么不能只靠框架的 jobs 在途上限：teammate 不挂子代理（D6 硬移除
-  # fork_subagents）⇒ worktree 数量被 teammate 数量封顶 ⇒「人数上限」就是
-  # 「工作区不累积残留」的那条产品级约束；框架的 InFlight（32）只是兜底，
-  # 撞到它说明这条产品约束已经失效。超限的 team_plan / team_dispatch 显式
-  # 拒绝，不静默排队（排队会把"人满了"伪装成"在跑"）。
+  # role 数与 active worker job 数是两个独立维度：
+  #   max_teammates（兼容旧名）/ max_roles = 最多创建多少个 role；
+  #   max_jobs = 同一团队同时 active 的 worker job 硬上限。
+  # 一个 role 可以承载多个 WorkItem job。旧 max_teammates 仍只表示 role 数，
+  # 绝不改作 job 上限；新旧 role 键同时出现且不同会启动失败。
+  # 超限的 team_plan / team_dispatch 显式拒绝，不静默排队。
   team:
-    max_teammates: 6             # 同时在编 teammate 人数上限（默认 6，与 resident_limit 同量级；负值启动期报错）
+    max_roles: 6                 # 最多创建多少个 role（新键；默认 6）
+    max_teammates: 6             # 兼容旧名，同样表示 role 数；须与 max_roles 一致
+    max_jobs: 6                  # active worker job 硬上限（独立于 role 数；默认 6）
+    # 同一 WorkItem 连续显式工具失败返回策略（默认关闭）。
+    # 开启后达到 threshold 时停止当前 worker，把控制权交还 leader；worktree、
+    # Session 与产出保留，不自动 git reset/删除。正常 tool result 里的业务错误不计。
+    workitem_tool_failure:
+      enabled: false
+      threshold: 3
+  # 可选路由级并发窄化限制。默认关闭 = 不额外限制；开启后 max 必须为正。
+  # max_jobs 仍是团队作业硬上限，这里是可选的第二层限制。
+  concurrency:
+    teammate:
+      enabled: false
+      max: 0
+    subagent:
+      enabled: false
+      max: 0
   # ── 插件装配（能力轴；与 teammate 的权限轴 tools_policy/permission_groups 正交）
   # teammate 的装配是两个正交轴：**权限**（能给什么位，只有 leader/宿主能给）与
   # **能力**（挂哪些插件 = skills + 工具收窄 + 提示词，可以随插件分发）。外部一手

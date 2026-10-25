@@ -10,6 +10,8 @@ package teamwork
 // 门禁咬合：`test/tool_face_prompt_consistency_test.go` 从**注册面**扫工具名并与 leader 的 SKILL
 // 对账——工具名常量因此声明在这里（注册点跨包引用它），扫描器按声明包名解析。
 
+import "time"
+
 const (
 	// TeamPlanToolName 是 `team_plan` 的注册名（注册点跨包引用它）。
 	TeamPlanToolName = "team_plan"
@@ -35,7 +37,30 @@ const (
 	TeamCloseToolName = "team_close"
 	// TeamContextToolName 是 `team_context` 的注册名（注册点跨包引用它）。
 	TeamContextToolName = "team_context"
+	TeamMessageToolName = "team_message"
 )
+
+func TeamMessageDescription() string {
+	return "Message one teammate through its Work Item Session (role + item are required). " +
+		"This appends one chat turn and waits up to wait_ms (default 30s); on timeout it returns the job handle. " +
+		"It does not create work, change Work Item status, settle, accept, merge, or expose a long-lived role chat."
+}
+
+func TeamMessageSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"role":    map[string]interface{}{"type": "string", "description": "执行该 WorkItem 的在编 teammate"},
+			"item":    map[string]interface{}{"type": "string", "description": "Work Item id；必填，用于定位这个 WorkItem 自己的持久 Session"},
+			"message": map[string]interface{}{"type": "string", "description": "追加给 teammate 的一轮 user 输入"},
+			"wait_ms": map[string]interface{}{
+				"type": "integer", "minimum": 1, "maximum": int(TeammateMessageMaxWait / time.Millisecond),
+				"description": "有界等待毫秒数；缺省 30000。超时返回 job handle，不取消这一轮对话",
+			},
+		},
+		"required": []string{"role", "item", "message"},
+	}
+}
 
 func TeamPlanDescription() string {
 	return "Define or replace the team's hard orchestration plan (milestones, members and the work inside them). " +
@@ -122,6 +147,10 @@ func TeamDispatchSchema() map[string]interface{} {
 			"role": map[string]interface{}{"type": "string", "description": "在编角色名（须已在 team_plan 的 members 里）"},
 			"item": map[string]interface{}{"type": "string", "description": "Work Item id（给了它就按甘特节点派发：屏障与依赖闸门、一 Work Item 一套 Session + worktree 都由编排面管；与 role 二选一）"},
 			"goal": map[string]interface{}{"type": "string", "description": "本轮交给该 teammate 的工作正文（也是作业行标题）"},
+			"workspace": map[string]interface{}{
+				"type": "string", "enum": []string{"worktree", "main"},
+				"description": "工作区策略；缺省 worktree。main 只能在用户批准 worktree 创建失败后显式重试使用，并会标记为“主工作区（已批准）”。",
+			},
 		},
 	}
 }
@@ -182,8 +211,8 @@ func TeamItemSchema() map[string]interface{} {
 
 func TeamAcceptDescription() string {
 	return "Accept one work item after your review (status -> done). Acceptance also ends that item's execution isolation: " +
-		"its git worktree is released and its Session contents are cleared, so the teammate opens a fresh Session + worktree " +
-		"for its next work item. A work item whose upstream dependencies are not done cannot be dispatched, so acceptance is " +
+		"its git worktree is released, but its Session contents are NOT cleared. Session cleanup happens only at team_close. " +
+		"A work item whose upstream dependencies are not done cannot be dispatched, so acceptance is " +
 		"also what opens the next step of a within-milestone DAG. " +
 		"Acceptance is the LAST link of the settle chain — merge worktree -> enqueue receipt -> status -> your review -> accept — " +
 		"so a work item whose job is still running is refused: releasing its worktree mid-flight would race the automatic merge. " +

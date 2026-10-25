@@ -114,12 +114,17 @@ const (
 // 的传输适配间接 import 它。抬高理由与 P21-10 同口径——闭包里的装配层本就在，
 // 它新引入的执行面基座自然跟着进闭包；该包只依赖标准库与 vendor 内的
 // `golang.org/x/crypto/ssh`，不 import 任何上层包，方向上不构成反向依赖。
-const facadeClosureAllowListMax = 86
+// 2026-10-25 teammate 会话硬化：门面新增 `middle/view/sessionaccess`（统一
+// View/Chat/Recover 契约）与 `backend/multiagent/agentsession`（WorkItem/子代理
+// 独立 DurableHistory 工厂）。两者都是新领域落点，自身不反向依赖 application；
+// 按“新模块可 +1”的既有规则，上限从 86 抬到 88。
+const facadeClosureAllowListMax = 88
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
 	"github.com/RedHuang-0622/seelex/application/core",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team",
+	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession",
 	"github.com/RedHuang-0622/seelex/backend/engine/react",
 	"github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol",
 	"github.com/RedHuang-0622/seelex/backend/engine/context",
@@ -130,6 +135,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
 	"github.com/RedHuang-0622/seelex/backend/engine/session",
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",
+	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view/board",
 	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）归位

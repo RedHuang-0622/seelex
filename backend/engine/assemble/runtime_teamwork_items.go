@@ -52,24 +52,63 @@ func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerReq
 
 // BindWorkspace 实现 teamwork.Workspaces：为这件事建（或复用）一个 git worktree。
 //
-// 降级是**显式**的：没装配 git 面 / 不是 git 仓库 / 创建失败 → 返回未补现场的绑定，
-// teammate 这一轮就落在主工作区上（与 worktree_manager.Begin 的既有降级语义一致）。
-// 降级不等于失败：工作照做，只是没有隔离。
+// teammate 路径使用严格创建：没装配 git 面 / 不是 git 仓库 / 创建失败都返回
+// typed error，绝不自动降级。只有调用方显式 workspace=main 才跳过这里。
 func (r *Runtime) BindWorkspace(_ context.Context, binding teamwork.WorkspaceBinding) (teamwork.WorkspaceBinding, error) {
+	binding.WorkspaceMode = string(teamwork.WorkspaceWorktree)
 	if r == nil || r.worktreeMgr == nil {
-		return binding, nil
+		return binding, strictTeamWorkspaceError(binding, "worktree_unavailable",
+			errors.New("worktree manager 未装配"))
 	}
 	nodeID := workItemNodeID(binding.Worktree)
 	if nodeID == "" {
-		return binding, nil
+		return binding, strictTeamWorkspaceError(binding, "worktree_unavailable",
+			errors.New("worktree 指派名为空"))
 	}
-	wt := r.worktreeMgr.BeginNamed(nodeID)
-	if wt == nil {
-		return binding, nil
+	wt, err := r.worktreeMgr.BeginNamedStrict(nodeID)
+	if err != nil {
+		var typed *worktree.WorktreeCreateError
+		code := "worktree_create_failed"
+		if errors.As(err, &typed) && typed.Code != "" {
+			code = string(typed.Code)
+		}
+		return binding, strictTeamWorkspaceError(binding, code, err)
 	}
 	binding.Path = wt.Path
 	binding.Branch = wt.Branch
 	return binding, nil
+}
+
+// WorkspaceCreateError 是团队工具面可识别的严格创建工作区错误。tools 层据此
+// 告诉 leader approval_required=true，并提示批准后用 workspace=main 重试。
+type WorkspaceCreateError struct {
+	WorkItem         string
+	Role             string
+	Code             string
+	ApprovalRequired bool
+	Err              error
+}
+
+func (e *WorkspaceCreateError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("worktree 创建失败 code=%s item=%s role=%s approval_required=true: %v",
+		e.Code, e.WorkItem, e.Role, e.Err)
+}
+
+func (e *WorkspaceCreateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func strictTeamWorkspaceError(binding teamwork.WorkspaceBinding, code string, err error) error {
+	return &WorkspaceCreateError{
+		WorkItem: binding.WorkItem, Role: binding.Role, Code: code,
+		ApprovalRequired: true, Err: err,
+	}
 }
 
 // MergeWorkspace 实现 teamwork.Workspaces：把这件事的改动并回主工作区。
@@ -79,6 +118,9 @@ func (r *Runtime) BindWorkspace(_ context.Context, binding teamwork.WorkspaceBin
 // 显式报错（ErrUncommittedChanges 语义，现场保留）。这一条正是尾插正文里
 // "插入失败、请 leader 亲自执行"的来源：产出是人的资产，框架不替人决定丢还是留。
 func (r *Runtime) MergeWorkspace(ctx context.Context, binding teamwork.WorkspaceBinding) error {
+	if binding.WorkspaceMode == string(teamwork.WorkspaceMain) {
+		return nil
+	}
 	if r == nil || r.worktreeMgr == nil {
 		return nil
 	}
@@ -105,6 +147,9 @@ func (r *Runtime) MergeWorkspace(ctx context.Context, binding teamwork.Workspace
 // ReleaseWorkspaceItem 实现 teamwork.Workspaces：释放这件事的现场（验收通过 /
 // 整队收口时调用）。无现场 = 无可释放（幂等）。
 func (r *Runtime) ReleaseWorkspaceItem(_ context.Context, binding teamwork.WorkspaceBinding) error {
+	if binding.WorkspaceMode == string(teamwork.WorkspaceMain) {
+		return nil
+	}
 	if r == nil || r.worktreeMgr == nil {
 		return nil
 	}

@@ -315,6 +315,12 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 // 它一次做完四件事：屏障闸门（里程碑）、依赖闸门（里程碑内 DAG）、执行隔离
 // （这件事自己的会话与工作区）、作业派发（后台跑，受理即返回）。
 func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Handle, error) {
+	return c.DispatchItemWith(ctx, itemID, DispatchOptions{Workspace: WorkspaceWorktree})
+}
+
+// DispatchItemWith 是带显式工作区策略的派发入口。只有 raw workspace=main（用户
+// 已批准）才跳过严格 worktree 创建；默认入口永远请求 worktree。
+func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, options DispatchOptions) (jobs.Handle, error) {
 	c.lockPlan()
 	defer c.unlockPlan()
 	if c.workers == nil {
@@ -382,15 +388,26 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		sessionID = WorkItemSessionID(c.derive, c.key.SessionID, plan.TeamID, item.Role, item.ID)
 	}
 	worktree := strings.TrimSpace(item.Worktree)
-	if worktree == "" {
+	mode := options.Workspace
+	if mode == "" {
+		mode = WorkspaceWorktree
+	}
+	if mode != WorkspaceWorktree && mode != WorkspaceMain {
+		return "", fmt.Errorf("teamwork: 未知 workspace=%q（只允许 worktree 或 main）", mode)
+	}
+	if mode == WorkspaceWorktree && worktree == "" {
 		worktree = WorkItemWorktreeName(item.Role, item.ID)
+	}
+	if mode == WorkspaceMain {
+		worktree = ""
 	}
 	binding := WorkspaceBinding{
 		MainSessionID: c.key.SessionID, TeamID: plan.TeamID, Milestone: milestone.ID,
 		WorkItem: item.ID, Role: item.Role, SessionID: sessionID, Worktree: worktree,
+		WorkspaceMode: string(mode),
 	}
 	created := ""
-	if c.spaces != nil {
+	if c.spaces != nil && mode == WorkspaceWorktree {
 		bound, bindErr := c.spaces.BindWorkspace(ctx, binding)
 		if bindErr != nil {
 			return "", fmt.Errorf("teamwork: 为工作项 %q 建工作区失败: %w", item.ID, bindErr)
@@ -411,8 +428,10 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		PermissionGroups: groups,
 		Plugins:          member.Plugins,
 		Worktree:         binding.Worktree,
+		WorkspaceMode:    binding.WorkspaceMode,
 		WorkItemID:       item.ID,
 		Milestone:        milestone.ID,
+		ToolFailure:      c.toolFailure,
 		Goal:             workItemGoal(*item),
 		// 同 coordinator：成员条目的 max_turns 优先，否则编排层默认。
 		MaxTurns:   maxTurnsFor(member, c.maxTurns),
@@ -422,7 +441,7 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 	if err != nil {
 		return "", fmt.Errorf("teamwork: 编码 worker 载荷: %w", err)
 	}
-	handle, err := c.jobs.Dispatch(ctx, jobs.Spec{
+	spec := jobs.Spec{
 		Kind:        KindWorker,
 		Scope:       jobs.Scope{Session: c.key.SessionID, Subject: request.Subject},
 		Node:        item.ID,
@@ -431,7 +450,10 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		OutputPath:  outputPath,
 		// 一件事同时只跑一轮：同一**工作项**的重复派发折叠到在跑的那一条。
 		Dedup: "teamwork:item:" + item.ID,
-	})
+	}
+	// Declare 只登记作业行，不启动 executor。后续 binding/audit/plan 任一失败
+	// 都还来得及撤销，不会出现"执行体已经在跑、账本却没有它"。
+	handle, err := c.jobs.Declare(ctx, spec)
 	if err != nil {
 		// 刚建的现场随失败的派发一起撤掉：绑定描述的是"这件事在跑"，没跑起来就不该占着。
 		if created != "" && c.spaces != nil {
@@ -447,20 +469,19 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 	}
 	item.SessionID = sessionID
 	item.Worktree = binding.Worktree
+	item.WorkspaceMode = binding.WorkspaceMode
 	item.Handle = describeHandle(handle)
 	item.StartedAt = now
 	if item.StartedAt != 0 && item.FinishedAt != 0 {
 		item.FinishedAt = 0
 	}
 	recomputeMilestones(&plan)
-	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
-		return handle, err
-	}
 	// 账本：绑定事实一行（KV 语义，读侧取最后一行）。
 	if err := c.st.AppendBinding(ctx, c.key, store.TeamworkBinding{
 		WorkItem: item.ID, Milestone: milestone.ID, Role: item.Role,
-		SessionID: sessionID, Worktree: binding.Worktree, At: now,
+		SessionID: sessionID, Worktree: binding.Worktree, WorkspaceMode: binding.WorkspaceMode, At: now,
 	}); err != nil {
+		c.abortDeclaredJob(ctx, handle, binding, created)
 		return handle, err
 	}
 	if err := c.audit(ctx, store.TeamworkEvent{
@@ -468,9 +489,38 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		Role: item.Role, Handle: describeHandle(handle), Node: item.ID, WorkItem: item.ID,
 		Detail: item.Name,
 	}); err != nil {
+		c.abortDeclaredJob(ctx, handle, binding, created)
+		return handle, err
+	}
+	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
+		c.abortDeclaredJob(ctx, handle, binding, created)
+		return handle, err
+	}
+	// Start 是提交屏障：到这里 binding / audit / running plan 都已可见。
+	if err := c.jobs.Start(ctx, handle); err != nil {
+		// 现场与计划都应可解释；作业没有启动，保留 worktree 交给恢复/人工处置，
+		// 但状态不能继续冒充 running。
+		item.Status = store.TeamworkItemFailed
+		item.Note = "worker 未启动：" + err.Error()
+		c.abortDeclaredJob(ctx, handle, WorkspaceBinding{}, "")
+		if writeErr := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); writeErr != nil {
+			return handle, errors.Join(err, writeErr)
+		}
 		return handle, err
 	}
 	return handle, nil
+}
+
+// abortDeclaredJob 撤销一条尚未启动或启动失败的声明行。未启动作业的 Kill 会直接
+// 合成终态，随后 Done 销行；两步都按 jobs 的幂等语义，失败不回滚其他事实。
+func (c *Coordinator) abortDeclaredJob(ctx context.Context, handle jobs.Handle, binding WorkspaceBinding, created string) {
+	if c.jobs != nil && strings.TrimSpace(string(handle)) != "" {
+		_ = c.jobs.Kill(ctx, handle)
+		_ = c.jobs.Done(ctx, handle)
+	}
+	if created != "" && c.spaces != nil {
+		_ = c.spaces.ReleaseWorkspaceItem(ctx, binding)
+	}
 }
 
 // SettleWorkItem 是 teammate 一轮跑完之后的**尾插程序**：先合并这件事的 worktree，
@@ -713,7 +763,8 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 		// 账先收干净（见 Close 的 unsettledItems），所以这条路必须留着——否则一个
 		// failed 的工作项既不能验收、又挡着收口，整队就永远收不了。
 	case store.TeamworkItemDone:
-		return nil // 幂等
+		// 已验收但上次清理失败：只重试 worktree 释放，不再改状态、不再清 Session。
+		return c.cleanupAcceptedItem(ctx, plan.TeamID, *item)
 	default:
 		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, item.StatusOrPending())
 	}
@@ -744,10 +795,33 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	// 销项放在写盘之后：计划是事实，作业行的回收只是卫生动作——它的失败既不改判这件事的
 	// 状态，也不该把一次成功的验收说成失败（三种可预期情形都不是错误，见 retireSettledJob）。
 	c.retireSettledJob(ctx, settledHandle)
+	if cleanupErr := c.cleanupAcceptedItem(ctx, plan.TeamID, *item); cleanupErr != nil {
+		return cleanupErr
+	}
 	return c.audit(ctx, store.TeamworkEvent{
 		Kind: store.TeamworkEventAccept, TeamID: plan.TeamID, Milestone: item.Milestone,
 		Role: item.Role, WorkItem: item.ID, Detail: item.Note,
 	})
+}
+
+// cleanupAcceptedItem 是 team_accept 的唯一清理段：只释放该 WorkItem 的
+// worktree，并追加释放账本；绝不重置 Session。无活绑定 = 已清理（幂等）。
+func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item store.TeamworkWorkItem) error {
+	rows, err := c.st.ReadBindings(ctx, c.key)
+	if err != nil {
+		return err
+	}
+	binding, live := store.TeamworkBindings(rows)[item.ID]
+	if !live {
+		return nil
+	}
+	if err := c.releaseWorktree(ctx, binding, teamID); err != nil {
+		return &AcceptedWithCleanupPendingError{ItemID: item.ID, Err: err}
+	}
+	if err := c.appendReleasedBinding(ctx, binding, "team_accept"); err != nil {
+		return &AcceptedWithCleanupPendingError{ItemID: item.ID, Err: err}
+	}
+	return nil
 }
 
 // FailItem 是 leader 的**判定不通过**：状态 → failed（现场与记忆都留着，可重派）。
@@ -874,27 +948,42 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 }
 
 // releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
-// 行。调用点只剩整队收口两处（Close 步 2 的逐角色释放 / releaseAllItems 的一并结束），
-// 语义相同（reason = team_close）。
+// 行。它只用于 team_close；team_accept 只调 releaseWorktree，不调 resetBindingSession。
 func (c *Coordinator) releaseBinding(ctx context.Context, binding store.TeamworkBinding, teamID, reason string) error {
+	if err := c.releaseWorktree(ctx, binding, teamID); err != nil {
+		return err
+	}
+	if err := c.resetBindingSession(ctx, binding); err != nil {
+		return err
+	}
+	return c.appendReleasedBinding(ctx, binding, reason)
+}
+
+// releaseWorktree 是「只释放 worktree」的单责动作。
+func (c *Coordinator) releaseWorktree(ctx context.Context, binding store.TeamworkBinding, teamID string) error {
 	if c.spaces != nil {
 		if err := c.spaces.ReleaseWorkspaceItem(ctx, c.workspaceBinding(binding, teamID)); err != nil {
 			return fmt.Errorf("teamwork: 释放工作项 %q 的工作区失败: %w", binding.WorkItem, err)
 		}
 	}
+	return nil
+}
+
+// resetBindingSession 是「只清 WorkItem Session」的单责动作，仅用于 team_close。
+func (c *Coordinator) resetBindingSession(ctx context.Context, binding store.TeamworkBinding) error {
 	if c.sessions != nil && strings.TrimSpace(binding.SessionID) != "" {
 		if err := c.sessions.ResetSession(ctx, binding.SessionID); err != nil {
 			return fmt.Errorf("teamwork: 清工作项 %q 的会话内容失败: %w", binding.WorkItem, err)
 		}
 	}
-	return c.appendReleasedBinding(ctx, binding, reason)
+	return nil
 }
 
 // appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
 func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding store.TeamworkBinding, reason string) error {
 	return c.st.AppendBinding(ctx, c.key, store.TeamworkBinding{
 		WorkItem: binding.WorkItem, Milestone: binding.Milestone, Role: binding.Role,
-		SessionID: binding.SessionID, Worktree: binding.Worktree,
+		SessionID: binding.SessionID, Worktree: binding.Worktree, WorkspaceMode: binding.WorkspaceMode,
 		At: c.clock().UTC().Unix(), Released: true, Reason: reason,
 	})
 }
@@ -989,11 +1078,32 @@ func (c *Coordinator) releaseAllItems(ctx context.Context, teamID string) error 
 	if err != nil {
 		return err
 	}
+	active := store.TeamworkBindings(rows)
 	// 先折叠成"当前绑定"（KV 语义：一个 work item 只有最后一行说了算），再逐个结束——
 	// 否则历史行会被重复释放，而且同一个 work item 会被当成多份现场。
-	for _, binding := range store.TeamworkBindings(rows) {
+	for _, binding := range active {
 		if err := c.releaseBinding(ctx, binding, teamID, "team_close"); err != nil {
 			return fmt.Errorf("teamwork: 收口释放工作项 %q 的现场失败: %w", binding.WorkItem, err)
+		}
+	}
+	// team_accept 已释放 worktree 的绑定不会出现在 active 里，但 Session 要活到
+	// team_close。这里从追加账本回读仍在各历史行里的 SessionID，按会话号去重后
+	// 统一清空；worktree 已释放的绑定不会再次触碰现场。
+	reset := map[string]struct{}{}
+	for _, binding := range rows {
+		if teammateLevelBinding(binding, binding.Role) {
+			continue
+		}
+		sessionID := strings.TrimSpace(binding.SessionID)
+		if sessionID == "" {
+			continue
+		}
+		if _, already := reset[sessionID]; already {
+			continue
+		}
+		reset[sessionID] = struct{}{}
+		if err := c.resetBindingSession(ctx, binding); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1010,6 +1120,7 @@ func (c *Coordinator) workspaceBinding(binding store.TeamworkBinding, teamID str
 		Role:          binding.Role,
 		SessionID:     binding.SessionID,
 		Worktree:      binding.Worktree,
+		WorkspaceMode: binding.WorkspaceMode,
 	}
 }
 
@@ -1054,6 +1165,9 @@ func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string
 // milestoneOpen 是屏障闸门：里程碑的依赖没完成，就不许给它排活、也不许派发它下面的
 // 工作项（"完成一个里程碑之后再做下一个里程碑的工作"）。
 func (c *Coordinator) milestoneOpen(plan store.TeamworkPlan, milestone store.TeamworkMilestone) error {
+	if MilestoneClosed(plan, milestone.ID) {
+		return closedMilestoneError(milestone.ID)
+	}
 	for _, dependency := range milestone.DependsOn {
 		dependencyIndex := milestoneIndex(plan, dependency)
 		if dependencyIndex < 0 {

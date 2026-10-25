@@ -84,6 +84,36 @@ flowchart LR
   （缺省/显式两臂）与 `backend/engine/assemble/runtime_compaction_switch_test.go` 的
   `TestShippedCompactionSummarySwitchShipsOpen`（出厂档那一行）。
 
+## 团队编制、作业与失败返回（`limits.team` / `limits.concurrency`）
+
+团队上限拆成三个独立概念，不能互相推导：
+
+```yaml
+limits:
+  team:
+    max_roles: 6        # 新名；旧名 max_teammates 继续表示 role 数
+    max_jobs: 6         # 团队 active worker job 硬上限
+    workitem_tool_failure:
+      enabled: false
+      threshold: 3
+  concurrency:
+    teammate:
+      enabled: false
+      max: 0
+    subagent:
+      enabled: false
+      max: 0
+```
+
+- `max_roles` 管最多创建多少个 role；兼容读取旧 `max_teammates`。两键同时出现且不同值时启动失败。
+- `max_jobs` 管同一团队当前 active worker job 数，默认 6。一个 role 可以承载多个 WorkItem job；
+  同一 WorkItem 的幂等重派不额外占名额。
+- `limits.concurrency.teammate/subagent` 是可选的路由级窄化限制，默认关闭。开启时 `max`
+  必须为正数；关闭时允许 `max: 0`，表示不增加第二层限制。
+- `workitem_tool_failure` 默认关闭。开启后，同一 WorkItem 连续显式工具失败达到
+  `threshold` 时停止当前 worker，把结构化原因交还 leader；worktree、Session 与已有产出
+  全部保留，不自动 git reset 或删除现场。
+
 ## 启动期自愈（责任链 + 缺失即初始化）
 
 `main.go` 按**责任链**决定读哪份配置（`runtimeConfigChain`）：

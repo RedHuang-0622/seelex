@@ -43,9 +43,10 @@ func DecodePlanRequest(argsJSON string) (store.TeamworkPlan, error) {
 
 // DispatchRequest 是 `team_dispatch` 的入参形状（`item` 给了就按 Work Item 派发）。
 type DispatchRequest struct {
-	Role string `json:"role"`
-	Item string `json:"item"`
-	Goal string `json:"goal"`
+	Role      string `json:"role"`
+	Item      string `json:"item"`
+	Goal      string `json:"goal"`
+	Workspace string `json:"workspace"`
 }
 
 // DecodeDispatchRequest 解析 `team_dispatch` 入参：role / item trim；goal **原样**
@@ -57,7 +58,20 @@ func DecodeDispatchRequest(argsJSON string) (DispatchRequest, error) {
 	}
 	raw.Role = strings.TrimSpace(raw.Role)
 	raw.Item = strings.TrimSpace(raw.Item)
+	raw.Workspace = strings.ToLower(strings.TrimSpace(raw.Workspace))
+	switch WorkspaceMode(raw.Workspace) {
+	case "", WorkspaceWorktree, WorkspaceMain:
+	default:
+		return DispatchRequest{}, &UnknownWorkspaceError{Value: raw.Workspace}
+	}
 	return raw, nil
+}
+
+// UnknownWorkspaceError 是 workspace 入参的唯一词法错误。
+type UnknownWorkspaceError struct{ Value string }
+
+func (e *UnknownWorkspaceError) Error() string {
+	return "workspace=" + e.Value + " 未知；只允许 worktree 或 main"
 }
 
 // WorkRequest 是 `team_work` 的入参形状（分里程碑排活）。

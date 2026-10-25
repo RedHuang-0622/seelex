@@ -22,6 +22,7 @@ var wantFaceMethods = map[string][]string{
 		"ActiveSkillIDs",
 		"AnyChatRunning",
 		"AssembleRoleWire",
+		"ConversationView",
 		"GetSessionTranscript",
 		"GoalGovernanceViewFor",
 		"GoalSkillActive",
@@ -49,12 +50,14 @@ var wantFaceMethods = map[string][]string{
 		"Subscribe",
 		"SubscribeSession",
 		"SubscribeSessionWithReplay",
+		"TeammateInspectionFor",
 		"TeammateSessionLiveFor",
 		"TeammateSessionLivePageFor",
 		"TeamworkBoardViewFor",
 		"ToolRecordBoard",
 		"ToolRecordEnabled",
 		"ToolResultContent",
+		"WorkItemExecutionFor",
 		"WaitCatalogRefresh",
 		"WaitForIdle",
 		"WorkTableRowsFor",
@@ -80,9 +83,11 @@ var wantFaceMethods = map[string][]string{
 		"CancelChat",
 		"ClearSubagentTree",
 		"CompactContextNow",
+		"ConversationChat",
 		"CreateWorkspace",
 		"CreateWorkspaces",
 		"DeleteSession",
+		"EditUserMessageAndFork",
 		"ForkSession",
 		"ForkSessionLatest",
 		"ForkSubagents",
@@ -93,6 +98,7 @@ var wantFaceMethods = map[string][]string{
 		"GoalUpdate",
 		"GoalUpdateFor",
 		"RequestFileReview",
+		"RecoverConversation",
 		"ResolveInteraction",
 		"ResumeInterruptedSubagents",
 		"ResumeSession",
@@ -239,17 +245,18 @@ func TestFacadeTypeAliasSetMatchesFaceTypeNames(t *testing.T) {
 	}
 }
 
-// 断言 4：前端零改动（I5）——`gui/` 与 `tui/` 在本批里不得出现 diff。没有 git 就跳过。
-func TestFacadeFrontendHasNoDiff(t *testing.T) {
+// 断言 4：TUI 仍只消费 Application。GUI 在本轮团队详情/会话能力中是明确
+// 的变更面，因此不再沿用"gui 零 diff"这条历史批次约束。
+func TestFacadeTUIHasNoDiff(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git in PATH")
 	}
-	output, err := exec.Command("git", "diff", "--name-only", "HEAD", "--", "gui", "tui").CombinedOutput()
+	output, err := exec.Command("git", "diff", "--name-only", "HEAD", "--", "tui").CombinedOutput()
 	if err != nil {
 		t.Skipf("git diff 不可用（%v）：%s", err, output)
 	}
 	if strings.TrimSpace(string(output)) != "" {
-		t.Fatalf("前端必须零改动（I5），实际有 diff：\n%s", output)
+		t.Fatalf("TUI 仍只消费 Application，本批不得直接改 tui：\n%s", output)
 	}
 }
 

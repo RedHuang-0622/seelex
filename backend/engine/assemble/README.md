@@ -124,6 +124,21 @@ flowchart TB
 
 根目录保留组合根骨架 + 端口文件 + 按层装配文件（薄桥形态，装配域物理拆分）：
 
+本轮 teammate 会话/收口硬化新增的宿主面：
+
+- `runtime_agent_conversation.go`：main/subagent/teammate 统一
+  `View/Chat/Recover` 的执行侧适配器；teammate 只接受 WorkItem Session，不提供长期角色私聊。
+- `runtime_workitem_execution.go`：WorkItem 详情与 teammate 进度页共用的
+  `WorkItemExecutionView` 唯一 adapter。
+- `runtime_teammate_inspection.go`：当前 WorkItem、base/effective prompt、安全插件能力、
+  limit 与权限向量的只读聚合。
+- `runtime_teamwork_items.go`：WorkItem worktree 使用 `BeginNamedStrict`，失败返回
+  `approval_required` typed error；只有显式 `workspace=main` 才走已批准主工作区。
+- `runtime_role_turn.go`：teammate 的 WorkItem Session 通过共享 AgentSessionFactory
+  挂独立 DurableHistory；工具失败返回策略在 hook 上计连续显式失败并在阈值处取消本轮。
+  冷会话在下一轮前注入该 WorkItem 自己最近一次快照；工具开始/收口时增量刷新记录，
+  因此进程中断后可从同一上下文继续 Chat 或重派。
+
 | 文件 | 职责 |
 |---|---|
 | `runtime.go` | 组合根骨架：RuntimeConfig/Runtime 结构体 + NewRuntime（拓扑序装配链）+ Shutdown（生命周期逆序关停）+ 主会话装配 |

@@ -2,7 +2,11 @@
 
 ## 生态位
 
-承载子代理/工作项的独立 worktree **机械动作**：建现场（`Begin` / `BeginNamed`）→ 执行期间工作区隔离 → 单次收尾（`Finish`：变基 → 提交/脏判定 → 一次 merge → 清理）→ 释放（`Release`）。主要调用方：装配处 `backend/engine/assemble`（`hostPorts.MergeScene` / `BindWorkspace` / `ReleaseScene`）、`backend/tool/node/` 域 `AgentNode.Run` 的 `Deps`。
+承载子代理/工作项的独立 worktree **机械动作**：建现场（`Begin` / `BeginNamed` / `BeginNamedStrict`）→ 执行期间工作区隔离 → 单次收尾（`Finish`：变基 → 提交/脏判定 → 一次 merge → 清理）→ 释放（`Release`）。主要调用方：装配处 `backend/engine/assemble`（`hostPorts.MergeScene` / `BindWorkspace` / `ReleaseScene`）、`backend/tool/node/` 域 `AgentNode.Run` 的 `Deps`。
+
+teammate / WorkItem 路径必须使用 `BeginNamedStrict`：非 git 根、非法 HEAD、路径冲突、
+分支或创建失败都返回 `WorktreeCreateError`（稳定 Code + `ApprovalRequired=true`）。
+`BeginNamed` 仅为旧调用方保留 nil 降级语义，不得用于新的团队派发路径。
 
 **生命周期判据不在本包**：要不要重试、挡路算不算失败、未提交算不算落定、什么时候回收，
 唯一实现在 [`backend/workunit/lifecycle.go`](../../workunit/README.md) 的 `Host`。本包只把

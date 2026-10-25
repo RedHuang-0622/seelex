@@ -241,6 +241,8 @@ go build ./...
 
 - `func NewSessionFactory(deps SessionFactoryDeps) *SessionFactory` — NewSessionFactory 装配一例（装配点是组合根 `assemble.Runtime` 的构造器）。
 - `func (factory *SessionFactory) NewWithID(sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error)` — NewWithID 创建独立子代理会话单元：与主会话同构（框架 Session + DurableHistory），
+- `func (factory *SessionFactory) NewWithIDFor(mainSessionID, sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error)` — NewWithIDFor creates an independent session in an explicit main-session
+- `func (factory *SessionFactory) NewWithIDForWithHistory(mainSessionID, sessionID string, hooks *frameworkSession.LoopHooks, initial []types.Message) (*frameworkSession.Session, error)` — NewWithIDForWithHistory creates a cold subagent session seeded from its last
 - `func (factory *SessionFactory) Count() int` — Count 返回当前注册的子代理会话数（监控/测试）。
 
 ### session_factory_test.go

@@ -163,6 +163,47 @@ func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit 
 	return port.Runtime.TeammateSessionLivePage(sessionID, offset, limit)
 }
 
+// ViewAgentConversation / ChatAgentConversation / RecoverAgentConversation 实现
+// contract.AgentConversationPort。application/core 通过类型断言选择 subagent /
+// teammate 的统一会话适配器；漏接时这两类窗口会报"adapter not configured"。
+func (port RuntimePort) ViewAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
+	if port.Runtime == nil {
+		return dto.SessionRecordPage{}, errors.New("conversation: runtime is unavailable")
+	}
+	return port.Runtime.ViewAgentConversation(ctx, ref, request)
+}
+
+func (port RuntimePort) ChatAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error) {
+	if port.Runtime == nil {
+		return dto.ChatReceipt{}, errors.New("conversation: runtime is unavailable")
+	}
+	return port.Runtime.ChatAgentConversation(ctx, ref, request)
+}
+
+func (port RuntimePort) RecoverAgentConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error) {
+	if port.Runtime == nil {
+		return dto.SessionRecovery{}, errors.New("conversation: runtime is unavailable")
+	}
+	return port.Runtime.RecoverAgentConversation(ctx, ref)
+}
+
+// WorkItemExecution 实现 contract.WorkItemExecutionPort：WorkItem 详情与 teammate
+// 进度页共用同一个 adapter。
+func (port RuntimePort) WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error) {
+	if port.Runtime == nil {
+		return dto.WorkItemExecutionView{}, errors.New("workitem execution: runtime is unavailable")
+	}
+	return port.Runtime.WorkItemExecution(ctx, mainSessionID, itemID, page)
+}
+
+// TeammateInspection 实现 contract.TeammateInspectionPort。
+func (port RuntimePort) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error) {
+	if port.Runtime == nil {
+		return dto.TeammateInspectionView{}, errors.New("teammate inspection: runtime is unavailable")
+	}
+	return port.Runtime.TeammateInspection(ctx, mainSessionID, role)
+}
+
 // TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
 // 作业（jobs.Manager 里的 worker 作业）的终态只读投影与变化信号口——「做完自动返回」那条
 // 链的输入。漏了它**不会报错**：core 侧的类型断言失败 ⇒ 信号口读成 nil ⇒ 空闲会话的触发
@@ -227,6 +268,9 @@ func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, b
 var (
 	_ contract.TeamworkBoardProjection    = RuntimePort{}
 	_ contract.TeammateSessionProjection  = RuntimePort{}
+	_ contract.AgentConversationPort      = RuntimePort{}
+	_ contract.WorkItemExecutionPort      = RuntimePort{}
+	_ contract.TeammateInspectionPort     = RuntimePort{}
 	_ contract.TeamworkJobCompletion      = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
 	// contract.ReasoningEffortPort（application/core/session_scope.go 的

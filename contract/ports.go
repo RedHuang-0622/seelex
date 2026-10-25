@@ -305,6 +305,29 @@ type TeammateSessionProjection interface {
 	TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 }
 
+// AgentConversationPort is the optional execution-side adapter used by the
+// unified ConversationSession facade for subagent and teammate windows.
+//
+// Main-session View/Chat/Recover stays in application/core; this port only
+// exposes the two agent-owned windows. Implementations must use WorkItem
+// Session for teammate chat and must not call SettleWorkItem/accept/merge for a
+// dialogue-only turn.
+type AgentConversationPort interface {
+	ViewAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
+	ChatAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)
+	RecoverAgentConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
+}
+
+// WorkItemExecutionPort is the single WorkItem detail/progress read path.
+type WorkItemExecutionPort interface {
+	WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
+}
+
+// TeammateInspectionPort is the safe, read-only teammate detail projection.
+type TeammateInspectionPort interface {
+	TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
+}
+
 // ReasoningEffortPort 是**窄可选**能力面：把"当前会话档位对应的 wire 思考强度"
 // 下发给账号池里那些**配置为跟随会话**（`reasoning_effort: session`）的账号。
 //

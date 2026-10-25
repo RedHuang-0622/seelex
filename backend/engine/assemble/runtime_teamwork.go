@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
@@ -34,6 +35,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
@@ -53,10 +55,17 @@ type TeamworkBackend struct {
 	JobOutputs teamwork.JobOutputs
 	// KeyFor 把会话 ID 解析成存储作用域键（project_id + session_id）。
 	KeyFor func(sessionID string) (store.Key, bool)
-	// MaxTeammates 是产品级人数上限（limit.TeamLimits.MaxTeammates）。
+	// MaxTeammates 是产品级 role 数上限（兼容旧名）。
 	MaxTeammates int
+	// MaxJobs 是团队 active worker job 的硬上限（独立于 role 数）。
+	MaxJobs int
+	// TeammateConcurrencyEnabled / Max 是可选的路由级更窄限制。
+	TeammateConcurrencyEnabled bool
+	TeammateConcurrencyMax     int
 	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
 	MaxTurns int
+	// ToolFailure 是 WorkItem 连续显式工具失败返回策略。
+	ToolFailure teamwork.ToolFailurePolicy
 }
 
 // SetTeamworkBackend 注入 teamwork 持久面（组合根在装配期调用一次）。
@@ -83,7 +92,7 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 		// 进程级兜底 256。prune 只逐**最老的终态行**、活着的行永不驱逐，所以撞上它时
 		// 丢掉的恰好是"团队还在开、但某一轮已经跑完"的那些行——正是看板与 team_context
 		// 的证据。框架的数是一个与团队寿命无关的进程级数字，产品这一侧的界由产品自己算。
-		jobs.WithLimits(jobs.Limits{Records: teamworkJobRecordCeiling(backend.MaxTeammates)}),
+		jobs.WithLimits(jobs.Limits{Records: teamworkJobRecordCeiling(teamworkJobLimit(backend.MaxJobs))}),
 	)
 	if err != nil {
 		return fmt.Errorf("teamwork: 装配 jobs.Manager 失败: %w", err)
@@ -165,18 +174,22 @@ func (r *Runtime) coordinatorForKey(key store.Key) (*teamwork.Coordinator, error
 		return existing, nil
 	}
 	coordinator, err := teamwork.New(teamwork.Options{
-		Key:          key,
-		Store:        backend.Store,
-		Jobs:         manager,
-		Workers:      r,
-		Worktrees:    r,
-		Sessions:     r,
-		Boards:       r,
-		JobOutputs:   backend.JobOutputs,
-		Spaces:       r,
-		Teammates:    r,
-		MaxTeammates: backend.MaxTeammates,
-		MaxTurns:     backend.MaxTurns,
+		Key:                        key,
+		Store:                      backend.Store,
+		Jobs:                       manager,
+		Workers:                    r,
+		Worktrees:                  r,
+		Sessions:                   r,
+		Boards:                     r,
+		JobOutputs:                 backend.JobOutputs,
+		Spaces:                     r,
+		Teammates:                  r,
+		MaxTeammates:               backend.MaxTeammates,
+		MaxJobs:                    backend.MaxJobs,
+		TeammateConcurrencyEnabled: backend.TeammateConcurrencyEnabled,
+		TeammateConcurrencyMax:     backend.TeammateConcurrencyMax,
+		ToolFailure:                backend.ToolFailure,
+		MaxTurns:                   backend.MaxTurns,
 	})
 	if err != nil {
 		return nil, err
@@ -186,6 +199,15 @@ func (r *Runtime) coordinatorForKey(key store.Key) (*teamwork.Coordinator, error
 	}
 	r.teamworkCoords[key] = coordinator
 	return coordinator, nil
+}
+
+// teamworkJobLimit 把"未配置"折成域内出厂值。role 数与 job 数不相乘、
+// 不互相推导：作业表的防 prune 量级只取 active job 上限。
+func teamworkJobLimit(maxJobs int) int {
+	if maxJobs <= 0 {
+		return teamwork.DefaultMaxJobs
+	}
+	return maxJobs
 }
 
 // registerTeamworkTools 注册 leader 编排面（RegisterBuiltins 内调用；未装配 backend
@@ -218,6 +240,10 @@ func (r *Runtime) registerTeamworkTools() {
 	r.RegisterTool(teamwork.TeamFailToolName, teamwork.TeamFailDescription(), teamwork.TeamFailSchema(), r.teamFailHandler)
 	r.RegisterTool(teamwork.TeamRecoverToolName, teamwork.TeamRecoverDescription(), teamwork.TeamRecoverSchema(), r.teamRecoverHandler)
 	r.RegisterTool(teamwork.TeamItemsToolName, teamwork.TeamItemsDescription(), teamwork.TeamItemsSchema(), r.teamItemsHandler)
+	// team_message 只是调用统一 ConversationSession.Chat 的工具壳：窗口必须是
+	// role + item 定位到的 WorkItem Session，不改变 WorkItem 状态，也不创建新的
+	// 对话运行时。
+	r.RegisterTool(teamwork.TeamMessageToolName, teamwork.TeamMessageDescription(), teamwork.TeamMessageSchema(), r.teamMessageHandler)
 	// jobs_manage：框架通用管理工具（jobs/builtin）。簇属按 seelex 的路由组表声明，
 	// 与 bash_bg/bg_manage 同组（它就是对作业面的读/写/销项）。
 	r.teamworkMu.Lock()
@@ -342,8 +368,16 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 	// Work Item 口径：给了 item 就按甘特节点派发（屏障 + 依赖 + 一 Work Item 一套
 	// 会话与 worktree 都归编排面管）。没给就是 teammate 级的老口径。
 	if itemID := raw.Item; itemID != "" {
-		handle, err := coordinator.DispatchItem(ctx, itemID)
+		options := teamwork.DispatchOptions{Workspace: teamwork.WorkspaceMode(raw.Workspace)}
+		handle, err := coordinator.DispatchItemWith(ctx, itemID, options)
 		if err != nil {
+			var workspaceErr *WorkspaceCreateError
+			if errors.As(err, &workspaceErr) {
+				return "", fmt.Errorf(
+					"team_dispatch: %w。请先调用 ask_approve 逐次请求用户批准；批准后显式使用 workspace=main 重试",
+					err,
+				)
+			}
 			return "", fmt.Errorf("team_dispatch: %w", err)
 		}
 		r.afterTeamworkMutation(ctx)
@@ -354,6 +388,9 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 			"plugin_face": r.dispatchAssemblyReading(ctx, coordinator, dispatchItemRole(ctx, coordinator, itemID)),
 			"hint":        "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 		})
+	}
+	if raw.Workspace != "" {
+		return "", fmt.Errorf("team_dispatch: workspace 只适用于 WorkItem（item）派发，不能用于 role/goal 旧口径")
 	}
 	role := raw.Role
 	handle, err := coordinator.Dispatch(ctx, role, raw.Goal)
@@ -477,6 +514,42 @@ func (r *Runtime) teamItemsHandler(ctx context.Context, _ string) (string, error
 	return jsonReceipt(map[string]any{"ok": true, "items": items})
 }
 
+// teamMessageHandler 把一轮 teammate 对话交给统一的 AgentConversationPort。
+// 它只解析 role + item 并定位 WorkItem Session；不 settle、不验收、不改变计划状态。
+func (r *Runtime) teamMessageHandler(ctx context.Context, argsJSON string) (string, error) {
+	request, err := teamwork.DecodeTeammateMessageRequest(argsJSON)
+	if err != nil {
+		return "", fmt.Errorf("team_message: %w", err)
+	}
+	coordinator, err := r.coordinatorFor(ctx)
+	if err != nil {
+		return "", err
+	}
+	ref, err := coordinator.TeammateConversationRef(ctx, request.Role, request.Item)
+	if err != nil {
+		return "", err
+	}
+	port, ok := any(r).(contract.AgentConversationPort)
+	if !ok {
+		return "", errors.New("team_message: 统一 ConversationSession.Chat 适配器未装配")
+	}
+	receipt, err := port.ChatAgentConversation(ctx, ref, dto.ConversationChatRequest{
+		Message: request.Message,
+		WaitMS:  int(request.Wait / time.Millisecond),
+	})
+	if err != nil {
+		return "", fmt.Errorf("team_message: %w", err)
+	}
+	return jsonReceipt(map[string]any{
+		"ok":         true,
+		"role":       request.Role,
+		"item":       request.Item,
+		"session_id": ref.SessionID,
+		"chat":       receipt,
+		"hint":       "这是 WorkItem Session 的一轮对话；不会改变 WorkItem 状态，也不会自动 merge/accept。",
+	})
+}
+
 func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string, error) {
 	handles, budget, err := teamwork.DecodeJoinRequest(argsJSON)
 	if err != nil {
@@ -576,8 +649,13 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 	// 装配层算出来的身份一起写进去（系统提示 = 这一轮装配的那一份，含中断恢复说明）。
 	teamKey := teamUnitKeyFor(request)
 	teamKey.SystemPrompt = spec.SystemPrompt
-	r.markTeamUnitRunning(mainSessionID, teamKey)
+	if !request.DialogueOnly {
+		r.markTeamUnitRunning(mainSessionID, teamKey)
+	}
 	output, err := r.runRoleRound(ctx, spec)
+	if request.DialogueOnly {
+		r.saveTeamUnitTranscript(mainSessionID, teamKey)
+	}
 	if err != nil {
 		// 产品自有输出文件时，失败正文也得落进这个文件：框架在这种形态下**不写**
 		// （externalOutput.write 是空操作），不写就等于"这一轮出过错"这件事在正文里
@@ -585,11 +663,15 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		if path := strings.TrimSpace(request.OutputPath); path != "" {
 			_ = r.writeWorkerOutput(path, "worker 回合失败："+err.Error()+"\n")
 		}
-		r.recordTeamUnitRoundOutput(mainSessionID, teamKey, err.Error())
+		if !request.DialogueOnly {
+			r.recordTeamUnitRoundOutput(mainSessionID, teamKey, err.Error())
+		}
 		return err
 	}
-	r.recordTeamUnitRoundOutput(mainSessionID, teamKey, output)
-	if path := strings.TrimSpace(request.OutputPath); path != "" {
+	if !request.DialogueOnly {
+		r.recordTeamUnitRoundOutput(mainSessionID, teamKey, output)
+	}
+	if path := strings.TrimSpace(request.OutputPath); path != "" && !request.DialogueOnly {
 		// 归产品：执行体自己写（框架不写这个文件）。写失败上抛而不是退回 sink.Note——
 		// 那个 sink 在这种形态下是空操作，退回就是静默丢正文。
 		return r.writeWorkerOutput(path, output)
@@ -612,10 +694,20 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 // 但两层的文案来自同一份构建器 `workunit.RecoveryNote`（前缀族因此是同一种东西）。
 func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec {
 	// 三段组装（角色提示词 + 作业纪律 + 恢复说明）的判据在团队域；本层只给两格读数。
-	systemPrompt := teamdomain.ComposeWorkerSystemPrompt(
-		r.roleTurnSystemPrompt(request.Role),
-		r.consumeTeamResumeNote(request.RoleSessionID),
-	)
+	// 对话轮次使用该 WorkItem 当前生效的 prompt 与原始 message，不注入做工纪律，
+	// 也不消耗恢复说明。
+	systemPrompt := strings.TrimSpace(request.SystemPrompt)
+	input := request.DialogueMessage
+	if !request.DialogueOnly {
+		systemPrompt = teamdomain.ComposeWorkerSystemPrompt(
+			r.roleTurnSystemPrompt(request.Role),
+			r.consumeTeamResumeNote(request.RoleSessionID),
+		)
+		input = workerRoundInput(request)
+	}
+	if systemPrompt == "" {
+		systemPrompt = r.roleTurnSystemPrompt(request.Role)
+	}
 	return roleRoundSpec{
 		MainSessionID:    mainSessionID,
 		RoleName:         request.Role,
@@ -625,12 +717,16 @@ func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessio
 		PermissionGroups: request.PermissionGroups,
 		Plugins:          request.Plugins,
 		SystemPrompt:     systemPrompt,
-		Input:            workerRoundInput(request),
+		Input:            input,
 		MaxLoops:         maxLoops,
+		WorkItemID:       request.WorkItemID,
+		ToolFailure:      request.ToolFailure,
+		ResumeHistory:    r.teamUnitResumeHistory(mainSessionID, request.RoleSessionID),
 		WorkScope: roleWorkScope{
 			MainSessionID: mainSessionID,
 			RoleName:      request.Role,
 			RoleSessionID: request.RoleSessionID,
+			WorkItemID:    request.WorkItemID,
 		},
 	}
 }
@@ -752,10 +848,11 @@ func (r *Runtime) ReleaseWorkspace(ctx context.Context, role string) error {
 // 会话没了它没有落点。**单元记录**的清点不在这里：那需要主会话号（存储键），而这条
 // 端口只认角色会话号——记录由两处清，都是"这份现场被回收"的那一刻：
 // per-unit 的 `teamUnit.Reclaim`，与整队收口的 `Runtime.clearTeamUnitRecords`。
-func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
+func (r *Runtime) ResetSession(ctx context.Context, roleSessionID string) error {
 	if r == nil || strings.TrimSpace(roleSessionID) == "" {
 		return nil
 	}
+	roleSessionID = strings.TrimSpace(roleSessionID)
 	state := r.roleTurnState()
 	state.mu.Lock()
 	handle := state.sessions[roleSessionID]
@@ -763,6 +860,14 @@ func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 	state.mu.Unlock()
 	if handle != nil && handle.engine != nil {
 		handle.engine.ClearHistory()
+	} else if router := r.HistoryRouter(); router != nil {
+		// Cold work-item Session after restart: no live engine handle exists,
+		// so team_close must clear the independent durable transcript directly.
+		history := store.NewDurableHistory(router, roleSessionID)
+		history.SetWorkspaceResolver(r.sessionWorkspaceFor(roleSessionID))
+		if err := history.Clear(ctx); err != nil {
+			return fmt.Errorf("teamwork: 清 WorkItem Session %q 的持久记录失败: %w", roleSessionID, err)
+		}
 	}
 	r.clearTeamResumeNote(roleSessionID)
 	return nil

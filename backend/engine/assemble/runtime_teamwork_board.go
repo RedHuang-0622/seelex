@@ -34,7 +34,7 @@ const teamworkBoardEventLimit = teamwork.BoardEventLimit
 // 既有用例继续使用。
 var (
 	teamworkSubjectPrefix        = teamwork.SubjectPrefix
-	buildTeamworkBoardView       = teamwork.BuildBoardView
+	buildTeamworkBoardView       = teamwork.BuildBoardViewWithLimits
 	teamworkPlanHasOrchestration = teamwork.PlanHasOrchestration
 	teamworkMemberViews          = teamwork.MemberViews
 	teamworkMemberStatus         = teamwork.MemberStatus
@@ -161,7 +161,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	if manager != nil {
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
-	view := buildTeamworkBoardView(plan, cached.events, cached.bindings, records, backend.MaxTeammates, r.teamBoardAssemblies(plan))
+	view := buildTeamworkBoardView(plan, cached.events, cached.bindings, records, backend.MaxTeammates, teamworkJobLimit(backend.MaxJobs), r.teamBoardAssemblies(plan))
 	return &view
 }
 

@@ -227,7 +227,7 @@ func TestDispatchChainCarriesPluginsFromPlanToWorkerContext(t *testing.T) {
 		t.Fatalf("team_work: %v", err)
 	}
 	// ③ 派发面（受理即返回，作业后台跑）。
-	receipt, err := runtime.teamDispatchHandler(ctx, `{"item":"wi-1"}`)
+	receipt, err := runtime.teamDispatchHandler(ctx, `{"item":"wi-1","workspace":"main"}`)
 	if err != nil {
 		t.Fatalf("team_dispatch: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestDispatchReceiptReportsFaultedFaceAfterRevoke(t *testing.T) {
 	// 声明仍然在计划里，插件定义没了（root 撤销 / 名字漂了）。
 	runtime.UndefinePlugin(assemblyChainDocsPlugin)
 
-	receipt, err := runtime.teamDispatchHandler(ctx, `{"item":"wi-revoked"}`)
+	receipt, err := runtime.teamDispatchHandler(ctx, `{"item":"wi-revoked","workspace":"main"}`)
 	if err != nil {
 		t.Fatalf("team_dispatch 不该因为插件失灵而拒收（失灵是运行面的事实，排活已成立）：%v", err)
 	}

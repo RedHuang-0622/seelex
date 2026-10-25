@@ -326,8 +326,9 @@ func TestDispatchRefusesUnknownRole(t *testing.T) {
 	}
 }
 
-func TestDispatchRefusesWhenTeamIsFull(t *testing.T) {
+func TestDispatchRefusesWhenMaxJobsIsFull(t *testing.T) {
 	fixture := newFixture(t, 2)
+	fixture.coordinator.maxJobs = 2
 	eventually := make(chan struct{})
 	fixture.runner.block = eventually
 	ctx := context.Background()
@@ -351,8 +352,8 @@ func TestDispatchRefusesWhenTeamIsFull(t *testing.T) {
 		}
 	}
 	_, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个")
-	if err == nil || !strings.Contains(err.Error(), "max_teammates") {
-		t.Fatalf("超员必须显式拒绝并点明上限，得到 %v", err)
+	if err == nil || !strings.Contains(err.Error(), "max_jobs") {
+		t.Fatalf("active job 超限必须显式拒绝并点明 max_jobs，得到 %v", err)
 	}
 	close(eventually)
 }
@@ -613,16 +614,11 @@ func TestCloseIdempotentAlreadyClosed(t *testing.T) {
 	}
 }
 
-// TestRedispatchSameRoleIsNotRefusedByCapacity：作业只在一处回收（整队收口），于是"在跑
-// 作业数"在收口之前并不等于"在编人数"——在编成员里在跑的那个作业会一直占着名额。派发
-// **同一个角色**时不计它自己那一条，于是重派同一个角色不会自己把自己顶在上限外；真超员
-// （另一个角色顶到上限）照旧显式拒绝。
-//
-// 已知残差（回执里记为未决项，本用例只钉"受理"这一条，不替它盖章）：框架的 dedup 判据是
-// 载荷**逐字节相同**（Seele jobs manager.dedupLocked），因此重派带新内容时同一角色会有两条
-// 在跑作业（下面 t.Logf 把事实记下来）。
-func TestRedispatchSameRoleIsNotRefusedByCapacity(t *testing.T) {
+// TestMaxJobsCountsEveryActiveJob：max_jobs 是团队 active worker job 的硬上限。
+// 同一角色也不能靠"重派"绕过；只有同一 WorkItem 的幂等折叠不新增名额。
+func TestMaxJobsCountsEveryActiveJob(t *testing.T) {
 	fixture := newFixture(t, 2)
+	fixture.coordinator.maxJobs = 2
 	eventually := make(chan struct{})
 	fixture.runner.block = eventually
 	ctx := context.Background()
@@ -644,33 +640,18 @@ func TestRedispatchSameRoleIsNotRefusedByCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch(pm): %v", err)
 	}
-	// 上限已满：真超员（另一个角色）照旧显式拒绝并点明上限。
-	if _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个"); err == nil || !strings.Contains(err.Error(), "max_teammates") {
-		t.Fatalf("真超员必须显式拒绝并点明上限，得到 %v", err)
+	// 上限已满：另一个角色照旧显式拒绝并点明 max_jobs。
+	if _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个"); err == nil || !strings.Contains(err.Error(), "max_jobs") {
+		t.Fatalf("active job 超限必须显式拒绝并点明 max_jobs，得到 %v", err)
 	}
 	// 同一角色在跑的作业仍占着名额（回收只在整队收口，收口之前不会被撤走）——这正是
 	// 下面必须扣掉自己那一条的原因。
 	if _, ok := fixture.jobs.Observe(first); !ok {
 		t.Fatal("整队收口之前作业必须在册（回收统一收口到 team_close）")
 	}
-	// 重派（同样内容）：必须被受理，且折叠到在跑的那一条。
-	again, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
-	if err != nil {
-		t.Fatalf("重派同一角色（作业仍在跑）不得撞 max_teammates: %v", err)
-	}
-	if again != first {
-		t.Fatalf("同样内容的重派应折叠到在跑的那一条: %s vs %s", again, first)
-	}
-	// 重派（新内容）：同样必须被受理——这是本轮口径要求的"不得误计上限"。
-	fresh, err := fixture.coordinator.Dispatch(ctx, "pm", "下一批工作正文")
-	if err != nil {
-		t.Fatalf("重派同一角色（新内容，作业仍在跑）不得撞 max_teammates: %v", err)
-	}
-	if fresh == first {
-		t.Logf("意外折叠：新内容与在跑载荷不同，框架 dedup 不该合并（若真合并，本用例的残差说明已过时）")
-	} else {
-		t.Logf("已知残差复现：同一角色出现第二条在跑作业 %s（在跑 %s）；"+
-			"框架 dedup 判据是载荷逐字节相同，新内容不合并", fresh, first)
+	// role 级老口径仍占一个 job 名额；当前已顶满 max_jobs，重派必须拒绝。
+	if _, err := fixture.coordinator.Dispatch(ctx, "pm", "下一批工作正文"); err == nil || !strings.Contains(err.Error(), "max_jobs") {
+		t.Fatalf("同一角色产生新作业也必须受 max_jobs 限制，得到 %v", err)
 	}
 	close(eventually)
 }

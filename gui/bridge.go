@@ -227,6 +227,14 @@ type roleSessionApplication interface {
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	// TeammateSessionLivePageFor 是同一份读面的**分页读法**（有界窗口 + 分页）。
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
+	// WorkItemExecutionFor is the single WorkItem detail/progress read.
+	WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
+	// TeammateInspectionFor is the safe teammate detail projection.
+	TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
+	// ConversationView is the unified main/subagent/teammate history capability.
+	ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
+	ConversationChat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)
+	RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
 }
 
 // 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
@@ -1587,6 +1595,51 @@ func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit in
 		return app.TeammateSessionLivePageFor(roleSessionID, offset, limit), nil
 	}
 	return app.TeammateSessionLiveFor(roleSessionID), nil
+}
+
+// WorkItemExecution is the single server read for WorkItem details and the
+// teammate WorkItem progress/session page.
+func (bridge *Bridge) WorkItemExecution(mainSessionID, itemID string, offset, limit int) (dto.WorkItemExecutionView, error) {
+	app, err := bridge.roleSessionApp()
+	if err != nil {
+		return dto.WorkItemExecutionView{}, err
+	}
+	return app.WorkItemExecutionFor(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(itemID), dto.ConversationViewRequest{
+		Offset: offset, Limit: limit,
+	})
+}
+
+// TeammateInspection returns prompt, plugin, limit, and permission details.
+func (bridge *Bridge) TeammateInspection(mainSessionID, role string) (dto.TeammateInspectionView, error) {
+	app, err := bridge.roleSessionApp()
+	if err != nil {
+		return dto.TeammateInspectionView{}, err
+	}
+	return app.TeammateInspectionFor(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(role))
+}
+
+func (bridge *Bridge) ConversationView(ref dto.ConversationSessionRef, offset, limit int) (dto.SessionRecordPage, error) {
+	app, err := bridge.roleSessionApp()
+	if err != nil {
+		return dto.SessionRecordPage{}, err
+	}
+	return app.ConversationView(bridge.requestContext(), ref, dto.ConversationViewRequest{Offset: offset, Limit: limit})
+}
+
+func (bridge *Bridge) ConversationChat(ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error) {
+	app, err := bridge.roleSessionApp()
+	if err != nil {
+		return dto.ChatReceipt{}, err
+	}
+	return app.ConversationChat(bridge.requestContext(), ref, dto.ConversationChatRequest{Message: message, WaitMS: waitMS})
+}
+
+func (bridge *Bridge) RecoverConversation(ref dto.ConversationSessionRef) (dto.SessionRecovery, error) {
+	app, err := bridge.roleSessionApp()
+	if err != nil {
+		return dto.SessionRecovery{}, err
+	}
+	return app.RecoverConversation(bridge.requestContext(), ref)
 }
 
 // ── Agent Team 装配面已退场（2026-10-12 J-1a）

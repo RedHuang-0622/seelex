@@ -65,7 +65,7 @@ func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager 
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
 	// 与下发/存档**同一条组装路径**（buildTeamworkBoardView）：封板存档也要与活体投影同形。
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, assemblies))
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, teamworkJobLimit(backend.MaxJobs), assemblies))
 	if err != nil {
 		return err
 	}

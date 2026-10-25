@@ -40,6 +40,9 @@ type WorkScope struct {
 	MainSessionID string
 	RoleName      string
 	RoleSessionID string
+	// WorkItemID 只用于把增量 transcript 快照落到正确的 WorkItem 单元记录。
+	// 空 = 旧口径 teammate 级做工，不额外写 WorkItem 级快照。
+	WorkItemID string
 }
 
 // workScopeKey 携带本轮员工做工身份（未导出：只经 With/From 两个入口读写）。
@@ -48,7 +51,7 @@ type workScopeKey struct{}
 // WithWorkScope 把本轮员工做工身份挂到 ctx 上；三项全空 = 不是员工做工回合，原样返回
 // （评审/内部回合因此不会误播成员工活动）。
 func WithWorkScope(ctx context.Context, scope WorkScope) context.Context {
-	if scope.RoleSessionID == "" && scope.MainSessionID == "" && scope.RoleName == "" {
+	if scope.RoleSessionID == "" && scope.MainSessionID == "" && scope.RoleName == "" && scope.WorkItemID == "" {
 		return ctx
 	}
 	return context.WithValue(ctx, workScopeKey{}, scope)

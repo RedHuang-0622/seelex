@@ -27,6 +27,9 @@ type TeamworkBoardView struct {
 	// 它进投影的理由：看板要说"在编 n/max"是**超出上限**还是正常——没有上限这一份，
 	// 前端只能显示"在编 n"，把一条产品约束降级成一个不知道好坏的数。
 	MaxMembers int `json:"max_members,omitempty"`
+	// MaxJobs is the independent active worker-job ceiling. It is not derived
+	// from MaxMembers.
+	MaxJobs int `json:"max_jobs,omitempty"`
 	// Stale 是 **jobs I-4 的显式化**：句柄只在内存（进程重启即作废），当计划里残留着
 	// 句柄投影、而本进程的句柄表里查不到它时置真。它只影响一行提示，不改变任何判定。
 	Stale bool `json:"stale,omitempty"`
@@ -165,22 +168,23 @@ type TeamworkMilestoneView struct {
 // 未释放的工作区绑定；Interrupted = 状态说在跑、而本进程的作业表里查不到它的句柄
 // （jobs I-4：句柄只在内存）——它不是错误，是"可以重派"的信号。
 type TeamworkWorkItemView struct {
-	ID          string   `json:"id"`
-	Milestone   string   `json:"milestone,omitempty"`
-	Role        string   `json:"role,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Goal        string   `json:"goal,omitempty"`
-	DependsOn   []string `json:"depends_on,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	SessionID   string   `json:"session_id,omitempty"`
-	Worktree    string   `json:"worktree,omitempty"`
-	Handle      string   `json:"handle,omitempty"`
-	Note        string   `json:"note,omitempty"`
-	StartedAt   int64    `json:"started_at,omitempty"`
-	FinishedAt  int64    `json:"finished_at,omitempty"`
-	Live        bool     `json:"live,omitempty"`
-	Interrupted bool     `json:"interrupted,omitempty"`
+	ID            string   `json:"id"`
+	Milestone     string   `json:"milestone,omitempty"`
+	Role          string   `json:"role,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	Goal          string   `json:"goal,omitempty"`
+	DependsOn     []string `json:"depends_on,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	SessionID     string   `json:"session_id,omitempty"`
+	Worktree      string   `json:"worktree,omitempty"`
+	WorkspaceMode string   `json:"workspace_mode,omitempty"`
+	Handle        string   `json:"handle,omitempty"`
+	Note          string   `json:"note,omitempty"`
+	StartedAt     int64    `json:"started_at,omitempty"`
+	FinishedAt    int64    `json:"finished_at,omitempty"`
+	Live          bool     `json:"live,omitempty"`
+	Interrupted   bool     `json:"interrupted,omitempty"`
 	// Gate 是这件事此刻的**卡点**，Next 是清掉这个卡点的下一步动作（判据与词表见
 	// backend/multiagent/teamwork 的 ItemGate：编排面判、前端只显示）。
 	Gate string `json:"gate,omitempty"`

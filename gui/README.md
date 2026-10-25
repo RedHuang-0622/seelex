@@ -156,6 +156,13 @@ node 第一视角实时回放的**分页**读法同形落在
 [`backend/engine/assemble/runtime_live.go`](../backend/engine/assemble/runtime_live.go) 的
 `SubagentLiveHistoryPage`（窗口上限 `RuntimeConfig.SubagentLiveWindow`）。
 
+统一会话与 WorkItem 执行读面：`Bridge.ConversationView/ConversationChat/RecoverConversation`
+按 `ConversationSessionRef.kind` 路由 main/subagent/teammate；teammate 必须带 WorkItem。
+`Bridge.WorkItemExecution(mainSessionID, itemID, offset, limit)` 是 WorkItem 详情与 teammate
+当前/历史 WorkItem 共用的唯一 `WorkItemExecutionView` 来源；`Bridge.TeammateInspection`
+返回当前 WorkItem、base/effective prompt、安全插件能力、limit 与权限向量。插件投影只含
+名称、工具、技能、MCP 名称/transport 与来源，不含 command/env/URL、绝对路径或 Prompt 正文。
+
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
 用户输入索引（seq/round 序号 + 有界摘要 + 是否在当前已加载窗口），轻量零正文
 （不依赖已加载视图，未驻留会话也可用）；前端右侧轨道据此铺满整个会话，点击未

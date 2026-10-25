@@ -104,6 +104,10 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
   解析失败 / 负值 / 比例不在 `[0,100]` / `soft >= hard` → **显式返回 error**，不静默回退。
 - **键存在性单独判定**：`context_compaction_summary.enabled` 的缺省语义要看"写没写这个键"
   （bool 零值分不清"没写"与"写了 false"），因此走 YAML 节点级读取。
+- **团队编制与作业数分离**：`team.max_roles`（兼容旧 `team.max_teammates`）只限制 role 数；
+  `team.max_jobs` 是独立的 active worker job 硬上限，默认 6。新旧 role 键同时出现且不同值
+  时启动失败；`concurrency.teammate/subagent` 是默认关闭的可选窄化限制，启用后 `max`
+  必须为正。`team.workitem_tool_failure` 默认关闭，`threshold` 缺省 3。
 - **窗口的唯一读法**：消费方不得直接读 `SessionReleaseWindow` 字段（零值会退化成
   "什么都不留"），必须走 `ReleaseWindow()`；写入侧先过 `ValidateSessionReleaseWindow`。
 
@@ -277,4 +281,14 @@ go list -deps ./backend/limit
 - `func TestLimitsSearchTimeoutAlias(t *testing.T)` — TestLimitsSearchTimeoutAlias 验证旧字段 tavily_timeout 仍兼容，且
 - `func TestLimitsAsyncExecDefaultsOff(t *testing.T)` — TestLimitsAsyncExecDefaultsOff 验证作业面的开关语义：缺省（配置文件缺失、
 - `func TestLimitsCompactionSummaryDefaultsOpen(t *testing.T)` — TestLimitsCompactionSummaryDefaultsOpen：压缩处厚摘要开关的**缺省语义 = 开**
+
+### team_limits_test.go
+
+- `func writeLimitConfig(t *testing.T, body string) string`
+- `func TestTeamLimitsSeparateRolesAndJobs(t *testing.T)`
+- `func TestTeamLimitsLegacyMaxTeammatesStillMeansRoles(t *testing.T)`
+- `func TestTeamLimitsMaxRolesAndLegacyAliasMustAgree(t *testing.T)`
+- `func TestTeamLimitsConcurrencyEnableRequiresPositiveMax(t *testing.T)`
+- `func TestTeamLimitsWorkItemFailurePolicyParses(t *testing.T)`
+- `func TestTeamLimitsRejectNegativeValues(t *testing.T)`
 

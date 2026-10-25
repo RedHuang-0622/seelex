@@ -222,6 +222,7 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		PermissionGroups: groups,
 		Plugins:          member.Plugins,
 		Worktree:         binding.Worktree,
+		ToolFailure:      c.toolFailure,
 		Goal:             goal,
 		// 成员条目自带 max_turns 就用它（"这个 teammate 自己"的回合上限），
 		// 否则回退编排层的进程级默认 c.maxTurns。
@@ -602,34 +603,41 @@ func (c *Coordinator) observe(handles []jobs.Handle) ([]jobs.Record, int) {
 	return records, pending
 }
 
-// ensureCapacity 是**产品级**人数约束的闸门（§4.3）。
+// ensureCapacity 是**产品级 active worker job** 约束的闸门。
 //
-// 它必须先于框架的 jobs 在途上限生效：撞到框架兜底说明这条产品约束已经失效。
-//
-// 口径（2026-10-06 回收唯一化后）：作业只在一处回收（整队收口），因此"在跑作业数"在收口
-// 之前并不等于"在编人数"——在编成员各自在跑的作业会一直占着名额。派发**同一个
-// 角色**时不计它自己那一条：同一角色的重复派发会折叠到在跑的那一条（见 Dispatch 的 Dedup），
-// 它不新增名额；不扣掉自己，重派同一个角色就会自己把自己顶在上限外
-// （max_teammates = 在编人数时的必然撞车）。
+// max_teammates / max_roles 只限制 role 数；本闸门只看全部 KindWorker 的运行行，
+// 因此同一 role 的多个 WorkItem 各占一个名额。同一 WorkItem 的幂等重派在
+// DispatchItem 的状态闸门处提前折叠，不会走到这里。
 func (c *Coordinator) ensureCapacity(role string) error {
-	if c.maxMembers <= 0 {
+	if c.maxJobs <= 0 {
 		return nil
 	}
-	subject := SubjectForRole(role)
 	running := 0
+	roleRunning := 0
+	subject := SubjectForRole(role)
 	for _, record := range c.jobs.Snapshot(jobs.Scope{Session: c.key.SessionID}) {
 		if record.Kind != KindWorker || record.State != jobs.StateRunning {
 			continue
 		}
-		if strings.TrimSpace(record.Scope.Subject) == subject {
-			continue
-		}
 		running++
+		if strings.TrimSpace(record.Scope.Subject) == subject {
+			roleRunning++
+		}
 	}
-	if running >= c.maxMembers {
+	if running >= c.maxJobs {
 		return fmt.Errorf(
-			"teamwork: 在跑 teammate %d 人已达上限 limits.team.max_teammates=%d（显式拒绝，不静默排队）",
-			running, c.maxMembers)
+			"teamwork: 在跑 worker job %d 条已达上限 limits.team.max_jobs=%d（显式拒绝，不静默排队）",
+			running, c.maxJobs)
+	}
+	if c.teammateConcurrencyEnabled {
+		if c.teammateConcurrencyMax <= 0 {
+			return errors.New("teamwork: limits.concurrency.teammate.enabled=true 时 max 必须为正数")
+		}
+		if roleRunning >= c.teammateConcurrencyMax {
+			return fmt.Errorf(
+				"teamwork: teammate %q 在跑 job %d 条已达可选上限 limits.concurrency.teammate.max=%d（显式拒绝，不静默排队）",
+				role, roleRunning, c.teammateConcurrencyMax)
+		}
 	}
 	return nil
 }

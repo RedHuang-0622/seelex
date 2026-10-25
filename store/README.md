@@ -832,3 +832,9 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 ```text
 go test ./store/ -run TestMedia -count=1
 ```
+## 团队 WorkItem 绑定账本
+
+`teamwork/worktrees.jsonl` 按追加型 KV 记录 WorkItem 到 Session/worktree 的绑定。
+每行带 `workspace_mode`：`worktree` 是正常隔离；`main` 只表示用户在 worktree
+创建失败后逐次批准、显式重试的主工作区模式。释放行通过 `released=true` 结束绑定，
+不删除历史行；读取方必须按 `TeamworkBindings` 折叠最后一行。

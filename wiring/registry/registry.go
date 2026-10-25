@@ -25,6 +25,7 @@ import (
 	coretask "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
@@ -327,6 +328,9 @@ func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Servi
 }
 
 func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
+	runtime.SetPluginCapabilitiesProvider(func(names []string) []dto.PluginCapabilityView {
+		return safePluginCapabilities(plugins, names)
+	})
 	RegisterTimeTool(runtime)
 	websearch.RegisterWithOptions(runtime, config.EnsureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()), websearch.Options{
 		// DeepSeek Search 与模型 API 共用一把 key：搜索配置没写 key 时取账号池里那把。
@@ -342,6 +346,40 @@ func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, en
 	RegisterPluginSwitchTools(runtime, plugins, eng)
 	RegisterPluginSelfTools(runtime, plugins)
 	RegisterAskApprove(runtime, approval)
+}
+
+func safePluginCapabilities(plugins *plugin.Manager, names []string) []dto.PluginCapabilityView {
+	if plugins == nil {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		wanted[strings.TrimSpace(name)] = struct{}{}
+	}
+	views := make([]dto.PluginCapabilityView, 0, len(names))
+	for _, item := range plugins.All() {
+		if len(wanted) > 0 {
+			if _, ok := wanted[item.Name]; !ok {
+				continue
+			}
+		}
+		view := dto.PluginCapabilityView{
+			Name: item.Name, Description: item.Description,
+			Include: append([]string(nil), item.Include...), Exclude: append([]string(nil), item.Exclude...),
+		}
+		for _, skillItem := range item.Skills {
+			view.Skills = append(view.Skills, dto.PluginSkillView{
+				Name: skillItem.Name, Description: skillItem.Description,
+			})
+		}
+		for _, server := range item.MCPServers {
+			view.MCPServers = append(view.MCPServers, dto.PluginMCPServerView{
+				Name: server.Name, Transport: server.Transport,
+			})
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 // RegisterReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
