@@ -2,7 +2,7 @@
 
 日期：2026-10-26
 
-状态：**BM-001 至 BM-004 完成；BM-005 未启动。**
+状态：**BM-001 至 BM-004 完成；BM-005 已生成迁移清单与边界门禁，文件搬迁未开始。**
 
 ## 1. 依赖数量
 
@@ -106,6 +106,7 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 ### contract
 
 - `contract/architecture_test.go`（新增）
+- `contract/runtime_migration_test.go`（BM-005 文件归属与组合根反向依赖门禁）
 - `contract/README.md`
 - `contract/protocol/README.md`（新增）
 - `contract/protocol/state.go`（由 middle model 迁入）
@@ -149,6 +150,7 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 
 - `docs/2026-10-25-backend-middle-modularization/plan.md`
 - `docs/2026-10-25-backend-middle-modularization/implementation.md`（本文件）
+- `docs/2026-10-25-backend-middle-modularization/runtime-migration-inventory.md`
 
 ### Application / Wiring / E2E
 
@@ -184,6 +186,7 @@ git diff --check
 
 ```text
 go test ./contract -run 'TestBM00' -count=1
+go test ./contract -run 'TestBM005' -count=1
 go test ./e2e -run 'TestRoleSessionDTOFieldsMatchWireContract|TestStateEnumFieldCastInDeclaredFiles|TestSubagentStatusVocabularyGate|TestFacadeDependencyClosureRatchet|TestContractDependencyClosureIsStdlibOrAllowlisted' -count=1
 go test ./test -run 'ProjectBoard' -count=1
 go test ./wiring/... -count=1

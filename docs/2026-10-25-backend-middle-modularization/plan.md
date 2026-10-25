@@ -14,7 +14,7 @@
 | BM-002 协议模型分层 | 已完成 | wire 模型权威定义迁至 `contract/protocol`；54 个 backend 生产/测试文件改指契约包，`middle/protocol/model` 保留同身份 alias；backend → middle 从 16 降至 6（剩余 3 条 assemble 接线与 3 条 event 投递中间件边）。 |
 | BM-003 Middle 只读端口 | 已完成 | `dto.ViewLimits` 与 `Limits.ViewLimits()` 成为唯一窄投影；state/subagent 改收契约型，board 改由 Wiring 注入 `EvidenceChars`；middle → backend 归零。 |
 | BM-004 Backend 反向依赖清理 | 已完成 | `PromptLayer` 下沉 `contract/dto` 并由 Application 保留 alias；task 改用 `dto.PromptLayer` 与 `limit/loop.Budget`，backend → application 归零。 |
-| BM-005 Runtime 装配归属 | 未开始 | BM-001 至 BM-004 已完成，可进入下一阶段。 |
+| BM-005 Runtime 装配归属 | 进行中 | 56 个 assemble 生产文件已按目标域冻结在 `contract/runtime_migration_test.go`；领域包反向 import 组合根为零；搬迁顺序见 [`runtime-migration-inventory.md`](runtime-migration-inventory.md)。文件搬迁与 `wiring/runtime` 创建尚未开始。 |
 
 ## 1. 背景与基线
 
