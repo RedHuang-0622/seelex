@@ -156,5 +156,9 @@ verify_snaps.py
 docs/devlog/2026-08-11-subagent-interview-questions.md
 docs/devlog/2026-08-11-subagent-interview-answers.md
 
+# Thesis drafts and generated coverage artifacts (personal, do not commit)
+/docs/thesis/
+/thesis_coverage
+
 # 发布构建的暂存区（scripts/build-gui.ps1、build-linux-gui.sh、release.yml 都会写）
 /stage/
