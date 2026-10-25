@@ -116,6 +116,26 @@ func TestEmployeePermissionVectorUsesAccountRoleNotMemberName(t *testing.T) {
 	}
 }
 
+func TestMainAgentRolePermissionAllowSkipsApproval(t *testing.T) {
+	state := vectorGate(t, func(_ string, role string) ([]string, bool, error) {
+		if role == string(dto.RoleAgent) {
+			return []string{dto.PermissionTagRW}, true, nil
+		}
+		return nil, false, nil
+	})
+	ctx := toolspermission.WithSessionID(context.Background(), "sess-main-agent")
+	action, decided := state.Enforce(
+		ctx,
+		toolspermission.Subject("root"),
+		frameworktools.ToolMeta{},
+		"write_file",
+		"{}",
+	)
+	if !decided || action != toolspermission.ActionAllow {
+		t.Fatalf("mainagent 选中 rw 后应直接 allow，得到 action=%v decided=%v", action, decided)
+	}
+}
+
 // TestPermissionVectorClaimsDoNotTouchSharedTable：② 判定不再写共享主体表——
 // 员工调用过之后，配置里的 Subjects 与调用前逐字节相同（没有派生条目、没有 rebuild）。
 func TestPermissionVectorClaimsDoNotTouchSharedTable(t *testing.T) {

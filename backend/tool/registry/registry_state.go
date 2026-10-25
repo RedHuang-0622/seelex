@@ -630,7 +630,6 @@ func (state *PermissionGate) Enforce(ctx context.Context, subject toolspermissio
 	group, routed := policy.RoutePermissionGroup(cfg.Groups, name)
 	// 2) 显式 `!tag`：调用方明确说了"这一族不给" → **不给规则层兜底的机会**，
 	//    直接走人类口令（root / 员工）；子代理没有人类可问 → 拒绝。
-	//    注意它与"危险命令硬拒"不是一回事：后者仍由第 1 条的 deny 规则承担。
 	if routed && cells.ExplicitlyDenied(group.Name) {
 		if class == policy.SubjectClassSub {
 			return toolspermission.ActionDeny, true

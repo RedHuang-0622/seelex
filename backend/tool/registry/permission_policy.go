@@ -167,7 +167,7 @@ type rolePermissionVectorResolver func(sessionID, role string) ([]string, bool, 
 //
 // 唯一一条判定输入（这是本轮"权限向量接管判定"的落点）：
 //
-//	root   → 会话档位的向量预设（policy.TierCells）
+//	root   → 主代理 agent 角色的显式/会话向量；未登记时才回落到会话档位预设
 //	员工   → 显式分配（装配期，权威）＞ (会话, 角色) 的生效向量（登记优先、缺失走
 //	         四级链路）＞ ctx 身份自带的格子/档位派生
 //	子代理 → 不接管（ok=false）：它没有"角色登记"这一维，授权面仍由框架的
@@ -181,6 +181,15 @@ func (state *PermissionGate) callVector(ctx context.Context) (policy.PermissionV
 	case policy.SubjectClassSub:
 		return policy.PermissionVectorCells{}, "", false
 	case policy.SubjectClassRoot:
+		state.mu.RLock()
+		resolver := state.RolePermissionVector
+		state.mu.RUnlock()
+		sessionID := state.sessionFromContext(ctx)
+		if resolver != nil {
+			if vector, decided, err := resolver(sessionID, string(dto.RoleAgent)); err == nil && decided {
+				return policy.CellsForVector(dto.ResolvePermissionVectorDecision(vector), groups), string(dto.RoleAgent), true
+			}
+		}
 		tier := state.PermissionTierFor(state.sessionFromContext(ctx))
 		return policy.TierCells(tier, groups), tier, true
 	}

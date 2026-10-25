@@ -1062,13 +1062,12 @@ func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 // 作用对象是**当前视图会话**的**会话自持角色**：设置面板编辑的是"这个会话自己"的
 // 角色设置，所以会话 ID 与会话角色都由桥面解析，前端不传（它也不该知道）。
 
-// sessionSelfRole 是"会话自持角色"的规范名：权限向量按 (sessionID, role) 落键，而
-// 设置面板编辑的是会话自己的角色，故取值 = 权责表的 root 主体名（
-// backend/limit/policy 的 SubjectClassRoot；不另造词表）。
+// sessionSelfRole 是"会话自持角色"的规范名：权限向量按 (sessionID, role) 落键。
+// 主代理在账号角色词表里是 agent（界面显示 mainagent）；root 只是它的执行主体类。
 //
 // 同一个名字也用在 application/core/service_assembler.go 的会话加载处（恢复该角色的
 // 权限），两处必须一致——那里只能写字面量（core 不能反向 import gui），改名要一起改。
-const sessionSelfRole = "root"
+const sessionSelfRole = string(dto.RoleAgent)
 
 // roleSettings 取角色设置写面（未装配显式报错，不静默退化）。
 func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {

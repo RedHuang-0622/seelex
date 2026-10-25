@@ -462,7 +462,7 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
 - **设置按作用域分层（2026-10-25）**：全局设置左侧只有「角色与权限 / 应用」。
   角色页只编辑 goalplan / mainagent / subagent / teammate 的跨会话默认权限；账户、余额
   和逐账户甜点上下文也在角色卡内。当前会话的 agent-role 覆盖从项目标题区
-  「会话权限」进入独立会话弹窗。账户增改走 `#account-add-modal`、删除走
+  「会话权限」进入独立会话弹窗。选中权限表示直接放行，不再弹审批。账户增改走 `#account-add-modal`、删除走
   `#account-delete-modal`；继承 chip 只锁角色默认。
   项目工作环境表只在 `#project-settings-modal`，操作按项目 ID 进行，不依赖 session
   binding；会话首次固定的工作环境在项目标题区独立入口。全局设置不含 SSH。

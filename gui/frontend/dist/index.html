@@ -483,7 +483,7 @@
           <section class="settings-page" data-settings-page-panel="roles">
             <div class="settings-section" id="role-settings-section">
               <div class="section-title">Agent roles</div>
-              <p class="settings-note">这里只设置跨会话的角色默认权限；当前会话覆盖请从会话标题区「会话权限」打开。账户只继承角色权限，甜点上下文属于具体账户模型。</p>
+              <p class="settings-note">这里只设置跨会话的角色默认权限；选中即直接放行，不再询问。当前会话覆盖从会话标题区打开；甜点上下文属于具体账户模型。</p>
               <div id="permission-role-board" class="role-permission-board"></div>
               <div id="role-settings-status" class="muted"></div>
               <p class="settings-note permission-semantics-note"><strong>控制</strong>：结束/恢复执行、派生任务、调度团队；<strong>管理</strong>：装载或切换插件、Skill、MCP 与运行模式。两者正交；管理不包含授予权限，也不会自动包含控制。</p>
@@ -584,7 +584,7 @@
 
   <div id="session-permission-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="session-permission-title">
     <div class="modal-card settings-card settings-card--wide session-permission-card">
-      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="session-permission-title">本会话权限</h2><p class="settings-note">这里只覆盖当前会话。跨会话默认权限仍在设置 → 角色与权限。</p></div><button id="session-permission-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="session-permission-title">本会话权限</h2><p class="settings-note">这里只覆盖当前会话；选中即直接放行，不再询问。跨会话默认权限在设置里。</p></div><button id="session-permission-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="session-permission-board" class="role-permission-board"></div>
     </div>
   </div>
