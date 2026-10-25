@@ -97,6 +97,8 @@
 |------|------|
 | [`2026-08-22-full-code-review/README.md`](2026-08-22-full-code-review/README.md) | 全仓库分层代码审阅：架构字符画、数据流图、设计决策解读、Tech Leader 质询与解答 |
 | [`2026-08-22-application-split/design.md`](2026-08-22-application-split/design.md) | application 容器化重构设计（合约净化、adapters 归位、core 域包化） |
+| [`2026-10-25-application-modularization/plan.md`](2026-10-25-application-modularization/plan.md) | Application 大包分阶段小修方案（**计划，未实施**）：DDD 聚合、契约驱动入站 API、查询/会话/聊天分域、兼容层 D0–D4 退场、M0–M9 周期与结构/行为门禁 |
+| [`2026-10-25-backend-middle-modularization/plan.md`](2026-10-25-backend-middle-modularization/plan.md) | Backend / Middle 领域化与契约化方案（**计划，未实施**）：backend 跨域白名单、middle 去 backend、共享 DTO 契约化、assemble 迁入 wiring、BM0–BM8 周期与并行车道 |
 | [`2026-08-23-worktable-sharding-filetree/README.md`](2026-08-23-worktable-sharding-filetree/README.md) | worktable 多维分片 + 工作台文件树工作包（plan + 打点表） |
 | [`2026-08-14-decoupling/00-index.md`](2026-08-14-decoupling/00-index.md) | 解耦重构系列文档索引 |
 | [`2026-09-07-session-order-log/README.md`](2026-09-07-session-order-log/README.md) | 会话全序日志（Session Order Log）设计与实施路线：现状审查、Codex 差距、按顺序存储、前缀 + 追加发送治理、恢复重放 |
