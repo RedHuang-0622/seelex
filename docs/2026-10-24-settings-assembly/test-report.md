@@ -117,3 +117,21 @@ Wails 原生窗口已成功启动，但 Computer Use helper 不可用，因此�
   `Responding=true`。浏览器截图复核确认一级分类只剩「角色与权限 / 应用」，设置页
   只编辑角色默认权限；会话覆盖从标题区「会话权限」弹窗进入。账户行内直接展示该
   模型账户的甜点上下文。
+
+### 2026-10-25 环境与权限入口收敛
+
+- 项目标题区只保留一个「环境管理」入口；会话环境选择、项目环境条目与添加入口都在
+  同一管理面。添加环境和点击已有环境条目调整共用同一个二级弹窗，环境主键在调整态
+  锁定，避免改名偷换记录。
+- 项目标题旁不再放「会话权限」入口；输入框下方权限芯片是唯一入口，其菜单提供
+  “按 Agent role 管理本会话权限”，原有会话覆盖能力不丢失。
+- 自动化门禁：全仓 `go test ./... -count=1 -timeout=600s`、
+  `go vet -tags "gui,desktop,production" ./...`、普通与 GUI production 构建通过；
+  前端 `865/865` 通过；`git diff --check` 通过。
+- post-commit 重建前重新备份 dev 包内 `.seelex/`、`config/`、`plugins/` 与本地数据；
+  强制重建 `dist/dev/seelex.exe` 与 `dist/seelex-gui-dev/seelex-gui.exe` 后，新 GUI
+  标题 `Seelex`、`Responding=true`。
+- Computer Use 原生 pipe 仍不可用；使用同一份 `gui/frontend/dist` 与注入 Bridge 桩的
+  Chrome CDP 完成点击冒烟：项目标题只有一个环境入口；环境管理显示两条项目环境；
+  添加环境打开二级弹窗；点击 `test` 条目打开同一弹窗并回填 `10.0.0.8`；权限芯片菜单
+  可打开按 Agent role 管理的会话权限弹窗。
