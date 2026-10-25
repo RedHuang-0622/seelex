@@ -109,12 +109,12 @@ function accountRowsHTML(role, accounts, balances, selectedAccount, windowPreset
 }
 
 export function rolePermissionBoardHTML(rows, options = {}) {
-  const defaultDrafts = options.defaultDrafts instanceof Map
-    ? options.defaultDrafts
-    : (options.mode === "session" ? new Map() : (options.drafts instanceof Map ? options.drafts : new Map()));
-  const sessionDrafts = options.sessionDrafts instanceof Map
-    ? options.sessionDrafts
-    : (options.mode === "session" && options.drafts instanceof Map ? options.drafts : new Map());
+  const mode = options.mode === "session" ? "session" : "default";
+  const drafts = mode === "session"
+    ? (options.sessionDrafts instanceof Map ? options.sessionDrafts : new Map())
+    : (options.defaultDrafts instanceof Map
+      ? options.defaultDrafts
+      : (options.drafts instanceof Map ? options.drafts : new Map()));
   const expanded = options.expanded instanceof Set ? options.expanded : new Set();
   const accounts = Array.isArray(options.accounts) ? options.accounts : [];
   const balances = options.balances instanceof Map ? options.balances : new Map();
@@ -127,46 +127,32 @@ export function rolePermissionBoardHTML(rows, options = {}) {
   return ordered.map(row => {
     const role = String(row.role);
     const inherit = role !== "agent" && (role === "subagent" || role === "teammate") && row.inherit_main_agent === true;
-    const defaultBase = inherit ? mainDefaultVector : row.default_permission_vector || [];
-    const sessionBase = row.permission_vector || [];
-    const defaultDraft = defaultDrafts.has(role) ? defaultDrafts.get(role) : defaultBase;
-    const sessionDraft = sessionDrafts.has(role) ? sessionDrafts.get(role) : sessionBase;
+    const baseVector = mode === "session"
+      ? row.permission_vector || []
+      : (inherit ? mainDefaultVector : row.default_permission_vector || []);
+    const draft = drafts.has(role) ? drafts.get(role) : baseVector;
     const roleAccounts = accounts.filter(account => account?.role === role);
     const open = expanded.has(role);
     const accountCount = roleAccounts.length || row.accounts?.length || 0;
+    const inheritedLocked = mode === "default" && inherit;
     return `<article class="role-permission-card${open ? " is-expanded" : ""}" data-role-card="${escapeHtml(role)}">
       <button type="button" class="role-permission-head" data-role-toggle="${escapeHtml(role)}" aria-expanded="${open}">
         <span class="role-permission-name">${escapeHtml(permissionRoleLabel(role))}</span>
-        <span class="role-permission-summary">默认 ${escapeHtml(permissionVectorSummary(defaultDraft))} · 会话 ${escapeHtml(permissionVectorSummary(sessionDraft))}</span>
+        <span class="role-permission-summary">${escapeHtml(permissionVectorSummary(draft))}</span>
         <span class="role-permission-account-count">${accountCount} 个账户</span>
         <span class="role-permission-chevron" aria-hidden="true">${open ? "−" : "+"}</span>
       </button>
       <div class="role-permission-body"${open ? "" : " hidden"}>
-        <div class="role-permission-scopes">
-          <section class="role-permission-scope" aria-label="${escapeHtml(permissionRoleLabel(role))} 角色默认权限">
-            <div class="role-permission-scope-head"><strong>角色默认</strong><span>跨会话</span></div>
-            ${(role === "subagent" || role === "teammate") ? `<button type="button" class="role-inherit-chip${inherit ? " is-on" : ""}" data-role-inherit="${escapeHtml(role)}" aria-pressed="${inherit}">继承 mainagent 权限</button>` : ""}
-            ${permissionChipsHTML(
-              defaultDraft,
-              role,
-              "default",
-              inherit,
-              row.default_ssh_user_spaces?.length || 0,
-            )}
-          </section>
-          <section class="role-permission-scope" aria-label="${escapeHtml(permissionRoleLabel(role))} 本会话权限">
-            <div class="role-permission-scope-head"><strong>本会话</strong><span>覆盖角色默认</span></div>
-            ${permissionChipsHTML(
-              sessionDraft,
-              role,
-              "session",
-              false,
-              row.session_ssh_user_spaces?.length || 0,
-            )}
-          </section>
-        </div>
-        <div class="role-accounts-head"><span>账户与余额</span><button type="button" class="text-button" data-role-add-account="${escapeHtml(role)}">添加账户</button></div>
-        <div class="role-account-list">${accountRowsHTML(role, roleAccounts, balances, row.account, windowPresets, windowReadings)}</div>
+        ${(role === "subagent" || role === "teammate") && mode === "default" ? `<button type="button" class="role-inherit-chip${inherit ? " is-on" : ""}" data-role-inherit="${escapeHtml(role)}" aria-pressed="${inherit}">继承 mainagent 权限</button>` : ""}
+        ${permissionChipsHTML(
+          draft,
+          role,
+          mode,
+          inheritedLocked,
+          (mode === "session" ? row.session_ssh_user_spaces : row.default_ssh_user_spaces)?.length || 0,
+        )}
+        ${options.showAccounts === false ? "" : `<div class="role-accounts-head"><span>账户与余额</span><button type="button" class="text-button" data-role-add-account="${escapeHtml(role)}">添加账户</button></div>
+        <div class="role-account-list">${accountRowsHTML(role, roleAccounts, balances, row.account, windowPresets, windowReadings)}</div>`}
       </div>
     </article>`;
   }).join("");

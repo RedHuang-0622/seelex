@@ -153,7 +153,8 @@ const elements = Object.fromEntries([
   "toggle-left-panel", "toggle-right-panel",
   "message-queue",
   "terminal-panel", "terminal-body", "terminal-tabs", "terminal-resize", "terminal-collapse",
-  "terminal-new", "terminal-close", "terminal-hide", "terminal-button"
+  "terminal-new", "terminal-close", "terminal-hide", "terminal-button",
+  "session-permission-button", "session-permission-modal", "session-permission-close", "session-permission-board"
 ].map(id => [id, document.getElementById(id)]));
 
 // ── 左侧主导航 ───────────────────────────────────────────────
@@ -1744,6 +1745,9 @@ function renderProject(snapshot) {
   }
   if (elements["session-environment-button"]) {
     elements["session-environment-button"].disabled = !workspace?.id;
+  }
+  if (elements["session-permission-button"]) {
+    elements["session-permission-button"].disabled = !snapshot.session?.id;
   }
   if ((workspace?.id || "") !== sessionEnvironmentWorkspaceID) {
     sessionEnvironmentWorkspaceID = workspace?.id || "";
@@ -3808,6 +3812,19 @@ async function openSettings() {
 
 function closeSettings() { setModal("settings-modal", false); }
 
+async function openSessionPermissions() {
+  if (!client.current()?.session?.id) {
+    showToast("当前没有可编辑的会话");
+    return;
+  }
+  setModal("session-permission-modal", true);
+  await syncPermissionRoles();
+}
+
+function closeSessionPermissions() {
+  setModal("session-permission-modal", false);
+}
+
 let sessionEnvironmentWorkspaceID = null;
 let sessionEnvironmentEnvs = [];
 let sessionEnvironmentDefault = "";
@@ -4758,6 +4775,8 @@ elements["settings-nav"]?.addEventListener("click", event => {
 elements["account-add-cancel"]?.addEventListener("click", closeAccountAdd);
 elements["account-add-cancel-footer"]?.addEventListener("click", closeAccountAdd);
 elements["project-settings-button"]?.addEventListener("click", () => { void openProjectSettings(); });
+elements["session-permission-button"]?.addEventListener("click", () => { void openSessionPermissions(); });
+elements["session-permission-close"]?.addEventListener("click", closeSessionPermissions);
 elements["session-environment-button"]?.addEventListener("click", () => { void openSessionEnvironment(); });
 elements["session-environment-close"]?.addEventListener("click", closeSessionEnvironment);
 elements["session-environment-cancel"]?.addEventListener("click", closeSessionEnvironment);
@@ -5066,7 +5085,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["session-environment-modal", closeSessionEnvironment], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["session-permission-modal", closeSessionPermissions], ["session-environment-modal", closeSessionEnvironment], ["node-detail-modal", closeNodeDetail], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -5999,7 +6018,7 @@ async function submitPermissionVector() {
 // 界面不自己造别名，也不把"面板上的角色"与"配置里的角色"分成两份事实。
 let permissionRoleRows = [];
 const roleBoardDrafts = { default: new Map(), session: new Map() };
-const roleBoardExpanded = new Set(["agent"]);
+const roleBoardExpanded = { default: new Set(["agent"]), session: new Set(["agent"]) };
 let pendingSSHUserSpace = null;
 
 function replacePermissionRoleRow(applied) {
@@ -6012,18 +6031,29 @@ function replacePermissionRoleRow(applied) {
 }
 
 function renderPermissionRoleRows() {
-  const host = elements["permission-role-board"];
-  if (!host) return;
   const accounts = lastAccountsRuntime?.accounts || [];
-  host.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
-    accounts,
-    balances: accountBalances,
-    defaultDrafts: roleBoardDrafts.default,
-    sessionDrafts: roleBoardDrafts.session,
-    expanded: roleBoardExpanded,
-    windowPresets: accountWindowPresets,
-    windowReadings: accountWindowsCommitted,
-  });
+  const globalHost = elements["permission-role-board"];
+  if (globalHost) {
+    globalHost.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
+      mode: "default",
+      accounts,
+      balances: accountBalances,
+      defaultDrafts: roleBoardDrafts.default,
+      expanded: roleBoardExpanded.default,
+      windowPresets: accountWindowPresets,
+      windowReadings: accountWindowsCommitted,
+    });
+  }
+  const sessionHost = elements["session-permission-board"];
+  if (sessionHost) {
+    sessionHost.innerHTML = rolePermissionBoardHTML(permissionRoleRows, {
+      mode: "session",
+      accounts,
+      sessionDrafts: roleBoardDrafts.session,
+      expanded: roleBoardExpanded.session,
+      showAccounts: false,
+    });
+  }
 }
 
 async function syncPermissionRoles() {
@@ -6076,12 +6106,15 @@ function closeSSHUserSpaceDialog() {
 }
 
 elements["permission-role-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
+elements["session-permission-board"]?.addEventListener("click", event => { void handleRoleBoardClick(event); });
 
 async function handleRoleBoardClick(event) {
   const toggle = roleBoardTarget(event, "data-role-toggle");
   if (toggle) {
-    if (roleBoardExpanded.has(toggle.value)) roleBoardExpanded.delete(toggle.value);
-    else roleBoardExpanded.add(toggle.value);
+    const mode = toggle.node.closest("#session-permission-board") ? "session" : "default";
+    const set = roleBoardExpanded[mode];
+    if (set.has(toggle.value)) set.delete(toggle.value);
+    else set.add(toggle.value);
     renderPermissionRoleRows();
     return;
   }
@@ -6410,7 +6443,9 @@ async function handleRoleBoardChange(event) {
   }
 }
 
-elements["permission-role-board"]?.addEventListener("change", event => { void handleRoleBoardChange(event); });
+for (const id of ["permission-role-board", "session-permission-board"]) {
+  elements[id]?.addEventListener("change", event => { void handleRoleBoardChange(event); });
+}
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;

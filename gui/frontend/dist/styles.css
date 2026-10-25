@@ -3200,29 +3200,6 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 }
 .role-account-window input { grid-column: 1 / -1; }
 .role-account-window em { color: var(--faint); font-style: normal; white-space: nowrap; }
-.role-permission-scopes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.role-permission-scope {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--surface) 72%, transparent);
-}
-.role-permission-scope-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.role-permission-scope-head strong { color: var(--text-bright); font: 600 11px var(--font-mono); }
-.role-permission-scope-head span { color: var(--faint); font: 9.5px var(--font-mono); }
 .role-account-empty,
 .role-permission-empty { padding: 16px 4px; color: var(--faint); font: 11px var(--font-mono); }
 .ssh-userspace-card { width: min(600px, calc(100vw - 28px)); }
@@ -3271,7 +3248,6 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
     border-left: 0;
   }
   .role-account-window em { grid-column: 1 / -1; }
-  .role-permission-scopes { grid-template-columns: 1fr; }
 }
 .settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: var(--text-sm); }
 .settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--text); font: 12px var(--font-mono); }

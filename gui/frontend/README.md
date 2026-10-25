@@ -87,7 +87,7 @@ flowchart TB
 | `dist/composer-knobs.js` | composer 两条**独立**运行参数拉条的停位表与装配：推理强度（`low/medium/high/max` 四档）与循环次数（`1..9999`，步长恒为 1）；各改一项，互不影响。 |
 | `dist/release-window.js` | **会话驻留窗口**的取值面（设置弹窗「会话驻留」段）：`1..16` 的选项表 + 文案 + `normalizeReleaseWindow`（把不可信读数判成 `null`——区分"后端说了个数"与"这格没有权威读数"，不兜底成默认值）。边界与后端 `backend/limit` 的 `SessionReleaseWindowMin/Max` 同值，由 `settings-release-window.test.mjs` 逐值对账；DOM 与 `Bridge.SessionReleaseWindow` / `SetSessionReleaseWindow` 接线在 `app.js`。 |
 | `dist/account-admin.js` | **角色下账户**的判据层（纯函数，DOM/`Bridge` 接线在 `app.js`）：`accountDraftFromForm`（新增草稿；必填缺一不提交，可选字段留空即不发送）、`formatBalanceInfo`/`balanceReadingText`（余额读数 → 文案；「不可用」与「查不到」分开）。完整增改表单在二级弹窗 `#account-add-modal`，删除有独立确认弹窗；详情走 `AccountDetails`，更新走 `AccountUpdate`（API Key 留空保留原密钥），删除走 `DeleteAccount`。快照只携带 `api_key_set`，密钥明文不进入前端。 |
-| `dist/role-permission-board.js` | **Agent role 权限板**的纯渲染面：固定 goalplan / mainagent / subagent / teammate 四卡、可折叠详情、候选/确认双栏权限 chip、subagent/teammate 继承 chip、角色下账户/余额与增删改查入口。每张角色卡内部同时展示“角色默认”和“本会话覆盖”；继承开启时只锁角色默认。上下文窗口嵌在具体账户条目里，因为它属于模型而不是角色。 |
+| `dist/role-permission-board.js` | **Agent role 权限板**的纯渲染面：固定 goalplan / mainagent / subagent / teammate 四卡、可折叠详情、候选/确认双栏权限 chip、subagent/teammate 继承 chip、角色下账户/余额与增删改查入口。同一渲染件按作用域复用于“设置里的角色默认”和“会话里的本会话覆盖”；继承开启时只锁角色默认。上下文窗口嵌在具体账户条目里，因为它属于模型而不是角色。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
 | `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。另含「按会话身份认会话事实」的入口 `isDraftSession`/`stripDraftSessionFacts`：草稿会话（新建会话 / 卸载后就地新建）结构上没有任务面与已读文件，若宿主镜像还带着上一个会话的 `task`（压缩记录 `context_compactions` 挂在它上面）/`read_files`，在快照入口就地把它们去掉——用户口径「上下文压缩总是污染前端、在新开会话时带到新建会话」的渲染层闸门（`client-state.test.mjs` 钉住 `client.current()` 与 `onSnapshot` 拿到同一份已归一快照）。 |
 | `dist/sidebar.js` | 左栏纯显示工具：重名消歧编号（渲染期派生）。标题截断已删除——会话条目改成「标题段 + ⋯ 段」后由 CSS 省略号按栏宽截断，完整标题 + 时间 + token 走共享提示气泡（数据层砍字会让同前缀会话无法区分）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
@@ -460,9 +460,10 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
   `#accounts-section` 都不带 `open`，展开才拉数据。避免右栏一进来就被两张长表占满。
   （第三块 `#team-section` 已随 Agent Team 面板退场删除，见「右侧栏子页」一节。）
 - **设置按作用域分层（2026-10-25）**：全局设置左侧只有「角色与权限 / 应用」。
-  角色页保留 goalplan / mainagent / subagent / teammate 四张角色卡；角色默认与本会话
-  覆盖合并在同一卡内，账户、余额和逐账户甜点上下文也在该卡内。账户增改走
-  `#account-add-modal`、删除走 `#account-delete-modal`；继承 chip 只锁角色默认。
+  角色页只编辑 goalplan / mainagent / subagent / teammate 的跨会话默认权限；账户、余额
+  和逐账户甜点上下文也在角色卡内。当前会话的 agent-role 覆盖从项目标题区
+  「会话权限」进入独立会话弹窗。账户增改走 `#account-add-modal`、删除走
+  `#account-delete-modal`；继承 chip 只锁角色默认。
   项目工作环境表只在 `#project-settings-modal`，操作按项目 ID 进行，不依赖 session
   binding；会话首次固定的工作环境在项目标题区独立入口。全局设置不含 SSH。
 - **对话里的 EXEC / ADVISOR 区分（2026-09-15 二改：颜色高亮也去掉）**：两个 agent
