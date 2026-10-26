@@ -1,9 +1,9 @@
-package view
+package observability
 
 import (
 	"encoding/json"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容

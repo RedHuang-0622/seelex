@@ -5784,6 +5784,21 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `application/errorpresentation` 移回 `middle/view/errors`，
   恢复 package 名 `viewerrors` 与旧 import。
 
+## EP-077：PerfStats 计算归入 Observability
+
+- 把 `middle/view/metrics.go` 的行为测试从 `middle/view` 物理迁入
+  `application/observability`，`PerfStats` 的计算与读取适配现在同属一个 owner；
+- `PerfApplication.PerfStats` 直接调用本包 `PerfStats`，删除 `middle/view` 中间调用；
+  Snapshot、历史窗口和工具结果引用仍由宿主锁内采样，计算不执行 I/O；
+- 先收紧全局依赖预算到 17 形成红测，确认 Application 仍依赖 `middle/view`；迁移后
+  结构预算转绿，E2E facade 闭包同步移除 `middle/view`；
+- 绿测：Application 全局依赖预算、`application/observability`、E2E `Facade|Layout`
+  与 `go build ./...` 通过；
+- Application 具体依赖由 18 降至 17；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；PerfStats 字段、GUI 轮询 wire 和诊断文本不变；
+- 回退方式：把 metrics 文件移回 `middle/view`，恢复 `PerfApplication` 对
+  `middleview.PerfStats` 的调用。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

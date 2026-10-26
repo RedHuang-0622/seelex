@@ -237,7 +237,6 @@ var facadeClosureAllowList = []string{
 	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/backend/limit/tier",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
-	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/backend/engine/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	"github.com/RedHuang-0622/seelex/kernel/worktable",

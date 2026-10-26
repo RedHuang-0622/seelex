@@ -28,7 +28,6 @@ var repositoryModules = []string{
 	"middle/view/board", "middle/view/board/boardtest",
 	// M5-R5c：视图读数面（诊断文本 / 性能指标 / 运行时投影）从 application/core
 	// 的三个根文件归位到中间层视图根包（plan §2.4）。
-	"middle/view",
 	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）
 	// 归位中间层视图子包（plan §2.4）；跨层共享的错误判据（码/provider 失败分类/
 	// ReAct 预算哨兵）下沉 contract，中间层与后端都只依赖契约。

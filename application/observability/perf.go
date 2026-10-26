@@ -4,7 +4,6 @@ package observability
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	middleview "github.com/RedHuang-0622/seelex/middle/view"
 )
 
 // PerfDeps supplies the view lock and the three bounded metric inputs.
@@ -31,7 +30,7 @@ func NewPerfApplication(deps PerfDeps) *PerfApplication {
 func (application *PerfApplication) PerfStats() model.PerfStats {
 	application.deps.LockView()
 	defer application.deps.UnlockView()
-	return middleview.PerfStats(
+	return PerfStats(
 		application.deps.Snapshot(),
 		application.deps.HistoryWindow(),
 		application.deps.ToolResultRefs(),
