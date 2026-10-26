@@ -5799,6 +5799,27 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 metrics 文件移回 `middle/view`，恢复 `PerfApplication` 对
   `middleview.PerfStats` 的调用。
 
+## EP-078：Session Switch Policy 归入中立 Kernel
+
+- 把 `middle/switch` 根包的 11 个生产文件、11 个行为测试与 README 物理迁入
+  `kernel/sessionpolicy`；包名保持 `switching`，队列、draft、interaction、
+  release、fork、pending-tail、meta、unload 与 release-window 判据保持唯一实现；
+- 删除 `application/session/switchpolicy` identity facade 和 facade-only 测试；
+  Application、Backend assemble 与 Wiring 直接消费 `kernel/sessionpolicy`；
+- 迁移发现 Board 与 Backend 也消费这些纯策略，因此 owner 放中立 Kernel，避免
+  `backend/middle → application` 反向依赖或复制第二份判据；
+- 红测：依赖预算收紧到 16 和 `TestApplicationDoesNotImportMiddleSwitchPolicy`
+  均先失败；迁移后 Application 全树扫描、预算与 forwarding allowlist 转绿；
+- 绿测：`go test ./kernel/sessionpolicy ./application/session/...
+  ./application/conversation ./application/execution/... ./application/core`、
+  Backend assemble、E2E `Facade|Layout|Switch|Session|Queue` 与
+  `go build ./...` 通过；
+- Application 具体依赖由 17 降至 16；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；queue/draft/interaction/error identity、GUI/TUI wire 与持久化
+  格式不变；
+- 回退方式：把 `kernel/sessionpolicy` 移回 `middle/switch`，恢复 Application
+  switchpolicy facade，并改回调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

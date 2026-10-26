@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 func TestInteractionApplicationResolvesViewAndBackgroundApprovals(t *testing.T) {

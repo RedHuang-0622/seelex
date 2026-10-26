@@ -8,9 +8,9 @@ import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
-	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 var ErrSessionSSHUnavailable = applicationsession.ErrSessionSSHUnavailable

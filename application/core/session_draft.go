@@ -2,8 +2,8 @@ package core
 
 import (
 	session "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	"time"
 )
 

@@ -244,7 +244,7 @@ Execution Application 用例（AP-017 首个切片）由 `WorkItem execution app
 集中 WorkItem/teammate/team board 读面与 todo 写入口。
 
 Session unload（AP-010 首个切片）由 `Session lifecycle application` 集中编排；
-`middle/switch.Unload` 继续拥有准入判据，Service 只做一行转发。
+`kernel/sessionpolicy.Unload` 拥有准入判据，Application 直接调用唯一 owner。
 
 Session archive（AP-011 首个切片）由 `Session archive application` 集中宿主适配；
 `middle/residency.Archive` 继续拥有准入、flush、归档写入和目录刷新判据。
@@ -438,7 +438,7 @@ Engine/Task/Session 窄回调适配；Archived result、PlanStack 和 Engine 仍
 
 Session Metadata（AP-079）先由 core 组件集中，AP-086 已迁入
 [`application/session`](../session/README.md)。写入判据仍在
-`middle/switch.SetMeta`，读取仍由 `SessionQuery` 提供；core 只保留端口断言、
+`kernel/sessionpolicy.SetMeta`，读取仍由 `SessionQuery` 提供；core 只保留端口断言、
 目录刷新适配和一行兼容入口。
 
 Project Board 只读查询（AP-080）由 `projectBoardQuery` 集中：

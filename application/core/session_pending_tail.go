@@ -11,8 +11,8 @@ package core
 // （message head.LastSeq），先恢复再读，恢复出来的行才能在本次加载里就进可见会话。
 
 import (
-	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // recoverPendingMessageTailAtLoad 在会话冷加载路径上探测/恢复草稿尾，返回要补进可见会话的

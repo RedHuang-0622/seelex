@@ -9,8 +9,8 @@ import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	viewstate "github.com/RedHuang-0622/seelex/application/session/viewstate"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	kernelstate "github.com/RedHuang-0622/seelex/kernel/state"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 type residentEngine interface {

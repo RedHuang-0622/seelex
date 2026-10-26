@@ -10,9 +10,9 @@ import (
 	viewstate "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	kernelstate "github.com/RedHuang-0622/seelex/kernel/state"
 	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // RuntimeDeps supplies the host facts needed by the WorkTable runtime. The

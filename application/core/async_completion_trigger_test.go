@@ -5,7 +5,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	"go/ast"
 	"go/parser"
 	"go/token"

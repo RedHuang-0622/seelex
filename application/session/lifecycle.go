@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // LifecycleDeps supplies unload transition, persistence, release and view

@@ -13,11 +13,11 @@ import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
-	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 func (service *Service) assembleRuntimeApplication() {

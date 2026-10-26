@@ -1,4 +1,4 @@
-# middle/switch
+# kernel/sessionpolicy
 
 > 包名 = `switching`（目录名不能当包名的情形：`switch` 是 Go 关键字）。SessionUnit、
 > Domain 与 ViewState 不在 Middle：前者在 `application/session/state`，后者在
@@ -6,13 +6,12 @@
 
 ## 生态位
 
-`middle/switch` 是中间层"**会话切换与多会话运行**"的落点（plan §2.4：`middle/residency` 管 LRU 驻留、
-`middle/switch` 管多会话运行切换）。当前已有：
+`kernel/sessionpolicy` 是"**会话切换与多会话运行**"的中立纯策略落点：
 
 - 本包（`switching`）：**会话展示元数据**的读写判据（`session_meta.go` 家族）与**草稿会话的身份判据**
   （`draft.go` 家族：草稿 SID 口径 + 草稿归属/物化闸门）；
-- 子域 [`history/`](history/README.md)：历史分页的**窗口装配判据**。
-- 子域 [`workspace/`](workspace/README.md)：**工作区用例**（创建/绑定/解绑、当前工作区
+- 历史分页窗口判据仍在 [`middle/switch/history`](../../middle/switch/history/README.md)。
+- 工作区用例已迁入 [`application/workspace/switch`](../../application/workspace/switch/README.md)：**工作区用例**（创建/绑定/解绑、当前工作区
   读面、工作区投影收集）；视图投影的 owner 仍是 `application/core`，本子域只产出
   `Projection` 并经窄 `ViewPort` 写入。
 
@@ -20,9 +19,8 @@
 `service_{scheduler,queue,release_window}`、`async_completion`、`service_interaction`、
 顶层 `session/`）随 R6 续做搬入。
 
-`application/core` 现通过
-[`application/session/switchpolicy`](../../application/session/switchpolicy/README.md)
-的 identity facade 消费本包纯策略与错误值。
+Application、Backend assemble 与 Wiring 直接消费本包纯策略与错误值，不再经过
+Application/Middle identity facade。
 
 ## 职责与非职责
 
@@ -127,10 +125,10 @@
 ## 测试与验证
 
 ```text
-go test ./middle/switch/... -count=1
+go test ./kernel/sessionpolicy -count=1
 go test ./application/core/ -run 'SessionMeta|Meta' -count=1   # 门面级：断言端口 + 转发
 go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实现
-go test ./middle/switch/workspace/ ./application/core/ -run 'Workspace|BindWorkspace' -count=1
+go test ./application/workspace/switch ./application/core -run 'Workspace|BindWorkspace' -count=1
 ```
 
 ## 文件与函数索引

@@ -59,7 +59,7 @@ Middle 只提供纯切换、历史和驻留策略。
 ## 核心实现
 
 `MetaApplication` 通过 `MetaDeps` 接收 metadata port 与只读查询；写入继续调用
-`middle/switch.SetMeta`，读取由 `SessionQuery` 注入。
+`kernel/sessionpolicy.SetMeta`，读取由 `SessionQuery` 注入。
 
 `SSHApplication` 通过 `SSHDeps` 读取 Session SSH 状态和工作区环境表，只拥有允许
 环境子集、固定环境不可变和未选择环境缺省值等应用判据。
@@ -111,7 +111,7 @@ Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 imp
 
 ## Review 指南
 
-- 检查写入是否仍由 `middle/switch.SetMeta` 唯一校验。
+- 检查写入是否仍由 `kernel/sessionpolicy.SetMeta` 唯一校验。
 - 检查读取是否仍来自绑定事实或 SessionQuery，而不是视图猜测。
 - 检查 SSH 环境子集与固定环境判据是否只保留一份。
 - 检查 Release 的受保护集、flush 顺序与具体释放实现是否仍委托宿主。

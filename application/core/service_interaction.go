@@ -1,8 +1,8 @@
 package core
 
 import (
-	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	"strings"
 	"time"
 )

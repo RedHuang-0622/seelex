@@ -598,7 +598,7 @@ Plan 节点筛选和 JSON 工具适配；Engine、Task、SessionStore 仍通过 
 ### Session Metadata（AP-079）
 
 `sessionMetaApplication` 集中会话置顶、别名与排序位的读写入口。写入仍由
-`middle/switch.SetMeta` 校验并持久化，读取仍由 `SessionQuery` 提供；
+`kernel/sessionpolicy.SetMeta` 校验并持久化，读取仍由 `SessionQuery` 提供；
 `Service` 两个入口只保留一行转发。
 
 ### Project Board 只读查询（AP-080）
@@ -692,7 +692,7 @@ compact/new/resume/fork/plugin/effort/permission 的注册与参数适配迁入
 
 `Session lifecycle application` 的 `sessionLifecycle` 承接 `UnloadSession`
 的过渡锁、持久化、内存释放、视图续接和快照发布。是否允许 unload 仍由
-`middle/switch.Unload` 唯一判定；旧 `Service.UnloadSession` 只保留一行转发。
+`kernel/sessionpolicy.Unload` 唯一判定；Application 直接调用其窄 deps。
 
 ### Session Archive 宿主适配（AP-011 首个切片，已实现）
 

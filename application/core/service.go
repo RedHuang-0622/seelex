@@ -14,8 +14,8 @@ import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段

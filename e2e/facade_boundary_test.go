@@ -206,7 +206,7 @@ var facadeClosureAllowList = []string{
 	// EP-062：Session resident/content LRU 的唯一 Application owner。
 	"github.com/RedHuang-0622/seelex/application/session/residency",
 	// EP-027：Middle session-switch 纯策略身份门面。
-	"github.com/RedHuang-0622/seelex/application/session/switchpolicy",
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy",
 	// EP-025：View State 身份门面；Snapshot/revision 编排仍只有 Middle state 一份。
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	// EP-020：Context Window Policy 身份门面；配置与校验仍只有 Engine 一份。
@@ -296,7 +296,7 @@ var facadeClosureAllowList = []string{
 	// M5-R6-session-meta：会话展示元数据的读写判据归位 `middle/switch` 根包（plan §2.4，本片建包）。
 	// **新增登记的理由**：换落点 + 落点新建；新包只依赖 `middle/protocol/model`（已在清单内），
 	// 存储端口由宿主断言后注入，没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/middle/switch",
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy",
 	"github.com/RedHuang-0622/seelex/application/workspace/switch",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",

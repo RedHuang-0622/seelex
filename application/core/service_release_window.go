@@ -13,7 +13,7 @@ package core
 
 import (
 	limit "github.com/RedHuang-0622/seelex/application/policy"
-	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // releaseWindowDeps 装配驻留窗口可调面的宿主面。

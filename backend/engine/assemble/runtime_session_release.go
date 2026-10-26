@@ -12,7 +12,7 @@ package assemble
 // `SessionContextStoreFor` 在重建前返回 nil，这是既有契约（"未实例化/未绑定 → nil"）。
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // ReleaseSessionBundle 释放一个会话的桥侧内存占用：移出 bundles 注册表并清掉

@@ -39,8 +39,7 @@ var repositoryModules = []string{
 	// 归位中间层切换域的 history 子域（plan §2.4，本片建包）。
 	"middle/switch/history",
 	// M5-R6-session-meta：会话展示元数据的读写判据（原 application/core/session_meta.go）
-	// 归位中间层切换域根包（plan §2.4 的 middle/switch，本片建包；包名 switching）。
-	"middle/switch",
+	"kernel/sessionpolicy",
 	// M5-R8a：goal 域（原 application/core/goal，35 文件）归位多代理板块
 	// （plan §2.7）。同一份代码换落点，包名与判据不变。
 	"backend/multiagent/goal",

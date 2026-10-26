@@ -4,7 +4,7 @@ package session
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // MetaDeps supplies session display metadata read/write capabilities.

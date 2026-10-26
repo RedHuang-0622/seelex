@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // Deps supplies the authoritative session directory, metadata and durable read

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 func TestMetaApplicationDelegatesRead(t *testing.T) {

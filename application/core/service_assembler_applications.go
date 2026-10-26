@@ -17,11 +17,11 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 )
 
