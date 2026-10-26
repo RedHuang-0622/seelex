@@ -150,10 +150,13 @@ const (
 // AP-115B `application/execution/toolrecord` 承接工具记录状态机，上限抬到 110。
 // AP-115C1 `application/execution/table` 承接 WorkTable publisher，上限抬到 111。
 // AP-115D1 `application/input/command` 承接基础内置命令，上限抬到 112。
-const facadeClosureAllowListMax = 112
+// AP-116F1 把前端兼容转发从 core 移到 application/compat；这是纯适配包，
+// 不导入 core 以外的新领域实现，门面闭包上限抬到 113。
+const facadeClosureAllowListMax = 113
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
+	"github.com/RedHuang-0622/seelex/application/compat",
 	"github.com/RedHuang-0622/seelex/application/admin",
 	"github.com/RedHuang-0622/seelex/application/admin/scheduler",
 	"github.com/RedHuang-0622/seelex/application/conversation/search",

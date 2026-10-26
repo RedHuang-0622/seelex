@@ -54,7 +54,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	// 生产口径的新会话：建工作区 → 新建草稿（早分配 SID）→ 绑定工作区 → 首次提交物化。
 	// 草稿 SID 就是物化后的会话 ID（openSessionEngine 复用早分配 SID），所以"视图会话 =
 	// 运行时当前 task 会话"这条前提在这里是**真的**（不是用例替它假设的）。
-	if err := harness.app.CreateWorkspace("board-write", projectRoot, ""); err != nil {
+	if err := harness.frontend.CreateWorkspace("board-write", projectRoot, ""); err != nil {
 		t.Fatalf("建工作区: %v", err)
 	}
 	if err := harness.app.BeginNewSession(); err != nil {
@@ -70,7 +70,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if workspaceID == "" {
 		t.Fatalf("工作区没进快照：%+v", harness.app.Snapshot().Workspaces)
 	}
-	if err := harness.app.BindWorkspace(workspaceID); err != nil {
+	if err := harness.frontend.BindWorkspace(workspaceID); err != nil {
 		t.Fatalf("绑定工作区: %v", err)
 	}
 

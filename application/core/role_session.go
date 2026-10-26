@@ -11,7 +11,6 @@ package core
 import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // roleSessions 把会话端口上可选的两项能力断言出来（两者都由 wiring/adapters.SessionPort
@@ -24,60 +23,4 @@ func (service *Service) roleSessions() team.RoleSessions {
 	roles, _ := service.Deps.Sessions.(contract.RoleSessionPort)
 	schedule, _ := service.Deps.Sessions.(contract.SchedulePort)
 	return team.RoleSessions{Roles: roles, Schedule: schedule, Assembled: true}
-}
-
-func (service *Service) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
-	return service.roleSessions().CreateRoleSession(mainSessionID, roleName, roleSessionID, joinSeq)
-}
-
-func (service *Service) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
-	return service.roleSessions().AppendRoleDraft(mainSessionID, roleName, roleSessionID, rows)
-}
-
-func (service *Service) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
-	return service.roleSessions().ReadRoleDraft(mainSessionID, roleName, roleSessionID)
-}
-
-func (service *Service) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
-	return service.roleSessions().SyncRoleDraft(mainSessionID, roleName, roleSessionID, order)
-}
-
-func (service *Service) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
-	return service.roleSessions().AppendRoleSessionRows(mainSessionID, roleName, roleSessionID, rows)
-}
-
-func (service *Service) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
-	return service.roleSessions().ReadRoleSessionRows(mainSessionID, roleName, roleSessionID)
-}
-
-func (service *Service) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	return service.roleSessions().RoleSnapshot(mainSessionID, roleName, roleSessionID)
-}
-
-func (service *Service) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
-	return service.roleSessions().AssembleRoleWire(mainSessionID, roleName, roleSessionID, budget, k)
-}
-
-func (service *Service) SetLifecycleOrder(sessionID, policy string, roles []string) error {
-	return service.roleSessions().SetLifecycleOrder(sessionID, policy, roles)
-}
-
-func (service *Service) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
-	return service.roleSessions().SetRoleLifecycle(mainSessionID, roleName, roleSessionID, joinSeq, ref)
-}
-
-func (service *Service) ListRoleSessions(mainSessionID string) ([]string, error) {
-	return service.roleSessions().ListRoleSessions(mainSessionID)
-}
-
-func (service *Service) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
-	return service.roleSessions().ScheduleRegister(sessionID, payload)
-}
-
-func (service *Service) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
-	return service.roleSessions().ScheduleCancel(sessionID, payload)
-}
-
-func (service *Service) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
-	return service.roleSessions().ScheduleFire(sessionID, payload)
 }

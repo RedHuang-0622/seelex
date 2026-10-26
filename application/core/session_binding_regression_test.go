@@ -27,7 +27,7 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 	if _, err := workspaces.Create("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-1"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
 	// 工具/工作树仍读进程级 projectScope：绑定后必须有根，否则工作区会话

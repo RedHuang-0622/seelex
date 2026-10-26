@@ -376,7 +376,7 @@ func TestDeleteSessionReleasesMemory(t *testing.T) {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
-	if err := service.DeleteSession("sess-gone"); err != nil {
+	if err := frontendOfTestService(service).DeleteSession("sess-gone"); err != nil {
 		t.Fatalf("delete sess-gone: %v", err)
 	}
 	if engine.HasSession("sess-gone") {
@@ -404,7 +404,7 @@ func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T) {
 	if err := service.ResumeSession("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
-	if err := service.DeleteSession("sess-view"); err != nil {
+	if err := frontendOfTestService(service).DeleteSession("sess-view"); err != nil {
 		t.Fatalf("delete sess-view: %v", err)
 	}
 	if engine.HasSession("sess-view") {

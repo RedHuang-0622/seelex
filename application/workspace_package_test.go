@@ -40,7 +40,13 @@ func TestWorkspaceApplicationIsExtractedFromCore(t *testing.T) {
 		"workspace_gitrepos.go",
 		"workspace_usecase.go",
 	} {
-		core, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "core", name), nil, 0)
+		source := filepath.Join(applicationDir, "core", name)
+		if _, err := os.Stat(source); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			t.Fatalf("stat core/%s: %v", name, err)
+		}
+		core, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
 		if err != nil {
 			t.Fatalf("parse core/%s: %v", name, err)
 		}

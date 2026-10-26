@@ -275,10 +275,7 @@ func (service *Service) ResumeSession(sessionID string) error {
 //   - 冷读下标是**未过滤**空间（内部标记行也占位），可见下标与它之间隔着那些
 //     行：一页读回来先按**行身份**找接缝（窗口首行在页里的位置），只把接缝
 //     之前的那段可见行前置进窗口；接缝对不上就不假装连续（见 installVisibleHistory）。
-func (frontend *Frontend) LoadMoreHistory(limit int) error {
-	return frontend.components.conversationHistoryQuery.LoadMoreHistory(limit)
-}
-
+//
 // LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
 // 分页只移动窗口、不动数据：回到最新 = 重新读尾部窗口并贴尾；回看期间
 // 错过的新消息由这次基线一并带回。
@@ -286,10 +283,6 @@ func (frontend *Frontend) LoadMoreHistory(limit int) error {
 // 热读短路：内存窗口已经贴着有效尾（窗口右界 = 已可见总数）时，「回到最新」
 // 没有任何可加载的东西——冷读面的右界是发布点，换上来的必然是更旧的一页，
 // 把本轮尚未落盘的尾部整窗删掉。此时直接返回，内存即答案。
-func (frontend *Frontend) LoadLatestHistory() error {
-	return frontend.components.conversationHistoryQuery.LoadLatestHistory()
-}
-
 // visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
 // 贴尾）。贴尾 = 用户已经在最新处；窗口为空（草稿/刚被卸载）时按「未带到」
 // 处理，必须走冷读。

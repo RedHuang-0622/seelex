@@ -23,10 +23,7 @@ func TestServiceAdminComponentUsesDomainApplication(t *testing.T) {
 }
 
 func TestServiceAdminFacadeMethodsOnlyDelegate(t *testing.T) {
-	paths := []string{
-		filepath.Join(".", "service_account.go"),
-		filepath.Join(".", "service_account_window.go"),
-	}
+	paths := []string{filepath.Join("..", "compat", "frontend.go")}
 	want := map[string]bool{
 		"AddAccount":       false,
 		"AccountDetails":   false,
@@ -42,7 +39,7 @@ func TestServiceAdminFacadeMethodsOnlyDelegate(t *testing.T) {
 		}
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || function.Name == nil {
+			if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 				continue
 			}
 			if _, tracked := want[function.Name.Name]; !tracked {

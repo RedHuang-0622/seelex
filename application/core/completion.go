@@ -64,12 +64,6 @@ const (
 
 type Suggestion = applicationinput.Suggestion
 
-// Suggestions 按输入前缀给出候选：前缀不认识、或已经进入参数区（含空格）时
-// 返回 nil（空建议 = 不弹面板）。
-func (frontend *Frontend) Suggestions(input string) []Suggestion {
-	return frontend.completionApplicationComponent().Suggestions(input)
-}
-
 func (service *Service) completionApplicationComponent() *applicationinput.Application {
 	if service == nil {
 		return nil

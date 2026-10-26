@@ -112,7 +112,7 @@ func InitApplication(
 	// 按 ctx 身份派生——绝不在执行门里再造一份解析。
 	if runtime != nil {
 		runtime.SetRolePermissionVectorResolver(func(sessionID, role string) ([]string, bool, error) {
-			vector, err := service.RolePermissionVector(sessionID, role)
+			vector, err := wiring.NewFrontend(service).RolePermissionVector(sessionID, role)
 			if err != nil {
 				return nil, false, err
 			}

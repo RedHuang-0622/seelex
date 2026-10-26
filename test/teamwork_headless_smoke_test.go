@@ -370,7 +370,7 @@ func truncateBodyForLog(body string) string {
 // teamworkSmoke 是一次冒烟的现场：真实装配 + 报告。
 type teamworkSmoke struct {
 	harness  fullChainHarness
-	app      *application.Service
+	app      *application.Frontend
 	provider *teamworkSmokeProvider
 	report   *smokeReport
 	// planStore / keyFor 是**取证面**：探针要能把"落盘的计划事实"与"看板投影"分开读，
@@ -438,7 +438,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 			})
 		})
 	smoke := &teamworkSmoke{
-		harness: harness, app: harness.app, provider: provider, report: &smokeReport{},
+		harness: harness, app: harness.frontend, provider: provider, report: &smokeReport{},
 		planStore: planStoreForProbe, keyFor: keyForForProbe,
 	}
 	return smoke

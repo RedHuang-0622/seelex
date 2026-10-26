@@ -11,7 +11,6 @@ import (
 // registerBuiltinCommands installs the extracted command application with the
 // Service host callbacks.
 func (service *Service) registerBuiltinCommands() error {
-	frontend := &Frontend{Service: service}
 	deps := applicationcommand.Deps{
 		Model: func() (string, string) {
 			return service.Deps.Runtime.Model(), service.Deps.Runtime.Provider()
@@ -65,9 +64,13 @@ func (service *Service) registerBuiltinCommands() error {
 				current, ok := service.Deps.Plugins.Current()
 				return service.Deps.Plugins.All(), current, ok
 			},
-			SwitchPlugin:    frontend.SwitchPlugin,
-			Effort:          func() string { return service.effortManager.Current() },
-			SwitchEffort:    frontend.SwitchEffort,
+			SwitchPlugin: func(ctx context.Context, name string) error {
+				return service.components.policyApplication.SwitchPlugin(ctx, name)
+			},
+			Effort: func() string { return service.effortManager.Current() },
+			SwitchEffort: func(_ context.Context, level string) error {
+				return service.components.policyApplication.SwitchEffort(level)
+			},
 			Permission:      func() string { return service.permissionTierForSession(service.currentViewSessionID()) },
 			PermissionTiers: dto.PermissionTiers,
 			SetPermission:   service.SetPermissionTier,

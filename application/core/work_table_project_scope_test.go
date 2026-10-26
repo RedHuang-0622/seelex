@@ -76,7 +76,7 @@ func (harness *projectSwitchHarness) enterProjectA(t *testing.T) {
 	if err := harness.service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.service.BindWorkspace("project-a"); err != nil {
+	if err := frontendOfTestService(harness.service).BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.service.Submit(context.Background(), "A 的第一轮"); err != nil {
@@ -97,7 +97,7 @@ func (harness *projectSwitchHarness) enterProjectA(t *testing.T) {
 // switchToProjectB 触发项目切换（startFreshSession：新建独立会话）。
 func (harness *projectSwitchHarness) switchToProjectB(t *testing.T) {
 	t.Helper()
-	if err := harness.service.BindWorkspace("project-b"); err != nil {
+	if err := frontendOfTestService(harness.service).BindWorkspace("project-b"); err != nil {
 		t.Fatal(err)
 	}
 	waitSessionIdle(t, harness.service)
@@ -292,7 +292,7 @@ func TestProjectSwitchWithoutFreshSessionKeepsOwnRows(t *testing.T) {
 	harness := newProjectSwitchHarness(t)
 	harness.enterProjectA(t)
 
-	if err := harness.service.BindWorkspace("project-a"); err != nil {
+	if err := frontendOfTestService(harness.service).BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
 	if got := harness.service.Snapshot().Session.ID; got != harness.sessionA {

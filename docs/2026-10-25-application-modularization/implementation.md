@@ -154,12 +154,13 @@
 | AP-116C | 已完成 | TeamworkBoardViewFor 改为内部 view-port 适配器 | 接口收窄、157 方法预算绿 |
 | AP-116D | 已完成 | ClearReviewRequest 改为 review 组件内部调用 | 调用方审计、156 方法预算绿 |
 | AP-116E | 已完成 | 8 个前端共用入口先迁依赖方，再由 `Frontend` 直接承接 | GUI/TUI/headless/wiring 迁移、148 方法预算绿 |
+| AP-116F1 | 已完成 | Admin/Role/Workspace 50 个纯转发入口迁入 `application/compat` | core 删除 3 个转发文件、98 方法预算绿 |
 
 ## 基线指标
 
 | 指标 | 2026-10-25 计划值 | 本轮起点 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 148 |
+| `Service` 公开方法 | 171 | 98 |
 | `application/core` 直接导入 backend/middle/store 包 | 38 | 37 |
 | `application/core` 直接导入 backend/middle/store 包（本轮终点） | 38 | 37 |
 | `application/core` 生产 Go 文件 | 76 | 126 |
@@ -202,16 +203,16 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `assemble.ScheduledTaskSpec/Status` | `dto.ScheduledTaskSpec/Status` | GUI/调度注册 | M8 | 入站 API import 扫描通过 | 恢复 assemble alias |
 | `seelexctxsearch.Result` | `dto.SearchResult` | GUI 历史检索 | M8 | 入站 API import 扫描通过 | 恢复搜索包 alias |
 | `ProjectBoardTeamPlanFor/StateFor` 入站方法 | `Service` 装配面方法 | `wiring/bootstrap` 项目看板装配 | M8 | GUI/TUI 生产调用为零 | 恢复旧接口声明 |
-| `Service.AddAccount/AccountDetails/UpdateAccount/DeleteAccount/AccountBalance` | `adminApplication`；入站仍由 `AdminAPI` 暴露 | GUI/Bridge 现有 `AdminAPI` 路径 | M8 | 五个旧方法只一行转发，生产调用迁到窄 API | 恢复 `service_account.go` 原端口解析 |
+| `compat.Frontend.AddAccount/AccountDetails/UpdateAccount/DeleteAccount/AccountBalance` | `adminApplication`；入站仍由 `AdminAPI` 暴露 | GUI/Bridge 现有 `AdminAPI` 路径 | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
 | `Frontend.SelectAccount` | `adminApplication.SelectAccount`；入站仍由 `AdminAPI` 暴露 | GUI Bridge、TUI | AP-116F | `Service` 已无同名公开方法，前端直达管理组件 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
-| `Service.WorkspaceEnvironments/SetWorkspaceEnvironment/DeleteWorkspaceEnvironment/SetDefaultWorkspaceEnvironment` | `workspaceEnvironmentApplication`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge | M8 | 四个旧方法只一行转发，生产调用迁到窄 API | 恢复 `workspace_environments.go` 原端口解析 |
-| `Service.SetAccountWindow` | `adminApplication.SetAccountWindow`；入站仍由 `AdminAPI` 暴露 | GUI Bridge | M8 | 旧方法只一行转发，生产调用迁到窄 API | 恢复 `service_account_window.go` 原 Setter 适配 |
-| `Service.WorkspaceGitRepos/WorkspaceGitLog/WorkspaceChanges/WorkspaceGitCommitDetail/WorkspaceGitCommitFileContent` | `workspaceGitApplication`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge、工作区面板 | M8 | 五个旧方法只一行转发，生产调用迁到窄 API | 恢复 `workspace_gitrepos.go` / `workspace_usecase.go` 原查询编排 |
-| `Service.CreateWorkspaces` | `workspaceApplication.CreateWorkspaces`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge | M8 | 旧方法只一行转发，生产调用迁到窄 API | 恢复 `workspace_usecase.go` 原投影/发布编排 |
+| `compat.Frontend.WorkspaceEnvironments/SetWorkspaceEnvironment/DeleteWorkspaceEnvironment/SetDefaultWorkspaceEnvironment` | `workspaceEnvironmentApplication`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
+| `compat.Frontend.SetAccountWindow` | `adminApplication.SetAccountWindow`；入站仍由 `AdminAPI` 暴露 | GUI Bridge | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
+| `compat.Frontend.WorkspaceGitRepos/WorkspaceGitLog/WorkspaceChanges/WorkspaceGitCommitDetail/WorkspaceGitCommitFileContent` | `workspaceGitApplication`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge、工作区面板 | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
+| `compat.Frontend.CreateWorkspaces` | `workspaceApplication.CreateWorkspaces`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
 | `Service.SessionSSHState/SetSessionSSHAllowed/SetSessionSSHEnv` | `sessionSSHApplication`；入站仍由 `WorkspaceAPI` 暴露 | GUI Bridge | M8 | 三个旧方法只一行转发，生产调用迁到窄 API | 恢复 `session_ssh.go` 原应用判据 |
-| `Service.RoleAccount/SetRoleAccount/RestoreRoleAccounts` | `roleAccountApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、会话加载 | M8 | 三个旧方法只一行转发，生产调用迁到窄 API | 恢复 `role_permissions.go` 原账号应用逻辑 |
-| `Service.RoleDefaultVector/SetRoleDefaultVector/RestoreRolePermissions/RolePermissionVector/SetRolePermissionVector` | `rolePermissionApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、工具权限判定 | M8 | 五个旧方法只一行转发，生产调用迁到窄 API | 恢复 `role_permissions.go` 原权限向量判据 |
-| `Service.RoleInheritMainAgent/SetRoleInheritMainAgent/RoleSSHUserSpaces/RoleDefaultSSHUserSpaces/SetRoleSSHUserSpaces/SetRoleSessionSSHUserSpaces` | `roleInheritanceApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、工具路径门 | M8 | 六个旧方法只一行转发，生产调用迁到窄 API | 恢复 `role_permissions.go` 原继承/路径判据 |
+| `compat.Frontend.RoleAccount/SetRoleAccount` | `roleAccountApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、会话加载 | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
+| `compat.Frontend.RoleDefaultVector/SetRoleDefaultVector/RolePermissionVector/SetRolePermissionVector` | `rolePermissionApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、工具权限判定 | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
+| `compat.Frontend.RoleInheritMainAgent/SetRoleInheritMainAgent/RoleSSHUserSpaces/RoleDefaultSSHUserSpaces/SetRoleSSHUserSpaces/SetRoleSessionSSHUserSpaces` | `roleInheritanceApplication`；入站仍由 `RoleAPI` 暴露 | GUI 角色权限板、工具路径门 | AP-116F2 | `Service` 已无同名入口，compat 只一行转发 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
 | `Service.ScheduleTask/UpdateScheduledTask/CancelScheduledTask` | `schedulerApplication`；入站仍由 `AdminAPI` 暴露 | GUI 定时任务面板 | M8 | 三个旧方法只一行转发，生产调用迁到窄 API | 恢复 `service_scheduler.go` 原变更编排 |
 | `Service.RefreshRuntimeSnapshot` | `runtimeApplication.Refresh` | Scheduler observer、Subagent 恢复 | M8 | 旧方法只一行转发 | 恢复 `service_scheduler.go` 原投影刷新 |
 | `Service.AssembleScheduledRun` | `scheduledRunApplication` | Wiring Registry、定时会话 | M8 | 旧方法只一行转发 | 恢复提交前装配编排 |
@@ -4240,6 +4241,46 @@ backend review port 结构满足，继续保留。
 - `Frontend` 增加 8 个同签名兼容入口，但删除 8 个 `Service` 内层壳后
   core 仍净减 8 行。
 
+### AP-116F1 纯转发壳迁出 core
+
+后续 34 个直接内部依赖的拆除设计见
+[`port-migration-plan.md`](port-migration-plan.md)。
+
+AST 审计确认 148 个 Service 公开方法中有 125 个是单行组件转发。本批先把
+账号、角色、RoleSessions 与 Workspace 的 50 个纯转发入口迁入
+`application/compat`：
+
+- 账号：`AddAccount`、`AccountDetails`、`UpdateAccount`、`DeleteAccount`、
+  `AccountBalance`、`SetAccountWindow`；
+- 角色权限 12 个、角色会话/调度 14 个；
+- Workspace 环境、Git 与文件用例 18 个。
+
+同时把 AP-116E 的 8 个入口也收口到 `application/compat`。core 现在只提供
+`NewFrontendPorts` 装配快照，不再保存这些公开兼容方法。
+
+删除文件：
+
+- `application/core/service_account_window.go`；
+- `application/core/workspace_environments.go`；
+- `application/core/workspace_gitrepos.go`。
+
+删减代码：
+
+- `service_account.go` 只保留宿主组件读取；
+- `role_permissions.go` 只保留内部 restore 用例与组件构造；
+- `role_session.go` 只保留 `team.RoleSessions` 的端口解析；
+- `workspace_usecase.go` 只保留 workspace host adapter 与 projection port。
+
+结构指标：
+
+- `Service` 公开方法：148 → 98；
+- `application/core` 生产文件：125 → 123；
+- `application/core` 生产代码：12,810 → 12,538 行；
+- `application/core` 直接内部依赖：34 → 34。
+
+仍未迁移的 98 个方法中，75 个仍是单行转发壳，23 个包含真实状态编排或
+host callback；后续必须继续先迁兼容壳，不能把 `compat` 变成新的 core。
+
 ## 跨会话阻塞项
 
 - AP-003 的 DTO 迁移已完成；后续若新接口需要改 `contract/**`，仍须登记契约、
@@ -4276,13 +4317,13 @@ backend review port 结构满足，继续保留。
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 148 |
+| `Service` 公开方法 | 171 | 98 |
 | core 直接内部依赖 | 37 | 34 |
-| core 生产文件 | 126 | 125 |
-| core 生产代码 | 18,723 行 | 12,810 行 |
+| core 生产文件 | 126 | 123 |
+| core 生产代码 | 18,723 行 | 12,538 行 |
 
-core 生产代码净减 5,913 行，直接内部依赖从 37 降到 34；AP-116A/B/C/D/E 共收回或迁出
-23 个 `Service` 公开入口。
+core 生产代码净减 6,185 行，直接内部依赖从 37 降到 34；AP-116A/B/C/D/E/F1
+共收回或迁出 73 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
 Policy、Session Lifecycle/Draft/Cold、Context Compaction 与 Conversation Queue/ChatState

@@ -466,26 +466,3 @@ type ConversationHistoryQuery interface {
 	LoadLatestHistory() error
 	LoadMoreHistory(limit int) error
 }
-
-// 编译期钉子（契约 §1.2 第 1 条）：`Frontend` 在结构上满足新旧全部入站面。
-var (
-	_ ViewFace                 = (*Frontend)(nil)
-	_ CommandFace              = (*Frontend)(nil)
-	_ PolicyFace               = (*Frontend)(nil)
-	_ QueueFace                = (*Frontend)(nil)
-	_ ConversationAPI          = (*Frontend)(nil)
-	_ SessionAPI               = (*Frontend)(nil)
-	_ ExecutionQueryAPI        = (*Frontend)(nil)
-	_ ExecutionCommandAPI      = (*Frontend)(nil)
-	_ WorkspaceAPI             = (*Frontend)(nil)
-	_ GoalAPI                  = (*Frontend)(nil)
-	_ PolicyAPI                = (*Frontend)(nil)
-	_ AdminAPI                 = (*Frontend)(nil)
-	_ RoleAPI                  = (*Frontend)(nil)
-	_ SubagentAPI              = (*Frontend)(nil)
-	_ StateAPI                 = (*Frontend)(nil)
-	_ QueueAPI                 = (*Frontend)(nil)
-	_ LifecycleAPI             = (*Frontend)(nil)
-	_ SessionQuery             = (*Frontend)(nil)
-	_ ConversationHistoryQuery = (*Frontend)(nil)
-)

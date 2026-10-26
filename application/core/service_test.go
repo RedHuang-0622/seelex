@@ -193,7 +193,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 		t.Fatal("draft session must hold a pre-assigned session ID")
 	}
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, exists := workspaces.bindings[""]; exists {
@@ -225,7 +225,7 @@ func TestCreateWorkspacesPublishesCatalogWithoutBindingCurrentSession(t *testing
 	})
 	defer service.Shutdown()
 
-	result, err := service.CreateWorkspaces([]dto.WorkspaceCreateRequest{
+	result, err := frontendOfTestService(service).CreateWorkspaces([]dto.WorkspaceCreateRequest{
 		{Name: "alpha", RootPath: t.TempDir()},
 	})
 	if err != nil {
@@ -334,7 +334,7 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	defer service.Shutdown()
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.ProjectRoot() != root || sessions.Workspace() != "project-1" || workspaces.bindings["session-1"] != "project-1" {
@@ -399,10 +399,10 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-1"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -585,7 +585,7 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	if err := service.BindWorkspace("project-2"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-2"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()

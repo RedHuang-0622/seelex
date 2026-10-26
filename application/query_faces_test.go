@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application"
+	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 )
 
 func TestApplicationQueryFacesStayReadOnlyAndNarrow(t *testing.T) {
@@ -25,7 +26,7 @@ func TestApplicationQueryFacesStayReadOnlyAndNarrow(t *testing.T) {
 
 func TestApplicationServiceSatisfiesQueryFaces(t *testing.T) {
 	var service *application.Service
-	frontend := &application.Frontend{Service: service}
+	frontend := applicationcompat.New(service)
 	var _ application.SessionQuery = frontend
 	var _ application.ConversationHistoryQuery = frontend
 }

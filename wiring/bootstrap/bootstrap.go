@@ -253,9 +253,10 @@ func Run(opts Options) (*App, error) {
 	if err != nil {
 		return nil, boot.fail(err)
 	}
+	frontendApp := wiring.NewFrontend(app)
 	boot.addCleanup(app.Shutdown)
 	roleUserSpaces := func(sessionID, role string) []string {
-		paths, err := app.RoleSSHUserSpaces(sessionID, role)
+		paths, err := frontendApp.RoleSSHUserSpaces(sessionID, role)
 		if err != nil {
 			return nil
 		}
@@ -449,7 +450,7 @@ func Run(opts Options) (*App, error) {
 		log.Printf("定时任务恢复：%d 条已排期，%d 条跳过（已过期/已失效）", restored, skipped)
 	}
 	if frontend == "backend" && strings.TrimSpace(flags.BackendProject) != "" {
-		if err := console.BindProject(app, flags.BackendProject); err != nil {
+		if err := console.BindProject(frontendApp, flags.BackendProject); err != nil {
 			return nil, boot.fail(err)
 		}
 		console.LogStageIf(backendTrace, "startup.workspace.ready")

@@ -4,8 +4,8 @@
 
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
-AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116E；
-下一步 AP-116F。**
+AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F1；
+下一步 AP-116F2。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -14,10 +14,10 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116E；
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 148 |
+| `Service` 公开方法 | 98 |
 | `application/core` 直接内部依赖 | 34 |
-| `application/core` 生产文件 | 125 |
-| `application/core` 生产代码 | 12,810 行 |
+| `application/core` 生产文件 | 123 |
+| `application/core` 生产代码 | 12,538 行 |
 
 本轮包提取起点为 126 个文件、18,723 行；当前净减 5,913 行。
 
@@ -90,7 +90,8 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116E；
 | AP-108B2a | Snapshot 冷/热路径（已完成） | `application/session/query` | 高 |
 | AP-108B2b | Snapshot 驻留组装（已完成） | `application/session/query` | 高 |
 | AP-116E | 8 个共用入口迁移到 `Frontend`（已完成） | `application` / 前端依赖方 | 高 |
-| AP-116F | 剩余 148 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
+| AP-116F1 | Admin/Role/Workspace 50 个转发壳迁出 core（已完成） | `application/compat` | 高 |
+| AP-116F2 | 剩余 98 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
 
 ## 4. AP-106：Session Draft Entry / Materialization（已完成）
 
@@ -499,7 +500,7 @@ AP-115D 至此完成。
 草稿和空闲会话的行为与现有一致；命令事件与 GUI/TUI wire 不变；registry 读取不需要
 共享写锁。
 
-## 14. AP-116：148 方法退场
+## 14. AP-116：98 方法退场
 
 这是最终验收批，不提前做“空接口”或“未来接口”。
 
@@ -579,6 +580,38 @@ view port 结构由 `teamworkBoardViewPort` 内部适配器满足，不再暴露
 每个子批新增 `Frontend` 方法不超过 20 个；wiring-only 入口继续使用装配期窄
 adapter，不无条件塞入门面。
 
+### AP-116F1 已完成
+
+新增 `application/compat`，把 50 个纯转发入口从 core 移到兼容适配器：
+
+- 账号 6 个；
+- 角色权限与角色会话 26 个；
+- Workspace 18 个；
+- 另有此前的 8 个入口同步收口到 `compat`。
+
+core 只保留 `FrontendPorts` 装配快照。删除
+`service_account_window.go`、`workspace_environments.go`、`workspace_gitrepos.go`，
+并把账号、角色、Workspace 转发从其余 core 文件中移除。
+
+指标：Service 公开方法 148 → 98；core 文件 125 → 123；core 生产代码
+12,810 → 12,538 行。
+
+当前剩余 98 个方法的结构分类：
+
+外部依赖拆除的端口设计见 [`port-migration-plan.md`](port-migration-plan.md)。
+
+- 75 个仍是单行组件转发，必须继续迁到 `application/compat` 或消费方窄接口；
+- 23 个包含真实状态/生命周期编排，暂由 core 持有：
+
+| 能力 | core 方法 | 暂留原因 |
+|---|---|---|
+| Snapshot/会话视图 | `Snapshot`、`ConversationView`、`ConversationChat`、`RecoverConversation` | 共享 `ViewMu`、视图会话和恢复状态 |
+| 提交/会话切换 | `Submit`、`SubmitToSession`、`ForkSession`、`ForkSessionLatest` | 草稿物化、队列提升、运行守卫与引擎生命周期 |
+| 订阅 | `SubscribeSession`、`SubscribeSessionWithReplay` | session-scoped event watermark 与 replay |
+| 交互/通知 | `ResolveInteraction`、`HandleRoleToolActivity`、`PromptLayers` | 跨组件锁内提交、事件发布、prompt 栈 |
+| Tool record | `ApplyToolRecordEnabled`、`SetToolRecordEnabled`、`SetToolRecordSnapshotStore`、`FlushToolRecord`、`RecordToolCommandOutcome`、`ToolRecordBoard`、`ToolRecordEnabled`、`TaskTerminalHandler` | 累计器、落盘队列与生命周期关闭顺序 |
+| Host 装配 | `SetProjectBoardSink`、`PrepareProviderHistory` | 装配期端口与 Runtime 历史修复 |
+
 ## 15. 跨会话阻塞项
 
 - `contract/**` 共享 DTO 变更必须由 Backend/Middle 会话完成。
@@ -606,7 +639,7 @@ adapter，不无条件塞入门面。
 
 ## 17. 最终退出条件
 
-- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 148）；
+- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 98）；
 - core 直接内部依赖接近零；
 - core 生产代码完成删除；
 - GUI/TUI/headless 只消费稳定由 Application/contract 提供的窄 API；

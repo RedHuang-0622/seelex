@@ -29,10 +29,10 @@ func TestQueueFacadeOnlyDelegatesToConversationQueue(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_queue.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
-		t.Fatalf("解析 service_queue.go: %v", err)
+		t.Fatalf("解析 compat/frontend.go: %v", err)
 	}
 	want := map[string]bool{"ReorderQueuedInput": true, "RecallQueuedInput": true}
 	for _, declaration := range parsed.Decls {
@@ -60,8 +60,8 @@ func TestQueueFacadeOnlyDelegatesToConversationQueue(t *testing.T) {
 			t.Fatalf("%s 未转发到 conversationQueue component", function.Name.Name)
 		}
 		componentSelector, ok := componentCall.Fun.(*ast.SelectorExpr)
-		if !ok || componentSelector.Sel.Name != "queueComponent" {
-			t.Fatalf("%s 未经 queueComponent 转发到 conversationQueue", function.Name.Name)
+		if !ok || componentSelector.Sel.Name != "conversationQueue" {
+			t.Fatalf("%s 未经 conversationQueue 转发到队列组件", function.Name.Name)
 		}
 		delete(want, function.Name.Name)
 	}

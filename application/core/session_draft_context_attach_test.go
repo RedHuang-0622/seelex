@@ -144,7 +144,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	if err := service.BindWorkspace("project-a"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {
 		t.Fatalf("BindWorkspace(A): %v", err)
 	}
 	if err := service.Submit(context.Background(), "A 的第一轮"); err != nil {
@@ -154,7 +154,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 	sessionA := service.Snapshot().Session.ID
 
 	// 切到项目 B：当前会话有历史 → 起一条独立会话。
-	if err := service.BindWorkspace("project-b"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-b"); err != nil {
 		t.Fatalf("BindWorkspace(B): %v", err)
 	}
 	waitSessionIdle(t, service)

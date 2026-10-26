@@ -5,6 +5,7 @@
 package application
 
 import (
+	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -15,7 +16,7 @@ import (
 
 type (
 	Service                    = core.Service
-	Frontend                   = core.Frontend
+	Frontend                   = applicationcompat.Frontend
 	ToolHookBridge             = core.ToolHookBridge
 	ToolHookDiagnosticEvent    = core.ToolHookDiagnosticEvent
 	ToolHookDiagnosticObserver = core.ToolHookDiagnosticObserver

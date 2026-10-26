@@ -59,7 +59,7 @@
 - `WorkspaceRootPort()` 把「当前绑定工作区根 + 后端本身」交给应用层，供**按仓库根
   查询**的编排用（多仓库 git）：根只有这一处可取，可选端口（如
   `contract.WorkspaceGitReposPort`）的断言与仓库相对路径的 containment 判据留在
-  `application/core`（`application/core/workspace_gitrepos.go`）。本包同名的
+  `application/workspace`（`application/workspace/application.go`）。本包同名的
   `GitLog/Changes/GitCommitDetail/GitCommitFileContent`（无 `repo` 参数）仍是
   「工作区根视角」的同一条读面，桌面端已改由应用层按仓库根直接调端口，两处语义
   一致（仓库根 = 工作区根时完全等价）。

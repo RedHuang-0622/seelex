@@ -15,7 +15,7 @@ func TestDeleteSessionReleasesBackgroundRuns(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 	defer service.Shutdown()
 
-	if err := service.DeleteSession("session-gone"); err != nil {
+	if err := frontendOfTestService(service).DeleteSession("session-gone"); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(runtime.releasedAsyncSessions, "session-gone") {

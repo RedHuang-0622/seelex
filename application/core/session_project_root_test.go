@@ -101,7 +101,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-a"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "A 的第一轮"); err != nil {
@@ -117,7 +117,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-b"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-b"); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "B 的第一轮"); err != nil {

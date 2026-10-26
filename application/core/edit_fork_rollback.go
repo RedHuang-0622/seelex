@@ -4,7 +4,7 @@ import applicationedit "github.com/RedHuang-0622/seelex/application/conversation
 
 func newServiceEditForkRollback(service *Service) *applicationedit.RollbackApplication {
 	return applicationedit.NewRollback(applicationedit.RollbackDeps{
-		Delete: service.DeleteSession,
+		Delete: service.components.sessionDelete.Delete,
 		Resume: service.resumeSession,
 	})
 }

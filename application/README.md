@@ -33,7 +33,7 @@
 - 四个接口的方法名与签名取自今日门面已导出的方法面：不改名、不改签名——
   它们就是 gui/tui 今天消费的兼容契约（I5）。方法集由
   `e2e/facade_narrow_faces_test.go` 逐字冻结。
-- `Frontend` 在**结构上**满足新旧入站面：`application/core/service_api_faces.go` 末尾有
+- `Frontend` 在**结构上**满足新旧入站面：`application/frontend_assertions.go` 有
   `var _ ViewFace = (*Frontend)(nil)` 一族编译期钉子（契约 §1.2 第 1 条）；
   `Service` 只保留尚未迁出的兼容方法。
 - 不在四组的第三类方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：装配注入口
@@ -56,10 +56,10 @@
 [`testdata/application_budget.json`](testdata/application_budget.json) 和
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
-- 冻结 `Service` 当前 148 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- 冻结 `Service` 当前 98 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 34，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 125 个、生产代码 12,810 行；
+- 冻结 `application/core` 非测试生产文件 123 个、生产代码 12,538 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -145,10 +145,10 @@
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 148 |
+| `Service` 公开方法 | 98 |
 | `application/core` 直接内部依赖 | 34 |
-| `application/core` 生产文件 | 125 |
-| `application/core` 生产代码 | 12,810 行 |
+| `application/core` 生产文件 | 123 |
+| `application/core` 生产代码 | 12,538 行 |
 
 已落地领域包：
 
@@ -177,11 +177,12 @@
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
+| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；58 个旧入口已从 core 移出 |
 
 退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
 不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
-`Service` 的 148 个兼容方法在调用方归零前继续保留。已迁出的 8 个入口由
-`Frontend` 同签名承接，旧四组窄接口也继续兼容。
+`Service` 的 98 个兼容方法在调用方归零前继续保留。已迁出的 58 个入口由
+`compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。
 
 ### SessionQuery durable 读取面（AP-013 首个切片，已实现）
 

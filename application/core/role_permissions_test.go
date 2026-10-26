@@ -255,10 +255,10 @@ func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
 	if _, err := service.restoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
-	if _, err := service.RolePermissionVector("sess-1", "tl"); !errors.Is(err, ErrRolePermissionsUnavailable) {
+	if _, err := frontendOfTestService(service).RolePermissionVector("sess-1", "tl"); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("单角色读错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
-	if err := service.SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRO}); !errors.Is(err, ErrRolePermissionsUnavailable) {
+	if err := frontendOfTestService(service).SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRO}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("写错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
 	if _, err := service.restoreRolePermissions("  ", []string{"tl"}); err == nil {
@@ -271,7 +271,7 @@ func TestRolePermissionVectorSingleRole(t *testing.T) {
 	sessions.layers = fourLayerFixture()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	vector, err := service.RolePermissionVector("sess-1", "coworker")
+	vector, err := frontendOfTestService(service).RolePermissionVector("sess-1", "coworker")
 	if err != nil {
 		t.Fatalf("RolePermissionVector: %v", err)
 	}
@@ -280,10 +280,10 @@ func TestRolePermissionVectorSingleRole(t *testing.T) {
 	}
 
 	// 登记过之后单角色读也走登记。
-	if err := service.SetRolePermissionVector("sess-1", "coworker", []string{" RW ", "!adm", "rw"}); err != nil {
+	if err := frontendOfTestService(service).SetRolePermissionVector("sess-1", "coworker", []string{" RW ", "!adm", "rw"}); err != nil {
 		t.Fatalf("SetRolePermissionVector: %v", err)
 	}
-	vector, err = service.RolePermissionVector("sess-1", "coworker")
+	vector, err = frontendOfTestService(service).RolePermissionVector("sess-1", "coworker")
 	if err != nil {
 		t.Fatalf("RolePermissionVector: %v", err)
 	}
@@ -297,17 +297,17 @@ func TestRoleDefaultVectorIsExplicitNotEffective(t *testing.T) {
 	sessions.layers = fourLayerFixture()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	vector, explicit, err := service.RoleDefaultVector("sess-1", "coworker")
+	vector, explicit, err := frontendOfTestService(service).RoleDefaultVector("sess-1", "coworker")
 	if err != nil {
 		t.Fatalf("初始 RoleDefaultVector: %v", err)
 	}
 	if explicit || vector == nil || len(vector) != 0 {
 		t.Fatalf("未设置时 = %v explicit=%v，want 空向量 + false", vector, explicit)
 	}
-	if err := service.SetRoleDefaultVector("sess-1", "coworker", []string{dto.PermissionTagRW}); err != nil {
+	if err := frontendOfTestService(service).SetRoleDefaultVector("sess-1", "coworker", []string{dto.PermissionTagRW}); err != nil {
 		t.Fatalf("SetRoleDefaultVector: %v", err)
 	}
-	vector, explicit, err = service.RoleDefaultVector("sess-1", "coworker")
+	vector, explicit, err = frontendOfTestService(service).RoleDefaultVector("sess-1", "coworker")
 	if err != nil {
 		t.Fatalf("设置后 RoleDefaultVector: %v", err)
 	}
@@ -319,13 +319,13 @@ func TestRoleDefaultVectorIsExplicitNotEffective(t *testing.T) {
 func TestRoleAccountRoundTrip(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if account, explicit, err := service.RoleAccount("sess-1", "teammate"); err != nil || explicit || account != "" {
+	if account, explicit, err := frontendOfTestService(service).RoleAccount("sess-1", "teammate"); err != nil || explicit || account != "" {
 		t.Fatalf("未设置 = %q %v %v", account, explicit, err)
 	}
-	if err := service.SetRoleAccount("sess-1", "teammate", "teammate-2"); err != nil {
+	if err := frontendOfTestService(service).SetRoleAccount("sess-1", "teammate", "teammate-2"); err != nil {
 		t.Fatal(err)
 	}
-	account, explicit, err := service.RoleAccount("sess-1", "teammate")
+	account, explicit, err := frontendOfTestService(service).RoleAccount("sess-1", "teammate")
 	if err != nil || !explicit || account != "teammate-2" {
 		t.Fatalf("读回 = %q %v %v", account, explicit, err)
 	}
@@ -345,7 +345,7 @@ func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	runtime := &roleAccountRuntimeSpy{fakeRuntime: &fakeRuntime{}}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions), withTestRuntime(runtime))
-	if err := service.SetRoleAccount("sess-1", "teammate", "teammate-2"); err != nil {
+	if err := frontendOfTestService(service).SetRoleAccount("sess-1", "teammate", "teammate-2"); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.role != "teammate" || runtime.account != "teammate-2" {
@@ -363,27 +363,27 @@ func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T) {
 func TestRoleInheritanceDefaultsAndUserSpaceNormalization(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if inherit, err := service.RoleInheritMainAgent("sess-1", "teammate"); err != nil || !inherit {
+	if inherit, err := frontendOfTestService(service).RoleInheritMainAgent("sess-1", "teammate"); err != nil || !inherit {
 		t.Fatalf("teammate 默认应继承 mainagent：%v %v", inherit, err)
 	}
-	if inherit, err := service.RoleInheritMainAgent("sess-1", "goalplan"); err != nil || inherit {
+	if inherit, err := frontendOfTestService(service).RoleInheritMainAgent("sess-1", "goalplan"); err != nil || inherit {
 		t.Fatalf("goalplan 不默认继承：%v %v", inherit, err)
 	}
-	if err := service.SetRoleInheritMainAgent("sess-1", "goalplan", true); err == nil {
+	if err := frontendOfTestService(service).SetRoleInheritMainAgent("sess-1", "goalplan", true); err == nil {
 		t.Fatal("goalplan 不允许切继承")
 	}
-	if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/home/u/.cache", " /srv/shared ", "/home/u/.cache"}); err != nil {
+	if err := frontendOfTestService(service).SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/home/u/.cache", " /srv/shared ", "/home/u/.cache"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
+	if err := frontendOfTestService(service).SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	paths, err := frontendOfTestService(service).RoleSSHUserSpaces("sess-1", "teammate")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/home/u/.cache", "/srv/shared"}) {
 		t.Fatalf("paths=%v err=%v", paths, err)
 	}
 	for _, invalid := range [][]string{{"relative"}, {"/"}, {}} {
-		if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", invalid); err == nil {
+		if err := frontendOfTestService(service).SetRoleSSHUserSpaces("sess-1", "teammate", invalid); err == nil {
 			t.Fatalf("非法路径 %v 必须报错", invalid)
 		}
 	}
@@ -392,21 +392,21 @@ func TestRoleInheritanceDefaultsAndUserSpaceNormalization(t *testing.T) {
 func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := service.SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/shared"}); err != nil {
+	if err := frontendOfTestService(service).SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/shared"}); err != nil {
 		t.Fatal(err)
 	}
 	// teammate 默认继承；自己的旧路径不能偷偷覆盖继承来的允许范围。
-	if err := service.SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/tmp/stale"}); err != nil {
+	if err := frontendOfTestService(service).SetRoleSSHUserSpaces("sess-1", "teammate", []string{"/tmp/stale"}); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	paths, err := frontendOfTestService(service).RoleSSHUserSpaces("sess-1", "teammate")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/shared"}) {
 		t.Fatalf("继承态 paths=%v err=%v，want mainagent 的 /srv/shared", paths, err)
 	}
-	if err := service.SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
+	if err := frontendOfTestService(service).SetRoleInheritMainAgent("sess-1", "teammate", false); err != nil {
 		t.Fatal(err)
 	}
-	paths, err = service.RoleSSHUserSpaces("sess-1", "teammate")
+	paths, err = frontendOfTestService(service).RoleSSHUserSpaces("sess-1", "teammate")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/tmp/stale"}) {
 		t.Fatalf("关闭继承后 paths=%v err=%v，want 角色自己的 /tmp/stale", paths, err)
 	}
@@ -415,18 +415,18 @@ func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T) {
 func TestSessionSSHUserSpacesOverrideDefaultAndFollowInheritance(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := service.SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/default"}); err != nil {
+	if err := frontendOfTestService(service).SetRoleSSHUserSpaces("sess-1", "agent", []string{"/srv/default"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SetRoleSessionSSHUserSpaces("sess-1", "agent", []string{"/srv/session"}); err != nil {
+	if err := frontendOfTestService(service).SetRoleSessionSSHUserSpaces("sess-1", "agent", []string{"/srv/session"}); err != nil {
 		t.Fatal(err)
 	}
 
-	paths, err := service.RoleSSHUserSpaces("sess-1", "teammate")
+	paths, err := frontendOfTestService(service).RoleSSHUserSpaces("sess-1", "teammate")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/session"}) {
 		t.Fatalf("teammate 应继承 mainagent 的会话覆盖: paths=%v err=%v", paths, err)
 	}
-	paths, err = service.RoleSSHUserSpaces("sess-2", "agent")
+	paths, err = frontendOfTestService(service).RoleSSHUserSpaces("sess-2", "agent")
 	if err != nil || !reflect.DeepEqual(paths, []string{"/srv/default"}) {
 		t.Fatalf("其它会话应回落角色默认: paths=%v err=%v", paths, err)
 	}
@@ -435,7 +435,7 @@ func TestSessionSSHUserSpacesOverrideDefaultAndFollowInheritance(t *testing.T) {
 func TestSetRolePermissionVectorRejectsMalformedEntries(t *testing.T) {
 	sessions := newRolePermissionFakeSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := service.SetRolePermissionVector("sess-1", "tl", []string{"bad tag"}); err == nil {
+	if err := frontendOfTestService(service).SetRolePermissionVector("sess-1", "tl", []string{"bad tag"}); err == nil {
 		t.Fatal("非法项必须显式报错（静默丢项 = 用户以为给了能力）")
 	}
 	if vectors, _ := sessions.RolePermissionVectors("sess-1"); len(vectors) != 0 {
@@ -452,7 +452,7 @@ func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
 
 	roles := []string{"r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"}
 	for _, role := range roles {
-		if err := service.SetRolePermissionVector("sess-1", role, []string{dto.PermissionTagRO, role}); err != nil {
+		if err := frontendOfTestService(service).SetRolePermissionVector("sess-1", role, []string{dto.PermissionTagRO, role}); err != nil {
 			t.Fatalf("Set(%s): %v", role, err)
 		}
 	}
@@ -462,7 +462,7 @@ func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			vector, err := service.RolePermissionVector("sess-1", role)
+			vector, err := frontendOfTestService(service).RolePermissionVector("sess-1", role)
 			if err != nil {
 				t.Errorf("RolePermissionVector(%s): %v", role, err)
 				return
@@ -561,19 +561,18 @@ func TestRoleAccountFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"RoleAccount":         false,
-		"SetRoleAccount":      false,
-		"restoreRoleAccounts": false,
+		"RoleAccount":    false,
+		"SetRoleAccount": false,
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -600,7 +599,7 @@ func TestRolePermissionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -608,13 +607,12 @@ func TestRolePermissionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	want := map[string]bool{
 		"RoleDefaultVector":       false,
 		"SetRoleDefaultVector":    false,
-		"restoreRolePermissions":  false,
 		"RolePermissionVector":    false,
 		"SetRolePermissionVector": false,
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -641,7 +639,7 @@ func TestRoleInheritanceFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -656,7 +654,7 @@ func TestRoleInheritanceFacadeOnlyDelegatesToApplication(t *testing.T) {
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {

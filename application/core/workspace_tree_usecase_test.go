@@ -35,7 +35,7 @@ func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "workspace_usecase.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T) {
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "CreateWorkspaces" ||
-			!functionHasReceiver(function, "Service") {
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if len(function.Body.List) != 1 {
@@ -121,11 +121,11 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	listing, err := service.WorkspaceTree("src", 1)
+	listing, err := frontendOfTestService(service).WorkspaceTree("src", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 		t.Fatalf("forwarded root=%q rel=%q depth=%d", fake.lastRoot, fake.lastRel, fake.lastDepth)
 	}
 
-	count, err := service.WorkspaceFileCount()
+	count, err := frontendOfTestService(service).WorkspaceFileCount()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,19 +150,19 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := service.WorkspaceTree("", 1); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceTree("", 1); err == nil {
 		t.Fatal("WorkspaceTree succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceFileCount(); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceFileCount(); err == nil {
 		t.Fatal("WorkspaceFileCount succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceGitLog(".", 20); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceGitLog(".", 20); err == nil {
 		t.Fatal("WorkspaceGitLog succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceChanges(".", 20); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceChanges(".", 20); err == nil {
 		t.Fatal("WorkspaceChanges succeeded without a workspace")
 	}
-	if _, err := service.WorkspaceGitCommitDetail(".", "abc", 20); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceGitCommitDetail(".", "abc", 20); err == nil {
 		t.Fatal("WorkspaceGitCommitDetail succeeded without a workspace")
 	}
 }
@@ -179,11 +179,11 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceGitLog(".", 10)
+	result, err := frontendOfTestService(service).WorkspaceGitLog(".", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +209,11 @@ func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceGitCommitDetail(".", "abc", 200)
+	result, err := frontendOfTestService(service).WorkspaceGitCommitDetail(".", "abc", 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,10 +231,10 @@ func TestWorkspaceTreeFallsBackWhenBackendLacksTreePort(t *testing.T) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.WorkspaceTree("", 1); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceTree("", 1); err == nil {
 		t.Fatal("WorkspaceTree succeeded without tree-capable backend")
 	}
 }
@@ -261,11 +261,11 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	count, err := service.WorkspaceFileCount()
+	count, err := frontendOfTestService(service).WorkspaceFileCount()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 		t.Fatalf("unexpected count=%+v", count)
 	}
 
-	listing, err := service.WorkspaceTree("", 1)
+	listing, err := frontendOfTestService(service).WorkspaceTree("", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,11 +320,11 @@ func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceChanges(".", 50)
+	result, err := frontendOfTestService(service).WorkspaceChanges(".", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,11 +375,11 @@ func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := service.WorkspaceChanges(".", 0)
+	result, err := frontendOfTestService(service).WorkspaceChanges(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

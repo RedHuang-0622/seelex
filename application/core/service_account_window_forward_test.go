@@ -16,7 +16,7 @@ import (
 
 func TestSetAccountWindowNilServiceGuard(t *testing.T) {
 	var service *Service
-	if _, err := service.SetAccountWindow(context.Background(), "agent-1", 400_000); err == nil ||
+	if _, err := frontendOfTestService(service).SetAccountWindow(context.Background(), "agent-1", 400_000); err == nil ||
 		!strings.Contains(err.Error(), "service is unavailable") {
 		t.Fatalf("nil 门面的文案必须保留，got %v", err)
 	}
@@ -27,7 +27,7 @@ func TestSetAccountWindowNeedsRuntimePort(t *testing.T) {
 	// 默认桩 fakeRuntime 不实现 AccountWindowPort。
 	service := newTestService(t, &fakeEngine{}, withTestAccountWindowStore(store))
 
-	if _, err := service.SetAccountWindow(context.Background(), "agent-1", 400_000); err == nil ||
+	if _, err := frontendOfTestService(service).SetAccountWindow(context.Background(), "agent-1", 400_000); err == nil ||
 		!strings.Contains(err.Error(), "当前宿主不支持按账号设窗口") {
 		t.Fatalf("宿主不支持时必须报明确错误，got %v", err)
 	}

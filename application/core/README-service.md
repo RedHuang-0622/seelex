@@ -31,15 +31,16 @@ AP-058 新增 `service_admin_application.go`，集中 Admin 账号添加、详�
 
 AP-059 把 Admin 账号选择收拢到同一组件：Runtime 准入、runtime projection、
 锁内账户/投影/revision、解锁后事件发布和通知保持原顺序；
-AP-116E 后由 `Frontend.SelectAccount` 直接调用该组件。
+AP-116E/F1 后由 `application/compat.Frontend.SelectAccount` 直接调用该组件。
 
 AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime 端口解析与
 `accountwindow.Setter` 适配；`Service.SetAccountWindow` 只保留一行转发。
 
-## Frontend 兼容适配器（AP-116E）
+## Frontend 兼容适配器（AP-116E/F1）
 
-`Frontend` 是 AP-116 迁移期的前端兼容适配器，内嵌唯一 `*Service` 以继续取得
-组件装配，但已迁出的方法不再回到 `Service` 公开面。首批 8 个入口为：
+前端兼容适配器已迁到 `application/compat`。本包只通过 `NewFrontendPorts`
+提供一份窄组件快照，不再保存账号、角色、Workspace 与输入查询的公开转发方法。
+当前已迁出的 58 个入口包括：
 
 - `Suggestions`
 - `SelectAccount`
@@ -49,9 +50,12 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 - `LoadLatestHistory`
 - `ReorderQueuedInput`
 - `RecallQueuedInput`
+- 账号管理 6 个
+- 角色权限与角色会话 26 个
+- Workspace 18 个
 
 这些方法直接调用唯一领域组件，不持有第二份状态机。GUI、TUI、headless 与
-wiring 已改用 `Frontend`；能力接口的编译期钉子也固定在 `*Frontend`。
+wiring 消费 `application/compat.Frontend`；能力接口的编译期钉子固定在根门面。
 
 AP-068 新增 `schedulerApplication`，集中定时任务创建、编辑、取消的默认参数、
 workspace/plugin/执行参数校验顺序与成功后的 runtime 投影刷新。
@@ -93,14 +97,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 - `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
 
-### service_account.go
-
-- `func (service *Service) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount 把一个新账号写进账号档并热注册进运行时（界面「设置 → 账户 → 添加」）。
-- `func (service *Service) AccountDetails(name string) (dto.AccountDetails, error)` — 读取账号编辑所需的非秘密字段。
-- `func (service *Service) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)` — 原位更新账号；空 API Key 保留原密钥。
-- `func (service *Service) DeleteAccount(name string) (dto.AccountDetails, error)` — 删除账号并返回被删条目的非秘密回执。
-- `func (service *Service) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — AccountBalance 查询一个账号此刻的余额（界面「设置 → 账户」的逐行读数）。
-
 ### service_account_test.go
 
 - `func TestAddAccountNeedsHostPort(t *testing.T)`
@@ -115,10 +111,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (admin *fakeAccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
 - `func (admin *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error)`
 - `func (runtime *balanceFakeRuntime) AccountBalance(_ context.Context, name string) (dto.AccountBalance, error)`
-
-### service_account_window.go
-
-- `func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
 
 ### service_account_window_forward_test.go
 
@@ -404,9 +396,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
-- `func (frontend *Frontend) SelectAccount(ctx context.Context, name string) error`
-- `func (frontend *Frontend) SwitchEffort(ctx context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
-- `func (frontend *Frontend) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
 - `func (service *Service) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
 - `func (service *Service) SetFullAccess(on bool) bool` — SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
@@ -496,8 +485,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_queue.go
 
-- `func (frontend *Frontend) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
-- `func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
 
 ### service_queue_component_test.go
 

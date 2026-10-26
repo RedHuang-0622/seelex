@@ -81,11 +81,11 @@ func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := service.WorkspaceFileContent("src/main.go", 16)
+	got, err := frontendOfTestService(service).WorkspaceFileContent("src/main.go", 16)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,11 +110,11 @@ func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "src/main.go", 8)
+	got, err := frontendOfTestService(service).WorkspaceGitCommitFileContent(".", "abc1234", "src/main.go", 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T)
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
 		t.Fatal("WorkspaceGitCommitFileContent succeeded without a workspace")
 	}
 }
@@ -142,10 +142,10 @@ func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testi
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceGitCommitFileContent(".", "abc1234", "README.md", 0); err == nil {
 		t.Fatal("WorkspaceGitCommitFileContent succeeded without file-capable backend")
 	}
 }
@@ -155,7 +155,7 @@ func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := service.WorkspaceFileContent("README.md", 0); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceFileContent("README.md", 0); err == nil {
 		t.Fatal("WorkspaceFileContent succeeded without a workspace")
 	}
 }
@@ -165,10 +165,10 @@ func TestWorkspaceFileContentFallsBackWhenBackendLacksFilePort(t *testing.T) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.WorkspaceFileContent("README.md", 0); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceFileContent("README.md", 0); err == nil {
 		t.Fatal("WorkspaceFileContent succeeded without file-capable backend")
 	}
 }
@@ -193,11 +193,11 @@ func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := service.WorkspaceFileContent("README.md", 0)
+	got, err := frontendOfTestService(service).WorkspaceFileContent("README.md", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T) {
 		t.Fatalf("unexpected content: %+v", got)
 	}
 
-	if _, err := service.WorkspaceFileContent("config/accounts.yaml", 0); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceFileContent("config/accounts.yaml", 0); err == nil {
 		t.Fatal("WorkspaceFileContent read a sensitive file")
 	}
 }
@@ -223,10 +223,10 @@ func TestWorkspaceWriteFileForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	got, err := service.WorkspaceWriteFile("src/main.go", "hello")
+	got, err := frontendOfTestService(service).WorkspaceWriteFile("src/main.go", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestWorkspaceWriteFileRejectsWithoutBoundWorkspace(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := service.WorkspaceWriteFile("README.md", "x"); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceWriteFile("README.md", "x"); err == nil {
 		t.Fatal("WorkspaceWriteFile succeeded without a workspace")
 	}
 }
@@ -253,10 +253,10 @@ func TestWorkspaceWriteFileRejectsReadOnlyBackend(t *testing.T) {
 		deps.Workspace = &readOnlyFileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
 	})
 	root := t.TempDir()
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.WorkspaceWriteFile("README.md", "x"); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceWriteFile("README.md", "x"); err == nil {
 		t.Fatal("WorkspaceWriteFile succeeded on a read-only backend（只读后端不得被动升级成可写）")
 	}
 }
@@ -282,11 +282,11 @@ func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := service.WorkspaceWriteFile("README.md", "# 新正文\n第二行\n"); err != nil {
+	if _, err := frontendOfTestService(service).WorkspaceWriteFile("README.md", "# 新正文\n第二行\n"); err != nil {
 		t.Fatal(err)
 	}
 	onDisk, err := os.ReadFile(full)
@@ -297,7 +297,7 @@ func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T) {
 		t.Fatalf("disk content = %q", onDisk)
 	}
 
-	got, err := service.WorkspaceFileContent("README.md", 0)
+	got, err := frontendOfTestService(service).WorkspaceFileContent("README.md", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T) {
 		t.Fatalf("读回内容 = %q（保存后读回必须就是刚写的那一份）", decoded)
 	}
 
-	if _, err := service.WorkspaceWriteFile("config/accounts.yaml", "token: pwned"); err == nil {
+	if _, err := frontendOfTestService(service).WorkspaceWriteFile("config/accounts.yaml", "token: pwned"); err == nil {
 		t.Fatal("WorkspaceWriteFile wrote a sensitive file")
 	}
 	if raw, err := os.ReadFile(filepath.Join(secretDir, "accounts.yaml")); err != nil || string(raw) != "token: x" {

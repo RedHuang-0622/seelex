@@ -64,10 +64,6 @@ func (service *Service) pendingApprovalSession(id string) (string, bool) {
 	return "", false
 }
 
-func (frontend *Frontend) SelectAccount(ctx context.Context, name string) error {
-	return frontend.adminApplicationComponent().SelectAccount(context.Background(), name)
-}
-
 // SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 //
 // 运行守卫（G0b/INV-G7）：effort 会改写视图会话的 system prompt 与后续
@@ -75,20 +71,12 @@ func (frontend *Frontend) SelectAccount(ctx context.Context, name string) error 
 // SetSystemPromptFor 写目标（视图）会话引擎，绝不触碰运行中的后台会话
 // （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
 // 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
-func (frontend *Frontend) SwitchEffort(ctx context.Context, level string) error {
-	return frontend.components.policyApplication.SwitchEffort(level)
-}
-
 // SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 //
 // 运行守卫：插件切换会重建进程级 prompt 栈、清空引擎历史并重置对话，任何
 // 会话 running 都会被打到（运行中会话的下一轮 prompt 与历史原件被替换），
 // 因此任一会话 running 即拒绝；模型侧 switch_plugin 工具走 seelebridge
 // 的独立激活面，不经过本进程级入口。
-func (frontend *Frontend) SwitchPlugin(ctx context.Context, name string) error {
-	return frontend.components.policyApplication.SwitchPlugin(ctx, name)
-}
-
 // reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
 // 等级**。
 //

@@ -25,18 +25,8 @@ package core
 // 提升，chat_turn_request.go 的 QueuedRequests）与展示面因此解耦：展示要"看得见就能
 // 操作"，执行要"载荷类型正确"。
 
-// ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
-// （调换排队顺序；seq 身份不变，仅位置变化）。目标会话的空 sessionID 表示
-// 当前视图会话。
-func (frontend *Frontend) ReorderQueuedInput(sessionID string, from, to int) error {
-	return frontend.queueComponent().ReorderQueuedInput(sessionID, from, to)
-}
-
 // RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
 // 其展示原文：调用方（GUI/TUI）把原文交还输入框重新编辑，引擎侧 Payload
 // （执行内核的 chatRequest，含每次提交固化的 skill 上下文与预算）随条目一并
 // 丢弃——重新提交会产生一份新的固化载荷。目标会话的空 sessionID 表示当前
 // 视图会话。
-func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string, error) {
-	return frontend.queueComponent().RecallQueuedInput(sessionID, index)
-}

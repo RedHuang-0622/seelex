@@ -94,7 +94,7 @@ func reviewFixture(t *testing.T) (*Service, string) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = adapters.WorkspacePort{Repo: workspace.NewRepo()}
 	})
-	if err := service.CreateWorkspace("project", root, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	return service, root
@@ -191,7 +191,7 @@ func TestRequestFileReviewClearedOnWorkspaceSwitch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, "other.md"), []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.CreateWorkspace("other", other, ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("other", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	if service.Snapshot().ReviewRequest != nil {

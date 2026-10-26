@@ -57,7 +57,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 		t.Fatalf("workspace %q not found: %#v", name, harness.app.Snapshot().Workspaces)
 		return ""
 	}
-	if err := harness.app.CreateWorkspace("ws-x", xRoot, ""); err != nil {
+	if err := harness.frontend.CreateWorkspace("ws-x", xRoot, ""); err != nil {
 		t.Fatal(err)
 	}
 	wsX = workspaceIDByName("x")
@@ -72,7 +72,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.app.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.CreateWorkspace("ws-y", yRoot, ""); err != nil {
+	if err := harness.frontend.CreateWorkspace("ws-y", yRoot, ""); err != nil {
 		t.Fatal(err)
 	}
 	wsY = workspaceIDByName("y")

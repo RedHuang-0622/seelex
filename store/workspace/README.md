@@ -128,7 +128,7 @@ flowchart LR
 一个工作区根下可能有多棵互不相干的仓库（根本身是仓库 / 若干子目录各自是仓库 /
 仓库里套仓库）。`GitRepos` 做一次只读 BFS，回报有界的一份相对清单，前端据此渲染
 仓库子页标签；四条 git 查询随后按「仓库相对路径」各自发起（`repo` 的解析与
-containment 在应用层，见 `application/core/workspace_gitrepos.go`）。
+containment 在应用层，见 `application/workspace/application.go`）。
 
 - `GitRepos(root, limit)`：Repo 实现 `contract.WorkspaceGitReposPort`（**可选端口，
   单独声明**——往 `WorkspaceTreePort` 里加方法会打断所有既有实现与测试假体）。

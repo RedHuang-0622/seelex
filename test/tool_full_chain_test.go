@@ -173,8 +173,9 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 }
 
 type fullChainHarness struct {
-	app    *application.Service
-	events *application.EventHub
+	app      *application.Service
+	frontend *application.Frontend
+	events   *application.EventHub
 	// store / workspaces 是组合根的存储面与工作区仓库：**teamwork 编排面**的装配
 	// （SetTeamworkBackend 的 PlanStore + KeyFor）要用它们。只读交出，不改 harness 的
 	// 既有装配（在 harness 里默认装 teamwork 会改变所有全链路用例的工具面）。
@@ -338,7 +339,8 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	})
 	hooks.Bind(app)
 	return fullChainHarness{
-		app: app, events: events, runtime: runtimeBridge, approval: approval,
+		app: app, frontend: wiring.NewFrontend(app),
+		events: events, runtime: runtimeBridge, approval: approval,
 		st: st, workspaces: workspaces,
 	}
 }

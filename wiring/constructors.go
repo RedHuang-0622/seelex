@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application"
+	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
@@ -26,7 +27,7 @@ func New(deps contract.Dependencies) (*core.Service, error) { return core.New(de
 
 // NewFrontend constructs the frontend compatibility adapter.
 func NewFrontend(app *core.Service) *application.Frontend {
-	return &application.Frontend{Service: app}
+	return applicationcompat.New(app)
 }
 
 // NewEventHub 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。

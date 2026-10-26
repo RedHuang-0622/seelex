@@ -1,8 +1,8 @@
 {
-  "service_method_count": 148,
+  "service_method_count": 98,
   "core_internal_dependency_limit": 34,
-  "core_production_file_limit": 125,
-  "core_production_line_limit": 12810,
+  "core_production_file_limit": 123,
+  "core_production_line_limit": 12538,
   "allowed_core_internal_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",

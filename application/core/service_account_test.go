@@ -55,7 +55,7 @@ func (admin *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, e
 // "看起来成功、实际什么都没发生"。
 func TestAddAccountNeedsHostPort(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	_, err := service.AddAccount(context.Background(), dto.AccountDraft{Role: "agent", Model: "m", APIKey: "sk"})
+	_, err := frontendOfTestService(service).AddAccount(context.Background(), dto.AccountDraft{Role: "agent", Model: "m", APIKey: "sk"})
 	if err == nil || !strings.Contains(err.Error(), "宿主未提供账号管理能力") {
 		t.Fatalf("期望明确的「宿主未提供」错误，实际 %v", err)
 	}
@@ -71,7 +71,7 @@ func TestAddAccountForwardsDraftVerbatim(t *testing.T) {
 		Role: "agent", Provider: "openai", Model: "deepseek-flash",
 		BaseURL: "https://api.deepseek.com", APIKey: "sk-verbatim", ReasoningEffort: "session",
 	}
-	result, err := service.AddAccount(context.Background(), draft)
+	result, err := frontendOfTestService(service).AddAccount(context.Background(), draft)
 	if err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestAddAccountForwardsDraftVerbatim(t *testing.T) {
 func TestAddAccountPropagatesHostError(t *testing.T) {
 	hostErr := errors.New("account admin: 账号档已写入 \"agent-2\"，但热注册失败（重启后生效）")
 	service := newTestService(t, &fakeEngine{}, withTestAccountAdmin(&fakeAccountAdmin{err: hostErr}))
-	_, err := service.AddAccount(context.Background(), dto.AccountDraft{Role: "agent", Model: "m", APIKey: "sk"})
+	_, err := frontendOfTestService(service).AddAccount(context.Background(), dto.AccountDraft{Role: "agent", Model: "m", APIKey: "sk"})
 	if !errors.Is(err, hostErr) {
 		t.Fatalf("宿主错误未被原样透传: %v", err)
 	}
@@ -98,13 +98,13 @@ func TestUpdateAndDeleteAccountForwardIdentities(t *testing.T) {
 	admin := &fakeAccountAdmin{name: "agent-1"}
 	service := newTestService(t, &fakeEngine{}, withTestAccountAdmin(admin))
 	update := dto.AccountUpdate{Name: "agent-1", Provider: "openai", Model: "gpt-5"}
-	if _, err := service.UpdateAccount(update); err != nil {
+	if _, err := frontendOfTestService(service).UpdateAccount(update); err != nil {
 		t.Fatal(err)
 	}
 	if admin.update != update {
 		t.Fatalf("更新输入被改写: %+v", admin.update)
 	}
-	deleted, err := service.DeleteAccount(" agent-1 ")
+	deleted, err := frontendOfTestService(service).DeleteAccount(" agent-1 ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func (runtime *balanceFakeRuntime) AccountBalance(_ context.Context, name string
 // TestAccountBalanceNeedsHostPort：宿主没装余额能力时明确报错（demo/headless 宿主）。
 func TestAccountBalanceNeedsHostPort(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	_, err := service.AccountBalance(context.Background(), "agent-1")
+	_, err := frontendOfTestService(service).AccountBalance(context.Background(), "agent-1")
 	if err == nil || !strings.Contains(err.Error(), "宿主未提供余额查询能力") {
 		t.Fatalf("期望明确的「宿主未提供」错误，实际 %v", err)
 	}
@@ -150,7 +150,7 @@ func TestAccountBalanceForwardsName(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	balance, err := service.AccountBalance(context.Background(), "subagent-1")
+	balance, err := frontendOfTestService(service).AccountBalance(context.Background(), "subagent-1")
 	if err != nil {
 		t.Fatalf("AccountBalance: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestAccountBalancePropagatesHostError(t *testing.T) {
 	hostErr := errors.New("seelex: 该供应商没有可查询的余额接口")
 	runtime := &balanceFakeRuntime{fakeRuntime: &fakeRuntime{}, err: hostErr}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	if _, err := service.AccountBalance(context.Background(), "agent-1"); !errors.Is(err, hostErr) {
+	if _, err := frontendOfTestService(service).AccountBalance(context.Background(), "agent-1"); !errors.Is(err, hostErr) {
 		t.Fatalf("宿主错误未被原样透传: %v", err)
 	}
 }
@@ -176,10 +176,10 @@ func TestAccountBalancePropagatesHostError(t *testing.T) {
 // TestAccountMethodsNilServiceGuard：nil Service 不许崩（与 SetAccountWindow 同一口径）。
 func TestAccountMethodsNilServiceGuard(t *testing.T) {
 	var service *Service
-	if _, err := service.AddAccount(context.Background(), dto.AccountDraft{}); err == nil {
+	if _, err := frontendOfTestService(service).AddAccount(context.Background(), dto.AccountDraft{}); err == nil {
 		t.Fatalf("nil service 上 AddAccount 应报错")
 	}
-	if _, err := service.AccountBalance(context.Background(), "agent-1"); err == nil {
+	if _, err := frontendOfTestService(service).AccountBalance(context.Background(), "agent-1"); err == nil {
 		t.Fatalf("nil service 上 AccountBalance 应报错")
 	}
 }

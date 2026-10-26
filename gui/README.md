@@ -117,7 +117,7 @@ sequenceDiagram
   `WorkspaceGitCommitDetail(repo, hash, limit)`、
   `WorkspaceGitCommitFileContent(repo, hash, relPath, limit)`。
 - `repo` 的解析与 containment 在应用层
-  （`application/core/workspace_gitrepos.go`）：绝对路径、`..` 逃逸、软链逃逸都是
+  （`application/workspace/application.go`）：绝对路径、`..` 逃逸、软链逃逸都是
   **调用方传错参数 → Go error**（不是 `Result.Error`，那一位留给"这不是 git 仓库"
   这类可展示状态）。端口签名与 git 查询语义一律不变。
 - 前端：`gui/frontend/dist/git-repos.js` 的 `buildRepoTabs`/`resolveSelectedRepo`

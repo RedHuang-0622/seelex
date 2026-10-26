@@ -30,13 +30,13 @@ func TestWorkspaceDraftShowsItsWorkspaceInDirectory(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	if err := service.CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-1"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -73,7 +73,7 @@ func TestTaskDraftStaysUnboundInDirectory(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	if err := service.CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	// 先在一个工作区会话里，再 /new 进「任务会话」：项目绑定必须被清掉。
@@ -103,13 +103,13 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	if err := service.CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BindWorkspace("project-1"); err != nil {
+	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -153,7 +153,7 @@ func TestScheduledSessionVisibleBeforePersist(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	if err := service.CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	workspaceID := "project-1"
