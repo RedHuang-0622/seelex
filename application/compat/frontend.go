@@ -29,7 +29,6 @@ import (
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
@@ -533,12 +532,12 @@ func (frontend *Frontend) GoalStatusFor(sessionID string) (goaldomain.StatusView
 }
 
 // ScheduleTask creates one scheduled task.
-func (frontend *Frontend) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+func (frontend *Frontend) ScheduleTask(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 	return frontend.scheduler().ScheduleTask(ctx, spec)
 }
 
 // UpdateScheduledTask edits one scheduled task.
-func (frontend *Frontend) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+func (frontend *Frontend) UpdateScheduledTask(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 	return frontend.scheduler().UpdateScheduledTask(ctx, id, spec)
 }
 
@@ -548,12 +547,12 @@ func (frontend *Frontend) CancelScheduledTask(id string) error {
 }
 
 // AssembleScheduledRun assembles the execution context for a scheduled run.
-func (frontend *Frontend) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
+func (frontend *Frontend) AssembleScheduledRun(ctx context.Context, sessionID string, task dto.ScheduledTaskSpec) (context.Context, error) {
 	return frontend.scheduledRun().AssembleScheduledRun(ctx, sessionID, task)
 }
 
 // StartScheduledSession starts the session owned by a scheduled task.
-func (frontend *Frontend) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
+func (frontend *Frontend) StartScheduledSession(ctx context.Context, task dto.ScheduledTaskSpec) (string, error) {
 	return frontend.scheduledSession().StartScheduledSession(ctx, task)
 }
 

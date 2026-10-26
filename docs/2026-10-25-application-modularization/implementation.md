@@ -5898,6 +5898,17 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 7,178 行；流式批次、thought 过滤、GUI/TUI wire 与持久化格式不变；
 - 回退方式：把 `kernel/react` 移回 `backend/engine/react`，并恢复调用点 import。
 
+## EP-084：Application 退出 Engine Assemble 兼容类型
+
+- Compat 的 ScheduledTaskSpec/Status 参数从 `backend/engine/assemble` 的 alias
+  直接改为 `contract/dto.ScheduledTaskSpec` / `ScheduledTaskStatus`；
+- 两处本来就是同身份 alias，方法入参/返回值和 JSON 身份不变，删除 Compat 对
+  Engine Assemble 的具体 import；
+- 红测：Application 全局依赖预算收紧到 6；迁移后预算与 Compat 行为测试转绿；
+- Application 具体依赖由 7 降至 6；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；调度 DTO、wire 与持久化格式不变；
+- 回退方式：把四个签名改回 `assemble.ScheduledTask*` 并恢复 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
