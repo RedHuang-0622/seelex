@@ -52,10 +52,15 @@ var storeBoundaryScopes = []storeBoundaryScope{
 	{
 		name:    "store",
 		pattern: "./store",
+		allow: []string{
+			"github.com/RedHuang-0622/seelex/kernel/event",
+		},
+		max: 1,
 		note: "M3-S4 删掉了唯一一条向上边（`router_storage.go` 的 `seelexctx/lifecycle` " +
 			"`Storage[types.Message]` 编译期断言）：断言整条挪到消费侧 " +
 			"`seelexctx/router_storage_conformance.go`。2026-10-17 P3 后 `contract` 闭包只剩" +
-			"纯形状包，store 依赖 `contract/dto` 是向下依赖（已在判据里显式放行）。",
+			"`contract/{dto,protocol}` 与 kernel/event；该 event 边来自 `Dependencies.Events` " +
+			"的 Hub 形状，待 Store 拆分前把事件端口下沉 Contract。",
 	},
 }
 

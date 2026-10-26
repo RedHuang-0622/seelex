@@ -7,7 +7,7 @@ package contract
 // （没有密文库的宿主只能读不能写）。因此按仓库既有做法（窄可选端口）单开一条，
 // 由实现方按需满足，消费方 type-assert 探测：`store, ok := port.(WorkspaceConnectionPort)`。
 
-import "github.com/RedHuang-0622/seelex/middle/protocol/model"
+import model "github.com/RedHuang-0622/seelex/contract/protocol"
 
 // WorkspaceConnectionPort 是项目级 SSH/git 连接配置的读写口。
 //

@@ -13,7 +13,7 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 | `application/core` 经 `application/policy` 的 identity facade | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` / Knobs 一行转发（本包是唯一实现处） |
 | `seelebridge`（装配 Runtime、`internal/config`） | 启动期 `LoadLimits` 读数 + `Apply` 注入；运行期按构造参数注入生效值 |
 | `seelexctx`（`ContextWindowPolicy` / `ToolResultProcessor`） | 按**构造参数**消费生效值，不自己持有第二份 |
-| `main.go`、[overlay/](overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`，已移除） |
+| `main.go`、[overlay/](../../backend/limit/overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`，已移除） |
 
 落点沿革：`limits.go` 与 `active.go` 于 2026-10-16 随架构重排 M2-A 从
 原 `seelexctx/limits.go`、`application/core/internal/limits/`（两处旧文件已移除）**物理归位**到此处，
@@ -41,7 +41,7 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 - 不决定配置**文件位置**与加载时机（路径由调用方注入，启动期由 `main.go` 决定）。
 - 不持有工具、不跑 ReAct 循环：那些属于 `backend/tool` 与 `backend/engine`。
   权限**判据**（授权表 / 路由组 / 档位覆盖 / 工具簇属声明 / 壳类别词表）已在
-  [policy/](policy/README.md)：本包不做判定、policy 也不做判定（判定委托上游
+  [policy/](../../backend/limit/policy/README.md)：本包不做判定、policy 也不做判定（判定委托上游
   Seele `permission.Gate`），执行门仍在 `backend/tool/registry`。
 - 不做"读一处、判一处"的第二份实现：默认值表、比例校验、窗口边界都只在本包出现，
   上层不得复制。
@@ -81,9 +81,9 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
 | 文件 | 职责 |
 |---|---|
 | `loop/` | **ReAct 循环上限的唯一判据**：档位轮数与工具预算、会话钉住值 vs 进程默认值的解析、子代理 `max_loops` 校验（见 [`loop/README.md`](loop/README.md)）。 |
-| `approval/` | 异步审批 broker（等用户点头的那一格；端口形状在 `contract`，见 [`approval/README.md`](approval/README.md)）。 |
-| `overlay/` | 运行时上限覆盖层：界面改过的窗口/开关落成数据根的一份 JSON，启动时叠在 limits 之上（见 [`overlay/README.md`](overlay/README.md)）。 |
-| `accountwindow/` | 「每账号上下文窗口」的判据：界面挡位表 + 自定义值校验（见 [`accountwindow/README.md`](accountwindow/README.md)）。 |
+| `approval/` | 异步审批 broker（等用户点头的那一格；端口形状在 `contract`，见 [`approval/README.md`](../../backend/limit/approval/README.md)）。 |
+| `overlay/` | 运行时上限覆盖层：界面改过的窗口/开关落成数据根的一份 JSON，启动时叠在 limits 之上（见 [`overlay/README.md`](../../backend/limit/overlay/README.md)）。 |
+| `accountwindow/` | 「每账号上下文窗口」的判据：界面挡位表 + 自定义值校验（见 [`accountwindow/README.md`](../../backend/limit/accountwindow/README.md)）。 |
 | `tier/` | 「主会话权限档位」的落点：生效档位解析 + 会话级持久化编排 + 执行门/审批面/视图快照的落地口径（宿主面经 `Deps` 注入，见 [`tier/README.md`](tier/README.md)）。 |
 | `limits.go` | `limits` 段类型（`Limits` / `SessionStorageLimits` / `AsyncExecLimits` / `ProjectBoardLimits` / `CompactionSummaryLimits` / `TeamLimits` / `RuntimeLimits` / `PluginLimits`）、出厂默认、`LoadLimits` 与启动期校验、窗口判据。 |
 | `active.go` | 进程级生效快照：`active atomic.Pointer[Limits]` + `Apply` / `Get` / `SetSessionReleaseWindow`。 |

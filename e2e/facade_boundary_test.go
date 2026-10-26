@@ -369,14 +369,13 @@ var facadeClosureAllowList = []string{
 // 依赖都必须先删条旧条目（即先做减法），不允许直接顶到上限以上。
 // BM-002 后新增 `contract/protocol` 自身这一格；它是 contract 的模式子包，
 // 依赖仍只有标准库与 contract/dto。上限由 4 调整为 5。
-const contractClosureAllowListMax = 5
+const contractClosureAllowListMax = 4
 
 var contractClosureAllowList = []string{
-	"github.com/RedHuang-0622/seelex/middle/protocol/event",
-	"github.com/RedHuang-0622/seelex/middle/protocol/model",
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
 	"github.com/RedHuang-0622/seelex/contract/protocol",
+	"github.com/RedHuang-0622/seelex/kernel/event",
 }
 
 // frontendDirectImportAllowList 是四个前端入口的**直接** import 允许清单（只许收缩）。

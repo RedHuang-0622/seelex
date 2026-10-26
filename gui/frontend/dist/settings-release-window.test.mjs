@@ -41,11 +41,11 @@ test("app.js 注册并接线：开弹窗读一次、change 提交并采纳生效
   assert.match(handler[0], /normalizeReleaseWindow\(await invoke\("SetSessionReleaseWindow"/, "要采纳后端返回的生效值");
 });
 
-test("前端边界与后端边界一致（backend/limit 的同一组常量）", async () => {
-  const go = await readFile(new URL("../../../backend/limit/limits.go", import.meta.url), "utf8");
+test("前端边界与后端边界一致（kernel/limit 的同一组常量）", async () => {
+  const go = await readFile(new URL("../../../kernel/limit/limits.go", import.meta.url), "utf8");
   const goMin = go.match(/SessionReleaseWindowMin = (\d+)/);
   const goMax = go.match(/SessionReleaseWindowMax = (\d+)/);
-  assert.ok(goMin && goMax, "要在 backend/limit/limits.go 里找到窗口边界常量");
+  assert.ok(goMin && goMax, "要在 kernel/limit/limits.go 里找到窗口边界常量");
   assert.equal(RELEASE_WINDOW_MIN, Number(goMin[1]), "下界两份口径必须一致");
   assert.equal(RELEASE_WINDOW_MAX, Number(goMax[1]), "上界两份口径必须一致");
 });

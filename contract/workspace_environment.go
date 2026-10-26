@@ -9,7 +9,7 @@ package contract
 // 口径（2026-10-24）：工作环境**只挂在项目上**，按环境名分组。环境有端点时
 // 执行面为 SSH，无端点时在本地项目根执行；会话只可选择缺省环境。
 
-import "github.com/RedHuang-0622/seelex/middle/protocol/model"
+import model "github.com/RedHuang-0622/seelex/contract/protocol"
 
 // WorkspaceEnvironmentPort 是项目环境表的读写口。
 //

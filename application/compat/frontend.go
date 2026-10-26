@@ -30,7 +30,6 @@ import (
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -511,22 +510,22 @@ func (frontend *Frontend) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 }
 
 // GoalBeginFor begins a session-scoped goal.
-func (frontend *Frontend) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+func (frontend *Frontend) GoalBeginFor(ctx context.Context, sessionID string, request dto.BeginGoalRequest) (*dto.GoalRecord, error) {
 	return frontend.goal().BeginFor(ctx, sessionID, request)
 }
 
 // GoalUpdateFor updates a session-scoped goal.
-func (frontend *Frontend) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+func (frontend *Frontend) GoalUpdateFor(ctx context.Context, sessionID string, request dto.UpdateGoalRequest) (*dto.GoalRecord, error) {
 	return frontend.goal().UpdateFor(ctx, sessionID, request)
 }
 
 // GoalDoneFor finishes or aborts a session-scoped goal.
-func (frontend *Frontend) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+func (frontend *Frontend) GoalDoneFor(ctx context.Context, sessionID string, request dto.FinishGoalRequest, abort bool) (*dto.GoalRecord, error) {
 	return frontend.goal().DoneFor(ctx, sessionID, request, abort)
 }
 
 // GoalStatusFor returns one session's goal stack and active goal.
-func (frontend *Frontend) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
+func (frontend *Frontend) GoalStatusFor(sessionID string) (dto.GoalStatusView, error) {
 	return frontend.goal().StatusFor(sessionID)
 }
 
