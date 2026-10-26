@@ -5,8 +5,8 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-047；下一步完成 `newService*` 构造适配审计、
-剩余 Store 类型边与 18 个共享状态/生命周期入口。**
+EP-001～EP-048；`newService*` 构造适配审计已完成，下一步处理
+共享状态/生命周期入口、会话主循环与剩余 Application 具体依赖。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -17,11 +17,11 @@ EP-001～EP-047；下一步完成 `newService*` 构造适配审计、
 |---|---:|
 | `Service` 公开方法 | 11 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 27 |
-| `application/core` 生产文件 | 111 |
-| `application/core` 生产代码 | 9,915 行 |
+| `application/**` 具体 Backend/Middle 依赖包 | 26，Store 为 0 |
+| `application/core` 生产文件 | 68 |
+| `application/core` 生产代码 | 10,243 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 15 个文件和 8,808 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 58 个文件和 8,480 行。
 
 ## 裁决已冻结
 
@@ -40,7 +40,7 @@ EP-001～EP-047；下一步完成 `newService*` 构造适配审计、
   `application/session/viewstate`，`application/core` 直接内部依赖已归零。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
-  当前 27 个唯一包，只许下降，最终为 0。
+  当前 26 个唯一 Backend/Middle 包，只许下降，最终为 0；具体 Store 包已归零。
 
 已迁出的领域包：
 
@@ -125,7 +125,7 @@ EP-001～EP-047；下一步完成 `newService*` 构造适配审计、
 
 ## 3.1 EP-046：Core 转发面退场
 
-状态：**EP-046A/C/D/E 已完成；EP-046B 待构造输入审计。**
+状态：**EP-046A/B/C/D/E 均已完成。**
 
 ### 目标
 
@@ -182,17 +182,19 @@ go test ./application/core -run TestCoreDoesNotExposeComponentGetters -count=1
 
 ### EP-046B：构造适配归位
 
-状态：**待 EP-046A 后按真实调用方审计。**
+状态：**已完成。**
 
-`newService*` 只有在同时满足以下条件时可迁入领域包：
-
-- 构造输入可以由该领域包的 `Deps` 表达；
-- 不持有完整 `Service`；
-- 不需要读取 core 私有会话状态；
-- 迁移后装配根只做一次构造调用。
-
-不能结构满足的 adapter 留在 core，并登记原因；禁止创建只服务构造的万能 Host
-接口。
+- 删除 68 个自由 `newService*` 构造器；Conversation Turn、Session
+  lifecycle/draft/restore/query、Edit/Fork、Cold Restore 和其余 Application
+  能力改由 `service_assembler_*.go` 中的组合阶段一次性装配；
+- 构造器不再分散为一个能力一个文件；原本只承载构造器的 58 个文件已删除；
+- `TestNoFreeServiceConstructors` 把自由 `newService*` 构造器预算收紧为 0，
+  防止新增能力继续通过“包一层构造器”伪装拆分；
+- 真实状态与判据仍留在原 owner：Session release 的受保护集、ProjectBoard 的
+  任务读选择、ToolRecord host、Chat/Session 状态机均未复制；
+- core 生产文件 111 → 68，生产代码 10,634 → 10,243 行；`Service` 仍为 11 个
+  共享状态/生命周期方法；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 均未改变。
 
 ### EP-046C：入站接口定义退场
 

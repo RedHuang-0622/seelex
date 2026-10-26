@@ -11,6 +11,7 @@ import (
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
@@ -94,6 +95,7 @@ type ExternalPorts struct {
 	RoleSessions           func(contract.SessionPort) contract.RoleSessionsPort
 	TeamworkBoardReader    func(contract.RuntimePort) applicationexecution.BoardReader
 	HostSessionForToolCall func(context.Context) string
+	Goal                   *applicationgoal.Coordinator
 }
 
 func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error) {

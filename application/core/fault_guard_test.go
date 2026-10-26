@@ -31,7 +31,7 @@ func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "fault_guard.go")
+	path := filepath.Join(filepath.Dir(file), "service_assembler_applications.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)

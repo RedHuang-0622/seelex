@@ -48,14 +48,6 @@ import (
 // 建议面（Suggestions）与迁移提示按它推导，不在别处再写一份字面量。
 var sigils = applicationinput.Sigils()
 
-func newServiceCompletionApplication(service *Service) *applicationinput.Application {
-	return applicationinput.New(applicationinput.Deps{
-		CommandSuggestions: service.commandSuggestions,
-		SkillSuggestions:   service.skillSuggestions,
-		PluginSuggestions:  service.pluginSuggestions,
-	})
-}
-
 // sigilMigrationHint 在前缀没命中时给一句跨域迁移提示：命中**别的**域才给，
 // 否则空串（调用方据此决定要不要补一句 notice）。
 //

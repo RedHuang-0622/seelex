@@ -2,7 +2,7 @@
 
 ## 生态位
 
-read_tool_result / read_plan / read_compressed_turn 的 core 兼容面与宿主适配。
+read_tool_result / read_plan 引用工具
 
 覆盖：`reference*.go`；未归属文件由覆盖自检拦下。
 
@@ -17,14 +17,9 @@ read_tool_result / read_plan / read_compressed_turn 的 core 兼容面与宿主�
 
 ### reference_tools.go
 
-- `func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error)` — 引用工具分页默认值收编进 seele.yaml limits 段
-- `func (service *Service) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)` — ToolResultContent 按 result_ref 分页读回完整工具输出（GUI 面：快照被
-- `func (service *Service) nodeToolResult(nodeID, ref string) (string, bool)` — nodeToolResult 读回子代理工具结果（引擎桥；Engine 未装配 → 不可用）。
-- `func (service *Service) hasToolResultRefLocked(resultRef string) bool` — hasToolResultRefLocked 判定该 ref 是否在当前会话的**内存态**归档里
-- `func (service *Service) resolveToolResultRefAlias(ref string) string` — resolveToolResultRefAlias 把模型常见的 result:call_<callID> 引用映射为
-- `func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (string, error)`
-- `func (service *Service) referenceApplicationComponent() *applicationreference.Application`
-- `func newServiceReferenceApplication(service *Service) *applicationreference.Application`
+- `func (service *Service) nodeToolResult(nodeID, ref string) (string, bool)` — nodeToolResult reads a subagent tool result through the Engine bridge.
+- `func (service *Service) hasToolResultRefLocked(resultRef string) bool` — hasToolResultRefLocked reports whether ref exists in the current session's
+- `func (service *Service) resolveToolResultRefAlias(ref string) string` — resolveToolResultRefAlias maps result:call_<id> to the archived tr- ref.
 
 ### reference_tools_test.go
 

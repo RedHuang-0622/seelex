@@ -137,10 +137,8 @@ Session 的遗留执行开关。
 - `func (service *Service) nextChatRequestIDLocked() string` — nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
 - `func (service *Service) startChat(parent context.Context, request chatRequest) error` — startChat 在**当前视图会话**上启动 ReAct 对话。
 - `func (service *Service) startChatFor(sessionID string, parent context.Context, request chatRequest) error` — startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
-- `func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest)` — runChat 在独立 goroutine 中执行一次会话提交：委托 Seele loop（9.2 边界，
-- `func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error)`
+- `func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error)` — runChat 在独立 goroutine 中执行一次会话提交：委托 Seele loop（9.2 边界，
 - `func (service *Service) finalizeReActBudget(ctx context.Context, requestID string) error` — finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
-- `func queuedInputRefs(queue []chatRequest) []string` — queuedInputRefs 取排队输入的最小引用（displayInput），供任务终态恢复记录
 - `func (service *Service) TaskTerminalHandler(kind string) func(context.Context, string) (string, error)` — TaskTerminalHandler 返回面向 Runtime 的终态工具 handler，同时把请求状态
 - `func (service *Service) ensureViewPlanProjection(ctx context.Context)` — ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
 - `func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context)` — mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
@@ -152,7 +150,7 @@ Session 的遗留执行开关。
 - `func (service *Service) markBusyLocked()`
 - `func (service *Service) markIdleLocked()`
 - `func (service *Service) appendDelta(requestID, chunk string)`
-- `func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatcher, func(string))`
+- `func (service *Service) newBatchedDeltaSink(requestID string) (applicationconversation.StreamBatcher, func(string))`
 - `func (service *Service) flushStreamBatcherFor(sessionID string)` — flushStreamBatcherFor 把指定会话的流式缓冲同步落地（工具钩子边界调用：
 - `func (service *Service) consumeVisibleChunk(requestID, chunk string) string`
 - `func (service *Service) consumeVisibleChunkBackground(sessionID, requestID, chunk string) string` — consumeVisibleChunkBackground 后台会话的流式消费：仅触碰该会话单元自身的
@@ -190,39 +188,78 @@ Session 的遗留执行开关。
 
 - `func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T)`
 
-### chat_queue.go
+### chat_state_event_test.go
 
-- `func newConversationQueue(deps conversationQueueDeps) *conversationQueue`
-- `func (queue *conversationQueue) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput moves one queued input between projection indexes.
-- `func (queue *conversationQueue) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput removes one queued input and returns its display text.
-- `func (queue *conversationQueue) guardLocked() error`
-- `func (queue *conversationQueue) applyEditLocked(sessionID string, unit conversationQueueUnit)` — applyEditLocked reprojects queue state and releases ViewMu before publishing.
-- `func newServiceConversationQueue(service *Service) *conversationQueue`
-- `func (service *Service) queueComponent() *conversationQueue` — queueComponent returns nil for a nil facade so the existing queue error semantics remain intact without adding state-machine code to Service.
+- `func TestChatStateIsPublishedNotInferred(t *testing.T)` — TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
 
-### chat_turn_request.go
+### chat_turn_cleanup_test.go
 
-- `func (state *conversationTurnState) NewRequest(input string, layers []prompt.PromptLayer) chatRequest` — NewRequest freezes one accepted input and its current Skill context.
-- `func (state *conversationTurnState) QueuedRequests(requests []sessioncase.QueuedRequest) []chatRequest` — QueuedRequests restores only valid chat payloads from opaque SessionUnit queue rows, preserving queue order.
-- `func (state *conversationTurnState) Combine(requests []chatRequest) chatRequest` — Combine merges a promoted queue batch using the existing separator and frozen Skill merge semantics.
-- `func chatRequestDisplays(requests []chatRequest) []string`
-- `func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer`
-- `func mergeSkillLayers(current, incoming []prompt.PromptLayer) []prompt.PromptLayer`
-- `func queuedInputRefs(queue []chatRequest) []string`
+- `func TestChatTurnCleanupRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnCleanupRunsFullSuccessfulPath(t *testing.T)`
+- `func TestConversationTurnCleanupCombinesErrorsAndKeepsRunning(t *testing.T)`
+- `func TestConversationTurnCleanupWrapsFlushAndRecoveryErrors(t *testing.T)`
 
-### chat_turn_process.go
+### chat_turn_commit_test.go
+
+- `func TestChatTurnCommitRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnCommitRunsPersistenceOutcomePromotion(t *testing.T)`
+- `func TestConversationTurnCommitStopsOnStaleRequest(t *testing.T)`
+
+### chat_turn_completion_test.go
+
+- `func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T)`
+- `func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *testing.T)`
+
+### chat_turn_execution_test.go
+
+- `func TestChatTurnExecutionRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnExecutionPreparesInOrder(t *testing.T)`
+
+### chat_turn_finalize_test.go
+
+- `func TestChatTurnFinalizeRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnFinalizeMapsCommitToPublication(t *testing.T)`
+- `func TestConversationTurnFinalizeIgnoresStaleCommit(t *testing.T)`
+
+### chat_turn_input_test.go
+
+- `func TestChatTurnInputRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnInputPreparesPromptAndContext(t *testing.T)`
+- `func TestConversationTurnInputStopsOnContextError(t *testing.T)`
+
+### chat_turn_outcome_test.go
+
+- `func TestChatTurnOutcomeRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnOutcomeAppliesCurrentResult(t *testing.T)`
+- `func TestConversationTurnOutcomeRecordsErrorAndProjection(t *testing.T)`
+- `func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T)`
+- `func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T)`
+- `func TestConversationTurnOutcomeDoesNotMirrorBackgroundTask(t *testing.T)`
+
+### chat_turn_pipeline_test_aliases2_test.go
 
 - `func newConversationTurnProcess(deps conversationTurnProcessDeps) *conversationTurnProcess`
-- `func (process *conversationTurnProcess) BeginLocked(parent context.Context, sessionID string, unit conversationTurnUnit, request chatRequest, options chatTurnStartOptions) (context.Context, string, model.TranscriptEvent)`
-- `func (process *conversationTurnProcess) PromoteLocked(sessionID string, unit conversationTurnPromotionUnit) chatTurnPromotion` — PromoteLocked 在有排队输入时启动合并批次，否则结束当前回合并按全局忙闲标记 idle。
-- `func newServiceConversationTurnProcess(service *Service) *conversationTurnProcess`
+- `func newConversationTurnCompletion(deps conversationTurnCompletionDeps) *conversationTurnCompletion`
+- `func newConversationTurnOutcome(deps conversationTurnOutcomeDeps) *conversationTurnOutcome`
+- `func newConversationTurnPublisher(deps conversationTurnPublisherDeps) *conversationTurnPublisher`
+- `func newConversationTurnTail(deps conversationTurnTailDeps) *conversationTurnTail`
+- `func newConversationTurnCommit(deps conversationTurnCommitDeps) *conversationTurnCommit`
+- `func newConversationTurnFinalize(deps conversationTurnFinalizeDeps) *conversationTurnFinalize`
+- `func newConversationTurnExecution(deps conversationTurnExecutionDeps) *conversationTurnExecution`
+
+### chat_turn_pipeline_test_aliases_test.go
+
+- `func newConversationTurnInput(deps conversationTurnInputDeps) *conversationTurnInput`
+- `func newConversationTurnResponse(deps conversationTurnResponseDeps) *conversationTurnResponse`
+- `func newConversationTurnRecovery(deps conversationTurnRecoveryDeps) *conversationTurnRecovery`
+- `func newConversationTurnCleanup(deps conversationTurnCleanupDeps) *conversationTurnCleanup`
 
 ### chat_turn_process_test.go
 
 - `func TestServiceComponentsAssembleConversationTurnProcess(t *testing.T)`
 - `func TestChatTurnStartRulesAreCentralized(t *testing.T)`
-- `func TestChatTurnPersistenceRulesAreCentralized(t *testing.T)` — 结构门禁要求 ChatTurn 持久化与 durable queue 结算只在完成组件中实现。
-- `func TestChatTurnQueuePromotionRulesAreCentralized(t *testing.T)` — 结构门禁要求 ChatTurn 队列提升判断只在 turn process 中实现。
+- `func TestChatTurnPersistenceRulesAreCentralized(t *testing.T)`
+- `func TestChatTurnQueuePromotionRulesAreCentralized(t *testing.T)`
 - `func (unit *queuePromotionTestUnit) ChatState() model.ChatState`
 - `func (unit *queuePromotionTestUnit) SetChatState(chat model.ChatState, _ *sessioncase.View)`
 - `func (unit *queuePromotionTestUnit) UpdateChat(update func(*model.ChatState), _ *sessioncase.View)`
@@ -231,163 +268,49 @@ Session 的遗留执行开关。
 - `func (unit *queuePromotionTestUnit) SetStream(sessioncase.VisibleOutputSink)`
 - `func (unit *queuePromotionTestUnit) PendingRequests() []sessioncase.QueuedRequest`
 - `func (unit *queuePromotionTestUnit) SetRequests(requests []sessioncase.QueuedRequest)`
-- `func TestConversationTurnProcessFinishesWhenQueueIsEmpty(t *testing.T)` — 空队列时结束当前回合并按全局忙闲标记 idle。
-- `func TestConversationTurnProcessKeepsProcessBusyWhenOtherChatRuns(t *testing.T)` — 其它会话仍运行时不得把进程标记为 idle。
-
-### chat_turn_completion.go
-
-- `func newConversationTurnCompletion(deps conversationTurnCompletionDeps) *conversationTurnCompletion`
-- `func (completion *conversationTurnCompletion) Persist(sessionID, requestID string, turnErr error) (session_runtime.Location, error)` — Persist 结算本轮消费项的持久化结果：失败回草稿，成功后确认消费并释放工作历史。
-- `func newServiceConversationTurnCompletion(service *Service) *conversationTurnCompletion`
-
-### chat_turn_completion_test.go
-
-- `func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T)` — 成功发布后必须依次确认 queue 并释放工作历史。
-- `func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *testing.T)` — 持久化失败时把消费项退回草稿、不确认也不释放，并保留错误分类。
-
-### chat_turn_outcome.go
-
-- `func newConversationTurnOutcome(deps conversationTurnOutcomeDeps) *conversationTurnOutcome`
-- `func (outcome *conversationTurnOutcome) ApplyLocked(sessionID, requestID string, unit conversationChatStateUnit, projection view_state.RuntimeStateProjection, turnErr error) (visibleError string, stale bool)` — ApplyLocked 拒绝旧请求并应用错误状态、error 行与 runtime projection。
-- `func (outcome *conversationTurnOutcome) MirrorLocked(sessionID string, unit conversationChatStateUnit, active bool) uint64` — MirrorLocked 写入 ChatState，并仅为活跃会话镜像 Task 与推进 revision。
-- `func newServiceConversationTurnOutcome(service *Service) *conversationTurnOutcome`
-
-### chat_turn_outcome_test.go
-
-- `func TestChatTurnOutcomeRulesAreCentralized(t *testing.T)` — 结构门禁要求 ChatTurn 终态结果投影集中实现。
-- `func TestConversationTurnOutcomeAppliesCurrentResult(t *testing.T)` — 当前成功回合清理旧错误并应用 runtime projection。
-- `func TestConversationTurnOutcomeRecordsErrorAndProjection(t *testing.T)` — 当前失败回合保留原始错误正文并追加 error 行。
-- `func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T)` — 旧 request 不得修改当前会话的任何终态投影。
-- `func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T)` — 活跃会话依次写 ChatState、镜像 Task 并 bump revision。
-- `func TestConversationTurnOutcomeDoesNotMirrorBackgroundTask(t *testing.T)` — 后台会话不得覆盖共享 Task 或进程 revision。
-
-### chat_turn_publication.go
-
-- `func newConversationTurnPublisher(deps conversationTurnPublisherDeps) *conversationTurnPublisher`
-- `func (publisher *conversationTurnPublisher) Publish(publication chatTurnPublication)` — Publish 按固定顺序发布 ChatState、终态事件和提升批次投影。
-- `func newServiceConversationTurnPublisher(service *Service) *conversationTurnPublisher`
+- `func TestConversationTurnProcessFinishesWhenQueueIsEmpty(t *testing.T)`
+- `func TestConversationTurnProcessKeepsProcessBusyWhenOtherChatRuns(t *testing.T)`
 
 ### chat_turn_publication_test.go
 
-- `func TestChatTurnPublicationRulesAreCentralized(t *testing.T)` — 结构门禁要求 `runChat` 不直接发布终态事件。
-- `func TestConversationTurnPublisherPublishesSnapshotWithoutPromotion(t *testing.T)` — 无队列提升时只发布 ChatState 与 snapshot。
-- `func TestConversationTurnPublisherReportsErrorBeforePromotedBatch(t *testing.T)` — error、提升消息、task batch 和 runtime projections 保持既有顺序。
-
-### chat_turn_tail.go
-
-- `func newConversationTurnTail(deps conversationTurnTailDeps) *conversationTurnTail`
-- `func (tail *conversationTurnTail) Complete(location session_runtime.Location, publication chatTurnPublication, nextContext context.Context)` — Complete 在 ViewMu 外按固定顺序完成异步收尾。
-- `func newServiceConversationTurnTail(service *Service) *conversationTurnTail`
-
-### chat_turn_tail_test.go
-
-- `func TestChatTurnTailRulesAreCentralized(t *testing.T)` — 结构门禁要求 `runChat` 不直接执行异步尾段。
-- `func TestConversationTurnTailCompletesWithoutPromotion(t *testing.T)` — 无队列提升时仍发布、释放并落盘工具记录，但不启动下一轮。
-- `func TestConversationTurnTailSettlesAndStartsPromotedBatch(t *testing.T)` — consumed 标记失败不阻止发布、下一轮启动、释放和落盘。
-
-### chat_turn_input.go
-
-- `func newConversationTurnInput(deps conversationTurnInputDeps) *conversationTurnInput`
-- `func (input *conversationTurnInput) Prepare(sessionID, requestID, modelInput string) (string, error)` — Prepare 执行 prompt、context 和非空输入准备。
-- `func newServiceConversationTurnInput(service *Service) *conversationTurnInput`
-
-### chat_turn_input_test.go
-
-- `func TestChatTurnInputRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行输入准备。
-- `func TestConversationTurnInputPreparesPromptAndContext(t *testing.T)` — prompt/context/normalize 顺序正确。
-- `func TestConversationTurnInputStopsOnContextError(t *testing.T)` — context 失败后停止归一化。
-
-### chat_turn_response.go
-
-- `func newConversationTurnResponse(deps conversationTurnResponseDeps) *conversationTurnResponse`
-- `func (response *conversationTurnResponse) Finalize(ctx context.Context, sessionID, requestID, reply string, turnErr error)` — Finalize 处理 reasoning、输出观测和 transcript 回填。
-- `func newServiceConversationTurnResponse(service *Service) *conversationTurnResponse`
-
-### chat_turn_response_test.go
-
-- `func TestChatTurnResponseRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行返回事务。
-- `func TestConversationTurnResponseFinalizesSuccessfulReply(t *testing.T)` — 成功回复的 reasoning/observe/final/backfill 顺序正确。
-- `func TestConversationTurnResponseSkipsReasoningOnErrorAndEmptyFinal(t *testing.T)` — 失败回合跳过 reasoning，空回复跳过 final，但仍观测与回填。
-
-### chat_turn_recovery.go
-
-- `func newConversationTurnRecovery(deps conversationTurnRecoveryDeps) *conversationTurnRecovery`
-- `func (recovery *conversationTurnRecovery) Finalize(ctx context.Context, sessionID, requestID, originalInput, reply string, turnErr error, onChunk func(string)) error` — Finalize 执行 context recovery、bounded retry、budget 和 Task 终态。
-- `func newServiceConversationTurnRecovery(service *Service) *conversationTurnRecovery`
+- `func TestChatTurnPublicationRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnPublisherPublishesSnapshotWithoutPromotion(t *testing.T)`
+- `func TestConversationTurnPublisherReportsErrorBeforePromotedBatch(t *testing.T)`
 
 ### chat_turn_recovery_test.go
 
-- `func TestChatTurnRecoveryRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行恢复链。
-- `func TestConversationTurnRecoveryRetriesAfterRecovery(t *testing.T)` — recovery 后通过有界 retry，再进入 budget 与 Task finalize。
-- `func TestConversationTurnRecoveryPropagatesRecoveryAndRetryErrors(t *testing.T)` — recovery/retry 错误保持组合文案并阻断 budget。
-- `func TestConversationTurnRecoveryStopsBeforeTaskOnBudgetError(t *testing.T)` — budget 失败后不进入 Task finalize。
+- `func TestChatTurnRecoveryRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnRecoveryRetriesAfterRecovery(t *testing.T)`
+- `func TestConversationTurnRecoveryPropagatesRecoveryAndRetryErrors(t *testing.T)`
+- `func TestConversationTurnRecoveryStopsBeforeTaskOnBudgetError(t *testing.T)`
 
-### chat_turn_cleanup.go
+### chat_turn_request.go
 
-- `func newConversationTurnCleanup(deps conversationTurnCleanupDeps) *conversationTurnCleanup`
-- `func (cleanup *conversationTurnCleanup) Cleanup(sessionID, requestID string, turnErr error, flush func() error, stopDraft func()) (view_state.RuntimeStateProjection, error)` — Cleanup 执行 flush、route、mailbox、projection、cleanup 和错误记录。
-- `func newServiceConversationTurnCleanup(service *Service) *conversationTurnCleanup`
+- `func chatRequestDisplays(requests []chatRequest) []string`
+- `func queuedInputRefs(queue []chatRequest) []string`
+- `func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer`
 
-### chat_turn_cleanup_test.go
+### chat_turn_response_test.go
 
-- `func TestChatTurnCleanupRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行清理链。
-- `func TestConversationTurnCleanupRunsFullSuccessfulPath(t *testing.T)` — 成功清理顺序与 projection 返回正确。
-- `func TestConversationTurnCleanupCombinesErrorsAndKeepsRunning(t *testing.T)` — 原回合错误优先、checkpoint cleanup 继续、错误记录与 draft stop 保持。
-- `func TestConversationTurnCleanupWrapsFlushAndRecoveryErrors(t *testing.T)` — flush/recovery 错误语义保持。
-
-### chat_turn_commit.go
-
-- `func newConversationTurnCommit(deps conversationTurnCommitDeps) *conversationTurnCommit`
-- `func (commit *conversationTurnCommit) Commit(sessionID, requestID string, turnErr error, projection view_state.RuntimeStateProjection) chatTurnCommitResult` — Commit 串联持久化、outcome、提升、消息和镜像。
-- `func newServiceConversationTurnCommit(service *Service) *conversationTurnCommit`
-
-### chat_turn_commit_test.go
-
-- `func TestChatTurnCommitRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行持久化/outcome/提升/镜像。
-- `func TestConversationTurnCommitRunsPersistenceOutcomePromotion(t *testing.T)` — 完整成功提交顺序与结果字段正确。
-- `func TestConversationTurnCommitStopsOnStaleRequest(t *testing.T)` — stale 请求不提升、不追加消息、不镜像并正常释放锁。
-
-### chat_turn_finalize.go
-
-- `func newConversationTurnFinalize(deps conversationTurnFinalizeDeps) *conversationTurnFinalize`
-- `func (finalize *conversationTurnFinalize) Finalize(committed chatTurnCommitResult)` — Finalize 映射 publication 并交给 tail。
-- `func newServiceConversationTurnFinalize(service *Service) *conversationTurnFinalize`
-
-### chat_turn_finalize_test.go
-
-- `func TestChatTurnFinalizeRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接构造 publication/tail。
-- `func TestConversationTurnFinalizeMapsCommitToPublication(t *testing.T)` — commit 字段完整映射到 publication/tail。
-- `func TestConversationTurnFinalizeIgnoresStaleCommit(t *testing.T)` — stale commit 不发布。
-
-### chat_turn_execution.go
-
-- `func newConversationTurnExecution(deps conversationTurnExecutionDeps) *conversationTurnExecution`
-- `func (execution *conversationTurnExecution) Prepare(sessionID string)` — Prepare 按固定顺序同步 Session 执行策略。
-- `func newServiceConversationTurnExecution(service *Service) *conversationTurnExecution`
-
-### chat_turn_execution_test.go
-
-- `func TestChatTurnExecutionRulesAreCentralized(t *testing.T)` — 结构门禁要求 runChat 不直接执行策略同步。
-- `func TestConversationTurnExecutionPreparesInOrder(t *testing.T)` — root/subagent/reasoning/full-access 顺序正确。
+- `func TestChatTurnResponseRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnResponseFinalizesSuccessfulReply(t *testing.T)`
+- `func TestConversationTurnResponseSkipsReasoningOnErrorAndEmptyFinal(t *testing.T)`
 
 ### chat_turn_state.go
 
 - `func newConversationTurnState() *conversationTurnState`
-- `func (state *conversationTurnState) BeginLocked(unit conversationChatStateUnit, requestID string)` — BeginLocked starts one active turn with a fresh request identity.
-- `func (state *conversationTurnState) ProjectQueueLocked(unit conversationQueueProjectionUnit) ([]string, int)` — ProjectQueueLocked makes the queue projection the ChatState queue view.
-- `func (state *conversationTurnState) ClearErrorLocked(unit conversationChatStateUnit)` — ClearErrorLocked removes the previous turn's visible error.
-- `func (state *conversationTurnState) SetErrorLocked(unit conversationChatStateUnit, visibleError string)` — SetErrorLocked records the current turn's visible error.
-- `func (state *conversationTurnState) FinishLocked(unit conversationChatStateUnit)` — FinishLocked ends the active turn while retaining request metadata for the final display/event pair, matching existing behavior.
-- `func (state *conversationTurnState) ResetLocked(unit conversationChatStateUnit)` — ResetLocked returns the unit to an empty, non-running state.
 
 ### chat_turn_state_test.go
 
 - `func TestServiceComponentsAssembleConversationTurnState(t *testing.T)`
 - `func TestChatStateWritesAreCentralized(t *testing.T)`
+- `func TestChatTurnRequestConstructionIsCentralized(t *testing.T)`
 
-### chat_state_event_test.go
+### chat_turn_tail_test.go
 
-- `func TestChatStateIsPublishedNotInferred(t *testing.T)` — TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
+- `func TestChatTurnTailRulesAreCentralized(t *testing.T)`
+- `func TestConversationTurnTailCompletesWithoutPromotion(t *testing.T)`
+- `func TestConversationTurnTailSettlesAndStartsPromotedBatch(t *testing.T)`
 
 ### reasoning_visible_test.go
 

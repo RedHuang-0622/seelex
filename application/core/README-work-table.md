@@ -116,17 +116,12 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### async_completion.go
 
-- `func (service *Service) triggerAsyncCompletions(triggered map[string]struct{})` — triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
-- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
-- `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
-- `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
-- `func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{})` — triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
-- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
-- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct`
-- `func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string` — teamworkCompletionPrompt 组装 teammate 完成回执的正文。
+- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger reports whether a session can start a completion
 
 ### async_completion_trigger_test.go
 
+- `func TestAsyncCompletionApplicationIsAssembled(t *testing.T)`
+- `func TestAsyncCompletionFacadeIsRetiredFromService(t *testing.T)`
 - `func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
 - `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
 - `func assertNoTurn(t *testing.T, service *Service, needle string)` — assertNoTurn 报告可见会话里有没有含 needle 的用户行——"不该触发"的用例用它。
@@ -141,23 +136,12 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### project_board_read.go
 
-- `func newProjectBoardQuery(deps projectBoardQueryDeps) *projectBoardQuery`
-- `func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
-- `func (query *projectBoardQuery) WorkTableRowsFor(sessionID string) []model.WorkItem`
-- `func (service *Service) ProjectRootFor(sessionID string) string` — ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
-- `func (query *projectBoardQuery) ProjectRootFor(sessionID string) string`
-- `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
-- `func (query *projectBoardQuery) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan`
-- `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
-- `func (query *projectBoardQuery) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState`
-- `func (service *Service) projectBoardQueryComponent() *projectBoardQuery`
-- `func newServiceProjectBoardQuery(service *Service) *projectBoardQuery`
-- `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
+- `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession selects the live task registry or the session scope.
 
 ### project_board_read_test.go
 
 - `func TestProjectBoardQueryIsAssembled(t *testing.T)`
-- `func TestProjectBoardReadFacadeOnlyDelegatesToQuery(t *testing.T)`
+- `func TestProjectBoardReadFacadeUsesPorts(t *testing.T)`
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)`
 - `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
 - `func TestProjectBoardIsNotAnInput(t *testing.T)`
@@ -182,16 +166,11 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
 - `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
-- `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
+- `func (service *Service) refreshWorkTableSnapshot()` — refreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
 - `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
-- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
+- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers wires the extracted WorkTable lifecycle consumers.
 - `func (service *Service) stopLifecycleConsumers()`
-- `func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort)`
-- `func (service *Service) consumeTaskChanges(runtime contract.RuntimePort)`
-- `func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort)` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
 - `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
-- `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
-- `func parseWorkItemID(id string) (kind string, index int, err error)`
 - `func (service *Service) refreshRuntimeAfterTodoChange()` — refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
 - `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
 
@@ -200,6 +179,10 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
 - `func heavyTestPlan(nodes int) *model.PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
+
+### work_table_application_test.go
+
+- `func TestServiceComponentsAssembleExecutionApplication(t *testing.T)`
 
 ### work_table_async_test.go
 

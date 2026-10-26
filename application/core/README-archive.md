@@ -21,10 +21,6 @@
 
 - `func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T)` — TestPersistKeepsToolNarrationAndReasoningInRecord：真实轨迹里工具轮之间
 
-### archive_session.go
-
-- `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话（判据与文案在 `middle/residency`）。
-
 ### archive_session_test.go
 
 - `func newArchiveCommandSessions() *archiveCommandSessions`

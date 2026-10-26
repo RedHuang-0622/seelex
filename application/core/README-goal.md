@@ -25,85 +25,14 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### goal_board_archive_read_test.go
-
-- `func boardRouterForArchive(t *testing.T) *store.Router` — boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
-- `func boardStoreFor(router *store.Router) func(string) *store.SessionContextStore` — boardStoreFor 返回协调器的按会话存储入口（每次给一个新的会话存储实例：与生产
-- `func writeBoardArchiveFor(t *testing.T, router *store.Router, sessionID string, meta store.GoalBoardMeta)` — writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
-- `func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T)` — TestGoalGovernanceViewRecoversBoardFromArchive 验证兜底读：本次进程还没碰过该
-- `func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T)` — TestGoalGovernanceViewRetiresBoardOnClosedArchive 验证"看板退场"：存档 state=closed
-- `func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T)` — TestGoalGovernanceViewCarriesHistoryLedgerWhileLive 验证账本与活动栈**正交**：
-- `func TestGoalGovernanceViewWithoutArchiveStaysHidden(t *testing.T)` — TestGoalGovernanceViewWithoutArchiveStaysHidden 验证未装配/无存档时的降级：
-
-### goal_application.go
-
-- `func newGoalApplication(deps goalApplicationDeps) *goalApplication`
-- `func (application *goalApplication) coordinatorFor(sessionID string) (*goalCoordinator, error)`
-- `func (application *goalApplication) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
-- `func (application *goalApplication) BeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)`
-- `func (application *goalApplication) UpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)`
-- `func (application *goalApplication) DoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)`
-- `func (application *goalApplication) StatusFor(sessionID string) (goaldomain.StatusView, error)`
-- `func newServiceGoalApplication(service *Service) *goalApplication`
-- `func (service *Service) goalApplicationComponent() *goalApplication`
-
 ### goal_application_test.go
 
 - `func TestServiceComponentsAssembleGoalApplication(t *testing.T)`
 
-### goal_coordinator.go
-
-- `func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator`
-- `func (g *goalCoordinator) ForgetSession(sessionID string)` — ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
-- `func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime` — bundleFor 返回（需要时创建）指定会话的 goal bundle。
-- `func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — Begin 注册并压栈（会话路由）。
-- `func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — Update 更新栈顶（会话路由）。
-- `func (g *goalCoordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — FinishDirect 直接落终态收口（goal_done 的领域动作）：把栈顶 goal 标
-- `func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView` — StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
-- `func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
-- `func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil）。
-- `func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool)` — boardFor 返回指定会话的看板存档取用面（未装配 → false）。
-- `func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool)` — readGoalBoardArchive 读取该会话的看板存档（缺失/损坏 → false）。
-- `func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView` — recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true）。
-- `func goalHistoryViews(archive store.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView` — goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空 → nil）。
-- `func goalProgressViews(items []store.GoalProgress) []dto.GoalProgressView` — goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
-- `func tailProgressViews(items []dto.GoalProgressView, limit int) []dto.GoalProgressView` — tailProgressViews 取末尾 limit 条（卡片一行摘要用；详情面用全量）。
-
-### goal_done_test.go
-
-- `func TestGoalDoneFinishesDirectly(t *testing.T)`
-
-### goal_read_session.go
-
-- `func goalReadSessionID(ctx context.Context) string` — goalReadSessionID 是「读 goal 看板」该用的会话号。
-
 ### goal_service.go
 
-- `func (service *Service) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 返回指定会话的 goal 治理只读视图（view_state 装配
-- `func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, error)`
-- `func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBeginFor 按显式会话注册 goal（多会话路由）。
-- `func (service *Service) GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
-- `func (service *Service) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — GoalUpdateFor 按显式会话更新栈顶 goal。
-- `func (service *Service) GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — GoalUpdate 按执行 ctx 会话更新（main agent 工具调用路径）。
-- `func (service *Service) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — GoalDoneFor 按显式会话**直接收口**栈顶 goal（goal_done 工具路径）。
-- `func (service *Service) GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — GoalDone 按执行 ctx 会话直接收口（main agent 工具调用路径）。
-- `func (service *Service) GoalStatusFor(sessionID string) (goaldomain.StatusView, error)` — GoalStatusFor 按显式会话返回 goal 栈全量视图。
 - `func (service *Service) refreshGoalRuntimeProjection(sessionID string)` — refreshGoalRuntimeProjection 在 goal 状态迁移后刷新目标会话的 runtime
-- `func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error)` — goalBeginHandler 是 goal_begin 工具 handler（wiring/registry 注册）。
-- `func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error)` — goalUpdateHandler 是 goal_update 工具 handler（agent 工具面：权限收口见
-- `func (service *Service) goalDoneHandler(ctx context.Context, argsJSON string) (string, error)` — goalDoneHandler 是 goal_done 工具 handler（main agent 的**真收口**面，口径见 GoalDoneFor）。
-- `func (service *Service) goalStatusHandler(ctx context.Context, _ string) (string, error)` — goalStatusHandler 是 goal_status 工具 handler。
-- `func marshalGoalResult(value any) (string, error)`
-- `func (service *Service) GoalBeginHandler(ctx context.Context, argsJSON string) (string, error)` — GoalBeginHandler / GoalUpdateHandler / GoalStatusHandler
-- `func (service *Service) GoalUpdateHandler(ctx context.Context, argsJSON string) (string, error)`
-- `func (service *Service) GoalStatusHandler(ctx context.Context, argsJSON string) (string, error)`
-- `func (service *Service) GoalDoneHandler(ctx context.Context, argsJSON string) (string, error)` — GoalDoneHandler 是 goal_done 工具 handler（main agent 的真收口面；teammate 看不到这个
-
-### goal_stack_view_test.go
-
-- `func TestGoalStackFramesProjectsEveryFrame(t *testing.T)`
-- `func TestGoalStackFramesCarriesDetailFields(t *testing.T)` — TestGoalStackFramesCarriesDetailFields 钉住"点开看详情"需要的字段不缺：
-- `func TestGoalStackFramesEmptyAndNilRecords(t *testing.T)`
+- `func (port goalGovernanceViewPort) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
 
 ### goal_team_wiring_test.go
 

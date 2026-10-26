@@ -17,7 +17,7 @@ AP-115D1/D2 起，基础命令与 mutation 命令的注册、参数和结果适�
 
 ### command.go
 
-- `func (service *Service) registerBuiltinCommands() error`
+- `func (service *Service) registerBuiltinCommands() error` — registerBuiltinCommands installs the extracted command application with the
 
 ### command_registry_test.go
 

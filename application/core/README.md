@@ -329,17 +329,17 @@ Admin 账号 CRUD、余额、账号切换和逐账号窗口已迁到
 
 项目环境表、Workspace Git 查询和批量登记后的投影发布已迁到
 [`application/workspace`](../workspace/README.md)。core 的
-`workspace_usecase.go` 只保留 host adapter；旧公开 Workspace 入口由
+`service_assembler_capabilities.go` 只保留组合期 host adapter；旧公开 Workspace 入口由
 [`application/compat`](../compat/README.md) 承接。`workspace_usecase.go` 另承载
-`newServiceWorkspaceApplication` 宿主适配；containment 判据在领域包内只有一份，
+剩余视图投影 helper；containment 判据在领域包内只有一份，
 查询不进入共享写锁。
 
-Session SSH（AP-064 首个切片）由 `session_ssh.go` 内的 `sessionSSHApplication`
+Session SSH（AP-064 首个切片）由 `service_assembler_session.go` 内的组合阶段
 集中：可选会话状态端口解析、所属项目环境表读取、放权集合子集校验和固定环境
 不可变规则。`validateAllowedEnvs` 仍是唯一纯判据；三个旧入口只保留一行转发。
 
-Role Account（AP-065 首个切片）由 `role_permissions.go` 内的
-`roleAccountApplication` 集中：角色账号读取、Runtime 先行热推、持久化失败回滚、
+Role Account（AP-065 首个切片）由 `service_assembler_applications.go` 内的
+组合阶段集中：角色账号读取、Runtime 先行热推、持久化失败回滚、
 会话加载恢复和 `AccountRoleVocabulary` 遍历。三个旧入口只保留一行转发。
 
 Role Permission Vector（AP-066 首个切片）由同一文件的

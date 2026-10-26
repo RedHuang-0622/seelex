@@ -43,16 +43,6 @@
 - `func liveSessionLoopToolPairingFailure() error` — liveSessionLoopToolPairingFailure 是 2026-09-28 现场原文：会话循环第一次请求
 - `func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T)` — TestHistoryProtocolFailureResumesInsteadOfKillingTheSession 覆盖现场后果：恢复
 
-### history_search.go
-
-- `func newHistorySearchApplication(deps historySearchApplicationDeps) *historySearchApplication`
-- `func (service *Service) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)` — SearchHistory 返回会话历史检索结果（GUI 历史检索面板数据源；query 非空
-- `func (application *historySearchApplication) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)`
-- `func (service *Service) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error)` — SearchHistoryHandler 实现 search_history 工具：模型在上下文缺少相关历史
-- `func (application *historySearchApplication) SearchHistoryHandler(argsJSON string) (string, error)`
-- `func (service *Service) historySearchApplicationComponent() *historySearchApplication`
-- `func newServiceHistorySearchApplication(service *Service) *historySearchApplication`
-
 ### history_search_test.go
 
 - `func TestHistorySearchApplicationIsAssembled(t *testing.T)`

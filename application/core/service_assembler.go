@@ -110,27 +110,25 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
-	service.components.executionApplication = newServiceExecutionApplication(service, assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
-	service.components.adminApplication = newServiceAdminApplication(service)
-	service.components.sessionSSHApplication = newServiceSessionSSHApplication(service)
-	service.components.roleApplication = newServiceRoleApplication(service)
-	service.components.schedulerApplication = newServiceSchedulerApplication(service)
-	service.components.scheduledRunApplication = newServiceScheduledRunApplication(service)
-	service.components.scheduledSessionApplication = newServiceScheduledSessionApplication(service)
-	service.components.runtimeApplication = newServiceRuntimeApplication(service)
-	service.components.reviewApplication = newServiceReviewApplication(service)
-	service.components.lifecycleApplication = newServiceLifecycleApplication(service)
-	service.components.historySearchApplication = newServiceHistorySearchApplication(service)
-	service.components.completionApplication = newServiceCompletionApplication(service)
-	service.components.referenceApplication = newServiceReferenceApplication(service)
-	service.components.sessionMetaApplication = newServiceSessionMetaApplication(service)
-	service.components.projectBoardQuery = newServiceProjectBoardQuery(service)
-	service.components.sessionReleaseApplication = newServiceSessionReleaseApplication(service)
-	service.components.contextCompactionApplication = newServiceContextCompactionApplication(service)
-	service.components.faultGuardApplication = newServiceFaultGuardApplication(service)
-	service.components.perfStatsApplication = newServicePerfStatsApplication(service)
-	service.components.asyncCompletionApplication = newServiceAsyncCompletionApplication(service)
-	service.components.sessionQuery = newServiceSessionQuery(service)
+	service.assembleExecutionApplication(assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
+	service.assembleAdminApplication()
+	service.assembleSessionSSHApplication()
+	service.assembleRoleApplication()
+	service.assembleSchedulerApplications()
+	service.assembleRuntimeApplication()
+	service.assembleReviewApplication()
+	service.assembleLifecycleApplication()
+	service.assembleHistorySearchApplication()
+	service.assembleCompletionApplication()
+	service.assembleReferenceApplication()
+	service.assembleSessionMetaApplication()
+	service.assembleProjectBoardQuery()
+	service.assembleSessionReleaseApplication()
+	service.assembleContextCompactionApplication()
+	service.assembleFaultGuardApplication()
+	service.assemblePerfStatsApplication()
+	service.assembleAsyncCompletionApplication()
+	service.assembleSessionReadApplications(assembler.ports.HistoryWindow)
 	service.components.historyWindowAssembler = assembler.ports.HistoryWindow
 	service.components.residency = assembler.ports.Residency
 	service.components.conversationStreams = assembler.ports.ConversationStream
@@ -139,40 +137,16 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.sessionRecords = assembler.ports.SessionRecords
 	service.components.errorPresentation = assembler.ports.ErrorPresentation
 	service.components.roleSessions = assembler.ports.RoleSessions(assembler.deps.Sessions)
-	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service, assembler.ports.HistoryWindow)
 	service.components.conversationTurnState = newConversationTurnState()
-	service.components.conversationQueue = newServiceConversationQueue(service)
-	service.components.sessionLifecycle = newServiceSessionLifecycle(service)
-	service.components.sessionArchive = newServiceSessionArchive(service)
-	service.components.sessionDelete = newServiceSessionDelete(service)
-	service.components.sessionDraftSubmission = newServiceSessionDraftSubmission(service)
-	service.components.sessionDraftMaterialization = newServiceSessionDraftMaterialization(service)
-	service.components.sessionDraftEntry = newServiceSessionDraftEntry(service)
-	service.components.sessionResume = newServiceSessionResume(service)
-	service.components.sessionRestoringShell = newServiceSessionRestoringShell(service)
-	service.components.sessionRestoreRecovery = newServiceSessionRestoreRecovery(service)
-	service.components.sessionRestoreDraftReset = newServiceSessionRestoreDraftReset(service)
-	service.components.sessionColdRead = newServiceSessionColdRead(service)
-	service.components.sessionColdHistory = newServiceSessionColdHistory(service)
-	service.components.sessionColdRestore = newServiceSessionColdRestore(service)
-	service.components.sessionColdWorkspace = newServiceSessionColdWorkspace(service)
-	service.components.sessionColdActivation = newServiceSessionColdActivation(service)
-	service.components.sessionColdTask = newServiceSessionColdTask(service)
-	service.components.sessionColdView = newServiceSessionColdView(service)
-	service.components.sessionColdPublish = newServiceSessionColdPublish(service)
-	service.components.sessionColdCommit = newServiceSessionColdCommit(service)
-	service.components.editForkOperationRegistry = newServiceEditForkOperationRegistry(service)
-	service.components.editForkValidator = newServiceEditForkValidator(service)
-	service.components.editForkTargetResolver = newServiceEditForkTargetResolver(service)
-	service.components.editForkRollback = newServiceEditForkRollback(service)
-	service.components.editForkProcess = newServiceEditForkProcess(service)
-	service.components.editForkApplication = newServiceEditForkApplication(service)
-	service.components.editForkAnnotation = newServiceEditForkAnnotation(service)
-	service.components.sessionForkLineage = newServiceSessionForkLineage(service)
+	service.assembleConversationQueueApplication()
+	service.assembleSessionUseCaseApplications()
+	service.assembleSessionDraftComponents()
+	service.assembleSessionColdComponents()
+	service.assembleEditForkComponents()
 	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
 	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
-	service.knobs = newServiceKnobs(service)
-	service.components.policyApplication = newServicePolicyApplication(service)
+	service.assembleKnobs()
+	service.assemblePolicySwitchApplication()
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
 	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
@@ -234,11 +208,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.Deps.Runtime.AsyncPendingFor(sessionID)
 		},
 	})
-	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
-	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
-	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
-	service.components.goal = applicationgoal.NewCoordinatorForRuntime(assembler.deps.Runtime)
-	service.components.goalApplication = newServiceGoalApplication(service, assembler.ports.HostSessionForToolCall)
+	// The composition root supplies the optional Goal store and board-archive
+	// adapters. Absence keeps the in-memory fallback.
+	service.components.goal = assembler.ports.Goal
+	if service.components.goal == nil {
+		service.components.goal = applicationgoal.NewCoordinator(applicationgoal.CoordinatorDeps{})
+	}
+	service.assembleGoalApplication(assembler.ports.HostSessionForToolCall)
 	service.components.prompts = prompt.NewCoordinator(prompt.CoordinatorDeps{
 		Core:          kernel,
 		PromptStack:   promptStack,
@@ -293,13 +269,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// TurnProcess captures the view coordinator method value, so it must be
 	// assembled after the coordinator exists. This is composition order, not a
 	// forwarding wrapper.
-	service.components.conversationTurnProcess = newServiceConversationTurnProcess(service)
-	service.components.conversationTurnCompletion = newServiceConversationTurnCompletion(service)
-	service.components.conversationTurnOutcome = newServiceConversationTurnOutcome(service)
-	service.components.conversationTurnPublisher = newServiceConversationTurnPublisher(service)
-	service.components.conversationTurnTail = newServiceConversationTurnTail(service)
-	service.components.conversationTurnCommit = newServiceConversationTurnCommit(service)
-	service.components.conversationTurnFinalize = newServiceConversationTurnFinalize(service)
+	service.assembleConversationTurnCoreComponents()
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
 	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
 	service.components.workspace = applicationworkspace.NewSwitch(applicationworkspace.SwitchDeps{
@@ -326,7 +296,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		ChatRunningError: ErrChatRunning,
 	})
-	service.components.workspaceApplication = newServiceWorkspaceApplication(service)
+	service.assembleWorkspaceApplication()
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，
@@ -350,12 +320,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		CompactionIndex: compactionIndex,
 	})
-	service.components.conversationTurnInput = newServiceConversationTurnInput(service)
-	service.components.conversationTurnExecution = newServiceConversationTurnExecution(service)
-	service.components.conversationTurnResponse = newServiceConversationTurnResponse(service)
-	service.components.conversationTurnRecovery = newServiceConversationTurnRecovery(service)
-	service.components.conversationTurnCleanup = newServiceConversationTurnCleanup(service)
-	service.components.conversationTurnRunner = newServiceConversationTurnRunner(service)
+	service.assembleConversationTurnRuntimeComponents()
 	service.components.subagent = applicationexecution.NewSubagentView(applicationexecution.SubagentViewDeps{
 		Core:   kernel,
 		View:   service.components.view,
@@ -371,7 +336,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			service.closeSubagentToolRecordUnit(ownerSessionID, nodeID)
 		},
 	})
-	service.components.subagentApplication = newServiceSubagentApplication(service)
+	service.assembleSubagentApplication()
 	service.components.input = assembler.ports.InputRouter(contract.InputRouteHandlers{
 		Command: service.submitCommand,
 		Plugin:  service.submitPluginSwitch,

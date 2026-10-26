@@ -57,10 +57,11 @@
 - 冻结 `Service` 当前 11 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 111 个、生产代码 10,634 行；
+- 冻结 `application/core` 非测试生产文件 68 个、生产代码 10,243 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
-  当前 28 个唯一包，只许下降；目标为 0。迁移期 identity facade 与 host adapter
+  当前 26 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
+  生产代码已不再直接 import `store`。迁移期 identity facade 与 host adapter
   必须在兼容层台账登记，不得成为第二份状态机；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -151,8 +152,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | `Service` 公开方法 | 11 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
-| `application/core` 生产文件 | 111 |
-| `application/core` 生产代码 | 10,634 行 |
+| `application/core` 生产文件 | 68 |
+| `application/core` 生产代码 | 10,243 行 |
 
 已落地领域包：
 

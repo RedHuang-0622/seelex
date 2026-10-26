@@ -1,10 +1,10 @@
-# application/core 权限分卷
+# core/permission（根包分卷）
 
 ## 生态位
 
-本卷覆盖角色默认权限、会话覆盖、角色继承与 SSH 路径白名单。调用方是 GUI
-角色权限板、会话装配与工具路径门；它不承载存储实现，持久化落在 `store`，执行判定
-落在 `backend/tool/registry`。
+角色默认/会话覆盖的权限向量、账号选择、继承与 SSH 路径白名单
+
+覆盖：`role_permissions*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 核心约束
 
@@ -25,59 +25,50 @@
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### role_permissions.go
+### policy_test_aliases_test.go
 
-- `func newRoleAccountApplication(deps roleAccountApplicationDeps) *roleAccountApplication`
-- `func (application *roleAccountApplication) RoleAccount(sessionID, role string) (string, bool, error)`
-- `func (application *roleAccountApplication) SetRoleAccount(sessionID, role, account string) error`
-- `func (application *roleAccountApplication) RestoreRoleAccounts(sessionID string) error`
-- `func (application *roleAccountApplication) roleDefaults() roleDefaultPort`
-- `func (application *roleAccountApplication) runtime() contract.AccountRoleSelectionPort`
-- `func (service *Service) roleAccountApplicationComponent() *roleAccountApplication`
-- `func newServiceRoleAccountApplication(service *Service) *roleAccountApplication`
-- `func newRolePermissionApplication(deps rolePermissionApplicationDeps) *rolePermissionApplication`
-- `func (application *rolePermissionApplication) RoleDefaultVector(sessionID, role string) ([]string, bool, error)`
-- `func (application *rolePermissionApplication) SetRoleDefaultVector(sessionID, role string, vector []string) error`
-- `func (application *rolePermissionApplication) RestoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error)`
-- `func (application *rolePermissionApplication) resolveRoleSettings(sessionID, role string, storedVector []string, stored bool, resolveLayerMetadata bool) dto.RoleSettings`
-- `func (application *rolePermissionApplication) RolePermissionVector(sessionID, role string) ([]string, error)`
-- `func (application *rolePermissionApplication) SetRolePermissionVector(sessionID, role string, vector []string) error`
-- `func (service *Service) rolePermissionApplicationComponent() *rolePermissionApplication`
-- `func newServiceRolePermissionApplication(service *Service) *rolePermissionApplication`
-- `func newRoleInheritanceApplication(deps roleInheritanceApplicationDeps) *roleInheritanceApplication`
-- `func (application *roleInheritanceApplication) RoleInheritMainAgent(sessionID, role string) (bool, error)`
-- `func (application *roleInheritanceApplication) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error`
-- `func (application *roleInheritanceApplication) RoleSSHUserSpaces(sessionID, role string) ([]string, error)`
-- `func (application *roleInheritanceApplication) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)`
-- `func (application *roleInheritanceApplication) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
-- `func (application *roleInheritanceApplication) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error`
-- `func (service *Service) roleInheritanceApplicationComponent() *roleInheritanceApplication`
-- `func newServiceRoleInheritanceApplication(service *Service) *roleInheritanceApplication`
-- `func (service *Service) RestoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error)` — 在会话加载点为多个角色恢复权限登记。
-- `func (service *Service) RolePermissionVector(sessionID, role string) ([]string, error)` — 读取角色生效权限向量，登记优先，缺失走五级链路。
-- `func (service *Service) SetRolePermissionVector(sessionID, role string, vector []string) error` — 写入角色在指定会话的覆盖向量。
-- `func (service *Service) RoleDefaultVector(sessionID, role string) ([]string, bool, error)` — 读取角色默认向量并报告是否显式设置。
-- `func (service *Service) SetRoleDefaultVector(sessionID, role string, vector []string) error` — 写入跨会话的角色默认向量。
-- `func (service *Service) RoleAccount(sessionID, role string) (string, bool, error)` — 读取角色的优先账号。
-- `func (service *Service) SetRoleAccount(sessionID, role, account string) error` — 校验账号归属后写入角色优先账号并热推运行时。
-- `func (service *Service) RoleInheritMainAgent(sessionID, role string) (bool, error)` — 读取继承开关；未设置时 subagent / teammate 默认继承。
-- `func (service *Service) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error` — 只允许设置 subagent / teammate 的继承开关。
-- `func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, error)` — 读取继承后生效的 SSH 路径白名单。
-- `func (service *Service) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)` — 读取角色跨会话默认的 SSH 路径白名单。
-- `func (service *Service) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error` — 校验并写入 `ssh` 能力下的路径白名单。
-- `func (service *Service) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error` — 校验并写入当前会话中该 agent role 的 SSH 路径覆盖。
+- `func newPolicyApplication(deps policyApplicationDeps) *policyApplication`
 
 ### role_permissions_test.go
 
-- `func TestRoleAccountApplicationIsAssembled(t *testing.T)`
-- `func TestRolePermissionApplicationIsAssembled(t *testing.T)`
-- `func TestRoleInheritanceApplicationIsAssembled(t *testing.T)`
+- `func newRolePermissionFakeSessions() *rolePermissionFakeSessions`
+- `func (fake *rolePermissionFakeSessions) RolePermissionVectors(sessionID string) (map[string][]string, error)`
+- `func (fake *rolePermissionFakeSessions) RolePermissionVector(sessionID, role string) ([]string, bool, error)`
+- `func (fake *rolePermissionFakeSessions) SetRolePermissionVector(sessionID, role string, vector []string) error`
+- `func (fake *rolePermissionFakeSessions) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers`
+- `func (fake *rolePermissionFakeSessions) RoleDefaultVectors(sessionID string) (map[string][]string, error)`
+- `func (fake *rolePermissionFakeSessions) RoleDefault(sessionID, role string) ([]string, bool, error)`
+- `func (fake *rolePermissionFakeSessions) SetRoleDefault(sessionID, role string, vector []string) error`
+- `func (fake *rolePermissionFakeSessions) RoleAccount(sessionID, role string) (string, bool, error)`
+- `func (fake *rolePermissionFakeSessions) SetRoleAccount(sessionID, role, account string) error`
+- `func (fake *rolePermissionFakeSessions) RoleInheritance(sessionID, role string) (bool, bool, error)`
+- `func (fake *rolePermissionFakeSessions) SetRoleInheritance(sessionID, role string, inherit bool) error`
+- `func (fake *rolePermissionFakeSessions) RoleSSHUserSpaces(sessionID, role string) ([]string, error)`
+- `func (fake *rolePermissionFakeSessions) RoleDefaultSSHUserSpaces(_ string, role string) ([]string, error)`
+- `func (fake *rolePermissionFakeSessions) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
+- `func (fake *rolePermissionFakeSessions) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error`
+- `func fourLayerFixture() dto.RoleSettingsLayers` — fourLayerFixture 是五层中的四层配了一遍、且**互相冲突**的一组来源：
+- `func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T)`
+- `func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T)` — TestRestoreRolePermissionsExplicitEmptyVectorWins 是三态纪律的核心用例：
+- `func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T)`
+- `func TestRolePermissionVectorSingleRole(t *testing.T)`
+- `func TestRoleDefaultVectorIsExplicitNotEffective(t *testing.T)`
+- `func TestRoleAccountRoundTrip(t *testing.T)`
+- `func (spy *roleAccountRuntimeSpy) SetRoleAccount(role, account string) error`
+- `func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T)`
+- `func TestRoleInheritanceDefaultsAndUserSpaceNormalization(t *testing.T)`
+- `func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T)`
+- `func TestSessionSSHUserSpacesOverrideDefaultAndFollowInheritance(t *testing.T)`
+- `func TestSetRolePermissionVectorRejectsMalformedEntries(t *testing.T)`
+- `func TestRestoreRolePermissionsConcurrentRoles(t *testing.T)` — TestRestoreRolePermissionsConcurrentRoles 让多个角色同时恢复：判据无共享可变
+- `func TestRoleApplicationIsAssembled(t *testing.T)`
 - `func TestRoleAccountApplicationSetAccountRollsBackRuntime(t *testing.T)`
 - `func TestRoleAccountApplicationRestoreSkipsExplicitlyMissingAccount(t *testing.T)`
 - `func TestRoleAccountFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestRolePermissionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestRoleInheritanceFacadeOnlyDelegatesToApplication(t *testing.T)`
-- `func TestRolePermissionVectorSingleRole(t *testing.T)` — 单角色读取和写入登记的一致性。
-- `func TestRoleInheritanceDefaultsAndUserSpaceNormalization(t *testing.T)` — 继承默认与路径规范化。
-- `func TestInheritedRoleUsesMainAgentSSHUserSpaces(t *testing.T)` — 继承态读取 mainagent 路径，关闭后读自身覆盖。
+- `func (store *roleAccountApplicationFakeStore) RoleAccount(sessionID, role string) (string, bool, error)`
+- `func (store *roleAccountApplicationFakeStore) SetRoleAccount(sessionID, role, account string) error`
+- `func (runtime *roleAccountApplicationFakeRuntime) SetRoleAccount(role, account string) error`

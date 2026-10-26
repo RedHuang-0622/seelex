@@ -1,42 +1,8 @@
 package core
 
 import (
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
-	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
-
-func newServiceProjectBoardQuery(service *Service) *applicationexecution.ProjectBoardApplication {
-	return applicationexecution.NewProjectBoard(applicationexecution.ProjectBoardDeps{
-		WorkTableInputs: func(sessionID string) (*model.PlanState, []dto.TaskRecord, []dto.SubAgentTreeNode, []dto.AsyncRunRecord) {
-			service.ViewMu.RLock()
-			viewSessionID := service.Core.Snapshot.Session.ID
-			plan := service.sessionActivePlanLocked(sessionID)
-			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
-			service.ViewMu.RUnlock()
-			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.asyncRunsForTable()
-		},
-		WorkTableLimits: workTableBounds,
-		ProjectRoot: func(sessionID string) string {
-			return service.components.sessionQuery.ProjectRootFor(sessionID)
-		},
-		TeamPlan: func(sessionID string) *dto.TeamworkPlan {
-			if service.Deps.Runtime == nil || sessionID == "" {
-				return nil
-			}
-			source, ok := service.Deps.Runtime.(applicationexecution.TeamworkPlanSource)
-			if !ok {
-				return nil
-			}
-			plan, ok := source.TeamworkPlanFor(sessionID)
-			if !ok {
-				return nil
-			}
-			return &plan
-		},
-	})
-}
 
 // taskRecordsForSession selects the live task registry or the session scope.
 // WorkTable reads and trace reads share this single predicate.

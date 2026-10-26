@@ -1,11 +1,7 @@
 package core
 
 import (
-	"errors"
-
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -26,29 +22,6 @@ func (service *Service) applyWorkspaceProjectionLocked(projection applicationwor
 	for sessionID, workspaceID := range projection.Bindings {
 		service.Core.Snapshot.SessionWorkspaces[sessionID] = workspaceID
 	}
-}
-
-// newServiceWorkspaceApplication adapts Service's authoritative workspace,
-// view and publication hosts to the workspace domain application.
-func newServiceWorkspaceApplication(service *Service) *applicationworkspace.Application {
-	return applicationworkspace.New(applicationworkspace.Deps{
-		Environment: func() contract.WorkspacePort {
-			if service == nil {
-				return nil
-			}
-			return service.Deps.Workspace
-		},
-		WorkspaceRoot: func() (contract.WorkspacePort, string, error) {
-			if service == nil || service.components.workspace == nil {
-				return nil, "", errors.New("worktree: workspace root port is not assembled")
-			}
-			return service.components.workspace.WorkspaceRootPort()
-		},
-		CreateWorkspaces: func(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
-			return service.components.workspace.CreateWorkspaces(requests)
-		},
-		Projection: serviceWorkspaceProjectionPort{service: service},
-	})
 }
 
 type serviceWorkspaceProjectionPort struct {

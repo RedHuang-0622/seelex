@@ -9,12 +9,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func newServiceRuntimeApplication(service *Service) *applicationadmin.RuntimeApplication {
-	return applicationadmin.NewRuntime(applicationadmin.RuntimeDeps{
-		Projection: serviceRuntimeProjectionPort{service: service},
-	})
-}
-
 type serviceRuntimeProjectionPort struct {
 	service *Service
 }

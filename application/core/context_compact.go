@@ -1,11 +1,6 @@
 package core
 
-import (
-	"context"
-
-	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
-	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
-)
+import conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 
 // ContextCompactionResult is the stable public compaction receipt.
 type ContextCompactionResult = conversationcontext.Result
@@ -19,23 +14,4 @@ func compactionRangeLabel(result ContextCompactionResult) string {
 
 func compactionRecordNote(result ContextCompactionResult) string {
 	return conversationcontext.CompactionRecordNote(result)
-}
-
-func newServiceContextCompactionApplication(service *Service) *conversationcontext.Application {
-	return conversationcontext.New(conversationcontext.Deps{
-		CurrentSessionID: func(ctx context.Context) string {
-			sessionID := task_context.SessionIDFromContext(ctx)
-			if sessionID == "" {
-				service.ViewMu.RLock()
-				sessionID = service.Core.Snapshot.Session.ID
-				service.ViewMu.RUnlock()
-			}
-			return sessionID
-		},
-		Acquire: service.acquireCompactionRound,
-		Release: service.releaseCompactionRound,
-		Compact: func(ctx context.Context, sessionID string) (conversationcontext.EngineCompactResult, error) {
-			return service.components.context.CompactContextNow(ctx, sessionID)
-		},
-	})
 }

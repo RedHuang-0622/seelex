@@ -9,7 +9,6 @@ package core
 //  2. 两个门面方法（`SetReasoningEffort` / `SetLoopLimit`）的一行转发——外部调用点零改动。
 
 import (
-	limit "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -77,9 +76,4 @@ func (host serviceKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort 
 	}
 	sink, _ := host.service.Deps.Runtime.(contract.ReasoningEffortPort)
 	return sink
-}
-
-// newServiceKnobs 在装配期为某个 Service 建拉条组件（宿主就是它自己）。
-func newServiceKnobs(service *Service) *limit.Knobs {
-	return limit.NewKnobs(serviceKnobsHost{service: service})
 }

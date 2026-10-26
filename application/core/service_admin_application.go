@@ -3,45 +3,9 @@ package core
 import (
 	"context"
 
-	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
-
-// newServiceAdminApplication adapts Service's narrow hosts to the admin
-// account application. Account validation, runtime mutation, projection
-// publication and persistence remain owned by their existing implementations.
-func newServiceAdminApplication(service *Service) *applicationadmin.AccountApplication {
-	return applicationadmin.NewAccountApplication(applicationadmin.AccountDeps{
-		Admin: func() contract.AccountAdminPort {
-			if service == nil {
-				return nil
-			}
-			return service.Deps.AccountAdmin
-		},
-		Balance: func() contract.AccountBalancePort {
-			if service == nil || service.Deps.Runtime == nil {
-				return nil
-			}
-			port, _ := service.Deps.Runtime.(contract.AccountBalancePort)
-			return port
-		},
-		Select: func(name string) bool {
-			return service.Deps.Runtime.SelectAccount(name)
-		},
-		Window: func(name string, window int) (int, error) {
-			runtimePort, _ := service.Deps.Runtime.(contract.AccountWindowPort)
-			return service.components.accountWindowPolicy.Set(
-				runtimePort,
-				service.Deps.AccountWindowStore,
-				name,
-				window,
-			)
-		},
-		Projection: serviceAdminProjectionPort{service: service},
-	})
-}
 
 type serviceAdminProjectionPort struct {
 	service *Service

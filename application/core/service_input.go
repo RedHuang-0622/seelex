@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -278,82 +277,3 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 // tick（排队回合刚提升时尤其明显），而一个会话同时只有一个运行中回合，"停掉我
 // 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
 // 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
-
-func newServiceLifecycleApplication(service *Service) *applicationlifecycle.Application {
-	return applicationlifecycle.New(applicationlifecycle.Deps{
-		SetDraining: func() {
-			service.ViewMu.Lock()
-			service.draining = true
-			service.ViewMu.Unlock()
-		},
-		Idle: func() <-chan struct{} {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.idle
-		},
-		AnyRunning: func() bool {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.anyChatRunningLocked()
-		},
-		ReadCancels: func() []context.CancelFunc {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			cancels := make([]context.CancelFunc, 0, 4)
-			for _, sid := range service.sessions.UnitIDs() {
-				if unit := service.sessions.Unit(sid); unit != nil {
-					if cancel := unit.CancelFunc(); cancel != nil {
-						cancels = append(cancels, cancel)
-					}
-				}
-			}
-			return cancels
-		},
-		CancelChat: func(requestID string) bool {
-			service.ViewMu.Lock()
-			defer service.ViewMu.Unlock()
-			sessionID := service.Core.Snapshot.Session.ID
-			runtime := service.sessionUnitLocked(sessionID)
-			chat := runtime.ChatState()
-			if !chat.Running || runtime.CancelFunc() == nil {
-				return false
-			}
-			if requestID != "" && requestID != chat.RequestID {
-				runChatDebug("cancel request id %q is stale; cancelling current request %q of session %s", requestID, chat.RequestID, sessionID)
-			}
-			runtime.CancelFunc()()
-			return true
-		},
-		BeginShutdown: func() bool {
-			service.ViewMu.Lock()
-			if service.closed {
-				service.ViewMu.Unlock()
-				return false
-			}
-			service.closed = true
-			for _, sid := range service.sessions.UnitIDs() {
-				if unit := service.sessions.Unit(sid); unit != nil {
-					if cancel := unit.CancelFunc(); cancel != nil {
-						cancel()
-					}
-				}
-			}
-			service.ViewMu.Unlock()
-			return true
-		},
-		FlushToolRecords: service.flushAllToolRecords,
-		StopCatalogRefresh: func() {
-			service.components.sessions.StopCatalogRefresh()
-		},
-		CloseSessions: service.sessions.Close,
-		StopLifecycleConsumers: func() {
-			service.stopLifecycleConsumers()
-		},
-		CloseWorkTable: func() {
-			if service.workTable != nil {
-				service.workTable.Close()
-			}
-		},
-		ShutdownApproval: service.Approval.Shutdown,
-	})
-}

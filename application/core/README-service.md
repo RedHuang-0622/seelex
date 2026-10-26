@@ -59,8 +59,10 @@ compat 中的代表性入口包括：
 wiring 消费 `application/compat.Frontend`；能力接口的编译期钉子固定在根门面。
 
 EP-046A 已删除无参、单返回值的 `*ApplicationComponent` getter，包内调用直接
-读取 `service.components`。EP-046B 仍只迁移 `Deps` 能完整表达、且不需要读取
-core 私有状态的构造适配。EP-046C 已把接口清单与编译期钉子移到根 Application。
+读取 `service.components`。EP-046B 已把全部自由 `newService*` 构造器收拢进
+`service_assembler_*.go` 的组合阶段，结构门禁要求该前缀为 0；核心私有状态
+仍只在组合阶段读取，没有复制进领域包。EP-046C 已把接口清单与编译期钉子移到
+根 Application。
 
 Session 事件订阅判据已归 `application/session/viewstate.Coordinator`：
 `SubscribeSession` 与 `SubscribeSessionWithReplay` 直接消费 `session.Domain`
@@ -84,10 +86,168 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### component_getter_boundary_test.go
+
+- `func TestCoreDoesNotExposeComponentGetters(t *testing.T)` — TestCoreDoesNotExposeComponentGetters pins the composition boundary: once a
+- `func TestCoreDoesNotOwnInboundAPIContracts(t *testing.T)` — TestCoreDoesNotOwnInboundAPIContracts keeps consumer-facing interfaces at
+- `func TestCoreHasNoComponentMethodForwarders(t *testing.T)` — TestCoreHasNoComponentMethodForwarders removes the second forwarding layer:
+- `func isComponentsForwardCall(body *ast.BlockStmt) bool`
+- `func startsWithServiceComponents(expression ast.Expr) bool`
+- `func hasServiceReceiver(function *ast.FuncDecl) bool`
+
 ### fixture_concurrency_test.go
 
 - `func TestTeamRecordingSessionsAccessorsAreRaceFree(t *testing.T)` — TestTeamRecordingSessionsAccessorsAreRaceFree 并发读写夹具：-race 下证明读写两侧
 - `func TestFixturesDoNotBypassLockedAccessors(t *testing.T)` — TestFixturesDoNotBypassLockedAccessors 是防复发的机械防线：AST 扫描本包测试源码，
+
+### frontend_migration_test.go
+
+- `func (frontend *Frontend) testComponents() serviceComponents`
+- `func (frontend *Frontend) AddAccount(ctx context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)`
+- `func (frontend *Frontend) AccountDetails(name string) (dto.AccountDetails, error)`
+- `func (frontend *Frontend) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
+- `func (frontend *Frontend) DeleteAccount(name string) (dto.AccountDetails, error)`
+- `func (frontend *Frontend) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)`
+- `func (frontend *Frontend) SetAccountWindow(_ context.Context, name string, window int) (int, error)`
+- `func (frontend *Frontend) Suggestions(input string) []applicationinput.Suggestion`
+- `func (frontend *Frontend) SelectAccount(ctx context.Context, name string) error`
+- `func (frontend *Frontend) SwitchEffort(_ context.Context, level string) error`
+- `func (frontend *Frontend) SwitchPlugin(ctx context.Context, name string) error`
+- `func (frontend *Frontend) LoadMoreHistory(limit int) error`
+- `func (frontend *Frontend) LoadLatestHistory() error`
+- `func (frontend *Frontend) ReorderQueuedInput(sessionID string, from, to int) error`
+- `func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string, error)`
+- `func (frontend *Frontend) ListSessions() []model.SessionInfo`
+- `func (frontend *Frontend) WaitCatalogRefresh(ctx context.Context) error`
+- `func (frontend *Frontend) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)`
+- `func (frontend *Frontend) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)`
+- `func (frontend *Frontend) SnapshotOf(sessionID string) (model.SessionSnapshot, error)`
+- `func (frontend *Frontend) SessionMeta(sessionID string) (model.SessionMeta, error)`
+- `func (frontend *Frontend) PerfStats() model.PerfStats`
+- `func (frontend *Frontend) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)`
+- `func (frontend *Frontend) ProjectRootFor(sessionID string) string`
+- `func (frontend *Frontend) WorkTableRowsFor(sessionID string) []model.WorkItem`
+- `func (frontend *Frontend) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView`
+- `func (frontend *Frontend) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView`
+- `func (frontend *Frontend) WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)`
+- `func (frontend *Frontend) TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)`
+- `func (frontend *Frontend) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)`
+- `func (frontend *Frontend) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)`
+- `func (frontend *Frontend) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)`
+- `func (frontend *Frontend) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error)`
+- `func (frontend *Frontend) ReadPlanHandler(_ context.Context, argsJSON string) (string, error)`
+- `func (frontend *Frontend) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error)`
+- `func (frontend *Frontend) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)`
+- `func (frontend *Frontend) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
+- `func (frontend *Frontend) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)`
+- `func (frontend *Frontend) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)`
+- `func (frontend *Frontend) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)`
+- `func (frontend *Frontend) GoalStatusFor(sessionID string) (goaldomain.StatusView, error)`
+- `func (frontend *Frontend) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (frontend *Frontend) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (frontend *Frontend) CancelScheduledTask(id string) error`
+- `func (frontend *Frontend) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)`
+- `func (frontend *Frontend) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)`
+- `func (frontend *Frontend) RefreshRuntimeSnapshot()`
+- `func (frontend *Frontend) AnyChatRunning() bool`
+- `func (frontend *Frontend) WaitForIdle(ctx context.Context) error`
+- `func (frontend *Frontend) ArchiveSession(sessionID string) error`
+- `func (frontend *Frontend) BeginNewSession() error`
+- `func (frontend *Frontend) UnloadSession(sessionID string) error`
+- `func (frontend *Frontend) ResumeSession(sessionID string) error`
+- `func (frontend *Frontend) ActivateSession(sessionID string) error`
+- `func (frontend *Frontend) SetSessionMeta(sessionID string, meta model.SessionMeta) error`
+- `func (frontend *Frontend) EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)`
+- `func (frontend *Frontend) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)`
+- `func (frontend *Frontend) SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)`
+- `func (frontend *Frontend) SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error)`
+- `func (frontend *Frontend) ActivateSkill(name string) (model.SkillInfo, error)`
+- `func (frontend *Frontend) UpdateWorkItemStatus(id, status string) error`
+- `func (frontend *Frontend) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)`
+- `func (frontend *Frontend) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)`
+- `func (frontend *Frontend) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)`
+- `func (frontend *Frontend) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)`
+- `func (frontend *Frontend) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)`
+- `func (frontend *Frontend) ClearSubagentTree() error`
+- `func (frontend *Frontend) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error)`
+- `func (frontend *Frontend) BeginGracefulShutdown()`
+- `func (frontend *Frontend) CancelAllChats()`
+- `func (frontend *Frontend) CancelChat(requestID string) bool`
+- `func (frontend *Frontend) Shutdown()`
+- `func (frontend *Frontend) SetFullAccess(on bool) bool`
+- `func (frontend *Frontend) SetPermissionTier(tier string) (string, error)`
+- `func (frontend *Frontend) SetLoopLimit(_ context.Context, limit int) error`
+- `func (frontend *Frontend) SetReasoningEffort(_ context.Context, effort string) error`
+- `func (frontend *Frontend) SessionReleaseWindow() int`
+- `func (frontend *Frontend) SetSessionReleaseWindow(_ context.Context, window int) (int, error)`
+- `func (frontend *Frontend) Subscribe(buffer int) event.Subscription`
+- `func (frontend *Frontend) GoalSkillActive() bool`
+- `func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, toolEvent seelsession.SubagentToolEvent)`
+- `func (frontend *Frontend) AddNotice(notice string)`
+- `func (frontend *Frontend) PublishRuntimeProjections()`
+- `func (frontend *Frontend) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string)`
+- `func (frontend *Frontend) RoleDefaultVector(sessionID, role string) ([]string, bool, error)`
+- `func (frontend *Frontend) SetRoleDefaultVector(sessionID, role string, vector []string) error`
+- `func (frontend *Frontend) RoleAccount(sessionID, role string) (string, bool, error)`
+- `func (frontend *Frontend) SetRoleAccount(sessionID, role, account string) error`
+- `func (frontend *Frontend) RoleInheritMainAgent(sessionID, role string) (bool, error)`
+- `func (frontend *Frontend) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error`
+- `func (frontend *Frontend) RoleSSHUserSpaces(sessionID, role string) ([]string, error)`
+- `func (frontend *Frontend) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)`
+- `func (frontend *Frontend) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
+- `func (frontend *Frontend) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error`
+- `func (frontend *Frontend) RolePermissionVector(sessionID, role string) ([]string, error)`
+- `func (frontend *Frontend) SetRolePermissionVector(sessionID, role string, vector []string) error`
+- `func (frontend *Frontend) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (frontend *Frontend) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
+- `func (frontend *Frontend) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
+- `func (frontend *Frontend) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
+- `func (frontend *Frontend) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error`
+- `func (frontend *Frontend) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)`
+- `func (frontend *Frontend) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
+- `func (frontend *Frontend) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
+- `func (frontend *Frontend) SetLifecycleOrder(sessionID, policy string, roles []string) error`
+- `func (frontend *Frontend) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error`
+- `func (frontend *Frontend) ListRoleSessions(mainSessionID string) ([]string, error)`
+- `func (frontend *Frontend) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (frontend *Frontend) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (frontend *Frontend) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (frontend *Frontend) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (frontend *Frontend) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
+- `func (frontend *Frontend) DeleteWorkspaceEnvironment(projectID, name string) error`
+- `func (frontend *Frontend) SetDefaultWorkspaceEnvironment(projectID, name string) error`
+- `func (frontend *Frontend) WorkspaceGitRepos() (dto.GitReposResult, error)`
+- `func (frontend *Frontend) DeleteSession(sessionID string) error`
+- `func (frontend *Frontend) CreateWorkspace(name, rootPath, gitRemote string) error`
+- `func (frontend *Frontend) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)`
+- `func (frontend *Frontend) BindWorkspace(workspaceID string) error`
+- `func (frontend *Frontend) UnbindWorkspace()`
+- `func (frontend *Frontend) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)`
+- `func (frontend *Frontend) WorkspaceFileCount() (dto.TreeCount, error)`
+- `func (frontend *Frontend) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)`
+- `func (frontend *Frontend) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (frontend *Frontend) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (frontend *Frontend) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)`
+- `func (frontend *Frontend) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)`
+- `func (frontend *Frontend) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)`
+
+### frontend_ports.go
+
+- `func (service *Service) roleSessions() contract.RoleSessionsPort`
+- `func NewFrontendPorts(service *Service) FrontendPorts` — NewFrontendPorts returns a read-only snapshot of components needed by the
+
+### frontend_shell_legacy_test.go
+
+- `func (service *Service) SetProjectBoardSink(sink applicationexecution.ProjectBoardSink)` — These shims keep existing core integration fixtures source-compatible after
+- `func (service *Service) PromptLayers() []prompt.PromptLayer`
+- `func (service *Service) PrepareProviderHistory(sessionID string) error`
+- `func (service *Service) SetToolRecordEnabled(enabled bool) (bool, error)`
+- `func (service *Service) ApplyToolRecordEnabled(enabled bool)`
+- `func (service *Service) ToolRecordEnabled() bool`
+- `func (service *Service) FlushToolRecord(sessionID string)`
+- `func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore)`
+- `func (service *Service) ToolRecordBoard() dto.ToolRecordBoard`
+- `func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int)`
 
 ### role_tool_activity_test.go
 
@@ -95,35 +255,34 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestHandleRoleToolActivityPublishesSessionEvent(t *testing.T)`
 - `func TestHandleRoleToolActivityTruncatesAndDropsUnroutable(t *testing.T)`
 
+### scheduler_test_aliases_test.go
+
+- `func newSchedulerApplication(deps schedulerApplicationDeps) *schedulerApplication`
+- `func newScheduledRunApplication(deps scheduledRunApplicationDeps) *scheduledRunApplication`
+- `func newScheduledSessionApplication(deps scheduledSessionApplicationDeps) *scheduledSessionApplication`
+
 ### service.go
 
-- `func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-- `func (service *Service) projectBoardSink() board.ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
-- `func New(deps contract.Dependencies) (*Service, error)`
-- `func (service *Service) ActiveSkillIDs() []string` — ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
-- `func (service *Service) PromptLayers() []prompt.PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
-- `func (service *Service) GoalSkillActive() bool` — GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
-- `func (service *Service) PublishRuntimeProjections()` — PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
-- `func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
-- `func (service *Service) HandleSubagentToolEventFor(ownerSessionID string, event seelsession.SubagentToolEvent)` — HandleSubagentToolEventFor 同 HandleSubagentToolEvent，但带上**执行上下文**给出的
-- `func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity)` — HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
-- `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
-- `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
+- `func (service *Service) projectBoardSink() applicationexecution.ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
+- `func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error)`
+- `func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity)` — handleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 
 ### service_account_test.go
 
-- `func TestAddAccountNeedsHostPort(t *testing.T)`
-- `func TestAddAccountForwardsDraftVerbatim(t *testing.T)`
-- `func TestAddAccountPropagatesHostError(t *testing.T)`
-- `func TestAccountBalanceNeedsHostPort(t *testing.T)`
-- `func TestAccountBalanceForwardsName(t *testing.T)`
-- `func TestAccountBalancePropagatesHostError(t *testing.T)`
-- `func TestAccountMethodsNilServiceGuard(t *testing.T)`
+- `func withTestAccountAdmin(admin contract.AccountAdminPort) testServiceOption` — withTestAccountAdmin 注入「手动添加账号」的宿主能力面（不注入 = 该宿主不支持
 - `func (admin *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)`
 - `func (admin *fakeAccountAdmin) AccountDetails(name string) (dto.AccountDetails, error)`
 - `func (admin *fakeAccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
 - `func (admin *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error)`
+- `func TestAddAccountNeedsHostPort(t *testing.T)` — TestAddAccountNeedsHostPort：宿主没装 AccountAdmin 时要给一句明确错误，而不是
+- `func TestAddAccountForwardsDraftVerbatim(t *testing.T)` — TestAddAccountForwardsDraftVerbatim：草稿（含 api_key）必须原样递到宿主——本层
+- `func TestAddAccountPropagatesHostError(t *testing.T)` — TestAddAccountPropagatesHostError：宿主的错误要原样冒上来（界面靠这句话判断
+- `func TestUpdateAndDeleteAccountForwardIdentities(t *testing.T)`
 - `func (runtime *balanceFakeRuntime) AccountBalance(_ context.Context, name string) (dto.AccountBalance, error)`
+- `func TestAccountBalanceNeedsHostPort(t *testing.T)` — TestAccountBalanceNeedsHostPort：宿主没装余额能力时明确报错（demo/headless 宿主）。
+- `func TestAccountBalanceForwardsName(t *testing.T)` — TestAccountBalanceForwardsName：按名字查（不是"当前选中账号"），读数原样返回。
+- `func TestAccountBalancePropagatesHostError(t *testing.T)` — TestAccountBalancePropagatesHostError：探测失败（含"该供应商没有余额接口"）
+- `func TestAccountMethodsNilServiceGuard(t *testing.T)` — TestAccountMethodsNilServiceGuard：nil Service 不许崩（与 SetAccountWindow 同一口径）。
 
 ### service_account_window_forward_test.go
 
@@ -133,30 +292,21 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_admin_application.go
 
-- `func newAdminApplication(deps adminApplicationDeps) *adminApplication`
-- `func (application *adminApplication) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)`
-- `func (application *adminApplication) AccountDetails(name string) (dto.AccountDetails, error)`
-- `func (application *adminApplication) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
-- `func (application *adminApplication) DeleteAccount(name string) (dto.AccountDetails, error)`
-- `func (application *adminApplication) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)`
-- `func (application *adminApplication) SelectAccount(_ context.Context, name string) error`
-- `func (application *adminApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error)`
-- `func (application *adminApplication) accountAdmin(action string) (contract.AccountAdminPort, error)`
-- `func newServiceAdminApplication(service *Service) *adminApplication`
+- `func (port serviceAdminProjectionPort) Collect(ctx context.Context) view_state.RuntimeStateProjection`
+- `func (port serviceAdminProjectionPort) LockView()`
+- `func (port serviceAdminProjectionPort) SetRuntimeAccount(name string)`
+- `func (port serviceAdminProjectionPort) ApplyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
+- `func (port serviceAdminProjectionPort) BumpLocked() uint64`
+- `func (port serviceAdminProjectionPort) UnlockView()`
+- `func (port serviceAdminProjectionPort) CurrentViewSessionID() string`
+- `func (port serviceAdminProjectionPort) RuntimeSnapshot() model.RuntimeState`
+- `func (port serviceAdminProjectionPort) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
+- `func (port serviceAdminProjectionPort) AddNotice(message string)`
 
 ### service_admin_application_test.go
 
-- `func TestServiceAdminApplicationIsAssembled(t *testing.T)`
-- `func TestAdminApplicationDelegatesAccountOperations(t *testing.T)`
-- `func TestAdminApplicationPreservesUnavailableErrors(t *testing.T)`
-- `func TestAdminApplicationPropagatesHostErrors(t *testing.T)`
-- `func TestAdminApplicationSelectAccountRunsFullPath(t *testing.T)`
-- `func TestAdminApplicationSelectAccountStopsWhenUnavailable(t *testing.T)`
-- `func TestAdminApplicationSetAccountWindowDelegates(t *testing.T)`
-- `func TestAdminApplicationSetAccountWindowPreservesUnavailableErrors(t *testing.T)`
-- `func TestAccountFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
-- `func TestSelectAccountFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
-- `func TestSetAccountWindowFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
+- `func TestServiceAdminComponentUsesDomainApplication(t *testing.T)`
+- `func TestServiceAdminFacadeMethodsOnlyDelegate(t *testing.T)`
 
 ### service_assembler.go
 
@@ -167,6 +317,67 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func validateDependencies(deps contract.Dependencies) error`
 - `func (assembler *serviceAssembler) applyInfrastructureDefaults()`
 - `func (service *Service) restoreInitialWorkspace()`
+
+### service_assembler_applications.go
+
+- `func (service *Service) assembleExecutionApplication(reader applicationexecution.BoardReader)`
+- `func (service *Service) assembleRoleApplication()`
+- `func (service *Service) assembleReviewApplication()`
+- `func (service *Service) assembleHistorySearchApplication()`
+- `func (service *Service) assembleProjectBoardQuery()`
+- `func (service *Service) assemblePerfStatsApplication()`
+- `func (service *Service) assembleConversationQueueApplication()`
+- `func (service *Service) assembleFaultGuardApplication()`
+- `func (service *Service) assembleGoalApplication(hostSessionForToolCall func(context.Context) string)`
+- `func (service *Service) assemblePolicySwitchApplication()`
+- `func (service *Service) assembleSubagentApplication()`
+
+### service_assembler_capabilities.go
+
+- `func (service *Service) assembleRuntimeApplication()`
+- `func (service *Service) assembleAdminApplication()`
+- `func (service *Service) assembleWorkspaceApplication()`
+- `func (service *Service) assembleAsyncCompletionApplication()`
+- `func (service *Service) assembleCompletionApplication()`
+- `func (service *Service) assembleContextCompactionApplication()`
+- `func (service *Service) assembleReferenceApplication()`
+
+### service_assembler_conversation_turn.go
+
+- `func (service *Service) assembleConversationTurnCoreComponents()` — assembleConversationTurnCoreComponents wires the turn stages that may run as
+- `func (service *Service) assembleConversationTurnRuntimeComponents()` — assembleConversationTurnRuntimeComponents wires stages that depend on the
+
+### service_assembler_edit_fork.go
+
+- `func (service *Service) assembleEditForkComponents()`
+
+### service_assembler_scheduler_lifecycle.go
+
+- `func (service *Service) assembleSchedulerApplications()`
+- `func (service *Service) assembleKnobs()`
+- `func (service *Service) assembleLifecycleApplication()`
+
+### service_assembler_session.go
+
+- `func (service *Service) assembleSessionSSHApplication()`
+- `func (service *Service) assembleSessionMetaApplication()`
+- `func (service *Service) metaDeps() switching.MetaDeps`
+- `func (service *Service) metaPort() sessionstate.SessionMetaPort`
+- `func (service *Service) wakeCatalogRefresh()`
+- `func (service *Service) assembleSessionReleaseApplication()`
+- `func (service *Service) assembleSessionUseCaseApplications()`
+
+### service_assembler_session_cold.go
+
+- `func (service *Service) assembleSessionColdComponents()` — assembleSessionColdComponents owns the cold-restore dependency graph. The
+
+### service_assembler_session_draft.go
+
+- `func (service *Service) assembleSessionDraftComponents()`
+
+### service_assembler_session_query.go
+
+- `func (service *Service) assembleSessionReadApplications(historyWindowAssembler applicationhistory.WindowAssembler)`
 
 ### service_chat_test.go
 
@@ -183,14 +394,25 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_components.go
 
-- `func (port *projectBoardPort) store(sink board.ProjectBoardSink)`
-- `func (port *projectBoardPort) load() board.ProjectBoardSink`
+- `func (port *projectBoardPort) store(sink applicationexecution.ProjectBoardSink)`
+- `func (port *projectBoardPort) load() applicationexecution.ProjectBoardSink`
 
 ### service_components_test.go
 
 - `func TestNewAssemblesFocusedServiceComponents(t *testing.T)`
 - `func TestServiceFacadeContainsOnlyAssembly(t *testing.T)`
 - `func TestFocusedComponentsDoNotHoldServiceFacade(t *testing.T)`
+
+### service_constructor_boundary_test.go
+
+- `func TestConversationTurnConstructorsStayInCompositionRoot(t *testing.T)` — TestConversationTurnConstructorsStayInCompositionRoot prevents each
+- `func TestSessionColdConstructorsStayInCompositionRoot(t *testing.T)`
+- `func TestEditForkConstructorsStayInCompositionRoot(t *testing.T)`
+- `func TestSessionConstructorsStayInCompositionRoot(t *testing.T)`
+- `func TestConversationHistoryQueryConstructorStaysInCompositionRoot(t *testing.T)`
+- `func TestExtractedApplicationConstructorsStayInCompositionRoot(t *testing.T)`
+- `func TestNoFreeServiceConstructors(t *testing.T)`
+- `func requireNoFreeConstructors(t *testing.T, prefix string)`
 
 ### service_effort_wire_test.go
 
@@ -342,8 +564,14 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_helpers_test.go
 
+- `func frontendOfTestService(service *Service) *Frontend` — frontendOfTestService adapts a test service to the migrated frontend entry
+- `func withSessionID(ctx context.Context, sessionID string) context.Context`
+- `func sessionIDFromContext(ctx context.Context) string`
+- `func ApplyLimits(limits applicationpolicy.Limits)`
+- `func Limits() applicationpolicy.Limits`
 - `func withTestSessions(sessions contract.SessionPort) testServiceOption`
 - `func withTestRuntime(runtime contract.RuntimePort) testServiceOption`
+- `func testResidencyPort() applicationsession.ResidencyPort`
 - `func withTestReleaseWindowStore(store contract.ReleaseWindowStore) testServiceOption` — withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
 - `func withTestAccountWindowStore(store contract.AccountWindowStore) testServiceOption` — withTestAccountWindowStore 注入「每账号上下文窗口」的落盘口（不注入 = 界面上改的值
 - `func withTestPlugins(plugins contract.PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
@@ -358,7 +586,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_input.go
 
-- `func newLifecycleApplication(deps lifecycleApplicationDeps) *lifecycleApplication`
 - `func (service *Service) discardPendingSubagentContexts()` — discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 - `func (service *Service) discardPendingSubagentContextsFor(_ string)` — discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
@@ -371,20 +598,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest)` — afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
-- `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
-- `func (application *lifecycleApplication) BeginGracefulShutdown()`
-- `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
-- `func (application *lifecycleApplication) WaitForIdle(ctx context.Context) error`
-- `func (service *Service) AnyChatRunning() bool` — AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
-- `func (application *lifecycleApplication) AnyChatRunning() bool`
-- `func (service *Service) CancelAllChats()` — CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
-- `func (application *lifecycleApplication) CancelAllChats()`
-- `func (service *Service) CancelChat(requestID string) bool` — CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
-- `func (application *lifecycleApplication) CancelChat(requestID string) bool`
-- `func (application *lifecycleApplication) Shutdown()`
-- `func (service *Service) lifecycleApplicationComponent() *lifecycleApplication`
-- `func newServiceLifecycleApplication(service *Service) *lifecycleApplication`
-- `func (service *Service) Shutdown()`
 
 ### service_input_fork_queue_test.go
 
@@ -409,9 +622,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
-- `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
-- `func (service *Service) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
-- `func (service *Service) SetFullAccess(on bool) bool` — SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
+- `func (service *Service) reapplyEffortAfterPluginSwitch()` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
 - `func (service *Service) mirrorPendingApprovalsLocked(sessionID string)` — mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
 - `func (service *Service) openInteraction(interaction *model.Interaction)`
@@ -433,37 +644,8 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
 - `func TestPluginSwitchPreservesEffort(t *testing.T)` — TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
 
-### service_policy_application.go
-
-- `func newPolicyApplication(deps policyApplicationDeps) *policyApplication`
-- `func (application *policyApplication) ActivateSkill(name string) (model.SkillInfo, error)`
-- `func (application *policyApplication) SetReasoningEffort(effort string) error`
-- `func (application *policyApplication) SetLoopLimit(limit int) error`
-- `func (application *policyApplication) SetSessionReleaseWindow(window int) (int, error)`
-- `func (application *policyApplication) SessionReleaseWindow() int`
-- `func (application *policyApplication) SetFullAccess(on bool) bool`
-- `func (application *policyApplication) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 规范化并持久化档位，同步会话/审批/Runtime 后发布生效值。
-- `func (application *policyApplication) SwitchEffort(level string) error` — SwitchEffort 执行视图空闲守卫、Effort 应用和 runtime 同步。
-- `func (application *policyApplication) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 执行插件切换、prompt/history 重建与 runtime 发布。
-- `func newServicePolicyApplication(service *Service) *policyApplication`
-
-### service_policy_application_test.go
-
-- `func TestPolicyApplicationIsAssembled(t *testing.T)`
-- `func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T)`
-- `func TestPolicyApplicationFullAccessError(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T)`
-- `func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T)`
-- `func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.T)`
-- `func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T)`
-- `func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T)`
-
 ### service_knobs.go
 
-- `func (service *Service) SetReasoningEffort(_ context.Context, effort string) error` — SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
-- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。判据与守卫在 `limit.Knobs`。
 - `func (host serviceKnobsHost) ViewSession() (string, bool)`
 - `func (host serviceKnobsHost) MutateRuntime(mutate func(*model.RuntimeState))`
 - `func (host serviceKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) error`
@@ -471,7 +653,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (host serviceKnobsHost) CurrentEffort() string`
 - `func (host serviceKnobsHost) MaxLoopsForEffort(level string) int`
 - `func (host serviceKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort`
-- `func newServiceKnobs(service *Service) *limit.Knobs` — newServiceKnobs 在装配期为某个 Service 建拉条组件（宿主就是它自己）。
 
 ### service_knobs_smoke_test.go
 
@@ -496,16 +677,27 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
 
-### service_queue.go
+### service_policy_application_test.go
 
+- `func TestPolicyApplicationIsAssembled(t *testing.T)`
+- `func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T)`
+- `func TestPolicyApplicationFullAccessError(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T)`
+- `func boolWord(value bool) string`
 
 ### service_queue_component_test.go
 
 - `func TestServiceComponentsAssembleConversationQueue(t *testing.T)`
 - `func TestQueueFacadeOnlyDelegatesToConversationQueue(t *testing.T)`
-- `func TestConversationQueueDoesNotOwnServiceOrDuplicateQueueState(t *testing.T)`
 - `func TestQueueFacadeNilServiceKeepsExistingError(t *testing.T)`
 - `func TestConversationQueuePreservesPresentationEventOrder(t *testing.T)`
+- `func TestConversationQueueDoesNotOwnServiceOrDuplicateQueueState(t *testing.T)`
 
 ### service_queue_test.go
 
@@ -523,8 +715,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_release_window.go
 
-- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**的值
-- `func (service *Service) SessionReleaseWindow() int` — SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
 - `func (service *Service) releaseWindowDeps() switching.ReleaseWindowDeps` — releaseWindowDeps 装配驻留窗口可调面的宿主面。
 
 ### service_release_window_test.go
@@ -540,35 +730,13 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_scheduler.go
 
-- `func newSchedulerApplication(deps schedulerApplicationDeps) *schedulerApplication`
-- `func newScheduledRunApplication(deps scheduledRunApplicationDeps) *scheduledRunApplication`
-- `func newScheduledSessionApplication(deps scheduledSessionApplicationDeps) *scheduledSessionApplication`
-- `func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
-- `func scheduledRunParams(effort string, loopLimit int) (string, int)` — scheduledRunParams 返回这条任务触发时**真正要用**的两条参数：声明优先，未声明（空/0）
-- `func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error` — validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
-- `func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error` — applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
-- `func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
-- `func (application *schedulerApplication) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
-- `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
-- `func (application *schedulerApplication) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
-- `func (service *Service) validateScheduledWorkspace(workspaceID string) error` — validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
-- `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)` — resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
-- `func (service *Service) validateScheduledPlugins(plugins []string) error` — validateScheduledPlugins 校验任务声明的插件装配都存在（空 = 不覆盖，合法）。
-- `func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
-- `func (application *scheduledRunApplication) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)`
-- `func (service *Service) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
-- `func (application *schedulerApplication) CancelScheduledTask(id string) error`
-- `func (service *Service) schedulerApplicationComponent() *schedulerApplication`
-- `func newServiceSchedulerApplication(service *Service) *schedulerApplication`
-- `func (service *Service) RefreshRuntimeSnapshot()` — RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
-- `func (service *Service) schedulerApplicationComponent() *schedulerApplication`
-- `func (service *Service) scheduledRunApplicationComponent() *scheduledRunApplication`
-- `func (service *Service) scheduledSessionApplicationComponent() *scheduledSessionApplication`
-- `func newServiceSchedulerApplication(service *Service) *schedulerApplication`
-- `func newServiceScheduledRunApplication(service *Service) *scheduledRunApplication`
-- `func newServiceScheduledSessionApplication(service *Service) *scheduledSessionApplication`
-- `func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
-- `func (application *scheduledSessionApplication) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)`
+- `func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec`
+- `func scheduledRunParams(effort string, loopLimit int) (string, int)`
+- `func (service *Service) validateScheduledRunParams(spec dto.ScheduledTaskSpec) error`
+- `func (service *Service) applyScheduledRunParams(sessionID string, task dto.ScheduledTaskSpec) error`
+- `func (service *Service) validateScheduledWorkspace(workspaceID string) error`
+- `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)`
+- `func (service *Service) validateScheduledPlugins(plugins []string) error`
 
 ### service_scheduler_test.go
 
@@ -595,7 +763,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) Snapshot() model.Snapshot` — Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
 - `func (service *Service) projectDraftWorkspaceLocked(snapshot *model.Snapshot)` — projectDraftWorkspaceLocked 把草稿的工作区绑定补进 `session_workspaces`
 - `func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — withLiveSessionRowsLocked 把「内存里活着、目录里还没有」的会话补进目录行
-- `func (service *Service) ListSessions() []model.SessionInfo` — ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
 - `func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
 - `func (service *Service) sessionStatusLocked(sessionID string) model.SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
 - `func (service *Service) isRestoringLocked(sessionID string) bool` — isRestoringLocked 报告目标会话是否处于后台冷加载（调用方持有
@@ -607,27 +774,10 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) markSessionViewIntentLocked(sessionID string) uint64` — markSessionViewIntentLocked 给会话记一次新的视图意图并返回其值（调用方持有
 - `func (service *Service) markSessionViewIntent(sessionID string)` — markSessionViewIntent 是 markSessionViewIntentLocked 的自取锁包装。
 - `func (service *Service) sessionViewIntentLocked(sessionID string) uint64` — sessionViewIntentLocked 返回会话当前的视图意图值（调用方持有 Core.ViewMu）。
-- `func (service *Service) Subscribe(buffer int) event.Subscription`
 - `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)` — refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
-- `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
-- `func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
-- `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
-- `func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection)` — applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
-- `func (service *Service) appendMessageLocked(role, content string, tool *model.ToolCall) *model.Message`
-- `func (service *Service) appendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
-- `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *model.ToolCall) *model.Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
-- `func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
-- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *model.Message` — appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
-- `func (service *Service) setSessionChatLockedFor(sessionID string, chat model.ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
-- `func (service *Service) mirrorActiveViewLocked()` — mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
-- `func (service *Service) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
-- `func (service *Service) sessionViewEmptyLocked(sessionID string) bool` — sessionViewEmptyLocked 报告指定会话的可见会话是否为空（调用方持有
+- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *model.Message` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
+- `func (service *Service) sessionViewEmptyLocked(sessionID string) bool` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 - `func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string)` — recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
-- `func (service *Service) bumpLocked() uint64`
-- `func (service *Service) addNotice(notice string)`
-- `func (service *Service) AddNotice(notice string)` — AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
-- `func (service *Service) resetConversation(notice string)`
-- `func (service *Service) advanceMessageSeqLocked(sessionID string, messages []model.Message)` — advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
 
 ### service_snapshot_test.go
 
@@ -646,14 +796,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (engine *stopQueueEngine) recordedInputs() []string`
 - `func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T)` — TestStopFlushesQueuedInputsIntoTheNextTurn 钉住停止按钮的第三条语义：点停止后清空
 
-### service_subagent_resume.go
-
-- `func (service *Service) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)` — ListSubagentRecovery 列出目标会话下残留子代理单元的恢复态（只读）。
-- `func (service *Service) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)` — ResumeInterruptedSubagents 冷恢复续跑目标会话下所有未完成子代理。
-- `func (service *Service) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)` — ResumeSubagent 定点续跑单个子代理（失败可重试）。
-- `func (service *Service) PrepareProviderHistory(sessionID string) error` — PrepareProviderHistory 补齐目标会话 provider 历史的残缺工具链：中断的
-- `func (service *Service) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)` — ForkSubagents 直接派发一批子代理（自动化/冒烟入口；与模型调用
-
 ### service_test.go
 
 - `func TestNewTestServiceCleansUpCatalogWorker(t *testing.T)`
@@ -663,6 +805,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T)`
 - `func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T)`
 - `func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T)`
+- `func TestCreateWorkspacesPublishesCatalogWithoutBindingCurrentSession(t *testing.T)`
 - `func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T)`
 - `func TestResumeSessionLeavesLazyDraft(t *testing.T)`
 - `func TestNewTaskSessionIsTrulyUnbound(t *testing.T)` — TestNewTaskSessionIsTrulyUnbound 未关联工作区的会话必须真正未关联：
@@ -709,6 +852,4 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### teamwork_service.go
 
-- `func (service *Service) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
-- `func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLiveFor 返回**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
-- `func (service *Service) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +
+- `func (port teamworkBoardViewPort) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView`

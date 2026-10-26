@@ -4,7 +4,7 @@
 
 上下文控制相关集成测试
 
-覆盖：`context*.go`；未归属文件由覆盖自检拦下。
+覆盖：`context*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 跨轮前缀与模型输出边界（2026-10-21）
 
@@ -221,21 +221,8 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact.go
 
-- `func newContextCompactionApplication(deps contextCompactionApplicationDeps) *contextCompactionApplication`
-- `func compactionReasonLabel(reason string) string` — compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
-- `func failureReasonLabel(failure string) string` — failureReasonLabel 渲染压缩失败的原因（用户可读），并把数字事实原样带在括号里。
-- `func compactionRecordNote(result ContextCompactionResult) string` — compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
-- `func compactionGateChecklist(gates []CompactionGateTiming) string` — compactionGateChecklist 把逐关耗时渲染成一行事实清单，例如
-- `func compactionGateDuration(milliseconds int) string` — compactionGateDuration 渲染单关耗时。毫秒整数里 0 的含义是"不到一毫秒"，
-- `func compactionRangeLabel(result ContextCompactionResult) string` — compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
-- `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
-- `func (application *contextCompactionApplication) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)`
-- `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
-- `func (application *contextCompactionApplication) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)`
-- `func contextCompactionGates(gates []context_runtime.CompactionGateTiming) []CompactionGateTiming` — contextCompactionGates 把 context_runtime 的门禁耗时映射为回执面类型（JSON
-- `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
-- `func (service *Service) contextCompactionApplicationComponent() *contextCompactionApplication`
-- `func newServiceContextCompactionApplication(service *Service) *contextCompactionApplication`
+- `func compactionRangeLabel(result ContextCompactionResult) string`
+- `func compactionRecordNote(result ContextCompactionResult) string`
 
 ### context_compact_across_rounds_repro_test.go
 
@@ -492,3 +479,23 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func compactionRecords(service *Service, sessionID string) []model.ContextCompaction`
 - `func lastCompactionRecord(t *testing.T, service *Service, sessionID string) model.ContextCompaction`
 - `func TestCompactContextHandlerReportsRecordedRange(t *testing.T)` — TestCompactContextHandlerReportsRecordedRange：compact_context 工具/命令的
+
+### environment_context.go
+
+- `func (service *Service) environmentTraceBlockFor(sessionID string) string` — environmentTraceBlockFor 返回指定会话当前项目的工作环境块。
+- `func renderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []model.WorkspaceEnvironmentInfo) string` — renderEnvironmentTraceBlock 是纯渲染面，供单元测试直接钉住顺序、地址与标记。
+- `func environmentAddress(item model.WorkspaceEnvironmentInfo, projectRoot string) string`
+- `func singleLine(value string) string`
+
+### environment_context_test.go
+
+- `func (workspace *environmentTraceWorkspace) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (*environmentTraceWorkspace) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
+- `func (*environmentTraceWorkspace) DeleteWorkspaceEnvironment(string, string) error`
+- `func (*environmentTraceWorkspace) SetDefaultWorkspaceEnvironment(string, string) error`
+- `func (sessions *environmentTraceSessions) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)`
+- `func (sessions *environmentTraceSessions) SetSessionSSHState(_ string, state model.SessionSSHInfo) error`
+- `func TestRenderEnvironmentTraceBlockListsModeAddressAndCurrent(t *testing.T)`
+- `func TestRenderEnvironmentTraceBlockSkipsEmptyTable(t *testing.T)`
+- `func TestRenderEnvironmentTraceBlockWithoutBindingStaysLocal(t *testing.T)`
+- `func TestEnvironmentTraceBlockForUsesProjectAndSessionState(t *testing.T)`

@@ -5236,6 +5236,25 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   README 与 diff check 全部通过；
 - 回退方式：恢复单表达式方法并把调用点改回 `Service`。
 
+## EP-046B：自由构造器退场与组合阶段收拢
+
+- 删除 68 个自由 `newService*` 构造器；构造闭包按能力归入
+  `service_assembler_{conversation_turn,session,session_draft,session_query,edit_fork,applications,capabilities,scheduler_lifecycle}.go`；
+- Conversation Turn、Session lifecycle/draft/restore/query、Edit/Fork、
+  Cold Restore、Admin、Policy、Goal、Scheduler、Workspace、Reference、
+  Context Compaction、Async Completion、Lifecycle 与 FaultGuard 的初始化
+  顺序保持逐项不变；
+- 构造器只在 `Service` 组合阶段读取 core 私有状态，没有把这些状态复制进
+  领域包，也没有新增万能 Host 接口；
+- 新增 `TestNoFreeServiceConstructors`，红测初始点名 68 个构造器，迁移后
+  要求自由 `newService*` 构造器为 0；
+- 58 个只承载构造器的文件退出；core 生产文件 111 → 68，生产代码
+  10,634 → 10,243 行；
+- `Service` 公开方法保持 11；GUI/TUI wire、事件 revision/seq、snapshot 与
+  持久化 JSON 均未改变；
+- 回退方式：从对应 `service_assembler_*.go` 恢复单个构造器文件；业务状态与
+  判据无需迁移。
+
 ## EP-047：ToolRecord 内存台账归位
 
 - `Accumulator`、`Stage`、原因归一和叶子暂存测试从 `store/record` 迁入
@@ -5252,16 +5271,36 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - GUI/TUI wire、事件 revision/seq、`tool-record.jsonl` JSON 与 `Service` 方法数不变；
 - 回退方式：恢复 `store/record` 四个源码/测试文件，并让 ToolRecord 重新 import。
 
+## EP-048：Goal Store 适配退出 Application
+
+- `application/goal.CoordinatorDeps` 改为接收 Goal 域自己的
+  `Store` / `AuditAccount` 与已投影的治理视图回调，不再出现
+  `*store.SessionContextStore`、`SessionBoards` 或 `GoalBoardMeta`；
+- 删除 `NewCoordinatorForRuntime` 的 Runtime 类型探测；Core 通过
+  `ExternalPorts.Goal` 接收组合根构造好的 Coordinator；
+- 新增 `wiring/adapters.NewGoalCoordinator`，唯一负责把
+  `Runtime.SessionContextStoreFor`、第五栈适配器和看板存档读面接到 Application；
+- 看板存档到 `dto.GoalGovernanceView` 的投影归
+  `backend/multiagent/goal.GoalGovernanceViewFromBoardArchive`；
+- 红测：`TestGoalApplicationDoesNotImportStore` 先点名
+  `application/goal/coordinator.go`；依赖预算随后点名 `store` 仍被允许；
+- 绿测：Goal 活栈/存档恢复 parity、Wiring narrow-port 门禁、Backend Goal
+  存档边界与 Application 全局依赖预算；
+- Application 全局具体依赖包 27 → 26，具体 `store` 依赖归零；
+- GUI/TUI wire、Goal Stack 与 `board_goal.json` 持久化格式不变；
+- 回退方式：恢复 Application 对 Store 类型的直接依赖和 Runtime 探测，删除
+  Wiring Goal 适配。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 11 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 111 |
-| core 生产代码 | 18,723 行 | 9,915 行 |
+| core 生产文件 | 126 | 68 |
+| core 生产代码 | 18,723 行 | 10,243 行 |
 
-core 生产代码净减 8,808 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 8,480 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

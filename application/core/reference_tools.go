@@ -5,16 +5,7 @@ package core
 // application/reference; this file only supplies the authoritative Tool, Task
 // and Session stores and preserves the Service compatibility methods.
 
-import (
-	"errors"
-	"strings"
-
-	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
-	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
-	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-)
+import "strings"
 
 // nodeToolResult reads a subagent tool result through the Engine bridge.
 func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
@@ -52,80 +43,4 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 		return ref
 	}
 	return realRef
-}
-
-func newServiceReferenceApplication(service *Service) *applicationreference.Application {
-	return applicationreference.New(applicationreference.Deps{
-		ReferencePageSize: func() int {
-			return applicationpolicy.Get().ReferencePageSize
-		},
-		MaxReferencePageSize: func() int {
-			return applicationpolicy.Get().MaxReferencePageSize
-		},
-		NodeResult: func(nodeID, ref string) (string, bool) {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.nodeToolResult(nodeID, ref)
-		},
-		ResolveAlias: service.resolveToolResultRefAlias,
-		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
-			service.ViewMu.RLock()
-			if !service.hasToolResultRefLocked(ref) {
-				service.ViewMu.RUnlock()
-				return model.StoredToolResult{}, false, nil
-			}
-			for _, pending := range service.components.tasks.PendingToolResults() {
-				if pending.Ref == ref {
-					service.ViewMu.RUnlock()
-					return pending, true, nil
-				}
-			}
-			sessionID := service.Core.Snapshot.Session.ID
-			workspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-			service.ViewMu.RUnlock()
-
-			store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
-			if !ok {
-				return model.StoredToolResult{}, false, errors.New("durable result storage is unavailable")
-			}
-			result, err := store.LoadToolResultWorkspace(workspaceID, sessionID, ref)
-			if err != nil {
-				return model.StoredToolResult{}, false, err
-			}
-			return result, true, nil
-		},
-		ActivePlanID: func() string {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.components.tasks.ActivePlanID()
-		},
-		PlanFrame: func(planRef string) (string, model.RuntimeState, bool) {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			frame := task_context.ActivePlanFrame(service.components.tasks.PlanStack(), planRef)
-			if frame == nil {
-				return "", model.RuntimeState{}, false
-			}
-			planState := model.CloneRuntimeState(model.RuntimeState{Plan: frame.Plan})
-			return frame.Arguments, planState, true
-		},
-		CompressedTurnView: func() (string, string) {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.Core.Snapshot.Session.ID,
-				session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-		},
-		LoadCompressedTurn: func(workspaceID, sessionID, ref string) (string, error) {
-			store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
-			if !ok {
-				return "", errors.New("durable storage is unavailable")
-			}
-			result, err := store.LoadToolResultWorkspace(workspaceID, sessionID, ref)
-			if err != nil {
-				return "", err
-			}
-			return result.Content, nil
-		},
-		CompressedTurnPrefix: applicationreference.CompressedTurnRefPrefix,
-	})
 }

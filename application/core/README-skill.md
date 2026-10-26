@@ -11,10 +11,6 @@ Skill 指令信封编解码
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### skill_activate.go
-
-- `func (service *Service) ActivateSkill(name string) (model.SkillInfo, error)` — ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
-
 ### skill_activate_test.go
 
 - `func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T)` — TestActivateSkillPushesLayerAndNextSubmissionTrustsIt：模型侧激活（ActivateSkill）
@@ -24,15 +20,10 @@ Skill 指令信封编解码
 
 ### skill_context.go
 
-- `func chatRequestDisplays(requests []chatRequest) []string`
-- `func newChatRequest(input string, layers []prompt.PromptLayer) chatRequest`
-- `func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer`
 - `func formatSkillUserInput(layers []prompt.PromptLayer, input string) string`
 - `func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer)`
 - `func wrapModelInput(displayInput, body string) string`
 - `func displayUserInput(modelInput string) string`
-- `func combineChatRequests(requests []chatRequest) chatRequest`
-- `func mergeSkillLayers(current, incoming []prompt.PromptLayer) []prompt.PromptLayer`
 - `func parseModelEnvelope(input string) (string, int, bool)`
 
 ### skill_context_test.go
