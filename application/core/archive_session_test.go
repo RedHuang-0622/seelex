@@ -120,7 +120,7 @@ func archiveTestService(t *testing.T, sessions *archiveCommandSessions) *Service
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	return service
 }
 
@@ -144,7 +144,7 @@ func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T) {
 		t.Fatalf("catalog after settle = %d sessions, want 2", got)
 	}
 
-	if err := service.ArchiveSession("session-a"); err != nil {
+	if err := frontendOfTestService(service).ArchiveSession("session-a"); err != nil {
 		t.Fatalf("ArchiveSession: %v", err)
 	}
 	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
@@ -183,26 +183,26 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 	unit := service.sessionUnitLocked("session-a")
 	unit.SetChatState(model.ChatState{Running: true}, nil)
 	service.ViewMu.Unlock()
-	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while running = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.SetChatState(model.ChatState{QueuedCount: 1}, nil)
 	service.ViewMu.Unlock()
-	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while queued = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.SetChatState(model.ChatState{}, nil)
 	unit.AddApproval("approval-1")
 	service.ViewMu.Unlock()
-	if err := service.ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while awaiting approval = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.RemoveApproval("approval-1")
 	service.ViewMu.Unlock()
-	if err := service.ArchiveSession("session-a"); err != nil {
+	if err := frontendOfTestService(service).ArchiveSession("session-a"); err != nil {
 		t.Fatalf("archive after idle: %v", err)
 	}
 	record, ok := sessions.recordFor("", "session-a")
@@ -216,7 +216,7 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 func TestArchiveSessionMissingRecord(t *testing.T) {
 	sessions := newArchiveCommandSessions()
 	service := archiveTestService(t, sessions)
-	if err := service.ArchiveSession("ghost"); !errors.Is(err, ErrSessionNotFoundArchive) {
+	if err := frontendOfTestService(service).ArchiveSession("ghost"); !errors.Is(err, ErrSessionNotFoundArchive) {
 		t.Fatalf("archive missing session = %v, want ErrSessionNotFoundArchive", err)
 	}
 }

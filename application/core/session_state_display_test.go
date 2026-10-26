@@ -15,7 +15,7 @@ import (
 // 已经到达显示面）——通知重复会让每次状态变化多一次整份刷新。
 func TestBackgroundSessionStateChangeNotifiesDisplaySurfaces(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	subscription := service.Events.Subscribe(64)
 	defer subscription.Close()

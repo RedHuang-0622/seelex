@@ -58,7 +58,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
 		t.Fatalf("live bash result = %+v, want project directory %q", result, projectDir)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
@@ -122,7 +122,7 @@ func TestManualSmokeRealAccountGUIBridgeBashFullChain(t *testing.T) {
 	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
 		t.Fatalf("GUI Bridge live bash result = %+v, want project directory %q", result, projectDir)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("GUI Bridge live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	if snapshot := bridge.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
@@ -163,7 +163,7 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	if !strings.Contains(completedMessage.Tool.Result, `"total":1`) {
 		t.Fatalf("live todolist result = %q, want one item", completedMessage.Tool.Result)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {

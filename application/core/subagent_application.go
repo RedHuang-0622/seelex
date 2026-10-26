@@ -6,7 +6,9 @@ func newServiceSubagentApplication(service *Service) *applicationexecution.Subag
 	return applicationexecution.NewSubagent(applicationexecution.SubagentDeps{
 		Runtime: service.Deps.Runtime,
 		Detail:  service.components.subagent.SubagentDetail,
-		Refresh: service.RefreshRuntimeSnapshot,
+		Refresh: func() {
+			service.runtimeApplicationComponent().Refresh()
+		},
 	})
 }
 

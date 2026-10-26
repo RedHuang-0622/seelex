@@ -2,7 +2,7 @@ package core
 
 import (
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // Plan 执行引擎已退役；本文件只保留**历史 Plan 的只读投影**：旧会话里

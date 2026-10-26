@@ -4,7 +4,7 @@ import (
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceSessionColdTask(service *Service) *applicationsessioncold.TaskApplication {

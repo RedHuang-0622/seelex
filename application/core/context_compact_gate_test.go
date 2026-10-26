@@ -59,7 +59,7 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	service.ViewMu.Unlock()
 	done := make(chan error, 1)
 	go func() {
-		_, err := service.CompactContextNow(ctx)
+		_, err := frontendOfTestService(service).CompactContextNow(ctx)
 		done <- err
 	}()
 	select {
@@ -84,7 +84,7 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	// 收口之后同一会话还能再压一次（门没有留在坏状态）。
 	second := make(chan error, 1)
 	go func() {
-		_, err := service.CompactContextNow(ctx)
+		_, err := frontendOfTestService(service).CompactContextNow(ctx)
 		second <- err
 	}()
 	select {

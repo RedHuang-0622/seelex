@@ -9,53 +9,10 @@ import (
 	"testing"
 )
 
-// TestMigratedServiceMethodsRemainOneLineForwards preserves the compatibility
-// rule for already-extracted capabilities: core may adapt ports and forward,
-// but it may not grow a second implementation beside the domain package.
-func TestMigratedServiceMethodsRemainOneLineForwards(t *testing.T) {
+// TestServiceHasNoCompatibilityForwarders proves the compatibility surface has
+// moved out of core: every remaining Service method owns state or lifecycle.
+func TestServiceHasNoCompatibilityForwarders(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	targets := map[string]bool{
-		"UpdateWorkItemStatus":       true,
-		"ListSubagentRecovery":       true,
-		"ResumeInterruptedSubagents": true,
-		"ResumeSubagent":             true,
-		"ForkSubagents":              true,
-		"SubagentSessionDetail":      true,
-		"ClearSubagentTree":          true,
-		"RequestFileReview":          true,
-		"RefreshRuntimeSnapshot":     true,
-		"ScheduleTask":               true,
-		"UpdateScheduledTask":        true,
-		"CancelScheduledTask":        true,
-		"AssembleScheduledRun":       true,
-		"StartScheduledSession":      true,
-		"ActivateSkill":              true,
-		"SetReasoningEffort":         true,
-		"SetLoopLimit":               true,
-		"SetSessionReleaseWindow":    true,
-		"SessionReleaseWindow":       true,
-		"SetPermissionTier":          true,
-		"SetFullAccess":              true,
-		"CompactContextNow":          true,
-		"CompactContextHandler":      true,
-		"EditUserMessageAndFork":     true,
-		"GoalGovernanceViewFor":      true,
-		"GoalBeginFor":               true,
-		"GoalUpdateFor":              true,
-		"GoalDoneFor":                true,
-		"GoalStatusFor":              true,
-		"UnloadSession":              true,
-		"ArchiveSession":             true,
-		"SetSessionMeta":             true,
-		"BeginGracefulShutdown":      true,
-		"WaitForIdle":                true,
-		"AnyChatRunning":             true,
-		"CancelAllChats":             true,
-		"CancelChat":                 true,
-		"Shutdown":                   true,
-		"ReadCompressedTurnHandler":  true,
-	}
-	found := make(map[string]bool, len(targets))
 	coreDir := filepath.Join(applicationDir, "core")
 	entries, err := os.ReadDir(coreDir)
 	if err != nil {
@@ -72,18 +29,14 @@ func TestMigratedServiceMethodsRemainOneLineForwards(t *testing.T) {
 		}
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || !targets[function.Name.Name] || !isServiceReceiver(function) {
+			if !ok || function.Recv == nil || function.Name == nil ||
+				!ast.IsExported(function.Name.Name) || !isServiceReceiver(function) {
 				continue
 			}
-			found[function.Name.Name] = true
 			if !isSingleForwardStatement(function.Body) {
-				t.Errorf("Service.%s must remain a one-line forward to its domain application", function.Name.Name)
+				continue
 			}
-		}
-	}
-	for method := range targets {
-		if !found[method] {
-			t.Errorf("Service.%s is missing from core compatibility entries", method)
+			t.Errorf("Service.%s is still a one-line compatibility forwarder", function.Name.Name)
 		}
 	}
 }

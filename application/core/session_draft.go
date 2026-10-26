@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"time"
@@ -29,9 +29,6 @@ func (service *Service) newDraftSessionIDLocked() string {
 // 换视图指针就是换会话，这两个字段是宿主侧镜像（`Task` 上挂着压缩记录
 // `ContextCompactions`），漏清会让新会话显示、并在首次提交时按会话落盘成
 // 上一个会话的任务面与已读文件。口径与 unloadSession 的同名字段清理一致。
-func (service *Service) BeginNewSession() error {
-	return service.components.sessionDraftEntry.Begin()
-}
 
 // draftShellOptions 是一次"把视图单例切到草稿壳"的**显式差异表**（M5-P18：三条路径的字段清理收成一处）。
 //

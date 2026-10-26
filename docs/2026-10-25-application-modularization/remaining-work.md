@@ -4,8 +4,8 @@
 
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
-AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2a；
-下一步 AP-116F2b。**
+AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
+EP-001～EP-018；下一步拆除剩余外部端口。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -14,12 +14,12 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2a；
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 83 |
-| `application/core` 直接内部依赖 | 33 |
-| `application/core` 生产文件 | 121 |
-| `application/core` 生产代码 | 12,463 行 |
+| `Service` 公开方法 | 23 |
+| `application/core` 直接内部依赖 | 16 |
+| `application/core` 生产文件 | 117 |
+| `application/core` 生产代码 | 11,829 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 5,913 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 6,894 行。
 
 已迁出的领域包：
 
@@ -92,7 +92,10 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2a；
 | AP-116E | 8 个共用入口迁移到 `Frontend`（已完成） | `application` / 前端依赖方 | 高 |
 | AP-116F1 | Admin/Role/Workspace 50 个转发壳迁出 core（已完成） | `application/compat` | 高 |
 | AP-116F2a | 15 个只读会话/执行投影入口迁出 core，history 端口落地（已完成） | `application/compat` / `history` | 高 |
-| AP-116F2b | 剩余 83 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
+| AP-116F2b | Context/Reference/Review/Goal/Scheduler/Lifecycle 19 个方法退场（已完成） | `application/compat` | 高 |
+| AP-116F2c | Session/Subagent 16 个入口迁出 core（已完成） | `application/compat` | 高 |
+| AP-116F2d | Policy/Lifecycle/State 14 个入口迁出 core（已完成） | `application/compat` | 高 |
+| AP-116F2e | 剩余 34 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
 
 ## 4. AP-106：Session Draft Entry / Materialization（已完成）
 
@@ -501,7 +504,7 @@ AP-115D 至此完成。
 草稿和空闲会话的行为与现有一致；命令事件与 GUI/TUI wire 不变；registry 读取不需要
 共享写锁。
 
-## 14. AP-116：83 方法退场
+## 14. AP-116：34 方法退场
 
 这是最终验收批，不提前做“空接口”或“未来接口”。
 
@@ -610,11 +613,13 @@ core 只保留 `FrontendPorts` 装配快照。删除
 指标：Service 公开方法 98 → 83；core 直接内部依赖 34 → 33；core 文件
 123 → 121；core 生产代码 12,538 → 12,463 行。
 
-当前剩余 83 个方法的结构分类：
+当前剩余 34 个方法的结构分类：
 
 外部依赖拆除的端口设计见 [`port-migration-plan.md`](port-migration-plan.md)。
 
-- 60 个仍是单行组件转发，必须继续迁到 `application/compat` 或消费方窄接口；
+- 11 个是 host/assembly 转发：4 个 goal handler、2 个项目看板装配读面、
+  `AddNotice`、`PublishRuntimeProjections`、`ResumeSession`、`ActivateSession`、
+  `CloseRoleToolRecordUnit`；
 - 23 个包含真实状态/生命周期编排，暂由 core 持有：
 
 | 能力 | core 方法 | 暂留原因 |
@@ -653,7 +658,7 @@ core 只保留 `FrontendPorts` 装配快照。删除
 
 ## 17. 最终退出条件
 
-- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 83）；
+- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 34）；
 - core 直接内部依赖接近零；
 - core 生产代码完成删除；
 - GUI/TUI/headless 只消费稳定由 Application/contract 提供的窄 API；

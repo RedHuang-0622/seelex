@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -24,7 +25,7 @@ import (
 //
 // 宿主以 `application/core.ErrSessionNotFoundArchive` 这个别名对外保留迁移前的名字
 // （同一个错误值，`errors.Is` 两个名字都成立）。
-var ErrArchiveNotFound = errors.New("session not found")
+var ErrArchiveNotFound = contract.ErrSessionNotFoundArchive
 
 // ErrArchiveGateUnassembled 是门控端口的**装配缺陷**信号：某一轴明确拒绝放行，
 // 但宿主没有带该轴对应的错误值（nil）。

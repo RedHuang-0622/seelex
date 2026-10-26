@@ -196,7 +196,7 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 		if err := harness.app.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
 		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
@@ -343,7 +343,7 @@ func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T) {
 		if err := harness.app.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
 		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
@@ -401,7 +401,7 @@ func TestFullChainPrefixInvariantOversizedToolResultAcrossTurns(t *testing.T) {
 		if err := harness.app.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
 		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {

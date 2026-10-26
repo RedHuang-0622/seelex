@@ -15,7 +15,7 @@ import (
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
 	service.ViewMu.Unlock()
@@ -43,7 +43,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
 	}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
@@ -102,7 +102,7 @@ func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.discardPendingSubagentContexts()
 	history := engine.History()
@@ -171,7 +171,7 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"an", "swer"}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -204,13 +204,13 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 	if err := service.Submit(context.Background(), "queued"); err != nil {
 		t.Fatal(err)
 	}
-	service.BeginGracefulShutdown()
+	frontendOfTestService(service).BeginGracefulShutdown()
 	if err := service.Submit(context.Background(), "rejected"); !errors.Is(err, ErrApplicationDraining) {
 		t.Fatalf("Submit after graceful shutdown = %v, want ErrApplicationDraining", err)
 	}
 
 	idle := make(chan error, 1)
-	go func() { idle <- service.WaitForIdle(context.Background()) }()
+	go func() { idle <- frontendOfTestService(service).WaitForIdle(context.Background()) }()
 	close(engine.releaseFirst)
 	select {
 	case <-engine.secondStarted:
@@ -273,7 +273,7 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 		t.Fatalf("persistence resume refs = %#v, want queued input", resume.QueuedRefs)
 	}
 	close(sessions.release)
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -290,12 +290,12 @@ func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
 	if !service.Snapshot().Chat.Running {
 		t.Fatal("chat did not start")
 	}
-	if !service.CancelChat("") {
+	if !frontendOfTestService(service).CancelChat("") {
 		t.Fatal("CancelChat returned false for the active request")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitContext); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
 	if task := service.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
@@ -318,16 +318,16 @@ func TestCancelChatWithStaleRequestID(t *testing.T) {
 	if !service.Snapshot().Chat.Running {
 		t.Fatal("chat did not start")
 	}
-	if !service.CancelChat("request-from-a-previous-turn") {
+	if !frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
 		t.Fatal("CancelChat with a stale request id returned false, want the current turn cancelled")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitContext); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
 	// 空闲后不得"顺手取消"任何东西。
-	if service.CancelChat("request-from-a-previous-turn") {
+	if frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
 		t.Fatal("CancelChat succeeded while idle")
 	}
 }

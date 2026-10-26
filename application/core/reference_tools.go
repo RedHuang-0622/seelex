@@ -6,20 +6,14 @@ package core
 // and Session stores and preserves the Service compatibility methods.
 
 import (
-	"context"
 	"errors"
 	"strings"
 
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
-
-// ReadToolResultHandler is the compatibility entry for the model tool.
-func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error) {
-	return service.referenceApplicationComponent().ReadToolResultHandler(argsJSON)
-}
 
 // nodeToolResult reads a subagent tool result through the Engine bridge.
 func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
@@ -57,11 +51,6 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 		return ref
 	}
 	return realRef
-}
-
-// ReadPlanHandler is the compatibility entry for the read_plan model tool.
-func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (string, error) {
-	return service.referenceApplicationComponent().ReadPlanHandler(argsJSON)
 }
 
 func (service *Service) referenceApplicationComponent() *applicationreference.Application {

@@ -4,8 +4,9 @@ import (
 	"context"
 
 	applicationcommand "github.com/RedHuang-0622/seelex/application/input/command"
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // registerBuiltinCommands installs the extracted command application with the
@@ -22,7 +23,7 @@ func (service *Service) registerBuiltinCommands() error {
 			service.ViewMu.RLock()
 			snapshot := service.Core.Snapshot
 			service.ViewMu.RUnlock()
-			return RenderDiag(snapshot)
+			return applicationobservability.RenderDiag(snapshot)
 		},
 		Clear: func() {
 			service.Deps.Engine.ClearHistory()
@@ -33,7 +34,7 @@ func (service *Service) registerBuiltinCommands() error {
 		SigilSkill:   SigilSkill,
 		Mutation: applicationcommand.MutationDeps{
 			Compact: func(ctx context.Context) (string, error) {
-				result, err := service.CompactContextNow(ctx)
+				result, err := service.contextCompactionApplicationComponent().CompactContextNow(ctx)
 				if err != nil {
 					return "", err
 				}
@@ -42,7 +43,9 @@ func (service *Service) registerBuiltinCommands() error {
 				}
 				return compactionRecordNote(result), nil
 			},
-			BeginNewSession: service.BeginNewSession,
+			BeginNewSession: func() error {
+				return service.components.sessionDraftEntry.Begin()
+			},
 			Capabilities: func() (bool, string) {
 				service.ViewMu.RLock()
 				capabilities := service.Core.Snapshot.Capabilities
@@ -73,7 +76,9 @@ func (service *Service) registerBuiltinCommands() error {
 			},
 			Permission:      func() string { return service.permissionTierForSession(service.currentViewSessionID()) },
 			PermissionTiers: dto.PermissionTiers,
-			SetPermission:   service.SetPermissionTier,
+			SetPermission: func(tier string) (string, error) {
+				return service.policyApplicationComponent().SetPermissionTier(tier)
+			},
 		},
 	}
 	application := applicationcommand.New(service.commands, deps)

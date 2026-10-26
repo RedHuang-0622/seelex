@@ -14,6 +14,7 @@ package test
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -40,8 +41,8 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.frontend.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
-		harness.app.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
+		harness.frontend.WorkTableRowsFor, core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamPlanFor,
+		core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -57,7 +58,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if err := harness.frontend.CreateWorkspace("board-write", projectRoot, ""); err != nil {
 		t.Fatalf("建工作区: %v", err)
 	}
-	if err := harness.app.BeginNewSession(); err != nil {
+	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatalf("新建会话: %v", err)
 	}
 	draftSession := harness.app.Snapshot().Session.ID
@@ -81,7 +82,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if err := harness.app.Submit(ctx, "请调用 todo_add 加一条待办，然后只回复『好』。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 	snapshot := harness.app.Snapshot()

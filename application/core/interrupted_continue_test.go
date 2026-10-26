@@ -37,7 +37,7 @@ func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T) {
 
 	engine := &fakeEngine{history: engineHistory}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// chat 前装配 seam：残缺链补成协议合法序列。
 	if err := service.components.history.PrepareProviderHistory(); err != nil {

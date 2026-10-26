@@ -233,10 +233,10 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 		{Text: "b", Status: dto.TodoItemPending},
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	subscription := service.Subscribe(16)
+	subscription := frontendOfTestService(service).Subscribe(16)
 	defer subscription.Close()
 
-	if err := service.UpdateWorkItemStatus("todo:0", "doing"); err != nil {
+	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:0", "doing"); err != nil {
 		t.Fatal(err)
 	}
 	workEvent := waitForWorkTableEvent(t, subscription)
@@ -248,7 +248,7 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 		t.Fatalf("snapshot work table = %+v todo = %+v", snapshot.Runtime.WorkTable, snapshot.Runtime.TodoItems)
 	}
 
-	if err := service.UpdateWorkItemStatus("todo:1", "done"); err != nil {
+	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:1", "done"); err != nil {
 		t.Fatal(err)
 	}
 	workEvent = waitForWorkTableEvent(t, subscription)
@@ -259,16 +259,16 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 
 func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription := service.Subscribe(8)
+	subscription := frontendOfTestService(service).Subscribe(8)
 	defer subscription.Close()
 
-	if err := service.UpdateWorkItemStatus("todo:99", "doing"); err == nil || !strings.Contains(err.Error(), "out of range") {
+	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:99", "doing"); err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("out-of-range todo must fail, got %v", err)
 	}
-	if err := service.UpdateWorkItemStatus("plan:n1", "completed"); err == nil || !strings.Contains(err.Error(), "执行器管理") {
+	if err := frontendOfTestService(service).UpdateWorkItemStatus("plan:n1", "completed"); err == nil || !strings.Contains(err.Error(), "执行器管理") {
 		t.Fatalf("plan status update must be rejected, got %v", err)
 	}
-	if err := service.UpdateWorkItemStatus("bogus", "doing"); err == nil {
+	if err := frontendOfTestService(service).UpdateWorkItemStatus("bogus", "doing"); err == nil {
 		t.Fatal("malformed id must be rejected")
 	}
 	// 拒绝路径不得发布 worktable.changed（允许其他生命周期事件，
@@ -309,7 +309,7 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 		}},
 	}}
 	engine.mu.Unlock()
-	subscription := service.Subscribe(8)
+	subscription := frontendOfTestService(service).Subscribe(8)
 	defer subscription.Close()
 
 	service.refreshWorkTableSnapshot()
@@ -359,7 +359,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	}}
 	engine.mu.Unlock()
 	service := newTestService(t, engine)
-	subscription := service.Subscribe(16)
+	subscription := frontendOfTestService(service).Subscribe(16)
 	defer subscription.Close()
 
 	service.refreshWorkTableSnapshot()

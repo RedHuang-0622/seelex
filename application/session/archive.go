@@ -5,13 +5,13 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/residency"
 )
 
 // ArchiveDeps supplies session record, engine and release callbacks.
 type ArchiveDeps struct {
+	Residency      ResidencyPort
 	Transition     func(sessionID string) sync.Locker
-	Gate           func(sessionID string) residency.ArchiveGate
+	Gate           func(sessionID string) ArchiveGate
 	Load           func(sessionID string) (model.SessionRecord, bool, error)
 	Flush          func(sessionID string) error
 	MarkArchived   func(sessionID string) error
@@ -39,15 +39,18 @@ func (application *ArchiveApplication) Archive(sessionID string) error {
 	transition := application.deps.Transition(sessionID)
 	transition.Lock()
 	defer transition.Unlock()
-	return residency.Archive(residency.ArchiveDeps{
-		Gate: func() residency.ArchiveGate { return application.deps.Gate(sessionID) },
-		Store: residency.ArchiveStore{
+	if application.deps.Residency == nil {
+		return ErrResidencyUnavailable
+	}
+	return application.deps.Residency.Archive(ArchiveUseCaseDeps{
+		Gate: func() ArchiveGate { return application.deps.Gate(sessionID) },
+		Store: ArchiveStore{
 			Load:           application.deps.Load,
 			Flush:          application.deps.Flush,
 			MarkArchived:   application.deps.MarkArchived,
 			RefreshProject: application.deps.RefreshProject,
 		},
-		Engine: residency.ArchiveEngine{
+		Engine: ArchiveEngine{
 			Resident:       application.deps.EngineResident,
 			Loaded:         application.deps.EngineLoaded,
 			Unload:         application.deps.EngineUnload,

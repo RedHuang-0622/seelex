@@ -10,7 +10,7 @@ import (
 
 func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	var stages []string

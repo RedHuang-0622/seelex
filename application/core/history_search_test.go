@@ -84,7 +84,7 @@ func TestSearchHistoryHandlerReturnsStructuredHits(t *testing.T) {
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	output, err := service.SearchHistoryHandler(context.Background(), `{"query": " 数据库优化 "}`)
+	output, err := frontendOfTestService(service).SearchHistoryHandler(context.Background(), `{"query": " 数据库优化 "}`)
 	if err != nil {
 		t.Fatalf("SearchHistoryHandler: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestSearchHistoryHandlerReturnsStructuredHits(t *testing.T) {
 
 func TestSearchHistoryHandlerRejectsEmptyQuery(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if _, err := service.SearchHistoryHandler(context.Background(), `{"query": "  "}`); !errors.Is(err, ErrEmptySearchQuery) {
+	if _, err := frontendOfTestService(service).SearchHistoryHandler(context.Background(), `{"query": "  "}`); !errors.Is(err, ErrEmptySearchQuery) {
 		t.Fatalf("empty query error = %v, want ErrEmptySearchQuery", err)
 	}
 }
@@ -113,7 +113,7 @@ func TestSearchHistoryHandlerRejectsEmptyQuery(t *testing.T) {
 func TestSearchHistoryHandlerPropagatesRuntimeError(t *testing.T) {
 	runtime := &fakeRuntime{searchErr: errors.New("事件库未装配")}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	if _, err := service.SearchHistoryHandler(context.Background(), `{"query": "历史"}`); err == nil || err.Error() != "search_history: 事件库未装配" {
+	if _, err := frontendOfTestService(service).SearchHistoryHandler(context.Background(), `{"query": "历史"}`); err == nil || err.Error() != "search_history: 事件库未装配" {
 		t.Fatalf("runtime error = %v, want wrapped propagation", err)
 	}
 }

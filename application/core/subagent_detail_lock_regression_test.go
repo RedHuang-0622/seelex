@@ -61,7 +61,7 @@ func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T) {
 	var detailErr error
 	go func() {
 		defer wait.Done()
-		_, detailErr = service.SubagentSessionDetail("node-1")
+		_, detailErr = frontendOfTestService(service).SubagentSessionDetail("node-1")
 	}()
 
 	done := make(chan struct{})

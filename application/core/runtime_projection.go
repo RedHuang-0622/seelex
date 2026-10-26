@@ -5,8 +5,7 @@ import (
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	view "github.com/RedHuang-0622/seelex/middle/view"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
@@ -71,8 +70,8 @@ func (service *Service) publishRuntimeProjections() {
 	if service.components.goal != nil {
 		goalGovernance = service.components.goal.GoalGovernanceViewFor(service.Core.Snapshot.Session.ID)
 	}
-	projection := view.RuntimeVisibility(service.components.tasks.GoalSkillActive(), goalGovernance)
-	evidence := view.ParentEvidence(
+	projection := applicationadmin.RuntimeVisibility(service.components.tasks.GoalSkillActive(), goalGovernance)
+	evidence := applicationadmin.ParentEvidence(
 		service.Core.Snapshot.Session.ID,
 		service.Core.Snapshot.Conversation,
 		service.Core.Snapshot.TotalMessages,

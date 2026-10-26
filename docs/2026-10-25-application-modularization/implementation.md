@@ -156,13 +156,37 @@
 | AP-116E | 已完成 | 8 个前端共用入口先迁依赖方，再由 `Frontend` 直接承接 | GUI/TUI/headless/wiring 迁移、148 方法预算绿 |
 | AP-116F1 | 已完成 | Admin/Role/Workspace 50 个纯转发入口迁入 `application/compat` | core 删除 3 个转发文件、98 方法预算绿 |
 | AP-116F2a | 已完成 | 15 个只读查询入口迁入 compat；history 端口落地 | core 直接依赖 34 → 33、83 方法预算绿 |
+| AP-116F2b | 已完成 | Context/Reference/Review/Goal/Scheduler/Lifecycle 19 个入口迁入 compat | core 依赖 33 → 32、64 方法预算绿 |
+| AP-116F2c | 已完成 | Session/Subagent 16 个入口迁入 compat | core 依赖 32 → 28、48 方法预算绿 |
+| AP-116F2d | 已完成 | Policy/Lifecycle/State 14 个入口迁入 compat | 34 方法预算、core 12,302 行 |
+| AP-116F2e | 已完成 | ProjectBoard 装配读面改端口，Resume/Activate 迁入 compat | 30 方法预算、core 12,282 行 |
+| AP-116F2f | 已完成 | Goal tool handlers 迁入 application/goal；ProjectBoard/Resume 壳收口 | 26 方法预算、core 11,846 行 |
+| AP-116F2g | 已完成 | Notice/Runtime/ToolRecord 最后 3 个公开壳迁入 compat | 23 个状态方法预算、core 11,843 行 |
 | EP-001 | 已完成 | History Window 外部端口 | core import 归零、端口/adapter parity、依赖预算 33 |
+| EP-002A | 已完成 | Residency 外部端口 | core residency import 归零、adapter parity、依赖预算 32 |
+| EP-002B | 受阻 | SessionUseCase 端口 | 需完整 SessionUnit/View 状态，等待聚合归属裁决 |
+| EP-003 | 已完成 | Conversation Stream 外部端口 | core engine/react import 归零、依赖预算 31 |
+| EP-004 | 已完成 | Account Window 外部端口 | core accountwindow import 归零、依赖预算 30 |
+| EP-005 | 已完成 | Skill Activation 外部端口 | core engine/skill import 归零、依赖预算 29 |
+| EP-006 | 已完成 | Session Records 外部端口 | core sessionaccess import 归零、adapter parity、依赖预算 28 |
+| EP-007 | 已完成 | Error Presentation 外部端口 | core middle/view/errors import 归零、adapter parity、依赖预算 27 |
+| EP-008 | 已完成 | Context Retain Floor 契约化 | core seelectx import 归零、契约/Engine parity、依赖预算 26 |
+| EP-009 | 已完成 | Prompt Assets 入口收口 | core prompt/assets import 归零、Engine prompt façade、依赖预算 25 |
+| EP-010 | 已完成 | Approval Broker 工厂外置 | core limit/approval import 归零、factory port、依赖预算 24 |
+| EP-011 | 已完成 | Input Router 外部端口 | core backend/engine/input import 归零、factory port、依赖预算 23 |
+| EP-012 | 已完成 | Subagent Tool Event DTO 收口 | core subagent domain import 归零、依赖预算 22 |
+| EP-013 | 已完成 | Team Role Sessions 端口 | core multiagent/team import 归零、删除 core 适配文件、依赖预算 21 |
+| EP-014 | 已完成 | Teamwork Board Reader 端口 | core multiagent/teamwork import 归零、reader parity、依赖预算 20 |
+| EP-015 | 已完成 | Assemble DTO / Host Session 收口 | core engine/assemble import 归零、删除死读取文件、依赖预算 19 |
+| EP-016 | 已完成 | Goal Session Coordinator 迁入 Application | core multiagent/goal import 归零、core 净减 290 行、依赖预算 18 |
+| EP-017 | 已完成 | Middle Model alias 退场 | core 直连 `contract/protocol`、Middle alias 保留、依赖预算 17 |
+| EP-018 | 已完成 | Middle View 只读模型归位 | Diag/投影迁入 Application、core `middle/view` import 归零、依赖预算 16 |
 
 ## 基线指标
 
 | 指标 | 2026-10-25 计划值 | 本轮起点 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 83 |
+| `Service` 公开方法 | 171 | 64 |
 | `application/core` 直接导入 backend/middle/store 包 | 38 | 37 |
 | `application/core` 直接导入 backend/middle/store 包（本轮终点） | 38 | 37 |
 | `application/core` 生产 Go 文件 | 76 | 126 |
@@ -200,6 +224,24 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `Service.ListSessions` / `ProjectRootFor` / `SessionMeta` / `WaitCatalogRefresh` | `SessionQuery` | GUI/TUI/headless 待迁 | M8/AP-008 | 旧方法只一行转发，生产可直接消费 `SessionQuery` | 恢复查询方法体 |
 | `Frontend.LoadMoreHistory` / `LoadLatestHistory` | `ConversationHistoryQuery` | GUI、TUI、headless | AP-116F | `Service` 已无同名公开方法，前端直接调用历史组件 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
 | `application/core -> middle/switch/history` | `application/history.WindowAssembler` + Wiring 注入 `history.Assembler` | History 查询宿主 | EP-001（已完成） | core import 为零；依赖预算 33 | 恢复 core 直接 import 与旧构造签名 |
+| `application/core -> middle/residency` | `application/session.ResidencyPort` + Wiring 注入 Middle 判据 | core Session/Residency 宿主 | EP-002A（已完成） | core import 为零；依赖预算 32 | 恢复 core 直接 import 与旧 deps |
+| `application/core -> middle/switch/sessionusecase` | 待会话聚合归属裁决 | core Chat/Queue/Session 生命周期 | EP-002B（受阻） | 旧 import 尚在 | 保留当前状态 owner |
+| `application/core -> backend/engine/react stream primitives` | `application/conversation.StreamOutputPort` + Wiring adapter | Chat 流与冷读正文适配 | EP-003（已完成） | core import 为零 | 恢复 engine/react 直接 import |
+| `application/core -> backend/limit/accountwindow` | `application/admin.AccountWindowPolicy` + Wiring adapter | 账号窗口设置 | EP-004（已完成） | core import 为零 | 恢复直接构造 Setter |
+| `application/core -> backend/engine/skill` | `application/policy.SkillActivationPort` + Wiring adapter | skill_activate | EP-005（已完成） | core import 为零 | 恢复直接构造 Activator |
+| `application/core -> middle/view/sessionaccess` | `application/conversation.SessionRecordsPort` + Wiring adapter | 主会话 ConversationView 分页 | EP-006（已完成） | core import 为零；adapter 与原分页函数 parity | 恢复直接调用 `PaginateRecords` |
+| `application/core -> middle/view/errors` | `contract.ErrorPresentationPort` + Wiring adapter | Chat 预算错误、Tool Hook 错误出口 | EP-007（已完成） | core import 为零；adapter 与原呈现函数 parity | 恢复直接调用 `viewerrors.Wrap/PresentToolError` |
+| `application/core -> backend/engine/context/seelectx` | `contract.RetainFloorTokens` + Engine 兼容转发 | Retain floor 与启动期窗口校验 | EP-008（已完成） | core import 为零；数学实现只有 Contract 一份 | 恢复 core 调用 `seelexctx.RetainFloorTokens` |
+| `application/core -> backend/engine/prompt/assets` | `backend/engine/prompt.ValidateAssets` | Application 启动期提示词资产校验 | EP-009（已完成） | core import 为零；资产解析/校验仍只有 assets 一份 | 恢复 core 直接调用 `promptassets.Validate` |
+| `application/core -> backend/limit/approval` | `ExternalPorts.ApprovalFactory` + Wiring adapter | `Dependencies.Approval` 缺省装配 | EP-010（已完成） | core import 为零；Broker 状态机仍只有 Backend 一份 | 恢复 core 直接构造 `limitapproval.ApprovalBroker` |
+| `application/core -> backend/engine/input` | `contract.CommandRegistryPort` / `InputDispatcher` + Wiring factories | 内置命令注册与规范化输入分派 | EP-011（已完成） | core import 为零；前缀路由与注册表仍只有 Backend 一份 | 恢复 core 直接持有 `CommandRegistry` / `Router` |
+| `application/core -> backend/multiagent/subagent` | `dto.SubagentToolEvent` | 子代理工具事件兼容入口 | EP-012（已完成） | core import 为零；Backend 类型继续是同身份 alias | 恢复 core 使用 Backend alias |
+| `application/core -> backend/multiagent/team` | `contract.RoleSessionsPort` + Wiring factory | GUI compat 的 RoleSession/Schedule 入口 | EP-013（已完成） | core import 为零；可选能力解析与错误文案仍只有 Team 一份 | 恢复 core `roleSessions()` 直接构造 `team.RoleSessions` |
+| `application/core -> backend/multiagent/teamwork` | `application/execution.BoardReader` + Wiring factory | WorkItem 的团队看板/teammate 只读投影 | EP-014（已完成） | core import 为零；reader parity 覆盖三方法 | 恢复 core 直接构造 `teamwork.NewBoardReader` |
+| `application/core -> backend/engine/assemble` | `dto.ScheduledTaskSpec` + `ExternalPorts.HostSessionForToolCall` | 调度参数与 goal 只读会话归属 | EP-015（已完成） | core import 为零；Context 读取实现仍只有 Assemble 一份 | 恢复 core 直接 import `assemble` |
+| `application/core -> backend/multiagent/goal` | `application/goal.Coordinator` | 会话级 Controller 缓存与治理投影 | EP-016（已完成） | core import 为零；Goal 状态机仍只在 Backend | 恢复 core `goal_coordinator.go` |
+| `application/core -> middle/protocol/model` | `contract/protocol` | Snapshot/Message/Plan/View 等全部 wire 形状 | EP-017（已完成） | core import 为零；Middle 路径继续同身份 alias | 恢复 core 使用 Middle alias |
+| `application/core -> middle/view` | `application/observability.RenderDiag` + `application/admin` runtime projections | `/diag` 与回合尾 Runtime 投影 | EP-018（已完成） | core import 为零；纯投影测试随能力迁入 Application | 恢复 core 调用 `middle/view` |
 | `application.Command/CommandResult` | `contract.Command/CommandResult` | GUI/TUI/命令注册 | M8 | 根门面不再 import backend input | 恢复 concrete alias |
 | `goaldomain.*GoalRecord/Request/StatusView` | `dto.GoalRecord/BeginGoalRequest/UpdateGoalRequest/FinishGoalRequest/GoalStatusView` | GUI/headless/Application GoalAPI | M8 | 类型 identity 由 goal domain alias 保持 | 恢复 goal 本地定义 |
 | `assemble.ScheduledTaskSpec/Status` | `dto.ScheduledTaskSpec/Status` | GUI/调度注册 | M8 | 入站 API import 扫描通过 | 恢复 assemble alias |
@@ -4309,6 +4351,110 @@ wiring、GUI、TUI 与 test harness 已通过 compat 或窄组件入口读取，
 - core 生产文件：123 → 121；
 - core 生产代码：12,538 → 12,463 行。
 
+### AP-116F2b Context/Reference/Review/Goal/Scheduler/Lifecycle 壳迁移
+
+新增 compat 端口快照：ContextCompaction、Goal、Review、Scheduler、
+ScheduledRun、ScheduledSession、Lifecycle、Runtime，并把 19 个单行入口从
+`Service` 移除：
+
+- Context/Reference/Review 6 个；
+- Goal 状态机公开入口 5 个；
+- Scheduler/Runtime 6 个；
+- Lifecycle 查询与等待 2 个。
+
+内部调用改为直接调用唯一组件：命令压缩、goal handler、scheduler observer、
+subagent refresh 和 view 的 goal governance adapter 都只保留一个入口。
+
+结构指标：
+
+- `Service` 公开方法：83 → 64；
+- core 直接内部依赖：33 → 32；
+- core 生产文件：121 → 121；
+- core 生产代码：12,463 → 12,387 行。
+
+### AP-116F2c Session/Subagent 兼容面迁移
+
+把 16 个公开入口迁入 `application/compat`：session archive/draft/unload/meta、
+edit/fork、Session SSH、Skill 激活、WorkItem 状态以及子代理恢复/详情/清空。
+
+内部命令、environment trace、edit rollback、subagent refresh 全部改为直接调用
+唯一组件，不恢复 `Service` 公共壳。
+
+结构指标：
+
+- `Service` 公开方法：64 → 48；
+- core 直接内部依赖：32 → 28；
+- core 生产代码：12,387 → 12,335 行。
+
+### AP-116F2d Policy/Lifecycle/State 兼容面迁移
+
+把 14 个公开入口迁入 compat：history search handler、生命周期
+begin/cancel/shutdown、Effort/Loop/Release/Permission、process Subscribe、
+GoalSkillActive 与 subagent tool-event 投影。
+
+`SetFullAccess` 的 tier 回调改为调用同一个 `SwitchApplication.SetPermissionTier`
+组件，不经过已删除的 Service 壳。
+
+结构指标：
+
+- `Service` 公开方法：48 → 34；
+- core 直接内部依赖：28 → 28；
+- core 生产文件：121 → 121；
+- core 生产代码：12,335 → 12,302 行。
+
+### AP-116F2e ProjectBoard 与 SessionResume 收口
+
+- `ProjectBoardTeamPlanFor` / `ProjectBoardTeamStateFor` 不再出现在 Service；
+  project-board 装配直接读取 `core.NewFrontendPorts(app).ProjectBoard`；
+- `ResumeSession` / `ActivateSession` 迁入 `application/compat`，直接调用
+  `application/session.ResumeApplication`；
+- 核心私有 `resumeSession` 仍是内部状态链，不复制恢复逻辑；
+- GUI、TUI、console、scheduled 与 e2e 全部改走 Frontend 或组件端口。
+
+结构指标：
+
+- `Service` 公开方法：34 → 30；
+- core 直接内部依赖：25 → 23（并行外部端口批次同时收口 Input/Prompt/Approval 等）；
+- core 生产文件：121 → 121；
+- core 生产代码：12,302 → 12,282 行。
+
+### AP-116F2f Goal handlers 与最后 assembly 壳
+
+- Goal JSON handler 的解析、`finish|abort` 词表校验和 JSON 回执迁入
+  `application/goal.Application`，通过 `WriteSessionID` / `ReadSessionID`
+  两个纯回调解析目标会话；
+- `wiring/registry.RegisterGoalTools` 改为接收 Goal handler 窄接口，不再接
+  `*application.Service`；
+- `ProjectBoardTeamPlanFor` / `ProjectBoardTeamStateFor` 从 Service 删除，
+  bootstrap 和测试直接使用 `FrontendPorts.ProjectBoard`；
+- `ResumeSession` / `ActivateSession` 由 compat 直接调用 SessionResume；
+- goal coordinator 宿主实现同步收口到外部端口，删除 core coordinator 文件。
+
+结构指标：
+
+- `Service` 公开方法：30 → 26；
+- core 直接内部依赖：19 → 18；
+- core 生产文件：119 → 118；
+- core 生产代码：12,136 → 11,846 行。
+
+### AP-116F2g 状态 Host 回调外置
+
+最后 3 个公开转发壳迁入 compat，实际状态动作仍由 core 持有：
+
+- `AddNotice → FrontendPorts.AddNotice → service.addNotice`；
+- `PublishRuntimeProjections → FrontendPorts.PublishRuntime`；
+- `CloseRoleToolRecordUnit → FrontendPorts.CloseRoleToolRecord`。
+
+结构门禁 `TestServiceHasNoCompatibilityForwarders` 改为扫描所有导出的
+`Service` 方法；core 中不得再存在新的单行公开兼容转发。
+
+结构指标：
+
+- `Service` 公开方法：26 → 23；
+- core 直接内部依赖：18 → 18；
+- core 生产文件：118 → 118；
+- core 生产代码：11,846 → 11,843 行。
+
 ## 跨会话阻塞项
 
 - AP-003 的 DTO 迁移已完成；后续若新接口需要改 `contract/**`，仍须登记契约、
@@ -4362,17 +4508,245 @@ wiring、GUI、TUI 与 test harness 已通过 compat 或窄组件入口读取，
 本批直接内部依赖 **34 → 33**；core 生产文件 121、生产代码 12,463 行（工作树并行
 提取后的当前值）。GUI/TUI wire、事件 revision/seq、持久化格式均未改变。
 
+## EP-002A：Residency 外部端口
+
+设计门禁与停止条件见
+[`session-residency-front-review.md`](session-residency-front-review.md) 与
+[`session-residency-plan.md`](session-residency-plan.md)。
+
+- 新端口：`application/session.ResidencyPort`；
+- 纯值 deps：`EvictionSnapshot/Deps`、`ArchiveGate/Store/Engine/UseCaseDeps`；
+- LRU 序在端口边界使用 `[]string`，`middle/residency` 仍是 Order、Budget、
+  Prune、Eviction、InputIndex、Archive 的唯一判据；
+- archive not-found identity 下沉 `contract.ErrSessionNotFoundArchive`；
+- 唯一 adapter：`wiring/adapters.NewResidencyPort`；
+- core 的 9 个 residency import 文件全部改为端口调用，GUI/TUI wire 与持久化不变。
+
+EP-002B（SessionUseCase）在设计门禁停止：`SessionUnit`/`View` 同时承载 Chat、
+Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化会镜像完整 session state，
+违反停止条件。候选项见设计报告，等待聚合归属裁决。
+
+## EP-003：Conversation Stream 外部端口
+
+- 新端口：`application/conversation.StreamOutputPort`；
+- 纯值类型：`VisibleOutput`、`DeltaBatcher`、`StreamBatcherOptions`；
+- 唯一实现：`wiring/adapters.NewConversationStreamPort` 转发
+  `backend/engine/react`；
+- core 的 `chat.go` 与 `session_history.go` 不再 import engine/react；
+- think-block 过滤、可见输出流和 batcher 生命周期仍只有 Engine 一份实现；
+- GUI/TUI wire、事件 revision/seq 与持久化格式不变。
+
+## EP-004：Account Window 外部端口
+
+- 新端口：`application/admin.AccountWindowPolicy`；
+- 唯一实现：`wiring/adapters.NewAccountWindowPolicy` 转发
+  `backend/limit/accountwindow.Setter`；
+- core 不再 import `backend/limit/accountwindow`；
+- 窗口校验、先写盘后改运行面、错误文案与生效值仍是 Middle 唯一实现；
+- 本次增加少量构造注入代码，core 行数因此小幅上升，但直接内部依赖从 31 降到 30。
+
+## EP-005：Skill Activation 外部端口
+
+- 新端口：`application/policy.SkillActivationPort`；
+- 唯一实现：`wiring/adapters.NewSkillActivationPort` 转发
+  `backend/engine/skill.Activator`；
+- core 不再 import `backend/engine/skill`；
+- 空名、`goal` 禁激活、未知技能错误与落地动作顺序保持原实现；
+- 直接内部依赖从 30 降到 29。
+
+## EP-006：Session Records 外部端口
+
+- 新端口：`application/conversation.SessionRecordsPort`；
+- 消费面：主会话 `ConversationView` 的 record 分页；
+- 唯一实现：`wiring/adapters.NewSessionRecordsPort` 逐项转发
+  `middle/view/sessionaccess.PaginateRecords`；
+- core 不再 import `middle/view/sessionaccess`，分页边界与 UTF-8 裁剪判据仍只有
+  Middle 一份实现；
+- 红测：`TestCoreDoesNotImportSessionAccessView` 在迁移前点名
+  `conversation_session.go`；
+- adapter parity：`TestSessionRecordsPortMatchesMiddlePaginator` 用同一输入逐字段
+  比较端口与 Middle 原函数输出；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import 与对 `PaginateRecords` 的调用，删除端口注入字段。
+
+## EP-007：Error Presentation 外部端口
+
+- 新端口：`contract.ErrorPresentationPort`，只含 `Wrap` 与 `PresentToolError` 两个纯函数面；
+- 消费方：Chat 的 ReAct 预算错误包装与 Tool Hook 的错误呈现；
+- 唯一实现：`wiring/adapters.NewErrorPresentationPort` 转发 `middle/view/errors`；
+- core 不再 import `middle/view/errors`；错误分类优先级、用户可见文案和 provider
+  细节隐藏规则仍只有 Middle 一份实现；
+- 红测：`TestCoreDoesNotImportViewErrorPresentation` 初始点名
+  `chat.go`、`service_assembler.go`、`tool_hooks.go`；
+- adapter parity：`TestErrorPresentationPortMatchesMiddleRules` 对同一错误比较包装类型、
+  原始正文、结构化错误码与工具错误文本；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 对 `middle/view/errors` 的直接引用并删除端口字段。
+
+## EP-008：Context Retain Floor 契约化
+
+- 这是纯数学判据而不是可替换服务，因此不新增无状态 adapter/interface；
+- 唯一实现迁到 `contract.RetainFloorTokens`，`seelectx.RetainFloorTokens` 保留同语义
+  兼容转发供 Engine 现有调用方使用；
+- core 的 retain floor 与启动期窗口校验改调 Contract，退出
+  `backend/engine/context/seelectx` 直接依赖；
+- 红测：`TestCoreDoesNotImportContextWindowMath` 初始点名 `window.go`；
+- 契约测试：`TestRetainFloorTokens` 覆盖禁用比例、禁用预算与正常比例；
+- 绿测：`application/core` 保留窗回归与 `seelectx` 原窗口测试继续通过；
+- 回退方式：恢复 `seelectx` 函数体并让 core 直接调用；GUI/TUI wire 与持久化不变。
+
+## EP-009：Prompt Assets 入口收口
+
+- core 已依赖 Engine prompt 域，但不应再穿透到其资源子包；
+- `backend/engine/prompt.ValidateAssets` 成为 Application 启动期校验的窄入口，
+  内部仍唯一调用 `promptassets.Validate`；
+- core 不再 import `backend/engine/prompt/assets`，资产覆盖、逐文件回退与模板校验
+  规则没有第二份；
+- 红测：`TestCoreDoesNotImportPromptAssetsPackage` 初始点名 `service_assembler.go`；
+- 绿测：`backend/engine/prompt/...`、Prompt/Identity/Instructions core 回归与
+  Application 预算通过；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 对 assets 子包的 import 与直接 `Validate` 调用。
+
+## EP-010：Approval Broker 工厂外置
+
+- 新装配端口：`core.ExternalPorts.ApprovalFactory func(event.Hub) contract.ApprovalBroker`；
+- 唯一实现：`wiring/adapters.NewApprovalBrokerFactory` 转发
+  `backend/limit/approval.NewApprovalBroker`；
+- core 只在 `Dependencies.Approval` 缺省时调用工厂，审批超时、会话归属、决议幂等与
+  观察者语义仍由 Backend Broker 唯一实现；
+- 删除 core 的 `NewApprovalBroker` 构造转发；core 测试改用同一 adapter；
+- 红测：`TestCoreDoesNotImportApprovalImplementation` 初始点名 `assembly_helpers.go`；
+- 绿测：Approval/Interaction/Permission core 回归、Backend approval 包测试与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 构造 helper，并让缺省装配直接调用 Backend Broker。
+
+## EP-011：Input Router 外部端口
+
+- 新端口：`contract.CommandRegistryPort` 与 `contract.InputDispatcher`，路由处理闭包用
+  `contract.InputRouteHandlers`；
+- 唯一实现：`wiring/adapters.NewCommandRegistryFactory` 与
+  `NewInputRouterFactory` 转发 `backend/engine/input`；
+- core 的 `serviceState.commands` 与 `serviceComponents.input` 改持接口，启动时由
+  ExternalPorts 注入；
+- 命令注册表的去重、大小写查找、排序与 `/ # $` 前缀分派仍只有 Backend 一份；
+- 删除 core 的 `NewCommandRegistry` 与 `newInputRouter` 构造转发；core 测试改用 adapter；
+- 红测：`TestCoreDoesNotImportInputRouterImplementation` 初始点名
+  `assembly_helpers.go`、`service_state.go`；
+- 绿测：Command/Input/Sigil/Suggestion core 回归、adapter factory 用例与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 具体类型与构造 helper，并删除两个 factory 端口。
+
+## EP-012：Subagent Tool Event DTO 收口
+
+- `service.handleSubagentToolEvent` 的唯一入参类型本来就是
+  `dto.SubagentToolEvent`；核心入口改为直接使用 DTO；
+- `backend/multiagent/subagent.SubagentToolEvent` 继续保留同身份 alias，调用方与 wire
+  字段不变；
+- 删除 `application/core -> backend/multiagent/subagent` 这一条仅为类型别名存在的边；
+- 红测：`TestCoreDoesNotImportSubagentDomainForDto` 初始点名 `service.go`；
+- 绿测：Subagent/ToolHook/ToolRecord core 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 的 Backend alias import；无状态迁移或数据回退。
+
+## EP-013：Team Role Sessions 端口
+
+- 新端口：`contract.RoleSessionsPort`，覆盖 GUI compat 实际消费的 RoleSession 与
+  Schedule 方法；
+- 唯一可选能力解析：`wiring/adapters.NewRoleSessionsFactory` 对 `SessionPort` 做
+  `RoleSessionPort` / `SchedulePort` 断言并构造 `team.RoleSessions`；
+- `core.FrontendPorts.RoleSessions` 改持端口；删除 `application/core/role_session.go`
+  及其 Backend 构造逻辑；
+- “未装配会话端口”“未暴露角色会话”“未暴露定时插话”三类错误仍只有 Team 一份；
+- 红测：`TestCoreDoesNotImportTeamRoleSessionsImplementation` 初始点名
+  `frontend_ports.go`、`role_session.go`；
+- 绿测：adapter 未装配错误 parity、Role/Schedule/Frontend core/compat 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core `role_session.go` 与 `FrontendPorts` 的具体字段类型。
+
+## EP-014：Teamwork Board Reader 端口
+
+- 新端口：`application/execution.BoardReader`，只含 WorkItem 真实消费的
+  BoardView/SessionLive/SessionLivePage 三个只读方法；
+- 唯一实现：`wiring/adapters.NewTeamworkBoardReaderFactory` 构造
+  `teamwork.BoardReader`，输入是现有 `contract.RuntimePort`；
+- core 只把 reader 方法接到 `WorkItemDeps`，不再 import Teamwork 实现包；
+- 红测：`TestCoreDoesNotImportTeamworkBoardReader` 初始点名
+  `work_table_application.go`；
+- adapter parity：`TestTeamworkBoardReaderFactoryMatchesBackendReader` 对相同
+  Runtime/分页输入比较三个投影；
+- 绿测：WorkItem/Teamwork/Teammate/Board core+execution 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 内 `teamwork.NewBoardReader(service.Deps.Runtime)`。
+
+## EP-015：Assemble DTO / Host Session 收口
+
+- 调度参数直接使用既有的 `dto.ScheduledTaskSpec`，不再穿到 Assemble 的兼容 alias；
+- goal 读会话归属拆成两个纯输入：core 自己的 `sessionIDFromContext` 与
+  `ExternalPorts.HostSessionForToolCall`；Wiring adapter 转发
+  `assemble.HostSessionForToolCall`；
+- 删除只为一次纯转发存在的 `application/core/goal_read_session.go`，组合逻辑内联在
+  Goal Application 构造处；
+- 红测：`TestCoreDoesNotImportAssembleForDtoOrContextRead` 初始点名
+  `goal_read_session.go`、`service_scheduler.go`；
+- adapter parity：`TestHostSessionForToolCallMatchesAssemble` 对同一 ctx 比较结果；
+- 绿测：Goal/Scheduled/Schedule/Runtime core 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 Assemble import、`goal_read_session.go` 与 Assemble alias 签名。
+
+## EP-016：Goal Session Coordinator 迁入 Application
+
+- 领域归属：按会话缓存 `goal.Controller`、第五栈重载与看板恢复投影属于 Application
+  编排；Goal 状态机与持久化语义仍归 `backend/multiagent/goal`；
+- `application/goal.Coordinator` 承接原 core 协调器，`CoordinatorDeps.StoreFor` 保持
+  “未装配 → 内存态”的既有降级；
+- `CoordinatorPort` 继续作为用例面；core 组合根只构造 Coordinator，不再 import
+  Goal 领域包；
+- `StackFrames` 成为 Application 层投影函数，相关 stack/done/archive 测试随能力迁入
+  `application/goal`；core 只保留发布与释放编排；
+- 依赖门禁：`TestCoreDoesNotImportGoalDomain` 钉住 core import 归零；
+- 绿测：Goal/Governance/Archive/Release core+goal 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：将 `application/goal/coordinator.go` 移回 core，并恢复
+  `serviceComponents.goal` 的具体类型。
+
+## EP-017：Middle Model alias 退场
+
+- `contract/protocol` 已是 Snapshot、Message、Plan、Runtime、WorkTable 等 wire 形状的
+  唯一声明源；`middle/protocol/model` 只保留同身份 alias；
+- core 的 50 个生产文件批量改用 `contract/protocol`，类型身份与 JSON 字段不变；
+- Middle/frontend 现有 import 仍可通过 alias 路径编译，删除里程碑随 BM-002 后续消费方迁移；
+- 红测：`TestCoreUsesContractProtocolModel` 初始列出 50 个仍 import Middle alias 的文件；
+- 绿测：Snapshot/Message/History/Session/Goal/Tool core 回归、协议双向 build 与预算；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：批量恢复 `middle/protocol/model` import；无数据迁移。
+
+## EP-018：Middle View 只读模型归位
+
+- 领域归属：`RenderDiag` 是从权威 Snapshot 派生的无状态观测文本，归入
+  `application/observability`；RuntimeVisibility / ParentEvidence /
+  LatestVisibleUserGoal 是 Runtime 发布前的纯投影构造，归入 `application/admin`；
+- 两个文件从 `middle/view` 物理迁出，不保留反向 wrapper；
+- `application.RenderDiag` 公开门面与 `/diag` 命令签名不变，core 不再 import
+  `middle/view`；
+- 红测：`TestCoreDoesNotImportMiddleViewReadModels` 初始点名
+  `diagnostics.go`、`runtime_projection.go`；
+- 绿测：`RenderDiag`、RuntimeProjection、LatestVisibleUserGoal、PerfStats 及
+  core Snapshot/Runtime 回归；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：把 diagnostics/projection 文件移回 `middle/view` 并恢复 core 调用。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 83 |
-| core 直接内部依赖 | 37 | 34 |
-| core 生产文件 | 126 | 121 |
-| core 生产代码 | 18,723 行 | 12,463 行 |
+| `Service` 公开方法 | 171 | 23 |
+| core 直接内部依赖 | 37 | 16 |
+| core 生产文件 | 126 | 117 |
+| core 生产代码 | 18,723 行 | 11,829 行 |
 
-core 生产代码净减 6,260 行，直接内部依赖从 37 降到 33；AP-116A/B/C/D/E/F1/F2a
-共收回或迁出 88 个 `Service` 公开入口。
+core 生产代码净减 6,894 行，直接内部依赖从 37 降到 16；
+AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
 Policy、Session Lifecycle/Draft/Cold、Context Compaction 与 Conversation Queue/ChatState

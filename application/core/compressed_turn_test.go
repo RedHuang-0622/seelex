@@ -208,7 +208,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(st))
 
 	args, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9"})
-	page, err := service.ReadCompressedTurnHandler(context.Background(), string(args))
+	page, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 
 	// 过滤：contains 只返回匹配行。
 	filterArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9", "contains": "轮1"})
-	filtered, err := service.ReadCompressedTurnHandler(context.Background(), string(filterArgs))
+	filtered, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(filterArgs))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,11 +230,11 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 
 	// 未知 segment：报错。
 	missingArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-missing"})
-	if _, err := service.ReadCompressedTurnHandler(context.Background(), string(missingArgs)); err == nil {
+	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(missingArgs)); err == nil {
 		t.Fatal("missing segment must fail")
 	}
 	// 缺 segment_id：报错。
-	if _, err := service.ReadCompressedTurnHandler(context.Background(), `{}`); err == nil {
+	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), `{}`); err == nil {
 		t.Fatal("missing segment_id must fail")
 	}
 }

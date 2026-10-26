@@ -26,7 +26,7 @@ func inputIndexService(t *testing.T, store *pagedSessionStore) *Service {
 		Sessions:  store,
 		Workspace: newFakeWorkspace(),
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	return service
 }
 

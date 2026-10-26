@@ -89,7 +89,7 @@ func coldLoadLongSession(t *testing.T, trailingInternal int) (*Service, *pagedSe
 	store := newPagedSessionStore("long-session", 0)
 	seedDurableRows(store, 20, trailingInternal)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.ResumeSession("long-session"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("long-session"); err != nil {
 		t.Fatalf("冷加载会话: %v", err)
 	}
 	baseline := service.Snapshot()

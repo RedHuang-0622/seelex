@@ -70,11 +70,11 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	}
 	harnessContinue := newFullChainHarness(t, continueAccounts, continueStore, 10*time.Second)
 	roundStart := time.Now()
-	runSettledRounds(t, ctx, harnessContinue.app, settledRounds)
+	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
 	if err := harnessContinue.app.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("continue submit: %v", err)
 	}
-	if err := harnessContinue.app.WaitForIdle(ctx); err != nil {
+	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("continue idle: %v", err)
 	}
 	metrics.RoundsWall = time.Since(roundStart)
@@ -83,7 +83,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		t.Fatalf("continue requests=%d want %d", len(continueRecords), settledRounds+1)
 	}
 	continued := continueRecords[len(continueRecords)-1]
-	harnessContinue.app.Shutdown()
+	harnessContinue.frontend.Shutdown()
 
 	// 对照 B：同样轮数 → 重启 → ResumeSession → 提交下一轮。
 	restartRecorder := newPrefixRecordingServer(t)
@@ -96,17 +96,17 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessFirst.app, settledRounds)
+	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
 	sessionID := harnessFirst.app.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
-	harnessFirst.app.Shutdown()
+	harnessFirst.frontend.Shutdown()
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 	resumeStart := time.Now()
-	if err := harnessRestarted.app.ResumeSession(sessionID); err != nil {
+	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	waitColdContent := func(app *application.Service, sid string) {
@@ -129,7 +129,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	if err := harnessRestarted.app.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("restart submit: %v", err)
 	}
-	if err := harnessRestarted.app.WaitForIdle(ctx); err != nil {
+	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("restart idle: %v", err)
 	}
 	restartRecords := restartRecorder.snapshot()
@@ -142,19 +142,19 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	if !metrics.RestartMatches {
 		t.Fatalf("重启后首请求与不重启继续运行不一致:\n%s", strings.Join(compareWirePrefix(restarted, continued), "\n"))
 	}
-	harnessRestarted.app.Shutdown()
+	harnessRestarted.frontend.Shutdown()
 
 	// 冷恢复耗时 3 次采样取平均。
 	totalResume := firstResume
 	for repeat := 1; repeat < 3; repeat++ {
 		repeatHarness := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 		start := time.Now()
-		if err := repeatHarness.app.ResumeSession(sessionID); err != nil {
+		if err := repeatHarness.frontend.ResumeSession(sessionID); err != nil {
 			t.Fatalf("repeat resume: %v", err)
 		}
 		waitColdContent(repeatHarness.app, sessionID)
 		totalResume += time.Since(start)
-		repeatHarness.app.Shutdown()
+		repeatHarness.frontend.Shutdown()
 	}
 	metrics.ColdResumeAvg = totalResume / 3
 

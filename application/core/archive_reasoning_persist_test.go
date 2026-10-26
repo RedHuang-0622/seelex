@@ -18,7 +18,7 @@ func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T) {
 		ID:      "session-reasoning",
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-reasoning"}, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-reasoning"}
 	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "q1"})

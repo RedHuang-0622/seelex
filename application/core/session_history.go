@@ -5,11 +5,10 @@ import (
 	"fmt"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
@@ -249,12 +248,6 @@ func (service *Service) attachSessionContextFor(workspaceID, sessionID string) e
 	return nil
 }
 
-// ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
-// 让一次点击有同步结果：恢复的快照或返回的错误。
-func (service *Service) ResumeSession(sessionID string) error {
-	return service.resumeSession(sessionID)
-}
-
 // LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 // 「加载更早」按钮的应用边界）。
 //
@@ -418,7 +411,7 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 		if !isVisibleHistoryMessage(msg) {
 			continue
 		}
-		page.Rows = append(page.Rows, adaptEngineMessage(msg))
+		page.Rows = append(page.Rows, service.adaptEngineMessage(msg))
 	}
 	page.RawRows = len(history)
 	page.DiskTotal = count
@@ -508,12 +501,16 @@ func (service *Service) visibleWindowFirstRow(sessionID string, assembler applic
 	return first
 }
 
-func adaptEngineMessage(msg contract.EngineMessage) model.Message {
+func (service *Service) adaptEngineMessage(msg contract.EngineMessage) model.Message {
+	return adaptEngineMessage(msg, service.components.conversationStreams.StripThoughtBlocks)
+}
+
+func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string) model.Message {
 	content := msg.Content
 	if msg.Role == "user" {
 		content = displayUserInput(content)
-	} else if msg.Role == "assistant" || msg.Role == "tool" {
-		content = chat.StripThoughtBlocks(content)
+	} else if (msg.Role == "assistant" || msg.Role == "tool") && stripThoughtBlocks != nil {
+		content = stripThoughtBlocks(content)
 	}
 	if context_runtime.IsProviderOnlyHistoryContent(content) {
 		content = ""

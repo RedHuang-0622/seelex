@@ -33,7 +33,7 @@ func TestLoadMoreHistoryReadsOutsideSharedWriteLock(t *testing.T) {
 		release:           make(chan struct{}),
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.ResumeSession("slow-history"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("slow-history"); err != nil {
 		t.Fatalf("resume slow history session: %v", err)
 	}
 

@@ -141,7 +141,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		close(stopSampling)
 		sampler.Wait()
 		t.Fatalf("live job turn did not become idle: %v\n%s", err, allGoroutineStacks())
@@ -162,7 +162,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	if err := harness.app.Submit(ctx, killPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		close(stopSampling)
 		sampler.Wait()
 		t.Fatalf("live kill turn did not become idle: %v\n%s", err, allGoroutineStacks())

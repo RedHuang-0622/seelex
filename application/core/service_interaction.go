@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"time"
@@ -103,15 +103,9 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 //
 // 会话级归属（G4）：选择落在视图会话单元，执行门与审批面都按同一个会话写——A
 // 会话切档不得替 B 会话放行（污染），B 的起点同步也不得关掉 A（失灵）。
-func (service *Service) SetPermissionTier(tier string) (string, error) {
-	return service.policyApplicationComponent().SetPermissionTier(tier)
-}
 
 // SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
 // 生效档位是否等价旧的全权开启（前端按旧口径渲染时的读面）。
-func (service *Service) SetFullAccess(on bool) bool {
-	return service.components.policyApplication.SetFullAccess(on)
-}
 
 // observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
 // 级归属）：open → (sessionID, requestID, interaction)，close →

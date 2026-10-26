@@ -19,7 +19,7 @@ import (
 func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	sessionID := service.Core.Snapshot.Session.ID
 	engine.ReplaceHistory(sessionID, []contract.EngineMessage{

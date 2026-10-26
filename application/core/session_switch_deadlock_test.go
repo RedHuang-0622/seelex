@@ -53,7 +53,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	engine.register(bID)
 	resumeDone := make(chan error, 1)
 	go func() {
-		resumeDone <- service.ResumeSession(bID)
+		resumeDone <- frontendOfTestService(service).ResumeSession(bID)
 	}()
 	if err := waitOrDump(t, resumeDone, "ResumeSession(B) while A running"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
@@ -86,7 +86,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 	history := engine.HistoryFor(aID)
@@ -119,14 +119,14 @@ func TestBeginNewSessionWhileChattingRepro(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- service.BeginNewSession()
+		done <- frontendOfTestService(service).BeginNewSession()
 	}()
 	if err := waitOrDump(t, done, "BeginNewSession while A running"); err != nil && !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("BeginNewSession = %v (want ErrChatRunning or nil, no deadlock)", err)
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }
@@ -152,7 +152,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- service.ResumeSession(bID)
+		done <- frontendOfTestService(service).ResumeSession(bID)
 	}()
 	if err := waitOrDump(t, done, "ResumeSession(B) race"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
@@ -170,7 +170,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 	}
 	close(stop)
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }
@@ -192,14 +192,14 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	bID := "sess-draft-target"
 	engine.register(bID)
 
 	// 新建草稿会话。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
@@ -218,7 +218,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	}
 
 	// 切换到 B：草稿槽位保留、列表仍可见。
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatal(err)
 	}
 	if snap := service.Snapshot(); snap.Session.ID != bID || snap.Session.Draft {
@@ -228,7 +228,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一草稿（含状态 draft）。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
@@ -246,7 +246,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 		t.Fatalf("materialized session did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[newID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if hasDraftRow(service.Snapshot()) {
@@ -270,7 +270,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
 	}
 	service.ViewMu.RLock()
@@ -285,7 +285,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }

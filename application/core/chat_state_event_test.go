@@ -22,7 +22,7 @@ func TestChatStateIsPublishedNotInferred(t *testing.T) {
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

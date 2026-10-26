@@ -12,7 +12,7 @@ import (
 
 func TestNewAssemblesFocusedServiceComponents(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if service.serviceState == nil {
 		t.Fatal("service state was not assembled")

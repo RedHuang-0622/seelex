@@ -23,6 +23,10 @@
 主要调用方：`application/core`（`snapshot_budget.go` 的 `boundToolResultForSnapshot` 与
 `handleToolCompleteObserved` / 会话恢复路径）。
 
+外部端口：`application/core` 已不再 import 本包，而是依赖
+`application/session.ResidencyPort`；唯一 adapter 在 `wiring/adapters`。
+本包仍是 preview、Order/Budget、input index、eviction 与 archive 判据的唯一实现。
+
 落点沿革：2026-10-16 随 M5-R6-residency-preview **接收者转移**从
 `application/core/snapshot_budget.go` 归位（plan §2.4 的 `snapshot_budget.go` → `middle/residency/`），
 是本包的建包片。

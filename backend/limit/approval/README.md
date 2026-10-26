@@ -11,7 +11,8 @@ TUI/GUI 只展示 `model.Interaction` 并提交决议。
 `ErrInteractionResolved` 定义在契约层，本包只用本地别名引用它们（同一类型身份）。
 理由：契约层是最底层的依赖倒置边界，不得反过来依赖 backend 实现包。
 
-主要调用方：`application/core`（发起与决议）、`backend/tool/registry`（权限门把 `ask` 判定交给它）、
+主要调用方：`application/core` 经 `contract.ApprovalBroker` 发起与决议，Wiring adapter
+负责缺省构造；`backend/tool/registry`（权限门把 `ask` 判定交给它）、
 `gui`/`tui`（只渲染 `model.Interaction`）。
 
 物理位置：2026-10-16 按

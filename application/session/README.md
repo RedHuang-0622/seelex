@@ -26,6 +26,7 @@
 - `meta.go`：会话置顶、别名与排序位的读写应用组件。
 - `ssh.go`：SSH 允许环境、固定环境与项目环境表的校验编排。
 - `release.go`：LRU/完整释放的二次守卫、flush 与有序回收。
+- `residency.go`：`ResidencyPort`（预览、LRU 序、输入索引、驱逐、归档）与纯值 deps。
 - `lifecycle.go`：unload 的过渡锁、持久化、释放和视图续接。
 - `archive.go`：archive 门控、记录/引擎卸载与后台释放。
 - `delete.go`：删除记录、释放内存、解绑工作区与快照发布。
@@ -66,8 +67,9 @@ Runtime 或存储的既有唯一实现。
 
 ## 依赖方向
 
-允许依赖 `contract/dto`、`middle/protocol/model`、`middle/switch`、
-`middle/residency` 与标准库。
+允许依赖 `contract/dto`、`middle/protocol/model`、`middle/switch` 与标准库。
+residency 判据经 `ResidencyPort` 注入，由 `wiring/adapters.NewResidencyPort`
+提供 Middle 实现；本包不 import `middle/residency`。
 禁止依赖 `application/core` 或 backend 具体实现。
 
 ## 并发与错误
@@ -108,6 +110,12 @@ go test -race ./application/... -count=1
 
 - `func NewLifecycle(deps LifecycleDeps) *LifecycleApplication` — 构造 Session unload 应用。
 - `func (application *LifecycleApplication) Unload(sessionID string) error` — 持久化并释放一个会话。
+
+### `residency.go`
+
+- `type ResidencyPort interface` — preview、LRU 序、输入索引、驱逐与归档的消费方端口。
+- `type EvictionSnapshot struct` / `EvictionDeps` — 两层 LRU 的应用读数与动作。
+- `type ArchiveGate` / `ArchiveStore` / `ArchiveEngine` / `ArchiveUseCaseDeps` — 归档用例的纯值 deps。
 
 ### `archive.go`
 

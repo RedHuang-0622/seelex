@@ -38,7 +38,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			<-start
-			_ = service.UpdateWorkItemStatus(fmt.Sprintf("todo:%d", index%3), "doing")
+			_ = frontendOfTestService(service).UpdateWorkItemStatus(fmt.Sprintf("todo:%d", index%3), "doing")
 		}(index)
 	}
 	for index := 0; index < workers; index++ {

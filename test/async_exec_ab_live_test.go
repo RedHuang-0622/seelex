@@ -306,7 +306,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	start := time.Now()
 	if err := harness.app.Submit(ctx, abPrompt(arm, taskID, command, sentinel)); err != nil {
 		sample.failure = fmt.Sprintf("submit: %v", err)
-	} else if err := harness.app.WaitForIdle(ctx); err != nil {
+	} else if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		sample.failure = fmt.Sprintf("idle: %v", err)
 	} else if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
 		sample.failure = snapshot.Chat.Error

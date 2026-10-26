@@ -61,7 +61,7 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `role_turn_test.go` | 身份往返与两种"不成立"、活动 ID 的两帧同值/同名不同参不合/不同轮次不合/错误帧不改变 ID 与形状、最小角色框架的关键约束 |
 | `plugin_reject_test.go` | 已装插件不问（判据一次都不被调）、未装名字带来源被拒、语法非法成员跳过、没有判决面时空操作、判据给 nil 时放行 |
 | `plugin_assembly_test.go` | 三层口径与读侧规整、四条显式拒绝（含"没有目录面时只做语法与数量校验"）、装配面裁决三形态（读数面与运行面同源、失灵不静默放宽） |
-| `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core/role_session.go` 归位（plan §2.11.1）。 |
+| `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core` 归位，现由 `contract.RoleSessionsPort` 提供窄契约。 |
 | `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
 
 已删除（勿再按名字找，均已删除）：`factory.go`、`registry.go`、`library.go`、`global.go`、`runtime.go`、

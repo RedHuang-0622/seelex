@@ -107,9 +107,10 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(app.Shutdown)
+	frontend := wiring.NewFrontend(app)
+	t.Cleanup(frontend.Shutdown)
 	hooks.Bind(app)
-	return fullChainHarness{app: app, events: events}
+	return fullChainHarness{app: app, frontend: frontend, events: events}
 }
 
 // toolOrderGateProvider 按全局请求序号应答：
@@ -304,7 +305,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v", text, err)
 		}
 		return harness.app.Snapshot().Session.ID
@@ -319,7 +320,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	}
 
 	// A 长任务在跑（#3 阻塞），视图 = A。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long task A"); err != nil {
@@ -328,7 +329,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	provider.waitBlocked(t, ctx, 3)
 
 	// 切到 B，B 长任务（工具轮 #4）也在跑 → 两个会话同时在运行。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "tool B round"); err != nil {
@@ -337,7 +338,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	provider.waitBlocked(t, ctx, 4)
 
 	// 视图切回 A（运行中热挂载），B 进入后台。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A while B running: %v", err)
 	}
 	if snap := harness.app.Snapshot(); snap.Session.ID != sessionA {
@@ -366,12 +367,12 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 
 	// A 收尾，全部 idle。
 	provider.releaseNumber(3)
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
 
 	// 关键：B 做完之后才热切到 B（驻留 → hot attach）。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B after background completion: %v", err)
 	}
 	if snap := harness.app.Snapshot(); snap.Session.ID != sessionB {
@@ -382,10 +383,10 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	t.Logf("B hot conversation order:\n%s", formatConversation(hotConversation))
 
 	// 二次验证：卸载后冷恢复（record/transcript 重建），看顺序是否同样错位。
-	if err := harness.app.UnloadSession(sessionB); err != nil {
+	if err := harness.frontend.UnloadSession(sessionB); err != nil {
 		t.Fatalf("unload B: %v", err)
 	}
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("cold resume B: %v", err)
 	}
 	coldConversation := harness.app.Snapshot().Conversation

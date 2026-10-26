@@ -73,7 +73,7 @@ func runFingerprintScenario(t *testing.T) []string {
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func messageIDFromPayload(raw json.RawMessage) string {
 
 func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	const bgID = "sess-bg"
 	service.ViewMu.Lock()

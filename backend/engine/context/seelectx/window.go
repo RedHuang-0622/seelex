@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // WindowPolicy 决定滑动窗口轮数 N。
@@ -121,10 +123,7 @@ func (config WindowConfig) RetainedContextTokens(allContextTokens, fallbackToken
 // （<= 0）时返回 0 —— 此时下限只剩「至少 1 个完整协议单元」这条兜底，由
 // TranscriptTailWindow 在装配时保证，行为与引入该旋钮之前逐位一致。
 func RetainFloorTokens(percent, budgetTokens int) int {
-	if percent <= 0 || budgetTokens <= 0 {
-		return 0
-	}
-	return budgetTokens * percent / 100
+	return contract.RetainFloorTokens(percent, budgetTokens)
 }
 
 // RetainedContextTokensWithFloor 在 min(token1, token2) 之上再套一层下限：

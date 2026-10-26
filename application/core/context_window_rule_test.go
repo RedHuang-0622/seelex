@@ -236,7 +236,7 @@ func TestCompactContextHandlerReportsRecordedRange(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-range")
 	appendWindowRounds(t, service, "task-range", 16, 32_000)
 
-	raw, err := service.CompactContextHandler(task_context.WithSessionID(context.Background(), sessionID), `{"reason":"准备长任务"}`)
+	raw, err := frontendOfTestService(service).CompactContextHandler(task_context.WithSessionID(context.Background(), sessionID), `{"reason":"准备长任务"}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}

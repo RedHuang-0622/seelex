@@ -25,7 +25,7 @@
 ## 核心实现
 
 `Frontend` 暂时内嵌 `*core.Frontend` 以承接尚未退场的 core 方法，同时持有一份
-`core.FrontendPorts`。当前 73 个已迁移方法只调用领域组件，不在本包保存第二份状态。
+`core.FrontendPorts`。当前 127 个已迁移方法只调用领域组件，不在本包保存第二份状态。
 
 ## 数据流
 

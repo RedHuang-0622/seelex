@@ -117,7 +117,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 		},
 		archiver: archiver,
 	}
-	// 直接构造而不走 newTestService：后者的 t.Cleanup(service.Shutdown) 也要取
+	// 直接构造而不走 newTestService：后者的 t.Cleanup(frontendOfTestService(service).Shutdown) 也要取
 	// ViewMu，一旦复现出自锁就会连清理一起挂死（测试进程永不退出）。被冻住的
 	// goroutine 只持有本用例私有 service 的锁，是本用例要留下的事实。
 	service := mustNew(t, contract.Dependencies{

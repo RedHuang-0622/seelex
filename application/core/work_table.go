@@ -5,7 +5,7 @@ import (
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 )
@@ -379,9 +379,6 @@ func (service *Service) safeLifecycleCall(call func()) {
 // pending/doing/done）。plan / subagent 状态由执行器权威管理，手动更新
 // 返回明确错误；成功路径发布 runtime.changed（todo 快照）与 task/worktable
 // 增量。
-func (service *Service) UpdateWorkItemStatus(id, status string) error {
-	return service.executionApplicationComponent().UpdateWorkItemStatus(id, status)
-}
 
 // refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
 // runtime.changed（既有面板/其他消费者）、worktable.changed 与 task.changed。

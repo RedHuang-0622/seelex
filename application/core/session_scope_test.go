@@ -28,7 +28,7 @@ func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if !service.perSessionExecution() {
 		t.Fatal("per-session capability not detected")
 	}
@@ -76,7 +76,7 @@ func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
 	}
 
 	close(engine.release)
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -88,7 +88,7 @@ func TestSubmitToSessionDelegatesForActiveSession(t *testing.T) {
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := service.Snapshot().Session.ID
@@ -98,7 +98,7 @@ func TestSubmitToSessionDelegatesForActiveSession(t *testing.T) {
 	if err := service.SubmitToSession(context.Background(), sessionID, "second"); err != nil {
 		t.Fatalf("SubmitToSession(active): %v", err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(service.Snapshot().Conversation); got < 4 {
@@ -133,11 +133,11 @@ func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
 		t.Fatal("chat did not start")
 	}
 	// M2：目标会话自身空闲即可切换/恢复（不再返回 ErrChatRunning）。
-	if err := service.ActivateSession("other-session"); errors.Is(err, ErrChatRunning) {
+	if err := frontendOfTestService(service).ActivateSession("other-session"); errors.Is(err, ErrChatRunning) {
 		t.Fatalf("ActivateSession(idle target) while other running = ErrChatRunning, want M2 per-session gate")
 	}
 	close(engine.release)
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -149,7 +149,7 @@ func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := service.Snapshot().Session.ID
@@ -164,13 +164,13 @@ func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
 // TestChatEventsCarrySessionID 验证 chat 生命周期事件携带会话路由键。
 func TestChatEventsCarrySessionID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sub := service.Subscribe(64)
+	sub := frontendOfTestService(service).Subscribe(64)
 	defer sub.Close()
 
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := service.Snapshot().Session.ID
@@ -206,7 +206,7 @@ func TestSubscribeSessionFiltersBySessionID(t *testing.T) {
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

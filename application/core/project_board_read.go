@@ -3,21 +3,11 @@ package core
 import (
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 )
-
-// ProjectBoardTeamPlanFor returns the optional teamwork plan for the session.
-func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan {
-	return service.projectBoardQueryComponent().ProjectBoardTeamPlanFor(sessionID)
-}
-
-// ProjectBoardTeamStateFor returns the plan's authoritative run state.
-func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState {
-	return service.projectBoardQueryComponent().ProjectBoardTeamStateFor(sessionID)
-}
 
 func (service *Service) projectBoardQueryComponent() *applicationexecution.ProjectBoardApplication {
 	if service == nil {

@@ -27,7 +27,7 @@ func StartFrontend(flags *config.Flags, app *application.Service, backendOutput 
 		}
 		return nil
 	case "backend":
-		return console.Start(app, flags.BackendPrompt, flags.BackendTimeout, backendOutput)
+		return console.Start(frontend, flags.BackendPrompt, flags.BackendTimeout, backendOutput)
 	case "tui":
 		return startTUI(frontend)
 	default:

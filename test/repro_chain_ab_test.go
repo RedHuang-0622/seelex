@@ -59,7 +59,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	if err := harness.app.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessionA := harness.app.Snapshot().Session.ID
@@ -75,7 +75,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 		t.Fatalf("active after fork = %q, want B", harness.app.Snapshot().Session.ID)
 	}
 	// 切回 A，发起长任务（provider 第二请求阻塞 → A 运行中）。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "long task A"); err != nil {
@@ -87,7 +87,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 		t.Fatalf("A second turn did not block: %v", ctx.Err())
 	}
 	// 切到 B（空闲）→ B 提交并完成（第三请求不阻塞）。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "hello B"); err != nil {
@@ -107,7 +107,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 
 	// 关键：切回运行中的 A——热挂载必须快速返回（无死锁）。
 	hotStart := time.Now()
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume running A: %v", err)
 	}
 	hotAttachMS := time.Since(hotStart).Milliseconds()
@@ -116,7 +116,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	}
 	// 释放 A → 收敛。
 	close(provider.releaseSecond)
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,21 +1,11 @@
-// Package view 是中间层的视图**读数面**：诊断文本、性能指标与运行时投影的
-// 计算与判据落点。
-//
-// 为什么在这里而不是宿主（`application/core`）：这些读数都是"从权威快照派生"
-// 的纯计算，宿主只负责在它自己的锁下把输入取出来。判据留在宿主会让同一份派生
-// 规则随用例膨胀（`application/core` 是本仓库最大的包），也会让中间层无法独立
-// 复用读面。
-//
-// 与宿主的边界：本包**不自取锁、不读宿主字段**。锁与进程级上限（`backend/limit`）
-// 都归宿主所有，输入按参数传入——中间层因此不反向依赖 `backend/*`。
-package view
+package observability
 
 import (
 	"fmt"
 	"runtime"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // RenderDiag 构建诊断文本。由 /diag 命令调用。

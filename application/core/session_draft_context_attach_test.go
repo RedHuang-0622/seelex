@@ -33,7 +33,7 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 	sessions := &contextAwareSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -88,7 +88,7 @@ func TestBeginNewSessionKeepsRunningSessionContextStore(t *testing.T) {
 	service.sessionUnitLocked("session-a").SetChatState(model.ChatState{Running: true, RequestID: "req-a"}, nil)
 	service.ViewMu.Unlock()
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	sessions.mu.Lock()
@@ -133,7 +133,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	if _, err := workspaces.Create("A", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {

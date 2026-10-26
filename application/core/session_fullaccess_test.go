@@ -13,7 +13,7 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 	runtime := service.Deps.Runtime.(*fakeRuntime)
 	sessionA := service.Snapshot().Session.ID
 
-	service.SetFullAccess(true)
+	frontendOfTestService(service).SetFullAccess(true)
 	if unit := service.sessions.Unit(sessionA); unit == nil {
 		t.Fatal("session A unit missing")
 	} else if on, ok := unit.FullAccessMode(); !ok || !on {
@@ -29,7 +29,7 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("进程级默认全权不得被会话级选择改写（未选择会话的回退面）")
 	}
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -52,7 +52,7 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("A 的全权在新建会话后仍须生效")
 	}
 
-	service.SetFullAccess(false) // 视图已切到草稿：选择落在草稿上
+	frontendOfTestService(service).SetFullAccess(false) // 视图已切到草稿：选择落在草稿上
 	if unit := service.sessions.Unit(draftID); unit == nil {
 		t.Fatal("draft unit missing")
 	} else if on, ok := unit.FullAccessMode(); !ok || on {
@@ -82,9 +82,9 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 func TestFullAccessProjectionPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
-	service.SetFullAccess(true)
+	frontendOfTestService(service).SetFullAccess(true)
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID

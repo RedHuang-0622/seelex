@@ -66,12 +66,12 @@ func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T) {
 	}
 
 	// 停止按钮。
-	if !service.CancelChat("") {
+	if !frontendOfTestService(service).CancelChat("") {
 		t.Fatal("CancelChat returned false for the running turn")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitContext); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
 

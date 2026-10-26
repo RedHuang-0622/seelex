@@ -92,10 +92,3 @@ func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string
 	}
 	return ref, nil
 }
-
-// ReadCompressedTurnHandler 读回一次压缩的轮次原文（分页 + 过滤）。
-// 入参：segment_id（必选）、offset/limit/contains（分页，与 read_tool_result
-// 同款语义）。
-func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error) {
-	return service.referenceApplicationComponent().ReadCompressedTurnHandler(argsJSON)
-}

@@ -26,7 +26,7 @@ import (
 func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// A = 当前任务会话：A 的活动 plan 打点住在实时注册表。
 	runtime.currentTaskSession = "session-a"
@@ -64,7 +64,7 @@ func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing
 func TestWorkTableTraceBlockForScopesBySession(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	runtime.currentTaskSession = "session-a"
 	runtime.tasks = map[string]dto.TaskRecord{

@@ -61,7 +61,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	const sessionID = "long-session"
 	store := &coldNarrationStore{pagedSessionStore: newPagedSessionStore(sessionID, 20)}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatalf("resume long session: %v", err)
 	}
 	// 冷加载基线的序号空间 = 既有 durable 行（20 条）。
@@ -125,7 +125,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 		t.Fatalf("persist session: %v", err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := restored.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(restored).ResumeSession(sessionID); err != nil {
 		t.Fatalf("cold resume: %v", err)
 	}
 	visible := visibleContents(restored.Snapshot())

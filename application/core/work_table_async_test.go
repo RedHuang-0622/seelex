@@ -174,7 +174,7 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	runtime.currentTaskSession = "session-a"
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
@@ -209,7 +209,7 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
 	service.refreshWorkTableFromSources()
@@ -233,7 +233,7 @@ func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T) {
 func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{asyncEvents: make(chan struct{}, 1)}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// 服务已装配完（构造期的刷新看到的是空表），此时新增一行还不该出现在投影里。
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
@@ -343,7 +343,7 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 	// 整块（含块头块尾与读法说明）不得超过 table.TraceMaxLines。
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	runtime.currentTaskSession = "session-a"
 	runtime.asyncRuns = records
 	block := service.workTableTraceBlockFor("")

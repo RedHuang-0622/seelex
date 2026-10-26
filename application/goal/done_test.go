@@ -1,4 +1,4 @@
-package core
+package goal
 
 // goal_done_test.go — 钉住 **goal_done = 真收口** 的口径。
 //
@@ -13,7 +13,7 @@ import (
 )
 
 func TestGoalDoneFinishesDirectly(t *testing.T) {
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{})
+	coordinator := NewCoordinator(CoordinatorDeps{})
 	ctx := context.Background()
 	if _, err := coordinator.Begin(ctx, "session-a", goaldomain.BeginRequest{Title: "收口目标"}); err != nil {
 		t.Fatalf("begin: %v", err)

@@ -5,7 +5,7 @@ import (
 
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceSessionDraftMaterialization(service *Service) *applicationsession.DraftMaterializationApplication {

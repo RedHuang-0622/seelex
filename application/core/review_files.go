@@ -1,18 +1,11 @@
 package core
 
 import (
-	"context"
-
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
-
-// RequestFileReview asks the GUI to open files classified by the workspace.
-func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error) {
-	return service.reviewApplicationComponent().RequestFileReview(ctx, files)
-}
 
 func (service *Service) reviewApplicationComponent() *applicationreview.Application {
 	if service == nil {

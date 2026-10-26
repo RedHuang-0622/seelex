@@ -50,7 +50,7 @@ var _ contract.SessionChatEngine = (*stagedChatEngine)(nil)
 func TestSwitchBackShowsLatestBackgroundContent(t *testing.T) {
 	engine := newStagedChatEngine()
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(context.Background(), "start a"); err != nil {
 		t.Fatal(err)
@@ -65,15 +65,15 @@ func TestSwitchBackShowsLatestBackgroundContent(t *testing.T) {
 	engine.fakeEngine.mu.Lock()
 	engine.fakeEngine.loadedSessions["sess-b"] = true
 	engine.fakeEngine.mu.Unlock()
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("switch to b: %v", err)
 	}
 
 	close(engine.stage2) // A 后台产生第二段正文
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("switch back to a: %v", err)
 	}
 	found := false

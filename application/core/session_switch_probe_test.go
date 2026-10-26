@@ -19,7 +19,7 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(context.Background(), "task in flight"); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}})
 
 	start := time.Now()
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("[%s] switch while in-flight: %v", label, err)
 	}
 	switchCost := time.Since(start)
@@ -46,7 +46,7 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 		t.Fatalf("[%s] source session engine lost after switch", label)
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("[%s] switch while in-flight cost %s（引擎回合未被打断）", label, switchCost)
@@ -135,11 +135,11 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, engine, withTestSessions(gated))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	t.Cleanup(gated.releaseNow)
 
 	engine.register("sess-b")
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("initial resume b: %v", err)
 	}
 	// 先让目录 worker 完成首轮枚举（其标题回退也会走历史读，避免与冷加载
@@ -156,7 +156,7 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 
 	coldDone := make(chan error, 1)
 	go func() {
-		coldDone <- service.ResumeSession("sess-cold")
+		coldDone <- frontendOfTestService(service).ResumeSession("sess-cold")
 	}()
 	select {
 	case <-gated.entered:
@@ -166,7 +166,7 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 
 	switchDone := make(chan error, 1)
 	go func() {
-		switchDone <- service.ResumeSession("sess-b")
+		switchDone <- frontendOfTestService(service).ResumeSession("sess-b")
 	}()
 	// 预期：切到 B **不等** A 的冷加载（装载不再占视图过渡 key）。旧实现这里
 	// 必然超时（B 排队等 A），正是用户现场的「另一个会话没反应」。
@@ -223,7 +223,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 		},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.draft = &draftSlot{ID: "draft-current", CreatedAt: now, UpdatedAt: now}
@@ -232,7 +232,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	first := service.Snapshot().Session.ID
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if got := service.Snapshot().Session.ID; got != first || got != "draft-current" {

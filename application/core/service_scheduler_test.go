@@ -86,7 +86,7 @@ func TestSchedulerFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestSchedulerFacadeOnlyDelegatesToApplication(t *testing.T) {
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -125,7 +125,7 @@ func TestRefreshRuntimeSnapshotFacadeOnlyDelegatesToRuntimeApplication(t *testin
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestRefreshRuntimeSnapshotFacadeOnlyDelegatesToRuntimeApplication(t *testin
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "RefreshRuntimeSnapshot" ||
-			!functionHasReceiver(function, "Service") {
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if len(function.Body.List) != 1 {
@@ -152,7 +152,7 @@ func TestAssembleScheduledRunFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestAssembleScheduledRunFacadeOnlyDelegatesToApplication(t *testing.T) {
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "AssembleScheduledRun" ||
-			!functionHasReceiver(function, "Service") {
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if len(function.Body.List) != 1 {
@@ -180,7 +180,7 @@ func TestStartScheduledSessionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestStartScheduledSessionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "StartScheduledSession" ||
-			!functionHasReceiver(function, "Service") {
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if len(function.Body.List) != 1 {
@@ -224,10 +224,10 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	before := service.Snapshot().Session.ID
-	sessionID, err := service.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
+	sessionID, err := frontendOfTestService(service).StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Prompt: "每天巡检一次", WorkspaceID: "project-1",
 	})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	if got := service.permissionTierForSession(sessionID); got != dto.PermissionTierFull {
 		t.Fatalf("定时会话的权限档位 = %q，want full（任务默认全权）", got)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("定时会话没有回到 idle：%v", err)
 	}
 	// 工具根按会话解析：回合起点（runChat）会把新会话自己的项目根绑上，
@@ -282,12 +282,12 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// 当前会话先绑到项目（视图会话的项目绑定不该传染给定时会话）。
 	workspaces.BindSession(service.Snapshot().Session.ID, "project-1")
 
-	sessionID, err := service.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
+	sessionID, err := frontendOfTestService(service).StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Prompt: "无工作区巡检",
 	})
 	if err != nil {
@@ -296,7 +296,7 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 	if _, bound := workspaces.bindings[sessionID]; bound {
 		t.Fatalf("未指定工作区的新会话不该绑项目：%v", workspaces.bindings)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// 没有按会话绑根 = 这个会话的工具面走进程默认根（会话切换的正常语义），
@@ -333,9 +333,9 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{}, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
-	updated, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+	updated, err := frontendOfTestService(service).UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
 		Name: "改后的名字", Kind: assemble.ScheduledTaskPrompt, Prompt: "改后的提示词",
 		WorkspaceID: "project-1", Interval: time.Hour, Enabled: true,
 	})
@@ -350,7 +350,7 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	}
 
 	// 不存在的工作区：当场拒绝，且不惊动调度器。
-	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
 		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", WorkspaceID: "ws_missing", Interval: time.Hour,
 	}); err == nil {
 		t.Fatal("编辑到不存在的工作区必须报错")
@@ -360,7 +360,7 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	}
 
 	// 空 ID：编辑没有目标，直接拒绝。
-	if _, err := service.UpdateScheduledTask(context.Background(), "   ", assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).UpdateScheduledTask(context.Background(), "   ", assemble.ScheduledTaskSpec{
 		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 	}); err == nil {
 		t.Fatal("空任务 ID 必须报错")
@@ -380,7 +380,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	sessionID := "sched_assemble"
 	service.ViewMu.Lock()
@@ -388,7 +388,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	// 空档位（未归一的 spec 直接进来）：按默认 full access 兜住。
-	ctx, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{Plugins: []string{"code"}})
+	ctx, err := frontendOfTestService(service).AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{Plugins: []string{"code"}})
 	if err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	}
 
 	// 声明了两条参数：按声明的落，不被默认值盖掉。
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
 		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
 	}); err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
@@ -431,7 +431,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	}
 
 	// 显式档位 + 空插件：档位照写，插件面不再装配（上一次的读数保持不变）。
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{
 		PermissionTier: dto.PermissionTierEdit,
 	}); err != nil {
 		t.Fatalf("AssembleScheduledRun: %v", err)
@@ -447,10 +447,10 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := service.permissionTierForSession("another_session"); got != dto.PermissionTierManual {
 		t.Fatalf("装配泄漏到了别的会话：%q", got)
 	}
-	if _, err := service.AssembleScheduledRun(context.Background(), "  ", assemble.ScheduledTaskSpec{}); err == nil {
+	if _, err := frontendOfTestService(service).AssembleScheduledRun(context.Background(), "  ", assemble.ScheduledTaskSpec{}); err == nil {
 		t.Fatal("空会话 ID 必须报错")
 	}
-	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
+	if _, err := frontendOfTestService(service).AssembleScheduledRun(context.Background(), sessionID, assemble.ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
 		t.Fatal("未知档位必须报错（不静默降级）")
 	}
 }
@@ -468,9 +468,9 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
-	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "巡检", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 	}); err != nil {
 		t.Fatalf("ScheduleTask: %v", err)
@@ -482,7 +482,7 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 		t.Fatalf("未声明的执行参数没有落成默认参数：(%q, %d)，want (high, 384)", got.ReasoningEffort, got.LoopLimit)
 	}
 
-	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "带参数", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
 	}); err != nil {
@@ -506,7 +506,7 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 		spec.Kind = assemble.ScheduledTaskPrompt
 		spec.Prompt = "P"
 		spec.Interval = time.Hour
-		_, err := service.ScheduleTask(context.Background(), spec)
+		_, err := frontendOfTestService(service).ScheduleTask(context.Background(), spec)
 		if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
 			t.Fatalf("%s：err = %v，want 含 %q", testCase.name, err, testCase.wantErr)
 		}
@@ -524,10 +524,10 @@ func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// 目录里有 code：创建放行，且装配随 spec 交给调度器。
-	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "带装配", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		PermissionTier: dto.PermissionTierAuto, Plugins: []string{"code"},
 	}); err != nil {
@@ -538,13 +538,13 @@ func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 	}
 
 	// 目录里没有 ghost：创建与编辑都当场拒绝，且不惊动调度器。
-	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "未知插件", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"ghost"},
 	}); err == nil {
 		t.Fatal("未知插件必须被拒")
 	}
-	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).UpdateScheduledTask(context.Background(), "sched_test", assemble.ScheduledTaskSpec{
 		Name: "n", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"code", "ghost"},
 	}); err == nil {
@@ -554,7 +554,7 @@ func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 		t.Fatalf("被拒的装配不该转发：specs=%d updated=%v", len(runtime.scheduledSpecs), runtime.updatedTasks)
 	}
 	// 重复声明与超上限交给同一份 dto.NormalizePlugins 判据，这里只确认它会冒出来。
-	if _, err := service.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	if _, err := frontendOfTestService(service).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "重复声明", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 		Plugins: []string{"code", "code"},
 	}); err == nil {

@@ -136,7 +136,7 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	if err := harness.app.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v\n%s", err, allGoroutineStacks())
 	}
 	sessionA := harness.app.Snapshot().Session.ID
@@ -151,7 +151,7 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	}
 
 	// 3) 回到 A 触发长任务（请求 #2 阻塞 → A 运行中）。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long task A"); err != nil {
@@ -164,7 +164,7 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	}
 
 	// 4) A 运行中切换到 B，并让 B 完成一轮（请求 #3 快速返回）。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "hello B"); err != nil {
@@ -185,12 +185,12 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 
 	// 5) 释放 A：A 在后台（B 为活跃会话）完成 → 触发 PersistCurrentSession(A)。
 	close(provider.releaseSecond)
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 
 	// 6) 切回 A：验证 A 的内容完好（A 自己的消息在、B 的消息不混入）。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A after background completion: %v", err)
 	}
 	snapshot := harness.app.Snapshot()

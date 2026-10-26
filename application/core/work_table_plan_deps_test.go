@@ -95,7 +95,7 @@ func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T) {
 		},
 		Edges: []dto.PlanEdge{{From: "n1", To: "n2"}},
 	}
-	subscription := service.Subscribe(16)
+	subscription := frontendOfTestService(service).Subscribe(16)
 	defer subscription.Close()
 
 	service.publishTaskChanged(dto.TaskRecord{

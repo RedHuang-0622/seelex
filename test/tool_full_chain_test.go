@@ -68,7 +68,7 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	harness := newFullChainHarness(t, AccountsPath, tempDir, 5*time.Second)
-	app, events := harness.app, harness.events
+	app, events := harness.frontend, harness.events
 
 	subscription := events.Subscribe(256)
 	defer subscription.Close()
@@ -167,7 +167,7 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	}
 
 	close(server.releaseSecondRequest)
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 }
@@ -306,6 +306,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	if err != nil {
 		t.Fatal(err)
 	}
+	frontend := wiring.NewFrontend(app)
 	// 回读类工具（read_tool_result / read_compressed_turn / search_history /
 	// compact_context）在生产里由 main.run() 经 registry.RegisterContextReadTools 登记。
 	// 测试装配必须同等登记：否则模型收到「超限输入已外置，请用 read_tool_result
@@ -329,9 +330,9 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	// 上表现成 `TempDir RemoveAll cleanup: unlinkat …: directory not empty`
 	// （`TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns`，`-race` 下稳定复现）。
 	t.Cleanup(func() {
-		app.Shutdown()
+		frontend.Shutdown()
 		if ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second); cancel != nil {
-			_ = app.WaitForIdle(ctx)
+			_ = frontend.WaitForIdle(ctx)
 			cancel()
 		}
 		runtimeBridge.Shutdown()
@@ -339,7 +340,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	})
 	hooks.Bind(app)
 	return fullChainHarness{
-		app: app, frontend: wiring.NewFrontend(app),
+		app: app, frontend: frontend,
 		events: events, runtime: runtimeBridge, approval: approval,
 		st: st, workspaces: workspaces,
 	}

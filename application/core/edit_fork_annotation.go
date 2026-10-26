@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceEditForkAnnotation(service *Service) *applicationedit.AnnotationApplication {

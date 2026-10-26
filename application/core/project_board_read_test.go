@@ -14,12 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/board/boardtest"
 	"github.com/RedHuang-0622/seelex/store"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -40,40 +35,17 @@ func TestProjectBoardQueryIsAssembled(t *testing.T) {
 	}
 }
 
-func TestProjectBoardReadFacadeOnlyDelegatesToQuery(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "project_board_read.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{
-		"ProjectBoardTeamPlanFor":  false,
-		"ProjectBoardTeamStateFor": false,
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
-			continue
-		}
-		if _, tracked := want[function.Name.Name]; !tracked {
-			continue
-		}
-		want[function.Name.Name] = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("%s 有 %d 条语句，want 一行 projectBoardQuery 转发", function.Name.Name, len(function.Body.List))
-		}
-		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
-			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+func TestProjectBoardReadFacadeUsesPorts(t *testing.T) {
+	serviceType := reflect.TypeOf((*Service)(nil))
+	for _, name := range []string{"ProjectBoardTeamPlanFor", "ProjectBoardTeamStateFor"} {
+		if _, ok := serviceType.MethodByName(name); ok {
+			t.Fatalf("Service.%s must use FrontendPorts instead", name)
 		}
 	}
-	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
-		}
+	ports := reflect.TypeOf(FrontendPorts{})
+	field, ok := ports.FieldByName("ProjectBoard")
+	if !ok || field.Type != reflect.TypeOf((*applicationexecution.ProjectBoardApplication)(nil)) {
+		t.Fatalf("FrontendPorts.ProjectBoard = %v", field.Type)
 	}
 }
 
@@ -237,11 +209,11 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	}
 
 	// 运行态取的就是计划载荷里那一格（TeamworkPlan.State 就是 TeamworkState）。
-	plan := service.ProjectBoardTeamPlanFor(session)
+	plan := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamPlanFor(session)
 	if plan == nil || plan.TeamID != "team-1" {
 		t.Fatalf("装配后计划 = %+v，希望 team-1", plan)
 	}
-	state := service.ProjectBoardTeamStateFor(session)
+	state := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamStateFor(session)
 	if state == nil || state.State != store.TeamworkStateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
@@ -252,10 +224,10 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	// 未装配端口（Runtime 不实现 board.TeamworkPlanSource）⇒ 计划与运行态都是 nil：
 	// "没有就是没有"，而不是让 RuntimePort 长出恒返回零值的成员。
 	plain := newTestService(t, &fakeEngine{})
-	if plan := plain.ProjectBoardTeamPlanFor(plain.Snapshot().Session.ID); plan != nil {
+	if plan := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamPlanFor(plain.Snapshot().Session.ID); plan != nil {
 		t.Fatalf("未装配时计划 = %+v，希望 nil", plan)
 	}
-	if state := plain.ProjectBoardTeamStateFor(plain.Snapshot().Session.ID); state != nil {
+	if state := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamStateFor(plain.Snapshot().Session.ID); state != nil {
 		t.Fatalf("未装配时运行态 = %+v，希望 nil", state)
 	}
 	if _, ok := plain.Deps.Runtime.(board.TeamworkPlanSource); ok {

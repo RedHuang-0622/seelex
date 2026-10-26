@@ -28,12 +28,12 @@ func TestWorkspaceDraftShowsItsWorkspaceInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
@@ -71,13 +71,13 @@ func TestTaskDraftStaysUnboundInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	// 先在一个工作区会话里，再 /new 进「任务会话」：项目绑定必须被清掉。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -101,12 +101,12 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
@@ -124,7 +124,7 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 	snapshot := service.Snapshot()
 	row, ok := findSessionRow(snapshot.Sessions, draftID)
 	close(engine.release)
-	_ = service.WaitForIdle(context.Background())
+	_ = frontendOfTestService(service).WaitForIdle(context.Background())
 	if !ok {
 		t.Fatalf("running session %s missing from directory: %v", draftID, snapshot.Sessions)
 	}
@@ -151,13 +151,13 @@ func TestScheduledSessionVisibleBeforePersist(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	workspaceID := "project-1"
-	sessionID, err := service.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
+	sessionID, err := frontendOfTestService(service).StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Name:        "scheduled",
 		Kind:        dto.ScheduledTaskPrompt,
 		Prompt:      "scheduled prompt",
@@ -175,7 +175,7 @@ func TestScheduledSessionVisibleBeforePersist(t *testing.T) {
 	snapshot := service.Snapshot()
 	row, ok := findSessionRow(snapshot.Sessions, sessionID)
 	close(engine.release)
-	_ = service.WaitForIdle(context.Background())
+	_ = frontendOfTestService(service).WaitForIdle(context.Background())
 	if !ok {
 		t.Fatalf("scheduled session %s missing from directory: %v", sessionID, snapshot.Sessions)
 	}

@@ -68,7 +68,7 @@ func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T) {
 	}
 
 	close(engine.release[sessionID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessions.setInfos([]model.SessionInfo{{ID: sessionID}})
@@ -100,7 +100,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	// 切到空闲 B（A 继续后台运行）。
 	bID := "sess-status-B"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != bID {
@@ -114,7 +114,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	}
 
 	// 运行中切回 A：hot_attach 只移 V，不改写 A 执行态。
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("resume A while running: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != aID {
@@ -131,7 +131,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 
 	// 释放 A：全部收敛到 idle。
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessions.setInfos([]model.SessionInfo{{ID: aID}})

@@ -81,7 +81,7 @@ func TestProbeCompactionFailureAfterRestartEncounter(t *testing.T) {
 		t.Fatalf("夹具前提：首次压缩应带区间：%+v", compacted)
 	}
 	persistRestartSession(t, first, store, sessionID)
-	first.Shutdown()
+	frontendOfTestService(first).Shutdown()
 
 	// ── 进程重启：宿主这次拿不到模型读后感，之后的压缩必然失败 ──────────
 	engine := &fakeEngine{}
@@ -89,7 +89,7 @@ func TestProbeCompactionFailureAfterRestartEncounter(t *testing.T) {
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := second.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	// 会话继续跑：新一轮（自动路径，不是 /compact），上下文再次长到阈值之上。
@@ -159,7 +159,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 		t.Fatalf("夹具前提：首次压缩应带区间：%+v", compacted)
 	}
 	persistRestartSession(t, first, store, sessionID)
-	first.Shutdown()
+	frontendOfTestService(first).Shutdown()
 
 	// ── 进程重启：宿主这次拿不到模型读后感，之后的压缩必然失败 ──────────
 	readback := restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)
@@ -169,7 +169,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 		withTestSessions(store),
 		withTestRuntime(readback),
 	)
-	if err := second.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	// ① 重启前的成功记录必须已经读回来（否则下面的"新痕"与"旧记录"无从区分）。

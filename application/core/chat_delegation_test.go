@@ -47,7 +47,7 @@ func TestLoopDelegatedToSeele(t *testing.T) {
 	if err := service.Submit(context.Background(), "do the work"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

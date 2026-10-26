@@ -4,9 +4,8 @@ import (
 	"context"
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
-	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
@@ -33,10 +32,12 @@ func newServiceAdminApplication(service *Service) *applicationadmin.AccountAppli
 		},
 		Window: func(name string, window int) (int, error) {
 			runtimePort, _ := service.Deps.Runtime.(contract.AccountWindowPort)
-			return accountwindow.Setter{
-				Runtime: runtimePort,
-				Store:   service.Deps.AccountWindowStore,
-			}.Set(name, window)
+			return service.components.accountWindowPolicy.Set(
+				runtimePort,
+				service.Deps.AccountWindowStore,
+				name,
+				window,
+			)
 		},
 		Projection: serviceAdminProjectionPort{service: service},
 	})

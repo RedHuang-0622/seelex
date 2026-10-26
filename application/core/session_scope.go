@@ -8,8 +8,8 @@ import (
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
 	"strings"
@@ -461,7 +461,7 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 		// 回读）后再提交——否则新回合的可见消息会落进一个没有窗口的会话视图。
 		// ActivateSession 持 TransitionLock，完成后目标即当前会话，后续显式
 		// 路由不依赖 current。
-		if err := service.ActivateSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			return err
 		}
 	}
@@ -518,10 +518,6 @@ func (service *Service) sessionLoaded(sessionID string) bool {
 // ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
 // 恢复（resumeSession 从持久化重建）；运行中切换被拒绝，保证共享
 // Snapshot 不串写。多页签并行驻留 = M2/M3。
-func (service *Service) ActivateSession(sessionID string) error {
-	return service.resumeSession(sessionID)
-}
-
 func (service *Service) readSnapshotOf(sessionID string) (model.SessionSnapshot, error) {
 	return applicationsessionquery.ReadSnapshot(sessionID, applicationsessionquery.SnapshotReadDeps{
 		State: func(id string) applicationsessionquery.SnapshotReadState {

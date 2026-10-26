@@ -29,18 +29,19 @@ func TestReferenceFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "reference_tools.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"ReadToolResultHandler": false,
-		"ReadPlanHandler":       false,
+		"ReadToolResultHandler":     false,
+		"ReadPlanHandler":           false,
+		"ReadCompressedTurnHandler": false,
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -73,7 +74,7 @@ func TestReadToolResultResolvesNodeRef(t *testing.T) {
 	}
 	service := newTestService(t, engine)
 
-	page, err := service.ReadToolResultHandler(t.Context(), `{"result_ref":"node:agent-1:result:call-1","offset":0,"limit":64}`)
+	page, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(), `{"result_ref":"node:agent-1:result:call-1","offset":0,"limit":64}`)
 	if err != nil {
 		t.Fatalf("read node ref: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestReadToolResultResolvesNodeRef(t *testing.T) {
 	}
 
 	// 未知节点 ref → 显式错误（不静默空结果）。
-	if _, err := service.ReadToolResultHandler(t.Context(), `{"result_ref":"node:ghost:result:x"}`); err == nil {
+	if _, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(), `{"result_ref":"node:ghost:result:x"}`); err == nil {
 		t.Fatal("unknown node ref must error")
 	}
 }
@@ -99,7 +100,7 @@ func TestReadToolResultResolvesCallAlias(t *testing.T) {
 	stored := service.components.tasks.StoreToolResultLocked("fork_subagents", raw)
 	service.components.tasks.SetResultRefByCallIDLocked("call_00_Ohu6emGEZr0gV4m2JU4t0987", stored.Ref)
 
-	page, err := service.ReadToolResultHandler(t.Context(),
+	page, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(),
 		`{"result_ref":"result:call_00_Ohu6emGEZr0gV4m2JU4t0987","offset":4000,"limit":64}`)
 	if err != nil {
 		t.Fatalf("read alias ref: %v", err)
@@ -112,7 +113,7 @@ func TestReadToolResultResolvesCallAlias(t *testing.T) {
 	}
 
 	// 未知 callID：别名保留原值 → 仍返回明确错误（不静默）。
-	if _, err := service.ReadToolResultHandler(t.Context(),
+	if _, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(),
 		`{"result_ref":"result:call_ghost","limit":32}`); err == nil {
 		t.Fatal("unknown call alias must error")
 	}

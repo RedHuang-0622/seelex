@@ -134,7 +134,7 @@ func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("压缩失败不得中断会话（这次返回 %v）", err)
 	}
@@ -193,7 +193,7 @@ func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T) {
 
 	// ③b 幂等：同一次失败（同一上下文版本 + 同一原因）不得每轮追加一条痕。再压一次
 	// 必须还是那一条——否则一条长期压不下去的会话会把状态页写成流水账。
-	if _, err := service.CompactContextNow(ctx); err != nil {
+	if _, err := frontendOfTestService(service).CompactContextNow(ctx); err != nil {
 		t.Fatalf("重复压缩失败不得中断会话：%v", err)
 	}
 	if again := compactionRecordsOf(t, service); len(again) != 1 {
@@ -222,7 +222,7 @@ func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 1, 700_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		if errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
 			t.Fatalf("压缩失败时不得用内部安全线中断会话（用户现场那句 ERROR 就是它）：%v", err)
@@ -265,7 +265,7 @@ func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("压缩失败不得中断会话：%v", err)
 	}
@@ -312,7 +312,7 @@ func TestCompactionFailureNoteCarriesReadbackProbeError(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("读数闸调用报错不得中断会话：%v", err)
 	}

@@ -100,7 +100,7 @@ func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T) {
 	// 释放两会话并等待收敛：活跃快照仍只含 A 的流式内容。
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -126,7 +126,7 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +134,7 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	// 显式 sid 订阅的口径）。
 	bID := "sess-s0-switch-b"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != bID {
@@ -152,7 +152,7 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	}
 	waitChatStarted(t, engine.started[bID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

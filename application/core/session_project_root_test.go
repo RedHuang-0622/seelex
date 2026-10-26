@@ -88,7 +88,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if _, err := workspaces.Create("A", rootA, ""); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 
 	// 会话 A：绑定项目 A 并跑一轮，成为已加载（后台可并行）会话。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {
@@ -114,7 +114,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 
 	// 视图切到项目 B 的新会话：进程级工具根随之指向 B。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := frontendOfTestService(service).BindWorkspace("project-b"); err != nil {
@@ -148,7 +148,7 @@ func waitSessionIdle(t *testing.T, service *Service) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatalf("等待回合结束: %v", err)
 	}
 }

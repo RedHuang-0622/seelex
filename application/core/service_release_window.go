@@ -12,25 +12,9 @@ package core
 // 塞进去会让"切会话时它跟着动"变成假事实）。
 
 import (
-	"context"
-
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 )
-
-// SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**的值
-// （前端据此采纳，而不是假定请求值生效）。判据与次序在 `middle/switch`。
-//
-// 不设运行守卫（与 SetLoopLimit / SetReasoningEffort 不同）：窗口只约束"哪个已静默的会话可以被释放"，
-// 受保护集含运行/排队/在飞会话，所以会话在跑时改它既打断不了谁，也放不掉任何在飞的内存。
-func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
-	return service.components.policyApplication.SetSessionReleaseWindow(window)
-}
-
-// SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
-func (service *Service) SessionReleaseWindow() int {
-	return service.components.policyApplication.SessionReleaseWindow()
-}
 
 // releaseWindowDeps 装配驻留窗口可调面的宿主面。
 func (service *Service) releaseWindowDeps() switching.ReleaseWindowDeps {

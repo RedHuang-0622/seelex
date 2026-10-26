@@ -134,7 +134,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 		return harness.app.Snapshot().Session.ID
@@ -157,7 +157,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 三个会话各自开始长任务（请求 #4/#5/#6 同时阻塞）→ 三个会话都在运行中。
 	startLong := func(sessionID, text string) {
-		if err := harness.app.ResumeSession(sessionID); err != nil {
+		if err := harness.frontend.ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 		if err := harness.app.Submit(ctx, text); err != nil {
@@ -178,7 +178,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 三会话均确认在运行。
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
-		if err := harness.app.ResumeSession(sid); err != nil {
+		if err := harness.frontend.ResumeSession(sid); err != nil {
 			t.Fatalf("resume %s for state check: %v", sid, err)
 		}
 		snap := harness.app.Snapshot()
@@ -195,7 +195,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		for _, sid := range []string{sessionA, sessionB, sessionC, sessionA} {
 			started := time.Now()
 			done := make(chan error, 1)
-			go func(sid string) { done <- harness.app.ResumeSession(sid) }(sid)
+			go func(sid string) { done <- harness.frontend.ResumeSession(sid) }(sid)
 			select {
 			case err := <-done:
 				if err != nil {
@@ -239,7 +239,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 释放全部阻塞请求，三会话应正常收尾 idle。
 	provider.releaseAllNow()
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 	for _, sid := range []string{sessionA, sessionB, sessionC} {

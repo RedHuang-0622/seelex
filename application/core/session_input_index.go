@@ -21,8 +21,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
@@ -38,7 +37,12 @@ func (service *Service) readSessionInputIndex(sessionID string) (model.SessionIn
 		return model.SessionInputIndex{}, err
 	}
 	window, loaded := service.sessionInputWindowLoaded(sessionID, total)
-	items := residency.BuildInputIndex(conversation, loaded, residency.InputIndexSummaryLimit, inputIndexUserText)
+	items := service.components.residency.BuildInputIndex(
+		conversation,
+		loaded,
+		service.components.residency.InputIndexSummaryLimit(),
+		inputIndexUserText,
+	)
 	return model.SessionInputIndex{
 		SessionID:  sessionID,
 		Total:      total,

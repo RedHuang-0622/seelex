@@ -15,6 +15,7 @@
 - 保留宿主能力缺失时的明确错误；
 - 固定账号切换时 projection 采集、视图锁内提交、一次 revision bump 和事件发布顺序。
 - 固定 runtime projection 的锁外采集、锁内应用与锁外发布顺序。
+- 构造 RuntimeVisibility、ParentEvidence 与父目标证据的三个纯投影值。
 
 非职责：
 
@@ -26,10 +27,14 @@
 ## 文件结构
 
 - `application.go`：窄端口 `AccountDeps`、`ProjectionPort` 和 `AccountApplication`。
+- `account_window.go`：`AccountWindowPolicy` 消费方端口。
 - `runtime.go`：`RuntimeProjectionPort`、`RuntimeDeps` 与 `RuntimeApplication`。
+- `projection.go`：RuntimeVisibility、ParentEvidence、LatestVisibleUserGoal 与
+  200-rune 截断口径（EP-018 从 `middle/view` 归位）。
 - `scheduler/`：定时任务 CRUD、运行装配与后台会话。
 - `application_test.go`：端口转发、错误语义、账号切换顺序和缺失能力测试。
 - `runtime_test.go`：runtime 刷新锁与发布顺序测试。
+- `projection_test.go`：父目标选择、子代理标记跳过与投影构造测试。
 
 ## 核心实现
 
@@ -39,8 +44,11 @@
 `ProjectionPort` 由 Application 消费方定义，具体锁和快照实现留在装配宿主。本包不知道
 `Service`、Runtime 或存储实现。
 
-`RuntimeApplication` 只固定 Runtime projection 的“锁外采集 → 锁内应用/bump →
-锁外发布”顺序，具体投影构造仍在 `middle/view` 与宿主。
+`AccountWindowPolicy` 固定账号窗口“校验 → 持久化 → 运行面生效”的消费契约；
+Middle Setter 仍唯一实现判据，Wiring adapter 只转发。
+
+`RuntimeApplication` 固定 Runtime projection 的“锁外采集 → 锁内应用/bump →
+锁外发布”顺序。纯投影构造由 `projection.go` 唯一拥有，宿主只提供锁内输入。
 
 ## 数据流
 
@@ -50,8 +58,10 @@
 
 ## 依赖方向
 
-允许依赖 `contract`、`contract/dto` 和只读投影 DTO。禁止导入 `application/core`、持有完整
-`Service`、调用 GUI/TUI，或反向依赖 `backend/**`、`middle/**` 的具体实现。
+允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
+`middle/view/state.SubagentContextMarker` 这一只读标记。禁止导入
+`application/core`、持有完整 `Service`、调用 GUI/TUI，或反向依赖
+`backend/**`、`middle/view` 的具体实现。
 
 ## 并发与错误语义
 
@@ -68,6 +78,7 @@ Scheduler、Runtime 或 Session 生命周期塞入本包。兼容入口只能保
 - 账号切换是否只 bump 一次 revision；
 - projection 慢采集是否仍在锁外；
 - 解锁前是否没有调用事件发布或用户通知；
+- 父目标是否跳过空正文与子代理产出标记，且截断仍为 200 rune；
 - 是否出现第二份账号校验、余额探测或窗口落盘判据；
 - 新包是否 import `application/core` 或持有完整 `Service`。
 

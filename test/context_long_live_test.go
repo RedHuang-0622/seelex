@@ -36,7 +36,7 @@ func TestManualSmokeRealAccountLongContextRehydration(t *testing.T) {
 		if err := harness.app.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live long-context turn did not become idle: %v", err)
 		}
 		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
@@ -54,7 +54,7 @@ func TestManualSmokeRealAccountLongContextRehydration(t *testing.T) {
 	if snapshot.Session.ID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}
-	if err := harness.app.ResumeSession(snapshot.Session.ID); err != nil {
+	if err := harness.frontend.ResumeSession(snapshot.Session.ID); err != nil {
 		t.Fatalf("resume live session: %v", err)
 	}
 	submit("回到最初那条消息，只回答我的名字，不要调用任何工具。")

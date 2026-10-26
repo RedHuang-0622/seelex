@@ -27,7 +27,7 @@ import (
 
 func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	ctx := context.Background()
 
 	type concurrentCase struct {

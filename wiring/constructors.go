@@ -25,7 +25,21 @@ import (
 // （plan §1.3 ④）。返回值 *core.Service 与门面别名 application.Service 是同一
 // 类型身份（别名不是新类型）。
 func New(deps contract.Dependencies) (*core.Service, error) {
-	return core.New(deps, adapters.NewHistoryWindowAssembler())
+	return core.New(deps, core.ExternalPorts{
+		HistoryWindow:          adapters.NewHistoryWindowAssembler(),
+		Residency:              adapters.NewResidencyPort(),
+		ConversationStream:     adapters.NewConversationStreamPort(),
+		AccountWindow:          adapters.NewAccountWindowPolicy(),
+		SkillActivation:        adapters.NewSkillActivationPort(),
+		SessionRecords:         adapters.NewSessionRecordsPort(),
+		ErrorPresentation:      adapters.NewErrorPresentationPort(),
+		ApprovalFactory:        adapters.NewApprovalBrokerFactory(),
+		CommandRegistry:        adapters.NewCommandRegistryFactory(),
+		InputRouter:            adapters.NewInputRouterFactory(),
+		RoleSessions:           adapters.NewRoleSessionsFactory(),
+		TeamworkBoardReader:    adapters.NewTeamworkBoardReaderFactory(),
+		HostSessionForToolCall: adapters.NewHostSessionForToolCall(),
+	})
 }
 
 // NewFrontend constructs the frontend compatibility adapter.

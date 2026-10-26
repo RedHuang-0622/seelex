@@ -102,11 +102,11 @@ func TestToolOrderingStableAfterSwitchToRunningSession(t *testing.T) {
 
 	// 视图切到 B（空闲），A 继续后台运行——与「先切走再切回运行中会话」
 	// 场景等价，且保证切换路径先执行一次。
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 	// 切回运行中的 A（热挂载）。
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("switch back to running A: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != aID {
@@ -173,7 +173,7 @@ func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatalf("A did not start")
 	}
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestSubmitPromptWhileOtherSessionRuns(t *testing.T) {
 		t.Fatalf("A did not start")
 	}
 	// 活跃视图切到空闲 B（A 继续后台运行）。
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 
@@ -281,7 +281,7 @@ func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatalf("A did not start")
 	}
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("switch to running A: %v", err)
 	}
 

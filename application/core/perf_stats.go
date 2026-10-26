@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func (service *Service) perfStatsApplicationComponent() *applicationobservability.PerfApplication {

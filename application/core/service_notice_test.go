@@ -8,7 +8,7 @@ import (
 
 func TestServiceAddNoticeAppendsSystemMessage(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	service.AddNotice("startup warning")
+	frontendOfTestService(service).AddNotice("startup warning")
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		if len(snapshot.Conversation) == 0 {
 			return false

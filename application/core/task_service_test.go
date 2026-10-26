@@ -18,7 +18,7 @@ import (
 
 func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -43,7 +43,7 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 
 func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -83,7 +83,7 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 
 func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -100,7 +100,7 @@ func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 
 func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, model.TaskCheckpoint{})
@@ -132,7 +132,7 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 
 func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, model.TaskCheckpoint{})
@@ -162,7 +162,7 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 
 func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -205,7 +205,7 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 
 func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -220,7 +220,7 @@ func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 
 func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -236,7 +236,7 @@ func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 
 func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -267,7 +267,7 @@ func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 // 计入 task_complete 的覆盖，终态不必重复枚举 completed_nodes。
 func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -305,7 +305,7 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 // 未打点、未枚举的节点必须出现在 completed_nodes。
 func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
@@ -326,7 +326,7 @@ func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 
 func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})

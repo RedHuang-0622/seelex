@@ -82,7 +82,7 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 	gated.armMu.Lock()
 	gated.armed = true
 	gated.armMu.Unlock()
-	if err := service.ResumeSession("sess-cold"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-cold"); err != nil {
 		t.Fatalf("ResumeSession(cold B): %v", err)
 	}
 	<-gated.entered
@@ -143,7 +143,7 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 	engine.releaseSession("sess-cold")
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }
@@ -208,7 +208,7 @@ func TestSubmitToSessionDefersUntilRestoreCompletes(t *testing.T) {
 	engine.releaseSession(aID)
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }

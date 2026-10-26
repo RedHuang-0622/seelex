@@ -16,7 +16,7 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
 
-	effective, err := service.SetPermissionTier(dto.PermissionTierAuto)
+	effective, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierAuto)
 	if err != nil {
 		t.Fatalf("SetPermissionTier(auto): %v", err)
 	}
@@ -35,7 +35,7 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 		t.Fatal("auto 档不得被当成旧全权（fullAccessForSession 应为 false）")
 	}
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -58,10 +58,10 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 func TestPermissionTierProjectionPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
-	if _, err := service.SetPermissionTier(dto.PermissionTierEdit); err != nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierEdit); err != nil {
 		t.Fatalf("SetPermissionTier(edit): %v", err)
 	}
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -83,10 +83,10 @@ func TestPermissionTierProjectionPerSession(t *testing.T) {
 func TestSetPermissionTierRejectsUnknown(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
-	if _, err := service.SetPermissionTier(dto.PermissionTierFull); err != nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
-	if _, err := service.SetPermissionTier("superuser"); err == nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier("superuser"); err == nil {
 		t.Fatal("未知档位应当报错")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierFull {
@@ -100,7 +100,7 @@ func TestSetFullAccessCompatMapsToTier(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
 
-	if !service.SetFullAccess(true) {
+	if !frontendOfTestService(service).SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) 应返回 true（full 档生效）")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierFull {
@@ -115,7 +115,7 @@ func TestSetFullAccessCompatMapsToTier(t *testing.T) {
 			projection.Runtime.FullAccess, projection.Runtime.PermissionTier)
 	}
 
-	if service.SetFullAccess(false) {
+	if frontendOfTestService(service).SetFullAccess(false) {
 		t.Fatal("SetFullAccess(false) 应返回 false（manual 档）")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierManual {

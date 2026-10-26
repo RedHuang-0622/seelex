@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 

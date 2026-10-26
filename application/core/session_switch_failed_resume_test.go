@@ -56,7 +56,7 @@ func TestFailedResumeKeepsViewOnPreviousSessionAndSubmitContinuesIt(t *testing.T
 		failFor: map[string]bool{"sess-b": true},
 	}
 	service := newTestService(t, engine, withTestSessions(store))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	ctx := context.Background()
 	// 会话 A：提交首条 → 引擎会话物化并完成（A 驻留、空闲、视图 = A）。
@@ -75,7 +75,7 @@ func TestFailedResumeKeepsViewOnPreviousSessionAndSubmitContinuesIt(t *testing.T
 	}
 
 	// 目标 B 冷（未注册进引擎）；恢复失败发生在视图激活之后。
-	if err := service.ResumeSession("sess-b"); err == nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err == nil {
 		t.Fatalf("ResumeSession(cold B) expected an error from the failing context attach")
 	}
 

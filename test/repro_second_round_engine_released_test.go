@@ -164,7 +164,7 @@ func submitAndWait(t *testing.T, harness *fullChainHarness, ctx context.Context,
 	if err := harness.app.Submit(ctx, text); err != nil {
 		t.Fatalf("submit %q: %v", text, err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 	}
 }
@@ -181,7 +181,7 @@ func TestSecondRoundStartsAfterSessionEngineReleased(t *testing.T) {
 	if sessionID == "" {
 		t.Fatal("first round produced no session")
 	}
-	if err := harness.app.UnloadSession(sessionID); err != nil {
+	if err := harness.frontend.UnloadSession(sessionID); err != nil {
 		t.Fatalf("unload session %s: %v", sessionID, err)
 	}
 	before := provider.count()

@@ -121,7 +121,7 @@ func TestCompactionPushesFrameIntoIndex(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestCompactionWithoutIndexFaceReportsDegradedGate(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestCompactionPushFailureIsReportedNotFatal(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("推帧失败不得中断压缩与请求：%v", err)
 	}
@@ -320,7 +320,7 @@ func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

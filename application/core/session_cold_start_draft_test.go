@@ -32,7 +32,7 @@ func TestColdStartDraftSlotIsRetainedAcrossSwitch(t *testing.T) {
 	// 切到另一个会话：初始草稿行必须仍在（与 BeginNewSession 草稿同一不变量）。
 	target := "sess-cold-switch-target"
 	engine.register(target)
-	if err := service.ResumeSession(target); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(target); err != nil {
 		t.Fatalf("resume target: %v", err)
 	}
 	switched := service.Snapshot()
@@ -45,7 +45,7 @@ func TestColdStartDraftSlotIsRetainedAcrossSwitch(t *testing.T) {
 	}
 
 	// 再新建：必须恢复同一份冷启动草稿（幂等复用槽位，不另开 ID）。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != draftID {

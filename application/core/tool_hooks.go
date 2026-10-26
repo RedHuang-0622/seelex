@@ -7,9 +7,8 @@ import (
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"time"
 )
 
@@ -129,7 +128,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.task.done")
 	status, errorText := dto.ToolEventSuccess, ""
 	if toolErr != nil {
-		status, errorText = dto.ToolEventError, viewerrors.PresentToolError(name, toolErr)
+		status, errorText = dto.ToolEventError, service.components.errorPresentation.PresentToolError(name, toolErr)
 	}
 	// 快照截断（根因链治本一环）：可见会话只放预览
 	// （≤ limits.snapshot_tool_output_chars），完整输出归档 result_ref，

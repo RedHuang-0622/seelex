@@ -88,7 +88,7 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.Contex
 	// 区间序号属于这套空间）。
 	store.transcript = transcript
 	// 进程结束。
-	first.Shutdown()
+	frontendOfTestService(first).Shutdown()
 	return store, sessionID, compacted, retained
 }
 
@@ -99,7 +99,7 @@ func coldResume(t *testing.T, store *archiveSessions, sessionID string) *Service
 		withTestSessions(store),
 		withTestRuntime(runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}),
 	)
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	return service

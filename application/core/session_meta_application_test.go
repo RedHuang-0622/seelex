@@ -28,7 +28,7 @@ func TestSessionMetaFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "session_meta.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestSessionMetaFacadeOnlyDelegatesToApplication(t *testing.T) {
 	want := map[string]bool{"SetSessionMeta": false}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {

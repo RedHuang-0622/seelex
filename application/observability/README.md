@@ -2,13 +2,14 @@
 
 ## 生态位
 
-`application/observability` 承载前端性能读取等只读应用适配。指标计算仍由
-`middle/view` 唯一实现，本包只负责锁边界和窄输入装配。
+`application/observability` 承载诊断文本与前端性能读取等只读应用适配。
+PerfStats 指标计算仍由 `middle/view` 唯一实现；诊断文本的纯格式化由本包拥有。
 
 ## 职责
 
 - 在共享视图读锁内采样 Snapshot、历史窗口和工具结果引用数量。
 - 调用 `middle/view.PerfStats` 生成无内容的性能指标。
+- 从权威 Snapshot 生成 `/diag` 稳定文本，不读宿主私有状态。
 
 ## 非职责
 
@@ -19,21 +20,24 @@
 ## 文件结构
 
 - `perf.go`：性能指标应用组件。
+- `diagnostics.go`：`RenderDiag` 诊断文本纯函数（EP-018 从 `middle/view` 归位）。
 - `perf_test.go`：锁边界测试。
+- `diagnostics_test.go`：诊断段、Plan 完成计数与空运行态投影测试。
 
 ## 核心实现
 
 `PerfDeps` 以函数提供锁和三个输入。`PerfStats` 在锁内采样一次并立即释放，
-随后由 `middle/view` 计算指标。
+随后由 `middle/view` 计算指标。`RenderDiag` 只消费传入的 Snapshot。
 
 ## 数据流
 
-`application/core` 一行兼容转发 → `PerfApplication` → `middle/view.PerfStats`。
+`application/core` → `PerfApplication` → `middle/view.PerfStats`；
+`application.RenderDiag` / `/diag` → `observability.RenderDiag`。
 
 ## 依赖方向
 
-允许依赖 `middle/protocol/model` 与 `middle/view`。禁止依赖 `application/core`、
-backend 具体实现或前端包。
+允许依赖 `contract/protocol`、`contract/dto` 与 `middle/view.PerfStats`。禁止依赖
+`application/core`、backend 具体实现或前端包。
 
 ## 并发与错误
 
@@ -41,7 +45,8 @@ backend 具体实现或前端包。
 
 ## 扩展方式
 
-新增无内容指标时优先扩展 `middle/view` 的计算和本包输入，不在 core 复制公式。
+新增无内容指标时优先扩展 `middle/view` 的计算和本包输入；诊断格式只改
+`diagnostics.go`，不得复制到 core。
 
 ## Review 指南
 

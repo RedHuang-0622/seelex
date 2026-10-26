@@ -136,7 +136,7 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 	}
@@ -154,10 +154,10 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fork other: %v", err)
 	}
-	if err := harness.app.ResumeSession(other); err != nil {
+	if err := harness.frontend.ResumeSession(other); err != nil {
 		t.Fatalf("resume other: %v", err)
 	}
-	if err := harness.app.ResumeSession(sessionID); err != nil {
+	if err := harness.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("hot resume: %v", err)
 	}
 	hot := visibleAssistantTexts(harness.app.Snapshot().Conversation)
@@ -167,10 +167,10 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	}
 
 	// 冷恢复：Unload 后从磁盘重建。
-	if err := harness.app.UnloadSession(sessionID); err != nil {
+	if err := harness.frontend.UnloadSession(sessionID); err != nil {
 		t.Fatalf("unload: %v", err)
 	}
-	if err := harness.app.ResumeSession(sessionID); err != nil {
+	if err := harness.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("cold resume: %v", err)
 	}
 	cold := visibleAssistantTexts(harness.app.Snapshot().Conversation)

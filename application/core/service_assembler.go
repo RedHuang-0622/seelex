@@ -5,20 +5,18 @@ import (
 	"fmt"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
-	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
-	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
@@ -29,8 +27,8 @@ import (
 // serviceAssembler is the composition root for the application service. It
 // supplies infrastructure defaults before wiring stateful collaborators.
 type serviceAssembler struct {
-	deps                   contract.Dependencies
-	historyWindowAssembler applicationhistory.WindowAssembler
+	deps  contract.Dependencies
+	ports ExternalPorts
 }
 
 // taskPromptPort 是 task_context.PromptPort 的根包适配（prompt 域尚未下沉
@@ -56,10 +54,46 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	if err := validateDependencies(assembler.deps); err != nil {
 		return nil, err
 	}
-	if assembler.historyWindowAssembler == nil {
+	if assembler.ports.HistoryWindow == nil {
 		return nil, fmt.Errorf("application: history window assembler is required")
 	}
-	if err := promptassets.Validate(); err != nil {
+	if assembler.ports.Residency == nil {
+		return nil, fmt.Errorf("application: residency port is required")
+	}
+	if assembler.ports.ConversationStream == nil {
+		return nil, fmt.Errorf("application: conversation stream port is required")
+	}
+	if assembler.ports.AccountWindow == nil {
+		return nil, fmt.Errorf("application: account window policy is required")
+	}
+	if assembler.ports.SkillActivation == nil {
+		return nil, fmt.Errorf("application: skill activation port is required")
+	}
+	if assembler.ports.SessionRecords == nil {
+		return nil, fmt.Errorf("application: session records port is required")
+	}
+	if assembler.ports.ErrorPresentation == nil {
+		return nil, fmt.Errorf("application: error presentation port is required")
+	}
+	if assembler.ports.ApprovalFactory == nil {
+		return nil, fmt.Errorf("application: approval broker factory is required")
+	}
+	if assembler.ports.CommandRegistry == nil {
+		return nil, fmt.Errorf("application: command registry factory is required")
+	}
+	if assembler.ports.InputRouter == nil {
+		return nil, fmt.Errorf("application: input router factory is required")
+	}
+	if assembler.ports.RoleSessions == nil {
+		return nil, fmt.Errorf("application: role sessions factory is required")
+	}
+	if assembler.ports.TeamworkBoardReader == nil {
+		return nil, fmt.Errorf("application: teamwork board reader factory is required")
+	}
+	if assembler.ports.HostSessionForToolCall == nil {
+		return nil, fmt.Errorf("application: host session reader is required")
+	}
+	if err := prompt_layer.ValidateAssets(); err != nil {
 		return nil, fmt.Errorf("application prompts: %w", err)
 	}
 	assembler.applyInfrastructureDefaults()
@@ -69,14 +103,14 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	sessionDomain := session.NewDomain()
 	svcState := &serviceState{
 		Core:               kernel,
-		commands:           NewCommandRegistry(),
+		commands:           assembler.ports.CommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
 		sessions:           sessionDomain,
 		restoring:          make(map[string]struct{}),
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
-	service.components.executionApplication = newServiceExecutionApplication(service)
+	service.components.executionApplication = newServiceExecutionApplication(service, assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
 	service.components.adminApplication = newServiceAdminApplication(service)
 	service.components.sessionSSHApplication = newServiceSessionSSHApplication(service)
 	service.components.roleApplication = newServiceRoleApplication(service)
@@ -97,8 +131,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.perfStatsApplication = newServicePerfStatsApplication(service)
 	service.components.asyncCompletionApplication = newServiceAsyncCompletionApplication(service)
 	service.components.sessionQuery = newServiceSessionQuery(service)
-	service.components.historyWindowAssembler = assembler.historyWindowAssembler
-	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service, assembler.historyWindowAssembler)
+	service.components.historyWindowAssembler = assembler.ports.HistoryWindow
+	service.components.residency = assembler.ports.Residency
+	service.components.conversationStreams = assembler.ports.ConversationStream
+	service.components.accountWindowPolicy = assembler.ports.AccountWindow
+	service.components.skillActivation = assembler.ports.SkillActivation
+	service.components.sessionRecords = assembler.ports.SessionRecords
+	service.components.errorPresentation = assembler.ports.ErrorPresentation
+	service.components.roleSessions = assembler.ports.RoleSessions(assembler.deps.Sessions)
+	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service, assembler.ports.HistoryWindow)
 	service.components.conversationTurnState = newConversationTurnState()
 	service.components.conversationQueue = newServiceConversationQueue(service)
 	service.components.sessionLifecycle = newServiceSessionLifecycle(service)
@@ -174,7 +215,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
-		PresentToolError:           viewerrors.PresentToolError,
+		PresentToolError:           service.components.errorPresentation.PresentToolError,
 		QueuedInputRefs: func(sessionID string) []string {
 			// F-3b：按会话取排队输入引用（不读视图 Snapshot；unit 自锁）。
 			unit := service.sessions.Unit(sessionID)
@@ -203,10 +244,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		goalStoreFor = provider.SessionContextStoreFor
 	}
 	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
-	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
+	service.components.goal = applicationgoal.NewCoordinator(applicationgoal.CoordinatorDeps{
 		StoreFor: goalStoreFor,
 	})
-	service.components.goalApplication = newServiceGoalApplication(service)
+	service.components.goalApplication = newServiceGoalApplication(service, assembler.ports.HostSessionForToolCall)
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
 		PromptStack:   promptStack,
@@ -247,7 +288,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.sessions.ActiveID()
 		},
 		Tasks: service.components.tasks,
-		Goals: service,
+		Goals: goalGovernanceViewPort{service: service},
 		// 团队看板读面（计划 + 作业行 + 审计流水）：与 Goals 同构——Deps 收窄成
 		// 「会话 → 只读投影」，转发与缓存的责任留给桥（未装配 teamwork 时
 		// TeamworkBoardViewFor 走类型断言失败分支返回 nil）。
@@ -336,7 +377,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 	})
 	service.components.subagentApplication = newServiceSubagentApplication(service)
-	service.components.input = newInputRouter(inputRouteHandlers{
+	service.components.input = assembler.ports.InputRouter(contract.InputRouteHandlers{
 		Command: service.submitCommand,
 		Plugin:  service.submitPluginSwitch,
 		Skill:   service.submitSkill,
@@ -445,7 +486,7 @@ func (assembler *serviceAssembler) applyInfrastructureDefaults() {
 		assembler.deps.Events = NewEventHub()
 	}
 	if assembler.deps.Approval == nil {
-		assembler.deps.Approval = NewApprovalBroker(assembler.deps.Events)
+		assembler.deps.Approval = assembler.ports.ApprovalFactory(assembler.deps.Events)
 	}
 }
 

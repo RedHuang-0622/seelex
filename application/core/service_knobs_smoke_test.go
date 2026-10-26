@@ -64,7 +64,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 2) 拖「循环次数」：引擎与快照一起动。
-	if err := service.SetLoopLimit(ctx, 600); err != nil {
+	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	if got := engine.loops(); got != 600 {
@@ -72,7 +72,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 3) 拖「推理强度」：账号池拿到 wire 值，循环上限不受影响。
-	if err := service.SetReasoningEffort(ctx, dto.ReasoningEffortMax); err != nil {
+	if err := frontendOfTestService(service).SetReasoningEffort(ctx, dto.ReasoningEffortMax); err != nil {
 		t.Fatalf("SetReasoningEffort(max): %v", err)
 	}
 	if pushed := runtime.pushedEfforts(); len(pushed) != 1 || pushed[0] != dto.ReasoningEffortMax {
@@ -110,7 +110,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	// 6) 插件切换会重放一次档位（Apply 把引擎循环上限写回档位默认值）——用户的拉条值
 	//    不能被这次重放吃掉。这里直接调那条重放（SwitchPlugin 的装配面在别处，见
 	//    service_interaction.go 的 reapplyEffortAfterPluginSwitch）。
-	if err := service.SetLoopLimit(ctx, 600); err != nil {
+	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	service.reapplyEffortAfterPluginSwitch()
@@ -134,10 +134,10 @@ func TestKnobChainSmoke(t *testing.T) {
 		t.Fatalf("回合起点没有按会话下发强度：%v, want [max low low]", pushed)
 	}
 
-	if err := service.SetLoopLimit(ctx, 999); err == nil {
+	if err := frontendOfTestService(service).SetLoopLimit(ctx, 999); err == nil {
 		t.Fatal("运行中 SetLoopLimit 必须被拒")
 	}
-	if err := service.SetReasoningEffort(ctx, dto.ReasoningEffortLow); err == nil {
+	if err := frontendOfTestService(service).SetReasoningEffort(ctx, dto.ReasoningEffortLow); err == nil {
 		t.Fatal("运行中 SetReasoningEffort 必须被拒")
 	}
 	if got := engine.loops(); got != 600 {

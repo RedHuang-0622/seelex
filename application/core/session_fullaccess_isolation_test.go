@@ -41,7 +41,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 	}()
 	waitPendingApprovalsFor(t, service, backgroundSession, 1)
 
-	if !service.SetFullAccess(true) {
+	if !frontendOfTestService(service).SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) = false, want true（视图会话生效值）")
 	}
 
@@ -87,7 +87,7 @@ func TestProbeFullAccessSurvivesBackgroundSessionStartSync(t *testing.T) {
 	viewSession := service.Snapshot().Session.ID
 	const backgroundSession = "session-background"
 
-	if !service.SetFullAccess(true) {
+	if !frontendOfTestService(service).SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) = false, want true")
 	}
 
@@ -108,7 +108,7 @@ func TestProbeFullAccessSurvivesBackgroundSessionStartSync(t *testing.T) {
 	}
 
 	// 关掉全权只影响本会话。
-	service.SetFullAccess(false)
+	frontendOfTestService(service).SetFullAccess(false)
 	if runtime.FullAccessFor(viewSession) {
 		t.Fatal("SetFullAccess(false) 后视图会话执行门仍为全权")
 	}

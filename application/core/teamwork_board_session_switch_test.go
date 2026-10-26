@@ -46,7 +46,7 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 	engine.loadedSessions[sessionA] = true
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	sessionB := service.Snapshot().Session.ID
@@ -58,7 +58,7 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 
 	// 切回 A：**第一帧**快照就必须带看板（不能等下一轮回合尾）。
-	if err := service.ActivateSession(sessionA); err != nil {
+	if err := frontendOfTestService(service).ActivateSession(sessionA); err != nil {
 		t.Fatalf("ActivateSession: %v", err)
 	}
 	got := service.Snapshot().Runtime.TeamworkBoard
@@ -70,13 +70,13 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 
 	// 切到 B 再切回 A：B 的槽里不该留着 A 的看板（过渡帧不许说谎）。
-	if err := service.ActivateSession(sessionB); err != nil {
+	if err := frontendOfTestService(service).ActivateSession(sessionB); err != nil {
 		t.Fatalf("ActivateSession(B): %v", err)
 	}
 	if got := service.Snapshot().Runtime.TeamworkBoard; got != nil {
 		t.Fatalf("切到没有计划的会话后不得留着上一个会话的看板：%+v", got)
 	}
-	if err := service.ActivateSession(sessionA); err != nil {
+	if err := frontendOfTestService(service).ActivateSession(sessionA); err != nil {
 		t.Fatalf("ActivateSession(A): %v", err)
 	}
 	if service.Snapshot().Runtime.TeamworkBoard == nil {

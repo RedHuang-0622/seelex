@@ -4,8 +4,7 @@ import (
 	"context"
 
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // newServiceSessionQuery adapts Service's authoritative directory, metadata,
@@ -29,5 +28,5 @@ func newServiceSessionQuery(service *Service) *applicationsessionquery.Applicati
 
 // waitCatalogRefresh is the host adapter for the directory worker.
 func (service *Service) waitCatalogRefresh(ctx context.Context) error {
-	return residency.WaitCatalogRefresh(ctx, service.components.sessions)
+	return service.components.residency.WaitCatalogRefresh(ctx, service.components.sessions)
 }

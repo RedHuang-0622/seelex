@@ -52,7 +52,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle %q: %v", text, err)
 		}
 		return harness.app.Snapshot().Session.ID
@@ -92,7 +92,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
 	submitAndIdle("seed B")
@@ -100,11 +100,11 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.ResumeSession(sessionC); err != nil {
+	if err := harness.frontend.ResumeSession(sessionC); err != nil {
 		t.Fatal(err)
 	}
 	submitAndIdle("seed C")
-	if err := harness.app.BeginNewSession(); err != nil {
+	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	sessionD := submitAndIdle("seed D")
@@ -121,7 +121,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	// 热切换（驻留互切）6 轮。
 	order := []string{sessionA, sessionB, sessionC, sessionD, sessionA, sessionC, sessionB, sessionD}
 	for _, sid := range order {
-		if err := harness.app.ResumeSession(sid); err != nil {
+		if err := harness.frontend.ResumeSession(sid); err != nil {
 			t.Fatalf("hot resume %s: %v", sid, err)
 		}
 		waitSessionReady(sid, seeds[sid])
@@ -130,11 +130,11 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	// 冷切换：逐个卸载再恢复（后台冷加载），重复两轮。
 	for cycle := 0; cycle < 2; cycle++ {
 		for _, sid := range []string{sessionD, sessionB, sessionA, sessionC} {
-			if err := harness.app.UnloadSession(sid); err != nil {
+			if err := harness.frontend.UnloadSession(sid); err != nil {
 				t.Fatalf("unload %s: %v", sid, err)
 			}
 			start := time.Now()
-			if err := harness.app.ResumeSession(sid); err != nil {
+			if err := harness.frontend.ResumeSession(sid); err != nil {
 				t.Fatalf("cold resume %s: %v", sid, err)
 			}
 			waitSessionReady(sid, seeds[sid])
@@ -144,10 +144,10 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 
 	// 进程重启 → 冷恢复 C，验证跨会话数据仍在各自键下。
 	sessionID := sessionC
-	harness.app.Shutdown()
+	harness.frontend.Shutdown()
 	harnessRestarted := newFullChainHarness(t, AccountsPath, tempDir, 10*time.Second)
 	start := time.Now()
-	if err := harnessRestarted.app.ResumeSession(sessionID); err != nil {
+	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("restart resume: %v", err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
@@ -167,7 +167,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	if strings.Contains(text, "seed D") {
 		t.Fatalf("restart C polluted by D: %s", text)
 	}
-	harnessRestarted.app.Shutdown()
+	harnessRestarted.frontend.Shutdown()
 }
 
 // TestStorageConcurrentSessionLockProfile 存储层多会话并发读写（锁竞争/热点）。

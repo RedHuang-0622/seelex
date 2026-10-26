@@ -2,15 +2,20 @@
 package core
 
 import (
+	"context"
 	"errors"
+	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
@@ -87,10 +92,26 @@ func (service *Service) projectBoardSink() board.ProjectBoardSink {
 	return service.components.projectBoard.load()
 }
 
-func New(deps contract.Dependencies, historyWindowAssembler applicationhistory.WindowAssembler) (*Service, error) {
+type ExternalPorts struct {
+	HistoryWindow          applicationhistory.WindowAssembler
+	Residency              applicationsession.ResidencyPort
+	ConversationStream     applicationconversation.StreamOutputPort
+	AccountWindow          applicationadmin.AccountWindowPolicy
+	SkillActivation        applicationpolicy.SkillActivationPort
+	SessionRecords         applicationconversation.SessionRecordsPort
+	ErrorPresentation      contract.ErrorPresentationPort
+	ApprovalFactory        func(event.Hub) contract.ApprovalBroker
+	CommandRegistry        func() contract.CommandRegistryPort
+	InputRouter            func(contract.InputRouteHandlers) contract.InputDispatcher
+	RoleSessions           func(contract.SessionPort) contract.RoleSessionsPort
+	TeamworkBoardReader    func(contract.RuntimePort) applicationexecution.BoardReader
+	HostSessionForToolCall func(context.Context) string
+}
+
+func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error) {
 	return serviceAssembler{
-		deps:                   deps,
-		historyWindowAssembler: historyWindowAssembler,
+		deps:  deps,
+		ports: ports,
 	}.assemble()
 }
 
@@ -104,18 +125,6 @@ func (service *Service) PromptLayers() []prompt.PromptLayer {
 	return service.promptStack.Layers()
 }
 
-// GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
-// PublishRuntimeProjections 收到同一值；它不调用本方法。
-func (service *Service) GoalSkillActive() bool {
-	return service.components.tasks.GoalSkillActive()
-}
-
-// PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
-// Application.New 返回后完成 Runtime 接线的组合根调用。
-func (service *Service) PublishRuntimeProjections() {
-	service.publishRuntimeProjections()
-}
-
 // handleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 // 发布一次前端增量。
 //
@@ -123,17 +132,8 @@ func (service *Service) PublishRuntimeProjections() {
 // （记账要求 `(ownerSessionID, unitID)` 两维都在，见 tool_record_stage.go）；
 // Plan 投影照旧。生产装配走 HandleSubagentToolEventFor（装配层从执行上下文
 // 解析出主会话再调进来）。
-func (service *Service) handleSubagentToolEvent(event seelsession.SubagentToolEvent) {
+func (service *Service) handleSubagentToolEvent(event dto.SubagentToolEvent) {
 	service.components.subagent.HandleSubagentToolEvent(event)
-}
-
-// HandleSubagentToolEventFor 同 HandleSubagentToolEvent，但带上**执行上下文**给出的
-// 归属主会话（子代理节点注册时随 ctx 绑定的那一格，不是视图会话）。
-//
-// ownerSessionID 空 ⇒ 读数丢弃 + 计数（诊断在 `ToolRecordDroppedReadings`），
-// **不回落到视图会话**：切会话串写就是这么来的（#8/#13）。
-func (service *Service) HandleSubagentToolEventFor(ownerSessionID string, event seelsession.SubagentToolEvent) {
-	service.components.subagent.HandleSubagentToolEventFor(ownerSessionID, event)
 }
 
 // HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
@@ -195,16 +195,4 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 	unitID := applicationtoolrecord.RoleUnitID(event.RoleSessionID, event.ID)
 	service.stageUnitToolOutcomeForStatus(sessionID, unitID, event.Name, event.Status, event.Error)
 	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
-}
-
-// SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
-// 功能打点）。
-func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
-	return service.subagentApplicationComponent().Detail(nodeID)
-}
-
-// ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
-// 完成后刷新快照投影，前端经 runtime.changed 增量收到空树 → 分区隐藏）。
-func (service *Service) ClearSubagentTree() error {
-	return service.subagentApplicationComponent().ClearTree()
 }

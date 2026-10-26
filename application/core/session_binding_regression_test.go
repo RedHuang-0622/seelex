@@ -18,9 +18,9 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()

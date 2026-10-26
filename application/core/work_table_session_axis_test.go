@@ -82,7 +82,7 @@ func TestTaskChangedIncrementCarriesOwningSession(t *testing.T) {
 	if sessionID == "" {
 		t.Fatal("view session has no ID")
 	}
-	subscription := service.Subscribe(16)
+	subscription := frontendOfTestService(service).Subscribe(16)
 	defer subscription.Close()
 
 	// 记录本身不带会话键（实时注册表语义）。

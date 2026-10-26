@@ -61,13 +61,13 @@ func TestPermissionTierSurvivesSessionReload(t *testing.T) {
 	store := newTierMemSessions()
 
 	before := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if _, err := before.SetPermissionTier(dto.PermissionTierFull); err != nil {
+	if _, err := frontendOfTestService(before).SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
 	if got := store.tierFor("session-1"); got != dto.PermissionTierFull {
 		t.Fatalf("会话级设置里的档位 = %q, want %q（档位必须写入会话持久设置）", got, dto.PermissionTierFull)
 	}
-	before.Shutdown()
+	frontendOfTestService(before).Shutdown()
 
 	after := newTestService(t, &fakeEngine{}, withTestSessions(store))
 	if got := after.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
@@ -90,13 +90,13 @@ func TestPermissionTierReloadKeepsManualChoice(t *testing.T) {
 	if got := store.tierFor("session-1"); got != "" {
 		t.Fatalf("初始不该有档位条目：%q", got)
 	}
-	if _, err := before.SetPermissionTier(dto.PermissionTierManual); err != nil {
+	if _, err := frontendOfTestService(before).SetPermissionTier(dto.PermissionTierManual); err != nil {
 		t.Fatalf("SetPermissionTier(manual): %v", err)
 	}
 	if got := store.tierFor("session-1"); got != dto.PermissionTierManual {
 		t.Fatalf("显式 manual 未落盘：%q", got)
 	}
-	before.Shutdown()
+	frontendOfTestService(before).Shutdown()
 
 	after := newTestService(t, &fakeEngine{}, withTestSessions(store))
 	if got := after.permissionTierForSession("session-1"); got != dto.PermissionTierManual {
@@ -108,7 +108,7 @@ func TestPermissionTierReloadKeepsManualChoice(t *testing.T) {
 // （测试桩 / 旧装配）不得让切档报错——档位退回内存态语义，与落盘前一致。
 func TestPermissionTierWithoutSettingPortStaysInMemory(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	effective, err := service.SetPermissionTier(dto.PermissionTierFull)
+	effective, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull)
 	if err != nil {
 		t.Fatalf("未装配设置端口时切档不得失败: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPermissionTierSettingPortErrorSurfaces(t *testing.T) {
 	store := &failingTierSessions{tierMemSessions: newTierMemSessions()}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if _, err := service.SetPermissionTier(dto.PermissionTierFull); err == nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err == nil {
 		t.Fatal("设置写失败时切档必须报错")
 	}
 	if got := service.permissionTierForSession("session-1"); got == dto.PermissionTierFull {
@@ -158,7 +158,7 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 	runtime := service.Deps.Runtime.(*fakeRuntime)
 	sessionA := service.Snapshot().Session.ID
-	if _, err := service.SetPermissionTier(dto.PermissionTierFull); err != nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
 	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
@@ -168,7 +168,7 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 		t.Fatal("前置：full 档应派生 full_access=true")
 	}
 
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -202,11 +202,11 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	store := newTierMemSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
-	if _, err := service.SetPermissionTier(dto.PermissionTierAuto); err != nil {
+	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierAuto); err != nil {
 		t.Fatalf("SetPermissionTier(auto): %v", err)
 	}
 	if got := store.tierFor(draftID); got != dto.PermissionTierAuto {
@@ -223,7 +223,7 @@ func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一份槽位，档位必须从持久设置读回。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession(恢复槽位): %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != draftID {

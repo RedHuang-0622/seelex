@@ -1,8 +1,12 @@
 package core
 
-import applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+import (
+	"context"
 
-func newServiceGoalApplication(service *Service) *applicationgoal.Application {
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+)
+
+func newServiceGoalApplication(service *Service, hostSessionForToolCall func(context.Context) string) *applicationgoal.Application {
 	return applicationgoal.New(applicationgoal.Deps{
 		Coordinator: func() applicationgoal.CoordinatorPort {
 			if service == nil {
@@ -10,7 +14,14 @@ func newServiceGoalApplication(service *Service) *applicationgoal.Application {
 			}
 			return service.components.goal
 		},
-		Refresh: service.refreshGoalRuntimeProjection,
+		Refresh:        service.refreshGoalRuntimeProjection,
+		WriteSessionID: sessionIDFromContext,
+		ReadSessionID: func(ctx context.Context) string {
+			if sessionID := sessionIDFromContext(ctx); sessionID != "" {
+				return sessionID
+			}
+			return hostSessionForToolCall(ctx)
+		},
 	})
 }
 

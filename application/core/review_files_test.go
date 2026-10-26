@@ -37,7 +37,7 @@ func TestReviewFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "review_files.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestReviewFacadeOnlyDelegatesToApplication(t *testing.T) {
 	want := map[string]bool{"RequestFileReview": false}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -105,7 +105,7 @@ func reviewFixture(t *testing.T) (*Service, string) {
 func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T) {
 	service, _ := reviewFixture(t)
 
-	request, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{
+	request, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{
 		{Path: "docs/readme.md", Note: "先看这份", StartLine: 1, EndLine: 2},
 		{Path: "config/accounts.yaml"},
 		{Path: "assets/blob.bin"},
@@ -153,7 +153,7 @@ func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T) {
 func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T) {
 	service, _ := reviewFixture(t)
 
-	request, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}})
+	request, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T) {
 // 切换时抽屉随树清空（清单里是工作区相对路径，换根之后不再指向"同一份文件"）。
 func TestRequestFileReviewClearedOnWorkspaceSwitch(t *testing.T) {
 	service, _ := reviewFixture(t)
-	if _, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}}); err != nil {
+	if _, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}}); err != nil {
 		t.Fatal(err)
 	}
 	if service.Snapshot().ReviewRequest == nil {
@@ -204,14 +204,14 @@ func TestRequestFileReviewClearedOnWorkspaceSwitch(t *testing.T) {
 func TestRequestFileReviewRejectsOverCapAndEmpty(t *testing.T) {
 	service, _ := reviewFixture(t)
 
-	if _, err := service.RequestFileReview(context.Background(), nil); err == nil {
+	if _, err := frontendOfTestService(service).RequestFileReview(context.Background(), nil); err == nil {
 		t.Fatal("空清单必须报错")
 	}
 	tooMany := make([]dto.ReviewFileRef, 0, dto.MaxReviewFilesPerRequest+1)
 	for index := 0; index <= dto.MaxReviewFilesPerRequest; index++ {
 		tooMany = append(tooMany, dto.ReviewFileRef{Path: "docs/readme.md"})
 	}
-	if _, err := service.RequestFileReview(context.Background(), tooMany); err == nil {
+	if _, err := frontendOfTestService(service).RequestFileReview(context.Background(), tooMany); err == nil {
 		t.Fatal("超限必须报错")
 	}
 	if service.Snapshot().ReviewRequest != nil {
@@ -225,7 +225,7 @@ func TestRequestFileReviewWithoutWorkspaceFailsExplicitly(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = adapters.WorkspacePort{Repo: workspace.NewRepo()}
 	})
-	if _, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}}); err == nil {
+	if _, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}}); err == nil {
 		t.Fatal("未绑定工作区必须报错")
 	}
 }
@@ -234,12 +234,12 @@ func TestRequestFileReviewWithoutWorkspaceFailsExplicitly(t *testing.T) {
 // "叫了 10 份、一份都没成"不该把用户已经开着的详情抽屉关掉。
 func TestRequestFileReviewAllSkippedKeepsSnapshotUntouched(t *testing.T) {
 	service, _ := reviewFixture(t)
-	first, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}})
+	first, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/readme.md"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	allSkipped, err := service.RequestFileReview(context.Background(), []dto.ReviewFileRef{
+	allSkipped, err := frontendOfTestService(service).RequestFileReview(context.Background(), []dto.ReviewFileRef{
 		{Path: "config/accounts.yaml"}, {Path: "assets/blob.bin"},
 	})
 	if err != nil {

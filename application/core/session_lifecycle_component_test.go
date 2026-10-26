@@ -28,7 +28,7 @@ func TestUnloadSessionOnlyDelegatesToSessionLifecycle(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "session_lifecycle.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,8 @@ func TestUnloadSessionOnlyDelegatesToSessionLifecycle(t *testing.T) {
 	found := false
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name.Name != "UnloadSession" {
+		if !ok || function.Recv == nil || function.Name.Name != "UnloadSession" ||
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		found = true

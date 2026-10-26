@@ -7,14 +7,13 @@ import (
 	"strings"
 
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
-func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec {
+func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec {
 	return applicationscheduler.WithRunDefaults(spec)
 }
 
@@ -22,11 +21,11 @@ func scheduledRunParams(effort string, loopLimit int) (string, int) {
 	return applicationscheduler.RunParams(effort, loopLimit)
 }
 
-func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error {
+func (service *Service) validateScheduledRunParams(spec dto.ScheduledTaskSpec) error {
 	return applicationscheduler.ValidateRunParams(spec)
 }
 
-func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error {
+func (service *Service) applyScheduledRunParams(sessionID string, task dto.ScheduledTaskSpec) error {
 	effort, loops := scheduledRunParams(task.ReasoningEffort, task.LoopLimit)
 	pinner, ok := service.Deps.Engine.(contract.SessionLoopLimitPort)
 	if !ok {
@@ -35,21 +34,6 @@ func (service *Service) applyScheduledRunParams(sessionID string, task assemble.
 	pinner.SetSessionMaxLoopsFor(sessionID, loops)
 	service.knobs.BorrowSessionReasoningEffort(sessionID, effort)
 	return nil
-}
-
-// ScheduleTask creates one scheduled task.
-func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
-	return service.schedulerApplicationComponent().ScheduleTask(ctx, spec)
-}
-
-// UpdateScheduledTask replaces one scheduled task.
-func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
-	return service.schedulerApplicationComponent().UpdateScheduledTask(ctx, id, spec)
-}
-
-// CancelScheduledTask removes one scheduled task.
-func (service *Service) CancelScheduledTask(id string) error {
-	return service.schedulerApplicationComponent().CancelScheduledTask(id)
 }
 
 func (service *Service) validateScheduledWorkspace(workspaceID string) error {
@@ -100,11 +84,6 @@ func (service *Service) validateScheduledPlugins(plugins []string) error {
 	return nil
 }
 
-// AssembleScheduledRun applies session execution policy before submit.
-func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
-	return service.scheduledRunApplicationComponent().AssembleScheduledRun(ctx, sessionID, task)
-}
-
 func (service *Service) schedulerApplicationComponent() *applicationscheduler.SchedulerApplication {
 	if service == nil {
 		return nil
@@ -137,7 +116,11 @@ func newServiceSchedulerApplication(service *Service) *applicationscheduler.Sche
 			return service.Deps.Runtime.UpdateScheduledTask(ctx, id, spec)
 		},
 		CancelScheduledTask: service.Deps.Runtime.CancelScheduledTask,
-		Refresh:             service.RefreshRuntimeSnapshot,
+		Refresh: func() {
+			if component := service.runtimeApplicationComponent(); component != nil {
+				component.Refresh()
+			}
+		},
 	})
 }
 
@@ -194,18 +177,10 @@ func newServiceScheduledSessionApplication(service *Service) *applicationschedul
 		RequestCatalogRefresh: func() {
 			service.components.sessions.RequestCatalogRefresh()
 		},
-		AssembleRun:        service.AssembleScheduledRun,
+		AssembleRun: func(ctx context.Context, sessionID string, task dto.ScheduledTaskSpec) (context.Context, error) {
+			return service.scheduledRunApplicationComponent().AssembleScheduledRun(ctx, sessionID, task)
+		},
 		SubmitConversation: service.submitConversationFor,
 		DrainingError:      ErrApplicationDraining,
 	})
-}
-
-// RefreshRuntimeSnapshot refreshes runtime projection.
-func (service *Service) RefreshRuntimeSnapshot() {
-	service.runtimeApplicationComponent().Refresh()
-}
-
-// StartScheduledSession creates and submits one scheduled background session.
-func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
-	return service.scheduledSessionApplicationComponent().StartScheduledSession(ctx, task)
 }

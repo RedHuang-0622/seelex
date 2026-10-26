@@ -93,8 +93,8 @@ func TestEventHubOrdersAndResyncs(t *testing.T) {
 
 func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
-	subscription := service.Subscribe(8)
+	defer frontendOfTestService(service).Shutdown()
+	subscription := frontendOfTestService(service).Subscribe(8)
 	defer subscription.Close()
 
 	service.ViewMu.Lock()
@@ -125,7 +125,7 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 
 func TestToolEventsUpdateSnapshot(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.handleToolStart(context.Background(), "read", "read-1", `{"path":"a"}`)
 	service.handleToolComplete("read", "read-1", "ok", nil, time.Second)
 	snapshot := service.Snapshot()
@@ -148,7 +148,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	taskState := service.components.tasks.BeginTask("task-goal", "plan work", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, []prompt.PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
 	service.ViewMu.Unlock()
-	if !service.GoalSkillActive() {
+	if !frontendOfTestService(service).GoalSkillActive() {
 		t.Fatal("goal skill state was not projected")
 	}
 	service.publishRuntimeProjections()

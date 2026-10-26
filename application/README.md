@@ -56,10 +56,10 @@
 [`testdata/application_budget.json`](testdata/application_budget.json) 和
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
-- 冻结 `Service` 当前 83 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
-  当前事实基线为 33，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 121 个、生产代码 12,463 行；
+  当前事实基线为 16，预算只允许下降；
+- 冻结 `application/core` 非测试生产文件 117 个、生产代码 11,829 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -83,7 +83,8 @@
   `TeamworkQueryAPI` 移除，仍保留在 `Service` 装配面。
 
 此批 JSON 字段与前端 wire 形状不变；当时 `application/core` 内部依赖预算为 39，
-后续内部实现迁移与 History Window 外部端口已把当前事实基线降到 33。该数字由内部实现迁移单独治理，
+后续内部实现迁移、外部端口与 Contract/Middle 归位已把当前事实基线降到 16。
+该数字由内部实现迁移单独治理，
 不与入站 API 纯度混算。
 
 ### 按能力拆分的入站 API（AP-002，已实现）
@@ -146,10 +147,10 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 83 |
-| `application/core` 直接内部依赖 | 33 |
-| `application/core` 生产文件 | 121 |
-| `application/core` 生产代码 | 12,463 行 |
+| `Service` 公开方法 | 23 |
+| `application/core` 直接内部依赖 | 16 |
+| `application/core` 生产文件 | 117 |
+| `application/core` 生产代码 | 11,829 行 |
 
 已落地领域包：
 
@@ -178,11 +179,11 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
-| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；73 个旧入口已从 core 移出 |
+| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；127 个旧入口已从 core 移出 |
 
 退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
 不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
-`Service` 的 83 个兼容方法在调用方归零前继续保留。已迁出的 73 个入口由
+`Service` 的 23 个状态/生命周期方法继续保留。compat 已承接 127 个旧入口；
 `compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。
 
 ### SessionQuery durable 读取面（AP-013 首个切片，已实现）
@@ -682,7 +683,8 @@ compact/new/resume/fork/plugin/effort/permission 的注册与参数适配迁入
 
 `session_archive_use_case.go` 的 `sessionArchive` 承接归档所需的过渡锁、门控读数、
 存储落点、引擎卸载/驻留清理、后台会话释放与目录刷新装配。归档准入与状态迁移仍由
-`middle/residency.Archive` 唯一拥有；`Service.ArchiveSession` 只保留一行转发。
+`middle/residency.Archive` 经 `application/session.ResidencyPort` 唯一拥有；
+Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 
 ### Session Delete 应用编排（AP-012 首个切片，已实现）
 

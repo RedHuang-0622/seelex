@@ -12,14 +12,14 @@ import (
 // 重启换 ID）。2026-09-11 修复。
 func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	submitAndIdle := func(text string) {
 		t.Helper()
 		if err := service.Submit(context.Background(), text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := service.WaitForIdle(context.Background()); err != nil {
+		if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 			t.Fatalf("wait idle after %q: %v", text, err)
 		}
 	}
@@ -38,7 +38,7 @@ func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	}
 
 	// 新建会话 B：它的第一条消息必须从 1 起。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	submitAndIdle("B first")

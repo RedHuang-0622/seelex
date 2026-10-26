@@ -129,14 +129,14 @@ func TestReproCompactionFactsSurviveProcessRestart(t *testing.T) {
 	if len(store.facts) != 1 {
 		t.Fatalf("夹具前提：压缩记录应落进压缩记录通道：%+v", store.facts)
 	}
-	first.Shutdown()
+	frontendOfTestService(first).Shutdown()
 
 	// ── 进程重启 ─────────────────────────────────────────────────────────
 	second := newTestService(t, &fakeEngine{},
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := second.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 
@@ -192,13 +192,13 @@ func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T) {
 	if len(store.facts) != 1 || !store.facts[0].Failed {
 		t.Fatalf("夹具前提：失败痕应落进压缩记录通道：%+v", store.facts)
 	}
-	first.Shutdown()
+	frontendOfTestService(first).Shutdown()
 
 	second := newTestService(t, &fakeEngine{},
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := second.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)

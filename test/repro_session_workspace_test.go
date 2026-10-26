@@ -64,12 +64,12 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.app.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessionA = harness.app.Snapshot().Session.ID
 	// 离开 A 进入草稿：BeginNewSession 会把 A 按自身 workspace（X）落盘。
-	if err := harness.app.BeginNewSession(); err != nil {
+	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.CreateWorkspace("ws-y", yRoot, ""); err != nil {
@@ -81,7 +81,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.app.Submit(ctx, "first B"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessionB = harness.app.Snapshot().Session.ID
@@ -89,7 +89,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 		t.Fatalf("sessions A=%q B=%q must be distinct", sessionA, sessionB)
 	}
 	// 回到 A 提交长任务（请求 #3 阻塞）。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "long task A"); err != nil {
@@ -101,7 +101,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 		t.Fatal("A long task did not block")
 	}
 	// 切 B 完成一轮。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "hello B"); err != nil {
@@ -120,7 +120,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	}
 	// A 后台完成。
 	close(provider.release[3])
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	st, err := bootstrap.InitStore(launchFlags.StorePath)

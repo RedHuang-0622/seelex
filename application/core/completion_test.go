@@ -65,7 +65,7 @@ func TestSuggestionsExcludeModelSideTools(t *testing.T) {
 		{Name: "todolist_init", Description: "初始化待办（旧名）"},
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	suggestions := frontendOfTestService(service).Suggestions("/")
 	if len(suggestions) == 0 {

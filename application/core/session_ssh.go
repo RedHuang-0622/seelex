@@ -5,26 +5,10 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ErrSessionSSHUnavailable preserves the error identity for old callers.
 var ErrSessionSSHUnavailable = applicationsession.ErrSessionSSHUnavailable
-
-// SessionSSHState reads a session's SSH state.
-func (service *Service) SessionSSHState(sessionID string) (model.SessionSSHInfo, error) {
-	return service.sessionSSHApplicationComponent().State(sessionID)
-}
-
-// SetSessionSSHAllowed replaces the legacy allowed-environment set.
-func (service *Service) SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error) {
-	return service.sessionSSHApplicationComponent().SetAllowed(sessionID, envs)
-}
-
-// SetSessionSSHEnv fixes the session environment on its first assignment.
-func (service *Service) SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error) {
-	return service.sessionSSHApplicationComponent().SetEnv(sessionID, projectID, env)
-}
 
 func (service *Service) sessionSSHApplicationComponent() *applicationsession.SSHApplication {
 	if service == nil {

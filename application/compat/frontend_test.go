@@ -59,6 +59,11 @@ func TestCompatibilityMethodsOnlyForward(t *testing.T) {
 		"completion": true, "conversationQueue": true, "history": true, "policy": true,
 		"execution": true, "historySearch": true, "perf": true, "projectBoard": true,
 		"reference": true, "sessionMeta": true, "sessionQuery": true,
+		"contextCompaction": true, "goal": true, "lifecycle": true, "review": true,
+		"scheduler": true, "scheduledRun": true, "scheduledSession": true, "runtime": true,
+		"sessionArchive": true, "sessionDraftEntry": true, "sessionLifecycle": true,
+		"sessionSSH": true, "sessionResume": true, "editFork": true, "subagent": true,
+		"tasks": true, "view": true, "subagentView": true,
 		"workspace": true, "workspaceUseCase": true, "sessionDelete": true,
 	}
 	for _, declaration := range file.Decls {

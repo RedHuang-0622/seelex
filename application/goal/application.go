@@ -4,6 +4,7 @@ package goal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,8 +29,10 @@ type CoordinatorPort interface {
 
 // Deps supplies the current coordinator and runtime projection refresh.
 type Deps struct {
-	Coordinator func() CoordinatorPort
-	Refresh     func(sessionID string)
+	Coordinator    func() CoordinatorPort
+	Refresh        func(sessionID string)
+	WriteSessionID func(context.Context) string
+	ReadSessionID  func(context.Context) string
 }
 
 // Application owns goal use-case routing without owning the goal state machine.
@@ -115,4 +118,89 @@ func (application *Application) StatusFor(sessionID string) (goaldomain.StatusVi
 		return goaldomain.StatusView{}, err
 	}
 	return coordinator.StatusFor(sessionID), nil
+}
+
+// BeginHandler adapts the goal_begin model tool.
+func (application *Application) BeginHandler(ctx context.Context, argsJSON string) (string, error) {
+	var request goaldomain.BeginRequest
+	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
+		return "", fmt.Errorf("goal_begin: invalid arguments: %w", err)
+	}
+	record, err := application.BeginFor(ctx, application.writeSessionID(ctx), request)
+	if err != nil {
+		return "", err
+	}
+	return marshalResult(record)
+}
+
+// UpdateHandler adapts the goal_update model tool.
+func (application *Application) UpdateHandler(ctx context.Context, argsJSON string) (string, error) {
+	var request goaldomain.UpdateRequest
+	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
+		return "", fmt.Errorf("goal_update: invalid arguments: %w", err)
+	}
+	record, err := application.UpdateFor(ctx, application.writeSessionID(ctx), request)
+	if err != nil {
+		return "", err
+	}
+	return marshalResult(record)
+}
+
+// DoneHandler adapts the goal_done model tool.
+func (application *Application) DoneHandler(ctx context.Context, argsJSON string) (string, error) {
+	var raw struct {
+		Action string `json:"action"`
+		Reason string `json:"reason"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+		return "", fmt.Errorf("goal_done: invalid arguments: %w", err)
+	}
+	abort := false
+	switch action := strings.ToLower(strings.TrimSpace(raw.Action)); action {
+	case "", "finish":
+	case "abort":
+		abort = true
+	default:
+		return "", fmt.Errorf("goal_done: action 只能是 finish 或 abort（得到 %q）", raw.Action)
+	}
+	record, err := application.DoneFor(ctx, application.writeSessionID(ctx), goaldomain.FinishRequest{
+		Reason: raw.Reason,
+		Result: raw.Result,
+	}, abort)
+	if err != nil {
+		return "", fmt.Errorf("goal_done: %w", err)
+	}
+	return marshalResult(record)
+}
+
+// StatusHandler adapts the goal_status model tool.
+func (application *Application) StatusHandler(ctx context.Context, _ string) (string, error) {
+	status, err := application.StatusFor(application.readSessionID(ctx))
+	if err != nil {
+		return "", err
+	}
+	return marshalResult(status)
+}
+
+func (application *Application) writeSessionID(ctx context.Context) string {
+	if application == nil || application.deps.WriteSessionID == nil {
+		return ""
+	}
+	return strings.TrimSpace(application.deps.WriteSessionID(ctx))
+}
+
+func (application *Application) readSessionID(ctx context.Context) string {
+	if application == nil || application.deps.ReadSessionID == nil {
+		return ""
+	}
+	return strings.TrimSpace(application.deps.ReadSessionID(ctx))
+}
+
+func marshalResult(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("goal: encode result: %w", err)
+	}
+	return string(raw), nil
 }

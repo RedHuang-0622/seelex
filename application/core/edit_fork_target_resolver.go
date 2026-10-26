@@ -5,7 +5,7 @@ import (
 
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

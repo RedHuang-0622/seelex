@@ -28,7 +28,7 @@ func TestInheritedContextEnvelopeNotEnteringContextStores(t *testing.T) {
 	if err := service.Submit(context.Background(), "main task"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 

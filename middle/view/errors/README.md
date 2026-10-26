@@ -7,8 +7,8 @@
 
 主要调用方：
 
-- `application/core`（`Service` 的工具错误出口与装配根：`PresentToolError` 注入任务域端口、
-  `Wrap` 给错误挂结构化码）；
+- `application/core` 通过 `contract.ErrorPresentationPort` 消费工具错误与结构化包装；
+  Wiring adapter 只转发本包，不复制分类或文案；
 - 未来收口后的 `backend/engine/*`（同款注入面）。
 
 跨层共享的判据（结构化错误码、provider 失败分类、ReAct 预算哨兵）不在本包，而在

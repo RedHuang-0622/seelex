@@ -34,7 +34,7 @@ func runtimeKnobs(service *Service) (string, int) {
 // TestSetLoopLimitOnlyTouchesLoopLimit：改循环次数不改思考强度，且引擎与快照一致。
 func TestSetLoopLimitOnlyTouchesLoopLimit(t *testing.T) {
 	service, engine := knobService(t)
-	if err := service.SetLoopLimit(context.Background(), 600); err != nil {
+	if err := frontendOfTestService(service).SetLoopLimit(context.Background(), 600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	if engine.maxLoops != 600 {
@@ -57,7 +57,7 @@ func TestSetLoopLimitRejectsOutOfRange(t *testing.T) {
 	service, engine := knobService(t)
 	before := engine.maxLoops
 	for _, limit := range []int{0, -1, 10000, 1 << 20} {
-		if err := service.SetLoopLimit(context.Background(), limit); err == nil {
+		if err := frontendOfTestService(service).SetLoopLimit(context.Background(), limit); err == nil {
 			t.Fatalf("SetLoopLimit(%d) 应当被拒", limit)
 		}
 	}
@@ -75,12 +75,12 @@ func TestSetReasoningEffortOnlyTouchesReasoningEffort(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &effortWireRuntime{fakeRuntime: &fakeRuntime{}}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	if err := service.SetLoopLimit(context.Background(), 600); err != nil {
+	if err := frontendOfTestService(service).SetLoopLimit(context.Background(), 600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	loopsBefore := engine.maxLoops
 
-	if err := service.SetReasoningEffort(context.Background(), "  HIGH "); err != nil {
+	if err := frontendOfTestService(service).SetReasoningEffort(context.Background(), "  HIGH "); err != nil {
 		t.Fatalf("SetReasoningEffort(high): %v", err)
 	}
 	pushed := serviceRuntimePushes(t, service)
@@ -104,7 +104,7 @@ func TestSetReasoningEffortOnlyTouchesReasoningEffort(t *testing.T) {
 func TestSetReasoningEffortRejectsUnknownVocabulary(t *testing.T) {
 	service, _ := newEffortWireService(t)
 	for _, value := range []string{"turbo", "session", "HIGHEST", "", "低"} {
-		if err := service.SetReasoningEffort(context.Background(), value); err == nil {
+		if err := frontendOfTestService(service).SetReasoningEffort(context.Background(), value); err == nil {
 			t.Fatalf("SetReasoningEffort(%q) 应当被拒", value)
 		}
 	}
@@ -147,10 +147,10 @@ func TestKnobsAreGuardedWhileViewSessionRuns(t *testing.T) {
 
 	_, _, loopsBefore, _ := engine.promptSnapshot()
 	roundsBefore, limitBefore := runtimeKnobs(service)
-	if err := service.SetLoopLimit(ctx, 600); err == nil {
+	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err == nil {
 		t.Fatal("SetLoopLimit 在视图会话 running 时必须被拒")
 	}
-	if err := service.SetReasoningEffort(ctx, dto.ReasoningEffortMax); err == nil {
+	if err := frontendOfTestService(service).SetReasoningEffort(ctx, dto.ReasoningEffortMax); err == nil {
 		t.Fatal("SetReasoningEffort 在视图会话 running 时必须被拒")
 	}
 	_, _, loopsAfter, _ := engine.promptSnapshot()
@@ -164,7 +164,7 @@ func TestKnobsAreGuardedWhileViewSessionRuns(t *testing.T) {
 	close(engine.release[sessionID])
 	waitUnitIdle(t, service, sessionID)
 
-	if err := service.SetLoopLimit(ctx, 600); err != nil {
+	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err != nil {
 		t.Fatalf("视图空闲后 SetLoopLimit 应当放行：%v", err)
 	}
 	if _, loops := runtimeKnobs(service); loops != 600 {

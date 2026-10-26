@@ -60,7 +60,7 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 		interval:           time.Millisecond,
 	}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	ctx := context.Background()
 
 	if err := service.Submit(ctx, "task A"); err != nil {
@@ -71,7 +71,7 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 
 	const bID = "sess-stream-B"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("hot attach B: %v", err)
 	}
 	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
@@ -95,11 +95,11 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 		}
 	}()
 	for round := 0; round < 20; round++ {
-		if err := service.ResumeSession(aID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 			t.Fatalf("hot attach A round %d: %v", round, err)
 		}
 		_ = service.Snapshot()
-		if err := service.ResumeSession(bID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 			t.Fatalf("hot attach B round %d: %v", round, err)
 		}
 		_ = service.Snapshot()
@@ -112,7 +112,7 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 	close(engine.release[bID])
 	drainCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(drainCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(drainCtx); err != nil {
 		t.Fatalf("sessions did not drain (deadlock?): %v", err)
 	}
 

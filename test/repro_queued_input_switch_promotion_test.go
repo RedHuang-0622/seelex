@@ -51,7 +51,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 		return harness.app.Snapshot().Session.ID
@@ -74,7 +74,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	} // provider #3
 
 	// 会话 A 起一轮长回合（provider #4 阻塞）。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long A"); err != nil {
@@ -95,7 +95,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	}
 
 	// ① 切换到另一个正在运行的会话 B（provider #5 阻塞）。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long B"); err != nil {
@@ -106,7 +106,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	// ② 切换到没有正在运行的会话 C（A、B 都在跑 → 异步冷加载）。
 	switchDone := make(chan error, 1)
 	started := time.Now()
-	go func() { switchDone <- harness.app.ResumeSession(sessionC) }()
+	go func() { switchDone <- harness.frontend.ResumeSession(sessionC) }()
 	select {
 	case err := <-switchDone:
 		if err != nil {
@@ -138,7 +138,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	}
 
 	provider.releaseAll()
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
 	snapA, err = harness.frontend.SnapshotOf(sessionA)

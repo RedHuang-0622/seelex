@@ -16,7 +16,7 @@ import (
 func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	ctx := context.Background()
 
 	const count = 6

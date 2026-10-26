@@ -6,15 +6,13 @@ import (
 	"fmt"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"log"
 	"os"
@@ -297,7 +295,7 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 	}
 	budgetErr := service.components.tasks.ReActBudgetError(requestID)
 	if budgetErr != nil {
-		budgetErr = viewerrors.Wrap(budgetErr, contract.ErrorCodeReActBudget)
+		budgetErr = service.components.errorPresentation.Wrap(budgetErr, contract.ErrorCodeReActBudget)
 	}
 	if budgetErr == nil {
 		return nil
@@ -369,10 +367,10 @@ func (service *Service) appendDelta(requestID, chunk string) {
 	}
 }
 
-func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatcher, func(string)) {
-	batcher := chat.NewStreamBatcher(func(batch []string) {
+func (service *Service) newBatchedDeltaSink(requestID string) (applicationconversation.StreamBatcher, func(string)) {
+	batcher := service.components.conversationStreams.NewBatcher(func(batch []string) {
 		service.appendVisibleDelta(requestID, strings.Join(batch, ""))
-	}, chat.StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
+	}, applicationconversation.StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
 	service.ViewMu.Lock()
 	// batcher 一律挂到所属会话单元（不再只看活跃快照 requestID）：后台会话
 	// 流式文本也必须能在工具钩子边界被按会话 flush，否则视图切到运行中会话
@@ -428,7 +426,7 @@ func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
 		return ""
 	}
 	if stream := runtime.StreamSink(); stream == nil || stream.RequestID() != requestID {
-		runtime.SetStream(chat.NewVisibleOutputStream(requestID))
+		runtime.SetStream(service.components.conversationStreams.NewVisibleOutput(requestID))
 	}
 	return runtime.StreamSink().Consume(chunk)
 }
@@ -446,7 +444,7 @@ func (service *Service) consumeVisibleChunkBackground(sessionID, requestID, chun
 		return ""
 	}
 	if stream := runtime.StreamSink(); stream == nil || stream.RequestID() != requestID {
-		runtime.SetStream(chat.NewVisibleOutputStream(requestID))
+		runtime.SetStream(service.components.conversationStreams.NewVisibleOutput(requestID))
 	}
 	return runtime.StreamSink().Consume(chunk)
 }

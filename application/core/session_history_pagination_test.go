@@ -261,7 +261,7 @@ func TestLegacySessionWithoutRecordExposesEarlierHistory(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"legacy-session": history}},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := service.ResumeSession("legacy-session"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("legacy-session"); err != nil {
 		t.Fatalf("resume legacy session: %v", err)
 	}
 	assertRange(t, "legacy cold load", service.Snapshot(), 14, 6)
@@ -280,7 +280,7 @@ func openLongSession(t *testing.T, window, total int) (*Service, *pagedSessionSt
 	t.Helper()
 	store := newPagedSessionStore("long-session", total)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.ResumeSession("long-session"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("long-session"); err != nil {
 		t.Fatalf("resume long session: %v", err)
 	}
 	assertRange(t, "cold load tail window", service.Snapshot(), total-window, window)
@@ -448,7 +448,7 @@ func TestColdLoadRecordDoesNotReadProviderHistory(t *testing.T) {
 	store := newPagedSessionStore("record-cold-load", 20)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := service.ResumeSession("record-cold-load"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("record-cold-load"); err != nil {
 		t.Fatalf("resume record session: %v", err)
 	}
 	if got := store.historyReads(); got != 0 {

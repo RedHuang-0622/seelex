@@ -38,12 +38,12 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
 
 	for _, sessionID := range []string{"sess-1", "sess-2", "sess-3"} {
 		engine.register(sessionID)
-		if err := service.ResumeSession(sessionID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -102,7 +102,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(t.Context(), "task A"); err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}})
 	for _, sessionID := range []string{"sess-b", "sess-c"} {
 		engine.register(sessionID)
-		if err := service.ResumeSession(sessionID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 		t.Fatalf("current view sess-c evicted\n%s", engine.debugSnapshot())
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(t.Context()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -156,15 +156,5 @@ func TestSessionReleaseDefaults(t *testing.T) {
 	}
 	if got := (limit.Limits{}).ReleaseWindow(); got != 1 {
 		t.Fatalf("zero-value release window = %d, want 1（零值回落默认）", got)
-	}
-	// 分层覆盖（老口径）折算：额度 = 上限 − 受保护数（下限 0）。
-	if got := releaseBudget(0, 3); got != 1 {
-		t.Fatalf("releaseBudget(0, 3) = %d, want 1（窗口口径不看受保护数）", got)
-	}
-	if got := releaseBudget(6, 2); got != 4 {
-		t.Fatalf("releaseBudget(6, 2) = %d, want 4（分层口径折算）", got)
-	}
-	if got := releaseBudget(1, 2); got != 0 {
-		t.Fatalf("releaseBudget(1, 2) = %d, want 0（受保护数已达上限）", got)
 	}
 }

@@ -41,7 +41,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, engine, withTestSessions(gated))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	t.Cleanup(gated.releaseNow)
 
 	// 会话 A 运行中：启动一次 chat 并保持引擎回合未 release。
@@ -60,7 +60,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	// 第 1、2 步：运行中切换到冷会话 B，RPC 必须在预算内返回（装载在后台），
 	// 快照立即反映 B + restoring。
 	coldDone := make(chan error, 1)
-	go func() { coldDone <- service.ResumeSession("sess-cold") }()
+	go func() { coldDone <- frontendOfTestService(service).ResumeSession("sess-cold") }()
 	select {
 	case err := <-coldDone:
 		if err != nil {
@@ -86,7 +86,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 
 	// 第 3 步：B 冷加载尚未完成（门闩仍持），热切换 C 必须快速返回。
 	hotDone := make(chan error, 1)
-	go func() { hotDone <- service.ResumeSession("sess-b") }()
+	go func() { hotDone <- frontendOfTestService(service).ResumeSession("sess-b") }()
 	select {
 	case err := <-hotDone:
 		if err != nil {
@@ -116,7 +116,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	close(engine.release[aID])
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }

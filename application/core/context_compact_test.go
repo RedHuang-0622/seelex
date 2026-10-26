@@ -33,7 +33,7 @@ func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "context_compact.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -106,7 +106,7 @@ func TestCompactContextHandlerCompactsTranscript(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := service.CompactContextHandler(ctx, `{"reason":"准备开始一段长任务"}`)
+	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{"reason":"准备开始一段长任务"}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestCompactManualCompactsBelowThreshold(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := service.CompactContextHandler(ctx, `{}`)
+	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := service.CompactContextHandler(ctx, `{}`)
+	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	if _, err := service.CompactContextNow(ctx); err != nil {
+	if _, err := frontendOfTestService(service).CompactContextNow(ctx); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -289,7 +289,7 @@ func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
 	service.ViewMu.Unlock()
 
-	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
+	result, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	}
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T) {
 	beforeRunning, beforeRequest := service.Core.Snapshot.Chat.Running, service.Core.Snapshot.Chat.RequestID
 	service.ViewMu.RUnlock()
 
-	if _, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
+	if _, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 
@@ -483,7 +483,7 @@ func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	sessionID := service.Snapshot().Session.ID
 
-	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
+	result, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

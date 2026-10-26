@@ -454,7 +454,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
-| [README-agentteam.md](README-agentteam.md) | `role_session.go`（`agentteam_runtime.go` 已删除） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分（`spec.go`：`RoleSessionID` / `Normalize*` / `ValidToolPolicy`）已于 M5-R8b 归位 `backend/multiagent/team/` |
+| [README-agentteam.md](README-agentteam.md) | `contract/role_sessions.go` | **角色会话端口**（RoleSessionID 派生、角色 draft/floor 透传）；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分已于 M5-R8b 归位 `backend/multiagent/team/` |
 | [README-permission.md](README-permission.md) | `role_permissions.go` | 角色默认/会话覆盖、继承与 SSH 路径白名单 |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
@@ -725,7 +725,7 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 
 ## 群聊角色会话（R2/R4 可选端口）
 
-`application/core/role_session.go` 把会话端口可选实现的角色能力面
+`contract.RoleSessionsPort` 把会话端口可选实现的角色能力面
 （`CreateRoleSession` / `AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` /
 `AssembleRoleWire` / `SetLifecycleOrder` / `schedule.*`）透传给 headless。
 Application 只做窄转发，不实现 sequencer、floor、draft 删除或 compact_ref

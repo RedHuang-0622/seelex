@@ -166,7 +166,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 
 	// 全部空闲后 plugin 允许。
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := frontendOfTestService(service).SwitchPlugin(ctx, "code"); err != nil {
@@ -197,7 +197,7 @@ func TestEffortCommandUsesGuardedServicePath(t *testing.T) {
 		t.Fatalf("effort after rejected command = %q, want high", got)
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

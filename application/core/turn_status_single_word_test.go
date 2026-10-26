@@ -23,7 +23,7 @@ import (
 // 这一条用例把判据钉在**同格一个词**上：同一个在飞回合，可见面与存档面必须说同一个词。
 func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}

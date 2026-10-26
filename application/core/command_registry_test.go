@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/input"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ var _ = types.Message{} // used via fakeEngine implementing ChatEngine
 // ── CommandRegistry ───────────────────────────────────────────
 
 func TestCommandRegistry_RegisterAndGet(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	cmd := input_router.NewCommandFunc("test", "test command", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
 		return input_router.CommandResult{Notice: "executed"}, nil
 	})
@@ -29,7 +30,7 @@ func TestCommandRegistry_RegisterAndGet(t *testing.T) {
 }
 
 func TestCommandRegistry_RegisterDuplicate(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	cmd := input_router.NewCommandFunc("dup", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
 		return input_router.CommandResult{}, nil
 	})
@@ -41,7 +42,7 @@ func TestCommandRegistry_RegisterDuplicate(t *testing.T) {
 }
 
 func TestCommandRegistry_RegisterEmptyName(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	cmd := input_router.NewCommandFunc("  ", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
 		return input_router.CommandResult{}, nil
 	})
@@ -52,7 +53,7 @@ func TestCommandRegistry_RegisterEmptyName(t *testing.T) {
 }
 
 func TestCommandRegistry_GetNotFound(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	_, ok := r.Get("nonexistent")
 	if ok {
 		t.Fatal("should not find nonexistent command")
@@ -60,7 +61,7 @@ func TestCommandRegistry_GetNotFound(t *testing.T) {
 }
 
 func TestCommandRegistry_All(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	_ = r.Register(input_router.NewCommandFunc("b", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
 		return input_router.CommandResult{}, nil
 	}))
@@ -81,7 +82,7 @@ func TestCommandRegistry_All(t *testing.T) {
 }
 
 func TestCommandRegistry_AllEmpty(t *testing.T) {
-	r := NewCommandRegistry()
+	r := adapters.NewCommandRegistryFactory()()
 	all := r.All()
 	if len(all) != 0 {
 		t.Fatalf("expected 0, got %d", len(all))

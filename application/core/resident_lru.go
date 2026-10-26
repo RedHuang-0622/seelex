@@ -19,7 +19,7 @@ package core
 // 不进引擎。
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/residency"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
@@ -51,7 +51,7 @@ func (service *Service) touchResident(sessionID string) {
 // markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
 // 有 Core.ViewMu；resident=false 用于驱逐后移除序）。
 func (service *Service) markResidentRecentLocked(sessionID string, resident bool) {
-	service.residentOrder = service.residentOrder.Touch(sessionID)
+	service.residentOrder = service.components.residency.Touch(service.residentOrder, sessionID)
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetResident(resident)
 	}
@@ -74,8 +74,8 @@ func (service *Service) reconcileResidentLimit() {
 	if _, ok := service.Deps.Engine.(residentEngine); !ok {
 		return
 	}
-	residency.EvictUntilWithinLimit(residency.EvictionDeps{
-		Snapshot: func() residency.EvictionSnapshot {
+	service.components.residency.Evict(applicationsession.EvictionDeps{
+		Snapshot: func() applicationsession.EvictionSnapshot {
 			service.ViewMu.Lock()
 			defer service.ViewMu.Unlock()
 			return service.residentEvictionSnapshotLocked()
@@ -93,15 +93,15 @@ func (service *Service) reconcileResidentLimit() {
 // Core.ViewMu）：使用序不做事先收敛（引擎层的占用以"单元标记驻留 + 引擎真有
 // 该会话"现算，见文件头「LRU 宿主归 core 的会话治理」）；受保护集只对**占用本层**
 // 的会话读，与迁移前挑选循环的读取次序逐字一致。
-func (service *Service) residentEvictionSnapshotLocked() residency.EvictionSnapshot {
+func (service *Service) residentEvictionSnapshotLocked() applicationsession.EvictionSnapshot {
 	engine, ok := service.Deps.Engine.(residentEngine)
 	if !ok {
-		return residency.EvictionSnapshot{}
+		return applicationsession.EvictionSnapshot{}
 	}
 	// residentOrder[0] = 最近使用 ⇒ 末尾最旧。
-	snapshot := residency.EvictionSnapshot{
+	snapshot := applicationsession.EvictionSnapshot{
 		// 与正文层同一口径：判据在临界区外遍历，`Order.Forget` 又会就地写底层数组 ⇒ 复制。
-		Order:       append(residency.Order(nil), service.residentOrder...),
+		Order:       append([]string(nil), service.residentOrder...),
 		Occupied:    make(map[string]bool, len(service.residentOrder)),
 		Protected:   make(map[string]bool, len(service.residentOrder)),
 		LegacyLimit: Limits().ResidentSessionLimit,

@@ -4,17 +4,17 @@ import (
 	"errors"
 
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceSessionArchive(service *Service) *applicationsession.ArchiveApplication {
 	engine, routed := service.Deps.Engine.(residentEngine)
 	return applicationsession.NewArchive(applicationsession.ArchiveDeps{
+		Residency:  service.components.residency,
 		Transition: service.transitionForKey,
-		Gate: func(sessionID string) residency.ArchiveGate {
+		Gate: func(sessionID string) applicationsession.ArchiveGate {
 			service.ViewMu.RLock()
-			gate := residency.ArchiveGate{
+			gate := applicationsession.ArchiveGate{
 				Closed:    service.closed,
 				Draining:  service.draining,
 				Busy:      service.sessionBusy(service.sessions.Unit(sessionID)),

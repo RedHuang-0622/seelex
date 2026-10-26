@@ -26,7 +26,7 @@ func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 	if err := service.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	materialized := service.Snapshot().Session.ID

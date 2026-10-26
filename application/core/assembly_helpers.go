@@ -14,24 +14,10 @@ package core
 
 import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
 	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
-	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
-
-type (
-	inputDispatcher    = input_router.Dispatcher
-	inputRouter        = input_router.Router
-	inputRouteHandlers = input_router.RouteHandlers
-)
-
-func NewCommandRegistry() *input_router.CommandRegistry { return input_router.NewCommandRegistry() }
-
-func newInputRouter(handlers inputRouteHandlers) *inputRouter {
-	return input_router.NewRouter(handlers)
-}
 
 func NewDefaultWindowPolicy(config cc.WindowConfig) cc.DefaultWindowPolicy {
 	return cc.NewDefaultWindowPolicy(config)
@@ -46,10 +32,6 @@ func LoadWindowConfig(path string) (cc.WindowConfig, error) {
 }
 
 func NewEventHub() *event.EventHub { return event.NewEventHub() }
-
-func NewApprovalBroker(events event.Hub) *limitapproval.ApprovalBroker {
-	return limitapproval.NewApprovalBroker(events)
-}
 
 func NewPromptStack() *prompt.PromptStack { return prompt.NewPromptStack() }
 

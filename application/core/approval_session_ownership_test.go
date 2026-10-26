@@ -37,7 +37,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -108,7 +108,7 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 
 	// 热切到 B：单格镜像 B 的首笔待批（激活镜像路径，不依赖审批发生在
 	// 视图会话的旧假设）。
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("resume B while running: %v", err)
 	}
 	slot := service.Snapshot().Interaction
@@ -208,7 +208,7 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -220,7 +220,7 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := service.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

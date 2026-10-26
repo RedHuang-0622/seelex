@@ -177,7 +177,7 @@ func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "old session"}
 	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
 	service.ViewMu.Unlock()
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	sessions.mu.Lock()
@@ -282,7 +282,7 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -301,7 +301,7 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	if err := service.Submit(context.Background(), "继续"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	engine.mu.Lock()
@@ -354,13 +354,13 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	}
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "请回答开头的简单问题"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -443,7 +443,7 @@ func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T) {
 
 func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-large"})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	raw := strings.Repeat("raw-secret-output", task_context.DefaultToolResultLimit())
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-large"}
@@ -466,7 +466,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 			t.Fatalf("result reference missing from archived tool: %#v", message.Tool)
 		}
 	}
-	page, err := service.ReadToolResultHandler(t.Context(), `{"result_ref":"`+stored.Ref+`","offset":0,"limit":32}`)
+	page, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(), `{"result_ref":"`+stored.Ref+`","offset":0,"limit":32}`)
 	if err != nil || !strings.Contains(page, "raw-secret-output") {
 		t.Fatalf("read_tool_result page=%q err=%v", page, err)
 	}
@@ -481,10 +481,10 @@ func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 		service.ViewMu.Unlock()
 		service.prepareCompletedTaskBoundary()
 		if skills := selectedSkillLayers(service.promptStack.Layers()); len(skills) != 0 {
-			service.Shutdown()
+			frontendOfTestService(service).Shutdown()
 			t.Fatalf("terminal task %s retained skills: %#v", status, skills)
 		}
-		service.Shutdown()
+		frontendOfTestService(service).Shutdown()
 	}
 }
 
@@ -502,7 +502,7 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if err := service.ResumeSession("session-record-only"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("session-record-only"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
@@ -527,13 +527,13 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -586,13 +586,13 @@ func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *t
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -639,13 +639,13 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -662,7 +662,7 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 
 func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.appendHistoryLocked([]contract.EngineMessage{{
 		Role:    "assistant",

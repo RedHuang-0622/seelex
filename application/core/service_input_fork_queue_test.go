@@ -31,7 +31,7 @@ func TestSubmitQueuedWhileForkRunning(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)

@@ -10,6 +10,39 @@
 `NewHistoryWindowAssembler` 返回 `application/history.WindowAssembler`；底层直接是
 `middle/switch/history.Assembler`，本包只做装配，不复制窗口判据。
 
+`NewResidencyPort` 返回 `application/session.ResidencyPort`；LRU、预览、输入索引、
+驱逐和归档排序仍由 `middle/residency` 唯一实现，adapter 只做值形状转换与转发。
+
+`NewConversationStreamPort` 返回 `application/conversation.StreamOutputPort`；
+think-block 过滤、可见输出流和 batcher 仍由 `backend/engine/react` 唯一实现。
+
+`NewAccountWindowPolicy` 返回 `application/admin.AccountWindowPolicy`；窗口校验、
+持久化顺序和生效值仍由 `backend/limit/accountwindow` 唯一实现。
+
+`NewSkillActivationPort` 返回 `application/policy.SkillActivationPort`；技能名校验、
+`goal` 禁激活与未知技能错误仍由 `backend/engine/skill` 唯一实现。
+
+`NewSessionRecordsPort` 返回 `application/conversation.SessionRecordsPort`；分页边界、
+UTF-8 裁剪与会话记录页判据仍由 `middle/view/sessionaccess` 唯一实现。
+
+`NewErrorPresentationPort` 返回 `contract.ErrorPresentationPort`；错误分类优先级、
+用户可见文案与 provider 细节隐藏仍由 `middle/view/errors` 唯一实现。
+
+`NewApprovalBrokerFactory` 返回 `func(event.Hub) contract.ApprovalBroker`；审批状态机、
+超时、会话归属与幂等判据仍由 `backend/limit/approval` 唯一实现。
+
+`NewCommandRegistryFactory` 与 `NewInputRouterFactory` 分别返回命令注册表和输入路由器；
+注册表查找/排序与 `/`、`#`、`$` 前缀判据仍由 `backend/engine/input` 唯一实现。
+
+`NewRoleSessionsFactory` 返回 `contract.RoleSessionsPort`；角色会话/定时插话的
+可选端口探测与不可用错误仍由 `backend/multiagent/team.RoleSessions` 唯一实现。
+
+`NewTeamworkBoardReaderFactory` 返回 `application/execution.BoardReader`；团队看板与
+teammate live 投影仍由 `backend/multiagent/teamwork.BoardReader` 唯一实现。
+
+`NewHostSessionForToolCall` 返回只读 ctx 查询函数；员工回合的宿主会话归属仍由
+`backend/engine/assemble.HostSessionForToolCall` 唯一实现。
+
 ## 架构图
 
 ```mermaid
@@ -674,6 +707,51 @@ go test ./wiring/adapters -count=1
 ### history_window.go
 
 - `func NewHistoryWindowAssembler() applicationhistory.WindowAssembler` — 返回 Middle `Assembler` 的唯一端口实现。
+
+### residency.go
+
+- `func NewResidencyPort() applicationsession.ResidencyPort` — 返回 Middle residency 判据的唯一端口实现。
+
+### conversation_stream.go
+
+- `func NewConversationStreamPort() applicationconversation.StreamOutputPort` — 返回 Engine stream 原语的唯一端口实现。
+
+### account_window.go
+
+- `func NewAccountWindowPolicy() applicationadmin.AccountWindowPolicy` — 返回 Middle account-window setter 的唯一端口实现。
+
+### skill_activation.go
+
+- `func NewSkillActivationPort() applicationpolicy.SkillActivationPort` — 返回 Engine skill activator 的唯一端口实现。
+
+### session_records.go
+
+- `func NewSessionRecordsPort() applicationconversation.SessionRecordsPort` — 返回 Middle session-record paginator 的唯一端口实现。
+
+### error_presentation.go
+
+- `func NewErrorPresentationPort() contract.ErrorPresentationPort` — 返回 Middle error presenter 的唯一端口实现。
+
+### approval_broker.go
+
+- `func NewApprovalBrokerFactory() func(event.Hub) contract.ApprovalBroker` — 返回 Backend approval broker 的组合根工厂。
+
+### input_router.go
+
+- `func NewCommandRegistryFactory() func() contract.CommandRegistryPort` — 返回 Backend command registry 工厂。
+- `func NewInputRouterFactory() func(contract.InputRouteHandlers) contract.InputDispatcher` — 返回 Backend prefix router 工厂。
+
+### role_sessions.go
+
+- `func NewRoleSessionsFactory() func(contract.SessionPort) contract.RoleSessionsPort` — 返回 Team role-session facade 的组合根工厂。
+
+### teamwork_board_reader.go
+
+- `func NewTeamworkBoardReaderFactory() func(contract.RuntimePort) applicationexecution.BoardReader` — 返回 Backend teamwork read projection 的工厂。
+
+### host_session.go
+
+- `func NewHostSessionForToolCall() func(context.Context) string` — 转发 Assemble 的只读宿主会话查询。
 
 ### workspace_environment_port.go
 

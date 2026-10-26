@@ -213,7 +213,7 @@ func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestExplicitCompactGateTimeline(t *testing.T) {
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
 	started := time.Now()
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	window := time.Since(started)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
@@ -371,7 +371,7 @@ func TestExplicitCompactGateTimeline(t *testing.T) {
 // 停在半途，比没有进度条更糟。
 func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
 	service.ViewMu.Lock()
@@ -407,7 +407,7 @@ func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 // 不是压缩进行中——在这里发事件，进度条会对一件没发生的事走动。
 func TestNoProgressEventsWithoutFold(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	sessionID := service.Snapshot().Session.ID
 	subscription, err := service.SubscribeSession(sessionID, 256)
 	if err != nil {
@@ -416,7 +416,7 @@ func TestNoProgressEventsWithoutFold(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestNoProgressEventsWithoutFold(t *testing.T) {
 func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	sessionID := service.Snapshot().Session.ID
 	// 冷加载：只装载材料，不开回合（也就没有执行纪元）。
 	appendWindowRounds(t, service, "task-cold-progress", 4, 2_000)
@@ -449,7 +449,7 @@ func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T) {
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestCompactReceiptCarriesGateChecklist(t *testing.T) {
 	appendWindowRounds(t, service, "task-gates-receipt", 4, 2_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

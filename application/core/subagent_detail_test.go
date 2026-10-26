@@ -15,10 +15,10 @@ import (
 // 条数上限、工具消息携带 Tool 摘要。
 func TestSubagentSessionDetailMissingNode(t *testing.T) {
 	svc := newTestService(t, &fakeEngine{})
-	if _, err := svc.SubagentSessionDetail(""); err == nil {
+	if _, err := frontendOfTestService(svc).SubagentSessionDetail(""); err == nil {
 		t.Fatal("empty node id must be rejected")
 	}
-	if _, err := svc.SubagentSessionDetail("missing"); err == nil {
+	if _, err := frontendOfTestService(svc).SubagentSessionDetail("missing"); err == nil {
 		t.Fatal("unknown node must return an error")
 	}
 }
@@ -31,7 +31,7 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 		Findings: []string{"found race"}, Decisions: []snapshot.Decision{{What: "use mutex", Why: "race"}},
 	}}
 	svc := newTestService(t, engine)
-	defer svc.Shutdown()
+	defer frontendOfTestService(svc).Shutdown()
 	// 历史 Plan 投影：直接种一个含 worker 节点的只读状态。
 	svc.ViewMu.Lock()
 	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
@@ -40,7 +40,7 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 	}
 	svc.ViewMu.Unlock()
 
-	detail, err := svc.SubagentSessionDetail("worker")
+	detail, err := frontendOfTestService(svc).SubagentSessionDetail("worker")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 		},
 	}
 	svc := newTestService(t, engine)
-	defer svc.Shutdown()
+	defer frontendOfTestService(svc).Shutdown()
 	svc.ViewMu.Lock()
 	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
@@ -82,7 +82,7 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 	}
 	svc.ViewMu.Unlock()
 
-	detail, err := svc.SubagentSessionDetail("worker")
+	detail, err := frontendOfTestService(svc).SubagentSessionDetail("worker")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 		}},
 	}
 	svc := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	defer svc.Shutdown()
+	defer frontendOfTestService(svc).Shutdown()
 	if snapshot := svc.Snapshot(); len(snapshot.Runtime.ScheduledTasks) != 1 {
 		t.Fatalf("assembly must project scheduled tasks: %+v", snapshot.Runtime.ScheduledTasks)
 	}
@@ -112,7 +112,7 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("allowlist must project: %+v", commands)
 	}
 
-	created, err := svc.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+	created, err := frontendOfTestService(svc).ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
 		Name: "周期提醒", Kind: assemble.ScheduledTaskPrompt,
 		Prompt: "检查发布状态", Interval: time.Minute, Enabled: true,
 	})
@@ -129,7 +129,7 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("schedule must refresh runtime projection: %+v", tasks)
 	}
 
-	if err := svc.CancelScheduledTask("sched_test"); err != nil {
+	if err := frontendOfTestService(svc).CancelScheduledTask("sched_test"); err != nil {
 		t.Fatal(err)
 	}
 	if tasks := svc.Snapshot().Runtime.ScheduledTasks; len(tasks) != 1 {
@@ -145,7 +145,7 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 func TestTodoItemsProjectIntoRuntimeSnapshot(t *testing.T) {
 	runtime := &fakeRuntime{todoItems: []dto.TodoItem{{Text: "inspect module", Done: true}, {Text: "fix"}}}
 	svc := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	defer svc.Shutdown()
+	defer frontendOfTestService(svc).Shutdown()
 	// 装配时已应用运行时投影；工具完成路径再次投影并发布 runtime.changed。
 	if snapshot := svc.Snapshot(); len(snapshot.Runtime.TodoItems) != 2 {
 		t.Fatalf("assembly must project todo items: %+v", snapshot.Runtime.TodoItems)

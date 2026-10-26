@@ -2,17 +2,21 @@
 
 日期：2026-10-26
 
-状态：History Window 端口已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 33 个
+状态：History Window、Residency、Conversation Stream、Account Window、Skill Activation、
+Session Records、Error Presentation 端口、Context Retain Floor 契约、Prompt Assets 入口收口、
+Approval Broker 工厂外置、Input Router 外部端口、Subagent Tool Event DTO 收口与
+Team Role Sessions 端口、Teamwork Board Reader 端口、Assemble DTO/Host Session 收口、
+Goal Session Coordinator 迁移、Middle Model alias 退场与 Middle View 只读模型归位
+已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 16 个
 直接内部依赖所需的端口，不把本阶段的 `application/compat` 转发层当成终态。
 
 ## 0. 当前事实与总原则
 
-AP-116F2a 后：
+AP-116F2f 后：
 
-- `application/core`：121 个生产文件、12,463 行；
-- `Service` 公开方法：83；
-- core 直接内部依赖：33；
-- 其中 60 个公开方法仍是单行组件转发，23 个包含 core 必须暂留的状态编排。
+- `application/core`：117 个生产文件、11,829 行；
+- `Service` 公开方法：23；
+- core 直接内部依赖：16。
 
 解除外部包依赖不能只写“把 import 改成 interface”。必须满足：
 
@@ -97,6 +101,11 @@ func (Assembler) ReplaceTail(...) (...) { return ReplaceTail(...) }
 
 ## 2. `middle/switch/sessionusecase`、`middle/residency`：会话与驻留端口
 
+**状态：ResidencyPort 已实现（EP-002A）；SessionUseCase 半批在设计门禁停止
+（EP-002B）。** core 已不 import `middle/residency`。移除 `sessionusecase`
+需要把 ChatState、Queue、View、审批、Runtime slot 与 Domain actor 一并端口化，
+会镜像完整 session state，等待会话聚合归属裁决。
+
 ### 当前问题
 
 core 直接使用 session use case、residency Order、驻留释放和恢复 helper。会话状态
@@ -173,6 +182,10 @@ type SessionCatalogPort interface {
 - 查询路径不获取共享写锁。
 
 ## 3. `backend/engine/{context,react,session,task}`：Engine/Runtime 窄端口
+
+**状态：Conversation Stream 切片已实现（EP-003）。** `StreamOutputPort` 已覆盖
+visible-output 与 batcher；其余 Context、Session Runtime、Task 和 React run/cancel
+面仍待迁移。
 
 ### 当前问题
 
@@ -306,6 +319,9 @@ type TeamworkPort interface {
 
 ### 4.2 Limit
 
+**状态：Account Window 切片已实现（EP-004）。** 账号窗口写入已通过
+`application/admin.AccountWindowPolicy`；其他 limits/knobs/tier/approval 面仍待迁移。
+
 当前 core 使用 limits、knobs、tier、account window、approval。目标端口：
 
 ```go
@@ -391,6 +407,27 @@ type BoardRepository interface {
 6. SessionRuntime/React 写路径；
 7. residency + sessionusecase 生命周期；
 8. 最后删除 chat/session 主循环旁的 host adapter。
+
+## 5.1 已完成切片
+
+- EP-001：History Window；
+- EP-002A：Residency；
+- EP-003：Conversation Stream；
+- EP-004：Account Window；
+- EP-005：Skill Activation；
+- EP-006：Session Records。
+- EP-007：Error Presentation。
+- EP-008：Context Retain Floor 契约化。
+- EP-009：Prompt Assets 入口收口。
+- EP-010：Approval Broker 工厂外置。
+- EP-011：Input Router 外部端口。
+- EP-012：Subagent Tool Event DTO 收口。
+- EP-013：Team Role Sessions 端口。
+- EP-014：Teamwork Board Reader 端口。
+- EP-015：Assemble DTO / Host Session 收口。
+- EP-016：Goal Session Coordinator 迁入 Application。
+- EP-017：Middle Model alias 退场。
+- EP-018：Middle View 只读模型归位。
 
 每组都必须单独提交，提交前后报告：
 

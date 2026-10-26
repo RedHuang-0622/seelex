@@ -28,6 +28,7 @@ Service、GUI Bridge 和会话装配路径。
 
 - `application.go`：窄端口、`Deps`、`RoleApplication` 与 14 个角色策略用例。
 - `switch.go`：`SwitchDeps`、`SwitchApplication` 与策略切换。
+- `skill_activation.go`：`SkillActivationPort` 消费方契约。
 - `application_test.go`：登记优先、显式空集、账号回滚、继承和路径归一回归。
 
 ## 核心实现
@@ -41,6 +42,9 @@ Service、GUI Bridge 和会话装配路径。
 
 `RestoreRolePermissions` 与 `RolePermissionVector` 共用
 `resolveRoleSettings`，保证“登记优先、缺失才解析”只有一份实现。
+
+Skill 激活判据仍由 `backend/engine/skill.Activator` 唯一实现；Application
+只持有 `SkillActivationPort`，由 Wiring adapter 注入。
 
 ## 数据流
 

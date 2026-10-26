@@ -29,7 +29,7 @@ package core
 import (
 	"fmt"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
-	"github.com/RedHuang-0622/seelex/middle/residency"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
 )
@@ -52,13 +52,13 @@ func (service *Service) markContentRecentLocked(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	service.loadedContentOrder = service.loadedContentOrder.Touch(sessionID)
+	service.loadedContentOrder = service.components.residency.Touch(service.loadedContentOrder, sessionID)
 }
 
 // forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
 // Core.ViewMu）。正文下次装载/回读时经 touchContent 重新入序（最近使用端）。
 func (service *Service) forgetContentLocked(sessionID string) {
-	service.loadedContentOrder = service.loadedContentOrder.Forget(sessionID)
+	service.loadedContentOrder = service.components.residency.Forget(service.loadedContentOrder, sessionID)
 }
 
 // pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
@@ -66,7 +66,7 @@ func (service *Service) forgetContentLocked(sessionID string) {
 // 但不在序里」的会话（视作最旧，兼容本机制上线前已装载的会话与直接构造视图
 // 的宿主），因此返回值就是内存中已加载正文的会话数。
 func (service *Service) pruneContentOrderLocked() int {
-	service.loadedContentOrder = residency.PruneOrder(
+	service.loadedContentOrder = service.components.residency.Prune(
 		service.loadedContentOrder,
 		service.sessionContentLoadedLocked,
 		service.sessions.UnitIDs(),
@@ -89,8 +89,8 @@ func (service *Service) reconcileLoadedContentLimit(protect string) {
 	if service == nil {
 		return
 	}
-	residency.EvictUntilWithinLimit(residency.EvictionDeps{
-		Snapshot: func() residency.EvictionSnapshot {
+	service.components.residency.Evict(applicationsession.EvictionDeps{
+		Snapshot: func() applicationsession.EvictionSnapshot {
 			service.ViewMu.Lock()
 			defer service.ViewMu.Unlock()
 			return service.contentLimitSnapshotLocked(protect)
@@ -109,13 +109,13 @@ func (service *Service) reconcileLoadedContentLimit(protect string) {
 // 见文件头「窗口口径」的后续项：由装载/卸载记账取代），再逐个体读出"是否持有
 // 正文"与"是否受保护"——**只对持有正文的会话读受保护集**，与迁移前挑选循环的
 // 读取次序逐字一致（判据侧对无正文的会话在读受保护之前就 `continue`）。
-func (service *Service) contentLimitSnapshotLocked(protect string) residency.EvictionSnapshot {
+func (service *Service) contentLimitSnapshotLocked(protect string) applicationsession.EvictionSnapshot {
 	service.pruneContentOrderLocked()
-	snapshot := residency.EvictionSnapshot{
+	snapshot := applicationsession.EvictionSnapshot{
 		// **必须复制**：`residency.Order.Forget` 是就地过滤（写回底层数组），而判据会在
 		// 临界区**外**遍历这个切片——直接交出去就是 data race（P20 现场：`-race` 抓到
 		// `Order.Forget` 的写与 `EvictUntilWithinLimit` 的读撞在同一段内存上）。
-		Order:       append(residency.Order(nil), service.loadedContentOrder...),
+		Order:       append([]string(nil), service.loadedContentOrder...),
 		Protect:     protect,
 		Occupied:    make(map[string]bool, len(service.loadedContentOrder)),
 		Protected:   make(map[string]bool, len(service.loadedContentOrder)),

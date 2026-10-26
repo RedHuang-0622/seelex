@@ -41,7 +41,7 @@ func TestDisplayUserInputRejectsInvalidEnvelope(t *testing.T) {
 func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T) {
 	const input = "$review 检查这个实现"
 	modelInput := formatSkillUserInput([]prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}}, input)
-	adapted := adaptEngineMessage(contract.EngineMessage{Role: "user", Content: modelInput})
+	adapted := adaptEngineMessage(contract.EngineMessage{Role: "user", Content: modelInput}, nil)
 	if adapted.Content != input {
 		t.Fatalf("adapted content = %q, want %q", adapted.Content, input)
 	}

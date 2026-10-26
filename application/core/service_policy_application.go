@@ -5,10 +5,9 @@ import (
 	"errors"
 
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/middle/switch"
 	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
@@ -19,10 +18,11 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			if service == nil {
 				return model.SkillInfo{}, errors.New("service is not initialized")
 			}
-			return skill.NewActivator(skill.ActivateDeps{
-				Skills: service.Deps.Skills,
-				Apply:  service.applySkill,
-			}).Activate(name)
+			return service.components.skillActivation.Activate(
+				name,
+				service.Deps.Skills,
+				service.applySkill,
+			)
 		},
 		SetReasoningEffort: service.knobs.SetReasoningEffort,
 		SetLoopLimit:       service.knobs.SetLoopLimit,
@@ -32,7 +32,9 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 		ReleaseWindow: func() int {
 			return switching.ReleaseWindow(service.releaseWindowDeps())
 		},
-		SetPermissionTier:    service.SetPermissionTier,
+		SetPermissionTier: func(tier string) (string, error) {
+			return service.policyApplicationComponent().SetPermissionTier(tier)
+		},
 		CurrentViewSessionID: service.currentViewSessionID,
 		PersistTier:          service.persistPermissionTier,
 		SetUnitTier: func(sessionID, tier string) {

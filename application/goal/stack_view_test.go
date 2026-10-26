@@ -1,4 +1,4 @@
-package core
+package goal
 
 import (
 	"testing"
@@ -29,7 +29,7 @@ func TestGoalStackFramesProjectsEveryFrame(t *testing.T) {
 			},
 		},
 	}
-	frames := goalStackFrames(stack)
+	frames := StackFrames(stack)
 	if len(frames) != 2 {
 		t.Fatalf("活动栈应逐帧投影（2 帧），得 %d", len(frames))
 	}
@@ -64,7 +64,7 @@ func TestGoalStackFramesCarriesDetailFields(t *testing.T) {
 			{At: 1, Kind: goaldomain.ProgressMilestone, Content: "只有一条"},
 		},
 	}}
-	frames := goalStackFrames(stack)
+	frames := StackFrames(stack)
 	if len(frames) != 1 {
 		t.Fatalf("应得到 1 帧，得 %d", len(frames))
 	}
@@ -81,10 +81,10 @@ func TestGoalStackFramesCarriesDetailFields(t *testing.T) {
 }
 
 func TestGoalStackFramesEmptyAndNilRecords(t *testing.T) {
-	if frames := goalStackFrames(nil); frames != nil {
+	if frames := StackFrames(nil); frames != nil {
 		t.Fatalf("空栈应返回 nil（工作台不渲染空壳）: %+v", frames)
 	}
-	frames := goalStackFrames([]*goaldomain.GoalRecord{nil, {ID: "g-0", Status: goaldomain.StatusActive}})
+	frames := StackFrames([]*goaldomain.GoalRecord{nil, {ID: "g-0", Status: goaldomain.StatusActive}})
 	if len(frames) != 1 || frames[0].ID != "g-0" {
 		t.Fatalf("nil 帧应被跳过: %+v", frames)
 	}

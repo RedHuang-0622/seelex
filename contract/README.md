@@ -98,6 +98,9 @@ flowchart LR
 | `SkillPort` | Skill 查询 | `skill.Registry` 适配器 |
 | `SessionPort` | 会话保存、读取、分页、删除和 active workspace | `session.Manager` 适配器 |
 | `WorkspacePort` | 项目 CRUD、session binding、Git remote | `workspace.Repo` 适配器 |
+| `ErrorPresentationPort` | Chat/Tool 错误的稳定呈现与结构化包装 | `wiring/adapters` 转发 `middle/view/errors` |
+| `CommandRegistryPort` / `InputDispatcher` | 命令注册与规范化输入分派 | `wiring/adapters` 转发 `backend/engine/input` |
+| `RoleSessionsPort` | 角色会话、draft、wire 与定时插话 | `wiring/adapters` 转发 `backend/multiagent/team` |
 
 `Dependencies` 是 `core.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
 
@@ -161,4 +164,22 @@ go test ./contract -run 'TestBM00' -count=1
 
 - `func IsProviderContextExhaustion(err error) bool` — IsProviderContextExhaustion 判定 provider 是否以"上下文窗口超出"为由拒绝请求。
 - `func ClassifyProviderFailure(err error) ProviderFailureKind` — ClassifyProviderFailure 按 provider 措辞把传输失败归到具体类别；无法归类返回
+
+### error_presentation.go
+
+- `type ErrorPresentationPort interface` — Chat 与 Tool 错误呈现的纯值端口；分类和文案由 Middle 唯一实现。
+
+### retention.go
+
+- `func RetainFloorTokens(percent, budgetTokens int) int` — 计算上下文保留窗口的百分比下限；非正输入返回零。
+
+### input.go
+
+- `type CommandRegistryPort interface` — 命令注册、查找与有序枚举的 Application 端口。
+- `type InputDispatcher interface` — 规范化输入分派的 Application 端口。
+- `type InputRouteHandlers struct` — 装配期注入 Backend 前缀路由的四类用例回调。
+
+### role_sessions.go
+
+- `type RoleSessionsPort interface` — GUI compat 消费的角色会话与定时插话窄端口。
 

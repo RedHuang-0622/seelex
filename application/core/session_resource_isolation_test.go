@@ -16,7 +16,7 @@ import (
 // TranscriptFor(A) 读不到 B 任何内容。
 func TestSessionDomainsDisjoint(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
@@ -61,7 +61,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 		},
 	}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
@@ -71,7 +71,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	aRuntime.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 	service.ViewMu.Unlock()
 
-	if err := service.ResumeSession("session-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("session-b"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 func TestPersistReadsOnlyOwnDomain(t *testing.T) {
 	sessions := &archiveSessions{history: []contract.EngineMessage{{Role: "system", Content: "system", ContentSet: true}}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"}, withTestSessions(sessions))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	// 全局快照归属会话 = B（模拟 A 后台完成时活跃会话是 B）。

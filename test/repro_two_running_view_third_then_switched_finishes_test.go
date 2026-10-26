@@ -168,7 +168,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 		return harness.app.Snapshot().Session.ID
@@ -193,21 +193,21 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 
 	if cold {
 		// 卸载 C：脱离驻留后点击走后台冷加载（运行中 + 未驻留 → restoring）。
-		if err := harness.app.UnloadSession(sessionC); err != nil {
+		if err := harness.frontend.UnloadSession(sessionC); err != nil {
 			t.Fatalf("unload C: %v", err)
 		}
 	}
 
 	// A 运行中（request #4 阻塞），视图停在 A；随后切到 B 并让 B 也运行
 	// （request #5 阻塞）→ 两个会话在途、被切走的 A 仍在后台跑。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long B"); err != nil {
@@ -231,7 +231,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	// 的内容/状态，而不是 A/B 残留或一直停留在“等待”。
 	switchDone := make(chan error, 1)
 	started := time.Now()
-	go func() { switchDone <- harness.app.ResumeSession(sessionC) }()
+	go func() { switchDone <- harness.frontend.ResumeSession(sessionC) }()
 	select {
 	case err := <-switchDone:
 		if err != nil {
@@ -309,7 +309,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	for _, sid := range []string{sessionB, sessionC, sessionA} {
 		started := time.Now()
 		done := make(chan error, 1)
-		go func(sid string) { done <- harness.app.ResumeSession(sid) }(sid)
+		go func(sid string) { done <- harness.frontend.ResumeSession(sid) }(sid)
 		select {
 		case err := <-done:
 			if err != nil {
@@ -360,7 +360,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 
 	// 收尾：放行 B，全部空闲。
 	provider.releaseAll()
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
@@ -453,7 +453,7 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 		return harness.app.Snapshot().Session.ID
@@ -474,14 +474,14 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 		t.Fatalf("seed C active = %q, want %q", got, sessionC)
 	}
 
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "long A"); err != nil {
 		t.Fatal(err)
 	}
 	provider.waitBlocked(t, ctx, 4)
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.app.Submit(ctx, "long B"); err != nil {
@@ -512,7 +512,7 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 			}
 			for _, sid := range []string{sessionC, sessionB, sessionA, sessionC} {
 				done := make(chan error, 1)
-				go func(sid string) { done <- harness.app.ResumeSession(sid) }(sid)
+				go func(sid string) { done <- harness.frontend.ResumeSession(sid) }(sid)
 				select {
 				case err := <-done:
 					if err != nil {
@@ -545,7 +545,7 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 	}
 
 	provider.releaseAll()
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
 }
@@ -587,7 +587,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 		if err := harness.app.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 		return harness.app.Snapshot().Session.ID
@@ -611,10 +611,10 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 
 	// 让 EnginePort 的活跃别名指向 A：卸载 A 再冷加载（无会话运行中，同步
 	// 冷加载会把 port.engine/port.sessionID 切到 A 的新引擎）。
-	if err := harness.app.UnloadSession(sessionA); err != nil {
+	if err := harness.frontend.UnloadSession(sessionA); err != nil {
 		t.Fatalf("unload A: %v", err)
 	}
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("cold resume A: %v", err)
 	}
 	if got := harness.app.Snapshot().Session.ID; got != sessionA {
@@ -622,7 +622,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	}
 
 	// B 长任务在跑（request #4 阻塞）；活跃别名仍是 A（A 尚未运行）。
-	if err := harness.app.ResumeSession(sessionB); err != nil {
+	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long B"); err != nil {
@@ -632,7 +632,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 
 	// A 长任务在跑（request #5 阻塞）：此刻进程活跃别名 = A 的引擎且被
 	// A 的 ChatStream 全程持锁。
-	if err := harness.app.ResumeSession(sessionA); err != nil {
+	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
 	if err := harness.app.Submit(ctx, "long A"); err != nil {
@@ -652,7 +652,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	// 点击第三个（空闲热）会话 C：不得等待被切走的 A 收尾。
 	switched := make(chan error, 1)
 	started := time.Now()
-	go func() { switched <- harness.app.ResumeSession(sessionC) }()
+	go func() { switched <- harness.frontend.ResumeSession(sessionC) }()
 	select {
 	case err := <-switched:
 		if err != nil {
@@ -679,7 +679,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 		t.Fatalf("after click C view = %q, want %q", snap.Session.ID, sessionC)
 	}
 	provider.releaseAll()
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
 }

@@ -38,10 +38,20 @@
 - `turn_tail.go`：解锁后的 consumed 标记、下一轮、release 与 tool-record flush。
 - `turn_execution.go`：会话执行策略同步。
 - `reasoning.go`：历史推理步骤提取、可见步骤配对和 legacy fallback。
+- `stream.go`：`StreamOutputPort`、可见输出与 batcher 的消费方契约。
+- `session_access.go`：统一会话读面与 `SessionRecordsPort`；分页、UTF-8
+  裁剪仍由 Middle 的唯一分页实现拥有。
 - `turn_runner.go`：`runChat` 对应的输入→stream→recovery→cleanup→commit→finalize 编排。
 - `query/`：ConversationHistoryQuery。
 - `context/`：Context Compaction。
 - `search/`：history search 工具适配。
+
+## 依赖方向
+
+Conversation 定义 `StreamOutputPort` 与 `SessionRecordsPort`；Wiring 分别注入
+`backend/engine/react` 的可见输出/batcher 实现和
+`middle/view/sessionaccess.PaginateRecords`。`application/core` 不再 import
+engine/react 或 sessionaccess。
 
 ## 并发与错误
 

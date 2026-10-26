@@ -39,7 +39,7 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 		if err := harness.app.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.app.WaitForIdle(ctx); err != nil {
+		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
 		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
@@ -56,10 +56,10 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 	if sessionID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}
-	harness.app.Shutdown()
+	harness.frontend.Shutdown()
 
 	restarted := newFullChainHarness(t, AccountsPath, projectRoot, 45*time.Second)
-	if err := restarted.app.ResumeSession(sessionID); err != nil {
+	if err := restarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("restart resume live session: %v", err)
 	}
 	restarted.submitLive(ctx, t, "请回忆上一轮对话你回复的内容要求。只回答最近一轮你被要求回复的那句话，不要解释。")
@@ -75,7 +75,7 @@ func (harness *fullChainHarness) submitLive(ctx context.Context, t *testing.T, p
 	if err := harness.app.Submit(ctx, prompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live resume turn did not become idle: %v", err)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )

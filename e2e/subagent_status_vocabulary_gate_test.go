@@ -243,7 +243,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"backend/multiagent/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
 			"backend/multiagent/goal/audit.go":              "写：审计条目的状态词",
 			"backend/multiagent/goal/board_archive.go":      "读：看板存档帧",
-			"application/core/goal_coordinator.go":          "读：治理投影（GoalGovernanceView.Status）",
+			"application/goal/application.go":               "读：治理投影（GoalGovernanceView.Status）",
 			"tui/goalteam.go":                               "读：目标面板",
 		},
 		// 这一格的取值面 = dto.Goal*（GoalRecord.Status / GoalGovernanceView.Status /

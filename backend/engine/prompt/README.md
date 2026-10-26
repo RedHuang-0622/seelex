@@ -25,6 +25,7 @@ skill 层 + Plan 执行策略；前缀缓存友好（内容不变不重复 `SetS
 | 文件 | 职责 |
 |---|---|
 | `coordinator.go` | `BuildSystemPrompt` / `ApplyActiveTaskSystemPrompt` / `SystemPromptForActiveTaskLocked`（稳定 system 层组装 + 锁外同步引擎） |
+| `validation.go` | `ValidateAssets`：Application 启动期校验的窄入口，内部唯一转发 assets 校验。 |
 | `skill_catalog.go` | 激活插件的可用技能目录段 |
 | `role_prompt_optimize.go` | **员工提示词的一次有界改写**（P21-15 从 `backend/engine/assemble/runtime_role_prompt.go` 归位）：`RolePromptOptimizer` + `RolePromptOptimizerDeps{Complete, Model}` + 固定的改写器元指令 + `parseRolePromptOptimization`（宽松解码、`optimized` 必填、`notes` 去空截断到 5 条、每条 ≤60 rune）+ `ErrOptimizerUnavailable`。**只返回候选文本**：不落盘、不写会话消息 |
 | `role_prompt_optimize_test.go` | 解析用例（随实现搬入，断言逐字）+ 回合编排/缺省兜底/无执行面/回合失败包一层/理由有界 |
@@ -76,6 +77,10 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func (c *Coordinator) skillCatalogPart() string` — skillCatalogPart 返回当前激活插件的"可用技能"被动目录段（无技能/无插件
 - `func (c *Coordinator) setEngineSystemPrompt(sessionID, promptText string)` — setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的
 - `func (c *Coordinator) activeSessionID() string` — activeSessionID 返回当前活跃会话（快照归属会话）。
+
+### validation.go
+
+- `func ValidateAssets() error` — 校验解析后的内嵌/外部覆盖提示词资产；Application 不直接依赖 assets 子包。
 
 ### environment_section_test.go
 

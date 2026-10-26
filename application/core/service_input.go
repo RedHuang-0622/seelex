@@ -258,29 +258,10 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 
 // BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 // 自然完成。
-func (service *Service) BeginGracefulShutdown() {
-	service.lifecycleApplicationComponent().BeginGracefulShutdown()
-}
-
-// WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
-// 通过 ctx 控制放弃。
-func (service *Service) WaitForIdle(ctx context.Context) error {
-	return service.lifecycleApplicationComponent().WaitForIdle(ctx)
-}
-
-// AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
-// 而后台会话仍在跑也必须在 graceful drain 中等待）。多会话并行下视图快照
-// 的 Chat.Running 只反映当前会话，不是进程空闲判据。
-func (service *Service) AnyChatRunning() bool {
-	return service.lifecycleApplicationComponent().AnyChatRunning()
-}
 
 // CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
 // 占用引擎与持久化通道，不能只取消视图会话）。取消后每个 runChat 走正常
 // 收尾（逐会话 persist），随后 WaitForIdle 自然收敛。
-func (service *Service) CancelAllChats() {
-	service.lifecycleApplicationComponent().CancelAllChats()
-}
 
 // CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
 //
@@ -296,9 +277,6 @@ func (service *Service) CancelAllChats() {
 // tick（排队回合刚提升时尤其明显），而一个会话同时只有一个运行中回合，"停掉我
 // 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
 // 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
-func (service *Service) CancelChat(requestID string) bool {
-	return service.lifecycleApplicationComponent().CancelChat(requestID)
-}
 
 func (service *Service) lifecycleApplicationComponent() *applicationlifecycle.Application {
 	if service == nil {
@@ -384,8 +362,4 @@ func newServiceLifecycleApplication(service *Service) *applicationlifecycle.Appl
 		},
 		ShutdownApproval: service.Approval.Shutdown,
 	})
-}
-
-func (service *Service) Shutdown() {
-	service.lifecycleApplicationComponent().Shutdown()
 }

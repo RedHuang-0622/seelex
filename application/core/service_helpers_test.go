@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	middlehistory "github.com/RedHuang-0622/seelex/middle/switch/history"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // testServiceOption 定制 newTestService 的依赖注入。
@@ -26,6 +28,10 @@ func withTestSessions(sessions contract.SessionPort) testServiceOption {
 
 func withTestRuntime(runtime contract.RuntimePort) testServiceOption {
 	return func(deps *contract.Dependencies) { deps.Runtime = runtime }
+}
+
+func testResidencyPort() applicationsession.ResidencyPort {
+	return adapters.NewResidencyPort()
 }
 
 // withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
@@ -62,13 +68,27 @@ func newTestService(t testing.TB, engine contract.ChatEngine, options ...testSer
 		option(&deps)
 	}
 	service := mustNew(t, deps)
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	return service
 }
 
 func mustNew(t testing.TB, deps contract.Dependencies) *Service {
 	t.Helper()
-	service, err := New(deps, middlehistory.Assembler{})
+	service, err := New(deps, ExternalPorts{
+		HistoryWindow:          middlehistory.Assembler{},
+		Residency:              adapters.NewResidencyPort(),
+		ConversationStream:     adapters.NewConversationStreamPort(),
+		AccountWindow:          adapters.NewAccountWindowPolicy(),
+		SkillActivation:        adapters.NewSkillActivationPort(),
+		SessionRecords:         adapters.NewSessionRecordsPort(),
+		ErrorPresentation:      adapters.NewErrorPresentationPort(),
+		ApprovalFactory:        adapters.NewApprovalBrokerFactory(),
+		CommandRegistry:        adapters.NewCommandRegistryFactory(),
+		InputRouter:            adapters.NewInputRouterFactory(),
+		RoleSessions:           adapters.NewRoleSessionsFactory(),
+		TeamworkBoardReader:    adapters.NewTeamworkBoardReaderFactory(),
+		HostSessionForToolCall: adapters.NewHostSessionForToolCall(),
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

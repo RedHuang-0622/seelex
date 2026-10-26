@@ -161,11 +161,11 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessContinue := newFullChainHarness(t, continuationAccounts, continuationStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessContinue.app, settledRounds)
+	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
 	if err := harnessContinue.app.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("继续运行提交第 13 轮: %v", err)
 	}
-	if err := harnessContinue.app.WaitForIdle(ctx); err != nil {
+	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("继续运行等待空闲: %v", err)
 	}
 	continuationRecords := continuationRecorder.snapshot()
@@ -173,7 +173,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatalf("对照进程请求数 = %d, want %d", len(continuationRecords), settledRounds+1)
 	}
 	continued := continuationRecords[len(continuationRecords)-1]
-	harnessContinue.app.Shutdown()
+	harnessContinue.frontend.Shutdown()
 	t.Logf("对照（不重启）第13轮请求消息数=%d", len(continued))
 	for index, message := range continued {
 		t.Logf("对照[%02d] %s: %.120s", index, message.Role, message.Content)
@@ -190,17 +190,17 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessFirst.app, settledRounds)
+	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
 	sessionID := harnessFirst.app.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
-	harnessFirst.app.Shutdown()
+	harnessFirst.frontend.Shutdown()
 	assertSessionStorageEvidence(t, restartStore)
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	if err := harnessRestarted.app.ResumeSession(sessionID); err != nil {
+	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession: %v", err)
 	}
 	resumed := harnessRestarted.app.Snapshot()
@@ -211,7 +211,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	if err := harnessRestarted.app.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("重启后提交第 13 轮: %v", err)
 	}
-	if err := harnessRestarted.app.WaitForIdle(ctx); err != nil {
+	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("重启后等待空闲: %v", err)
 	}
 	assertSessionStorageContainsKind(t, restartStore, "session_meta")

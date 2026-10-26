@@ -22,6 +22,9 @@
 `application/admin`（窗口应用编排）、
 门面 `application.AccountWindowPresets()`（把挡位表下发给前端）。
 
+外部端口化后，`application/core` 通过 `application/admin.AccountWindowPolicy`
+消费本包；Wiring adapter 只转发本包 `Setter`，校验、写盘顺序和生效值仍只有一份。
+
 挡位值的事实源在 `contract/dto/account_window.go`；本包 `Presets()` 仅保留
 兼容 alias 调用，校验逻辑仍由本包拥有。
 

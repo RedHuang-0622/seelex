@@ -22,7 +22,7 @@ func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.components.history.PrepareProviderHistory(); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: "raw command output that must not survive", ContentSet: true},
 	}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found the call path", "")
@@ -72,7 +72,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
 	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.recoverProviderContext(errors.New("HTTP 504 upstream timeout"), "new request"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 		{Role: "tool", Name: "bash", Content: "raw output that must not survive", ContentSet: true},
 	}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, model.TaskCheckpoint{})
@@ -117,7 +117,7 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 		chatErr:           errors.New("engine loop 15: context window exceeds limit"),
 	}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)
 		chatErrors:        []error{errors.New("engine loop 15: context window exceeds limit"), nil},
 	}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)
 		chatErrors:        []error{errors.New("engine loop 0: ChatClient stream: invalid params, chat content is empty (2013)")},
 	}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "continue the audit"); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)
 func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("HTTP 401 provider rejected request")}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "inspect repository"); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 		Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
 	}}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, model.TaskCheckpoint{})
@@ -330,7 +330,7 @@ func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T) {
 		chatErrors:        []error{liveSessionLoopToolPairingFailure()},
 	}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
 		t.Fatal(err)
 	}

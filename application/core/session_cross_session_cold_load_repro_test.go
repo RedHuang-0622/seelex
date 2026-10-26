@@ -191,7 +191,7 @@ func drainColdLoadFixture(t *testing.T, service *Service, engine *multiSessionEn
 	releaseEngineSession(engine, "sess-b")
 	idleCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(idleCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(idleCtx); err != nil {
 		t.Logf("收尾时 WaitForIdle: %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T) {
 	defer sessions.releaseNow()
 
 	coldDone := make(chan error, 1)
-	go func() { coldDone <- service.ResumeSession("sess-cold") }()
+	go func() { coldDone <- frontendOfTestService(service).ResumeSession("sess-cold") }()
 
 	select {
 	case <-sessions.entered:
@@ -276,7 +276,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 
 	// B：驻留 + 在飞（ChatStream 阻塞在 release）。
 	engine.register("sess-b")
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume b: %v", err)
 	}
 	if err := service.Submit(ctx, "long B"); err != nil {
@@ -289,7 +289,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 	}
 
 	// A：未驻留 + 有会话运行中 → restoring 空壳 + 后台冷加载。
-	if err := service.ResumeSession("sess-cold"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-cold"); err != nil {
 		t.Fatalf("resume cold: %v", err)
 	}
 	select {
@@ -300,7 +300,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 
 	// 视图在 A 装载完成前切回运行中的 B：A 的装载至此 mayActivate=false，
 	// 只允许完成它自己会话的状态，不得抢占进程级执行面。
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("switch back to b: %v", err)
 	}
 	sessions.releaseNow()

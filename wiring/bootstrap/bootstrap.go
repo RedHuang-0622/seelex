@@ -254,7 +254,7 @@ func Run(opts Options) (*App, error) {
 		return nil, boot.fail(err)
 	}
 	frontendApp := wiring.NewFrontend(app)
-	boot.addCleanup(app.Shutdown)
+	boot.addCleanup(frontendApp.Shutdown)
 	roleUserSpaces := func(sessionID, role string) []string {
 		paths, err := frontendApp.RoleSSHUserSpaces(sessionID, role)
 		if err != nil {
@@ -272,20 +272,20 @@ func Run(opts Options) (*App, error) {
 	// 进入会话可见区，GUI 另弹原生对话框；应用照常启动，不再闪退。
 	startupWarnings := runtime.StartupWarnings()
 	for _, warning := range startupWarnings {
-		app.AddNotice("⚠ 启动配置警告: " + warning)
+		frontendApp.AddNotice("⚠ 启动配置警告: " + warning)
 	}
 	// 插件根读数（加载了几个插件、从哪个根）**进 UI 面**：旧口径里这条只写进终端
 	// 日志（wiring/config 的 LogPluginRoots），GUI 里根本看不到——所以"广播"那个词名不副实（它既不是
 	// 广播，也没有第二个读者）。现在终端与 UI 两处写的是**同一条读数**（config.PluginRootReport
 	// 生成一次，两处引用同一份字节）。
 	if pluginStartup.RootReading != "" {
-		app.AddNotice("插件: " + pluginStartup.RootReading)
+		frontendApp.AddNotice("插件: " + pluginStartup.RootReading)
 	}
 	if pluginStartup.Curated != "" {
-		app.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
+		frontendApp.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
 	}
 	registry.RegisterTaskTerminalTools(runtime, app)
-	registry.RegisterGoalTools(runtime, app)
+	registry.RegisterGoalTools(runtime, core.NewFrontendPorts(app).Goal)
 	// **J-1a 之后这里不再注入两条"角色自带"读面**（2026-10-12，Agent Team 用户面
 	// 退场）：
 	//
@@ -316,7 +316,7 @@ func Run(opts Options) (*App, error) {
 	// `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 仍在（运行时公开
 	// 读面，测试与 headless 宿主可用），只是不再有装配根来源。
 	registry.RegisterSkillActivateTool(runtime, skillRegistry, func(name string) (skill.Skill, error) {
-		info, err := app.ActivateSkill(name)
+		info, err := frontendApp.ActivateSkill(name)
 		if err != nil {
 			return skill.Skill{}, err
 		}
@@ -333,8 +333,8 @@ func Run(opts Options) (*App, error) {
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := registry.ProjectBoardSinkFor(
 		runtimeLimits.ProjectBoard, st,
-		frontendApp.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
-		app.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
+		frontendApp.WorkTableRowsFor, core.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamPlanFor,
+		core.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -380,7 +380,7 @@ func Run(opts Options) (*App, error) {
 	// Application 在状态迁移后向 Runtime 发布不可变可见性和父证据投影；
 	// Runtime 只读自己的缓存，子代理 merge-back 写 Runtime 有界 mailbox，
 	// 由主会话在下一次 ChatStream 前锁外消费。
-	app.PublishRuntimeProjections()
+	frontendApp.PublishRuntimeProjections()
 	// 启动期装配一次注入（RuntimeDeps）：项目知识/子代理工具回调/skill 目录
 	// + 计划事件钩子 + 压缩归档 + 调度器执行器/观察者 + 诊断观察者。
 	// 对应原散装单字段 setter，装配点统一走 Deps 结构。
@@ -423,7 +423,7 @@ func Run(opts Options) (*App, error) {
 		// 子代理工具活动：事件 + 它的**归属主会话**（assemble 从执行上下文解析）。装配根
 		// 只做搬运，记账/投影都在 application（HandleSubagentToolEventFor）。
 		SubagentToolCallback: func(observation assemble.SubagentToolObservation) {
-			app.HandleSubagentToolEventFor(observation.OwnerSessionID, observation.Event)
+			frontendApp.HandleSubagentToolEventFor(observation.OwnerSessionID, observation.Event)
 		},
 		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
 		// 都在 application（HandleRoleToolActivity）。
@@ -431,7 +431,7 @@ func Run(opts Options) (*App, error) {
 		// 员工回合收口：该角色会话的工具记录暂存一次性提交给主会话累计
 		// （阶梯提交的收口点；同步入账）。
 		RoleTurnEndCallback: func(mainSessionID, roleSessionID string) {
-			app.CloseRoleToolRecordUnit(mainSessionID, roleSessionID)
+			frontendApp.CloseRoleToolRecordUnit(mainSessionID, roleSessionID)
 		},
 		SkillRegistry: skillRegistry,
 		// 定时提示词任务的执行器：默认**新建会话**发起（可选装配工作区），
@@ -439,7 +439,7 @@ func Run(opts Options) (*App, error) {
 		// 单独一个函数是为了让测试基座（tool_full_chain_test.go 的 newFullChainHarness）
 		// 装的是同一份口径，而不是各写一份"看起来差不多"的闭包。
 		ScheduledPromptExecutor: registry.ScheduledPromptExecutor(app),
-		SchedulerObserver:       app.RefreshRuntimeSnapshot,
+		SchedulerObserver:       frontendApp.RefreshRuntimeSnapshot,
 	})
 	// 定时任务定义恢复（全局 JSONL → 内存排期）：必须在**执行器与观察者注入之后**，
 	// 恢复出来的任务才可能立刻按排期触发。副作用只有"多出几条已排期任务"与一次

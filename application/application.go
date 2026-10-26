@@ -7,6 +7,7 @@ package application
 import (
 	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -217,7 +218,7 @@ func AccountWindowPresets() []int { return dto.AccountWindowPresets() }
 func AccountRoles() []string { return dto.AccountRoleVocabulary() }
 
 // RenderDiag 构建诊断文本，供 `/diag` 命令使用（门面 E 组：无状态纯函数）。
-func RenderDiag(snapshot Snapshot) string { return core.RenderDiag(snapshot) }
+func RenderDiag(snapshot Snapshot) string { return applicationobservability.RenderDiag(snapshot) }
 
 // ── 门面不持有构造函数（M1-B） ──────────────────────────────────────────
 //

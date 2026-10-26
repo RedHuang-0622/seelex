@@ -87,7 +87,7 @@ func TestEditUserMessageAndForkUsesPreviousParagraphAndSubmitsReplacement(t *tes
 	service, sessions, engine := editForkFixture(t)
 	parentBefore := append([]store.Event(nil), sessions.events...)
 
-	result, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq:   3,
 		NewText:          "edited question",
 		ExpectedRevision: service.Snapshot().ConversationRevision,
@@ -137,7 +137,7 @@ func TestEditUserMessageAndForkUsesPreviousParagraphAndSubmitsReplacement(t *tes
 
 func TestEditUserMessageAndForkCanReplaceLatestUserMessage(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	result, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 5, NewText: "latest edited", ExpectedRevision: 6, OperationID: "latest-edit",
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 	editForkRetainedWindow(t, service, 2)
 	revision := service.Snapshot().ConversationRevision
 
-	_, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 1, NewText: "cannot edit", ExpectedRevision: revision, OperationID: "compressed",
 	})
 	if err == nil || !strings.Contains(err.Error(), "压缩") {
@@ -176,7 +176,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 	}
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "running-parent"}, nil)
 	service.ViewMu.Unlock()
-	_, err = service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err = frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "cannot edit", ExpectedRevision: revision, OperationID: "running",
 	})
 	if !errors.Is(err, ErrChatRunning) {
@@ -186,7 +186,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 
 func TestEditUserMessageAndForkRejectsStaleParentRevision(t *testing.T) {
 	service, sessions, _ := editForkFixture(t)
-	_, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "stale", ExpectedRevision: 5, OperationID: "stale-revision",
 	})
 	if err == nil || !strings.Contains(err.Error(), "已推进") {
@@ -203,11 +203,11 @@ func TestEditUserMessageAndForkSameOperationIsIdempotent(t *testing.T) {
 	request := model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "only once", ExpectedRevision: revision, OperationID: "double-click",
 	}
-	first, err := service.EditUserMessageAndFork(context.Background(), "parent", request)
+	first, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.EditUserMessageAndFork(context.Background(), "parent", request)
+	second, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestEditUserMessageAndForkSameOperationIsIdempotent(t *testing.T) {
 
 func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	first, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	first, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "first branch", ExpectedRevision: 6, OperationID: "branch-a",
 	})
 	if err != nil {
@@ -231,10 +231,10 @@ func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testi
 	}
 	engine.releaseSession(first.ChildSessionID)
 	waitSessionIdle(t, service)
-	if err := service.ResumeSession("parent"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("parent"); err != nil {
 		t.Fatalf("resume parent: %v", err)
 	}
-	second, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	second, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "second branch", ExpectedRevision: 6, OperationID: "branch-b",
 	})
 	if err != nil {
@@ -249,7 +249,7 @@ func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testi
 
 func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	child, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	child, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "child only", ExpectedRevision: 6, OperationID: "isolation-child",
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing
 	engine.releaseSession(child.ChildSessionID)
 	waitSessionIdle(t, service)
 
-	if err := service.ResumeSession("parent"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("parent"); err != nil {
 		t.Fatalf("resume parent: %v", err)
 	}
 	if err := service.SubmitToSession(context.Background(), "parent", "parent later turn"); err != nil {
@@ -267,7 +267,7 @@ func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing
 	engine.releaseSession("parent")
 	waitSessionIdle(t, service)
 
-	if err := service.ResumeSession(child.ChildSessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(child.ChildSessionID); err != nil {
 		t.Fatalf("resume child: %v", err)
 	}
 	for _, text := range userTexts(service.Snapshot().Conversation) {
@@ -279,7 +279,7 @@ func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing
 
 func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 	service, sessions, engine := editForkFixture(t)
-	result, err := service.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := frontendOfTestService(service).EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "will rollback", ExpectedRevision: 6, OperationID: "rollback-child",
 	})
 	if err != nil {

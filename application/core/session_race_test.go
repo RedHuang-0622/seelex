@@ -15,14 +15,14 @@ import (
 // runChat 尾部 bump/落盘）与 Snapshot 读取，-race 下不得有数据竞争。
 func TestSnapshotBumpConcurrentWithRunChatTail(t *testing.T) {
 	service := newTestService(t, &fakeEngine{chunks: []string{"ok"}})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := service.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

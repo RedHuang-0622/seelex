@@ -16,7 +16,7 @@ import (
 
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, model.TaskCheckpoint{})
@@ -43,7 +43,7 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 
 func TestTaskFailedRequiresFailureType(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "verify", "high", nil, model.TaskCheckpoint{})
@@ -56,7 +56,7 @@ func TestTaskFailedRequiresFailureType(t *testing.T) {
 
 func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "choose migration", "high", nil, model.TaskCheckpoint{})
@@ -83,7 +83,7 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 
 func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Nodes: []model.PlanNode{{ID: "inspect"}, {ID: "verify"}}}
@@ -108,7 +108,7 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 
 func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanPending, Nodes: []model.PlanNode{{ID: "inspect"}}}
@@ -140,7 +140,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: "found the current call path"},
 	}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -193,7 +193,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *testing.T) {
 	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "system", Content: "system instruction", ContentSet: true}}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -256,7 +256,7 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: strings.Repeat("x", Limits().MaxToolResultChars+1)},
 	}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -302,7 +302,7 @@ func TestTaskContextSummaryIgnoresMetadataOnlyCheckpoint(t *testing.T) {
 func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.promptStack.Push("skill", "review", "review prompt")
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Task = &model.TaskState{RequestID: "old-task", Status: TurnInterrupted}
@@ -356,7 +356,7 @@ func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
 
 func TestNoProgressBudgetStopsRepeatedToolRounds(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})

@@ -15,9 +15,6 @@ import (
 // SearchHistoryHandler 实现 search_history 工具：模型在上下文缺少相关历史
 // 时可主动调用（如用户提到早先的讨论/决定）；命中内联真实聊天记录
 // （受 token 预算约束，Result 为权威返回）。
-func (service *Service) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error) {
-	return service.historySearchApplicationComponent().SearchHistoryHandler(argsJSON)
-}
 
 func (service *Service) historySearchApplicationComponent() *conversationsearch.Application {
 	if service == nil {

@@ -50,11 +50,11 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	}
 	if value.Initial.Effort != "" {
 		if err := frontend.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
-			service.Shutdown()
+			frontend.Shutdown()
 			return nil, fmt.Errorf("set initial effort: %w", err)
 		}
 	}
-	return NewRunner(value, service, scriptedEngine), nil
+	return NewRunner(value, frontend, scriptedEngine), nil
 }
 
 func initialPlugin(value Scenario) string {

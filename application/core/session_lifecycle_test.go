@@ -32,7 +32,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("ResumeSession(running A) = %v, want hot attach nil", err)
 	}
 	service.ViewMu.RLock()
@@ -52,7 +52,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -75,12 +75,12 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 	}
 	bID := "sess-hot-B"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("hot attach A while running: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -96,7 +96,7 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -118,17 +118,17 @@ func TestHotAttachNoReplay(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	bID := "sess-noreplay-B"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatal(err)
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := service.ResumeSession(aID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
 		t.Fatalf("hot attach A: %v", err)
 	}
 	historyAfter := engine.HistoryFor(aID)
@@ -161,13 +161,13 @@ func TestUnloadReleasesScope(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	const sessionID = "sess-unload"
 
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if !engine.HasSession(sessionID) {
 		t.Fatalf("session %q not loaded after cold load", sessionID)
 	}
-	if err := service.UnloadSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).UnloadSession(sessionID); err != nil {
 		t.Fatalf("unload: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -180,7 +180,7 @@ func TestUnloadReleasesScope(t *testing.T) {
 		t.Fatal("unload retained engine instance")
 	}
 	// 重开走 cold_load：从持久化恢复。
-	if err := service.ResumeSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 		t.Fatalf("reopen after unload: %v", err)
 	}
 	if !containsMessageContent(service.Snapshot().Conversation, "persisted content") {
@@ -208,15 +208,15 @@ func TestUnloadRejectsRunningSession(t *testing.T) {
 		t.Fatal("chat did not start")
 	}
 	sessionID := service.Snapshot().Session.ID
-	if err := service.UnloadSession(sessionID); !errors.Is(err, ErrChatRunning) {
+	if err := frontendOfTestService(service).UnloadSession(sessionID); !errors.Is(err, ErrChatRunning) {
 		close(engine.release)
 		t.Fatalf("unload while running = %v, want ErrChatRunning", err)
 	}
 	close(engine.release)
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.UnloadSession(sessionID); err != nil {
+	if err := frontendOfTestService(service).UnloadSession(sessionID); err != nil {
 		t.Fatalf("unload after idle: %v", err)
 	}
 	service.ViewMu.RLock()

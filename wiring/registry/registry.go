@@ -43,6 +43,7 @@ type pluginPromptEngine interface {
 }
 
 func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service) {
+	frontend := applicationcompat.New(app)
 	readResultSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -60,8 +61,8 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 			"node_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 		},
 	}
-	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, app.ReadToolResultHandler)
-	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, app.ReadPlanHandler)
+	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, frontend.ReadToolResultHandler)
+	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, frontend.ReadPlanHandler)
 	readCompressedTurnSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -72,7 +73,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		},
 		"required": []string{"segment_id"},
 	}
-	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, app.ReadCompressedTurnHandler)
+	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, frontend.ReadCompressedTurnHandler)
 	// search_history：压缩栈帧是语义索引，检索在其范围内查真实聊天记录
 	// （seelexctx/search：memory.Select 选相关帧 → 帧 [From..To] 单元范围
 	// 从事件库读回记录 → token 预算内内联返回）。
@@ -84,7 +85,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		},
 		"required": []string{"query"},
 	}
-	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, app.SearchHistoryHandler)
+	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, frontend.SearchHistoryHandler)
 	// compact_context：把 /compact 这条手动压缩入口同样交给模型——它可以在
 	// 上下文逼近上限、或开始一段长任务前主动收拢上下文。落点与引擎自动压缩、
 	// 命令 /compact 完全同一条（context_runtime.CompactContextNow），原始轮次
@@ -95,7 +96,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 			"reason": map[string]interface{}{"type": "string", "description": "为什么现在压缩（写入压缩记录，供审计与回看）"},
 		},
 	}
-	runtime.RegisterTool("compact_context", "Compact this session's context now: fold the variable transcript into a bounded checkpoint frame (stable prefix + task evidence summary + plan + current request) while every original turn stays readable by reference. Call it before a long multi-step task or when the context is close to the provider limit; it is not a substitute for finishing the current step.", compactContextSchema, app.CompactContextHandler)
+	runtime.RegisterTool("compact_context", "Compact this session's context now: fold the variable transcript into a bounded checkpoint frame (stable prefix + task evidence summary + plan + current request) while every original turn stays readable by reference. Call it before a long multi-step task or when the context is close to the provider limit; it is not a substitute for finishing the current step.", compactContextSchema, frontend.CompactContextHandler)
 }
 
 // RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
@@ -279,10 +280,11 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 // 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
 // 冒烟测的才是产品的那条链。
 func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor {
+	frontend := applicationcompat.New(app)
 	return func(ctx context.Context, task assemble.ScheduledTaskSpec) (assemble.ScheduledPromptOutcome, error) {
 		if bound := strings.TrimSpace(task.SessionID); bound != "" {
 			// 显式绑定会话：装配同样落到那个会话（任务声明什么，就用什么跑）。
-			assembled, err := app.AssembleScheduledRun(ctx, bound, task)
+			assembled, err := frontend.AssembleScheduledRun(ctx, bound, task)
 			if err != nil {
 				return assemble.ScheduledPromptOutcome{}, err
 			}
@@ -293,7 +295,7 @@ func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptE
 				Message: fmt.Sprintf("已提交到绑定会话 %s（异步输出见会话记录）", bound), SessionID: bound,
 			}, nil
 		}
-		newSessionID, err := app.StartScheduledSession(ctx, task)
+		newSessionID, err := frontend.StartScheduledSession(ctx, task)
 		if err != nil {
 			return assemble.ScheduledPromptOutcome{SessionID: newSessionID}, err
 		}
@@ -397,7 +399,7 @@ func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service
 	if runtime == nil || app == nil {
 		return
 	}
-	review.RegisterShowFilesTool(runtime, app)
+	review.RegisterShowFilesTool(runtime, applicationcompat.New(app))
 }
 
 // RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
@@ -905,7 +907,14 @@ func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error) {
 	return plugin.Plugin{}, fmt.Errorf("plugin %q not found", name)
 }
 
-func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
+type goalToolHandlers interface {
+	BeginHandler(context.Context, string) (string, error)
+	UpdateHandler(context.Context, string) (string, error)
+	StatusHandler(context.Context, string) (string, error)
+	DoneHandler(context.Context, string) (string, error)
+}
+
+func RegisterGoalTools(runtime *assemble.Runtime, handlers goalToolHandlers) {
 	beginSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -935,25 +944,25 @@ func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
 		"goal_begin",
 		"注册并压栈一个会话 goal（目标看板的正文 + 完成条件；$goal 的工具形态）。目标由**提示词驱动的 leader 派活**推进（没有席位轮转）；收口走 goal_done。",
 		beginSchema,
-		app.GoalBeginHandler,
+		handlers.BeginHandler,
 	)
 	runtime.RegisterTool(
 		"goal_update",
 		"向栈顶 active goal 追加一条进度/发现，或更新标题/正文/完成条件（主代理自己拍板；员工/子代理看不到 goal 工具族）。",
 		updateSchema,
-		app.GoalUpdateHandler,
+		handlers.UpdateHandler,
 	)
 	runtime.RegisterTool(
 		"goal_status",
 		"读取当前会话 goal 栈全量视图（栈顶 + 下层状态；无 goal 返回空栈）。",
 		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
-		app.GoalStatusHandler,
+		handlers.StatusHandler,
 	)
 	runtime.RegisterTool(
 		"goal_done",
 		"直接收口当前栈顶 goal。action=finish|abort（缺省 finish），reason/result 进审计。员工/子代理看不到这个工具。",
 		doneSchema,
-		app.GoalDoneHandler,
+		handlers.DoneHandler,
 	)
 }
 

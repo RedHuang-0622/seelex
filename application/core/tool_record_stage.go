@@ -43,9 +43,6 @@ func (service *Service) closeSubagentToolRecordUnit(ownerSessionID, nodeID strin
 }
 
 // CloseRoleToolRecordUnit closes the stable role unit key.
-func (service *Service) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string) {
-	service.closeUnitToolRecord(mainSessionID, applicationtoolrecord.RoleUnitID(roleSessionID, ""))
-}
 
 // releaseToolRecordSession reclaims all ledger state for a released session.
 func (service *Service) releaseToolRecordSession(sessionID string) {

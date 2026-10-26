@@ -3,7 +3,12 @@ package core
 import (
 	"context"
 
+	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -128,6 +133,222 @@ func (frontend *Frontend) ToolResultContent(_ context.Context, resultRef string,
 	return frontend.Service.referenceApplicationComponent().ToolResultContent(resultRef, offset, limit)
 }
 
+func (frontend *Frontend) CompactContextNow(ctx context.Context) (ContextCompactionResult, error) {
+	return frontend.Service.contextCompactionApplicationComponent().CompactContextNow(ctx)
+}
+
+func (frontend *Frontend) CompactContextHandler(ctx context.Context, argsJSON string) (string, error) {
+	return frontend.Service.contextCompactionApplicationComponent().CompactContextHandler(ctx, argsJSON)
+}
+
+func (frontend *Frontend) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.Service.referenceApplicationComponent().ReadToolResultHandler(argsJSON)
+}
+
+func (frontend *Frontend) ReadPlanHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.Service.referenceApplicationComponent().ReadPlanHandler(argsJSON)
+}
+
+func (frontend *Frontend) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.Service.referenceApplicationComponent().ReadCompressedTurnHandler(argsJSON)
+}
+
+func (frontend *Frontend) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error) {
+	return frontend.Service.reviewApplicationComponent().RequestFileReview(ctx, files)
+}
+
+func (frontend *Frontend) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
+	return frontend.Service.goalApplicationComponent().GovernanceViewFor(sessionID)
+}
+
+func (frontend *Frontend) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+	return frontend.Service.goalApplicationComponent().BeginFor(ctx, sessionID, request)
+}
+
+func (frontend *Frontend) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+	return frontend.Service.goalApplicationComponent().UpdateFor(ctx, sessionID, request)
+}
+
+func (frontend *Frontend) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+	return frontend.Service.goalApplicationComponent().DoneFor(ctx, sessionID, request, abort)
+}
+
+func (frontend *Frontend) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
+	return frontend.Service.goalApplicationComponent().StatusFor(sessionID)
+}
+
+func (frontend *Frontend) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+	return frontend.Service.schedulerApplicationComponent().ScheduleTask(ctx, spec)
+}
+
+func (frontend *Frontend) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+	return frontend.Service.schedulerApplicationComponent().UpdateScheduledTask(ctx, id, spec)
+}
+
+func (frontend *Frontend) CancelScheduledTask(id string) error {
+	return frontend.Service.schedulerApplicationComponent().CancelScheduledTask(id)
+}
+
+func (frontend *Frontend) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
+	return frontend.Service.scheduledRunApplicationComponent().AssembleScheduledRun(ctx, sessionID, task)
+}
+
+func (frontend *Frontend) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
+	return frontend.Service.scheduledSessionApplicationComponent().StartScheduledSession(ctx, task)
+}
+
+func (frontend *Frontend) RefreshRuntimeSnapshot() {
+	frontend.Service.runtimeApplicationComponent().Refresh()
+}
+
+func (frontend *Frontend) AnyChatRunning() bool {
+	return frontend.Service.lifecycleApplicationComponent().AnyChatRunning()
+}
+
+func (frontend *Frontend) WaitForIdle(ctx context.Context) error {
+	return frontend.Service.lifecycleApplicationComponent().WaitForIdle(ctx)
+}
+
+func (frontend *Frontend) ArchiveSession(sessionID string) error {
+	return frontend.Service.components.sessionArchive.Archive(sessionID)
+}
+
+func (frontend *Frontend) BeginNewSession() error {
+	return frontend.Service.components.sessionDraftEntry.Begin()
+}
+
+func (frontend *Frontend) UnloadSession(sessionID string) error {
+	return frontend.Service.components.sessionLifecycle.Unload(sessionID)
+}
+
+func (frontend *Frontend) ResumeSession(sessionID string) error {
+	return frontend.Service.resumeSession(sessionID)
+}
+
+func (frontend *Frontend) ActivateSession(sessionID string) error {
+	return frontend.Service.resumeSession(sessionID)
+}
+
+func (frontend *Frontend) SetSessionMeta(sessionID string, meta model.SessionMeta) error {
+	return frontend.Service.sessionMetaApplicationComponent().SetSessionMeta(sessionID, meta)
+}
+
+func (frontend *Frontend) EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
+	return frontend.Service.editForkApplicationComponent().EditUserMessageAndFork(ctx, parentID, request)
+}
+
+func (frontend *Frontend) SessionSSHState(sessionID string) (model.SessionSSHInfo, error) {
+	return frontend.Service.sessionSSHApplicationComponent().State(sessionID)
+}
+
+func (frontend *Frontend) SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error) {
+	return frontend.Service.sessionSSHApplicationComponent().SetAllowed(sessionID, envs)
+}
+
+func (frontend *Frontend) SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error) {
+	return frontend.Service.sessionSSHApplicationComponent().SetEnv(sessionID, projectID, env)
+}
+
+func (frontend *Frontend) ActivateSkill(name string) (model.SkillInfo, error) {
+	return frontend.Service.policyApplicationComponent().ActivateSkill(name)
+}
+
+func (frontend *Frontend) UpdateWorkItemStatus(id, status string) error {
+	return frontend.Service.executionApplicationComponent().UpdateWorkItemStatus(id, status)
+}
+
+func (frontend *Frontend) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
+	return frontend.Service.subagentApplicationComponent().ListRecovery(sessionID)
+}
+
+func (frontend *Frontend) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error) {
+	return frontend.Service.subagentApplicationComponent().ResumeInterrupted(ctx, sessionID)
+}
+
+func (frontend *Frontend) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
+	return frontend.Service.subagentApplicationComponent().Resume(ctx, sessionID, nodeID)
+}
+
+func (frontend *Frontend) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
+	return frontend.Service.subagentApplicationComponent().Fork(ctx, sessionID, specs)
+}
+
+func (frontend *Frontend) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
+	return frontend.Service.subagentApplicationComponent().Detail(nodeID)
+}
+
+func (frontend *Frontend) ClearSubagentTree() error {
+	return frontend.Service.subagentApplicationComponent().ClearTree()
+}
+
+func (frontend *Frontend) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.Service.historySearchApplicationComponent().SearchHistoryHandler(argsJSON)
+}
+
+func (frontend *Frontend) BeginGracefulShutdown() {
+	frontend.Service.lifecycleApplicationComponent().BeginGracefulShutdown()
+}
+
+func (frontend *Frontend) CancelAllChats() {
+	frontend.Service.lifecycleApplicationComponent().CancelAllChats()
+}
+
+func (frontend *Frontend) CancelChat(requestID string) bool {
+	return frontend.Service.lifecycleApplicationComponent().CancelChat(requestID)
+}
+
+func (frontend *Frontend) Shutdown() {
+	frontend.Service.lifecycleApplicationComponent().Shutdown()
+}
+
+func (frontend *Frontend) SetFullAccess(on bool) bool {
+	return frontend.Service.policyApplicationComponent().SetFullAccess(on)
+}
+
+func (frontend *Frontend) SetPermissionTier(tier string) (string, error) {
+	return frontend.Service.policyApplicationComponent().SetPermissionTier(tier)
+}
+
+func (frontend *Frontend) SetLoopLimit(_ context.Context, limit int) error {
+	return frontend.Service.policyApplicationComponent().SetLoopLimit(limit)
+}
+
+func (frontend *Frontend) SetReasoningEffort(_ context.Context, effort string) error {
+	return frontend.Service.policyApplicationComponent().SetReasoningEffort(effort)
+}
+
+func (frontend *Frontend) SessionReleaseWindow() int {
+	return frontend.Service.policyApplicationComponent().SessionReleaseWindow()
+}
+
+func (frontend *Frontend) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
+	return frontend.Service.policyApplicationComponent().SetSessionReleaseWindow(window)
+}
+
+func (frontend *Frontend) Subscribe(buffer int) event.Subscription {
+	return frontend.Service.components.view.Subscribe(buffer)
+}
+
+func (frontend *Frontend) GoalSkillActive() bool {
+	return frontend.Service.components.tasks.GoalSkillActive()
+}
+
+func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, toolEvent seelsession.SubagentToolEvent) {
+	frontend.Service.components.subagent.HandleSubagentToolEventFor(ownerSessionID, toolEvent)
+}
+
+func (frontend *Frontend) AddNotice(notice string) {
+	frontend.Service.addNotice(notice)
+}
+
+func (frontend *Frontend) PublishRuntimeProjections() {
+	frontend.Service.publishRuntimeProjections()
+}
+
+func (frontend *Frontend) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string) {
+	frontend.Service.closeUnitToolRecord(mainSessionID, applicationtoolrecord.RoleUnitID(roleSessionID, ""))
+}
+
 func (frontend *Frontend) RoleDefaultVector(sessionID, role string) ([]string, bool, error) {
 	return frontend.Service.roleApplicationComponent().RoleDefaultVector(sessionID, role)
 }
@@ -177,59 +398,59 @@ func (frontend *Frontend) SetRolePermissionVector(sessionID, role string, vector
 }
 
 func (frontend *Frontend) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
-	return frontend.Service.roleSessions().CreateRoleSession(mainSessionID, roleName, roleSessionID, joinSeq)
+	return frontend.Service.components.roleSessions.CreateRoleSession(mainSessionID, roleName, roleSessionID, joinSeq)
 }
 
 func (frontend *Frontend) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
-	return frontend.Service.roleSessions().AppendRoleDraft(mainSessionID, roleName, roleSessionID, rows)
+	return frontend.Service.components.roleSessions.AppendRoleDraft(mainSessionID, roleName, roleSessionID, rows)
 }
 
 func (frontend *Frontend) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
-	return frontend.Service.roleSessions().ReadRoleDraft(mainSessionID, roleName, roleSessionID)
+	return frontend.Service.components.roleSessions.ReadRoleDraft(mainSessionID, roleName, roleSessionID)
 }
 
 func (frontend *Frontend) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
-	return frontend.Service.roleSessions().SyncRoleDraft(mainSessionID, roleName, roleSessionID, order)
+	return frontend.Service.components.roleSessions.SyncRoleDraft(mainSessionID, roleName, roleSessionID, order)
 }
 
 func (frontend *Frontend) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
-	return frontend.Service.roleSessions().AppendRoleSessionRows(mainSessionID, roleName, roleSessionID, rows)
+	return frontend.Service.components.roleSessions.AppendRoleSessionRows(mainSessionID, roleName, roleSessionID, rows)
 }
 
 func (frontend *Frontend) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
-	return frontend.Service.roleSessions().ReadRoleSessionRows(mainSessionID, roleName, roleSessionID)
+	return frontend.Service.components.roleSessions.ReadRoleSessionRows(mainSessionID, roleName, roleSessionID)
 }
 
 func (frontend *Frontend) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	return frontend.Service.roleSessions().RoleSnapshot(mainSessionID, roleName, roleSessionID)
+	return frontend.Service.components.roleSessions.RoleSnapshot(mainSessionID, roleName, roleSessionID)
 }
 
 func (frontend *Frontend) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
-	return frontend.Service.roleSessions().AssembleRoleWire(mainSessionID, roleName, roleSessionID, budget, k)
+	return frontend.Service.components.roleSessions.AssembleRoleWire(mainSessionID, roleName, roleSessionID, budget, k)
 }
 
 func (frontend *Frontend) SetLifecycleOrder(sessionID, policy string, roles []string) error {
-	return frontend.Service.roleSessions().SetLifecycleOrder(sessionID, policy, roles)
+	return frontend.Service.components.roleSessions.SetLifecycleOrder(sessionID, policy, roles)
 }
 
 func (frontend *Frontend) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
-	return frontend.Service.roleSessions().SetRoleLifecycle(mainSessionID, roleName, roleSessionID, joinSeq, ref)
+	return frontend.Service.components.roleSessions.SetRoleLifecycle(mainSessionID, roleName, roleSessionID, joinSeq, ref)
 }
 
 func (frontend *Frontend) ListRoleSessions(mainSessionID string) ([]string, error) {
-	return frontend.Service.roleSessions().ListRoleSessions(mainSessionID)
+	return frontend.Service.components.roleSessions.ListRoleSessions(mainSessionID)
 }
 
 func (frontend *Frontend) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
-	return frontend.Service.roleSessions().ScheduleRegister(sessionID, payload)
+	return frontend.Service.components.roleSessions.ScheduleRegister(sessionID, payload)
 }
 
 func (frontend *Frontend) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
-	return frontend.Service.roleSessions().ScheduleCancel(sessionID, payload)
+	return frontend.Service.components.roleSessions.ScheduleCancel(sessionID, payload)
 }
 
 func (frontend *Frontend) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
-	return frontend.Service.roleSessions().ScheduleFire(sessionID, payload)
+	return frontend.Service.components.roleSessions.ScheduleFire(sessionID, payload)
 }
 
 func (frontend *Frontend) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error) {

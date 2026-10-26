@@ -3,8 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"sort"
@@ -286,10 +285,6 @@ func (service *Service) sessionViewIntentLocked(sessionID string) uint64 {
 	return service.sessionViewIntent[sessionID]
 }
 
-func (service *Service) Subscribe(buffer int) event.Subscription {
-	return service.components.view.Subscribe(buffer)
-}
-
 // refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
 // 宿主读面重采一次 runtime 投影，落到它的会话槽（视图会话同时镜像 Snapshot）。
 //
@@ -454,9 +449,6 @@ func (service *Service) addNotice(notice string) {
 
 // AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
 // message.added 事件）。启动期配置警告等非致命错误用它呈现给前端。
-func (service *Service) AddNotice(notice string) {
-	service.addNotice(notice)
-}
 
 func (service *Service) resetConversation(notice string) {
 	service.components.view.ResetConversation(notice)

@@ -78,7 +78,7 @@ func TestCompactionMaterialMustCarryConversationBody(t *testing.T) {
 	}
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T) {
 	sessionID := service.Snapshot().Session.ID
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := service.CompactContextNow(ctx)
+	result, err := frontendOfTestService(service).CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

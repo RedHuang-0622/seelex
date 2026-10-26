@@ -253,8 +253,9 @@ func newGUIChainApplication(t *testing.T) (*application.Frontend, application.Ap
 		t.Fatal(err)
 	}
 	hooks.Bind(app)
-	t.Cleanup(app.Shutdown)
-	return wiring.NewFrontend(app), approval
+	frontend := wiring.NewFrontend(app)
+	t.Cleanup(frontend.Shutdown)
+	return frontend, approval
 }
 
 func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {

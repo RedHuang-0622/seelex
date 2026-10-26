@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`application/goal` 承载 Goal 用例路由与会话治理视图。真实调用方是
+`application/goal` 承载 Goal 用例路由、会话级 Coordinator 缓存与会话治理视图。真实调用方是
 `application/core.Service` 的 Goal 兼容入口；Goal 状态机仍在
 `backend/multiagent/goal`。
 
@@ -12,23 +12,30 @@
 
 - 校验 session ID 并定位会话 Goal 协调器；
 - 路由 Begin/Update/Done/Status 与治理视图；
+- 按会话缓存 Goal Controller，并通过第五栈存储重载/释放；
+- 从看板存档恢复治理视图；
 - 成功后刷新运行时投影。
 
 非职责：
 
 - 不拥有 Goal 记录、栈或状态迁移；
-- 不直接持久化或读取 Runtime；
+- 不实现 Goal 记录、栈或状态迁移，也不直接读取 Runtime 投影源；
 - 不导入 `application/core`。
 
 ## 文件结构
 
 - `application.go`：`CoordinatorPort`、`Deps`、`Application` 与构造器。
+- `coordinator.go`：按会话缓存 Goal Controller、第五栈适配、看板存档恢复与
+  `StackFrames` 投影。
 - `application_test.go`：成功刷新、错误短路和缺失协调器测试。
+- `stack_view_test.go`、`done_test.go`、`board_archive_read_test.go`：随协调器迁移的
+  栈投影、直接收口与存档恢复测试。
 
 ## 核心实现
 
-`CoordinatorPort` 只暴露 Goal 应用实际调用的五个方法；`goalCoordinator`
-通过结构满足 port，不需要复制状态机。刷新只发生在成功变更后。
+`CoordinatorPort` 只暴露 Goal 应用实际调用的五个方法；`Coordinator`
+通过结构满足 port，不需要复制状态机。刷新只发生在成功变更后。Controller 仍是
+每会话 bundle 的唯一状态所有者；`StoreFor=nil` 保持内存态降级。
 
 ## 数据流
 
@@ -37,13 +44,14 @@
 
 ## 依赖方向
 
-允许依赖 `backend/multiagent/goal` 的 Goal DTO/状态视图与 `contract/dto`。禁止依赖
-`application/core`、GUI/TUI 或直接存储实现。
+允许依赖 `backend/multiagent/goal` 的 Goal DTO/状态视图、`store` 的第五栈/看板存档
+适配面与 `contract/dto`。禁止依赖 `application/core`、GUI/TUI。
 
 ## 并发与错误
 
-本包不缓存协调器实例；每次调用通过 `Coordinator` provider 现取。协调器缺失返回
-`ErrCoordinatorUnavailable`，空 session ID 显式失败，变更失败时不刷新投影。
+Coordinator 用独立 mutex 保护每会话 bundle 缓存，bundle 内 Controller 不与其它会话
+共享。协调器缺失返回 `ErrCoordinatorUnavailable`，空 session ID 显式失败，变更失败
+时不刷新投影。
 
 ## 扩展方式
 
@@ -79,3 +87,11 @@ go test ./application/... -count=1
 ### `application_test.go`
 
 测试文件按仓库 README 规范不展开函数索引。
+
+### `coordinator.go`
+
+- `func NewCoordinator(deps CoordinatorDeps) *Coordinator` — 构造按会话缓存 Goal Controller 的协调器。
+- `func (g *Coordinator) ForgetSession(sessionID string)` — 释放一个会话的 Goal bundle。
+- `func (g *Coordinator) Begin/Update/FinishDirect/StatusFor(...)` — 按会话路由 Goal 状态机。
+- `func (g *Coordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — 组装活体或存档恢复的治理视图。
+- `func StackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — 把活动 Goal 栈投影为逐帧只读视图。

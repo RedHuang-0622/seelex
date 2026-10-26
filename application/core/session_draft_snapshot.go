@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // draftSnapshotInterval 是长任务把内存 transcript 后缀写成可恢复草稿的最小

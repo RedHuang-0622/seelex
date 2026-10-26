@@ -18,7 +18,7 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if _, err := service.Deps.Workspace.Create("proj", "C:\\proj", ""); err != nil {
@@ -83,7 +83,7 @@ func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 		},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-removed", updatedAt)

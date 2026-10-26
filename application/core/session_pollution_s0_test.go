@@ -21,7 +21,7 @@ import (
 func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	planWith := func(nodes ...model.PlanNode) []model.SessionPlanFrame {
 		return []model.SessionPlanFrame{{

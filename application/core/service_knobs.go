@@ -9,23 +9,10 @@ package core
 //  2. 两个门面方法（`SetReasoningEffort` / `SetLoopLimit`）的一行转发——外部调用点零改动。
 
 import (
-	"context"
-
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
-
-// SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
-// 判据与守卫在 `limit.Knobs`：本方法只转发（错误语义与迁移前逐字一致）。
-func (service *Service) SetReasoningEffort(_ context.Context, effort string) error {
-	return service.components.policyApplication.SetReasoningEffort(effort)
-}
-
-// SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。判据与守卫在 `limit.Knobs`。
-func (service *Service) SetLoopLimit(_ context.Context, limit int) error {
-	return service.components.policyApplication.SetLoopLimit(limit)
-}
 
 // serviceKnobsHost 把 Service 的能力实现成 limit.KnobsHost。
 //

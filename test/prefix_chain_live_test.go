@@ -104,7 +104,7 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
-	defer harness.app.Shutdown()
+	defer harness.frontend.Shutdown()
 
 	// 占比窗口收到 0.05：min(token1, token2) 本会把保留区压到很小 —— 这正是保护区
 	// 下限要挡的坏方向（《压缩四区模型》边界判定）。保留上限沿用配置（token1 兜底 =
@@ -130,7 +130,7 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 		if err := harness.app.Submit(turnCtx, prompt); err != nil {
 			t.Fatalf("%s：提交失败: %v", stage, err)
 		}
-		if err := harness.app.WaitForIdle(turnCtx); err != nil {
+		if err := harness.frontend.WaitForIdle(turnCtx); err != nil {
 			snapshot := harness.app.Snapshot()
 			t.Fatalf("%s：真实回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 				stage, err, snapshot.Chat.Running, snapshot.Chat.Error,

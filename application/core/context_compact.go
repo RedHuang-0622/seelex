@@ -21,16 +21,6 @@ func compactionRecordNote(result ContextCompactionResult) string {
 	return conversationcontext.CompactionRecordNote(result)
 }
 
-// CompactContextNow compacts the current execution session.
-func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error) {
-	return service.contextCompactionApplicationComponent().CompactContextNow(ctx)
-}
-
-// CompactContextHandler handles the compact_context tool.
-func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error) {
-	return service.contextCompactionApplicationComponent().CompactContextHandler(ctx, argsJSON)
-}
-
 func (service *Service) contextCompactionApplicationComponent() *conversationcontext.Application {
 	if service == nil {
 		return nil

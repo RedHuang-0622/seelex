@@ -77,7 +77,7 @@ func newToolRecordHarness(t *testing.T) *toolRecordHarness {
 		t.Fatal("A 没有开始跑")
 	}
 	close(engine.release[aID])
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("A 未收尾：%v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != aID {
@@ -91,7 +91,7 @@ func newToolRecordHarness(t *testing.T) *toolRecordHarness {
 // switchToB 走**生产切换路径**（ResumeSession），不是直接改快照字段。
 func (harness *toolRecordHarness) switchToB() {
 	harness.t.Helper()
-	if err := harness.service.ResumeSession(harness.bID); err != nil {
+	if err := frontendOfTestService(harness.service).ResumeSession(harness.bID); err != nil {
 		harness.t.Fatalf("切到 B: %v", err)
 	}
 	if got := harness.service.Snapshot().Session.ID; got != harness.bID {
@@ -101,7 +101,7 @@ func (harness *toolRecordHarness) switchToB() {
 
 func (harness *toolRecordHarness) switchToA() {
 	harness.t.Helper()
-	if err := harness.service.ResumeSession(harness.aID); err != nil {
+	if err := frontendOfTestService(harness.service).ResumeSession(harness.aID); err != nil {
 		harness.t.Fatalf("切回 A: %v", err)
 	}
 	if got := harness.service.Snapshot().Session.ID; got != harness.aID {
@@ -117,7 +117,7 @@ func TestToolRecordSubagentReadingStaysWithOwnerAcrossViewSwitch(t *testing.T) {
 	harness.switchToB()
 
 	// A 的子代理在跑（视图已经是 B）：读数带的是**执行上下文**的归属 A。
-	service.HandleSubagentToolEventFor(harness.aID, seelsession.SubagentToolEvent{
+	frontendOfTestService(service).HandleSubagentToolEventFor(harness.aID, seelsession.SubagentToolEvent{
 		ID: "evt-1", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess,
 	})
 	// 节点收口（终态）：一次性提交给 A 的会话累计。
@@ -150,9 +150,9 @@ func TestToolRecordConcurrentSubagentsStayInOwnSession(t *testing.T) {
 	enableToolRecord(t, service, nil)
 	const aID, bID = "sess-conc-a", "sess-conc-b"
 
-	service.HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a1", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
-	service.HandleSubagentToolEventFor(bID, seelsession.SubagentToolEvent{ID: "b1", NodeID: "node-b", Name: "read_file", Status: dto.ToolEventError, Error: "permission denied"})
-	service.HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a2", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
+	frontendOfTestService(service).HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a1", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
+	frontendOfTestService(service).HandleSubagentToolEventFor(bID, seelsession.SubagentToolEvent{ID: "b1", NodeID: "node-b", Name: "read_file", Status: dto.ToolEventError, Error: "permission denied"})
+	frontendOfTestService(service).HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a2", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
 	service.closeSubagentToolRecordUnit(aID, "node-a")
 	service.closeSubagentToolRecordUnit(bID, "node-b")
 
@@ -282,7 +282,7 @@ func TestToolRecordDraftMaterializationWritesOnceWithLeafReadings(t *testing.T) 
 		ID: "role#1", MainSessionID: draftID, RoleSessionID: "role-impl", Name: "read_file",
 		Status: dto.ToolEventError.String(), Error: "permission denied",
 	})
-	service.CloseRoleToolRecordUnit(draftID, "role-impl")
+	frontendOfTestService(service).CloseRoleToolRecordUnit(draftID, "role-impl")
 
 	// 首条提交 = 物化进真相源（唯一的落盘点）。
 	engine, ok := service.Deps.Engine.(*fakeEngine)
@@ -292,7 +292,7 @@ func TestToolRecordDraftMaterializationWritesOnceWithLeafReadings(t *testing.T) 
 	if err := service.Submit(context.Background(), "第一条问题"); err != nil {
 		t.Fatalf("提交物化：%v", err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("回合未收尾：%v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != draftID {
@@ -426,7 +426,7 @@ func TestToolRecordDisabledStagesNothing(t *testing.T) {
 		ID: "role#1", MainSessionID: sessionID, RoleSessionID: "role-impl", Name: "bash",
 		Status: dto.ToolEventSuccess.String(),
 	})
-	service.HandleSubagentToolEventFor(sessionID, subagentReading("bash", dto.ToolEventSuccess, ""))
+	frontendOfTestService(service).HandleSubagentToolEventFor(sessionID, subagentReading("bash", dto.ToolEventSuccess, ""))
 	service.closeUnitToolRecord(sessionID, "subagent:node-a")
 	service.FlushToolRecord(sessionID)
 
@@ -451,14 +451,14 @@ func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T) {
 	// 主代理（命令面退出码判据）→ 成功一笔。
 	service.RecordToolCommandOutcome(sessionID, "bash", 0)
 	// 子代理 → 失败一笔，原因 permission。
-	service.HandleSubagentToolEventFor(sessionID, subagentReading("read_file", dto.ToolEventError, "permission denied"))
+	frontendOfTestService(service).HandleSubagentToolEventFor(sessionID, subagentReading("read_file", dto.ToolEventError, "permission denied"))
 	service.closeSubagentToolRecordUnit(sessionID, "node-a")
 	// teammate → 失败一笔，同一原因（只归一一次词表，不写第二份判据）。
 	service.HandleRoleToolActivity(dto.RoleToolActivity{
 		ID: "role#1", MainSessionID: sessionID, RoleSessionID: "role-impl", Name: "grep_search",
 		Status: dto.ToolEventError.String(), Error: "permission denied",
 	})
-	service.CloseRoleToolRecordUnit(sessionID, "role-impl")
+	frontendOfTestService(service).CloseRoleToolRecordUnit(sessionID, "role-impl")
 
 	total, success, failure := totals(service, sessionID)
 	if total != 3 || success != 1 || failure != 2 {

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 func TestLifecycleApplicationIsAssembled(t *testing.T) {
@@ -72,7 +74,7 @@ func TestLifecycleFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "service_input.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +89,7 @@ func TestLifecycleFacadeOnlyDelegatesToApplication(t *testing.T) {
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -227,7 +229,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 // 项目/全局台账，/new 不清空跨会话表。
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
-	if _, err := New(contract.Dependencies{}, nil); err == nil {
+	if _, err := New(contract.Dependencies{}, ExternalPorts{}); err == nil {
 		t.Fatal("expected missing dependency error")
 	}
 }
@@ -235,7 +237,7 @@ func TestNewRejectsMissingDependencies(t *testing.T) {
 func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	suggestions := frontendOfTestService(service).Suggestions("/R")
 	if len(suggestions) != 2 || suggestions[0].Kind != "command" || suggestions[1].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
@@ -347,7 +349,7 @@ func TestApprovalBrokerResolve(t *testing.T) {
 	hub := NewEventHub()
 	subscription := hub.Subscribe(1)
 	defer subscription.Close()
-	broker := NewApprovalBroker(hub)
+	broker := adapters.NewApprovalBrokerFactory()(hub)
 	result := make(chan contract.ApprovalDecision, 1)
 	go func() {
 		decision, err := broker.Request(context.Background(), contract.ApprovalRequest{ID: "approval-1", Question: "continue?", Options: []model.InteractionOption{{ID: "yes", Label: "Yes"}}})

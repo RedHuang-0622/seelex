@@ -1,10 +1,10 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
@@ -37,14 +37,14 @@ func RetainedReadTailBudget(runtime any) int {
 
 // RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
 // limits.context_retain_floor_percent × 预算；未配置（0）或预算不可用时为 0
-// —— 此时下限只剩「至少 1 个完整协议单元」这条兜底（见 seelexctx.RetainFloorTokens）。
+// —— 此时下限只剩「至少 1 个完整协议单元」这条兜底（见 contract.RetainFloorTokens）。
 func RetainFloorTokens(budget task_context.ContextBudget) int {
-	return seelexctx.RetainFloorTokens(Limits().ContextRetainFloorPercent, budget.Budget)
+	return contract.RetainFloorTokens(Limits().ContextRetainFloorPercent, budget.Budget)
 }
 
 // ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
 // 保护区下限（比例 × 预算）不得高于保留上限 window.retain_tokens —— 见
-// seelexctx.WindowConfig.ValidateRetainWindow（非法组合必须报错，不许静默取小）。
+// WindowConfig.ValidateRetainWindow（非法组合必须报错，不许静默取小）。
 //
 // windowTokens 取账号声明的上下文窗口，预算按 task_context 的生产公式推导
 // （窗口 − 输出预留 − 窗口/安全除数），与压缩判据共用同一份口径；
@@ -57,7 +57,7 @@ func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTok
 			window: windowTokens, output: limits.OutputReserveTokens,
 		}).Budget
 	}
-	return config.ValidateRetainWindow(seelexctx.RetainFloorTokens(limits.ContextRetainFloorPercent, budget))
+	return config.ValidateRetainWindow(contract.RetainFloorTokens(limits.ContextRetainFloorPercent, budget))
 }
 
 // retainWindowLimits 是启动期预算推导的最小 provider（ContextBudgetFor 的输入

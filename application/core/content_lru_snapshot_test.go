@@ -17,10 +17,10 @@ import (
 func TestEvictionSnapshotsDoNotAliasOrderBackingArray(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	for _, sessionID := range []string{"session-a", "session-b"} {
 		engine.register(sessionID)
-		if err := service.ResumeSession(sessionID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 		service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
@@ -51,8 +51,8 @@ func TestEvictionSnapshotsDoNotAliasOrderBackingArray(t *testing.T) {
 	before := append(residency.Order(nil), content.Order...)
 	beforeResident := append(residency.Order(nil), resident.Order...)
 	service.ViewMu.Lock()
-	service.residentOrder = service.residentOrder.Forget("session-a")
-	service.loadedContentOrder = service.loadedContentOrder.Forget("session-a")
+	service.residentOrder = testResidencyPort().Forget(service.residentOrder, "session-a")
+	service.loadedContentOrder = testResidencyPort().Forget(service.loadedContentOrder, "session-a")
 	service.ViewMu.Unlock()
 	if len(before) != 2 || before[0] != "session-a" || before[1] != "session-b" {
 		t.Fatalf("快照被就地过滤改写：%v", before)

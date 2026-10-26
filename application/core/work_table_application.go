@@ -1,17 +1,11 @@
 package core
 
-import (
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
-	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
-)
+import applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 
-func newServiceExecutionApplication(service *Service) *applicationexecution.WorkItemApplication {
-	reader := teamwork.NewBoardReader(service.Deps.Runtime)
+func newServiceExecutionApplication(service *Service, reader applicationexecution.BoardReader) *applicationexecution.WorkItemApplication {
 	return applicationexecution.NewWorkItem(applicationexecution.WorkItemDeps{
-		Runtime:     service.Deps.Runtime,
-		BoardView:   reader.BoardViewFor,
-		SessionLive: reader.SessionLiveFor,
-		SessionPage: reader.SessionLivePageFor,
+		Runtime: service.Deps.Runtime, BoardView: reader.BoardViewFor,
+		SessionLive: reader.SessionLiveFor, SessionPage: reader.SessionLivePageFor,
 		RefreshTodo: service.refreshRuntimeAfterTodoChange,
 	})
 }

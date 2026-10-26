@@ -274,10 +274,6 @@ func TestLoadedContentLayerLimitDefaults(t *testing.T) {
 	if got := limit.DefaultLimits().ReleaseWindow(); got != 1 {
 		t.Fatalf("default release window = %d, want 1", got)
 	}
-	// 显式配置分层键仍生效（老口径：该层总数上限，含受保护会话）。
-	if got := releaseBudget(3, 1); got != 2 {
-		t.Fatalf("releaseBudget(3, 1) = %d, want 2", got)
-	}
 }
 
 // TestContentLimitEvictsLeastRecentlyUsedIdleContent 上限 1：冷加载第二个会话
@@ -292,12 +288,12 @@ func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := service.ResumeSession("sess-a"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
 
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	evicted := assertContentLoaded(t, service, "sess-a", false)
@@ -335,7 +331,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10, "sess-c": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := service.ResumeSession("sess-a"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	// A 变忙（运行中）：busy 会话不可卸载（与 resident LRU 同一守卫）。
@@ -345,7 +341,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	}
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	// 运行中会话存在时冷加载走后台 goroutine（先是 restoring 空壳），等正文落地。
@@ -354,7 +350,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	assertContentWindow(t, service, "sess-a", 6, 4)
 	assertContentWindow(t, service, "sess-b", 6, 4)
 
-	if err := service.ResumeSession("sess-c"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-c"); err != nil {
 		t.Fatalf("resume sess-c: %v", err)
 	}
 	waitForContentLoaded(t, service, "sess-c")
@@ -375,17 +371,17 @@ func TestContentEvictionColdReloadsSameWindow(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := service.ResumeSession("sess-a"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
 
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	assertContentLoaded(t, service, "sess-a", false)
 
-	if err := service.ResumeSession("sess-a"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
 		t.Fatalf("re-activate sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
@@ -405,10 +401,10 @@ func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := service.ResumeSession("sess-a"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
-	if err := service.ResumeSession("sess-b"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	assertContentLoaded(t, service, "sess-a", false)

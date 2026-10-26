@@ -13,7 +13,7 @@ func TestAnyChatRunningReflectsBackgroundSessions(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if service.AnyChatRunning() {
+	if frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be false before any chat starts")
 	}
 	if err := service.Submit(ctx, "task A"); err != nil {
@@ -21,7 +21,7 @@ func TestAnyChatRunningReflectsBackgroundSessions(t *testing.T) {
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
-	if !service.AnyChatRunning() {
+	if !frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be true while the view session runs")
 	}
 
@@ -31,22 +31,22 @@ func TestAnyChatRunningReflectsBackgroundSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
-	if !service.AnyChatRunning() {
+	if !frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("AnyChatRunning must stay true while the background session runs")
 	}
 
 	// A 结束（视图转 idle）后 B 仍在跑：AnyChatRunning 必须仍为 true。
 	close(engine.release[aID])
 	waitUnitIdle(t, service, aID)
-	if !service.AnyChatRunning() {
+	if !frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("AnyChatRunning must remain true while only the background session runs")
 	}
 
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if service.AnyChatRunning() {
+	if frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be false after all sessions finish")
 	}
 }
@@ -72,14 +72,14 @@ func TestCancelAllChatsDrainsEveryRunningSession(t *testing.T) {
 	}
 	waitChatStarted(t, engine.started[bID])
 
-	service.CancelAllChats()
+	frontendOfTestService(service).CancelAllChats()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := service.WaitForIdle(waitCtx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("WaitForIdle did not converge after CancelAllChats: %v", err)
 	}
-	if service.AnyChatRunning() {
+	if frontendOfTestService(service).AnyChatRunning() {
 		t.Fatal("sessions still running after CancelAllChats + WaitForIdle")
 	}
 	// 两个会话都实际执行过（取消发生在引擎阻塞点上，runChat 收尾完整）。

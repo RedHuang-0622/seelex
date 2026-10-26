@@ -13,7 +13,7 @@ import (
 func TestDeleteSessionReleasesBackgroundRuns(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	if err := frontendOfTestService(service).DeleteSession("session-gone"); err != nil {
 		t.Fatal(err)

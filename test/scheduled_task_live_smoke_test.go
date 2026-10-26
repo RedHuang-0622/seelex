@@ -113,7 +113,7 @@ func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T) {
 		t.Fatalf("触发落到了用户当前会话 %q，want 新建会话", fired.LastSessionID)
 	}
 
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("触发后的会话没有回到 idle：%v\n%s", err, allGoroutineStacks())
 	}
 	// 触发那一下异步提交到**新会话**，模型回答可能还在路上：再等一小会直到那个

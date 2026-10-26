@@ -124,7 +124,7 @@ func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T) {
 	if !strings.Contains(domain, "func RegisterShowFilesTool(") {
 		t.Error("backend/tool/review must own the single ToolRegistrar registration helper")
 	}
-	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, app)") {
+	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, applicationcompat.New(app))") {
 		t.Error("wiring/registry must call review.RegisterShowFilesTool directly after BM-005")
 	}
 	if strings.Contains(registry, "assemble.RegisterReviewFilesTool(runtime, app)") {

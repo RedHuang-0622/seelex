@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 const (
@@ -31,7 +31,7 @@ func (service *Service) environmentTraceBlockFor(sessionID string) string {
 	if err != nil || len(environments) == 0 {
 		return ""
 	}
-	sessionState, _ := service.SessionSSHState(sessionID)
+	sessionState, _ := service.sessionSSHApplicationComponent().State(sessionID)
 	projectRoot := ""
 	if service.Deps.Workspace != nil {
 		if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {

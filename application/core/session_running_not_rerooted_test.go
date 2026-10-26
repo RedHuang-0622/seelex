@@ -22,7 +22,7 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: sessions,
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// 视图会话 = A（异步冷恢复把视图切到目标后、原会话仍在后台跑的形态：
 	// 绑定方拿到的“当前会话”正是这个视图会话，不能因此放行重绑）。

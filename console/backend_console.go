@@ -68,7 +68,7 @@ func BindProject(app backendWorkspaceApplication, rootPath string) error {
 	return nil
 }
 
-func Start(app *application.Service, prompt string, timeout time.Duration, output io.Writer) error {
+func Start(app backendApplication, prompt string, timeout time.Duration, output io.Writer) error {
 	if output == nil {
 		output = os.Stdout
 	}

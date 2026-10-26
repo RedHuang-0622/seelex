@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // ConversationView is the Application entry for the unified conversation
@@ -42,7 +42,7 @@ func (service *Service) RecoverConversation(ctx context.Context, ref dto.Convers
 	return adapter.Recover(ctx, ref)
 }
 
-func (service *Service) conversationSession(ref dto.ConversationSessionRef) (sessionaccess.ConversationSession, error) {
+func (service *Service) conversationSession(ref dto.ConversationSessionRef) (applicationconversation.ConversationSession, error) {
 	if service == nil {
 		return nil, errors.New("conversation: application service is nil")
 	}
@@ -78,7 +78,11 @@ func (adapter mainConversationAdapter) View(_ context.Context, ref dto.Conversat
 		}
 		return dto.SessionRecordPage{}, err
 	}
-	page := sessionaccess.PaginateRecords(ref.SessionID, mainConversationRecords(snapshot.Conversation), request)
+	page := adapter.service.components.sessionRecords.PaginateRecords(
+		ref.SessionID,
+		mainConversationRecords(snapshot.Conversation),
+		request,
+	)
 	page.Status = string(snapshot.Session.Status)
 	page.Recovery = mainConversationRecovery(snapshot)
 	return page, nil

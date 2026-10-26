@@ -84,7 +84,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 	// 切到空闲 B（引擎已注册 = 驻留，走 hot_attach）。
 	const bID = "sess-hot-B"
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != bID {
@@ -94,7 +94,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 	// 切回运行中的 A：必须在超时内返回，且不得对 A 设置 prompt。
 	promptCallsBefore := engine.promptCallCount(aID)
 	done := make(chan error, 1)
-	go func() { done <- service.ResumeSession(aID) }()
+	go func() { done <- frontendOfTestService(service).ResumeSession(aID) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -118,7 +118,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 	const cID = "sess-hot-C"
 	engine.register(cID)
 	done2 := make(chan error, 1)
-	go func() { done2 <- service.ResumeSession(cID) }()
+	go func() { done2 <- frontendOfTestService(service).ResumeSession(cID) }()
 	select {
 	case err := <-done2:
 		if err != nil {
@@ -130,7 +130,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 
 	// 释放 A：全部收敛。
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

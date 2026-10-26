@@ -19,7 +19,7 @@ func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}

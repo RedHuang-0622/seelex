@@ -56,14 +56,14 @@ func TestCompactLivePreflight(t *testing.T) {
 	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
-	defer harness.app.Shutdown()
+	defer harness.frontend.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	if err := harness.app.Submit(ctx, "只回复两个字：在的。不要调用任何工具。"); err != nil {
 		t.Fatalf("预检提交失败: %v", err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		snapshot := harness.app.Snapshot()
 		t.Fatalf("预检回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 			err, snapshot.Chat.Running, snapshot.Chat.Error, describeConversationTail(snapshot.Conversation, 4))
@@ -86,7 +86,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
-	defer harness.app.Shutdown()
+	defer harness.frontend.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
@@ -124,7 +124,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 		if err := harness.app.Submit(turnCtx, prompt); err != nil {
 			t.Fatalf("%s：提交失败: %v", stage, err)
 		}
-		if err := harness.app.WaitForIdle(turnCtx); err != nil {
+		if err := harness.frontend.WaitForIdle(turnCtx); err != nil {
 			snapshot := harness.app.Snapshot()
 			t.Fatalf("%s：真实回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 				stage, err, snapshot.Chat.Running, snapshot.Chat.Error, describeConversationTail(snapshot.Conversation, 4))

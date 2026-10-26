@@ -28,7 +28,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.app.ResumeSession(scenario.sessionB)
+			_ = scenario.harness.frontend.ResumeSession(scenario.sessionB)
 		}()
 		go func() {
 			defer wg.Done()
@@ -49,7 +49,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 	// 活跃 chat；用有界 ctx 兜住"真的收敛不了"的情形，避免用例挂死。
 	settleCtx, settleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer settleCancel()
-	if err := scenario.harness.app.WaitForIdle(settleCtx); err != nil {
+	if err := scenario.harness.frontend.WaitForIdle(settleCtx); err != nil {
 		t.Fatalf("concurrent submits did not settle before assertions: %v", err)
 	}
 

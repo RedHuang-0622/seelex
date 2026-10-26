@@ -48,10 +48,10 @@
 
 | 指标 | 当前 |
 |---|---:|
-| `application/core` 生产文件 | 125 |
-| `application/core` 生产代码 | 12,463 行 |
-| `Service` 公开方法 | 83 |
-| `application/core` 直接内部依赖 | 34 |
+| `application/core` 生产文件 | 118 |
+| `application/core` 生产代码 | 11,843 行 |
+| `Service` 公开方法 | 23 |
+| `application/core` 直接内部依赖 | 18 |
 
 组件化提升了结构可读性；包提取已开始让 core 规模净下降。下一步必须继续压缩
 门面兼容方法并把领域实现移出 core。
@@ -357,7 +357,7 @@ Runtime/projection 的锁内应用顺序用窄回调注入。账号档校验、�
 
 解除 core 内部编排只是一个中间成果。最终验收仍是：
 
-- 剩余 83 个 Service 方法退场；
+- 剩余 34 个 Service 方法退场；
 - 34 个直接内部依赖继续下降；
 - `application/core` 最终删除；
 - GUI/TUI 只消费窄 API；

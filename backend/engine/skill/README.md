@@ -7,6 +7,9 @@
 主要调用方：`application/core`（任务激活时注入 skill 栈）、`backend/engine/plugin`（激活/停用时的可见集切换）、
 `backend/engine/assemble`（装配与调用 Skill 指令）。
 
+`skill_activate` 判据经 `application/policy.SkillActivationPort` 消费；
+Wiring adapter 只转发本包 `Activator`，错误文案与可激活性判断没有第二份。
+
 ## 架构图
 
 ```mermaid

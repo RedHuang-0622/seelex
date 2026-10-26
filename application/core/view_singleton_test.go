@@ -19,7 +19,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	}
 
 	// 草稿：V 镜像同步为早分配的草稿 SID（draft）。
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	draftID := service.Snapshot().Session.ID
@@ -37,7 +37,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	if err := service.Submit(context.Background(), "first request"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WaitForIdle(context.Background()); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	newID := service.Snapshot().Session.ID
@@ -49,7 +49,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	}
 
 	// 活跃卸载：V 镜像同步到新的早分配 SID 草稿（不残留旧 ActiveID）。
-	if err := service.UnloadSession(newID); err != nil {
+	if err := frontendOfTestService(service).UnloadSession(newID); err != nil {
 		t.Fatal(err)
 	}
 	after := service.Snapshot()
@@ -69,7 +69,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 func TestDraftMaterializeStreamsMirrorToSnapshot(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"hel", "lo"}}
 	service := newTestService(t, engine)
-	if err := service.BeginNewSession(); err != nil {
+	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Submit(context.Background(), "hello"); err != nil {

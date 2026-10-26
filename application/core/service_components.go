@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
@@ -41,16 +42,23 @@ type serviceComponents struct {
 	tasks    *task_context.Coordinator
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor；
 	// 视图投影/工具路由经 Service 面暴露）。
-	goal     *goalCoordinator
+	goal     *applicationgoal.Coordinator
 	view     *view_state.Coordinator
 	subagent *subagent_view.Coordinator
-	input    inputDispatcher
+	input    contract.InputDispatcher
 
 	// sessionQuery 与 conversationHistoryQuery 是 Application 查询面：
 	// 只持窄读依赖，不持完整 Service，也不承担会话生命周期状态机。
 	sessionQuery                 *applicationsessionquery.Application
 	conversationHistoryQuery     *applicationhistory.Application
 	historyWindowAssembler       applicationhistory.WindowAssembler
+	residency                    applicationsession.ResidencyPort
+	conversationStreams          applicationconversation.StreamOutputPort
+	accountWindowPolicy          applicationadmin.AccountWindowPolicy
+	skillActivation              applicationpolicy.SkillActivationPort
+	sessionRecords               applicationconversation.SessionRecordsPort
+	errorPresentation            contract.ErrorPresentationPort
+	roleSessions                 contract.RoleSessionsPort
 	conversationQueue            *applicationconversation.QueueApplication
 	conversationTurnState        *conversationTurnState
 	sessionLifecycle             *applicationsession.LifecycleApplication

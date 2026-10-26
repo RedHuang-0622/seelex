@@ -4,7 +4,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/middle/residency"
 )
 
 // snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
@@ -23,11 +22,11 @@ func snapshotToolOutputLimit() int {
 // toolOutputPreview 是快照预览截断判据的**宿主转发**：判据本体在中间层
 // `middle/residency.Preview`（plan §2.4；M5-R6-residency-preview 接收者转移），
 // 本函数只把进程级预算取出来交给它（取数留宿主）。
-func toolOutputPreview(content string, limit int) (string, bool) {
+func (service *Service) toolOutputPreview(content string, limit int) (string, bool) {
 	if limit <= 0 {
 		limit = snapshotToolOutputLimit()
 	}
-	return residency.Preview(content, limit)
+	return service.components.residency.Preview(content, limit)
 }
 
 // boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有
@@ -46,6 +45,6 @@ func (service *Service) boundToolResultForSnapshot(name, content string) (visibl
 		return content, "", false, totalChars
 	}
 	stored := service.components.tasks.StoreToolResultLocked(name, content)
-	visible, _ = toolOutputPreview(content, limit)
+	visible, _ = service.toolOutputPreview(content, limit)
 	return visible, stored.Ref, true, totalChars
 }

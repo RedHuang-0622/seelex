@@ -1,6 +1,6 @@
-package core
+package goal
 
-// goal_coordinator.go — 会话级 goal 协调器。
+// coordinator.go — 会话级 goal 协调器。
 //
 // 职责：按 sessionID 持有 goal.Controller，提供 Service 侧的 goal 方法面与
 // 只读治理视图（GoalGovernanceView）。goal 状态/审计落 store 第五栈
@@ -23,33 +23,36 @@ import (
 // 全量）：看板帧投影与"存档恢复"的帧投影共用同一个上限。
 const frameProgressLimit = 3
 
-// goalCoordinatorDeps 是 goal 协调器装配输入。
-type goalCoordinatorDeps struct {
+// CoordinatorDeps is the session goal coordinator assembly input.
+type CoordinatorDeps struct {
 	// StoreFor 返回指定会话的 SessionContextStore（nil = 未装配 → 内存态）。
 	StoreFor func(sessionID string) *store.SessionContextStore
 }
 
 // goalSessionRuntime 是一个会话的 goal bundle（会话间零共享）。
-type goalSessionRuntime struct {
+type sessionRuntime struct {
 	ctl *goaldomain.Controller
 }
 
-type goalCoordinator struct {
+// Coordinator owns the per-session goal controller cache and governance
+// projection. Goal state remains in backend/multiagent/goal.
+type Coordinator struct {
 	mu       sync.Mutex
-	deps     goalCoordinatorDeps
-	sessions map[string]*goalSessionRuntime
+	deps     CoordinatorDeps
+	sessions map[string]*sessionRuntime
 }
 
-func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
-	return &goalCoordinator{
+// NewCoordinator constructs the session goal coordinator.
+func NewCoordinator(deps CoordinatorDeps) *Coordinator {
+	return &Coordinator{
 		deps:     deps,
-		sessions: make(map[string]*goalSessionRuntime),
+		sessions: make(map[string]*sessionRuntime),
 	}
 }
 
 // ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
 // 的控制器与上下文存储适配器，下次经 StoreFor 重新解析、按盘重建。
-func (g *goalCoordinator) ForgetSession(sessionID string) {
+func (g *Coordinator) ForgetSession(sessionID string) {
 	if g == nil || sessionID == "" {
 		return
 	}
@@ -59,7 +62,7 @@ func (g *goalCoordinator) ForgetSession(sessionID string) {
 }
 
 // bundleFor 返回（需要时创建）指定会话的 goal bundle。
-func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
+func (g *Coordinator) bundleFor(sessionID string) *sessionRuntime {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if runtime := g.sessions[sessionID]; runtime != nil {
@@ -86,24 +89,24 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 			})
 		}
 	}
-	runtime := &goalSessionRuntime{ctl: controller}
+	runtime := &sessionRuntime{ctl: controller}
 	g.sessions[sessionID] = runtime
 	return runtime
 }
 
 // Begin 注册并压栈（会话路由）。
-func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+func (g *Coordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	return g.bundleFor(sessionID).ctl.Begin(ctx, request)
 }
 
 // Update 更新栈顶（会话路由）。
-func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+func (g *Coordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
 	return g.bundleFor(sessionID).ctl.Update(ctx, request)
 }
 
 // FinishDirect 直接落终态收口（goal_done 的领域动作）：把栈顶 goal 标
 // completed / aborted 并弹栈。
-func (g *goalCoordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+func (g *Coordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
 	controller := g.bundleFor(sessionID).ctl
 	if abort {
 		return controller.Abort(ctx, request)
@@ -112,7 +115,7 @@ func (g *goalCoordinator) FinishDirect(ctx context.Context, sessionID string, re
 }
 
 // StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
-func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView {
+func (g *Coordinator) StatusFor(sessionID string) goaldomain.StatusView {
 	g.mu.Lock()
 	runtime := g.sessions[sessionID]
 	g.mu.Unlock()
@@ -122,9 +125,9 @@ func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView {
 	return runtime.ctl.Status()
 }
 
-// goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
+// StackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
 // = active 那一帧）。
-func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
+func StackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 	if len(stack) == 0 {
 		return nil
 	}
@@ -167,7 +170,7 @@ func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 // 看板存档（§8/§9 的读侧兜底）：活体栈为空时存档是唯一还在的快照——进程重启后
 // 活栈通道可能还没重建（或已经被弹空），而看板存档里 state=active 说明那一刻有
 // 目标在跑。此时按存档的 active 帧把看板重建出来并标 Recovered=true。
-func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
+func (g *Coordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	g.mu.Lock()
 	runtime := g.sessions[sessionID]
 	g.mu.Unlock()
@@ -188,12 +191,12 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		Title:   status.Active.Title,
 		Status:  status.Active.Status,
 		History: goalHistoryViews(archive, hasArchive),
-		Stack:   goalStackFrames(status.Stack),
+		Stack:   StackFrames(status.Stack),
 	}
 }
 
 // boardFor 返回指定会话的看板存档取用面（未装配 → false）。
-func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool) {
+func (g *Coordinator) boardFor(sessionID string) (store.SessionBoards, bool) {
 	if g == nil || g.deps.StoreFor == nil {
 		return nil, false
 	}
@@ -209,7 +212,7 @@ func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool)
 }
 
 // readGoalBoardArchive 读取该会话的看板存档（缺失/损坏 → false）。
-func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool) {
+func (g *Coordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool) {
 	boards, ok := g.boardFor(sessionID)
 	if !ok {
 		return store.GoalBoardMeta{}, false

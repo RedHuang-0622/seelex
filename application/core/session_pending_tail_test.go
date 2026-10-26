@@ -82,7 +82,7 @@ func TestPendingTailRecoverableIsRecoveredAndVisible(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if err := service.ResumeSession("sess-tail"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-tail"); err != nil {
 		t.Fatal(err)
 	}
 	order := sessions.callOrder()
@@ -107,7 +107,7 @@ func TestPendingTailGapIsReportedOnly(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if err := service.ResumeSession("sess-gap"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-gap"); err != nil {
 		t.Fatal(err)
 	}
 	for _, call := range sessions.callOrder() {
@@ -129,7 +129,7 @@ func TestPendingTailCleanIsSilent(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if err := service.ResumeSession("sess-clean"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-clean"); err != nil {
 		t.Fatal(err)
 	}
 	if order := sessions.callOrder(); len(order) != 1 || order[0] != "probe" {
@@ -163,7 +163,7 @@ func TestPendingTailRunningSessionNotTouched(t *testing.T) {
 // TestPendingTailCapabilityAbsentIsNoop：存储未装配该能力时静默退回（纯增强语义）。
 func TestPendingTailCapabilityAbsentIsNoop(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(&fakeSessions{}))
-	if err := service.ResumeSession("sess-no-cap"); err != nil {
+	if err := frontendOfTestService(service).ResumeSession("sess-no-cap"); err != nil {
 		t.Fatal(err)
 	}
 	if tail := pendingTailVisibleTail(t, service); strings.Contains(tail, "uncommitted") {

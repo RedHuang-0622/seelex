@@ -58,7 +58,7 @@ func newColdReadService(t *testing.T, sessions *coldReadSessions) *Service {
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	return service
 }
 

@@ -95,7 +95,7 @@ func startBlockingChat(t *testing.T) (*Service, *blockingEngine) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	t.Cleanup(service.Shutdown)
+	t.Cleanup(frontendOfTestService(service).Shutdown)
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)
 	}
@@ -228,7 +228,7 @@ func TestQueueEditErrorSemantics(t *testing.T) {
 	if text, err := frontendOfTestService(service).RecallQueuedInput("", 0); err != nil || text != "second" {
 		t.Fatalf("drain queue = %q/%v, want second/nil", text, err)
 	}
-	service.CancelChat("")
+	frontendOfTestService(service).CancelChat("")
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })
 	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 0); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("reorder while idle = %v, want ErrQueueNotRunning", err)

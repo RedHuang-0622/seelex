@@ -14,13 +14,13 @@ func BenchmarkSessionRecoveryPath(b *testing.B) {
 	b.Run("hot", func(b *testing.B) {
 		store := newPagedSessionStore(sessionID, 316)
 		service := newTestService(b, &fakeEngine{}, withTestSessions(store))
-		if err := service.ResumeSession(sessionID); err != nil {
+		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 			b.Fatal(err)
 		}
 		b.ReportAllocs()
 		b.ResetTimer()
 		for index := 0; index < b.N; index++ {
-			if err := service.ResumeSession(sessionID); err != nil {
+			if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -33,11 +33,11 @@ func BenchmarkSessionRecoveryPath(b *testing.B) {
 			store := newPagedSessionStore(sessionID, 316)
 			service := newTestService(b, &fakeEngine{}, withTestSessions(store))
 			b.StartTimer()
-			if err := service.ResumeSession(sessionID); err != nil {
+			if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
 				b.Fatal(err)
 			}
 			b.StopTimer()
-			service.Shutdown()
+			frontendOfTestService(service).Shutdown()
 			b.StartTimer()
 		}
 	})

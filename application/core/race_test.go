@@ -6,6 +6,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"sync"
 	"testing"
 	"time"
@@ -130,7 +131,7 @@ func TestEventHub_RaceMultipleSubscribers(t *testing.T) {
 // TestApprovalBroker_RaceConcurrentRequests 验证并发 Request 安全。
 func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
 	hub := NewEventHub()
-	broker := NewApprovalBroker(hub)
+	broker := adapters.NewApprovalBrokerFactory()(hub)
 	var wg sync.WaitGroup
 	const requests = 20
 
@@ -157,7 +158,7 @@ func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
 // TestApprovalBroker_RaceRequestShutdown 验证 Shutdown 与 Request 并发安全。
 func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
 	hub := NewEventHub()
-	broker := NewApprovalBroker(hub)
+	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	var wg sync.WaitGroup
 	const goroutines = 10
@@ -184,7 +185,7 @@ func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
 // TestApprovalBroker_RaceTimeoutResolve 验证 Timeout 与 Resolve 竞态。
 func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
 	hub := NewEventHub()
-	broker := NewApprovalBroker(hub)
+	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
@@ -215,7 +216,7 @@ func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
 // TestApprovalBroker_RaceDuplicateResolve 验证重复 Resolve 返回错误（并发安全）。
 func TestApprovalBroker_RaceDuplicateResolve(t *testing.T) {
 	hub := NewEventHub()
-	broker := NewApprovalBroker(hub)
+	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	done := make(chan struct{})
 	go func() {
@@ -258,7 +259,7 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	// 启动一个 Chat
 	err := service.Submit(context.Background(), "hello")
@@ -297,7 +298,7 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 	}
 
 	// 取消 chat 清理
-	service.CancelChat("")
+	frontendOfTestService(service).CancelChat("")
 }
 
 // blockingEngine 包装 fakeEngine，在 ChatStream 中阻塞以模拟长时间运行。
@@ -337,7 +338,7 @@ func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	_ = service.Submit(context.Background(), "hello")
 
@@ -369,13 +370,13 @@ func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 	}
 
 	wg.Wait()
-	service.CancelChat("")
+	frontendOfTestService(service).CancelChat("")
 }
 
 // TestChat_RaceToolHandling 验证 handleToolStart/Complete 与 Snapshot 并发安全。
 func TestChat_RaceToolHandling(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	var wg sync.WaitGroup
 	const rounds = 50
@@ -411,7 +412,7 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			service.Shutdown()
+			frontendOfTestService(service).Shutdown()
 		}()
 		go func(id int) {
 			defer wg.Done()
@@ -443,7 +444,7 @@ func TestService_RaceShutdownChat(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		time.Sleep(time.Millisecond * 5)
-		service.Shutdown()
+		frontendOfTestService(service).Shutdown()
 	}()
 
 	wg.Wait()
@@ -452,7 +453,7 @@ func TestService_RaceShutdownChat(t *testing.T) {
 // TestService_ShutdownThenSubmit 验证 Shutdown 后 Submit 返回错误。
 func TestService_ShutdownThenSubmit(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	service.Shutdown()
+	frontendOfTestService(service).Shutdown()
 
 	err := service.Submit(context.Background(), "hello after shutdown")
 	if err == nil {
@@ -466,7 +467,7 @@ func TestService_ShutdownThenSubmit(t *testing.T) {
 // TestService_ShutdownThenStartChat 验证 Shutdown 后 startChat 返回错误。
 func TestService_ShutdownThenStartChat(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	service.Shutdown()
+	frontendOfTestService(service).Shutdown()
 
 	err := service.startChat(context.Background(), newConversationTurnState().NewRequest("hello", nil))
 	if err == nil {
@@ -617,7 +618,7 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	_ = service.Submit(context.Background(), "start")
 
@@ -647,7 +648,7 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 		t.Errorf("expected %d queued, got %d", submits, snap.Chat.QueuedCount)
 	}
 
-	service.CancelChat("")
+	frontendOfTestService(service).CancelChat("")
 }
 
 // =============================================================================
@@ -657,7 +658,7 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 // TestSnapshot_RaceReadWrite 验证 Snapshot 读写并发安全。
 func TestSnapshot_RaceReadWrite(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	var wg sync.WaitGroup
 	const rounds = 100
@@ -702,7 +703,7 @@ func TestCancelChat_Race(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	_ = service.Submit(context.Background(), "start")
 	time.Sleep(time.Millisecond * 5)
@@ -712,7 +713,7 @@ func TestCancelChat_Race(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			service.CancelChat("")
+			frontendOfTestService(service).CancelChat("")
 		}()
 	}
 	wg.Wait()
@@ -725,7 +726,7 @@ func TestCancelChat_Race(t *testing.T) {
 // TestObserveInteraction_Race 验证 observeInteraction 并发安全。
 func TestObserveInteraction_Race(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {

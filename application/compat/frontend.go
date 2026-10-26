@@ -6,22 +6,36 @@ import (
 	"context"
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
+	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/core"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
+	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
+	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
+	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
+	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 
 // Frontend keeps the existing frontend method surface while the consumers
@@ -54,6 +68,13 @@ func (frontend *Frontend) completion() *applicationinput.Application {
 	return frontend.ports.Completion
 }
 
+func (frontend *Frontend) contextCompaction() *conversationcontext.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.ContextCompaction
+}
+
 func (frontend *Frontend) conversationQueue() *applicationconversation.QueueApplication {
 	if frontend == nil {
 		return nil
@@ -80,6 +101,20 @@ func (frontend *Frontend) historySearch() *conversationsearch.Application {
 		return nil
 	}
 	return frontend.ports.HistorySearch
+}
+
+func (frontend *Frontend) goal() *applicationgoal.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Goal
+}
+
+func (frontend *Frontend) lifecycle() *applicationlifecycle.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Lifecycle
 }
 
 func (frontend *Frontend) perf() *applicationobservability.PerfApplication {
@@ -110,6 +145,62 @@ func (frontend *Frontend) reference() *applicationreference.Application {
 	return frontend.ports.Reference
 }
 
+func (frontend *Frontend) review() *applicationreview.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Review
+}
+
+func (frontend *Frontend) scheduler() *applicationscheduler.SchedulerApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Scheduler
+}
+
+func (frontend *Frontend) scheduledRun() *applicationscheduler.RunApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.ScheduledRun
+}
+
+func (frontend *Frontend) scheduledSession() *applicationscheduler.SessionApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.ScheduledSession
+}
+
+func (frontend *Frontend) runtime() *applicationadmin.RuntimeApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Runtime
+}
+
+func (frontend *Frontend) tasks() *task_context.Coordinator {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Tasks
+}
+
+func (frontend *Frontend) view() *view_state.Coordinator {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.View
+}
+
+func (frontend *Frontend) subagentView() *subagent_view.Coordinator {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SubagentView
+}
+
 func (frontend *Frontend) role() *applicationpolicy.RoleApplication {
 	if frontend == nil {
 		return nil
@@ -117,7 +208,7 @@ func (frontend *Frontend) role() *applicationpolicy.RoleApplication {
 	return frontend.ports.Role
 }
 
-func (frontend *Frontend) roleSessions() team.RoleSessions {
+func (frontend *Frontend) roleSessions() contract.RoleSessionsPort {
 	if frontend == nil {
 		return team.RoleSessions{}
 	}
@@ -143,6 +234,55 @@ func (frontend *Frontend) sessionDelete() *applicationsession.DeleteApplication 
 		return nil
 	}
 	return frontend.ports.SessionDelete
+}
+
+func (frontend *Frontend) sessionArchive() *applicationsession.ArchiveApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionArchive
+}
+
+func (frontend *Frontend) sessionDraftEntry() *applicationsession.DraftEntryApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionDraftEntry
+}
+
+func (frontend *Frontend) sessionLifecycle() *applicationsession.LifecycleApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionLifecycle
+}
+
+func (frontend *Frontend) sessionResume() *applicationsession.ResumeApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionResume
+}
+
+func (frontend *Frontend) sessionSSH() *applicationsession.SSHApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionSSH
+}
+
+func (frontend *Frontend) editFork() *applicationedit.EditApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.EditFork
+}
+
+func (frontend *Frontend) subagent() *applicationexecution.SubagentApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Subagent
 }
 
 func (frontend *Frontend) sessionMeta() *applicationsession.MetaApplication {
@@ -232,6 +372,282 @@ func (frontend *Frontend) TeammateInspectionFor(ctx context.Context, mainSession
 // ToolResultContent returns a bounded stored tool result page.
 func (frontend *Frontend) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error) {
 	return frontend.reference().ToolResultContent(resultRef, offset, limit)
+}
+
+// CompactContextNow runs one synchronous context compaction.
+func (frontend *Frontend) CompactContextNow(ctx context.Context) (conversationcontext.Result, error) {
+	return frontend.contextCompaction().CompactContextNow(ctx)
+}
+
+// CompactContextHandler adapts the compact_context model tool.
+func (frontend *Frontend) CompactContextHandler(ctx context.Context, argsJSON string) (string, error) {
+	return frontend.contextCompaction().CompactContextHandler(ctx, argsJSON)
+}
+
+// ReadToolResultHandler adapts the read_tool_result model tool.
+func (frontend *Frontend) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.reference().ReadToolResultHandler(argsJSON)
+}
+
+// ReadPlanHandler adapts the read_plan model tool.
+func (frontend *Frontend) ReadPlanHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.reference().ReadPlanHandler(argsJSON)
+}
+
+// ReadCompressedTurnHandler adapts the read_compressed_turn model tool.
+func (frontend *Frontend) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.reference().ReadCompressedTurnHandler(argsJSON)
+}
+
+// RequestFileReview opens one bounded review batch.
+func (frontend *Frontend) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error) {
+	return frontend.review().RequestFileReview(ctx, files)
+}
+
+// GoalGovernanceViewFor returns one session's goal governance projection.
+func (frontend *Frontend) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
+	return frontend.goal().GovernanceViewFor(sessionID)
+}
+
+// GoalBeginFor begins a session-scoped goal.
+func (frontend *Frontend) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+	return frontend.goal().BeginFor(ctx, sessionID, request)
+}
+
+// GoalUpdateFor updates a session-scoped goal.
+func (frontend *Frontend) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+	return frontend.goal().UpdateFor(ctx, sessionID, request)
+}
+
+// GoalDoneFor finishes or aborts a session-scoped goal.
+func (frontend *Frontend) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+	return frontend.goal().DoneFor(ctx, sessionID, request, abort)
+}
+
+// GoalStatusFor returns one session's goal stack and active goal.
+func (frontend *Frontend) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
+	return frontend.goal().StatusFor(sessionID)
+}
+
+// ScheduleTask creates one scheduled task.
+func (frontend *Frontend) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+	return frontend.scheduler().ScheduleTask(ctx, spec)
+}
+
+// UpdateScheduledTask edits one scheduled task.
+func (frontend *Frontend) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+	return frontend.scheduler().UpdateScheduledTask(ctx, id, spec)
+}
+
+// CancelScheduledTask cancels one scheduled task.
+func (frontend *Frontend) CancelScheduledTask(id string) error {
+	return frontend.scheduler().CancelScheduledTask(id)
+}
+
+// AssembleScheduledRun assembles the execution context for a scheduled run.
+func (frontend *Frontend) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
+	return frontend.scheduledRun().AssembleScheduledRun(ctx, sessionID, task)
+}
+
+// StartScheduledSession starts the session owned by a scheduled task.
+func (frontend *Frontend) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
+	return frontend.scheduledSession().StartScheduledSession(ctx, task)
+}
+
+// RefreshRuntimeSnapshot publishes the latest runtime projection.
+func (frontend *Frontend) RefreshRuntimeSnapshot() {
+	frontend.runtime().Refresh()
+}
+
+// AnyChatRunning reports whether any session is running.
+func (frontend *Frontend) AnyChatRunning() bool {
+	return frontend.lifecycle().AnyChatRunning()
+}
+
+// WaitForIdle waits until all active work settles.
+func (frontend *Frontend) WaitForIdle(ctx context.Context) error {
+	return frontend.lifecycle().WaitForIdle(ctx)
+}
+
+// ArchiveSession archives one durable session.
+func (frontend *Frontend) ArchiveSession(sessionID string) error {
+	return frontend.sessionArchive().Archive(sessionID)
+}
+
+// BeginNewSession creates a new draft session.
+func (frontend *Frontend) BeginNewSession() error {
+	return frontend.sessionDraftEntry().Begin()
+}
+
+// UnloadSession releases one resident session.
+func (frontend *Frontend) UnloadSession(sessionID string) error {
+	return frontend.sessionLifecycle().Unload(sessionID)
+}
+
+// ResumeSession resumes or cold-loads one session.
+func (frontend *Frontend) ResumeSession(sessionID string) error {
+	return frontend.sessionResume().Resume(sessionID)
+}
+
+// ActivateSession is the explicit-session alias for ResumeSession.
+func (frontend *Frontend) ActivateSession(sessionID string) error {
+	return frontend.sessionResume().Resume(sessionID)
+}
+
+// SetSessionMeta updates session display metadata.
+func (frontend *Frontend) SetSessionMeta(sessionID string, meta model.SessionMeta) error {
+	return frontend.sessionMeta().SetSessionMeta(sessionID, meta)
+}
+
+// EditUserMessageAndFork atomically edits a user message and forks the session.
+func (frontend *Frontend) EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
+	return frontend.editFork().EditUserMessageAndFork(ctx, parentID, request)
+}
+
+// SessionSSHState returns one session's SSH execution state.
+func (frontend *Frontend) SessionSSHState(sessionID string) (model.SessionSSHInfo, error) {
+	return frontend.sessionSSH().State(sessionID)
+}
+
+// SetSessionSSHAllowed updates the session's allowed SSH environments.
+func (frontend *Frontend) SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error) {
+	return frontend.sessionSSH().SetAllowed(sessionID, envs)
+}
+
+// SetSessionSSHEnv updates the session's fixed SSH environment.
+func (frontend *Frontend) SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error) {
+	return frontend.sessionSSH().SetEnv(sessionID, projectID, env)
+}
+
+// ActivateSkill activates one skill for the current session.
+func (frontend *Frontend) ActivateSkill(name string) (model.SkillInfo, error) {
+	return frontend.policy().ActivateSkill(name)
+}
+
+// UpdateWorkItemStatus updates a WorkItem's user-visible status.
+func (frontend *Frontend) UpdateWorkItemStatus(id, status string) error {
+	return frontend.execution().UpdateWorkItemStatus(id, status)
+}
+
+// ListSubagentRecovery lists recoverable subagents for a session.
+func (frontend *Frontend) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
+	return frontend.subagent().ListRecovery(sessionID)
+}
+
+// ResumeInterruptedSubagents resumes all interrupted subagents.
+func (frontend *Frontend) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error) {
+	return frontend.subagent().ResumeInterrupted(ctx, sessionID)
+}
+
+// ResumeSubagent resumes one interrupted subagent.
+func (frontend *Frontend) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
+	return frontend.subagent().Resume(ctx, sessionID, nodeID)
+}
+
+// ForkSubagents forks a bounded subagent set.
+func (frontend *Frontend) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
+	return frontend.subagent().Fork(ctx, sessionID, specs)
+}
+
+// SubagentSessionDetail returns one subagent detail projection.
+func (frontend *Frontend) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
+	return frontend.subagent().Detail(nodeID)
+}
+
+// ClearSubagentTree clears failed/finished subagent nodes.
+func (frontend *Frontend) ClearSubagentTree() error {
+	return frontend.subagent().ClearTree()
+}
+
+// SearchHistoryHandler adapts the search_history model tool.
+func (frontend *Frontend) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error) {
+	return frontend.historySearch().SearchHistoryHandler(argsJSON)
+}
+
+// BeginGracefulShutdown stops accepting new work.
+func (frontend *Frontend) BeginGracefulShutdown() {
+	frontend.lifecycle().BeginGracefulShutdown()
+}
+
+// CancelAllChats cancels every running chat.
+func (frontend *Frontend) CancelAllChats() {
+	frontend.lifecycle().CancelAllChats()
+}
+
+// CancelChat cancels one chat request.
+func (frontend *Frontend) CancelChat(requestID string) bool {
+	return frontend.lifecycle().CancelChat(requestID)
+}
+
+// Shutdown closes the application lifecycle.
+func (frontend *Frontend) Shutdown() {
+	frontend.lifecycle().Shutdown()
+}
+
+// SetFullAccess applies the legacy full-access compatibility switch.
+func (frontend *Frontend) SetFullAccess(on bool) bool {
+	return frontend.policy().SetFullAccess(on)
+}
+
+// SetPermissionTier changes the current session permission tier.
+func (frontend *Frontend) SetPermissionTier(tier string) (string, error) {
+	return frontend.policy().SetPermissionTier(tier)
+}
+
+// SetLoopLimit changes the current session loop limit.
+func (frontend *Frontend) SetLoopLimit(_ context.Context, limit int) error {
+	return frontend.policy().SetLoopLimit(limit)
+}
+
+// SetReasoningEffort changes the current session reasoning effort.
+func (frontend *Frontend) SetReasoningEffort(_ context.Context, effort string) error {
+	return frontend.policy().SetReasoningEffort(effort)
+}
+
+// SessionReleaseWindow returns the current release window.
+func (frontend *Frontend) SessionReleaseWindow() int {
+	return frontend.policy().SessionReleaseWindow()
+}
+
+// SetSessionReleaseWindow changes the release window.
+func (frontend *Frontend) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
+	return frontend.policy().SetSessionReleaseWindow(window)
+}
+
+// Subscribe subscribes to process-level events.
+func (frontend *Frontend) Subscribe(buffer int) event.Subscription {
+	return frontend.view().Subscribe(buffer)
+}
+
+// GoalSkillActive reports whether the latest goal has active skill state.
+func (frontend *Frontend) GoalSkillActive() bool {
+	return frontend.tasks().GoalSkillActive()
+}
+
+// HandleSubagentToolEventFor projects an attributed subagent tool event.
+func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, toolEvent seelsession.SubagentToolEvent) {
+	frontend.subagentView().HandleSubagentToolEventFor(ownerSessionID, toolEvent)
+}
+
+// AddNotice appends one user-visible system notice.
+func (frontend *Frontend) AddNotice(notice string) {
+	if frontend != nil && frontend.ports.AddNotice != nil {
+		frontend.ports.AddNotice(notice)
+	}
+}
+
+// PublishRuntimeProjections refreshes runtime projections.
+func (frontend *Frontend) PublishRuntimeProjections() {
+	if frontend != nil && frontend.ports.PublishRuntime != nil {
+		frontend.ports.PublishRuntime()
+	}
+}
+
+// CloseRoleToolRecordUnit closes one role tool record unit.
+func (frontend *Frontend) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string) {
+	if frontend != nil && frontend.ports.CloseRoleToolRecord != nil {
+		frontend.ports.CloseRoleToolRecord(mainSessionID, roleSessionID)
+	}
 }
 
 // AddAccount forwards to the account application.

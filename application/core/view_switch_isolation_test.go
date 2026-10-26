@@ -45,7 +45,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 
 	// 2) 视图切换：切到空闲 B（A 继续后台运行）。
 	engine.register(bID)
-	if err := service.ResumeSession(bID); err != nil {
+	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
 		t.Fatalf("switch view to B: %v", err)
 	}
 	if got := service.Snapshot().Session.ID; got != bID {
@@ -108,7 +108,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 
 	// 5) 释放 A：A 仍能正常跑完。
 	close(engine.release[aID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := catalogStatusOf(t, service, aID); got != SessionStatusIdle {

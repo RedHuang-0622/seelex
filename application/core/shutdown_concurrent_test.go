@@ -39,7 +39,7 @@ func (engine *cancelAwareEngine) count() int {
 func TestShutdownConcurrentRunningSessions(t *testing.T) {
 	engine := &cancelAwareEngine{fakeEngine: &fakeEngine{}}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	ctx := context.Background()
 
 	const sessions = 4
@@ -69,7 +69,7 @@ func TestShutdownConcurrentRunningSessions(t *testing.T) {
 		shutdownWG.Add(1)
 		go func() {
 			defer shutdownWG.Done()
-			service.Shutdown()
+			frontendOfTestService(service).Shutdown()
 		}()
 	}
 	done := make(chan struct{})

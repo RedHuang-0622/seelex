@@ -85,7 +85,7 @@ func TestComputerUseLiveSmoke(t *testing.T) {
 	defer providerProxy.Close()
 	rewriteAccountsBaseURL(t, AccountsPath, originalBase, providerProxy.URL)
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
-	defer harness.app.Shutdown()
+	defer harness.frontend.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -94,7 +94,7 @@ func TestComputerUseLiveSmoke(t *testing.T) {
 	if err := harness.app.Submit(ctx, prompt); err != nil {
 		t.Fatalf("提交真实回合: %v", err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("真实回合未回到 idle: %v", err)
 	}
 	snapshot := harness.app.Snapshot()

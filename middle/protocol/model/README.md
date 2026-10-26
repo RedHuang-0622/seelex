@@ -6,8 +6,9 @@
 clone 实现位于 [`contract/protocol`](../../../contract/protocol/README.md)；
 本包通过类型 alias 与一行转发保持源码和 JSON 身份不变，不持有第二份 DTO。
 
-主要调用方仍为 `application/core`、`gui`、`tui`、`middle/protocol/event` 与
-`e2e/scenario`。backend 的生产代码已改为直接依赖 `contract/protocol`。
+主要调用方是尚未迁移的 `gui`、`tui`、`middle/protocol/event` 与 `e2e/scenario`。
+`application/core` 和 backend 生产代码已直接依赖 `contract/protocol`；新增消费者
+不得再走本兼容路径。
 
 ## 架构图
 

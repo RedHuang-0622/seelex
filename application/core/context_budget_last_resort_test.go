@@ -37,7 +37,7 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-1"}
@@ -85,7 +85,7 @@ func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-3"}
@@ -134,7 +134,7 @@ func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-2"}

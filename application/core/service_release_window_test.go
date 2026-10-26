@@ -59,22 +59,18 @@ func TestSetSessionReleaseWindowAppliesImmediately(t *testing.T) {
 	store := &recordingReleaseWindowStore{}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
 
-	applied, err := service.SetSessionReleaseWindow(context.Background(), 3)
+	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), 3)
 	if err != nil {
 		t.Fatalf("SetSessionReleaseWindow(3): %v", err)
 	}
 	if applied != 3 {
 		t.Fatalf("返回的生效值 = %d, want 3", applied)
 	}
-	if got := service.SessionReleaseWindow(); got != 3 {
+	if got := frontendOfTestService(service).SessionReleaseWindow(); got != 3 {
 		t.Fatalf("读数 = %d, want 3", got)
 	}
 	if got := Limits().ReleaseWindow(); got != 3 {
 		t.Fatalf("进程级 limits 的窗口 = %d, want 3", got)
-	}
-	// 释放面的判据是现读的：没有分层覆盖时，额度直接等于窗口。
-	if got := releaseBudget(0, 2); got != 3 {
-		t.Fatalf("releaseBudget(0, 2) = %d, want 3（受保护集之外保留三个）", got)
 	}
 	if saved := store.calls(); len(saved) != 1 || saved[0] != 3 {
 		t.Fatalf("落盘序列 = %v, want [3]", saved)
@@ -86,7 +82,7 @@ func TestSetSessionReleaseWindowAcceptsBoundaries(t *testing.T) {
 	snapshotWindowLimits(t)
 	service := newTestService(t, &fakeEngine{})
 	for _, window := range []int{limit.SessionReleaseWindowMin, limit.SessionReleaseWindowMax} {
-		applied, err := service.SetSessionReleaseWindow(context.Background(), window)
+		applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), window)
 		if err != nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被接受：%v", window, err)
 		}
@@ -101,14 +97,14 @@ func TestSetSessionReleaseWindowRejectsOutOfRange(t *testing.T) {
 	snapshotWindowLimits(t)
 	store := &recordingReleaseWindowStore{}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
-	before := service.SessionReleaseWindow()
+	before := frontendOfTestService(service).SessionReleaseWindow()
 
 	for _, window := range []int{0, -1, limit.SessionReleaseWindowMax + 1, 1000, 1 << 20} {
-		if _, err := service.SetSessionReleaseWindow(context.Background(), window); err == nil {
+		if _, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), window); err == nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被拒", window)
 		}
 	}
-	if got := service.SessionReleaseWindow(); got != before {
+	if got := frontendOfTestService(service).SessionReleaseWindow(); got != before {
 		t.Fatalf("被拒的取值改了内存：%d → %d", before, got)
 	}
 	if saved := store.calls(); len(saved) != 0 {
@@ -122,16 +118,16 @@ func TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails(t *testing
 	snapshotWindowLimits(t)
 	store := &recordingReleaseWindowStore{err: errors.New("disk full")}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
-	before := service.SessionReleaseWindow()
+	before := frontendOfTestService(service).SessionReleaseWindow()
 
-	applied, err := service.SetSessionReleaseWindow(context.Background(), before+1)
+	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), before+1)
 	if err == nil {
 		t.Fatal("落盘失败必须报错")
 	}
 	if applied != 0 {
 		t.Fatalf("落盘失败时不该给出生效值：%d", applied)
 	}
-	if got := service.SessionReleaseWindow(); got != before {
+	if got := frontendOfTestService(service).SessionReleaseWindow(); got != before {
 		t.Fatalf("落盘失败却改了内存：%d → %d", before, got)
 	}
 	if saved := store.calls(); len(saved) != 0 {
@@ -145,11 +141,11 @@ func TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly(t *testing.T) {
 	snapshotWindowLimits(t)
 	service := newTestService(t, &fakeEngine{})
 
-	applied, err := service.SetSessionReleaseWindow(context.Background(), 2)
+	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("没装配落盘口不该失败：%v", err)
 	}
-	if applied != 2 || service.SessionReleaseWindow() != 2 {
-		t.Fatalf("生效值 = (%d, %d), want (2, 2)", applied, service.SessionReleaseWindow())
+	if applied != 2 || frontendOfTestService(service).SessionReleaseWindow() != 2 {
+		t.Fatalf("生效值 = (%d, %d), want (2, 2)", applied, frontendOfTestService(service).SessionReleaseWindow())
 	}
 }

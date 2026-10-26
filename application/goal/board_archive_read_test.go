@@ -1,4 +1,4 @@
-package core
+package goal
 
 // goal_board_archive_read_test.go — 钉住 goal 看板存档的**读侧兜底**这条端到端
 // 投影：活体栈为空时按存档重建看板（Recovered），关闭的存档不让看板诈尸，而
@@ -75,7 +75,7 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 		},
 	})
 
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{StoreFor: boardStoreFor(router)})
+	coordinator := NewCoordinator(CoordinatorDeps{StoreFor: boardStoreFor(router)})
 	view := coordinator.GoalGovernanceViewFor(sessionID)
 	if view == nil {
 		t.Fatal("存档里 state=active 时不应退回 nil：看板要能被重建出来")
@@ -115,7 +115,7 @@ func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
 		}},
 	})
 
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{StoreFor: boardStoreFor(router)})
+	coordinator := NewCoordinator(CoordinatorDeps{StoreFor: boardStoreFor(router)})
 	// 让该会话有活体 bundle（活体栈为空），走"活体栈为空 → 读存档"这条分支。
 	coordinator.bundleFor(sessionID)
 	view := coordinator.GoalGovernanceViewFor(sessionID)
@@ -164,7 +164,7 @@ func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
 		t.Fatalf("begin second: %v", err)
 	}
 
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{
+	coordinator := NewCoordinator(CoordinatorDeps{
 		StoreFor: boardStoreFor(router),
 	})
 	// bundle 的 Reload 从活栈通道恢复第二轮目标（活体栈可用）。
@@ -193,12 +193,12 @@ func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
 // TestGoalGovernanceViewWithoutArchiveStaysHidden 验证未装配/无存档时的降级：
 // 没有任何存档面的会话仍然返回 nil（前端隐藏），不报错、不阻断。
 func TestGoalGovernanceViewWithoutArchiveStaysHidden(t *testing.T) {
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{})
+	coordinator := NewCoordinator(CoordinatorDeps{})
 	if view := coordinator.GoalGovernanceViewFor("session-board-none"); view != nil {
 		t.Fatalf("未装配存档面时不应产生治理视图: %+v", view)
 	}
 	router := boardRouterForArchive(t)
-	withRouter := newGoalCoordinator(goalCoordinatorDeps{StoreFor: boardStoreFor(router)})
+	withRouter := NewCoordinator(CoordinatorDeps{StoreFor: boardStoreFor(router)})
 	if view := withRouter.GoalGovernanceViewFor("session-board-no-archive"); view != nil {
 		t.Fatalf("有存档面但还没有存档时不应产生治理视图: %+v", view)
 	}

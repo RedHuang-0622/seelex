@@ -6,7 +6,7 @@ package core
 
 import (
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
@@ -114,9 +114,6 @@ func (service *Service) hotAttachSession(sessionID string) error {
 // UnloadSession 卸载会话：先持久化（非活跃时），再释放内存态（引擎实例、
 // 任务运行时、会话 view scope）；registry 保留 COLD 元数据，重开走
 // cold_load。运行中会话拒绝卸载。
-func (service *Service) UnloadSession(sessionID string) error {
-	return service.components.sessionLifecycle.Unload(sessionID)
-}
 
 // switchViewToFreshDraftLocked 把视图切到一个**就地新建**的早分配草稿单元（调用方
 // 持有 Core.ViewMu）。用点：卸载/删除掉的恰是**当前视图**会话——会话单元已被完整释放

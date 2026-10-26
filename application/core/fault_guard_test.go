@@ -64,8 +64,8 @@ func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T) {
 // draining，并向订阅者发布进程级退出事件（host 据此关窗/退出）。
 func TestDegradeAndRequestExitNotifiesHost(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
-	sub := service.Subscribe(16)
+	defer frontendOfTestService(service).Shutdown()
+	sub := frontendOfTestService(service).Subscribe(16)
 	defer sub.Close()
 
 	service.degradeAndRequestExit("probe")
@@ -96,7 +96,7 @@ func TestDegradeAndRequestExitNotifiesHost(t *testing.T) {
 // 不是带着半坏状态继续运行。
 func TestLifecycleFaultPanicsAfterDegrade(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	var panicked any
 	func() {

@@ -82,7 +82,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("dispatch turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	firstTurn := collector.take()
@@ -144,7 +144,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	if err := harness.app.Submit(ctx, reportPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("report turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	secondTurn := collector.take()
@@ -179,7 +179,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	if err := harness.app.Submit(ctx, fetchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.WaitForIdle(ctx); err != nil {
+	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("fetch turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	thirdTurn := collector.take()

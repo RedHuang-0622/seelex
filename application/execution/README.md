@@ -26,6 +26,7 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 
 - `project_board.go`：`ProjectBoardDeps`、`ProjectBoardApplication` 与构造器。
 - `work_item.go`：WorkItem/teammate 读取与 todo 状态变更。
+- `board_reader.go`：`BoardReader`，WorkItem 消费的团队看板与 teammate live 只读端口。
 - `subagent.go`：子代理恢复、fork、详情与树清理。
 - `completion.go`：异步作业与 teammate 作业终态触发。
 - `toolhooks/`：Seele Tool Hook 适配、稳定 ID 配对与诊断。
@@ -81,6 +82,10 @@ go test ./application/... -count=1
 ```
 
 ## 文件与函数索引
+
+### `board_reader.go`
+
+- `type BoardReader interface` — WorkItem 消费的团队看板与 teammate live 只读投影。
 
 ### `project_board.go`
 

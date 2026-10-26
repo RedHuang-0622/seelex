@@ -27,7 +27,7 @@ func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []co
 func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New(`ChatClient stream: HTTP 500: server_error request_id=req-secret`)}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	subscription := service.Events.Subscribe(16)
 	defer subscription.Close()
 
@@ -79,7 +79,7 @@ func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) 
 func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("unrecognized internal failure request_id=req-diagnostic")}
 	service := newTestService(t, engine)
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 
 	var logs bytes.Buffer
 	previousOutput, previousFlags, previousPrefix := log.Writer(), log.Flags(), log.Prefix()

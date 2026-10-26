@@ -12,14 +12,12 @@ package core
 // 按项目刷新目录）已于 M5-R6-archive 随接收者转移归位 `middle/residency/archive.go`
 // （plan §2.4）；本文件只剩"把宿主读数与存储/引擎落点装成端口"这条装配缝与一行转发。
 
-import "github.com/RedHuang-0622/seelex/middle/residency"
+import applicationsession "github.com/RedHuang-0622/seelex/application/session"
 
 // ErrSessionNotFoundArchive 表示目标会话不存在或 record 缺失/版本不兼容。
-// 判据在 `middle/residency`；本名字是宿主侧的兼容面，与 `residency.ErrArchiveNotFound`
+// 判据经 `application/session.ResidencyPort` 注入；本名字是宿主侧兼容面，与
+// `application/session.ErrArchiveNotFound`
 // 是同一个错误值（`errors.Is` 两个名字都成立）。
-var ErrSessionNotFoundArchive = residency.ErrArchiveNotFound
+var ErrSessionNotFoundArchive = applicationsession.ErrArchiveNotFound
 
 // ArchiveSession 归档指定会话（判据与文案在 `middle/residency`）。
-func (service *Service) ArchiveSession(sessionID string) error {
-	return service.components.sessionArchive.Archive(sessionID)
-}

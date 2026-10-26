@@ -338,7 +338,7 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 	// 释放 A 和 B。
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -417,7 +417,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

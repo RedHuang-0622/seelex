@@ -63,7 +63,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := service.WaitForIdle(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

@@ -17,7 +17,7 @@ import (
 // 有界投影：详情面只保留上限内的参数/结果，不把整段长文本搬进快照。
 func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	// 历史 Plan 投影（执行引擎已退役）：直接种一个含 worker 节点的只读状态。
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
@@ -28,7 +28,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 
 	// 事件流现包含 worktable.changed（CSP 汇聚，异步到达）：订阅缓冲调大，
 	// 避免杂散生命周期事件触发 deliver 排空丢弃本测试关注的工具事件。
-	subscription := service.Subscribe(16)
+	subscription := frontendOfTestService(service).Subscribe(16)
 	defer subscription.Close()
 	long := strings.Repeat("x", Limits().EvidenceChars+20)
 	started := seelsession.SubagentToolEvent{
@@ -54,7 +54,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 
 func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer service.Shutdown()
+	defer frontendOfTestService(service).Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	hooks := bridge.Hooks()
