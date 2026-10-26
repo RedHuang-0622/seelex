@@ -38,7 +38,7 @@ Middle 只提供纯切换、历史和驻留策略。
 - `draft_materialization.go`：首请求物化、标题、commit 与发布顺序。
 - `resume.go`：hot/restoring/cold 会话选择分支。
 - `restore_recovery.go`：冷恢复失败回退与 fresh draft reset。
-- `fork_lineage.go`：持久化 fork lineage 的安全解码。
+- `fork_lineage.go`：只读取 `forked_from` 的窄 JSON 投影并安全解码，不依赖 Store 载荷类型。
 - `restoring_shell.go`：restoring 会话的 Snapshot 空壳投影。
 - `meta_test.go`：组件读取与 nil 语义测试。
 - `ssh_test.go`：环境交集、固定环境与路径校验测试。
@@ -74,6 +74,7 @@ Runtime 或存储的既有唯一实现。
 注入的窄端口。
 residency 判据经 `ResidencyPort` 注入，由 `wiring/adapters.NewResidencyPort`
 提供 Middle 实现；本包不 import `middle/residency`。
+Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 import `store`。
 禁止依赖 `application/core`、backend 具体实现或 Middle 可变会话状态。
 
 ## 并发与错误

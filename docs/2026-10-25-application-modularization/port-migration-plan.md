@@ -458,6 +458,7 @@ type BoardRepository interface {
 - EP-042：Conversation window helper 归位。
 - EP-043：SessionState/ViewState 迁入 Application。
 - EP-044：TeamworkPlan 五类实体完整 DTO 化，删除 Application 迁移 alias。
+- EP-045：Fork lineage 改用窄 JSON 投影，退出 Store 载荷类型依赖。
 
 每组都必须单独提交，提交前后报告：
 

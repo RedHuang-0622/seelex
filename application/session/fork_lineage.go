@@ -6,7 +6,6 @@ import (
 
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ForkLineageDeps supplies the persistent session-context payload read.
@@ -17,6 +16,13 @@ type ForkLineageDeps struct {
 // ForkLineageApplication owns read-only decoding of persistent fork lineage.
 type ForkLineageApplication struct {
 	deps ForkLineageDeps
+}
+
+// forkLineagePayload is the only persistent field this read use case needs.
+// Other session-context payload fields belong to their own readers; decoding
+// the whole Store record here would make Application depend on persistence.
+type forkLineagePayload struct {
+	ForkedFrom json.RawMessage `json:"forked_from,omitempty"`
 }
 
 // NewForkLineage constructs the fork-lineage application.
@@ -33,7 +39,7 @@ func (application *ForkLineageApplication) Load(location session_runtime.Locatio
 	if err != nil || len(payload) == 0 {
 		return nil
 	}
-	var record store.SessionContextRecord
+	var record forkLineagePayload
 	if json.Unmarshal(payload, &record) != nil || len(record.ForkedFrom) == 0 {
 		return nil
 	}

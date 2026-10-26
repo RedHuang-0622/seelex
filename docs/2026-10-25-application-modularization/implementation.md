@@ -210,6 +210,7 @@
 | EP-042 | 已完成 | Conversation window pure helper 归位 | history 不再依赖 view_state，为 SessionState 迁移清障 |
 | EP-043 | 已完成 | SessionState / ViewState 物理迁入 Application | core 直接依赖归零、middle sessionusecase/viewstate 删除 |
 | EP-044 | 已完成 | TeamworkPlan 五类实体完整 DTO 化 | contract 唯一定义、Store/backend alias、execution 迁移桥删除 |
+| EP-045 | 已完成 | Fork lineage 改用窄 JSON 投影 | `application/session` 退出 Store 载荷类型依赖 |
 
 ## 基线指标
 
@@ -5163,6 +5164,20 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - `Service` 保持 23，core 生产文件/行数保持 114 / 11,602；
 - GUI/TUI wire、Snapshot revision/seq 与 `plan.json` 持久化 JSON 均未改变；
 - 回退方式：恢复 Store 本地类型与方法，让 Middle/Application 回退到 Store alias。
+
+## EP-045：Fork lineage 窄载荷投影
+
+- `application/session.ForkLineageApplication` 不再解码完整
+  `store.SessionContextRecord`，只定义 `forked_from` 私有窄投影；
+- 持久化 JSON 字段、损坏数据降级为 nil、空 parent 拒绝等语义保持不变；
+- 新增结构门禁 `TestForkLineageApplicationDoesNotImportStore` 与
+  `application/session` 行为测试；
+- 红测：结构门禁点名 `fork_lineage.go` 仍 import Store；
+- 绿测：Application、Session 与 Core fork lineage 定向测试；
+- `application/**` 具体依赖包总数暂保持 28，因为 Goal/ToolRecord 仍有
+  `store`、`store/record` 类型边；本批消除 `application/session -> store`；
+- `Service` 保持 23，core 文件/行数不变；GUI/TUI wire 与持久化格式不变；
+- 回退方式：恢复完整 Store 载荷解码；旧数据无需迁移。
 
 ## 本轮收口指标
 

@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-044；下一步完成剩余 Store 类型边与 Application facade 退场。**
+EP-001～EP-045；下一步完成剩余 Store 类型边与 Application facade 退场。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -33,6 +33,8 @@ EP-001～EP-044；下一步完成剩余 Store 类型边与 Application facade �
   Backend/Middle/Store 依赖另设预算并最终归零；
 - `TeamworkPlan` 系列已完成完整 DTO 化，Store/Backend/Middle 保留 alias；
   `application/execution` 迁移类型门面已删除；
+- Fork lineage 只消费 `forked_from` 私有窄 JSON 投影，
+  `application/session` 不再 import Store 载荷类型；
 - SessionState/ViewState 已迁入 `application/session/state` 与
   `application/session/viewstate`，`application/core` 直接内部依赖已归零。
 - 全局具体依赖预算见
