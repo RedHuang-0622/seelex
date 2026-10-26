@@ -32,15 +32,15 @@ func TestHistorySearchFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "history_search.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"SearchHistory": false, "SearchHistoryHandler": false}
+	want := map[string]bool{"SearchHistory": false}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if _, tracked := want[function.Name.Name]; !tracked {
@@ -120,7 +120,7 @@ func TestSearchHistoryHandlerPropagatesRuntimeError(t *testing.T) {
 
 func TestSearchHistoryRejectsEmptyQueryAtServiceBoundary(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if _, err := service.SearchHistory(context.Background(), "", 5); !errors.Is(err, ErrEmptySearchQuery) {
+	if _, err := frontendOfTestService(service).SearchHistory(context.Background(), "", 5); !errors.Is(err, ErrEmptySearchQuery) {
 		t.Fatalf("Service.SearchHistory empty query error = %v, want ErrEmptySearchQuery", err)
 	}
 }

@@ -84,7 +84,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	}
 
 	// SnapshotOf(B) 读 B 自身槽：token 属于 B，任务表只含 B 的节点。
-	snapshotB, err := service.SnapshotOf(bID)
+	snapshotB, err := frontendOfTestService(service).SnapshotOf(bID)
 	if err != nil {
 		t.Fatal(err)
 	}

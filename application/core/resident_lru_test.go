@@ -69,7 +69,7 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	// 未含全部行的联合镜像（resident 标记由行数据源叠加）。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 	snapshot := service.Snapshot()

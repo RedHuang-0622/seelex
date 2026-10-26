@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	middlehistory "github.com/RedHuang-0622/seelex/middle/switch/history"
 )
 
 // testServiceOption 定制 newTestService 的依赖注入。
@@ -66,7 +68,7 @@ func newTestService(t testing.TB, engine contract.ChatEngine, options ...testSer
 
 func mustNew(t testing.TB, deps contract.Dependencies) *Service {
 	t.Helper()
-	service, err := New(deps)
+	service, err := New(deps, middlehistory.Assembler{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

@@ -7,6 +7,9 @@
 `RuntimePort`、`PluginPort`、`SkillPort`、`SessionPort`、`WorkspacePort`、
 `PlanApprovalGate`），composition root（`wiring/bootstrap`，入口 `main.go` 只做五步）负责装配，本包不持有生命周期。
 
+`NewHistoryWindowAssembler` 返回 `application/history.WindowAssembler`；底层直接是
+`middle/switch/history.Assembler`，本包只做装配，不复制窗口判据。
+
 ## 架构图
 
 ```mermaid
@@ -667,6 +670,10 @@ go test ./wiring/adapters -count=1
 ### toolcall_status_record_test.go
 
 - `func TestToolCallStatusOfRecordLocksTheStoreVocabulary(t *testing.T)` — toolcall_status_record_test.go — "工具调用视图词"这一格在**存储面 → 契约枚举**的互锁。
+
+### history_window.go
+
+- `func NewHistoryWindowAssembler() applicationhistory.WindowAssembler` — 返回 Middle `Assembler` 的唯一端口实现。
 
 ### workspace_environment_port.go
 

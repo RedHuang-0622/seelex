@@ -57,6 +57,8 @@ func TestCompatibilityMethodsOnlyForward(t *testing.T) {
 	helpers := map[string]bool{
 		"New": true, "admin": true, "role": true, "roleSessions": true,
 		"completion": true, "conversationQueue": true, "history": true, "policy": true,
+		"execution": true, "historySearch": true, "perf": true, "projectBoard": true,
+		"reference": true, "sessionMeta": true, "sessionQuery": true,
 		"workspace": true, "workspaceUseCase": true, "sessionDelete": true,
 	}
 	for _, declaration := range file.Decls {

@@ -153,10 +153,10 @@ func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionID := service.Snapshot().Session.ID
-	if _, err := service.SnapshotOf(sessionID); err != nil {
+	if _, err := frontendOfTestService(service).SnapshotOf(sessionID); err != nil {
 		t.Fatalf("SnapshotOf(active) = %v, want nil", err)
 	}
-	if _, err := service.SnapshotOf("other-session"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
+	if _, err := frontendOfTestService(service).SnapshotOf("other-session"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
 		t.Fatalf("SnapshotOf(other) = %v, want ErrSessionSnapshotUnavailable", err)
 	}
 }

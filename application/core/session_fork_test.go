@@ -240,7 +240,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 	if got := service.Snapshot().Session.ID; got != childID {
 		t.Fatalf("active session after fork = %q, want %q", got, childID)
 	}
-	snapshot, err := service.SnapshotOf(childID)
+	snapshot, err := frontendOfTestService(service).SnapshotOf(childID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(child): %v", err)
 	}

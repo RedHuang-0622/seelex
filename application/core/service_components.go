@@ -50,6 +50,7 @@ type serviceComponents struct {
 	// 只持窄读依赖，不持完整 Service，也不承担会话生命周期状态机。
 	sessionQuery                 *applicationsessionquery.Application
 	conversationHistoryQuery     *applicationhistory.Application
+	historyWindowAssembler       applicationhistory.WindowAssembler
 	conversationQueue            *applicationconversation.QueueApplication
 	conversationTurnState        *conversationTurnState
 	sessionLifecycle             *applicationsession.LifecycleApplication

@@ -229,5 +229,11 @@ func (service *Service) reloadSessionContent(sessionID string) error {
 		return fmt.Errorf("reload session content %q: %w", sessionID, err)
 	}
 	// 安装即一次正文使用（installVisibleHistory 负责 touch 内容 LRU）。
-	return service.installVisibleHistory(sessionID, page, window, applicationhistory.InstallReplace)
+	return service.installVisibleHistory(
+		sessionID,
+		page,
+		window,
+		applicationhistory.InstallReplace,
+		service.components.historyWindowAssembler,
+	)
 }

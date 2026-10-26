@@ -4,8 +4,8 @@
 
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
-AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F1；
-下一步 AP-116F2。**
+AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2a；
+下一步 AP-116F2b。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -14,10 +14,10 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F1；
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 98 |
-| `application/core` 直接内部依赖 | 34 |
-| `application/core` 生产文件 | 123 |
-| `application/core` 生产代码 | 12,538 行 |
+| `Service` 公开方法 | 83 |
+| `application/core` 直接内部依赖 | 33 |
+| `application/core` 生产文件 | 121 |
+| `application/core` 生产代码 | 12,463 行 |
 
 本轮包提取起点为 126 个文件、18,723 行；当前净减 5,913 行。
 
@@ -91,7 +91,8 @@ AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F1；
 | AP-108B2b | Snapshot 驻留组装（已完成） | `application/session/query` | 高 |
 | AP-116E | 8 个共用入口迁移到 `Frontend`（已完成） | `application` / 前端依赖方 | 高 |
 | AP-116F1 | Admin/Role/Workspace 50 个转发壳迁出 core（已完成） | `application/compat` | 高 |
-| AP-116F2 | 剩余 98 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
+| AP-116F2a | 15 个只读会话/执行投影入口迁出 core，history 端口落地（已完成） | `application/compat` / `history` | 高 |
+| AP-116F2b | 剩余 83 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
 
 ## 4. AP-106：Session Draft Entry / Materialization（已完成）
 
@@ -500,7 +501,7 @@ AP-115D 至此完成。
 草稿和空闲会话的行为与现有一致；命令事件与 GUI/TUI wire 不变；registry 读取不需要
 共享写锁。
 
-## 14. AP-116：98 方法退场
+## 14. AP-116：83 方法退场
 
 这是最终验收批，不提前做“空接口”或“未来接口”。
 
@@ -596,11 +597,24 @@ core 只保留 `FrontendPorts` 装配快照。删除
 指标：Service 公开方法 148 → 98；core 文件 125 → 123；core 生产代码
 12,810 → 12,538 行。
 
-当前剩余 98 个方法的结构分类：
+### AP-116F2a 已完成
+
+- 新增 `application/history.WindowAssembler`，middle 提供唯一 adapter，
+  core 删除 `middle/switch/history` 直接依赖；
+- 把 `ListSessions`、`WaitCatalogRefresh`、`GetSessionTranscript`、
+  `SessionInputIndex`、`SnapshotOf`、`SessionMeta`、`PerfStats`、`SearchHistory`、
+  `ProjectRootFor`、`WorkTableRowsFor`、`TeammateSessionLiveFor`、
+  `TeammateSessionLivePageFor`、`WorkItemExecutionFor`、`TeammateInspectionFor`、
+  `ToolResultContent` 共 15 个只读/查询入口迁入 `application/compat`。
+
+指标：Service 公开方法 98 → 83；core 直接内部依赖 34 → 33；core 文件
+123 → 121；core 生产代码 12,538 → 12,463 行。
+
+当前剩余 83 个方法的结构分类：
 
 外部依赖拆除的端口设计见 [`port-migration-plan.md`](port-migration-plan.md)。
 
-- 75 个仍是单行组件转发，必须继续迁到 `application/compat` 或消费方窄接口；
+- 60 个仍是单行组件转发，必须继续迁到 `application/compat` 或消费方窄接口；
 - 23 个包含真实状态/生命周期编排，暂由 core 持有：
 
 | 能力 | core 方法 | 暂留原因 |
@@ -639,7 +653,7 @@ core 只保留 `FrontendPorts` 装配快照。删除
 
 ## 17. 最终退出条件
 
-- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 98）；
+- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 83）；
 - core 直接内部依赖接近零；
 - core 生产代码完成删除；
 - GUI/TUI/headless 只消费稳定由 Application/contract 提供的窄 API；

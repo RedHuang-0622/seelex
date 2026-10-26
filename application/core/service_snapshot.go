@@ -150,14 +150,6 @@ func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []mo
 	return append(live, rows...)
 }
 
-// ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
-// 同一数据源（catalog 联合镜像），按行补会话级可见状态（运行/排队/待批/
-// resident/审批计数），不含 UI 专用草稿占位槽。调用方可直接枚举而无需拉
-// 整份视图快照。
-func (service *Service) ListSessions() []model.SessionInfo {
-	return service.components.sessionQuery.ListSessions()
-}
-
 // enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
 // Core.ViewMu）：草稿槽位行恒为 draft；其余行按单元运行态叠加状态/
 // 待批计数/resident 标记。

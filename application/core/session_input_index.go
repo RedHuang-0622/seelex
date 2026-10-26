@@ -27,14 +27,6 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
-// SessionInputIndex 返回目标会话的**全量**用户输入索引（含未加载的早期轮次）。
-//
-// 轻量契约：一次扫描 + 有界摘要，不建引擎、不驻留会话、不改任何内存态；
-// 未驻留会话同样可用（与 GetSessionTranscript 同一冷读口径）。
-func (service *Service) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
-	return service.components.sessionQuery.SessionInputIndex(sessionID)
-}
-
 func (service *Service) readSessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {

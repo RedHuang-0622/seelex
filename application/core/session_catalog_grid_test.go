@@ -59,7 +59,7 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	snapshot = service.Snapshot()
@@ -89,7 +89,7 @@ func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 	addCatalogSession(sessions, "", "session-removed", updatedAt)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	if got := len(service.Snapshot().Sessions); got != 2 {
@@ -99,7 +99,7 @@ func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 	if err := sessions.Delete("session-removed"); err != nil {
 		t.Fatalf("delete session: %v", err)
 	}
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh after delete: %v", err)
 	}
 	ids := sessionIDsOf(service.Snapshot().Sessions)

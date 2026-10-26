@@ -155,12 +155,14 @@
 | AP-116D | 已完成 | ClearReviewRequest 改为 review 组件内部调用 | 调用方审计、156 方法预算绿 |
 | AP-116E | 已完成 | 8 个前端共用入口先迁依赖方，再由 `Frontend` 直接承接 | GUI/TUI/headless/wiring 迁移、148 方法预算绿 |
 | AP-116F1 | 已完成 | Admin/Role/Workspace 50 个纯转发入口迁入 `application/compat` | core 删除 3 个转发文件、98 方法预算绿 |
+| AP-116F2a | 已完成 | 15 个只读查询入口迁入 compat；history 端口落地 | core 直接依赖 34 → 33、83 方法预算绿 |
+| EP-001 | 已完成 | History Window 外部端口 | core import 归零、端口/adapter parity、依赖预算 33 |
 
 ## 基线指标
 
 | 指标 | 2026-10-25 计划值 | 本轮起点 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 98 |
+| `Service` 公开方法 | 171 | 83 |
 | `application/core` 直接导入 backend/middle/store 包 | 38 | 37 |
 | `application/core` 直接导入 backend/middle/store 包（本轮终点） | 38 | 37 |
 | `application/core` 生产 Go 文件 | 76 | 126 |
@@ -197,7 +199,7 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | 171 方法 `application.Service` | 能力型小接口组合 | 门面与旧宿主 | M8/M9 | `application/testdata/service_methods.txt` 递减 | 恢复完整 `Service` 消费 |
 | `Service.ListSessions` / `ProjectRootFor` / `SessionMeta` / `WaitCatalogRefresh` | `SessionQuery` | GUI/TUI/headless 待迁 | M8/AP-008 | 旧方法只一行转发，生产可直接消费 `SessionQuery` | 恢复查询方法体 |
 | `Frontend.LoadMoreHistory` / `LoadLatestHistory` | `ConversationHistoryQuery` | GUI、TUI、headless | AP-116F | `Service` 已无同名公开方法，前端直接调用历史组件 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
-| `application/core -> middle/switch/history` | 待 Middle 提供已在闭包白名单内的查询端口 | `application/core` | BM6 | 依赖预算为 38 且白名单不含旧边 | 保留当前直接导入与唯一实现 |
+| `application/core -> middle/switch/history` | `application/history.WindowAssembler` + Wiring 注入 `history.Assembler` | History 查询宿主 | EP-001（已完成） | core import 为零；依赖预算 33 | 恢复 core 直接 import 与旧构造签名 |
 | `application.Command/CommandResult` | `contract.Command/CommandResult` | GUI/TUI/命令注册 | M8 | 根门面不再 import backend input | 恢复 concrete alias |
 | `goaldomain.*GoalRecord/Request/StatusView` | `dto.GoalRecord/BeginGoalRequest/UpdateGoalRequest/FinishGoalRequest/GoalStatusView` | GUI/headless/Application GoalAPI | M8 | 类型 identity 由 goal domain alias 保持 | 恢复 goal 本地定义 |
 | `assemble.ScheduledTaskSpec/Status` | `dto.ScheduledTaskSpec/Status` | GUI/调度注册 | M8 | 入站 API import 扫描通过 | 恢复 assemble alias |
@@ -4281,6 +4283,32 @@ AST 审计确认 148 个 Service 公开方法中有 125 个是单行组件转发
 仍未迁移的 98 个方法中，75 个仍是单行转发壳，23 个包含真实状态编排或
 host callback；后续必须继续先迁兼容壳，不能把 `compat` 变成新的 core。
 
+### AP-116F2a 只读查询壳与 History 端口
+
+新增 `application/history.WindowAssembler`，由 `middle/switch/history`
+提供唯一 adapter。`application/core/session_history.go` 不再直接 import
+`middle/switch/history`，窗口行身份、durable 行和接缝判据仍只在
+`middle/switch/history`。
+
+同时把 15 个只读/查询入口迁入 `application/compat`：
+
+- 会话：`ListSessions`、`WaitCatalogRefresh`、`GetSessionTranscript`、
+  `SessionInputIndex`、`SnapshotOf`、`SessionMeta`；
+- 执行投影：`WorkTableRowsFor`、`ProjectRootFor`、
+  `TeammateSessionLiveFor`、`TeammateSessionLivePageFor`、
+  `WorkItemExecutionFor`、`TeammateInspectionFor`；
+- 工具/观测：`PerfStats`、`SearchHistory`、`ToolResultContent`。
+
+wiring、GUI、TUI 与 test harness 已通过 compat 或窄组件入口读取，不恢复
+`Service` 同名方法。
+
+结构指标：
+
+- `Service` 公开方法：98 → 83；
+- core 直接内部依赖：34 → 33（`middle/switch/history` 退出）；
+- core 生产文件：123 → 121；
+- core 生产代码：12,538 → 12,463 行。
+
 ## 跨会话阻塞项
 
 - AP-003 的 DTO 迁移已完成；后续若新接口需要改 `contract/**`，仍须登记契约、
@@ -4313,17 +4341,38 @@ host callback；后续必须继续先迁兼容壳，不能把 `compat` 变成新
   `workitem_execution.go` 等既有工作树文件尚未登记到 `ROOT_GROUPS`。本轮新增文件
   使用 `service_` 前缀避免增加新的未归属项，并在 `README-service.md` 手工补齐索引。
 
+## EP-001：History Window 外部端口
+
+设计门禁见
+[`history-window-front-review.md`](history-window-front-review.md) 与
+[`history-window-plan.md`](history-window-plan.md)。
+
+- 新端口：`application/history.WindowAssembler`，六方法；比提示词多出的
+  `ContainsSameRow` / `HasRowIdentity` 来自真实冷读扩窗调用，避免 core 复制行身份判据；
+- 唯一实现：`middle/switch/history.Assembler`，逐项转发既有纯函数；
+- 注入：`wiring/adapters.NewHistoryWindowAssembler` 返回结构满足端口的 Middle 实现，
+  `wiring.New` 传给 `core.New`；
+- core：删除 `middle/switch/history` 直接 import，锁内安装与锁外冷读顺序不变；
+- 删除重复：core 内两处 `DurableConversationCount(view.Conversation)` 改用端口的
+  `len(DurableRows(...))`，行身份/计行判据继续只在 Middle 一份；
+- 红测：`TestCoreDoesNotImportHistoryWindowPackage` 初始报
+  `session_history.go` 仍 import；`Assembler` 一致性测试初始因类型不存在编译失败；
+- 绿测：core import 门禁、Middle assembler parity、Extension history/core 分页回归。
+
+本批直接内部依赖 **34 → 33**；core 生产文件 121、生产代码 12,463 行（工作树并行
+提取后的当前值）。GUI/TUI wire、事件 revision/seq、持久化格式均未改变。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 98 |
+| `Service` 公开方法 | 171 | 83 |
 | core 直接内部依赖 | 37 | 34 |
-| core 生产文件 | 126 | 123 |
-| core 生产代码 | 18,723 行 | 12,538 行 |
+| core 生产文件 | 126 | 121 |
+| core 生产代码 | 18,723 行 | 12,463 行 |
 
-core 生产代码净减 6,185 行，直接内部依赖从 37 降到 34；AP-116A/B/C/D/E/F1
-共收回或迁出 73 个 `Service` 公开入口。
+core 生产代码净减 6,260 行，直接内部依赖从 37 降到 33；AP-116A/B/C/D/E/F1/F2a
+共收回或迁出 88 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
 Policy、Session Lifecycle/Draft/Cold、Context Compaction 与 Conversation Queue/ChatState

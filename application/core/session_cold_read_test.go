@@ -96,7 +96,7 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 	}
 	service := newColdReadService(t, sessions)
 
-	snapshot, err := service.SnapshotOf("cold-1")
+	snapshot, err := frontendOfTestService(service).SnapshotOf("cold-1")
 	if err != nil {
 		t.Fatalf("SnapshotOf(cold): %v", err)
 	}
@@ -135,7 +135,7 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 func TestSnapshotOfColdUnknownSessionStillUnavailable(t *testing.T) {
 	sessions := newColdReadSessions()
 	service := newColdReadService(t, sessions)
-	if _, err := service.SnapshotOf("ghost"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
+	if _, err := frontendOfTestService(service).SnapshotOf("ghost"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
 		t.Fatalf("SnapshotOf(ghost) = %v, want ErrSessionSnapshotUnavailable", err)
 	}
 }
@@ -154,7 +154,7 @@ func TestGetSessionTranscriptRange(t *testing.T) {
 	})
 	service := newColdReadService(t, sessions)
 
-	events, err := service.GetSessionTranscript("cold-1", 2, 4)
+	events, err := frontendOfTestService(service).GetSessionTranscript("cold-1", 2, 4)
 	if err != nil {
 		t.Fatalf("GetSessionTranscript(2..4): %v", err)
 	}
@@ -164,14 +164,14 @@ func TestGetSessionTranscriptRange(t *testing.T) {
 	if events[0].Content != "two" {
 		t.Fatalf("transcript content mismatch: %+v", events[0])
 	}
-	all, err := service.GetSessionTranscript("cold-1", 0, 0)
+	all, err := frontendOfTestService(service).GetSessionTranscript("cold-1", 0, 0)
 	if err != nil || len(all) != 5 {
 		t.Fatalf("transcript full = %d err=%v, want 5", len(all), err)
 	}
-	if _, err := service.GetSessionTranscript("cold-1", 5, 2); err == nil {
+	if _, err := frontendOfTestService(service).GetSessionTranscript("cold-1", 5, 2); err == nil {
 		t.Fatal("inverted transcript range must error")
 	}
-	if _, err := service.GetSessionTranscript("  ", 1, 2); err == nil {
+	if _, err := frontendOfTestService(service).GetSessionTranscript("  ", 1, 2); err == nil {
 		t.Fatal("empty session ID must error")
 	}
 }
@@ -184,7 +184,7 @@ func TestListSessionsReturnsAuthoritativeDirectory(t *testing.T) {
 	service := newColdReadService(t, sessions)
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
-	rows := service.ListSessions()
+	rows := frontendOfTestService(service).ListSessions()
 	if len(rows) != 1 || rows[0].ID != "sess-1" {
 		t.Fatalf("ListSessions = %+v", rows)
 	}

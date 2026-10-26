@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。
@@ -23,7 +24,9 @@ import (
 // 唯一实现是 core.New：这里只提供组合根侧的调用点，前端不得自造引擎
 // （plan §1.3 ④）。返回值 *core.Service 与门面别名 application.Service 是同一
 // 类型身份（别名不是新类型）。
-func New(deps contract.Dependencies) (*core.Service, error) { return core.New(deps) }
+func New(deps contract.Dependencies) (*core.Service, error) {
+	return core.New(deps, adapters.NewHistoryWindowAssembler())
+}
 
 // NewFrontend constructs the frontend compatibility adapter.
 func NewFrontend(app *core.Service) *application.Frontend {

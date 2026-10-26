@@ -50,7 +50,7 @@ func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	}
 
 	// 完整内容仍可读回（pending 通道，无需落盘）。
-	page, err := service.ToolResultContent(t.Context(), tool.ResultRef, 0, 128)
+	page, err := frontendOfTestService(service).ToolResultContent(t.Context(), tool.ResultRef, 0, 128)
 	if err != nil {
 		t.Fatalf("read back full content: %v", err)
 	}

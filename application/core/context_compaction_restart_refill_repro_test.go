@@ -209,7 +209,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 	}
 
 	// ③ 同一条痕进快照可见面（右栏「上下文压缩」的唯一来路）。
-	snapshot, err := second.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

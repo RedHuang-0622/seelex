@@ -140,7 +140,7 @@ func TestReproCompactionFactsSurviveProcessRestart(t *testing.T) {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 
-	snapshot, err := second.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}
@@ -201,7 +201,7 @@ func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T) {
 	if err := second.ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
-	snapshot, err := second.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

@@ -2,17 +2,17 @@
 
 日期：2026-10-26
 
-状态：AP-116F1 后的下一阶段设计。本文只规定拆除 `application/core` 剩余 34 个
+状态：History Window 端口已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 33 个
 直接内部依赖所需的端口，不把本阶段的 `application/compat` 转发层当成终态。
 
 ## 0. 当前事实与总原则
 
-AP-116F1 后：
+AP-116F2a 后：
 
-- `application/core`：123 个生产文件、12,538 行；
-- `Service` 公开方法：98；
-- core 直接内部依赖：34；
-- 其中 75 个公开方法仍是单行组件转发，23 个包含 core 必须暂留的状态编排。
+- `application/core`：121 个生产文件、12,463 行；
+- `Service` 公开方法：83；
+- core 直接内部依赖：33；
+- 其中 60 个公开方法仍是单行组件转发，23 个包含 core 必须暂留的状态编排。
 
 解除外部包依赖不能只写“把 import 改成 interface”。必须满足：
 
@@ -25,6 +25,15 @@ AP-116F1 后：
 7. 端口迁移不改变锁顺序、事件 revision/seq、持久化格式或 GUI/TUI wire。
 
 ## 1. `middle/switch/history`：历史窗口端口
+
+**状态：EP-001 已实现。** `application/core` 已不再 import
+`middle/switch/history`；`application/history.WindowAssembler` 由 Wiring 注入
+`middle/switch/history.Assembler`。真实调用面需要六方法（额外包含
+`ContainsSameRow` / `HasRowIdentity`），详情见
+[`history-window-plan.md`](history-window-plan.md)。
+
+**状态：已完成 AP-116F2a。** `application/history.WindowAssembler` 已定义，
+`middle/switch/history.Assembler` 由 wiring 注入，core 已退出该直接依赖。
 
 ### 当前问题
 
@@ -375,8 +384,7 @@ type BoardRepository interface {
 
 ## 5. 推荐执行顺序
 
-1. `history.WindowAssembler`（最小、只读、可直接降低 1 个依赖）；
-2. Limit 纯读端口；
+1. Limit 纯读端口；
 3. ToolResult/Event/Session repository 读面；
 4. Context/Task 只读端口；
 5. Multiagent 只读端口；

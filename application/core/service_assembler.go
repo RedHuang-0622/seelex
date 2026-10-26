@@ -5,6 +5,7 @@ import (
 	"fmt"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
+	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
@@ -28,7 +29,8 @@ import (
 // serviceAssembler is the composition root for the application service. It
 // supplies infrastructure defaults before wiring stateful collaborators.
 type serviceAssembler struct {
-	deps contract.Dependencies
+	deps                   contract.Dependencies
+	historyWindowAssembler applicationhistory.WindowAssembler
 }
 
 // taskPromptPort 是 task_context.PromptPort 的根包适配（prompt 域尚未下沉
@@ -53,6 +55,9 @@ func (p taskPromptPort) PushSkillLayer(kind, name, text string) {
 func (assembler serviceAssembler) assemble() (*Service, error) {
 	if err := validateDependencies(assembler.deps); err != nil {
 		return nil, err
+	}
+	if assembler.historyWindowAssembler == nil {
+		return nil, fmt.Errorf("application: history window assembler is required")
 	}
 	if err := promptassets.Validate(); err != nil {
 		return nil, fmt.Errorf("application prompts: %w", err)
@@ -92,7 +97,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.perfStatsApplication = newServicePerfStatsApplication(service)
 	service.components.asyncCompletionApplication = newServiceAsyncCompletionApplication(service)
 	service.components.sessionQuery = newServiceSessionQuery(service)
-	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service)
+	service.components.historyWindowAssembler = assembler.historyWindowAssembler
+	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service, assembler.historyWindowAssembler)
 	service.components.conversationTurnState = newConversationTurnState()
 	service.components.conversationQueue = newServiceConversationQueue(service)
 	service.components.sessionLifecycle = newServiceSessionLifecycle(service)

@@ -35,7 +35,7 @@ func TestPerfStatsFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "perf_stats.go")
+	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestPerfStatsFacadeOnlyDelegatesToApplication(t *testing.T) {
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "PerfStats" ||
-			!functionHasReceiver(function, "Service") {
+			!functionHasReceiver(function, "Frontend") {
 			continue
 		}
 		if len(function.Body.List) != 1 {

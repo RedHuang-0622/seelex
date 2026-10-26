@@ -79,7 +79,7 @@ func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, p
 		t.Fatalf("建工作区: %v", err)
 	}
 	harness.workspaces.BindSession(projectBoardMarkerSession, workspace.ID)
-	sinkRoot := harness.app.ProjectRootFor(projectBoardMarkerSession)
+	sinkRoot := harness.frontend.ProjectRootFor(projectBoardMarkerSession)
 	if strings.TrimSpace(sinkRoot) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：这条用例会退化成同义反复")
 	}
@@ -124,8 +124,8 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
-		on.app.WorkTableRowsFor, on.app.ProjectBoardTeamPlanFor,
-		on.app.ProjectBoardTeamStateFor, on.app.ProjectRootFor,
+		on.frontend.WorkTableRowsFor, on.app.ProjectBoardTeamPlanFor,
+		on.app.ProjectBoardTeamStateFor, on.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -164,8 +164,8 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
-		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
+		harness.frontend.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
+		harness.app.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {

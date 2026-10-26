@@ -7,10 +7,29 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
+type stubWindowAssembler struct{}
+
+func (stubWindowAssembler) ReplaceTail(pageRows, _ []model.Message, _, _, _ int) ([]model.Message, int) {
+	return pageRows, 0
+}
+
+func (stubWindowAssembler) Prepend(pageRows, _ []model.Message, start, _ int) ([]model.Message, int) {
+	return pageRows, start
+}
+
+func (stubWindowAssembler) DurableRows(messages []model.Message) []model.Message { return messages }
+
+func (stubWindowAssembler) IndexOfSameRow([]model.Message, model.Message) int { return -1 }
+
+func (stubWindowAssembler) ContainsSameRow([]model.Message, model.Message) bool { return false }
+
+func (stubWindowAssembler) HasRowIdentity(model.Message) bool { return false }
+
 func TestLoadMoreHistoryPrependsEarlierPageOutsideViewLock(t *testing.T) {
 	offset := 10
 	reloaded := false
 	installed := false
+	assembler := stubWindowAssembler{}
 	application := New(Deps{
 		HistoryWindow: func() int { return 5 },
 		ReadViewState: func() (string, string, int) {
@@ -22,20 +41,24 @@ func TestLoadMoreHistoryPrependsEarlierPageOutsideViewLock(t *testing.T) {
 			offset = 8
 			return nil
 		},
-		VisibleWindowFirstRow: func(string) model.Message {
+		WindowAssembler: assembler,
+		VisibleWindowFirstRow: func(_ string, got WindowAssembler) model.Message {
+			if got != assembler {
+				t.Fatal("VisibleWindowFirstRow received a different WindowAssembler")
+			}
 			return model.Message{ID: "seam"}
 		},
-		LoadEarlierVisiblePage: func(workspaceID, sessionID string, gotOffset, gotLimit, gotWindow int, seam model.Message) (Page, error) {
+		LoadEarlierVisiblePage: func(workspaceID, sessionID string, gotOffset, gotLimit, gotWindow int, seam model.Message, got WindowAssembler) (Page, error) {
 			if workspaceID != "workspace-a" || sessionID != "session-a" ||
-				gotOffset != 8 || gotLimit != 5 || gotWindow != 5 || seam.ID != "seam" {
+				gotOffset != 8 || gotLimit != 5 || gotWindow != 5 || seam.ID != "seam" || got != assembler {
 				t.Fatalf("load args = %q, %q, %d, %d, %d, %+v",
 					workspaceID, sessionID, gotOffset, gotLimit, gotWindow, seam)
 			}
 			return Page{Rows: []model.Message{{ID: "older"}}, Start: 3}, nil
 		},
-		InstallVisibleHistory: func(sessionID string, page Page, window int, mode InstallMode) error {
+		InstallVisibleHistory: func(sessionID string, page Page, window int, mode InstallMode, got WindowAssembler) error {
 			installed = true
-			if sessionID != "session-a" || len(page.Rows) != 1 || window != 5 || mode != InstallPrepend {
+			if sessionID != "session-a" || len(page.Rows) != 1 || window != 5 || mode != InstallPrepend || got != assembler {
 				t.Fatalf("install = %q, %+v, %d, %d", sessionID, page, window, mode)
 			}
 			return nil
@@ -51,13 +74,15 @@ func TestLoadMoreHistoryPrependsEarlierPageOutsideViewLock(t *testing.T) {
 
 func TestLoadMoreHistoryStopsAtBeginning(t *testing.T) {
 	called := false
+	assembler := stubWindowAssembler{}
 	application := New(Deps{
 		HistoryWindow: func() int { return 5 },
 		ReadViewState: func() (string, string, int) {
 			return "session-a", "workspace-a", 0
 		},
 		ContentUnloaded: func(string) bool { return false },
-		LoadEarlierVisiblePage: func(string, string, int, int, int, model.Message) (Page, error) {
+		WindowAssembler: assembler,
+		LoadEarlierVisiblePage: func(string, string, int, int, int, model.Message, WindowAssembler) (Page, error) {
 			called = true
 			return Page{}, nil
 		},
@@ -72,13 +97,20 @@ func TestLoadMoreHistoryStopsAtBeginning(t *testing.T) {
 
 func TestLoadLatestHistoryUsesMemoryTailShortCircuit(t *testing.T) {
 	called := false
+	assembler := stubWindowAssembler{}
 	application := New(Deps{
 		HistoryWindow: func() int { return 3 },
 		ReadViewState: func() (string, string, int) {
 			return "session-a", "workspace-a", 4
 		},
-		ContentUnloaded:     func(string) bool { return false },
-		VisibleTailInMemory: func(string) bool { return true },
+		ContentUnloaded: func(string) bool { return false },
+		WindowAssembler: assembler,
+		VisibleTailInMemory: func(_ string, got WindowAssembler) bool {
+			if got != assembler {
+				t.Fatal("VisibleTailInMemory received a different WindowAssembler")
+			}
+			return true
+		},
 		LoadConversationTail: func(string, string, int) (Page, error) {
 			called = true
 			return Page{}, nil
@@ -94,22 +126,24 @@ func TestLoadLatestHistoryUsesMemoryTailShortCircuit(t *testing.T) {
 
 func TestLoadLatestHistoryLoadsAndReplacesTail(t *testing.T) {
 	installed := false
+	assembler := stubWindowAssembler{}
 	application := New(Deps{
 		HistoryWindow: func() int { return 3 },
 		ReadViewState: func() (string, string, int) {
 			return "session-a", "workspace-a", 1
 		},
 		ContentUnloaded:     func(string) bool { return false },
-		VisibleTailInMemory: func(string) bool { return false },
+		WindowAssembler:     assembler,
+		VisibleTailInMemory: func(string, WindowAssembler) bool { return false },
 		LoadConversationTail: func(workspaceID, sessionID string, window int) (Page, error) {
 			if workspaceID != "workspace-a" || sessionID != "session-a" || window != 3 {
 				t.Fatalf("tail args = %q, %q, %d", workspaceID, sessionID, window)
 			}
 			return Page{Rows: []model.Message{{ID: "latest"}}, Start: 4}, nil
 		},
-		InstallVisibleHistory: func(sessionID string, page Page, window int, mode InstallMode) error {
+		InstallVisibleHistory: func(sessionID string, page Page, window int, mode InstallMode, got WindowAssembler) error {
 			installed = true
-			if sessionID != "session-a" || page.Rows[0].ID != "latest" || mode != InstallReplace {
+			if sessionID != "session-a" || page.Rows[0].ID != "latest" || mode != InstallReplace || got != assembler {
 				t.Fatalf("install = %q, %+v, %d, %d", sessionID, page, window, mode)
 			}
 			return nil
@@ -134,14 +168,16 @@ func TestPageReachesPublishedTail(t *testing.T) {
 
 func TestHistoryErrorsPropagate(t *testing.T) {
 	loadErr := errors.New("load")
+	assembler := stubWindowAssembler{}
 	application := New(Deps{
 		HistoryWindow: func() int { return 1 },
 		ReadViewState: func() (string, string, int) {
 			return "session-a", "workspace-a", 1
 		},
 		ContentUnloaded:       func(string) bool { return false },
-		VisibleWindowFirstRow: func(string) model.Message { return model.Message{ID: "seam"} },
-		LoadEarlierVisiblePage: func(string, string, int, int, int, model.Message) (Page, error) {
+		WindowAssembler:       assembler,
+		VisibleWindowFirstRow: func(string, WindowAssembler) model.Message { return model.Message{ID: "seam"} },
+		LoadEarlierVisiblePage: func(string, string, int, int, int, model.Message, WindowAssembler) (Page, error) {
 			return Page{}, loadErr
 		},
 	})

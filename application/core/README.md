@@ -149,8 +149,9 @@ flowchart LR
   共享 `ViewMu` 之外，core 只在锁内安装可见窗口。
 
 对应公开方法只保留一行转发。历史行身份与窗口边界继续复用
-`middle/switch/history` 的唯一实现；`session_query.go` 与
-`session_conversation_history_query.go` 只承载宿主适配。
+`middle/switch/history` 的唯一实现；core 经
+`application/history.WindowAssembler` 端口调用，Wiring 注入该实现。
+`session_query.go` 与 `session_conversation_history_query.go` 只承载宿主适配。
 
 Conversation Queue（AP-007 首个切片）由 `chat_queue.go` 的
 `conversationQueue` 组件承接。`SessionUnit` 继续唯一拥有 `Queue` 和
@@ -317,13 +318,13 @@ prompt/history 重建、Effort 恢复、会话 reset 和 runtime 发布。
 
 Admin 账号 CRUD、余额、账号切换和逐账号窗口已迁到
 [`application/admin`](../admin/README.md)。core 只保留 `service_admin_application.go`
-的窄 Host adapter，以及 `service_account.go` / `service_account_window.go` /
-`service_interaction.go` 的一行兼容转发。
+的窄 Host adapter；旧公开账号入口由
+[`application/compat`](../compat/README.md) 承接。
 
 项目环境表、Workspace Git 查询和批量登记后的投影发布已迁到
 [`application/workspace`](../workspace/README.md)。core 的
-`workspace_environments.go` / `workspace_gitrepos.go` / `workspace_usecase.go`
-只保留 Service 一行转发，`workspace_usecase.go` 另承载
+`workspace_usecase.go` 只保留 host adapter；旧公开 Workspace 入口由
+[`application/compat`](../compat/README.md) 承接。`workspace_usecase.go` 另承载
 `newServiceWorkspaceApplication` 宿主适配；containment 判据在领域包内只有一份，
 查询不进入共享写锁。
 

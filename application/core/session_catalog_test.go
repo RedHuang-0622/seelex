@@ -50,7 +50,7 @@ func TestWaitCatalogRefreshSettlesFreshCatalog(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	if got := len(service.Snapshot().Sessions); got != 2 {
@@ -80,7 +80,7 @@ func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 			defer group.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			errs[index] = service.WaitCatalogRefresh(ctx)
+			errs[index] = frontendOfTestService(service).WaitCatalogRefresh(ctx)
 		}(index)
 	}
 	group.Wait()
@@ -110,7 +110,7 @@ func TestWaitCatalogRefreshConvergesAfterShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	started := time.Now()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh after shutdown: %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
@@ -139,7 +139,7 @@ func TestCatalogCacheMirrorsWorkerRound(t *testing.T) {
 	addCatalogSession(sessions, "", "session-b", updatedAt)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	cached, _ = service.components.sessions.CatalogCache()
@@ -178,7 +178,7 @@ func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	cached, discovered := service.components.sessions.CatalogCache()
@@ -220,7 +220,7 @@ func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 			defer group.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			_ = service.WaitCatalogRefresh(ctx)
+			_ = frontendOfTestService(service).WaitCatalogRefresh(ctx)
 		}()
 		go func() {
 			defer group.Done()

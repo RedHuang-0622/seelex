@@ -9,16 +9,6 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// WorkTableRowsFor returns the live worktable projection for one session.
-func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem {
-	return service.projectBoardQueryComponent().WorkTableRowsFor(sessionID)
-}
-
-// ProjectRootFor returns the bound workspace root for the session.
-func (service *Service) ProjectRootFor(sessionID string) string {
-	return service.projectBoardQueryComponent().ProjectRootFor(sessionID)
-}
-
 // ProjectBoardTeamPlanFor returns the optional teamwork plan for the session.
 func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan {
 	return service.projectBoardQueryComponent().ProjectBoardTeamPlanFor(sessionID)

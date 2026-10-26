@@ -28,24 +28,3 @@ type teamworkBoardViewPort struct{ service *Service }
 func (port teamworkBoardViewPort) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
 	return port.service.teamworkBoardViewFor(sessionID)
 }
-
-// TeammateSessionLiveFor 返回**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
-// 说什么"）。未装配 / 会话不在本进程 → Running=false 的视图（不是错误：那不是"读失败"，
-// 而是"这个执行面不在本进程里"，调用方要能如实说出来）。
-//
-// 为什么要有这一面（2026-10-04 用户口径：查看 teammates 的会话看到的"全是历史会话"）：
-// 员工的角色会话落盘、可回读；而一个 Work Item 自己的会话是**进程内执行面**（刻意不接
-// DurableHistory），正文不在会话库里——从存储读只会读到主会话的历史。
-func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView {
-	return service.executionApplicationComponent().SessionLive(sessionID)
-}
-
-// TeammateSessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +
-// 分页：把"只有尾巴"改成"翻得动"）。
-//
-// 与 TeammateSessionLiveFor 是**同一份读数**的两种取法（判据只有一份，在 seelebridge 侧）：
-// offset 从该会话可投影的第一条算起（0 = 最旧）；未装配 / 会话不在本进程 → Running=false
-// 的空页（不是错误，理由同上）。
-func (service *Service) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
-	return service.executionApplicationComponent().SessionPage(sessionID, offset, limit)
-}

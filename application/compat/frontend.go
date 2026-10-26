@@ -7,11 +7,16 @@ import (
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -63,11 +68,46 @@ func (frontend *Frontend) history() *applicationhistory.Application {
 	return frontend.ports.History
 }
 
+func (frontend *Frontend) execution() *applicationexecution.WorkItemApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Execution
+}
+
+func (frontend *Frontend) historySearch() *conversationsearch.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.HistorySearch
+}
+
+func (frontend *Frontend) perf() *applicationobservability.PerfApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Perf
+}
+
 func (frontend *Frontend) policy() *applicationpolicy.SwitchApplication {
 	if frontend == nil {
 		return nil
 	}
 	return frontend.ports.Policy
+}
+
+func (frontend *Frontend) projectBoard() *applicationexecution.ProjectBoardApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.ProjectBoard
+}
+
+func (frontend *Frontend) reference() *applicationreference.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Reference
 }
 
 func (frontend *Frontend) role() *applicationpolicy.RoleApplication {
@@ -103,6 +143,95 @@ func (frontend *Frontend) sessionDelete() *applicationsession.DeleteApplication 
 		return nil
 	}
 	return frontend.ports.SessionDelete
+}
+
+func (frontend *Frontend) sessionMeta() *applicationsession.MetaApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionMeta
+}
+
+func (frontend *Frontend) sessionQuery() *applicationsessionquery.Application {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.SessionQuery
+}
+
+// ListSessions returns the durable session catalog.
+func (frontend *Frontend) ListSessions() []model.SessionInfo {
+	return frontend.sessionQuery().ListSessions()
+}
+
+// WaitCatalogRefresh waits for the session catalog projection to settle.
+func (frontend *Frontend) WaitCatalogRefresh(ctx context.Context) error {
+	return frontend.sessionQuery().WaitCatalogRefresh(ctx)
+}
+
+// GetSessionTranscript returns a bounded transcript range.
+func (frontend *Frontend) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
+	return frontend.sessionQuery().GetSessionTranscript(sessionID, fromSeq, toSeq)
+}
+
+// SessionInputIndex returns the durable user-input index.
+func (frontend *Frontend) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
+	return frontend.sessionQuery().SessionInputIndex(sessionID)
+}
+
+// SnapshotOf returns one session's durable or resident snapshot.
+func (frontend *Frontend) SnapshotOf(sessionID string) (model.SessionSnapshot, error) {
+	return frontend.sessionQuery().SnapshotOf(sessionID)
+}
+
+// SessionMeta returns display metadata for one session.
+func (frontend *Frontend) SessionMeta(sessionID string) (model.SessionMeta, error) {
+	return frontend.sessionMeta().SessionMeta(sessionID)
+}
+
+// PerfStats returns the current process performance projection.
+func (frontend *Frontend) PerfStats() model.PerfStats {
+	return frontend.perf().PerfStats()
+}
+
+// SearchHistory searches durable conversation history.
+func (frontend *Frontend) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error) {
+	return frontend.historySearch().SearchHistory(ctx, query, limit)
+}
+
+// ProjectRootFor resolves the project root for a session.
+func (frontend *Frontend) ProjectRootFor(sessionID string) string {
+	return frontend.projectBoard().ProjectRootFor(sessionID)
+}
+
+// WorkTableRowsFor returns the current projection rows for one session.
+func (frontend *Frontend) WorkTableRowsFor(sessionID string) []model.WorkItem {
+	return frontend.projectBoard().WorkTableRowsFor(sessionID)
+}
+
+// TeammateSessionLiveFor returns teammate live rows.
+func (frontend *Frontend) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView {
+	return frontend.execution().SessionLive(sessionID)
+}
+
+// TeammateSessionLivePageFor returns one bounded teammate live page.
+func (frontend *Frontend) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	return frontend.execution().SessionPage(sessionID, offset, limit)
+}
+
+// WorkItemExecutionFor returns one work item's execution view.
+func (frontend *Frontend) WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error) {
+	return frontend.execution().WorkItemExecution(ctx, mainSessionID, itemID, page)
+}
+
+// TeammateInspectionFor returns a teammate inspection projection.
+func (frontend *Frontend) TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error) {
+	return frontend.execution().TeammateInspection(ctx, mainSessionID, role)
+}
+
+// ToolResultContent returns a bounded stored tool result page.
+func (frontend *Frontend) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error) {
+	return frontend.reference().ToolResultContent(resultRef, offset, limit)
 }
 
 // AddAccount forwards to the account application.

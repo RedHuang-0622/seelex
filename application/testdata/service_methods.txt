@@ -21,7 +21,6 @@ FlushToolRecord
 ForkSession
 ForkSessionLatest
 ForkSubagents
-GetSessionTranscript
 GoalBeginFor
 GoalBeginHandler
 GoalDoneFor
@@ -34,13 +33,10 @@ GoalUpdateFor
 GoalUpdateHandler
 HandleRoleToolActivity
 HandleSubagentToolEventFor
-ListSessions
 ListSubagentRecovery
-PerfStats
 PrepareProviderHistory
 ProjectBoardTeamPlanFor
 ProjectBoardTeamStateFor
-ProjectRootFor
 PromptLayers
 PublishRuntimeProjections
 ReadCompressedTurnHandler
@@ -55,10 +51,7 @@ ResumeInterruptedSubagents
 ResumeSession
 ResumeSubagent
 ScheduleTask
-SearchHistory
 SearchHistoryHandler
-SessionInputIndex
-SessionMeta
 SessionReleaseWindow
 SessionSSHState
 SetFullAccess
@@ -74,7 +67,6 @@ SetToolRecordEnabled
 SetToolRecordSnapshotStore
 Shutdown
 Snapshot
-SnapshotOf
 StartScheduledSession
 SubagentSessionDetail
 Submit
@@ -83,16 +75,9 @@ Subscribe
 SubscribeSession
 SubscribeSessionWithReplay
 TaskTerminalHandler
-TeammateInspectionFor
-TeammateSessionLiveFor
-TeammateSessionLivePageFor
 ToolRecordBoard
 ToolRecordEnabled
-ToolResultContent
 UnloadSession
 UpdateScheduledTask
 UpdateWorkItemStatus
-WaitCatalogRefresh
 WaitForIdle
-WorkItemExecutionFor
-WorkTableRowsFor

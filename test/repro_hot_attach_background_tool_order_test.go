@@ -348,7 +348,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	provider.releaseNumber(4)
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snap, err := harness.app.SnapshotOf(sessionB)
+		snap, err := harness.frontend.SnapshotOf(sessionB)
 		if err != nil {
 			t.Fatalf("SnapshotOf(B): %v", err)
 		}

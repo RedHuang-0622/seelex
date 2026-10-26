@@ -4,7 +4,7 @@ import applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 
 // newServiceConversationHistoryQuery adapts the host's visible view, cold reads
 // and window installation to the conversation-history application.
-func newServiceConversationHistoryQuery(service *Service) *applicationhistory.Application {
+func newServiceConversationHistoryQuery(service *Service, assembler applicationhistory.WindowAssembler) *applicationhistory.Application {
 	return applicationhistory.New(applicationhistory.Deps{
 		HistoryWindow: func() int {
 			return Limits().HistoryWindow
@@ -19,6 +19,7 @@ func newServiceConversationHistoryQuery(service *Service) *applicationhistory.Ap
 		},
 		ContentUnloaded:        service.sessionContentUnloaded,
 		ReloadContent:          service.reloadSessionContent,
+		WindowAssembler:        assembler,
 		VisibleWindowFirstRow:  service.visibleWindowFirstRow,
 		LoadEarlierVisiblePage: service.loadEarlierVisiblePage,
 		InstallVisibleHistory:  service.installVisibleHistory,

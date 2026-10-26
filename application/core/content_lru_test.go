@@ -251,7 +251,7 @@ func snapshotSessions(t *testing.T, service *Service) map[string]model.SessionIn
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 	rows := map[string]model.SessionInfo{}

@@ -21,11 +21,6 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	return service.referenceApplicationComponent().ReadToolResultHandler(argsJSON)
 }
 
-// ToolResultContent is the compatibility entry for the GUI full-output viewer.
-func (service *Service) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error) {
-	return service.referenceApplicationComponent().ToolResultContent(resultRef, offset, limit)
-}
-
 // nodeToolResult reads a subagent tool result through the Engine bridge.
 func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
 	if service == nil || service.Deps.Engine == nil {

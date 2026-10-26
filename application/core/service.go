@@ -5,6 +5,7 @@ import (
 	"errors"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
+	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -86,8 +87,11 @@ func (service *Service) projectBoardSink() board.ProjectBoardSink {
 	return service.components.projectBoard.load()
 }
 
-func New(deps contract.Dependencies) (*Service, error) {
-	return serviceAssembler{deps: deps}.assemble()
+func New(deps contract.Dependencies, historyWindowAssembler applicationhistory.WindowAssembler) (*Service, error) {
+	return serviceAssembler{
+		deps:                   deps,
+		historyWindowAssembler: historyWindowAssembler,
+	}.assemble()
 }
 
 // PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/

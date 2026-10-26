@@ -333,8 +333,8 @@ func Run(opts Options) (*App, error) {
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := registry.ProjectBoardSinkFor(
 		runtimeLimits.ProjectBoard, st,
-		app.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
-		app.ProjectBoardTeamStateFor, app.ProjectRootFor,
+		frontendApp.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
+		app.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {

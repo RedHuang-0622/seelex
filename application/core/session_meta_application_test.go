@@ -33,7 +33,7 @@ func TestSessionMetaFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"SetSessionMeta": false, "SessionMeta": false}
+	want := map[string]bool{"SetSessionMeta": false}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {

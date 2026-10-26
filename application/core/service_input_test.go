@@ -227,7 +227,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 // 项目/全局台账，/new 不清空跨会话表。
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
-	if _, err := New(contract.Dependencies{}); err == nil {
+	if _, err := New(contract.Dependencies{}, nil); err == nil {
 		t.Fatal("expected missing dependency error")
 	}
 }

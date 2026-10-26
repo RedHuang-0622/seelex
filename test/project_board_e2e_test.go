@@ -176,7 +176,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	// 行归属**另一个**会话（session-e2e），落点仍是本项目的同一份平铺文件——"一个项目一份
 	// worktable.jsonl、多会话共用、行内 scope.session 区分"正是本轮的口径；读面按会话过滤。
 	const sessionID = "session-e2e"
-	projectRootForSession := harness.app.ProjectRootFor(viewSession)
+	projectRootForSession := harness.frontend.ProjectRootFor(viewSession)
 	if strings.TrimSpace(projectRootForSession) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：本用例会退化成同义反复")
 	}

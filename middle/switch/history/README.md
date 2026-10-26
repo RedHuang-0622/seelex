@@ -30,7 +30,9 @@
 | 文件 | 职责 |
 |---|---|
 | `page.go` | `ReplaceTail` / `Prepend` / `DurableRows` / `IndexOfSameRow` / `SameByContent` / `HasRowIdentity` / `ContainsSameRow` |
+| `assembler.go` | `Assembler`：Application `WindowAssembler` 端口的结构实现，逐项转发 `page.go`，不复制判据 |
 | `page_test.go` | 接缝对位、窗口边界与起点、空页/无锚的保守行为、行身份匹配规则 |
+| `assembler_test.go` | 原函数与 `Assembler` 同输入 parity、接缝失败与空占位不参与对位 |
 
 ## 核心实现
 
@@ -98,3 +100,13 @@ go test ./application/core/ -run 'History|Pagination|ColdRestore|LoadMore' -coun
 - `func SameByContent(left, right model.Message) bool` — 按「角色 + 正文 + 思考」对位（空占位不参与；工具行按调用 ID）。
 - `func IndexOfSameRow(rows []model.Message, want model.Message) int` — 同身份行的下标（先按 ID，再退回内容）。
 - `func ContainsSameRow(rows []model.Message, want model.Message) bool` — 是否含同身份行。
+
+### assembler.go
+
+- `type Assembler struct` — 实现 `application/history.WindowAssembler` 的无状态转发器。
+- `func (Assembler) ReplaceTail(...)` — 转发 `ReplaceTail`。
+- `func (Assembler) Prepend(...)` — 转发 `Prepend`。
+- `func (Assembler) DurableRows(...)` — 转发 `DurableRows`。
+- `func (Assembler) IndexOfSameRow(...)` — 转发 `IndexOfSameRow`。
+- `func (Assembler) ContainsSameRow(...)` — 转发 `ContainsSameRow`。
+- `func (Assembler) HasRowIdentity(...)` — 转发 `HasRowIdentity`。

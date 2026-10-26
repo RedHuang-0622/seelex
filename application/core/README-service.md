@@ -40,7 +40,7 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 
 前端兼容适配器已迁到 `application/compat`。本包只通过 `NewFrontendPorts`
 提供一份窄组件快照，不再保存账号、角色、Workspace 与输入查询的公开转发方法。
-当前已迁出的 58 个入口包括：
+当前已迁出的 73 个入口包括：
 
 - `Suggestions`
 - `SelectAccount`

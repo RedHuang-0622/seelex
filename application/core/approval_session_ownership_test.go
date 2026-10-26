@@ -69,7 +69,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	if got := unit.ApprovalIDs(); len(got) != 1 || got[0] != "ask-A" {
 		t.Fatalf("unit approvals = %#v, want [ask-A]", got)
 	}
-	sessionSnap, err := service.SnapshotOf(aID)
+	sessionSnap, err := frontendOfTestService(service).SnapshotOf(aID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 	if snapshot.Interaction != nil {
 		t.Fatalf("view single slot = %#v, want nil（后台 B 待批不得覆盖视图 A）", snapshot.Interaction)
 	}
-	sessionSnap, err := service.SnapshotOf(bID)
+	sessionSnap, err := frontendOfTestService(service).SnapshotOf(bID)
 	if err != nil {
 		t.Fatal(err)
 	}

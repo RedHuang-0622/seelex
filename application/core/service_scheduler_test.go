@@ -260,7 +260,7 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	if view := conversationContents(service.Snapshot().Conversation); strings.Contains(view, "每天巡检一次") {
 		t.Fatalf("提示词落到了当前视图会话，而不是新会话：%q", view)
 	}
-	snapshot, err := service.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

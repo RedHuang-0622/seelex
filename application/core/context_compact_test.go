@@ -296,7 +296,7 @@ func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	if result.FrameRef == "" {
 		t.Fatalf("压缩记录应带帧正文引用：%+v", result)
 	}
-	page, err := service.ToolResultContent(context.Background(), result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(context.Background(), result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 		t.Fatalf("记录应带被压区间：%+v", result)
 	}
 	// 帧正文可按 ref 读回：用户问「我需要你的摘要内容」时读到的就是它。
-	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}

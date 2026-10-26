@@ -217,7 +217,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 
 	// 两个会话确认在途。
 	for _, sid := range []string{sessionA, sessionB} {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}
@@ -257,7 +257,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 		// 才可见，即复现“切换动作在会话进行完后才开始”。
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			snapC, err := harness.app.SnapshotOf(sessionC)
+			snapC, err := harness.frontend.SnapshotOf(sessionC)
 			if err != nil {
 				t.Fatalf("SnapshotOf(C) while restoring: %v", err)
 			}
@@ -337,7 +337,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	var textA string
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		snapA, err := harness.app.SnapshotOf(sessionA)
+		snapA, err := harness.frontend.SnapshotOf(sessionA)
 		if err != nil {
 			t.Fatalf("SnapshotOf(A): %v", err)
 		}
@@ -364,7 +364,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s) after idle: %v", sid, err)
 		}
@@ -386,7 +386,7 @@ func waitSessionIdle(t *testing.T, ctx context.Context, harness fullChainHarness
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}
@@ -406,7 +406,7 @@ func waitSessionIdle(t *testing.T, ctx context.Context, harness fullChainHarness
 
 func stillRunning(t *testing.T, ctx context.Context, harness fullChainHarness, sid string) bool {
 	t.Helper()
-	snap, err := harness.app.SnapshotOf(sid)
+	snap, err := harness.frontend.SnapshotOf(sid)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%s): %v", sid, err)
 	}
@@ -640,7 +640,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	}
 	provider.waitBlocked(t, ctx, 5)
 	for _, sid := range []string{sessionA, sessionB} {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}

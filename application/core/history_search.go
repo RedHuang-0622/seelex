@@ -12,12 +12,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// SearchHistory 返回会话历史检索结果（GUI 历史检索面板数据源；query 非空
-// 校验；limit=0 与 token 预算由 Runtime/search 实现按同一默认值 clamp）。
-func (service *Service) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error) {
-	return service.historySearchApplicationComponent().SearchHistory(ctx, query, limit)
-}
-
 // SearchHistoryHandler 实现 search_history 工具：模型在上下文缺少相关历史
 // 时可主动调用（如用户提到早先的讨论/决定）；命中内联真实聊天记录
 // （受 token 预算约束，Result 为权威返回）。

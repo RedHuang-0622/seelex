@@ -40,8 +40,8 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
-		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
+		harness.frontend.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
+		harness.app.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	}
 	defer closeSink()
 	harness.app.SetProjectBoardSink(sink)
-	harness.st.SetProjectBoardRootFor(harness.app.ProjectRootFor)
+	harness.st.SetProjectBoardRootFor(harness.frontend.ProjectRootFor)
 
 	// 生产口径的新会话：建工作区 → 新建草稿（早分配 SID）→ 绑定工作区 → 首次提交物化。
 	// 草稿 SID 就是物化后的会话 ID（openSessionEngine 复用早分配 SID），所以"视图会话 =
@@ -92,10 +92,10 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if sessionID == "" || sessionID != draftSession {
 		t.Fatalf("物化后的会话 ID = %q，草稿 SID = %q（应复用同一 SID）", sessionID, draftSession)
 	}
-	if root := harness.app.ProjectRootFor(sessionID); root != projectRoot {
+	if root := harness.frontend.ProjectRootFor(sessionID); root != projectRoot {
 		t.Fatalf("会话的项目根 = %q，期望 %q", root, projectRoot)
 	}
-	if rows := harness.app.WorkTableRowsFor(sessionID); len(rows) == 0 {
+	if rows := harness.frontend.WorkTableRowsFor(sessionID); len(rows) == 0 {
 		t.Fatal("活体工作表格里没有这个会话的行：写侧一定会退场（I6），本用例的前提不成立")
 	}
 

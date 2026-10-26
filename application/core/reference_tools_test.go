@@ -36,7 +36,6 @@ func TestReferenceFacadeOnlyDelegatesToApplication(t *testing.T) {
 	}
 	want := map[string]bool{
 		"ReadToolResultHandler": false,
-		"ToolResultContent":     false,
 		"ReadPlanHandler":       false,
 	}
 	for _, declaration := range parsed.Decls {

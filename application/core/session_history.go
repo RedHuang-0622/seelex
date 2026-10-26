@@ -10,9 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	history "github.com/RedHuang-0622/seelex/middle/switch/history"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 // resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
@@ -286,10 +284,10 @@ func (service *Service) ResumeSession(sessionID string) error {
 // visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
 // 贴尾）。贴尾 = 用户已经在最新处；窗口为空（草稿/刚被卸载）时按「未带到」
 // 处理，必须走冷读。
-func (service *Service) visibleTailServedFromMemory(sessionID string) bool {
+func (service *Service) visibleTailServedFromMemory(sessionID string, assembler applicationhistory.WindowAssembler) bool {
 	atTail := false
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
-		durable := view_state.DurableConversationCount(view.Conversation)
+		durable := len(assembler.DurableRows(view.Conversation))
 		atTail = durable > 0 && view.HistoryOffset+durable >= view.TotalMessages
 	})
 	return atTail
@@ -342,7 +340,12 @@ func (service *Service) loadConversationTailPage(workspaceID, sessionID string, 
 // 扩到「已发布的行全读回来」仍没有对位（窗口首行是在飞行，磁盘上根本没有），或
 // 窗口为空（没有对位锚）时，返回读到的整段，交给安装路径按「宁可窗口短一页，也
 // 不在列表中间留一段谁都没有的下标区间」处理。
-func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam model.Message) (applicationhistory.Page, error) {
+func (service *Service) loadEarlierVisiblePage(
+	workspaceID, sessionID string,
+	offset, limit, window int,
+	seam model.Message,
+	assembler applicationhistory.WindowAssembler,
+) (applicationhistory.Page, error) {
 	start := offset - limit
 	if start < 0 {
 		start = 0
@@ -356,10 +359,10 @@ func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, of
 		if err != nil {
 			return applicationhistory.Page{}, err
 		}
-		if history.ContainsSameRow(page.Rows, seam) || (start == 0 && page.ReachesPublishedTail()) {
+		if assembler.ContainsSameRow(page.Rows, seam) || (start == 0 && page.ReachesPublishedTail()) {
 			return page, nil
 		}
-		if !history.HasRowIdentity(seam) {
+		if !assembler.HasRowIdentity(seam) {
 			// 没有对位锚（窗口为空）：扩读没有意义。
 			return page, nil
 		}
@@ -439,7 +442,13 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 //   - 只拼得上的才拼：接缝对不上（窗口首行不在磁盘上——整窗都是在飞行）时不
 //     假装连续，宁可窗口原地不动，也不在列表中间留一段谁都没有的下标区间；
 //     一页可见行都没读到时保持现有窗口。
-func (service *Service) installVisibleHistory(sessionID string, page applicationhistory.Page, window int, mode applicationhistory.InstallMode) error {
+func (service *Service) installVisibleHistory(
+	sessionID string,
+	page applicationhistory.Page,
+	window int,
+	mode applicationhistory.InstallMode,
+	assembler applicationhistory.WindowAssembler,
+) error {
 	if window <= 0 {
 		window = 1
 	}
@@ -450,15 +459,15 @@ func (service *Service) installVisibleHistory(sessionID string, page application
 		}
 	}
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		memoryRows := history.DurableRows(view.Conversation)
+		memoryRows := assembler.DurableRows(view.Conversation)
 		memoryStart := view.HistoryOffset
 		var rows []model.Message
 		start := memoryStart
 		switch mode {
 		case applicationhistory.InstallReplace:
-			rows, start = history.ReplaceTail(page.Rows, memoryRows, memoryStart, view.TotalMessages, window)
+			rows, start = assembler.ReplaceTail(page.Rows, memoryRows, memoryStart, view.TotalMessages, window)
 		case applicationhistory.InstallPrepend:
-			rows, start = history.Prepend(page.Rows, memoryRows, memoryStart, window)
+			rows, start = assembler.Prepend(page.Rows, memoryRows, memoryStart, window)
 		}
 		if len(rows) == 0 {
 			// 一页可见行都没读到（尾段整段是内部标记行、或会话还没有可见正文）：
@@ -473,7 +482,7 @@ func (service *Service) installVisibleHistory(sessionID string, page application
 		// 本路径安装了可见正文（分页/冷回读）：「内容未加载」标志随之清除。
 		view.ContentUnloaded = false
 		// 窗口不得越过可见总数：可见总数只增不减（镜像/追加路径同一口径）。
-		if tail := start + view_state.DurableConversationCount(view.Conversation); tail > view.TotalMessages {
+		if tail := start + len(assembler.DurableRows(view.Conversation)); tail > view.TotalMessages {
 			view.TotalMessages = tail
 		}
 	})
@@ -488,10 +497,10 @@ func (service *Service) installVisibleHistory(sessionID string, page application
 
 // visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
 // 前面，所以它是「更早一页」的接缝对位锚（窗口为空时返回零值行：没有对位锚）。
-func (service *Service) visibleWindowFirstRow(sessionID string) model.Message {
+func (service *Service) visibleWindowFirstRow(sessionID string, assembler applicationhistory.WindowAssembler) model.Message {
 	var first model.Message
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
-		rows := history.DurableRows(view.Conversation)
+		rows := assembler.DurableRows(view.Conversation)
 		if len(rows) > 0 {
 			first = rows[0]
 		}

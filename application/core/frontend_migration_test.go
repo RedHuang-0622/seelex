@@ -68,6 +68,66 @@ func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string
 	return frontend.Service.queueComponent().RecallQueuedInput(sessionID, index)
 }
 
+func (frontend *Frontend) ListSessions() []model.SessionInfo {
+	return frontend.Service.components.sessionQuery.ListSessions()
+}
+
+func (frontend *Frontend) WaitCatalogRefresh(ctx context.Context) error {
+	return frontend.Service.components.sessionQuery.WaitCatalogRefresh(ctx)
+}
+
+func (frontend *Frontend) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
+	return frontend.Service.components.sessionQuery.GetSessionTranscript(sessionID, fromSeq, toSeq)
+}
+
+func (frontend *Frontend) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
+	return frontend.Service.components.sessionQuery.SessionInputIndex(sessionID)
+}
+
+func (frontend *Frontend) SnapshotOf(sessionID string) (model.SessionSnapshot, error) {
+	return frontend.Service.components.sessionQuery.SnapshotOf(sessionID)
+}
+
+func (frontend *Frontend) SessionMeta(sessionID string) (model.SessionMeta, error) {
+	return frontend.Service.sessionMetaApplicationComponent().SessionMeta(sessionID)
+}
+
+func (frontend *Frontend) PerfStats() model.PerfStats {
+	return frontend.Service.perfStatsApplicationComponent().PerfStats()
+}
+
+func (frontend *Frontend) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error) {
+	return frontend.Service.historySearchApplicationComponent().SearchHistory(ctx, query, limit)
+}
+
+func (frontend *Frontend) ProjectRootFor(sessionID string) string {
+	return frontend.Service.projectBoardQueryComponent().ProjectRootFor(sessionID)
+}
+
+func (frontend *Frontend) WorkTableRowsFor(sessionID string) []model.WorkItem {
+	return frontend.Service.projectBoardQueryComponent().WorkTableRowsFor(sessionID)
+}
+
+func (frontend *Frontend) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView {
+	return frontend.Service.executionApplicationComponent().SessionLive(sessionID)
+}
+
+func (frontend *Frontend) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	return frontend.Service.executionApplicationComponent().SessionPage(sessionID, offset, limit)
+}
+
+func (frontend *Frontend) WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error) {
+	return frontend.Service.executionApplicationComponent().WorkItemExecution(ctx, mainSessionID, itemID, page)
+}
+
+func (frontend *Frontend) TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error) {
+	return frontend.Service.executionApplicationComponent().TeammateInspection(ctx, mainSessionID, role)
+}
+
+func (frontend *Frontend) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error) {
+	return frontend.Service.referenceApplicationComponent().ToolResultContent(resultRef, offset, limit)
+}
+
 func (frontend *Frontend) RoleDefaultVector(sessionID, role string) ([]string, bool, error) {
 	return frontend.Service.roleApplicationComponent().RoleDefaultVector(sessionID, role)
 }

@@ -71,7 +71,7 @@ type mainConversationAdapter struct {
 }
 
 func (adapter mainConversationAdapter) View(_ context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
-	snapshot, err := adapter.service.SnapshotOf(ref.SessionID)
+	snapshot, err := adapter.service.components.sessionQuery.SnapshotOf(ref.SessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionSnapshotUnavailable) {
 			return dto.SessionRecordPage{Recovery: dto.RecoveryMissing, SessionID: ref.SessionID, Records: []dto.ConversationRecord{}}, nil
@@ -95,7 +95,7 @@ func (adapter mainConversationAdapter) Chat(ctx context.Context, ref dto.Convers
 }
 
 func (adapter mainConversationAdapter) Recover(_ context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error) {
-	snapshot, err := adapter.service.SnapshotOf(ref.SessionID)
+	snapshot, err := adapter.service.components.sessionQuery.SnapshotOf(ref.SessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionSnapshotUnavailable) {
 			return dto.SessionRecovery{State: dto.RecoveryMissing, SessionID: ref.SessionID}, nil

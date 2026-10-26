@@ -51,8 +51,6 @@ func TestProjectBoardReadFacadeOnlyDelegatesToQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"WorkTableRowsFor":         false,
-		"ProjectRootFor":           false,
 		"ProjectBoardTeamPlanFor":  false,
 		"ProjectBoardTeamStateFor": false,
 	}
@@ -99,7 +97,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		"plan:n1":    {ID: "plan:n1", Phase: "plan", Task: "计划节点", Status: dto.TaskPending, Kind: "plan", SourceID: "n1"},
 		"subagent:1": {ID: "subagent:1", Phase: "subagent", Task: "子代理", Status: dto.TaskRunning, Kind: "subagent"},
 	}
-	live := service.WorkTableRowsFor(session)
+	live := frontendOfTestService(service).WorkTableRowsFor(session)
 	if len(live) != 4 {
 		t.Fatalf("活体工作表格行数 = %d，希望 4（todo/task/plan/subagent 各一）", len(live))
 	}
@@ -156,7 +154,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	service, runtime, session := newBoardTestService(t)
 	runtime.todoItems = []dto.TodoItem{{Text: "调研", Status: dto.TodoItemDoing}}
 
-	before := service.WorkTableRowsFor(session)
+	before := frontendOfTestService(service).WorkTableRowsFor(session)
 	if len(before) != 1 || before[0].Status != "doing" {
 		t.Fatalf("活体投影 = %+v，希望一条 doing", before)
 	}
@@ -181,7 +179,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 
 	// 而活体投影与领域判定一字不变：投影**不是任何东西的输入**。
-	after := service.WorkTableRowsFor(session)
+	after := frontendOfTestService(service).WorkTableRowsFor(session)
 	if marshalWorkItems(t, after) != marshalWorkItems(t, before) {
 		t.Fatalf("篡改投影文件后活体投影变了：\n before=%s\n after =%s", marshalWorkItems(t, before), marshalWorkItems(t, after))
 	}
@@ -191,7 +189,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 	// 投影输入（活体取数）也不受文件影响：再映射一次仍是 doing。
 	rows := board.BuildProjectBoardRows(store.ProjectBoardScope{Project: boardtest.Project, Session: session},
-		1, boardtest.At, service.WorkTableRowsFor(session), nil, nil, 800)
+		1, boardtest.At, frontendOfTestService(service).WorkTableRowsFor(session), nil, nil, 800)
 	if len(rows) != 1 || boardtest.PayloadText(rows[0], "status") != "doing" {
 		t.Fatalf("活体输入映射出的行 = %+v，希望 status=doing", rows)
 	}
@@ -230,11 +228,11 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	}
 	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：未绑定 ⇒ 空串 ⇒
 	// 不落盘（契约 §3 未关联会话不落盘）；绑定后取的是工作区的 RootPath，**不是**工作区 ID。
-	if got := service.ProjectRootFor(session); got != "" {
+	if got := frontendOfTestService(service).ProjectRootFor(session); got != "" {
 		t.Fatalf("未绑定的会话 ProjectRootFor = %q，希望空串", got)
 	}
 	service.Deps.Workspace.BindSession(session, "project-1")
-	if got := service.ProjectRootFor(session); got != `C:\proj` {
+	if got := frontendOfTestService(service).ProjectRootFor(session); got != `C:\proj` {
 		t.Fatalf("绑定后 ProjectRootFor = %q，希望工作区的 RootPath（C:\\proj）", got)
 	}
 
@@ -247,7 +245,7 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	if state == nil || state.State != store.TeamworkStateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
-	if got := len(service.WorkTableRowsFor(session)); got != 0 {
+	if got := len(frontendOfTestService(service).WorkTableRowsFor(session)); got != 0 {
 		t.Fatalf("空注册表的工作表格行数 = %d，希望 0", got)
 	}
 
@@ -333,7 +331,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	// 夹具常量同源（落点 = boardtest.ProjectRoot、触发档 = 默认档、时钟 = boardtest.At）。
 	syncer := board.NewProjectBoardSyncer(board.ProjectBoardDeps{
 		Store:          st,
-		WorkTableRows:  service.WorkTableRowsFor,
+		WorkTableRows:  frontendOfTestService(service).WorkTableRowsFor,
 		EvidenceChars:  func() int { return 800 },
 		ProjectRootFor: func(string) string { return boardtest.ProjectRoot },
 		Triggers:       board.TriggerFor(board.ProjectBoardHookModeTodoList),

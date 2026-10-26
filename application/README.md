@@ -56,10 +56,10 @@
 [`testdata/application_budget.json`](testdata/application_budget.json) 和
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
-- 冻结 `Service` 当前 98 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- 冻结 `Service` 当前 83 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
-  当前事实基线为 34，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 123 个、生产代码 12,538 行；
+  当前事实基线为 33，预算只允许下降；
+- 冻结 `application/core` 非测试生产文件 121 个、生产代码 12,463 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -83,7 +83,7 @@
   `TeamworkQueryAPI` 移除，仍保留在 `Service` 装配面。
 
 此批 JSON 字段与前端 wire 形状不变；当时 `application/core` 内部依赖预算为 39，
-后续内部实现迁移已把当前事实基线降到 34。该数字由内部实现迁移单独治理，
+后续内部实现迁移与 History Window 外部端口已把当前事实基线降到 33。该数字由内部实现迁移单独治理，
 不与入站 API 纯度混算。
 
 ### 按能力拆分的入站 API（AP-002，已实现）
@@ -135,8 +135,9 @@
 `LoadMoreHistory` / `LoadLatestHistory` 已由 `Frontend` 直接调用历史查询组件；
 历史窗口算法仍只有
 [`middle/switch/history`](../middle/switch/history/README.md) 一份实现；
-`application/core` 继续直接消费该唯一实现。后续 History Search 契约化与领域包
-提取已把直接内部依赖降到 34；新增 Application 包仍必须逐批登记门面闭包。
+`application/core` 通过 `application/history.WindowAssembler` 消费该唯一实现；
+Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
+直接内部依赖已降到 33；新增 Application 包仍必须逐批登记门面闭包。
 
 ### 领域包提取（AP-085 起，执行中）
 
@@ -145,10 +146,10 @@
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 98 |
-| `application/core` 直接内部依赖 | 34 |
-| `application/core` 生产文件 | 123 |
-| `application/core` 生产代码 | 12,538 行 |
+| `Service` 公开方法 | 83 |
+| `application/core` 直接内部依赖 | 33 |
+| `application/core` 生产文件 | 121 |
+| `application/core` 生产代码 | 12,463 行 |
 
 已落地领域包：
 
@@ -177,11 +178,11 @@
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
-| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；58 个旧入口已从 core 移出 |
+| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；73 个旧入口已从 core 移出 |
 
 退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
 不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
-`Service` 的 98 个兼容方法在调用方归零前继续保留。已迁出的 58 个入口由
+`Service` 的 83 个兼容方法在调用方归零前继续保留。已迁出的 73 个入口由
 `compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。
 
 ### SessionQuery durable 读取面（AP-013 首个切片，已实现）

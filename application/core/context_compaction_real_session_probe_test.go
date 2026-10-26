@@ -451,7 +451,7 @@ func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) real
 		outcome.readbackInput = host.lastReadback
 	}
 	outcome.records = compactionRecordsOf(t, service)
-	if snapshot, snapshotErr := service.SnapshotOf(sessionID); snapshotErr == nil && snapshot.Task != nil {
+	if snapshot, snapshotErr := frontendOfTestService(service).SnapshotOf(sessionID); snapshotErr == nil && snapshot.Task != nil {
 		outcome.snapshotRecords = append([]model.ContextCompaction(nil), snapshot.Task.ContextCompactions...)
 	}
 	return outcome

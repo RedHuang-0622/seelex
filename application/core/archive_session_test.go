@@ -137,7 +137,7 @@ func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T) {
 	sessions.add("project-1", "session-b")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle after project add: %v", err)
 	}
 	if got := len(service.Snapshot().Sessions); got != 2 {
@@ -147,7 +147,7 @@ func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T) {
 	if err := service.ArchiveSession("session-a"); err != nil {
 		t.Fatalf("ArchiveSession: %v", err)
 	}
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle after archive: %v", err)
 	}
 	ids := sessionIDsOf(service.Snapshot().Sessions)
@@ -175,7 +175,7 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 	service := archiveTestService(t, sessions)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 

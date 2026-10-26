@@ -168,7 +168,7 @@ func TestCompactionPushesFrameIntoIndex(t *testing.T) {
 
 	// ③ 回执落到了帧正文：segment_id 与摘要来源都在元数据块里，读后感原样嵌入，
 	// 且 readback 段不再说"没有细筛入口"。
-	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestCompactionWithoutIndexFaceReportsDegradedGate(t *testing.T) {
 		t.Fatalf("未装配索引面时门禁 index 关 = %q，want index=unavailable", detail)
 	}
 
-	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestCompactionPushFailureIsReportedNotFatal(t *testing.T) {
 		t.Fatalf("推帧失败应报 error 终局事实：%q", detail)
 	}
 
-	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
 	}
 
 	// ③ 帧正文说"没有折出任何完整协议单元"，不得说成"索引面未启用"。
-	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}

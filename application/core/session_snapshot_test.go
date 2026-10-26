@@ -13,7 +13,7 @@ import (
 func TestSessionSnapshotTransportShape(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionID := service.Snapshot().Session.ID
-	snapshot, err := service.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(active): %v", err)
 	}

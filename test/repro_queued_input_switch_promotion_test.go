@@ -86,7 +86,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	if err := harness.app.SubmitToSession(ctx, sessionA, "queued for A"); err != nil {
 		t.Fatalf("submit queued for A: %v", err)
 	}
-	snapA, err := harness.app.SnapshotOf(sessionA)
+	snapA, err := harness.frontend.SnapshotOf(sessionA)
 	if err != nil {
 		t.Fatalf("SnapshotOf(A): %v", err)
 	}
@@ -132,7 +132,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	case number := <-sent:
 		t.Logf("队列提升发出新请求 #%d", number)
 	case <-time.After(15 * time.Second):
-		snapA, _ = harness.app.SnapshotOf(sessionA)
+		snapA, _ = harness.frontend.SnapshotOf(sessionA)
 		t.Fatalf("RED: A 队列里的输入没有发出去（A.Chat=%+v，provider %s）\n%s",
 			snapA.Chat, provider.debug(), allGoroutineStacks())
 	}
@@ -141,7 +141,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	if err := harness.app.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
-	snapA, err = harness.app.SnapshotOf(sessionA)
+	snapA, err = harness.frontend.SnapshotOf(sessionA)
 	if err != nil {
 		t.Fatalf("SnapshotOf(A) after idle: %v", err)
 	}

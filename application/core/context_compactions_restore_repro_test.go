@@ -113,7 +113,7 @@ func TestReproCompactionStackSurvivesProcessRestart(t *testing.T) {
 
 	// 判据 1：驻留读面的任务面必须带压缩记录（右栏「上下文压缩」的唯一来路）。
 	// 两条判据都想在同一轮里看清，所以这一条先报错不中断。
-	snapshot, err := service.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}
@@ -155,7 +155,7 @@ func TestReproCompactionStackVisibleWithoutProjection(t *testing.T) {
 	store.record.Projection = nil
 	service := coldResume(t, store, sessionID)
 
-	snapshot, err := service.SnapshotOf(sessionID)
+	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

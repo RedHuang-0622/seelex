@@ -15,10 +15,6 @@ import (
 func TestMigratedServiceMethodsRemainOneLineForwards(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
 	targets := map[string]bool{
-		"WorkItemExecutionFor":       true,
-		"TeammateInspectionFor":      true,
-		"TeammateSessionLiveFor":     true,
-		"TeammateSessionLivePageFor": true,
 		"UpdateWorkItemStatus":       true,
 		"ListSubagentRecovery":       true,
 		"ResumeInterruptedSubagents": true,
@@ -51,12 +47,6 @@ func TestMigratedServiceMethodsRemainOneLineForwards(t *testing.T) {
 		"UnloadSession":              true,
 		"ArchiveSession":             true,
 		"SetSessionMeta":             true,
-		"SessionMeta":                true,
-		"ListSessions":               true,
-		"WaitCatalogRefresh":         true,
-		"SnapshotOf":                 true,
-		"GetSessionTranscript":       true,
-		"SessionInputIndex":          true,
 		"BeginGracefulShutdown":      true,
 		"WaitForIdle":                true,
 		"AnyChatRunning":             true,

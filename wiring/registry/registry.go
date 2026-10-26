@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/core"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
@@ -121,6 +122,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
 func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
+	frontend := applicationcompat.New(app)
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -157,7 +159,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 		if sessionID == "" {
 			sessionID = app.Snapshot().Session.ID
 		}
-		result, err := board.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
+		result, err := board.ReadProjectBoard(st, request, frontend.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
@@ -189,6 +191,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 }
 
 func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
+	frontend := applicationcompat.New(app)
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -233,7 +236,7 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			if sessionID == "" {
 				sessionID = app.Snapshot().Session.ID
 			}
-			renderRoot := app.ProjectRootFor(sessionID)
+			renderRoot := frontend.ProjectRootFor(sessionID)
 			if renderRoot == "" {
 				renderRoot = builder.Root()
 			}

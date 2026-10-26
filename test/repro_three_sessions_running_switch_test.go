@@ -217,7 +217,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 关键断言 2：切到的会话上下文不丢失、不串台。
 	assertOwnContext := func(sid, ownText string) {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}
@@ -243,7 +243,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s) after idle: %v", sid, err)
 		}

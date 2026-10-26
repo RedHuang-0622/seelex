@@ -145,7 +145,7 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	// 先让目录 worker 完成首轮枚举（其标题回退也会走历史读，避免与冷加载
 	// 门闩混淆）。
 	settleCtx, cancelSettle := context.WithTimeout(context.Background(), 5*time.Second)
-	err := service.WaitCatalogRefresh(settleCtx)
+	err := frontendOfTestService(service).WaitCatalogRefresh(settleCtx)
 	cancelSettle()
 	if err != nil {
 		t.Fatalf("catalog settle: %v", err)
@@ -241,7 +241,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := service.WaitCatalogRefresh(ctx); err != nil {
+	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 	snapshot := service.Snapshot()
@@ -252,7 +252,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	if !containsSessionID(rows, "draft-current") {
 		t.Fatalf("current draft missing from list: %v", rows)
 	}
-	listed := service.ListSessions()
+	listed := frontendOfTestService(service).ListSessions()
 	if containsSessionID(sessionIDsOf(listed), "draft-old") {
 		t.Fatalf("stale draft visible in ListSessions: %v", listed)
 	}

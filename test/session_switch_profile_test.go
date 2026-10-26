@@ -74,7 +74,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	}
 	assertView := func(sid, own, forbidden string) {
 		t.Helper()
-		snap, err := harness.app.SnapshotOf(sid)
+		snap, err := harness.frontend.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}

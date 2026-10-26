@@ -31,6 +31,11 @@
 `RawRows`/`DiskTotal` 用于判断发布点。`Application` 只负责分页顺序，所有磁盘读取
 与窗口安装均由 narrow deps 执行。
 
+`WindowAssembler` 是本包定义的消费方端口，包含 `ReplaceTail`、`Prepend`、
+`DurableRows`、`IndexOfSameRow`、`ContainsSameRow`、`HasRowIdentity`。后两项来自
+真实冷读扩窗调用，不能在 core 重写行身份判断。实现由
+`middle/switch/history.Assembler` 唯一提供，Wiring 在构造 core 时注入。
+
 ## 数据流
 
 兼容 `Service` 入口 → `history.Application` → `ReadViewState` → 外部冷读回调 →
@@ -38,8 +43,8 @@
 
 ## 依赖方向
 
-只依赖 `middle/protocol/model` 与标准库；禁止依赖 `application/core`、`store`、
-`backend` 或 GUI/TUI。
+只依赖 `middle/protocol/model`、自身端口和标准库；禁止依赖
+`application/core`、`store`、`backend` 或 GUI/TUI。
 
 ## 并发与错误
 
@@ -71,6 +76,7 @@ go test ./application/... -count=1
 
 ### `application.go`
 
+- `type WindowAssembler interface` — 历史窗口装配的消费方端口（六方法，仅纯消息值）。
 - `func (page Page) ReachesPublishedTail() bool` — 判断页是否到达持久化发布尾。
 - `func New(deps Deps) *Application` — 构造历史分页应用。
 - `func (application *Application) LoadMoreHistory(limit int) error` — 前置更早一页。

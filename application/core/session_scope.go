@@ -522,15 +522,6 @@ func (service *Service) ActivateSession(sessionID string) error {
 	return service.resumeSession(sessionID)
 }
 
-// SnapshotOf 返回指定会话的权威**会话快照**（G3 分型：SessionSnapshot，
-// 传输完备且只含本会话事实——不带进程级目录/工作区/能力清单；进程制品见
-// ProcessSnapshot）。活跃会话与其它已驻留（LIVE）会话走同一条组装路径：
-// 会话身份/可见对话/聊天运行态/会话运行原件（本会话槽）/task/工作表格/
-// 子代理树/本会话 revision（INV-G5，与进程 revision 分离）。
-func (service *Service) SnapshotOf(sessionID string) (model.SessionSnapshot, error) {
-	return service.components.sessionQuery.SnapshotOf(sessionID)
-}
-
 func (service *Service) readSnapshotOf(sessionID string) (model.SessionSnapshot, error) {
 	return applicationsessionquery.ReadSnapshot(sessionID, applicationsessionquery.SnapshotReadDeps{
 		State: func(id string) applicationsessionquery.SnapshotReadState {
