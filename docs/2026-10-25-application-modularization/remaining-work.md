@@ -5,8 +5,8 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-048；`newService*` 构造适配审计已完成，下一步处理
-共享状态/生命周期入口、会话主循环与剩余 Application 具体依赖。**
+EP-001～EP-055；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
+下一步处理会话主循环与剩余 Application 具体依赖。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -15,13 +15,13 @@ EP-001～EP-048；`newService*` 构造适配审计已完成，下一步处理
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 11 |
+| `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle 依赖包 | 26，Store 为 0 |
-| `application/core` 生产文件 | 68 |
-| `application/core` 生产代码 | 10,243 行 |
+| `application/core` 生产文件 | 67 |
+| `application/core` 生产代码 | 9,947 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 58 个文件和 8,480 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 59 个文件和 8,776 行。
 
 ## 裁决已冻结
 
@@ -748,7 +748,7 @@ core 只保留 `FrontendPorts` 装配快照。删除
 指标：Service 公开方法 98 → 83；core 直接内部依赖 34 → 33；core 文件
 123 → 121；core 生产代码 12,538 → 12,463 行。
 
-当前剩余 11 个方法的结构分类：
+当前剩余 0 个方法：
 
 外部依赖拆除的端口设计见 [`port-migration-plan.md`](port-migration-plan.md)。
 
@@ -757,9 +757,7 @@ core 只保留 `FrontendPorts` 装配快照。删除
 
 | 能力 | core 方法 | 暂留原因 |
 |---|---|---|
-| Snapshot/会话视图 | `Snapshot`、`ConversationView`、`ConversationChat`、`RecoverConversation` | 共享 `ViewMu`、视图会话和恢复状态 |
-| 提交/会话切换 | `Submit`、`SubmitToSession`、`ForkSession`、`ForkSessionLatest` | 草稿物化、队列提升、运行守卫与引擎生命周期 |
-| 交互/事件/终态 | `ResolveInteraction`、`HandleRoleToolActivity`、`TaskTerminalHandler` | 跨组件锁内提交、Session 级事件发布与 Task 终态写入 |
+| 无 | — | 公开业务入口均已迁到 capability package 或 compat facade |
 
 ToolRecord 公开入口已由 EP-046D 移到 `application/compat.Frontend`，core 只保留
 草稿可写判据、主代理 outcome 和 shutdown 全量 flush 三个内部 host adapter。

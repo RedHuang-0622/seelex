@@ -6,15 +6,18 @@ import (
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
+	"github.com/RedHuang-0622/seelex/application/event"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -29,6 +32,25 @@ func (service *Service) assembleExecutionApplication(reader applicationexecution
 		Runtime: service.Deps.Runtime, BoardView: reader.BoardViewFor,
 		SessionLive: reader.SessionLiveFor, SessionPage: reader.SessionLivePageFor,
 		RefreshTodo: service.refreshRuntimeAfterTodoChange,
+	})
+}
+
+func (service *Service) assembleRoleActivityApplication() {
+	service.components.roleActivity = applicationexecution.NewRoleActivity(applicationexecution.RoleActivityDeps{
+		RequestID: func() string {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.Core.Snapshot.Chat.RequestID
+		},
+		EvidenceChars: func() int { return applicationpolicy.Get().EvidenceChars },
+		Truncate:      applicationtable.TruncateWorkEvidence,
+		Stage:         service.stageUnitToolOutcomeForStatus,
+		Publish: func(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) {
+			service.publishSessionEvent(kind, revision, requestID, sessionID, payload)
+		},
+		NoteDropped:   service.noteDroppedToolRecordReading,
+		StartedKind:   EventTeammateToolStarted,
+		CompletedKind: EventTeammateToolCompleted,
 	})
 }
 
@@ -179,6 +201,93 @@ func (service *Service) assembleConversationQueueApplication() {
 		PublishChatState: service.publishChatStateFor,
 		TurnState:        service.components.conversationTurnState,
 		DrainingError:    ErrApplicationDraining,
+	})
+}
+
+func (service *Service) assembleConversationSessionApplication() {
+	var agents contract.AgentConversationPort
+	if service.Deps.Runtime != nil {
+		agents, _ = service.Deps.Runtime.(contract.AgentConversationPort)
+	}
+	service.components.conversationSession = applicationconversation.NewUnified(applicationconversation.UnifiedDeps{
+		SnapshotOf: service.components.sessionQuery.SnapshotOf,
+		Records:    service.components.sessionRecords,
+		Agents:     agents,
+		SubmitToSession: func(ctx context.Context, sessionID, text string) error {
+			return service.components.submitApplication.SubmitToSession(ctx, sessionID, text)
+		},
+		SnapshotUnavailable: ErrSessionSnapshotUnavailable,
+	})
+}
+
+func (service *Service) assembleSubmissionApplication() {
+	service.components.submission = applicationinput.NewSubmission(applicationinput.SubmissionDeps{
+		Lifecycle: func() (bool, bool) {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.closed, service.draining
+		},
+		ShutdownError: errors.New("application is shut down"),
+		DrainingError: ErrApplicationDraining,
+		Dispatch:      service.components.input.Dispatch,
+	})
+}
+
+func (service *Service) assembleInteractionApplication() {
+	service.components.interactionApplication = applicationsession.NewInteraction(applicationsession.InteractionDeps{
+		Current: func() *model.Interaction {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.Core.Snapshot.Interaction
+		},
+		PendingApprovalSession: func(id string) (string, bool) {
+			if service.Approval == nil {
+				return "", false
+			}
+			return service.pendingApprovalSession(id)
+		},
+		ResolveApproval: func(id, optionID string) error {
+			return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
+		},
+		CloseInteraction: service.closeInteraction,
+		ResumeSession:    service.components.sessionResume.Resume,
+		AddNotice:        service.components.view.AddNotice,
+		SelectAccount:    service.components.adminApplication.SelectAccount,
+	})
+}
+
+func (service *Service) assembleForkApplication() {
+	service.components.forkApplication = applicationsession.NewFork(applicationsession.ForkDeps{
+		TransitionForKey: service.transitionForKey,
+		ForkLocked:       service.forkSessionLocked,
+		LatestForkCut: func(parentID string) (uint64, error) {
+			location := service.components.sessions.LocateSession(parentID)
+			return service.components.sessions.LatestForkCut(location, parentID)
+		},
+		Resume: service.components.sessionResume.Resume,
+	})
+}
+
+func (service *Service) assembleSubmitApplication() {
+	service.components.submitApplication = applicationsession.NewSubmit(applicationsession.SubmitDeps{
+		Materialize: service.components.sessionDraftSubmission.Materialize,
+		Loaded: func(sessionID string) (bool, bool) {
+			service.ViewMu.RLock()
+			loaded := service.sessionLoaded(sessionID)
+			service.ViewMu.RUnlock()
+			return loaded, service.sessionContentUnloaded(sessionID)
+		},
+		Resume: service.components.sessionResume.Resume,
+		Submit: service.submitConversationFor,
+	})
+}
+
+func (service *Service) assembleTerminalHandlerApplication() {
+	service.components.terminalHandler = task_context.NewTerminalHandler(task_context.TerminalHandlerDeps{
+		EnsurePlanProjection: service.ensureViewPlanProjection,
+		VerifyAndApply:       service.components.tasks.VerifyAndApply,
+		MirrorTask:           service.mirrorActiveTaskAfterTerminal,
+		MirrorPlan:           service.mirrorActivePlanAfterTerminal,
 	})
 }
 
@@ -361,6 +470,29 @@ func (service *Service) assemblePolicySwitchApplication() {
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 			service.publishRuntimeProjections()
 		},
+	})
+}
+
+func (service *Service) assembleFrontendSnapshotApplication() {
+	service.components.frontendSnapshot = view_state.NewSnapshotApplication(service.components.view, view_state.SnapshotDeps{
+		Status: service.sessionStatusLocked,
+		DraftRow: func() *model.SessionInfo {
+			if service.draft == nil || service.draft.ID == "" {
+				return nil
+			}
+			slot := *service.draft
+			return &model.SessionInfo{
+				ID:        slot.ID,
+				Name:      draftSessionName,
+				UpdatedAt: slot.UpdatedAt,
+				Status:    SessionStatusDraft,
+			}
+		},
+		Annotate:              service.components.editForkAnnotation.Annotate,
+		LatestTranscriptSeq:   service.components.tasks.LatestTranscriptSeqFor,
+		ProjectDraftWorkspace: service.projectDraftWorkspaceLocked,
+		WithLiveRows:          service.withLiveSessionRowsLocked,
+		EnrichRows:            service.enrichDirectoryRowsLocked,
 	})
 }
 

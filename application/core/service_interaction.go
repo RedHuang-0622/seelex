@@ -1,57 +1,11 @@
 package core
 
 import (
-	"context"
 	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
-	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
 	"time"
 )
-
-func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
-	service.ViewMu.RLock()
-	interaction := service.Core.Snapshot.Interaction
-	service.ViewMu.RUnlock()
-	if interaction == nil || interaction.ID != id {
-		// 波 4 approval 会话级归属：待批可能不在视图单格（后台会话卡在
-		// 审批、或单格已被下一笔覆盖）。broker 仍持有时按 id 直接结案；
-		// 非 approval 交互（session/account/plan_retry）保持视图单格校验。
-		if service.Approval != nil {
-			if _, ok := service.pendingApprovalSession(id); ok {
-				return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
-			}
-		}
-		return ErrInteractionNotFound
-	}
-	if optionID == switching.InteractionCancelOptionID {
-		if interaction.Kind == switching.InteractionKindApproval {
-			return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
-		}
-		service.closeInteraction(id)
-		return nil
-	}
-	switch interaction.Kind {
-	case switching.InteractionKindApproval:
-		return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
-	case switching.InteractionKindSession:
-		if err := service.components.sessionResume.Resume(optionID); err != nil {
-			service.components.view.AddNotice("恢复失败: " + err.Error())
-			service.closeInteraction(id)
-			return err
-		}
-	case switching.InteractionKindAccount:
-		if err := service.components.adminApplication.SelectAccount(context.Background(), optionID); err != nil {
-			service.components.view.AddNotice("账号切换失败: " + err.Error())
-			service.closeInteraction(id)
-			return err
-		}
-	default:
-		return switching.UnsupportedInteractionKind(interaction.Kind)
-	}
-	service.closeInteraction(id)
-	return nil
-}
 
 // pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
 // （跨会话待批解析/镜像判定用；集合小，线性扫描可接受）。
@@ -203,7 +157,7 @@ func (service *Service) closeInteraction(id string) {
 }
 
 func (service *Service) sessionInteraction() *model.Interaction {
-	sessions := service.Snapshot().Sessions
+	sessions := service.components.frontendSnapshot.Snapshot().Sessions
 	choices := make([]switching.SessionChoice, 0, len(sessions))
 	for _, session := range sessions {
 		choice := switching.SessionChoice{

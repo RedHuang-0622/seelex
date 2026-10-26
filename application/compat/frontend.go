@@ -13,6 +13,7 @@ import (
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/core"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationtaskcontext "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
@@ -83,6 +84,25 @@ func (frontend *Frontend) conversationQueue() *applicationconversation.QueueAppl
 	return frontend.ports.ConversationQueue
 }
 
+func (frontend *Frontend) conversationSession() *applicationconversation.UnifiedApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.ConversationSession
+}
+
+func (frontend *Frontend) ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
+	return frontend.conversationSession().View(ctx, ref, request)
+}
+
+func (frontend *Frontend) ConversationChat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error) {
+	return frontend.conversationSession().Chat(ctx, ref, request)
+}
+
+func (frontend *Frontend) RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error) {
+	return frontend.conversationSession().Recover(ctx, ref)
+}
+
 func (frontend *Frontend) history() *applicationhistory.Application {
 	if frontend == nil {
 		return nil
@@ -97,11 +117,70 @@ func (frontend *Frontend) execution() *applicationexecution.WorkItemApplication 
 	return frontend.ports.Execution
 }
 
+func (frontend *Frontend) roleActivity() *applicationexecution.RoleActivityApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.RoleActivity
+}
+
+func (frontend *Frontend) HandleRoleToolActivity(activity dto.RoleToolActivity) {
+	frontend.roleActivity().Handle(activity)
+}
+
 func (frontend *Frontend) historySearch() *conversationsearch.Application {
 	if frontend == nil {
 		return nil
 	}
 	return frontend.ports.HistorySearch
+}
+
+func (frontend *Frontend) interaction() *applicationsession.InteractionApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Interaction
+}
+
+func (frontend *Frontend) fork() *applicationsession.ForkApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Fork
+}
+
+func (frontend *Frontend) sessionSubmit() *applicationsession.SubmitApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Submit
+}
+
+func (frontend *Frontend) SubmitToSession(ctx context.Context, sessionID, text string) error {
+	return frontend.sessionSubmit().SubmitToSession(ctx, sessionID, text)
+}
+
+func (frontend *Frontend) ForkSession(parentID string, request model.ForkRequest) (string, error) {
+	return frontend.fork().Fork(parentID, request)
+}
+
+func (frontend *Frontend) ForkSessionLatest(parentID string) (string, error) {
+	return frontend.fork().ForkLatest(parentID)
+}
+
+func (frontend *Frontend) ResolveInteraction(ctx context.Context, id, optionID string) error {
+	return frontend.interaction().Resolve(ctx, id, optionID)
+}
+
+func (frontend *Frontend) submission() *applicationinput.SubmissionApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.Submission
+}
+
+func (frontend *Frontend) Submit(ctx context.Context, text string) error {
+	return frontend.submission().Submit(ctx, text)
 }
 
 func (frontend *Frontend) goal() *applicationgoal.Application {
@@ -188,11 +267,33 @@ func (frontend *Frontend) tasks() *task_context.Coordinator {
 	return frontend.ports.Tasks
 }
 
+func (frontend *Frontend) terminalHandler() *applicationtaskcontext.TerminalHandlerApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.TerminalHandler
+}
+
+func (frontend *Frontend) TaskTerminalHandler(kind string) func(context.Context, string) (string, error) {
+	return frontend.terminalHandler().Handler(kind)
+}
+
 func (frontend *Frontend) view() *view_state.Coordinator {
 	if frontend == nil {
 		return nil
 	}
 	return frontend.ports.View
+}
+
+func (frontend *Frontend) frontendSnapshot() *view_state.SnapshotApplication {
+	if frontend == nil {
+		return nil
+	}
+	return frontend.ports.FrontendSnapshot
+}
+
+func (frontend *Frontend) Snapshot() model.Snapshot {
+	return frontend.frontendSnapshot().Snapshot()
 }
 
 func (frontend *Frontend) subagentView() *subagent_view.Coordinator {

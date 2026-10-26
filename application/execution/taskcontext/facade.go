@@ -23,8 +23,10 @@ type (
 )
 
 const (
-	ToolComplete  = taskcontext.ToolComplete
-	ToolCheckNode = taskcontext.ToolCheckNode
+	ToolComplete          = taskcontext.ToolComplete
+	ToolCheckNode         = taskcontext.ToolCheckNode
+	ToolFailed            = taskcontext.ToolFailed
+	ToolNeedsUserDecision = taskcontext.ToolNeedsUserDecision
 )
 
 func ActivePlanFrame(stack []model.SessionPlanFrame, activeID string) *model.SessionPlanFrame {

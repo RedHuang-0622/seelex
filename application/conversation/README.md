@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`application/conversation` 承载 Conversation Queue 与 ChatState 的应用编排。
+`application/conversation` 承载 Conversation Queue、ChatState 和统一会话访问面的应用编排。
 `SessionUnit` 仍是队列内容和 ChatState 的唯一状态所有者；`conversation/context`
 和 `conversation/search` 为子域包。
 
@@ -13,6 +13,7 @@
 - 关闭/排空门禁。
 - assistant 推理步骤与可见消息的配对回填。
 - 单个 ChatTurn 从输入准备到 commit/finalize 的应用编排。
+- 统一 main/subagent/teammate 会话的 View、Chat、Recover 路由。
 
 ## 非职责
 
@@ -41,6 +42,8 @@
 - `stream.go`：`StreamOutputPort`、可见输出与 batcher 的消费方契约。
 - `session_access.go`：统一会话读面与 `SessionRecordsPort`；分页、UTF-8
   裁剪仍由 Middle 的唯一分页实现拥有。
+- `unified.go`：`UnifiedApplication` 负责 main/subagent/teammate 路由、
+  主会话记录投影、恢复分类和 Submit 委托；不持有 Session 或 Chat 状态。
 - `turn_runner.go`：`runChat` 对应的输入→stream→recovery→cleanup→commit→finalize 编排。
 - `query/`：ConversationHistoryQuery。
 - `context/`：Context Compaction。
@@ -52,6 +55,10 @@ Conversation 定义 `StreamOutputPort` 与 `SessionRecordsPort`；Wiring 分别�
 `backend/engine/react` 的可见输出/batcher 实现和
 `middle/view/sessionaccess.PaginateRecords`。`application/core` 不再 import
 engine/react 或 sessionaccess。
+
+`UnifiedApplication` 只接收 Session Snapshot 查询、Record 分页、
+`AgentConversationPort` 与 `SubmitToSession` 回调。GUI/headless 经
+`application/compat.Frontend` 使用同一方法签名，core 不再保存统一会话适配器。
 
 ## 并发与错误
 

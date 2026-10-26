@@ -19,7 +19,7 @@ func (service *Service) registerBuiltinCommands() error {
 		},
 		History:  service.Deps.Engine.History,
 		Trace:    service.Deps.Engine.TraceText,
-		Sessions: func() []model.SessionInfo { return service.Snapshot().Sessions },
+		Sessions: func() []model.SessionInfo { return service.components.frontendSnapshot.Snapshot().Sessions },
 		Diag: func() string {
 			service.ViewMu.RLock()
 			snapshot := service.Core.Snapshot
@@ -62,7 +62,7 @@ func (service *Service) registerBuiltinCommands() error {
 				service.ViewMu.RUnlock()
 				return currentID, draft
 			},
-			Fork:               service.ForkSessionLatest,
+			Fork:               service.components.forkApplication.ForkLatest,
 			AccountInteraction: service.accountInteraction,
 			Plugins: func() ([]model.PluginInfo, model.PluginInfo, bool) {
 				current, ok := service.Deps.Plugins.Current()

@@ -40,7 +40,7 @@ func (port serviceAdminProjectionPort) CurrentViewSessionID() string {
 }
 
 func (port serviceAdminProjectionPort) RuntimeSnapshot() model.RuntimeState {
-	return port.service.Snapshot().Runtime
+	return port.service.components.frontendSnapshot.Snapshot().Runtime
 }
 
 func (port serviceAdminProjectionPort) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState) {

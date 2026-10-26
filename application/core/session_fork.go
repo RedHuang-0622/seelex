@@ -21,50 +21,6 @@ import (
 // DAG 建子代理现场，存储侧落 `subagent_<hash>/` 子树、不建独立 blob 目录、
 // 大工具输出引用主会话 `big_tool_result`（见 `store/fork_store.go` 头部、
 // my_design §8.1/§8.2），派发链不经过 `PrepareFork`，因此没有这条按 ref 裁剪。
-func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error) {
-	parentID = strings.TrimSpace(parentID)
-	if parentID == "" {
-		return "", errors.New("session ID is required")
-	}
-	transition := service.transitionForKey(parentID)
-	transition.Lock()
-	childID, err := service.forkSessionLocked(parentID, request)
-	transition.Unlock()
-	if err != nil {
-		return "", err
-	}
-	if err := service.components.sessionResume.Resume(childID); err != nil {
-		return childID, fmt.Errorf("fork created session %q but switching failed: %w", childID, err)
-	}
-	return childID, nil
-}
-
-// ForkSessionLatest 从父会话最新完整段落边界创建独立子会话并切换到子会话
-// 继续（GUI/TUI 默认 fork 入口；精细切断点用 ForkSession + ForkRequest）。
-// 与 ForkSession 同属会话分叉口径；子代理派发（ForkSubagent）不走本入口。
-func (service *Service) ForkSessionLatest(parentID string) (string, error) {
-	parentID = strings.TrimSpace(parentID)
-	if parentID == "" {
-		return "", errors.New("session ID is required")
-	}
-	transition := service.transitionForKey(parentID)
-	transition.Lock()
-	location := service.components.sessions.LocateSession(parentID)
-	cut, err := service.components.sessions.LatestForkCut(location, parentID)
-	var childID string
-	if err == nil {
-		childID, err = service.forkSessionLocked(parentID, model.ForkRequest{EventSeq: cut})
-	}
-	transition.Unlock()
-	if err != nil {
-		return "", err
-	}
-	if err := service.components.sessionResume.Resume(childID); err != nil {
-		return childID, fmt.Errorf("fork created session %q but switching failed: %w", childID, err)
-	}
-	return childID, nil
-}
-
 // forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
 // 截断后的子会话快照 → 写入子会话键 → 绑定项目并切换写作用域。
 // 只检查父会话自身是否运行中（并行会话的其它会话执行不影响 fork）。

@@ -40,7 +40,7 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 
 前端兼容适配器已迁到 `application/compat`。本包只通过 `NewFrontendPorts`
 提供一份窄组件快照，不再保存账号、角色、Workspace 与输入查询的公开转发方法。
-当前 compat 承接旧入口；Service 只保留 11 个仍依赖共享会话状态/生命周期的方法。
+当前 compat 承接旧入口；Service 只保留 8 个仍依赖共享会话状态/生命周期的方法。
 compat 中的代表性入口包括：
 
 - `Suggestions`
@@ -265,7 +265,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func (service *Service) projectBoardSink() applicationexecution.ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
 - `func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error)`
-- `func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity)` — handleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 
 ### service_account_test.go
 
@@ -321,15 +320,23 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 ### service_assembler_applications.go
 
 - `func (service *Service) assembleExecutionApplication(reader applicationexecution.BoardReader)`
+- `func (service *Service) assembleRoleActivityApplication()`
 - `func (service *Service) assembleRoleApplication()`
 - `func (service *Service) assembleReviewApplication()`
 - `func (service *Service) assembleHistorySearchApplication()`
 - `func (service *Service) assembleProjectBoardQuery()`
 - `func (service *Service) assemblePerfStatsApplication()`
 - `func (service *Service) assembleConversationQueueApplication()`
+- `func (service *Service) assembleConversationSessionApplication()`
+- `func (service *Service) assembleSubmissionApplication()`
+- `func (service *Service) assembleInteractionApplication()`
+- `func (service *Service) assembleForkApplication()`
+- `func (service *Service) assembleSubmitApplication()`
+- `func (service *Service) assembleTerminalHandlerApplication()`
 - `func (service *Service) assembleFaultGuardApplication()`
 - `func (service *Service) assembleGoalApplication(hostSessionForToolCall func(context.Context) string)`
 - `func (service *Service) assemblePolicySwitchApplication()`
+- `func (service *Service) assembleFrontendSnapshotApplication()`
 - `func (service *Service) assembleSubagentApplication()`
 
 ### service_assembler_capabilities.go
@@ -562,6 +569,11 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (repo *fakeWorkspace) AllBindings() map[string]string`
 - `func (*fakeWorkspace) DetectGitRemote(string) string`
 
+### service_fork_legacy_test.go
+
+- `func (service *Service) ForkSession(parentID string, request protocol.ForkRequest) (string, error)` — ForkSession and ForkSessionLatest are test-only compatibility shims.
+- `func (service *Service) ForkSessionLatest(parentID string) (string, error)`
+
 ### service_helpers_test.go
 
 - `func frontendOfTestService(service *Service) *Frontend` — frontendOfTestService adapts a test service to the migrated frontend entry
@@ -593,7 +605,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 - `func (service *Service) clearEngineHistoryFor(sessionID string)` — clearEngineHistoryFor 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
-- `func (service *Service) Submit(ctx context.Context, text string) error`
 - `func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64` — enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），
 - `func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest)` — afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
@@ -620,7 +631,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_interaction.go
 
-- `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
 - `func (service *Service) reapplyEffortAfterPluginSwitch()` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
@@ -643,6 +653,10 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T)` — TestEffortAndPluginGuardsAroundRunningSessions 覆盖 G0b 守卫：
 - `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
 - `func TestPluginSwitchPreservesEffort(t *testing.T)` — TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
+
+### service_interaction_legacy_test.go
+
+- `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error` — ResolveInteraction is a test-only compatibility shim.
 
 ### service_knobs.go
 
@@ -728,6 +742,10 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails(t *testing.T)` — TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails：落盘失败 ⇒ 整步
 - `func TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly(t *testing.T)` — TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly：宿主没装配落盘口 ⇒
 
+### service_role_activity_legacy_test.go
+
+- `func (service *Service) HandleRoleToolActivity(activity dto.RoleToolActivity)` — HandleRoleToolActivity is a test-only compatibility shim.
+
 ### service_scheduler.go
 
 - `func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec`
@@ -760,7 +778,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_snapshot.go
 
-- `func (service *Service) Snapshot() model.Snapshot` — Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
 - `func (service *Service) projectDraftWorkspaceLocked(snapshot *model.Snapshot)` — projectDraftWorkspaceLocked 把草稿的工作区绑定补进 `session_workspaces`
 - `func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — withLiveSessionRowsLocked 把「内存里活着、目录里还没有」的会话补进目录行
 - `func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
@@ -796,6 +813,14 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (engine *stopQueueEngine) recordedInputs() []string`
 - `func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T)` — TestStopFlushesQueuedInputsIntoTheNextTurn 钉住停止按钮的第三条语义：点停止后清空
 
+### service_submit_session_legacy_test.go
+
+- `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession is a test-only compatibility shim.
+
+### service_task_terminal_legacy_test.go
+
+- `func (service *Service) TaskTerminalHandler(kind string) func(context.Context, string) (string, error)` — TaskTerminalHandler is a test-only compatibility shim.
+
 ### service_test.go
 
 - `func TestNewTestServiceCleansUpCatalogWorker(t *testing.T)`
@@ -823,6 +848,14 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestResumedChatPersistsToSelectedSession(t *testing.T)`
 - `func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T)`
 - `func TestResumeCommandOpensSessionInteraction(t *testing.T)`
+
+### snapshot_legacy_test.go
+
+- `func (service *Service) Snapshot() protocol.Snapshot` — Snapshot is a test-only compatibility shim for the existing core integration
+
+### submission_legacy_test.go
+
+- `func (service *Service) Submit(ctx context.Context, text string) error` — Submit is a test-only compatibility shim for core integration tests.
 
 ### teamwork_board_projection_test.go
 

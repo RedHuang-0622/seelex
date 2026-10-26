@@ -5291,16 +5291,122 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：恢复 Application 对 Store 类型的直接依赖和 Runtime 探测，删除
   Wiring Goal 适配。
 
+## EP-049：统一 Conversation 适配迁入 conversation 包
+
+- `ConversationView`、`ConversationChat`、`RecoverConversation` 的唯一实现从
+  `application/core/conversation_session.go` 迁入
+  `application/conversation.UnifiedApplication`；
+- 主会话使用 `SnapshotOf`、`SessionRecordsPort` 与 `SubmitToSession` 三个窄
+  回调；subagent/teammate 继续委托 `contract.AgentConversationPort`；
+- `FrontendPorts.ConversationSession` 注入 compat；GUI/headless 原方法签名与
+  wire 不变，旧 `Service` 同名方法退出；
+- 红测：`NewUnified` 尚不存在时
+  `TestUnifiedApplicationRoutesMainAndAgentConversations` 编译失败；迁移后
+  主会话、缺失快照、teammate 路由和 Submit 参数全部通过；
+- 记录投影、恢复分类测试随 owner 迁入 `application/conversation`；
+- `Service` 公开方法 11 → 8；core 生产文件 68 → 67，生产代码
+  10,243 → 10,065 行；
+- GUI/TUI wire、事件 revision/seq、Snapshot 与持久化 JSON 均未改变；
+- 回退方式：恢复 core 统一适配文件，并让 compat 调用 `Service` 原方法。
+
+## EP-050：Frontend Snapshot 组合迁入 viewstate
+
+- `Snapshot` 的状态富化、草稿行注入、编辑标注、revision 和目录 row enrichment
+  唯一实现迁入 `application/session/viewstate.SnapshotApplication`；
+- core 只注入既有 `*Locked` 回调；生产内部消费点改读
+  `service.components.frontendSnapshot.Snapshot()`，不再经过公开 `Service` 方法；
+- `application/compat.Frontend.Snapshot` 直接消费同一组件；
+- 红测：`NewSnapshotApplication` 尚不存在时
+  `TestFrontendSnapshotProjectsDraftRowsAndHostEnrichment` 编译失败；迁移后
+  revision、draft row、annotation、live rows 与 enrich 顺序通过；
+- 现有 core 集成测试通过 `_test.go` 单行 shim 保留 `Snapshot` 调用面；
+- `Service` 公开方法 8 → 7；core 生产代码 10,065 → 10,044 行；
+- GUI/TUI wire、revision/seq 与 Snapshot JSON 字段不变；
+- 回退方式：恢复 core `Snapshot` 方法并让 compat 调回。
+
+## EP-051：输入受理门禁迁入 input.Application
+
+- `Submit` 的 closed/draining 门禁、空白裁剪和 dispatcher 委托迁入
+  `application/input.SubmissionApplication`；
+- core 组合根只注入生命周期读回调与已装配的 `InputDispatcher`；
+- GUI/TUI/headless 的 `Submit` 签名不变，由 `compat.Frontend` 直接消费新组件；
+- 红测：`NewSubmission` 尚不存在时
+  `TestSubmissionApplicationPreservesLifecycleAndDispatch` 编译失败；迁移后
+  closed、draining、空白与正常分发语义通过；
+- core 集成测试通过 `_test.go` 单行 shim 保留 `Submit`；
+- `Service` 公开方法 7 → 6；core 生产代码 10,044 → 10,043 行；
+- GUI/TUI wire、事件 revision/seq 与持久化格式不变；
+- 回退方式：恢复 core `Submit` 并让 compat 调回。
+
+## EP-052：Task 终态 handler 迁入 taskcontext
+
+- `TaskTerminalHandler` 的 Plan 基线补种、`VerifyAndApply`、Task 镜像及
+  check/complete 后的 Plan 镜像顺序迁入
+  `application/execution/taskcontext.TerminalHandlerApplication`；
+- `ToolFailed`、`ToolNeedsUserDecision` 词表补入 Application identity facade；
+- core 仅注入已有 `*AfterTerminal` host 回调；wiring registry 继续通过
+  `Frontend.TaskTerminalHandler` 注册同名工具；
+- 红测：`NewTerminalHandler` 尚不存在时
+  `TestTerminalHandlerPreservesProjectionOrder` 编译失败；迁移后成功/失败两条
+  镜像顺序通过；
+- core 集成测试通过 `_test.go` 单行 shim 保留同名方法；
+- `Service` 公开方法 6 → 5；core 生产代码 10,043 → 10,039 行；
+- GUI/TUI wire、事件 revision/seq 与 Task/Plan 持久化不变；
+- 回退方式：恢复 core handler 并让 compat 调回。
+
+## EP-053：Role Tool Activity 迁入 execution
+
+- `HandleRoleToolActivity` 的归属校验、EvidenceChars 截断、started/completed
+  分类、ToolRecord stage 和 session event 发布唯一实现迁入
+  `application/execution.RoleActivityApplication`；
+- core 只注入请求 ID 读锁、截断、ToolRecord stage、诊断计数与事件发布回调；
+- 红测：`NewRoleActivity` 尚不存在时
+  `TestRoleActivityApplicationRoutesStagesAndPublishes` 编译失败；迁移后
+  drop、running/failed 分类、stage 参数、截断与事件路由通过；
+- core 原有真实事件链测试通过 `_test.go` 单行 shim 保留入口；
+- `Service` 公开方法 5 → 4；core 生产代码 10,039 → 10,015 行；
+- GUI/TUI wire、revision=0 语义、ToolRecord 持久化 JSON 不变；
+- 回退方式：恢复 core 方法并让 compat 调回。
+
+## EP-054：Interaction 决议迁入 session
+
+- `ResolveInteraction` 的视图单格校验、后台 approval 反查、cancel、
+  Session restore 与 Account switch 决策树迁入
+  `application/session.InteractionApplication`；
+- Session 恢复失败、账号切换失败的 notice + close 顺序保持不变；
+- core 只注入当前交互读锁、approval broker、resume/account/notice/close 回调；
+- 红测：`NewInteraction` 尚不存在时 `TestInteractionApplication...` 编译失败；
+  迁移后 view approval、后台 approval、missing、Session 失败路径通过；
+- core 集成测试通过 `_test.go` 单行 shim 保留入口；
+- `Service` 公开方法 4 → 3；core 生产代码 10,015 → 9,997 行；
+- GUI/TUI wire、approval 事件 revision/seq 与持久化不变；
+- 回退方式：恢复 core 方法并让 compat 调回。
+
+## EP-055：Session Fork 与显式提交退场
+
+- `ForkSession`、`ForkSessionLatest` 的父 ID 校验、per-session 过渡锁、
+  latest cut、commit 后 resume 顺序迁入 `application/session.ForkApplication`；
+- `SubmitToSession` 的草稿物化、loaded/content-unloaded 判定、恢复与显式
+  session submit 顺序迁入 `application/session.SubmitApplication`；
+- core 只保留真实 fork snapshot/copy/persist 事务、加载判定和
+  `submitConversationFor`；command 的 fork 入口直接调用唯一组件；
+- 红测：`NewFork` / `NewSubmit` 尚不存在时对应测试编译失败；迁移后 fork
+  request、latest cut、switch failure、materialize/load/resume/submit 顺序通过；
+- core 集成测试通过 `_test.go` 单行 shim 保留旧调用面；
+- `Service` 公开业务方法 3 → 0；core 生产代码 9,997 → 9,947 行；
+- GUI/TUI wire、fork snapshot、queue、事件 revision/seq 与持久化 JSON 不变；
+- 回退方式：恢复两个 core 方法并把 compat 调回。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 11 |
+| `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 68 |
-| core 生产代码 | 18,723 行 | 10,243 行 |
+| core 生产文件 | 126 | 67 |
+| core 生产代码 | 18,723 行 | 9,947 行 |
 
-core 生产代码净减 8,480 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 8,776 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

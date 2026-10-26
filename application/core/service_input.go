@@ -6,7 +6,6 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
-	"strings"
 )
 
 // discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
@@ -74,24 +73,6 @@ func (service *Service) clearEngineHistoryFor(sessionID string) {
 		return
 	}
 	service.Deps.Engine.ClearHistory()
-}
-
-func (service *Service) Submit(ctx context.Context, text string) error {
-	service.ViewMu.RLock()
-	draining := service.draining
-	closed := service.closed
-	service.ViewMu.RUnlock()
-	if closed {
-		return errors.New("application is shut down")
-	}
-	if draining {
-		return ErrApplicationDraining
-	}
-	input := strings.TrimSpace(text)
-	if input == "" {
-		return nil
-	}
-	return service.components.input.Dispatch(ctx, input)
 }
 
 // enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），

@@ -12,7 +12,7 @@ Middle 只提供纯切换、历史和驻留策略。
 ## 职责
 
 - 提供 Session 聚合状态、Snapshot 投影以及 Meta、SSH、Lifecycle、Archive、
-  Delete、Draft、Resume、Fork 与 Release。
+  Delete、Draft、Resume、Fork、Interaction 与 Release。
 - 保持 Application 入站行为与 DTO 身份稳定。
 - 隔离 Session 用例，避免继续扩大 `application/core`。
 
@@ -39,7 +39,11 @@ Middle 只提供纯切换、历史和驻留策略。
 - `resume.go`：hot/restoring/cold 会话选择分支。
 - `restore_recovery.go`：冷恢复失败回退与 fresh draft reset。
 - `fork_lineage.go`：只读取 `forked_from` 的窄 JSON 投影并安全解码，不依赖 Store 载荷类型。
+- `fork.go`：父 ID 校验、per-session 过渡锁、latest cut 与 commit 后 resume。
+- `submit.go`：显式 session 的草稿物化、加载/正文判定、恢复与提交顺序。
 - `restoring_shell.go`：restoring 会话的 Snapshot 空壳投影。
+- `interaction.go`：`InteractionApplication`，统一 approval/session/account
+  决议与失败 notice/close 顺序，不拥有 broker、Session 或 Account 状态。
 - `meta_test.go`：组件读取与 nil 语义测试。
 - `ssh_test.go`：环境交集、固定环境与路径校验测试。
 - `release_test.go`：守卫、flush 和回收顺序测试。
@@ -60,6 +64,14 @@ Middle 只提供纯切换、历史和驻留策略。
 
 `LifecycleApplication`、`ArchiveApplication`、`DeleteApplication` 分别固定 unload、
 archive、delete 的应用顺序；准入与归档判据仍在 middle 层。
+
+`InteractionApplication` 只消费当前视图交互、后台 approval 反查以及
+resume/account/notice/close 回调。审批 broker、Session 恢复和账号切换仍由原 owner
+执行。
+
+`ForkApplication` 只拥有 transition/resume 编排；fork snapshot 深拷贝、持久化与
+workspace 绑定仍由注入的 `ForkLocked` 宿主执行。`SubmitApplication` 只拥有显式
+session 的 admission 顺序，队列和 Chat 执行仍由 Conversation/Session state 拥有。
 
 ## 数据流
 

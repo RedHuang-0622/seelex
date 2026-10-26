@@ -36,7 +36,8 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 
 	wantMethods := readLines(t, filepath.Join(applicationDir, "testdata", "service_methods.txt"))
 	gotMethods := exportedServiceMethods()
-	if !reflect.DeepEqual(gotMethods, wantMethods) {
+	bothEmpty := len(gotMethods) == 0 && len(wantMethods) == 0
+	if !bothEmpty && !reflect.DeepEqual(gotMethods, wantMethods) {
 		t.Fatalf("Service 公开方法集漂移（必须显式更新预算；允许减少，不允许静默新增）:\n got=%v\nwant=%v", gotMethods, wantMethods)
 	}
 	if len(gotMethods) != budget.ServiceMethodCount {
@@ -104,7 +105,11 @@ func readLines(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("读取 %s: %v", path, err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return []string{}
+	}
+	lines := strings.Split(trimmed, "\n")
 	for index := range lines {
 		lines[index] = strings.TrimSpace(lines[index])
 	}

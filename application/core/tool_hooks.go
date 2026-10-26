@@ -63,7 +63,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	service.publishSessionEvent(EventToolStarted, revision, requestID, sessionID, message)
 	// 工具边界后被动同步 task → worktable 增量，再发最新 runtime.changed。
 	service.refreshWorkTableFromSources()
-	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, service.components.frontendSnapshot.Snapshot().Revision, requestID, sessionID, service.components.frontendSnapshot.Snapshot().Runtime)
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
@@ -207,7 +207,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	if sink := service.projectBoardSink(); sink != nil {
 		sink.OnToolComplete(name, toolErr, sessionID)
 	}
-	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, service.components.frontendSnapshot.Snapshot().Revision, requestID, sessionID, service.components.frontendSnapshot.Snapshot().Runtime)
 	emit("toolhook.complete.event.done")
 }
 

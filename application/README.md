@@ -54,10 +54,11 @@
 [`testdata/application_budget.json`](testdata/application_budget.json) 和
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
-- 冻结 `Service` 当前 11 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- `Service` 公开业务方法已归零；新增必须显式更新预算，能力入口只能由
+  capability package 与 `compat.Frontend` 承载；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 68 个、生产代码 10,243 行；
+- 冻结 `application/core` 非测试生产文件 67 个、生产代码 9,947 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
   当前 26 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
@@ -149,11 +150,11 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 11 |
+| `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
-| `application/core` 生产文件 | 68 |
-| `application/core` 生产代码 | 10,243 行 |
+| `application/core` 生产文件 | 67 |
+| `application/core` 生产代码 | 9,947 行 |
 
 已落地领域包：
 
@@ -192,7 +193,7 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 
 退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
 不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
-`Service` 只剩 11 个仍依赖共享会话状态/生命周期的方法。组件 getter、输入
+`Service` 不再暴露业务方法。组件 getter、输入
 facade、订阅、ProviderHistory、PromptLayers、ProjectBoardSink 与 ToolRecord
 公开入口已经退场；
 `compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。

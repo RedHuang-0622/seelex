@@ -12,54 +12,6 @@ import (
 
 // Service 门面快照/订阅/投影/消息写入委托（实现位于 view_state 域包）。
 
-// Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
-//
-// **不可在持有 `Core.ViewMu` 时调用**：`sync.RWMutex` 不可重入，而目录刷新 worker
-// （`Coordinator.publishCatalogMirror`）会排队等同一把写锁——有写者排队时新读者一律阻塞，
-// 于是"持读锁再调 Snapshot"会永久自锁（P20 现场：3 并发跑本包，第一轮即挂死）。
-// 需要同临界区一致性读的调用方，请持锁后直接用 `service.Core.Snapshot` 或各 `*Locked` 读面。
-func (service *Service) Snapshot() model.Snapshot {
-	snapshot := service.components.view.SnapshotView()
-	// 会话状态属性富化：draft / running / queued / idle。
-	// SnapshotView 已释放 Core.ViewMu，这里重新取读锁补状态。
-	service.ViewMu.RLock()
-	defer service.ViewMu.RUnlock()
-	if snapshot.Session.Draft {
-		snapshot.Session.Status = SessionStatusDraft
-	} else {
-		snapshot.Session.Status = service.sessionStatusLocked(snapshot.Session.ID)
-	}
-	if service.draft != nil {
-		// 保留的草稿槽位在会话树中始终可见（切换后不再"消失"）。
-		alreadyListed := false
-		for _, item := range snapshot.Sessions {
-			if service.draft.ID != "" && item.ID == service.draft.ID {
-				alreadyListed = true
-				break
-			}
-		}
-		if !alreadyListed {
-			slot := *service.draft
-			snapshot.Sessions = append([]model.SessionInfo{{
-				ID:        slot.ID,
-				Name:      draftSessionName,
-				UpdatedAt: slot.UpdatedAt,
-				Status:    SessionStatusDraft,
-			}}, snapshot.Sessions...)
-		}
-	}
-	snapshot.Conversation = service.components.editForkAnnotation.Annotate(
-		snapshot.Session.ID,
-		snapshot.Conversation,
-		snapshot.Chat.Running,
-	)
-	snapshot.ConversationRevision = service.components.tasks.LatestTranscriptSeqFor(snapshot.Session.ID)
-	service.projectDraftWorkspaceLocked(&snapshot)
-	snapshot.Sessions = service.withLiveSessionRowsLocked(snapshot.Sessions)
-	snapshot.Sessions = service.enrichDirectoryRowsLocked(snapshot.Sessions)
-	return snapshot
-}
-
 // projectDraftWorkspaceLocked 把草稿的工作区绑定补进 `session_workspaces`
 // 投影（调用方持有 Core.ViewMu）。
 //

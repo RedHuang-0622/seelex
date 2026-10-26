@@ -135,12 +135,16 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.accountWindowPolicy = assembler.ports.AccountWindow
 	service.components.skillActivation = assembler.ports.SkillActivation
 	service.components.sessionRecords = assembler.ports.SessionRecords
+	service.assembleConversationSessionApplication()
 	service.components.errorPresentation = assembler.ports.ErrorPresentation
 	service.components.roleSessions = assembler.ports.RoleSessions(assembler.deps.Sessions)
 	service.components.conversationTurnState = newConversationTurnState()
 	service.assembleConversationQueueApplication()
 	service.assembleSessionUseCaseApplications()
+	service.assembleInteractionApplication()
+	service.assembleForkApplication()
 	service.assembleSessionDraftComponents()
+	service.assembleSubmitApplication()
 	service.assembleSessionColdComponents()
 	service.assembleEditForkComponents()
 	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
@@ -162,6 +166,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		WritableSession: service.toolRecordWritableSession,
 		ViewSessionID:   service.currentViewSessionID,
 	})
+	service.assembleRoleActivityApplication()
 	service.effortManager = prompt.NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
@@ -208,6 +213,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.Deps.Runtime.AsyncPendingFor(sessionID)
 		},
 	})
+	service.assembleTerminalHandlerApplication()
 	// The composition root supplies the optional Goal store and board-archive
 	// adapters. Absence keeps the in-memory fallback.
 	service.components.goal = assembler.ports.Goal
@@ -266,6 +272,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
+	service.assembleFrontendSnapshotApplication()
 	// TurnProcess captures the view coordinator method value, so it must be
 	// assembled after the coordinator exists. This is composition order, not a
 	// forwarding wrapper.
@@ -346,6 +353,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.submitConversation(ctx, input)
 		},
 	})
+	service.assembleSubmissionApplication()
 	// worktable.changed publisher: latest-wins coalescing lives in the extracted
 	// table application; core supplies session identity and tree snapshot.
 	service.workTable = applicationtable.New(applicationtable.Deps{

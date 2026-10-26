@@ -39,7 +39,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 		}
 	}
 	if result.Exit {
-		service.Events.Publish(EventExitRequested, service.Snapshot().Revision, "", nil)
+		service.Events.Publish(EventExitRequested, service.components.frontendSnapshot.Snapshot().Revision, "", nil)
 	}
 	return nil
 }

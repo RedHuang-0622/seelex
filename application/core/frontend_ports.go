@@ -35,10 +35,16 @@ type FrontendPorts struct {
 	ContextCompaction   *conversationcontext.Application
 	ContextHistory      *conversationcontext.EngineHistoryCoordinator
 	ConversationQueue   *applicationconversation.QueueApplication
+	ConversationSession *applicationconversation.UnifiedApplication
 	Execution           *applicationexecution.WorkItemApplication
+	RoleActivity        *applicationexecution.RoleActivityApplication
 	Goal                *applicationgoal.Application
 	History             *applicationhistory.Application
 	HistorySearch       *conversationsearch.Application
+	Interaction         *applicationsession.InteractionApplication
+	Fork                *applicationsession.ForkApplication
+	Submit              *applicationsession.SubmitApplication
+	Submission          *applicationinput.SubmissionApplication
 	Perf                *applicationobservability.PerfApplication
 	Policy              *applicationpolicy.SwitchApplication
 	PromptStack         *applicationprompt.PromptStack
@@ -63,8 +69,10 @@ type FrontendPorts struct {
 	Lifecycle           *applicationlifecycle.Application
 	Runtime             *applicationadmin.RuntimeApplication
 	Tasks               *task_context.Coordinator
+	TerminalHandler     *task_context.TerminalHandlerApplication
 	ToolRecords         *applicationtoolrecord.Application
 	View                *view_state.Coordinator
+	FrontendSnapshot    *view_state.SnapshotApplication
 	SubagentView        *applicationexecution.SubagentViewCoordinator
 	Workspace           *applicationworkspace.Application
 	WorkspaceUseCase    *applicationworkspace.SwitchUseCase
@@ -88,46 +96,54 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 		return FrontendPorts{}
 	}
 	return FrontendPorts{
-		Admin:             service.components.adminApplication,
-		Completion:        service.components.completionApplication,
-		ContextCompaction: service.components.contextCompactionApplication,
-		ContextHistory:    service.components.history,
-		ConversationQueue: service.components.conversationQueue,
-		Execution:         service.components.executionApplication,
-		Goal:              service.components.goalApplication,
-		History:           service.components.conversationHistoryQuery,
-		HistorySearch:     service.components.historySearchApplication,
-		Perf:              service.components.perfStatsApplication,
-		Policy:            service.components.policyApplication,
-		PromptStack:       service.promptStack,
-		ProjectBoard:      service.components.projectBoardQuery,
-		Reference:         service.components.referenceApplication,
-		Review:            service.components.reviewApplication,
-		Role:              service.components.roleApplication,
-		RoleSessions:      service.components.roleSessions,
-		SessionDelete:     service.components.sessionDelete,
-		SessionArchive:    service.components.sessionArchive,
-		SessionDraftEntry: service.components.sessionDraftEntry,
-		SessionLifecycle:  service.components.sessionLifecycle,
-		SessionMeta:       service.components.sessionMetaApplication,
-		SessionQuery:      service.components.sessionQuery,
-		SessionResume:     service.components.sessionResume,
-		SessionSSH:        service.components.sessionSSHApplication,
-		EditFork:          service.components.editForkApplication,
-		Subagent:          service.components.subagentApplication,
-		Scheduler:         service.components.schedulerApplication,
-		ScheduledRun:      service.components.scheduledRunApplication,
-		ScheduledSession:  service.components.scheduledSessionApplication,
-		Lifecycle:         service.components.lifecycleApplication,
-		Runtime:           service.components.runtimeApplication,
-		Tasks:             service.components.tasks,
-		ToolRecords:       service.toolRecords,
-		View:              service.components.view,
-		SubagentView:      service.components.subagent,
-		Workspace:         service.components.workspaceApplication,
-		WorkspaceUseCase:  service.components.workspace,
-		AddNotice:         service.components.view.AddNotice,
-		PublishRuntime:    service.publishRuntimeProjections,
+		Admin:               service.components.adminApplication,
+		Completion:          service.components.completionApplication,
+		ContextCompaction:   service.components.contextCompactionApplication,
+		ContextHistory:      service.components.history,
+		ConversationQueue:   service.components.conversationQueue,
+		ConversationSession: service.components.conversationSession,
+		Execution:           service.components.executionApplication,
+		RoleActivity:        service.components.roleActivity,
+		Goal:                service.components.goalApplication,
+		History:             service.components.conversationHistoryQuery,
+		HistorySearch:       service.components.historySearchApplication,
+		Interaction:         service.components.interactionApplication,
+		Fork:                service.components.forkApplication,
+		Submit:              service.components.submitApplication,
+		Submission:          service.components.submission,
+		Perf:                service.components.perfStatsApplication,
+		Policy:              service.components.policyApplication,
+		PromptStack:         service.promptStack,
+		ProjectBoard:        service.components.projectBoardQuery,
+		Reference:           service.components.referenceApplication,
+		Review:              service.components.reviewApplication,
+		Role:                service.components.roleApplication,
+		RoleSessions:        service.components.roleSessions,
+		SessionDelete:       service.components.sessionDelete,
+		SessionArchive:      service.components.sessionArchive,
+		SessionDraftEntry:   service.components.sessionDraftEntry,
+		SessionLifecycle:    service.components.sessionLifecycle,
+		SessionMeta:         service.components.sessionMetaApplication,
+		SessionQuery:        service.components.sessionQuery,
+		SessionResume:       service.components.sessionResume,
+		SessionSSH:          service.components.sessionSSHApplication,
+		EditFork:            service.components.editForkApplication,
+		Subagent:            service.components.subagentApplication,
+		Scheduler:           service.components.schedulerApplication,
+		ScheduledRun:        service.components.scheduledRunApplication,
+		ScheduledSession:    service.components.scheduledSessionApplication,
+		Lifecycle:           service.components.lifecycleApplication,
+		Runtime:             service.components.runtimeApplication,
+		Tasks:               service.components.tasks,
+		TerminalHandler:     service.components.terminalHandler,
+		ToolRecords:         service.toolRecords,
+		View:                service.components.view,
+		FrontendSnapshot:    service.components.frontendSnapshot,
+		SubagentView:        service.components.subagent,
+		Workspace:           service.components.workspaceApplication,
+		WorkspaceUseCase:    service.components.workspace,
+		AddNotice:           service.components.view.AddNotice,
+		PublishRuntime:      service.publishRuntimeProjections,
 		SetProjectBoardSink: func(sink applicationexecution.ProjectBoardSink) {
 			service.components.projectBoard.store(sink)
 		},

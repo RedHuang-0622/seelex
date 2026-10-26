@@ -9,16 +9,12 @@ import (
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/event"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
-	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
-	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"strings"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段
@@ -128,47 +124,3 @@ func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error) {
 //     回填到别的会话（同 jobs_events.go 的口径）。
 //
 // 单向只读：它只播报"正在发生什么"，不写任何状态，也不唤醒任何忙会话。
-func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
-	if service == nil || service.Events == nil {
-		return
-	}
-	sessionID := strings.TrimSpace(event.MainSessionID)
-	if sessionID == "" || strings.TrimSpace(event.ID) == "" {
-		// 归属缺失 ⇒ 读数丢弃（**不回落视图会话**：这是切会话串写的根因）。
-		// 丢弃必须可见：计数进诊断面（`ToolRecordDroppedReadings`）。
-		if sessionID == "" {
-			service.noteDroppedToolRecordReading(toolRecordDropNoOwner)
-		}
-		return
-	}
-	limit := applicationpolicy.Get().EvidenceChars
-	event.Arguments = applicationtable.TruncateWorkEvidence(event.Arguments, limit)
-	event.Result = applicationtable.TruncateWorkEvidence(event.Result, limit)
-	event.Error = applicationtable.TruncateWorkEvidence(event.Error, limit)
-
-	kind := EventTeammateToolCompleted
-	// 「在跑」这件事按**工具事件状态那一格**判（`dto.ToolEventStatus`，与
-	// `SubagentToolEvent.Status` 同格）——本函数是这一格的读方，不再抄一份字面量。
-	// 认不得的词沿用原语义（不当"在跑"，即 completed 帧）。
-	if status, ok := dto.ParseToolEventStatus(strings.TrimSpace(event.Status)); ok && status == dto.ToolEventRunning {
-		kind = EventTeammateToolStarted
-	}
-	requestID := ""
-	if service.Core != nil {
-		// 快照字段统一由 Core.ViewMu 保护：本回调由 Runtime 在工具活动时直接
-		// 调用，可能与会话切换并发，裸读构成同族数据竞争。
-		service.ViewMu.RLock()
-		requestID = service.Core.Snapshot.Chat.RequestID
-		service.ViewMu.RUnlock()
-	}
-	// teammate 的工具记录（2026-10-19 方向 C：阶梯提交的第一级台阶）：
-	// **先记进角色会话自己的暂存**（`role:<roleSessionID>`，纯本地累加，不碰会话
-	// 累计、不碰磁盘），角色回合收口时再一次性提交给主会话累计
-	// （CloseRoleToolRecordUnit，由 Runtime 在 runRoleRound 收尾处回调）。
-	// 归属 = `event.MainSessionID`（事件自带、执行上下文给出）；空 ⇒ 丢弃 + 计数，
-	// 不回落到视图会话（这是 #8/#13 的根因）。判据仍与主代理那条链同一格
-	// （toolrecord.Failed + toolrecord.Reason）。
-	unitID := applicationtoolrecord.RoleUnitID(event.RoleSessionID, event.ID)
-	service.stageUnitToolOutcomeForStatus(sessionID, unitID, event.Name, event.Status, event.Error)
-	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
-}

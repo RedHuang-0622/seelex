@@ -31,21 +31,25 @@ import (
 // serviceComponents is the application composition graph. Service coordinates
 // these parts but does not own their implementation details.
 type serviceComponents struct {
-	prompts  *applicationprompt.Coordinator
-	context  *conversationcontext.EngineCoordinator
-	history  *conversationcontext.EngineHistoryCoordinator
-	sessions *session_runtime.Coordinator
-	tasks    *task_context.Coordinator
+	prompts         *applicationprompt.Coordinator
+	context         *conversationcontext.EngineCoordinator
+	history         *conversationcontext.EngineHistoryCoordinator
+	sessions        *session_runtime.Coordinator
+	tasks           *task_context.Coordinator
+	terminalHandler *task_context.TerminalHandlerApplication
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor；
 	// 视图投影/工具路由经 Service 面暴露）。
-	goal     *applicationgoal.Coordinator
-	view     *view_state.Coordinator
-	subagent *applicationexecution.SubagentViewCoordinator
-	input    contract.InputDispatcher
+	goal             *applicationgoal.Coordinator
+	view             *view_state.Coordinator
+	frontendSnapshot *view_state.SnapshotApplication
+	subagent         *applicationexecution.SubagentViewCoordinator
+	input            contract.InputDispatcher
+	submission       *applicationinput.SubmissionApplication
 
 	// sessionQuery 与 conversationHistoryQuery 是 Application 查询面：
 	// 只持窄读依赖，不持完整 Service，也不承担会话生命周期状态机。
 	sessionQuery                 *applicationsessionquery.Application
+	conversationSession          *applicationconversation.UnifiedApplication
 	conversationHistoryQuery     *applicationhistory.Application
 	historyWindowAssembler       applicationhistory.WindowAssembler
 	residency                    applicationsession.ResidencyPort
@@ -58,6 +62,9 @@ type serviceComponents struct {
 	conversationQueue            *applicationconversation.QueueApplication
 	conversationTurnState        *conversationTurnState
 	sessionLifecycle             *applicationsession.LifecycleApplication
+	interactionApplication       *applicationsession.InteractionApplication
+	forkApplication              *applicationsession.ForkApplication
+	submitApplication            *applicationsession.SubmitApplication
 	sessionArchive               *applicationsession.ArchiveApplication
 	sessionDelete                *applicationsession.DeleteApplication
 	sessionDraftSubmission       *applicationsession.DraftSubmissionApplication
@@ -121,6 +128,7 @@ type serviceComponents struct {
 	goalApplication              *applicationgoal.Application
 	subagentApplication          *applicationexecution.SubagentApplication
 	executionApplication         *applicationexecution.WorkItemApplication
+	roleActivity                 *applicationexecution.RoleActivityApplication
 
 	// projectBoard 是装配期注入的**可选写侧端口**（项目看板投影的订阅口，M3）。
 	//

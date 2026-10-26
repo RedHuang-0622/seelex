@@ -416,26 +416,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestContentEvictionColdReloadsSameWindow(t *testing.T)` — TestContentEvictionColdReloadsSameWindow 会话正文被卸载后再激活（冷回读）
 - `func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T)` — TestEnsureSessionContentRebuildsEvictedWindow 热挂载回读面
 
-### conversation_session.go
-
-- `func (service *Service) ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)` — ConversationView is the Application entry for the unified conversation
-- `func (service *Service) ConversationChat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)` — ConversationChat starts one bounded chat turn through the unified capability.
-- `func (service *Service) RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)` — RecoverConversation resolves the unified live/cold/interrupted/missing state.
-- `func (service *Service) conversationSession(ref dto.ConversationSessionRef) (applicationconversation.ConversationSession, error)`
-- `func (adapter mainConversationAdapter) View(_ context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)`
-- `func (adapter mainConversationAdapter) Chat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)`
-- `func (adapter mainConversationAdapter) Recover(_ context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)`
-- `func mainConversationRecovery(snapshot model.SessionSnapshot) dto.SessionRecoveryState`
-- `func mainConversationRecords(messages []model.Message) []dto.ConversationRecord`
-- `func (adapter agentConversationAdapter) View(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)`
-- `func (adapter agentConversationAdapter) Chat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)`
-- `func (adapter agentConversationAdapter) Recover(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)`
-
-### conversation_session_test.go
-
-- `func TestMainConversationRecordsKeepExecutionKinds(t *testing.T)`
-- `func TestMainConversationRecoverySeparatesLiveColdAndInterrupted(t *testing.T)`
-
 ### edit_fork_annotation_test.go
 
 - `func TestEditForkAnnotationRulesAreCentralized(t *testing.T)`
@@ -789,9 +769,7 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 
 ### session_fork.go
 
-- `func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
-- `func (service *Service) ForkSessionLatest(parentID string) (string, error)` — ForkSessionLatest 从父会话最新完整段落边界创建独立子会话并切换到子会话
-- `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
+- `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
 
 ### session_fork_lineage_test.go
 
@@ -1249,7 +1227,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func (service *Service) publishSessionStateChanged(sessionID string)` — publishSessionStateChanged 把"某个会话的运行态变了"通知给所有显示面。
 - `func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
 - `func (service *Service) rebindViewWorkspaceWhenIdle()` — rebindViewWorkspaceWhenIdle 在进程变为完全空闲后，把全局项目根/Router 写
-- `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
 - `func (service *Service) awaitRestore(ctx context.Context, sessionID string) error` — awaitRestore 等目标会话的后台冷加载结束（restoring 清除）后返回。多会话
 - `func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID, text string)` — deferSubmitUntilRestored 把一次对话提交挂到后台冷加载完成点：restoring 期间
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。

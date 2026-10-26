@@ -431,48 +431,6 @@ func (service *Service) rebindViewWorkspaceWhenIdle() {
 	service.setWorkspaceWriteScope("")
 }
 
-// SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
-// 会话时等价 Submit（同会话运行中排队）；目标会话为其它会话且已加载（引擎
-// 已实例化）时，在该会话上下文中后台并行启动（不切换活跃会话）；未加载的
-// 会话先切换恢复再提交（兼容 M1 语义）。
-func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return errors.New("session ID is required")
-	}
-	// 路由只认显式 sessionID，绝不重读「当前会话」：SubmitToSession 与
-	// 切换（ResumeSession/hot_attach）之间存在 TOCTOU 窗口，若先读 current
-	// 再委托 Submit（内部再读一次 current），切换落在两次读之间会把 A 的
-	// 输入路由进 B 的队列（压力测试 TestStressConcurrentSessionsDoNotPollute
-	// 抓到：queued-2 进入 sess-4 视图）。
-	// 草稿门：显式目标可能就是视图里那份尚未物化的草稿。草稿没有可冷回读的历史，
-	// 必须先物化（建引擎 bundle、绑项目、清 composer），否则下面"目标未加载"的
-	// 判定会把它当成冷会话去 ActivateSession→冷加载那条 draft record。
-	if err := service.components.sessionDraftSubmission.Materialize(sessionID, text); err != nil {
-		return err
-	}
-	// sessionLoaded 的活跃会话回退分支会读 Snapshot.Session.ID（引擎端口不支持
-	// 会话路由时），本方法是锁外公开入口，因此在这里持 Core.ViewMu 读锁取值。
-	service.ViewMu.RLock()
-	loaded := service.sessionLoaded(sessionID)
-	service.ViewMu.RUnlock()
-	if !loaded || service.sessionContentUnloaded(sessionID) {
-		// 目标会话未加载，或可见正文已被内容 LRU 卸载：切换恢复（含正文冷
-		// 回读）后再提交——否则新回合的可见消息会落进一个没有窗口的会话视图。
-		// ActivateSession 持 TransitionLock，完成后目标即当前会话，后续显式
-		// 路由不依赖 current。
-		if err := service.components.sessionResume.Resume(sessionID); err != nil {
-			return err
-		}
-	}
-	// 上面这次激活可能走**异步冷加载**（有其它会话运行中）：RPC 已把视图切到
-	// restoring 空壳就返回、装载在后台。此时不能立即开回合（restoring 期间不得
-	// 开新回合），也不能阻塞等待（本 API 契约是非阻塞后台启动，见
-	// TestParallelSessionsExecuteConcurrently）——submitConversationFor 收到
-	// restoring 时会自动把提交挂到装载完成点（deferSubmitUntilRestored）。
-	return service.submitConversationFor(ctx, sessionID, text)
-}
-
 // awaitRestore 等目标会话的后台冷加载结束（restoring 清除）后返回。多会话
 // 并发装载时信号按“集合有变化”广播，收到后重读集合复判；ctx 取消即放弃。
 func (service *Service) awaitRestore(ctx context.Context, sessionID string) error {

@@ -2,13 +2,14 @@
 
 ## 生态位
 
-`application/input` 承载输入框的建议塑形与输入前缀词法。主要调用方是
-`application/core` 的兼容 `Service.Suggestions`，以及根门面的 `HasSigilPrefix` /
-`SigilOf` 兼容函数。
+`application/input` 承载输入受理门禁、输入框建议塑形与输入前缀词法。主要调用方是
+`application/compat.Frontend` 的 `Submit` / `Suggestions`，以及根门面的
+`HasSigilPrefix` / `SigilOf` 兼容函数。
 
 ## 职责
 
 - 定义输入前缀与建议域词表。
+- 统一 closed/draining 受理门禁、空白裁剪与 dispatcher 委托。
 - 组合命令、Skill、Plugin 三个权威目录的候选。
 - 按前缀过滤，并保持 command → skill → plugin 的稳定排序。
 - 提供 `HasSigilPrefix` / `SigilOf`；根 `application` 门面直接再导出这两个
@@ -25,6 +26,8 @@
 ## 文件结构
 
 - `suggestions.go`：sigil 解析、`Suggestion` DTO、`Deps` 和候选塑形。
+- `submission.go`：`SubmissionApplication`，只持生命周期读回调和 dispatcher，不拥
+  有命令、Skill 或 Conversation 路由。
 - `command/`：基础内置命令注册与 `contract.CommandResult` 适配。
 - `suggestions_test.go`：跨域排序、过滤和参数区拒绝。
 
@@ -38,6 +41,10 @@
 根门面 `HasSigilPrefix` / `SigilOf` 和 `Frontend.Suggestions` →
 `Application.Suggestions` → 命令/Skill/Plugin 目录 → 过滤与排序 →
 前端输入建议。
+
+`Frontend.Submit` → `SubmissionApplication.Submit` → closed/draining 门禁 →
+`contract.InputDispatcher`。路由判据仍在 dispatcher，core 不再保留公开 `Submit`
+方法。
 
 ## 依赖方向
 

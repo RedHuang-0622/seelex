@@ -2,8 +2,9 @@
 
 ## 生态位
 
-`application/execution` 承载执行域、项目看板、WorkItem/teammate 与 Subagent 的
-Application 用例。真实调用方是 `application/core.Service` 的兼容入口与看板装配入口。
+`application/execution` 承载执行域、项目看板、WorkItem/teammate、Subagent 与
+Role Tool Activity 的 Application 用例。真实调用方是
+`application/compat.Frontend` 与看板装配入口。
 
 ## 职责与非职责
 
@@ -14,6 +15,7 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 - 通过窄端口读取 Teamwork Plan 并提取运行态；
 - 委托 WorkItem execution、teammate inspection 与实时会话读取；
 - 编排子代理恢复、fork、详情和树清理。
+- 校验 teammate 工具活动路由、截断证据并按 started/completed 发布会话事件。
 - 保持项目看板查询不缓存第二份事实。
 
 非职责：
@@ -31,6 +33,8 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 - `subagent_view.go`：Middle subagent view Coordinator/Deps 的 identity alias 与构造转发。
 - `subagent.go`：子代理恢复、fork、详情与树清理。
 - `completion.go`：异步作业与 teammate 作业终态触发。
+- `role_activity.go`：`RoleActivityApplication`，负责任务归属、状态分类、
+  ToolRecord stage 与实时事件发布，不拥有 ToolRecord 状态或 EventHub。
 - `toolhooks/`：Seele Tool Hook 适配、稳定 ID 配对与诊断。
 - `toolrecord/`：工具记录累计、执行单元 stage、失败原因与批量落盘。
 - `table/`：WorkTable publisher、latest-wins 汇聚与 payload 去重。
@@ -51,6 +55,9 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 兼容 Service 入口 → `ProjectBoardApplication` → 宿主输入的 Plan/Task/SubAgent/Async
 投影 → `worktable.BuildWorkTable`；WorkItem/teammate 与 Subagent 入口委托既有
 Runtime 和 subagent view coordinator。
+
+Runtime teammate tool activity → `RoleActivityApplication` → EvidenceChars
+截断/ToolRecord stage/session event 宿主回调。
 
 ## 依赖方向
 

@@ -393,7 +393,7 @@ func (service *Service) refreshRuntimeAfterTodoChange() {
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
 	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
 	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, service.components.frontendSnapshot.Snapshot().Runtime)
 	service.publishWorkTable(revision, requestID, items, batches)
 }
 
