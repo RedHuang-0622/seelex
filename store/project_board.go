@@ -42,6 +42,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io"
 	"io/fs"
@@ -55,27 +56,19 @@ import (
 
 // 投影契约常量（schema / 上限 / 白名单文件名）。
 const (
-	// ProjectBoardSchema 是行信封的 schema 版本；未知 schema 的行在折叠时跳过。
-	ProjectBoardSchema = 1
-	// ProjectBoardMaxRows 是单个投影文件的行数上限（有界，I5）。
-	ProjectBoardMaxRows = 512
-	// ProjectBoardReadMaxSessions 是聚合读默认枚举的**会话目录**上限（有界，I5）：
-	// 落点按会话分目录后，"读一个项目"= 逐个会话目录读，必须有界。
-	ProjectBoardReadMaxSessions = 32
-	// ProjectBoardWorkFile 是工作台投影文件名（会话目录内的白名单名，防路径穿越）。
-	ProjectBoardWorkFile = "worktable.jsonl"
-	// ProjectBoardTeamworkFile 是团队编排投影文件名。
-	ProjectBoardTeamworkFile = "teamwork.jsonl"
-	// ProjectBoardMarkdownFile 是人读看板文件名（落在看板根，**不分会话**：全项目汇总，
-	// 由折叠后的行确定性渲染；不落时刻、不含本机标识 ⇒ 可提交）。
-	ProjectBoardMarkdownFile = "BOARD.md"
+	ProjectBoardSchema          = dto.ProjectBoardSchema
+	ProjectBoardMaxRows         = dto.ProjectBoardMaxRows
+	ProjectBoardReadMaxSessions = dto.ProjectBoardReadMaxSessions
+	ProjectBoardWorkFile        = dto.ProjectBoardWorkFile
+	ProjectBoardTeamworkFile    = dto.ProjectBoardTeamworkFile
+	ProjectBoardMarkdownFile    = dto.ProjectBoardMarkdownFile
 )
 
 // 投影行 kind（与 plan 的三种投影对象一致）。
 const (
-	ProjectBoardKindWork          = "work"
-	ProjectBoardKindMilestone     = "milestone"
-	ProjectBoardKindMilestoneItem = "milestone_item"
+	ProjectBoardKindWork          = dto.ProjectBoardKindWork
+	ProjectBoardKindMilestone     = dto.ProjectBoardKindMilestone
+	ProjectBoardKindMilestoneItem = dto.ProjectBoardKindMilestoneItem
 )
 
 // 落点目录名：`<项目根>/.seelex/board`。
@@ -94,24 +87,13 @@ const projectBoardRemovedField = "removed"
 // Project 槽位保留给"行内需要显式指名项目"的场合，但**生产路径不写它**：落点
 // `<项目根>/.seelex/board/` 就是项目本身，工作区 ID 是 `ws-<nano>`（机器本地 ID），
 // 写进产物会让它不可提交（契约 §3 硬纪律）。
-type ProjectBoardScope struct {
-	Project string `json:"project,omitempty"`
-	Session string `json:"session"`
-}
+type ProjectBoardScope = dto.ProjectBoardScope
 
 // ProjectBoardRow 是投影行的**信封**：一行 = 一条投影事实，只追加、不重写。
 //
 // Seq 在**文件内**单调递增，文件的水位 = 最大 Seq。Payload 是字段映射后的载荷
 // （encoding/json 对 map 键按字典序编码 ⇒ 字节稳定）。
-type ProjectBoardRow struct {
-	Schema  int               `json:"schema"`
-	Kind    string            `json:"kind"` // work | milestone | milestone_item
-	Key     string            `json:"key"`
-	Seq     uint64            `json:"seq"`
-	At      int64             `json:"at"`
-	Scope   ProjectBoardScope `json:"scope"`
-	Payload map[string]any    `json:"payload,omitempty"`
-}
+type ProjectBoardRow = dto.ProjectBoardRow
 
 // ProjectBoardKinds 返回本契约承认的 kind 全集（有序，便于测试与文档同步）。
 func ProjectBoardKinds() []string {
@@ -735,12 +717,7 @@ func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string)
 // ProjectBoardReadOptions 是聚合读的约束：File 指定读哪个白名单文件（空 ⇒
 // worktable.jsonl）；ExcludeSession 跳过某会话的目录；MaxSessions 限制枚举的会话数
 // （<=0 ⇒ 缺省 ProjectBoardReadMaxSessions）；MaxRows 有界（>0 才生效）。
-type ProjectBoardReadOptions struct {
-	File           string
-	ExcludeSession string
-	MaxSessions    int
-	MaxRows        int
-}
+type ProjectBoardReadOptions = dto.ProjectBoardReadOptions
 
 // ReadProjectBoard 读回一个项目**跨会话**的全部折叠行（白名单文件之一），有界、只读。
 //

@@ -196,7 +196,7 @@ type nodeSessionRepository interface {
 const nodeSessionDirName = "subagents"
 
 func (repository *jsonRepository) WriteNodeSession(_ context.Context, key Key, record NodeSessionRecord) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	repository.mu.Lock()
@@ -216,7 +216,7 @@ func (repository *jsonRepository) WriteNodeSession(_ context.Context, key Key, r
 }
 
 func (repository *jsonRepository) ReadNodeSession(_ context.Context, key Key, subSessionID string) (NodeSessionRecord, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return NodeSessionRecord{}, err
 	}
 	repository.mu.RLock()
@@ -237,7 +237,7 @@ func (repository *jsonRepository) ReadNodeSession(_ context.Context, key Key, su
 }
 
 func (repository *jsonRepository) ListNodeSessions(_ context.Context, key Key) ([]NodeSessionRecord, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	repository.mu.RLock()
@@ -270,7 +270,7 @@ func (repository *jsonRepository) ListNodeSessions(_ context.Context, key Key) (
 }
 
 func (repository *jsonRepository) DeleteNodeSession(_ context.Context, key Key, subSessionID string) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	repository.mu.Lock()

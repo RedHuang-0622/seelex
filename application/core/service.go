@@ -15,6 +15,7 @@ import (
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
@@ -65,13 +66,9 @@ type Service struct {
 // Frontend is the frontend compatibility adapter.
 type Frontend struct{ *Service }
 
-// projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
-//
-// 为什么"取一份"而不是"持锁调用"：订阅口是**外部实现**（生产里嵌的是同步器，它只
-// 标脏 + 唤醒、不做 IO）；完成段是回合内高频点，绝不让外部代码在装配锁下运行——一次
-// 慢实现就变成整个回合的停顿，且注入与调用会互相等锁（本函数与 SetProjectBoardSink
-// 可并发：注入可能发生在两个回合之间，读取在回合内的工具完成段）。
-func (service *Service) projectBoardSink() applicationexecution.ProjectBoardSink {
+// projectBoardSink 在锁内只复制接口值；外部同步器不得在装配锁下执行。
+// 注入可发生在两个回合之间，工具完成段只消费这份快照。
+func (service *Service) projectBoardSink() board.ProjectBoardSink {
 	if service == nil {
 		return nil
 	}

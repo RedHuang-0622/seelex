@@ -37,6 +37,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/kernel/event"
 )
 
@@ -744,7 +745,7 @@ func (frontend *Frontend) PromptLayers() []applicationprompt.PromptLayer {
 }
 
 // SetProjectBoardSink installs the optional project-board write projection.
-func (frontend *Frontend) SetProjectBoardSink(sink applicationexecution.ProjectBoardSink) {
+func (frontend *Frontend) SetProjectBoardSink(sink board.ProjectBoardSink) {
 	frontend.ports.SetProjectBoardSink(sink)
 }
 

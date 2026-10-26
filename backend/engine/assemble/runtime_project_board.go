@@ -3,7 +3,7 @@ package assemble
 // runtime_project_board.go 是**项目看板窄可选端口的宿主转发面**。
 //
 // 落点沿革（P21-11「域方法随类型走」）：取数判定（会话号归一、键完整性、读失败与空计划的
-// 处理）搬进看板域 [`middle/view/board`](../../../middle/view/board/README.md) 的
+// 处理）搬进看板域 [`kernel/board`](../../../kernel/board/README.md) 的
 // `TeamworkPlanFor`；这里只留**两格宿主读数**的接线——teamwork 后端句柄（`r.teamworkBackend`，
 // 装配期注入、可能未装配）与它的 `KeyFor` / `Store.ReadPlan`。
 //
@@ -14,7 +14,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/RedHuang-0622/seelex/middle/view/board"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -48,6 +48,6 @@ func (r *Runtime) readTeamworkPlan(ctx context.Context, key store.Key) (store.Te
 
 // 编译期钉子：*Runtime 必须满足 `board.TeamworkPlanSource` 的**形状**（同名同签名）。
 //
-// 依赖方向是 assemble → middle/view/board（不反向），所以本文件**直接**拿得到那个接口名——
+// 依赖方向是 assemble → kernel/board（不反向），所以本文件**直接**拿得到那个接口名——
 // 形状由一条断言钉住，而不是靠两侧各写一份结构体字面量来表达同一件事。
 var _ board.TeamworkPlanSource = (*Runtime)(nil)

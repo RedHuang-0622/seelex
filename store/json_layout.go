@@ -403,7 +403,7 @@ func derivedToolCallMessageID(rowID string, index int) string {
 // 条尝试）；非 会话存储布局返回 ok=false（上层回退旧装配）。装配阈值由 §5.2
 // 配置解析为软阈值（applyWireBudget），不再硬编码单一预算。
 func (repository *jsonRepository) assembleWireWorkspace(key Key, budget, k int) ([]types.Message, bool, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, false, err
 	}
 	params := applyWireBudget(repository.settings, wireParams{Budget: budget, K: k})
@@ -438,7 +438,7 @@ func wireToTypesMessages(wire []wireMessage) []types.Message {
 // commitCompactFrameWorkspace 把运行期 compact 帧桥接进 compact 通道
 // （frame 摘要进入 wire 装配；非 v8 或无法解析 seq 坐标时返回 ok=false）。
 func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame CompactFrame) (bool, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return false, err
 	}
 	if !repository.active(key) {

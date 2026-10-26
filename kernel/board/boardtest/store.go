@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -25,7 +26,7 @@ const (
 // （水位 = 文件内最大 Seq；追加即可读回），只够同步器用。
 type Store struct {
 	mu      sync.Mutex
-	rows    map[string][]store.ProjectBoardRow
+	rows    map[string][]dto.ProjectBoardRow
 	appends []fakeBoardAppend
 }
 
@@ -33,11 +34,11 @@ type fakeBoardAppend struct {
 	projectRoot string
 	sessionID   string
 	file        string
-	rows        []store.ProjectBoardRow
+	rows        []dto.ProjectBoardRow
 }
 
 func NewStore() *Store {
-	return &Store{rows: make(map[string][]store.ProjectBoardRow)}
+	return &Store{rows: make(map[string][]dto.ProjectBoardRow)}
 }
 
 // boardStoreKey 是内存替身的文件键：落点是**按会话分目录**的一份文件
@@ -47,12 +48,12 @@ func boardStoreKey(projectRoot, sessionID, file string) string {
 	return projectRoot + "/" + sessionID + "/" + file
 }
 
-func (st *Store) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error) {
+func (st *Store) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []dto.ProjectBoardRow) (uint64, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.appends = append(st.appends, fakeBoardAppend{
 		projectRoot: projectRoot, sessionID: sessionID, file: file,
-		rows: append([]store.ProjectBoardRow(nil), rows...),
+		rows: append([]dto.ProjectBoardRow(nil), rows...),
 	})
 	if len(rows) > 0 {
 		key := boardStoreKey(projectRoot, sessionID, file)
@@ -89,7 +90,7 @@ func (st *Store) WriteCount(file string) int {
 	return count
 }
 
-func (st *Store) LastWrite(file string) []store.ProjectBoardRow {
+func (st *Store) LastWrite(file string) []dto.ProjectBoardRow {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	for index := len(st.appends) - 1; index >= 0; index-- {
@@ -101,14 +102,14 @@ func (st *Store) LastWrite(file string) []store.ProjectBoardRow {
 }
 
 // raw 是**某会话某文件**的原始行（未折叠；I6 断言"空集合不建文件"用它）。
-func (st *Store) Raw(projectRoot, sessionID, file string) []store.ProjectBoardRow {
+func (st *Store) Raw(projectRoot, sessionID, file string) []dto.ProjectBoardRow {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return append([]store.ProjectBoardRow(nil), st.rows[boardStoreKey(projectRoot, sessionID, file)]...)
+	return append([]dto.ProjectBoardRow(nil), st.rows[boardStoreKey(projectRoot, sessionID, file)]...)
 }
 
 // folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
-func (st *Store) Folded(projectRoot, sessionID, file string) []store.ProjectBoardRow {
+func (st *Store) Folded(projectRoot, sessionID, file string) []dto.ProjectBoardRow {
 	return store.FoldProjectBoardRows(st.Raw(projectRoot, sessionID, file), nil)
 }
 
@@ -127,7 +128,7 @@ type FlakyStore struct {
 	FailTimes int
 }
 
-func (st *FlakyStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error) {
+func (st *FlakyStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []dto.ProjectBoardRow) (uint64, error) {
 	st.mu.Lock()
 	fail := st.FailTimes > 0
 	if fail {

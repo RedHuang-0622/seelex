@@ -21,6 +21,7 @@ import (
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
@@ -71,19 +72,7 @@ func (config Config) Normalize(defaultPath string) (Config, error) {
 	return config, nil
 }
 
-type Key struct {
-	ProjectID string
-	SessionID string
-}
-
-// Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
-//
-// 会话按 (project_id, session_id) 分区，半截键读不到任何一个会话的事实，因此这是
-// "这个键能不能指向一份会话"的**唯一**定义：装配层的团队作用域解析与看板域的取数判定
-// 都问这一句，不再各写一遍（P21 收尾：两处内联判据曾各自漏过一分量，见 m5-record §55）。
-func (key Key) Complete() bool {
-	return strings.TrimSpace(key.ProjectID) != "" && strings.TrimSpace(key.SessionID) != ""
-}
+type Key = dto.SessionKey
 
 type EventToolCall = protocol.TranscriptToolCall
 
@@ -155,13 +144,6 @@ type Commit struct {
 	// 一份列表是幂等空操作。调用方每次落盘都传全量，因为「盘上已有多少条」只有
 	// 水位知道，而水位是存储层的私有事实。
 	CompactionRecords []json.RawMessage
-}
-
-func (key Key) validate() error {
-	if strings.TrimSpace(key.SessionID) == "" {
-		return errors.New("session storage: session ID is required")
-	}
-	return nil
 }
 
 // validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
@@ -1056,7 +1038,7 @@ func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messag
 }
 
 func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit Commit) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	for _, result := range commit.ToolResults {
@@ -1070,7 +1052,7 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 // Read 只服务 v8 布局会话（D2/S12：旧 manifest 布局会话不再打开，读接口
 // 一律返回 fs.ErrNotExist，由目录枚举在 List 层跳过并告警）。
 func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Message, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	if !repository.active(key) {
@@ -1091,7 +1073,7 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 }
 
 func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, tokenBudget, maxUnits int) ([]Event, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	if repository.active(key) {
@@ -1102,7 +1084,7 @@ func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, toke
 }
 
 func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, resultRef string) (ToolResult, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return ToolResult{}, err
 	}
 	if strings.TrimSpace(resultRef) == "" {
@@ -1132,7 +1114,7 @@ func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, res
 }
 
 func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([]ToolResult, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	if !repository.active(key) {
@@ -1172,7 +1154,7 @@ func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([
 }
 
 func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) (string, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return "", err
 	}
 	if repository.active(key) {
@@ -1183,7 +1165,7 @@ func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) 
 }
 
 func (repository *jsonRepository) WriteState(_ context.Context, key Key, state []byte) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	// D9/S20：state.json 停写（dev 阶段丢字段已接受）。
@@ -1191,7 +1173,7 @@ func (repository *jsonRepository) WriteState(_ context.Context, key Key, state [
 }
 
 func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	// D9/S20：state.json 停读。
@@ -1216,7 +1198,7 @@ func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectI
 }
 
 func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Key, entry EventLogEntry) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	repository.mu.Lock()
@@ -1459,7 +1441,7 @@ func dedupeEventLogEntries(entries []EventLogEntry) []EventLogEntry {
 }
 
 func (repository *jsonRepository) ReadFrameworkEvents(_ context.Context, key Key) ([]EventLogEntry, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	repository.mu.RLock()
@@ -1598,7 +1580,7 @@ func (repository *jsonRepository) List(_ context.Context, projectID string) ([]f
 }
 
 func (repository *jsonRepository) Delete(_ context.Context, key Key) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	repository.mu.Lock()

@@ -26,6 +26,7 @@ import (
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 )
 
 // FrontendPorts is the assembly snapshot consumed by application/compat.
@@ -80,7 +81,7 @@ type FrontendPorts struct {
 	WorkspaceUseCase    *switchworkspace.UseCase
 	AddNotice           func(string)
 	PublishRuntime      func()
-	SetProjectBoardSink func(applicationexecution.ProjectBoardSink)
+	SetProjectBoardSink func(board.ProjectBoardSink)
 	CloseRoleToolRecord func(mainSessionID, roleSessionID string)
 }
 
@@ -146,7 +147,7 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 		WorkspaceUseCase:    service.components.workspace,
 		AddNotice:           service.components.view.AddNotice,
 		PublishRuntime:      service.publishRuntimeProjections,
-		SetProjectBoardSink: func(sink applicationexecution.ProjectBoardSink) {
+		SetProjectBoardSink: func(sink board.ProjectBoardSink) {
 			service.components.projectBoard.store(sink)
 		},
 		CloseRoleToolRecord: func(mainSessionID, roleSessionID string) {

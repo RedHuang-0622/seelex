@@ -1,8 +1,8 @@
-# middle/view/board
+# kernel/board
 
 ## 生态位
 
-`middle/view/board` 是**项目看板**（project board）的行投影与落盘侧：
+`kernel/board` 是**项目看板**（project board）的中立行投影与落盘侧：
 把活体工作表格 / 团队计划映射成投影行（`store.ProjectBoardRow`），并在工具完成段按
 一张触发表**标脏**、由唯一 flush goroutine 落进两个白名单文件。主要调用方是
 `application/core`（经 `application/execution` 的 identity alias 持有取数口与订阅口）
@@ -84,7 +84,7 @@ sequenceDiagram
 前端协议类型引进来（投影不是 Snapshot 的输入，也不是它的输出）。
 
 BM-003 已完成：Wiring 在构造 `ProjectBoardDeps` 时注入 `EvidenceChars func() int`，
-`BuildProjectBoardRows` 接收同一读数。`middle/view/board -> backend/limit` 已删除，
+`BuildProjectBoardRows` 接收同一读数。`kernel/board -> backend/limit` 已删除，
 架构预算把该边归零。
 
 ## 并发与错误语义
@@ -111,7 +111,7 @@ BM-003 已完成：Wiring 在构造 `ProjectBoardDeps` 时注入 `EvidenceChars 
 ## 测试与验证
 
 ```text
-go test ./middle/view/board/... -count=1
+go test ./kernel/board/... -count=1
 go test ./application/core/ -run 'ProjectBoard|BuildProjectBoardRows' -count=1   # 取数口 + 钩子接线
 go test ./e2e/ -count=1                                                          # 闭包/README 门禁
 ```

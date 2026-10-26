@@ -68,7 +68,7 @@ func (store *storeEngine) toolRecordPath(key Key) string {
 // 锁：复用同包的**按路径分片锁**（`projectBoardLock` 只按路径分片、与看板无关；
 // 等 project_board 的会话分目录重构落地后它会改名成 fileLock，届时这里同步改名）。
 func (repository *jsonRepository) AppendToolRecordSnapshot(_ context.Context, key Key, payload any) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if repository.layout == nil {
@@ -102,7 +102,7 @@ func (repository *jsonRepository) AppendToolRecordSnapshot(_ context.Context, ke
 // 文件不存在 = 没更新过（false，不是错误）；残尾与坏行跳过（回退到**上一行完整快照**：
 // 快照是整份的，回退不会丢"上一批之前的读数"）。
 func (repository *jsonRepository) ReadToolRecordSnapshot(_ context.Context, key Key) (json.RawMessage, bool, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, false, err
 	}
 	if repository.layout == nil {

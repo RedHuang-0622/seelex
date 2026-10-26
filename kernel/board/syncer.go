@@ -9,7 +9,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,7 +22,7 @@ import (
 // **按会话分目录**——同一个投影文件只有一个写者（防串写），水位/批号以"一会话一文件"
 // 为单位（幂等可判），回收就是摘掉该会话自己的目录。
 type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)
+	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []dto.ProjectBoardRow) (uint64, error)
 	ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)
 }
 
@@ -35,8 +34,7 @@ type ProjectBoardSink interface {
 
 // 编译期证明：存储面写口就是 Router 的那两个方法，订阅口的实现就是同步器本身。
 var (
-	_ ProjectBoardStore = (*store.Router)(nil)
-	_ ProjectBoardSink  = (*ProjectBoardSyncer)(nil)
+	_ ProjectBoardSink = (*ProjectBoardSyncer)(nil)
 )
 
 // TeamworkPlanSource 是**窄可选端口**：Runtime 实现了它才算"这个宿主有 teamwork 计划可读"。
@@ -245,14 +243,14 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 	// scope 只写会话：落点本身已经回答了"哪个项目"（行内再写 `ws-<nano>` 会让产物
 	// 不可提交，契约 §3 硬纪律）。行内这个 session 与落点目录名同源（存储面还会核对
 	// 两者一致，不一致直接拒绝——那是"往别人的目录里塞行"）。
-	scope := store.ProjectBoardScope{Session: sessionID}
+	scope := dto.ProjectBoardScope{Session: sessionID}
 	at := s.now().UTC().Unix()
 	evidenceChars := 0
 	if s.deps.EvidenceChars != nil {
 		evidenceChars = s.deps.EvidenceChars()
 	}
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardWorkFile, at, items, plan, state, evidenceChars)
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardTeamworkFile, at, items, plan, state, evidenceChars)
+	s.flushFile(sessionID, projectRoot, scope, dto.ProjectBoardWorkFile, at, items, plan, state, evidenceChars)
+	s.flushFile(sessionID, projectRoot, scope, dto.ProjectBoardTeamworkFile, at, items, plan, state, evidenceChars)
 }
 
 // flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
@@ -264,7 +262,7 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 //   - I6 空则退场：没有行、也没有要吊销的 key ⇒ 不建文件（只记账）。
 func (s *ProjectBoardSyncer) flushFile(
 	sessionID, projectRoot string,
-	scope store.ProjectBoardScope,
+	scope dto.ProjectBoardScope,
 	file string,
 	at int64,
 	items []model.WorkItem,
@@ -321,7 +319,7 @@ func (s *ProjectBoardSyncer) flushFile(
 }
 
 // projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
-func projectBoardRemovedRow(scope store.ProjectBoardScope, seq uint64, at int64, kind, key string) store.ProjectBoardRow {
+func projectBoardRemovedRow(scope dto.ProjectBoardScope, seq uint64, at int64, kind, key string) dto.ProjectBoardRow {
 	return projectBoardRow(scope, seq, at, kind, key, map[string]any{"removed": true})
 }
 

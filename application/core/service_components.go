@@ -31,6 +31,7 @@ import (
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	"sync"
 )
 
@@ -184,16 +185,16 @@ type editForkOperation = applicationedit.Operation
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。
 type projectBoardPort struct {
 	mu   sync.RWMutex
-	sink applicationexecution.ProjectBoardSink
+	sink board.ProjectBoardSink
 }
 
-func (port *projectBoardPort) store(sink applicationexecution.ProjectBoardSink) {
+func (port *projectBoardPort) store(sink board.ProjectBoardSink) {
 	port.mu.Lock()
 	port.sink = sink
 	port.mu.Unlock()
 }
 
-func (port *projectBoardPort) load() applicationexecution.ProjectBoardSink {
+func (port *projectBoardPort) load() board.ProjectBoardSink {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.sink

@@ -3,14 +3,21 @@ package application_test
 import (
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
-func TestCoreDoesNotImportBoardFacadePackage(t *testing.T) {
-	coreDir := filepath.Join(sourceApplicationDir(t), "core")
+func TestApplicationDoesNotImportMiddleBoardPackage(t *testing.T) {
+	applicationDir := sourceApplicationDir(t)
+	ownerPath := filepath.Join(applicationDir, "..", "kernel", "board", "projection.go")
+	if _, err := os.Stat(ownerPath); err != nil {
+		t.Fatalf("board owner missing: %v", err)
+	}
+	coreDir := filepath.Join(applicationDir, "core")
 	entries, err := os.ReadDir(coreDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
@@ -37,6 +44,36 @@ func TestCoreDoesNotImportBoardFacadePackage(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("application/core still imports board package: %v", violations)
+		t.Fatalf("application/core still imports Middle board package: %v", violations)
+	}
+	err = filepath.WalkDir(applicationDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !isGoFile(entry.Name()) || isTestGoFile(entry.Name()) {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, spec := range file.Imports {
+			importPath, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				return err
+			}
+			if importPath == forbidden {
+				relative, _ := filepath.Rel(applicationDir, path)
+				violations = append(violations, filepath.ToSlash(relative))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk application: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("Application imports Middle board instead of kernel/board:\n%s",
+			strings.Join(violations, "\n"))
 	}
 }

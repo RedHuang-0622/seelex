@@ -111,7 +111,7 @@ func decodeConversationRange(payload []byte, sessionID string, offset, limit int
 }
 
 func (repository *jsonRepository) ReadConversationRange(_ context.Context, key Key, offset, limit int) ([]ConversationMessage, int, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, 0, err
 	}
 	// S20：conversation 无独立持久文件，由 message 事件行派生。

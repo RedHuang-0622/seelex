@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func WaitForWrites(t *testing.T, st *Store, file string, want int) {
@@ -28,7 +28,7 @@ func Settle(idle time.Duration) {
 	time.Sleep(6 * idle)
 }
 
-func MarshalRows(t *testing.T, rows []store.ProjectBoardRow) string {
+func MarshalRows(t *testing.T, rows []dto.ProjectBoardRow) string {
 	t.Helper()
 	encoded, err := json.Marshal(rows)
 	if err != nil {
@@ -37,16 +37,16 @@ func MarshalRows(t *testing.T, rows []store.ProjectBoardRow) string {
 	return string(encoded)
 }
 
-func RowByKey(rows []store.ProjectBoardRow, key string) (store.ProjectBoardRow, bool) {
+func RowByKey(rows []dto.ProjectBoardRow, key string) (dto.ProjectBoardRow, bool) {
 	for _, row := range rows {
 		if row.Key == key {
 			return row, true
 		}
 	}
-	return store.ProjectBoardRow{}, false
+	return dto.ProjectBoardRow{}, false
 }
 
-func PayloadText(row store.ProjectBoardRow, key string) string {
+func PayloadText(row dto.ProjectBoardRow, key string) string {
 	value, ok := row.Payload[key].(string)
 	if !ok {
 		return ""
@@ -55,7 +55,7 @@ func PayloadText(row store.ProjectBoardRow, key string) string {
 }
 
 // boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
-func Keys(rows []store.ProjectBoardRow) []string {
+func Keys(rows []dto.ProjectBoardRow) []string {
 	keys := make([]string, 0, len(rows))
 	for _, row := range rows {
 		keys = append(keys, row.Key)

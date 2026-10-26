@@ -5820,6 +5820,29 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `kernel/sessionpolicy` 移回 `middle/switch`，恢复 Application
   switchpolicy facade，并改回调用点。
 
+## EP-079：Project Board 归入 Kernel，Store 载荷下沉 DTO
+
+- 把 `SessionKey`、`ProjectBoardScope`、`ProjectBoardRow`、
+  `ProjectBoardReadOptions` 与 schema/kind/file 常量下沉 `contract/dto`；
+  Store 保留同身份 alias，方法签名和 JSON 字段不变；
+- `SessionKey.Validate` 成为 Contract 唯一校验实现，Store 原有 `validate` 调用全部改为
+  该唯一方法；
+- 把 `middle/view/board` 的 4 个生产文件、6 个行为测试、README 与 `boardtest`
+  fixture 物理迁入 `kernel/board`；删除 `application/execution` 的 Board identity facade；
+- Application、Backend assemble 与 Wiring 直接消费 `kernel/board`；
+  `ProjectBoardSink`、`TeamworkPlanSource`、project-board read/sync/projection 均不再
+  经过 Middle 或 Application forwarding；
+- 迁移中出现真实红面：`Key.validate` 在 alias 后不可用、旧 `boardtest` import 失效；
+  改为 Contract `Validate` 与 Kernel fixture 后转绿；
+- 绿测：`go test ./kernel/board/... ./store ./contract/dto ./application/core`、
+  Application 架构/全局依赖预算、Backend assemble、Wiring、E2E
+  `Facade|Layout|Board` 与 `go build ./...` 通过；
+- Application 具体依赖由 16 降至 15；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；ProjectBoard JSON、Store alias 身份、GUI/TUI wire 与持久化格式
+  不变；
+- 回退方式：删除 Contract/Store alias，把 `kernel/board` 移回
+  `middle/view/board`，恢复 Application Board facade 与调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

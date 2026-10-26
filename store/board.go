@@ -191,7 +191,7 @@ func (router *Router) BoardsForSession(sessionID string) (SessionBoards, bool) {
 		return nil, false
 	}
 	key := Key{ProjectID: router.Workspace(), SessionID: strings.TrimSpace(sessionID)}
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, false
 	}
 	return sessionBoards{repository: repository, key: key}, true
@@ -295,7 +295,7 @@ func validateBoardLifecycle(lifecycle BoardLifecycle, kind string) error {
 // 写失败**必须**上抛：close 写不进去就不能把看板当关闭（否则重启后它会作为 active
 // 复活）。这是本设计里唯一一处"写失败要影响行为"的地方。
 func (repository *jsonRepository) WriteGoalBoard(_ context.Context, key Key, meta GoalBoardMeta) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if err := ValidateGoalBoardMeta(meta); err != nil {
@@ -310,7 +310,7 @@ func (repository *jsonRepository) WriteGoalBoard(_ context.Context, key Key, met
 // ReadGoalBoard 读回 goal 看板存档。缺失 = 这个会话还没有存档（正常状态）：
 // 返回**零值 + nil**，不是 IO 错误（口径见 docs/arch/absent-state-reads.md）。
 func (repository *jsonRepository) ReadGoalBoard(_ context.Context, key Key) (GoalBoardMeta, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return GoalBoardMeta{}, err
 	}
 	if repository.layout == nil {
@@ -321,7 +321,7 @@ func (repository *jsonRepository) ReadGoalBoard(_ context.Context, key Key) (Goa
 
 // WriteTeamBoard 写入（整份替换）团队看板存档。
 func (repository *jsonRepository) WriteTeamBoard(_ context.Context, key Key, meta TeamBoardMeta) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if err := ValidateTeamBoardMeta(meta); err != nil {
@@ -336,7 +336,7 @@ func (repository *jsonRepository) WriteTeamBoard(_ context.Context, key Key, met
 // ReadTeamBoard 读回团队看板存档。缺失 = 还没有存档：返回**零值 + nil**
 // （与 ReadGoalBoard 同一口径）。
 func (repository *jsonRepository) ReadTeamBoard(_ context.Context, key Key) (TeamBoardMeta, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return TeamBoardMeta{}, err
 	}
 	if repository.layout == nil {

@@ -226,7 +226,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/execution/subagentview",
 	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
-	"github.com/RedHuang-0622/seelex/middle/view/board",
+	"github.com/RedHuang-0622/seelex/kernel/board",
 	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）归位
 	// 中间层视图子包（plan §2.4）。**新增登记的理由**：这是一次"换落点 + 落点新建"，
 	// 门面闭包里 `application/core` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，

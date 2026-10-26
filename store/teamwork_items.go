@@ -276,7 +276,7 @@ func (store *storeEngine) teamworkBindingsPath(key Key) string {
 
 // AppendTeamworkBinding 追加一行绑定事实（只追加、不重写；崩溃残尾由读侧跳过）。
 func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if repository.layout == nil {
@@ -316,7 +316,7 @@ func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key K
 
 // ReadTeamworkBindings 读回全部绑定事实（按文件顺序 = 发生顺序）。
 func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	if repository.layout == nil {

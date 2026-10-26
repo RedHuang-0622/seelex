@@ -12,7 +12,7 @@ import (
 const contextStateFile = "context.json"
 
 func (repository *jsonRepository) WriteContextState(_ context.Context, key Key, state []byte) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	repository.mu.Lock()
@@ -25,7 +25,7 @@ func (repository *jsonRepository) WriteContextState(_ context.Context, key Key, 
 }
 
 func (repository *jsonRepository) ReadContextState(_ context.Context, key Key) ([]byte, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	repository.mu.RLock()

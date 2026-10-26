@@ -289,7 +289,7 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 
 // WriteTeamworkPlan 写入（整份替换）一份计划。maxTeammates <= 0 = 只做结构性校验。
 func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, plan TeamworkPlan, maxTeammates int) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if err := ValidateTeamworkPlan(plan, maxTeammates); err != nil {
@@ -310,7 +310,7 @@ func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, 
 // （见 backend/multiagent/teamwork 的 requireTeam）——判据在那一处，不在这里复制。
 // 同文件 ReadTeamworkEvents 的"缺失即空"是同一口径。
 func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return TeamworkPlan{}, err
 	}
 	if repository.layout == nil {
@@ -328,7 +328,7 @@ func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (
 // 追加是**有界且原子**的：一行 JSON + '\n'，单次 write 落在 O_APPEND 上；
 // 崩溃只会留下半行残尾，读侧跳过（与 compact.jsonl / message 分片同一口径）。
 func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return err
 	}
 	if repository.layout == nil {
@@ -371,7 +371,7 @@ func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key
 // 崩溃残尾（最后一行不是完整 JSON）跳过而不是报错：审计面永远比"能读出一行
 // 半成品的 JSON"更值得。
 func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	if repository.layout == nil {
@@ -409,7 +409,7 @@ func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key)
 // 消失，不需要第二套回收机制。这里只负责"把目录交出去"，文件名与生命周期归调用方
 // （派发时分配、整队收口时清）——存储层不替产品决定"哪一轮的输出该留着"。
 func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return "", err
 	}
 	if repository.layout == nil {

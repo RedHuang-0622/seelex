@@ -36,7 +36,7 @@ package board
 //
 // 本项**没有**第二份判定的地方（逐条对应）：无 status 归一/翻译（原样搬运，空串不补值）；
 // 无依赖推导（merger/planDependencies 那套留在活体投影里）；无收口判定（只与
-// store.TeamworkStateClosed 这一个常量比对）；无会话归属判定（沿用行自带的
+// dto.TeamworkStateClosed 这一个常量比对）；无会话归属判定（沿用行自带的
 // SessionID）；无"计划是否算有编排"这类内容判定（teamworkPlanHasOrchestration 是看板读侧的事）。
 import (
 	"crypto/sha256"
@@ -47,7 +47,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -92,15 +91,15 @@ var projectBoardWorkKindProjected = map[string]bool{
 // 而里程碑 id 与工作项 id 是两套命名空间（ValidateTeamworkPlan 不查它们互不相同），
 // 前缀是"同一条 key 不会跨 kind 撞车"的唯一保证。
 func BuildProjectBoardRows(
-	scope store.ProjectBoardScope,
+	scope dto.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	workItems []model.WorkItem,
 	teamPlan *dto.TeamworkPlan,
 	teamState *dto.TeamworkState,
 	evidenceChars int,
-) []store.ProjectBoardRow {
-	rows := make([]store.ProjectBoardRow, 0, len(workItems)+8)
+) []dto.ProjectBoardRow {
+	rows := make([]dto.ProjectBoardRow, 0, len(workItems)+8)
 	for _, item := range workItems {
 		if !projectBoardWorkKindProjected[strings.TrimSpace(item.Kind)] {
 			continue
@@ -110,7 +109,7 @@ func BuildProjectBoardRows(
 			continue // 没有身份的行上不了板（折叠读也按 key 去重，空 key 无意义）
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
-			store.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item, evidenceChars)))
+			dto.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item, evidenceChars)))
 	}
 	if teamPlan == nil {
 		return rows
@@ -122,7 +121,7 @@ func BuildProjectBoardRows(
 			continue
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
-			store.ProjectBoardKindMilestone, "milestone:"+milestoneID,
+			dto.ProjectBoardKindMilestone, "milestone:"+milestoneID,
 			projectBoardMilestonePayload(milestone, state, evidenceChars)))
 		for _, item := range milestone.Items {
 			itemID := strings.TrimSpace(item.ID)
@@ -130,7 +129,7 @@ func BuildProjectBoardRows(
 				continue
 			}
 			rows = append(rows, projectBoardRow(scope, seq, at,
-				store.ProjectBoardKindMilestoneItem, "milestone_item:"+itemID,
+				dto.ProjectBoardKindMilestoneItem, "milestone_item:"+itemID,
 				projectBoardMilestoneItemPayload(milestoneID, item, evidenceChars)))
 		}
 	}
@@ -139,14 +138,14 @@ func BuildProjectBoardRows(
 
 // projectBoardRow 组装一行信封（信封字段只有这里一处写）。
 func projectBoardRow(
-	scope store.ProjectBoardScope,
+	scope dto.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	kind, key string,
 	payload map[string]any,
-) store.ProjectBoardRow {
-	return store.ProjectBoardRow{
-		Schema:  store.ProjectBoardSchema,
+) dto.ProjectBoardRow {
+	return dto.ProjectBoardRow{
+		Schema:  dto.ProjectBoardSchema,
 		Kind:    kind,
 		Key:     key,
 		Seq:     seq,
@@ -276,11 +275,11 @@ func projectBoardPutText(payload map[string]any, key, value string) {
 
 // projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
 // milestone / milestone_item → teamwork.jsonl。落点只由 kind 决定（一处判据）。
-func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.ProjectBoardRow) {
-	work = make([]store.ProjectBoardRow, 0, len(rows))
-	teamwork = make([]store.ProjectBoardRow, 0, len(rows))
+func projectBoardBlocks(rows []dto.ProjectBoardRow) (work, teamwork []dto.ProjectBoardRow) {
+	work = make([]dto.ProjectBoardRow, 0, len(rows))
+	teamwork = make([]dto.ProjectBoardRow, 0, len(rows))
 	for _, row := range rows {
-		if row.Kind == store.ProjectBoardKindWork {
+		if row.Kind == dto.ProjectBoardKindWork {
 			work = append(work, row)
 			continue
 		}
@@ -292,7 +291,7 @@ func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.Pr
 // projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
 // 因为每文件的水位是独立事实，块内每行的 seq 直接由映射函数盖章。
 func projectBoardRowsForFile(
-	scope store.ProjectBoardScope,
+	scope dto.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	workItems []model.WorkItem,
@@ -300,9 +299,9 @@ func projectBoardRowsForFile(
 	teamState *dto.TeamworkState,
 	file string,
 	evidenceChars int,
-) []store.ProjectBoardRow {
+) []dto.ProjectBoardRow {
 	work, teamwork := projectBoardBlocks(BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState, evidenceChars))
-	if file == store.ProjectBoardTeamworkFile {
+	if file == dto.ProjectBoardTeamworkFile {
 		return teamwork
 	}
 	return work
@@ -312,7 +311,7 @@ func projectBoardRowsForFile(
 // kind/key/payload 必得同样的指纹（seq/at 每次落盘必然不同，不参与比较）。
 //
 // 载荷是 map：encoding/json 按键字典序编码 ⇒ 字节稳定（同一份内容没有第二种字节）。
-func projectBoardRowsFingerprint(rows []store.ProjectBoardRow) string {
+func projectBoardRowsFingerprint(rows []dto.ProjectBoardRow) string {
 	hash := sha256.New()
 	for _, row := range rows {
 		hash.Write([]byte(row.Kind))

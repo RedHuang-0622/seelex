@@ -24,16 +24,15 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TeamworkPlanDeps 是这一跳需要的两格宿主读数（都是函数值：域包因此不认识宿主的
 // teamwork 后端与存储装配）。
 type TeamworkPlanDeps struct {
 	// KeyFor 把会话号解析成作用域键（未装配 / 解析不出 ⇒ ok = false）。
-	KeyFor func(sessionID string) (store.Key, bool)
+	KeyFor func(sessionID string) (dto.SessionKey, bool)
 	// ReadPlan 读该键下的计划（未装配 / 读失败都返回错误）。
-	ReadPlan func(ctx context.Context, key store.Key) (dto.TeamworkPlan, error)
+	ReadPlan func(ctx context.Context, key dto.SessionKey) (dto.TeamworkPlan, error)
 }
 
 // TeamworkPlanFor 返回该会话的 teamwork 计划。
@@ -54,7 +53,7 @@ func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (dto.TeamworkPlan,
 		return dto.TeamworkPlan{}, false
 	}
 	// 键的两个分量都必须齐全：投影落点是按 (项目, 会话) 分层的，半截键读出来的东西
-	// 归不到任何一个会话上。判据随 `store.Key` 走（`Key.Complete`），宿主的团队作用域
+	// 归不到任何一个会话上。判据随 `dto.SessionKey` 走（`Key.Complete`），宿主的团队作用域
 	// 解析与这里问的是同一句，不各写一份。
 	if !key.Complete() {
 		return dto.TeamworkPlan{}, false

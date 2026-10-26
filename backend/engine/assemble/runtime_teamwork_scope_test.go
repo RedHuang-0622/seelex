@@ -10,7 +10,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/view/board"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

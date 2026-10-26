@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/board"
 	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 )
@@ -156,7 +157,7 @@ func (service *Service) assembleProjectBoardQuery() {
 			if service.Deps.Runtime == nil || sessionID == "" {
 				return nil
 			}
-			source, ok := service.Deps.Runtime.(applicationexecution.TeamworkPlanSource)
+			source, ok := service.Deps.Runtime.(board.TeamworkPlanSource)
 			if !ok {
 				return nil
 			}

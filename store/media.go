@@ -200,7 +200,7 @@ func ReferencedMediaHashes(results []ToolResult) map[string]bool {
 
 // WriteMedia 落盘一条媒体资产并返回引用；内容相同则复用已有文件（幂等）。
 func (repository *jsonRepository) WriteMedia(_ context.Context, key Key, item MediaItem) (MediaRef, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return MediaRef{}, err
 	}
 	lock := repository.layout.mu(key, moduleMedia)
@@ -211,7 +211,7 @@ func (repository *jsonRepository) WriteMedia(_ context.Context, key Key, item Me
 
 // ReadMedia 读取媒体元数据与二进制原文。
 func (repository *jsonRepository) ReadMedia(_ context.Context, key Key, ref string) (MediaRef, []byte, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return MediaRef{}, nil, err
 	}
 	lock := repository.layout.mu(key, moduleMedia)
@@ -222,7 +222,7 @@ func (repository *jsonRepository) ReadMedia(_ context.Context, key Key, ref stri
 
 // ListMedia 列出会话内全部媒体资产（按创建时间、hash 稳定排序）。
 func (repository *jsonRepository) ListMedia(_ context.Context, key Key) ([]MediaRef, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	lock := repository.layout.mu(key, moduleMedia)
@@ -234,7 +234,7 @@ func (repository *jsonRepository) ListMedia(_ context.Context, key Key) ([]Media
 // CollectMedia 删除无引用的媒体目录（referenced 来自 ReferencedMediaHashes）；
 // dryRun=true 只输出候选不删除。
 func (repository *jsonRepository) CollectMedia(_ context.Context, key Key, referenced map[string]bool, dryRun bool) ([]string, error) {
-	if err := key.validate(); err != nil {
+	if err := key.Validate(); err != nil {
 		return nil, err
 	}
 	lock := repository.layout.mu(key, moduleMedia)
