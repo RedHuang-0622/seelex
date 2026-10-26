@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	contextcontrol "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
+	contextcontrol "github.com/RedHuang-0622/seelex/kernel/contextcontrol"
 )
 
 func TestPolicyTypesAreEngineIdentity(t *testing.T) {

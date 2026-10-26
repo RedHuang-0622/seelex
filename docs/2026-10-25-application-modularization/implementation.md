@@ -5874,6 +5874,19 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   与持久化格式不变；
 - 回退方式：把 `kernel/prompt` 移回 `backend/engine/prompt`，并恢复调用点 import。
 
+## EP-082：Context Window Policy 归入中立 Kernel
+
+- 把 `backend/engine/input/contextcontrol` 的窗口策略 alias、YAML 加载/应用逻辑、
+  行为测试与 README 物理迁入 `kernel/contextcontrol`；外部 Seele 类型身份不变；
+- Application Window/Core 测试、Backend Context 与 E2E 直接引用
+  `kernel/contextcontrol`，不保留 Backend alias；
+- 红测：Application 全局依赖预算收紧到 8；迁移后结构预算、Kernel ContextControl、
+  Application Window/Core、Backend Context 与 `go build ./...` 通过；
+- Application 具体依赖由 9 降至 8；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；window YAML、默认策略、GUI/TUI wire 与持久化格式不变；
+- 回退方式：把 `kernel/contextcontrol` 移回
+  `backend/engine/input/contextcontrol`，并恢复调用点 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

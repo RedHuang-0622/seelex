@@ -1,8 +1,8 @@
 package core
 
 import (
-	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	cc "github.com/RedHuang-0622/seelex/kernel/contextcontrol"
 	"testing"
 	"time"
 )

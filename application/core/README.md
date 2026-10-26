@@ -14,7 +14,7 @@
   [`backend/multiagent/resume`](../../backend/multiagent/resume/README.md)。）
   （`input_router/`（命令注册表 + 输入路由）与 `context_control/`（窗口策略配置加载）已于
   2026-10-16 随 M5-R7 归位 [`backend/engine/input`](../../backend/engine/input/README.md)
-  与 [`backend/engine/input/contextcontrol`](../../backend/engine/input/contextcontrol/README.md)。）
+  与 [`kernel/contextcontrol`](../../kernel/contextcontrol/README.md)。）
   （`chat/`（流式批次与可见输出）已于 2026-10-16 随 M5-R7 归位
   [`backend/engine/react`](../../backend/engine/react/README.md)。）
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
@@ -71,7 +71,7 @@ flowchart TB
         CHAT["backend/engine/react"]
         WT["kernel/worktable"]
         IR["backend/engine/input"]
-        CC["backend/engine/input/contextcontrol"]
+        CC["kernel/contextcontrol"]
         RES["resume"]
     end
 
@@ -516,7 +516,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [../../backend/engine/react/](../../backend/engine/react/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离（M5-R7 归位，包名 `chat`） |
 | [../../kernel/worktable/](../../kernel/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
 | [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
-| [../../backend/engine/input/contextcontrol/](../../backend/engine/input/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
+| [../../kernel/contextcontrol/](../../kernel/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
 | [../../backend/engine/session/](../../backend/engine/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |
 | [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [../../backend/engine/context/](../../backend/engine/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |

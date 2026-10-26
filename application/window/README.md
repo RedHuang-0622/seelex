@@ -4,7 +4,7 @@
 
 `application/window` 是上下文窗口配置的 Application 入口。真实实现、默认值、YAML
 解析与 provider 轮数推导仍在
-[`backend/engine/input/contextcontrol`](../../backend/engine/input/contextcontrol/README.md)
+[`kernel/contextcontrol`](../../kernel/contextcontrol/README.md)
 和 Engine context policy；本包只保留同身份 alias 与一行转发。主要调用方是
 `application/core` 的启动期 window helper。
 
@@ -30,7 +30,7 @@ alias 上保持可用；转发函数不增加判据。
 
 ## 依赖方向
 
-允许依赖 `backend/engine/input/contextcontrol`。禁止依赖 `application/core`、GUI/TUI、
+允许依赖 `kernel/contextcontrol`。禁止依赖 `application/core`、GUI/TUI、
 `store` 或重新实现窗口默认表。
 
 ## 并发与错误语义
@@ -53,7 +53,7 @@ alias 上保持可用；转发函数不增加判据。
 
 ```text
 go test ./application/window -count=1
-go test ./backend/engine/input/contextcontrol -count=1
+go test ./kernel/contextcontrol -count=1
 go test ./application/core -run 'Window|Retain' -count=1
 ```
 

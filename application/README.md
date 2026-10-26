@@ -753,7 +753,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 |---|---|
 | [`../backend/multiagent/team/`](../backend/multiagent/team/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）；原 `core/agentteam/`，M5-R8b 归位多代理板块（包名 `team`）。 |
 | [`../backend/engine/react/`](../backend/engine/react/README.md) | 聊天流式输出叶子域：`StreamBatcher` 与 `VisibleOutputStream`（M5-R7 迁出 `core/chat/`，包名不变）。 |
-| [`../backend/engine/input/contextcontrol/`](../backend/engine/input/contextcontrol/README.md) | `seele.yaml` window 配置段与窗口策略类型装载（M5-R7 迁出 `core/context_control/`，包名不变）。 |
+| [`../kernel/contextcontrol/`](../kernel/contextcontrol/README.md) | `seele.yaml` window 配置段与窗口策略类型装载（M5-R7 迁出 `core/context_control/`，包名不变）。 |
 | [`../backend/engine/context/`](../backend/engine/context/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化（M5-R7 迁出 `core/context_runtime/`，包名不变）。 |
 | [`backend/multiagent/goal/`](../backend/multiagent/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化（M5-R8a 从 `application/core/goal/` 归位）。 |
 <!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
