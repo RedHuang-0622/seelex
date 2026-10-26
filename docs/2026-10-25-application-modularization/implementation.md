@@ -253,8 +253,8 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `Frontend.LoadMoreHistory` / `LoadLatestHistory` | `ConversationHistoryQuery` | GUI、TUI、headless | AP-116F | `Service` 已无同名公开方法，前端直接调用历史组件 | 用 `Frontend` 包住 `Service` 恢复兼容入口 |
 | `application/core -> middle/switch/history` | `application/history.WindowAssembler` + Wiring 注入 `history.Assembler` | History 查询宿主 | EP-001（已完成） | core import 为零；依赖预算 33 | 恢复 core 直接 import 与旧构造签名 |
 | `application/core -> middle/residency` | `application/session.ResidencyPort` + Wiring 注入 Middle 判据 | core Session/Residency 宿主 | EP-002A（已完成） | core import 为零；依赖预算 32 | 恢复 core 直接 import 与旧 deps |
-| `application/core -> middle/switch/sessionusecase` | 待会话聚合归属裁决 | core Chat/Queue/Session 生命周期 | EP-002B（受阻） | 旧 import 尚在 | 保留当前状态 owner |
-| `application/core -> store` | Session/Event/ToolResult/Queue/Teamwork repository ports + pure DTO | compressed turn、edit/fork、project board、goal store、queue recovery | 待 repository DTO 设计门禁 | `rg 'github.com/RedHuang-0622/seelex/store' application/core` 归零 | 保留现有注入端口与 store payload |
+| `application/core -> middle/switch/sessionusecase` | `application/session/state` 的状态与测试 | core Chat/Queue/Session 生命周期 | EP-043（已完成） | core import 为零；旧 Middle 包已删除 | 将状态包移回 Middle，恢复 core 直接 import |
+| `application/core -> store` | Session/Event/ToolResult/Queue/Teamwork repository ports + pure DTO | compressed turn、edit/fork、project board、goal store、queue recovery | EP-038/039/040（已完成） | `rg 'github.com/RedHuang-0622/seelex/store' application/core` 归零 | 恢复 core 直接 import 与 store payload |
 | `application/core -> backend/engine/react stream primitives` | `application/conversation.StreamOutputPort` + Wiring adapter | Chat 流与冷读正文适配 | EP-003（已完成） | core import 为零 | 恢复 engine/react 直接 import |
 | `application/core -> backend/limit/accountwindow` | `application/admin.AccountWindowPolicy` + Wiring adapter | 账号窗口设置 | EP-004（已完成） | core import 为零 | 恢复直接构造 Setter |
 | `application/core -> backend/engine/skill` | `application/policy.SkillActivationPort` + Wiring adapter | skill_activate | EP-005（已完成） | core import 为零 | 恢复直接构造 Activator |
@@ -277,7 +277,7 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `application/core -> middle/view/board` | `application/execution` identity aliases | ProjectBoardSink / TeamworkPlanSource | EP-022（已完成） | core import 为零；同步器与可选计划读面仍只有 Middle board 一份 | 恢复 core 直接 import board |
 | `application/core -> middle/view/subagent` | `application/execution.SubagentViewCoordinator` identity alias | 子代理详情与实时事件投影 | EP-023（已完成） | core import 为零；投影状态与工具记录判据仍只有 Middle subagent view 一份 | 恢复 core 直接 import Middle subagent view |
 | `application/core -> middle/view/worktable` | `application/execution/table` identity aliases + forwarders | WorkTable rows/batches、clone/status/evidence 纯函数 | EP-024（已完成） | core import 为零；投影算法仍只有 Middle worktable 一份 | 恢复 core 直接 import Middle worktable |
-| `application/core -> middle/view/state` | `application/session/viewstate` identity facade | Snapshot/message/revision 编排与 projection helper | EP-025（已完成） | core import 为零；状态与 revision 唯一实现仍在 Middle view state | 恢复 core 直接 import Middle view state |
+| `application/core -> middle/view/state` | `application/session/viewstate` 唯一 Coordinator | Snapshot/message/revision 编排与 projection helper | EP-043（已完成） | core import 为零；Middle view state 已删除，状态与 revision 只在 Application | 将 Coordinator 移回 Middle，恢复 core 直接 import |
 | `application/core -> middle/switch/workspace` | `application/workspace` identity aliases + `NewSwitch` | workspace create/bind/draft/projection | EP-026（已完成） | core import 为零；workspace 用例与 projection 仍只有 Middle 一份 | 恢复 core 直接 import switch workspace |
 | `application/core -> middle/switch` | `application/session/switchpolicy` identity facade | queue/draft/interaction/release/fork/pending-tail 纯判据 | EP-027（已完成） | core import 为零；词表、错误和判据仍只有 Middle switch 一份 | 恢复 core 直接 import Middle switch |
 | `application/core -> backend/limit/tier` | `application/policy.TierDeps/TierGate` identity aliases | 主会话权限档位持久化与生效编排 | EP-028（已完成） | core import 为零；档位判据与持久化仍只有 Backend tier 一份 | 恢复 core 直接 import limit/tier |
@@ -5150,7 +5150,7 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 | core 生产文件 | 126 | 114 |
 | core 生产代码 | 18,723 行 | 11,602 行 |
 
-core 生产代码净减 7,121 行，直接内部依赖从 37 降到 1；
+core 生产代码净减 7,121 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
