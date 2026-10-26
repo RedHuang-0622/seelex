@@ -36,6 +36,10 @@ func ApplyLimits(limits applicationpolicy.Limits) {
 	applicationpolicy.Apply(limits)
 }
 
+func Limits() applicationpolicy.Limits {
+	return applicationpolicy.Get()
+}
+
 func withTestSessions(sessions contract.SessionPort) testServiceOption {
 	return func(deps *contract.Dependencies) { deps.Sessions = sessions }
 }

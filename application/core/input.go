@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
 )
@@ -89,7 +90,7 @@ func (service *Service) endSkill() error {
 	loopLimit := service.knobs.CurrentLoopLimit()
 	for _, layer := range service.promptStack.Layers() {
 		if layer.Kind == "skill" && layer.Name == "goal" {
-			loopLimit = Limits().InputLoopLimit // limits.input_loop_limit（默认 9999 ≈ 无上限）
+			loopLimit = applicationpolicy.Get().InputLoopLimit // limits.input_loop_limit（默认 9999 ≈ 无上限）
 			break
 		}
 	}
@@ -128,7 +129,7 @@ func (service *Service) applySkill(skill model.SkillInfo) {
 	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {
-		service.knobs.ApplyLoopLimit(Limits().InputLoopLimit)
+		service.knobs.ApplyLoopLimit(applicationpolicy.Get().InputLoopLimit)
 	}
 	service.addNotice("加载 Skill: " + skill.Name)
 }

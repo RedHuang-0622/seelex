@@ -5,6 +5,7 @@ import (
 	"fmt"
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -157,7 +158,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			total = recordTotal
 		}
 	}
-	offset := total - Limits().HistoryWindow
+	offset := total - applicationpolicy.Get().HistoryWindow
 	if offset < 0 {
 		offset = 0
 	}
@@ -196,7 +197,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		historyTotal,
 		total,
 		offset,
-		Limits().HistoryWindow,
+		applicationpolicy.Get().HistoryWindow,
 		mayActivate,
 		&service.Core.Snapshot,
 	)

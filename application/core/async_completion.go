@@ -4,6 +4,7 @@ import (
 	"context"
 
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -53,6 +54,6 @@ func newServiceAsyncCompletionApplication(service *Service) *applicationexecutio
 		SubmitConversation: func(ctx context.Context, sessionID, input string) error {
 			return service.submitConversationFor(ctx, sessionID, input)
 		},
-		EvidenceChars: func() int { return Limits().EvidenceChars },
+		EvidenceChars: func() int { return applicationpolicy.Get().EvidenceChars },
 	})
 }

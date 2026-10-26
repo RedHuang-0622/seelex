@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -88,7 +89,7 @@ func (service *Service) sessionInputIndexConversation(location session_runtime.L
 //
 // 只读会话域单元（不存在 = 该会话没有任何已加载内容：全部 Loaded=false）。
 func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string) {
-	window := model.SessionInputWindow{WindowSize: Limits().HistoryWindow, Total: total}
+	window := model.SessionInputWindow{WindowSize: applicationpolicy.Get().HistoryWindow, Total: total}
 	loaded := []string{}
 	service.ViewMu.RLock()
 	if unit := service.sessions.Unit(sessionID); unit != nil {
@@ -111,7 +112,7 @@ func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (m
 	}
 	service.ViewMu.RUnlock()
 	if window.WindowSize <= 0 {
-		window.WindowSize = Limits().HistoryWindow
+		window.WindowSize = applicationpolicy.Get().HistoryWindow
 	}
 	if window.Total <= 0 {
 		window.Total = total

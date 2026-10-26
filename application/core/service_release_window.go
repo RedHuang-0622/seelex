@@ -20,8 +20,8 @@ import (
 func (service *Service) releaseWindowDeps() switching.ReleaseWindowDeps {
 	deps := switching.ReleaseWindowDeps{
 		Validate: limit.ValidateSessionReleaseWindow,
-		Apply:    ApplySessionReleaseWindow,
-		Current:  func() int { return Limits().ReleaseWindow() },
+		Apply:    limit.ApplySessionReleaseWindow,
+		Current:  func() int { return limit.Get().ReleaseWindow() },
 	}
 	if service != nil && service.Deps.ReleaseWindowStore != nil {
 		store := service.Deps.ReleaseWindowStore

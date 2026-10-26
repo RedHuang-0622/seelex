@@ -33,7 +33,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/core"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -400,11 +399,11 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	limits := limit.Limits{}
 	limits.AsyncExec.Enabled = true
 	limits.AsyncExec.TriggerConversation = true
-	// 但开关的**读侧**读的是进程内那份生效 limits（`core.Limits()`，由组合根
-	// `core.ApplyLimits` 注入，见 wiring/bootstrap 的装配段），不是 RuntimeConfig 里那一份。
+	// 但开关的**读侧**读的是进程内那份生效 limits（`applicationpolicy.Get()`，由组合根
+	// `applicationpolicy.Apply` 注入，见 wiring/bootstrap 的装配段），不是 RuntimeConfig 里那一份。
 	// 少了这一步，消费者会按默认（关）跳过整条扫描——"做完自动返回"在冒烟里永远是关的，
 	// 测试就永远验不到它（假绿：什么都没发生也叫通过）。
-	previousLimits := core.Limits()
+	previousLimits := applicationpolicy.Get()
 	applicationpolicy.Apply(limits)
 	t.Cleanup(func() { applicationpolicy.Apply(previousLimits) })
 

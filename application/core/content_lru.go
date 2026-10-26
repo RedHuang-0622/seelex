@@ -29,6 +29,7 @@ package core
 import (
 	"fmt"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
@@ -119,8 +120,8 @@ func (service *Service) contentLimitSnapshotLocked(protect string) applicationse
 		Protect:     protect,
 		Occupied:    make(map[string]bool, len(service.loadedContentOrder)),
 		Protected:   make(map[string]bool, len(service.loadedContentOrder)),
-		LegacyLimit: Limits().LoadedContentLimit,
-		Window:      Limits().ReleaseWindow(),
+		LegacyLimit: applicationpolicy.Get().LoadedContentLimit,
+		Window:      applicationpolicy.Get().ReleaseWindow(),
 	}
 	for _, sessionID := range service.loadedContentOrder {
 		if sessionID == "" {
@@ -219,7 +220,7 @@ func (service *Service) ensureSessionContent(sessionID string) error {
 // （installVisibleHistory 会清掉「内容未加载」标志并按实际装入的行定起点）。
 // 卸载时保留的窗口标志只用来判断「要不要回读」，不作为读取起点——磁盘为准。
 func (service *Service) reloadSessionContent(sessionID string) error {
-	window := Limits().HistoryWindow
+	window := applicationpolicy.Get().HistoryWindow
 	if window <= 0 {
 		window = 1
 	}

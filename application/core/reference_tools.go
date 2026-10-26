@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -63,10 +64,10 @@ func (service *Service) referenceApplicationComponent() *applicationreference.Ap
 func newServiceReferenceApplication(service *Service) *applicationreference.Application {
 	return applicationreference.New(applicationreference.Deps{
 		ReferencePageSize: func() int {
-			return Limits().ReferencePageSize
+			return applicationpolicy.Get().ReferencePageSize
 		},
 		MaxReferencePageSize: func() int {
-			return Limits().MaxReferencePageSize
+			return applicationpolicy.Get().MaxReferencePageSize
 		},
 		NodeResult: func(nodeID, ref string) (string, bool) {
 			service.ViewMu.RLock()

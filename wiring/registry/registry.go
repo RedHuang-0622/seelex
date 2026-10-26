@@ -17,7 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
-	"github.com/RedHuang-0622/seelex/application/core"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	mcpconfig "github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack/config"
@@ -49,7 +49,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		"properties": map[string]interface{}{
 			"result_ref": map[string]interface{}{"type": "string"},
 			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
-			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": core.Limits().MaxReferencePageSize},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": applicationpolicy.Get().MaxReferencePageSize},
 			"contains":   map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"result_ref"},
@@ -68,7 +68,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		"properties": map[string]interface{}{
 			"segment_id": map[string]interface{}{"type": "string"},
 			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
-			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": core.Limits().MaxReferencePageSize},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": applicationpolicy.Get().MaxReferencePageSize},
 			"contains":   map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"segment_id"},

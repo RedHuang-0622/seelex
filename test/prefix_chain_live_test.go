@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/core"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -41,7 +40,7 @@ import (
 // applyRetainFloorPercent 设置 limits.context_retain_floor_percent（进程内生效配置：
 // 协调器每次装配读同一份 limits，因此改配置对下一条消息立即生效）。
 func applyRetainFloorPercent(percent int) {
-	applied := core.Limits()
+	applied := applicationpolicy.Get()
 	applied.ContextRetainFloorPercent = percent
 	applicationpolicy.Apply(applied)
 }
@@ -115,7 +114,7 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	applicationwindow.Apply(applicationwindow.WindowConfig{Ratio: 0.05})
 	defer applicationwindow.Apply(previousWindow)
 
-	previousLimits := core.Limits()
+	previousLimits := applicationpolicy.Get()
 	defer applicationpolicy.Apply(previousLimits)
 	applyRetainFloorPercent(0)
 

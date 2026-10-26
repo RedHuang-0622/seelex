@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-036；下一步拆除 SessionUseCase 与 Store 端口。**
+EP-001～EP-037；下一步拆除 SessionUseCase 与 Store 端口。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -17,9 +17,9 @@ EP-001～EP-036；下一步拆除 SessionUseCase 与 Store 端口。**
 | `Service` 公开方法 | 23 |
 | `application/core` 直接内部依赖 | 2 |
 | `application/core` 生产文件 | 115 |
-| `application/core` 生产代码 | 11,715 行 |
+| `application/core` 生产代码 | 11,709 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 7,008 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 7,014 行。
 
 已迁出的领域包：
 

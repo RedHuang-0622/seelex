@@ -22,6 +22,15 @@ func SetSessionReleaseWindow(window int) {
 	limit.SetSessionReleaseWindow(window)
 }
 
+// ApplySessionReleaseWindow validates first, then changes the process limit.
+func ApplySessionReleaseWindow(window int) (int, error) {
+	if err := limit.ValidateSessionReleaseWindow(window); err != nil {
+		return 0, err
+	}
+	limit.SetSessionReleaseWindow(window)
+	return limit.Get().ReleaseWindow(), nil
+}
+
 func NewKnobs(host KnobsHost) *Knobs {
 	return limit.NewKnobs(host)
 }

@@ -27,7 +27,7 @@ func RetainedReadTailBudget(runtime any) int {
 // limits.context_retain_floor_percent × 预算；未配置（0）或预算不可用时为 0
 // —— 此时下限只剩「至少 1 个完整协议单元」这条兜底（见 contract.RetainFloorTokens）。
 func RetainFloorTokens(budget task_context.ContextBudget) int {
-	return contract.RetainFloorTokens(Limits().ContextRetainFloorPercent, budget.Budget)
+	return contract.RetainFloorTokens(limit.Get().ContextRetainFloorPercent, budget.Budget)
 }
 
 // ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：

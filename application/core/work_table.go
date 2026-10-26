@@ -4,6 +4,7 @@ import (
 	"context"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -342,13 +343,13 @@ func (service *Service) startLifecycleConsumers() {
 			TeamworkEvents: switching.TeamworkJobEvents(runtime),
 			Refresh:        service.refreshWorkTableFromSources,
 			TriggerAsync: func(triggered map[string]struct{}) int {
-				if !Limits().AsyncExec.TriggerConversation {
+				if !applicationpolicy.Get().AsyncExec.TriggerConversation {
 					return 0
 				}
 				return service.triggerAsyncCompletions(triggered)
 			},
 			TriggerTeamwork: func(triggered map[string]struct{}) int {
-				if !Limits().AsyncExec.TriggerConversation {
+				if !applicationpolicy.Get().AsyncExec.TriggerConversation {
 					return 0
 				}
 				return service.triggerTeamworkJobCompletions(triggered)

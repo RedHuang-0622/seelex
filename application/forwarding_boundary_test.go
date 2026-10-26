@@ -69,6 +69,7 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		"withSessionID":          "application/execution/taskcontext",
 		"sessionIDFromContext":   "application/execution/taskcontext",
 		"ApplyLimits":            "application/policy",
+		"Limits":                 "application/policy",
 	}
 	entries, err := os.ReadDir(coreDir)
 	if err != nil {

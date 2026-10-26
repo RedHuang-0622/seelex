@@ -19,6 +19,7 @@ package core
 // 不进引擎。
 
 import (
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
@@ -104,8 +105,8 @@ func (service *Service) residentEvictionSnapshotLocked() applicationsession.Evic
 		Order:       append([]string(nil), service.residentOrder...),
 		Occupied:    make(map[string]bool, len(service.residentOrder)),
 		Protected:   make(map[string]bool, len(service.residentOrder)),
-		LegacyLimit: Limits().ResidentSessionLimit,
-		Window:      Limits().ReleaseWindow(),
+		LegacyLimit: applicationpolicy.Get().ResidentSessionLimit,
+		Window:      applicationpolicy.Get().ReleaseWindow(),
 	}
 	for _, sessionID := range service.residentOrder {
 		if sessionID == "" {

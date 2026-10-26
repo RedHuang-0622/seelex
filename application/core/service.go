@@ -164,7 +164,7 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 		}
 		return
 	}
-	limit := Limits().EvidenceChars
+	limit := applicationpolicy.Get().EvidenceChars
 	event.Arguments = applicationtable.TruncateWorkEvidence(event.Arguments, limit)
 	event.Result = applicationtable.TruncateWorkEvidence(event.Result, limit)
 	event.Error = applicationtable.TruncateWorkEvidence(event.Error, limit)

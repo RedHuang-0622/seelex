@@ -199,6 +199,7 @@
 | EP-034 | 已完成 | Core 剩余纯 helper 转发退场 | teamwork/sigil/fork/window 6 个 wrapper 删除、core 净减 28 行 |
 | EP-035 | 已完成 | Session Context helper 转发退场 | 删除 session_ctx.go；测试专用 shim 不进入生产面 |
 | EP-036 | 已完成 | ApplyLimits 兼容入口退场 | 组合根与测试直接调用 application/policy.Apply |
+| EP-037 | 已完成 | Limits 读取与 ReleaseWindow 写入归位 | 删除 core Limits；ApplySessionReleaseWindow 迁入 policy |
 
 ## 基线指标
 
@@ -5007,16 +5008,30 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
 - 回退方式：恢复 core `ApplyLimits`，并把组合根改回调用。
 
+## EP-037：Limits 读取与 ReleaseWindow 写入归位
+
+- 删除 `application/core.Limits` 纯转发；core 生产消费点直接读取
+  `application/policy.Get()`；
+- 将 `ApplySessionReleaseWindow` 的“先校验、再改进程快照、返回生效值”顺序迁入
+  `application/policy`，避免 core 保留同一个 limit 写 helper；
+- core 测试只保留 `_test.go` 的 `Limits` shim；新增 policy 行为测试覆盖非法值零改动
+  与合法值即时生效；
+- 红测：`TestCoreHasNoPackageFunctionForwarders` 点名 core `Limits`；
+- 绿测：Application、Contract 与目标包测试通过；
+- core 直接内部依赖保持 2，生产文件保持 115，生产代码 11,723 → 11,709 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core `Limits` / `ApplySessionReleaseWindow`，并让调用方回到 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 23 |
 | core 直接内部依赖 | 37 | 2 |
-| core 生产文件 | 126 | 116 |
-| core 生产代码 | 18,723 行 | 11,764 行 |
+| core 生产文件 | 126 | 115 |
+| core 生产代码 | 18,723 行 | 11,709 行 |
 
-core 生产代码净减 6,959 行，直接内部依赖从 37 降到 2；
+core 生产代码净减 7,000 行，直接内部依赖从 37 降到 2；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

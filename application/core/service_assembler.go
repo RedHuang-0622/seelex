@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
@@ -208,7 +209,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Prompt: taskPromptPort{
 			promptStack: promptStack, effortManager: service.effortManager,
 		},
-		Limits: Limits,
+		Limits: applicationpolicy.Get,
 		IsInternalContent: func(content string) bool {
 			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
 		},
@@ -272,7 +273,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		TailHistory:                task_context.TranscriptTailHistory,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
 		ContentReferenceWarning:    context_runtime.ContentReferenceWarning,
-		Limits:                     Limits,
+		Limits:                     applicationpolicy.Get,
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
@@ -295,7 +296,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 			service.refreshWorkTableLocked(tasks, asyncRuns)
 		},
-		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
+		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
 	service.components.conversationTurnCompletion = newServiceConversationTurnCompletion(service)
@@ -363,7 +364,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.subagent = applicationexecution.NewSubagentView(applicationexecution.SubagentViewDeps{
 		Core:   kernel,
 		View:   service.components.view,
-		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
+		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 		// 工具记录走 toolrecord 的**唯一**判据（Failed + Reason），
 		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
 		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。
@@ -429,7 +430,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Session:            initialSession,
 		Runtime:            model.RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: prompt.ReasoningEffortFor(service.effortManager.Current()), LoopLimit: prompt.MaxLoops(service.effortManager.Current())},
 		Capabilities:       model.Capabilities{SessionResume: true},
-		ConversationWindow: Limits().HistoryWindow,
+		ConversationWindow: applicationpolicy.Get().HistoryWindow,
 	}
 	service.sessions.SetActive(initialSessionID)
 	service.sessionUnitLocked(initialSessionID)

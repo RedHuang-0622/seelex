@@ -1,13 +1,16 @@
 package core
 
-import applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+import (
+	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+)
 
 // newServiceConversationHistoryQuery adapts the host's visible view, cold reads
 // and window installation to the conversation-history application.
 func newServiceConversationHistoryQuery(service *Service, assembler applicationhistory.WindowAssembler) *applicationhistory.Application {
 	return applicationhistory.New(applicationhistory.Deps{
 		HistoryWindow: func() int {
-			return Limits().HistoryWindow
+			return applicationpolicy.Get().HistoryWindow
 		},
 		ReadViewState: func() (sessionID, workspaceID string, offset int) {
 			service.ViewMu.RLock()
