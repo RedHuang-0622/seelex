@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"testing"
 
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 func TestSessionColdActivationRulesAreExtracted(t *testing.T) {

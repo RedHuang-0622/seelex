@@ -105,25 +105,25 @@ func (Assembler) ReplaceTail(...) (...) { return ReplaceTail(...) }
 
 ## 2. `middle/switch/sessionusecase`、`middle/residency`：会话与驻留端口
 
-**状态：ResidencyPort 已实现（EP-002A）；SessionUseCase 半批在设计门禁停止
-（EP-002B）。** core 已不 import `middle/residency`。移除 `sessionusecase`
-需要把 ChatState、Queue、View、审批、Runtime slot 与 Domain actor 一并端口化，
-会镜像完整 session state，等待会话聚合归属裁决。
+**状态：已完成（EP-002A、EP-043）。** Residency 已端口化；
+SessionUnit、Domain、View、ChatState、Queue、Approval 引用和 Runtime slot
+已物理迁入 `application/session/state`，ViewState 已迁入
+`application/session/viewstate`。`middle/switch/sessionusecase` 与
+`middle/view/state` 已删除。
 
 ### 当前问题
 
-core 直接使用 session use case、residency Order、驻留释放和恢复 helper。会话状态
-仍由 core 的 `SessionUnit` / `state.Core` 持有，但中间层规则、LRU 顺序和恢复判据
-直接穿透到 core。
+迁移前 core 直接使用 session use case、residency Order、驻留释放和恢复 helper。
+该穿透现已在状态所有权和应用装配层收口。
 
 ### 所有权必须拆清
 
 | 状态 | 唯一所有者 |
 |---|---|
-| 单会话 ChatState、Queue、Approval | `session.Domain` / session unit |
+| 单会话 ChatState、Queue、Approval | `application/session/state` |
 | 当前视图会话指针 | core 的共享 state（迁移前） |
 | 驻留集合与 LRU 顺序 | `middle/residency` |
-| 可见正文 LRU | `middle/residency` + Application host |
+| 可见正文 LRU | `middle/residency` 纯判据 + Application host 状态 |
 | restore/archive/delete/unload 顺序 | `application/session` |
 | 持久化记录 | `store` repository |
 
@@ -180,7 +180,7 @@ type SessionCatalogPort interface {
 
 ### 退出门禁
 
-- core 不再 import `middle/switch/sessionusecase`、`middle/residency`；
+- core 不再 import `middle/switch/sessionusecase`、`middle/residency`（已达成）；
 - `application/session` 不持有 `state.Core` 或 `*Service`；
 - 会话状态机只有 `session.Domain` 一份；
 - 查询路径不获取共享写锁。
@@ -447,6 +447,16 @@ type BoardRepository interface {
 - EP-031：Engine Task Context 入口归位。
 - EP-032：Core assembly helper 转发退场。
 - EP-033：Engine Session Runtime 入口归位。
+- EP-034：Core 剩余纯 helper 转发退场。
+- EP-035：Session Context helper 退场。
+- EP-036：ApplyLimits 入口退场。
+- EP-037：Limits/ReleaseWindow 归位。
+- EP-038：CompressedTurn 与 Goal Store 解析归位。
+- EP-039：Event 段落与 Queue DTO 契约化。
+- EP-040：ProjectBoard Store 类型边归位。
+- EP-041：层边界与全局应用依赖预算。
+- EP-042：Conversation window helper 归位。
+- EP-043：SessionState/ViewState 迁入 Application。
 
 每组都必须单独提交，提交前后报告：
 

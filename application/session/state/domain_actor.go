@@ -1,4 +1,4 @@
-package session
+package sessionstate
 
 // Domain 的 actor 化实现（无锁化：注册表 + 视图指针 V 由单一 goroutine
 // 显式持有，channel 命令；取代原 sync.RWMutex）。

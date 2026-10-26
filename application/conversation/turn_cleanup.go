@@ -3,7 +3,7 @@ package conversation
 import (
 	"fmt"
 
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 )
 
 // TurnCleanupDeps supplies stream, route, context and projection callbacks.

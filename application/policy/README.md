@@ -64,7 +64,7 @@ Service compat -> application/policy.RoleApplication -> injected ports
 ## 依赖方向
 
 允许依赖 `contract`、`contract/dto`、`middle/protocol/model` 与
-`middle/view/state` 的只读投影形状。禁止依赖 `application/core`、具体
+`application/session/viewstate` 的只读投影形状。禁止依赖 `application/core`、具体
 `backend/**` 实现、`gui/**` 或 `tui/**`。
 
 ## 并发与错误

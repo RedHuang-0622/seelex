@@ -60,7 +60,7 @@ flowchart TB
         SR["backend/engine/session<br/>session_runtime：持久化/目录/项目绑定"]
         TC["backend/engine/task<br/>task_context：打点/终态/checkpoint/token 审计"]
         CR["backend/engine/context<br/>context_runtime：上下文装配/压缩/历史安全"]
-        VS["middle/view/state<br/>Snapshot 读写 + 事件发布"]
+        VS["application/session/viewstate<br/>Snapshot 读写 + 事件发布"]
         SV["middle/view/subagent<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
         TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
@@ -478,7 +478,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [../../backend/engine/context/](../../backend/engine/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |
 | [../../backend/engine/prompt/](../../backend/engine/prompt/README.md) | system prompt 组装与引擎同步（M5-R7 归位，包名 `prompt_layer`） |
-| [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |
+| [../session/viewstate/](../session/viewstate/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../../middle/view/subagent/](../../middle/view/subagent/README.md) | 子代理详情/live/树投影 |
 | [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
 | [../backend/multiagent/team/](../../backend/multiagent/team/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话）；原 `agentteam/`，M5-R8b 归位（包名 `team`） |

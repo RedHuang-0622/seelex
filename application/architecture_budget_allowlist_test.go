@@ -19,7 +19,7 @@ func TestCoreInternalDependencyAllowListHasNoStaleEntries(t *testing.T) {
 	want := append([]string(nil), budget.AllowedCoreInternalDependencies...)
 	sort.Strings(got)
 	sort.Strings(want)
-	if !reflect.DeepEqual(got, want) {
+	if len(got) != len(want) || (len(got) > 0 && !reflect.DeepEqual(got, want)) {
 		t.Fatalf("application/core 内部依赖允许清单与实测不一致：\n got=%v\nwant=%v",
 			got, want)
 	}

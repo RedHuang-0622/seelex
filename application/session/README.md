@@ -2,28 +2,31 @@
 
 ## 生态位
 
-`application/session` 承载不拥有 chat 执行状态的 Session 应用用例。当前包含会话展示
-元数据读写、SSH 环境选择、unload/archive/delete 与内存释放编排。
+`application/session` 承载 Session 聚合、状态与生命周期应用用例。Chat 执行循环仍在
+Conversation/Backend，但会话持有的 ChatState、Queue、Approval 引用、View 指针和
+revision 由本包的 `state` / `viewstate` 子包唯一拥有。
 
-主要调用方：`application/core` 的兼容装配；持久化、排序和端口判据仍来自
-`middle/switch`、`SessionQuery` 与宿主端口。
+主要调用方：`application/core`、`application/conversation` 与 Wiring 装配；
+Middle 只提供纯切换、历史和驻留策略。
 
 ## 职责
 
-- 提供 Session 应用能力的窄 deps 和组件，包括 Meta、SSH、Lifecycle、Archive、
-  Delete 与 Release。
+- 提供 Session 聚合状态、Snapshot 投影以及 Meta、SSH、Lifecycle、Archive、
+  Delete、Draft、Resume、Fork 与 Release。
 - 保持 Application 入站行为与 DTO 身份稳定。
 - 隔离 Session 用例，避免继续扩大 `application/core`。
 
 ## 非职责
 
-- 不拥有 chat、queue 或 turn 执行状态。
+- 不执行 Agent loop、工具、引擎流或持久化事务。
 - 不实现存储、权限、工作区或 Runtime 规则。
 - 不反向导入 `application/core`。
 
 ## 文件结构
 
 - `meta.go`：会话置顶、别名与排序位的读写应用组件。
+- `state/`：SessionUnit、Domain actor、View、InputQueue、Runtime slot 与 chat 状态。
+- `viewstate/`：权威 Snapshot、消息序号、revision 与事件发布顺序。
 - `ssh.go`：SSH 允许环境、固定环境与项目环境表的校验编排。
 - `release.go`：LRU/完整释放的二次守卫、flush 与有序回收。
 - `residency.go`：`ResidencyPort`（预览、LRU 序、输入索引、驱逐、归档）与纯值 deps。
@@ -60,17 +63,18 @@ archive、delete 的应用顺序；准入与归档判据仍在 middle 层。
 
 ## 数据流
 
-`application/core` 兼容入口 → `MetaApplication` / `SSHApplication` /
+`application/core` / `Frontend` → `application/session` 用例 →
 `LifecycleApplication` / `ArchiveApplication` / `DeleteApplication` /
 `ReleaseApplication` → 注入的窄端口 → metadata、Session、Workspace、Engine、
 Runtime 或存储的既有唯一实现。
 
 ## 依赖方向
 
-允许依赖 `contract/dto`、`middle/protocol/model`、`middle/switch` 与标准库。
+允许依赖 `contract/dto`、`contract/protocol`、本包的 `state` / `viewstate` 与
+注入的窄端口。
 residency 判据经 `ResidencyPort` 注入，由 `wiring/adapters.NewResidencyPort`
 提供 Middle 实现；本包不 import `middle/residency`。
-禁止依赖 `application/core` 或 backend 具体实现。
+禁止依赖 `application/core`、backend 具体实现或 Middle 可变会话状态。
 
 ## 并发与错误
 

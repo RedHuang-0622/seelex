@@ -3,10 +3,10 @@ package conversation
 import (
 	"strings"
 
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	session "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // ReasoningStep is one assistant reasoning unit paired with its tool calls.

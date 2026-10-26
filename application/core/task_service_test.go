@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	selexsession "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"testing"
 )

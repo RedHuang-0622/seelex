@@ -24,8 +24,8 @@ import (
 	"strings"
 
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // tierDeps 装配档位用例的宿主面（每次调用构造一次值语义的 Deps；无状态、无锁）。

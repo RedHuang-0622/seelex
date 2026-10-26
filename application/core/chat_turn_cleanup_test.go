@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 )
 
 func TestChatTurnCleanupRulesAreCentralized(t *testing.T) {

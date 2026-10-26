@@ -12,9 +12,9 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // metaDeps 装配展示元数据用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。

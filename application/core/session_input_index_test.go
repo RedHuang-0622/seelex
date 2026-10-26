@@ -2,12 +2,12 @@ package core
 
 import (
 	"encoding/base64"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 	"testing"
 	"time"

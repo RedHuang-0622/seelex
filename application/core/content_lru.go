@@ -31,7 +31,7 @@ import (
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"log"
 )
 

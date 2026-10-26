@@ -159,6 +159,8 @@ const (
 // 规则将上限抬到 116。EP-026～EP-033 再新增 switchpolicy、taskcontext
 // 与 session/runtime 三个身份门面，同样只重定向稳定类型的消费边界，
 // 上限按“新模块可 +1”抬到 119。
+// EP-043：SessionState/ViewState 迁入 Application 后，两个 Middle 包退出闭包，
+// 净减少一条，上限收紧到 119。
 const facadeClosureAllowListMax = 119
 
 var facadeClosureAllowList = []string{
@@ -189,6 +191,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/review",
 	"github.com/RedHuang-0622/seelex/application/session",
 	"github.com/RedHuang-0622/seelex/application/session/cold",
+	"github.com/RedHuang-0622/seelex/application/session/state",
 	"github.com/RedHuang-0622/seelex/application/session/query",
 	// EP-033：Engine Session Runtime 身份门面。
 	"github.com/RedHuang-0622/seelex/application/session/runtime",
@@ -227,7 +230,7 @@ var facadeClosureAllowList = []string{
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/backend/engine/task",
-	"github.com/RedHuang-0622/seelex/middle/view/state",
+	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	"github.com/RedHuang-0622/seelex/middle/view/worktable",
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/model",
@@ -338,7 +341,6 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search",
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot",
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens",
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase",
 	"github.com/RedHuang-0622/seelex/store",
 	// M3-S2：会话存储的基座机制（数据根锁 / 进程存活 / 共享读 / 原子发布 / 残尾 /
 	// Settings）从 store 抽出。同一份代码换落点，属"新模块可 +1"，且自身

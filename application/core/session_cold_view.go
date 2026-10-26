@@ -2,8 +2,8 @@ package core
 
 import (
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 func newServiceSessionColdView(service *Service) *applicationsessioncold.ViewApplication {

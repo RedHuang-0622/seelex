@@ -19,7 +19,7 @@ var repositoryModules = []string{
 	"kernel/state",
 	"backend/engine/prompt", "backend/engine/session",
 	"middle/view/subagent", "backend/engine/task",
-	"middle/view/state", "middle/view/worktable",
+	"application/session/state", "application/session/viewstate", "middle/view/worktable",
 	// M5-R5：项目看板的行投影与同步器从 application/core/project_board.go 归位；
 	// boardtest 是两侧共用的测试夹具包（无生产调用方）。
 	"middle/view/board", "middle/view/board/boardtest",
@@ -71,7 +71,7 @@ var repositoryModules = []string{
 	// 归位 tool 板块（plan §2.6）。
 	"backend/tool/reference",
 	"backend/engine/context/seelectx/merger", "backend/engine/context/seelectx/provider", "backend/engine/context/seelectx/search", "backend/engine/context/seelectx/snapshot",
-	"middle/switch/sessionusecase", "store", "store/root", "store/schedule", "store/workspace",
+	"store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
 	"wiring/config",
 	"wiring/registry",

@@ -23,6 +23,7 @@ import (
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
@@ -34,7 +35,6 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 

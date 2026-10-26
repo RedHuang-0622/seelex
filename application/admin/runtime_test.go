@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 type runtimeProjectionFake struct {

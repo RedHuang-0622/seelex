@@ -208,6 +208,7 @@
 | EP-040 | 已完成 | ProjectBoard Store 类型边归位 | execution 类型门面、core Store import 归零、直接依赖 2 → 1 |
 | EP-041 | 已完成 | 层边界裁决与 Application 全局依赖预算 | Session 聚合归 session、全局 concrete dependency 30 冻结 |
 | EP-042 | 已完成 | Conversation window pure helper 归位 | history 不再依赖 view_state，为 SessionState 迁移清障 |
+| EP-043 | 已完成 | SessionState / ViewState 物理迁入 Application | core 直接依赖归零、middle sessionusecase/viewstate 删除 |
 
 ## 基线指标
 
@@ -5121,12 +5122,31 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 该批不改变 Application 预算与 wire；
 - 回退方式：恢复 ViewState 内函数体并让 History 重新调用该包。
 
+## EP-043：SessionState / ViewState 物理迁入 Application
+
+- `middle/switch/sessionusecase` 全部状态与测试迁入
+  `application/session/state`，Go 包名改为 `sessionstate`；
+- `middle/view/state` Coordinator 迁入 `application/session/viewstate`，
+  删除 Middle facade；
+- 所有 Application/Core/Conversation/Session 调用方改走新路径；
+- `middle/switch/history` 已在前置切片退出 ViewState 依赖，因此 Middle
+  没有形成 Application 反向依赖；
+- 红测：`TestSessionAggregateLivesInApplicationSession` 在迁移前点名缺失的
+  state/viewstate 文件；
+- 绿测：SessionState、ViewState、Conversation、Core、Middle History/View、
+  E2E Facade/Layout；
+- `application/core` 直接内部依赖 1 → 0；`Service` 保持 23；生产文件保持 114，
+  行数保持 11,602；
+- Application 全局具体依赖包 30 → 28；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 字段均未改变；
+- 回退方式：将两包移回 Middle，恢复 core 直接 import；状态与算法不复制。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 23 |
-| core 直接内部依赖 | 37 | 1 |
+| core 直接内部依赖 | 37 | 0 |
 | core 生产文件 | 126 | 114 |
 | core 生产代码 | 18,723 行 | 11,602 行 |
 

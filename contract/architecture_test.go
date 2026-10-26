@@ -148,7 +148,7 @@ var backendApplicationBudget = map[string]string{}
 var oversizedFileBudget = map[string]int{
 	"contract/ports.go":                                  629,
 	"contract/protocol/state.go":                         1233,
-	"middle/view/state/coordinator.go":                   738,
+	"application/session/viewstate/coordinator.go":       738,
 	"backend/tool/worktree/worktree_manager.go":          1153,
 	"backend/tool/task/task.go":                          795,
 	"middle/switch/workspace/workspace.go":               574,

@@ -69,7 +69,8 @@ Session state 包装成万能端口。目标是让真实消费方持有窄端口
    - `backend/limit`
    - `backend/limit/tier`
    - `middle/switch`
-   - `middle/switch/sessionusecase`
+   - SessionUseCase/ViewState 已迁入 `application/session/state` /
+     `application/session/viewstate`，不要重复迁移
    - `middle/switch/workspace`
 4. Store 与事件：
    - `store`

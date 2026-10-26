@@ -1,7 +1,8 @@
 # middle/switch
 
-> 包名 = `switching`（目录名不能当包名的情形：`switch` 是 Go 关键字，与 `middle/view/state` 落成
-> `view_state` 是同类处理）。
+> 包名 = `switching`（目录名不能当包名的情形：`switch` 是 Go 关键字）。SessionUnit、
+> Domain 与 ViewState 不在 Middle：前者在 `application/session/state`，后者在
+> `application/session/viewstate`；本包只保留纯切换策略与窗口算法。
 
 ## 生态位
 
@@ -18,6 +19,10 @@
 生命周期 / 切换 / 队列 / 驻留调度器家族（`session_{lifecycle,release,fork,ctx,pending_tail,queue_recover}`、
 `service_{scheduler,queue,release_window}`、`async_completion`、`service_interaction`、
 顶层 `session/`）随 R6 续做搬入。
+
+`application/core` 现通过
+[`application/session/switchpolicy`](../../application/session/switchpolicy/README.md)
+的 identity facade 消费本包纯策略与错误值。
 
 ## 职责与非职责
 

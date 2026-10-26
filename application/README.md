@@ -58,11 +58,11 @@
 
 - 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
-  当前事实基线为 1，预算只允许下降；
+  当前事实基线为 0，预算只允许保持为零；
 - 冻结 `application/core` 非测试生产文件 114 个、生产代码 11,602 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
-  当前 30 个唯一包，只许下降；目标为 0。迁移期 identity facade 与 host adapter
+  当前 28 个唯一包，只许下降；目标为 0。迁移期 identity facade 与 host adapter
   必须在兼容层台账登记，不得成为第二份状态机；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -151,8 +151,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | 指标 | 当前 |
 |---|---:|
 | `Service` 公开方法 | 23 |
-| `application/core` 直接内部依赖 | 1 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 30 |
+| `application/core` 直接内部依赖 | 0 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
 | `application/core` 生产文件 | 114 |
 | `application/core` 生产代码 | 11,602 行 |
 
@@ -760,7 +760,8 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`../backend/engine/session/`](../backend/engine/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
 | [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
 | [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
-| [`../middle/view/state/`](../middle/view/state/README.md) | 用户可见 Snapshot 读写与事件发布（M5-R4 迁出 `core/view_state/`）。 |
+| [`session/state/`](session/state/README.md) | SessionUnit、Domain actor、Chat/Queue/View 与 DeepCopy 的唯一状态所有者。 |
+| [`session/viewstate/`](session/viewstate/README.md) | 用户可见 Snapshot 读写、revision 与事件发布。 |
 | [`../middle/view/worktable/`](../middle/view/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）（M5-R4 迁出 `core/worktable/`）。 |
 
 `core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包

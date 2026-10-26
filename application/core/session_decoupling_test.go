@@ -3,10 +3,10 @@ package core
 import (
 	"context"
 	"encoding/json"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"reflect"
 	"testing"
 	"time"

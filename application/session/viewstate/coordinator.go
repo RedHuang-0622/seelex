@@ -1,4 +1,4 @@
-// Package view_state owns the user-visible Snapshot, message sequence, event
+// Package view_state owns the Application-visible Snapshot, message sequence, event
 // revision and runtime projection. It embeds the shared state kernel; runtime
 // projection collection happens lock-free on external ports, and applying
 // happens under Core.ViewMu. Worktable refresh is injected as a function port so
@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // SubagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"sync"
 
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	switching "github.com/RedHuang-0622/seelex/middle/switch"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // QueueUnit is the minimal SessionUnit surface used by queue edits.

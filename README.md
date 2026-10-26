@@ -659,7 +659,7 @@ permission:
 | [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | **装配面（staging，拆解中）**：拓扑装配与逆序关机；原集中式防腐层的内容已按域下沉到 <code>engine/*</code>、<code>tool/*</code>、<code>multiagent/*</code>、<code>limit/policy</code> |
 | [<code>backend/engine/context/seelectx/</code>](backend/engine/context/seelectx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back（M5-R7 迁出仓库根 `seelexctx/`，包名不变） |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
-| [<code>middle/switch/sessionusecase/</code>](middle/switch/sessionusecase/README.md) | 会话领域模型与投影（Go 包名仍为 `session`） |
+| [<code>application/session/state/</code>](application/session/state/README.md) | SessionUnit、Domain、Chat/Queue/View 与 DeepCopy（Go 包名 `sessionstate`） |
 | [<code>backend/engine/plugin/</code>](backend/engine/plugin/README.md) | Plugin loader、生命周期和事务式切换 |
 | [<code>backend/engine/skill/</code>](backend/engine/skill/README.md) | Skill 加载、资源安全和可见性 |
 | [<code>store/workspace/</code>](store/workspace/README.md) | Workspace 与 Session binding |
@@ -793,7 +793,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 | 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](middle/protocol/model/README.md) · [event/](middle/protocol/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
 | 运行时适配 | [backend/engine/assemble/](backend/engine/assemble/README.md) · [backend/limit/gate/](backend/limit/gate/README.md) · [backend/tool/registry/](backend/tool/registry/README.md) · [backend/tool/node/](backend/tool/node/README.md) · [backend/tool/fork/](backend/tool/fork/README.md) · [backend/multiagent/subagent/](backend/multiagent/subagent/README.md) · [backend/engine/account/](backend/engine/account/README.md) · [backend/engine/mcp/](backend/engine/mcp/README.md) · [backend/tool/computer/](backend/tool/computer/README.md) |
-| 上下文与存储 | [backend/engine/context/seelectx/](backend/engine/context/seelectx/README.md) · [store/](store/README.md) · [middle/switch/sessionusecase/](middle/switch/sessionusecase/README.md) · [store/workspace/](store/workspace/README.md) |
+| 上下文与存储 | [backend/engine/context/seelectx/](backend/engine/context/seelectx/README.md) · [store/](store/README.md) · [application/session/state/](application/session/state/README.md) · [store/workspace/](store/workspace/README.md) |
 | 扩展与前端 | [backend/engine/plugin/](backend/engine/plugin/README.md) · [backend/engine/skill/](backend/engine/skill/README.md) · [backend/engine/mcp/mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 

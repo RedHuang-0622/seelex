@@ -12,10 +12,10 @@ import (
 	"sync"
 	"testing"
 
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 func TestChatTurnCommitRulesAreCentralized(t *testing.T) {

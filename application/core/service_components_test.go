@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 func TestNewAssemblesFocusedServiceComponents(t *testing.T) {

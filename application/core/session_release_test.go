@@ -11,9 +11,9 @@ package core
 import (
 	"context"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"go/ast"
 	"go/parser"
 	"go/token"

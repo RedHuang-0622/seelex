@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 )
 
 // Request is the immutable accepted-turn payload.

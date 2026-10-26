@@ -22,9 +22,9 @@ import (
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 func (service *Service) readSessionInputIndex(sessionID string) (model.SessionInputIndex, error) {

@@ -21,8 +21,8 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // sessionReleaseMode 是一次释放的强度。

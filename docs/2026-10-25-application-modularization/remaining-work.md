@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-040；下一步拆除最后一条 SessionUseCase 直接依赖。**
+EP-001～EP-043；下一步完成 TeamworkPlan 全量 DTO 化与剩余 Application facade 退场。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -15,8 +15,8 @@ EP-001～EP-040；下一步拆除最后一条 SessionUseCase 直接依赖。**
 | 指标 | 当前 |
 |---|---:|
 | `Service` 公开方法 | 23 |
-| `application/core` 直接内部依赖 | 1 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 30 |
+| `application/core` 直接内部依赖 | 0 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
 | `application/core` 生产文件 | 114 |
 | `application/core` 生产代码 | 11,602 行 |
 
@@ -33,11 +33,11 @@ EP-001～EP-040；下一步拆除最后一条 SessionUseCase 直接依赖。**
   Backend/Middle/Store 依赖另设预算并最终归零；
 - `TeamworkPlan` 系列选择完整 DTO 化，Store 保留 alias，现有
   `application/execution` 类型门面只是迁移桥；
-- 下一阻断项不是“选所有权”，而是按该边界迁移 Session 聚合并删除
-  `application/core -> sessionusecase` 最后一条直接依赖。
+- SessionState/ViewState 已迁入 `application/session/state` 与
+  `application/session/viewstate`，`application/core` 直接内部依赖已归零。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
-  当前 30 个唯一包，只许下降，最终为 0。
+  当前 28 个唯一包，只许下降，最终为 0。
 
 已迁出的领域包：
 

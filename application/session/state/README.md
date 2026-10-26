@@ -1,13 +1,14 @@
-# sessionusecase（Go 包名 `session`）
+# application/session/state（Go 包名 `sessionstate`）
 
 ## 生态位
 
-`middle/switch/sessionusecase/` 是 Seelex 的**会话域**：会话资源（身份、可见投影、
+`application/session/state/` 是 Seelex 的**会话聚合状态**：会话资源（身份、可见投影、
 聊天运行态、队列、生命周期状态）的唯一所有者。执行内核（`application/core`）经本包
 暴露的 `Domain` / `SessionUnit` 读写会话；会话之间零共享，继承只走深拷贝。
 
-目录名是 plan §2.4 的目标落点；Go 包名保留 `session`（调用点限定符不变，避免一次
-只为改名的全仓替换）。主要调用方：`application/core`、`middle/switch`、`wiring/adapters`。
+Go 包名是 `sessionstate`。原 `middle/switch/sessionusecase` 已物理迁出并删除；
+主要调用方是 `application/core`、`application/conversation`、`application/session`
+的用例组件与 Wiring adapter。
 
 **本包不 import store / Seele / application**：存储形状已下沉 `contract/dto`
 （`SessionRecord` / `SessionBinding` / `SessionContextStack` / `SessionInfo`），
@@ -46,8 +47,8 @@
 
 ## 依赖方向
 
-`sessionusecase → contract/dto + middle/protocol/model`（+ stdlib）。
-禁止 import `application/*`、`backend/*`、`store`、`Seele`。
+`sessionstate → contract/dto + contract/protocol`（+ stdlib）。
+禁止 import `backend/*`、`middle/*`、`store`、`Seele`。
 
 ## 并发与存储
 
@@ -56,8 +57,9 @@
 
 ## 扩展方式
 
-新增会话级状态：先加到 `SessionUnit` 并给出读写方法，再由 `application/core`
-在状态变化点更新；不要在本包外直接改单元字段。
+新增会话级状态：先加到 `SessionUnit` 并给出读写方法，再由
+`application/session` / `application/conversation` 的状态转换点更新；
+不要在本包外直接改单元字段。
 
 ## Review 指南
 
@@ -68,6 +70,6 @@
 ## 测试与验证
 
 ```text
-go test ./middle/switch/sessionusecase/ -count=1
+go test ./application/session/state/ -count=1
 go test ./application/core/ -run Session -count=1
 ```

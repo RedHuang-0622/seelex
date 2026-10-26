@@ -59,7 +59,7 @@ Middle Setter 仍唯一实现判据，Wiring adapter 只转发。
 ## 依赖方向
 
 允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
-`middle/view/state.SubagentContextMarker` 这一只读标记。禁止导入
+`application/session/viewstate.SubagentContextMarker` 这一只读标记。禁止导入
 `application/core`、持有完整 `Service`、调用 GUI/TUI，或反向依赖
 `backend/**`、`middle/view` 的具体实现。
 

@@ -7,7 +7,7 @@
 //
 // 9.5 清理：自造 Unit/ChatRuntime 平行容器已删除，聊天运行态（Chat 状态/
 // 取消/流/队列）直接收进 SessionUnit，core 直接经 SessionUnit 接入会话域。
-package session
+package sessionstate
 
 import (
 	"context"

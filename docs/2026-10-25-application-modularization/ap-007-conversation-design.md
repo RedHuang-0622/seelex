@@ -28,7 +28,7 @@ durable record 的所有者。`Snapshot` 只是活跃 Session 的镜像，不是
 
 | 可变状态 | 唯一所有者 | 保护 | 生命周期 | 恢复来源 |
 |---|---|---|---|---|
-| `SessionUnit.Chat` | `middle/switch/sessionusecase.SessionUnit` | `SessionUnit.mu` | 进程内回合状态 | 不持久化；恢复后为 idle |
+| `SessionUnit.Chat` | `application/session/state.SessionUnit` | `SessionUnit.mu` | 进程内回合状态 | 不持久化；恢复后为 idle |
 | 输入队列 `SessionUnit.Queue` | `SessionUnit` / `InputQueue` | `InputQueue.mu`；应用编排另持 `Core.ViewMu` | 运行期输入；durable queue 镜像另行落盘 | durable queue 回填 + record 发布状态 |
 | `Cancel` / `Stream` / `Batcher` | `SessionUnit` | `SessionUnit.mu` | 仅当前进程和当前 request | 不恢复；重跑时重建 |
 | 可见 `View` / `HistoryWindow` | `SessionUnit.View` | `View.mu`；镜像时持 `Core.ViewMu` | 可冷回读、可 LRU 卸载 | `SessionRecord` + transcript |

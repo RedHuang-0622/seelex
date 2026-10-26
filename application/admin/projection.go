@@ -3,9 +3,9 @@ package admin
 import (
 	"strings"
 
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 // RuntimeVisibility 构造「可见性投影」（goal 技能门控 + 当前会话的 goal 治理

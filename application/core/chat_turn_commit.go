@@ -4,9 +4,9 @@ import (
 	"sync"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	sessioncase "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 func newServiceConversationTurnCommit(service *Service) *applicationconversation.TurnCommitApplication {

@@ -3,9 +3,9 @@ package conversation
 import (
 	"log"
 
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	viewerrors "github.com/RedHuang-0622/seelex/middle/view/errors"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 // TurnOutcomeDeps supplies error/projection/snapshot callbacks.

@@ -65,7 +65,8 @@
 - 有删除里程碑和回退方式；
 - wire、revision/seq 与持久化格式保持不变。
 
-当前 `application/core` 只剩 `middle/switch/sessionusecase` 一个直接依赖。
+当前 `application/core` 直接内部依赖为 0；SessionState/ViewState 已迁入
+`application/session`。
 整个 Application 的具体依赖包预算另行统计，不能再用 core 数字替代全局结论。
 
 ## 4. Session 聚合归属
@@ -165,7 +166,7 @@ AP-003 分开两条指标：
 
 | 迁移项 | 删除条件 |
 |---|---|
-| `application/core -> sessionusecase` | Session 聚合落入 `application/session`，旧调用方归零 |
+| `application/core -> sessionusecase` | 已完成：SessionState/ViewState 已迁入 `application/session` |
 | Application identity facade | 业务消费方改用 Contract 类型，预算归零 |
 | `execution.TeamworkPlan` alias | TeamworkPlan 完整 DTO 化完成 |
 | `backend -> middle` 6 条 | BM-005 runtime 装配迁移完成 |
