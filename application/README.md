@@ -59,7 +59,7 @@
 - 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 2，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 116 个、生产代码 11,736 行；
+- 冻结 `application/core` 非测试生产文件 115 个、生产代码 11,721 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -149,8 +149,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 |---|---:|
 | `Service` 公开方法 | 23 |
 | `application/core` 直接内部依赖 | 2 |
-| `application/core` 生产文件 | 116 |
-| `application/core` 生产代码 | 11,736 行 |
+| `application/core` 生产文件 | 115 |
+| `application/core` 生产代码 | 11,721 行 |
 
 已落地领域包：
 

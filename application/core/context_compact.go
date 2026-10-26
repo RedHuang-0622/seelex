@@ -4,6 +4,7 @@ import (
 	"context"
 
 	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 )
 
 // ContextCompactionResult is the stable public compaction receipt.
@@ -30,7 +31,7 @@ func (service *Service) contextCompactionApplicationComponent() *conversationcon
 func newServiceContextCompactionApplication(service *Service) *conversationcontext.Application {
 	return conversationcontext.New(conversationcontext.Deps{
 		CurrentSessionID: func(ctx context.Context) string {
-			sessionID := sessionIDFromContext(ctx)
+			sessionID := task_context.SessionIDFromContext(ctx)
 			if sessionID == "" {
 				service.ViewMu.RLock()
 				sessionID = service.Core.Snapshot.Session.ID

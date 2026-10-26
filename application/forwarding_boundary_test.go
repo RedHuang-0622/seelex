@@ -66,6 +66,8 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		"deepCopyForkRecord":     "application/session/switchpolicy",
 		"ApplyWindowConfig":      "application/window",
 		"CurrentWindowConfig":    "application/window",
+		"withSessionID":          "application/execution/taskcontext",
+		"sessionIDFromContext":   "application/execution/taskcontext",
 	}
 	entries, err := os.ReadDir(coreDir)
 	if err != nil {

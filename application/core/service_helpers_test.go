@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -20,6 +21,14 @@ type testServiceOption func(*contract.Dependencies)
 // points without restoring compatibility methods on Service production types.
 func frontendOfTestService(service *Service) *Frontend {
 	return &Frontend{Service: service}
+}
+
+func withSessionID(ctx context.Context, sessionID string) context.Context {
+	return task_context.WithSessionID(ctx, sessionID)
+}
+
+func sessionIDFromContext(ctx context.Context) string {
+	return task_context.SessionIDFromContext(ctx)
 }
 
 func withTestSessions(sessions contract.SessionPort) testServiceOption {

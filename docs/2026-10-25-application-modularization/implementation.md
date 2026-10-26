@@ -197,6 +197,7 @@
 | EP-032 | 已完成 | Core assembly helper 转发退场 | 删除 11 个纯转发 helper、core 净减 52 行、结构门禁覆盖 |
 | EP-033 | 已完成 | Engine Session Runtime 入口归位 | core backend/engine/session import 归零、session/runtime facade、依赖预算 2 |
 | EP-034 | 已完成 | Core 剩余纯 helper 转发退场 | teamwork/sigil/fork/window 6 个 wrapper 删除、core 净减 28 行 |
+| EP-035 | 已完成 | Session Context helper 转发退场 | 删除 session_ctx.go；测试专用 shim 不进入生产面 |
 
 ## 基线指标
 
@@ -4980,6 +4981,19 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - core 直接内部依赖保持 2，生产文件保持 116，生产代码 11,764 → 11,736 行；
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
 - 回退方式：恢复对应 core helper，并把调用方改回 core。
+
+## EP-035：Session Context helper 转发退场
+
+- 删除 `application/core/session_ctx.go` 与 `withSessionID` /
+  `sessionIDFromContext` 两个纯转发；
+- chat、compact、goal、history safety、tool hooks 与 turn runner 直接使用
+  `application/execution/taskcontext` 的会话 ID context helper；
+- 旧的 core 测试调用保留一个 test-only shim，只存在于 `_test.go`，不进入生产面；
+- 红测：`TestCoreHasNoPackageFunctionForwarders` 初始点名 `session_ctx.go`；
+- 绿测：Application、Contract 与 E2E Facade/Document 全绿；
+- core 直接内部依赖保持 2，生产文件 116 → 115，生产代码 11,736 → 11,721 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 `session_ctx.go` 并让生产调用方改回 core helper。
 
 ## 本轮收口指标
 

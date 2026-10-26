@@ -13,7 +13,7 @@ import (
 )
 
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
@@ -78,7 +78,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 			observe(stage)
 		}
 	}
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
@@ -253,7 +253,7 @@ func (bridge *ToolHookBridge) Bind(service *Service) {
 			return requestID
 		},
 		PrepareHistory: func(ctx context.Context) error {
-			return service.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx))
+			return service.components.history.PrepareNewHistoryContentFor(task_context.SessionIDFromContext(ctx))
 		},
 		RecordContextFailure: service.components.context.RecordContextControlFailure,
 	})

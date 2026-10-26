@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 )
@@ -46,7 +47,7 @@ func (service *Service) recoverProviderFailure(err error, originalRequest string
 // recoverProviderFailureFor 与 recoverProviderFailure 相同，但 ctx 携带会话
 // ID 时按目标会话路由（多会话并行执行路径）。
 func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		// 同上：回退读当前会话需持 Core.ViewMu（裸读与热切换写 Snapshot.Session 竞争）。
 		service.ViewMu.RLock()
@@ -98,7 +99,7 @@ replayed safely.
 // retryableAfterRecovery 判定：超时与服务器故障可能留下不确定的工具副作用，
 // 不得重放。
 func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		sessionID = service.Core.Snapshot.Session.ID
 	}

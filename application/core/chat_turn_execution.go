@@ -1,6 +1,7 @@
 package core
 
 import applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+import task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 
 func newServiceConversationTurnExecution(service *Service) *applicationconversation.TurnExecutionApplication {
 	return applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
@@ -13,7 +14,7 @@ func newServiceConversationTurnExecution(service *Service) *applicationconversat
 
 func newServiceConversationTurnRunner(service *Service) *applicationconversation.TurnRunnerApplication {
 	return applicationconversation.NewTurnRunner(applicationconversation.TurnRunnerDeps{
-		WithSessionID:      withSessionID,
+		WithSessionID:      task_context.WithSessionID,
 		StartDraftSnapshot: service.startDraftSnapshotLoop,
 		PrepareExecution:   service.components.conversationTurnExecution.Prepare,
 		ClearReActBudget:   service.components.tasks.ClearReActBudget,

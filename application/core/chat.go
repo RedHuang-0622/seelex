@@ -213,7 +213,7 @@ func (service *Service) TaskTerminalHandler(kind string) func(context.Context, s
 // 基线（迁移期：直设 Snapshot.Runtime.Plan 的路径/旧装配在 plan_load 前
 // 没有种子时，从镜像补种；已有投影不覆盖）。
 func (service *Service) ensureViewPlanProjection(ctx context.Context) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
@@ -231,7 +231,7 @@ func (service *Service) ensureViewPlanProjection(ctx context.Context) {
 // mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
 // plan 镜像进 Snapshot（这些工具以投影为权威变更点）。
 func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
@@ -255,7 +255,7 @@ func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
 // 镜像进 Snapshot.Task（TaskService 不再直写快照；工具路径没有 runChat 收尾
 // 的镜像段，须在此补齐，见 task_service.go lastTaskState 说明）。
 func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
@@ -283,7 +283,7 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 }
 
 func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		// 回退读「当前会话」必须持 Core.ViewMu：视图指针由热切换在持锁段内整体
 		// 改写（application/core/session_lifecycle.go 的 hotAttachSession），裸读

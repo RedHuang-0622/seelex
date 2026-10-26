@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/types"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/store"
 	"strings"
 )
@@ -72,7 +73,7 @@ func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable commit storage is unavailable")
 	}
-	sessionID := strings.TrimSpace(sessionIDFromContext(ctx))
+	sessionID := strings.TrimSpace(task_context.SessionIDFromContext(ctx))
 	if sessionID == "" && a.SessionIDProvider != nil {
 		sessionID = strings.TrimSpace(a.SessionIDProvider())
 	}

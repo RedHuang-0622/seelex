@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 )
 
@@ -15,9 +16,9 @@ func newServiceGoalApplication(service *Service, hostSessionForToolCall func(con
 			return service.components.goal
 		},
 		Refresh:        service.refreshGoalRuntimeProjection,
-		WriteSessionID: sessionIDFromContext,
+		WriteSessionID: task_context.SessionIDFromContext,
 		ReadSessionID: func(ctx context.Context) string {
-			if sessionID := sessionIDFromContext(ctx); sessionID != "" {
+			if sessionID := task_context.SessionIDFromContext(ctx); sessionID != "" {
 				return sessionID
 			}
 			return hostSessionForToolCall(ctx)
