@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // liveToolCall 是本轮真实 API 调用留下的一条工具完成记录（名字 / 状态 / 结果原文）。

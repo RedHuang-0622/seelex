@@ -2,7 +2,7 @@ package core
 
 // service_knobs.go — 两条独立拉条（思考强度 / 循环次数）的**宿主适配 + 门面转发**。
 //
-// 判据与状态本体已在 M5-R-limitb 随接收者转移归位 `backend/limit.Knobs`（plan §2.8）；
+// 判据与状态本体已在 M5-R-limitb 随接收者转移归位 `kernel/limit.Knobs`（plan §2.8）；
 // 本文件只剩两件事：
 //  1. `serviceKnobsHost`：把 Service 的视图锁、快照写面、引擎与档位读数实现成
 //     `limit.KnobsHost`（全部是既有内部调用，不含新判据）；

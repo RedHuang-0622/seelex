@@ -42,7 +42,7 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 本包不再 import `backend/engine/react`。
 
 BM-003 已完成：Application 注入 `func() dto.ViewLimits`，
-本包不依赖 `backend/limit`。
+本包不依赖 `kernel/limit`。
 
 `DurableConversationCount`、`BoundConversationTail`、`BoundConversationHead`
 的窗口算法已下沉 `contract/protocol`；本包只保留同身份兼容转发。

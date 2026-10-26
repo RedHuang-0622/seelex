@@ -39,7 +39,7 @@ type serviceState struct {
 	draft *draftSlot
 
 	// knobs 是 composer 底部两条**独立**拉条（推理强度 / 循环次数）的状态与判据：
-	// 读数、按会话说强度租约与全部守卫都已随 M5-R-limitb 归位 `backend/limit.Knobs`（plan §2.8）。
+	// 读数、按会话说强度租约与全部守卫都已随 M5-R-limitb 归位 `kernel/limit.Knobs`（plan §2.8）。
 	// 宿主能力（视图锁、快照写面、引擎与档位读数）经 `serviceKnobsHost` 注入；
 	// 加锁次序仍是 视图锁 → 组件锁（只单向），见该组件与适配的注释。
 	knobs *limit.Knobs

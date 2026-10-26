@@ -18,7 +18,7 @@ mAttachSubSessionStorem，端到端断言恒为空集）的来源。
 前端选择与启动。
 
 **不做**：不声明启动参数（mwiring/configm）；不登记具体工具（mwiring/registrym）；不实现任何
-业务判定（一律调用被装部件的既有方法面）；不解析配置段语义（mbackend/limitm、
+业务判定（一律调用被装部件的既有方法面）；不解析配置段语义（mkernel/limitm、
 mmcpstack/configm 各自拥有自己的段）。
 
 ## 文件结构
@@ -60,7 +60,7 @@ mwiring/config.Flagsm + minternal/buildinfo.Versionm（入口）→ mRunm → mA
 ## 依赖方向
 
 允许：标准库、mapplicationm（含 core、console、mcore/task_contextm、mcore/session_runtimem）、
-mbackend/engine/assemblem（Runtime）、mbackend/limit{,overlay,policy}m、
+mbackend/engine/assemblem（Runtime）、mkernel/limit{,overlay,policy}m、
 mbackend/multiagent/teamworkm、mbackend/tool/{registry,search}m、mguim、mtuim、
 minternal/bootseedm、mbackend/engine/prompt/assetsm、mpluginm、msessionm、mskillm、mstore{,/workspace}m、
 mwiringm、mwiring/configm、mwiring/registrym、Seele 的 msessionm/mtypesm/mtools/permissionm。

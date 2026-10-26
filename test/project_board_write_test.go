@@ -15,7 +15,7 @@ package test
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/application/core"
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"

@@ -25,7 +25,7 @@
 `backend/multiagent/subagent` 或 seelectx snapshot。
 
 BM-003 已完成：`Deps.Limits` 接收 `func() dto.ViewLimits`，Application 从生效
-`limit.Limits` 的唯一 `ViewLimits()` 投影注入；本包到 `backend/limit` 的边已删除。
+`limit.Limits` 的唯一 `ViewLimits()` 投影注入；本包到 `kernel/limit` 的边已删除。
 Application 的 Core、Compat 与测试直接消费本包 Coordinator，不再经过
 `application/execution` identity alias。
 

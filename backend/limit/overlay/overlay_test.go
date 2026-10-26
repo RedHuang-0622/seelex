@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // 「运行时上限覆盖层」的用例（overlay.go）。

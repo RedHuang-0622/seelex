@@ -35,9 +35,9 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 )

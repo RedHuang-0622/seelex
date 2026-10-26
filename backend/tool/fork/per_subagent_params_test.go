@@ -9,7 +9,7 @@ import (
 )
 
 // 判据本身（进程级天花板、0 = 未声明、effort 节点上限不参与）已随 M2-B 归一，
-// 用例搬到唯一实现处：`backend/limit/loop/loop_test.go` 的
+// 用例搬到唯一实现处：`kernel/limit/loop/loop_test.go` 的
 // TestValidateSubagentMaxLoopsUsesProcessCeiling 与 …MessagesUnchanged。
 // 本文件只保留"这条判据在工具入口真的生效"的用例（下面那条）。
 

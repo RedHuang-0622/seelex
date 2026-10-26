@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为

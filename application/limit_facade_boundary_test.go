@@ -15,7 +15,7 @@ func TestCoreDoesNotImportLimitBasePackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
-	const forbidden = "github.com/RedHuang-0622/seelex/backend/limit"
+	const forbidden = "github.com/RedHuang-0622/seelex/kernel/limit"
 	var violations []string
 	for _, entry := range entries {
 		name := entry.Name()

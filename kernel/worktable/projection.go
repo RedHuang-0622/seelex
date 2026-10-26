@@ -7,7 +7,7 @@ package worktable
 // 截断，都是"从权威快照派生"的纯计算；宿主只负责在它自己的锁下取数。判据留在宿主会
 // 让同一份派生规则随用例膨胀，也让中间层无法独立复用投影。
 //
-// 与宿主的边界（M5-R5b）：本文件**不自取锁、不读宿主字段、不 import `backend/limit`**——
+// 与宿主的边界（M5-R5b）：本文件**不自取锁、不读宿主字段、不 import `kernel/limit`**——
 // 锁、进程级上限与 Runtime 取数都归宿主，输入按参数传入（见 Limits）。
 
 import (
@@ -20,7 +20,7 @@ import (
 	model "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-// Limits 是工作表格投影用到的**进程级上限**三格：宿主从 `backend/limit` 取好按值传入
+// Limits 是工作表格投影用到的**进程级上限**三格：宿主从 `kernel/limit` 取好按值传入
 // （中间层不反向依赖它，见 plan §1.2 与 R5c 的偏差登记）。
 //
 // 为什么是三格而不是整份 `limit.Limits`：投影只用得到这三格，收窄参数面让"投影依赖了

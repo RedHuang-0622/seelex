@@ -34,7 +34,7 @@
   [`backend/engine/task`](../../backend/engine/task/README.md)，包名不变。）
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
-  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
+  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`kernel/limit`](../../backend/limit/README.md)。
 
 域包依赖 `state.Core` 与装配根注入的消费方窄接口，禁止反向依赖 core 根包；
 `service_assembler.go` 是唯一组合根。

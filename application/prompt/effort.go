@@ -6,13 +6,13 @@ import (
 	"sync"
 
 	promptassets "github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
-	"github.com/RedHuang-0622/seelex/backend/limit/effort"
-	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit/effort"
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 )
 
 // effort.go 是 effort 档位的**宿主侧管理器**：它把档位策略应用到 PromptStack
-// 与引擎（SetMaxLoops）。档位数字与策略表本身在 `backend/limit/effort`
+// 与引擎（SetMaxLoops）。档位数字与策略表本身在 `kernel/limit/effort`
 // （plan §2.8 的落点）——本文件只保留应用动作与既有调用点的门面。
 
 // EffortManager 管理 Effort 等级及对应行为。
@@ -29,10 +29,10 @@ type EffortManager struct {
 }
 
 // ReActBudget 是"一次用户请求的工具预算"的类型别名：数字与取数规则只有一份，
-// 在 `backend/limit/loop`（判据层）。
+// 在 `kernel/limit/loop`（判据层）。
 type ReActBudget = loop.Budget
 
-// DefaultEffortLevel 是进程默认档位：策略事实在 `backend/limit/effort`。
+// DefaultEffortLevel 是进程默认档位：策略事实在 `kernel/limit/effort`。
 const DefaultEffortLevel = effort.DefaultLevel
 
 // ReasoningEffortFor returns the thinking-strength value for an effort level.

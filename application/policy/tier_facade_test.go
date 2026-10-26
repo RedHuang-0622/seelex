@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/tier"
+	"github.com/RedHuang-0622/seelex/kernel/limit/tier"
 )
 
 func TestTierFacadeTypesAreBackendIdentity(t *testing.T) {

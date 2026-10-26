@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 )
 
 // Deps 是 fork_subagents 工具执行所需的运行时回调集合，由根包（Runtime）注入。
@@ -69,7 +69,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 			return "", fmt.Errorf("fork_subagents: duplicate subagent id %q", spec.ID)
 		}
 		seen[spec.ID] = true
-		// 子代理循环上限的判据只有一份：backend/limit/loop（进程级天花板）。
+		// 子代理循环上限的判据只有一份：kernel/limit/loop（进程级天花板）。
 		if err := loop.ValidateSubagentMaxLoops(spec.ID, spec.MaxLoops, t.deps.LoopLimitCeiling); err != nil {
 			return "", err
 		}

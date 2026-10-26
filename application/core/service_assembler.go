@@ -160,7 +160,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.assembleSubmitApplication()
 	service.assembleSessionColdComponents()
 	service.assembleEditForkComponents()
-	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
+	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 kernel/limit.Knobs（M5-R-limitb），
 	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
 	service.assembleKnobs()
 	service.assemblePolicySwitchApplication()

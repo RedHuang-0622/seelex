@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // 「会话驻留窗口」可调面的用例（service_release_window.go）。

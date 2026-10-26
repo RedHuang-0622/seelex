@@ -5843,6 +5843,22 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：删除 Contract/Store alias，把 `kernel/board` 移回
   `middle/view/board`，恢复 Application Board facade 与调用点。
 
+## EP-080：Limit 判据与档位归入中立 Kernel
+
+- 把 `backend/limit` 根包与 `effort`、`loop`、`tier` 三个子包的生产代码、
+  行为测试和 README 物理迁入 `kernel/limit/**`；`approval`、`gate`、`overlay`、
+  `policy`、`accountwindow` 等仍需具体宿主能力的子域留在 Backend；
+- Application、Backend task、Wiring、TUI/GUI/headless 与 E2E 的 import 全部改直连
+  `kernel/limit/**`，不保留 Backend identity alias；
+- 红测：Application 全局依赖预算收紧到 11；迁移后预算、Kernel Limit 全部测试、
+  Backend Limit residual、Backend task、Scheduler、E2E `Facade|Layout` 与
+  `go build ./...` 通过；
+- Application 具体依赖由 15 降至 11；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；limits YAML/默认值/进程快照、effort/loop/tier 判据、
+  GUI/TUI wire 与持久化格式不变；
+- 回退方式：把 `kernel/limit` 根及 effort/loop/tier 移回 `backend/limit`，
+  并恢复全部调用点 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

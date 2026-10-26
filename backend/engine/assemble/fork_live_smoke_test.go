@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // TestForkSubagentsLiveSmoke 真实 API 冒烟（非默认运行）：

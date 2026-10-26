@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 const (

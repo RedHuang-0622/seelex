@@ -65,7 +65,7 @@ type ProjectBoardDeps struct {
 	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
 	ProjectRootFor func(sessionID string) string
 	// EvidenceChars 是投影文本的字符上限（0 = 不限）。由装配根从生效
-	// limit.Limits 投影后注入，避免 middle 反向依赖 backend/limit。
+	// limit.Limits 投影后注入，避免 middle 反向依赖 kernel/limit。
 	EvidenceChars func() int
 	Triggers      ProjectBoardTrigger
 	FlushIdle     time.Duration

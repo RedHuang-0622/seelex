@@ -3,8 +3,8 @@ package prompt
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/effort"
-	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	"github.com/RedHuang-0622/seelex/kernel/limit/effort"
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 )
 
 // TestEffortEntryPointsForwardToPolicy 是跨实现一致性用例：prompt 侧的三个既有

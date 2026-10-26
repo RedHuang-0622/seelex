@@ -256,7 +256,7 @@ func (service *Service) syncSessionReasoningEffort(level string) int {
 // 未选择回退进程默认档位）。不持有 Core.ViewMu——Unit 自带锁，进程默认由
 // service.permissionTierDefault 提供。
 //
-// 判据本体在 `backend/limit/tier.Deps.EffectiveTier`（M5-R-limitc 接收者转移）；
+// 判据本体在 `kernel/limit/tier.Deps.EffectiveTier`（M5-R-limitc 接收者转移）；
 // 本方法只是 core 内部调用点的转发，不再自己写一份解析。
 func (service *Service) permissionTierForSession(sessionID string) string {
 	return service.tierDeps().EffectiveTier(sessionID)
@@ -275,7 +275,7 @@ func (service *Service) fullAccessForSession(sessionID string) bool {
 // + 起点同步」，B 会话起跑会把 A 会话的全权关掉，用户看到「点了全权仍弹审批/
 // 仍被拒」。
 //
-// 口径本体在 `backend/limit/tier.Deps.SyncGateFor`（M5-R-limitc）；本方法只转发。
+// 口径本体在 `kernel/limit/tier.Deps.SyncGateFor`（M5-R-limitc）；本方法只转发。
 func (service *Service) syncFullAccessFor(sessionID string) {
 	service.tierDeps().SyncGateFor(sessionID)
 }

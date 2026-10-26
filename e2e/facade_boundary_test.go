@@ -40,9 +40,9 @@ const (
 // 只许收缩：M4 解散 seelebridge、M5 收窄门面后，这张表应当大幅变短。
 //
 // 关于清单规模：plan 点名的搬迁会让同一个包换名字进闭包（例如
-// `application/core/internal/limits` → `backend/limit`，M2-A）——这类是**一条出、
+// `application/core/internal/limits` → `kernel/limit`，M2-A）——这类是**一条出、
 // 一条进**的等量替换，清单规模不变。plan 点名的**新模块**（例如 M2-B 的
-// `backend/limit/loop`：从 prompt/adapters/fork 抽出来的判据层）会让闭包真的多一个包，
+// `kernel/limit/loop`：从 prompt/adapters/fork 抽出来的判据层）会让闭包真的多一个包，
 // 这是允许的，但必须同时满足两条并记进里程碑记录：
 //  1. 新模块自己的依赖闭包是"干净叶子"（只有标准库 / 明确登记的第三方）；
 //  2. 这里把上限往上抬一格，并写清"多了谁、为什么"。
@@ -54,7 +54,7 @@ const (
 // **一条进**的新判据模块（自身闭包 = 标准库 + Seele + `contract/dto`，后者本就在表内），
 // 因此上限抬到 69。
 // M3-S2：`store/root` 同口径——数据根锁 / 原子发布 / 共享读 / 残尾 / `Settings` 从
-// `store` 抽出，是**一条进**的基座模块（自身闭包 = 纯标准库，比 `backend/limit`
+// `store` 抽出，是**一条进**的基座模块（自身闭包 = 纯标准库，比 `kernel/limit`
 // 更干净），因此上限抬到 70。
 // M4：`internal/jsonobj` 同口径——LLM 原文的 JSON 容错层从 `seelebridge/json_object.go`
 // 抽出成模块级叶子包（自身闭包 = 纯标准库），因此上限抬到 71。
@@ -72,7 +72,7 @@ const (
 // M5-R5：`middle/view/board` 同口径——项目看板的行投影 + 触发表 + 同步器从
 // `application/core/project_board.go` 抽成中间层模块（自身直接依赖 = 标准库 +
 // `store` + `middle/protocol/model` + `contract/dto` + `middle/view/worktable` +
-// `backend/limit`，全在清单内）。此前它是 `application/core` 内部的一个文件、
+// `kernel/limit`，全在清单内）。此前它是 `application/core` 内部的一个文件、
 // 不是独立包，因此这是**一条进**的新模块，上限抬到 74。
 // 同片还抽走了 `middle/view/board/boardtest`（测试夹具包）：它只被两处用例 import，
 // 不在门面闭包里（`go list -deps ./application` 不含测试依赖），故不登记。
@@ -86,7 +86,7 @@ const (
 // 此前它们是 `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，
 // 上限抬到 76。同一片还把跨层判据（错误码 / provider 失败分类 / ReAct 预算哨兵）
 // 下沉到 `contract`：它本来就在清单里，闭包规模不变。
-// M5-R-limitc：`backend/limit/tier`（权限档位域）同口径——把 `application/core` 的三处散落
+// M5-R-limitc：`kernel/limit/tier`（权限档位域）同口径——把 `application/core` 的三处散落
 // 实现抽成独立模块（plan §2.8），因此是**一条进**的新模块，上限抬到 77。
 // M5-R-tool-review：`backend/tool/review`（show_files 落点）同口径——从 `application/core`
 // 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 78。
@@ -235,7 +235,7 @@ var facadeClosureAllowList = []string{
 	// M5-R-limitc：权限档位域归位 limit 板块（plan §2.8）。**新增登记的理由**：这是
 	// "把 application/core 三处散落实现抽成独立模块"的一次换落点 + 落点新建，门面闭包里
 	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/backend/limit/tier",
+	"github.com/RedHuang-0622/seelex/kernel/limit/tier",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/backend/engine/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
@@ -246,16 +246,16 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/protocol/model",
 	"github.com/RedHuang-0622/seelex/application/prompt",
 	// M2-C3：每账号上下文窗口的判据层（从 seelexctx/window.go 抽出）。
-	"github.com/RedHuang-0622/seelex/backend/limit",
+	"github.com/RedHuang-0622/seelex/kernel/limit",
 	// M2-C：审批实现从 application/approval 搬到这里——同一份代码换落点，
 	// 清单规模不变（等量替换，见 D-M2-11）；契约层因此**少**了 application/approval。
 	// M2-B：ReAct 循环上限的判据层（从 application/prompt + wiring/adapters +
 	// backend/tool/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
-	"github.com/RedHuang-0622/seelex/backend/limit/loop",
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop",
 	// M2-E（plan §2.8）：effort 档位策略表从 application/prompt 拆出。**新增登记的
 	// 理由**：prompt 仍承担 EffortManager 的宿主动作，策略表移到 limit/effort 后
 	// 闭包多出这一个干净叶子（只依赖 loop + contract/dto），没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/backend/limit/effort",
+	"github.com/RedHuang-0622/seelex/kernel/limit/effort",
 	// M2-C4：权限判据（主体类 / 路由组表 / 规则表 / 档位覆盖 / 工具簇属声明 /
 	// 壳类别词表）从 seelebridge/tools 抽出（M2-C4）；执行门当时仍留在 tools，
 	// 2026-10-16 M4-T3 整包归位到 backend/tool/registry（包名 registry）。

@@ -33,7 +33,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
@@ -50,6 +49,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )

@@ -2,7 +2,7 @@ package core
 
 // session_permission_tier.go — 权限档位的**宿主适配 + 门面转发**。
 //
-// 判据与编排本体已在 M5-R-limitc 随接收者转移归位 `backend/limit/tier`（plan §2.8）：
+// 判据与编排本体已在 M5-R-limitc 随接收者转移归位 `kernel/limit/tier`（plan §2.8）：
 // 生效档位解析、会话级持久化（读/写/落地/恢复）与"视图快照重算"的口径都在那边，
 // 本文件只剩三件事：
 //  1. `serviceTierHost`：把 Service 的会话槽、视图锁、执行门、进程默认档位实现成
@@ -124,7 +124,7 @@ func (service *Service) restorePermissionTierFor(sessionID string) {
 // 「快照里的档位 == 该会话真正生效的档位」。调用方持有 Core.ViewMu，本方法不读盘。
 //
 // 不变量与理由（含 2026-09-17 切会话路径与"进入新会话"漏算那次的方向不对称风险）逐字保留在
-// `backend/limit/tier.Deps.SyncViewLocked`（M5-R-limitc 接收者转移）；本方法只转发。
+// `kernel/limit/tier.Deps.SyncViewLocked`（M5-R-limitc 接收者转移）；本方法只转发。
 func (service *Service) syncViewPermissionTierLocked(sessionID string) {
 	service.tierDeps().SyncViewLocked(sessionID)
 }

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // TestNodeFirstPersonLiveSmoke 真实 API 冒烟（非默认运行）：

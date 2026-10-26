@@ -3,7 +3,7 @@ package task_context
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 type runtimeWithContextLimits struct {

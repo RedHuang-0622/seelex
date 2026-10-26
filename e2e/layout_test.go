@@ -47,11 +47,11 @@ var repositoryModules = []string{
 	// resume（领域无关恢复模板）归位多代理板块（plan §2.7）。
 	"backend/multiagent/team", "backend/multiagent/resume",
 	"middle/protocol/event", "middle/protocol/model", "application/prompt",
-	"console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
-	"backend/limit/loop",
+	"console", "backend/limit/accountwindow", "backend/limit/approval",
+	"kernel/limit", "kernel/limit/effort", "kernel/limit/loop",
 	// M5-R-limitc：权限档位域（原 application/core/{session_permission_tier,session_scope,
 	// service_interaction}.go 的三处散落实现）归位 limit 板块（plan §2.8）。
-	"backend/limit/tier",
+	"kernel/limit/tier",
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",

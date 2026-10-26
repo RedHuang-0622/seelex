@@ -12,7 +12,7 @@ import (
 // GUI 每 5~10s 轮询一次即可（开销 = 一次锁内扫描 + 会话 JSON 体积估算）。
 //
 // 三处宿主输入由调用方传入（`historyWindow` / `toolRefs` / 快照本身）：
-// 进程级上限在 `backend/limit`、归档读数在任务协调器、锁在宿主手里，中间层
+// 进程级上限在 `kernel/limit`、归档读数在任务协调器、锁在宿主手里，中间层
 // 只算派生读数，不反向依赖它们。
 func PerfStats(snapshot model.Snapshot, historyWindow int, toolRefs []model.ToolResultRef) model.PerfStats {
 	stats := model.PerfStats{

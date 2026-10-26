@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`backend/limit/effort/` 是 **effort 档位策略的唯一判据处**：每个档位对应哪条
+`kernel/limit/effort/` 是 **effort 档位策略的唯一判据处**：每个档位对应哪条
 reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执行参数时用哪一档"。
 主要调用方：`application/prompt`（宿主侧 `EffortManager`）、`application/core`
 （定时任务执行参数默认值）与 wiring 的档位装配。
@@ -19,7 +19,7 @@ reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执
 | 文件 | 职责 |
 |---|---|
 | `effort.go` | 策略表与四个取数入口（含定时任务默认参数） |
-| `loop_consistency_test.go` | 与 `backend/limit/loop` 的跨实现一致性 |
+| `loop_consistency_test.go` | 与 `kernel/limit/loop` 的跨实现一致性 |
 | `reasoning_effort_test.go` | 档位 → provider 词表映射 + 每档必填强度 |
 
 ## 核心实现
@@ -33,7 +33,7 @@ reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执
 ## 数据流
 
 调用方按档位名查 `Profile` → 取 reasoning 强度 / 循环读数 / plan 约束；
-循环数字本身来自 `backend/limit/loop`，本包不抄数字。
+循环数字本身来自 `kernel/limit/loop`，本包不抄数字。
 
 ## 依赖方向
 
@@ -58,7 +58,7 @@ reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执
 ## 测试与验证
 
 ```text
-go test ./backend/limit/effort/ -count=1
+go test ./kernel/limit/effort/ -count=1
 go test ./application/prompt/ -count=1
 ```
 

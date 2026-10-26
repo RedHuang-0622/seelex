@@ -1,4 +1,4 @@
-# backend/limit
+# kernel/limit
 
 ## 生态位
 
@@ -10,7 +10,7 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 
 | 调用方 | 用法 |
 |---|---|
-| `application/core` 门面（[limits.go](../../application/core/limits.go)） | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` 一行转发（本包是唯一实现处） |
+| `application/core` 经 `application/policy` 的 identity facade | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` / Knobs 一行转发（本包是唯一实现处） |
 | `seelebridge`（装配 Runtime、`internal/config`） | 启动期 `LoadLimits` 读数 + `Apply` 注入；运行期按构造参数注入生效值 |
 | `seelexctx`（`ContextWindowPolicy` / `ToolResultProcessor`） | 按**构造参数**消费生效值，不自己持有第二份 |
 | `main.go`、[overlay/](overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`，已移除） |
@@ -64,7 +64,7 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
 
 `tier/`（权限档位）的沿革：**词表与规整/校验不动**——档位词表**只有一份**，在
 `contract/dto/permission.go`（`PermissionTiers` / `NormalizePermissionTier` / …），那是跨层共享
-形状层，前端与 limit 都消费它；把它搬进 `backend/limit/tier` 会让契约层与前端反向依赖 backend
+形状层，前端与 limit 都消费它；把它搬进 `kernel/limit/tier` 会让契约层与前端反向依赖 backend
 包，违反 plan §1.2 的依赖方向，**这条前提至今成立**。
 
 2026-10-16 M5-R-limitc 按 plan §2.8 收口了当时**有意延后**的那部分：`application/core` 里
@@ -180,8 +180,8 @@ flowchart LR
 
 ```text
 go test ./backend/limit/ -count=1
-gofmt -l backend/limit
-go list -deps ./backend/limit
+gofmt -l kernel/limit
+go list -deps ./kernel/limit
 ```
 
 关键用例：`limits_test.go`（出厂默认档、部分覆盖后补齐、负值与比例越界拒绝、
@@ -204,10 +204,6 @@ go list -deps ./backend/limit
 - `func Apply(l Limits)` — Apply 应用 seele.yaml limits 段（零值字段自动补默认）。
 - `func SetSessionReleaseWindow(window int)` — SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
 - `func Get() Limits` — Get 返回当前生效的运行时上限（只读拷贝语义）。
-
-### view_limits.go
-
-- `func (limits Limits) ViewLimits() dto.ViewLimits` — ViewLimits 把完整运行时上限投影为中间层只读视图需要的窄契约。
 
 ### async_exec_config_test.go
 
@@ -297,4 +293,8 @@ go list -deps ./backend/limit
 - `func TestTeamLimitsConcurrencyEnableRequiresPositiveMax(t *testing.T)`
 - `func TestTeamLimitsWorkItemFailurePolicyParses(t *testing.T)`
 - `func TestTeamLimitsRejectNegativeValues(t *testing.T)`
+
+### view_limits.go
+
+- `func (limits Limits) ViewLimits() dto.ViewLimits` — ViewLimits 把完整运行时上限投影为中间层只读视图需要的窄契约。
 

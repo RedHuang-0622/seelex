@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // 子代理作业契约（打点 L-5）的端到端判据：**模型侧**能把一批子代理当作业派发，

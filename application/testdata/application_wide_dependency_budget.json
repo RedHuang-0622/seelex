@@ -1,5 +1,5 @@
 {
-  "concrete_dependency_limit": 15,
+  "concrete_dependency_limit": 11,
   "allowed_concrete_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",
@@ -9,10 +9,6 @@
     "github.com/RedHuang-0622/seelex/backend/engine/react",
     "github.com/RedHuang-0622/seelex/backend/engine/session",
     "github.com/RedHuang-0622/seelex/backend/engine/task",
-    "github.com/RedHuang-0622/seelex/backend/limit",
-    "github.com/RedHuang-0622/seelex/backend/limit/effort",
-    "github.com/RedHuang-0622/seelex/backend/limit/loop",
-    "github.com/RedHuang-0622/seelex/backend/limit/tier",
     "github.com/RedHuang-0622/seelex/backend/multiagent/goal",
     "github.com/RedHuang-0622/seelex/backend/multiagent/subagent",
     "github.com/RedHuang-0622/seelex/backend/multiagent/team"

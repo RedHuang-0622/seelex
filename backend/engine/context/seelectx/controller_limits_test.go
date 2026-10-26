@@ -17,7 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // strictBudget 是 BudgetProvider 桩：只给账号窗口与最大输出。

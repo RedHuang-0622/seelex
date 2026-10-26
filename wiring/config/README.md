@@ -22,7 +22,7 @@
 
 **不做**：装配 Runtime/Application（属于 `wiring/bootstrap`）；注册工具与能力（属于
 `wiring/registry`）；启动任何前端；解释配置的**业务语义**——`limits` 的默认值与校验属于
-`backend/limit`，MCP/搜索/权限段各自的解析属于 `mcpstack/config`、`backend/tool/websearch`、
+`kernel/limit`，MCP/搜索/权限段各自的解析属于 `mcpstack/config`、`backend/tool/websearch`、
 `backend/limit/gate`；也不持有任何进程级状态。
 
 ## 文件结构

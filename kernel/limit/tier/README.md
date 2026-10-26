@@ -1,15 +1,15 @@
-# backend/limit/tier
+# kernel/limit/tier
 
 ## 生态位
 
-`backend/limit/tier` 是「主会话权限档位」的落点：**会话级持久化**、**生效档位解析**，以及
+`kernel/limit/tier` 是「主会话权限档位」的落点：**会话级持久化**、**生效档位解析**，以及
 **执行门 / 审批面 / 视图快照**三处的同步口径。
 
 主要调用方：
 
-- `application/core`（门面：`SetPermissionTier` / `SetFullAccess` 用例，以及 `session_scope.go`、
-  `session_history.go`、`session_lifecycle.go` 的切换路径）——全部经 `service.tierDeps()` 装配宿主面后
-  调用本包；门面侧只留一行转发与宿主适配；
+- `application/core`（门面：`SetPermissionTier` / `SetFullAccess` 用例，以及切换路径）——
+  经 `application/policy.TierDeps/TierGate` identity alias 装配宿主面后调用本包；
+  门面侧只留一行转发与宿主适配；
 - 迁移前这些判据散在 `application/core/{session_permission_tier.go,session_scope.go,service_interaction.go}`，
   2026-10-16 随 M5-R-limitc **接收者转移**到此处（plan §2.8）。
 
@@ -82,7 +82,7 @@
 ## 测试与验证
 
 ```text
-go test ./backend/limit/tier/ -count=1
+go test ./kernel/limit/tier/ -count=1
 go test ./application/core/ -run 'PermissionTier|Permission' -count=1   # 门面级集成（切档、切会话镜像、脏值）
 go test ./backend/limit/approval/ -count=1                              # 审批面按会话归属
 ```

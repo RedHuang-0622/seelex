@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 )
 
 // D1 的红→绿对照：一条**安静**的长命令（还在跑，但没有新输出）被反复取回时，

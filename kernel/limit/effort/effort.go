@@ -1,15 +1,15 @@
 // Package effort 是**档位策略的唯一判据处**：每个 effort 档位对应哪条
 // reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明时用哪一档"。
 //
-// 它只依赖 stdlib + `backend/limit/loop` + `contract/dto`——档位数字与策略
+// 它只依赖 stdlib + `kernel/limit/loop` + `contract/dto`——档位数字与策略
 // 属于 limit 板块，不许回头依赖 `application/*`（prompt 管理器、引擎都是消费方）。
 package effort
 
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 )
 
 // Profile 是一个档位的全部策略读数：循环数字、plan 约束、reasoning 强度。
@@ -61,7 +61,7 @@ const DefaultLevel = "high"
 func mustLoopProfile(level string) loop.Profile {
 	profile, ok := loop.For(level)
 	if !ok {
-		panic("effort: level " + level + " has no loop profile in backend/limit/loop")
+		panic("effort: level " + level + " has no loop profile in kernel/limit/loop")
 	}
 	return profile
 }

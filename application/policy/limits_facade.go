@@ -1,6 +1,6 @@
 package policy
 
-import "github.com/RedHuang-0622/seelex/backend/limit"
+import "github.com/RedHuang-0622/seelex/kernel/limit"
 
 type Limits = limit.Limits
 type Knobs = limit.Knobs

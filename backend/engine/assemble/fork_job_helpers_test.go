@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // newAsyncTestRuntime 造一个打开了作业面（含子代理作业）的测试 Runtime。

@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
-	effortpolicy "github.com/RedHuang-0622/seelex/backend/limit/effort"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+	effortpolicy "github.com/RedHuang-0622/seelex/kernel/limit/effort"
 )
 
 // SchedulerDeps supplies validation and Runtime scheduler callbacks.

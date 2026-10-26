@@ -49,8 +49,8 @@ Service、GUI Bridge 和会话装配路径。
 
 Skill 激活判据仍由 `backend/engine/skill.Activator` 唯一实现；Application
 只持有 `SkillActivationPort`，由 Wiring adapter 注入。
-Tier facade 不实现档位解析或持久化；这些判据仍只在 `backend/limit/tier`。
-Limits facade 不复制默认表、Knobs 状态或窗口边界，所有语义仍只在 `backend/limit`。
+Tier facade 不实现档位解析或持久化；这些判据仍只在 `kernel/limit/tier`。
+Limits facade 不复制默认表、Knobs 状态或窗口边界，所有语义仍只在 `kernel/limit`。
 
 ## 数据流
 

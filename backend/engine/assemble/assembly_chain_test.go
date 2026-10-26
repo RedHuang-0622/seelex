@@ -35,9 +35,9 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

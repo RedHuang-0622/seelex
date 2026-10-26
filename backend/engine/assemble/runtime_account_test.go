@@ -11,9 +11,9 @@ import (
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
 	seelaccount "github.com/RedHuang-0622/seelex/backend/engine/account"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 func TestAccountLimitsHonorDefaultsAndAccountOverrides(t *testing.T) {

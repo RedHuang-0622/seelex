@@ -1,4 +1,4 @@
-# backend/limit/loop
+# kernel/limit/loop
 
 ## 生态位
 
@@ -16,7 +16,7 @@
 
 - 做：登记档位数字、给出预算读数、解析有效上限、校验子代理声明的上限。
 - 不做：不持有任何运行期状态（会话钉住值的存储、当前档位、引擎句柄都在消费方）；
-  不做配置读取（进程级天花板 `limits.input_loop_limit` 由 `backend/limit` 提供，
+  不做配置读取（进程级天花板 `limits.input_loop_limit` 由 `kernel/limit` 提供，
   这里只接收它的数值）；不做提示词或 plan 策略（那些在 `application/prompt`）。
 
 ## 目录与文件结构
@@ -61,7 +61,7 @@ ValidateSubagentMaxLoops(id, maxLoops, ceiling) → 负数 / 越天花板各一�
 
 ```text
 config/seelex.yaml limits.input_loop_limit ─┐
-                                            ├─→ backend/limit（进程级上限/快照）
+                                            ├─→ kernel/limit（进程级上限/快照）
 界面上的会话驻留窗口/账号窗口 ──────────────┘
                                             │
 application/prompt 的档位表 ──→ loop.For(level) ──→ MaxLoops / Budget
@@ -74,9 +74,9 @@ backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(�
 ## 依赖方向
 
 - 允许：标准库（只有 `fmt`、`strings`）。
-- 禁止：`application/*`、`seelebridge/*`、`seelexctx`、`backend/limit` 之外的任何本仓包。
+- 禁止：`application/*`、`seelebridge/*`、`seelexctx`、`kernel/limit` 之外的任何本仓包。
   判据层不许回头依赖上层；消费方反过来依赖它才是对方向。可用
-  `go list -deps ./backend/limit/loop` 机械核对（当前非 stdlib 依赖：无）。
+  `go list -deps ./kernel/limit/loop` 机械核对（当前非 stdlib 依赖：无）。
 
 ## 并发、存储与错误语义
 
@@ -102,7 +102,7 @@ backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(�
 ## 测试与验证
 
 ```text
-go test ./backend/limit/loop/... -count=1
+go test ./kernel/limit/loop/... -count=1
 go test ./application/prompt/... -count=1      # 跨入口一致性用例在这里
 go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
 ```
