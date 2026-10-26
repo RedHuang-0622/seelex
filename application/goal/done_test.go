@@ -9,7 +9,7 @@ import (
 	"context"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 func TestGoalDoneFinishesDirectly(t *testing.T) {

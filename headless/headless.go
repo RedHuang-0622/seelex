@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // headlessEnvPort 是启用 headless 冒烟接口的环境变量（回环端口号）。

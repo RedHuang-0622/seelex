@@ -38,7 +38,7 @@
 
 ## 依赖方向
 
-`headless → application（门面）+ contract/dto + backend/multiagent/goal（goal 请求形状）`。
+`headless → application（门面）+ contract/dto + kernel/goal（goal 请求形状）`。
 禁止 import `gui`、`store` 或引擎实现包。goal 请求形状的契约化（P3）完成后，
 这里应改为只 import `contract`。
 

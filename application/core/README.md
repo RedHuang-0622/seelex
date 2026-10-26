@@ -523,7 +523,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [../../kernel/prompt/](../../kernel/prompt/README.md) | system prompt 组装、资源与引擎同步（M5-R7 归位） |
 | [../session/viewstate/](../session/viewstate/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../execution/subagentview/](../execution/subagentview/README.md) | 子代理详情/live/树投影 |
-| [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
+| [kernel/goal/](../../kernel/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
 | [../backend/multiagent/team/](../../backend/multiagent/team/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话）；原 `agentteam/`，M5-R8b 归位（包名 `team`） |
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [../backend/multiagent/resume/](../../backend/multiagent/resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report）；原 `resume/`，M5-R8b 归位 |

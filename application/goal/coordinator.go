@@ -14,8 +14,8 @@ import (
 	"context"
 	"sync"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // CoordinatorDeps is the session goal coordinator assembly input.
@@ -35,7 +35,7 @@ type sessionRuntime struct {
 }
 
 // Coordinator owns the per-session goal controller cache and governance
-// projection. Goal state remains in backend/multiagent/goal.
+// projection. Goal state remains in kernel/goal.
 type Coordinator struct {
 	mu       sync.Mutex
 	deps     CoordinatorDeps

@@ -219,7 +219,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/kernel/react",
 	"github.com/RedHuang-0622/seelex/kernel/contextcontrol",
 	"github.com/RedHuang-0622/seelex/backend/engine/context",
-	"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
+	"github.com/RedHuang-0622/seelex/kernel/goal",
 	"github.com/RedHuang-0622/seelex/kernel/state",
 	"github.com/RedHuang-0622/seelex/kernel/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
@@ -396,7 +396,7 @@ var frontendDirectImportAllowList = map[string][]string{
 		"github.com/RedHuang-0622/seelex/application",
 		// D-M1-6：headless RPC 透传 goal 域的请求/响应形状；随 P3（goal 请求形状
 		// 契约化）收口。headless 已从 gui 拆出（P7），这条边不再挂在 gui 上。
-		"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
+		"github.com/RedHuang-0622/seelex/kernel/goal",
 		"github.com/RedHuang-0622/seelex/contract/dto",
 	},
 	"./tui": {

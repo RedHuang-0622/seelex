@@ -3,7 +3,7 @@ package goal
 import (
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // goal_stack_view_test.go — 钉住「工作台按活动栈分块查看」的**后端投影**面。

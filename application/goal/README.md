@@ -4,7 +4,7 @@
 
 `application/goal` 承载 Goal 用例路由、会话级 Coordinator 缓存与会话治理视图。真实调用方是
 `application/core.Service` 的 Goal 兼容入口；Goal 状态机仍在
-`backend/multiagent/goal`。
+`kernel/goal`。
 
 ## 职责与非职责
 
@@ -46,7 +46,7 @@
 
 ## 依赖方向
 
-允许依赖 `backend/multiagent/goal` 的 Goal 领域接口与 `contract/dto`。禁止依赖
+允许依赖 `kernel/goal` 的 Goal 领域接口与 `contract/dto`。禁止依赖
 `store`、`application/core`、GUI/TUI；Store 适配只在 `wiring/adapters` 装配。
 
 ## 并发与错误

@@ -14,12 +14,11 @@ Store 载荷的具体依赖。继续靠“移动目录”会产生 `kernel -> ba
 - `application/core` 直接内部依赖：0
 - `application/core` 生产文件：55
 - `application/core` 生产代码：7,178 行
-- `application/**` 具体 Backend/Middle 依赖包：4
+- `application/**` 具体 Backend/Middle 依赖包：3
 - 剩余依赖：
   - `backend/engine/context`
   - `backend/engine/session`
   - `backend/engine/task`
-  - `backend/multiagent/goal`
 
 预算入口：
 
@@ -64,7 +63,7 @@ Store 载荷的具体依赖。继续靠“移动目录”会产生 `kernel -> ba
 3. 构造 `backend/engine/context.Coordinator` 留在 Wiring/Core 装配，不由 Application
    facade 创建。
 4. 删除 `engine_facade.go` 中对 Backend 的类型 alias/constructor。
-5. 收紧依赖预算到 3。
+5. 收紧依赖预算到 2。
 
 ### 2. Engine Session 端口
 
@@ -88,7 +87,7 @@ Store 载荷的具体依赖。继续靠“移动目录”会产生 `kernel -> ba
 1. Contract 化 `Location` 与跨层纯值。
 2. 把 turn/cold/history 所需接口拆成 3～5 个消费方端口。
 3. 删除 `application/session/runtime/facade.go`。
-4. 收紧依赖预算到 2。
+4. 收紧依赖预算到 1。
 
 ### 3. Engine Task 端口
 
@@ -117,29 +116,7 @@ Store 载荷的具体依赖。继续靠“移动目录”会产生 `kernel -> ba
 - `application/execution/taskcontext` 不再 import Backend。
 - Core 仍可经装配获得具体 Coordinator。
 - exact transcript、plan、task 终态行为 parity。
-
-### 4. Goal Runtime 端口
-
-目标：移除 Application 对 `backend/multiagent/goal` 的直接 import。
-
-消费方：
-
-- `application/goal/application.go`
-- `application/goal/coordinator.go`
-- `application/compat/frontend.go`
-
-建议：
-
-1. 请求/记录/StatusView 已多数可由 Contract DTO 替代。
-2. `Controller` 由 Wiring 构造并经接口注入 Application Goal Coordinator。
-3. Goal Store/Audit 类型不得进入 Application；只保留 Controller 方法面。
-4. 删除 Compat 的 `goaldomain` import，方法签名改用 Contract DTO。
-
-验收：
-
-- Application 中无 `backend/multiagent/goal`。
-- Begin/Update/Finish/Status 与 board archive 行为不变。
-- 依赖预算归零。
+- 收紧依赖预算到 0。
 
 ## 最终门禁
 

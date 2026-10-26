@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 type coordinatorFake struct {

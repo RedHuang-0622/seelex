@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // teamRecordingSessions 在默认 fakeSessions 上补出 A2A 团队存储面（顺序策略 + 注册表），

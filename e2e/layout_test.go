@@ -42,7 +42,7 @@ var repositoryModules = []string{
 	"kernel/sessionpolicy",
 	// M5-R8a：goal 域（原 application/core/goal，35 文件）归位多代理板块
 	// （plan §2.7）。同一份代码换落点，包名与判据不变。
-	"backend/multiagent/goal",
+	"kernel/goal",
 	// M5-R8b：agentteam（角色身份 + 写入侧规整，包名 `agentteam` → `team`）与
 	// resume（领域无关恢复模板）归位多代理板块（plan §2.7）。
 	"backend/multiagent/team", "backend/multiagent/resume",

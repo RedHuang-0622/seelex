@@ -10,7 +10,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 `Goal application` 集中会话目标用例：协调器查找、Begin/Update/Done/Status、
 治理视图和运行投影刷新。`goalCoordinator` 继续持有按会话 bundle，
-`backend/multiagent/goal.Controller` 继续唯一拥有目标状态机。
+`kernel/goal.Controller` 继续唯一拥有目标状态机。
 
 > **2026-10-03（阶段三 W3）**：goal 的**席位轮转已整条退场**。回合尾不再自动跑
 > "exec 让位 → advisor 评审"的座位循环（`govern` 包、`Adapter`/`NewAdvisorSeat`、

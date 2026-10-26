@@ -5932,6 +5932,21 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 7,178 行；未装配错误、角色转发与调度行为不变；
 - 回退方式：把 roles 文件移回 `backend/multiagent/team` 并恢复调用点。
 
+## EP-087：Goal Controller 归入 Kernel
+
+- 把 `backend/multiagent/goal` 的 7 个生产文件、8 个行为测试与 README 物理迁入
+  `kernel/goal`；Controller、Stack、Audit、GoalBoard archive 与 SessionStore adapter
+  保持唯一实现；
+- Application Goal/Core/Compat、Backend assemble、headless 与 E2E 直接引用
+  `kernel/goal`；Compat 的请求/返回类型已使用 Contract DTO；
+- 红测：Application 全局依赖预算收紧到 3；迁移后预算、Kernel Goal、Application
+  Goal/Core、Backend assemble、Wiring、E2E `Facade|Layout|Goal|Subagent` 与
+  `go build ./...` 通过；
+- Application 具体依赖由 4 降至 3；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；Goal 状态转换、审计、board archive、JSON 与前端行为不变；
+- Store adapter 仍暂时依赖 Store 具体载荷，登记为 Store 拆分后的清理项；
+- 回退方式：把 `kernel/goal` 移回 `backend/multiagent/goal` 并恢复调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

@@ -6,10 +6,10 @@ import (
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 

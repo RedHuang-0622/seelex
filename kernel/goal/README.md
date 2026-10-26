@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`backend/multiagent/goal/` 是**目标栈与收口审计**的领域实现：一个会话可以压入多层
+`kernel/goal/` 是**目标栈与收口审计**的领域实现：一个会话可以压入多层
 目标（嵌套目标压栈、下层转 paused），主代理用 `goal_begin/goal_update/goal_done`
 推进与收口。主要调用方：`application/core` 的 goal 协调器（按会话持有一份
 `Controller`）、`wiring/registry`（goal 工具注册）与 TUI/GUI 的目标看板。
@@ -65,7 +65,7 @@ TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamw
 ## 测试与验证
 
 ```text
-go test ./backend/multiagent/goal/ -count=1
+go test ./kernel/goal/ -count=1
 go test ./application/core/ -run Goal -count=1
 ```
 

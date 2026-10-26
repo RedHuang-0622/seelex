@@ -1,5 +1,5 @@
 // Package goal owns Goal application routing. Goal state machines remain in
-// backend/multiagent/goal behind a narrow coordinator port.
+// kernel/goal behind a narrow coordinator port.
 package goal
 
 import (
@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // ErrCoordinatorUnavailable reports that the session goal coordinator is not
