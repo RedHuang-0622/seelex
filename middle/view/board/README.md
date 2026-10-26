@@ -49,6 +49,8 @@
 - `ProjectBoardSyncer`：`OnToolComplete` 不做 IO（判触发面 → 标脏 → 唤醒容量 1 的
   latest-wins 唤醒），落盘只有 `flush*` 一条路，且在独立 goroutine 上跑；失败只记日志。
   每 `(会话, 文件)` 记账（指纹 / 水位 / key→kind）只活在内存，进程重启即空——投影可重建。
+- `TeamworkPlan` / `TeamworkState` 的数据形状归 `contract/dto`；Store 保留同身份 alias，
+  本包的可选计划端口直接消费 Contract，不再把持久化实体当作中间层协议。
 
 ## 数据流
 
@@ -124,16 +126,16 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 
 ### projection.go
 
-- `func BuildProjectBoardRows( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, evidenceChars int, ) []store.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
+- `func BuildProjectBoardRows( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, evidenceChars int, ) []store.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
 - `func projectBoardRow( scope store.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) store.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
 - `func projectBoardWorkPayload(item model.WorkItem, evidenceChars int) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
-- `func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState, evidenceChars int) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
-- `func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
-- `func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem, evidenceChars int) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
-- `func projectBoardTeamState(plan *store.TeamworkPlan, state *store.TeamworkState) store.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
+- `func projectBoardMilestonePayload(milestone dto.TeamworkMilestone, state dto.TeamworkState, evidenceChars int) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
+- `func projectBoardMilestoneStatus(milestone dto.TeamworkMilestone, state dto.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
+- `func projectBoardMilestoneItemPayload(milestoneID string, item dto.TeamworkWorkItem, evidenceChars int) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
+- `func projectBoardTeamState(plan *dto.TeamworkPlan, state *dto.TeamworkState) dto.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
 - `func projectBoardPutText(payload map[string]any, key, value string)` — projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
 - `func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
-- `func projectBoardRowsForFile( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *store.TeamworkPlan, teamState *store.TeamworkState, file string, evidenceChars int, ) []store.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
+- `func projectBoardRowsForFile( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, file string, evidenceChars int, ) []store.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
 - `func projectBoardRowsFingerprint(rows []store.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
 - `func ProjectBoardHookModes() []string` — ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
 - `func TriggerFor(hookMode string) ProjectBoardTrigger` — TriggerFor 由档名编译出触发面：off / todo_list（= 空串，默认档）/ task_complete /
@@ -172,7 +174,7 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 - `func (s *ProjectBoardSyncer) run()` — run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
 - `func (s *ProjectBoardSyncer) flushDirty()` — flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
 - `func (s *ProjectBoardSyncer) flushSession(sessionID string)` — flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
-- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope store.ProjectBoardScope, file string, at int64, items []model.WorkItem, plan *store.TeamworkPlan, state *store.TeamworkState, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
+- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope store.ProjectBoardScope, file string, at int64, items []model.WorkItem, plan *dto.TeamworkPlan, state *dto.TeamworkState, evidenceChars int, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
 - `func projectBoardRemovedRow(scope store.ProjectBoardScope, seq uint64, at int64, kind, key string) store.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
 - `func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState)` — remember 更新落盘记账。
 - `func (s *ProjectBoardSyncer) Close()` — Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
@@ -191,7 +193,7 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 
 ### teamwork_plan.go
 
-- `func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (store.TeamworkPlan, bool)` — TeamworkPlanFor 返回该会话的 teamwork 计划。
+- `func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (dto.TeamworkPlan, bool)` — TeamworkPlanFor 返回该会话的 teamwork 计划。
 
 ### teamwork_plan_test.go
 
