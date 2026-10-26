@@ -5731,6 +5731,30 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `application/execution/subagentview` 移回
   `middle/view/subagent`，恢复 execution identity alias 与调用点。
 
+## EP-074：WorkTable Projection 归入中立 Kernel
+
+- 把 `middle/view/worktable` 的 4 个生产文件、3 个行为测试与 README 物理迁入
+  `kernel/worktable`；行投影、批次、证据截断、async/teamwork 文案与 CSP
+  latest-wins publisher 仍只有一份实现；
+- 迁移过程中发现 `middle/view/board` 也消费该纯投影。若把 owner 放回
+  `application/**` 会制造 `middle → application` 反向依赖，因此按真实调用方收敛到
+  中立 `kernel/worktable`，而不是保留 Middle owner 或复制一份；
+- `kernel/worktable` 的 wire 类型改用 `contract/protocol`，不再依赖
+  `middle/protocol/model`；Board、Core、Execution Table、Session Query 全部直接
+  引用唯一 owner；
+- 删除 `application/execution/table/facade.go` 与 identity-only 测试，调用方直接
+  使用 `worktable.BuildWorkTable`、`BuildWorkTableBatches`、`ClonePlanForSync`
+  等实现；
+- 红测：`TestApplicationDoesNotImportMiddleWorkTable` 初始因新 owner 缺失失败；
+  迁移后扫描整个 `application/**`，禁止旧 Middle import；
+- 绿测：`go test ./kernel/worktable ./middle/view/board ./application/execution/...
+  ./application/session/query ./application/core`、Backend assemble、Wiring、
+  E2E `Facade|Layout|Subagent|WorkTable` 与 `go build ./...` 全部通过；
+- Application 具体依赖由 21 降至 20；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；WorkTable JSON、revision/seq、GUI/TUI wire 与持久化格式不变；
+- 回退方式：把 `kernel/worktable` 移回 `middle/view/worktable`，恢复 table facade，
+  并把 Board/Application 调用点改回旧 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

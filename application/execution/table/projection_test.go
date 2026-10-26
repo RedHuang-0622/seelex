@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 )
 
 func TestBuildRowsDelegatesRowAndBatchProjection(t *testing.T) {

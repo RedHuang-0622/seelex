@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-073；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
+EP-001～EP-074；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
 下一步处理会话主循环与剩余 Application 具体依赖。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
@@ -17,7 +17,7 @@ EP-001～EP-073；`newService*` 构造适配审计与 `Service` 公开业务方�
 |---|---:|
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle 依赖包 | 21，Store 为 0 |
+| `application/**` 具体 Backend/Middle 依赖包 | 20，Store 为 0 |
 | `application/core` 生产文件 | 55 |
 | `application/core` 生产代码 | 7,178 行 |
 
@@ -42,6 +42,8 @@ EP-001～EP-073；`newService*` 构造适配审计与 `Service` 公开业务方�
   `application/workspace/switch`，旧 Middle owner 已删除。
 - Subagent View 已从 `middle/view/subagent` 物理迁入
   `application/execution/subagentview`，identity alias 与旧 Middle owner 已删除。
+- WorkTable 纯投影已从 `middle/view/worktable` 物理迁入 `kernel/worktable`；
+  Middle Board 与 Application 都消费同一中立 owner，避免反向依赖或重复实现。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
   当前 22 个唯一 Backend/Middle 包，只许下降，最终为 0；具体 Store 包已归零。
@@ -567,7 +569,7 @@ seq 幂等、落盘失败看板错误、开关关闭和 release 回收。
 - `WorkTableEvent` 的 rows/batches/tree 组装。
 
 core 只保留树快照、session ID 与 EventHub 发布回调；行投影仍只在
-`middle/view/worktable`。
+`kernel/worktable`。
 
 ### AP-115C2a WorkTable 输入投影（已完成）
 
@@ -602,11 +604,11 @@ core 的 `workTableTraceBlockFor` 只采集不可变输入并调用 `table.Build
 
 - `BuildRows`：Plan/Task/SubAgent/Async 输入到行与批次；
 - `WorkItemForRecord`：task-change 单行与 plan 依赖补齐；
-- 实际排序、去重、证据截断与身份算法继续只在 `middle/view/worktable`。
+- 实际排序、去重、证据截断与身份算法继续只在 `kernel/worktable`。
 
 AP-115C/D 至此完成；剩余跨会话项是 AP-116。
 
-保留：`middle/view/worktable` 是可复用的纯投影判据与有界背压实现，不复制其排序、
+保留：`kernel/worktable` 是可复用的纯投影判据与有界背压实现，不复制其排序、
 去重或容量算法；具体 Runtime/Task/SubAgent 仍由宿主 port 提供。建议新增
 `Source`、`Consumer`、`Query` 窄接口，由 core 装配时注入，禁止把完整 `Service`
 作为字段。`publisher` 已在上一切片独立，consumer 只向它发送不可变快照。

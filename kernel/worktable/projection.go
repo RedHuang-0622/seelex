@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // Limits 是工作表格投影用到的**进程级上限**三格：宿主从 `backend/limit` 取好按值传入

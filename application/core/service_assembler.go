@@ -26,6 +26,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 	"time"
 )
 
@@ -510,11 +511,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		SubAgentTree: func() []dto.SubAgentTreeNode {
 			service.ViewMu.RLock()
-			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
 			return tree
 		},
-		PublishWorkTable: func(update applicationtable.WorkTableUpdate, payload model.WorkTableEvent) {
+		PublishWorkTable: func(update worktable.WorkTableUpdate, payload model.WorkTableEvent) {
 			service.ViewMu.RLock()
 			sessionID := service.Core.Snapshot.Session.ID
 			service.ViewMu.RUnlock()

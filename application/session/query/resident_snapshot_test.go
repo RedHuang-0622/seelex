@@ -5,7 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 )
 
 func TestBuildResidentSnapshotDetachesAndEnriches(t *testing.T) {

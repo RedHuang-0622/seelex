@@ -48,7 +48,7 @@ Role Tool Activity 的 Application 用例。真实调用方是
 `ProjectBoardDeps` 只接收 WorkTable 输入、限制、项目根和 Team Plan 回调。
 `WorkItemDeps` 与 `SubagentDeps` 只接收真实 Runtime/投影能力。
 `CompletionDeps` 只接收两张作业表与空闲会话提交回调。
-`WorkTableRowsFor` 让 `middle/view/worktable.BuildWorkTable` 继续拥有唯一行投影判据。
+`WorkTableRowsFor` 让 `kernel/worktable.BuildWorkTable` 拥有唯一行投影判据。
 
 ## 数据流
 
@@ -61,7 +61,7 @@ Runtime teammate tool activity → `RoleActivityApplication` → EvidenceChars
 
 ## 依赖方向
 
-允许依赖 `contract/dto`、`contract/protocol` 与 `middle/view/worktable`。
+允许依赖 `contract/dto`、`contract/protocol` 与 `kernel/worktable`。
 TeamworkPlan 直接使用 `contract/dto`，本包不再保留类型 alias，也不依赖 `store` 类型。
 禁止依赖 `application/core`、backend 实现、GUI/TUI 或写入路径。
 
@@ -77,7 +77,7 @@ WorkItem/teammate 等执行查询优先扩展本包的真实端口；不得把 R
 
 ## Review 指南
 
-- WorkTable 构建是否仍只有 middle/view/worktable 一份；
+- WorkTable 构建是否仍只有 kernel/worktable 一份；
 - project root 是否只来自绑定事实；
 - Team state 是否只从 Plan.State 提取且不复用指针；
 - 查询是否不获取共享写锁；

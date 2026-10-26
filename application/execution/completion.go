@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 	"github.com/RedHuang-0622/seelex/middle/switch"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // CompletionDeps supplies the two authoritative job tables and the only

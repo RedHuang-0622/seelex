@@ -5,7 +5,8 @@
 `middle/view/board` 是**项目看板**（project board）的行投影与落盘侧：
 把活体工作表格 / 团队计划映射成投影行（`store.ProjectBoardRow`），并在工具完成段按
 一张触发表**标脏**、由唯一 flush goroutine 落进两个白名单文件。主要调用方是
-`application/core`（它持有取数口与订阅口）与 `wiring/registry`（装配门
+`application/core`（经 `application/execution` 的 identity alias 持有取数口与订阅口）
+与 `wiring/registry`（装配门
 `ProjectBoardSinkFor`，以及 `project_board_read` 工具的注册面——它直接用本包的
 `ReadProjectBoard` 与 `ProjectBoardRead*` 常量）。
 
@@ -23,7 +24,7 @@
   （内容指纹）、差集补 tombstone、按文件水位盖章落盘；唯一 flush goroutine 的生命周期。
 - 非职责：任何**状态判定**（状态/依赖/收口一律原样搬运，读 task 注册表 / plan /
   teamwork 事实）；活体工作表格行本身的构建（`application/execution/table/runtime.go` 与
-  `middle/view/worktable`）；会话视图切换与锁（由 `application/core` 的视图锁持有）；
+  `kernel/worktable`）；会话视图切换与锁（由 `application/core` 的视图锁持有）；
   「这台机器哪个工具最该优化」这类看板读数（**不进 Snapshot**，直接与 JSONL 交互，
   见 plan §V10）。
 
@@ -74,7 +75,7 @@ sequenceDiagram
 ## 依赖方向
 
 允许依赖：`store`（投影行与写侧端口形状）、`middle/protocol/model`（`WorkItem` 等行类型）、
-`contract/dto`、`middle/view/worktable`（证据截断的唯一实现 `TruncateWorkEvidence`）、
+`contract/dto`、`kernel/worktable`（证据截断的唯一实现 `TruncateWorkEvidence`）、
 标准库。文本截断上限由装配根通过 `ProjectBoardDeps.EvidenceChars` 注入，本包不依赖
 `backend/limit`。
 

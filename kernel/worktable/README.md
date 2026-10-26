@@ -1,8 +1,8 @@
-# middle/view/worktable
+# kernel/worktable
 
 ## 生态位
 
-`middle/view/worktable` 是工作表格（Work Table）的中间层落点，两件事：
+`kernel/worktable` 是工作表格（Work Table）的中立纯投影与增量投递 owner，两件事：
 
 1. **行投影判据**（`projection.go` / `async.go`）：plan 节点、task 台账行、子代理节点、
    后台执行（含 teammate 完成行）如何拼成 `WorkItem` 行与打点行——M5-R5b 接收者转移从
@@ -10,8 +10,8 @@
 2. **增量事件投递**（`worktable_publisher.go`）：`WorkTablePublisher` 以 CSP 汇聚
    （latest-wins、有界背压、关闭排空尾态）发布 `worktable.changed` 所需的最新表格快照。
 
-主要调用方：`application/core`（`project_board_read.go` / `session_scope.go` /
-`session_cold_read.go` 取数后调用）与它的测试。
+主要调用方：`application/core`、`application/execution/table`、
+`application/execution`、`application/session/query` 与它的测试。
 
 ## 职责与非职责
 
@@ -27,8 +27,9 @@
 
 ## 依赖方向
 
-只依赖 `middle/protocol/model`（`WorkItem` / `WorkTracePoint`）、`contract/dto`（记录 DTO）与标准库；
-禁止反向依赖 `application/**` 与 `backend/engine|tool/**`（注入式端口例外：函数值参数）。
+只依赖 `contract/protocol`（`WorkItem` / `WorkTracePoint`）、`contract/dto`（记录 DTO）与标准库；
+禁止 import `backend/**`、`store/**` 或其它 Application 领域实现；需要宿主事实时只接收
+不可变值或函数参数。
 
 ## 时序图
 
@@ -66,7 +67,7 @@ flowchart LR
 ## 测试
 
 ```text
-go test ./middle/view/worktable -count=1
+go test ./application/execution/worktable -count=1
 ```
 
 `worktable_publisher_test.go` 覆盖突发汇聚、关闭尾态与关闭后 Send 安全性；

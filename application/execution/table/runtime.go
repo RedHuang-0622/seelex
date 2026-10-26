@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	kernelstate "github.com/RedHuang-0622/seelex/kernel/state"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
@@ -21,11 +22,11 @@ type RuntimeDeps struct {
 	Core                             *kernelstate.Core
 	Tasks                            *taskcontext.Coordinator
 	View                             *viewstate.Coordinator
-	Limits                           func() Limits
+	Limits                           func() worktable.Limits
 	TaskRecordsForSession            func(sessionID, viewSessionID string) []dto.TaskRecord
 	CloseTerminalSubagentToolRecords func([]dto.SubAgentTreeNode)
 	SubAgentTree                     func() []dto.SubAgentTreeNode
-	PublishWorkTable                 func(WorkTableUpdate, protocol.WorkTableEvent)
+	PublishWorkTable                 func(worktable.WorkTableUpdate, protocol.WorkTableEvent)
 	PublishSessionEvent              func(event.EventKind, uint64, string, string, any) event.Event
 	HandleLifecycleFault             func(any)
 	TriggerAsync                     func(map[string]struct{}) int
@@ -84,7 +85,7 @@ func (runtime *Runtime) Publish(revision uint64, requestID string, items []proto
 	if runtime == nil || runtime.publisher == nil {
 		return
 	}
-	runtime.publisher.Send(WorkTableUpdate{
+	runtime.publisher.Send(worktable.WorkTableUpdate{
 		Revision: revision, RequestID: requestID, Items: items, Batches: batches,
 	})
 }
@@ -143,7 +144,7 @@ func (runtime *Runtime) SyncFromSourcesFor(sessionID string) {
 		ownerSessionID = viewSessionID
 	}
 	plan := runtime.SessionActivePlanLocked(sessionID)
-	tree := CloneSubAgentTreeForSync(runtime.deps.Core.Snapshot.Runtime.SubAgentTree)
+	tree := worktable.CloneSubAgentTreeForSync(runtime.deps.Core.Snapshot.Runtime.SubAgentTree)
 	scope := sessionID
 	if sessionID == "" || sessionID == viewSessionID {
 		scope = ""
@@ -184,7 +185,7 @@ func (runtime *Runtime) SessionActivePlanLocked(sessionID string) *protocol.Plan
 		return nil
 	}
 	if sessionID == runtime.deps.Core.Snapshot.Session.ID {
-		return ClonePlanForSync(runtime.deps.Core.Snapshot.Runtime.Plan)
+		return worktable.ClonePlanForSync(runtime.deps.Core.Snapshot.Runtime.Plan)
 	}
 	if runtime.deps.Tasks == nil {
 		return nil
@@ -197,7 +198,7 @@ func (runtime *Runtime) SessionActivePlanLocked(sessionID string) *protocol.Plan
 
 func (runtime *Runtime) syncPlanNodeTask(sessionID string, node protocol.PlanNode, parentID string) {
 	key := "plan:" + node.ID
-	status := TaskStatusForNode(node.Status)
+	status := worktable.TaskStatusForNode(node.Status)
 	identity := dto.ActorIdentity("main", runtime.deps.Core.Deps.Engine.SessionID())
 	existing, found, err := runtime.deps.Core.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
@@ -224,7 +225,7 @@ func (runtime *Runtime) syncPlanNodeTask(sessionID string, node protocol.PlanNod
 
 func (runtime *Runtime) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
-	status := TaskStatusForSubagent(node.Status)
+	status := worktable.TaskStatusForSubagent(node.Status)
 	identity := dto.ActorIdentity("subagent", node.SessionID)
 	existing, found, err := runtime.deps.Core.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
@@ -406,9 +407,9 @@ func (runtime *Runtime) AsyncRuns() []dto.AsyncRunRecord {
 	return runtime.deps.Core.Deps.Runtime.AsyncRunsSnapshot()
 }
 
-func (runtime *Runtime) limits() Limits {
+func (runtime *Runtime) limits() worktable.Limits {
 	if runtime == nil || runtime.deps.Limits == nil {
-		return Limits{}
+		return worktable.Limits{}
 	}
 	return runtime.deps.Limits()
 }

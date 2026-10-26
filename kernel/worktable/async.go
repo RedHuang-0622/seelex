@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 const (

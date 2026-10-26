@@ -8,7 +8,6 @@ import (
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/event"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
-	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
@@ -23,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 )
 
 var ErrRolePermissionsUnavailable = applicationpolicy.ErrRolePermissionsUnavailable
@@ -47,7 +47,7 @@ func (service *Service) assembleRoleActivityApplication() {
 			return service.Core.Snapshot.Chat.RequestID
 		},
 		EvidenceChars: func() int { return applicationpolicy.Get().EvidenceChars },
-		Truncate:      applicationtable.TruncateWorkEvidence,
+		Truncate:      worktable.TruncateWorkEvidence,
 		Stage: func(ownerSessionID, unitID, name, status, errorText string) {
 			if service.toolRecords != nil {
 				service.toolRecords.StageStatus(ownerSessionID, unitID, name, status, errorText)
@@ -144,7 +144,7 @@ func (service *Service) assembleProjectBoardQuery() {
 			service.ViewMu.RLock()
 			viewSessionID := service.Core.Snapshot.Session.ID
 			plan := service.components.workTableRuntime.SessionActivePlanLocked(sessionID)
-			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
 			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.components.workTableRuntime.AsyncRuns()
 		},

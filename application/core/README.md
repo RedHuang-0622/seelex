@@ -9,7 +9,7 @@
 本包按域拆分子包（装配件 + 消费方窄接口的容器化方向，见
 `docs/2026-08-22-application-split/plan.md`）：
 
-- 零依赖叶子域：`../../middle/view/worktable/`（表格增量 CSP 汇聚发布器）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
+- 零依赖叶子域：`../../kernel/worktable/`（表格增量 CSP 汇聚发布器）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
   Report，领域实现走 `Port`）已于 2026-10-16 随 M5-R8b 归位
   [`backend/multiagent/resume`](../../backend/multiagent/resume/README.md)。）
   （`input_router/`（命令注册表 + 输入路由）与 `context_control/`（窗口策略配置加载）已于
@@ -69,7 +69,7 @@ flowchart TB
 
     subgraph LEAF["零依赖叶子域"]
         CHAT["backend/engine/react"]
-        WT["middle/view/worktable"]
+        WT["kernel/worktable"]
         IR["backend/engine/input"]
         CC["backend/engine/input/contextcontrol"]
         RES["resume"]
@@ -514,7 +514,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | 包 | 生态位 |
 |---|---|
 | [../../backend/engine/react/](../../backend/engine/react/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离（M5-R7 归位，包名 `chat`） |
-| [../../middle/view/worktable/](../../middle/view/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
+| [../../kernel/worktable/](../../kernel/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
 | [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
 | [../../backend/engine/input/contextcontrol/](../../backend/engine/input/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
 | [../../backend/engine/session/](../../backend/engine/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |

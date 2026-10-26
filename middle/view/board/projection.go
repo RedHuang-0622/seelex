@@ -45,8 +45,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

@@ -101,7 +101,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"backend/tool/registry/job_subagent.go": "读：子代理作业的终态判定",
 			"backend/tool/registry/job_tools.go":    "读：bg_manage 的回答里带状态",
 			"application/core/async_completion.go":  "读：终态触发对话（done/failed 触发，killed 不触发）",
-			"middle/view/worktable/async.go":        "读：折成工作表格的权威状态（killed 归 failed）",
+			"kernel/worktable/async.go":             "读：折成工作表格的权威状态（killed 归 failed）",
 			"tui/goalteam.go":                       "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
 		},
 		// 这一格的取值面 = dto.AsyncState*（AsyncRunRecord.State 的注释写死的四个词）。

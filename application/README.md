@@ -671,7 +671,7 @@ ToolRecord host adapter 与 subagent/teammate 终态收口位于
 `worktable.changed` 的 latest-wins 发布器、子代理树 payload 签名去重与关闭尾态
 迁入 [`application/execution/table`](execution/table/README.md)。core 只保留
 过滤后的树快照、session ID 和 EventHub 回调；WorkItem 行/批次/打点判据仍在
-`middle/view/worktable`。
+`kernel/worktable`。
 
 该包的输入投影切片进一步承接请求尾部 TraceBlock 的会话过滤、稳定排序、行预算和
 async/teamwork 读法提示；core 只采集不可变输入并调用 `BuildTraceBlock`。
@@ -679,7 +679,7 @@ async/teamwork 生命周期 consumer 也已迁入该包，core 只注入信号�
 completion trigger、safe-call 和 stop 控制。
 subagent/task consumer 与三路 start-once 生命周期同样由该包编排。
 WorkItem 行、批次和 task-change 依赖补齐也已统一委托 `BuildRows` /
-`WorkItemForRecord`，行构建算法仍只在 `middle/view/worktable`。
+`WorkItemForRecord`，行构建算法仍只在 `kernel/worktable`。
 
 ### 基础命令注册包（AP-115D1，已实现）
 
@@ -766,7 +766,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
 | [`session/state/`](session/state/README.md) | SessionUnit、Domain actor、Chat/Queue/View 与 DeepCopy 的唯一状态所有者。 |
 | [`session/viewstate/`](session/viewstate/README.md) | 用户可见 Snapshot 读写、revision 与事件发布。 |
-| [`../middle/view/worktable/`](../middle/view/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）（M5-R4 迁出 `core/worktable/`）。 |
+| [`../kernel/worktable/`](../kernel/worktable/README.md) | 工作表格纯投影与增量事件中枢（CSP 汇聚、latest-wins、有界背压）（EP-074 中立 owner）。 |
 
 `core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
 [`backend/limit/`](../backend/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照

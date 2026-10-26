@@ -6,7 +6,7 @@ package worktable
 import (
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // ── worktable.changed CSP 汇聚发布器 ─────────────────────────

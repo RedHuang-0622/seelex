@@ -5,11 +5,11 @@
 `application/execution/table` 拥有 WorkTable runtime：Plan/子代理源同步、task
 注册表投影、`worktable.changed` latest-wins 发布、生命周期消费者、Todo 刷新和请求
 尾部 TraceBlock。主要调用方是 `application/core` 的装配与回合链路；行投影判据仍由
-`middle/view/worktable` 唯一拥有。
+`kernel/worktable` 唯一拥有。
 
 ## 职责
 
-- 包装 `middle/view/worktable.WorkTablePublisher`；
+- 包装 `kernel/worktable.WorkTablePublisher`；
 - 维护上一次成功下发子代理树的签名；
 - 在共享视图锁内重建 WorkTable，并在锁外发布不可变行/批次；
 - 同步 Plan/子代理生命周期到各会话 task scope；
@@ -26,7 +26,7 @@
 
 ## 非职责
 
-- 不构建 WorkItem 行、排序、批次或证据截断；这些归 `middle/view/worktable`；
+- 不构建 WorkItem 行、排序、批次或证据截断；这些归 `kernel/worktable`；
 - 不拥有 Agent 执行、持久化或 SessionUnit；Runtime、Engine、Task 与视图锁由窄
   `RuntimeDeps` 提供；
 - 不拥有事件 Hub、revision 或 session ID，只经注入回调发布；
@@ -99,7 +99,7 @@ publisher 内部是单 goroutine；`lastTreeSig` 只在该 goroutine 读写，�
 
 ## 扩展与 Review
 
-- 行投影或异步打点规则必须扩展 `middle/view/worktable`，不得复制到本包；
+- 行投影或异步打点规则必须扩展 `kernel/worktable`，不得复制到本包；
 - 新增 payload 字段时所有真实前端 reducer 必须同步验证；
 - Review 时检查宿主回调是否在锁外做慢 I/O、树签名是否只比较内容、
   关闭后 `Send` 是否仍安全。

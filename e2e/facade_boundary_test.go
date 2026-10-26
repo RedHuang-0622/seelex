@@ -240,7 +240,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/backend/engine/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
-	"github.com/RedHuang-0622/seelex/middle/view/worktable",
+	"github.com/RedHuang-0622/seelex/kernel/worktable",
 	// EP-070：Event Hub 唯一实现归入中立 kernel；Middle 路径仅为兼容 facade。
 	"github.com/RedHuang-0622/seelex/kernel/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",
