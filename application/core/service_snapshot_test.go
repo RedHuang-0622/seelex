@@ -63,9 +63,9 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
 	service.promptStack.Push("base", "private", privateInstruction)
 	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
-	projection := service.collectRuntimeProjection(context.Background())
+	projection := service.components.view.CollectRuntimeProjection(context.Background())
 	service.ViewMu.Lock()
-	service.applyRuntimeProjectionLocked(projection)
+	service.components.view.ApplyRuntimeProjectionLocked(projection)
 	service.ViewMu.Unlock()
 
 	payload, err := json.Marshal(service.Snapshot())
@@ -100,7 +100,7 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "request-1"}
-	message := service.appendMessageLocked("assistant", "", nil)
+	message := service.components.view.AppendMessageLocked("assistant", "", nil)
 	messageID := message.ID
 	service.ViewMu.Unlock()
 

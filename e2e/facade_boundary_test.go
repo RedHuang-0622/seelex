@@ -522,15 +522,34 @@ func TestFacadeHasNoConstructors(t *testing.T) {
 	}
 }
 
-// facadeOwnContractTypes 是门面**故意新造**的契约类型（不是搬迁来的别名）：
-// plan §1.3 的 ③「用例方法面收窄成五组窄接口」要求四组行为面接口声明在门面里
-// （`application/faces.go`，M5-R10a 契约 §1.1）。除这四个之外，I4 仍然一句不让：
-// 门面导出的类型必须是 `type X = Y` 别名，搬迁不得产生新的类型身份。
+// facadeOwnContractTypes 是门面**故意新造**的入站契约类型（不是搬迁来的别名）：
+// plan §1.3 的 ③「用例方法面收窄成五组窄接口」要求能力接口声明在门面里。
+// EP-046C 后这些接口的事实源是 `application/faces_api.go`，core 不再定义第二套。
+// 除这些入站契约且来自纯 DTO/port 的接口外，门面导出的类型仍必须是别名。
 var facadeOwnContractTypes = map[string]bool{
-	"ViewFace":    true,
-	"CommandFace": true,
-	"PolicyFace":  true,
-	"QueueFace":   true,
+	"ViewFace":                 true,
+	"CommandFace":              true,
+	"PolicyFace":               true,
+	"QueueFace":                true,
+	"ConversationAPI":          true,
+	"SessionAPI":               true,
+	"ExecutionQueryAPI":        true,
+	"WorkItemQueryAPI":         true,
+	"TeammateQueryAPI":         true,
+	"SubagentQueryAPI":         true,
+	"TranscriptQueryAPI":       true,
+	"ExecutionCommandAPI":      true,
+	"WorkspaceAPI":             true,
+	"GoalAPI":                  true,
+	"PolicyAPI":                true,
+	"AdminAPI":                 true,
+	"RoleAPI":                  true,
+	"SubagentAPI":              true,
+	"StateAPI":                 true,
+	"QueueAPI":                 true,
+	"LifecycleAPI":             true,
+	"SessionQuery":             true,
+	"ConversationHistoryQuery": true,
 }
 
 // TestFacadeKeepsTypeIdentityByAlias 钉 I4：门面导出的每个类型都必须是别名

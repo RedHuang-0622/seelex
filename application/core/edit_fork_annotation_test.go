@@ -50,8 +50,8 @@ func TestEditForkAnnotationRulesAreCentralized(t *testing.T) {
 			t.Fatal("annotateConversationForEditLocked 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 annotateConversationForEditLocked")
+	if found {
+		t.Fatal("core annotateConversationForEditLocked forwarder must be removed")
 	}
 }
 

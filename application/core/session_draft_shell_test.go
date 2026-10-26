@@ -82,7 +82,7 @@ func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T) {
 	defer frontendOfTestService(service).Shutdown()
 	seedPreviousSessionFacts(service)
 
-	service.resetViewToDraftAfterRestoreFailure()
+	service.components.sessionRestoreDraftReset.Reset()
 
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()

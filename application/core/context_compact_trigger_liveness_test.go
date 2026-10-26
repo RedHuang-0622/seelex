@@ -128,7 +128,7 @@ func assertInteractionFaceLive(t *testing.T, service *Service, what string) {
 	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Submit(context.Background(), "hello") }) {
 		t.Fatalf("%s：推帧期间提交入口不返回（消息连队列都进不去）", what)
 	}
-	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.resumeSession("session-other") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.components.sessionResume.Resume("session-other") }) {
 		t.Fatalf("%s：推帧期间切会话不返回", what)
 	}
 }
@@ -324,7 +324,7 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			_ = service.Snapshot()
-			_ = service.resumeSession("session-other")
+			_ = service.components.sessionResume.Resume("session-other")
 		}()
 	}
 	// 并发收敛：任一步永久挂住都会让 wait 永不返回，这里用有界等待把它变成失败。

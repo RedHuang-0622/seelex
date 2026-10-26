@@ -7,15 +7,15 @@ func newServiceConversationTurnOutcome(service *Service) *applicationconversatio
 		ClearError: service.components.conversationTurnState.ClearErrorLocked,
 		SetError:   service.components.conversationTurnState.SetErrorLocked,
 		AppendErrorLine: func(sessionID, visibleError string) {
-			service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
+			service.components.view.AppendMessageLockedFor(sessionID, "error", visibleError, nil)
 		},
-		ApplyRuntimeProjection: service.applyRuntimeProjectionForLocked,
-		SetSessionChat:         service.setSessionChatLockedFor,
+		ApplyRuntimeProjection: service.components.view.ApplyRuntimeProjectionForLocked,
+		SetSessionChat:         service.components.view.SetSessionChatLockedFor,
 		MirrorTask: func(sessionID string) {
 			if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 				service.Core.Snapshot.Task = task
 			}
 		},
-		BumpRevision: service.bumpLocked,
+		BumpRevision: service.components.view.BumpLocked,
 	})
 }

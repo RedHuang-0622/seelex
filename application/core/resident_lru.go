@@ -82,7 +82,7 @@ func (service *Service) reconcileResidentLimit() {
 			return service.residentEvictionSnapshotLocked()
 		},
 		Evict: func(sessionID string) error {
-			return service.releaseSessionMemory(sessionID, releaseIdle)
+			return service.components.sessionReleaseApplication.Release(sessionID, releaseIdle)
 		},
 		OnEvictError: func(sessionID string, err error) {
 			log.Printf("[session-release] engine evict %q: %v", sessionID, err)

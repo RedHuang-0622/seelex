@@ -268,7 +268,7 @@ func Run(opts Options) (*App, error) {
 	console.LogStageIf(backendTrace, "startup.application.ready")
 	// 子代理中断恢复的「补历史」步骤：父侧缺失的工具结果（含中断的
 	// subagent 派发）在续跑前补齐 provider-only tool 占位。
-	runtime.SetSubagentParentRepairer(app.PrepareProviderHistory)
+	runtime.SetSubagentParentRepairer(frontendApp.PrepareProviderHistory)
 	// 配置容错：启动期非致命警告（如 accounts.yaml 解析失败）以系统通知
 	// 进入会话可见区，GUI 另弹原生对话框；应用照常启动，不再闪退。
 	startupWarnings := runtime.StartupWarnings()
@@ -341,12 +341,12 @@ func Run(opts Options) (*App, error) {
 	if err != nil {
 		return nil, boot.fail(err)
 	}
-	app.SetProjectBoardSink(projectBoardSink)
+	frontendApp.SetProjectBoardSink(projectBoardSink)
 	boot.addCleanup(closeProjectBoard)
 	// 工具记录（成功/失败计数 + 失败原因）：读数**按会话**存在会话自己的存储里，落盘是
 	// **批次**（真相源提交时刻统一更新一次，见 core.FlushToolRecord）——不做"每次工具调用
 	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
-	app.SetToolRecordSnapshotStore(sessionToolRecordStore{
+	frontendApp.SetToolRecordSnapshotStore(sessionToolRecordStore{
 		router:     st,
 		resolveKey: func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
 	})
@@ -362,7 +362,7 @@ func Run(opts Options) (*App, error) {
 	}
 	// 装配期只装内存（值本来就从覆盖层来）：用户拨开关才走 SetToolRecordEnabled 的
 	// "先落盘、再改内存"。这样覆盖层文件只在用户真改过之后才出现这一格。
-	app.ApplyToolRecordEnabled(toolRecordEnabled)
+	frontendApp.ApplyToolRecordEnabled(toolRecordEnabled)
 	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
 	// 所以在这里把解析器交给 Router 一次（见 store.SetProjectBoardRootFor）。
 	st.SetProjectBoardRootFor(func(sessionID string) string {
@@ -393,7 +393,7 @@ func Run(opts Options) (*App, error) {
 	// 命令的退出码（那条 stage 只由同步 bash 链发出；bash_bg 走另一条链、不经这里），
 	// 命令面因此不需要第二个上报口。"退出码非零 = 一次命令失败"的判据在 core
 	// （RecordToolCommandOutcome），这里只做搬运；诊断日志照旧转发给下游。
-	bashObserver = toolCommandOutcomeObserver(bashObserver, app)
+	bashObserver = toolCommandOutcomeObserver(bashObserver, frontendApp)
 	runtime.ApplyDeps(assemble.RuntimeDeps{
 		BashDiagnosticObserver: bashObserver,
 		TurnArchiver: &applicationreference.CompressedTurnArchiver{

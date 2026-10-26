@@ -54,8 +54,8 @@ func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T) {
 		}
 	}
 	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
+		if found {
+			t.Fatalf("core %s forwarder must be removed", name)
 		}
 	}
 }
@@ -68,8 +68,8 @@ func TestDegradeAndRequestExitNotifiesHost(t *testing.T) {
 	sub := frontendOfTestService(service).Subscribe(16)
 	defer sub.Close()
 
-	service.degradeAndRequestExit("probe")
-	service.degradeAndRequestExit("probe again") // 幂等
+	service.components.faultGuardApplication.DegradeAndRequestExit("probe")
+	service.components.faultGuardApplication.DegradeAndRequestExit("probe again") // 幂等
 
 	service.ViewMu.RLock()
 	closed := service.closed

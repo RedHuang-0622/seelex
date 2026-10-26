@@ -49,8 +49,8 @@ func TestEditForkRollbackRulesAreCentralized(t *testing.T) {
 			t.Fatal("rollbackEditFork 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 rollbackEditFork")
+	if found {
+		t.Fatal("core rollbackEditFork forwarder must be removed")
 	}
 }
 

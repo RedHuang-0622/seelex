@@ -50,7 +50,7 @@ func (host workspaceHost) ApplyDraftBinding(info model.WorkspaceInfo, projection
 		service.draft.UpdatedAt = time.Now()
 	}
 	service.applyWorkspaceProjectionLocked(projection)
-	return service.bumpLocked()
+	return service.components.view.BumpLocked()
 }
 
 func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection applicationworkspace.SwitchProjection, freshSessionID, notice string) uint64 {
@@ -69,13 +69,13 @@ func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection appl
 		// 会话域活跃指针跟着换（与 /new、热挂载、冷恢复同序）：只改快照里的
 		// Session.ID 而不动这一格，新项目的回合会按旧指针登记到上一个项目。
 		service.sessions.SetActive(freshSessionID)
-		service.appendMessageLocked("system", notice, nil)
+		service.components.view.AppendMessageLocked("system", notice, nil)
 	}
 	service.Core.Snapshot.CurrentWorkspace = &model.WorkspaceInfo{
 		ID: info.ID, Name: info.Name, RootPath: info.RootPath, GitRemote: info.GitRemote,
 	}
 	service.applyWorkspaceProjectionLocked(projection)
-	return service.bumpLocked()
+	return service.components.view.BumpLocked()
 }
 
 func (host workspaceHost) ApplyUnbind(sessionID string, projection applicationworkspace.SwitchProjection) uint64 {
@@ -88,7 +88,7 @@ func (host workspaceHost) ApplyUnbind(sessionID string, projection applicationwo
 		service.draft.UpdatedAt = time.Now()
 	}
 	service.applyWorkspaceProjectionLocked(projection)
-	return service.bumpLocked()
+	return service.components.view.BumpLocked()
 }
 
 func (host workspaceHost) PublishSnapshotChanged(revision uint64) {
@@ -101,5 +101,5 @@ func (host workspaceHost) RequestCatalogRefresh() {
 }
 
 func (host workspaceHost) ClearReviewRequest() {
-	host.service.reviewApplicationComponent().ClearReviewRequest("")
+	host.service.components.reviewApplication.ClearReviewRequest("")
 }

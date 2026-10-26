@@ -9,13 +9,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func (service *Service) runtimeApplicationComponent() *applicationadmin.RuntimeApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.runtimeApplication
-}
-
 func newServiceRuntimeApplication(service *Service) *applicationadmin.RuntimeApplication {
 	return applicationadmin.NewRuntime(applicationadmin.RuntimeDeps{
 		Projection: serviceRuntimeProjectionPort{service: service},
@@ -27,7 +20,7 @@ type serviceRuntimeProjectionPort struct {
 }
 
 func (port serviceRuntimeProjectionPort) CollectProjection(ctx context.Context) view_state.RuntimeStateProjection {
-	return port.service.collectRuntimeProjection(ctx)
+	return port.service.components.view.CollectRuntimeProjection(ctx)
 }
 
 func (port serviceRuntimeProjectionPort) LockView() {
@@ -35,11 +28,11 @@ func (port serviceRuntimeProjectionPort) LockView() {
 }
 
 func (port serviceRuntimeProjectionPort) ApplyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection) {
-	port.service.applyRuntimeProjectionLocked(projection)
+	port.service.components.view.ApplyRuntimeProjectionLocked(projection)
 }
 
 func (port serviceRuntimeProjectionPort) BumpLocked() uint64 {
-	return port.service.bumpLocked()
+	return port.service.components.view.BumpLocked()
 }
 
 func (port serviceRuntimeProjectionPort) UnlockView() {

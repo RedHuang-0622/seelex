@@ -48,7 +48,7 @@ func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T) {
 	manager.SetCuratedCatalog(catalog)
 
 	svc := newTestService(t, &fakeEngine{}, withTestPlugins(adapters.PluginPort{Manager: manager}))
-	projection := svc.collectRuntimeProjection(t.Context())
+	projection := svc.components.view.CollectRuntimeProjection(t.Context())
 
 	byName := make(map[string]model.PluginInfo, len(projection.Runtime.Plugins))
 	for _, item := range projection.Runtime.Plugins {

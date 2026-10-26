@@ -16,6 +16,7 @@ import (
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
@@ -32,6 +33,7 @@ type FrontendPorts struct {
 	Admin               *applicationadmin.AccountApplication
 	Completion          *applicationinput.Application
 	ContextCompaction   *conversationcontext.Application
+	ContextHistory      *conversationcontext.EngineHistoryCoordinator
 	ConversationQueue   *applicationconversation.QueueApplication
 	Execution           *applicationexecution.WorkItemApplication
 	Goal                *applicationgoal.Application
@@ -39,6 +41,7 @@ type FrontendPorts struct {
 	HistorySearch       *conversationsearch.Application
 	Perf                *applicationobservability.PerfApplication
 	Policy              *applicationpolicy.SwitchApplication
+	PromptStack         *applicationprompt.PromptStack
 	ProjectBoard        *applicationexecution.ProjectBoardApplication
 	Reference           *applicationreference.Application
 	Review              *applicationreview.Application
@@ -60,12 +63,14 @@ type FrontendPorts struct {
 	Lifecycle           *applicationlifecycle.Application
 	Runtime             *applicationadmin.RuntimeApplication
 	Tasks               *task_context.Coordinator
+	ToolRecords         *applicationtoolrecord.Application
 	View                *view_state.Coordinator
 	SubagentView        *applicationexecution.SubagentViewCoordinator
 	Workspace           *applicationworkspace.Application
 	WorkspaceUseCase    *applicationworkspace.SwitchUseCase
 	AddNotice           func(string)
 	PublishRuntime      func()
+	SetProjectBoardSink func(applicationexecution.ProjectBoardSink)
 	CloseRoleToolRecord func(mainSessionID, roleSessionID string)
 }
 
@@ -86,6 +91,7 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 		Admin:             service.components.adminApplication,
 		Completion:        service.components.completionApplication,
 		ContextCompaction: service.components.contextCompactionApplication,
+		ContextHistory:    service.components.history,
 		ConversationQueue: service.components.conversationQueue,
 		Execution:         service.components.executionApplication,
 		Goal:              service.components.goalApplication,
@@ -93,6 +99,7 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 		HistorySearch:     service.components.historySearchApplication,
 		Perf:              service.components.perfStatsApplication,
 		Policy:            service.components.policyApplication,
+		PromptStack:       service.promptStack,
 		ProjectBoard:      service.components.projectBoardQuery,
 		Reference:         service.components.referenceApplication,
 		Review:            service.components.reviewApplication,
@@ -114,12 +121,16 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 		Lifecycle:         service.components.lifecycleApplication,
 		Runtime:           service.components.runtimeApplication,
 		Tasks:             service.components.tasks,
+		ToolRecords:       service.toolRecords,
 		View:              service.components.view,
 		SubagentView:      service.components.subagent,
 		Workspace:         service.components.workspaceApplication,
 		WorkspaceUseCase:  service.components.workspace,
-		AddNotice:         service.addNotice,
+		AddNotice:         service.components.view.AddNotice,
 		PublishRuntime:    service.publishRuntimeProjections,
+		SetProjectBoardSink: func(sink applicationexecution.ProjectBoardSink) {
+			service.components.projectBoard.store(sink)
+		},
 		CloseRoleToolRecord: func(mainSessionID, roleSessionID string) {
 			service.closeUnitToolRecord(mainSessionID, applicationtoolrecord.RoleUnitID(roleSessionID, ""))
 		},

@@ -51,8 +51,8 @@ func TestEditForkTargetResolverRulesAreCentralized(t *testing.T) {
 			t.Fatal("resolveEditForkTarget 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 resolveEditForkTarget")
+	if found {
+		t.Fatal("core resolveEditForkTarget forwarder must be removed")
 	}
 }
 

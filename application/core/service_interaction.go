@@ -35,14 +35,14 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 	case switching.InteractionKindApproval:
 		return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 	case switching.InteractionKindSession:
-		if err := service.resumeSession(optionID); err != nil {
-			service.addNotice("恢复失败: " + err.Error())
+		if err := service.components.sessionResume.Resume(optionID); err != nil {
+			service.components.view.AddNotice("恢复失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
 	case switching.InteractionKindAccount:
-		if err := service.adminApplicationComponent().SelectAccount(context.Background(), optionID); err != nil {
-			service.addNotice("账号切换失败: " + err.Error())
+		if err := service.components.adminApplication.SelectAccount(context.Background(), optionID); err != nil {
+			service.components.view.AddNotice("账号切换失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
@@ -147,7 +147,7 @@ func (service *Service) observeInteraction(sessionID, requestID string, interact
 			service.Core.Snapshot.Interaction = &copied
 		}
 	}
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	publishSID := sessionID
 	if publishSID == "" {
@@ -186,7 +186,7 @@ func (service *Service) openInteraction(interaction *model.Interaction) {
 	}
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Interaction = interaction
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventInteractionOpened, revision, interaction.ID, service.currentViewSessionID(), interaction)
 }
@@ -197,7 +197,7 @@ func (service *Service) closeInteraction(id string) {
 	if service.Core.Snapshot.Interaction != nil && service.Core.Snapshot.Interaction.ID == id {
 		service.Core.Snapshot.Interaction = nil
 	}
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventInteractionClosed, revision, id, service.currentViewSessionID(), nil)
 }

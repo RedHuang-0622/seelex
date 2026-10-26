@@ -180,7 +180,7 @@ func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, se
 // 边界：这条 stage 目前**只由同步 `bash` 链发出**（bash_bg 走 async_run 的另一条链，
 // 不经 executeScopedBash）。将来若有第二个工具复用那条同步链，必须先把工具名带进事件
 // （BashDiagnosticEvent.Tool），否则命令结果会被记到 bash 名下。
-func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Service) toolreg.BashDiagnosticObserver {
+func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Frontend) toolreg.BashDiagnosticObserver {
 	return func(event toolreg.BashDiagnosticEvent) {
 		if event.Stage == "bash.process.exited" {
 			// 会话号由工具层带在事件上（BashDiagnosticEvent.Session，只填 ID 不带正文）：

@@ -50,8 +50,8 @@ func TestSessionRestoreDraftResetRulesAreCentralized(t *testing.T) {
 			t.Fatal("resetViewToDraftAfterRestoreFailure 不是单行调用转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 resetViewToDraftAfterRestoreFailure")
+	if found {
+		t.Fatal("core resetViewToDraftAfterRestoreFailure forwarder must be removed")
 	}
 }
 

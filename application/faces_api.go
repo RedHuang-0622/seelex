@@ -1,8 +1,8 @@
-package core
+package application
 
-// service_api_faces.go 定义门面的**五组窄接口**与 AP-002 能力面
-// （plan §1.3 的 ③ 用例方法面收窄；M5-R10a）。根 application/faces.go
-// 只做类型别名再导出，保持根门面的类型身份不漂移。
+// faces_api.go 是门面**五组窄接口**与 AP-002 能力面的事实源
+// （plan §1.3 的 ③ 用例方法面收窄；M5-R10a）。EP-046C 后接口定义不再寄居
+// `application/core`，根 Application 直接拥有入站契约。
 //
 // 为什么要有这一层：前端只该依赖“它能用的那几件事”，而不是整个 `Service`。四个接口的
 // 方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/core` 的
@@ -26,11 +26,16 @@ package core
 import (
 	"context"
 
+	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/event"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
+
+// ContextCompactionResult is the stable public compaction receipt.
+type ContextCompactionResult = conversationcontext.Result
 
 // FaceTypeNames 是门面 A 组（类型与事件身份）的**逐字清单**：
 // `application/application.go` 里指向 `contract` / `middle/protocol` 的类型别名，按字母序。
@@ -255,7 +260,7 @@ type PolicyFace interface {
 type QueueFace interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 	ReorderQueuedInput(sessionID string, from, to int) error
-	Suggestions(input string) []Suggestion
+	Suggestions(input string) []applicationinput.Suggestion
 }
 
 // 以下能力接口是 AP-002 的新入站面：调用方只声明自己实际使用的一小组方法，
@@ -439,7 +444,7 @@ type StateAPI interface {
 type QueueAPI interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 	ReorderQueuedInput(sessionID string, from, to int) error
-	Suggestions(input string) []Suggestion
+	Suggestions(input string) []applicationinput.Suggestion
 }
 
 // LifecycleAPI 只表达进程级停机意图。

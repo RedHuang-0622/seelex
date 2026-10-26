@@ -229,7 +229,7 @@ Application 层只保留少量流程管理器：
 
 范围：
 
-- `application/faces.go` 拆分为按能力的接口；
+- `application/faces_api.go` 拆分为按能力的接口；
 - 保留现有五组接口作为兼容别名；
 - 选择 GUI/TUI 的一个低风险调用方改用子接口。
 
@@ -402,7 +402,7 @@ Application 层只保留少量流程管理器：
 高冲突文件：
 
 - `application/application.go`
-- `application/faces.go`
+- `application/faces_api.go`
 - `application/core/service.go`
 - `application/core/service_components.go`
 - `application/core/service_snapshot.go`

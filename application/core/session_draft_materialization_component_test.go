@@ -52,8 +52,8 @@ func TestSessionDraftMaterializationRulesAreCentralized(t *testing.T) {
 			t.Fatal("materializeDraftSession 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 materializeDraftSession")
+	if found {
+		t.Fatal("core materializeDraftSession forwarder must be removed")
 	}
 }
 

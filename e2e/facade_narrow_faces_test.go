@@ -145,32 +145,15 @@ var wantFaceMethods = map[string][]string{
 // 与调度装配面。它们仍在 `Service` 上（供 `wiring` 与工具注册表调用），但**不属于前端缝**。
 var assemblyOnlyMethods = []string{
 	"ApplyToolRecordEnabled",
-	"AssembleScheduledRun",
-	"CompactContextHandler",
 	"FlushToolRecord",
-	"GoalBeginHandler",
-	"GoalDoneHandler",
-	"GoalStatusHandler",
-	"GoalUpdateHandler",
 	"HandleRoleToolActivity",
-	"PrepareProviderHistory",
-	"ProjectBoardTeamPlanFor",
-	"ProjectBoardTeamStateFor",
-	"PublishRuntimeProjections",
-	"ReadCompressedTurnHandler",
-	"ReadPlanHandler",
-	"ReadToolResultHandler",
 	"RecordToolCommandOutcome",
-	"RefreshRuntimeSnapshot",
-	"SearchHistoryHandler",
-	"SetProjectBoardSink",
 	"SetToolRecordEnabled",
 	"SetToolRecordSnapshotStore",
-	"StartScheduledSession",
 	"TaskTerminalHandler",
 }
 
-// 断言 1（编译期结构满足）写在 `application/core/service_api_faces.go` 的
+// 断言 1（编译期结构满足）写在 `application/frontend_assertions.go` 的
 // `var _ ViewFace = (*Frontend)(nil)` 一族里；
 // 这里再跑一遍运行时快照，保证接口方法集与本文件的冻结清单逐字一致。
 func TestFacadeFacesMethodSetsAreFrozen(t *testing.T) {

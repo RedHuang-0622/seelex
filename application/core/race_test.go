@@ -670,7 +670,7 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 		// 写入者
 		go func(id int) {
 			defer wg.Done()
-			service.addNotice(fmt.Sprintf("notice-%d", id))
+			service.components.view.AddNotice(fmt.Sprintf("notice-%d", id))
 		}(i)
 		// 读取者
 		go func() {

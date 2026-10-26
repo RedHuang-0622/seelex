@@ -34,7 +34,7 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			return switching.ReleaseWindow(service.releaseWindowDeps())
 		},
 		SetPermissionTier: func(tier string) (string, error) {
-			return service.policyApplicationComponent().SetPermissionTier(tier)
+			return service.components.policyApplication.SetPermissionTier(tier)
 		},
 		CurrentViewSessionID: service.currentViewSessionID,
 		PersistTier:          service.persistPermissionTier,
@@ -64,7 +64,7 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			service.ViewMu.Lock()
 			service.Core.Snapshot.Runtime.PermissionTier = effective
 			service.Core.Snapshot.Runtime.FullAccess = dto.PermissionTierIsFullAccess(effective)
-			revision := service.bumpLocked()
+			revision := service.components.view.BumpLocked()
 			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", sessionID, runtime)
@@ -105,7 +105,7 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			loop := service.knobs.LoopLimit()
 			service.Core.Snapshot.Runtime.ReasoningEffort = reasoning
 			service.Core.Snapshot.Runtime.LoopLimit = loop
-			revision := service.bumpLocked()
+			revision := service.components.view.BumpLocked()
 			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
@@ -126,26 +126,19 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			service.Deps.Engine.SetSystemPrompt(prompt)
 		},
 		ResetConversation: func(message string) {
-			service.resetConversation(message)
+			service.components.view.ResetConversation(message)
 		},
 		CollectProjection: func(ctx context.Context) view_state.RuntimeStateProjection {
-			return service.collectRuntimeProjection(ctx)
+			return service.components.view.CollectRuntimeProjection(ctx)
 		},
 		CommitProjection: func(_ context.Context, projection view_state.RuntimeStateProjection) {
 			service.ViewMu.Lock()
-			service.applyRuntimeProjectionLocked(projection)
-			revision := service.bumpLocked()
+			service.components.view.ApplyRuntimeProjectionLocked(projection)
+			revision := service.components.view.BumpLocked()
 			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 			service.publishRuntimeProjections()
 		},
 	})
-}
-
-func (service *Service) policyApplicationComponent() *applicationpolicy.SwitchApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.policyApplication
 }

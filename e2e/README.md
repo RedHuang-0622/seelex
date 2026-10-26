@@ -122,7 +122,7 @@ go test . -run '^TestGUI' -count=1
 
 ### facade_narrow_faces_test.go
 
-- `func TestFacadeFacesMethodSetsAreFrozen(t *testing.T)` — 断言 1（编译期结构满足）写在 `application/faces.go` 的 `var _ ViewFace = (*Service)(nil)` 一族里；
+- `func TestFacadeFacesMethodSetsAreFrozen(t *testing.T)` — 断言 1（编译期结构满足）写在 `application/frontend_assertions.go` 的 `var _ ViewFace = (*Frontend)(nil)` 一族里；
 - `func TestFacadeEveryExportedMethodBelongsToAFace(t *testing.T)` — 断言 2（本片追加，理由：防止新方法绕过四组）：`Service` 的公开方法 = 四组 ∪ 装配面清单。
 - `func TestFacadeTypeAliasSetMatchesFaceTypeNames(t *testing.T)` — 断言 3：A 组别名集合逐字等于 `application.FaceTypeNames`。
 - `func TestFacadeFrontendHasNoDiff(t *testing.T)` — 断言 4：前端零改动（I5）——`gui/` 与 `tui/` 在本批里不得出现 diff。没有 git 就跳过。

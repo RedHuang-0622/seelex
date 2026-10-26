@@ -35,7 +35,7 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 	plan := task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
 	snapshot := model.SessionSnapshot{
 		ProtocolVersion: ProtocolVersion,
-		Session:         model.SessionState{ID: sessionID, Name: title, ForkedFrom: service.loadSessionForkRef(location, sessionID)},
+		Session:         model.SessionState{ID: sessionID, Name: title, ForkedFrom: service.components.sessionForkLineage.Load(location, sessionID)},
 		Conversation:    conversation,
 		Chat:            model.ChatState{},
 		Runtime: model.SessionRuntime{

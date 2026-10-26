@@ -18,13 +18,9 @@ import "github.com/RedHuang-0622/seelex/contract/dto"
 
 // teamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
 // 前端与 TUI 据此整块退场，不留空壳）。
-func (service *Service) teamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
-	return service.executionApplicationComponent().BoardView(sessionID)
-}
-
 // teamworkBoardViewPort satisfies the view coordinator without a public Service method.
 type teamworkBoardViewPort struct{ service *Service }
 
 func (port teamworkBoardViewPort) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
-	return port.service.teamworkBoardViewFor(sessionID)
+	return port.service.components.executionApplication.BoardView(sessionID)
 }

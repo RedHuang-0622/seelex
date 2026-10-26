@@ -37,7 +37,7 @@ func beginInFlightTurn(t *testing.T, service *Service, store *pagedSessionStore,
 		contents = append(contents, content)
 		store.appendDraft("assistant", content)
 		service.ViewMu.Lock()
-		service.appendMessageLocked("assistant", content, nil)
+		service.components.view.AppendMessageLocked("assistant", content, nil)
 		service.ViewMu.Unlock()
 	}
 	return contents
@@ -114,7 +114,7 @@ func TestToolResultAfterPagingDoesNotPunchHole(t *testing.T) {
 
 	store.appendDurable("tool_result", "tool-result")
 	service.ViewMu.Lock()
-	service.appendMessageLocked("tool_result", "tool-result", nil)
+	service.components.view.AppendMessageLocked("tool_result", "tool-result", nil)
 	service.ViewMu.Unlock()
 
 	snapshot := service.Snapshot()

@@ -48,7 +48,7 @@ func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 		service.components.tasks.BeginTaskFor(item.session, item.request, "并发会话 "+item.marker, "high", nil, model.TaskCheckpoint{})
 		// 每轮开头的可见占位（生产 startChatFor 语义）：assistant 占位承载
 		// 本轮流式正文。
-		service.appendSessionMessageLocked(item.session, "assistant", "", nil)
+		service.components.view.AppendMessageLockedFor(item.session, "assistant", "", nil)
 	}
 	service.ViewMu.Unlock()
 	for _, item := range cases {

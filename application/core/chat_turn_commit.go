@@ -33,11 +33,11 @@ func newServiceConversationTurnCommit(service *Service) *applicationconversation
 			}
 			mainOrigin := model.MessageOrigin{RoleName: model.RoleNameMain, RoleSessionID: sessionID, RoundID: promotion.UserEvent.RoundID}
 			if active {
-				return service.appendMessageWithOriginLocked("user", promotion.Request.DisplayInput, nil, userOrigin),
-					service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
+				return service.components.view.AppendMessageWithOriginLocked("user", promotion.Request.DisplayInput, nil, userOrigin),
+					service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
 			}
-			return service.appendSessionMessageWithOriginLocked(sessionID, "user", promotion.Request.DisplayInput, nil, userOrigin),
-				service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
+			return service.components.view.AppendMessageWithOriginLockedFor(sessionID, "user", promotion.Request.DisplayInput, nil, userOrigin),
+				service.components.view.AppendMessageWithOriginLockedFor(sessionID, "assistant", "", nil, mainOrigin)
 		},
 		Mirror: func(sessionID string, unit *sessioncase.SessionUnit, active bool) uint64 {
 			return service.components.conversationTurnOutcome.MirrorLocked(sessionID, unit, active)

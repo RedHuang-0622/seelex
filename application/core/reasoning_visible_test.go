@@ -25,7 +25,7 @@ func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	defer sub.Close()
 
 	service.ViewMu.Lock()
-	assistant := service.appendMessageLocked("assistant", "", nil)
+	assistant := service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
 	service.attachLatestReasoning(sessionID, "request-1")

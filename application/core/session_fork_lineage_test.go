@@ -52,8 +52,8 @@ func TestSessionForkLineageRulesAreCentralized(t *testing.T) {
 			t.Fatal("loadSessionForkRef 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 loadSessionForkRef")
+	if found {
+		t.Fatal("core loadSessionForkRef forwarder must be removed")
 	}
 }
 

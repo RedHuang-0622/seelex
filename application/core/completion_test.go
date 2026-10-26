@@ -81,16 +81,16 @@ func TestSuggestionsExcludeModelSideTools(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{
-		"compact": SuggestionKindCommand,
-		"help":    SuggestionKindCommand,
-		"review":  SuggestionKindSkill,
+		"compact": applicationinput.SuggestionKindCommand,
+		"help":    applicationinput.SuggestionKindCommand,
+		"review":  applicationinput.SuggestionKindSkill,
 	} {
 		if kinds[name] != want {
 			t.Fatalf("/ 面板里 %q 的 kind = %q, want %q：%v", name, kinds[name], want, kinds)
 		}
 	}
 	for _, suggestion := range suggestions {
-		if suggestion.Kind != SuggestionKindCommand && suggestion.Kind != SuggestionKindSkill {
+		if suggestion.Kind != applicationinput.SuggestionKindCommand && suggestion.Kind != applicationinput.SuggestionKindSkill {
 			t.Fatalf("/ 面板混进了不可执行域 %q（kind=%q）", suggestion.Text, suggestion.Kind)
 		}
 	}

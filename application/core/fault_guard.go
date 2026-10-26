@@ -11,23 +11,8 @@ package core
 import applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 
 // degradeAndRequestExit 进入降级退出路径（幂等）。调用方不得持有任何锁。
-func (service *Service) degradeAndRequestExit(reason string) {
-	service.faultGuardApplicationComponent().DegradeAndRequestExit(reason)
-}
-
 // handleLifecycleFault 处理生命周期消费者中的并发/逻辑故障：先降级退出，
 // 再重新抛出 panic（fail-fast），不让半坏状态继续运行。
-func (service *Service) handleLifecycleFault(recovered any) {
-	service.faultGuardApplicationComponent().HandleLifecycleFault(recovered)
-}
-
-func (service *Service) faultGuardApplicationComponent() *applicationlifecycle.FaultGuardApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.faultGuardApplication
-}
-
 func newServiceFaultGuardApplication(service *Service) *applicationlifecycle.FaultGuardApplication {
 	return applicationlifecycle.NewFaultGuard(applicationlifecycle.FaultGuardDeps{
 		EnterDegraded: func() bool {

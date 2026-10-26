@@ -7,13 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-func (service *Service) reviewApplicationComponent() *applicationreview.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.reviewApplication
-}
-
 func newServiceReviewApplication(service *Service) *applicationreview.Application {
 	return applicationreview.New(applicationreview.Deps{
 		WorkspaceFile: func() (contract.WorkspaceFilePort, string, error) {
@@ -25,14 +18,14 @@ func newServiceReviewApplication(service *Service) *applicationreview.Applicatio
 			service.ViewMu.Lock()
 			defer service.ViewMu.Unlock()
 			service.components.view.SetReviewRequestForLocked(sessionID, request)
-			return service.bumpLocked()
+			return service.components.view.BumpLocked()
 		},
 		ClearReviewRequest: func(sessionID string) {
 			service.ViewMu.Lock()
 			defer service.ViewMu.Unlock()
 			if service.components.view.ReviewRequestForLocked(sessionID) != nil {
 				service.components.view.ClearReviewRequestForLocked(sessionID)
-				service.bumpLocked()
+				service.components.view.BumpLocked()
 			}
 		},
 		PublishSnapshotChanged: func(sessionID string, revision uint64) {

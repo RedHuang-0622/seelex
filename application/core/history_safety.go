@@ -110,7 +110,7 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 		return fmt.Errorf("resume context recovery: task state is unavailable")
 	}
 	service.components.tasks.ResumeTaskLocked(requestID, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 

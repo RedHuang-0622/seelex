@@ -13,6 +13,6 @@ func newServiceConversationTurnProcess(service *Service) *applicationconversatio
 		MarkBusy:       service.markBusyLocked,
 		MarkIdle:       service.markIdleLocked,
 		AnyChatRunning: service.anyChatRunningLocked,
-		SetSessionChat: service.setSessionChatLockedFor,
+		SetSessionChat: service.components.view.SetSessionChatLockedFor,
 	})
 }

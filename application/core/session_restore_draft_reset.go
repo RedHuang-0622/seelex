@@ -28,7 +28,7 @@ func newServiceSessionRestoreDraftReset(service *Service) *applicationsession.Re
 					service.syncViewPermissionTierLocked(sessionID)
 				},
 			})
-			return service.bumpLocked()
+			return service.components.view.BumpLocked()
 		},
 		PublishRuntimeProjections: service.publishRuntimeProjections,
 		PublishSnapshot: func(revision uint64, draftID string) {

@@ -44,14 +44,14 @@
 
 ## 2. 当前债务基线
 
-最新实测（AP-095 后）：
+最新实测（EP-046D 后）：
 
 | 指标 | 当前 |
 |---|---:|
-| `application/core` 生产文件 | 118 |
-| `application/core` 生产代码 | 11,843 行 |
-| `Service` 公开方法 | 23 |
-| `application/core` 直接内部依赖 | 18 |
+| `application/core` 生产文件 | 111 |
+| `application/core` 生产代码 | 10,757 行 |
+| `Service` 公开方法 | 11 |
+| `application/core` 直接内部依赖 | 0 |
 
 组件化提升了结构可读性；包提取已开始让 core 规模净下降。下一步必须继续压缩
 门面兼容方法并把领域实现移出 core。
@@ -390,7 +390,7 @@ Runtime/projection 的锁内应用顺序用窄回调注入。账号档校验、�
 交付后单车道集成：
 
 - `application/application.go`
-- `application/faces.go`
+- `application/faces_api.go`
 - `application/core/service.go`
 - `application/core/service_components.go`
 - `application/core/service_assembler.go`

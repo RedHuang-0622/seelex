@@ -16,8 +16,10 @@ func newServiceSessionRestoreRecovery(service *Service) *applicationsession.Rest
 				Latest:      service.sessionViewIntentLocked(sessionID) == epoch,
 			}
 		},
-		HotAttach:                 service.hotAttachSession,
-		ResetDraft:                service.resetViewToDraftAfterRestoreFailure,
+		HotAttach: service.hotAttachSession,
+		ResetDraft: func() {
+			service.components.sessionRestoreDraftReset.Reset()
+		},
 		PublishViewSessionChanged: service.publishViewSessionChanged,
 	})
 }

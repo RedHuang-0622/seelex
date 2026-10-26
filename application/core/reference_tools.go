@@ -54,13 +54,6 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 	return realRef
 }
 
-func (service *Service) referenceApplicationComponent() *applicationreference.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.referenceApplication
-}
-
 func newServiceReferenceApplication(service *Service) *applicationreference.Application {
 	return applicationreference.New(applicationreference.Deps{
 		ReferencePageSize: func() int {

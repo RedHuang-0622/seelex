@@ -129,8 +129,8 @@ class VolumePackage:
 # 根包分卷：(卷名, 组概述, 覆盖前缀, 显式文件名)；卷名用于 README-<卷名>.md。
 # 覆盖规则 = 命中任一前缀 **或** 在显式名单中；每个根包 .go 必须恰好命中一卷。
 ROOT_GROUPS = (
-    VolumeSpec("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ("service",), ("employee_permission_assembly_test.go", "fixture_concurrency_test.go", "teamwork_service.go", "teamwork_board_projection_test.go", "role_tool_activity_test.go", "teamwork_board_session_switch_test.go", "teamwork_completion_trigger_test.go")),
-    VolumeSpec("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ("session",), ("approval_session_ownership_test.go", "message_seq_scope_test.go", "view_singleton_test.go", "view_switch_isolation_test.go", "subscribe_session_test.go", "hot_attach_running_test.go", "interrupted_continue_test.go", "fork_gate_test.go", "shutdown_concurrent_test.go", "content_lru.go", "content_lru_test.go", "content_lru_snapshot_test.go")),
+    VolumeSpec("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ("service",), ("component_getter_boundary_test.go", "employee_permission_assembly_test.go", "fixture_concurrency_test.go", "frontend_migration_test.go", "frontend_ports.go", "frontend_shell_legacy_test.go", "scheduler_test_aliases_test.go", "teamwork_service.go", "teamwork_board_projection_test.go", "role_tool_activity_test.go", "teamwork_board_session_switch_test.go", "teamwork_completion_trigger_test.go")),
+    VolumeSpec("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ("conversation_session", "edit_fork", "session"), ("approval_session_ownership_test.go", "message_seq_scope_test.go", "view_singleton_test.go", "view_switch_isolation_test.go", "subscribe_session_test.go", "subscription_legacy_test.go", "hot_attach_running_test.go", "interrupted_continue_test.go", "fork_gate_test.go", "shutdown_concurrent_test.go", "content_lru.go", "content_lru_test.go", "content_lru_snapshot_test.go")),
     VolumeSpec("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ("chat",), ("visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go")),
     VolumeSpec("command", "内置命令注册与执行", ("command",), ("permission_command_test.go",)),
     VolumeSpec("error", "错误码与面向用户的错误呈现", ("error",)),
@@ -141,12 +141,12 @@ ROOT_GROUPS = (
     VolumeSpec("skill", "Skill 指令信封编解码", ("skill",)),
     VolumeSpec("tool", "工具事件钩子与诊断", ("tool",)),
     VolumeSpec("work-table", "后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话、项目看板的派生投影（按会话落盘 + 按需读取面）", ("work_table", "async", "project_board")),
-    VolumeSpec("context", "上下文控制相关集成测试", ("context",)),
+    VolumeSpec("context", "上下文控制相关集成测试", ("context",), ("environment_context.go", "environment_context_test.go")),
     VolumeSpec("task", "任务执行集成测试", ("task",)),
     VolumeSpec("subagent", "子代理投影集成测试", ("subagent",)),
     VolumeSpec("goal", "goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归", ("goal",)),
     VolumeSpec("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ("agentteam", "role_session"), ("role_turn.go", "role_turn_test.go")),
-    VolumeSpec("permission", "角色默认/会话覆盖的权限向量、账号选择、继承与 SSH 路径白名单", ("role_permissions",)),
+    VolumeSpec("permission", "角色默认/会话覆盖的权限向量、账号选择、继承与 SSH 路径白名单", ("role_permissions",), ("policy_test_aliases_test.go",)),
     VolumeSpec("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ("composer",)),
     VolumeSpec("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ("archive",), ("close_semantics_test.go",)),
     # P8/R10b（2026-10-17）：`aliases.go` 已删，拆成 `vocabulary.go`（词表与错误值）与
@@ -172,7 +172,7 @@ TEST_VOLUMES = (
 # store/：根包文件多（> 100），同款按文件前缀分卷
 # （原先的第二份生成器 scripts/gen_store_readme_volumes.py 已并入本脚本，见 P13 删除清单）。
 STORE_VOLUMES = (
-    VolumeSpec("session", "会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API", ("sessionstore", "session_granular", "session_context", "session_meta", "durable_history", "runtime_api", "conversation", "history_resume_readers")),
+    VolumeSpec("session", "会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API", ("sessionstore", "session_granular", "session_context", "session_meta", "session_ssh", "durable_history", "runtime_api", "conversation", "history_resume_readers")),
     VolumeSpec("message", "message/event 事件行、段落投影、wire 装配与大工具结果归档", ("message_rows", "structural_events", "event_store", "event_range", "paragraphs", "wire_assembler", "big_tool_result", "provider_wire")),
     VolumeSpec("compact", "压缩帧与压缩记录、检查点、运行期材料/尝试缓存", ("compact_frames", "compaction_records", "checkpoint_store", "context_state", "material_cache", "attempt_cache")),
     VolumeSpec("stack", "上下文四栈的通道与日志（Plan/Task/Skill/Compact）", ("stack_channel", "stack_journal")),

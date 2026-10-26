@@ -298,9 +298,9 @@ func (service *Service) anyChatRunningLocked() bool {
 func (service *Service) mirrorActiveChatLocked() {
 	sessionID := service.Core.Snapshot.Session.ID
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		service.setSessionChatLockedFor(sessionID, unit.ChatState())
+		service.components.view.SetSessionChatLockedFor(sessionID, unit.ChatState())
 	} else {
-		service.setSessionChatLockedFor(sessionID, model.ChatState{})
+		service.components.view.SetSessionChatLockedFor(sessionID, model.ChatState{})
 	}
 }
 
@@ -448,7 +448,7 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 	// 草稿门：显式目标可能就是视图里那份尚未物化的草稿。草稿没有可冷回读的历史，
 	// 必须先物化（建引擎 bundle、绑项目、清 composer），否则下面"目标未加载"的
 	// 判定会把它当成冷会话去 ActivateSession→冷加载那条 draft record。
-	if err := service.materializeDraftForSubmit(sessionID, text); err != nil {
+	if err := service.components.sessionDraftSubmission.Materialize(sessionID, text); err != nil {
 		return err
 	}
 	// sessionLoaded 的活跃会话回退分支会读 Snapshot.Session.ID（引擎端口不支持
@@ -611,68 +611,7 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 		AsyncRuns:            asyncRuns,
 		Limits:               workTableBounds(),
 		AnnotateConversation: func(messages []model.Message, running bool) []model.Message {
-			return service.annotateConversationForEditLocked(sessionID, messages, running)
+			return service.components.editForkAnnotation.Annotate(sessionID, messages, running)
 		},
 	}), nil
-}
-
-// sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
-func (service *Service) sessionEventFilter(sessionID string) func(protocol_event.Event) bool {
-	if sessionID != "" {
-		return func(event protocol_event.Event) bool {
-			// G2/M2：进程类事件（resync.required / app.exit_requested）以空
-			// sid 投递给全部订阅者；会话类事件必须 sid 精确匹配——空 sid
-			// 不再作为显式会话订阅的通配（草稿占位由下方空订阅视图口径承接，
-			// 待 G4 早分配 SID 后彻底移除）。
-			if event.Kind == EventResyncRequired || event.Kind == EventExitRequested {
-				return event.SessionID == ""
-			}
-			return event.SessionID == sessionID
-		}
-	}
-	return func(event protocol_event.Event) bool {
-		if event.Kind == EventResyncRequired || event.Kind == EventExitRequested {
-			return event.SessionID == ""
-		}
-		// 草稿视图（空 sid）过渡口径：事件归属当前视图会话或仍为空占位。
-		// G4 早分配 SID 后本分支只保留进程类判定。
-		//
-		// §2.12（未采用，设计级）：这里每次发布都经 actor 取 V，处于 hub 的
-		// publishMu + subscriber.mu 内。曾试"在 session.Domain 里加 V 的无锁
-		// 镜像"，被 T5.5 静态不变量（TestGlobalSharedFaceBounded：Domain 只允许
-		// channel 字段，G 之外不得有共享可变状态）挡下；改动需先改架构决定。
-		activeID := service.sessions.ActiveID()
-		return event.SessionID == "" || event.SessionID == activeID
-	}
-}
-
-// SubscribeSessionWithReplay 与 SubscribeSession 同一归属口径，但订阅附带
-// replayWindow 条重放窗口：缓冲写满时事件不丢，落后的消费者可按 delivery_seq
-// 增量补取（Subscription.ReplaySince）。装配的 hub 不支持窗口时退化为
-// SubscribeSession 的旧溢出语义。
-func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (protocol_event.Subscription, error) {
-	hub, ok := service.Events.(interface {
-		SubscribeWithReplay(func(protocol_event.Event) bool, int, int) protocol_event.Subscription
-	})
-	if !ok {
-		return service.SubscribeSession(sessionID, buffer)
-	}
-	return hub.SubscribeWithReplay(service.sessionEventFilter(strings.TrimSpace(sessionID)), buffer, replayWindow), nil
-}
-
-// SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
-//
-// sessionID 为空表示「跟随当前视图会话」：草稿尚无真实 ID（首次提交才由引擎
-// 生成），客户端无从预知，因此视图归属只能由本服务判定——session.Domain 是视
-// 图指针的唯一持有者，草稿物化/切换的瞬间谓词即随之改变，不存在事件空洞。
-// 显式 sessionID 为严格过滤（多页签回看、headless 观察其它会话）。
-// 底层 Hub 不支持会话订阅时返回错误。
-func (service *Service) SubscribeSession(sessionID string, buffer int) (protocol_event.Subscription, error) {
-	hub, ok := service.Events.(interface {
-		SubscribeFiltered(func(protocol_event.Event) bool, int) protocol_event.Subscription
-	})
-	if !ok {
-		return protocol_event.Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
-	}
-	return hub.SubscribeFiltered(service.sessionEventFilter(strings.TrimSpace(sessionID)), buffer), nil
 }

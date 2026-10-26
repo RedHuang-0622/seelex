@@ -12,7 +12,7 @@ func newServiceConversationTurnCleanup(service *Service) *applicationconversatio
 		StampRoute:     service.stampServedRoute,
 		DiscardMailbox: service.discardPendingSubagentContextsFor,
 		CollectProjection: func(sessionID string) view_state.RuntimeStateProjection {
-			return service.collectRuntimeProjectionFor(context.Background(), sessionID)
+			return service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
 		},
 		RemoveCheckpoints: func(sessionID string) error {
 			return service.components.context.RemoveTaskContextCheckpointsFor(sessionID)

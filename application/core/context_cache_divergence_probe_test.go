@@ -149,8 +149,8 @@ func (h *prefixProbeHarness) beginTurn(input string) {
 	h.t.Helper()
 	h.startStream()
 	h.service.ViewMu.Lock()
-	h.service.appendMessageLocked("user", input, nil)
-	h.service.appendMessageLocked("assistant", "", nil)
+	h.service.components.view.AppendMessageLocked("user", input, nil)
+	h.service.components.view.AppendMessageLocked("assistant", "", nil)
 	h.service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: prefixProbeRequestID, Role: "user", Content: input,
 	})
@@ -210,7 +210,7 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	h.service.components.tasks.AttributeToolNarrationLocked(h.session,
 		model.TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
 		h.service.streamedAssistantTextLocked(h.session))
-	h.service.appendMessageLocked("tool", "", &model.ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
+	h.service.components.view.AppendMessageLocked("tool", "", &model.ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
 	h.service.ViewMu.Unlock()

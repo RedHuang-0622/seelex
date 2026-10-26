@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
@@ -85,7 +86,7 @@ func TestHelpStatesPanelListsOnlyExecutableEntries(t *testing.T) {
 		"只列可直接提交的入口",
 		"工具由模型调用、不在此列出",
 		"先把该能力注册成命令",
-		SigilSkill + "<name>",
+		applicationinput.SigilSkill + "<name>",
 	} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("/help 文案缺少 %q：%q", want, notice)

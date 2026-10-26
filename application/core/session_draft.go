@@ -120,10 +120,6 @@ func (service *Service) enterDraftShellLocked(options draftShellOptions) *sessio
 // ambient 提交（submitConversation）与显式提交（materializeDraftForSubmit）
 // 两条路径共用它。
 // 调用方必须持有 sessionTransitionMu。
-func (service *Service) materializeDraftSession(firstQuestion string) error {
-	return service.components.sessionDraftMaterialization.Materialize(firstQuestion)
-}
-
 // isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
 // （视图里的草稿，或切换走后仍留在草稿槽里的草稿）。仅作廉价闸门用，避免每次
 // 后台提交都去抢视图过渡锁；归属复判在 materializeDraftForSubmit 锁内再做。
@@ -159,6 +155,3 @@ func (service *Service) draftTargetLocked() switching.DraftTarget {
 // 归属：草稿槽是进程单例，物化会把共享视图镜像切到该 SID，因此只有视图仍停在这份
 // 草稿上时才允许；否则返回 ErrDraftNotInView（渲染层拿着过期快照提交，明确失败
 // 比把输入投给别的会话安全）。调用方不得持有视图过渡锁。
-func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error {
-	return service.components.sessionDraftSubmission.Materialize(sessionID, firstInput)
-}

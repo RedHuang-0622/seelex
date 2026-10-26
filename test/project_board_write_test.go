@@ -49,7 +49,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	harness.app.SetProjectBoardSink(sink)
+	harness.frontend.SetProjectBoardSink(sink)
 	harness.st.SetProjectBoardRootFor(harness.frontend.ProjectRootFor)
 
 	// 生产口径的新会话：建工作区 → 新建草稿（早分配 SID）→ 绑定工作区 → 首次提交物化。

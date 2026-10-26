@@ -82,7 +82,7 @@ func (service *Service) publishTaskDeltas() {
 	asyncRuns := service.asyncRunsForTable()
 	service.ViewMu.Lock()
 	service.refreshWorkTableLocked(tasks, asyncRuns)
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
 	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
@@ -346,13 +346,13 @@ func (service *Service) startLifecycleConsumers() {
 				if !applicationpolicy.Get().AsyncExec.TriggerConversation {
 					return 0
 				}
-				return service.triggerAsyncCompletions(triggered)
+				return service.components.asyncCompletionApplication.TriggerAsyncCompletions(triggered)
 			},
 			TriggerTeamwork: func(triggered map[string]struct{}) int {
 				if !applicationpolicy.Get().AsyncExec.TriggerConversation {
 					return 0
 				}
-				return service.triggerTeamworkJobCompletions(triggered)
+				return service.components.asyncCompletionApplication.TriggerTeamworkJobCompletions(triggered)
 			},
 		},
 	}).Start()
@@ -370,7 +370,7 @@ func (service *Service) stopLifecycleConsumers() {
 func (service *Service) safeLifecycleCall(call func()) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			service.handleLifecycleFault(recovered)
+			service.components.faultGuardApplication.HandleLifecycleFault(recovered)
 		}
 	}()
 	call()
@@ -384,10 +384,10 @@ func (service *Service) safeLifecycleCall(call func()) {
 // refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
 // runtime.changed（既有面板/其他消费者）、worktable.changed 与 task.changed。
 func (service *Service) refreshRuntimeAfterTodoChange() {
-	projection := service.collectRuntimeProjection(context.Background())
+	projection := service.components.view.CollectRuntimeProjection(context.Background())
 	service.ViewMu.Lock()
-	service.applyRuntimeProjectionLocked(projection)
-	revision := service.bumpLocked()
+	service.components.view.ApplyRuntimeProjectionLocked(projection)
+	revision := service.components.view.BumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	sessionID := service.Core.Snapshot.Session.ID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)

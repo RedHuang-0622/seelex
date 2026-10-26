@@ -8,12 +8,12 @@ import (
 func newServiceEditForkProcess(service *Service) *applicationedit.ProcessApplication {
 	return applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(parentID string, targetSeq uint64) (protocol.TranscriptEvent, uint64, uint64, error) {
-			return service.resolveEditForkTarget(parentID, targetSeq)
+			return service.components.editForkTargetResolver.Resolve(parentID, targetSeq)
 		},
-		Validate:         service.validateEditForkParent,
+		Validate:         service.components.editForkValidator.Validate,
 		TransitionForKey: service.transitionForKey,
 		Fork:             service.forkSessionLocked,
-		Resume:           service.resumeSession,
+		Resume:           service.components.sessionResume.Resume,
 		Submit:           service.submitConversationFor,
 		Rollback:         service.components.editForkRollback.Rollback,
 	})

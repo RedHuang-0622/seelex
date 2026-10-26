@@ -149,7 +149,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	submitBlocked := !returnsWithin(time.Second, func() {
 		_ = service.Submit(context.Background(), "hello")
 	})
-	switchBlocked := !returnsWithin(time.Second, func() { _ = service.resumeSession("session-other") })
+	switchBlocked := !returnsWithin(time.Second, func() { _ = service.components.sessionResume.Resume("session-other") })
 	commandBlocked := !returnsWithin(time.Second, func() { <-commandReturned })
 
 	if muBlocked || snapshotBlocked || submitBlocked || switchBlocked {

@@ -41,8 +41,8 @@ func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []dto.
 	service.components.conversationTurnState.ProjectQueueLocked(unit)
 	revision := uint64(0)
 	if service.isActiveSessionLocked(sessionID) {
-		service.setSessionChatLockedFor(sessionID, unit.ChatState())
-		revision = service.bumpLocked()
+		service.components.view.SetSessionChatLockedFor(sessionID, unit.ChatState())
+		revision = service.components.view.BumpLocked()
 	}
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)

@@ -66,14 +66,14 @@ func TestPermissionTierProjectionPerSession(t *testing.T) {
 	}
 	draftID := service.Snapshot().Session.ID
 
-	projectionA := service.collectRuntimeProjectionFor(context.Background(), sessionA)
+	projectionA := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionA)
 	if projectionA.Runtime.PermissionTier != dto.PermissionTierEdit {
 		t.Fatalf("projection of A tier = %q, want edit", projectionA.Runtime.PermissionTier)
 	}
 	if len(projectionA.Runtime.PermissionTiers) == 0 {
 		t.Fatal("projection must carry the tier catalog for the frontend list")
 	}
-	projectionDraft := service.collectRuntimeProjectionFor(context.Background(), draftID)
+	projectionDraft := service.components.view.CollectRuntimeProjectionFor(context.Background(), draftID)
 	if projectionDraft.Runtime.PermissionTier != dto.PermissionTierManual {
 		t.Fatalf("projection of unset draft tier = %q, want process default manual", projectionDraft.Runtime.PermissionTier)
 	}
@@ -109,7 +109,7 @@ func TestSetFullAccessCompatMapsToTier(t *testing.T) {
 	if !service.fullAccessForSession(sessionA) {
 		t.Fatal("full 档应派生 full_access=true")
 	}
-	projection := service.collectRuntimeProjectionFor(context.Background(), sessionA)
+	projection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionA)
 	if !projection.Runtime.FullAccess || projection.Runtime.PermissionTier != dto.PermissionTierFull {
 		t.Fatalf("投影 = full_access:%v tier:%q, want true/full",
 			projection.Runtime.FullAccess, projection.Runtime.PermissionTier)

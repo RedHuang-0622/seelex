@@ -51,13 +51,6 @@ func (service *Service) wakeCatalogRefresh() {
 // SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
 // meta 全为零值即清除该会话的条目（取消置顶 + 清空别名 + 复位排序）。判据在 `middle/switch`。
 
-func (service *Service) sessionMetaApplicationComponent() *applicationsession.MetaApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.sessionMetaApplication
-}
-
 func newServiceSessionMetaApplication(service *Service) *applicationsession.MetaApplication {
 	return applicationsession.NewMetaApplication(applicationsession.MetaDeps{
 		Meta: service.metaDeps,

@@ -55,7 +55,7 @@ func newServiceSessionDraftMaterialization(service *Service) *applicationsession
 			service.components.sessions.SetSessionTitleLocked(newID, title)
 			service.components.tasks.ResetPlanStateLocked()
 			service.applyWorkspaceProjectionLocked(workspaceProjection)
-			revision := service.bumpLocked()
+			revision := service.components.view.BumpLocked()
 			service.ViewMu.Unlock()
 			return revision
 		},
@@ -66,7 +66,7 @@ func newServiceSessionDraftMaterialization(service *Service) *applicationsession
 		RefreshCatalog: func() {
 			service.components.sessions.RequestCatalogRefresh()
 		},
-		FlushToolRecord: service.FlushToolRecord,
+		FlushToolRecord: service.flushToolRecord,
 		TouchResident:   service.touchResident,
 	})
 }

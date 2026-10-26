@@ -77,7 +77,7 @@ func newServiceSessionDraftEntry(service *Service) *applicationsession.DraftEntr
 					service.applyStoredPermissionTier(sessionID, storedTier)
 				},
 			})
-			revision := service.bumpLocked()
+			revision := service.components.view.BumpLocked()
 			service.ViewMu.Unlock()
 			return revision
 		},

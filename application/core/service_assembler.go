@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
@@ -233,7 +234,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.Deps.Runtime.AsyncPendingFor(sessionID)
 		},
 	})
-	service.components.conversationTurnProcess = newServiceConversationTurnProcess(service)
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
 	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
@@ -246,7 +246,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Tasks:         service.components.tasks,
 		// 技能目录的激活纪律句要引用应用侧 Skill 前缀：从 sigil 表注入，
 		// 避免提示文案与前缀契约漂移（见 prompt_layer.Deps.SkillSigil）。
-		SkillSigil: SigilSkill,
+		SkillSigil: applicationinput.SigilSkill,
 		// 环境段来自组合根（执行面的实际事实：这台机器上 bash 工具落到哪个壳）。
 		Environment: assembler.deps.EnvironmentSection,
 	})
@@ -290,6 +290,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
+	// TurnProcess captures the view coordinator method value, so it must be
+	// assembled after the coordinator exists. This is composition order, not a
+	// forwarding wrapper.
+	service.components.conversationTurnProcess = newServiceConversationTurnProcess(service)
 	service.components.conversationTurnCompletion = newServiceConversationTurnCompletion(service)
 	service.components.conversationTurnOutcome = newServiceConversationTurnOutcome(service)
 	service.components.conversationTurnPublisher = newServiceConversationTurnPublisher(service)
@@ -437,13 +441,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 的作用是"装配缺口与坏配置在加载时暴露 + 把该会话的登记格热起来"；未装配登记能力的
 	// 宿主（CLI / 测试假实现 / headless）不因此启动失败，只有显式读面才报
 	// ErrRolePermissionsUnavailable。
-	_, _ = service.restoreRolePermissions(service.currentViewSessionID(), []string{"root"})
+	_, _ = service.components.roleApplication.RestoreRolePermissions(service.currentViewSessionID(), []string{"root"})
 	// 角色账号与权限同属项目级默认；恢复失败不回滚会话打开（此时还没有回合）。
-	_ = service.restoreRoleAccounts(service.currentViewSessionID())
+	_ = service.components.roleApplication.RestoreRoleAccounts(service.currentViewSessionID())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}
-	service.applyRuntimeProjectionLocked(service.collectRuntimeProjection(context.Background()))
+	service.components.view.ApplyRuntimeProjectionLocked(service.components.view.CollectRuntimeProjection(context.Background()))
 	service.restoreInitialWorkspace()
 	service.components.prompts.BuildSystemPrompt()
 	service.Core.Snapshot.Revision = 1

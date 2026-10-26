@@ -146,7 +146,7 @@ Application project-board 都需要同一计划的完整字段；只做窄投影
 
 AP-003 分开两条指标：
 
-1. 入站 API 纯度：`application/faces.go`、`application/*_api*.go` 与公开 DTO
+1. 入站 API 纯度：`application/faces_api.go`、`application/*_api*.go` 与公开 DTO
    只能使用 `contract`/`contract/dto`/`contract/protocol`。
 2. 内部实现依赖：单独统计整个 `application/**` 的具体 Backend/Middle/Store
    import；迁移期预算只许下降，最终为 0。

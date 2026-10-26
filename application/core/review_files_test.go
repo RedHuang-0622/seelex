@@ -170,7 +170,7 @@ func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T) {
 		t.Fatal("快照深拷贝失效：外部改写污染了权威快照")
 	}
 
-	service.reviewApplicationComponent().ClearReviewRequest("")
+	service.components.reviewApplication.ClearReviewRequest("")
 	if service.Snapshot().ReviewRequest != nil {
 		t.Fatal("ClearReviewRequest 之后快照不得残留请求")
 	}

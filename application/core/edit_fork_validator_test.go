@@ -49,8 +49,8 @@ func TestEditForkValidatorRulesAreCentralized(t *testing.T) {
 			t.Fatal("validateEditForkParent 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 validateEditForkParent")
+	if found {
+		t.Fatal("core validateEditForkParent forwarder must be removed")
 	}
 }
 

@@ -16,13 +16,6 @@ import (
 // 时可主动调用（如用户提到早先的讨论/决定）；命中内联真实聊天记录
 // （受 token 预算约束，Result 为权威返回）。
 
-func (service *Service) historySearchApplicationComponent() *conversationsearch.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.historySearchApplication
-}
-
 func newServiceHistorySearchApplication(service *Service) *conversationsearch.Application {
 	return conversationsearch.New(conversationsearch.Deps{
 		Available: func() bool {

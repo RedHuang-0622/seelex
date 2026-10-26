@@ -6,29 +6,13 @@ package core
 import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ErrRolePermissionsUnavailable preserves the established error identity.
 var ErrRolePermissionsUnavailable = applicationpolicy.ErrRolePermissionsUnavailable
 
 // restoreRoleAccounts applies saved role accounts to the runtime.
-func (service *Service) restoreRoleAccounts(sessionID string) error {
-	return service.roleApplicationComponent().RestoreRoleAccounts(sessionID)
-}
-
 // restoreRolePermissions restores effective settings for the requested roles.
-func (service *Service) restoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error) {
-	return service.roleApplicationComponent().RestoreRolePermissions(sessionID, roles)
-}
-
-func (service *Service) roleApplicationComponent() *applicationpolicy.RoleApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.roleApplication
-}
-
 func newServiceRoleApplication(service *Service) *applicationpolicy.RoleApplication {
 	return applicationpolicy.NewRoleApplication(applicationpolicy.Deps{
 		RoleDefaults: func() applicationpolicy.RoleDefaultsPort {

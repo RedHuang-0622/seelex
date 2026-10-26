@@ -12,10 +12,10 @@ func newServiceConversationTurnTail(service *Service) *applicationconversation.T
 		MarkPromotedConsumed:    service.components.sessions.QueueMarkConsumedInput,
 		Publish:                 service.components.conversationTurnPublisher.Publish,
 		StartNext: func(ctx context.Context, sessionID, requestID string, request applicationconversation.Request) {
-			go service.runChat(ctx, sessionID, requestID, request)
+			go service.components.conversationTurnRunner.Run(ctx, sessionID, requestID, request)
 		},
-		ReconcileSessionRelease: service.reconcileSessionRelease,
-		FlushToolRecord:         service.FlushToolRecord,
+		ReconcileSessionRelease: service.components.sessionReleaseApplication.Reconcile,
+		FlushToolRecord:         service.flushToolRecord,
 		Debug:                   runChatDebug,
 	})
 }

@@ -42,7 +42,7 @@ const projectBoardMarkerSession = "session-marker"
 // 为什么渲染而不是直接比较切片：这条判据问的是"发给 provider 的前缀字节一样不一样"，
 // 而 PromptStack.Render 的拼接规则（kind 顺序、分隔）正是那串字节的生成规则——按同样
 // 的字段顺序拼出来即可，不需要知道分隔符细节。
-func promptLayerBytes(t *testing.T, app *application.Service) string {
+func promptLayerBytes(t *testing.T, app *application.Frontend) string {
 	t.Helper()
 	layers := app.PromptLayers()
 	if len(layers) == 0 {
@@ -114,7 +114,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 
 	offRoot := t.TempDir()
 	off := newFullChainHarnessWithLimits(t, AccountsPath, offRoot, 30*time.Second, true, limit.Limits{})
-	offPrefix := promptLayerBytes(t, off.app)
+	offPrefix := promptLayerBytes(t, off.frontend)
 
 	onRoot := t.TempDir()
 	onLimits := limit.Limits{}
@@ -133,11 +133,11 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	on.app.SetProjectBoardSink(sink)
+	on.frontend.SetProjectBoardSink(sink)
 	registry.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
 	writeMarkedProjectBoardProjection(t, on, onRoot)
 
-	onPrefix := promptLayerBytes(t, on.app)
+	onPrefix := promptLayerBytes(t, on.frontend)
 	if offPrefix != onPrefix {
 		t.Fatalf("能力开/关的装配前缀必须逐字节相同（I7）\n off=%q\n on =%q",
 			clipForFailure(offPrefix, 800), clipForFailure(onPrefix, 800))
@@ -173,7 +173,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	harness.app.SetProjectBoardSink(sink)
+	harness.frontend.SetProjectBoardSink(sink)
 	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 

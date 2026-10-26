@@ -111,16 +111,16 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 流式增量写入同一条消息，归属字段不会丢。
 	mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 	if active {
-		user = *service.appendMessageWithOriginLocked("user", request.DisplayInput, nil, userOrigin)
-		assistant = *service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
+		user = *service.components.view.AppendMessageWithOriginLocked("user", request.DisplayInput, nil, userOrigin)
+		assistant = *service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
 	} else {
 		// 阶段 1：后台会话也维护自己的可见投影（hot_attach 回看有数据）。
-		user = *service.appendSessionMessageWithOriginLocked(sessionID, "user", request.DisplayInput, nil, userOrigin)
-		assistant = *service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
+		user = *service.components.view.AppendMessageWithOriginLockedFor(sessionID, "user", request.DisplayInput, nil, userOrigin)
+		assistant = *service.components.view.AppendMessageWithOriginLockedFor(sessionID, "assistant", "", nil, mainOrigin)
 	}
 	revision := uint64(0)
 	if active {
-		revision = service.bumpLocked()
+		revision = service.components.view.BumpLocked()
 	}
 	service.ViewMu.Unlock()
 	// 新批次：此后创建的 todo/task/plan/subagent 条目自动归属当前 chat
@@ -136,7 +136,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 会话列表状态机：chat 启动即发布 snapshot.changed，前端刷新左侧栏
 	// 显示"运行中"（完成路径 runChat 尾部已有对应发布，恢复到 idle）。
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
-	go service.runChat(chatContext, sessionID, requestID, request)
+	go service.components.conversationTurnRunner.Run(chatContext, sessionID, requestID, request)
 	return nil
 }
 
@@ -152,10 +152,6 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 //
 // 事件指纹方法：相同输入序列 → 相同事件序列（kind + session/request/message
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
-func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
-	service.components.conversationTurnRunner.Run(ctx, sessionID, requestID, request)
-}
-
 func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error) {
 	// 读权威任务状态（TaskStateFor），不再依赖 Snapshot.Task 镜像是否新鲜
 	// （镜像写已收敛到 runChat 收尾的 ViewMu 段）。
@@ -493,8 +489,8 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 			}
 		}
 	})
-	service.mirrorActiveViewLocked()
-	revision := service.bumpLocked()
+	service.components.view.MirrorActiveViewLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, event.MessageDelta{MessageID: messageID, Delta: chunk})
 }
@@ -579,8 +575,8 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	service.mirrorActiveViewLocked()
-	revision := service.bumpLocked()
+	service.components.view.MirrorActiveViewLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	for _, delta := range attached {
 		if delta.MessageID == "" {
@@ -634,10 +630,10 @@ func (service *Service) stampServedRoute(sessionID, requestID string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	service.mirrorActiveViewLocked()
+	service.components.view.MirrorActiveViewLocked()
 	revision := uint64(0)
 	if service.isActiveSessionLocked(sessionID) {
-		revision = service.bumpLocked()
+		revision = service.components.view.BumpLocked()
 	}
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, stamped)
@@ -715,17 +711,17 @@ func (service *Service) appendHistoryLockedFor(sessionID string, history []contr
 			if historyMessage.Role == "user" {
 				content = displayUserInput(content)
 			}
-			appended := service.appendSessionMessageWithOriginLocked(sessionID, historyMessage.Role, content, nil, origin)
+			appended := service.components.view.AppendMessageWithOriginLockedFor(sessionID, historyMessage.Role, content, nil, origin)
 			if historyMessage.ReasoningContent != "" && appended != nil {
 				appended.ReasoningContent = historyMessage.ReasoningContent
 			}
 		}
 		for _, call := range historyMessage.ToolCalls {
-			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess}, origin)
+			service.components.view.AppendMessageWithOriginLockedFor(sessionID, "tool", "", &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess}, origin)
 		}
 		if historyMessage.Role == "tool" {
 			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
-			service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", visible, &model.ToolCall{
+			service.components.view.AppendMessageWithOriginLockedFor(sessionID, "tool_result", visible, &model.ToolCall{
 				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
 				Result: visible, Status: dto.ToolEventSuccess,
 				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,

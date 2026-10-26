@@ -3,6 +3,7 @@
 ## 生态位
 
 用户可见 Snapshot 读写与事件发布：`SnapshotView`/`Subscribe`/
+`SubscribeSession`/`SubscribeSessionWithReplay`/
 `AppendMessageLocked`/`BumpLocked`/`ApplyRuntimeProjectionLocked`/
 `CollectRuntimeProjection`/`AddNotice`/`ResetConversation`；消息序列与
 revision 在此自持。
@@ -13,6 +14,9 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 ## 职责与非职责
 
 - 做：消息追加与窗口裁剪、runtime 投影收集/应用、revision bump。
+- 做：会话级事件订阅的唯一过滤判据。显式 session ID 精确匹配；空 ID 跟随
+  `session.Domain.ActiveID()`；`resync.required` / `app.exit_requested`
+  只接受空 SessionID 的进程级事件。
 - 窗口锚点（2026-09-11）：可见窗口是 `[HistoryOffset, HistoryOffset + 窗口条数)`
   的连续区间。**贴尾**（`viewWindowTailAligned`：窗口末尾即 durable 末尾）时新
   消息照常追加并保持贴尾；**回看历史**（用户翻到更早位置）时窗口锚定不动，
@@ -80,7 +84,8 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 
 ## 测试
 
-根包 `service_snapshot_test.go` 等覆盖。
+`subscribe_test.go` 覆盖视图归属过滤、显式会话隔离、进程事件透传和 replay
+窗口；根包 `service_snapshot_test.go` 等继续覆盖跨组件集成行为。
 
 ## 文件与函数索引
 

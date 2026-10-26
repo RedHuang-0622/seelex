@@ -287,7 +287,7 @@ func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 	}
 	engine.releaseSession(result.ChildSessionID)
 	waitSessionIdle(t, service)
-	if err := service.rollbackEditFork("parent", result.ChildSessionID, errors.New("submit failed")); err == nil {
+	if err := service.components.editForkRollback.Rollback("parent", result.ChildSessionID, errors.New("submit failed")); err == nil {
 		t.Fatal("rollback must preserve the original failure")
 	}
 	if got := service.Snapshot().Session.ID; got != "parent" {
@@ -306,7 +306,7 @@ func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 
 func TestEditUserMessageAndForkExplainsMissingEventSeq(t *testing.T) {
 	service, _, _ := editForkFixture(t)
-	messages := service.annotateConversationForEditLocked("parent", []model.Message{
+	messages := service.components.editForkAnnotation.Annotate("parent", []model.Message{
 		{ID: "legacy-user", Role: "user", Content: "legacy input"},
 	}, false)
 	if len(messages) != 1 {
@@ -320,7 +320,7 @@ func TestEditUserMessageAndForkExplainsMissingEventSeq(t *testing.T) {
 func TestAnnotateConversationUsesRetainedWindowAndRunningState(t *testing.T) {
 	service, _, _ := editForkFixture(t)
 	editForkRetainedWindow(t, service, 2)
-	messages := service.annotateConversationForEditLocked("parent", []model.Message{
+	messages := service.components.editForkAnnotation.Annotate("parent", []model.Message{
 		{ID: "compressed", Role: "user", Content: "old", EventSeq: 1},
 		{ID: "retained", Role: "user", Content: "kept", EventSeq: 3},
 		{ID: "assistant", Role: "assistant", Content: "answer", EventSeq: 4},
@@ -334,7 +334,7 @@ func TestAnnotateConversationUsesRetainedWindowAndRunningState(t *testing.T) {
 	if messages[2].Editable || messages[2].EditDisabledReason != "" {
 		t.Fatalf("assistant annotation = %#v", messages[2])
 	}
-	running := service.annotateConversationForEditLocked("parent", messages[1:2], true)
+	running := service.components.editForkAnnotation.Annotate("parent", messages[1:2], true)
 	if running[0].Editable || !strings.Contains(running[0].EditDisabledReason, "运行") {
 		t.Fatalf("running annotation = %#v", running[0])
 	}

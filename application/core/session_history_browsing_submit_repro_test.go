@@ -44,8 +44,8 @@ func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T) {
 
 	// 提交路径同形：一轮对话先落用户行，再落一条空的助手行（正文随后流式写入）。
 	service.ViewMu.Lock()
-	service.appendMessageLocked("user", "刚发出去的这一句", nil)
-	service.appendMessageLocked("assistant", "", nil)
+	service.components.view.AppendMessageLocked("user", "刚发出去的这一句", nil)
+	service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
 	snapshot := service.Snapshot()
@@ -83,8 +83,8 @@ func TestReproSubmitWhileBrowsingEndsBrowsingState(t *testing.T) {
 	}
 
 	service.ViewMu.Lock()
-	service.appendMessageLocked("user", "问一句", nil)
-	service.appendMessageLocked("assistant", "", nil)
+	service.components.view.AppendMessageLocked("user", "问一句", nil)
+	service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
 	if service.components.view.SessionViewBrowsingHistoryLocked("long-session") {

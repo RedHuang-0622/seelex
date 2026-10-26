@@ -53,5 +53,5 @@ func (service *Service) appendPendingTailNoticeLocked(sessionID, notice string) 
 	if notice == "" {
 		return
 	}
-	service.appendSessionMessageLocked(sessionID, "system", notice, nil)
+	service.components.view.AppendMessageLockedFor(sessionID, "system", notice, nil)
 }

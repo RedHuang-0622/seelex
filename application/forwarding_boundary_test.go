@@ -68,6 +68,8 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		"CurrentWindowConfig":    "application/window",
 		"withSessionID":          "application/execution/taskcontext",
 		"sessionIDFromContext":   "application/execution/taskcontext",
+		"HasSigilPrefix":         "application/input",
+		"SigilOf":                "application/input",
 		"ApplyLimits":            "application/policy",
 		"Limits":                 "application/policy",
 	}
@@ -96,6 +98,91 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 			if isSingleForwardStatement(function.Body) {
 				t.Errorf("%s: core package function %s is still a one-expression forwarder; call %s directly",
 					name, function.Name.Name, target)
+			}
+		}
+	}
+}
+
+// TestCoreDoesNotOwnInputFacade keeps the sigil helpers in their lexical
+// owner. The root application facade may re-export input functions, but core
+// must not retain a second package-level facade merely because it predates the
+// input package extraction.
+func TestCoreDoesNotOwnInputFacade(t *testing.T) {
+	applicationDir := sourceApplicationDir(t)
+	coreDir := filepath.Join(applicationDir, "core")
+	forbidden := map[string]bool{
+		"HasSigilPrefix": true,
+		"SigilOf":        true,
+	}
+	entries, err := os.ReadDir(coreDir)
+	if err != nil {
+		t.Fatalf("read core: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil || function.Name == nil || !forbidden[function.Name.Name] {
+				continue
+			}
+			t.Errorf("%s: core must not define input facade %s; call application/input directly", name, function.Name.Name)
+		}
+	}
+}
+
+// TestCoreDoesNotOwnInputVocabulary keeps input constants and Suggestion type
+// identity in application/input. Re-exporting them from core creates another
+// apparent owner even though every definition is only an alias.
+func TestCoreDoesNotOwnInputVocabulary(t *testing.T) {
+	applicationDir := sourceApplicationDir(t)
+	coreDir := filepath.Join(applicationDir, "core")
+	forbidden := map[string]bool{
+		"SigilCommand":          true,
+		"SigilPlugin":           true,
+		"SigilSkill":            true,
+		"SuggestionKindCommand": true,
+		"SuggestionKindSkill":   true,
+		"SuggestionKindPlugin":  true,
+		"Suggestion":            true,
+	}
+	entries, err := os.ReadDir(coreDir)
+	if err != nil {
+		t.Fatalf("read core: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || (general.Tok != token.CONST && general.Tok != token.TYPE) {
+				continue
+			}
+			for _, specification := range general.Specs {
+				switch spec := specification.(type) {
+				case *ast.TypeSpec:
+					if forbidden[spec.Name.Name] {
+						t.Errorf("%s: core must not alias input type %s", name, spec.Name.Name)
+					}
+				case *ast.ValueSpec:
+					for _, identifier := range spec.Names {
+						if forbidden[identifier.Name] {
+							t.Errorf("%s: core must not alias input constant %s", name, identifier.Name)
+						}
+					}
+				}
 			}
 		}
 	}

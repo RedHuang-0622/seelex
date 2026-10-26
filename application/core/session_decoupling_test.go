@@ -155,7 +155,7 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	}
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "bg-req"}, nil)
 	unit.SetStream(chat.NewVisibleOutputStream("bg-req"))
-	service.appendSessionMessageLocked(bgID, "assistant", "", nil)
+	service.components.view.AppendMessageLockedFor(bgID, "assistant", "", nil)
 	service.components.tasks.BeginTaskFor(bgID, "bg-req", "bg objective", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 

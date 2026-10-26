@@ -51,8 +51,8 @@ func TestSessionRestoreRecoveryRulesAreCentralized(t *testing.T) {
 			t.Fatal("handleColdRestoreFailure 不是单行调用转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 handleColdRestoreFailure")
+	if found {
+		t.Fatal("core handleColdRestoreFailure forwarder must be removed")
 	}
 }
 

@@ -54,8 +54,8 @@ func TestEditForkProcessRulesAreCentralized(t *testing.T) {
 			t.Fatal("runEditUserMessageFork 不是单行 return 转发")
 		}
 	}
-	if !found {
-		t.Fatal("未找到 runEditUserMessageFork")
+	if found {
+		t.Fatal("core runEditUserMessageFork forwarder must be removed")
 	}
 }
 

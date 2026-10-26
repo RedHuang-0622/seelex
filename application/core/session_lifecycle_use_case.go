@@ -28,7 +28,7 @@ func newServiceSessionLifecycle(service *Service) *applicationsession.LifecycleA
 			return service.components.sessions.PersistCurrentSession(location, sessionID)
 		},
 		Release: func(sessionID string) error {
-			return service.releaseSessionMemory(sessionID, releaseFull)
+			return service.components.sessionReleaseApplication.Release(sessionID, releaseFull)
 		},
 		RenewView: func() {
 			service.ViewMu.Lock()
@@ -37,7 +37,7 @@ func newServiceSessionLifecycle(service *Service) *applicationsession.LifecycleA
 		},
 		PublishSnapshot: func(sessionID string) {
 			service.ViewMu.Lock()
-			revision := service.bumpLocked()
+			revision := service.components.view.BumpLocked()
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},

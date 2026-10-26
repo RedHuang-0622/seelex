@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationcommand "github.com/RedHuang-0622/seelex/application/input/command"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -27,14 +28,14 @@ func (service *Service) registerBuiltinCommands() error {
 		},
 		Clear: func() {
 			service.Deps.Engine.ClearHistory()
-			service.resetConversation("已清空")
+			service.components.view.ResetConversation("已清空")
 		},
-		SigilCommand: SigilCommand,
-		SigilPlugin:  SigilPlugin,
-		SigilSkill:   SigilSkill,
+		SigilCommand: applicationinput.SigilCommand,
+		SigilPlugin:  applicationinput.SigilPlugin,
+		SigilSkill:   applicationinput.SigilSkill,
 		Mutation: applicationcommand.MutationDeps{
 			Compact: func(ctx context.Context) (string, error) {
-				result, err := service.contextCompactionApplicationComponent().CompactContextNow(ctx)
+				result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 				if err != nil {
 					return "", err
 				}
@@ -53,7 +54,7 @@ func (service *Service) registerBuiltinCommands() error {
 				return capabilities.SessionResume, capabilities.SessionResumeReason
 			},
 			SessionInteraction: service.sessionInteraction,
-			Resume:             func(sessionID string) error { return service.resumeSession(sessionID) },
+			Resume:             func(sessionID string) error { return service.components.sessionResume.Resume(sessionID) },
 			CurrentSession: func() (string, bool) {
 				service.ViewMu.RLock()
 				currentID := service.Core.Snapshot.Session.ID
@@ -77,7 +78,7 @@ func (service *Service) registerBuiltinCommands() error {
 			Permission:      func() string { return service.permissionTierForSession(service.currentViewSessionID()) },
 			PermissionTiers: dto.PermissionTiers,
 			SetPermission: func(tier string) (string, error) {
-				return service.policyApplicationComponent().SetPermissionTier(tier)
+				return service.components.policyApplication.SetPermissionTier(tier)
 			},
 		},
 	}

@@ -25,10 +25,3 @@ func newServiceGoalApplication(service *Service, hostSessionForToolCall func(con
 		},
 	})
 }
-
-func (service *Service) goalApplicationComponent() *applicationgoal.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.goalApplication
-}

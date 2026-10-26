@@ -92,7 +92,7 @@ func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T) {
 	// teammate 的读数走**阶梯提交**（2026-10-19 方向 C）：先落进角色会话自己的暂存，
 	// 这一轮收口时才一次性交给会话累计——所以这里必须显式收口，否则它还没入账。
 	frontendOfTestService(service).CloseRoleToolRecordUnit(sessionID, "role-impl")
-	service.handleSubagentToolEvent(seelsession.SubagentToolEvent{ID: "sub#1", NodeID: "node-1", Name: "bash_bg", Status: dto.ToolEventRunning})
+	service.components.subagent.HandleSubagentToolEvent(seelsession.SubagentToolEvent{ID: "sub#1", NodeID: "node-1", Name: "bash_bg", Status: dto.ToolEventRunning})
 
 	view := service.toolRecords.SessionView(sessionID)
 	if !view.Exists {

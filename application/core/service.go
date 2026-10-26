@@ -13,7 +13,6 @@ import (
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -68,16 +67,6 @@ type Service struct {
 // Frontend is the frontend compatibility adapter.
 type Frontend struct{ *Service }
 
-// SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-// `*board.ProjectBoardSyncer` 直接满足 `execution.ProjectBoardSink`，无需适配器。
-// 写入是装配期一次性槽位；nil 表示能力整体缺席，完成段判空后不执行读写。
-func (service *Service) SetProjectBoardSink(sink applicationexecution.ProjectBoardSink) {
-	if service == nil {
-		return
-	}
-	service.components.projectBoard.store(sink)
-}
-
 // projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
 //
 // 为什么"取一份"而不是"持锁调用"：订阅口是**外部实现**（生产里嵌的是同步器，它只
@@ -114,16 +103,6 @@ func New(deps contract.Dependencies, ports ExternalPorts) (*Service, error) {
 	}.assemble()
 }
 
-// PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
-// instructions/skill；GUI 轨迹视图"前缀注入"数据源，经桥接方法单独拉取，
-// 不进 Snapshot 序列化——避免把私有指令泄漏进常规快照）。
-func (service *Service) PromptLayers() []prompt.PromptLayer {
-	if service == nil || service.promptStack == nil {
-		return nil
-	}
-	return service.promptStack.Layers()
-}
-
 // handleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 // 发布一次前端增量。
 //
@@ -131,10 +110,6 @@ func (service *Service) PromptLayers() []prompt.PromptLayer {
 // （记账要求 `(ownerSessionID, unitID)` 两维都在，见 tool_record_stage.go）；
 // Plan 投影照旧。生产装配走 HandleSubagentToolEventFor（装配层从执行上下文
 // 解析出主会话再调进来）。
-func (service *Service) handleSubagentToolEvent(event dto.SubagentToolEvent) {
-	service.components.subagent.HandleSubagentToolEvent(event)
-}
-
 // HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
 // （`teammate.tool.started/completed`）。
 //

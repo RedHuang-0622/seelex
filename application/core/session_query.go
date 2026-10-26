@@ -19,14 +19,11 @@ func newServiceSessionQuery(service *Service) *applicationsessionquery.Applicati
 		EnrichRows:   service.enrichDirectoryRowsLocked,
 		Meta:         service.metaDeps,
 		Workspace:    service.Deps.Workspace,
-		WaitCatalog:  service.waitCatalogRefresh,
-		SnapshotOf:   service.readSnapshotOf,
-		Transcript:   service.readSessionTranscript,
-		InputIndex:   service.readSessionInputIndex,
+		WaitCatalog: func(ctx context.Context) error {
+			return service.components.residency.WaitCatalogRefresh(ctx, service.components.sessions)
+		},
+		SnapshotOf: service.readSnapshotOf,
+		Transcript: service.readSessionTranscript,
+		InputIndex: service.readSessionInputIndex,
 	})
-}
-
-// waitCatalogRefresh is the host adapter for the directory worker.
-func (service *Service) waitCatalogRefresh(ctx context.Context) error {
-	return service.components.residency.WaitCatalogRefresh(ctx, service.components.sessions)
 }

@@ -60,6 +60,21 @@ func Parse(value string) (trigger, prefix string, ok bool) {
 	return "", "", false
 }
 
+// HasSigilPrefix reports whether input starts with an authoritative sigil.
+func HasSigilPrefix(value string) bool {
+	_, _, ok := Parse(value)
+	return ok
+}
+
+// SigilOf returns the leading sigil, or an empty string for ordinary input.
+func SigilOf(value string) string {
+	trigger, _, ok := Parse(value)
+	if !ok {
+		return ""
+	}
+	return trigger
+}
+
 // Suggestions combines candidates from the domain directories, filters by the
 // typed prefix and applies the stable command → skill → plugin order.
 func (application *Application) Suggestions(value string) []Suggestion {

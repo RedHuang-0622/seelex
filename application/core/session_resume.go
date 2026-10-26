@@ -22,7 +22,9 @@ func newServiceSessionResume(service *Service) *applicationsession.ResumeApplica
 		ResumeColdInBackground: func(sessionID, previousID string, epoch uint64) {
 			go service.resumeSessionColdInBackground(sessionID, previousID, epoch)
 		},
-		ResumeCold:    service.resumeSessionCold,
-		HandleFailure: service.handleColdRestoreFailure,
+		ResumeCold: service.resumeSessionCold,
+		HandleFailure: func(sessionID, previousID string, epoch uint64, cause error) {
+			service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, cause)
+		},
 	})
 }

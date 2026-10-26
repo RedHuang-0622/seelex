@@ -389,7 +389,7 @@ func TestToolRecordReleaseRecyclesStageAndSeq(t *testing.T) {
 	service.stageUnitToolOutcome(aID, "subagent:node-a", "bash", true, "")
 	service.commitUnitToolRecord(bID, "subagent:node-b", 1, toolRecordStat("read_file", 1, 0, ""))
 
-	if err := service.releaseSessionMemory(aID, releaseFull); err != nil {
+	if err := service.components.sessionReleaseApplication.Release(aID, releaseFull); err != nil {
 		t.Fatalf("释放 A：%v", err)
 	}
 	// A 的台账整格回收：累计、暂存、lastSeq 都不留。

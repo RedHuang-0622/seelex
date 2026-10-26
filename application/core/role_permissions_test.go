@@ -213,7 +213,7 @@ func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	restored, err := service.restoreRolePermissions("sess-1", []string{"tl", "coworker"})
+	restored, err := service.components.roleApplication.RestoreRolePermissions("sess-1", []string{"tl", "coworker"})
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	restored, err := service.restoreRolePermissions("sess-1", []string{"coworker"})
+	restored, err := service.components.roleApplication.RestoreRolePermissions("sess-1", []string{"coworker"})
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T) {
 
 func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}) // 默认 fakeSessions 不暴露登记能力
-	if _, err := service.restoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
+	if _, err := service.components.roleApplication.RestoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
 	if _, err := frontendOfTestService(service).RolePermissionVector("sess-1", "tl"); !errors.Is(err, ErrRolePermissionsUnavailable) {
@@ -261,7 +261,7 @@ func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
 	if err := frontendOfTestService(service).SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRO}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("写错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
-	if _, err := service.restoreRolePermissions("  ", []string{"tl"}); err == nil {
+	if _, err := service.components.roleApplication.RestoreRolePermissions("  ", []string{"tl"}); err == nil {
 		t.Fatal("缺会话号必须报错")
 	}
 }
@@ -352,7 +352,7 @@ func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T) {
 		t.Fatalf("运行时收到 %q %q", runtime.role, runtime.account)
 	}
 	runtime.role, runtime.account = "", ""
-	if err := service.restoreRoleAccounts("sess-1"); err != nil {
+	if err := service.components.roleApplication.RestoreRoleAccounts("sess-1"); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.role != "teammate" || runtime.account != "teammate-2" {
@@ -474,7 +474,7 @@ func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
 	}
 	wait.Wait()
 
-	restored, err := service.restoreRolePermissions("sess-1", roles)
+	restored, err := service.components.roleApplication.RestoreRolePermissions("sess-1", roles)
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}

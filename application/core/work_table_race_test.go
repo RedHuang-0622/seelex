@@ -46,7 +46,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			<-start
-			service.handleSubagentToolEvent(seelsession.SubagentToolEvent{
+			service.components.subagent.HandleSubagentToolEvent(seelsession.SubagentToolEvent{
 				ID: fmt.Sprintf("tool-%d", index), NodeID: "n1", Name: "read_file",
 				Status: dto.ToolEventSuccess, StartedAt: time.Now(),
 			})

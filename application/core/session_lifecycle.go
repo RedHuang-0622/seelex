@@ -59,8 +59,8 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.sessions.SetActive(sessionID)
 	resumedRuntime := service.sessionUnitLocked(sessionID)
 	service.applyStoredPermissionTier(sessionID, storedTier)
-	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
-	service.mirrorActiveViewLocked()
+	service.components.view.SetSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
+	service.components.view.MirrorActiveViewLocked()
 	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 		service.Core.Snapshot.Task = task
 	} else {
@@ -84,7 +84,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	}
 	// *Locked 方法必须在持锁段内取值：引擎写入留到解锁之后。
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	if !targetRunning {
 		// 会话路由引擎的 prompt 已在上方按目标会话经 SetSystemPromptFor

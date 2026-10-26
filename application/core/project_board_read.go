@@ -7,13 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func (service *Service) projectBoardQueryComponent() *applicationexecution.ProjectBoardApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.projectBoardQuery
-}
-
 func newServiceProjectBoardQuery(service *Service) *applicationexecution.ProjectBoardApplication {
 	return applicationexecution.NewProjectBoard(applicationexecution.ProjectBoardDeps{
 		WorkTableInputs: func(sessionID string) (*model.PlanState, []dto.TaskRecord, []dto.SubAgentTreeNode, []dto.AsyncRunRecord) {

@@ -24,10 +24,6 @@ import (
 // 「ResumeSession 返回 ⇒ 目标已装载（失败则视图回退到切换前会话）」的契约；
 // 运行中则立即返回、装载在后台完成（前端 RPC 不再长期不返回，“恢复中”不等于
 // 卡住）。
-func (service *Service) resumeSession(sessionID string) error {
-	return service.components.sessionResume.Resume(sessionID)
-}
-
 // beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
 // 会话树/当前快照呈现 SessionStatusRestoring，内容由后台 resumeSessionCold
 // 完成后发布。调用方已持有视图过渡锁；内部自取 Core.ViewMu。
@@ -104,23 +100,15 @@ func (service *Service) pointViewAtRestoringShell(sessionID string) bool {
 // 视图。
 func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64) {
 	if err := service.resumeSessionCold(sessionID, epoch); err != nil {
-		service.handleColdRestoreFailure(sessionID, previousID, epoch, err)
+		service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, err)
 	}
 }
 
 // handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
 // 会话上，尽力回退到切换前的会话（运行中源会话通常驻留，hot_attach 不触碰
 // 其引擎锁）；已被更新的切换接管时静默结束。
-func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error) {
-	service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, cause)
-}
-
 // resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到
 // 新建草稿空壳（不做任何持久化，避免用空壳覆盖目标会话记录）。
-func (service *Service) resetViewToDraftAfterRestoreFailure() {
-	service.components.sessionRestoreDraftReset.Reset()
-}
-
 // resumeSessionCold 是 resumeSession 的冷加载主体：目标未驻留时重建引擎、
 // 恢复 workspace 绑定与可见会话，然后发布一致快照。
 //
@@ -480,8 +468,8 @@ func (service *Service) installVisibleHistory(
 			view.TotalMessages = tail
 		}
 	})
-	service.mirrorActiveViewLocked()
-	revision := service.bumpLocked()
+	service.components.view.MirrorActiveViewLocked()
+	revision := service.components.view.BumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	// 内容 LRU：分页/回读都是一次正文使用（移动到使用序最前并收敛超限）。

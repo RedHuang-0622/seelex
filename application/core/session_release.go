@@ -59,10 +59,6 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 //
 // 调用方保证"挑中"时的守卫检查在 ViewMu 临界区内完成；这里再确认一次（挑选与释放
 // 之间状态可能已变），确认不过就原样返回 nil（保持超限容忍，不做半途释放）。
-func (service *Service) releaseSessionMemory(sessionID string, mode sessionReleaseMode) error {
-	return service.sessionReleaseApplicationComponent().Release(sessionID, mode)
-}
-
 // releaseSessionContentMemory 只释放可见正文（调用方已完成守卫与 flush）：会话
 // 事实/元数据/标题/统计/窗口标志全部保留，磁盘是唯一事实源。
 func (service *Service) releaseSessionContentMemory(sessionID string) {
@@ -95,17 +91,6 @@ func (service *Service) forgetResidentLocked(sessionID string) {
 // touch* 的收敛，以及会话**由忙转闲**的时刻（回合收尾、审批结案）——后者是
 // "切走之后那个会话跑完了"的唯一收敛点：没有它，一个刚跑完的后台会话要等到
 // 下一次 touch 才可能被收回。
-func (service *Service) reconcileSessionRelease() {
-	service.sessionReleaseApplicationComponent().Reconcile()
-}
-
-func (service *Service) sessionReleaseApplicationComponent() *applicationsession.ReleaseApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.sessionReleaseApplication
-}
-
 func newServiceSessionReleaseApplication(service *Service) *applicationsession.ReleaseApplication {
 	return applicationsession.NewReleaseApplication(applicationsession.ReleaseDeps{
 		Protected: func(sessionID string) bool {
@@ -117,7 +102,7 @@ func newServiceSessionReleaseApplication(service *Service) *applicationsession.R
 			location := service.components.sessions.LocateSession(sessionID)
 			return service.components.sessions.PersistCurrentSession(location, sessionID)
 		},
-		FlushToolRecord: service.FlushToolRecord,
+		FlushToolRecord: service.flushToolRecord,
 		UnloadEngine: func(sessionID string) error {
 			if engine, ok := service.Deps.Engine.(residentEngine); ok {
 				return engine.UnloadSession(sessionID)

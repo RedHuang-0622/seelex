@@ -46,7 +46,7 @@ func TestCollectRuntimeProjectionCarriesTeamworkBoard(t *testing.T) {
 	board := teamBoardFixture()
 	svc := newTestService(t, &fakeEngine{}, withTestRuntime(teamBoardRuntime{fakeRuntime: &fakeRuntime{}, board: board}))
 
-	projection := svc.collectRuntimeProjection(t.Context())
+	projection := svc.components.view.CollectRuntimeProjection(t.Context())
 
 	got := projection.Runtime.TeamworkBoard
 	if got == nil {
@@ -82,7 +82,7 @@ func TestCollectRuntimeProjectionOmitsTeamworkBoardWithoutPort(t *testing.T) {
 	// 且 **JSON 里不出现这个键**——前端据此整块退场，而不是渲染一个空壳。
 	svc := newTestService(t, &fakeEngine{})
 
-	projection := svc.collectRuntimeProjection(t.Context())
+	projection := svc.components.view.CollectRuntimeProjection(t.Context())
 	if projection.Runtime.TeamworkBoard != nil {
 		t.Fatalf("未装配时不得下发团队看板：%+v", projection.Runtime.TeamworkBoard)
 	}
@@ -98,7 +98,7 @@ func TestCollectRuntimeProjectionOmitsTeamworkBoardWithoutPort(t *testing.T) {
 func TestTeamworkBoardViewForWithoutPort(t *testing.T) {
 	// Service 侧转发面的降温路径：Runtime 不是 TeamworkBoardProjection → nil。
 	svc := newTestService(t, &fakeEngine{})
-	if view := svc.teamworkBoardViewFor("session-a"); view != nil {
+	if view := svc.components.executionApplication.BoardView("session-a"); view != nil {
 		t.Fatalf("未装配时转发面必须返回 nil，得到 %+v", view)
 	}
 }

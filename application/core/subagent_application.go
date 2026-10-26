@@ -7,14 +7,7 @@ func newServiceSubagentApplication(service *Service) *applicationexecution.Subag
 		Runtime: service.Deps.Runtime,
 		Detail:  service.components.subagent.SubagentDetail,
 		Refresh: func() {
-			service.runtimeApplicationComponent().Refresh()
+			service.components.runtimeApplication.Refresh()
 		},
 	})
-}
-
-func (service *Service) subagentApplicationComponent() *applicationexecution.SubagentApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.subagentApplication
 }

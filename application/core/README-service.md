@@ -6,8 +6,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 覆盖：`service*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
-`service_api_faces.go` 同时保存旧四组兼容接口与 AP-002 的能力型入站接口；
-根 `application/faces.go` 只做类型别名再导出，避免根门面新增类型身份。
+入站接口已由 EP-046C 迁到根 `application/faces_api.go`。core 不再保存旧四组
+兼容接口或 AP-002 能力接口定义。
 
 ## Policy Application 首批（AP-054 首个切片）
 
@@ -40,7 +40,8 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 
 前端兼容适配器已迁到 `application/compat`。本包只通过 `NewFrontendPorts`
 提供一份窄组件快照，不再保存账号、角色、Workspace 与输入查询的公开转发方法。
-当前 compat 承接 127 个旧入口；Service 只保留 23 个状态/生命周期方法。包括：
+当前 compat 承接旧入口；Service 只保留 11 个仍依赖共享会话状态/生命周期的方法。
+compat 中的代表性入口包括：
 
 - `Suggestions`
 - `SelectAccount`
@@ -56,6 +57,18 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 
 这些方法直接调用唯一领域组件，不持有第二份状态机。GUI、TUI、headless 与
 wiring 消费 `application/compat.Frontend`；能力接口的编译期钉子固定在根门面。
+
+EP-046A 已删除无参、单返回值的 `*ApplicationComponent` getter，包内调用直接
+读取 `service.components`。EP-046B 仍只迁移 `Deps` 能完整表达、且不需要读取
+core 私有状态的构造适配。EP-046C 已把接口清单与编译期钉子移到根 Application。
+
+Session 事件订阅判据已归 `application/session/viewstate.Coordinator`：
+`SubscribeSession` 与 `SubscribeSessionWithReplay` 直接消费 `session.Domain`
+的视图指针和 `EventHub` 的可选过滤/重放能力，core 不再定义过滤谓词。
+
+ToolRecord 的开关、flush、看板和命令退出码入口也由 compat 直接调用
+`application/execution/toolrecord.Application`；core 只保留草稿可写判据、
+主代理 outcome 与全量 shutdown flush 三个 host adapter。
 
 AP-068 新增 `schedulerApplication`，集中定时任务创建、编辑、取消的默认参数、
 workspace/plugin/执行参数校验顺序与成功后的 runtime 投影刷新。

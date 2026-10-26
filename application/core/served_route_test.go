@@ -25,7 +25,7 @@ func TestStampServedRouteFillsAssistantMessageAndPublishes(t *testing.T) {
 	}
 	// 本轮 assistant 消息（startChatFor 在请求前追加的占位形状）。
 	service.ViewMu.Lock()
-	appended := service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
+	appended := service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
 	service.ViewMu.Unlock()
 
 	runtime := &fakeRuntime{}
@@ -63,7 +63,7 @@ func TestStampServedRouteWithoutFactIsNoop(t *testing.T) {
 	sessionID := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
 	service.ViewMu.Lock()
-	appended := service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
+	appended := service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
 	service.ViewMu.Unlock()
 
 	service.stampServedRoute(sessionID, "chat-request-1")
@@ -79,7 +79,7 @@ func TestStampServedRouteSkipsAlreadyStampedTail(t *testing.T) {
 	sessionID := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
 	service.ViewMu.Lock()
-	service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain, RoundID: 7})
+	service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain, RoundID: 7})
 	service.ViewMu.Unlock()
 	// 上一轮消息已带路由：本轮占位缺失（异常形状）时不得把新路由串上去。
 	service.ViewMu.Lock()
@@ -100,7 +100,7 @@ func TestStampServedRouteSkipsAlreadyStampedTail(t *testing.T) {
 
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	view := service.sessionViewLocked(sessionID)
+	view := service.components.view.SessionViewLocked(sessionID)
 	last := view.Conversation[len(view.Conversation)-1]
 	if last.ConfigModel != "old-model" {
 		t.Fatalf("已带路由的尾部消息不得被改写：%+v", last)

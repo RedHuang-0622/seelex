@@ -21,13 +21,6 @@ func compactionRecordNote(result ContextCompactionResult) string {
 	return conversationcontext.CompactionRecordNote(result)
 }
 
-func (service *Service) contextCompactionApplicationComponent() *conversationcontext.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.contextCompactionApplication
-}
-
 func newServiceContextCompactionApplication(service *Service) *conversationcontext.Application {
 	return conversationcontext.New(conversationcontext.Deps{
 		CurrentSessionID: func(ctx context.Context) string {

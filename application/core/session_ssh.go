@@ -10,13 +10,6 @@ import (
 // ErrSessionSSHUnavailable preserves the error identity for old callers.
 var ErrSessionSSHUnavailable = applicationsession.ErrSessionSSHUnavailable
 
-func (service *Service) sessionSSHApplicationComponent() *applicationsession.SSHApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.sessionSSHApplication
-}
-
 func newServiceSessionSSHApplication(service *Service) *applicationsession.SSHApplication {
 	return applicationsession.NewSSHApplication(applicationsession.SSHDeps{
 		Sessions: func() applicationsession.SessionSSHPort {

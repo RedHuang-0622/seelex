@@ -49,7 +49,7 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 		t.Fatalf("离开空闲会话应解绑一次（既有防串台口径）：detached=%d，want 1", detachedAtDraft)
 	}
 
-	if err := service.materializeDraftForSubmit(draftID, "第一个问题"); err != nil {
+	if err := service.components.sessionDraftSubmission.Materialize(draftID, "第一个问题"); err != nil {
 		t.Fatalf("materializeDraftForSubmit: %v", err)
 	}
 	// 物化后活跃会话就是那个新会话（早分配 SID 复用）。

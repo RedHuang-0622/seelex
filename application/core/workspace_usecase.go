@@ -28,13 +28,6 @@ func (service *Service) applyWorkspaceProjectionLocked(projection applicationwor
 	}
 }
 
-func (service *Service) workspaceApplicationComponent() *applicationworkspace.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.workspaceApplication
-}
-
 // newServiceWorkspaceApplication adapts Service's authoritative workspace,
 // view and publication hosts to the workspace domain application.
 func newServiceWorkspaceApplication(service *Service) *applicationworkspace.Application {
@@ -75,7 +68,7 @@ func (port serviceWorkspaceProjectionPort) ApplyWorkspaceProjectionLocked(projec
 }
 
 func (port serviceWorkspaceProjectionPort) BumpLocked() uint64 {
-	return port.service.bumpLocked()
+	return port.service.components.view.BumpLocked()
 }
 
 func (port serviceWorkspaceProjectionPort) UnlockView() {

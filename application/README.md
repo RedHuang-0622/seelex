@@ -17,7 +17,7 @@
   `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
   [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
 
-## 五组窄接口（`core/service_api_faces.go`，M5-R10a）
+## 五组窄接口（`faces_api.go`，M5-R10a）
 
 门面按 plan §1.3 的「用例方法面收窄成五组」落地（契约
 [`docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md`](../docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md) §1）：
@@ -36,11 +36,9 @@
 - `Frontend` 在**结构上**满足新旧入站面：`application/frontend_assertions.go` 有
   `var _ ViewFace = (*Frontend)(nil)` 一族编译期钉子（契约 §1.2 第 1 条）；
   `Service` 只保留尚未迁出的兼容方法。
-- 不在四组的第三类方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：装配注入口
-  （`SetProjectBoardSink` / `SetToolRecordSnapshotStore` / `SetGoalTLEvaluator` / `ApplyToolRecordEnabled` /
-  `SetToolRecordEnabled`）、工具注册面（11 个 `*Handler`）、事件钩子（4 个 `Handle*`）、内部发布与落盘编排
-  （`Publish*` / `Refresh*` / `Flush*` / `Record*` / `PrepareProviderHistory`）与调度装配面
-  （`StartScheduledSession` / `AssembleScheduledRun`）。清单是
+- 不在四组的第三类方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：
+  ToolRecord 装配/落盘入口、事件钩子与 `TaskTerminalHandler`。其余装配、调度、
+  订阅、Prompt 与 ProviderHistory 入口已经由 compat 或领域包承接。清单是
   `e2e/facade_narrow_faces_test.go` 里的 `assemblyOnlyMethods`。
 - 机械断言（`e2e/facade_narrow_faces_test.go`，契约 §1.2）：①四个面的方法集与本文件冻结清单逐字比对；
   ②`Service` 的每个公开方法要么在四组、要么在装配面清单（本片追加，防止新方法绕过分组）；
@@ -56,10 +54,10 @@
 [`testdata/application_budget.json`](testdata/application_budget.json) 和
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
-- 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
+- 冻结 `Service` 当前 11 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 114 个、生产代码 11,602 行；
+- 冻结 `application/core` 非测试生产文件 111 个、生产代码 10,634 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
   当前 28 个唯一包，只许下降；目标为 0。迁移期 identity facade 与 host adapter
@@ -92,8 +90,8 @@
 
 ### 按能力拆分的入站 API（AP-002，已实现）
 
-[`core/service_api_faces.go`](core/service_api_faces.go) 在旧四组兼容接口之外
-新增能力型入站面；[`faces.go`](faces.go) 只做类型别名再导出。每个接口不超过
+[`faces_api.go`](faces_api.go) 同时定义四组兼容接口和 AP-002 能力型入站面，
+接口事实源不再寄居 `application/core`。每个接口不超过
 20 个方法，调用方可以直接声明所需能力：
 
 | 接口 | 方法数 | 用途 |
@@ -150,11 +148,11 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 23 |
+| `Service` 公开方法 | 11 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
-| `application/core` 生产文件 | 114 |
-| `application/core` 生产代码 | 11,602 行 |
+| `application/core` 生产文件 | 111 |
+| `application/core` 生产代码 | 10,634 行 |
 
 已落地领域包：
 
@@ -189,11 +187,13 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
-| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；127 个旧入口已从 core 移出 |
+| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；已承接全部非共享状态的旧入口 |
 
 退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
 不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
-`Service` 的 23 个状态/生命周期方法继续保留。compat 已承接 127 个旧入口；
+`Service` 只剩 11 个仍依赖共享会话状态/生命周期的方法。组件 getter、输入
+facade、订阅、ProviderHistory、PromptLayers、ProjectBoardSink 与 ToolRecord
+公开入口已经退场；
 `compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。
 
 ### SessionQuery durable 读取面（AP-013 首个切片，已实现）

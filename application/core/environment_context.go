@@ -27,11 +27,11 @@ func (service *Service) environmentTraceBlockFor(sessionID string) string {
 	if service == nil {
 		return ""
 	}
-	environments, defaultEnv, err := service.sessionSSHApplicationComponent().ProjectEnvironments(sessionID)
+	environments, defaultEnv, err := service.components.sessionSSHApplication.ProjectEnvironments(sessionID)
 	if err != nil || len(environments) == 0 {
 		return ""
 	}
-	sessionState, _ := service.sessionSSHApplicationComponent().State(sessionID)
+	sessionState, _ := service.components.sessionSSHApplication.State(sessionID)
 	projectRoot := ""
 	if service.Deps.Workspace != nil {
 		if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {

@@ -33,7 +33,7 @@ func (service *Service) ForkSession(parentID string, request model.ForkRequest) 
 	if err != nil {
 		return "", err
 	}
-	if err := service.resumeSession(childID); err != nil {
+	if err := service.components.sessionResume.Resume(childID); err != nil {
 		return childID, fmt.Errorf("fork created session %q but switching failed: %w", childID, err)
 	}
 	return childID, nil
@@ -59,7 +59,7 @@ func (service *Service) ForkSessionLatest(parentID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := service.resumeSession(childID); err != nil {
+	if err := service.components.sessionResume.Resume(childID); err != nil {
 		return childID, fmt.Errorf("fork created session %q but switching failed: %w", childID, err)
 	}
 	return childID, nil

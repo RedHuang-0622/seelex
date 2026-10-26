@@ -84,27 +84,6 @@ func (service *Service) validateScheduledPlugins(plugins []string) error {
 	return nil
 }
 
-func (service *Service) schedulerApplicationComponent() *applicationscheduler.SchedulerApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.schedulerApplication
-}
-
-func (service *Service) scheduledRunApplicationComponent() *applicationscheduler.RunApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.scheduledRunApplication
-}
-
-func (service *Service) scheduledSessionApplicationComponent() *applicationscheduler.SessionApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.scheduledSessionApplication
-}
-
 func newServiceSchedulerApplication(service *Service) *applicationscheduler.SchedulerApplication {
 	return applicationscheduler.NewScheduler(applicationscheduler.SchedulerDeps{
 		ValidateWorkspace: service.validateScheduledWorkspace,
@@ -117,7 +96,7 @@ func newServiceSchedulerApplication(service *Service) *applicationscheduler.Sche
 		},
 		CancelScheduledTask: service.Deps.Runtime.CancelScheduledTask,
 		Refresh: func() {
-			if component := service.runtimeApplicationComponent(); component != nil {
+			if component := service.components.runtimeApplication; component != nil {
 				component.Refresh()
 			}
 		},
@@ -168,8 +147,10 @@ func newServiceScheduledSessionApplication(service *Service) *applicationschedul
 		},
 		LockView:                       service.ViewMu.Lock,
 		ApplyWorkspaceProjectionLocked: service.applyWorkspaceProjectionLocked,
-		BumpLocked:                     service.bumpLocked,
-		UnlockView:                     service.ViewMu.Unlock,
+		BumpLocked: func() uint64 {
+			return service.components.view.BumpLocked()
+		},
+		UnlockView: service.ViewMu.Unlock,
 		PublishSnapshotChanged: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
@@ -178,7 +159,7 @@ func newServiceScheduledSessionApplication(service *Service) *applicationschedul
 			service.components.sessions.RequestCatalogRefresh()
 		},
 		AssembleRun: func(ctx context.Context, sessionID string, task dto.ScheduledTaskSpec) (context.Context, error) {
-			return service.scheduledRunApplicationComponent().AssembleScheduledRun(ctx, sessionID, task)
+			return service.components.scheduledRunApplication.AssembleScheduledRun(ctx, sessionID, task)
 		},
 		SubmitConversation: service.submitConversationFor,
 		DrainingError:      ErrApplicationDraining,

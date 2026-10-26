@@ -48,7 +48,7 @@ func (engine *chunkCaptureEngine) emit(sessionID, chunk string) {
 func viewRoles(service *Service, sessionID string) []string {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	view := service.sessionViewLocked(sessionID)
+	view := service.components.view.SessionViewLocked(sessionID)
 	if view == nil {
 		return nil
 	}

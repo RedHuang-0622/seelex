@@ -35,12 +35,12 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 		ID: "subtool-1", NodeID: "worker", Name: "read_file", Arguments: long,
 		Status: dto.ToolEventRunning, StartedAt: time.Now(),
 	}
-	service.handleSubagentToolEvent(started)
+	service.components.subagent.HandleSubagentToolEvent(started)
 	completed := started
 	completed.Status = dto.ToolEventSuccess
 	completed.Result = long
 	completed.Duration = time.Second
-	service.handleSubagentToolEvent(completed)
+	service.components.subagent.HandleSubagentToolEvent(completed)
 
 	snapshot := service.Snapshot()
 	node := subagent_view.FindPlanNodeByID(snapshot.Runtime.Plan.Nodes, "worker")

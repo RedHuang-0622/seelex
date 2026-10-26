@@ -130,7 +130,7 @@ func readSessionView(t *testing.T, service *Service, sessionID string) []model.M
 	t.Helper()
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	view := service.sessionViewLocked(sessionID)
+	view := service.components.view.SessionViewLocked(sessionID)
 	if view == nil {
 		return nil
 	}

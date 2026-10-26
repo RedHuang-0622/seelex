@@ -43,9 +43,9 @@ func (engine *knobSmokeEngine) loops() int {
 // projectRuntime 模拟一次 runtime 投影重建（回合尾 / 工具边界会做的事）。
 func projectRuntime(t *testing.T, service *Service) {
 	t.Helper()
-	projection := service.collectRuntimeProjection(context.Background())
+	projection := service.components.view.CollectRuntimeProjection(context.Background())
 	service.ViewMu.Lock()
-	service.applyRuntimeProjectionLocked(projection)
+	service.components.view.ApplyRuntimeProjectionLocked(projection)
 	service.ViewMu.Unlock()
 }
 

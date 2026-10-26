@@ -36,5 +36,5 @@ func (port goalGovernanceViewPort) GoalGovernanceViewFor(sessionID string) *dto.
 	if port.service == nil {
 		return nil
 	}
-	return port.service.goalApplicationComponent().GovernanceViewFor(sessionID)
+	return port.service.components.goalApplication.GovernanceViewFor(sessionID)
 }

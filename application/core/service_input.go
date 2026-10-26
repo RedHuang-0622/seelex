@@ -104,11 +104,11 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64 {
 	runtime.Enqueue(session.QueuedRequest{DisplayInput: request.DisplayInput, Payload: request})
 	service.components.conversationTurnState.ProjectQueueLocked(runtime)
-	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+	service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
 	if !active {
 		return 0
 	}
-	return service.bumpLocked()
+	return service.components.view.BumpLocked()
 }
 
 // afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
@@ -142,7 +142,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
-	if err := service.materializeDraftSession(request.DisplayInput); err != nil {
+	if err := service.components.sessionDraftMaterialization.Materialize(request.DisplayInput); err != nil {
 		return err
 	}
 	service.ViewMu.Lock()
@@ -188,7 +188,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
 	if drained {
 		request = merged
-		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
 	}
 	service.ViewMu.Unlock()
 	if drained {
@@ -248,7 +248,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
 	if drained {
 		request = merged
-		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
 	}
 	service.ViewMu.Unlock()
 	if drained {
@@ -278,13 +278,6 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 // tick（排队回合刚提升时尤其明显），而一个会话同时只有一个运行中回合，"停掉我
 // 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
 // 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
-
-func (service *Service) lifecycleApplicationComponent() *applicationlifecycle.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.lifecycleApplication
-}
 
 func newServiceLifecycleApplication(service *Service) *applicationlifecycle.Application {
 	return applicationlifecycle.New(applicationlifecycle.Deps{

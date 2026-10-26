@@ -21,11 +21,8 @@ func TestChatTurnRunnerIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("解析 core chat.go: %v", err)
 	}
 	runChat := findFunc(file, "runChat")
-	if runChat == nil {
-		t.Fatal("core runChat compatibility wrapper is missing")
-	}
-	if runChat.Body == nil || len(runChat.Body.List) != 1 {
-		t.Fatal("core runChat must be a one-statement compatibility wrapper")
+	if runChat != nil {
+		t.Fatal("core must call conversationTurnRunner directly, not retain a runChat forwarder")
 	}
 }
 

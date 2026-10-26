@@ -17,7 +17,7 @@ func TestCollectRuntimeProjectionCarriesSubAgentTree(t *testing.T) {
 	}}}
 	svc := newTestService(t, engine)
 
-	projection := svc.collectRuntimeProjection(t.Context())
+	projection := svc.components.view.CollectRuntimeProjection(t.Context())
 
 	if len(projection.Runtime.SubAgentTree) != 1 || projection.Runtime.SubAgentTree[0].Children[0].Goal != "g" {
 		t.Fatalf("runtime projection missing subagent tree: %+v", projection.Runtime.SubAgentTree)

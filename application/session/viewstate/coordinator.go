@@ -7,6 +7,7 @@ package view_state
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -149,6 +150,60 @@ func (c *Coordinator) SnapshotView() model.Snapshot {
 // Subscribe 订阅事件流。
 func (c *Coordinator) Subscribe(buffer int) event.Subscription {
 	return c.Events.Subscribe(buffer)
+}
+
+// SubscribeSession returns events owned by sessionID, or by the current view
+// when sessionID is empty. Process-wide events use the same empty-session
+// routing key as their producers and are delivered to every session filter.
+func (c *Coordinator) SubscribeSession(sessionID string, buffer int) (event.Subscription, error) {
+	if c == nil {
+		return event.Subscription{}, errors.New("view state is not assembled")
+	}
+	hub, ok := c.Events.(interface {
+		SubscribeFiltered(func(event.Event) bool, int) event.Subscription
+	})
+	if !ok {
+		return event.Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
+	}
+	return hub.SubscribeFiltered(c.sessionEventFilter(strings.TrimSpace(sessionID)), buffer), nil
+}
+
+// SubscribeSessionWithReplay has the same ownership filter as SubscribeSession
+// and additionally retains a bounded replay window when the assembled hub
+// supports it. Hubs without replay support retain the legacy overflow
+// semantics.
+func (c *Coordinator) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (event.Subscription, error) {
+	if c == nil {
+		return event.Subscription{}, errors.New("view state is not assembled")
+	}
+	hub, ok := c.Events.(interface {
+		SubscribeWithReplay(func(event.Event) bool, int, int) event.Subscription
+	})
+	if !ok {
+		return c.SubscribeSession(sessionID, buffer)
+	}
+	return hub.SubscribeWithReplay(c.sessionEventFilter(strings.TrimSpace(sessionID)), buffer, replayWindow), nil
+}
+
+func (c *Coordinator) sessionEventFilter(sessionID string) func(event.Event) bool {
+	if sessionID != "" {
+		return func(delivered event.Event) bool {
+			if delivered.Kind == event.EventResyncRequired || delivered.Kind == event.EventExitRequested {
+				return delivered.SessionID == ""
+			}
+			return delivered.SessionID == sessionID
+		}
+	}
+	return func(delivered event.Event) bool {
+		if delivered.Kind == event.EventResyncRequired || delivered.Kind == event.EventExitRequested {
+			return delivered.SessionID == ""
+		}
+		activeID := ""
+		if c.units != nil {
+			activeID = c.units.ActiveID()
+		}
+		return delivered.SessionID == "" || delivered.SessionID == activeID
+	}
 }
 
 // CollectRuntimeProjection 锁外调用外部端口收集当前视图会话的 runtime
@@ -330,6 +385,12 @@ func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projecti
 // Core.ViewMu；委托 AppendMessageLockedFor）。
 func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message {
 	return c.AppendMessageLockedFor(c.Snapshot.Session.ID, role, content, tool)
+}
+
+// AppendMessageWithOriginLocked appends one attributed message to the current
+// view session.
+func (c *Coordinator) AppendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
+	return c.AppendMessageWithOriginLockedFor(c.Snapshot.Session.ID, role, content, tool, origin)
 }
 
 // AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进

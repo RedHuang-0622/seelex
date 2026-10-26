@@ -9,10 +9,3 @@ func newServiceExecutionApplication(service *Service, reader applicationexecutio
 		RefreshTodo: service.refreshRuntimeAfterTodoChange,
 	})
 }
-
-func (service *Service) executionApplicationComponent() *applicationexecution.WorkItemApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.executionApplication
-}

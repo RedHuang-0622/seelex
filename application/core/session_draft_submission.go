@@ -11,7 +11,9 @@ func newServiceSessionDraftSubmission(service *Service) *applicationsession.Draf
 			defer service.ViewMu.RUnlock()
 			return service.draftTargetLocked().InView(sessionID)
 		},
-		Materialize: service.materializeDraftSession,
-		NotInView:   ErrDraftNotInView,
+		Materialize: func(firstInput string) error {
+			return service.components.sessionDraftMaterialization.Materialize(firstInput)
+		},
+		NotInView: ErrDraftNotInView,
 	})
 }

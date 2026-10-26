@@ -48,7 +48,7 @@ type serviceAdminProjectionPort struct {
 }
 
 func (port serviceAdminProjectionPort) Collect(ctx context.Context) view_state.RuntimeStateProjection {
-	return port.service.collectRuntimeProjection(ctx)
+	return port.service.components.view.CollectRuntimeProjection(ctx)
 }
 
 func (port serviceAdminProjectionPort) LockView() {
@@ -60,11 +60,11 @@ func (port serviceAdminProjectionPort) SetRuntimeAccount(name string) {
 }
 
 func (port serviceAdminProjectionPort) ApplyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection) {
-	port.service.applyRuntimeProjectionLocked(projection)
+	port.service.components.view.ApplyRuntimeProjectionLocked(projection)
 }
 
 func (port serviceAdminProjectionPort) BumpLocked() uint64 {
-	return port.service.bumpLocked()
+	return port.service.components.view.BumpLocked()
 }
 
 func (port serviceAdminProjectionPort) UnlockView() {
@@ -84,5 +84,5 @@ func (port serviceAdminProjectionPort) PublishRuntimeChanged(revision uint64, se
 }
 
 func (port serviceAdminProjectionPort) AddNotice(message string) {
-	port.service.addNotice(message)
+	port.service.components.view.AddNotice(message)
 }

@@ -89,11 +89,11 @@ func TestFullAccessProjectionPerSession(t *testing.T) {
 	}
 	draftID := service.Snapshot().Session.ID
 
-	projectionA := service.collectRuntimeProjectionFor(context.Background(), sessionA)
+	projectionA := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionA)
 	if !projectionA.Runtime.FullAccess {
 		t.Fatalf("projection of A FullAccess = false, want true")
 	}
-	projectionDraft := service.collectRuntimeProjectionFor(context.Background(), draftID)
+	projectionDraft := service.components.view.CollectRuntimeProjectionFor(context.Background(), draftID)
 	if projectionDraft.Runtime.FullAccess {
 		t.Fatalf("projection of unset draft FullAccess = true, want process default false")
 	}

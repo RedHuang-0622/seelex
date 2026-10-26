@@ -396,7 +396,7 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 - `TranscriptQueryAPI`：3 个方法。
 
 旧 `ExecutionQueryAPI` 通过嵌入五个接口保留，方法集与行为不变；根
-`application/faces.go` 继续只做同身份 alias。门禁同时钉住三件事：
+`application/faces_api.go` 已是入站接口事实源。门禁同时钉住三件事：
 
 1. 每个切片最多 4 个方法；
 2. 同一个方法不得落入两个切片；
@@ -5179,16 +5179,73 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - `Service` 保持 23，core 文件/行数不变；GUI/TUI wire 与持久化格式不变；
 - 回退方式：恢复完整 Store 载荷解码；旧数据无需迁移。
 
+## EP-046A：Core 组件 getter 与输入 facade 退场
+
+- 删除 26 个无参、单返回值的 `*ApplicationComponent` getter；core 包内调用点
+  直接读取 `service.components`，跨包调用走 `FrontendPorts` 或领域包；
+- 删除只承载 `adminApplicationComponent` 的 `service_account.go`；
+- `HasSigilPrefix`、`SigilOf`、sigil 常量和 `Suggestion` 类型身份回归
+  `application/input`，根门面直接引用该包；
+- 新增 `TestCoreDoesNotExposeComponentGetters`、
+  `TestCoreDoesNotOwnInputFacade` 与 `TestCoreDoesNotOwnInputVocabulary`；
+- 红测先点名旧 getter/输入 facade，迁移后结构门禁与 Application 全包测试通过；
+- core 生产文件 114 → 111，生产代码 11,602 → 10,634；
+- GUI/TUI wire、事件 revision/seq 与持久化格式不变。
+
+## EP-046C：入站接口定义回到 Application
+
+- 删除 `application/core/service_api_faces.go` 和仅做 `core` 再导出的
+  `application/faces.go`；
+- `ViewFace`、`CommandFace`、`PolicyFace`、`QueueFace` 与 AP-002 能力接口的
+  事实源改为 `application/faces_api.go`；
+- 编译期结构断言继续固定在 `application/frontend_assertions.go`；
+- `api_contract_test.go` 直接扫描根 Application 入站文件，E2E facade 门禁
+  继续冻结方法集，并明确允许这些入站契约类型由根包定义；
+- 本切片保持 `Service` 23 个方法；接口签名、GUI/TUI 调用面与 wire 未改变；
+- 回退方式：恢复 core 接口文件与 faces.go alias 再导出层。
+
+## EP-046D：Frontend 状态壳与 Session 订阅归位
+
+- `SubscribeSession`、`SubscribeSessionWithReplay` 的唯一过滤与 replay
+  判据迁入 `application/session/viewstate.Coordinator`；
+- `PrepareProviderHistory`、`PromptLayers`、`SetProjectBoardSink` 从
+  `core.Service` 移到 `compat.Frontend`，分别直达 history、prompt stack 和
+  project-board 装配端口；
+- ToolRecord 的启用、snapshot 端口、flush、看板与命令退出码入口从
+  `core.Service` 移到 `compat.Frontend`，直达
+  `application/execution/toolrecord.Application`；
+- `wiring/bootstrap` 与项目看板测试改用 `Frontend`；core 旧集成测试只在
+  `_test.go` 保留 shim，生产包不再暴露同名方法；
+- 红测：`viewstate` 订阅方法不存在导致编译失败，随后两个过滤/隔离用例转绿；
+- `Service` 23 → 11；core 生产文件 114 → 111、生产代码
+  11,602 → 10,634；
+- GUI/TUI wire、事件 revision/seq 与持久化格式不变；
+- 回退方式：恢复 core Service 订阅与装配入口，并把 `Frontend` 调用改回。
+
+## EP-046E：Core 组件单表达式转发退场
+
+- 删除 40 个 `Service -> service.components.*` 单表达式转发方法；
+- 内部调用点直接持有组件，或在构造期用闭包延迟解析组件，
+  避免捕获尚未初始化的 coordinator；
+- 新增 `TestCoreHasNoComponentMethodForwarders`，禁止同类转发重新出现；
+- 修正组合顺序问题：TurnProcess、RestoreRecovery、DraftSubmission 和
+  view/session 组件在目标组件就绪后解析；
+- 测试门禁更新为“旧转发不存在”，不再要求兼容 wrapper 存在；
+- `Service` 保持 11，core 生产文件保持 111，生产代码收紧到 10,634；
+- Application 全包、E2E Facade/Document/Layout、race、build、vet、
+  README 与 diff check 全部通过；
+- 回退方式：恢复单表达式方法并把调用点改回 `Service`。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
-| `Service` 公开方法 | 171 | 23 |
+| `Service` 公开方法 | 171 | 11 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 114 |
-| core 生产代码 | 18,723 行 | 11,602 行 |
+| core 生产文件 | 126 | 111 |
+| core 生产代码 | 18,723 行 | 10,634 行 |
 
-core 生产代码净减 7,121 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 7,966 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

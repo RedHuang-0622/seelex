@@ -9,7 +9,9 @@ import (
 func newServiceSessionColdCommit(service *Service) *applicationsessioncold.CommitApplication {
 	return applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{
 		AppendPendingTail: service.appendPendingTailNoticeLocked,
-		SetSessionChat:    service.setSessionChatLockedFor,
+		SetSessionChat: func(sessionID string, chat model.ChatState) {
+			service.components.view.SetSessionChatLockedFor(sessionID, chat)
+		},
 		MirrorPlan: func(sessionID string, plan *model.PlanState) {
 			service.mirrorPlanProjectionForSessionLocked(sessionID, func() *model.PlanState { return plan })
 		},
@@ -19,6 +21,8 @@ func newServiceSessionColdCommit(service *Service) *applicationsessioncold.Commi
 		ApplyWorkspace: func(_ *model.WorkspaceInfo, projection applicationworkspace.SwitchProjection) {
 			service.applyWorkspaceProjectionLocked(projection)
 		},
-		BumpRevision: service.bumpLocked,
+		BumpRevision: func() uint64 {
+			return service.components.view.BumpLocked()
+		},
 	})
 }

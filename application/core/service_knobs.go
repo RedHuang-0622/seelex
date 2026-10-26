@@ -49,7 +49,7 @@ func (host serviceKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) er
 	if mutate != nil {
 		mutate(&service.Core.Snapshot.Runtime)
 	}
-	revision := service.bumpLocked()
+	revision := service.components.view.BumpLocked()
 	runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
 	// 会话取"当前视图会话"：与迁移前一样在**锁外**取（currentViewSessionID 自己持锁）。

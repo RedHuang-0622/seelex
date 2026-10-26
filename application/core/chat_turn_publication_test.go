@@ -60,8 +60,8 @@ func TestChatTurnPublicationRulesAreCentralized(t *testing.T) {
 		})
 		return false
 	})
-	if !foundRunChat {
-		t.Fatal("未找到 runChat")
+	if foundRunChat {
+		t.Fatal("core runChat forwarder must be removed")
 	}
 }
 

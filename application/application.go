@@ -7,6 +7,7 @@ package application
 import (
 	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -21,7 +22,7 @@ type (
 	ToolHookBridge             = core.ToolHookBridge
 	ToolHookDiagnosticEvent    = core.ToolHookDiagnosticEvent
 	ToolHookDiagnosticObserver = core.ToolHookDiagnosticObserver
-	Suggestion                 = core.Suggestion
+	Suggestion                 = applicationinput.Suggestion
 	Command                    = contract.Command
 	CommandResult              = contract.CommandResult
 	Dependencies               = contract.Dependencies
@@ -191,16 +192,16 @@ var (
 // SigilTeam 这个常量。权威说明见 docs/gui/modules/shell-and-interactions.md；
 // 前端（含 TUI）只消费这里的常量与判定，不自持第二份字符表。
 const (
-	SigilCommand = core.SigilCommand
-	SigilPlugin  = core.SigilPlugin
-	SigilSkill   = core.SigilSkill
+	SigilCommand = applicationinput.SigilCommand
+	SigilPlugin  = applicationinput.SigilPlugin
+	SigilSkill   = applicationinput.SigilSkill
 )
 
 // HasSigilPrefix 报告输入是否以前缀开头（TUI suggMode / 前端内联建议共用）。
-func HasSigilPrefix(input string) bool { return core.HasSigilPrefix(input) }
+func HasSigilPrefix(input string) bool { return applicationinput.HasSigilPrefix(input) }
 
 // SigilOf 返回输入的首字符前缀；不可解析时返回空串。
-func SigilOf(input string) string { return core.SigilOf(input) }
+func SigilOf(input string) string { return applicationinput.SigilOf(input) }
 
 // ValidEffortLevels 返回合法的推理档位名（门面 E 组：无状态纯函数）。
 func ValidEffortLevels() []string { return prompt.ValidEffortLevels() }

@@ -34,12 +34,12 @@ func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	// 可见窗口 = 实时回合的落点：两个工具轮各一条 assistant 步骤（正文为空，
 	// 工具调用自成一条 tool 消息），最后是带正文的最终回答。
 	service.ViewMu.Lock()
-	service.appendMessageLocked("user", "看看项目", nil)
-	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &model.ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess})
-	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &model.ToolCall{ID: "call-2", Name: "read", Status: dto.ToolEventSuccess})
-	service.appendMessageLocked("assistant", "结论", nil)
+	service.components.view.AppendMessageLocked("user", "看看项目", nil)
+	service.components.view.AppendMessageLocked("assistant", "", nil)
+	service.components.view.AppendMessageLocked("tool", "", &model.ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess})
+	service.components.view.AppendMessageLocked("assistant", "", nil)
+	service.components.view.AppendMessageLocked("tool", "", &model.ToolCall{ID: "call-2", Name: "read", Status: dto.ToolEventSuccess})
+	service.components.view.AppendMessageLocked("assistant", "结论", nil)
 	service.ViewMu.Unlock()
 
 	service.attachLatestReasoning(sessionID, "request-1")

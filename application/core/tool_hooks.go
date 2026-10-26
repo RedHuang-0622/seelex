@@ -43,15 +43,15 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	}
 	if active {
 		tool := &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}
-		message = *service.appendMessageWithOriginLocked("tool", "", tool, toolOrigin)
+		message = *service.components.view.AppendMessageWithOriginLocked("tool", "", tool, toolOrigin)
 	} else {
 		// 阶段 1：后台会话工具消息写自身 view（hot_attach 回看可见）。
-		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
+		message = *service.components.view.AppendMessageWithOriginLockedFor(sessionID, "tool", "", &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
 	}
 
 	revision := uint64(0)
 	if active {
-		revision = service.bumpLocked()
+		revision = service.components.view.BumpLocked()
 	}
 	requestID := service.Core.Snapshot.Chat.RequestID
 	if !active {
@@ -87,7 +87,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.flush.start")
 	service.flushStreamBatcherFor(sessionID)
 	emit("toolhook.complete.flush.done")
-	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
+	runtimeProjection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
 	emit("toolhook.complete.lock.start")
 	service.ViewMu.Lock()
 	// sessionID 回退必须在锁内解析：Snapshot.Session.ID 由
@@ -146,7 +146,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 			}
 		}
 	})
-	service.mirrorActiveViewLocked()
+	service.components.view.MirrorActiveViewLocked()
 	if active && name == "read_file" && toolErr == nil {
 		service.recordReadFileForSessionLocked(sessionID, toolArguments)
 	}
@@ -157,7 +157,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 
 	var message model.Message
 	var assistant *model.Message
-	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &model.ToolCall{
+	message = *service.components.view.AppendMessageWithOriginLockedFor(sessionID, "tool_result", content, &model.ToolCall{
 		ID: id, Name: name, Result: visibleContent, Error: errorText,
 		Status: status, Duration: duration,
 		ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
@@ -175,11 +175,11 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.runtime.start")
 	// 每会话投影写回本会话槽（G1）：后台会话的工具边界投影保留在自身槽，
 	// 不再因非活跃被丢弃；活跃会话由协调器镜像 Snapshot.Runtime。
-	service.applyRuntimeProjectionForLocked(sessionID, runtimeProjection)
+	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, runtimeProjection)
 	emit("toolhook.complete.runtime.done")
 	revision := uint64(0)
 	if active {
-		revision = service.bumpLocked()
+		revision = service.components.view.BumpLocked()
 	}
 	service.ViewMu.Unlock()
 	emit("toolhook.complete.unlock.done")

@@ -11,6 +11,8 @@
 - 定义输入前缀与建议域词表。
 - 组合命令、Skill、Plugin 三个权威目录的候选。
 - 按前缀过滤，并保持 command → skill → plugin 的稳定排序。
+- 提供 `HasSigilPrefix` / `SigilOf`；根 `application` 门面直接再导出这两个
+  词法函数，`application/core` 不再保留同义包装。
 - 参数区或未知前缀返回空建议。
 
 ## 非职责
@@ -33,8 +35,9 @@
 
 ## 数据流
 
-`Service.Suggestions` → `Application.Suggestions` → 命令/Skill/Plugin 目录 →
-过滤与排序 → 前端输入建议。
+根门面 `HasSigilPrefix` / `SigilOf` 和 `Frontend.Suggestions` →
+`Application.Suggestions` → 命令/Skill/Plugin 目录 → 过滤与排序 →
+前端输入建议。
 
 ## 依赖方向
 

@@ -5,7 +5,8 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-045；下一步完成剩余 Store 类型边与 Application facade 退场。**
+EP-001～EP-046A、EP-046C、EP-046D、EP-046E；下一步完成 `newService*` 构造适配审计、
+剩余 Store 类型边与 18 个共享状态/生命周期入口。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -14,13 +15,13 @@ EP-001～EP-045；下一步完成剩余 Store 类型边与 Application facade �
 
 | 指标 | 当前 |
 |---|---:|
-| `Service` 公开方法 | 23 |
+| `Service` 公开方法 | 11 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
-| `application/core` 生产文件 | 114 |
-| `application/core` 生产代码 | 11,602 行 |
+| `application/core` 生产文件 | 111 |
+| `application/core` 生产代码 | 10,634 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 7,121 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 15 个文件和 7,966 行。
 
 ## 裁决已冻结
 
@@ -116,6 +117,118 @@ EP-001～EP-045；下一步完成剩余 Store 类型边与 Application facade �
 | AP-116F2c | Session/Subagent 16 个入口迁出 core（已完成） | `application/compat` | 高 |
 | AP-116F2d | Policy/Lifecycle/State 14 个入口迁出 core（已完成） | `application/compat` | 高 |
 | AP-116F2e | 剩余 34 方法退场与旧 API 收回 | `application` / `compat` | 很高 |
+| EP-046A | Core 组件 getter 转发退场 | `application/core` 内部调用点 | 中 |
+| EP-046B | `newService*` 构造适配归位 | 已迁出的 Application 领域包 | 中高 |
+| EP-046C | Core 入站接口定义退场 | `application` / `contract` | 中高 |
+| EP-046D | Core 前端状态壳退场 | `application/compat` / `viewstate` | 高 |
+| EP-046E | Core 组件单表达式转发退场 | `application/core` 内部调用点 | 高 |
+
+## 3.1 EP-046：Core 转发面退场
+
+状态：**EP-046A/C/D/E 已完成；EP-046B 待构造输入审计。**
+
+### 目标
+
+`application/core` 只保留三类职责：
+
+1. 跨领域会话命令协调、共享锁与原子状态转换；
+2. 尚不能离开的宿主适配；
+3. `Service` 组装、关闭和兼容入口。
+
+已经由 `application/<domain>` 完成的工作，不得再通过 `Service` getter 或
+`newService*` 壳转一圈才可使用。包内消费者直接读 `service.components`；
+跨包消费者依赖领域组件或装配期注入的窄端口。
+
+### EP-046A：组件 getter 退场
+
+状态：**已完成。**
+
+结构判据：
+
+- `core` 生产文件不得出现无参、单返回值、名字以 `Component` 结尾的
+  `*Service` 方法；
+- 包内调用点直接使用 `service.components.<field>`；
+- 跨包调用只走现有 `FrontendPorts` 或领域包，不新增万能接口；
+- 测试属于 core 集成测试时保留在 `application/core`，但不得为了测试恢复
+  生产 getter。
+
+红测：
+
+```text
+go test ./application/core -run TestCoreDoesNotExposeComponentGetters -count=1
+```
+
+删除门禁：
+
+- `adminApplicationComponent`、`completionApplicationComponent`、
+  `policyApplicationComponent`、`workspaceApplicationComponent` 等
+  `*ApplicationComponent` getter 全部删除；
+- 只承载 getter 的 `core` 文件删除；
+- core 生产文件数和行数下降；
+- `Service` 公开方法集合不变，GUI/TUI wire 不变。
+
+回退方式：恢复被删除的 getter，并把包内调用点改回 getter；不涉及状态或持久化
+迁移。
+
+落点与证据：
+
+- 删除 26 个无参、单返回值的 `*ApplicationComponent` getter，包内改读
+  `service.components.<field>`；
+- 删除只承载 `adminApplicationComponent` 的 `service_account.go`；
+- `HasSigilPrefix`、`SigilOf`、输入 sigil 常量和 `Suggestion` 类型身份回归
+  `application/input`，根门面直接引用该包；
+- 新增 `TestCoreDoesNotExposeComponentGetters` 与输入 facade 结构门禁；
+- core 生产文件 114 → 111，生产代码 11,602 → 10,634。
+
+### EP-046B：构造适配归位
+
+状态：**待 EP-046A 后按真实调用方审计。**
+
+`newService*` 只有在同时满足以下条件时可迁入领域包：
+
+- 构造输入可以由该领域包的 `Deps` 表达；
+- 不持有完整 `Service`；
+- 不需要读取 core 私有会话状态；
+- 迁移后装配根只做一次构造调用。
+
+不能结构满足的 adapter 留在 core，并登记原因；禁止创建只服务构造的万能 Host
+接口。
+
+### EP-046C：入站接口定义退场
+
+状态：**已完成。**
+
+`application/faces_api.go` 的接口与类型清单属于入站契约，不属于
+协作实现。迁移前必须先证明：
+
+- 根 `application` 不再通过 `core` 再导出接口身份；
+- 编译期断言仍能证明实现满足能力面；
+- E2E narrow-face 清单、`FaceTypeNames` 与文档路径同步；
+- 不改变任何前端方法签名。
+
+落地结果：
+
+- 删除 `application/core/service_api_faces.go` 与旧 `application/faces.go`
+  再导出层，接口事实源改为 `application/faces_api.go`；
+- `Frontend` 的结构断言继续固定在
+  `application/frontend_assertions.go`；
+- `api_contract_test.go` 直接扫描根 Application 入站文件；
+- E2E 允许根门面拥有这些入站契约类型，同时继续要求其余导出类型为 alias。
+
+### EP-046D：Core 前端状态壳退场
+
+状态：**已完成。**
+
+- `SubscribeSession`、`SubscribeSessionWithReplay` 唯一判据迁入
+  `application/session/viewstate`；过滤使用 `session.Domain.ActiveID()` 与
+  EventHub 的可选过滤/重放能力；
+- `PrepareProviderHistory`、`PromptLayers`、`SetProjectBoardSink` 从
+  `core.Service` 移到 `compat.Frontend`，直接调用 history、prompt stack 与
+  project-board 装配端口；
+- 生产调用方 `wiring/bootstrap`、GUI/TUI/headless 与项目看板测试改用
+  `Frontend`；core 旧集成测试只在 `_test.go` 保留同名 shim；
+- `Service` 公开方法 23 → 11；GUI/TUI wire、事件 revision/seq 与持久化格式
+  不变。
 
 ## 4. AP-106：Session Draft Entry / Materialization（已完成）
 
@@ -531,7 +644,7 @@ AP-115D 至此完成。
 ### 前置条件
 
 - GUI/TUI/headless 已迁移到能力型 API；
-- `faces.go` 旧四组接口的生产调用为零；
+- `faces_api.go` 旧四组接口的生产调用为零；
 - 每个旧 Service 方法有 ledger 首调用方和删除门；
 - facade 闭包白名单已收紧。
 
@@ -633,23 +746,21 @@ core 只保留 `FrontendPorts` 装配快照。删除
 指标：Service 公开方法 98 → 83；core 直接内部依赖 34 → 33；core 文件
 123 → 121；core 生产代码 12,538 → 12,463 行。
 
-当前剩余 34 个方法的结构分类：
+当前剩余 11 个方法的结构分类：
 
 外部依赖拆除的端口设计见 [`port-migration-plan.md`](port-migration-plan.md)。
 
-- 11 个是 host/assembly 转发：4 个 goal handler、2 个项目看板装配读面、
-  `AddNotice`、`PublishRuntimeProjections`、`ResumeSession`、`ActivateSession`、
-  `CloseRoleToolRecordUnit`；
-- 23 个包含真实状态/生命周期编排，暂由 core 持有：
+- 纯 host/assembly 转发、订阅、Prompt、ProviderHistory 与 ProjectBoardSink
+  已全部退场；`Service` 只剩仍在共享状态临界区内的工作：
 
 | 能力 | core 方法 | 暂留原因 |
 |---|---|---|
 | Snapshot/会话视图 | `Snapshot`、`ConversationView`、`ConversationChat`、`RecoverConversation` | 共享 `ViewMu`、视图会话和恢复状态 |
 | 提交/会话切换 | `Submit`、`SubmitToSession`、`ForkSession`、`ForkSessionLatest` | 草稿物化、队列提升、运行守卫与引擎生命周期 |
-| 订阅 | `SubscribeSession`、`SubscribeSessionWithReplay` | session-scoped event watermark 与 replay |
-| 交互/通知 | `ResolveInteraction`、`HandleRoleToolActivity`、`PromptLayers` | 跨组件锁内提交、事件发布、prompt 栈 |
-| Tool record | `ApplyToolRecordEnabled`、`SetToolRecordEnabled`、`SetToolRecordSnapshotStore`、`FlushToolRecord`、`RecordToolCommandOutcome`、`ToolRecordBoard`、`ToolRecordEnabled`、`TaskTerminalHandler` | 累计器、落盘队列与生命周期关闭顺序 |
-| Host 装配 | `SetProjectBoardSink`、`PrepareProviderHistory` | 装配期端口与 Runtime 历史修复 |
+| 交互/事件/终态 | `ResolveInteraction`、`HandleRoleToolActivity`、`TaskTerminalHandler` | 跨组件锁内提交、Session 级事件发布与 Task 终态写入 |
+
+ToolRecord 公开入口已由 EP-046D 移到 `application/compat.Frontend`，core 只保留
+草稿可写判据、主代理 outcome 和 shutdown 全量 flush 三个内部 host adapter。
 
 ## 15. 跨会话阻塞项
 

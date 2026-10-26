@@ -64,8 +64,8 @@ func TestSessionReleaseFacadeOnlyDelegatesToApplication(t *testing.T) {
 		}
 	}
 	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
+		if found {
+			t.Fatalf("core %s forwarder must be removed", name)
 		}
 	}
 }
@@ -234,7 +234,7 @@ func TestReleaseSessionMemoryForgetsGoalStoreHandle(t *testing.T) {
 		t.Fatal("夹具前提失败：goal 运行时未建起")
 	}
 
-	if err := service.releaseSessionMemory("sess-gone", releaseIdle); err != nil {
+	if err := service.components.sessionReleaseApplication.Release("sess-gone", releaseIdle); err != nil {
 		t.Fatalf("release idle: %v", err)
 	}
 	if goalBundleActive(service, "sess-gone") {
@@ -441,7 +441,7 @@ func TestReleaseSessionMemorySkipsProtectedSession(t *testing.T) {
 	if err := frontendOfTestService(service).ResumeSession("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
-	if err := service.releaseSessionMemory("sess-view", releaseIdle); err != nil {
+	if err := service.components.sessionReleaseApplication.Release("sess-view", releaseIdle); err != nil {
 		t.Fatalf("release idle: %v", err)
 	}
 	if !engine.HasSession("sess-view") {

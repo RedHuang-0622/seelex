@@ -53,7 +53,7 @@ func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T) {
 		defer wait.Done()
 		engine.sessionMu.Lock()
 		defer engine.sessionMu.Unlock()
-		service.handleSubagentToolEvent(subagentsession.SubagentToolEvent{
+		service.components.subagent.HandleSubagentToolEvent(subagentsession.SubagentToolEvent{
 			NodeID: "node-1", ID: "tool-1", Status: dto.ToolEventRunning,
 		})
 	}()

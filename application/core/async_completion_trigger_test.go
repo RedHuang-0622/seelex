@@ -30,7 +30,7 @@ func TestAsyncCompletionApplicationIsAssembled(t *testing.T) {
 	}
 }
 
-func TestAsyncCompletionFacadeOnlyDelegatesToApplication(t *testing.T) {
+func TestAsyncCompletionFacadeIsRetiredFromService(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("无法定位测试源码")
@@ -40,26 +40,17 @@ func TestAsyncCompletionFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{
-		"triggerAsyncCompletions":       false,
-		"triggerTeamworkJobCompletions": false,
+	forbidden := map[string]bool{
+		"triggerAsyncCompletions":       true,
+		"triggerTeamworkJobCompletions": true,
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
 			continue
 		}
-		if _, tracked := want[function.Name.Name]; !tracked {
-			continue
-		}
-		want[function.Name.Name] = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("%s 有 %d 条语句，want 一行 asyncCompletionApplication 转发", function.Name.Name, len(function.Body.List))
-		}
-	}
-	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
+		if forbidden[function.Name.Name] {
+			t.Fatalf("Service.%s 纯转发仍存在；调用方应直接使用 asyncCompletionApplication", function.Name.Name)
 		}
 	}
 }

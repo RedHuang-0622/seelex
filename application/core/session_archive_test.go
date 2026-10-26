@@ -134,7 +134,7 @@ func TestResumeSessionAttachesSessionContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := restored.resumeSession("session-a"); err != nil {
+	if err := restored.components.sessionResume.Resume("session-a"); err != nil {
 		t.Fatal(err)
 	}
 	sessions.mu.Lock()
@@ -161,7 +161,7 @@ func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := restored.resumeSession("session-a"); err == nil || !strings.Contains(err.Error(), "attach session context") {
+	if err := restored.components.sessionResume.Resume("session-a"); err == nil || !strings.Contains(err.Error(), "attach session context") {
 		t.Fatalf("resume err = %v, want attach session context failure", err)
 	}
 }
@@ -220,7 +220,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 
 	restoredEngine := &fakeEngine{}
 	restored := newTestService(t, restoredEngine, withTestSessions(sessions))
-	if err := restored.resumeSession("session-a"); err != nil {
+	if err := restored.components.sessionResume.Resume("session-a"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := restored.Snapshot()

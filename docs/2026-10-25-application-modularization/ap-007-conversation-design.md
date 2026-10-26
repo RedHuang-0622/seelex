@@ -161,7 +161,7 @@ AP-003 分两个独立指标，不把“入站 API 纯净”和“core 内部零
 
 ### 8.1 入站 API 契约纯度（AP-003 退出条件）
 
-- `application/core/service_api_faces.go` 的公开接口签名不得引用
+- `application/faces_api.go` 的公开接口签名不得引用
   `backend/**`、`store/**`、`middle/switch/**`、`middle/view/**` 具体实现包；
 - `assemble.ScheduledTaskSpec/Status`、`goaldomain.*`、`store.Teamwork*`、
   `seelexctxsearch.*` 必须迁到 `contract/dto` 或纯协议包，旧类型只可保留别名；

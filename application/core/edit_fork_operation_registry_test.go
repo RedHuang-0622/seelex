@@ -57,8 +57,8 @@ func TestEditForkOperationRegistryIsAssembledAndOwnsState(t *testing.T) {
 				t.Fatalf("%s 不是单行调用转发", name)
 			}
 		}
-		if !found {
-			t.Fatalf("未找到 %s", name)
+		if found {
+			t.Fatalf("core %s forwarder must be removed", name)
 		}
 	}
 }

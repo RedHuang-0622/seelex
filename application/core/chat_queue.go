@@ -3,6 +3,7 @@ package core
 import (
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceConversationQueue(service *Service) *applicationconversation.QueueApplication {
@@ -21,9 +22,13 @@ func newServiceConversationQueue(service *Service) *applicationconversation.Queu
 			}
 			return resolvedID, unit, nil
 		},
-		IsActive:        service.isActiveSessionLocked,
-		MirrorChatState: service.setSessionChatLockedFor,
-		BumpRevision:    service.bumpLocked,
+		IsActive: service.isActiveSessionLocked,
+		MirrorChatState: func(sessionID string, chat model.ChatState) {
+			service.components.view.SetSessionChatLockedFor(sessionID, chat)
+		},
+		BumpRevision: func() uint64 {
+			return service.components.view.BumpLocked()
+		},
 		PublishSnapshot: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
@@ -31,11 +36,4 @@ func newServiceConversationQueue(service *Service) *applicationconversation.Queu
 		TurnState:        service.components.conversationTurnState,
 		DrainingError:    ErrApplicationDraining,
 	})
-}
-
-func (service *Service) queueComponent() *applicationconversation.QueueApplication {
-	if service == nil {
-		return nil
-	}
-	return service.components.conversationQueue
 }

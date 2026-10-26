@@ -19,6 +19,7 @@ import (
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
@@ -617,6 +618,68 @@ func (frontend *Frontend) SetSessionReleaseWindow(_ context.Context, window int)
 // Subscribe subscribes to process-level events.
 func (frontend *Frontend) Subscribe(buffer int) event.Subscription {
 	return frontend.view().Subscribe(buffer)
+}
+
+// SubscribeSession subscribes to one session, or to the current view when the
+// session ID is empty.
+func (frontend *Frontend) SubscribeSession(sessionID string, buffer int) (event.Subscription, error) {
+	return frontend.view().SubscribeSession(sessionID, buffer)
+}
+
+// SubscribeSessionWithReplay subscribes with a bounded replay window when the
+// assembled hub supports replay.
+func (frontend *Frontend) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (event.Subscription, error) {
+	return frontend.view().SubscribeSessionWithReplay(sessionID, buffer, replayWindow)
+}
+
+// PrepareProviderHistory repairs missing provider tool pairs for one session.
+func (frontend *Frontend) PrepareProviderHistory(sessionID string) error {
+	return frontend.ports.ContextHistory.PrepareProviderHistoryFor(sessionID)
+}
+
+// PromptLayers returns the current prompt prefix layers.
+func (frontend *Frontend) PromptLayers() []applicationprompt.PromptLayer {
+	return frontend.ports.PromptStack.Layers()
+}
+
+// SetProjectBoardSink installs the optional project-board write projection.
+func (frontend *Frontend) SetProjectBoardSink(sink applicationexecution.ProjectBoardSink) {
+	frontend.ports.SetProjectBoardSink(sink)
+}
+
+// SetToolRecordEnabled switches the ledger after persisting the setting.
+func (frontend *Frontend) SetToolRecordEnabled(enabled bool) (bool, error) {
+	return frontend.ports.ToolRecords.SetEnabled(enabled)
+}
+
+// ApplyToolRecordEnabled installs the startup value without rewriting storage.
+func (frontend *Frontend) ApplyToolRecordEnabled(enabled bool) {
+	frontend.ports.ToolRecords.ApplyEnabled(enabled)
+}
+
+// ToolRecordEnabled reports the live ledger switch.
+func (frontend *Frontend) ToolRecordEnabled() bool {
+	return frontend.ports.ToolRecords.Enabled()
+}
+
+// FlushToolRecord writes one dirty session after draining leaf stages.
+func (frontend *Frontend) FlushToolRecord(sessionID string) {
+	frontend.ports.ToolRecords.Flush(sessionID)
+}
+
+// SetToolRecordSnapshotStore injects the per-session snapshot port.
+func (frontend *Frontend) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore) {
+	frontend.ports.ToolRecords.SetSnapshotStore(store)
+}
+
+// ToolRecordBoard returns the current-view session projection.
+func (frontend *Frontend) ToolRecordBoard() dto.ToolRecordBoard {
+	return frontend.ports.ToolRecords.Board()
+}
+
+// RecordToolCommandOutcome records the command-exit-code success criterion.
+func (frontend *Frontend) RecordToolCommandOutcome(sessionID, tool string, exitCode int) {
+	frontend.ports.ToolRecords.RecordCommandOutcome(sessionID, tool, exitCode)
 }
 
 // GoalSkillActive reports whether the latest goal has active skill state.

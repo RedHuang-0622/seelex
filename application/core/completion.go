@@ -44,32 +44,9 @@ import (
 // 前缀契约调整过（# 从 Skill 改为 Plugin、$ 接管 Skill、@ 从 Plugin 改为召唤
 // 团队），旧肌肉记忆打老前缀时给一句迁移提示（见 sigilMigrationHint），而不是
 // 让用户对着"未知"猜该用哪个符号。
-const (
-	SigilCommand = applicationinput.SigilCommand
-	SigilPlugin  = applicationinput.SigilPlugin
-	SigilSkill   = applicationinput.SigilSkill
-)
-
 // sigils 是前缀的唯一枚举（顺序 = 解析顺序）。任何新增前缀都从这里生效：
 // 建议面（Suggestions）与迁移提示按它推导，不在别处再写一份字面量。
 var sigils = applicationinput.Sigils()
-
-// 建议条目的域标记：前端按它选图标，TUI 按它显示标签。只有能从输入框直接执行的
-// 域才会成为候选（无 tool：工具由模型调用，见文件头前缀契约）。
-const (
-	SuggestionKindCommand = applicationinput.SuggestionKindCommand
-	SuggestionKindSkill   = applicationinput.SuggestionKindSkill
-	SuggestionKindPlugin  = applicationinput.SuggestionKindPlugin
-)
-
-type Suggestion = applicationinput.Suggestion
-
-func (service *Service) completionApplicationComponent() *applicationinput.Application {
-	if service == nil {
-		return nil
-	}
-	return service.components.completionApplication
-}
 
 func newServiceCompletionApplication(service *Service) *applicationinput.Application {
 	return applicationinput.New(applicationinput.Deps{
@@ -77,22 +54,6 @@ func newServiceCompletionApplication(service *Service) *applicationinput.Applica
 		SkillSuggestions:   service.skillSuggestions,
 		PluginSuggestions:  service.pluginSuggestions,
 	})
-}
-
-// HasSigilPrefix 报告输入是否以前缀开头（TUI 的 suggMode 与前端内联建议共用同一条
-// 判定，避免"哪些字符算前缀"在多个前端各写一份而漂移）。
-func HasSigilPrefix(input string) bool {
-	_, _, ok := applicationinput.Parse(input)
-	return ok
-}
-
-// SigilOf 返回输入的首字符前缀；不可解析时返回空串（调用方自行给默认值）。
-func SigilOf(input string) string {
-	trigger, _, ok := applicationinput.Parse(input)
-	if !ok {
-		return ""
-	}
-	return trigger
 }
 
 // sigilMigrationHint 在前缀没命中时给一句跨域迁移提示：命中**别的**域才给，
@@ -106,12 +67,12 @@ func (service *Service) sigilMigrationHint(used, name string) string {
 		return ""
 	}
 	hints := make([]string, 0, len(sigils))
-	if used != SigilPlugin && service.hasPlugin(name) {
-		hints = append(hints, fmt.Sprintf("切换插件用 %s%s", SigilPlugin, name))
+	if used != applicationinput.SigilPlugin && service.hasPlugin(name) {
+		hints = append(hints, fmt.Sprintf("切换插件用 %s%s", applicationinput.SigilPlugin, name))
 	}
-	if used != SigilSkill {
+	if used != applicationinput.SigilSkill {
 		if _, ok := service.Deps.Skills.Get(name); ok {
-			hints = append(hints, fmt.Sprintf("召回 Skill 用 %s%s", SigilSkill, name))
+			hints = append(hints, fmt.Sprintf("召回 Skill 用 %s%s", applicationinput.SigilSkill, name))
 		}
 	}
 	// 「召唤团队用 @xxx」这条提示已去掉（2026-10-01）：它的判据曾是内置形态名（零
@@ -144,13 +105,13 @@ func (service *Service) hasPlugin(name string) bool {
 //     （编辑距离 ≤ 2）时直接给出正确写法。
 func (service *Service) unknownCommandNotice(name string) string {
 	trimmed := strings.TrimSpace(name)
-	notice := fmt.Sprintf("未知命令: %s。输入 %shelp 查看可用命令。", trimmed, SigilCommand)
+	notice := fmt.Sprintf("未知命令: %s。输入 %shelp 查看可用命令。", trimmed, applicationinput.SigilCommand)
 	hints := make([]string, 0, 2)
 	if service.visibleToolNamed(trimmed) {
 		hints = append(hints, fmt.Sprintf("「%s」是模型侧工具（由模型调用、经权限门），不能从输入框直接执行", trimmed))
 	}
 	if counterpart := service.commandCounterpart(trimmed); counterpart != "" {
-		hints = append(hints, fmt.Sprintf("你是想用 %s%s 吗？", SigilCommand, counterpart))
+		hints = append(hints, fmt.Sprintf("你是想用 %s%s 吗？", applicationinput.SigilCommand, counterpart))
 	}
 	if len(hints) == 0 {
 		return notice
@@ -231,21 +192,21 @@ func editDistanceAtMost(a, b string, limit int) bool {
 	return previous[len(br)] <= limit
 }
 
-func (service *Service) commandSuggestions() []Suggestion {
-	suggestions := make([]Suggestion, 0)
+func (service *Service) commandSuggestions() []applicationinput.Suggestion {
+	suggestions := make([]applicationinput.Suggestion, 0)
 	for _, command := range service.commands.All() {
-		suggestions = append(suggestions, Suggestion{
-			Text: command.Name(), Description: command.Description(), Kind: SuggestionKindCommand,
+		suggestions = append(suggestions, applicationinput.Suggestion{
+			Text: command.Name(), Description: command.Description(), Kind: applicationinput.SuggestionKindCommand,
 		})
 	}
 	return suggestions
 }
 
-func (service *Service) skillSuggestions() []Suggestion {
-	suggestions := make([]Suggestion, 0)
+func (service *Service) skillSuggestions() []applicationinput.Suggestion {
+	suggestions := make([]applicationinput.Suggestion, 0)
 	for _, skill := range service.Deps.Skills.All() {
-		suggestions = append(suggestions, Suggestion{
-			Text: skill.Name, Description: skill.Description, Kind: SuggestionKindSkill,
+		suggestions = append(suggestions, applicationinput.Suggestion{
+			Text: skill.Name, Description: skill.Description, Kind: applicationinput.SuggestionKindSkill,
 		})
 	}
 	return suggestions
@@ -253,14 +214,14 @@ func (service *Service) skillSuggestions() []Suggestion {
 
 // pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
 // SwitchPlugin 的 off/none/空 三种写法同义，面板只暴露一个）。
-func (service *Service) pluginSuggestions() []Suggestion {
-	suggestions := make([]Suggestion, 0)
+func (service *Service) pluginSuggestions() []applicationinput.Suggestion {
+	suggestions := make([]applicationinput.Suggestion, 0)
 	for _, plugin := range service.Deps.Plugins.All() {
-		suggestions = append(suggestions, Suggestion{
-			Text: plugin.Name, Description: plugin.Description, Kind: SuggestionKindPlugin,
+		suggestions = append(suggestions, applicationinput.Suggestion{
+			Text: plugin.Name, Description: plugin.Description, Kind: applicationinput.SuggestionKindPlugin,
 		})
 	}
-	return append(suggestions, Suggestion{
-		Text: "off", Description: "停用所有插件", Kind: SuggestionKindPlugin,
+	return append(suggestions, applicationinput.Suggestion{
+		Text: "off", Description: "停用所有插件", Kind: applicationinput.SuggestionKindPlugin,
 	})
 }

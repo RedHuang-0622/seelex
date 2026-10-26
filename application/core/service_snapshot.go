@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sort"
 	"strings"
@@ -49,7 +48,7 @@ func (service *Service) Snapshot() model.Snapshot {
 			}}, snapshot.Sessions...)
 		}
 	}
-	snapshot.Conversation = service.annotateConversationForEditLocked(
+	snapshot.Conversation = service.components.editForkAnnotation.Annotate(
 		snapshot.Session.ID,
 		snapshot.Conversation,
 		snapshot.Chat.Running,
@@ -309,54 +308,22 @@ func (service *Service) refreshRuntimeProjectionForSession(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	projection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
+	projection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
 	service.ViewMu.Lock()
-	service.applyRuntimeProjectionForLocked(sessionID, projection)
+	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
 	service.ViewMu.Unlock()
-}
-
-func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection {
-	return service.components.view.CollectRuntimeProjection(ctx)
 }
 
 // collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
 // 槽写入方；tasks/tokens/skills 走 per-session 端口）。
-func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection {
-	return service.components.view.CollectRuntimeProjectionFor(ctx, sessionID)
-}
-
-func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection) {
-	service.components.view.ApplyRuntimeProjectionLocked(projection)
-}
-
 // applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
 // 视图协调器镜像 Snapshot；调用方持有 Core.ViewMu）。
-func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection) {
-	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
-}
-
-func (service *Service) appendMessageLocked(role, content string, tool *model.ToolCall) *model.Message {
-	return service.components.view.AppendMessageLocked(role, content, tool)
-}
-
 // appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
 // （origin 由调用方按 transcript 的 R4 归属传入，见 model.MessageOrigin）。
-func (service *Service) appendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
-	return service.components.view.AppendMessageWithOriginLockedFor(service.Core.Snapshot.Session.ID, role, content, tool, origin)
-}
-
 // appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
 // 也维护自己的可见投影；活跃会话同步镜像 Snapshot）。
-func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *model.ToolCall) *model.Message {
-	return service.components.view.AppendMessageLockedFor(sessionID, role, content, tool)
-}
-
 // appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
 // 会话（后台会话同样保留归属，hot_attach 回看不会退化成 AGENT）。
-func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
-	return service.components.view.AppendMessageWithOriginLockedFor(sessionID, role, content, tool, origin)
-}
-
 // appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
 // 空 assistant 占位（活跃与后台同一语义；调用方持有 Core.ViewMu）。末条已是
 // 空 assistant（无内容、无工具）时不重复补，避免并行工具轮产生多余空行。
@@ -373,7 +340,7 @@ func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID stri
 	}
 	// 工具轮后的续写正文同样由 EXEC 主持：没有归属会让同一回合的后半段在聊天区
 	// 从 EXEC 掉回 AGENT。
-	return service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, model.MessageOrigin{
+	return service.components.view.AppendMessageWithOriginLockedFor(sessionID, "assistant", "", nil, model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	})
@@ -381,21 +348,9 @@ func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID stri
 
 // setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 // Snapshot.Chat）。
-func (service *Service) setSessionChatLockedFor(sessionID string, chat model.ChatState) {
-	service.components.view.SetSessionChatLockedFor(sessionID, chat)
-}
-
 // mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
-func (service *Service) mirrorActiveViewLocked() {
-	service.components.view.MirrorActiveViewLocked()
-}
-
 // sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
 // 调用方持有 Core.ViewMu）。
-func (service *Service) sessionViewLocked(sessionID string) *session.View {
-	return service.components.view.SessionViewLocked(sessionID)
-}
-
 // sessionViewEmptyLocked 报告指定会话的可见会话是否为空（调用方持有
 // Core.ViewMu）。冷恢复用它判断"目标会话在我装载期间是否已经积累了更新
 // 的活消息"——有则不覆盖。会话域单元不存在时视为空。
@@ -436,25 +391,10 @@ func (service *Service) recordReadFileForSessionLocked(sessionID, arguments stri
 		}
 		view.ReadFiles = append(view.ReadFiles, model.ReadFileRef{Path: input.Path, ReadAt: now})
 	})
-	service.mirrorActiveViewLocked()
-}
-
-func (service *Service) bumpLocked() uint64 {
-	return service.components.view.BumpLocked()
-}
-
-func (service *Service) addNotice(notice string) {
-	service.components.view.AddNotice(notice)
+	service.components.view.MirrorActiveViewLocked()
 }
 
 // AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
 // message.added 事件）。启动期配置警告等非致命错误用它呈现给前端。
 
-func (service *Service) resetConversation(notice string) {
-	service.components.view.ResetConversation(notice)
-}
-
 // advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
-func (service *Service) advanceMessageSeqLocked(sessionID string, messages []model.Message) {
-	service.components.view.AdvanceMessageSeqForLocked(sessionID, messages)
-}

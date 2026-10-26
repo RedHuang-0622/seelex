@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
@@ -19,20 +20,20 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 	}
 	command, ok := service.commands.Get(parts[0])
 	if !ok {
-		service.addNotice(service.unknownCommandNotice(parts[0]))
+		service.components.view.AddNotice(service.unknownCommandNotice(parts[0]))
 		return nil
 	}
 	result, err := command.Execute(ctx, parts[1:])
 	if err != nil {
-		service.addNotice(err.Error())
+		service.components.view.AddNotice(err.Error())
 		return err
 	}
 	if result.Notice != "" {
-		service.addNotice(result.Notice)
+		service.components.view.AddNotice(result.Notice)
 	}
 	if result.Interaction != nil {
 		if len(result.Interaction.Options) == 0 {
-			service.addNotice("暂无可选项")
+			service.components.view.AddNotice("暂无可选项")
 		} else {
 			service.openInteraction(result.Interaction)
 		}
@@ -53,10 +54,10 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 	skill, ok := service.Deps.Skills.Get(name)
 	if !ok {
 		notice := "未知 Skill: " + name
-		if hint := service.sigilMigrationHint(SigilSkill, name); hint != "" {
+		if hint := service.sigilMigrationHint(applicationinput.SigilSkill, name); hint != "" {
 			notice += hint
 		}
-		service.addNotice(notice)
+		service.components.view.AddNotice(notice)
 		return nil
 	}
 	return service.activateSkillAndSubmit(ctx, skill, args, input)
@@ -69,8 +70,8 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 // 不在这里重复一份错误文案。
 func (service *Service) submitPluginSwitch(ctx context.Context, name string) error {
 	if err := service.components.policyApplication.SwitchPlugin(ctx, name); err != nil {
-		if hint := service.sigilMigrationHint(SigilPlugin, name); hint != "" {
-			service.addNotice(fmt.Sprintf("未知 Plugin: %s%s", name, hint))
+		if hint := service.sigilMigrationHint(applicationinput.SigilPlugin, name); hint != "" {
+			service.components.view.AddNotice(fmt.Sprintf("未知 Plugin: %s%s", name, hint))
 		}
 		return err
 	}
@@ -80,7 +81,7 @@ func (service *Service) submitPluginSwitch(ctx context.Context, name string) err
 func (service *Service) endSkill() error {
 	name := service.promptStack.PopKind("skill")
 	if name == "" {
-		service.addNotice("当前无 Skill 可退栈")
+		service.components.view.AddNotice("当前无 Skill 可退栈")
 		return nil
 	}
 	// goal 仍在活动栈时保持无限循环；否则只恢复循环上限，不改动 prompt 层顺序。
@@ -95,7 +96,7 @@ func (service *Service) endSkill() error {
 		}
 	}
 	service.knobs.ApplyLoopLimit(loopLimit)
-	service.addNotice("已退栈 Skill: " + name)
+	service.components.view.AddNotice("已退栈 Skill: " + name)
 	return nil
 }
 
@@ -131,5 +132,5 @@ func (service *Service) applySkill(skill model.SkillInfo) {
 	if skill.Name == "goal" {
 		service.knobs.ApplyLoopLimit(applicationpolicy.Get().InputLoopLimit)
 	}
-	service.addNotice("加载 Skill: " + skill.Name)
+	service.components.view.AddNotice("加载 Skill: " + skill.Name)
 }

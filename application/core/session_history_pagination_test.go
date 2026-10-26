@@ -293,7 +293,7 @@ func mirrorOnce(t *testing.T, service *Service, store *pagedSessionStore) {
 	t.Helper()
 	store.appendDurable("assistant", "late-event")
 	service.ViewMu.Lock()
-	service.appendMessageLocked("assistant", "late-event", nil)
+	service.components.view.AppendMessageLocked("assistant", "late-event", nil)
 	service.ViewMu.Unlock()
 }
 

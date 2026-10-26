@@ -72,11 +72,11 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: coldNarrationRequestID}
 	service.components.tasks.BeginTask(coldNarrationRequestID, "narration", "high", nil, model.TaskCheckpoint{})
-	service.appendMessageLocked("user", input, nil)
+	service.components.view.AppendMessageLocked("user", input, nil)
 	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: coldNarrationRequestID, Role: "user", Content: input,
 	})
-	service.appendMessageLocked("assistant", "", nil)
+	service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.sessionUnitLocked(sessionID).SetStream(chat.NewVisibleOutputStream(coldNarrationRequestID))
 	service.ViewMu.Unlock()
 
