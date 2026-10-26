@@ -141,7 +141,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// 阻塞：把提交挂到装载完成点，装载完成后在**同一目标会话**上启动——既满足
 	// 不变式，也保证「消息最终发得出去」。前端 prompt 禁用只是呈现，后端才是
 	// 不变量。
-	if service.isRestoringLocked(sessionID) {
+	if service.components.view.IsRestoringLocked(sessionID) {
 		service.ViewMu.Unlock()
 		service.deferSubmitUntilRestored(ctx, sessionID, input)
 		return nil
@@ -203,7 +203,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	// 恢复门（延后语义，按显式 sessionID）：与 submitConversation 同一条判据，
 	// 后台提交路径（SubmitToSession）也经此。restoring 期间不开新回合，改为挂到
 	// 装载完成点再启动。
-	if service.isRestoringLocked(sessionID) {
+	if service.components.view.IsRestoringLocked(sessionID) {
 		service.ViewMu.Unlock()
 		service.deferSubmitUntilRestored(ctx, sessionID, input)
 		return nil

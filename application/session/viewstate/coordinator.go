@@ -60,7 +60,14 @@ type Deps struct {
 	Tasks interface {
 		ActiveSkillIDs() []string
 		GoalSkillActive() bool
+		RoleRoundFor(sessionID string) uint64
 	}
+	// DraftView returns the active draft identity and its workspace binding.
+	// Both values are view facts; the caller remains the draft-slot owner.
+	DraftView func() (sessionID, workspaceID string)
+	// TitleForSession returns the session catalog title without falling back to
+	// the active view name.
+	TitleForSession func(sessionID string) string
 	// Goals 提供会话级 goal 治理只读视图（无 goal 返回 nil；前端据此渲染
 	// 「目标 + 治理」面板）。nil 时投影留空（未装配 goal 协调器）。
 	Goals interface {
@@ -90,6 +97,7 @@ type Coordinator struct {
 	tasks                  interface {
 		ActiveSkillIDs() []string
 		GoalSkillActive() bool
+		RoleRoundFor(sessionID string) uint64
 	}
 	goals interface {
 		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
@@ -97,7 +105,9 @@ type Coordinator struct {
 	teamwork interface {
 		TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	}
-	limits func() dto.ViewLimits
+	limits          func() dto.ViewLimits
+	draftView       func() (sessionID, workspaceID string)
+	titleForSession func(sessionID string) string
 	// messageSeq 是**每会话独立**的可见消息派号（键 = 会话 ID；所有读写都在
 	// Core.ViewMu 下，与其它 *Locked 方法同一临界区）。此前是进程级单计数器：
 	// 会话 A 跑过之后新建会话 B，B 的第一条消息会接着 A 的号（例如 message-137），
@@ -105,6 +115,13 @@ type Coordinator struct {
 	// 一致，同一条消息跨重启还会换 ID。改为每会话派号后：新会话从 message-1 起，
 	// 且与事件 seq 空间对齐（2026-09-11 修复）。
 	messageSeq map[string]uint64
+	// viewEpoch/sessionViewIntent are the per-session activation clock and
+	// intent. restoring/restoreSig own the cold-restore transition and wakeup
+	// signal. All fields are protected by Core.ViewMu.
+	viewEpoch         uint64
+	sessionViewIntent map[string]uint64
+	restoring         map[string]struct{}
+	restoreSig        chan struct{}
 }
 
 // NewCoordinator 构造 view 域协调器。
@@ -120,10 +137,15 @@ func NewCoordinator(deps Deps) *Coordinator {
 		currentSessionID:       deps.CurrentSessionID,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
+		draftView:              deps.DraftView,
+		titleForSession:        deps.TitleForSession,
 		goals:                  deps.Goals,
 		teamwork:               deps.Teamwork,
 		limits:                 deps.Limits,
 		messageSeq:             make(map[string]uint64),
+		sessionViewIntent:      make(map[string]uint64),
+		restoring:              make(map[string]struct{}),
+		restoreSig:             make(chan struct{}),
 	}
 }
 

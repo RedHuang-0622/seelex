@@ -148,7 +148,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	})
 	service.components.view.MirrorActiveViewLocked()
 	if active && name == "read_file" && toolErr == nil {
-		service.recordReadFileForSessionLocked(sessionID, toolArguments)
+		service.components.view.RecordReadFileForSessionLocked(sessionID, toolArguments)
 	}
 	content := visibleContent
 	if toolErr != nil {
@@ -169,7 +169,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// 缺占位，后续 appendVisibleDelta(Background) 会把下一段 LLM 正文并入
 	// 工具之前的旧 assistant 空消息，工具看起来“后插入”到会话末尾
 	// （热切回该会话时可见顺序错误；持久化重建不受影响）。
-	if appended := service.appendAssistantPlaceholderAfterToolLocked(sessionID); appended != nil {
+	if appended := service.components.view.AppendAssistantPlaceholderAfterToolLocked(sessionID); appended != nil {
 		assistant = appended
 	}
 	emit("toolhook.complete.runtime.start")

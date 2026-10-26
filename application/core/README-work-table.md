@@ -74,7 +74,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   因此会话删除时的回收挂在 `Router.DeleteWorkspace` 上（不在 `jsonRepository.Delete` 里）；
   落点目录由 `store.ProjectBoardDir(projectRoot)` / `ProjectBoardSessionDir(projectRoot,
   sessionID)` 一处派生（固定名 + 字面会话 ID，不再派生 hash 目录）。
-- **事实层不动**：工作表格行来自 `buildWorkTable`（`work_table.go`），里程碑/工作项来自
+- **事实层不动**：工作表格行来自 `application/execution/table/runtime.go`，里程碑/工作项来自
   teamwork 计划与运行态（`store/teamwork.go`）。本模块只做**字段映射**，不判定、
   不重算状态（`AGENTS.md §8.3` 的唯一判据纪律）。
 - **纯函数**：`BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState)`。
@@ -152,28 +152,6 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (sink *recordingBoardSink) snapshot() []boardSinkCall`
 - `func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T)`
 
-### work_table.go
-
-- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
-- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
-- `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
-- `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
-- `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
-- `func (service *Service) syncTasksFromSourcesFor(sessionID string)` — syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
-- `func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
-- `func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, parentID string)`
-- `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
-- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
-- `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
-- `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
-- `func (service *Service) refreshWorkTableSnapshot()` — refreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
-- `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
-- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers wires the extracted WorkTable lifecycle consumers.
-- `func (service *Service) stopLifecycleConsumers()`
-- `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
-- `func (service *Service) refreshRuntimeAfterTodoChange()` — refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
-- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
-
 ### work_table_ab_test.go
 
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
@@ -223,6 +201,19 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### work_table_race_test.go
 
 - `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
+
+### work_table_runtime_test_aliases_test.go
+
+- `func (service *Service) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — Test-only aliases keep existing core integration harnesses on the public
+- `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)`
+- `func (service *Service) syncTasksFromSources()`
+- `func (service *Service) syncTasksFromSourcesFor(sessionID string)`
+- `func (service *Service) workTableTraceBlock() string`
+- `func (service *Service) workTableTraceBlockFor(sessionID string) string`
+- `func (service *Service) refreshWorkTableSnapshot()`
+- `func (service *Service) refreshWorkTableFromSources()`
+- `func (service *Service) safeLifecycleCall(call func())`
+- `func (service *Service) asyncRunsForTable() []dto.AsyncRunRecord`
 
 ### work_table_session_axis_test.go
 

@@ -72,7 +72,7 @@ type draftShellOptions struct {
 // 任务状态的唯一投影面、`ReadFiles` 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——
 // 两者都归会话所有，换视图指针就必须清，否则新会话会显示、并落盘成上一会话的历史。
 func (service *Service) enterDraftShellLocked(options draftShellOptions) *session.SessionUnit {
-	service.nextViewEpochLocked()
+	service.components.view.NextViewEpochLocked()
 	service.Core.Snapshot.Session = model.SessionState{
 		ID: options.sessionID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft,
 	}

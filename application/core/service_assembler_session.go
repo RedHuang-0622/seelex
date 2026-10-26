@@ -127,7 +127,7 @@ func (service *Service) assembleSessionUseCaseApplications() {
 		Transition: service.transitionForSession,
 		Gate: func(sessionID string) switching.UnloadGate {
 			service.ViewMu.RLock()
-			restoring := service.isRestoringLocked(sessionID)
+			restoring := service.components.view.IsRestoringLocked(sessionID)
 			running := false
 			if unit := service.sessions.Unit(sessionID); unit != nil {
 				running = unit.ChatState().Running
@@ -173,7 +173,7 @@ func (service *Service) assembleSessionUseCaseApplications() {
 				Closed:    service.closed,
 				Draining:  service.draining,
 				Busy:      service.sessionBusy(service.sessions.Unit(sessionID)),
-				Restoring: service.isRestoringLocked(sessionID),
+				Restoring: service.components.view.IsRestoringLocked(sessionID),
 			}
 			service.ViewMu.RUnlock()
 			if gate.Closed {
@@ -261,14 +261,16 @@ func (service *Service) assembleSessionUseCaseApplications() {
 			return applicationsession.ResumeState{
 				Hot:       service.sessionLoaded(sessionID),
 				Running:   service.anyChatRunningLocked(),
-				Restoring: service.isRestoringLocked(sessionID),
+				Restoring: service.components.view.IsRestoringLocked(sessionID),
 				Previous:  service.Core.Snapshot.Session.ID,
 			}
 		},
 		PointViewAtRestoringShell: service.pointViewAtRestoringShell,
 		HotAttach:                 service.hotAttachSession,
-		MarkViewIntent:            service.markSessionViewIntent,
-		BeginAsyncRestore:         service.beginAsyncRestore,
+		MarkViewIntent: func(sessionID string) {
+			service.components.view.MarkSessionViewIntent(sessionID)
+		},
+		BeginAsyncRestore: service.beginAsyncRestore,
 		ResumeColdInBackground: func(sessionID, previousID string, epoch uint64) {
 			go service.resumeSessionColdInBackground(sessionID, previousID, epoch)
 		},
@@ -293,12 +295,14 @@ func (service *Service) assembleSessionUseCaseApplications() {
 	})
 
 	service.components.sessionRestoreRecovery = applicationsession.NewRestoreRecovery(applicationsession.RestoreRecoveryDeps{
-		Lock:                 func() sync.Locker { return &service.ViewMu },
-		ClearRestoringLocked: service.clearRestoringLocked,
+		Lock: func() sync.Locker { return &service.ViewMu },
+		ClearRestoringLocked: func(sessionID string) {
+			service.components.view.ClearRestoringLocked(sessionID)
+		},
 		SnapshotLocked: func(sessionID string, epoch uint64) applicationsession.RestoreRecoveryState {
 			return applicationsession.RestoreRecoveryState{
 				StillActive: service.Core.Snapshot.Session.ID == sessionID,
-				Latest:      service.sessionViewIntentLocked(sessionID) == epoch,
+				Latest:      service.components.view.SessionViewIntentLocked(sessionID) == epoch,
 			}
 		},
 		HotAttach: service.hotAttachSession,

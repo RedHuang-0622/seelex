@@ -109,8 +109,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		commands:           assembler.ports.CommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
 		sessions:           sessionDomain,
-		restoring:          make(map[string]struct{}),
-		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
 	service.assembleExecutionApplication(assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
@@ -264,6 +262,19 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.sessions.ActiveID()
 		},
 		Tasks: service.components.tasks,
+		DraftView: func() (string, string) {
+			if service.draft == nil {
+				return "", ""
+			}
+			workspaceID := ""
+			if service.draft.Workspace != nil {
+				workspaceID = service.draft.Workspace.ID
+			}
+			return service.draft.ID, workspaceID
+		},
+		TitleForSession: func(sessionID string) string {
+			return service.components.sessions.CatalogSessionTitle(sessionID).Value
+		},
 		Goals: goalGovernanceViewPort{service: service},
 		// 团队看板读面（计划 + 作业行 + 审计流水）：与 Goals 同构——Deps 收窄成
 		// 「会话 → 只读投影」，转发与缓存的责任留给桥（未装配 teamwork 时

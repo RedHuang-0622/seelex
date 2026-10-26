@@ -6,7 +6,7 @@
 `SubscribeSession`/`SubscribeSessionWithReplay`/
 `AppendMessageLocked`/`BumpLocked`/`ApplyRuntimeProjectionLocked`/
 `CollectRuntimeProjection`/`AddNotice`/`ResetConversation`；消息序列与
-revision 在此自持。
+revision、restoring 集合、restore 广播和 view epoch/intent 在此自持。
 
 本包现在是 Application-owned Coordinator，不再转调 `middle/view/state`；
 core、conversation、policy、admin 与 cold/session 组件直接消费本包。
@@ -17,6 +17,8 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 - 做：会话级事件订阅的唯一过滤判据。显式 session ID 精确匹配；空 ID 跟随
   `session.Domain.ActiveID()`；`resync.required` / `app.exit_requested`
   只接受空 SessionID 的进程级事件。
+- 做：会话目录活体行补种、状态/待批/驻留富化、restoring 状态与唤醒信号、
+  每会话视图意图、读文件引用和工具后 assistant 占位。
 - 窗口锚点（2026-09-11）：可见窗口是 `[HistoryOffset, HistoryOffset + 窗口条数)`
   的连续区间。**贴尾**（`viewWindowTailAligned`：窗口末尾即 durable 末尾）时新
   消息照常追加并保持贴尾；**回看历史**（用户翻到更早位置）时窗口锚定不动，
@@ -30,12 +32,13 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
   时同样不落 `message.added`，现场表现就是「输入被吞、整个回合界面一动不动」。
   助手/工具行不受这条规则影响（`TestAppendWhileBrowsingHistoryKeepsWindow` 钉住
   的正是那一侧）。
-- 不做：工作表格构建（根包 `work_table.go`，经端口注入）、chat 流式。
+- 不做：工作表格构建（`application/execution/table`，经端口注入）、chat 流式。
 
 ## 依赖方向
 
 依赖 `state.Core` + 注入端口（`CurrentEffort`、`RefreshWorkTableLocked`、
-`dto.ViewLimits` 只读窄面）。thought 块过滤已改为 `contract/protocol` 的唯一实现，
+`DraftView`、`TitleForSession`、`dto.ViewLimits` 只读窄面）。thought 块过滤已改为
+`contract/protocol` 的唯一实现，
 本包不再 import `backend/engine/react`。
 
 BM-003 已完成：Application 注入 `func() dto.ViewLimits`，

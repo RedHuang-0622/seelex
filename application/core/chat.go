@@ -72,7 +72,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	}
 	// 恢复门兜底（TOCTOU 收口）：submitConversation/For 在释放 ViewMu 后调用
 	// 本函数，切换可能落在两次取锁之间。restoring 期间不得启动新回合。
-	if service.isRestoringLocked(sessionID) {
+	if service.components.view.IsRestoringLocked(sessionID) {
 		service.ViewMu.Unlock()
 		return ErrSessionRestoring
 	}

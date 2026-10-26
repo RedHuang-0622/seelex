@@ -15,10 +15,14 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 		CatalogRows: func() []model.SessionInfo {
 			return service.Core.Snapshot.Sessions
 		},
-		WithLiveRows: service.withLiveSessionRowsLocked,
-		EnrichRows:   service.enrichDirectoryRowsLocked,
-		Meta:         service.metaDeps,
-		Workspace:    service.Deps.Workspace,
+		WithLiveRows: func(rows []model.SessionInfo) []model.SessionInfo {
+			return service.components.view.WithLiveSessionRowsLocked(rows)
+		},
+		EnrichRows: func(rows []model.SessionInfo) []model.SessionInfo {
+			return service.components.view.EnrichDirectoryRowsLocked(rows)
+		},
+		Meta:      service.metaDeps,
+		Workspace: service.Deps.Workspace,
 		WaitCatalog: func(ctx context.Context) error {
 			return service.components.residency.WaitCatalogRefresh(ctx, service.components.sessions)
 		},

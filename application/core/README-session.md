@@ -1349,6 +1349,25 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 
 - `func TestColdResumeWhileRunningIsAsync(t *testing.T)` — TestColdResumeWhileRunningIsAsync 复现“会话运行中切换到冷加载目标长期处于
 
+### session_view_runtime_test_aliases_test.go
+
+- `func (service *Service) projectDraftWorkspaceLocked(snapshot *protocol.Snapshot)` — Test-only aliases retain the existing core integration harness while the
+- `func (service *Service) withLiveSessionRowsLocked(rows []protocol.SessionInfo) []protocol.SessionInfo`
+- `func (service *Service) enrichDirectoryRowsLocked(rows []protocol.SessionInfo) []protocol.SessionInfo`
+- `func (service *Service) sessionStatusLocked(sessionID string) protocol.SessionStatus`
+- `func (service *Service) isRestoringLocked(sessionID string) bool`
+- `func (service *Service) setRestoringLocked(sessionID string)`
+- `func (service *Service) clearRestoringLocked(sessionID string)`
+- `func (service *Service) restoreSignalLocked() <-chan struct`
+- `func (service *Service) nextViewEpochLocked() uint64`
+- `func (service *Service) markSessionViewIntentLocked(sessionID string) uint64`
+- `func (service *Service) markSessionViewIntent(sessionID string)`
+- `func (service *Service) sessionViewIntentLocked(sessionID string) uint64`
+- `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)`
+- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *protocol.Message`
+- `func (service *Service) sessionViewEmptyLocked(sessionID string) bool`
+- `func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string)`
+
 ### shutdown_concurrent_test.go
 
 - `func (engine *cancelAwareEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`

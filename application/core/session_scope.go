@@ -436,8 +436,8 @@ func (service *Service) rebindViewWorkspaceWhenIdle() {
 func (service *Service) awaitRestore(ctx context.Context, sessionID string) error {
 	for {
 		service.ViewMu.Lock()
-		restoring := service.isRestoringLocked(sessionID)
-		signal := service.restoreSignalLocked()
+		restoring := service.components.view.IsRestoringLocked(sessionID)
+		signal := service.components.view.RestoreSignalLocked()
 		service.ViewMu.Unlock()
 		if !restoring {
 			return nil

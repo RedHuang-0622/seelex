@@ -484,7 +484,9 @@ func (service *Service) assemblePolicySwitchApplication() {
 
 func (service *Service) assembleFrontendSnapshotApplication() {
 	service.components.frontendSnapshot = view_state.NewSnapshotApplication(service.components.view, view_state.SnapshotDeps{
-		Status: service.sessionStatusLocked,
+		Status: func(sessionID string) model.SessionStatus {
+			return service.components.view.SessionStatusLocked(sessionID)
+		},
 		DraftRow: func() *model.SessionInfo {
 			if service.draft == nil || service.draft.ID == "" {
 				return nil
@@ -497,11 +499,17 @@ func (service *Service) assembleFrontendSnapshotApplication() {
 				Status:    SessionStatusDraft,
 			}
 		},
-		Annotate:              service.components.editForkAnnotation.Annotate,
-		LatestTranscriptSeq:   service.components.tasks.LatestTranscriptSeqFor,
-		ProjectDraftWorkspace: service.projectDraftWorkspaceLocked,
-		WithLiveRows:          service.withLiveSessionRowsLocked,
-		EnrichRows:            service.enrichDirectoryRowsLocked,
+		Annotate:            service.components.editForkAnnotation.Annotate,
+		LatestTranscriptSeq: service.components.tasks.LatestTranscriptSeqFor,
+		ProjectDraftWorkspace: func(snapshot *model.Snapshot) {
+			service.components.view.ProjectDraftWorkspaceLocked(snapshot)
+		},
+		WithLiveRows: func(rows []model.SessionInfo) []model.SessionInfo {
+			return service.components.view.WithLiveSessionRowsLocked(rows)
+		},
+		EnrichRows: func(rows []model.SessionInfo) []model.SessionInfo {
+			return service.components.view.EnrichDirectoryRowsLocked(rows)
+		},
 	})
 }
 

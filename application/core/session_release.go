@@ -49,7 +49,7 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 	return switching.Protected(switching.ProtectedInput{
 		SessionID:     sessionID,
 		ViewSessionID: service.Core.Snapshot.Session.ID,
-		Restoring:     service.isRestoringLocked(sessionID),
+		Restoring:     service.components.view.IsRestoringLocked(sessionID),
 		State:         sessionBusyState(service.sessions.Unit(sessionID)),
 	})
 }

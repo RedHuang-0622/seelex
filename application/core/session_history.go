@@ -33,8 +33,8 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 		service.ViewMu.Unlock()
 		return 0, errors.New("application is shut down")
 	}
-	epoch := service.markSessionViewIntentLocked(sessionID)
-	service.setRestoringLocked(sessionID)
+	epoch := service.components.view.MarkSessionViewIntentLocked(sessionID)
+	service.components.view.SetRestoringLocked(sessionID)
 	unit := service.sessionUnitLocked(sessionID)
 	service.components.conversationTurnState.ResetLocked(unit)
 	unit.SetCancel(nil)
@@ -82,7 +82,7 @@ func (service *Service) pointViewAtRestoringShell(sessionID string) bool {
 		service.ViewMu.Unlock()
 		return true
 	}
-	if !service.isRestoringLocked(sessionID) {
+	if !service.components.view.IsRestoringLocked(sessionID) {
 		// 装载已收口（restoring 已清）：视图归位交给正常的切换路径，这里不越权
 		// 冒充一次激活——否则会把已发布的内容换成空壳。
 		service.ViewMu.Unlock()

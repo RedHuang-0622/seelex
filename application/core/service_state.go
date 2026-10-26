@@ -69,29 +69,6 @@ type serviceState struct {
 	// 与否互不替代。
 	loadedContentOrder []string
 
-	// viewEpoch 是视图切换的单调序号（Core.ViewMu 保护）：它是一支**时钟**——
-	// 每次"激活某个会话"都从这里取一个序号当该会话的视图意图值（见
-	// sessionViewIntent），不直接参与发布判定。
-	viewEpoch uint64
-	// sessionViewIntent 是**按会话**的视图意图（Core.ViewMu 保护）：sessionID →
-	// 最近一次"激活该会话"取到的序号。后台冷加载完成时校验自己仍是**该会话**的
-	// 最新意图，否则只完成装载、不抢视图。
-	//
-	// 为什么按会话而不是全局：全局序号会被**别的会话**的切换推走——"切走又切回
-	// 同一个会话"时，在途装载因序号过期而永不发布，视图停在空壳上（用户看到空
-	// 会话）。会话释放面（window=1）让"切回即冷加载"成为常见路径，这条路必须成立：
-	// 切回同一目标只重指空壳、不动意图，在途装载完成时仍能发布。
-	sessionViewIntent map[string]uint64
-	// restoring 是“后台冷加载中”的会话集合（Core.ViewMu 保护）：这些会话
-	// 的目录行与当前快照展示 SessionStatusRestoring，装载完成/失败即移除。
-	restoring map[string]struct{}
-	// restoreSig 是“有会话的 restoring 被清除”的广播信号（Core.ViewMu 保护）：
-	// clearRestoringLocked 关闭旧通道并重建新通道；等待方（awaitRestore）先读
-	// 通道再去睡觉，醒来后重读 restoring 复判（多会话并发装载时一个信号可能
-	// 对应别的会话，复判后继续等）。用途：把显式后台提交挂到装载完成点
-	// （SubmitToSession 非阻塞契约与“restoring 期间不得开新回合”的调和）。
-	restoreSig chan struct{}
-
 	// compacting 是「该会话有一轮上下文压缩正在进行」的集合（Core.ViewMu 保护）。
 	// 它必须独立于 ChatState.Running 存在：落在**没有在飞回合**的会话上的显式
 	// 压缩（冷加载/刚清空 → compactSessionContextWithoutEpoch）刻意不写 Running

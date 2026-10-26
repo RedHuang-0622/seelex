@@ -152,6 +152,11 @@ WorkTable 的源同步、生命周期消费者、Todo 刷新与发布态已归
 `ViewMu`、Snapshot、SessionUnit 与回合编排，不再持有 WorkTable publisher 或消费者
 停止状态。
 
+Session 的 restoring 集合、restore 广播、view epoch/intent、目录行状态富化与
+可见 View 辅助读写已归
+[`application/session/viewstate`](../session/viewstate/README.md)。core 只通过
+`viewstate.Coordinator` 访问这些状态，不再保存第二份视图意图或恢复集合。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、

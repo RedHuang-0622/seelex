@@ -322,7 +322,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) assembleExecutionApplication(reader applicationexecution.BoardReader)`
 - `func (service *Service) assembleRoleActivityApplication()`
 - `func (service *Service) assembleRoleApplication()`
-- `func (service *Service) assembleReviewApplication()`
+- `func (service *Service) assembleReviewApplication(newProcessor applicationreview.ProcessorFactory)`
 - `func (service *Service) assembleHistorySearchApplication()`
 - `func (service *Service) assembleProjectBoardQuery()`
 - `func (service *Service) assemblePerfStatsApplication()`
@@ -382,7 +382,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func (service *Service) assembleSessionDraftComponents()`
 
-### service_assembler_Session query application
+### service_assembler_session_query.go
 
 - `func (service *Service) assembleSessionReadApplications(historyWindowAssembler applicationhistory.WindowAssembler)`
 
@@ -775,26 +775,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T)` — TestAssembleScheduledRunAppliesTierAndPlugins 钉住任务的**装配**落到哪儿：
 - `func TestScheduledRunParamsDefaultsAndValidation(t *testing.T)` — TestScheduledRunParamsDefaultsAndValidation 钉住定时任务那两条执行参数（思考强度 /
 - `func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T)` — TestScheduledPluginsValidatedAgainstCatalog 钉住应用层的插件装配校验：未知插件名
-
-### service_snapshot.go
-
-- `func (service *Service) projectDraftWorkspaceLocked(snapshot *model.Snapshot)` — projectDraftWorkspaceLocked 把草稿的工作区绑定补进 `session_workspaces`
-- `func (service *Service) withLiveSessionRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — withLiveSessionRowsLocked 把「内存里活着、目录里还没有」的会话补进目录行
-- `func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
-- `func (service *Service) sessionStatusLocked(sessionID string) model.SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
-- `func (service *Service) isRestoringLocked(sessionID string) bool` — isRestoringLocked 报告目标会话是否处于后台冷加载（调用方持有
-- `func (service *Service) setRestoringLocked(sessionID string)` — setRestoringLocked 标记目标会话进入后台冷加载（调用方持有 Core.ViewMu）。
-- `func (service *Service) clearRestoringLocked(sessionID string)` — clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
-- `func (service *Service) signalRestoreLocked()` — signalRestoreLocked 广播一次“restoring 集合已变化”（调用方持有
-- `func (service *Service) restoreSignalLocked() <-chan struct` — restoreSignalLocked 返回当前 restoring 变化信号（调用方持有 Core.ViewMu）。
-- `func (service *Service) nextViewEpochLocked() uint64` — nextViewEpoch 推进全局视图序号时钟并返回新值（调用方持有 Core.ViewMu）。
-- `func (service *Service) markSessionViewIntentLocked(sessionID string) uint64` — markSessionViewIntentLocked 给会话记一次新的视图意图并返回其值（调用方持有
-- `func (service *Service) markSessionViewIntent(sessionID string)` — markSessionViewIntent 是 markSessionViewIntentLocked 的自取锁包装。
-- `func (service *Service) sessionViewIntentLocked(sessionID string) uint64` — sessionViewIntentLocked 返回会话当前的视图意图值（调用方持有 Core.ViewMu）。
-- `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)` — refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
-- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *model.Message` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
-- `func (service *Service) sessionViewEmptyLocked(sessionID string) bool` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
-- `func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string)` — recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
 
 ### service_snapshot_test.go
 

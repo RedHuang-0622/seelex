@@ -102,8 +102,12 @@ func (service *Service) assembleSessionColdComponents() {
 	})
 
 	service.components.sessionColdActivation = applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
-		ClearRestoring: service.clearRestoringLocked,
-		ViewIntent:     service.sessionViewIntentLocked,
+		ClearRestoring: func(sessionID string) {
+			service.components.view.ClearRestoringLocked(sessionID)
+		},
+		ViewIntent: func(sessionID string) uint64 {
+			return service.components.view.SessionViewIntentLocked(sessionID)
+		},
 		TitleFromHistory: func(history []contract.EngineMessage) string {
 			return session_runtime.SessionTitleFromHistory(history, displayUserInput)
 		},
@@ -141,7 +145,9 @@ func (service *Service) assembleSessionColdComponents() {
 		RecordTail: func(record model.SessionRecord, window int) []model.Message {
 			return service.components.sessions.RecordConversationTail(record, window)
 		},
-		ViewEmpty: service.sessionViewEmptyLocked,
+		ViewEmpty: func(sessionID string) bool {
+			return service.components.view.SessionViewEmptyLocked(sessionID)
+		},
 		SetView: func(sessionID string, view *sessioncase.View) {
 			service.components.view.SetSessionViewLocked(sessionID, view)
 		},
@@ -172,7 +178,9 @@ func (service *Service) assembleSessionColdComponents() {
 		RestoreAnchors: func(sessionID string) {
 			_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 		},
-		RefreshRuntime: service.refreshRuntimeProjectionForSession,
+		RefreshRuntime: func(sessionID string) {
+			service.components.view.RefreshRuntimeProjectionForSession(sessionID)
+		},
 		PublishSnapshot: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
