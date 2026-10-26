@@ -5712,6 +5712,25 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `application/workspace/switch` 目录移回 `middle/switch/workspace`，
   并把调用点 import 改回旧路径。
 
+## EP-073：Subagent View 归入 Execution
+
+- 把 `middle/view/subagent` 的 432 行唯一实现、适配/归属/状态词行为测试与 README
+  物理迁入 `application/execution/subagentview`，包名统一为 `subagentview`；
+- 删除 `application/execution/subagent_view.go` 和 identity-only 测试，
+  Core、Compat 与工具钩子测试直接构造/消费新 owner，不再经过
+  `application/execution` 二次转发；
+- `Deps`、`Coordinator`、详情投影、live 工具事件、Plan 节点定位/克隆、
+  revision bump 和 ToolRecord 暂存/收口回调保持原签名与执行顺序；
+- 红测：`TestApplicationDoesNotImportMiddleSubagentView` 因新 owner 缺失失败；
+  迁移后该门禁同时证明整个 `application/**` 不再直接 import 旧 Middle 包；
+- 绿测：`go test ./application/execution/... ./application/core ./application/compat`、
+  Application 架构/依赖预算、E2E `Facade|Layout|Subagent` 与 `go build ./...` 通过；
+  同时把状态词门禁中的既有迁移文件路径更新为当前 owner；
+- Application 具体依赖由 22 降至 21；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；Subagent JSON、GUI/TUI wire、事件 revision/seq 不变；
+- 回退方式：把 `application/execution/subagentview` 移回
+  `middle/view/subagent`，恢复 execution identity alias 与调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

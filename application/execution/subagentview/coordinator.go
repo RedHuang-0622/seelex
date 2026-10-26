@@ -1,9 +1,9 @@
-// Package subagent_view owns the subagent detail / tree projection
+// Package subagentview owns the subagent detail / tree projection
 // surface: truncated session + context snapshot + worktree readback, and
 // bounded tool-event increments into the authoritative Plan node snapshot. It
 // only reads Engine Node query surfaces (safe read-only subagent actors) and
 // never touches subagent execution.
-package subagent_view
+package subagentview
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ const maxSubagentConversationMessages = 50
 // maxSubagentContextItems 上下文快照单类条目上限。
 const maxSubagentContextItems = 20
 
-// Deps 是 subagent_view 的装配输入。
+// Deps 是 subagentview 的装配输入。
 type Deps struct {
 	Core *state.Core
 	// View 用于事件增量 revision bump（锁内调用）。
@@ -59,7 +59,7 @@ type Coordinator struct {
 	commitToolRecord  func(ownerSessionID, nodeID string)
 }
 
-// NewCoordinator 构造 subagent_view 协调器。
+// NewCoordinator 构造 subagentview 协调器。
 func NewCoordinator(deps Deps) *Coordinator {
 	return &Coordinator{
 		Core: deps.Core, view: deps.View, limits: deps.Limits,

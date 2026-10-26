@@ -97,7 +97,7 @@ core 兼容转发与宿主判据的边界说明。
 视图切换**什么都不做**（读数不跟视图走）。
 
 守卫用例：`tool_record_isolation_test.go`（12 条会话隔离边界矩阵）、
-`application/execution/toolrecord/stage_test.go`（暂存本身）、`middle/view/subagent/record_attribution_test.go`
+`application/execution/toolrecord/stage_test.go`（暂存本身）、`application/execution/subagentview/record_attribution_test.go`
 （归属与"记账先发生"）。
 
 ### tool_record.go

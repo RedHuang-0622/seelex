@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
+	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 
 // TestHandleSubagentToolEventProjectsBoundedIncrementals 钉住子代理工具事件的
@@ -43,7 +43,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	service.components.subagent.HandleSubagentToolEvent(completed)
 
 	snapshot := service.Snapshot()
-	node := subagent_view.FindPlanNodeByID(snapshot.Runtime.Plan.Nodes, "worker")
+	node := subagentview.FindPlanNodeByID(snapshot.Runtime.Plan.Nodes, "worker")
 	if node == nil || len(node.ToolEvents) != 1 {
 		t.Fatalf("worker tool events = %#v", node)
 	}

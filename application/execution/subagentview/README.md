@@ -1,4 +1,4 @@
-# subagent_view
+# subagentview
 
 ## 生态位
 
@@ -26,8 +26,8 @@
 
 BM-003 已完成：`Deps.Limits` 接收 `func() dto.ViewLimits`，Application 从生效
 `limit.Limits` 的唯一 `ViewLimits()` 投影注入；本包到 `backend/limit` 的边已删除。
-Application 现通过 [`application/execution`](../../../application/execution/README.md)
-的同身份 alias 消费 Coordinator，core 不再直接 import 本包。
+Application 的 Core、Compat 与测试直接消费本包 Coordinator，不再经过
+`application/execution` identity alias。
 
 ## 数据流图
 
@@ -90,7 +90,7 @@ sequenceDiagram
 ## 测试
 
 ```text
-go test ./middle/view/subagent -count=1
+go test ./application/execution/subagentview -count=1
 ```
 
 根包 `subagent_detail_test.go`/`subagent_tree_test.go` 覆盖集成；本包

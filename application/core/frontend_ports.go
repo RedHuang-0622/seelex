@@ -8,6 +8,7 @@ import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
@@ -74,7 +75,7 @@ type FrontendPorts struct {
 	ToolRecords         *applicationtoolrecord.Application
 	View                *view_state.Coordinator
 	FrontendSnapshot    *view_state.SnapshotApplication
-	SubagentView        *applicationexecution.SubagentViewCoordinator
+	SubagentView        *subagentview.Coordinator
 	Workspace           *applicationworkspace.Application
 	WorkspaceUseCase    *switchworkspace.UseCase
 	AddNotice           func(string)

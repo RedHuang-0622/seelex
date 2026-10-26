@@ -1,4 +1,4 @@
-package subagent_view
+package subagentview
 
 import (
 	"testing"

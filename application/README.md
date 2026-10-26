@@ -639,7 +639,7 @@ Service 的 5 个主要 Goal 方法只保留一行转发。
 ### Subagent Application 用例（AP-016 首个切片，已实现）
 
 `Subagent view application` 集中子代理恢复目录、中断恢复、定点恢复、fork 派发、
-树清理和详情读取。Runtime 与 `middle/view/subagent` 仍是具体能力提供方；
+树清理和详情读取。Runtime 与 `application/execution/subagentview` 仍是具体能力提供方；
 Service 对应方法只保留一行转发。
 
 ### Execution Application 用例（AP-017 首个切片，已实现）
@@ -762,7 +762,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`../backend/engine/prompt/`](../backend/engine/prompt/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）（M5-R7 迁出 `core/prompt_layer/`，包名不变）。 |
 | [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
 | [`../backend/engine/session/`](../backend/engine/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
-| [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
+| [`execution/subagentview/`](execution/subagentview/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（EP-073 迁入 Application）。 |
 | [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
 | [`session/state/`](session/state/README.md) | SessionUnit、Domain actor、Chat/Queue/View 与 DeepCopy 的唯一状态所有者。 |
 | [`session/viewstate/`](session/viewstate/README.md) | 用户可见 Snapshot 读写、revision 与事件发布。 |

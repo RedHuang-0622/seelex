@@ -1,4 +1,4 @@
-package subagent_view
+package subagentview
 
 // record_attribution_test.go — 钉住子代理工具记录的**归属与次序**（2026-10-19 方向 C）。
 //

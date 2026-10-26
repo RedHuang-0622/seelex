@@ -8,6 +8,7 @@ import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
@@ -51,7 +52,7 @@ type serviceComponents struct {
 	goal             *applicationgoal.Coordinator
 	view             *view_state.Coordinator
 	frontendSnapshot *view_state.SnapshotApplication
-	subagent         *applicationexecution.SubagentViewCoordinator
+	subagent         *subagentview.Coordinator
 	input            contract.InputDispatcher
 	submission       *applicationinput.SubmissionApplication
 

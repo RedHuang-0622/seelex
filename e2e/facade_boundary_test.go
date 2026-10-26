@@ -223,7 +223,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
 	"github.com/RedHuang-0622/seelex/backend/engine/session",
-	"github.com/RedHuang-0622/seelex/middle/view/subagent",
+	"github.com/RedHuang-0622/seelex/application/execution/subagentview",
 	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view/board",

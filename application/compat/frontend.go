@@ -13,6 +13,7 @@ import (
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	"github.com/RedHuang-0622/seelex/application/core"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	applicationtaskcontext "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
@@ -37,7 +38,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/event"
-	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 
 // Frontend keeps the existing frontend method surface while the consumers
@@ -296,7 +296,7 @@ func (frontend *Frontend) Snapshot() model.Snapshot {
 	return frontend.frontendSnapshot().Snapshot()
 }
 
-func (frontend *Frontend) subagentView() *subagent_view.Coordinator {
+func (frontend *Frontend) subagentView() *subagentview.Coordinator {
 	if frontend == nil {
 		return nil
 	}

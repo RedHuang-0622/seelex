@@ -6,7 +6,7 @@ import (
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/event"
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
@@ -466,13 +466,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		PublishSessionEvent: service.publishSessionEvent,
 	})
 	service.assembleConversationTurnRuntimeComponents()
-	service.components.subagent = applicationexecution.NewSubagentView(applicationexecution.SubagentViewDeps{
+	service.components.subagent = subagentview.NewCoordinator(subagentview.Deps{
 		Core:   kernel,
 		View:   service.components.view,
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
-		// 工具记录走 toolrecord 的**唯一**判据（Failed + Reason），
-		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
-		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。
+		// 工具记录走 toolrecord 唯一判据并先进入执行单元暂存；core 只注入单元键折算与主侧合并。
 		RecordToolOutcome: func(ownerSessionID string, event dto.SubagentToolEvent) {
 			if service.toolRecords != nil {
 				service.toolRecords.StageSubagentEvent(ownerSessionID, event)
