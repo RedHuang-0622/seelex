@@ -133,6 +133,6 @@ func newServiceReferenceApplication(service *Service) *applicationreference.Appl
 			}
 			return result.Content, nil
 		},
-		CompressedTurnPrefix: compressedTurnRefPrefix,
+		CompressedTurnPrefix: applicationreference.CompressedTurnRefPrefix,
 	})
 }

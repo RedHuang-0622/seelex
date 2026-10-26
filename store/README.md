@@ -748,6 +748,13 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
   轮次。
 - **通道枚举**：`ListToolResults` 返回 tool-results 通道全部不可变结果（含
   `compressed:<segment_id>` 压缩原文归档），供 fork 深拷贝物理复制。
+- `Event` / `EventToolCall` 是 `contract/protocol.TranscriptEvent` /
+  `TranscriptToolCall` 的同身份 alias；Store 不再维护第二份 wire 结构，增删
+  `commit_id` / `in_out_json` 等字段也不会与 Application 视图漂移。
+- `CompleteEventUnits` / `EventParagraphs` / `ParagraphEnd` /
+  `IsParagraphBoundary` 由 `contract/protocol/event_units.go` 唯一实现，Store
+  只保留兼容入口；`QueueItem` / `QueueRecoveryReport` 同样 alias 到
+  `contract/dto`，durable queue 的恢复载荷不再迫使 Application import Store。
 - **快照版本**：`CurrentGeneration` 返回会话当前已发布 generation，是血缘
   `forked_from_generation` 的事实来源（不可变快照绑定，禁止引用父的最新
   内存状态或后续提交）。

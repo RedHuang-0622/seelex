@@ -21,6 +21,13 @@ M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包
 `command.go` 定义 Application 命令入站面使用的 `Command` / `CommandResult`；
 `backend/engine/input` 以 alias 复用，避免根门面反向依赖具体路由实现。
 
+`compressed_turn.go` 定义压缩轮次归档的唯一 ToolResults ref 前缀；Application
+writer、Store 和 fork 复制共用该常量，避免字符串命名空间漂移。
+
+`contract/protocol/event_units.go` 是完整协议轮次与段落边界的唯一实现；
+`contract/dto/queue_item.go` 是 durable queue 的只读恢复 DTO。Store 与 backend
+session 均以同身份 alias 复用，不复制 wire 字段或段落判据。
+
 ## 架构图
 
 ```mermaid

@@ -6,8 +6,7 @@ import (
 
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 const (
@@ -29,19 +28,19 @@ func (service *Service) editForkApplicationComponent() *applicationedit.EditAppl
 	return service.components.editForkApplication
 }
 
-func (service *Service) beginEditForkOperation(parentID string, request model.EditUserMessageForkRequest) (*editForkOperation, bool, error) {
+func (service *Service) beginEditForkOperation(parentID string, request protocol.EditUserMessageForkRequest) (*editForkOperation, bool, error) {
 	return service.components.editForkOperationRegistry.Begin(parentID, request)
 }
 
-func (service *Service) finishEditForkOperation(operation *editForkOperation, result model.EditUserMessageForkResult, err error) {
+func (service *Service) finishEditForkOperation(operation *editForkOperation, result protocol.EditUserMessageForkResult, err error) {
 	service.components.editForkOperationRegistry.Finish(operation, result, err)
 }
 
-func (service *Service) runEditUserMessageFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
+func (service *Service) runEditUserMessageFork(ctx context.Context, parentID string, request protocol.EditUserMessageForkRequest) (protocol.EditUserMessageForkResult, error) {
 	return service.components.editForkProcess.Run(ctx, parentID, request)
 }
 
-func (service *Service) resolveEditForkTarget(parentID string, targetSeq uint64) (store.Event, uint64, uint64, error) {
+func (service *Service) resolveEditForkTarget(parentID string, targetSeq uint64) (protocol.TranscriptEvent, uint64, uint64, error) {
 	return service.components.editForkTargetResolver.Resolve(parentID, targetSeq)
 }
 
@@ -55,10 +54,10 @@ func (service *Service) rollbackEditFork(parentID, childID string, cause error) 
 
 // annotateConversationForEditLocked 给可见用户消息补权威 EventSeq 与编辑判据。
 // 调用方持有 Core.ViewMu。
-func (service *Service) annotateConversationForEditLocked(sessionID string, messages []model.Message, running bool) []model.Message {
+func (service *Service) annotateConversationForEditLocked(sessionID string, messages []protocol.Message, running bool) []protocol.Message {
 	return service.components.editForkAnnotation.Annotate(sessionID, messages, running)
 }
 
-func (service *Service) loadSessionForkRef(location session_runtime.Location, sessionID string) *model.SessionForkRef {
+func (service *Service) loadSessionForkRef(location session_runtime.Location, sessionID string) *protocol.SessionForkRef {
 	return service.components.sessionForkLineage.Load(location, sessionID)
 }

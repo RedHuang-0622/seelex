@@ -25,8 +25,10 @@
 
 - `application.go`：`Deps`、`Application`、构造器和引用/Plan 用例。
 - `compressed_turn.go`：`read_compressed_turn` 参数、归档读取、渲染与分页。
+- `archiver.go`：压缩轮次原文归档器、显式 project/session scope 与窄写端口。
 - `application_test.go`：分页上限、别名解析和 Plan 节点筛选。
 - `compressed_turn_test.go`：压缩段作用域、过滤、上限、截断与角色渲染。
+- `archiver_test.go`：归档 ref、ctx 会话优先、provider 兜底与无归属拒绝。
 
 ## 核心实现
 

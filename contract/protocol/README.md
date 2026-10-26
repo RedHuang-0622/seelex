@@ -20,6 +20,7 @@
 | `state.go` | Snapshot、会话、消息、Runtime、Plan、WorkItem 与 clone helper。 |
 | `context.go` | Task checkpoint、transcript 与 active skill 投影。 |
 | `fork.go` | 会话 fork 请求与血缘 DTO。 |
+| `event_units.go` | 完整协议轮次切分、Event 段落边界与 fork cut 的唯一实现。 |
 | `session_input_index.go` | 会话输入索引只读形状。 |
 | `toolcall_status_record.go` | 工具调用存档词到契约枚举的唯一转换点。 |
 | `visible_output.go` | 流式可见正文的 think 块过滤（状态型 helper 的唯一实现）。 |
@@ -87,6 +88,13 @@ go test ./contract -run 'TestBM00' -count=1
 ### fork.go
 
 - 本文件只声明 fork 请求、结果、切点与会话血缘值类型。
+
+### event_units.go
+
+- `func CompleteEventUnits(events []TranscriptEvent) [][]TranscriptEvent` — 把事件流切成完整或开放的协议轮次。
+- `func EventParagraphs(events []TranscriptEvent) []EventParagraph` — 从协议轮次派生含端点的事件段落。
+- `func ParagraphEnd(events []TranscriptEvent, seq uint64) (uint64, bool)` — 返回包含指定事件序号的段落末端。
+- `func IsParagraphBoundary(events []TranscriptEvent, seq uint64) bool` — 判断事件序号是否落在段落边界。
 
 ### session_input_index.go
 

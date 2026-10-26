@@ -43,6 +43,9 @@ teammate live 投影仍由 `backend/multiagent/teamwork.BoardReader` 唯一实�
 `NewHostSessionForToolCall` 返回只读 ctx 查询函数；员工回合的宿主会话归属仍由
 `backend/engine/assemble.HostSessionForToolCall` 唯一实现。
 
+`NewCompressedTurnStore` 返回 `application/reference.CompressedTurnStore`；压缩原文
+仍通过唯一 `SaveCommitWorkspace` 写入既有 `store.Commit/ToolResult` 通道。
+
 ## 架构图
 
 ```mermaid
@@ -646,8 +649,8 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) QueueMarkConsumedWorkspace(projectID, sessionID, turnID string) error` — QueueMarkConsumedWorkspace 实现 durable queue 的「消费凭据」写入侧：
 - `func (port SessionPort) QueueConfirmConsumedWorkspace(projectID, sessionID, turnID string) error` — QueueConfirmConsumedWorkspace 该轮 message 已发布 → 消费项出队。
 - `func (port SessionPort) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error` — QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
-- `func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]store.QueueItem, bool, error)` — QueueItemsWorkspace 读 lifecycle 队列投影。
-- `func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (store.QueueRecoveryReport, bool, error)` — QueueRecoverItemsWorkspace 重启恢复队列（条目级结果：重发项/出队项/待发项）。
+- `func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]dto.QueueItem, bool, error)` — QueueItemsWorkspace 读 lifecycle 队列投影。
+- `func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (dto.QueueRecoveryReport, bool, error)` — QueueRecoverItemsWorkspace 重启恢复队列（条目级结果：重发项/出队项/待发项）。
 - `func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
 - `func (port SessionPort) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（基座一致才发布）。
 - `func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — DiscardPendingMessageTailWorkspace 显式丢弃草稿尾部。

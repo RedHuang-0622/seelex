@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const TaskContextProjectionSchemaVersion = 1
 
@@ -122,6 +125,10 @@ type TranscriptEvent struct {
 	ConfigRole     string `json:"config_role,omitempty"`
 	ConfigModel    string `json:"config_model,omitempty"`
 	ConfigProvider string `json:"config_provider,omitempty"`
+	// CommitID groups event rows written by one durable commit.
+	CommitID string `json:"commit_id,omitempty"`
+	// InOutJSON is the final successful message payload, preserved verbatim.
+	InOutJSON json.RawMessage `json:"in_out_json,omitempty"`
 }
 
 type TranscriptToolCall struct {

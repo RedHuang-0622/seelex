@@ -20,6 +20,8 @@ import (
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
@@ -30,7 +32,7 @@ const (
 	// CompressedTurnRefPrefix 是压缩轮次原文在 tool-results 通道中的 ref
 	// 前缀（ref = "compressed:"+segment_id）。前缀属于存储通道命名空间，
 	// 压缩/检索与 fork 血缘共用同一常量，避免字符串漂移。
-	CompressedTurnRefPrefix = "compressed:"
+	CompressedTurnRefPrefix = contract.CompressedTurnRefPrefix
 	// defaultMessageShardSize 是 JSON 存储分片条数的默认值
 	// （seele.yaml limits 段 message_shard_size 可调，0 = 默认）。
 	defaultMessageShardSize = 100
@@ -83,11 +85,7 @@ func (key Key) Complete() bool {
 	return strings.TrimSpace(key.ProjectID) != "" && strings.TrimSpace(key.SessionID) != ""
 }
 
-type EventToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
+type EventToolCall = protocol.TranscriptToolCall
 
 // EventKind 是 transcript 事件的显式类别，供轨迹多线谱与有序日志直接区分
 // 工具调用/LLM/用户输入等，避免仅按 role 启发式判定。
@@ -126,60 +124,8 @@ func EventKindOf(event Event) string {
 	}
 }
 
-// Event is the append-only transcript representation shared by every
-// backend. TokenCount is recorded at event creation time so reverse reads do
-// not need to retokenize the complete archive.
-type Event struct {
-	Seq    uint64 `json:"seq"`
-	TaskID string `json:"task_id,omitempty"`
-	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引；
-	// 模块化方案 §3.2：禁止按数组位置临时推导）。无法稳定配对时为空。
-	MessageID string `json:"message_id,omitempty"`
-	// Kind 是轨迹可见的显式类别（tool_call/llm/user_input/…）；空 = 旧数据，
-	// 用 EventKindOf 回退。
-	Kind             string `json:"kind,omitempty"`
-	Role             string `json:"role"`
-	ReasoningContent string `json:"reasoning_content,omitempty"`
-	Content          string `json:"content,omitempty"`
-	// ProviderContent 是该事件在 provider wire 上**实际发出**的正文（仅当它
-	// 与 Content 不同才落盘；空 = Content 即 wire 字节）。Content 是视图/轨迹
-	// 呈现（工具失败分类文本、超限警告的应用归档引用），ProviderContent 是
-	// 「已发出字节」。provider 投影出口（eventsToMessages / 会话 wire 装配 /
-	// 应用侧 transcript 投影）必须取它，否则跨轮重投影改写该消息、前缀缓存
-	// 自该点起失效（实测 63 B → 181 B，见
-	// docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md §8）。
-	ProviderContent string          `json:"provider_content,omitempty"`
-	ToolCallID      string          `json:"tool_call_id,omitempty"`
-	Name            string          `json:"name,omitempty"`
-	ToolCalls       []EventToolCall `json:"tool_calls,omitempty"`
-	ResultRef       string          `json:"result_ref,omitempty"`
-	TokenCount      int             `json:"token_count"`
-	CreatedAt       time.Time       `json:"created_at"`
-	// CommitID 是 会话存储布局中"一次持久提交"的标识：同一提交内的多行事件共享
-	// 同一 commit_id；重复持久化同 commit_id 幂等（行不重复、head 不双跳）。
-	// 旧布局 transcript.log / rollout.jsonl 已随 D2/S12 退役，不再消费该
-	// 字段。
-	CommitID string `json:"commit_id,omitempty"`
-	// InOutJSON 是 message 行的"最终成功载荷"（最终成功 in/out 原样）。
-	InOutJSON json.RawMessage `json:"in_out_json,omitempty"`
-	// WireMaterial 只对 internal_user/context 行有意义：true = 可作为
-	// 内部 user 材料进入 wire（R2-FILTER），false/空 = 只服务前端/历史。
-	WireMaterial bool `json:"wire_material,omitempty"`
-	// RoleName / RoleSessionID 是群聊角色归属（§8.3）：user/main/tl/
-	// agent-team；message 行必须可识别归属，UI/审计/恢复按此区分。
-	RoleName      string `json:"role_name,omitempty"`
-	RoleSessionID string `json:"role_session_id,omitempty"`
-	// RoundID 是一条 user 输入开启的群聊因果轮次；UnitSeq 是角色内单元序。
-	// 两者与 message 全局 seq 分离，是 sequencer 排序键（§8.3）。
-	RoundID uint64 `json:"round_id,omitempty"`
-	UnitSeq uint64 `json:"unit_seq,omitempty"`
-	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 行对应模型请求的
-	// 实际承接路由（见 middle/protocol/model.TranscriptEvent 同名字段）：随行落盘，
-	// 会话派生（derivedConversationMessages）与轨迹审计共用。
-	ConfigRole     string `json:"config_role,omitempty"`
-	ConfigModel    string `json:"config_model,omitempty"`
-	ConfigProvider string `json:"config_provider,omitempty"`
-}
+// Event is the append-only transcript representation shared by every backend.
+type Event = protocol.TranscriptEvent
 
 type ToolResult struct {
 	Ref        string    `json:"ref"`
@@ -1744,101 +1690,10 @@ func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
 	return tail
 }
 
-// CompleteEventUnits 把事件流切分为可见协议轮次单元（轮）：user 轮、
-// assistant 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿
-// tool 事件、未知角色与控制块不构成单元。中断（残缺）工具链轮与未回复的
-// user 请求仍构成开放单元 —— UI 可见的轮次不得因单元切分而从冷加载
-// provider 上下文消失；缺失的 tool 结果由装配层请求前补齐。
+// CompleteEventUnits is the store compatibility entry backed by the single
+// protocol implementation.
 func CompleteEventUnits(events []Event) [][]Event {
-	units := make([][]Event, 0, len(events))
-	for index := 0; index < len(events); {
-		event := events[index]
-		switch {
-		case event.Role == "user":
-			unit, next := userEventUnit(events, index)
-			if len(unit) > 0 {
-				units = append(units, unit)
-			}
-			index = next
-		case event.Role == "assistant" && len(event.ToolCalls) == 0:
-			units = append(units, append([]Event(nil), event))
-			index++
-		case event.Role == "assistant" && len(event.ToolCalls) > 0:
-			unit, next, complete := toolEventUnit(events, index)
-			if complete {
-				units = append(units, unit)
-			} else if len(unit) > 0 {
-				// 残缺（中断）工具链：保留已记录部分为开放单元，从链断裂点
-				// 续扫 —— 不整体作废、不连坐跳到下一个 user。
-				units = append(units, unit)
-			}
-			index = next
-		default:
-			// Orphan tool results and unknown roles are archive evidence but
-			// never become provider context by themselves.
-			index++
-		}
-	}
-	return units
-}
-
-func userEventUnit(events []Event, start int) ([]Event, int) {
-	unit := []Event{events[start]}
-	index := start + 1
-	for index < len(events) && events[index].Role != "user" {
-		event := events[index]
-		if event.Role != "assistant" {
-			// 孤儿 tool / 异常角色：轮在此终止，产出已保留内容；孤儿消息由
-			// 外层 default 跳过。
-			return unit, index
-		}
-		if len(event.ToolCalls) == 0 {
-			unit = append(unit, event)
-			return unit, index + 1
-		}
-		toolUnit, next, _ := toolEventUnit(events, index)
-		// 工具链完整或残缺（中断）都并入该轮；残缺链的缺失结果由装配层
-		// 补齐。next 落在链断裂点，后续同轮文本/下一 user 不会被跳转丢弃。
-		unit = append(unit, toolUnit...)
-		index = next
-	}
-	// 到达下一个 user 或流末：产出开放单元。覆盖残缺工具链收尾、无回复的
-	// user 请求（会话关闭/取消/进程在首个模型响应前退出）等可见轮次 ——
-	// 丢弃会让持久化会话在 UI 可见但冷加载 provider 上下文缺失。
-	return unit, index
-}
-
-func toolEventUnit(events []Event, start int) ([]Event, int, bool) {
-	assistant := events[start]
-	wanted := make(map[string]struct{}, len(assistant.ToolCalls))
-	for _, call := range assistant.ToolCalls {
-		if call.ID == "" {
-			return nil, start + 1, false
-		}
-		if _, duplicate := wanted[call.ID]; duplicate {
-			return nil, start + 1, false
-		}
-		wanted[call.ID] = struct{}{}
-	}
-	unit := []Event{assistant}
-	seen := make(map[string]struct{}, len(wanted))
-	index := start + 1
-	for index < len(events) && len(seen) < len(wanted) {
-		event := events[index]
-		if event.Role != "tool" {
-			break
-		}
-		if _, ok := wanted[event.ToolCallID]; !ok {
-			break
-		}
-		if _, duplicate := seen[event.ToolCallID]; duplicate {
-			break
-		}
-		seen[event.ToolCallID] = struct{}{}
-		unit = append(unit, event)
-		index++
-	}
-	return unit, index, len(seen) == len(wanted)
+	return protocol.CompleteEventUnits(events)
 }
 
 func appendUnique(values []string, value string) []string {

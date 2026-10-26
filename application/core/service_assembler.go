@@ -20,7 +20,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/store"
 	"time"
 )
 
@@ -237,16 +236,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.conversationTurnProcess = newServiceConversationTurnProcess(service)
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
-	var goalStoreFor func(sessionID string) *store.SessionContextStore
-	if provider, ok := assembler.deps.Runtime.(interface {
-		SessionContextStoreFor(sessionID string) *store.SessionContextStore
-	}); ok {
-		goalStoreFor = provider.SessionContextStoreFor
-	}
 	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
-	service.components.goal = applicationgoal.NewCoordinator(applicationgoal.CoordinatorDeps{
-		StoreFor: goalStoreFor,
-	})
+	service.components.goal = applicationgoal.NewCoordinatorForRuntime(assembler.deps.Runtime)
 	service.components.goalApplication = newServiceGoalApplication(service, assembler.ports.HostSessionForToolCall)
 	service.components.prompts = prompt.NewCoordinator(prompt.CoordinatorDeps{
 		Core:          kernel,

@@ -59,7 +59,7 @@
 - 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 2，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 115 个、生产代码 11,709 行；
+- 冻结 `application/core` 非测试生产文件 114 个、生产代码 11,603 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -149,8 +149,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 |---|---:|
 | `Service` 公开方法 | 23 |
 | `application/core` 直接内部依赖 | 2 |
-| `application/core` 生产文件 | 115 |
-| `application/core` 生产代码 | 11,709 行 |
+| `application/core` 生产文件 | 114 |
+| `application/core` 生产代码 | 11,603 行 |
 
 已落地领域包：
 
@@ -310,7 +310,8 @@ child fork、切换、提交和回滚尚未迁移。
 ### Edit/Fork 目标事件解析（AP-030 首个切片，已实现）
 
 `edit_fork_target_resolver.go` 负责加载父事件、计算父 revision、定位目标用户
-输入、拒绝内部/非用户事件，并复用 `store.EventParagraphs` 计算 fork cut。
+输入、拒绝内部/非用户事件，并复用 `contract/protocol.EventParagraphs` 的唯一段落
+实现计算 fork cut；Store 同名函数只保留兼容转发。
 child fork、切换、提交和失败回滚仍由原流程拥有。
 
 ### Edit/Fork child 原子编排（AP-031 首个切片，已实现）

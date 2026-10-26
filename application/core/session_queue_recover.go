@@ -1,8 +1,8 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/store"
 	"strings"
 )
 
@@ -18,7 +18,7 @@ import (
 //     的非运行分支）——这样"重启后输入仍在"与"不会悄悄计费"同时成立。
 //
 // 幂等：同一批条目的内容为空则跳过；回填只发生在会话冷加载路径一次。
-func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []store.QueueItem) {
+func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []dto.QueueItem) {
 	if service == nil || len(resent) == 0 {
 		return
 	}

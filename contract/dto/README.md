@@ -43,6 +43,7 @@
 | `worktree.go` | `NodeWorktreeInfo`：节点 worktree 现场的只读摘要（人工恢复入口）。 |
 | `review_request.go` | 「agent 请求 GUI 打开待审阅文件」这一格的契约：`ReviewRequest` / `ReviewFileRef` / `ReviewSkip` + 上限 `MaxReviewFilesPerRequest`（10）与跳过原因词表。**只带路径**，文件内容仍走只读预览通道（`dto.FileContent`）。 |
 | `workspace.go` | 批量新建项目契约：`WorkspaceCreateRequest`、`WorkspaceCreateResult`、`WorkspaceCreateBatchResult`。批量创建只登记 workspace，不绑定当前会话；绑定仍走 `BindWorkspace`。 |
+| `queue_item.go` | durable lifecycle queue 的只读恢复载荷：`QueueItem` 与 `QueueRecoveryReport`。字段与既有持久化 JSON 逐字一致，Store/backend session 以同身份 alias 复用。 |
 
 ## 依赖方向
 

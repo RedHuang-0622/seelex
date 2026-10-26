@@ -5,13 +5,12 @@ import (
 
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceEditForkTargetResolver(service *Service) *applicationedit.TargetResolver {
 	return applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
-		LoadEvents: func(parentID string) ([]store.Event, bool, error) {
+		LoadEvents: func(parentID string) ([]protocol.TranscriptEvent, bool, error) {
 			location := service.components.sessions.LocateSession(parentID)
 			port, ok := service.Deps.Sessions.(session_runtime.SessionForkPort)
 			if !ok {
@@ -20,7 +19,7 @@ func newServiceEditForkTargetResolver(service *Service) *applicationedit.TargetR
 			events, err := port.LoadEventRangeWorkspace(location.WorkspaceID, parentID, 1, math.MaxUint64)
 			return events, true, err
 		},
-		IsUserText: func(message model.Message) bool {
+		IsUserText: func(message protocol.Message) bool {
 			return inputIndexUserText(message) != ""
 		},
 	})

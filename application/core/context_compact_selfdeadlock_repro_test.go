@@ -34,10 +34,12 @@ package core
 import (
 	"context"
 	types "github.com/RedHuang-0622/Seele/types"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,7 +72,7 @@ func (stub *archiverSessionsStub) commitCount() int {
 // backend/engine/assemble/runtime_compaction_index.go 的第二步同形。
 type productionArchiveIndexRuntime struct {
 	runtimeWithContextLimits
-	archiver *CompressedTurnArchiver
+	archiver *applicationreference.CompressedTurnArchiver
 }
 
 func (runtime *productionArchiveIndexRuntime) PushCompactionFrame(
@@ -103,8 +105,8 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	commits := &archiverSessionsStub{}
 	providerEntered := make(chan struct{})
 	var providerOnce sync.Once
-	archiver := &CompressedTurnArchiver{
-		Sessions: commits,
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store: adapters.NewCompressedTurnStore(commits),
 		// 与 wiring/bootstrap 的 TurnArchiver.SessionIDProvider 同形：归档器的兜底会话归属读的是视图快照。
 		SessionIDProvider: func() string {
 			providerOnce.Do(func() { close(providerEntered) })

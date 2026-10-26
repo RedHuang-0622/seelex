@@ -2,12 +2,12 @@ package core
 
 import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
-	"github.com/RedHuang-0622/seelex/store"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func newServiceEditForkProcess(service *Service) *applicationedit.ProcessApplication {
 	return applicationedit.NewProcess(applicationedit.ProcessDeps{
-		Resolve: func(parentID string, targetSeq uint64) (store.Event, uint64, uint64, error) {
+		Resolve: func(parentID string, targetSeq uint64) (protocol.TranscriptEvent, uint64, uint64, error) {
 			return service.resolveEditForkTarget(parentID, targetSeq)
 		},
 		Validate:         service.validateEditForkParent,

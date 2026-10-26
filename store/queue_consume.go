@@ -2,8 +2,10 @@ package store
 
 import (
 	"errors"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 // lifecycle 队列的「消费凭据」协议（durable queue 写入侧接线，L4 层）。
@@ -31,28 +33,11 @@ import (
 // 未消费项（consumed_by 为空）在任何路径下都保持原样：恢复不得误判用户还没
 // 发出的输入为"已发送"。
 
-// QueueItem 是 lifecycle 队列条目的对外只读投影（不含内部 payload）。
-type QueueItem struct {
-	Seq       uint64 `json:"seq"`
-	ItemID    string `json:"item_id"`
-	RequestID string `json:"request_id,omitempty"`
-	// TurnID 是消费该项的那一轮 requestID（= 该轮 message 行的 TaskID）；
-	// 空 = 尚未被任何一轮消费。
-	TurnID    string    `json:"turn_id,omitempty"`
-	Content   string    `json:"content"`
-	State     string    `json:"state"`
-	SendCount int       `json:"send_count,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// QueueItem is the shared durable queue projection.
+type QueueItem = dto.QueueItem
 
-// QueueRecoveryReport 是重启恢复的结果：Resent 是"已发送未确认"需重发的项，
-// Dropped 是"该轮已发布"已出队的项，Pending 是恢复后仍在队列的项。
-type QueueRecoveryReport struct {
-	SessionID string      `json:"session_id"`
-	Resent    []QueueItem `json:"resent,omitempty"`
-	Dropped   []QueueItem `json:"dropped,omitempty"`
-	Pending   []QueueItem `json:"pending,omitempty"`
-}
+// QueueRecoveryReport is the compatibility name for the shared recovery DTO.
+type QueueRecoveryReport = dto.QueueRecoveryReport
 
 func queueItemView(item queueItem) QueueItem {
 	return QueueItem{

@@ -50,6 +50,19 @@ func NewCoordinator(deps CoordinatorDeps) *Coordinator {
 	}
 }
 
+// NewCoordinatorForRuntime resolves the optional per-session fifth-stack
+// provider inside the Goal application owner, keeping the concrete store shape
+// out of the caller.
+func NewCoordinatorForRuntime(runtime any) *Coordinator {
+	provider, ok := runtime.(interface {
+		SessionContextStoreFor(sessionID string) *store.SessionContextStore
+	})
+	if !ok {
+		return NewCoordinator(CoordinatorDeps{})
+	}
+	return NewCoordinator(CoordinatorDeps{StoreFor: provider.SessionContextStoreFor})
+}
+
 // ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
 // 的控制器与上下文存储适配器，下次经 StoreFor 重新解析、按盘重建。
 func (g *Coordinator) ForgetSession(sessionID string) {

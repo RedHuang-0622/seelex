@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/RedHuang-0622/Seele/types"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"strings"
 	"testing"
 )
@@ -37,8 +39,8 @@ func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, com
 // 进去也读得回来。
 func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
 	st := &fakeCommitSession{}
-	bound := &CompressedTurnArchiver{
-		Sessions:            st,
+	bound := &applicationreference.CompressedTurnArchiver{
+		Store:               adapters.NewCompressedTurnStore(st),
 		SessionIDProvider:   func() string { return "session-bound" },
 		ProjectIDProvider:   func(sessionID string) string { return "proj-" + sessionID },
 		WorkspaceIDProvider: func() string { return "proj-view" },
@@ -50,8 +52,8 @@ func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
 	if len(st.commitProjectIDs) != 1 || st.commitProjectIDs[0] != "proj-session-bound" {
 		t.Fatalf("project IDs = %+v, want [proj-session-bound]（会话绑定优先）", st.commitProjectIDs)
 	}
-	unbound := &CompressedTurnArchiver{
-		Sessions:            st,
+	unbound := &applicationreference.CompressedTurnArchiver{
+		Store:               adapters.NewCompressedTurnStore(st),
 		SessionIDProvider:   func() string { return "session-unbound" },
 		ProjectIDProvider:   func(string) string { return "" },
 		WorkspaceIDProvider: func() string { return "proj-view" },
@@ -88,8 +90,8 @@ func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model
 // 经 SaveCommitWorkspace 持久化（ToolResults 通道，ref = compressed:<segment_id>）。
 func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 	st := &fakeCommitSession{}
-	archiver := &CompressedTurnArchiver{
-		Sessions:          st,
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store:             adapters.NewCompressedTurnStore(st),
 		SessionIDProvider: func() string { return "session-1" },
 	}
 	messages := []types.Message{
@@ -127,8 +129,8 @@ func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 // 返回的视图会话 —— provider 只允许在 ctx 未注入时兜底。
 func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
 	st := &fakeCommitSession{}
-	archiver := &CompressedTurnArchiver{
-		Sessions: st,
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store: adapters.NewCompressedTurnStore(st),
 		SessionIDProvider: func() string {
 			st.providerCalls++
 			return "session-view"
@@ -155,8 +157,8 @@ func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
 // （装配期预热、非回合路径）provider 兜底仍可用。
 func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
 	st := &fakeCommitSession{}
-	archiver := &CompressedTurnArchiver{
-		Sessions: st,
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store: adapters.NewCompressedTurnStore(st),
 		SessionIDProvider: func() string {
 			st.providerCalls++
 			return "session-view"
@@ -178,7 +180,7 @@ func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
 // 会话 ID 时压缩不得落盘（宁可失败也不猜归属）。
 func TestCompressedTurnArchiverRejectsWithoutSessionID(t *testing.T) {
 	st := &fakeCommitSession{}
-	archiver := &CompressedTurnArchiver{Sessions: st}
+	archiver := &applicationreference.CompressedTurnArchiver{Store: adapters.NewCompressedTurnStore(st)}
 	messages := []types.Message{{Role: "user", Content: testStringPtr("无归属压缩")}}
 	if _, err := archiver.StoreTurn(context.Background(), "seg-orphan", messages); err == nil {
 		t.Fatal("compression without a routable session ID must fail")

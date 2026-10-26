@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
@@ -395,8 +396,8 @@ func Run(opts Options) (*App, error) {
 	bashObserver = toolCommandOutcomeObserver(bashObserver, app)
 	runtime.ApplyDeps(assemble.RuntimeDeps{
 		BashDiagnosticObserver: bashObserver,
-		TurnArchiver: &core.CompressedTurnArchiver{
-			Sessions:          sessionManager,
+		TurnArchiver: &applicationreference.CompressedTurnArchiver{
+			Store:             adapters.NewCompressedTurnStore(sessionManager),
 			SessionIDProvider: func() string { return app.Snapshot().Session.ID },
 			// 显式项目作用域：压缩原文的落盘键必须与读面
 			// read_compressed_turn（LoadToolResultWorkspace(workspaceID, sessionID, ref)）

@@ -200,6 +200,8 @@
 | EP-035 | 已完成 | Session Context helper 转发退场 | 删除 session_ctx.go；测试专用 shim 不进入生产面 |
 | EP-036 | 已完成 | ApplyLimits 兼容入口退场 | 组合根与测试直接调用 application/policy.Apply |
 | EP-037 | 已完成 | Limits 读取与 ReleaseWindow 写入归位 | 删除 core Limits；ApplySessionReleaseWindow 迁入 policy |
+| EP-038 | 已完成 | CompressedTurn Archiver 与 Goal Store 解析归位 | Store commit port、Event DTO alias、core 净减 104 行 |
+| EP-039 | 已完成 | Event 段落与 Queue 恢复 DTO 契约化 | `contract/protocol` 唯一段落实现、`contract/dto` queue DTO、core Store import 7 → 1 |
 
 ## 基线指标
 
@@ -4497,20 +4499,30 @@ GoalSkillActive 与 subagent tool-event 投影。
   `backend/limit/accountwindow/accountwindow.go` 内联挡位表；并行 Backend/Middle
   改动已把唯一事实源迁到 `contract/dto/account_window.go`，需要共享 DTO 会话同步
   更新该断言。当前前端测试 874 项中 873 项通过、1 项因此失败。
+- EP-002B：`middle/switch/sessionusecase` 仍要求完整 `SessionUnit`/`View`、
+  Domain actor、Chat/Queue/Approval/Residency/Runtime slot；直接端口化会镜像完整会话状态。
+  需要裁决会话聚合终态归属后才能继续。
+- Store 端口：剩余直接用点跨 compressed turn、edit/fork event、project board plan、
+  goal fifth-stack、queue recovery 五类 payload。必须先决定哪些 store payload 升为
+  `contract` DTO、哪些由窄 repository port 映射；本轮不以 Application alias 掩盖具体
+  `store.*` 类型。
 
 ## 本轮验证记录
 
 已通过：
 
-- `go test ./application/... ./contract/... ./e2e -count=1`
-- `go test -race ./application/... -count=1`
+- `go test ./... -count=1 -timeout=120s`
+- `go test ./application/... ./contract/... -count=1`
+- `go test ./backend/... ./middle/... -count=1`
 - `go test ./e2e -run 'Facade|Document' -count=1`
+- `go test ./test -count=1`
+- `go test -race ./backend/multiagent/teamwork ./backend/engine/assemble ./middle/view/... -count=1`
 - `go vet ./...`
 - `go build ./...`
-- `python scripts/check_readme_refs.py --strict`（209 个 README、0 个失效引用）
-- `gofmt -l application contract`（无输出）
-- `git diff --check`（通过，仅有并行 Backend 文档 CRLF 转 LF 提示）
-- `git diff --check -- application docs/2026-10-25-application-modularization`
+- `go build -tags "gui,desktop,production" ./...`
+- `python scripts/check_readme_refs.py --strict`（216 个 README、0 个失效引用）
+- `gofmt -l application middle contract wiring test`（无输出）
+- `git diff --check`（通过）
 
 跨会话环境项：
 
@@ -5022,16 +5034,56 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
 - 回退方式：恢复 core `Limits` / `ApplySessionReleaseWindow`，并让调用方回到 core。
 
+## EP-038：CompressedTurn Archiver 与 Goal Store 解析归位
+
+- `CompressedTurnArchiver` 从 core 迁入 `application/reference`；Application 只持
+  `CompressedTurnStore.SaveCompressedTurn(projectID, sessionID, ref, content)` 窄端口；
+- Wiring adapter 把端口转换为既有 `store.Commit/ToolResult`，继续复用唯一
+  `SaveCommitWorkspace` 写路径；显式 project/session scope、ctx 会话优先级与
+  `compressed:<segment>` ref 不变；
+- `CompressedTurnRefPrefix` 下沉 `contract`，Store 与 Application 共用同一常量；
+- `store.Event/EventToolCall` 改为 `contract/protocol.TranscriptEvent/ToolCall`
+  同身份 alias；JSON 字段与持久化格式不变；
+- Goal 的 Runtime `SessionContextStoreFor` 可选类型断言移入
+  `application/goal.NewCoordinatorForRuntime`，core 不再直接识别 Store 类型；
+- 红测：core 文件结构门禁在迁移前拒绝 `compressed_turn.go` 与 core alias；
+- 绿测：Reference/Goal/Core/Wiring adapter、Application、Contract 与 E2E
+  Facade/Document 全绿；
+- core 直接内部依赖保持 2，直接 Store import 文件 7 → 5，生产文件 115 → 114，
+  生产代码 11,709 → 11,605 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core Archiver/Goal type assertion 与 Store 本地 Event 定义。
+
+## EP-039：Event 段落与 Queue 恢复 DTO 契约化
+
+- `CompleteEventUnits`、`EventParagraphs`、`ParagraphEnd` 与
+  `IsParagraphBoundary` 的唯一实现迁入 `contract/protocol/event_units.go`；
+  Store 保留同名函数与 `EventParagraph` 同身份 alias，旧 backend/session 调用不变；
+- edit/fork 的 resolver、process 与 core host adapter 改用
+  `protocol.TranscriptEvent` / `protocol.Message` / `protocol.ForkRequest`，删除
+  Application 对 Store Event 与 Middle model alias 的直接依赖；
+- 新增 `contract/dto.QueueItem` / `QueueRecoveryReport`；Store 与 backend session
+  运行时保留同身份 alias，core durable queue 回填只消费 Contract DTO；
+- 红测：`TestEditForkProductionFilesUseProtocolEvents` 初始点名 5 个仍 import
+  Store/Middle model 的文件；Queue 恢复 import 门禁同步钉住 core 不直连 Store；
+- 绿测：Contract BM 门禁、Store queue/paragraph、backend session fork/queue、
+  Application edit/fork、architecture budget 与 wiring adapters 定向通过；
+- core 直接内部依赖保持 2；直接 Store import 文件 5 → 1，生产文件保持 114，
+  生产代码 11,605 → 11,603 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 字段均未改变；
+- 回退方式：恢复 Store 内段落函数本体与 Queue 本地类型，并把 edit/fork 消费点
+  改回 Store Event；Contract alias 可整体删除。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 23 |
 | core 直接内部依赖 | 37 | 2 |
-| core 生产文件 | 126 | 115 |
-| core 生产代码 | 18,723 行 | 11,709 行 |
+| core 生产文件 | 126 | 114 |
+| core 生产代码 | 18,723 行 | 11,603 行 |
 
-core 生产代码净减 7,000 行，直接内部依赖从 37 降到 2；
+core 生产代码净减 7,120 行，直接内部依赖从 37 降到 2；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

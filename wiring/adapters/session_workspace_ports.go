@@ -671,7 +671,7 @@ func (port SessionPort) QueueFailConsumedWorkspace(projectID, sessionID, turnID 
 }
 
 // QueueItemsWorkspace 读 lifecycle 队列投影。
-func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]store.QueueItem, bool, error) {
+func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]dto.QueueItem, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return nil, false, nil
 	}
@@ -679,7 +679,7 @@ func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]stor
 }
 
 // QueueRecoverItemsWorkspace 重启恢复队列（条目级结果：重发项/出队项/待发项）。
-func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (store.QueueRecoveryReport, bool, error) {
+func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (dto.QueueRecoveryReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return store.QueueRecoveryReport{}, false, nil
 	}
