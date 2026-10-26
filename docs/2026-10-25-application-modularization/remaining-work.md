@@ -19,9 +19,9 @@ EP-001～EP-058；`newService*` 构造适配审计与 `Service` 公开业务方�
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle 依赖包 | 23，Store 为 0 |
 | `application/core` 生产文件 | 67 |
-| `application/core` 生产代码 | 9,947 行 |
+| `application/core` 生产代码 | 9,953 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 59 个文件和 8,776 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 59 个文件和 8,770 行。
 
 ## 裁决已冻结
 

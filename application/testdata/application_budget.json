@@ -2,7 +2,7 @@
   "service_method_count": 0,
   "core_internal_dependency_limit": 0,
   "core_production_file_limit": 67,
-  "core_production_line_limit": 9947,
+  "core_production_line_limit": 9953,
   "allowed_core_internal_dependencies": [],
   "compatibility_ledger": "docs/2026-10-25-application-modularization/implementation.md",
   "compatibility_ledger_required_heading": "## 兼容层台账"

@@ -5435,6 +5435,7 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 绿测：Reference/Review、Wiring adapters、Application 全包、`go build` 与
   `go vet`；
 - Application 具体 Backend/Middle/Store 依赖包 25 → 23，Store 保持 0；
+- core 生产代码经统一格式化后为 9,953 行；
 - ref wire、Review JSON、事件 revision 与前端调用签名不变；
 - 回退方式：恢复 Application 对两个 backend 工具包的直接 import，删除 Review
   Processor 端口。
@@ -5446,9 +5447,9 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
 | core 生产文件 | 126 | 67 |
-| core 生产代码 | 18,723 行 | 9,947 行 |
+| core 生产代码 | 18,723 行 | 9,953 行 |
 
-core 生产代码净减 8,776 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 8,770 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
