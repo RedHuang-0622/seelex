@@ -2,7 +2,7 @@ package adapters
 
 import (
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	reactstream "github.com/RedHuang-0622/seelex/backend/engine/react"
+	reactstream "github.com/RedHuang-0622/seelex/kernel/react"
 )
 
 type conversationStreamPort struct{}

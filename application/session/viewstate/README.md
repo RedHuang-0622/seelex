@@ -39,7 +39,7 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 依赖 `state.Core` + 注入端口（`CurrentEffort`、`RefreshWorkTableLocked`、
 `DraftView`、`TitleForSession`、`dto.ViewLimits` 只读窄面）。thought 块过滤已改为
 `contract/protocol` 的唯一实现，
-本包不再 import `backend/engine/react`。
+本包不再 import `kernel/react`。
 
 BM-003 已完成：Application 注入 `func() dto.ViewLimits`，
 本包不依赖 `kernel/limit`。

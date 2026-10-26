@@ -5,9 +5,9 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/react"
 )
 
 // TurnUnit is the SessionUnit surface used by turn start.

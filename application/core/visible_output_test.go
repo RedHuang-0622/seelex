@@ -1,8 +1,8 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/react"
 	"strings"
 	"testing"
 )

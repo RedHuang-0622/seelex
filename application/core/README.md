@@ -16,7 +16,7 @@
   2026-10-16 随 M5-R7 归位 [`backend/engine/input`](../../backend/engine/input/README.md)
   与 [`kernel/contextcontrol`](../../kernel/contextcontrol/README.md)。）
   （`chat/`（流式批次与可见输出）已于 2026-10-16 随 M5-R7 归位
-  [`backend/engine/react`](../../backend/engine/react/README.md)。）
+  [`kernel/react`](../../kernel/react/README.md)。）
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`goal/`（Goal 状态机 +
@@ -68,7 +68,7 @@ flowchart TB
     end
 
     subgraph LEAF["零依赖叶子域"]
-        CHAT["backend/engine/react"]
+        CHAT["kernel/react"]
         WT["kernel/worktable"]
         IR["backend/engine/input"]
         CC["kernel/contextcontrol"]
@@ -513,7 +513,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 
 | 包 | 生态位 |
 |---|---|
-| [../../backend/engine/react/](../../backend/engine/react/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离（M5-R7 归位，包名 `chat`） |
+| [../../kernel/react/](../../kernel/react/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离（M5-R7 归位，包名 `chat`） |
 | [../../kernel/worktable/](../../kernel/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
 | [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
 | [../../kernel/contextcontrol/](../../kernel/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |

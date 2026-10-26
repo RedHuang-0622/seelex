@@ -3,7 +3,7 @@ package adapters
 import (
 	"testing"
 
-	reactstream "github.com/RedHuang-0622/seelex/backend/engine/react"
+	reactstream "github.com/RedHuang-0622/seelex/kernel/react"
 )
 
 func TestConversationStreamPortMatchesEnginePrimitives(t *testing.T) {

@@ -54,7 +54,7 @@
 ## 依赖方向
 
 Conversation 定义 `StreamOutputPort` 与 `SessionRecordsPort`；Wiring 分别注入
-`backend/engine/react` 的可见输出/batcher 实现和
+`kernel/react` 的可见输出/batcher 实现和
 `middle/view/sessionaccess.PaginateRecords`。`application/core` 不再 import
 engine/react 或 sessionaccess。
 

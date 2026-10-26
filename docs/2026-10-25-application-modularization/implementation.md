@@ -5887,6 +5887,17 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `kernel/contextcontrol` 移回
   `backend/engine/input/contextcontrol`，并恢复调用点 import。
 
+## EP-083：React Stream Surface 归入中立 Kernel
+
+- 把 `backend/engine/react` 的 `VisibleOutputStream`、thought-block 剥离、
+  `StreamBatcher`、测试与 README 物理迁入 `kernel/react`；
+- Application Conversation/Core、Wiring adapters 与测试直接引用 `kernel/react`；
+- 红测：Application 全局依赖预算收紧到 7；迁移后预算、Kernel React、
+  Conversation、Core、Wiring、E2E `Facade|Layout` 与 `go build ./...` 通过；
+- Application 具体依赖由 8 降至 7；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；流式批次、thought 过滤、GUI/TUI wire 与持久化格式不变；
+- 回退方式：把 `kernel/react` 移回 `backend/engine/react`，并恢复调用点 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
