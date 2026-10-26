@@ -47,8 +47,8 @@
 - **工具记录**（`application/execution/toolrecord`，2026-10-15；AP-115B 迁出 core）：
   三条工具完成路径（主代理/后台会话的 `tool.completed`、子代理、teammate）都经
   **唯一两处判据**（`toolrecord.Failed` 判成败、`toolrecord.Reason` 归原因）后，
-  累加进**按会话**的内存读数（`toolrecord.Application`，
-  落盘在 `store/record` 的 `Accumulator`）。口径：**只有结果帧**（success/error）
+  累加进**按会话**的内存读数（`toolrecord.Application` 内的
+  `toolrecord.Accumulator`）。口径：**只有结果帧**（success/error）
   才记；**成功与失败都记**（没有分母的失败计数会把优化带偏）；开关
   （`SetToolRecordEnabled`，设置里那一格，落 runtime-limits.json）关着时一个字节都不记。
   命令面另有一条判据：`RecordToolCommandOutcome`（进程退出码非零 = 一次失败，原因归
@@ -72,7 +72,7 @@ core 兼容转发与宿主判据的边界说明。
   来的（#8/#13）。取不到 ⇒ 丢弃 + 计数（`ToolRecordDroppedReadings`，键
   `no_owner_session` / `no_unit_identity`），诊断面可见、不进快照。
 - **阶梯提交**：执行单元（子代理节点 / 角色会话）在做工期间只往**自己的**暂存里累加
-  （`store/record.Stage`，`StageUnitToolOutcome`：只碰台账锁，不碰 ViewMu、不碰磁盘）；
+  （`toolrecord.Stage`，`StageUnitToolOutcome`：只碰台账锁，不碰 ViewMu、不碰磁盘）；
   单元收口时 `CloseUnitToolRecord` 把它**同步**一次性交给会话累计（返回即已入账，
   不丢 goroutine）。单元键口径只在本卷一份：`subagent:<nodeID>`（无 NodeID 时
   `subagent:<event.ID>` 兜底，不再整条丢）、`role:<roleSessionID>`。
@@ -80,7 +80,7 @@ core 兼容转发与宿主判据的边界说明。
   （`Runtime.runRoleRound` 的返回点 → `CloseRoleToolRecordUnit`）、以及落盘前抽干。
 - **唯一入口**：读数进会话累计只有 `CommitUnitToolRecord(sessionID, unitID, seq, stats)`
   一条路——`sessionID` 空则丢弃；`(sessionID, unitID)` 记 `lastSeq`，`seq <= lastSeq`
-  幂等忽略；合并是**相加**语义（`record.Accumulator.Merge`，与冷启动读回的 `Load`
+  幂等忽略；合并是**相加**语义（`toolrecord.Accumulator.Merge`，与冷启动读回的 `Load`
   取较大者不同）。主代理自己的读数不经暂存（它本身就是主侧），仍走 `recordToolOutcome`，
   与暂存链共用同一份判据（`toolrecord.Failed` / `toolrecord.Reason`）。
 
@@ -97,7 +97,7 @@ core 兼容转发与宿主判据的边界说明。
 视图切换**什么都不做**（读数不跟视图走）。
 
 守卫用例：`tool_record_isolation_test.go`（12 条会话隔离边界矩阵）、
-`store/record/stage_test.go`（暂存本身）、`middle/view/subagent/record_attribution_test.go`
+`application/execution/toolrecord/stage_test.go`（暂存本身）、`middle/view/subagent/record_attribution_test.go`
 （归属与"记账先发生"）。
 
 ### tool_record.go

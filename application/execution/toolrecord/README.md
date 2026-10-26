@@ -4,12 +4,13 @@
 
 `application/execution/toolrecord` 拥有工具记录的应用侧台账：成功/失败累计、失败原因、
 执行单元暂存、会话批次落盘与看板投影。主要调用方是 `application/core` 的
-`Service` 兼容入口；具体工具执行与持久化仍分别归工具层和 `store/record`。
+`Service` 兼容入口；具体工具执行与持久化仍分别归工具层和 Session Store 的
+`tool-record.jsonl` 端口。
 
 ## 职责
 
-- 维护每会话一份 `record.Accumulator`；
-- 维护 `(sessionID, unitID)` 的 `record.Stage`、`lastSeq` 幂等序号和 dropped 诊断；
+- 维护每会话一份本包 `Accumulator`；
+- 维护 `(sessionID, unitID)` 的本包 `Stage`、`lastSeq` 幂等序号和 dropped 诊断；
 - 唯一拥有工具成败与失败原因的判据；
 - 先持久化开关设置、再修改内存；
 - 在提交点 drain 叶子暂存并批量落盘整份会话快照；
@@ -19,7 +20,8 @@
 ## 非职责
 
 - 不执行工具、不判断工具权限、不生成工具消息；
-- 不实现 `store/record.Accumulator` 或 `Stage` 的累加算法；
+- 不执行工具；
+- 不直接读写存储文件；持久化只通过 `contract.ToolRecordSnapshotStore`；
 - 不决定会话是否已物化；该宿主判据由 `Deps.WritableSession` 注入；
 - 不持有完整 `Service`，也不 import `application/core`。
 
@@ -48,7 +50,7 @@ type Deps struct {
 ## 并发与错误语义
 
 - 顶层 mutex 只保护开关、端口、表索引和错误槽；
-- `record.Accumulator` / `record.Stage` 继续使用自己的锁，热路径不在顶层锁下累加；
+- `Accumulator` / `Stage` 使用各自的锁，热路径不在顶层锁下累加；
 - 持久化 I/O 不持顶层锁；
 - 同一 `(sessionID, unitID)` 的 `seq <= lastSeq` 幂等忽略，`seq == 0` 保留旧兼容语义；
 - flush 失败不回抛，错误进入看板 `LedgerError`；

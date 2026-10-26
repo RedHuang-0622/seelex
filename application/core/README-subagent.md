@@ -23,7 +23,7 @@ Service 对应入口只保留一行转发。
 - **记账先发生**：无 `NodeID` 的事件不再整条丢——单元键退到 `subagent:<event.ID>`
   （病灶 #9）；`Plan` 投影的早退分支在记账之后，只表示"这条消息不进投影"。
   回归用例：`record_attribution_test.go`（归属来自入参、记账先于投影早退、兼容面不编造归属）。
-- 读数先落进该节点自己的**暂存**（`store/record.Stage`，本包只报"哪个单元、谁、什么
+- 读数先落进该节点自己的**暂存**（`toolrecord.Stage`，本包只报"哪个单元、谁、什么
   状态、错误原文"，判据与合并都在 `application/core`），节点进入终态时收口
   （`CloseToolRecordUnit` → `application/core.CloseSubagentToolRecordUnit`）。
   落盘前 `FlushToolRecord` 还会抽干未收口的暂存，故读数不会丢在叶子这一级。

@@ -8,7 +8,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store/record"
 )
 
 const (
@@ -60,9 +59,9 @@ type Application struct {
 	enabled  bool
 	flushErr error
 	store    contract.ToolRecordSnapshotStore
-	byID     map[string]*record.Accumulator
+	byID     map[string]*Accumulator
 	loaded   map[string]bool
-	stages   map[unitKey]*record.Stage
+	stages   map[unitKey]*Stage
 	lastSeq  map[unitKey]uint64
 	dropped  map[string]int
 }
@@ -71,9 +70,9 @@ type Application struct {
 func New(deps Deps) *Application {
 	return &Application{
 		deps:    deps,
-		byID:    map[string]*record.Accumulator{},
+		byID:    map[string]*Accumulator{},
 		loaded:  map[string]bool{},
-		stages:  map[unitKey]*record.Stage{},
+		stages:  map[unitKey]*Stage{},
 		lastSeq: map[unitKey]uint64{},
 		dropped: map[string]int{},
 	}
@@ -404,18 +403,18 @@ func TerminalSubagentStatus(status dto.SubAgentNodeStatus) bool {
 	}
 }
 
-func (application *Application) accumulator(sessionID string) *record.Accumulator {
+func (application *Application) accumulator(sessionID string) *Accumulator {
 	application.mu.Lock()
 	defer application.mu.Unlock()
 	if existing := application.byID[sessionID]; existing != nil {
 		return existing
 	}
-	created := record.NewAccumulator()
+	created := NewAccumulator()
 	application.byID[sessionID] = created
 	return created
 }
 
-func (application *Application) findAccumulator(sessionID string) *record.Accumulator {
+func (application *Application) findAccumulator(sessionID string) *Accumulator {
 	application.mu.Lock()
 	defer application.mu.Unlock()
 	return application.byID[sessionID]
@@ -461,7 +460,7 @@ func (application *Application) stage(key unitKey, tool string, ok bool, reason 
 	application.mu.Lock()
 	stage := application.stages[key]
 	if stage == nil {
-		stage = record.NewStage(key.unitID, key.sessionID)
+		stage = NewStage(key.unitID, key.sessionID)
 		application.stages[key] = stage
 	}
 	application.mu.Unlock()

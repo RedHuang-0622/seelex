@@ -5,7 +5,7 @@ import "time"
 // tool_record.go — **工具记录**（成功/失败计数 + 失败原因）的只读投影。
 //
 // 生态位：读数是**会话级**台账（`<sessionRoot>/tool-record.jsonl`，实现 =
-// `store/record` + `store/tool_record.go`），经 `Application.ToolRecordBoard()`
+// `application/execution/toolrecord` + `store/tool_record.go`），经 `Application.ToolRecordBoard()`
 // 暴露**当前视图会话**的读数给 TUI / GUI。
 //
 // 它刻意**不进** `Snapshot`（V10 用户裁决，2026-10-15）：快照是会话作用域的可重放

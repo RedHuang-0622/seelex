@@ -660,7 +660,8 @@ Service 对应方法只保留一行转发。
 批量 flush、懒加载、看板错误与 dropped diagnostics 迁入
 [`application/execution/toolrecord`](execution/toolrecord/README.md)。core 的
 `tool_record.go` / `tool_record_stage.go` 只保留一行 Service 转发和
-`WritableSession` 宿主判据；`store/record` 继续是累加算法的唯一实现。
+`WritableSession` 宿主判据。`Accumulator` 与叶子 `Stage` 已归 ToolRecord 包，
+`store/record` 已退场；存储只消费整份快照端口。
 
 ### WorkTable Publisher 包（AP-115C1，已实现）
 

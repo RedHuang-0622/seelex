@@ -5236,6 +5236,22 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   README 与 diff check 全部通过；
 - 回退方式：恢复单表达式方法并把调用点改回 `Service`。
 
+## EP-047：ToolRecord 内存台账归位
+
+- `Accumulator`、`Stage`、原因归一和叶子暂存测试从 `store/record` 迁入
+  `application/execution/toolrecord`；
+- ToolRecord 应用不再 import `store/record`，Store 只通过
+  `contract.ToolRecordSnapshotStore` 接收整份快照；
+- `store/record` 整包退出，E2E facade/layout 白名单与 Contract DTO 注释同步；
+- 红测：`TestToolRecordOwnsItsInMemoryLedger` 先点名缺失的
+  `application/execution/toolrecord/accumulator.go`；依赖预算随后点名
+  `store/record` 仍被允许；
+- 绿测：ToolRecord 累加/暂存 parity、Store ToolRecord 落盘、Application
+  全局依赖预算与 E2E facade/layout；
+- Application 全局具体依赖包 28 → 27；
+- GUI/TUI wire、事件 revision/seq、`tool-record.jsonl` JSON 与 `Service` 方法数不变；
+- 回退方式：恢复 `store/record` 四个源码/测试文件，并让 ToolRecord 重新 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
@@ -5243,9 +5259,9 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 | `Service` 公开方法 | 171 | 11 |
 | core 直接内部依赖 | 37 | 0 |
 | core 生产文件 | 126 | 111 |
-| core 生产代码 | 18,723 行 | 10,634 行 |
+| core 生产代码 | 18,723 行 | 9,915 行 |
 
-core 生产代码净减 7,966 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 8,808 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

@@ -85,8 +85,6 @@ var repositoryModules = []string{
 	// M5-R9：mcpstack 归位到 engine 板块的 mcp 子域（包名不变）。
 	"backend/engine/mcp/mcpstack",
 	"backend/engine/mcp/mcpstack/config",
-	// M5-R2：工具调用读数的内存累计（原 internal/toolrecord）归位到 store 板块。
-	"store/record",
 	"test",
 }
 

@@ -35,6 +35,16 @@ func TestToolRecordApplicationIsExtractedFromCore(t *testing.T) {
 	}
 }
 
+func TestToolRecordOwnsItsInMemoryLedger(t *testing.T) {
+	applicationDir := sourceApplicationDir(t)
+	for _, name := range []string{"accumulator.go", "stage.go"} {
+		path := filepath.Join(applicationDir, "execution", "toolrecord", name)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("tool-record ledger owner file %s is required: %v", name, err)
+		}
+	}
+}
+
 func fileDeclares(file *ast.File, name string) bool {
 	found := false
 	ast.Inspect(file, func(node ast.Node) bool {

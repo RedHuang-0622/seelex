@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-046A、EP-046C、EP-046D、EP-046E；下一步完成 `newService*` 构造适配审计、
+EP-001～EP-047；下一步完成 `newService*` 构造适配审计、
 剩余 Store 类型边与 18 个共享状态/生命周期入口。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
@@ -17,11 +17,11 @@ EP-001～EP-046A、EP-046C、EP-046D、EP-046E；下一步完成 `newService*` �
 |---|---:|
 | `Service` 公开方法 | 11 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 28 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 27 |
 | `application/core` 生产文件 | 111 |
-| `application/core` 生产代码 | 10,634 行 |
+| `application/core` 生产代码 | 9,915 行 |
 
-本轮包提取起点为 126 个文件、18,723 行；当前净减 15 个文件和 7,966 行。
+本轮包提取起点为 126 个文件、18,723 行；当前净减 15 个文件和 8,808 行。
 
 ## 裁决已冻结
 
@@ -40,7 +40,7 @@ EP-001～EP-046A、EP-046C、EP-046D、EP-046E；下一步完成 `newService*` �
   `application/session/viewstate`，`application/core` 直接内部依赖已归零。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
-  当前 28 个唯一包，只许下降，最终为 0。
+  当前 27 个唯一包，只许下降，最终为 0。
 
 已迁出的领域包：
 
