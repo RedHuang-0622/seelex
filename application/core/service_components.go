@@ -8,6 +8,7 @@ import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
@@ -120,6 +121,7 @@ type serviceComponents struct {
 	referenceApplication         *applicationreference.Application
 	sessionMetaApplication       *applicationsession.MetaApplication
 	projectBoardQuery            *applicationexecution.ProjectBoardApplication
+	workTableRuntime             *applicationtable.Runtime
 	sessionReleaseApplication    *applicationsession.ReleaseApplication
 	contextCompactionApplication *conversationcontext.Application
 	faultGuardApplication        *applicationlifecycle.FaultGuardApplication

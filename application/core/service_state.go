@@ -1,7 +1,6 @@
 package core
 
 import (
-	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	limit "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
@@ -9,7 +8,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -25,7 +23,6 @@ type serviceState struct {
 
 	conversationRuntimeState
 	lifecycleRuntimeState
-	workTableRuntimeState
 	promptRuntimeState
 
 	// sessions 是会话域（阶段 B：会话资源唯一所有者；本状态只保留当前
@@ -127,19 +124,10 @@ type draftSlot struct {
 type conversationRuntimeState struct {
 }
 
-// workTableRuntimeState owns the extracted WorkTable publisher application.
-type workTableRuntimeState struct {
-	workTable *applicationtable.Application
-}
-
 type lifecycleRuntimeState struct {
 	idle     chan struct{}
 	draining bool
 	closed   bool
-	// CSP 生命周期消费者（子代理树信号 / plan 节点事件 / task 变更）停止
-	// 控制：取代同步回调嵌套，数据经 channel 流转。
-	lifecycleStop chan struct{}
-	lifecycleOnce sync.Once
 }
 
 type promptRuntimeState struct {

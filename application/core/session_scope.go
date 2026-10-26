@@ -531,7 +531,7 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 	if service.Approval != nil {
 		approvals = service.Approval.PendingBySession(sessionID)
 	}
-	asyncRuns := service.asyncRunsForTable()
+	asyncRuns := service.components.workTableRuntime.AsyncRuns()
 	taskRecords := service.Deps.Runtime.TaskSnapshot()
 
 	service.ViewMu.RLock()

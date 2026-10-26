@@ -270,7 +270,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// TeamworkBoardViewFor 走类型断言失败分支返回 nil）。
 		Teamwork: teamworkBoardViewPort{service: service},
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
-			service.refreshWorkTableLocked(tasks, asyncRuns)
+			if runtime := service.components.workTableRuntime; runtime != nil {
+				runtime.RefreshLocked(tasks, asyncRuns)
+			}
 		},
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
@@ -299,7 +301,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.attachSessionContextFor(workspaceID, sessionID)
 		},
 		RefreshWorkTable: func() {
-			service.refreshWorkTableFromSources()
+			service.components.workTableRuntime.RefreshFromSources()
 		},
 		WorkspaceIDForSession: func(sessionID string) string {
 			return service.components.sessions.LocateSession(sessionID).WorkspaceID
@@ -323,7 +325,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		View:     service.components.view,
 		History:  service.components.history,
 		WorkTableTraceBlock: func(sessionID string) string {
-			return service.workTableTraceBlockFor(sessionID)
+			if runtime := service.components.workTableRuntime; runtime != nil {
+				return runtime.TraceBlockFor(sessionID)
+			}
+			return ""
 		},
 		EnvironmentTraceBlock: func(sessionID string) string {
 			return service.environmentTraceBlockFor(sessionID)
@@ -357,25 +362,48 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 	})
 	service.assembleSubmissionApplication()
-	// worktable.changed publisher: latest-wins coalescing lives in the extracted
-	// table application; core supplies session identity and tree snapshot.
-	service.workTable = applicationtable.New(applicationtable.Deps{
+	// WorkTable runtime owns source synchronization, lifecycle consumers and
+	// latest-wins publication. Core only supplies the host state and narrow
+	// callbacks.
+	service.components.workTableRuntime = applicationtable.NewRuntime(applicationtable.RuntimeDeps{
+		Core:                             kernel,
+		Tasks:                            service.components.tasks,
+		View:                             service.components.view,
+		Limits:                           workTableBounds,
+		TaskRecordsForSession:            service.taskRecordsForSession,
+		CloseTerminalSubagentToolRecords: service.closeTerminalSubagentToolRecords,
 		SubAgentTree: func() []dto.SubAgentTreeNode {
 			service.ViewMu.RLock()
 			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
 			return tree
 		},
-		Publish: func(update applicationtable.WorkTableUpdate, payload model.WorkTableEvent) {
+		PublishWorkTable: func(update applicationtable.WorkTableUpdate, payload model.WorkTableEvent) {
 			service.ViewMu.RLock()
 			sessionID := service.Core.Snapshot.Session.ID
 			service.ViewMu.RUnlock()
 			service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID, payload)
 		},
+		PublishSessionEvent: service.publishSessionEvent,
+		HandleLifecycleFault: func(recovered any) {
+			service.components.faultGuardApplication.HandleLifecycleFault(recovered)
+		},
+		TriggerAsync: func(triggered map[string]struct{}) int {
+			return service.components.asyncCompletionApplication.TriggerAsyncCompletions(triggered)
+		},
+		TriggerTeamwork: func(triggered map[string]struct{}) int {
+			return service.components.asyncCompletionApplication.TriggerTeamworkJobCompletions(triggered)
+		},
+		AsyncTriggerEnabled: func() bool {
+			return applicationpolicy.Get().AsyncExec.TriggerConversation
+		},
+		RuntimeSnapshot: func() model.RuntimeState {
+			return service.components.frontendSnapshot.Snapshot().Runtime
+		},
 	})
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。
-	service.startLifecycleConsumers()
+	service.components.workTableRuntime.StartLifecycleConsumers()
 	service.Deps.Runtime.SetSubagentPolicy(service.effortManager.SubagentPolicy())
 	service.idle = closedSignal()
 	initialSessionID := service.Deps.Engine.SessionID()

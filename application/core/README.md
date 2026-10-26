@@ -144,8 +144,13 @@ flowchart LR
 EP-046 后，core 不再暴露无参 `*ApplicationComponent` getter，也不再把入站
 能力接口、输入 sigil 词法、Session 订阅、Prompt、ProviderHistory 或 ToolRecord
 公开入口寄居在 `Service`。包内调用直接读 `service.components`；前端兼容方法由
-`application/compat` 直达领域组件。`Service` 当前只保留 8 个共享会话状态/
-生命周期方法。
+`application/compat` 直达领域组件。`Service` 当前不再暴露业务方法；剩余交互由
+装配后的领域组件和 `application/compat.Frontend` 承担。
+
+WorkTable 的源同步、生命周期消费者、Todo 刷新与发布态已归
+[`application/execution/table`](../execution/table/README.md)。core 只保留共享
+`ViewMu`、Snapshot、SessionUnit 与回合编排，不再持有 WorkTable publisher 或消费者
+停止状态。
 
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 

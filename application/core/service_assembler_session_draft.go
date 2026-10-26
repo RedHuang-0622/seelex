@@ -164,7 +164,11 @@ func (service *Service) assembleSessionDraftComponents() {
 		ClearSubagentTree: func() {
 			_ = service.Deps.Runtime.ClearSubagentTree()
 		},
-		RefreshWorkTable: service.refreshWorkTableFromSources,
+		RefreshWorkTable: func() {
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.RefreshFromSources()
+			}
+		},
 		PublishSnapshot: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},

@@ -62,7 +62,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventToolStarted, revision, requestID, sessionID, message)
 	// 工具边界后被动同步 task → worktable 增量，再发最新 runtime.changed。
-	service.refreshWorkTableFromSources()
+	service.components.workTableRuntime.RefreshFromSources()
 	service.publishSessionEvent(EventRuntimeChanged, service.components.frontendSnapshot.Snapshot().Revision, requestID, sessionID, service.components.frontendSnapshot.Snapshot().Runtime)
 }
 
@@ -197,7 +197,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	}
 	// 工具完成：todo/taskadd 已写注册表，plan/subagent 状态已更新——
 	// 统一走被动同步 + 增量发布，再发最新 runtime.changed。
-	service.refreshWorkTableFromSources()
+	service.components.workTableRuntime.RefreshFromSources()
 	// 项目看板投影（M3）：挂在**既有**同步点之后，**不新造工具完成回调**——
 	// 触发面判定在订阅口（同步器）里，这里只做交接（判空 + 转发本次调用）。
 	//

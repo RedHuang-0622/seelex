@@ -46,7 +46,7 @@ func (port serviceRuntimeProjectionPort) PublishRuntimeChanged(revision uint64, 
 }
 
 func (port serviceRuntimeProjectionPort) PublishTaskDeltas() {
-	port.service.publishTaskDeltas()
+	port.service.components.workTableRuntime.PublishTaskDeltas()
 }
 
 // publishRuntimeProjections copies application-owned state under the view lock

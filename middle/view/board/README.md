@@ -22,7 +22,7 @@
 - 职责：活体投影 → 投影行的**零判定映射**；触发档词表与触发表；按会话标脏、去重
   （内容指纹）、差集补 tombstone、按文件水位盖章落盘；唯一 flush goroutine 的生命周期。
 - 非职责：任何**状态判定**（状态/依赖/收口一律原样搬运，读 task 注册表 / plan /
-  teamwork 事实）；活体工作表格行本身的构建（`application/core/work_table.go` 与
+  teamwork 事实）；活体工作表格行本身的构建（`application/execution/table/runtime.go` 与
   `middle/view/worktable`）；会话视图切换与锁（由 `application/core` 的视图锁持有）；
   「这台机器哪个工具最该优化」这类看板读数（**不进 Snapshot**，直接与 JSONL 交互，
   见 plan §V10）。

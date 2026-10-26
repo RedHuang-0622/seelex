@@ -31,7 +31,11 @@ func (service *Service) assembleExecutionApplication(reader applicationexecution
 	service.components.executionApplication = applicationexecution.NewWorkItem(applicationexecution.WorkItemDeps{
 		Runtime: service.Deps.Runtime, BoardView: reader.BoardViewFor,
 		SessionLive: reader.SessionLiveFor, SessionPage: reader.SessionLivePageFor,
-		RefreshTodo: service.refreshRuntimeAfterTodoChange,
+		RefreshTodo: func() {
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.RefreshAfterTodoChange()
+			}
+		},
 	})
 }
 
@@ -131,10 +135,10 @@ func (service *Service) assembleProjectBoardQuery() {
 		WorkTableInputs: func(sessionID string) (*model.PlanState, []dto.TaskRecord, []dto.SubAgentTreeNode, []dto.AsyncRunRecord) {
 			service.ViewMu.RLock()
 			viewSessionID := service.Core.Snapshot.Session.ID
-			plan := service.sessionActivePlanLocked(sessionID)
+			plan := service.components.workTableRuntime.SessionActivePlanLocked(sessionID)
 			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
-			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.asyncRunsForTable()
+			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.components.workTableRuntime.AsyncRuns()
 		},
 		WorkTableLimits: workTableBounds,
 		ProjectRoot: func(sessionID string) string {
@@ -312,10 +316,14 @@ func (service *Service) assembleFaultGuardApplication() {
 			service.components.sessions.StopCatalogRefresh()
 		},
 		CloseSessions: service.sessions.Close,
-		StopConsumers: service.stopLifecycleConsumers,
+		StopConsumers: func() {
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.StopLifecycleConsumers()
+			}
+		},
 		CloseWorkTable: func() {
-			if service.workTable != nil {
-				service.workTable.Close()
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.Close()
 			}
 		},
 		ShutdownApproval: service.Approval.Shutdown,

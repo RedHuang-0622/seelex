@@ -11,7 +11,7 @@ import (
 
 func TestWorkTablePublisherIsExtractedFromCore(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	for _, name := range []string{"application.go", "trace.go", "consumer.go", "lifecycle.go", "projection.go"} {
+	for _, name := range []string{"application.go", "runtime.go", "trace.go", "consumer.go", "lifecycle.go", "projection.go"} {
 		path := filepath.Join(applicationDir, "execution", "table", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("application/execution/table/%s is required: %v", name, err)
@@ -29,6 +29,11 @@ func TestWorkTablePublisherIsExtractedFromCore(t *testing.T) {
 		}
 	}
 	workTablePath := filepath.Join(applicationDir, "core", "work_table.go")
+	if _, err := os.Stat(workTablePath); os.IsNotExist(err) {
+		return
+	} else if err != nil {
+		t.Fatalf("检查 core work_table: %v", err)
+	}
 	workTableFile, err := parser.ParseFile(token.NewFileSet(), workTablePath, nil, 0)
 	if err != nil {
 		t.Fatalf("解析 core work_table: %v", err)

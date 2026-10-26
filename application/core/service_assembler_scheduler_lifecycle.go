@@ -162,11 +162,13 @@ func (service *Service) assembleLifecycleApplication() {
 		},
 		CloseSessions: service.sessions.Close,
 		StopLifecycleConsumers: func() {
-			service.stopLifecycleConsumers()
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.StopLifecycleConsumers()
+			}
 		},
 		CloseWorkTable: func() {
-			if service.workTable != nil {
-				service.workTable.Close()
+			if service.components.workTableRuntime != nil {
+				service.components.workTableRuntime.Close()
 			}
 		},
 		ShutdownApproval: service.Approval.Shutdown,

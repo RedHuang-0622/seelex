@@ -147,6 +147,7 @@
 | AP-115C2b1 | 已完成 | async/teamwork WorkTable consumer 迁出 core | signal/retry parity、core 行数净减 |
 | AP-115C2b2 | 已完成 | subagent/task consumer 与三路 start-once 迁出 core | lifecycle dispatch/stop、core 行数净减 |
 | AP-115C2c | 已完成 | WorkItem/批次输入投影进入 table 包 | row/batch parity、core 行数净减 |
+| EP-060 | 已完成 | WorkTable runtime、源同步、生命周期消费者与 Todo 刷新迁入 table | 结构门禁、core WorkTable 全量回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5457,16 +5458,38 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   均未改变；
 - 回退方式：恢复 `application/core/completion.go` 并让 input 删除对应方法。
 
+## EP-060：WorkTable Runtime 归属迁移
+
+- `application/core/work_table.go` 的生产实现迁入
+  `application/execution/table/runtime.go`；新 owner 同时持有 publisher、
+  Plan/子代理源同步、task 行投影编排、生命周期消费者、Todo 刷新与 TraceBlock。
+- `application/execution/table.RuntimeDeps` 只接收共享状态内核、Task/View 协调器、
+  session/task 读面、发布回调、故障守护和 async trigger；不 import
+  `application/core`，也不持有完整 `Service`。
+- core assembler 改为构造 `table.NewRuntime`，其余回合、冷读与 Draft 路径直接
+  调用 owner；生产 core 不再保留 WorkTable 实现或消费者停止状态。
+- 现存 core 集成测试通过 `_test.go` shim 继续覆盖既有锁序与行为；测试迁移随后续
+  owner 化批次继续，不在本批复制生产判据。
+- 红测：`TestWorkTableRuntimeLivesInExecutionTable` 初始同时点名 legacy
+  `application/core/work_table.go` 与新 runtime 缺失；迁移后结构门禁通过。
+- 绿测：`go test ./application/execution/table ./application/core -count=1`，
+  Application 架构预算通过。
+- core 生产文件 66 → 65，生产代码 9,788 → 9,409 行；`Service` 公开方法保持 0，
+  core 直接内部依赖与 Application 具体依赖包数不变。
+- WorkTable JSON、GUI/TUI wire、事件 revision/seq、任务同步顺序与持久化格式均未改变；
+- 回退方式：恢复 `application/core/work_table.go`，把 assembler 与调用点切回 core，
+  再删除 `table.Runtime`。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 66 |
-| core 生产代码 | 18,723 行 | 9,788 行 |
+| core 生产文件 | 126 | 65 |
+| core 生产代码 | 18,723 行 | 9,409 行 |
 
-core 生产代码净减 8,935 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 9,314 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、
