@@ -13,6 +13,8 @@
 - 在共享读锁内组合会话目录的目录行、活体行和状态富化；
 - 从会话绑定事实读取项目根；
 - 委托会话元数据、快照、transcript 与全量输入索引读取；
+- 拥有全量用户输入索引的组合：durable range → record 降级、已加载窗口标注、
+  摘要构建与空会话降级；慢读在共享写锁之外，窗口读取只取 `ViewMu.RLock`；
 - 等待目录 worker 刷新，不进入共享写锁。
 - 从全量 RuntimeState 提取会话专属运行投影并深拷贝可变字段。
 - 只读选择 Snapshot 的冷读、驻留和内容 LRU 回退路径。
@@ -28,6 +30,9 @@
 
 - `application.go`：`Deps`、`Application`、构造器与只读用例。
 - `application_test.go`：读锁、目录组合、绑定根与 durable 读取委托测试。
+- `input_index.go`：`InputIndexApplication`、durable 全量读取、record 降级与
+  已加载窗口组合。
+- `input_index_test.go`：全量索引、record fallback 与空 session 门禁。
 - `runtime.go`：SessionRuntime 字段归属、Plan/Goal/WorkTable 深拷贝。
 - `snapshot_read.go`：Snapshot 冷/热路径选择。
 - `resident_snapshot.go`：驻留 Snapshot 字段组装与 enrichment。
@@ -39,8 +44,9 @@
 
 ## 数据流
 
-`Service` 兼容入口 → `query.Application` → 注入的目录/元数据/Workspace/
-存储读端口。快照与 transcript 的慢读发生在共享写锁之外。
+`Service` 兼容入口 → `query.Application` / `InputIndexApplication` → 注入的
+目录/元数据/Workspace/存储读与锁内窗口端口。快照、transcript 与 input index
+的慢读发生在共享写锁之外。
 
 ## 依赖方向
 
@@ -51,6 +57,8 @@
 
 - `ListSessions` 只取 `ViewMu.RLock`，不调用慢 I/O；
 - `WaitCatalogRefresh`、`SnapshotOf`、transcript 与 input index 不获取共享写锁；
+- input index 只围绕已加载窗口取 `ViewMu.RLock`；durable range 与 record
+  fallback 在锁外；
 - 未装配目录锁时返回空目录，未绑定 workspace 时返回空根；
 - 底层读取错误原样返回。
 - Runtime projection 不保留进程级 model/provider/plugin/account 字段，Goal 历史与
@@ -66,6 +74,7 @@
 - 目录组合是否仍在读锁内且不触发慢 I/O；
 - 项目根是否只来自 session binding，不回退到当前视图；
 - 是否出现第二份 transcript/input-index 判据；
+- input index 是否仍由本包唯一拥有，core 是否退化为仅装配回调；
 - 是否 import `application/core` 或持有完整 `Service`。
 
 ## 测试与验证
@@ -90,6 +99,15 @@ go test ./application/... -count=1
 - `func (application *Application) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — 读取用户输入索引。
 
 ### `application_test.go`
+
+测试文件按仓库 README 规范不展开函数索引。
+
+### `input_index.go`
+
+- `func NewInputIndex(deps InputIndexDeps) *InputIndexApplication` — 构造只读全量输入索引应用。
+- `func (application *InputIndexApplication) Read(sessionID string) (model.SessionInputIndex, error)` — 组合 durable 全量输入、record 降级和已加载窗口。
+
+### `input_index_test.go`
 
 测试文件按仓库 README 规范不展开函数索引。
 

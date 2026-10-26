@@ -6,10 +6,49 @@ import (
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
+	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func (service *Service) assembleSessionReadApplications(historyWindowAssembler applicationhistory.WindowAssembler) {
+	inputIndex := applicationsessionquery.NewInputIndex(applicationsessionquery.InputIndexDeps{
+		ViewMu: &service.ViewMu,
+		Locate: func(sessionID string) session_runtime.Location {
+			return service.components.sessions.LocateSession(sessionID)
+		},
+		LoadRange: func(workspaceID, sessionID string) ([]model.Message, int, bool, error) {
+			store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort)
+			if !ok {
+				return nil, 0, false, nil
+			}
+			messages, total, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, 0, 0)
+			return messages, total, true, err
+		},
+		LoadRecord: func(location session_runtime.Location, sessionID string) (model.SessionRecord, bool, error) {
+			return service.components.sessions.LoadSessionRecord(location, sessionID)
+		},
+		Record: func(record model.SessionRecord) []model.Message {
+			return service.components.sessions.RecordConversation(record)
+		},
+		ReadUnit: func(sessionID string, read func(*sessionstate.View)) {
+			if unit := service.sessions.Unit(sessionID); unit != nil {
+				unit.View.Read(read)
+			}
+		},
+		BuildItems: func(conversation []model.Message, loaded []string, limit int, userText func(model.Message) string) []model.SessionInputIndexRow {
+			return service.components.residency.BuildInputIndex(conversation, loaded, limit, userText)
+		},
+		SummaryLimit: func() int {
+			return service.components.residency.InputIndexSummaryLimit()
+		},
+		HistoryWindow: func() int {
+			return applicationpolicy.Get().HistoryWindow
+		},
+		DurableCount: view_state.DurableConversationCount,
+		UserText:     inputIndexUserText,
+	})
 	service.components.sessionQuery = applicationsessionquery.New(applicationsessionquery.Deps{
 		ViewMu: &service.ViewMu,
 		CatalogRows: func() []model.SessionInfo {
@@ -28,7 +67,7 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 		},
 		SnapshotOf: service.readSnapshotOf,
 		Transcript: service.readSessionTranscript,
-		InputIndex: service.readSessionInputIndex,
+		InputIndex: inputIndex.Read,
 	})
 
 	service.components.conversationHistoryQuery = applicationhistory.New(applicationhistory.Deps{

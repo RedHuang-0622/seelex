@@ -5536,7 +5536,7 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 红测：`TestToolRecordHostAdaptersLiveInToolRecord` 点名两个 legacy core 文件和
  缺失的新 owner；
 - 绿测：`go test ./application/execution/toolrecord ./application/core -count=1`；
-- core 生产文件 62 → 60，生产代码 8,573 → 8,486 行；`Service` 公开方法保持 0，
+- core 生产文件 63 → 61，生产代码 8,655 → 8,568 行；`Service` 公开方法保持 0，
   core 直接内部依赖和 Application 具体依赖包数不变；
 - ToolRecord 判据、unit key、flush 顺序、JSONL wire、GUI/TUI 行为与持久化格式不变；
 - 回退方式：恢复两个 core host adapter 文件，把装配/调用点切回 core。
@@ -5553,7 +5553,7 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 红测：`TestEnvironmentContextLivesInPromptPackage` 点名 legacy core 文件与缺失
   prompt owner；
 - 绿测：`go test ./application/prompt ./application/core -run 'Environment' -count=1`；
-- core 生产文件 60 → 59，生产代码 8,486 → 8,383 行；`Service` 公开方法保持 0，
+- core 生产文件 61 → 60，生产代码 8,568 → 8,465 行；`Service` 公开方法保持 0，
   core 直接内部依赖和 Application 具体依赖包数不变；
 - 环境标记、行顺序、SSH 地址、GUI/TUI wire 与持久化格式不变；
 - 回退方式：恢复 `application/core/environment_context.go` 并删除 prompt owner。
@@ -5569,10 +5569,30 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   缺失的新 owner；
 - 绿测：`go test ./application/conversation/context ./application/core -run
   'Compaction' -count=1`；context 新增串行/取消用例；
-- core 生产文件 59 → 58，生产代码 8,383 → 8,248 行；`Service` 公开方法保持 0，
+- core 生产文件 60 → 59，生产代码 8,465 → 8,330 行；`Service` 公开方法保持 0，
   core 直接内部依赖和 Application 具体依赖包数不变；
 - 同会话压缩串行、deferred submit 目标会话、上下文取消和 note/事件语义不变；
 - 回退方式：恢复 core gate 文件与两个状态字段，把调用点切回 core。
+
+## EP-066：SessionInputIndex 读取编排归位
+
+- 把全量用户输入索引从 `application/core/session_input_index.go` 迁入
+  `application/session/query`：durable range、record fallback、已加载窗口、
+  摘要构建与空会话降级由 `InputIndexApplication.Read` 统一编排；
+- durable 读取保持在共享写锁之外，已加载窗口只取 `ViewMu.RLock`；查询不持完整
+  `Service`，也不拥有 Session 生命周期或持久化；
+- `inputIndexUserText` 移入既有 `core/skill_context.go`，因为 Edit/Fork 与冷读
+  仍共用同一用户正文判据；
+- 红测：`NewInputIndex` 不存在导致 query 编译失败，
+  `TestSessionInputIndexRuntimeLivesInSessionQuery` 点名 legacy core 文件仍存在；
+- 绿测：query 的 full-range、record fallback、空 session 门禁，以及原有
+  SessionInputIndex 集成回归；
+- core 生产文件 59 → 58，生产代码 8,330 → 8,248 行；`Service` 保持 0，
+  core 直接依赖、Application 全局具体依赖与 Store 依赖均未改变；
+- snapshot/wire 字段、durable range 读取次数、事件 revision/seq 与持久化格式
+  均未改变；
+- 回退方式：恢复 `application/core/session_input_index.go`，把
+  `SessionQuery.InputIndex` 回调切回旧方法。
 
 ## 本轮收口指标
 

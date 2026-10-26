@@ -3,9 +3,12 @@ package core
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
+
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"strings"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 const (
@@ -33,8 +36,8 @@ func wrapModelInput(displayInput, body string) string {
 }
 
 func displayUserInput(modelInput string) string {
-	if strings.HasPrefix(modelInput, contextRecoveryPrefix) || strings.HasPrefix(modelInput, providerRecoveryPrefix) {
-		if _, original, ok := strings.Cut(modelInput, contextRecoveryRequestDelimiter); ok {
+	if strings.HasPrefix(modelInput, context_runtime.ContextRecoveryPrefix) || strings.HasPrefix(modelInput, context_runtime.ProviderRecoveryPrefix) {
+		if _, original, ok := strings.Cut(modelInput, context_runtime.ContextRecoveryRequestDelimiter); ok {
 			return displayUserInput(original)
 		}
 		return ""
@@ -64,4 +67,19 @@ func parseModelEnvelope(input string) (string, int, bool) {
 		return "", 0, false
 	}
 	return string(decoded), lineEnd + 1, true
+}
+
+// inputIndexUserText returns the display text for a user input row. Non-user
+// rows and internal context markers return an empty string.
+func inputIndexUserText(message model.Message) string {
+	if message.Role != "user" {
+		return ""
+	}
+	if strings.HasPrefix(message.Content, session_runtime.SessionArchiveResumePrefix) {
+		return ""
+	}
+	if context_runtime.IsProviderOnlyHistoryContent(message.Content) {
+		return ""
+	}
+	return strings.TrimSpace(displayUserInput(message.Content))
 }
