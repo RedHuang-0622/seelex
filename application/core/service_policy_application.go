@@ -5,11 +5,12 @@ import (
 	"errors"
 
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchApplication {
@@ -64,7 +65,7 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			service.Core.Snapshot.Runtime.PermissionTier = effective
 			service.Core.Snapshot.Runtime.FullAccess = dto.PermissionTierIsFullAccess(effective)
 			revision := service.bumpLocked()
-			runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", sessionID, runtime)
 		},
@@ -99,13 +100,13 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 				unit.SetEffortLevel(effort)
 			}
 			service.Core.Snapshot.Runtime.Effort = effort
-			service.knobs.SeedReadings(reasoningEffortFor(effort), maxLoopsFor(effort))
+			service.knobs.SeedReadings(prompt.ReasoningEffortFor(effort), prompt.MaxLoops(effort))
 			reasoning := service.knobs.ReasoningEfforts()
 			loop := service.knobs.LoopLimit()
 			service.Core.Snapshot.Runtime.ReasoningEffort = reasoning
 			service.Core.Snapshot.Runtime.LoopLimit = loop
 			revision := service.bumpLocked()
-			runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 		},
@@ -134,7 +135,7 @@ func newServicePolicyApplication(service *Service) *applicationpolicy.SwitchAppl
 			service.ViewMu.Lock()
 			service.applyRuntimeProjectionLocked(projection)
 			revision := service.bumpLocked()
-			runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+			runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 			service.publishRuntimeProjections()

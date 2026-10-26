@@ -25,10 +25,12 @@
 ## 文件结构
 
 - `application.go`：`Deps`、`Application`、`Result`、`GateTiming` 与用例。
+- `engine_facade.go`：Engine Context Coordinator/History/Deps alias 与 predicate/warning
+  一行转发，供 core 装配。
 
 ## 依赖方向
 
-允许依赖 backend engine context 的 CompactResult 类型、`middle/protocol/model` 与
+允许依赖 backend engine context 的 identity alias/转发面、`middle/protocol/model` 与
 标准库。禁止依赖 `application/core`、GUI/TUI 或存储实现。
 
 ## 并发与错误

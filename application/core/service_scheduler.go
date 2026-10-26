@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec {
@@ -163,7 +163,7 @@ func newServiceScheduledSessionApplication(service *Service) *applicationschedul
 			defer transition.Unlock()
 			return service.openSessionEngine(sessionID, workspace)
 		},
-		Projection: func() switchworkspace.Projection {
+		Projection: func() applicationworkspace.SwitchProjection {
 			return service.components.workspace.Projection()
 		},
 		LockView:                       service.ViewMu.Lock,

@@ -1,8 +1,8 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
 )
 
 // ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
@@ -21,9 +21,9 @@ func Limits() limit.Limits {
 //
 // 这是本仓库唯一一处"limit.Limits → worktable.Limits"的转换点：投影侧只声明它用到
 // 哪些上限，宿主只负责取数（判据仍在 `backend/limit` 一处）。
-func workTableBounds() worktable.Limits {
+func workTableBounds() applicationtable.Limits {
 	values := Limits()
-	return worktable.Limits{
+	return applicationtable.Limits{
 		WorkTableRows:  values.WorkTableRows,
 		EvidenceChars:  values.EvidenceChars,
 		PlanNodeEvents: values.PlanNodeEvents,

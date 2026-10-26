@@ -3,23 +3,22 @@ package core
 import (
 	"context"
 	"fmt"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
+	"github.com/RedHuang-0622/seelex/application/event"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
-	"github.com/RedHuang-0622/seelex/middle/view/subagent"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 	"time"
 )
@@ -93,12 +92,12 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	if assembler.ports.HostSessionForToolCall == nil {
 		return nil, fmt.Errorf("application: host session reader is required")
 	}
-	if err := prompt_layer.ValidateAssets(); err != nil {
+	if err := prompt.ValidateAssets(); err != nil {
 		return nil, fmt.Errorf("application prompts: %w", err)
 	}
 	assembler.applyInfrastructureDefaults()
 
-	promptStack := NewPromptStack()
+	promptStack := prompt.NewPromptStack()
 	kernel := state.New(assembler.deps)
 	sessionDomain := session.NewDomain()
 	svcState := &serviceState{
@@ -188,13 +187,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		WritableSession: service.toolRecordWritableSession,
 		ViewSessionID:   service.currentViewSessionID,
 	})
-	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
+	service.effortManager = prompt.NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
 	// 实际生效的 high（384）不一致。
 	service.knobs.SeedReadings(
-		reasoningEffortFor(service.effortManager.Current()),
-		maxLoopsFor(service.effortManager.Current()),
+		prompt.ReasoningEffortFor(service.effortManager.Current()),
+		prompt.MaxLoops(service.effortManager.Current()),
 	)
 	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
@@ -248,7 +247,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		StoreFor: goalStoreFor,
 	})
 	service.components.goalApplication = newServiceGoalApplication(service, assembler.ports.HostSessionForToolCall)
-	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
+	service.components.prompts = prompt.NewCoordinator(prompt.CoordinatorDeps{
 		Core:          kernel,
 		PromptStack:   promptStack,
 		EffortManager: service.effortManager,
@@ -259,7 +258,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// 环境段来自组合根（执行面的实际事实：这台机器上 bash 工具落到哪个壳）。
 		Environment: assembler.deps.EnvironmentSection,
 	})
-	service.components.history = context_runtime.NewHistoryCoordinator(kernel)
+	service.components.history = context_runtime.NewEngineHistoryCoordinator(kernel)
 	service.components.sessions = session_runtime.NewCoordinator(session_runtime.Deps{
 		Core:  kernel,
 		Tasks: service.components.tasks,
@@ -307,7 +306,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.conversationTurnFinalize = newServiceConversationTurnFinalize(service)
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
 	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
-	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
+	service.components.workspace = applicationworkspace.NewSwitch(applicationworkspace.SwitchDeps{
 		Store:    service.Deps.Workspace,
 		Sessions: service.Deps.Sessions,
 		Runtime:  service.Deps.Runtime,
@@ -340,7 +339,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	if provider, ok := assembler.deps.Runtime.(context_runtime.CompactionIndexPort); ok {
 		compactionIndex = provider
 	}
-	service.components.context = context_runtime.NewCoordinator(context_runtime.Deps{
+	service.components.context = context_runtime.NewEngineCoordinator(context_runtime.EngineDeps{
 		Core:     kernel,
 		Tasks:    service.components.tasks,
 		Sessions: service.components.sessions,
@@ -361,7 +360,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.conversationTurnRecovery = newServiceConversationTurnRecovery(service)
 	service.components.conversationTurnCleanup = newServiceConversationTurnCleanup(service)
 	service.components.conversationTurnRunner = newServiceConversationTurnRunner(service)
-	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{
+	service.components.subagent = applicationexecution.NewSubagentView(applicationexecution.SubagentViewDeps{
 		Core:   kernel,
 		View:   service.components.view,
 		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
@@ -391,11 +390,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.workTable = applicationtable.New(applicationtable.Deps{
 		SubAgentTree: func() []dto.SubAgentTreeNode {
 			service.ViewMu.RLock()
-			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
 			return tree
 		},
-		Publish: func(update worktable.WorkTableUpdate, payload model.WorkTableEvent) {
+		Publish: func(update applicationtable.WorkTableUpdate, payload model.WorkTableEvent) {
 			service.ViewMu.RLock()
 			sessionID := service.Core.Snapshot.Session.ID
 			service.ViewMu.RUnlock()
@@ -428,7 +427,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.Core.Snapshot = model.Snapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Session:            initialSession,
-		Runtime:            model.RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
+		Runtime:            model.RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: prompt.ReasoningEffortFor(service.effortManager.Current()), LoopLimit: prompt.MaxLoops(service.effortManager.Current())},
 		Capabilities:       model.Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
@@ -483,7 +482,7 @@ func validateDependencies(deps contract.Dependencies) error {
 
 func (assembler *serviceAssembler) applyInfrastructureDefaults() {
 	if assembler.deps.Events == nil {
-		assembler.deps.Events = NewEventHub()
+		assembler.deps.Events = event.NewEventHub()
 	}
 	if assembler.deps.Approval == nil {
 		assembler.deps.Approval = assembler.ports.ApprovalFactory(assembler.deps.Events)

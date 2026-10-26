@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // teamBoardRuntime 给测试桩补上**窄可选**能力面：Runtime 实现它，投影里就有团队看板；
@@ -69,7 +70,7 @@ func TestCollectRuntimeProjectionCarriesTeamworkBoard(t *testing.T) {
 	}
 
 	// 冻结契约：快照是并发读者的共享值，克隆必须独立（内嵌切片也要）。
-	cloned := cloneRuntimeState(projection.Runtime)
+	cloned := model.CloneRuntimeState(projection.Runtime)
 	cloned.TeamworkBoard.WorkItems[0].DependsOn[0] = "mutated"
 	if projection.Runtime.TeamworkBoard.WorkItems[0].DependsOn[0] != "wi-design" {
 		t.Fatal("clone 必须深拷贝团队看板（否则前端会读到一半的写）")

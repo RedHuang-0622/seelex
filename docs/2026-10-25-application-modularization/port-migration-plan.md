@@ -6,17 +6,20 @@
 Session Records、Error Presentation 端口、Context Retain Floor 契约、Prompt Assets 入口收口、
 Approval Broker 工厂外置、Input Router 外部端口、Subagent Tool Event DTO 收口与
 Team Role Sessions 端口、Teamwork Board Reader 端口、Assemble DTO/Host Session 收口、
-Goal Session Coordinator 迁移、Middle Model alias 退场与 Middle View 只读模型归位
-已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 16 个
+Goal Session Coordinator 迁移、Middle Model alias 退场、Middle View 只读模型归位、
+Engine Prompt Coordinator、Context Window Policy、Event Protocol、Board Contract、
+Subagent View、WorkTable Projection、View State、Switch Workspace、Switch Policy、
+Limit Tier、Limit Base、Engine Context、Engine Task Context 与 Engine Session 入口归位
+已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 2 个
 直接内部依赖所需的端口，不把本阶段的 `application/compat` 转发层当成终态。
 
 ## 0. 当前事实与总原则
 
 AP-116F2f 后：
 
-- `application/core`：117 个生产文件、11,829 行；
+- `application/core`：116 个生产文件、11,764 行；
 - `Service` 公开方法：23；
-- core 直接内部依赖：16。
+- core 直接内部依赖：2。
 
 解除外部包依赖不能只写“把 import 改成 interface”。必须满足：
 
@@ -428,6 +431,20 @@ type BoardRepository interface {
 - EP-016：Goal Session Coordinator 迁入 Application。
 - EP-017：Middle Model alias 退场。
 - EP-018：Middle View 只读模型归位。
+- EP-019：Engine Prompt Coordinator 入口归位。
+- EP-020：Context Window Policy 入口归位。
+- EP-021：Event Protocol 入口归位。
+- EP-022：Board Contract 入口归位。
+- EP-023：Subagent View 入口归位。
+- EP-024：WorkTable Projection 入口归位。
+- EP-025：View State 入口归位。
+- EP-026：Switch Workspace 入口归位。
+- EP-027：Switch Policy 入口归位。
+- EP-028：Limit Tier 入口归位。
+- EP-029：Limit Base 入口归位。
+- EP-030：Engine Context 入口归位。
+- EP-031：Engine Task Context 入口归位。
+- EP-033：Engine Session Runtime 入口归位。
 
 每组都必须单独提交，提交前后报告：
 

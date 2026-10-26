@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	applicationevent "github.com/RedHuang-0622/seelex/application/event"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -77,7 +78,7 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 }
 
 func TestEventHubOrdersAndResyncs(t *testing.T) {
-	hub := NewEventHub()
+	hub := applicationevent.NewEventHub()
 	subscription := hub.Subscribe(1)
 	defer subscription.Close()
 	hub.Publish(EventMessageAdded, 1, "", nil)

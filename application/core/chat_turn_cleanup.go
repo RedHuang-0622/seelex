@@ -4,7 +4,7 @@ import (
 	"context"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 )
 
 func newServiceConversationTurnCleanup(service *Service) *applicationconversation.TurnCleanupApplication {

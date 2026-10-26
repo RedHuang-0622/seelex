@@ -9,7 +9,8 @@ package core
 //  2. 两个门面方法（`SetReasoningEffort` / `SetLoopLimit`）的一行转发——外部调用点零改动。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
@@ -49,7 +50,7 @@ func (host serviceKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) er
 		mutate(&service.Core.Snapshot.Runtime)
 	}
 	revision := service.bumpLocked()
-	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+	runtime := model.CloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
 	// 会话取"当前视图会话"：与迁移前一样在**锁外**取（currentViewSessionID 自己持锁）。
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
@@ -67,7 +68,7 @@ func (host serviceKnobsHost) CurrentEffort() string {
 }
 
 func (host serviceKnobsHost) MaxLoopsForEffort(level string) int {
-	return maxLoopsFor(level)
+	return prompt.MaxLoops(level)
 }
 
 func (host serviceKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort {

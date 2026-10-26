@@ -9,9 +9,9 @@ import (
 	"errors"
 	"strings"
 
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -112,7 +112,7 @@ func newServiceReferenceApplication(service *Service) *applicationreference.Appl
 			if frame == nil {
 				return "", model.RuntimeState{}, false
 			}
-			planState := cloneRuntimeState(model.RuntimeState{Plan: frame.Plan})
+			planState := model.CloneRuntimeState(model.RuntimeState{Plan: frame.Plan})
 			return frame.Arguments, planState, true
 		},
 		CompressedTurnView: func() (string, string) {

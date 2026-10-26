@@ -19,11 +19,11 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 func (service *Service) readSessionInputIndex(sessionID string) (model.SessionInputIndex, error) {

@@ -4,9 +4,9 @@ import (
 	"context"
 
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 const (

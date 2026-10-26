@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 )
 
 func newServiceSessionLifecycle(service *Service) *applicationsession.LifecycleApplication {

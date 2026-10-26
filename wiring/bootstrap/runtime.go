@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
@@ -36,7 +37,7 @@ func initRuntime(storePath string) (*assemble.Runtime, error) {
 	// 二进制旁边初始化，再读它（internal/bootseed）。滑动窗口段缺失 → 零值走默认；
 	// limits 缺失字段 → 默认值。
 	runtimeConfigPath := config.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
-	windowConfig, err := core.LoadWindowConfig(runtimeConfigPath)
+	windowConfig, err := applicationwindow.LoadWindowConfig(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
 	}

@@ -12,9 +12,9 @@ package core
 // `middle/protocol/event` 逐字一致），而不是"只为不动调用点"的兼容别名。
 
 import (
+	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 const (

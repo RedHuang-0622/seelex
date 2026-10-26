@@ -9,9 +9,9 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 )
 
@@ -39,7 +39,7 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 		Conversation:    conversation,
 		Chat:            model.ChatState{},
 		Runtime: model.SessionRuntime{
-			Plan:      worktable.ClonePlanForSync(plan),
+			Plan:      applicationtable.ClonePlanForSync(plan),
 			WorkTable: nil,
 		},
 		Capabilities:       model.Capabilities{SessionResume: true, SessionSnapshot: true},
@@ -61,13 +61,13 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 	// 条目（冷会话未驻留，其条目只在 record 里），合并后投影成同一张表。
 	records := record.Tasks
 	if service.Deps.Runtime != nil {
-		records = worktable.MergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID, task_context.LedgerIdentity)
+		records = applicationtable.MergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID, task_context.LedgerIdentity)
 	}
 	asyncRuns := service.asyncRunsForTable()
 	if len(records) > 0 || len(asyncRuns) > 0 {
-		rows := worktable.BuildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns, workTableBounds())
+		rows := applicationtable.BuildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns, workTableBounds())
 		snapshot.Runtime.WorkTable = rows
-		snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
+		snapshot.Runtime.WorkTableBatches = applicationtable.BuildWorkTableBatches(rows)
 	}
 	if task := record.Execution.Task; task != nil {
 		taskCopy := *task

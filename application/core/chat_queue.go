@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	switching "github.com/RedHuang-0622/seelex/middle/switch"
+	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 )
 
 func newServiceConversationQueue(service *Service) *applicationconversation.QueueApplication {

@@ -152,7 +152,14 @@ const (
 // AP-115D1 `application/input/command` 承接基础内置命令，上限抬到 112。
 // AP-116F1 把前端兼容转发从 core 移到 application/compat；这是纯适配包，
 // 不导入 core 以外的新领域实现，门面闭包上限抬到 113。
-const facadeClosureAllowListMax = 113
+// EP-019～EP-025 新增三个 Application 身份门面：`application/event`、
+// `application/window` 与 `application/session/viewstate`。它们不迁移状态机，
+// 只把 core 对稳定协议/策略类型的直接 import 收口到 Application 边界；
+// 每个门面自身继续复用 Middle/Engine 的唯一实现，因此按“新模块可 +1”
+// 规则将上限抬到 116。EP-026～EP-033 再新增 switchpolicy、taskcontext
+// 与 session/runtime 三个身份门面，同样只重定向稳定类型的消费边界，
+// 上限按“新模块可 +1”抬到 119。
+const facadeClosureAllowListMax = 119
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -163,8 +170,12 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/conversation",
 	"github.com/RedHuang-0622/seelex/application/conversation/context",
 	"github.com/RedHuang-0622/seelex/application/conversation/edit",
+	// EP-021：Event 协议身份门面；投递与序号仍只有 Middle event 一份。
+	"github.com/RedHuang-0622/seelex/application/event",
 	"github.com/RedHuang-0622/seelex/application/execution",
 	"github.com/RedHuang-0622/seelex/application/execution/table",
+	// EP-031：Engine Task Context 身份门面。
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext",
 	"github.com/RedHuang-0622/seelex/application/execution/toolhooks",
 	"github.com/RedHuang-0622/seelex/application/execution/toolrecord",
 	"github.com/RedHuang-0622/seelex/application/goal",
@@ -179,6 +190,14 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/session",
 	"github.com/RedHuang-0622/seelex/application/session/cold",
 	"github.com/RedHuang-0622/seelex/application/session/query",
+	// EP-033：Engine Session Runtime 身份门面。
+	"github.com/RedHuang-0622/seelex/application/session/runtime",
+	// EP-027：Middle session-switch 纯策略身份门面。
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy",
+	// EP-025：View State 身份门面；Snapshot/revision 编排仍只有 Middle state 一份。
+	"github.com/RedHuang-0622/seelex/application/session/viewstate",
+	// EP-020：Context Window Policy 身份门面；配置与校验仍只有 Engine 一份。
+	"github.com/RedHuang-0622/seelex/application/window",
 	"github.com/RedHuang-0622/seelex/application/workspace",
 	"github.com/RedHuang-0622/seelex/application/core",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team",

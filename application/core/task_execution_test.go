@@ -360,7 +360,7 @@ func TestNoProgressBudgetStopsRepeatedToolRounds(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
-	service.components.tasks.StartReActBudgetLocked("task-1", ReActBudget{MaxNoProgressRounds: 2})
+	service.components.tasks.StartReActBudgetLocked("task-1", prompt.ReActBudget{MaxNoProgressRounds: 2})
 	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()

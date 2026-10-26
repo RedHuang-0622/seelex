@@ -17,6 +17,8 @@ latest-wins 汇聚、子代理树 payload 去重和关闭尾态。主要调用�
 - 消费 async/teamwork 信号并执行 refresh、completion trigger 与 pending 补扫。
 - 统一启动/停止 subagent、task 与 async/teamwork 三类 consumer。
 - 对 WorkItem 行、批次与单 task 依赖补齐做统一委托。
+- 以 identity alias/一行转发暴露 core 仍需的 Limits、WorkTableUpdate、clone、
+  merge、build、status 与 evidence 截断入口。
 
 ## 非职责
 
@@ -61,6 +63,7 @@ type AsyncConsumerDeps struct {
 - `consumer.go`：async/teamwork consumer 与补扫；
 - `lifecycle.go`：三路 consumer 的启动、停止与 start-once；
 - `projection.go`：行/批次输入与单 task 依赖补齐；
+- `facade.go`：Middle worktable 类型 alias 与纯函数一行转发；
 - `*_test.go`：各切片的包内 parity。
 
 ## 数据流

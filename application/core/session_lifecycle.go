@@ -5,7 +5,7 @@ package core
 // unload = persist + 释放内存态（scope/引擎/任务运行时）。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 

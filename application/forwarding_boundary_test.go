@@ -41,6 +41,56 @@ func TestServiceHasNoCompatibilityForwarders(t *testing.T) {
 	}
 }
 
+// TestCoreHasNoPackageFunctionForwarders keeps the direct-dependency cleanup
+// from stopping at import aliases. The list only contains helpers whose body
+// adds no core state or locking; composition-root constructors and host
+// adapters are deliberately excluded until their owning capability moves.
+func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
+	applicationDir := sourceApplicationDir(t)
+	coreDir := filepath.Join(applicationDir, "core")
+	forwarders := map[string]string{
+		"NewDefaultWindowPolicy": "application/window",
+		"DefaultWindowConfig":    "application/window",
+		"LoadWindowConfig":       "application/window",
+		"NewEventHub":            "application/event",
+		"NewPromptStack":         "application/prompt",
+		"NewEffortManager":       "application/prompt",
+		"cloneSnapshot":          "contract/protocol",
+		"cloneRuntimeState":      "contract/protocol",
+		"maxLoopsFor":            "application/prompt",
+		"reasoningEffortFor":     "application/prompt",
+		"reactBudgetFor":         "application/prompt",
+	}
+	entries, err := os.ReadDir(coreDir)
+	if err != nil {
+		t.Fatalf("read core: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil || function.Name == nil {
+				continue
+			}
+			target, tracked := forwarders[function.Name.Name]
+			if !tracked {
+				continue
+			}
+			if isSingleForwardStatement(function.Body) {
+				t.Errorf("%s: core package function %s is still a one-expression forwarder; call %s directly",
+					name, function.Name.Name, target)
+			}
+		}
+	}
+}
+
 func isSingleForwardStatement(body *ast.BlockStmt) bool {
 	if body == nil || len(body.List) != 1 {
 		return false

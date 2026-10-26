@@ -23,17 +23,17 @@ package core
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/limit/tier"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // tierDeps 装配档位用例的宿主面（每次调用构造一次值语义的 Deps；无状态、无锁）。
-func (service *Service) tierDeps() tier.Deps {
+func (service *Service) tierDeps() applicationpolicy.TierDeps {
 	if service == nil {
-		return tier.Deps{}
+		return applicationpolicy.TierDeps{}
 	}
-	return tier.Deps{
+	return applicationpolicy.TierDeps{
 		Settings:    service.settingPort(),
 		Units:       serviceTierUnits{service: service},
 		Approval:    service.Approval,
@@ -44,7 +44,7 @@ func (service *Service) tierDeps() tier.Deps {
 }
 
 // tierGate 返回"把档位写进执行门"的闭包；宿主没装配运行面时整步 no-op（与迁移前同口径）。
-func (service *Service) tierGate() tier.Gate {
+func (service *Service) tierGate() applicationpolicy.TierGate {
 	if service == nil {
 		return nil
 	}

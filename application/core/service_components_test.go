@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
@@ -54,7 +54,7 @@ func TestServiceFacadeContainsOnlyAssembly(t *testing.T) {
 func TestFocusedComponentsDoNotHoldServiceFacade(t *testing.T) {
 	serviceType := reflect.TypeOf((*Service)(nil))
 	componentTypes := []reflect.Type{
-		reflect.TypeOf(prompt_layer.Coordinator{}),
+		reflect.TypeOf(applicationprompt.Coordinator{}),
 		reflect.TypeOf(context_runtime.Coordinator{}),
 		reflect.TypeOf(context_runtime.HistoryCoordinator{}),
 		reflect.TypeOf(task_context.Coordinator{}),

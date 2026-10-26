@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 )
 
 // withSessionID 把会话 ID 注入 ctx（runChat 执行路径）。Seele ReActLoop 会

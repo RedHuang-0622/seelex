@@ -3,9 +3,9 @@ package core
 import (
 	"errors"
 	"fmt"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"

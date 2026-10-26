@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。

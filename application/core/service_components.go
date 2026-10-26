@@ -8,43 +8,39 @@ import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
-	"github.com/RedHuang-0622/seelex/middle/view/board"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
-	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"sync"
 )
 
 // serviceComponents is the application composition graph. Service coordinates
 // these parts but does not own their implementation details.
 type serviceComponents struct {
-	prompts  *prompt_layer.Coordinator
-	context  *context_runtime.Coordinator
-	history  *context_runtime.HistoryCoordinator
+	prompts  *applicationprompt.Coordinator
+	context  *conversationcontext.EngineCoordinator
+	history  *conversationcontext.EngineHistoryCoordinator
 	sessions *session_runtime.Coordinator
 	tasks    *task_context.Coordinator
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor；
 	// 视图投影/工具路由经 Service 面暴露）。
 	goal     *applicationgoal.Coordinator
 	view     *view_state.Coordinator
-	subagent *subagent_view.Coordinator
+	subagent *applicationexecution.SubagentViewCoordinator
 	input    contract.InputDispatcher
 
 	// sessionQuery 与 conversationHistoryQuery 是 Application 查询面：
@@ -142,7 +138,7 @@ type serviceComponents struct {
 
 	// workspace 是工作区用例的装配载体（middle/switch/workspace）：创建/绑定/
 	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
-	workspace *switchworkspace.UseCase
+	workspace *applicationworkspace.SwitchUseCase
 }
 
 // Temporary aliases keep the ChatTurn migration compatible while the
@@ -167,16 +163,16 @@ type editForkOperation = applicationedit.Operation
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。
 type projectBoardPort struct {
 	mu   sync.RWMutex
-	sink board.ProjectBoardSink
+	sink applicationexecution.ProjectBoardSink
 }
 
-func (port *projectBoardPort) store(sink board.ProjectBoardSink) {
+func (port *projectBoardPort) store(sink applicationexecution.ProjectBoardSink) {
 	port.mu.Lock()
 	port.sink = sink
 	port.mu.Unlock()
 }
 
-func (port *projectBoardPort) load() board.ProjectBoardSink {
+func (port *projectBoardPort) load() applicationexecution.ProjectBoardSink {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.sink

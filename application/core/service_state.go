@@ -3,8 +3,8 @@ package core
 import (
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"

@@ -2,8 +2,8 @@ package core
 
 import (
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 func newServiceSessionColdCommit(service *Service) *applicationsessioncold.CommitApplication {
@@ -16,7 +16,7 @@ func newServiceSessionColdCommit(service *Service) *applicationsessioncold.Commi
 		SystemPrompt: func() string {
 			return service.components.prompts.SystemPromptForActiveTaskLocked()
 		},
-		ApplyWorkspace: func(_ *model.WorkspaceInfo, projection switchworkspace.Projection) {
+		ApplyWorkspace: func(_ *model.WorkspaceInfo, projection applicationworkspace.SwitchProjection) {
 			service.applyWorkspaceProjectionLocked(projection)
 		},
 		BumpRevision: service.bumpLocked,

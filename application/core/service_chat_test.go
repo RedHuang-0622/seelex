@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -17,7 +18,7 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
-	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
+	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
 	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
@@ -45,7 +46,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	service := newTestService(t, engine)
 	defer frontendOfTestService(service).Shutdown()
 	service.ViewMu.Lock()
-	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
+	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "budget-request"}
 	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, model.TaskCheckpoint{})

@@ -12,8 +12,8 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 

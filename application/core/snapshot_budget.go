@@ -3,7 +3,7 @@ package core
 import (
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
 )
 
 // snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算

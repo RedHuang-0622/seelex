@@ -4,7 +4,8 @@
 
 本包管理 system prompt 的分层组合和 Effort 行为策略，为 `core.Service` 提供线程安全、可解释的 prompt 状态。
 
-主要调用方：`application/core`（`prompt_layer` 组装与引擎同步）、`gui`/`tui`（Effort 切换与展示）。
+主要调用方：`application/core`（经本包的 Coordinator alias 组装与引擎同步）、
+`gui`/`tui`（Effort 切换与展示）。
 具体提示词文本不在本包，而在 [`backend/engine/prompt/assets`](../../backend/engine/prompt/assets/README.md)。
 
 ## 架构图
@@ -88,11 +89,19 @@ effort、instructions；Skill 请求内容不永久写入 system prompt，而随
 Every normal user request enters the ReAct loop directly; effort does not create
 a mandatory planning preflight.
 
+## Engine Prompt Coordinator
+
+`coordinator.go` 以同身份 alias 暴露 `backend/engine/prompt.Coordinator`，并用
+`NewCoordinator` 只转换装配参数形状。system 层组装、前缀缓存、活跃任务同步与
+`SetSystemPrompt` 仍由 Engine prompt 唯一实现；`ValidateAssets` 也只转发资产校验。
+这样 `application/core` 不再直接 import Engine prompt 子包。
+
 ## Review 指南
 
 - 不要让 map 迭代顺序影响 prompt；渲染顺序必须确定。
 - Effort 更新应同时刷新 max loops 和最终 system prompt；新增等级必须通过单一 profile 同时定义 prompt、SubagentPolicy 和 budget。
 - Skill prompt 与 system layers 的边界不能混淆。
+- Coordinator 是否仍是 Engine 类型 alias，不能在本包复制前缀缓存或同步判据。
 - 所有读写都经过 mutex，返回 slice 时需复制。
 
 ## 测试

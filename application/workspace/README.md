@@ -14,6 +14,7 @@ Application 投影编排。当前真实调用方是 `application/core.Service` �
 - 把客户端仓库相对路径解析为工作区根内绝对路径；
 - 按可选端口能力分派仓库发现、Git 日志、改动、提交详情与提交内文件读取；
 - 固定批量登记成功后的 projection、视图锁、revision 和发布顺序。
+- 以 identity alias 暴露 `middle/switch/workspace` 的 UseCase/Deps/Projection/ViewState。
 
 非职责：
 
@@ -25,6 +26,7 @@ Application 投影编排。当前真实调用方是 `application/core.Service` �
 ## 文件结构
 
 - `application.go`：窄端口、`Application`、Workspace 查询与批量登记编排。
+- `switch_workspace.go`：Switch Workspace 类型 alias 与 `NewSwitch` 转发。
 - `application_test.go`：环境表、路径 containment、端口降级和发布顺序测试。
 
 ## 核心实现
@@ -32,6 +34,7 @@ Application 投影编排。当前真实调用方是 `application/core.Service` �
 `Deps` 分开接收“按项目 ID 读写的环境端口”“当前视图工作区的根端口”和
 “批量登记 + projection 宿主”。工作环境不依赖当前视图会话；Git 查询则必须使用
 当前视图的权威根。路径 containment 只由 `resolveRepo` / `withinRoot` 持有。
+Switch Workspace 的运行规则仍由 Middle UseCase 唯一实现，本包不复制绑定/草稿状态机。
 
 ## 数据流
 
@@ -44,7 +47,7 @@ workspace root，再把受控相对路径解析为仓库根，随后分派到
 ## 依赖方向
 
 允许依赖 `contract`、`contract/dto`、`middle/protocol/model` 与
-`middle/switch/workspace.Projection` 这一只读投影形状。禁止导入
+`middle/switch/workspace` 的同身份 Switch Workspace alias。禁止导入
 `application/core`、持有完整 `Service`、执行 Git 命令或读写真凭证。
 
 ## 并发与错误语义

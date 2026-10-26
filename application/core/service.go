@@ -7,18 +7,17 @@ import (
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
+	"github.com/RedHuang-0622/seelex/application/event"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/switch"
-	"github.com/RedHuang-0622/seelex/middle/view/board"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 )
 
@@ -70,9 +69,9 @@ type Service struct {
 type Frontend struct{ *Service }
 
 // SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-// `*board.ProjectBoardSyncer` 直接满足 `board.ProjectBoardSink`，无需适配器。
+// `*board.ProjectBoardSyncer` 直接满足 `execution.ProjectBoardSink`，无需适配器。
 // 写入是装配期一次性槽位；nil 表示能力整体缺席，完成段判空后不执行读写。
-func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink) {
+func (service *Service) SetProjectBoardSink(sink applicationexecution.ProjectBoardSink) {
 	if service == nil {
 		return
 	}
@@ -85,7 +84,7 @@ func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink) {
 // 标脏 + 唤醒、不做 IO）；完成段是回合内高频点，绝不让外部代码在装配锁下运行——一次
 // 慢实现就变成整个回合的停顿，且注入与调用会互相等锁（本函数与 SetProjectBoardSink
 // 可并发：注入可能发生在两个回合之间，读取在回合内的工具完成段）。
-func (service *Service) projectBoardSink() board.ProjectBoardSink {
+func (service *Service) projectBoardSink() applicationexecution.ProjectBoardSink {
 	if service == nil {
 		return nil
 	}
@@ -166,9 +165,9 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 		return
 	}
 	limit := Limits().EvidenceChars
-	event.Arguments = worktable.TruncateWorkEvidence(event.Arguments, limit)
-	event.Result = worktable.TruncateWorkEvidence(event.Result, limit)
-	event.Error = worktable.TruncateWorkEvidence(event.Error, limit)
+	event.Arguments = applicationtable.TruncateWorkEvidence(event.Arguments, limit)
+	event.Result = applicationtable.TruncateWorkEvidence(event.Result, limit)
+	event.Error = applicationtable.TruncateWorkEvidence(event.Error, limit)
 
 	kind := EventTeammateToolCompleted
 	// 「在跑」这件事按**工具事件状态那一格**判（`dto.ToolEventStatus`，与

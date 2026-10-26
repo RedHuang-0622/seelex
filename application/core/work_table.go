@@ -3,10 +3,9 @@ package core
 import (
 	"context"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 )
 
@@ -47,7 +46,7 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 	if state.workTable == nil {
 		return
 	}
-	state.workTable.Send(worktable.WorkTableUpdate{
+	state.workTable.Send(applicationtable.WorkTableUpdate{
 		Revision: revision, RequestID: requestID, Items: items, Batches: batches,
 	})
 }
@@ -117,7 +116,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 		ownerSessionID = viewSessionID
 	}
 	plan := service.sessionActivePlanLocked(sessionID)
-	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	// 活跃会话的 task scope 恒为实时注册表（""）；后台会话写自身分区。
 	scope := sessionID
 	if sessionID == "" || sessionID == viewSessionID {
@@ -156,7 +155,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 // 后台会话读会话自身的 plan 栈（task_context 每会话持有）。
 func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanState {
 	if sessionID == service.Core.Snapshot.Session.ID {
-		return worktable.ClonePlanForSync(service.Core.Snapshot.Runtime.Plan)
+		return applicationtable.ClonePlanForSync(service.Core.Snapshot.Runtime.Plan)
 	}
 	return task_context.ActivePlanFromStack(
 		service.components.tasks.PlanStackFor(sessionID),
@@ -166,7 +165,7 @@ func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanSta
 
 func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, parentID string) {
 	key := "plan:" + node.ID
-	status := worktable.TaskStatusForNode(node.Status)
+	status := applicationtable.TaskStatusForNode(node.Status)
 	identity := dto.ActorIdentity("main", service.Deps.Engine.SessionID())
 	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
@@ -194,7 +193,7 @@ func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, 
 
 func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
-	status := worktable.TaskStatusForSubagent(node.Status)
+	status := applicationtable.TaskStatusForSubagent(node.Status)
 	identity := dto.ActorIdentity("subagent", node.SessionID)
 	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {

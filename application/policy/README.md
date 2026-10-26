@@ -16,6 +16,8 @@ Service、GUI Bridge 和会话装配路径。
 - 保证会话登记即使为空集也压过五层来源。
 - 为旧 Service 提供可逐方法迁移的窄应用组件。
 - 固定 permission tier、Effort 与 Plugin 切换的应用顺序。
+- 以 identity alias 暴露 Backend tier 的 `Deps/Gate`，供 core permission-tier host 装配。
+- 以 identity alias/forwarder 暴露 Backend limits、Knobs 与 release-window 入口。
 
 ## 非职责
 
@@ -29,6 +31,8 @@ Service、GUI Bridge 和会话装配路径。
 - `application.go`：窄端口、`Deps`、`RoleApplication` 与 14 个角色策略用例。
 - `switch.go`：`SwitchDeps`、`SwitchApplication` 与策略切换。
 - `skill_activation.go`：`SkillActivationPort` 消费方契约。
+- `tier_facade.go`：`TierDeps` / `TierGate` identity alias。
+- `limits_facade.go`：Limits/Knobs/KnobsHost alias 与基座函数转发。
 - `application_test.go`：登记优先、显式空集、账号回滚、继承和路径归一回归。
 
 ## 核心实现
@@ -45,6 +49,8 @@ Service、GUI Bridge 和会话装配路径。
 
 Skill 激活判据仍由 `backend/engine/skill.Activator` 唯一实现；Application
 只持有 `SkillActivationPort`，由 Wiring adapter 注入。
+Tier facade 不实现档位解析或持久化；这些判据仍只在 `backend/limit/tier`。
+Limits facade 不复制默认表、Knobs 状态或窗口边界，所有语义仍只在 `backend/limit`。
 
 ## 数据流
 

@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 )
 
 func newServiceSessionForkLineage(service *Service) *applicationsession.ForkLineageApplication {

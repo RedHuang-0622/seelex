@@ -1,7 +1,7 @@
 package core
 
 import (
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 

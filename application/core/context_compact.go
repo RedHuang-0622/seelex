@@ -4,7 +4,6 @@ import (
 	"context"
 
 	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
-	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // ContextCompactionResult is the stable public compaction receipt.
@@ -41,7 +40,7 @@ func newServiceContextCompactionApplication(service *Service) *conversationconte
 		},
 		Acquire: service.acquireCompactionRound,
 		Release: service.releaseCompactionRound,
-		Compact: func(ctx context.Context, sessionID string) (context_runtime.CompactResult, error) {
+		Compact: func(ctx context.Context, sessionID string) (conversationcontext.EngineCompactResult, error) {
 			return service.components.context.CompactContextNow(ctx, sessionID)
 		},
 	})

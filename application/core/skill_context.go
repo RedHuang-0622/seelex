@@ -3,8 +3,8 @@ package core
 import (
 	"encoding/base64"
 	"fmt"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"strings"
 )
 

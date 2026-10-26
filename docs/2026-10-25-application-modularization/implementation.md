@@ -181,6 +181,21 @@
 | EP-016 | 已完成 | Goal Session Coordinator 迁入 Application | core multiagent/goal import 归零、core 净减 290 行、依赖预算 18 |
 | EP-017 | 已完成 | Middle Model alias 退场 | core 直连 `contract/protocol`、Middle alias 保留、依赖预算 17 |
 | EP-018 | 已完成 | Middle View 只读模型归位 | Diag/投影迁入 Application、core `middle/view` import 归零、依赖预算 16 |
+| EP-019 | 已完成 | Engine Prompt Coordinator 入口归位 | core import 归零、Application identity alias、依赖预算 15 |
+| EP-020 | 已完成 | Context Window Policy 入口归位 | core contextcontrol import 归零、Application window alias、依赖预算 14 |
+| EP-021 | 已完成 | Event Protocol 入口归位 | core Middle event import 归零、Application identity facade、依赖预算 13 |
+| EP-022 | 已完成 | Board Contract 入口归位 | core middle/view/board import 归零、Application identity alias、依赖预算 12 |
+| EP-023 | 已完成 | Subagent View 入口归位 | core middle/view/subagent import 归零、Application identity alias、依赖预算 11 |
+| EP-024 | 已完成 | WorkTable Projection 入口归位 | core middle/view/worktable import 归零、Application table facade、依赖预算 10 |
+| EP-025 | 已完成 | View State 入口归位 | core middle/view/state import 归零、Application identity facade、依赖预算 9 |
+| EP-026 | 已完成 | Switch Workspace 入口归位 | core middle/switch/workspace import 归零、Application workspace alias、依赖预算 8 |
+| EP-027 | 已完成 | Switch Policy 入口归位 | core middle/switch import 归零、Application switchpolicy facade、依赖预算 7 |
+| EP-028 | 已完成 | Limit Tier 入口归位 | core backend/limit/tier import 归零、Application policy alias、依赖预算 6 |
+| EP-029 | 已完成 | Limit Base 入口归位 | core backend/limit import 归零、Application policy alias、依赖预算 5 |
+| EP-030 | 已完成 | Engine Context 入口归位 | core backend/engine/context import 归零、conversation/context facade、依赖预算 4 |
+| EP-031 | 已完成 | Engine Task Context 入口归位 | core backend/engine/task import 归零、execution/taskcontext facade、依赖预算 3 |
+| EP-032 | 已完成 | Core assembly helper 转发退场 | 删除 11 个纯转发 helper、core 净减 52 行、结构门禁覆盖 |
+| EP-033 | 已完成 | Engine Session Runtime 入口归位 | core backend/engine/session import 归零、session/runtime facade、依赖预算 2 |
 
 ## 基线指标
 
@@ -242,6 +257,20 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `application/core -> backend/multiagent/goal` | `application/goal.Coordinator` | 会话级 Controller 缓存与治理投影 | EP-016（已完成） | core import 为零；Goal 状态机仍只在 Backend | 恢复 core `goal_coordinator.go` |
 | `application/core -> middle/protocol/model` | `contract/protocol` | Snapshot/Message/Plan/View 等全部 wire 形状 | EP-017（已完成） | core import 为零；Middle 路径继续同身份 alias | 恢复 core 使用 Middle alias |
 | `application/core -> middle/view` | `application/observability.RenderDiag` + `application/admin` runtime projections | `/diag` 与回合尾 Runtime 投影 | EP-018（已完成） | core import 为零；纯投影测试随能力迁入 Application | 恢复 core 调用 `middle/view` |
+| `application/core -> backend/engine/prompt` | `application/prompt.Coordinator` identity alias + `ValidateAssets` | system prompt 组装与同步 | EP-019（已完成） | core import 为零；实现与缓存仍只有 Engine prompt 一份 | 恢复 core 直接 import Engine prompt |
+| `application/core -> backend/engine/input/contextcontrol` | `application/window` identity alias + one-line forwarders | window 配置加载、应用与策略构造 | EP-020（已完成） | core import 为零；配置/策略实现仍只有 Engine contextcontrol 一份 | 恢复 core 直接 import contextcontrol |
+| `application/core -> middle/protocol/event` | `application/event` identity facade | Event/Hub/Subscription/kind 与 NewEventHub | EP-021（已完成） | core import 为零；投递、序号和过滤仍只有 Middle event 一份 | 恢复 core 直接 import Middle event |
+| `application/core -> middle/view/board` | `application/execution` identity aliases | ProjectBoardSink / TeamworkPlanSource | EP-022（已完成） | core import 为零；同步器与可选计划读面仍只有 Middle board 一份 | 恢复 core 直接 import board |
+| `application/core -> middle/view/subagent` | `application/execution.SubagentViewCoordinator` identity alias | 子代理详情与实时事件投影 | EP-023（已完成） | core import 为零；投影状态与工具记录判据仍只有 Middle subagent view 一份 | 恢复 core 直接 import Middle subagent view |
+| `application/core -> middle/view/worktable` | `application/execution/table` identity aliases + forwarders | WorkTable rows/batches、clone/status/evidence 纯函数 | EP-024（已完成） | core import 为零；投影算法仍只有 Middle worktable 一份 | 恢复 core 直接 import Middle worktable |
+| `application/core -> middle/view/state` | `application/session/viewstate` identity facade | Snapshot/message/revision 编排与 projection helper | EP-025（已完成） | core import 为零；状态与 revision 唯一实现仍在 Middle view state | 恢复 core 直接 import Middle view state |
+| `application/core -> middle/switch/workspace` | `application/workspace` identity aliases + `NewSwitch` | workspace create/bind/draft/projection | EP-026（已完成） | core import 为零；workspace 用例与 projection 仍只有 Middle 一份 | 恢复 core 直接 import switch workspace |
+| `application/core -> middle/switch` | `application/session/switchpolicy` identity facade | queue/draft/interaction/release/fork/pending-tail 纯判据 | EP-027（已完成） | core import 为零；词表、错误和判据仍只有 Middle switch 一份 | 恢复 core 直接 import Middle switch |
+| `application/core -> backend/limit/tier` | `application/policy.TierDeps/TierGate` identity aliases | 主会话权限档位持久化与生效编排 | EP-028（已完成） | core import 为零；档位判据与持久化仍只有 Backend tier 一份 | 恢复 core 直接 import limit/tier |
+| `application/core -> backend/limit` | `application/policy` identity aliases + forwarders | 进程级 limits、Knobs、release window | EP-029（已完成） | core import 为零；默认值、原子快照和窗口判据仍只有 Backend limit 一份 | 恢复 core 直接 import backend/limit |
+| `application/core -> backend/engine/context` | `application/conversation/context` Engine aliases + forwarders | compaction/history coordinator、predicate、warning | EP-030（已完成） | core import 为零；压缩、历史安全与分类判据仍只有 Engine context 一份 | 恢复 core 直接 import Engine context |
+| `application/core -> backend/engine/task` | `application/execution/taskcontext` identity aliases + forwarders | Task coordinator、transcript tail、plan/tool/context helpers | EP-031（已完成） | core import 为零；Task 状态、ledger 与 transcript 判据仍只有 Engine task 一份 | 恢复 core 直接 import Engine task |
+| `application/core -> backend/engine/session` | `application/session/runtime` identity aliases + forwarders | Session Coordinator、Location、title/workspace/fork helpers | EP-033（已完成） | core import 为零；durable session 状态、binding 与恢复策略仍只有 Engine session 一份 | 恢复 core 直接 import Engine session |
 | `application.Command/CommandResult` | `contract.Command/CommandResult` | GUI/TUI/命令注册 | M8 | 根门面不再 import backend input | 恢复 concrete alias |
 | `goaldomain.*GoalRecord/Request/StatusView` | `dto.GoalRecord/BeginGoalRequest/UpdateGoalRequest/FinishGoalRequest/GoalStatusView` | GUI/headless/Application GoalAPI | M8 | 类型 identity 由 goal domain alias 保持 | 恢复 goal 本地定义 |
 | `assemble.ScheduledTaskSpec/Status` | `dto.ScheduledTaskSpec/Status` | GUI/调度注册 | M8 | 入站 API import 扫描通过 | 恢复 assemble alias |
@@ -4736,16 +4765,216 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
 - 回退方式：把 diagnostics/projection 文件移回 `middle/view` 并恢复 core 调用。
 
+## EP-019：Engine Prompt Coordinator 入口归位
+
+- `application/prompt.Coordinator` 是 `backend/engine/prompt.Coordinator` 的同身份 alias；
+- `application/prompt.NewCoordinator` 只做装配参数形状转换，system prompt 层组装、
+  前缀缓存、任务层同步与 Engine `SetSystemPrompt` 仍只有 Engine 一份实现；
+- `ValidateAssets` 也经 Application prompt 包转发，core 不再直接 import Engine prompt；
+- 红测：`TestCoreDoesNotImportEnginePromptCoordinator` 初始点名
+  `service_assembler.go`、`service_components.go`；
+- 绿测：Application prompt、Engine prompt/assets、core Prompt/System/Component 回归；
+- identity parity：`TestCoordinatorIsEngineIdentity` 钉住类型 alias；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接构造 `prompt_layer.Coordinator`。
+
+## EP-020：Context Window Policy 入口归位
+
+- `application/window` 以同身份 alias 暴露 `WindowConfig` / `DefaultWindowPolicy`，
+  并提供 Apply/Current/Load/Default/New 的逐项转发；
+- 配置默认值、YAML 加载、provider 轮数推导与保留窗口校验仍只有 Engine
+  contextcontrol/seelectx 一份实现；
+- core 的 window helper 与启动期校验改 import Application window，不再直连 contextcontrol；
+- 红测：`TestCoreDoesNotImportContextControl` 初始点名 `assembly_helpers.go`、`window.go`；
+- 绿测：Application window、Engine contextcontrol、core Window/Retain 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import contextcontrol，删除 Application alias。
+
+## EP-021：Event Protocol 入口归位
+
+- `application/event` 对 Event、EventKind、Hub、SessionAwareHub、Subscription、
+  MessageDelta、CompactionProgress 与 EventHub 使用 identity alias；
+- 全部 wire kind 常量保持同一值，`NewEventHub` 只转发 Middle 唯一实现；
+- core 改走 Application facade，不再直接 import Middle event；
+- 红测：`TestCoreUsesApplicationEventFacade` 初始点名 7 个 core 生产文件；
+- identity parity：`TestEventTypesAreMiddleIdentity` 钉住 Event/EventHub 类型身份；
+- 绿测：Application event、Middle event、core Event/Subscribe/Snapshot 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import Middle event，删除 Application facade。
+
+## EP-022：Board Contract 入口归位
+
+- `application/execution.ProjectBoardSink` 与 `TeamworkPlanSource` 是
+  `middle/view/board` 的同身份 alias；
+- core 的 `SetProjectBoardSink`、project-board plan source 类型断言改走 Application；
+- board syncer、trigger、flush、tool-complete 写盘与 Runtime 可选计划读面仍只有 Middle 一份；
+- 红测：`TestCoreDoesNotImportBoardFacadePackage` 初始点名
+  `project_board_read.go`、`service.go`、`service_components.go`；
+- identity parity：`TestBoardFacadeTypesAreMiddleIdentity`；
+- 绿测：Application execution、Middle board、core Board/Project/Teamwork 回归与局部 build；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/view/board`。
+
+## EP-023：Subagent View 入口归位
+
+- `application/execution.SubagentViewCoordinator` / `SubagentViewDeps` 是 Middle 类型的
+  identity alias，`NewSubagentView` 只转发构造；
+- 子代理节点详情、live/tree 投影、工具活动 observer 与 record 判据仍只有 Middle 一份；
+- core 的 component、FrontendPorts 与 assembler 改走 Application execution；
+- 红测：`TestCoreDoesNotImportMiddleSubagentView` 初始点名
+  `frontend_ports.go`、`service_assembler.go`、`service_components.go`；
+- identity parity：`TestSubagentViewTypesAreMiddleIdentity`；
+- 绿测：Application execution、Middle subagent view、core Subagent/Component/Frontend；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/view/subagent`。
+
+## EP-024：WorkTable Projection 入口归位
+
+- `application/execution/table` 以 identity alias 暴露 `Limits` / `WorkTableUpdate`，
+  并对 clone、merge、build rows/batches、状态与 evidence 截断做逐项转发；
+- WorkTable 行/批次构建、task/subagent 状态映射、Plan/树深拷贝和 evidence 截断仍只有
+  Middle worktable 一份；
+- core 的 worktable/publisher/cold snapshot/project board 改走 Application table；
+- 红测：`TestCoreDoesNotImportMiddleWorkTable` 初始点名 6 个 core 生产文件；
+- identity parity：`TestWorkTableFacadeTypesAreMiddleIdentity`；
+- 绿测：Application table、Middle worktable、core WorkTable/Cold/ProjectBoard/Limits；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/view/worktable`。
+
+## EP-025：View State 入口归位
+
+- `application/session/viewstate` 对 Coordinator、Deps、RuntimeStateProjection 使用
+  identity alias，并转发 NewCoordinator / DurableConversationCount；
+- Snapshot、message seq、revision、投影采集/应用与 event 发布仍只有 Middle view state 一份；
+- core 的 chat/commit/cleanup/snapshot/frontend/policy/input-index 改走 Application facade；
+- 红测：`TestCoreDoesNotImportMiddleViewState` 初始点名 11 个 core 生产文件；
+- identity parity：`TestViewStateTypesAreMiddleIdentity`；
+- 绿测：Application viewstate、Middle state、core Snapshot/Message/Chat/Runtime/Session；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/view/state`。
+
+## EP-026：Switch Workspace 入口归位
+
+- `application/workspace` 暴露 `SwitchUseCase` / `SwitchDeps` / `SwitchProjection` /
+  `SwitchViewState` identity alias 与 `NewSwitch` 转发；
+- workspace create/bind/unbind、draft binding、projection 构造与应用仍只有 Middle 一份；
+- core 的 assembler、frontend ports、scheduler、cold commit 与 workspace host 改走 Application；
+- 红测：`TestCoreDoesNotImportSwitchWorkspace` 初始点名 7 个 core 生产文件；
+- identity parity：`TestSwitchWorkspaceTypesAreMiddleIdentity`；
+- 绿测：Application workspace、Middle workspace、core Workspace/Session/Scheduled；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/switch/workspace`。
+
+## EP-027：Switch Policy 入口归位
+
+- `application/session/switchpolicy` 以 `switching` 包名 re-export Middle 纯策略类型、
+  interaction/draft 常量与队列错误值，并逐项转发纯函数；
+- queue target、draft identity、interaction choice、release window、fork gate、
+  pending-tail、unload gate 等判据仍只有 Middle 一份；
+- core 只更换 import，类型/错误/函数身份不变；
+- 红测：`TestCoreDoesNotImportMiddleSwitchPolicy` 钉住 core import 为零；
+- identity parity：`TestSwitchPolicyTypesAndErrorsAreMiddleIdentity`；
+- 绿测：Application switchpolicy、Middle switch、core Queue/Draft/Interaction/Release/Fork/
+  Unload/Meta/PendingTail；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `middle/switch`。
+
+## EP-028：Limit Tier 入口归位
+
+- `application/policy.TierDeps` / `TierGate` 是 Backend tier 类型的 identity alias；
+- session tier 的生效档位解析、持久化、restore、gate 与快照同步仍只有 Backend tier 一份；
+- core 的 tier host 只替换 import，不改变任何判据或锁语义；
+- 红测：`TestCoreDoesNotImportLimitTier` 初始点名 `session_permission_tier.go`；
+- identity parity：`TestTierFacadeTypesAreBackendIdentity`；
+- 绿测：Application policy、Backend tier、core PermissionTier/Permission；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `backend/limit/tier`。
+
+## EP-029：Limit Base 入口归位
+
+- `application/policy` identity alias 暴露 `Limits` / `Knobs` / `KnobsHost`，并逐项转发
+  Apply/Get/Validate/SetSessionReleaseWindow/NewKnobs；
+- 默认 limits、原子快照、窗口边界、Knobs 状态机与快照语义仍只有 Backend limit 一份；
+- core 的 limits helper、release window、snapshot budget、knobs 与 window 校验只更换 import；
+- 红测：`TestCoreDoesNotImportLimitBasePackage` 初始点名 6 个 core 生产文件；
+- identity parity：`TestLimitsFacadeTypesAreBackendIdentity`；
+- 绿测：Application policy、Backend limit、core Limit/Knobs/ReleaseWindow/SnapshotBudget/Retain；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `backend/limit`。
+
+## EP-030：Engine Context 入口归位
+
+- `application/conversation/context` 以 `Engine*` identity alias 暴露 Coordinator/History/
+  Deps/CompactResult/CompactionIndexPort，并逐项转发构造函数、内容分类与 warning；
+- 压缩、history safety、provider-only/checkpoint/skill 分类与 oversized result 判据仍
+  只有 Engine context 一份；
+- core 的 chat/history/compact/input-index/skill context 只更换 import；
+- 红测：`TestCoreDoesNotImportEngineContextPackage` 初始点名 8 个 core 生产文件；
+- identity parity：`TestEngineFacadeTypesAreBackendIdentity`；
+- 绿测：Application conversation context、Backend context、core Context/Compact/History/
+  Skill/Snapshot；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `backend/engine/context`。
+
+## EP-031：Engine Task Context 入口归位
+
+- `application/execution/taskcontext` identity alias 暴露 Coordinator/Deps/Prompt/任务状态类型、
+  Tool constants，并转发 plan、session context、transcript tail、ledger identity 与 budget helper；
+- Task execution、ledger、transcript 裁剪、checkpoint 和 tool observation 判据仍只有 Engine task 一份；
+- core 的 chat/plan/reference/review/cold/history/tool/worktable 只更换 import；
+- 红测：`TestCoreDoesNotImportEngineTaskContext` 初始点名 17 个 core 生产文件；
+- identity parity：`TestTaskContextTypesAreBackendIdentity`；
+- 绿测：Application taskcontext、Backend task、core Task/Plan/Tool/History/Session；
+- 修复并行写窗口造成的 `assembly_helpers.go` 空文件，恢复其现有公开 helper 并改用
+  Application prompt/event/window facade；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `backend/engine/task`。
+
+## EP-032：Core assembly helper 转发退场
+
+- 删除 `application/core/assembly_helpers.go`，不再在 core 复制 Application
+  Event、Prompt、Window 与 Protocol 的构造/helper 入口；
+- 退场的 11 个纯转发为 `NewDefaultWindowPolicy`、`DefaultWindowConfig`、
+  `LoadWindowConfig`、`NewEventHub`、`NewPromptStack`、`NewEffortManager`、
+  `cloneSnapshot`、`cloneRuntimeState`、`maxLoopsFor`、`reasoningEffortFor`
+  与 `reactBudgetFor`；
+- 直接消费方改调 `application/event`、`application/prompt`、
+  `application/window` 与 `contract/protocol`；`wiring/bootstrap/runtime.go`
+  的窗口配置加载不再经过 core；
+- 红测：`TestCoreHasNoPackageFunctionForwarders` 初始逐项点名上述 11 个 wrapper；
+- 结构门禁同时保留 `TestServiceHasNoCompatibilityForwarders` 与
+  `TestCoreHasNoPackageFunctionForwarders`，阻止 core 再长出同类转发；
+- 绿测：Application 结构门禁、core、wiring/bootstrap 与 prompt/event/window
+  受影响编译；
+- core 直接内部依赖保持 3；生产文件 117 → 116，生产代码 11,816 → 11,764 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 `assembly_helpers.go` 并让调用方改回 core helper。
+
+## EP-033：Engine Session Runtime 入口归位
+
+- `application/session/runtime` 以 identity alias 暴露 Engine session 的
+  Coordinator/Deps、会话定位、记录、transcript、fork 与 restore 类型；
+- 记录加载、workspace scope、transcript 拼接、fork 深拷贝和 Engine session
+  bundle 仍只有 Backend Engine 一份实现；
+- core 的 chat/session/fork/cold/reference/input-index 改走 Application
+  session runtime facade，不再直接 import `backend/engine/session`；
+- 红测：`TestCoreDoesNotImportEngineSessionPackage` 初始点名 core 生产文件；
+- 绿测：Application session/runtime、Backend Engine session、core Session/
+  Fork/Cold/History；
+- core 直接内部依赖 3 → 2，生产文件与行数不变；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复 core 直接 import `backend/engine/session`。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 23 |
-| core 直接内部依赖 | 37 | 16 |
-| core 生产文件 | 126 | 117 |
-| core 生产代码 | 18,723 行 | 11,829 行 |
+| core 直接内部依赖 | 37 | 2 |
+| core 生产文件 | 126 | 116 |
+| core 生产代码 | 18,723 行 | 11,764 行 |
 
-core 生产代码净减 6,894 行，直接内部依赖从 37 降到 16；
+core 生产代码净减 6,959 行，直接内部依赖从 37 降到 2；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

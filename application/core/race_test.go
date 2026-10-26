@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
@@ -20,7 +22,7 @@ var _ = types.Message{} // used by blockingEngine (embeds fakeEngine with Append
 
 // TestEventHub_RacePublishSubscribe 验证并发 Publish 与 Subscribe 不产生 data race。
 func TestEventHub_RacePublishSubscribe(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	const publishers = 20
 	const events = 50                         // 总计 1000 次 Publish
 	sub := hub.Subscribe(publishers * events) // buffer 必须 ≥ 总事件数，否则 default 分支的 drain+resync 会丢失事件，导致消费者永久阻塞
@@ -50,7 +52,7 @@ func TestEventHub_RacePublishSubscribe(t *testing.T) {
 
 // TestEventHub_RaceSubscribeClosePublish 验证 Subscribe/Close 与 Publish 并发安全。
 func TestEventHub_RaceSubscribeClosePublish(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	var wg sync.WaitGroup
 	const rounds = 50
 
@@ -85,7 +87,7 @@ func TestEventHub_RaceSubscribeClosePublish(t *testing.T) {
 
 // TestEventHub_RaceMultipleSubscribers 验证多订阅者并发订阅/关闭。
 func TestEventHub_RaceMultipleSubscribers(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	var wg sync.WaitGroup
 	const subscribers = 10
 
@@ -130,7 +132,7 @@ func TestEventHub_RaceMultipleSubscribers(t *testing.T) {
 
 // TestApprovalBroker_RaceConcurrentRequests 验证并发 Request 安全。
 func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	broker := adapters.NewApprovalBrokerFactory()(hub)
 	var wg sync.WaitGroup
 	const requests = 20
@@ -157,7 +159,7 @@ func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
 
 // TestApprovalBroker_RaceRequestShutdown 验证 Shutdown 与 Request 并发安全。
 func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	var wg sync.WaitGroup
@@ -184,7 +186,7 @@ func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
 
 // TestApprovalBroker_RaceTimeoutResolve 验证 Timeout 与 Resolve 竞态。
 func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	var wg sync.WaitGroup
@@ -215,7 +217,7 @@ func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
 
 // TestApprovalBroker_RaceDuplicateResolve 验证重复 Resolve 返回错误（并发安全）。
 func TestApprovalBroker_RaceDuplicateResolve(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	broker := adapters.NewApprovalBrokerFactory()(hub)
 
 	done := make(chan struct{})
@@ -484,10 +486,10 @@ func TestService_ShutdownThenStartChat(t *testing.T) {
 
 // TestEffortManager_RaceConcurrentApply 验证并发 Apply 安全。
 func TestEffortManager_RaceConcurrentApply(t *testing.T) {
-	ps := NewPromptStack()
+	ps := prompt.NewPromptStack()
 	ps.Push("base", "base", "base prompt")
 	eng := &fakeEngine{}
-	em := NewEffortManager(ps, eng)
+	em := prompt.NewEffortManager(ps, eng)
 
 	var wg sync.WaitGroup
 	levels := []string{"lite", "medium", "high", "max"}
@@ -505,10 +507,10 @@ func TestEffortManager_RaceConcurrentApply(t *testing.T) {
 
 // TestEffortManager_RaceCycleAndApply 验证 Cycle 与 Apply 并发安全。
 func TestEffortManager_RaceCycleAndApply(t *testing.T) {
-	ps := NewPromptStack()
+	ps := prompt.NewPromptStack()
 	ps.Push("base", "base", "base prompt")
 	eng := &fakeEngine{}
-	em := NewEffortManager(ps, eng)
+	em := prompt.NewEffortManager(ps, eng)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -531,7 +533,7 @@ func TestEffortManager_RaceCycleAndApply(t *testing.T) {
 
 // TestPromptStack_RacePushRender 验证并发 Push + Render 安全。
 func TestPromptStack_RacePushRender(t *testing.T) {
-	ps := NewPromptStack()
+	ps := prompt.NewPromptStack()
 	ps.Push("base", "base", "base")
 
 	var wg sync.WaitGroup
@@ -555,7 +557,7 @@ func TestPromptStack_RacePushRender(t *testing.T) {
 
 // TestPromptStack_RacePopPush 验证并发 Pop/PopKind + Push 安全。
 func TestPromptStack_RacePopPush(t *testing.T) {
-	ps := NewPromptStack()
+	ps := prompt.NewPromptStack()
 	ps.Push("base", "base", "base")
 	for i := 0; i < 10; i++ {
 		ps.Push("skill", fmt.Sprintf("s%d", i), fmt.Sprintf("p%d", i))
@@ -583,7 +585,7 @@ func TestPromptStack_RacePopPush(t *testing.T) {
 
 // TestPromptStack_RaceClearKind 验证并发 ClearKind + Push 安全。
 func TestPromptStack_RaceClearKind(t *testing.T) {
-	ps := NewPromptStack()
+	ps := prompt.NewPromptStack()
 	ps.Push("base", "base", "base")
 	for i := 0; i < 20; i++ {
 		ps.Push("skill", fmt.Sprintf("s%d", i), fmt.Sprintf("p%d", i))

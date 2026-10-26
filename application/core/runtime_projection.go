@@ -4,9 +4,9 @@ import (
 	"context"
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 func (service *Service) runtimeApplicationComponent() *applicationadmin.RuntimeApplication {

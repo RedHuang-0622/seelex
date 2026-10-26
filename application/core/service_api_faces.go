@@ -26,10 +26,10 @@ package core
 import (
 	"context"
 
+	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 // FaceTypeNames 是门面 A 组（类型与事件身份）的**逐字清单**：

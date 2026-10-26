@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
@@ -137,7 +138,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// 不再把一个子代理的产出判死。
 	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(service.currentViewSessionID())
-	request.Budget = reactBudgetFor(effort)
+	request.Budget = prompt.ReActBudgetFor(effort)
 	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
@@ -209,7 +210,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	// 里后台启动。门控退役之后，teammate/fork 两条链在输入面上走的是同一条链路。
 	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(sessionID)
-	request.Budget = reactBudgetFor(effort)
+	request.Budget = prompt.ReActBudgetFor(effort)
 	service.ViewMu.Lock()
 	if service.closed {
 		service.ViewMu.Unlock()

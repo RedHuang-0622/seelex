@@ -8,6 +8,7 @@ import (
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
@@ -19,12 +20,9 @@ import (
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
-	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 
 // FrontendPorts is the assembly snapshot consumed by application/compat.
@@ -63,9 +61,9 @@ type FrontendPorts struct {
 	Runtime             *applicationadmin.RuntimeApplication
 	Tasks               *task_context.Coordinator
 	View                *view_state.Coordinator
-	SubagentView        *subagent_view.Coordinator
+	SubagentView        *applicationexecution.SubagentViewCoordinator
 	Workspace           *applicationworkspace.Application
-	WorkspaceUseCase    *switchworkspace.UseCase
+	WorkspaceUseCase    *applicationworkspace.SwitchUseCase
 	AddNotice           func(string)
 	PublishRuntime      func()
 	CloseRoleToolRecord func(mainSessionID, roleSessionID string)

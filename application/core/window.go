@@ -1,9 +1,9 @@
 package core
 
 import (
-	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
+	cc "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/contract"
 )
 

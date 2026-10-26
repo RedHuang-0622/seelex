@@ -4,7 +4,7 @@ import (
 	"time"
 
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 

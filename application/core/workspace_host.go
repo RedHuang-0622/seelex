@@ -3,8 +3,8 @@ package core
 import (
 	"time"
 
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 // workspaceHost 把 Service 的视图锁、快照写面与发布面实现成
@@ -20,11 +20,11 @@ func (host workspaceHost) LockTransition() func() {
 	return lock.Unlock
 }
 
-func (host workspaceHost) State() switchworkspace.ViewState {
+func (host workspaceHost) State() applicationworkspace.SwitchViewState {
 	service := host.service
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	state := switchworkspace.ViewState{
+	state := applicationworkspace.SwitchViewState{
 		SessionID: service.Core.Snapshot.Session.ID,
 		Draft:     service.Core.Snapshot.Session.Draft,
 		Running:   service.Core.Snapshot.Chat.Running,
@@ -36,7 +36,7 @@ func (host workspaceHost) State() switchworkspace.ViewState {
 	return state
 }
 
-func (host workspaceHost) ApplyDraftBinding(info model.WorkspaceInfo, projection switchworkspace.Projection) uint64 {
+func (host workspaceHost) ApplyDraftBinding(info model.WorkspaceInfo, projection applicationworkspace.SwitchProjection) uint64 {
 	service := host.service
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
@@ -53,7 +53,7 @@ func (host workspaceHost) ApplyDraftBinding(info model.WorkspaceInfo, projection
 	return service.bumpLocked()
 }
 
-func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection switchworkspace.Projection, freshSessionID, notice string) uint64 {
+func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection applicationworkspace.SwitchProjection, freshSessionID, notice string) uint64 {
 	service := host.service
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
@@ -78,7 +78,7 @@ func (host workspaceHost) ApplyBinding(info model.WorkspaceInfo, projection swit
 	return service.bumpLocked()
 }
 
-func (host workspaceHost) ApplyUnbind(sessionID string, projection switchworkspace.Projection) uint64 {
+func (host workspaceHost) ApplyUnbind(sessionID string, projection applicationworkspace.SwitchProjection) uint64 {
 	service := host.service
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
+	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 )
 
 func newServiceConversationTurnRecovery(service *Service) *applicationconversation.TurnRecoveryApplication {

@@ -2,10 +2,9 @@ package core
 
 import (
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/view/board"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -22,7 +21,7 @@ func newServiceProjectBoardQuery(service *Service) *applicationexecution.Project
 			service.ViewMu.RLock()
 			viewSessionID := service.Core.Snapshot.Session.ID
 			plan := service.sessionActivePlanLocked(sessionID)
-			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
 			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.asyncRunsForTable()
 		},
@@ -34,7 +33,7 @@ func newServiceProjectBoardQuery(service *Service) *applicationexecution.Project
 			if service.Deps.Runtime == nil || sessionID == "" {
 				return nil
 			}
-			source, ok := service.Deps.Runtime.(board.TeamworkPlanSource)
+			source, ok := service.Deps.Runtime.(applicationexecution.TeamworkPlanSource)
 			if !ok {
 				return nil
 			}

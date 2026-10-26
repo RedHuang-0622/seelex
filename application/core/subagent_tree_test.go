@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestCollectRuntimeProjectionCarriesSubAgentTree(t *testing.T) {
 		t.Fatalf("runtime projection missing subagent tree: %+v", projection.Runtime.SubAgentTree)
 	}
 	// 克隆契约：投影树的深拷贝独立于引擎数据（改克隆不改引擎）。
-	cloned := cloneRuntimeState(projection.Runtime)
+	cloned := model.CloneRuntimeState(projection.Runtime)
 	cloned.SubAgentTree[0].Children[0].Goal = "mutated"
 	if projection.Runtime.SubAgentTree[0].Children[0].Goal != "g" {
 		t.Fatal("clone must not mutate the source tree")

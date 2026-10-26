@@ -12,8 +12,8 @@ package core
 // 塞进去会让"切会话时它跟着动"变成假事实）。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/middle/switch"
+	limit "github.com/RedHuang-0622/seelex/application/policy"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 )
 
 // releaseWindowDeps 装配驻留窗口可调面的宿主面。

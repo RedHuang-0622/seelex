@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 )

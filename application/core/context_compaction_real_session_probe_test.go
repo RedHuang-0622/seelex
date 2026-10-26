@@ -2,6 +2,8 @@
 
 package core
 
+import applicationwindow "github.com/RedHuang-0622/seelex/application/window"
+
 // 真实会话记录上实跑「第一次压缩触发点 → 被动压缩链路」。
 //
 // 为什么要有它：压缩链路此前只在**合成夹具**上跑过（每轮 N 个 ASCII 字符，token
@@ -308,7 +310,7 @@ func realProbeLoadFacts(t *testing.T) *realProbeFacts {
 // realProbeWindowConfig 读真实 seelex.yaml 的 window 段（缺省档见探针文件头）。
 func realProbeWindowConfig(t *testing.T) cc.WindowConfig {
 	path := realProbeResolve(t, realProbeEnv("SEELEX_REAL_CONFIG", realProbeDefaultConfig))
-	config, err := LoadWindowConfig(path)
+	config, err := applicationwindow.LoadWindowConfig(path)
 	if err != nil {
 		t.Logf("真实 window 配置不可读（%s）：%v；退回默认档", path, err)
 		return cc.WindowConfig{}

@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	protocol_event "github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
 	"strings"
@@ -249,7 +249,7 @@ func (service *Service) syncSessionReasoningEffortFor(sessionID string) {
 // 端口是窄可选的（contract.ReasoningEffortPort）：宿主没实现就整步退化为 no-op，
 // 不影响 loop/预算那半条链。
 func (service *Service) syncSessionReasoningEffort(level string) int {
-	return service.knobs.PushSessionReasoningEffort(reasoningEffortFor(level))
+	return service.knobs.PushSessionReasoningEffort(prompt.ReasoningEffortFor(level))
 }
 
 // permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；

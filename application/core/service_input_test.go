@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/application/event"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -346,7 +347,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 }
 
 func TestApprovalBrokerResolve(t *testing.T) {
-	hub := NewEventHub()
+	hub := event.NewEventHub()
 	subscription := hub.Subscribe(1)
 	defer subscription.Close()
 	broker := adapters.NewApprovalBrokerFactory()(hub)

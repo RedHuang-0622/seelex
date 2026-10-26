@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -64,7 +65,7 @@ func TestSetLoopLimitRejectsOutOfRange(t *testing.T) {
 	if engine.maxLoops != before {
 		t.Fatalf("被拒的调用不该触碰引擎：maxLoops = %d → %d", before, engine.maxLoops)
 	}
-	if _, loops := runtimeKnobs(service); loops != maxLoopsFor("high") {
+	if _, loops := runtimeKnobs(service); loops != prompt.MaxLoops("high") {
 		t.Fatalf("被拒的调用不该改快照：loop limit = %d（装配期播种的 high=384）", loops)
 	}
 }

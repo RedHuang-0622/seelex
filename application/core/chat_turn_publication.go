@@ -2,7 +2,7 @@ package core
 
 import (
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/application/event"
 )
 
 func newServiceConversationTurnPublisher(service *Service) *applicationconversation.TurnPublisherApplication {
