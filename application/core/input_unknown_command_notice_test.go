@@ -37,7 +37,7 @@ func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			notice := service.unknownCommandNotice(testCase.name)
+			notice := service.components.completionApplication.UnknownCommandNotice(testCase.name)
 			for _, want := range testCase.wantHints {
 				if !strings.Contains(notice, want) {
 					t.Fatalf("提示 %q 缺少 %q", notice, want)

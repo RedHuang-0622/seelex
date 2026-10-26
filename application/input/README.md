@@ -12,6 +12,8 @@
 - 统一 closed/draining 受理门禁、空白裁剪与 dispatcher 委托。
 - 组合命令、Skill、Plugin 三个权威目录的候选。
 - 按前缀过滤，并保持 command → skill → plugin 的稳定排序。
+- 拥有未知命令提示、sigil 迁移提示和命令近似匹配；core 不再保留第二份
+  输入发现判据。
 - 提供 `HasSigilPrefix` / `SigilOf`；根 `application` 门面直接再导出这两个
   词法函数，`application/core` 不再保留同义包装。
 - 参数区或未知前缀返回空建议。
@@ -25,7 +27,8 @@
 
 ## 文件结构
 
-- `suggestions.go`：sigil 解析、`Suggestion` DTO、`Deps` 和候选塑形。
+- `suggestions.go`：sigil 解析、`Suggestion` DTO、`Deps`、候选塑形与未知命令
+  恢复提示。
 - `submission.go`：`SubmissionApplication`，只持生命周期读回调和 dispatcher，不拥
   有命令、Skill 或 Conversation 路由。
 - `command/`：基础内置命令注册与 `contract.CommandResult` 适配。
@@ -33,8 +36,8 @@
 
 ## 核心实现
 
-`Deps` 只提供三个目录读取函数。`Application` 无状态，不缓存目录；每次建议请求
-读取调用方注入的当前目录值。
+`Deps` 只提供目录读取与三项窄查询（Plugin/Skill 是否存在、工具是否可见）。
+`Application` 无状态，不缓存目录；每次建议或提示请求读取调用方注入的当前目录值。
 
 ## 数据流
 
@@ -57,7 +60,8 @@
 
 ## 扩展方式
 
-新增建议域时先冻结 sigil 与目录端口，再显式加入稳定优先级；不得在 UI 复制排序表。
+新增建议域时先冻结 sigil、目录端口和错误提示判据，再显式加入稳定优先级；
+不得在 core 或 UI 复制排序表、编辑距离或迁移提示。
 
 ## Review 指南
 

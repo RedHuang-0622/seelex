@@ -20,7 +20,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 	}
 	command, ok := service.commands.Get(parts[0])
 	if !ok {
-		service.components.view.AddNotice(service.unknownCommandNotice(parts[0]))
+		service.components.view.AddNotice(service.components.completionApplication.UnknownCommandNotice(parts[0]))
 		return nil
 	}
 	result, err := command.Execute(ctx, parts[1:])
@@ -54,7 +54,7 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 	skill, ok := service.Deps.Skills.Get(name)
 	if !ok {
 		notice := "未知 Skill: " + name
-		if hint := service.sigilMigrationHint(applicationinput.SigilSkill, name); hint != "" {
+		if hint := service.components.completionApplication.SigilMigrationHint(applicationinput.SigilSkill, name); hint != "" {
 			notice += hint
 		}
 		service.components.view.AddNotice(notice)
@@ -70,7 +70,7 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 // 不在这里重复一份错误文案。
 func (service *Service) submitPluginSwitch(ctx context.Context, name string) error {
 	if err := service.components.policyApplication.SwitchPlugin(ctx, name); err != nil {
-		if hint := service.sigilMigrationHint(applicationinput.SigilPlugin, name); hint != "" {
+		if hint := service.components.completionApplication.SigilMigrationHint(applicationinput.SigilPlugin, name); hint != "" {
 			service.components.view.AddNotice(fmt.Sprintf("未知 Plugin: %s%s", name, hint))
 		}
 		return err

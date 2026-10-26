@@ -5440,16 +5440,33 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：恢复 Application 对两个 backend 工具包的直接 import，删除 Review
   Processor 端口。
 
+## EP-059：输入发现策略归位
+
+- 把 `unknownCommandNotice`、`sigilMigrationHint`、命令近似匹配和有界编辑距离从
+  `application/core/completion.go` 迁入 `application/input`；
+- `input.Application` 新增 `SigilMigrationHint`、`UnknownCommandNotice` 与三个目录
+  窄查询 `HasPlugin`、`HasSkill`、`HasVisibleTool`，调用方直接使用唯一实现；
+- 删除 `application/core/completion.go`，core assembler 只负责把命令、Skill、
+  Plugin 与可见工具目录装配成回调；
+- 红测：input 新接口不存在导致编译失败，`TestInputCompletionPolicyLivesOutsideCore`
+  点名旧 core 文件仍存在；
+- 绿测：input 提示/迁移/近似匹配、core 未知命令集成与 Suggestions 回归通过；
+- core 生产文件 67 → 66，生产代码 9,953 → 9,788 行；`Service` 保持 0，
+  Application 具体 Backend/Middle/Store 依赖保持 23，Store 保持 0；
+- 未知命令文案、sigil、建议排序、GUI/TUI wire、事件 revision/seq 与持久化格式
+  均未改变；
+- 回退方式：恢复 `application/core/completion.go` 并让 input 删除对应方法。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 67 |
-| core 生产代码 | 18,723 行 | 9,953 行 |
+| core 生产文件 | 126 | 66 |
+| core 生产代码 | 18,723 行 | 9,788 行 |
 
-core 生产代码净减 8,770 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 8,935 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

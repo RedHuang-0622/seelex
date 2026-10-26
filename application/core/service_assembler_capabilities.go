@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
@@ -93,9 +94,62 @@ func (service *Service) assembleAsyncCompletionApplication() {
 
 func (service *Service) assembleCompletionApplication() {
 	service.components.completionApplication = applicationinput.New(applicationinput.Deps{
-		CommandSuggestions: service.commandSuggestions,
-		SkillSuggestions:   service.skillSuggestions,
-		PluginSuggestions:  service.pluginSuggestions,
+		CommandSuggestions: func() []applicationinput.Suggestion {
+			suggestions := make([]applicationinput.Suggestion, 0)
+			for _, command := range service.commands.All() {
+				suggestions = append(suggestions, applicationinput.Suggestion{
+					Text: command.Name(), Description: command.Description(),
+					Kind: applicationinput.SuggestionKindCommand,
+				})
+			}
+			return suggestions
+		},
+		SkillSuggestions: func() []applicationinput.Suggestion {
+			suggestions := make([]applicationinput.Suggestion, 0)
+			for _, skill := range service.Deps.Skills.All() {
+				suggestions = append(suggestions, applicationinput.Suggestion{
+					Text: skill.Name, Description: skill.Description,
+					Kind: applicationinput.SuggestionKindSkill,
+				})
+			}
+			return suggestions
+		},
+		PluginSuggestions: func() []applicationinput.Suggestion {
+			suggestions := make([]applicationinput.Suggestion, 0)
+			for _, plugin := range service.Deps.Plugins.All() {
+				suggestions = append(suggestions, applicationinput.Suggestion{
+					Text: plugin.Name, Description: plugin.Description,
+					Kind: applicationinput.SuggestionKindPlugin,
+				})
+			}
+			return append(suggestions, applicationinput.Suggestion{
+				Text: "off", Description: "停用所有插件",
+				Kind: applicationinput.SuggestionKindPlugin,
+			})
+		},
+		HasPlugin: func(name string) bool {
+			for _, plugin := range service.Deps.Plugins.All() {
+				if strings.EqualFold(plugin.Name, name) {
+					return true
+				}
+			}
+			return false
+		},
+		HasSkill: func(name string) bool {
+			_, ok := service.Deps.Skills.Get(name)
+			return ok
+		},
+		HasVisibleTool: func(name string) bool {
+			if service.Deps.Runtime == nil || strings.TrimSpace(name) == "" {
+				return false
+			}
+			for _, tool := range service.Deps.Runtime.VisibleTools(context.Background()) {
+				if strings.EqualFold(tool.Name, strings.TrimSpace(name)) {
+					return true
+				}
+			}
+			return false
+		},
 	})
 }
 
