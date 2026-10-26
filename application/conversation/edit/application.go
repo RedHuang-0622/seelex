@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // EditApplicationDeps supplies idempotency and the extracted edit/fork process.

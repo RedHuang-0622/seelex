@@ -543,13 +543,13 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -566,7 +566,7 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 	// 错误；wire 上是框架合成的 `{"error": %q}`，记录侧曾是应用分类呈现文本。
 	submit("第 4 轮：调用 read_file 读取 missing_probe.txt，然后如实向用户报告这次调用的结果，不要重试。")
 
-	sessionID := harness.app.Snapshot().Session.ID
+	sessionID := harness.frontend.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}

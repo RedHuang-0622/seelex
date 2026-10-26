@@ -3,7 +3,7 @@
 package observability
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	middleview "github.com/RedHuang-0622/seelex/middle/view"
 )
 

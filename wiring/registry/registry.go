@@ -158,7 +158,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 		// ctx 里没有才退到当前视图会话。
 		sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
 		if sessionID == "" {
-			sessionID = app.Snapshot().Session.ID
+			sessionID = frontend.Snapshot().Session.ID
 		}
 		result, err := board.ReadProjectBoard(st, request, frontend.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
@@ -235,7 +235,7 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			// （与看板落点同源）；未绑定时退回本次扫描根（显式给了 project_root 的用法）。
 			sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
 			if sessionID == "" {
-				sessionID = app.Snapshot().Session.ID
+				sessionID = frontend.Snapshot().Session.ID
 			}
 			renderRoot := frontend.ProjectRootFor(sessionID)
 			if renderRoot == "" {
@@ -288,7 +288,7 @@ func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptE
 			if err != nil {
 				return assemble.ScheduledPromptOutcome{}, err
 			}
-			if err := app.SubmitToSession(assembled, bound, task.Prompt); err != nil {
+			if err := frontend.SubmitToSession(assembled, bound, task.Prompt); err != nil {
 				return assemble.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
 			}
 			return assemble.ScheduledPromptOutcome{
@@ -330,7 +330,7 @@ func RegisterScheduledTaskCapability(runtime *assemble.Runtime) {
 // 注册进 tools.Registry（taskTerminalProvider，见 backend/tool/task/terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
 func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service) {
-	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
+	runtime.RegisterTaskTerminalTools(applicationcompat.New(app).TaskTerminalHandler)
 }
 
 func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval application.ApprovalBroker, skills *skill.Registry) {

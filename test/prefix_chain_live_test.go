@@ -128,16 +128,16 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 		t.Helper()
 		turnCtx, turnCancel := context.WithTimeout(ctx, 4*time.Minute)
 		defer turnCancel()
-		if err := harness.app.Submit(turnCtx, prompt); err != nil {
+		if err := harness.frontend.Submit(turnCtx, prompt); err != nil {
 			t.Fatalf("%s：提交失败: %v", stage, err)
 		}
 		if err := harness.frontend.WaitForIdle(turnCtx); err != nil {
-			snapshot := harness.app.Snapshot()
+			snapshot := harness.frontend.Snapshot()
 			t.Fatalf("%s：真实回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 				stage, err, snapshot.Chat.Running, snapshot.Chat.Error,
 				describeConversationTail(snapshot.Conversation, 4))
 		}
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		if snapshot.Chat.Error != "" {
 			t.Fatalf("%s：真实回合失败: %s", stage, snapshot.Chat.Error)
 		}
@@ -263,7 +263,7 @@ func prefixLiveCompactAndReadFrame(
 	if record.FrameRef == "" {
 		t.Fatalf("%s：压缩记录没有 frame_ref，四区报表不可回读：%+v", stage, record)
 	}
-	page, err := harness.app.ReadToolResultHandler(ctx,
+	page, err := harness.frontend.ReadToolResultHandler(ctx,
 		fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":20000}`, record.FrameRef))
 	if err != nil {
 		t.Fatalf("%s：回读帧正文失败：%v", stage, err)

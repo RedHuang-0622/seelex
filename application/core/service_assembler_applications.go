@@ -87,7 +87,7 @@ func (service *Service) assembleRoleApplication() {
 	})
 }
 
-func (service *Service) assembleReviewApplication() {
+func (service *Service) assembleReviewApplication(newProcessor applicationreview.ProcessorFactory) {
 	service.components.reviewApplication = applicationreview.New(applicationreview.Deps{
 		WorkspaceFile: func() (contract.WorkspaceFilePort, string, error) {
 			return service.components.workspace.FilePort()
@@ -111,6 +111,7 @@ func (service *Service) assembleReviewApplication() {
 		PublishSnapshotChanged: func(sessionID string, revision uint64) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
+		NewProcessor: newProcessor,
 	})
 }
 

@@ -304,11 +304,11 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	defer cancel()
 
 	start := time.Now()
-	if err := harness.app.Submit(ctx, abPrompt(arm, taskID, command, sentinel)); err != nil {
+	if err := harness.frontend.Submit(ctx, abPrompt(arm, taskID, command, sentinel)); err != nil {
 		sample.failure = fmt.Sprintf("submit: %v", err)
 	} else if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		sample.failure = fmt.Sprintf("idle: %v", err)
-	} else if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+	} else if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 		sample.failure = snapshot.Chat.Error
 	}
 	sample.wall = time.Since(start)

@@ -193,13 +193,13 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -340,13 +340,13 @@ func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T) {
 	harness := newUnboundFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -398,13 +398,13 @@ func TestFullChainPrefixInvariantOversizedToolResultAcrossTurns(t *testing.T) {
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}

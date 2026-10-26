@@ -34,7 +34,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := harness.app.Submit(ctx, "Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
+	if err := harness.frontend.Submit(ctx, "Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +61,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("live final chat state = %+v", snapshot.Chat)
 	}
 }
@@ -148,7 +148,7 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if err := harness.app.Submit(ctx, "Call todolist_init exactly once with one item named inspect, then reply done. Do not call any other tool."); err != nil {
+	if err := harness.frontend.Submit(ctx, "Call todolist_init exactly once with one item named inspect, then reply done. Do not call any other tool."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -166,7 +166,7 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("live final chat state = %+v", snapshot.Chat)
 	}
 }

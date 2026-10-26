@@ -9,7 +9,7 @@
 与视图写面经 `Host` 装配进来）与 `wiring/registry`（直接调用本包唯一注册 helper
 `RegisterShowFilesTool`）。旧 `backend/engine/assemble.RegisterReviewFilesTool` 仅保留 D1 一行转发。
 
-落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/core/review_files.go`
+落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/review`
 归位（plan §2.6）。
 
 ## 职责与非职责

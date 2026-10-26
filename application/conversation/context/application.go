@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // Deps supplies session resolution, compaction gate and Runtime compaction.

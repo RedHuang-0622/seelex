@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sync"
 	"testing"
 	"time"

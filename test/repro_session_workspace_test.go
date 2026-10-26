@@ -48,26 +48,26 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	t.Cleanup(cancel)
 
 	workspaceIDByName := func(name string) string {
-		for _, workspace := range harness.app.Snapshot().Workspaces {
+		for _, workspace := range harness.frontend.Snapshot().Workspaces {
 			// 显示名 = root 目录 basename（workspaceDisplayName），按目录名匹配。
 			if workspace.Name == name || filepath.Base(workspace.RootPath) == name {
 				return workspace.ID
 			}
 		}
-		t.Fatalf("workspace %q not found: %#v", name, harness.app.Snapshot().Workspaces)
+		t.Fatalf("workspace %q not found: %#v", name, harness.frontend.Snapshot().Workspaces)
 		return ""
 	}
 	if err := harness.frontend.CreateWorkspace("ws-x", xRoot, ""); err != nil {
 		t.Fatal(err)
 	}
 	wsX = workspaceIDByName("x")
-	if err := harness.app.Submit(ctx, "first A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA = harness.app.Snapshot().Session.ID
+	sessionA = harness.frontend.Snapshot().Session.ID
 	// 离开 A 进入草稿：BeginNewSession 会把 A 按自身 workspace（X）落盘。
 	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatal(err)
@@ -78,13 +78,13 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	wsY = workspaceIDByName("y")
 	// 草稿已绑定 Y（CreateWorkspace 的 draft 分支），提交 first B
 	// （请求 #2 快速返回）→ B 物化绑定 Y。
-	if err := harness.app.Submit(ctx, "first B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first B"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionB = harness.app.Snapshot().Session.ID
+	sessionB = harness.frontend.Snapshot().Session.ID
 	if sessionA == "" || sessionB == "" || sessionA == sessionB {
 		t.Fatalf("sessions A=%q B=%q must be distinct", sessionA, sessionB)
 	}
@@ -92,7 +92,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "long task A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -104,17 +104,17 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "hello B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("B did not finish: %+v", harness.app.Snapshot().Chat)
+			t.Fatalf("B did not finish: %+v", harness.frontend.Snapshot().Chat)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -152,7 +152,7 @@ func TestBackgroundPersistUsesSessionWorkspaceKey(t *testing.T) {
 // 仍是 Y）。
 func TestBackgroundPersistDoesNotMutateWriteScope(t *testing.T) {
 	harness, _, _, _, wsY, _ := startCrossWorkspaceScenario(t)
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != wsY {
 		t.Fatalf("write scope after background persist = %#v, want %q", snapshot.CurrentWorkspace, wsY)
 	}
@@ -171,12 +171,12 @@ func TestNoPhantomSessionInForeignWorkspace(t *testing.T) {
 // TC-A5-02：fork 不改变其它会话落盘键（fork 后 C 仍落自身 workspace）。
 func TestForkDoesNotShiftOtherSessionPersistKey(t *testing.T) {
 	harness, _, sessionB, wsX, wsY, st := startCrossWorkspaceScenario(t)
-	child, err := harness.app.ForkSessionLatest(sessionB)
+	child, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if harness.app.Snapshot().CurrentWorkspace == nil || harness.app.Snapshot().CurrentWorkspace.ID != wsY {
-		t.Fatalf("fork shifted write scope: %#v", harness.app.Snapshot().CurrentWorkspace)
+	if harness.frontend.Snapshot().CurrentWorkspace == nil || harness.frontend.Snapshot().CurrentWorkspace.ID != wsY {
+		t.Fatalf("fork shifted write scope: %#v", harness.frontend.Snapshot().CurrentWorkspace)
 	}
 	// fork 子会话写自身 workspace（Y），不写 X。
 	childRecord, ok := loadStoredRecord(t, st, wsY, child)

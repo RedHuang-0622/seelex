@@ -183,6 +183,18 @@ go test ./wiring/adapters -count=1
 - `func TestAccountAdminNeedsPathAndRuntime(t *testing.T)` — TestAccountAdminNeedsPathAndRuntime：宿主没解析出路径 / 没装运行时时给明确错误。
 - `func TestAccountBalanceDTOKeepsProviderShape(t *testing.T)` — TestAccountBalanceDTOKeepsProviderShape：余额映射必须原样搬字符串（"110.00" 不能
 
+### account_window.go
+
+- `func NewAccountWindowPolicy() applicationadmin.AccountWindowPolicy` — NewAccountWindowPolicy exposes the account-window setter through the
+- `func (accountWindowPolicy) Set( runtime contract.AccountWindowPort, store contract.AccountWindowStore, name string, window int, ) (int, error)`
+
+### account_window_test.go
+
+- `func (probe *accountWindowRuntimeProbe) SetAccountWindow(_ string, window int)`
+- `func (probe *accountWindowRuntimeProbe) AccountWindowFor(string) int`
+- `func (accountWindowStoreProbe) SaveAccountWindow(string, int) error`
+- `func TestAccountWindowPolicyMatchesMiddleSetter(t *testing.T)`
+
 ### adapters_test.go
 
 - `func TestTranscriptEventWireMaterialRoundTrip(t *testing.T)` — TestTranscriptEventWireMaterialRoundTrip 覆盖 S19/D8：内部 user 材料的
@@ -207,10 +219,35 @@ go test ./wiring/adapters -count=1
 - `func TestDecodeSessionRecordPreservesV2Components(t *testing.T)`
 - `func TestWorkspacePortUsesRootBasenameAndUniqueIDs(t *testing.T)`
 
+### approval_broker.go
+
+- `func NewApprovalBrokerFactory() func(event.Hub) contract.ApprovalBroker` — NewApprovalBrokerFactory returns the composition-root factory for the
+
 ### compaction_index_port.go
 
 - `func (port RuntimePort) PushCompactionFrame( ctx context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)` — PushCompactionFrame 实现 context_runtime.CompactionIndexPort：把装配层压缩产出的
 - `func (port RuntimePort) ReadbackCompactionSummary( ctx context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)` — ReadbackCompactionSummary 实现 context_runtime 的窄可选探针
+
+### compressed_turn_store.go
+
+- `func NewCompressedTurnStore(target any) applicationreference.CompressedTurnStore` — NewCompressedTurnStore adapts the session manager's explicit-scope commit
+- `func (port compressedTurnStore) SaveCompressedTurn(projectID, sessionID, ref, content string) error`
+
+### compressed_turn_store_test.go
+
+- `func (stub *compressedTurnStoreStub) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error`
+- `func TestCompressedTurnStorePreservesExplicitScopeAndPayload(t *testing.T)`
+
+### conversation_stream.go
+
+- `func NewConversationStreamPort() applicationconversation.StreamOutputPort` — NewConversationStreamPort exposes visible-output and batching primitives
+- `func (conversationStreamPort) NewBatcher(render func([]string), options applicationconversation.StreamBatcherOptions) applicationconversation.DeltaBatcher`
+- `func (conversationStreamPort) NewVisibleOutput(requestID string) applicationconversation.VisibleOutput`
+- `func (conversationStreamPort) StripThoughtBlocks(value string) string`
+
+### conversation_stream_test.go
+
+- `func TestConversationStreamPortMatchesEnginePrimitives(t *testing.T)`
 
 ### engine_port.go
 
@@ -220,7 +257,7 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) runHandoff(handoff historyHandoff)` — runHandoff 在 port.mu **之外**把历史交给宿主。已被后续决定取代的那次直接丢弃。
 - `func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort`
 - `func (port *EnginePort) SessionBacked() bool` — SessionBacked 报告底层 reactor 是否为 session.Session。
-- `func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入主会话的 SSH 路径白名单读面；白名单属于单一 `ssh` 能力。
+- `func (port *EnginePort) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入主会话的 SSH 路径范围读面。
 - `func (port *EnginePort) withRoleUserSpaces(ctx context.Context, sessionID string) context.Context`
 - `func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 是会话路由的 ChatStream：多会话并行执行时，runChat 用
@@ -369,6 +406,45 @@ go test ./wiring/adapters -count=1
 - `func TestEnginePortTokenCountForFiltersBySession(t *testing.T)` — TestEnginePortTokenCountForFiltersBySession（G1/M8）：TokenCountFor 只累加
 - `func TestEnginePortTokenCountForWithoutTracer(t *testing.T)` — TestEnginePortTokenCountForWithoutTracer 无 tracer（单会话桩）时 per-session
 
+### error_presentation.go
+
+- `func NewErrorPresentationPort() contract.ErrorPresentationPort` — NewErrorPresentationPort exposes the Middle-owned error classification and
+- `func (errorPresentationPort) Wrap(err error, code string) error`
+- `func (errorPresentationPort) PresentToolError(toolName string, err error) string`
+
+### error_presentation_test.go
+
+- `func TestErrorPresentationPortMatchesMiddleRules(t *testing.T)`
+
+### goal_coordinator.go
+
+- `func NewGoalCoordinator(runtime contract.RuntimePort) *applicationgoal.Coordinator` — NewGoalCoordinator adapts the optional runtime session-context store into
+- `func goalStoreFor(provider goalContextStoreProvider, sessionID string) *goaldomain.ContextStateStore`
+
+### history_window.go
+
+- `func NewHistoryWindowAssembler() applicationhistory.WindowAssembler` — NewHistoryWindowAssembler 返回 Middle 窗口判据的端口实现。
+
+### host_session.go
+
+- `func NewHostSessionForToolCall() func(context.Context) string` — NewHostSessionForToolCall exposes the read-only Runtime context lookup used
+
+### host_session_test.go
+
+- `func TestHostSessionForToolCallMatchesAssemble(t *testing.T)`
+
+### input_router.go
+
+- `func NewCommandRegistryFactory() func() contract.CommandRegistryPort` — NewCommandRegistryFactory returns the Backend-owned command registry
+- `func NewInputRouterFactory() func(contract.InputRouteHandlers) contract.InputDispatcher` — NewInputRouterFactory returns the Backend-owned normalized-input router.
+
+### input_router_test.go
+
+- `func (command inputRouterTestCommand) Name() string`
+- `func (command inputRouterTestCommand) Description() string`
+- `func (command inputRouterTestCommand) Execute(context.Context, []string) (contract.CommandResult, error)`
+- `func TestInputRouterFactoriesForwardRegistryAndPrefixDispatch(t *testing.T)`
+
 ### messages.go
 
 - `func adaptMessages(messages []types.Message) []contract.EngineMessage`
@@ -380,6 +456,26 @@ go test ./wiring/adapters -count=1
 ### plugin_info_skills_test.go
 
 - `func TestAdaptPluginCarriesSkillCatalog(t *testing.T)` — TestAdaptPluginCarriesSkillCatalog 钉住插件页「按插件看 Skill」的数据面：
+
+### residency.go
+
+- `func NewResidencyPort() applicationsession.ResidencyPort` — NewResidencyPort exposes the Middle residency decisions through the
+- `func (residencyPort) Preview(content string, limit int) (string, bool)`
+- `func (residencyPort) Touch(order []string, sessionID string) []string`
+- `func (residencyPort) Forget(order []string, sessionID string) []string`
+- `func (residencyPort) Prune(order []string, loaded func(string) bool, unitIDs []string) []string`
+- `func (residencyPort) Budget(legacyLimit, protectedCount, window int) int`
+- `func (residencyPort) InputIndexSummaryLimit() int`
+- `func (residencyPort) BuildInputIndex( conversation []model.Message, loaded []string, limit int, userText func(model.Message) string, ) []model.SessionInputIndexRow`
+- `func (residencyPort) WaitCatalogRefresh(ctx context.Context, refresher applicationsession.CatalogRefresher) error`
+- `func (residencyPort) Evict(deps applicationsession.EvictionDeps)`
+- `func (residencyPort) Archive(deps applicationsession.ArchiveUseCaseDeps, sessionID string) error`
+
+### residency_test.go
+
+- `func TestResidencyPortMatchesMiddlePureDecisions(t *testing.T)`
+- `func TestResidencyPortPreservesArchiveErrorIdentity(t *testing.T)`
+- `func TestResidencyPortEvictionMatchesMiddleDecision(t *testing.T)`
 
 ### role_fields_test.go
 
@@ -420,6 +516,14 @@ go test ./wiring/adapters -count=1
 - `func TestRolePermissionLayersProjectEachGroupClosedWorld(t *testing.T)` — TestRolePermissionLayersProjectEachGroupClosedWorld 是五层来源的核心断言：
 - `func TestPermissionVectorTagsMarksZeroBitsAsDeny(t *testing.T)` — TestPermissionVectorTagsMarksZeroBitsAsDeny 钉住投影规则本身（一条判据一处实现）。
 
+### role_sessions.go
+
+- `func NewRoleSessionsFactory() func(contract.SessionPort) contract.RoleSessionsPort` — NewRoleSessionsFactory discovers the optional role-session and schedule
+
+### role_sessions_test.go
+
+- `func TestRoleSessionsFactoryPreservesUnassembledError(t *testing.T)`
+
 ### runtime_narrow_ports.go
 
 - `func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
@@ -431,6 +535,11 @@ go test ./wiring/adapters -count=1
 - `func accountBalanceDTO(name string, balance account.Balance, fetchedAt time.Time) dto.AccountBalance` — accountBalanceDTO 是纯映射（时间由调用方给）：域读数 → 界面契约。
 - `func (port RuntimePort) TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
 - `func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePage 是同一份读数的**分页读法**（"只有尾巴"改成"有界窗口 +
+- `func (port RuntimePort) ViewAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)` — ViewAgentConversation / ChatAgentConversation / RecoverAgentConversation 实现
+- `func (port RuntimePort) ChatAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)`
+- `func (port RuntimePort) RecoverAgentConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)`
+- `func (port RuntimePort) WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)` — WorkItemExecution 实现 contract.WorkItemExecutionPort：WorkItem 详情与 teammate
+- `func (port RuntimePort) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)` — TeammateInspection 实现 contract.TeammateInspectionPort。
 - `func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
 - `func (port RuntimePort) TeamworkJobEvents() <-chan struct`
 - `func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
@@ -542,6 +651,15 @@ go test ./wiring/adapters -count=1
 - `func TestSaveCurrent_SaveFnError(t *testing.T)`
 - `func TestResume_LoadFnError(t *testing.T)`
 
+### session_records.go
+
+- `func NewSessionRecordsPort() applicationconversation.SessionRecordsPort` — NewSessionRecordsPort exposes the shared session-record paginator.
+- `func (sessionRecordsPort) PaginateRecords( sessionID string, records []dto.ConversationRecord, request dto.ConversationViewRequest, ) dto.SessionRecordPage`
+
+### session_records_test.go
+
+- `func TestSessionRecordsPortMatchesMiddlePaginator(t *testing.T)`
+
 ### session_setting_ports_test.go
 
 - `func TestSessionPermissionTierRoundTrip(t *testing.T)` — TestSessionPermissionTierRoundTrip：会话级权限档位设置经适配层落到真实存储
@@ -554,7 +672,7 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) sessionSSHBridge() *sessionSSHBridge` — sessionSSHBridge 取本端口的共享体（存储未装配时 nil）。
 - `func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)` — SessionSSHState 实现 application/core 的 sessionSSHPort：读会话 SSH 状态。
 - `func (port SessionPort) SetSessionSSHState(sessionID string, state model.SessionSSHInfo) error` — SetSessionSSHState 实现 sessionSSHPort：写会话 SSH 状态（整份写入，后写覆盖先写）。
-- `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面读取会话首次固定、之后不可切换的工作环境名
+- `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面用的**缺省环境**读面：返回该会话当前限定的环境名
 
 ### session_ssh_state_port_test.go
 
@@ -654,6 +772,7 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
 - `func (port SessionPort) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（基座一致才发布）。
 - `func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error)` — DiscardPendingMessageTailWorkspace 显式丢弃草稿尾部。
+- `func (port SessionPort) AppendDraftSnapshotWorkspace(projectID, sessionID string, events []model.TranscriptEvent) (int, bool, error)` — AppendDraftSnapshotWorkspace 把 transcript 后缀映射成 message 事件行并写入
 - `func pendingTailDTO(report store.PendingTailReport) dto.PendingMessageTailReport` — pendingTailDTO 把存储层报告映射成跨层 DTO（正文行本身不跨层：应用侧只需要
 - `func (port SessionPort) roleRouter(mainSessionID string) (*store.Router, string, error)`
 - `func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
@@ -688,6 +807,7 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) ([]model.ContextCompaction, error)` — LoadCompactionRecordsWorkspace 读取会话的持久压缩记录（应用侧可见面事实源）。
 - `func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error)`
 - `func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error)`
+- `func (port SessionPort) LoadSessionResumeRecordWorkspace(workspaceID, id string) (model.SessionRecord, int, bool, error)` — LoadSessionResumeRecordWorkspace 是冷加载专用读面：有 compact 指针时只
 - `func (port SessionPort) deriveSessionRecord(workspaceID, sessionID string) (model.SessionRecord, error)` — deriveSessionRecord 从该会话自身的事件流构造最小 SessionRecord（S20：
 - `func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]model.Message, int, error)`
 - `func adaptStoredConversationMessage(message store.ConversationMessage) model.Message` — adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
@@ -703,58 +823,28 @@ go test ./wiring/adapters -count=1
 - `func TestSessionPortFirstUserInputs(t *testing.T)` — TestSessionPortFirstUserInputs：标题回填的有界读面在适配层落地——项目归属
 - `func TestAdaptGranularInfosCarriesTimelineFields(t *testing.T)` — TestAdaptGranularInfosCarriesTimelineFields（左侧栏日期占位回归）：目录
 
-### toolcall_status_record_test.go
-
-- `func TestToolCallStatusOfRecordLocksTheStoreVocabulary(t *testing.T)` — toolcall_status_record_test.go — "工具调用视图词"这一格在**存储面 → 契约枚举**的互锁。
-
-### history_window.go
-
-- `func NewHistoryWindowAssembler() applicationhistory.WindowAssembler` — 返回 Middle `Assembler` 的唯一端口实现。
-
-### residency.go
-
-- `func NewResidencyPort() applicationsession.ResidencyPort` — 返回 Middle residency 判据的唯一端口实现。
-
-### conversation_stream.go
-
-- `func NewConversationStreamPort() applicationconversation.StreamOutputPort` — 返回 Engine stream 原语的唯一端口实现。
-
-### account_window.go
-
-- `func NewAccountWindowPolicy() applicationadmin.AccountWindowPolicy` — 返回 Middle account-window setter 的唯一端口实现。
-
 ### skill_activation.go
 
-- `func NewSkillActivationPort() applicationpolicy.SkillActivationPort` — 返回 Engine skill activator 的唯一端口实现。
+- `func NewSkillActivationPort() applicationpolicy.SkillActivationPort` — NewSkillActivationPort exposes the Engine skill activator through the
+- `func (skillActivationPort) Activate( name string, skills contract.SkillPort, apply func(model.SkillInfo), ) (model.SkillInfo, error)`
 
-### session_records.go
+### skill_activation_test.go
 
-- `func NewSessionRecordsPort() applicationconversation.SessionRecordsPort` — 返回 Middle session-record paginator 的唯一端口实现。
-
-### error_presentation.go
-
-- `func NewErrorPresentationPort() contract.ErrorPresentationPort` — 返回 Middle error presenter 的唯一端口实现。
-
-### approval_broker.go
-
-- `func NewApprovalBrokerFactory() func(event.Hub) contract.ApprovalBroker` — 返回 Backend approval broker 的组合根工厂。
-
-### input_router.go
-
-- `func NewCommandRegistryFactory() func() contract.CommandRegistryPort` — 返回 Backend command registry 工厂。
-- `func NewInputRouterFactory() func(contract.InputRouteHandlers) contract.InputDispatcher` — 返回 Backend prefix router 工厂。
-
-### role_sessions.go
-
-- `func NewRoleSessionsFactory() func(contract.SessionPort) contract.RoleSessionsPort` — 返回 Team role-session facade 的组合根工厂。
+- `func (skillLookupProbe) Get(name string) (model.SkillInfo, bool)`
+- `func (skillLookupProbe) All() []model.SkillInfo`
+- `func TestSkillActivationPortMatchesEngineActivator(t *testing.T)`
 
 ### teamwork_board_reader.go
 
-- `func NewTeamworkBoardReaderFactory() func(contract.RuntimePort) applicationexecution.BoardReader` — 返回 Backend teamwork read projection 的工厂。
+- `func NewTeamworkBoardReaderFactory() func(contract.RuntimePort) applicationexecution.BoardReader` — NewTeamworkBoardReaderFactory returns the Backend-owned read-only teamwork
 
-### host_session.go
+### teamwork_board_reader_test.go
 
-- `func NewHostSessionForToolCall() func(context.Context) string` — 转发 Assemble 的只读宿主会话查询。
+- `func TestTeamworkBoardReaderFactoryMatchesBackendReader(t *testing.T)`
+
+### toolcall_status_record_test.go
+
+- `func TestToolCallStatusOfRecordLocksTheStoreVocabulary(t *testing.T)` — toolcall_status_record_test.go — "工具调用视图词"这一格在**存储面 → 契约枚举**的互锁。
 
 ### workspace_environment_port.go
 

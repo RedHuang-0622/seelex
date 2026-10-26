@@ -33,11 +33,11 @@
 - **登记顺序即行为**：`RegisterProductTools` 是工具面的总装配表（MCP → MCP 加载 →
   时间 → 插件切换 → 插件自省 → 审批 → 审阅文件 → 自省注册），顺序与该表在组合根里
   逐字一致；改动顺序属于行为变更。
-- **handler 只做路由**：每个 handler 都调用 `application.Service` 的既有方法
-  （`app.TaskTerminalHandler`、`app.WorkTableRowsFor`、`app.ProjectRootFor`、…），
+- **handler 只做路由**：每个 handler 都调用 `compat.Frontend` 或 capability
+  component（`frontend.TaskTerminalHandler`、`app.WorkTableRowsFor`、`app.ProjectRootFor`、…），
   本包不复制业务判定。
 - **能力面与工具面分开**：`RegisterTaskTerminalTools` 只转发
-  `app.TaskTerminalHandler`；goal 工具族的可视性由
+  `compat.Frontend.TaskTerminalHandler`；goal 工具族的可视性由
   `backend/tool/registry` 的 `isGoalTool` + `GoalActive` 门控。
 - **看板 sink 的开关是装配期的**：`ProjectBoardSinkFor` 在关时返回 nil sink 与空
   close，工具完成段判空后一个字节都不写（关就是关，不是"注册了但报错"）。

@@ -116,7 +116,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 			case <-stopSampling:
 				return
 			case <-ticker.C:
-				snapshot := harness.app.Snapshot()
+				snapshot := harness.frontend.Snapshot()
 				mu.Lock()
 				for _, row := range snapshot.Runtime.WorkTable {
 					if strings.HasPrefix(row.SourceID, "async:") {
@@ -138,7 +138,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 		", then read the handle from the acceptance receipt and call bg_manage with " +
 		`{"op":"observe","handle":"<that handle>"}` +
 		". Do not call any other tool. Reply with one short sentence containing the handle."
-	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
+	if err := harness.frontend.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
@@ -159,7 +159,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 		" exactly once, then call bg_manage with " +
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		" exactly once. Do not call any other tool. Reply with one short sentence stating the terminal state and the exit_code."
-	if err := harness.app.Submit(ctx, killPrompt); err != nil {
+	if err := harness.frontend.Submit(ctx, killPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
@@ -169,7 +169,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	}
 	close(stopSampling)
 	sampler.Wait()
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("live job turn failed: %s", snapshot.Chat.Error)
 	}
 
@@ -260,7 +260,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	}
 	t.Logf("=== 真实 API 子进程调用系冒烟通过（派发 / 观察 / 终止 / 取回）===")
 
-	if reply := latestVisibleAssistant(harness.app.Snapshot()); reply != "" {
+	if reply := latestVisibleAssistant(harness.frontend.Snapshot()); reply != "" {
 		t.Logf("模型最终回复：%s", reply)
 	}
 }

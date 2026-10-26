@@ -67,6 +67,15 @@ func (s *ContextStateStore) boardRepository() (store.SessionBoards, bool) {
 	return s.boards, true
 }
 
+// ReadGoalBoard reads the bound session's persisted goal-board projection.
+func (s *ContextStateStore) ReadGoalBoard(ctx context.Context) (store.GoalBoardMeta, error) {
+	boards, ok := s.boardRepository()
+	if !ok {
+		return store.GoalBoardMeta{}, ErrStoreUnavailable
+	}
+	return boards.ReadGoalBoard(ctx)
+}
+
 // Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
 func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error) {
 	if s == nil || s.session == nil {

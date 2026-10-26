@@ -2,7 +2,7 @@ package core
 
 import (
 	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"testing"
 	"time"
 )

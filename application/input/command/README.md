@@ -50,7 +50,7 @@ type MutationDeps struct {
 
 ## 依赖方向
 
-只依赖 `contract` 与 `middle/protocol/model` 的 DTO；禁止依赖 `application/core`、
+只依赖 `contract` 与 `contract/protocol` 的 DTO；禁止依赖 `application/core`、
 backend Router 或 GUI/TUI。新增命令必须由真实入口使用，不得制造未来接口。
 
 ## 并发与错误

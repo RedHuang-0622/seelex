@@ -3,7 +3,7 @@ package cold
 import (
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TaskDeps supplies compaction, transcript and task restore callbacks.

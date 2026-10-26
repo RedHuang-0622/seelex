@@ -3,7 +3,7 @@ package cold
 import (
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // PublishDeps supplies context, task, runtime and LRU publication callbacks.

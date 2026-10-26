@@ -34,8 +34,8 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )

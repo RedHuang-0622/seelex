@@ -47,6 +47,9 @@ func TestExecutionApplicationsAreExtractedFromCore(t *testing.T) {
 	for _, path := range coreFiles {
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			t.Fatalf("parse %s: %v", path, err)
 		}
 		for _, declaration := range core.Decls {

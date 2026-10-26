@@ -4,11 +4,16 @@ import (
 	"context"
 	"testing"
 
+	reviewtool "github.com/RedHuang-0622/seelex/backend/tool/review"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 type reviewFilePort struct{}
+
+func testProcessorFactory(host Host) RequestProcessor {
+	return reviewtool.NewRequests(host)
+}
 
 func (reviewFilePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error) {
 	return dto.FileContent{
@@ -42,6 +47,7 @@ func TestReviewApplicationPromotesAcceptedRequest(t *testing.T) {
 				t.Fatalf("revision = %d", revision)
 			}
 		},
+		NewProcessor: testProcessorFactory,
 	})
 	request, err := application.RequestFileReview(context.Background(), []dto.ReviewFileRef{{Path: "docs/a.md"}})
 	if err != nil {
@@ -60,6 +66,7 @@ func TestReviewApplicationClearUsesViewSessionFallback(t *testing.T) {
 	application := New(Deps{
 		ViewSessionID:      func() string { return "view-a" },
 		ClearReviewRequest: func(sessionID string) { cleared = sessionID },
+		NewProcessor:       testProcessorFactory,
 	})
 	application.ClearReviewRequest("  ")
 	if cleared != "view-a" {

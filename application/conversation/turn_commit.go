@@ -6,7 +6,7 @@ import (
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TurnCommitDeps supplies persistence, outcome, promotion and mirror callbacks.

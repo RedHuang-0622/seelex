@@ -165,25 +165,25 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 
 	submitAndIdle := func(ctx context.Context, text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 
 	// 三个会话各自完成一轮快速请求（request #1/#2/#3）→ A/B/C 均已驻留空闲。
 	sessionA := submitAndIdle(ctx, "seed A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "seed B"); got != sessionB {
 		t.Fatalf("seed B active = %q, want %q", got, sessionB)
 	}
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -203,14 +203,14 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long B"); err != nil {
 		t.Fatalf("submit long B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 5)
@@ -243,7 +243,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	if elapsed := time.Since(started); elapsed > 2*time.Second {
 		t.Fatalf("ResumeSession(C) took %v", elapsed)
 	}
-	snap := harness.app.Snapshot()
+	snap := harness.frontend.Snapshot()
 	if snap.Session.ID != sessionC {
 		t.Fatalf("after clicking C view = %q, want %q", snap.Session.ID, sessionC)
 	}
@@ -275,7 +275,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 				t.Fatalf("wait cold C: %v", ctx.Err())
 			}
 		}
-		snap = harness.app.Snapshot()
+		snap = harness.frontend.Snapshot()
 		if snap.Session.ID != sessionC {
 			t.Fatalf("view changed while cold C loaded: %q, want %q", snap.Session.ID, sessionC)
 		}
@@ -322,7 +322,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 			t.Fatalf("next switch to %s took %v", sid, elapsed)
 		}
 		if sid == sessionC {
-			if snap := harness.app.Snapshot(); snap.Session.ID != sessionC {
+			if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionC {
 				t.Fatalf("after switch active = %q, want %q", snap.Session.ID, sessionC)
 			}
 		}
@@ -450,23 +450,23 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 
 	submitAndIdle := func(ctx context.Context, text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 	sessionA := submitAndIdle(ctx, "seed A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "seed B"); got != sessionB {
 		t.Fatalf("seed B active = %q, want %q", got, sessionB)
 	}
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -477,14 +477,14 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "long A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long A"); err != nil {
 		t.Fatal(err)
 	}
 	provider.waitBlocked(t, ctx, 4)
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "long B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long B"); err != nil {
 		t.Fatal(err)
 	}
 	provider.waitBlocked(t, ctx, 5)
@@ -523,7 +523,7 @@ func TestTwoRunningViewThirdSwitchStress(t *testing.T) {
 					switcherErr <- fmt.Errorf("ResumeSession(%s) blocked in stress\n%s", sid, allGoroutineStacks())
 					return
 				}
-				if snap := harness.app.Snapshot(); snap.Session.ID != sid {
+				if snap := harness.frontend.Snapshot(); snap.Session.ID != sid {
 					switcherErr <- fmt.Errorf("stress view = %q, want %q (A=%s B=%s C=%s)\n%s",
 						snap.Session.ID, sid, sessionA, sessionB, sessionC, allGoroutineStacks())
 					return
@@ -584,24 +584,24 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 
 	submitAndIdle := func(ctx context.Context, text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 
 	sessionA := submitAndIdle(ctx, "seed A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "seed B"); got != sessionB {
 		t.Fatalf("seed B active = %q, want %q", got, sessionB)
 	}
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("cold resume A: %v", err)
 	}
-	if got := harness.app.Snapshot().Session.ID; got != sessionA {
+	if got := harness.frontend.Snapshot().Session.ID; got != sessionA {
 		t.Fatalf("after cold resume view = %q, want %q", got, sessionA)
 	}
 
@@ -625,7 +625,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long B"); err != nil {
 		t.Fatalf("submit long B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
@@ -635,7 +635,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 5)
@@ -675,7 +675,7 @@ func TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns(t *testing.T) {
 		t.Fatalf("RED REPRO: ResumeSession(C) blocked >2s; it only completed after the switched-away session A finished\n%s", allGoroutineStacks())
 	}
 
-	if snap := harness.app.Snapshot(); snap.Session.ID != sessionC {
+	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionC {
 		t.Fatalf("after click C view = %q, want %q", snap.Session.ID, sessionC)
 	}
 	provider.releaseAll()

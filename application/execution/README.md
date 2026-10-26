@@ -61,7 +61,7 @@ Runtime teammate tool activity → `RoleActivityApplication` → EvidenceChars
 
 ## 依赖方向
 
-允许依赖 `contract/dto`、`middle/protocol/model` 与 `middle/view/worktable`。
+允许依赖 `contract/dto`、`contract/protocol` 与 `middle/view/worktable`。
 TeamworkPlan 直接使用 `contract/dto`，本包不再保留类型 alias，也不依赖 `store` 类型。
 禁止依赖 `application/core`、backend 实现、GUI/TUI 或写入路径。
 

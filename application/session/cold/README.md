@@ -35,7 +35,7 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 
 ## 依赖方向
 
-允许依赖 backend engine 的 Session/Task 类型、`contract`、`middle/protocol/model`、
+允许依赖 backend engine 的 Session/Task 类型、`contract`、`contract/protocol`、
 `application/session/state`。禁止依赖 `application/core`、GUI/TUI 或存储实现。
 
 ## 并发与错误

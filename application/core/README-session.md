@@ -8,9 +8,9 @@
 
 ## 查询端口（2026-10-25，AP-004/AP-005）
 
-`session_query.go` 提供会话目录、项目根、展示元数据、目录刷新等待、
+`Session query application` 提供会话目录、项目根、展示元数据、目录刷新等待、
 `SnapshotOf`、transcript 区间和全量输入索引的只读对象；
-`session_conversation_history_query.go` 提供历史分页窗口对象。二者只持窄读依赖，
+`Conversation history query application` 提供历史分页窗口对象。二者只持窄读依赖，
 不持完整 `Service`。历史冷读在共享 `ViewMu` 之外执行，锁内只安装可见窗口；
 公开 `Service` 方法只做一行转发。回归见
 `session_conversation_history_query_test.go` 与根包
@@ -26,162 +26,162 @@ AP-108B2b 起，驻留 Snapshot 的字段组装、Task/Plan 克隆和 WorkTable 
 
 ## Session unload 应用编排（AP-010 首个切片）
 
-`session_lifecycle_use_case.go` 的 `sessionLifecycle` 集中过渡锁、持久化、
+`Session lifecycle application` 的 `sessionLifecycle` 集中过渡锁、持久化、
 内存释放、视图续接和发布顺序。允许/拒绝 unload 的判据仍只在
 `middle/switch.Unload`；`Service.UnloadSession` 保留一行转发。
 
 ## Session delete 应用编排（AP-012 首个切片）
 
-`session_delete_use_case.go` 集中删除 record、后台命令终止、完整内存释放、
+`Session delete application` 集中删除 record、后台命令终止、完整内存释放、
 workspace 解绑、fresh draft 续接和快照发布。记录删除失败直接返回；记录已删除后
 的内存释放失败只记日志，保持既有“不制造不可重试删除失败”的语义。
 
 ## 显式草稿提交激活（AP-024 首个切片）
 
-`session_draft_submission.go` 集中显式提交命中未物化草稿时的激活顺序：
+`Session draft submission application` 集中显式提交命中未物化草稿时的激活顺序：
 廉价目标预判 → 获取视图过渡锁 → 锁内草稿归属复判 → 拒绝过期视图 →
 裁剪首输入并物化。草稿槽、引擎激活和 Session 记录所有权不变；
 `Service.materializeDraftForSubmit` 只保留一行组件转发。
 
 ## 草稿物化编排（AP-025 首个切片）
 
-`session_draft_materialization.go` 集中首请求草稿物化：读取草稿槽与当前
+`Session draft materialization application` 集中首请求草稿物化：读取草稿槽与当前
 workspace、绑定项目根与写作用域、打开目标 Session 引擎、生成首请求标题、
 提交 Session/Plan/workspace 镜像、发布 runtime/snapshot、刷新目录、落盘工具
 记录并登记驻留。错误文案、锁外 I/O 和 ID 复用语义保持不变。
 
 ## 新建会话进入草稿（AP-026 首个切片）
 
-`session_draft_entry.go` 集中 `BeginNewSession`：关闭/排空预检、空闲旧会话
+`Session draft entry application` 集中 `BeginNewSession`：关闭/排空预检、空闲旧会话
 保存、历史与 context 释放、Skill 清理、草稿槽复用/创建、持久档位读取、草稿壳
 切换，以及 runtime/snapshot、task 和子代理树的锁外刷新。运行中的旧会话不被
 保存、清历史或解绑 context；`Service.BeginNewSession` 只保留一行转发。
 
 ## Resume 顶层编排（AP-027 首个切片）
 
-`session_resume.go` 集中 `resumeSession` 的应用分支：空 ID 校验、按会话获取
+`Session resume application` 集中 `resumeSession` 的应用分支：空 ID 校验、按会话获取
 过渡锁、hot/restoring/cold 判定、同目标装载在途时的视图归位、同步/后台冷加载
 选择，以及失败恢复调用。resume 文档注释保留在旧入口；冷加载主体、wire 装配、
 Engine 恢复与 epoch 发布仍由既有实现拥有。
 
 ## Edit/Fork 幂等操作注册表（AP-028 首个切片）
 
-`edit_fork_operation_registry.go` 独立拥有编辑/分叉的 operation map、TTL、
+`Edit/Fork operation registry application` 独立拥有编辑/分叉的 operation map、TTL、
 完成等待 channel 和失败清理。相同 `operation_id` 与相同请求复用原 operation；
 复用给不同 parent/request 时明确拒绝。该状态已从 `serviceState` 移除，并由
 组件自己的 mutex 保护，不再占用 `Core.ViewMu`。
 
 ## Edit/Fork 父会话准入（AP-029 首个切片）
 
-`edit_fork_validator.go` 集中编辑前检查：父会话必须是当前会话、不得运行中、
+`Edit/Fork validator application` 集中编辑前检查：父会话必须是当前会话、不得运行中、
 不得有排队输入；非零 expected revision 必须匹配、必须存在保留窗口，目标消息
 不得落在压缩前缀中。判据顺序和错误文案与迁移前一致。
 
 ## Edit/Fork 目标事件解析（AP-030 首个切片）
 
-`edit_fork_target_resolver.go` 负责加载父事件、计算最大 EventSeq 作为当前
+`Edit/Fork target resolver application` 负责加载父事件、计算最大 EventSeq 作为当前
 revision、定位目标用户输入、拒绝 assistant/internal/wire-only 目标，并复用
 `store.EventParagraphs` 要求目标位于完整段落起点、fork cut 取前一段落末尾。
 
 ## Edit/Fork child 原子编排（AP-031 首个切片）
 
-`edit_fork_process.go` 固定一次编辑分叉的顺序：解析目标、校验父会话、在目标
+`Edit/Fork process application` 固定一次编辑分叉的顺序：解析目标、校验父会话、在目标
 会话过渡锁内 fork、锁外恢复 child、提交编辑文本，任一切换/提交失败都走既有
 child 删除 + 父会话恢复回滚。fork/resume/submit/rollback 本体仍由既有 Session
 能力拥有。
 
 ## Edit/Fork 回滚错误合成（AP-032 首个切片）
 
-`edit_fork_rollback.go` 集中 child 删除与父会话恢复，并在任一侧失败时把诊断
+`Edit/Fork rollback application` 集中 child 删除与父会话恢复，并在任一侧失败时把诊断
 正文追加到原始编辑/提交错误；原 cause 始终保留为 `%w` wrapped error。
 
 ## Edit/Fork 可见消息编辑判据（AP-033 首个切片）
 
-`edit_fork_annotation.go` 复制可见消息并为用户输入回填权威 EventSeq，再按
+`Edit/Fork annotation application` 复制可见消息并为用户输入回填权威 EventSeq，再按
 running、缺序号、无保留窗口、压缩前缀四类判据写 `Editable` 与
 `EditDisabledReason`。assistant 和非可见用户行保持不可编辑。
 
 ## Fork lineage 只读解析（AP-034 首个切片）
 
-`session_fork_lineage.go` 从会话 context state 中读取 `forked_from`，完成
+`Session fork lineage application` 从会话 context state 中读取 `forked_from`，完成
 `store.SessionContextRecord` 与 `model.SessionForkRef` 解码。未装配 fork 端口、
 读取失败、空 payload、损坏 record/ref 或 parent ID 为空时都返回 nil，不制造
 不可读状态。
 
 ## Restoring 空壳投影（AP-035 首个切片）
 
-`session_restoring_shell.go` 统一冷加载空壳投影：把目标会话置为 restoring、
+`Session restoring shell application` 统一冷加载空壳投影：把目标会话置为 restoring、
 切换到 Active、清空上一会话的 Task/Plan/Todo/SubAgent/WorkTable/Teamwork/
 Interaction，镜像目标 ChatState、同步可见视图并推进 revision。
 `beginAsyncRestore` 与重复 Resume 的视图归位共用这一份字段清单。
 
 ## 冷加载失败恢复（AP-036 首个切片）
 
-`session_restore_recovery.go` 在同一 `Core.ViewMu` 临界区内清除 restoring 并
+`Session restore recovery application` 在同一 `Core.ViewMu` 临界区内清除 restoring 并
 判定目标是否仍为 active、epoch 是否仍最新。最新且仍 active 时优先 hot attach
 前一会话，失败或无前一会话则重置 fresh draft，最后发布 Bridge 视图通知。
 
 ## 冷恢复 draft reset（AP-037 首个切片）
 
-`session_restore_draft_reset.go` 统一无可用回退时的草稿兜底：视图锁内复用或创建
+`Session restore draft reset application` 统一无可用回退时的草稿兜底：视图锁内复用或创建
 草稿槽、切换 fresh draft shell 并 bump revision，锁外发布 runtime/snapshot。
 
 ## 冷加载数据读取（AP-038 首个切片）
 
-`session_cold_load_reader.go` 集中冷加载持久化读取阶段：先恢复 pending tail，
+`Session cold load reader application` 集中冷加载持久化读取阶段：先恢复 pending tail，
 再并行读取 SessionRecord 与 transcript；无 record 时回退 legacy history；保持
 record/transcript 错误优先级，record 存在时忽略旧 history/transcript 错误。
 
 ## 冷加载 history 装配（AP-039 首个切片）
 
-`session_cold_history.go` 把读取结果装配为 Engine 恢复历史：record transcript
+`Session cold history application` 把读取结果装配为 Engine 恢复历史：record transcript
 为空/落后时从 Conversation 重建并标记 renumber；优先 wire history；缺失最新
 用户输入时回退 record resume history；最终空结果回退
 `session_runtime.RecordResumeHistory`。
 
 ## 冷加载 Engine 恢复与队列回填（AP-040 首个切片）
 
-`session_cold_restore.go` 按固定顺序登记 session workspace、恢复/替换 Engine
+`Session cold restore application` 按固定顺序登记 session workspace、恢复/替换 Engine
 history、恢复 durable queue 并回填未确认输入，最后写入目标会话 system prompt。
 每个失败出口保留原错误文案，后续步骤不继续执行。
 
 ## 冷加载 workspace 绑定（AP-041 首个切片）
 
-`session_cold_workspace.go` 在冷加载锁外处理 workspace：有元数据时在安全条件
+`Session cold workspace application` 在冷加载锁外处理 workspace：有元数据时在安全条件
 下重绑全局根并始终写 per-session binding；元数据缺失但 workspace ID 仍存在时
 保持绑定不动；只有 workspace ID 为空才解绑全局根、session binding 和 runtime
 per-session root。
 
 ## 冷加载激活准备（AP-042 首个切片）
 
-`session_cold_activation.go` 在 `Core.ViewMu` 内执行装载发布判定：同步清除
+`Session cold activation application` 在 `Core.ViewMu` 内执行装载发布判定：同步清除
 restoring；按 epoch/active 决定是否切换 Snapshot Session 与 Active；从 record
 或 legacy history 选标题；清 SessionUnit cancel；应用持久权限档位；写入 legacy
 与 record 标题。Task/View 安装仍在主流程。
 
 ## 冷加载 Task 恢复（AP-043 首个切片）
 
-`session_cold_task.go` 计算 transcript seq 与 projection 上限，优先恢复
+`Session cold task application` 计算 transcript seq 与 projection 上限，优先恢复
 record 旧址 compaction，空时读取新 compaction 通道；仅在 transcript 未重建时
 推导 retainedFrom；最后按目标 Session 恢复 Plan/Task/checkpoint/tool result。
 无 record 时走原有 reset。
 
 ## 冷加载 View 构造与安装（AP-044 首个切片）
 
-`session_cold_view.go` 构造冷加载可见窗口：有 record 时安装恢复标记、record
+`Session cold view application` 构造冷加载可见窗口：有 record 时安装恢复标记、record
 tail 和 ReadFiles，且只在目标可见会话为空时覆盖；active 装载镜像 ForkedFrom/
 Task。无 record 时 append legacy history 并修正 total/offset/has-more。
 
 ## 冷加载解锁后发布（AP-045 首个切片）
 
-`session_cold_publish.go` 在锁外写入必要的全局 prompt、挂接 context 四栈；
+`Session cold publish application` 在锁外写入必要的全局 prompt、挂接 context 四栈；
 active 装载再恢复 task registry、子代理树与 anchors，刷新并发布 runtime；
 所有装载完成后刷新 catalog、resident LRU 与 content LRU。context 失败在运行面
 切换与发布前返回。
 
 ## 冷加载锁内收口（AP-046 首个切片）
 
-`session_cold_commit.go` 在 `Core.ViewMu` 内追加 pending-tail notice、镜像
+`Session cold commit application` 在 `Core.ViewMu` 内追加 pending-tail notice、镜像
 ChatState；active 装载再镜像 Plan、清除 Interaction、应用 workspace，并 bump
 revision；system prompt 在同锁内取快照文本后交给锁外发布。非 active 装载不改
 共享 Plan/workspace/revision。

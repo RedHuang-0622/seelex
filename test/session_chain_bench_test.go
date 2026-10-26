@@ -71,7 +71,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	harnessContinue := newFullChainHarness(t, continueAccounts, continueStore, 10*time.Second)
 	roundStart := time.Now()
 	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
-	if err := harnessContinue.app.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessContinue.frontend.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("continue submit: %v", err)
 	}
 	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
@@ -97,7 +97,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
-	sessionID := harnessFirst.app.Snapshot().Session.ID
+	sessionID := harnessFirst.frontend.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
@@ -109,7 +109,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	waitColdContent := func(app *application.Service, sid string) {
+	waitColdContent := func(app *application.Frontend, sid string) {
 		t.Helper()
 		deadline := time.Now().Add(8 * time.Second)
 		for {
@@ -124,9 +124,9 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	waitColdContent(harnessRestarted.app, sessionID)
+	waitColdContent(harnessRestarted.frontend, sessionID)
 	firstResume := time.Since(resumeStart)
-	if err := harnessRestarted.app.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessRestarted.frontend.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("restart submit: %v", err)
 	}
 	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {
@@ -152,7 +152,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		if err := repeatHarness.frontend.ResumeSession(sessionID); err != nil {
 			t.Fatalf("repeat resume: %v", err)
 		}
-		waitColdContent(repeatHarness.app, sessionID)
+		waitColdContent(repeatHarness.frontend, sessionID)
 		totalResume += time.Since(start)
 		repeatHarness.frontend.Shutdown()
 	}

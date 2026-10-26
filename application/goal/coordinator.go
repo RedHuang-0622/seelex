@@ -16,17 +16,17 @@ import (
 
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
-
-// frameProgressLimit 是看板卡片上"一行摘要"保留的打点条数（详情面看 ProgressAll
-// 全量）：看板帧投影与"存档恢复"的帧投影共用同一个上限。
-const frameProgressLimit = 3
 
 // CoordinatorDeps is the session goal coordinator assembly input.
 type CoordinatorDeps struct {
-	// StoreFor 返回指定会话的 SessionContextStore（nil = 未装配 → 内存态）。
-	StoreFor func(sessionID string) *store.SessionContextStore
+	// StoreFor returns the goal domain store and audit sink for one session.
+	// Both nil means the controller runs in memory.
+	StoreFor func(sessionID string) (goaldomain.Store, goaldomain.AuditAccount)
+	// ArchiveFor projects the persisted goal board for one session. The bool
+	// reports whether an archive exists; conversion from Store shapes belongs
+	// to Wiring, not this application package.
+	ArchiveFor func(context.Context, string) (dto.GoalGovernanceView, bool)
 }
 
 // goalSessionRuntime 是一个会话的 goal bundle（会话间零共享）。
@@ -50,19 +50,6 @@ func NewCoordinator(deps CoordinatorDeps) *Coordinator {
 	}
 }
 
-// NewCoordinatorForRuntime resolves the optional per-session fifth-stack
-// provider inside the Goal application owner, keeping the concrete store shape
-// out of the caller.
-func NewCoordinatorForRuntime(runtime any) *Coordinator {
-	provider, ok := runtime.(interface {
-		SessionContextStoreFor(sessionID string) *store.SessionContextStore
-	})
-	if !ok {
-		return NewCoordinator(CoordinatorDeps{})
-	}
-	return NewCoordinator(CoordinatorDeps{StoreFor: provider.SessionContextStoreFor})
-}
-
 // ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
 // 的控制器与上下文存储适配器，下次经 StoreFor 重新解析、按盘重建。
 func (g *Coordinator) ForgetSession(sessionID string) {
@@ -84,13 +71,7 @@ func (g *Coordinator) bundleFor(sessionID string) *sessionRuntime {
 	var st goaldomain.Store
 	var audit goaldomain.AuditAccount
 	if g.deps.StoreFor != nil {
-		if contextStore := g.deps.StoreFor(sessionID); contextStore != nil {
-			adapter := goaldomain.NewContextStateStore(contextStore)
-			if boards, ok := g.boardFor(sessionID); ok {
-				adapter.BindBoards(boards)
-			}
-			st, audit = adapter, adapter
-		}
+		st, audit = g.deps.StoreFor(sessionID)
 	}
 	controller := goaldomain.NewController(goaldomain.Options{
 		Depth: goaldomain.DefaultStackDepth, Store: st, Audit: audit,
@@ -165,8 +146,8 @@ func StackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 			frame.ProgressAll = append(frame.ProgressAll, view)
 		}
 		progress := record.Progress
-		if len(progress) > frameProgressLimit {
-			progress = progress[len(progress)-frameProgressLimit:]
+		if len(progress) > dto.GoalFrameProgressPreviewLimit {
+			progress = progress[len(progress)-dto.GoalFrameProgressPreviewLimit:]
 		}
 		for _, item := range progress {
 			frame.Progress = append(frame.Progress, dto.GoalProgressView{
@@ -189,119 +170,35 @@ func (g *Coordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanc
 	g.mu.Unlock()
 	archive, hasArchive := g.readGoalBoardArchive(sessionID)
 	if runtime == nil {
-		return recoveredGoalView(archive, hasArchive)
+		if !hasArchive {
+			return nil
+		}
+		return &archive
 	}
 	status := runtime.ctl.Status()
 	if status.Active == nil {
-		if view := recoveredGoalView(archive, hasArchive); view != nil {
-			return view
+		if !hasArchive {
+			return &dto.GoalGovernanceView{Active: false}
 		}
-		return &dto.GoalGovernanceView{Active: false, History: goalHistoryViews(archive, hasArchive)}
+		if archive.Active {
+			return &archive
+		}
+		return &dto.GoalGovernanceView{Active: false, History: archive.History}
 	}
 	return &dto.GoalGovernanceView{
 		Active:  true,
 		GoalID:  status.Active.ID,
 		Title:   status.Active.Title,
 		Status:  status.Active.Status,
-		History: goalHistoryViews(archive, hasArchive),
+		History: archive.History,
 		Stack:   StackFrames(status.Stack),
 	}
 }
 
-// boardFor 返回指定会话的看板存档取用面（未装配 → false）。
-func (g *Coordinator) boardFor(sessionID string) (store.SessionBoards, bool) {
-	if g == nil || g.deps.StoreFor == nil {
-		return nil, false
-	}
-	contextStore := g.deps.StoreFor(sessionID)
-	if contextStore == nil {
-		return nil, false
-	}
-	router := contextStore.Router()
-	if router == nil {
-		return nil, false
-	}
-	return router.BoardsForSession(sessionID)
-}
-
 // readGoalBoardArchive 读取该会话的看板存档（缺失/损坏 → false）。
-func (g *Coordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool) {
-	boards, ok := g.boardFor(sessionID)
-	if !ok {
-		return store.GoalBoardMeta{}, false
+func (g *Coordinator) readGoalBoardArchive(sessionID string) (dto.GoalGovernanceView, bool) {
+	if g == nil || g.deps.ArchiveFor == nil {
+		return dto.GoalGovernanceView{}, false
 	}
-	archive, err := boards.ReadGoalBoard(context.Background())
-	if err != nil {
-		return store.GoalBoardMeta{}, false
-	}
-	return archive, true
-}
-
-// recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true）。
-func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView {
-	if !hasArchive || archive.State != store.BoardStateActive || archive.Active == nil {
-		return nil
-	}
-	active := archive.Active
-	progress := goalProgressViews(active.Progress)
-	return &dto.GoalGovernanceView{
-		Active:    true,
-		Recovered: true,
-		GoalID:    active.GoalID,
-		Title:     active.Title,
-		Status:    goaldomain.StatusOfRecord(active.Status),
-		History:   goalHistoryViews(archive, hasArchive),
-		Stack: []dto.GoalFrameView{{
-			ID:          active.GoalID,
-			Title:       active.Title,
-			Statement:   active.Statement,
-			Status:      active.Status,
-			Active:      true,
-			Acceptance:  append([]string(nil), active.Acceptance...),
-			OutOfScope:  append([]string(nil), active.OutOfScope...),
-			Progress:    tailProgressViews(progress, frameProgressLimit),
-			ProgressAll: progress,
-			CreatedAt:   active.CreatedAt,
-			UpdatedAt:   active.UpdatedAt,
-		}},
-	}
-}
-
-// goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空 → nil）。
-func goalHistoryViews(archive store.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView {
-	if !hasArchive || len(archive.History) == 0 {
-		return nil
-	}
-	views := make([]dto.GoalHistoryView, 0, len(archive.History))
-	for _, entry := range archive.History {
-		views = append(views, dto.GoalHistoryView{
-			GoalID:        entry.GoalID,
-			Title:         entry.Title,
-			Status:        entry.Status,
-			ClosedAt:      entry.ClosedAt,
-			ClosedReason:  entry.ClosedReason,
-			ProgressCount: entry.ProgressCount,
-		})
-	}
-	return views
-}
-
-// goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
-func goalProgressViews(items []store.GoalProgress) []dto.GoalProgressView {
-	if len(items) == 0 {
-		return nil
-	}
-	views := make([]dto.GoalProgressView, 0, len(items))
-	for _, item := range items {
-		views = append(views, dto.GoalProgressView{At: item.At, Kind: item.Kind, Content: item.Content})
-	}
-	return views
-}
-
-// tailProgressViews 取末尾 limit 条（卡片一行摘要用；详情面用全量）。
-func tailProgressViews(items []dto.GoalProgressView, limit int) []dto.GoalProgressView {
-	if limit <= 0 || len(items) <= limit {
-		return items
-	}
-	return items[len(items)-limit:]
+	return g.deps.ArchiveFor(context.Background(), sessionID)
 }

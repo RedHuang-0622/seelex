@@ -161,7 +161,7 @@ func newScriptedHarness(t *testing.T, responses []scriptedResponse) (*fullChainH
 
 func submitAndWait(t *testing.T, harness *fullChainHarness, ctx context.Context, text string) {
 	t.Helper()
-	if err := harness.app.Submit(ctx, text); err != nil {
+	if err := harness.frontend.Submit(ctx, text); err != nil {
 		t.Fatalf("submit %q: %v", text, err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
@@ -177,7 +177,7 @@ func TestSecondRoundStartsAfterSessionEngineReleased(t *testing.T) {
 	defer cancel()
 
 	submitAndWait(t, harness, ctx, "round one")
-	sessionID := harness.app.Snapshot().Session.ID
+	sessionID := harness.frontend.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("first round produced no session")
 	}
@@ -186,11 +186,11 @@ func TestSecondRoundStartsAfterSessionEngineReleased(t *testing.T) {
 	}
 	before := provider.count()
 	submitAndWait(t, harness, ctx, "round two")
-	t.Logf("A: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.app.Snapshot().Chat.Error)
+	t.Logf("A: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.frontend.Snapshot().Chat.Error)
 	if provider.count() == before {
-		t.Fatalf("RED(A): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.app.Snapshot().Conversation))
+		t.Fatalf("RED(A): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.frontend.Snapshot().Conversation))
 	}
-	if errors := errorMessages(harness.app.Snapshot().Conversation); len(errors) > 0 {
+	if errors := errorMessages(harness.frontend.Snapshot().Conversation); len(errors) > 0 {
 		t.Fatalf("RED(A): 第二轮出现可见错误：%v", errors)
 	}
 }
@@ -210,15 +210,15 @@ func TestSecondRoundStartsAfterTerminalDecisionTool(t *testing.T) {
 	defer cancel()
 
 	submitAndWait(t, harness, ctx, "round one")
-	t.Logf("B: round 1 tool results=%v errors=%v", toolResultTexts(harness.app.Snapshot().Conversation), errorMessages(harness.app.Snapshot().Conversation))
+	t.Logf("B: round 1 tool results=%v errors=%v", toolResultTexts(harness.frontend.Snapshot().Conversation), errorMessages(harness.frontend.Snapshot().Conversation))
 	before := provider.count()
 	submitAndWait(t, harness, ctx, "A")
-	t.Logf("B: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.app.Snapshot().Chat.Error)
-	t.Logf("B: conversation errors=%v", errorMessages(harness.app.Snapshot().Conversation))
+	t.Logf("B: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.frontend.Snapshot().Chat.Error)
+	t.Logf("B: conversation errors=%v", errorMessages(harness.frontend.Snapshot().Conversation))
 	if provider.count() == before {
-		t.Fatalf("RED(B): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.app.Snapshot().Conversation))
+		t.Fatalf("RED(B): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.frontend.Snapshot().Conversation))
 	}
-	if errors := errorMessages(harness.app.Snapshot().Conversation); len(errors) > 0 {
+	if errors := errorMessages(harness.frontend.Snapshot().Conversation); len(errors) > 0 {
 		t.Fatalf("RED(B): 第二轮出现可见错误：%v", errors)
 	}
 }

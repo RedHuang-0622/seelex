@@ -8,7 +8,7 @@
 
 ## Session archive 宿主适配（AP-011 首个切片）
 
-归档的宿主闭包已移到 `session_archive_use_case.go`：
+归档的宿主闭包已移到 `Session archive application`：
 `middle/residency.Archive` 仍是准入、persist、归档写入和目录刷新的唯一判据；
 `Service.ArchiveSession` 只做一行组件转发。
 

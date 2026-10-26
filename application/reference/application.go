@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	toolreference "github.com/RedHuang-0622/seelex/backend/tool/reference"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // Deps supplies the reference use cases with bounded storage and archive
@@ -84,13 +83,13 @@ func (application *Application) ToolResultContent(resultRef string, offset, limi
 }
 
 func (application *Application) toolResultContent(resultRef string, offset, limit int, contains string) (model.ToolResultPage, error) {
-	if nodeID, ok := toolreference.NodeResultRef(resultRef); ok {
+	if nodeID, ok := model.NodeResultRef(resultRef); ok {
 		raw, found := application.deps.NodeResult(nodeID, resultRef)
 		if !found {
 			return model.ToolResultPage{}, errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
 		result := model.StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
-		return toolreference.BuildPage(result, offset, limit, contains), nil
+		return model.BuildPage(result, offset, limit, contains), nil
 	}
 
 	resultRef = application.deps.ResolveAlias(resultRef)
@@ -101,7 +100,7 @@ func (application *Application) toolResultContent(resultRef string, offset, limi
 	if !found {
 		return model.ToolResultPage{}, errors.New("read_tool_result: result_ref is not available in the current session")
 	}
-	return toolreference.BuildPage(result, offset, limit, contains), nil
+	return model.BuildPage(result, offset, limit, contains), nil
 }
 
 // ReadPlanHandler returns the selected canonical Plan nodes and state.

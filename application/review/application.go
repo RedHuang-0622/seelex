@@ -9,13 +9,33 @@ import (
 	"sync/atomic"
 	"time"
 
-	reviewtool "github.com/RedHuang-0622/seelex/backend/tool/review"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
+// RequestProcessor is the review policy state machine consumed by this
+// application. The concrete implementation is injected by Wiring.
+type RequestProcessor interface {
+	Request(context.Context, []dto.ReviewFileRef) (dto.ReviewRequest, error)
+	Clear(string)
+}
+
+// ProcessorFactory binds the application-owned Host to the concrete policy.
+type ProcessorFactory func(Host) RequestProcessor
+
+// Host is the narrow callback surface used by the review policy.
+type Host interface {
+	WorkspaceFile() (contract.WorkspaceFilePort, string, error)
+	NextRequestID() string
+	SessionIDFromContext(context.Context) string
+	ViewSessionID() string
+	SetReviewRequest(string, *dto.ReviewRequest) uint64
+	ClearReviewRequest(string)
+	PublishSnapshotChanged(string, uint64)
+}
+
 // Deps supplies the workspace file port and the host's session-scoped request
-// projection. The decision rules remain in backend/tool/review.
+// projection plus the injected review policy implementation.
 type Deps struct {
 	WorkspaceFile          func() (contract.WorkspaceFilePort, string, error)
 	SessionIDFromContext   func(context.Context) string
@@ -23,6 +43,7 @@ type Deps struct {
 	SetReviewRequest       func(sessionID string, request *dto.ReviewRequest) uint64
 	ClearReviewRequest     func(sessionID string)
 	PublishSnapshotChanged func(sessionID string, revision uint64)
+	NewProcessor           ProcessorFactory
 }
 
 // Application owns only the review request adapter and request identity.
@@ -38,12 +59,16 @@ func New(deps Deps) *Application {
 
 // RequestFileReview asks the GUI to open a bounded set of files.
 func (application *Application) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error) {
-	return reviewtool.NewRequests(reviewHost{application: application}).Request(ctx, files)
+	return application.processor().Request(ctx, files)
 }
 
 // ClearReviewRequest clears one session's current request projection.
 func (application *Application) ClearReviewRequest(sessionID string) {
-	reviewtool.NewRequests(reviewHost{application: application}).Clear(sessionID)
+	application.processor().Clear(sessionID)
+}
+
+func (application *Application) processor() RequestProcessor {
+	return application.deps.NewProcessor(reviewHost{application: application})
 }
 
 type reviewHost struct {

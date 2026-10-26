@@ -147,7 +147,7 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if err := harness.app.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
+	if err := harness.frontend.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
 		t.Fatal(err)
 	}
 

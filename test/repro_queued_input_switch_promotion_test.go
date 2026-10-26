@@ -48,24 +48,24 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 
 	submitAndIdle := func(ctx context.Context, text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 
 	sessionA := submitAndIdle(ctx, "seed A") // provider #1
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "seed B"); got != sessionB {
 		t.Fatalf("seed B active = %q, want %q", got, sessionB)
 	} // provider #2
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -77,13 +77,13 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
 
 	// 消息队列里有东西没发出去：往运行中的 A 再发一条（显式路由到 A）。
-	if err := harness.app.SubmitToSession(ctx, sessionA, "queued for A"); err != nil {
+	if err := harness.frontend.SubmitToSession(ctx, sessionA, "queued for A"); err != nil {
 		t.Fatalf("submit queued for A: %v", err)
 	}
 	snapA, err := harness.frontend.SnapshotOf(sessionA)
@@ -98,7 +98,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long B"); err != nil {
 		t.Fatalf("submit long B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 5)

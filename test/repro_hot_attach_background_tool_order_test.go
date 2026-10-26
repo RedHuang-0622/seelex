@@ -302,16 +302,16 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 
 	submitAndIdle := func(text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v", text, err)
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 	sessionA := submitAndIdle("seed A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long task A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 3)
@@ -332,7 +332,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "tool B round"); err != nil {
+	if err := harness.frontend.Submit(ctx, "tool B round"); err != nil {
 		t.Fatalf("submit tool B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
@@ -341,7 +341,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A while B running: %v", err)
 	}
-	if snap := harness.app.Snapshot(); snap.Session.ID != sessionA {
+	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionA {
 		t.Fatalf("view = %q, want A", snap.Session.ID)
 	}
 
@@ -361,7 +361,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if snap := harness.app.Snapshot(); snap.Session.ID != sessionA {
+	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionA {
 		t.Fatalf("view drifted while B finished: %q, want A", snap.Session.ID)
 	}
 
@@ -375,10 +375,10 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B after background completion: %v", err)
 	}
-	if snap := harness.app.Snapshot(); snap.Session.ID != sessionB {
+	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionB {
 		t.Fatalf("view = %q, want B", snap.Session.ID)
 	}
-	hotConversation := harness.app.Snapshot().Conversation
+	hotConversation := harness.frontend.Snapshot().Conversation
 	hotIssue := toolOrderIssue(hotConversation)
 	t.Logf("B hot conversation order:\n%s", formatConversation(hotConversation))
 
@@ -389,7 +389,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("cold resume B: %v", err)
 	}
-	coldConversation := harness.app.Snapshot().Conversation
+	coldConversation := harness.frontend.Snapshot().Conversation
 	coldIssue := toolOrderIssue(coldConversation)
 	t.Logf("B cold conversation order:\n%s", formatConversation(coldConversation))
 

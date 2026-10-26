@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // ArchiveDeps supplies session record, engine and release callbacks.

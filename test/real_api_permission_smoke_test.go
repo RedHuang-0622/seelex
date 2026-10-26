@@ -147,13 +147,13 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	defer cancel()
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -202,7 +202,7 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	// 命中 `write_file: ask` 规则打开页面。写盘本身在 harness 里失败于
 	// `project scope: no project is bound to this session`（子代理节点会话没有项目
 	// 绑定，是环境/绑定面的事实，与权限判定无关），所以这里不断言文件落盘。
-	final := latestVisibleAssistantManual(harness.app.Snapshot())
+	final := latestVisibleAssistantManual(harness.frontend.Snapshot())
 	t.Logf("主代理对本轮的最终答复: %s", final)
 	if strings.TrimSpace(final) == "" {
 		t.Fatal("本轮应当有最终答复")

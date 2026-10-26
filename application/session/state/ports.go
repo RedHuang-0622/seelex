@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 会话粒度类型以 store 为单一事实源（存储模块定义，端口层别名；

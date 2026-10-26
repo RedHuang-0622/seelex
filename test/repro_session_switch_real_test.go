@@ -123,19 +123,19 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 	defer cancel()
 
 	// 创建会话 A（首个请求快速返回）。
-	if err := harness.app.Submit(ctx, "first"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v\n%s", err, allGoroutineStacks())
 	}
-	sessionA := harness.app.Snapshot().Session.ID
+	sessionA := harness.frontend.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 
 	// fork 出会话 B（持久化子会话）。
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long task"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -159,7 +159,7 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 	if err := waitReal(t, resumeDone, "ResumeSession(B) while A running (real runtime)"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
 	}
-	if active := harness.app.Snapshot().Session.ID; active != sessionB {
+	if active := harness.frontend.Snapshot().Session.ID; active != sessionB {
 		t.Fatalf("active = %q, want %q", active, sessionB)
 	}
 
@@ -187,13 +187,13 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := harness.app.Submit(ctx, "first"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "long task"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -207,7 +207,7 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	if err := waitReal(t, newDone, "BeginNewSession while A running (real runtime)"); err != nil {
 		t.Fatalf("BeginNewSession = %v (want nil: draft allowed while running)", err)
 	}
-	draft := harness.app.Snapshot()
+	draft := harness.frontend.Snapshot()
 	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft while A running, got %+v", draft.Session)
 	}
@@ -237,14 +237,14 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := harness.app.Submit(ctx, "first"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.app.Snapshot().Session.ID
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionA := harness.frontend.Snapshot().Session.ID
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draft := harness.app.Snapshot()
+	draft := harness.frontend.Snapshot()
 	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft session, got %+v", draft.Session)
 	}
@@ -269,7 +269,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	after := harness.app.Snapshot()
+	after := harness.frontend.Snapshot()
 	if after.Session.ID != sessionB || after.Session.Draft {
 		t.Fatalf("after switch: session = %+v, want B (draft gone)", after.Session)
 	}
@@ -290,7 +290,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatalf("restore draft: %v", err)
 	}
-	restored := harness.app.Snapshot()
+	restored := harness.frontend.Snapshot()
 	if !restored.Session.Draft || restored.Session.ID != draftID {
 		t.Fatalf("restored draft = %+v", restored.Session)
 	}

@@ -24,7 +24,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.app.Snapshot()
+			_ = scenario.harness.frontend.Snapshot()
 		}()
 		go func() {
 			defer wg.Done()
@@ -32,7 +32,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.app.Submit(ctx, "concurrent input")
+			_ = scenario.harness.frontend.Submit(ctx, "concurrent input")
 		}()
 	}
 	wg.Wait()

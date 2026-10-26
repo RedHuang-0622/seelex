@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // 本文件钉住"进草稿壳"三条路径的**差异矩阵**（M5-P18 的规整：字段清理收成

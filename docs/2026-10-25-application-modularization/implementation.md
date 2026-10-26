@@ -5397,6 +5397,48 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - GUI/TUI wire、fork snapshot、queue、事件 revision/seq 与持久化 JSON 不变；
 - 回退方式：恢复两个 core 方法并把 compat 调回。
 
+## EP-056：Middle model alias 退出 Application
+
+- Application 生产代码的 `middle/protocol/model` 引用全部改为
+  `contract/protocol`；142 个 core/domain 测试的 model 引用同步切换；
+- `TestCoreUsesContractProtocolModel` 与 Edit/Fork 协议门禁继续禁止旧
+  `middle/protocol/model`，并允许新的 `contract/protocol` 唯一身份；
+- 红测：全量结构门禁先点名仍读取 Middle model 的 Application 文件，
+  同时暴露机械替换把门禁目标误改成 `contract/protocol` 的反向断言；
+- 绿测：`go test ./application/... -count=1` 全包通过；
+- Application 具体 Backend/Middle/Store 依赖包 26 → 25，Store 保持 0；
+- `Service` 公开方法保持 0，core 生产文件 67、生产代码 9,947 行；
+- GUI/TUI wire、Event、Snapshot 与持久化 JSON 不变；
+- 回退方式：恢复 `middle/protocol/model` 引用及其门禁目标。
+
+## EP-057：Wiring 调用方迁入 Frontend
+
+- `Service` 公开业务方法归零后，`wiring/registry` 的 Snapshot、
+  SubmitToSession、TaskTerminalHandler 与 `wiring/bootstrap` 的
+  Snapshot、HandleRoleToolActivity 调用改走 `compat.Frontend`；
+- 工具注册名、定时任务投递顺序、角色工具事件载荷和 GUI/TUI wire 均未改变；
+- 红测：`go test ./wiring/...` 点名 `app.Snapshot`、`app.SubmitToSession`、
+  `app.TaskTerminalHandler`、`app.HandleRoleToolActivity` 在 `Service` 上不存在；
+- 绿测：`go test ./wiring/...`、`go build ./...`、E2E Facade/Document/Layout；
+- 指标保持 `Service=0`、core 67 文件/9,947 行、Application 具体依赖 25；
+- 回退方式：恢复 Service 业务门面并把 Wiring 调用点改回。
+
+## EP-058：Review/Reference 后端实现退出 Application
+
+- Reference 的 ref 分类与分页算法直接使用 `contract/protocol` 的唯一实现，
+  `application/reference` 不再 import `backend/tool/reference`；
+- Review 在 Application 侧定义 `RequestProcessor` 与 `ProcessorFactory`，
+  具体策略由 `wiring/adapters.NewReviewProcessorFactory` 注入，返回
+  `backend/tool/review` 的唯一实现；
+- 红测：Application 全局依赖预算点名 `backend/tool/reference` 与
+  `backend/tool/review` 仍被允许；
+- 绿测：Reference/Review、Wiring adapters、Application 全包、`go build` 与
+  `go vet`；
+- Application 具体 Backend/Middle/Store 依赖包 25 → 23，Store 保持 0；
+- ref wire、Review JSON、事件 revision 与前端调用签名不变；
+- 回退方式：恢复 Application 对两个 backend 工具包的直接 import，删除 Review
+  Processor 端口。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

@@ -398,7 +398,7 @@ func Run(opts Options) (*App, error) {
 		BashDiagnosticObserver: bashObserver,
 		TurnArchiver: &applicationreference.CompressedTurnArchiver{
 			Store:             adapters.NewCompressedTurnStore(sessionManager),
-			SessionIDProvider: func() string { return app.Snapshot().Session.ID },
+			SessionIDProvider: func() string { return frontendApp.Snapshot().Session.ID },
 			// 显式项目作用域：压缩原文的落盘键必须与读面
 			// read_compressed_turn（LoadToolResultWorkspace(workspaceID, sessionID, ref)）
 			// 一致。先按会话自己的绑定解析（与 eventStore 同一解析器，R3 键漂移
@@ -410,7 +410,7 @@ func Run(opts Options) (*App, error) {
 				return ""
 			},
 			WorkspaceIDProvider: func() string {
-				return session_runtime.WorkspaceID(app.Snapshot().CurrentWorkspace)
+				return session_runtime.WorkspaceID(frontendApp.Snapshot().CurrentWorkspace)
 			},
 		},
 		ProjectKnowledge: func() *store.ProjectRecord {
@@ -428,7 +428,7 @@ func Run(opts Options) (*App, error) {
 		},
 		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
 		// 都在 application（HandleRoleToolActivity）。
-		RoleToolCallback: app.HandleRoleToolActivity,
+		RoleToolCallback: frontendApp.HandleRoleToolActivity,
 		// 员工回合收口：该角色会话的工具记录暂存一次性提交给主会话累计
 		// （阶梯提交的收口点；同步入账）。
 		RoleTurnEndCallback: func(mainSessionID, roleSessionID string) {

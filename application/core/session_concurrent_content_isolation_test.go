@@ -19,7 +19,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	selexsession "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
 	"testing"
 	"time"

@@ -25,6 +25,9 @@ func TestGoalApplicationIsExtractedFromCore(t *testing.T) {
 	coreFile := filepath.Join(applicationDir, "core", "goal_application.go")
 	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
 		t.Fatalf("parse core/goal_application.go: %v", err)
 	}
 	for _, declaration := range core.Decls {

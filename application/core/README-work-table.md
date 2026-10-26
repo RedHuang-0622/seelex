@@ -8,7 +8,7 @@
 
 ## Execution Application 用例（AP-017 首个切片）
 
-`work_table_application.go` 集中 WorkItem execution、teammate inspection/live、
+`WorkItem execution application` 集中 WorkItem execution、teammate inspection/live、
 团队看板和 todo 状态更新。Runtime 与 teamwork board reader 仍是具体能力提供方；
 Service 入口只保留一行转发。
 

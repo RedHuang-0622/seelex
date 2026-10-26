@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // SnapshotReadState is the host-owned hot/cold decision input.

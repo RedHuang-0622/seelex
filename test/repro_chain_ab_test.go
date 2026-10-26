@@ -56,29 +56,29 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	defer sub.Close()
 
 	// A 首轮完成。
-	if err := harness.app.Submit(ctx, "first A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.app.Snapshot().Session.ID
+	sessionA := harness.frontend.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 	// fork 出 B 并切换。
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
-	if harness.app.Snapshot().Session.ID != sessionB {
-		t.Fatalf("active after fork = %q, want B", harness.app.Snapshot().Session.ID)
+	if harness.frontend.Snapshot().Session.ID != sessionB {
+		t.Fatalf("active after fork = %q, want B", harness.frontend.Snapshot().Session.ID)
 	}
 	// 切回 A，发起长任务（provider 第二请求阻塞 → A 运行中）。
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "long task A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -90,12 +90,12 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.app.Submit(ctx, "hello B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	bDone := time.Now().Add(20 * time.Second)
 	for {
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
@@ -111,8 +111,8 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 		t.Fatalf("resume running A: %v", err)
 	}
 	hotAttachMS := time.Since(hotStart).Milliseconds()
-	if harness.app.Snapshot().Session.ID != sessionA {
-		t.Fatalf("active after hot attach = %q, want A", harness.app.Snapshot().Session.ID)
+	if harness.frontend.Snapshot().Session.ID != sessionA {
+		t.Fatalf("active after hot attach = %q, want A", harness.frontend.Snapshot().Session.ID)
 	}
 	// 释放 A → 收敛。
 	close(provider.releaseSecond)
@@ -121,7 +121,7 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	}
 
 	// 收集结果。
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	fingerprint, ordinals := drainChainFingerprint(t, sub)
 	result := chainABResult{
 		activeID:     snapshot.Session.ID,

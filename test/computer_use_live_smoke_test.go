@@ -91,13 +91,13 @@ func TestComputerUseLiveSmoke(t *testing.T) {
 	defer cancel()
 	prompt := "请调用 computer_screenshot 工具截取当前屏幕，然后只回答前台窗口标题的原文" +
 		"（照抄标题里出现的内容，不要解释、不要猜测、不要加引号）。"
-	if err := harness.app.Submit(ctx, prompt); err != nil {
+	if err := harness.frontend.Submit(ctx, prompt); err != nil {
 		t.Fatalf("提交真实回合: %v", err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("真实回合未回到 idle: %v", err)
 	}
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	if snapshot.Chat.Error != "" {
 		t.Fatalf("真实回合失败: %s", snapshot.Chat.Error)
 	}

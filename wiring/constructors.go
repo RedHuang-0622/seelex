@@ -39,6 +39,8 @@ func New(deps contract.Dependencies) (*core.Service, error) {
 		RoleSessions:           adapters.NewRoleSessionsFactory(),
 		TeamworkBoardReader:    adapters.NewTeamworkBoardReaderFactory(),
 		HostSessionForToolCall: adapters.NewHostSessionForToolCall(),
+		Goal:                   adapters.NewGoalCoordinator(deps.Runtime),
+		ReviewProcessor:        adapters.NewReviewProcessorFactory(),
 	})
 }
 

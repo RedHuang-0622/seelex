@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TestThreadIsolation 并发写两个会话的队列互不串行、互不污染

@@ -60,15 +60,15 @@ func TestCompactLivePreflight(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	if err := harness.app.Submit(ctx, "只回复两个字：在的。不要调用任何工具。"); err != nil {
+	if err := harness.frontend.Submit(ctx, "只回复两个字：在的。不要调用任何工具。"); err != nil {
 		t.Fatalf("预检提交失败: %v", err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		t.Fatalf("预检回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 			err, snapshot.Chat.Running, snapshot.Chat.Error, describeConversationTail(snapshot.Conversation, 4))
 	}
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	t.Logf("预检通过：running=%v error=%q 回答=%s 压缩记录=%+v 窗口=%d max_tokens=%d",
 		snapshot.Chat.Running, snapshot.Chat.Error, truncateForLog(lastAssistantContent(snapshot)),
 		compactRecords(snapshot), compactSmokeContextWindow, compactSmokeMaxTokens)
@@ -121,15 +121,15 @@ func TestCompactLiveSmoke(t *testing.T) {
 		t.Helper()
 		turnCtx, turnCancel := context.WithTimeout(ctx, 4*time.Minute)
 		defer turnCancel()
-		if err := harness.app.Submit(turnCtx, prompt); err != nil {
+		if err := harness.frontend.Submit(turnCtx, prompt); err != nil {
 			t.Fatalf("%s：提交失败: %v", stage, err)
 		}
 		if err := harness.frontend.WaitForIdle(turnCtx); err != nil {
-			snapshot := harness.app.Snapshot()
+			snapshot := harness.frontend.Snapshot()
 			t.Fatalf("%s：真实回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 				stage, err, snapshot.Chat.Running, snapshot.Chat.Error, describeConversationTail(snapshot.Conversation, 4))
 		}
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		if snapshot.Chat.Error != "" {
 			t.Fatalf("%s：真实回合失败: %s", stage, snapshot.Chat.Error)
 		}
@@ -182,7 +182,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 	//   ② 回读帧正文，表头 "checkpoint frame v" 恰好出现一次——出现两次就意味着
 	//      上一帧的正文被当成材料又折了一遍（信息会随每次重摘要衰减）。
 	seenFrames := map[string]bool{}
-	for _, record := range compactRecords(harness.app.Snapshot()) {
+	for _, record := range compactRecords(harness.frontend.Snapshot()) {
 		if record.FrameRef == "" {
 			t.Fatalf("压缩记录没有 frame_ref，帧正文不可回读：%+v", record)
 		}
@@ -190,7 +190,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 			t.Fatalf("同一个 frame_ref 出现在多条记录里：%s", record.FrameRef)
 		}
 		seenFrames[record.FrameRef] = true
-		page, err := harness.app.ReadToolResultHandler(ctx, fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":120}`, record.FrameRef))
+		page, err := harness.frontend.ReadToolResultHandler(ctx, fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":120}`, record.FrameRef))
 		if err != nil {
 			t.Fatalf("回读帧正文失败 %s: %v", record.FrameRef, err)
 		}

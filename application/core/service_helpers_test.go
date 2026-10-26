@@ -6,7 +6,7 @@ import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +106,7 @@ func mustNew(t testing.TB, deps contract.Dependencies) *Service {
 		RoleSessions:           adapters.NewRoleSessionsFactory(),
 		TeamworkBoardReader:    adapters.NewTeamworkBoardReaderFactory(),
 		HostSessionForToolCall: adapters.NewHostSessionForToolCall(),
+		ReviewProcessor:        adapters.NewReviewProcessorFactory(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

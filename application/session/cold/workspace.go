@@ -1,6 +1,6 @@
 package cold
 
-import "github.com/RedHuang-0622/seelex/middle/protocol/model"
+import "github.com/RedHuang-0622/seelex/contract/protocol"
 
 // WorkspaceDeps supplies project-root and session-binding callbacks.
 type WorkspaceDeps struct {

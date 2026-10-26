@@ -20,7 +20,7 @@
 
 - 不拥有 Goal 记录、栈或状态迁移；
 - 不实现 Goal 记录、栈或状态迁移，也不直接读取 Runtime 投影源；
-- 不导入 `application/core`。
+- 不导入 `application/core`、`store` 或具体存储包。
 
 ## 文件结构
 
@@ -36,6 +36,8 @@
 `CoordinatorPort` 只暴露 Goal 应用实际调用的五个方法；`Coordinator`
 通过结构满足 port，不需要复制状态机。刷新只发生在成功变更后。Controller 仍是
 每会话 bundle 的唯一状态所有者；`StoreFor=nil` 保持内存态降级。
+`StoreFor` 返回 Goal 域自己的 `Store` / `AuditAccount`，`ArchiveFor` 返回已投影的
+`dto.GoalGovernanceView`。具体 Store 构造和看板存档解码由 Wiring 注入。
 
 ## 数据流
 
@@ -44,8 +46,8 @@
 
 ## 依赖方向
 
-允许依赖 `backend/multiagent/goal` 的 Goal DTO/状态视图、`store` 的第五栈/看板存档
-适配面与 `contract/dto`。禁止依赖 `application/core`、GUI/TUI。
+允许依赖 `backend/multiagent/goal` 的 Goal 领域接口与 `contract/dto`。禁止依赖
+`store`、`application/core`、GUI/TUI；Store 适配只在 `wiring/adapters` 装配。
 
 ## 并发与错误
 
@@ -61,6 +63,7 @@ Coordinator 用独立 mutex 保护每会话 bundle 缓存，bundle 内 Controlle
 ## Review 指南
 
 - 协调器是否仍由 Goal domain 唯一拥有；
+- 本包生产文件是否仍不 import `store`；
 - 变更成功后才刷新 projection；
 - session ID 是否 trim/required；
 - 是否 import `application/core`。

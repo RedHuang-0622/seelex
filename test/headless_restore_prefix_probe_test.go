@@ -162,7 +162,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	}
 	harnessContinue := newFullChainHarness(t, continuationAccounts, continuationStore, 10*time.Second)
 	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
-	if err := harnessContinue.app.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessContinue.frontend.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("继续运行提交第 13 轮: %v", err)
 	}
 	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
@@ -191,7 +191,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
-	sessionID := harnessFirst.app.Snapshot().Session.ID
+	sessionID := harnessFirst.frontend.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
@@ -203,12 +203,12 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession: %v", err)
 	}
-	resumed := harnessRestarted.app.Snapshot()
+	resumed := harnessRestarted.frontend.Snapshot()
 	if resumed.Session.ID != sessionID {
 		t.Fatalf("重启后视图会话 = %q, want %q", resumed.Session.ID, sessionID)
 	}
 	t.Logf("重启后可见会话消息数=%d（期望 %d）", len(visiblePairMessages(resumed.Conversation)), settledRounds*2)
-	if err := harnessRestarted.app.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessRestarted.frontend.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("重启后提交第 13 轮: %v", err)
 	}
 	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {

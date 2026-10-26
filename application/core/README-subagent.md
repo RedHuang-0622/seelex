@@ -8,7 +8,7 @@
 
 ## Subagent Application 用例（AP-016 首个切片）
 
-`subagent_application.go` 集中恢复目录、中断恢复、定点恢复、fork 派发、
+`Subagent view application` 集中恢复目录、中断恢复、定点恢复、fork 派发、
 树清理和详情读取。Runtime 继续提供执行/恢复能力，subagent view 继续负责详情投影；
 Service 对应入口只保留一行转发。
 

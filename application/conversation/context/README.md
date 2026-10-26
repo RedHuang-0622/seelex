@@ -30,7 +30,7 @@
 
 ## 依赖方向
 
-允许依赖 backend engine context 的 identity alias/转发面、`middle/protocol/model` 与
+允许依赖 backend engine context 的 identity alias/转发面、`contract/protocol` 与
 标准库。禁止依赖 `application/core`、GUI/TUI 或存储实现。
 
 ## 并发与错误

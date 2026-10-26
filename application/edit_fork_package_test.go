@@ -69,6 +69,9 @@ func TestEditForkApplicationsAreExtractedFromCore(t *testing.T) {
 		path := filepath.Join(applicationDir, "core", name)
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			t.Fatalf("parse core/%s: %v", name, err)
 		}
 		for _, declaration := range core.Decls {

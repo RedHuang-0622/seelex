@@ -79,14 +79,14 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		`{"command":"` + command + `","description":"live smoke: backfill probe"}` +
 		". Do NOT call bg_manage in this turn. Do not call any other tool. " +
 		"Reply with one short sentence that contains the handle."
-	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
+	if err := harness.frontend.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("dispatch turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	firstTurn := collector.take()
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("dispatch turn failed: %s", snapshot.Chat.Error)
 	}
 
@@ -141,7 +141,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	reportPrompt := "Do not call any tool in this turn. From the context you already have, " +
 		"report the background job's handle, its terminal state, its exit code, and the last line " +
 		"of its output. One short sentence."
-	if err := harness.app.Submit(ctx, reportPrompt); err != nil {
+	if err := harness.frontend.Submit(ctx, reportPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
@@ -151,7 +151,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	for _, call := range secondTurn {
 		t.Fatalf("第二轮调用了工具 %s（status=%s）：这样「凭上下文报告」就不是回填证据了", call.name, call.status)
 	}
-	reply := latestVisibleAssistant(harness.app.Snapshot())
+	reply := latestVisibleAssistant(harness.frontend.Snapshot())
 	t.Logf("第二轮回复（零工具调用）：%q", reply)
 
 	if !strings.Contains(reply, handle) {
@@ -176,7 +176,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		". Then reply with one short sentence containing the first line of its output. " +
 		"Do not call any other tool."
-	if err := harness.app.Submit(ctx, fetchPrompt); err != nil {
+	if err := harness.frontend.Submit(ctx, fetchPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {

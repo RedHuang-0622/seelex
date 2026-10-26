@@ -61,15 +61,15 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if err := harness.frontend.BeginNewSession(); err != nil {
 		t.Fatalf("新建会话: %v", err)
 	}
-	draftSession := harness.app.Snapshot().Session.ID
+	draftSession := harness.frontend.Snapshot().Session.ID
 	workspaceID := ""
-	for _, item := range harness.app.Snapshot().Workspaces {
+	for _, item := range harness.frontend.Snapshot().Workspaces {
 		if item.RootPath == projectRoot {
 			workspaceID = item.ID
 		}
 	}
 	if workspaceID == "" {
-		t.Fatalf("工作区没进快照：%+v", harness.app.Snapshot().Workspaces)
+		t.Fatalf("工作区没进快照：%+v", harness.frontend.Snapshot().Workspaces)
 	}
 	if err := harness.frontend.BindWorkspace(workspaceID); err != nil {
 		t.Fatalf("绑定工作区: %v", err)
@@ -79,13 +79,13 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 		projectBoardE2EScript{tool: "todo_add", args: `{"item":"` + projectBoardWriteItem + `"}`},
 		projectBoardE2EScript{},
 	)
-	if err := harness.app.Submit(ctx, "请调用 todo_add 加一条待办，然后只回复『好』。"); err != nil {
+	if err := harness.frontend.Submit(ctx, "请调用 todo_add 加一条待办，然后只回复『好』。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	if snapshot.Chat.Error != "" {
 		t.Fatalf("回合失败: %s", snapshot.Chat.Error)
 	}

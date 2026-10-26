@@ -29,6 +29,9 @@ func TestSessionQueryApplicationIsExtractedFromCore(t *testing.T) {
 	coreFile := filepath.Join(applicationDir, "core", "session_query.go")
 	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
 		t.Fatalf("parse core/session_query.go: %v", err)
 	}
 	forbiddenTypes := map[string]bool{

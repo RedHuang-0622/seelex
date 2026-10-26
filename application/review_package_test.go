@@ -26,6 +26,9 @@ func TestReviewApplicationIsExtractedFromCore(t *testing.T) {
 	coreFile := filepath.Join(applicationDir, "core", "review_files.go")
 	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
 		t.Fatalf("parse core/review_files.go: %v", err)
 	}
 	forbiddenTypes := map[string]bool{

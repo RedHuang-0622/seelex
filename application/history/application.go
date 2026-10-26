@@ -2,7 +2,7 @@
 // reads, visible-window installation and content LRU remain injectable hosts.
 package history
 
-import "github.com/RedHuang-0622/seelex/middle/protocol/model"
+import "github.com/RedHuang-0622/seelex/contract/protocol"
 
 // WindowAssembler 是历史窗口安装需要的消费方端口。
 //

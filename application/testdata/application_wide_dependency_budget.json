@@ -1,5 +1,5 @@
 {
-  "concrete_dependency_limit": 27,
+  "concrete_dependency_limit": 23,
   "allowed_concrete_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",
@@ -16,17 +16,13 @@
     "github.com/RedHuang-0622/seelex/backend/multiagent/goal",
     "github.com/RedHuang-0622/seelex/backend/multiagent/subagent",
     "github.com/RedHuang-0622/seelex/backend/multiagent/team",
-    "github.com/RedHuang-0622/seelex/backend/tool/reference",
-    "github.com/RedHuang-0622/seelex/backend/tool/review",
     "github.com/RedHuang-0622/seelex/middle/protocol/event",
-    "github.com/RedHuang-0622/seelex/middle/protocol/model",
     "github.com/RedHuang-0622/seelex/middle/switch",
     "github.com/RedHuang-0622/seelex/middle/switch/workspace",
     "github.com/RedHuang-0622/seelex/middle/view",
     "github.com/RedHuang-0622/seelex/middle/view/board",
     "github.com/RedHuang-0622/seelex/middle/view/errors",
     "github.com/RedHuang-0622/seelex/middle/view/subagent",
-    "github.com/RedHuang-0622/seelex/middle/view/worktable",
-    "github.com/RedHuang-0622/seelex/store"
+    "github.com/RedHuang-0622/seelex/middle/view/worktable"
   ]
 }

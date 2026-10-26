@@ -2,7 +2,7 @@ package query
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // SessionRuntimeOf extracts session-owned runtime facts from the full runtime.

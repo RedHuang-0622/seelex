@@ -3,7 +3,7 @@ package sessionstate
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TestSessionUnitRuntimeSlotIsolation（G1-A）：每会话运行时槽写入/读出是

@@ -46,7 +46,7 @@ workspace root，再把受控相对路径解析为仓库根，随后分派到
 
 ## 依赖方向
 
-允许依赖 `contract`、`contract/dto`、`middle/protocol/model` 与
+允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
 `middle/switch/workspace` 的同身份 Switch Workspace alias。禁止导入
 `application/core`、持有完整 `Service`、执行 Git 命令或读写真凭证。
 

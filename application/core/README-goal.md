@@ -8,7 +8,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 ## Goal Application 用例（AP-015 首个切片）
 
-`goal_application.go` 集中会话目标用例：协调器查找、Begin/Update/Done/Status、
+`Goal application` 集中会话目标用例：协调器查找、Begin/Update/Done/Status、
 治理视图和运行投影刷新。`goalCoordinator` 继续持有按会话 bundle，
 `backend/multiagent/goal.Controller` 继续唯一拥有目标状态机。
 

@@ -3,7 +3,7 @@ package core
 import (
 	"fmt"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"io/fs"
 	"strings"
 	"sync"

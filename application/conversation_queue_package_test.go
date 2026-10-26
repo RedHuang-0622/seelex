@@ -25,6 +25,9 @@ func TestConversationQueueApplicationIsExtractedFromCore(t *testing.T) {
 	coreFile := filepath.Join(applicationDir, "core", "chat_queue.go")
 	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
 		t.Fatalf("parse core/chat_queue.go: %v", err)
 	}
 	for _, declaration := range core.Decls {

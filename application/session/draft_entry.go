@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // DraftEntryState describes the current view before entering a new draft.

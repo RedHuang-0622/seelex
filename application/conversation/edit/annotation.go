@@ -1,6 +1,6 @@
 package edit
 
-import "github.com/RedHuang-0622/seelex/middle/protocol/model"
+import "github.com/RedHuang-0622/seelex/contract/protocol"
 
 // AnnotationInput is the transcript/window fact for one session.
 type AnnotationInput struct {

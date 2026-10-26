@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/middle/switch"
 )
 

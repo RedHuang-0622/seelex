@@ -9,8 +9,8 @@ import (
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // The migrated frontend entries live in application/compat in production.

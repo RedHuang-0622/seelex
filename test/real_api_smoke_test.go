@@ -36,13 +36,13 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, prompt); err != nil {
+		if err := harness.frontend.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -52,7 +52,7 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 		filler := strings.Repeat("真实 API 会话连续性材料，不要遗漏。", 160)
 		submit("这是真实 API 冒烟第 " + string(rune('0'+round)) + " 轮。请只回复‘本轮已记录’，不要调用工具。材料如下：\n" + filler)
 	}
-	sessionID := harness.app.Snapshot().Session.ID
+	sessionID := harness.frontend.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}
@@ -72,7 +72,7 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 
 func (harness *fullChainHarness) submitLive(ctx context.Context, t *testing.T, prompt string) {
 	t.Helper()
-	if err := harness.app.Submit(ctx, prompt); err != nil {
+	if err := harness.frontend.Submit(ctx, prompt); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {

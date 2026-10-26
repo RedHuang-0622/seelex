@@ -93,6 +93,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	if assembler.ports.HostSessionForToolCall == nil {
 		return nil, fmt.Errorf("application: host session reader is required")
 	}
+	if assembler.ports.ReviewProcessor == nil {
+		return nil, fmt.Errorf("application: review processor factory is required")
+	}
 	if err := prompt.ValidateAssets(); err != nil {
 		return nil, fmt.Errorf("application prompts: %w", err)
 	}
@@ -116,7 +119,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.assembleRoleApplication()
 	service.assembleSchedulerApplications()
 	service.assembleRuntimeApplication()
-	service.assembleReviewApplication()
+	service.assembleReviewApplication(assembler.ports.ReviewProcessor)
 	service.assembleLifecycleApplication()
 	service.assembleHistorySearchApplication()
 	service.assembleCompletionApplication()

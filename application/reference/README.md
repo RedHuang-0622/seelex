@@ -45,7 +45,7 @@ I/O 写入。
 
 ## 依赖方向
 
-允许依赖 `backend/tool/reference` 的纯分页判据和 `middle/protocol/model`。
+允许依赖 `backend/tool/reference` 的纯分页判据和 `contract/protocol`。
 禁止依赖 `application/core`、UI、装配根或具体存储实现。
 
 ## 并发与错误

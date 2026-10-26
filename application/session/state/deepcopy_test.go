@@ -3,7 +3,7 @@ package sessionstate
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TestForkSessionDeepCopy（T2.7）：fork 后父子引用不相交，改子不影响父。

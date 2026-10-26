@@ -43,7 +43,7 @@
 
 ## 依赖方向
 
-只依赖 `middle/protocol/model`、自身端口和标准库；禁止依赖
+只依赖 `contract/protocol`、自身端口和标准库；禁止依赖
 `application/core`、`store`、`backend` 或 GUI/TUI。
 
 ## 并发与错误

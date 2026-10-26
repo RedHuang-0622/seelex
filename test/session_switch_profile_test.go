@@ -49,19 +49,19 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 
 	submitAndIdle := func(text string) string {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle %q: %v", text, err)
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 	waitSessionReady := func(sid, seed string) {
 		t.Helper()
 		deadline := time.Now().Add(8 * time.Second)
 		for {
-			snap := harness.app.Snapshot()
+			snap := harness.frontend.Snapshot()
 			if snap.Session.ID == sid && snap.Session.Status != application.SessionStatusRestoring &&
 				strings.Contains(conversationText(snap.Conversation), seed) {
 				return
@@ -88,7 +88,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	}
 
 	sessionA := submitAndIdle("seed A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	submitAndIdle("seed B")
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	}
 	deadline := time.Now().Add(8 * time.Second)
 	for {
-		snap := harnessRestarted.app.Snapshot()
+		snap := harnessRestarted.frontend.Snapshot()
 		if snap.Session.ID == sessionID && snap.Session.Status != application.SessionStatusRestoring &&
 			strings.Contains(conversationText(snap.Conversation), "seed C") {
 			break
@@ -163,7 +163,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Logf("restart_cold_resume C %s", time.Since(start))
-	text := conversationText(harnessRestarted.app.Snapshot().Conversation)
+	text := conversationText(harnessRestarted.frontend.Snapshot().Conversation)
 	if strings.Contains(text, "seed D") {
 		t.Fatalf("restart C polluted by D: %s", text)
 	}

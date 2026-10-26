@@ -6,7 +6,7 @@ import (
 	"errors"
 	"github.com/RedHuang-0622/Seele/types"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"strings"

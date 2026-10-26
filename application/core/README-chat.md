@@ -8,7 +8,7 @@
 
 ## Queue application ownership（AP-007 首个切片）
 
-`chat_queue.go` 是排队输入编辑的应用组件。它消费 `SessionUnit` 的窄结构面
+`Conversation queue application` 是排队输入编辑的应用组件。它消费 `SessionUnit` 的窄结构面
 执行调序/撤回，并复用同一把 `Core.ViewMu` 与既有 `chat.changed` /
 `snapshot.changed` 发布顺序；队列内容与 `ChatState` 仍只由 `SessionUnit`
 持有。`service_queue.go` 的公开方法只做一行组件转发。
@@ -37,13 +37,13 @@ core 只保留一行 wrapper，Engine ReAct loop 仍归 Seele。
 
 ## ChatTurnProcess 起点事务（AP-014 首个切片）
 
-`chat_turn_process.go` 的 `conversationTurnProcess.BeginLocked` 统一正常提交与队列
+`ChatTurn process application` 的 `conversationTurnProcess.BeginLocked` 统一正常提交与队列
 批次提升的起点规则：requestID、Effort 预算回退、cancel/stream、Task 起点与
 checkpoint、Skill 激活和 user transcript。Engine 流与收尾持久化仍在主循环。
 
 ## ChatTurn 持久化完成事务（AP-018 首个切片）
 
-`chat_turn_completion.go` 的 `conversationTurnCompletion.Persist` 承接回合收尾的
+`ChatTurn completion application` 的 `conversationTurnCompletion.Persist` 承接回合收尾的
 durable 事务：定位会话、原子落盘、持久化失败时 queue 回草稿、成功后 queue 确认
 与工作历史释放。错误包装和 `session.persistence_failed` 结构化错误码不变；
 Engine 流、消息投影、事件发布和会话释放仍由 `runChat` 编排。
@@ -84,44 +84,44 @@ Engine 流、消息投影、事件发布和会话释放仍由 `runChat` 编排�
 
 ## ChatTurn Engine 前输入准备（AP-047 首个切片）
 
-`chat_turn_input.go` 固定 Engine 调用前顺序：激活当前 task system prompt、
+`ChatTurn input application` 固定 Engine 调用前顺序：激活当前 task system prompt、
 调用 provider context 装配、对成功结果做非空输入归一化。context 失败直接返回，
 不再归一化或进入 Engine 流。
 
 ## ChatTurn Engine 返回事务（AP-048 首个切片）
 
-`chat_turn_response.go` 在 `ChatStream` 返回后按固定顺序执行 reasoning attach、
+`ChatTurn response application` 在 `ChatStream` 返回后按固定顺序执行 reasoning attach、
 模型输出观测、最终 assistant transcript 补齐和 reasoning 回填。观测错误保持
 原有忽略语义；context recovery 与 budget/task finalization 仍在主循环。
 
 ## ChatTurn 恢复与终态（AP-049 首个切片）
 
-`chat_turn_recovery.go` 集中 context control failure 读取、provider failure
+`ChatTurn recovery application` 集中 context control failure 读取、provider failure
 恢复、有界补充回合重试、ReAct budget finalization 和自然停止后的 Task finalize。
 恢复/重试错误保持原组合文案；stream flush、route 和持久化仍在 `runChat`。
 
 ## ChatTurn 清理与持久化前准备（AP-050 首个切片）
 
-`chat_turn_cleanup.go` 固定解锁持久化前的清理顺序：batcher flush、route stamp、
+`ChatTurn cleanup application` 固定解锁持久化前的清理顺序：batcher flush、route stamp、
 subagent mailbox drain、runtime projection 采集、checkpoint 清理、provider
 recovery 清理、未处理任务错误记录和 draft snapshot 停止。成功/失败清理顺序与
 错误优先级保持原实现。
 
 ## ChatTurn Commit（AP-051 首个切片）
 
-`chat_turn_commit.go` 把持久化完成、stale/outcome、队列提升、下一批 user/assistant
+`ChatTurn commit application` 把持久化完成、stale/outcome、队列提升、下一批 user/assistant
 消息和 ChatState/Task/revision 镜像串成一次提交。stale 请求在 outcome 后短路；
 非 stale 结果直接供 publication/tail 使用。
 
 ## ChatTurn Finalize（AP-052 首个切片）
 
-`chat_turn_finalize.go` 将 commit result 映射为 `chatTurnPublication` 并调用
+`ChatTurn finalize application` 将 commit result 映射为 `chatTurnPublication` 并调用
 异步 tail；stale commit 不发布、不启动下一轮。`runChat` 只保留 Engine 循环与
 各组件串联。
 
 ## ChatTurn 执行策略同步（AP-053 首个切片）
 
-`chat_turn_execution.go` 固定每个回合起点的执行面同步：绑定本 Session project
+`ChatTurn execution application` 固定每个回合起点的执行面同步：绑定本 Session project
 root、下发 subagent policy、reasoning effort 和 full access。该同步不读取其它
 Session 的遗留执行开关。
 

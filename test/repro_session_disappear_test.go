@@ -133,19 +133,19 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	defer cancel()
 
 	// 1) 会话 A 首轮（请求 #1 快速返回）。
-	if err := harness.app.Submit(ctx, "first A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v\n%s", err, allGoroutineStacks())
 	}
-	sessionA := harness.app.Snapshot().Session.ID
+	sessionA := harness.frontend.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 
 	// 2) fork 出会话 B（持久化子会话）。
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "long task A"); err != nil {
+	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -167,18 +167,18 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if err := harness.app.Submit(ctx, "hello B"); err != nil {
+	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	// B 是活跃会话：等 B 的 Chat 结束（Running=false）。
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		snapshot := harness.app.Snapshot()
+		snapshot := harness.frontend.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("B did not finish in time: %+v\n%s", harness.app.Snapshot().Chat, allGoroutineStacks())
+			t.Fatalf("B did not finish in time: %+v\n%s", harness.frontend.Snapshot().Chat, allGoroutineStacks())
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -193,7 +193,7 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A after background completion: %v", err)
 	}
-	snapshot := harness.app.Snapshot()
+	snapshot := harness.frontend.Snapshot()
 	if snapshot.Session.ID != sessionA {
 		t.Fatalf("active session = %q, want %q", snapshot.Session.ID, sessionA)
 	}

@@ -89,6 +89,9 @@ go test ./application/core/ -run Goal -count=1
 
 ### board_archive.go
 
+- `func GoalGovernanceViewFromBoardArchive(archive store.GoalBoardMeta) (dto.GoalGovernanceView, bool)` — GoalGovernanceViewFromBoardArchive converts a persisted goal board into the
+- `func goalBoardHistoryViews(entries []store.GoalBoardHistory) []dto.GoalHistoryView`
+- `func goalBoardProgressViews(items []store.GoalProgress) []dto.GoalProgressView`
 - `func isTerminalAuditKind(kind string) bool` — isTerminalAuditKind 报告审计条目是否 goal 终态（收口账本的派生来源）。
 - `func (s *ContextStateStore) auditLedger() []store.GoalAuditEntry` — auditLedger 返回本会话的 goal 审计账本（未装配会话存储 → nil）。
 - `func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*GoalRecord) error` — refreshGoalBoard 组装并（按指纹节流后）写入 goal 看板存档。
@@ -125,6 +128,7 @@ go test ./application/core/ -run Goal -count=1
 - `func (r *stubBoardRepository) ReadTeamBoard(context.Context) (store.TeamBoardMeta, error)`
 - `func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T)` — TestGoalDomainDecisionsIgnoreBoardArchive 钉住 I1：**领域判定不吃存档**。
 - `func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T)` — TestGoalBoardArchiveThrottlesUnchangedPayload 验证**指纹节流**：载荷内容
+- `func TestGoalGovernanceViewFromBoardArchiveSeparatesRecoveredAndClosed(t *testing.T)`
 
 ### controller.go
 
@@ -185,6 +189,7 @@ go test ./application/core/ -run Goal -count=1
 - `func NewContextStateStore(session *store.SessionContextStore, boards ...store.SessionBoards) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
 - `func (s *ContextStateStore) BindBoards(boards store.SessionBoards)` — BindBoards 注入会话看板存档取用面（store.Router.BoardsForSession 的产物）。
 - `func (s *ContextStateStore) boardRepository() (store.SessionBoards, bool)` — boardRepository 返回看板存档取用面（**绑定会话**的面）；未装配返回 false。
+- `func (s *ContextStateStore) ReadGoalBoard(ctx context.Context) (store.GoalBoardMeta, error)` — ReadGoalBoard reads the bound session's persisted goal-board projection.
 - `func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error)` — Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
 - `func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) error` — Save 实现 Store：全量替换会话 GoalStack 并持久化。写入前先确保会话
 - `func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame` — goalFramesFromRecords 把 goal 域记录投影为 store 第五栈帧

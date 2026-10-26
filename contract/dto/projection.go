@@ -80,6 +80,18 @@ type GoalProgressView struct {
 	Content string `json:"content"`
 }
 
+// GoalFrameProgressPreviewLimit is the compact-card progress window shared by
+// live and recovered goal frame projections.
+const GoalFrameProgressPreviewLimit = 3
+
+// TailGoalProgressViews returns the newest limit progress entries.
+func TailGoalProgressViews(items []GoalProgressView, limit int) []GoalProgressView {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[len(items)-limit:]
+}
+
 // ParentEvidenceProjection 是 application 到 Runtime 的最小父证据投影：
 // Runtime 据此构造子代理可读的父证据快照（合并回传的起点）。
 type ParentEvidenceProjection struct {

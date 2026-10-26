@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"testing"
 	"time"
 )

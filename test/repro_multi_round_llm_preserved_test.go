@@ -133,7 +133,7 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 
 	submitRound := func(text string) {
 		t.Helper()
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
@@ -145,12 +145,12 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	submitRound("round two with tool")
 	submitRound("round three")
 
-	sessionID := harness.app.Snapshot().Session.ID
-	live := visibleAssistantTexts(harness.app.Snapshot().Conversation)
+	sessionID := harness.frontend.Snapshot().Session.ID
+	live := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
 	t.Logf("live assistant texts: %v", live)
 
 	// 热恢复：切到一个无关会话再切回（驻留 → hot attach）。
-	other, err := harness.app.ForkSessionLatest(sessionID)
+	other, err := harness.frontend.ForkSessionLatest(sessionID)
 	if err != nil {
 		t.Fatalf("fork other: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("hot resume: %v", err)
 	}
-	hot := visibleAssistantTexts(harness.app.Snapshot().Conversation)
+	hot := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
 	t.Logf("hot assistant texts: %v", hot)
 	if strings.Join(hot, "\n") != strings.Join(live, "\n") {
 		t.Fatalf("RED: hot resume changed assistant texts\nlive=%v\nhot =%v", live, hot)
@@ -173,7 +173,7 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	if err := harness.frontend.ResumeSession(sessionID); err != nil {
 		t.Fatalf("cold resume: %v", err)
 	}
-	cold := visibleAssistantTexts(harness.app.Snapshot().Conversation)
+	cold := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
 	t.Logf("cold assistant texts: %v", cold)
 	if strings.Join(cold, "\n") != strings.Join(live, "\n") {
 		t.Fatalf("RED: cold resume changed assistant texts\nlive=%v\ncold=%v", live, cold)

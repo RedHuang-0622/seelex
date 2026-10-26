@@ -422,3 +422,41 @@ func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T) {
 		t.Fatalf("新载荷应带上追加的打点: %+v", changed.Active)
 	}
 }
+
+func TestGoalGovernanceViewFromBoardArchiveSeparatesRecoveredAndClosed(t *testing.T) {
+	progress := []store.GoalProgress{
+		{At: 1, Kind: "milestone", Content: "one"},
+		{At: 2, Kind: "milestone", Content: "two"},
+		{At: 3, Kind: "milestone", Content: "three"},
+		{At: 4, Kind: "milestone", Content: "four"},
+	}
+	active, ok := GoalGovernanceViewFromBoardArchive(store.GoalBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{State: store.BoardStateActive, Seq: 1},
+		Active: &store.GoalBoardActive{
+			GoalID: "g-active", Title: "active", Status: "active", Progress: progress,
+		},
+		History: []store.GoalBoardHistory{{GoalID: "g-old", Title: "old", Status: "completed"}},
+	})
+	if !ok || !active.Active || !active.Recovered || active.GoalID != "g-active" {
+		t.Fatalf("active archive projection = %+v, ok=%v", active, ok)
+	}
+	if len(active.Stack) != 1 || len(active.Stack[0].Progress) != 3 ||
+		active.Stack[0].Progress[0].Content != "two" || len(active.Stack[0].ProgressAll) != 4 {
+		t.Fatalf("active progress preview/all = %+v", active.Stack)
+	}
+	if len(active.History) != 1 || active.History[0].GoalID != "g-old" {
+		t.Fatalf("active archive history = %+v", active.History)
+	}
+
+	closed, ok := GoalGovernanceViewFromBoardArchive(store.GoalBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{State: store.BoardStateClosed, Seq: 2},
+		History:        []store.GoalBoardHistory{{GoalID: "g-done", Status: "completed"}},
+	})
+	if !ok || closed.Active || closed.Recovered || len(closed.Stack) != 0 ||
+		len(closed.History) != 1 || closed.History[0].GoalID != "g-done" {
+		t.Fatalf("closed archive projection = %+v, ok=%v", closed, ok)
+	}
+	if _, ok := GoalGovernanceViewFromBoardArchive(store.GoalBoardMeta{}); ok {
+		t.Fatal("missing archive must stay hidden")
+	}
+}

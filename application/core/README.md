@@ -157,9 +157,9 @@ EP-046 后，core 不再暴露无参 `*ApplicationComponent` getter，也不再�
 对应公开方法只保留一行转发。历史行身份与窗口边界继续复用
 `middle/switch/history` 的唯一实现；core 经
 `application/history.WindowAssembler` 端口调用，Wiring 注入该实现。
-`session_query.go` 与 `session_conversation_history_query.go` 只承载宿主适配。
+`Session query application` 与 `Conversation history query application` 只承载宿主适配。
 
-Conversation Queue（AP-007 首个切片）由 `chat_queue.go` 的
+Conversation Queue（AP-007 首个切片）由 `Conversation queue application` 的
 `conversationQueue` 组件承接。`SessionUnit` 继续唯一拥有 `Queue` 和
 `ChatState`；组件只负责队列编辑的锁内编排、投影镜像和锁外发布，不持完整
 `Service`。`service_queue.go` 的两个公开入口只保留一行转发。
@@ -171,10 +171,10 @@ Conversation ChatState（AP-008 首个切片）由 `chat_turn_state.go` 的
 ChatTurn 请求构造（AP-009 首个切片）由 `chat_turn_request.go` 集中：
 输入受理、Skill 冻结、队列 payload 还原、批次合并和引用提取只有一个实现。
 
-ChatTurn 起点（AP-014 首个切片）由 `chat_turn_process.go` 集中：requestID、预算、
+ChatTurn 起点（AP-014 首个切片）由 `ChatTurn process application` 集中：requestID、预算、
 cancel/stream、Task 初始化、Skill 激活和 user transcript 不再在两处重复。
 
-ChatTurn 持久化完成（AP-018 首个切片）由 `chat_turn_completion.go` 集中：
+ChatTurn 持久化完成（AP-018 首个切片）由 `ChatTurn completion application` 集中：
 会话定位、原子落盘、durable queue 失败回草稿/成功确认和工作历史释放保持原有
 顺序；持久化错误仍是 `session.persistence_failed`。消息投影、事件发布与聊天
 主循环仍由 `Service` 编排。
@@ -198,119 +198,119 @@ ChatTurn 异步尾段（AP-023 首个切片）由 `conversationTurnTail.Complete
 工作区重绑、durable queue consumed 标记、终态发布、下一轮启动、会话释放与工具
 记录落盘保持原顺序，全部位于 `ViewMu` 之外。
 
-Goal Application 用例（AP-015 首个切片）由 `goal_application.go` 集中；Goal
+Goal Application 用例（AP-015 首个切片）由 `Goal application` 集中；Goal
 状态机仍在 backend goal domain。
 
-Subagent Application 用例（AP-016 首个切片）由 `subagent_application.go` 集中；
+Subagent Application 用例（AP-016 首个切片）由 `Subagent view application` 集中；
 Runtime 与 subagent view 的能力边界不变。
 
-Execution Application 用例（AP-017 首个切片）由 `work_table_application.go`
+Execution Application 用例（AP-017 首个切片）由 `WorkItem execution application`
 集中 WorkItem/teammate/team board 读面与 todo 写入口。
 
-Session unload（AP-010 首个切片）由 `session_lifecycle_use_case.go` 集中编排；
+Session unload（AP-010 首个切片）由 `Session lifecycle application` 集中编排；
 `middle/switch.Unload` 继续拥有准入判据，Service 只做一行转发。
 
-Session archive（AP-011 首个切片）由 `session_archive_use_case.go` 集中宿主适配；
+Session archive（AP-011 首个切片）由 `Session archive application` 集中宿主适配；
 `middle/residency.Archive` 继续拥有准入、flush、归档写入和目录刷新判据。
 
-Session delete（AP-012 首个切片）由 `session_delete_use_case.go` 集中删除与完整
+Session delete（AP-012 首个切片）由 `Session delete application` 集中删除与完整
 释放顺序；存储删除语义、workspace 解绑和视图续接行为不变。
 
 显式草稿提交激活（AP-024 首个切片）由
-`session_draft_submission.go` 集中目标预判、视图过渡锁、归属复判和物化委托；
+`Session draft submission application` 集中目标预判、视图过渡锁、归属复判和物化委托；
 草稿物化本体与 Session 记录所有权不变。
 
-草稿物化编排（AP-025 首个切片）由 `session_draft_materialization.go` 集中：
+草稿物化编排（AP-025 首个切片）由 `Session draft materialization application` 集中：
 workspace 绑定、引擎激活、标题生成、Session/Plan/workspace 提交镜像、发布与
 目录刷新、工具记录和驻留登记按原顺序执行。
 
-新建会话进入草稿（AP-026 首个切片）由 `session_draft_entry.go` 集中：
+新建会话进入草稿（AP-026 首个切片）由 `Session draft entry application` 集中：
 预检、旧会话保存/释放、Skill 清理、草稿槽和档位恢复、草稿壳切换及锁外刷新
 保持原顺序；`Service.BeginNewSession` 只保留一行转发。
 
-Resume 顶层编排（AP-027 首个切片）由 `session_resume.go` 集中：hot/restoring/
+Resume 顶层编排（AP-027 首个切片）由 `Session resume application` 集中：hot/restoring/
 cold 分支、过渡锁、同步/后台选择和失败恢复入口；冷加载主体与 epoch 判定不变。
 
 Edit/Fork 幂等操作注册表（AP-028 首个切片）由
-`edit_fork_operation_registry.go` 独立拥有：operation map、TTL、完成等待和失败
+`Edit/Fork operation registry application` 独立拥有：operation map、TTL、完成等待和失败
 清理不再占用 `serviceState.editForkOps` 或 `ViewMu`。
 
-Edit/Fork 父会话准入（AP-029 首个切片）由 `edit_fork_validator.go` 集中：
+Edit/Fork 父会话准入（AP-029 首个切片）由 `Edit/Fork validator application` 集中：
 当前会话、忙闲/队列、expected revision、窗口和压缩前缀判据保持原顺序。
 
-Edit/Fork 目标解析（AP-030 首个切片）由 `edit_fork_target_resolver.go` 集中：
+Edit/Fork 目标解析（AP-030 首个切片）由 `Edit/Fork target resolver application` 集中：
 父事件加载、revision、用户输入判定和 `EventParagraphs` fork cut 只有一份实现。
 
-Edit/Fork child 原子编排（AP-031 首个切片）由 `edit_fork_process.go` 集中：
+Edit/Fork child 原子编排（AP-031 首个切片）由 `Edit/Fork process application` 集中：
 解析、校验、锁内 fork、锁外 resume/submit 和失败回滚顺序只有一份实现。
 
-Edit/Fork 回滚错误合成（AP-032 首个切片）由 `edit_fork_rollback.go` 集中：
+Edit/Fork 回滚错误合成（AP-032 首个切片）由 `Edit/Fork rollback application` 集中：
 child 删除、parent 恢复和错误正文组合保留原始失败 cause。
 
-Edit/Fork 可见消息编辑判据（AP-033 首个切片）由 `edit_fork_annotation.go`
+Edit/Fork 可见消息编辑判据（AP-033 首个切片）由 `Edit/Fork annotation application`
 集中：EventSeq 回填与四类禁编原因只有一份实现。
 
-Fork lineage 只读解析（AP-034 首个切片）由 `session_fork_lineage.go` 集中：
+Fork lineage 只读解析（AP-034 首个切片）由 `Session fork lineage application` 集中：
 context payload → `forked_from` → fork ref 的唯一解码与降级路径。
 
-Restoring 空壳投影（AP-035 首个切片）由 `session_restoring_shell.go` 集中：
+Restoring 空壳投影（AP-035 首个切片）由 `Session restoring shell application` 集中：
 Session 状态、Runtime 会话事实清理、ChatState 镜像、Active 与 revision 共用一份实现。
 
-冷加载失败恢复（AP-036 首个切片）由 `session_restore_recovery.go` 集中：
+冷加载失败恢复（AP-036 首个切片）由 `Session restore recovery application` 集中：
 restoring 清除、active/epoch 判定、hot 回退、draft 重置和 Bridge 通知。
 
-冷恢复 draft reset（AP-037 首个切片）由 `session_restore_draft_reset.go`
+冷恢复 draft reset（AP-037 首个切片）由 `Session restore draft reset application`
 集中：锁内草稿槽/草稿壳与锁外 runtime/snapshot 发布。
 
-冷加载数据读取（AP-038 首个切片）由 `session_cold_load_reader.go` 集中：
+冷加载数据读取（AP-038 首个切片）由 `Session cold load reader application` 集中：
 pending-tail、record/transcript 并行读取、legacy history 回退和错误优先级。
 
-冷加载 history 装配（AP-039 首个切片）由 `session_cold_history.go` 集中：
+冷加载 history 装配（AP-039 首个切片）由 `Session cold history application` 集中：
 transcript 重建、wire history、record/resume history 回退。
 
-冷加载 Engine 恢复与队列回填（AP-040 首个切片）由 `session_cold_restore.go`
+冷加载 Engine 恢复与队列回填（AP-040 首个切片）由 `Session cold restore application`
 集中：workspace 键、Engine resume/replace、queue rehydrate 和 prompt 写入。
 
-冷加载 workspace 绑定（AP-041 首个切片）由 `session_cold_workspace.go` 集中：
+冷加载 workspace 绑定（AP-041 首个切片）由 `Session cold workspace application` 集中：
 运行中不改根、per-session binding 与真正无项目解绑判据。
 
-冷加载激活准备（AP-042 首个切片）由 `session_cold_activation.go` 集中：
+冷加载激活准备（AP-042 首个切片）由 `Session cold activation application` 集中：
 epoch/active、restoring 清除、标题、Active、cancel、tier 和 title 写入。
 
-冷加载 Task 恢复（AP-043 首个切片）由 `session_cold_task.go` 集中：
+冷加载 Task 恢复（AP-043 首个切片）由 `Session cold task application` 集中：
 compaction/retainedFrom、Task/Plan/checkpoint 恢复和无 record reset。
 
-冷加载 View 构造与安装（AP-044 首个切片）由 `session_cold_view.go` 集中：
+冷加载 View 构造与安装（AP-044 首个切片）由 `Session cold view application` 集中：
 record/legacy 窗口、ForkedFrom、空 View 安装与 active Snapshot Task 镜像。
 
-冷加载解锁后发布（AP-045 首个切片）由 `session_cold_publish.go` 集中：
+冷加载解锁后发布（AP-045 首个切片）由 `Session cold publish application` 集中：
 prompt/context/runtime/task/subagent/catalog/LRU 的锁外顺序。
 
-冷加载锁内收口（AP-046 首个切片）由 `session_cold_commit.go` 集中：
+冷加载锁内收口（AP-046 首个切片）由 `Session cold commit application` 集中：
 pending-tail/ChatState、active Plan/Interaction、workspace 投影和 revision。
 
-ChatTurn Engine 前输入准备（AP-047 首个切片）由 `chat_turn_input.go` 集中：
+ChatTurn Engine 前输入准备（AP-047 首个切片）由 `ChatTurn input application` 集中：
 prompt 激活、provider context 装配和空输入归一化。
 
-ChatTurn Engine 返回事务（AP-048 首个切片）由 `chat_turn_response.go` 集中：
+ChatTurn Engine 返回事务（AP-048 首个切片）由 `ChatTurn response application` 集中：
 reasoning、输出观测、final assistant transcript 与 reasoning 回填。
 
-ChatTurn 恢复与终态（AP-049 首个切片）由 `chat_turn_recovery.go` 集中：
+ChatTurn 恢复与终态（AP-049 首个切片）由 `ChatTurn recovery application` 集中：
 context failure、provider recovery、bounded retry、budget 与 Task finalize。
 
-ChatTurn 清理与持久化前准备（AP-050 首个切片）由 `chat_turn_cleanup.go`
+ChatTurn 清理与持久化前准备（AP-050 首个切片）由 `ChatTurn cleanup application`
 集中：flush/route/mailbox/projection/checkpoint/recovery/error/draft stop。
 
-ChatTurn Commit（AP-051 首个切片）由 `chat_turn_commit.go` 集中：
+ChatTurn Commit（AP-051 首个切片）由 `ChatTurn commit application` 集中：
 持久化、outcome、队列提升、下一批消息和锁内镜像。
 
-ChatTurn Finalize（AP-052 首个切片）由 `chat_turn_finalize.go` 集中：
+ChatTurn Finalize（AP-052 首个切片）由 `ChatTurn finalize application` 集中：
 commit result → publication → 异步 tail，stale 直接忽略。
 
-ChatTurn 执行策略同步（AP-053 首个切片）由 `chat_turn_execution.go` 集中：
+ChatTurn 执行策略同步（AP-053 首个切片）由 `ChatTurn execution application` 集中：
 project root、subagent policy、reasoning effort 和 full access。
 
-Policy Application 首批（AP-054 首个切片）由 `service_policy_application.go` 集中：
+Policy Application 首批（AP-054 首个切片）由 `Policy switch application` 集中：
 技能激活、两条独立拉条、release window 和 FullAccess 兼容壳。
 
 Permission Tier 用例（AP-055 首个切片）由同一组件集中：持久化、会话/审批/
@@ -429,7 +429,7 @@ Performance Stats（AP-084）先由 core 组件集中，AP-089 已迁入
 
 Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁入
 [`application/policy`](../policy/README.md)。core 的
-`role_permissions.go` 只保留 Session/Runtime 端口适配与 14 个一行兼容入口；
+`Role application` 只保留 Session/Runtime 端口适配与 14 个一行兼容入口；
 五层解析、显式空集优先、运行时账号回滚和 SSH 路径规范化不再有 core 副本。
 
 `service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`middle/switch/workspace`](../../middle/switch/workspace/README.md)，本包公开方法只做一行转发，视图投影写面仍由本包持有。
@@ -461,7 +461,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
 | [README-agentteam.md](README-agentteam.md) | `contract/role_sessions.go` | **角色会话端口**（RoleSessionID 派生、角色 draft/floor 透传）；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分已于 M5-R8b 归位 `backend/multiagent/team/` |
-| [README-permission.md](README-permission.md) | `role_permissions.go` | 角色默认/会话覆盖、继承与 SSH 路径白名单 |
+| [README-permission.md](README-permission.md) | `Role application` | 角色默认/会话覆盖、继承与 SSH 路径白名单 |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
@@ -745,7 +745,7 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 
 ## 角色设置与权限向量恢复
 
-`application/core/role_permissions.go` 是「会话级角色权限登记」的应用层读取面：
+`application/core/Role application` 是「会话级角色权限登记」的应用层读取面：
 `RestoreRolePermissions`（会话加载点的整会话恢复）、`RolePermissionVector`（单角色
 生效向量）与 `SetRolePermissionVector`（写入，空集 = 显式不给）三条。判据只有一份
 （`contract/dto` 的 `ResolvePermissionVector` / `ResolveRoleSettings`，五级来源
@@ -773,7 +773,7 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 `RoleSSHUserSpaces` / `SetRoleSSHUserSpaces` 在应用层归一并拒绝相对路径、`/`、
 超量或空条目，存储层保持原字节。SSH 只有一枚能力，路径白名单不是独立权限。
 账户的增删改查由 `service_admin_application.go` 编排并转发到可选
-`AccountAdminPort`，`service_account.go` 只保留兼容转发；账户本身没有独立
+`AccountAdminPort`，`Account administration application` 只保留兼容转发；账户本身没有独立
 权限向量。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给

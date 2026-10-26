@@ -33,6 +33,7 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -43,6 +44,71 @@ import (
 // 落一个非空占位（语义 = "关闭了，原因待权威条目覆写"），紧随其后的终态审计
 // 刷新会用 goal.finish/goal.abort 的 reason/kind 覆写它。
 const boardClosedReasonFallback = "goal.closed"
+
+// GoalGovernanceViewFromBoardArchive converts a persisted goal board into the
+// application read projection. An active archive is marked Recovered because
+// it did not come from a live controller in this process.
+func GoalGovernanceViewFromBoardArchive(archive store.GoalBoardMeta) (dto.GoalGovernanceView, bool) {
+	if archive.State != store.BoardStateActive && archive.State != store.BoardStateClosed {
+		return dto.GoalGovernanceView{}, false
+	}
+	history := goalBoardHistoryViews(archive.History)
+	if archive.State != store.BoardStateActive || archive.Active == nil {
+		return dto.GoalGovernanceView{Active: false, History: history}, true
+	}
+	active := archive.Active
+	progress := goalBoardProgressViews(active.Progress)
+	return dto.GoalGovernanceView{
+		Active:    true,
+		Recovered: true,
+		GoalID:    active.GoalID,
+		Title:     active.Title,
+		Status:    StatusOfRecord(active.Status),
+		History:   history,
+		Stack: []dto.GoalFrameView{{
+			ID:          active.GoalID,
+			Title:       active.Title,
+			Statement:   active.Statement,
+			Status:      active.Status,
+			Active:      true,
+			Acceptance:  append([]string(nil), active.Acceptance...),
+			OutOfScope:  append([]string(nil), active.OutOfScope...),
+			Progress:    dto.TailGoalProgressViews(progress, dto.GoalFrameProgressPreviewLimit),
+			ProgressAll: progress,
+			CreatedAt:   active.CreatedAt,
+			UpdatedAt:   active.UpdatedAt,
+		}},
+	}, true
+}
+
+func goalBoardHistoryViews(entries []store.GoalBoardHistory) []dto.GoalHistoryView {
+	if len(entries) == 0 {
+		return nil
+	}
+	views := make([]dto.GoalHistoryView, 0, len(entries))
+	for _, entry := range entries {
+		views = append(views, dto.GoalHistoryView{
+			GoalID:        entry.GoalID,
+			Title:         entry.Title,
+			Status:        entry.Status,
+			ClosedAt:      entry.ClosedAt,
+			ClosedReason:  entry.ClosedReason,
+			ProgressCount: entry.ProgressCount,
+		})
+	}
+	return views
+}
+
+func goalBoardProgressViews(items []store.GoalProgress) []dto.GoalProgressView {
+	if len(items) == 0 {
+		return nil
+	}
+	views := make([]dto.GoalProgressView, 0, len(items))
+	for _, item := range items {
+		views = append(views, dto.GoalProgressView{At: item.At, Kind: item.Kind, Content: item.Content})
+	}
+	return views
+}
 
 // isTerminalAuditKind 报告审计条目是否 goal 终态（收口账本的派生来源）。
 func isTerminalAuditKind(kind string) bool {

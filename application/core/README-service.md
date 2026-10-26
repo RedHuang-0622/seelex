@@ -11,7 +11,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ## Policy Application 首批（AP-054 首个切片）
 
-`service_policy_application.go` 集中技能激活、reasoning/loop 两条独立拉条、
+`Policy switch application` 集中技能激活、reasoning/loop 两条独立拉条、
 Session release window 和 FullAccess 兼容壳。底层 `limit.Knobs`、
 `skill.Activator`、`middle/switch` 和权限档位状态机仍是唯一判据来源。
 
@@ -26,7 +26,7 @@ AP-057 把 Plugin 切换的全进程空闲守卫、activate/deactivate、prompt/
 
 AP-058 新增 `service_admin_application.go`，集中 Admin 账号添加、详情、更新、
 删除和余额查询的调用时端口解析、输入裁剪与缺失能力错误。
-`service_account.go` 的五个入口只保留一行转发；账号档写入与余额探测仍是宿主
+`Account administration application` 的五个入口只保留一行转发；账号档写入与余额探测仍是宿主
 端口中的唯一实现。
 
 AP-059 把 Admin 账号选择收拢到同一组件：Runtime 准入、runtime projection、
@@ -382,7 +382,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func (service *Service) assembleSessionDraftComponents()`
 
-### service_assembler_session_query.go
+### service_assembler_Session query application
 
 - `func (service *Service) assembleSessionReadApplications(historyWindowAssembler applicationhistory.WindowAssembler)`
 

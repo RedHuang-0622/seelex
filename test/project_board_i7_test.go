@@ -177,13 +177,13 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
-	if err := harness.app.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {
+	if err := harness.frontend.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("turn did not become idle: %v", err)
 	}
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 	}
 

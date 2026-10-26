@@ -4,7 +4,7 @@ import (
 	"context"
 
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // RuntimeProjectionPort supplies runtime projection collection, view locking

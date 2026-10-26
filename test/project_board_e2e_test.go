@@ -162,7 +162,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：生产里由工作区绑定给出，
 	// 所以这里也先把这个会话绑到一个真实工作区上——不绑就没有落点，读面读不到东西。
-	viewSession := harness.app.Snapshot().Session.ID
+	viewSession := harness.frontend.Snapshot().Session.ID
 	workspace, err := harness.workspaces.Create("board-e2e", projectRoot, "")
 	if err != nil {
 		t.Fatalf("建工作区: %v", err)
@@ -197,13 +197,13 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 		projectBoardE2EScript{tool: "project_board_read", args: projectBoardE2EReadArgs(sessionID, "worktable")},
 		projectBoardE2EScript{},
 	)
-	if err := harness.app.Submit(ctx, "请用 project_board_read 读一下这个会话的看板，然后只回复『好』。"); err != nil {
+	if err := harness.frontend.Submit(ctx, "请用 project_board_read 读一下这个会话的看板，然后只回复『好』。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if err := harness.frontend.WaitForIdle(ctx); err != nil {
 		t.Fatalf("turn did not become idle: %v", err)
 	}
-	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 	}
 

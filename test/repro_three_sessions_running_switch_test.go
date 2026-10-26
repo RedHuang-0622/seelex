@@ -131,23 +131,23 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 创建三个空闲会话（首 3 个请求快速返回）。
 	submitAndIdle := func(ctx context.Context, text string) string {
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 		if err := harness.frontend.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.app.Snapshot().Session.ID
+		return harness.frontend.Snapshot().Session.ID
 	}
 	sessionA := submitAndIdle(ctx, "first A")
-	sessionB, err := harness.app.ForkSessionLatest(sessionA)
+	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "first B"); got != sessionB {
 		t.Fatalf("first B active = %q, want %q", got, sessionB)
 	}
-	sessionC, err := harness.app.ForkSessionLatest(sessionB)
+	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		if err := harness.frontend.ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
-		if err := harness.app.Submit(ctx, text); err != nil {
+		if err := harness.frontend.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		if err := harness.frontend.ResumeSession(sid); err != nil {
 			t.Fatalf("resume %s for state check: %v", sid, err)
 		}
-		snap := harness.app.Snapshot()
+		snap := harness.frontend.Snapshot()
 		if snap.Session.ID != sid {
 			t.Fatalf("active = %q, want %q", snap.Session.ID, sid)
 		}
@@ -208,7 +208,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 			if elapsed > 5*time.Second {
 				t.Fatalf("ResumeSession(%s) took %v while 3 sessions running", sid, elapsed)
 			}
-			snap := harness.app.Snapshot()
+			snap := harness.frontend.Snapshot()
 			if snap.Session.ID != sid {
 				t.Fatalf("after switch active = %q, want %q", snap.Session.ID, sid)
 			}

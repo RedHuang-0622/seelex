@@ -44,7 +44,7 @@
 
 ## 依赖方向
 
-允许依赖 `contract`、`middle/protocol/model` 与 `middle/switch` 的只读元数据
+允许依赖 `contract`、`contract/protocol` 与 `middle/switch` 的只读元数据
 契约。禁止依赖 `application/core`、backend 具体实现、GUI/TUI 或写入用例。
 
 ## 并发与错误
