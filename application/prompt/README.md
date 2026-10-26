@@ -96,6 +96,13 @@ a mandatory planning preflight.
 `SetSystemPrompt` 仍由 Engine prompt 唯一实现；`ValidateAssets` 也只转发资产校验。
 这样 `application/core` 不再直接 import Engine prompt 子包。
 
+## Environment Trace
+
+`environment.go` 拥有请求尾部的项目环境只读块：固定标记、名称排序、本会话固定/
+项目默认标记、local/SSH 地址、remote root 和单行截断。`EnvironmentTraceDeps`
+只读取 Session SSH 环境表、当前固定环境与项目根；空表或读取失败返回空块，不参与
+system 前缀、历史或压缩。
+
 ## Review 指南
 
 - 不要让 map 迭代顺序影响 prompt；渲染顺序必须确定。

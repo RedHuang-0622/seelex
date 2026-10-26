@@ -151,6 +151,7 @@
 | EP-061 | 已完成 | Session restore/view-intent 与目录富化状态迁入 viewstate | 结构门禁、viewstate/core 回归 |
 | EP-062 | 已完成 | resident/content LRU 与释放保护状态迁入 session/residency | 结构门禁、residency/core 回归 |
 | EP-063 | 已完成 | ToolRecord teammate/subagent host adapter 迁入 toolrecord | 结构门禁、toolrecord/core 回归 |
+| EP-064 | 已完成 | 环境尾部渲染与 Session/Workspace 取数适配迁入 prompt | 结构门禁、prompt/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5539,16 +5540,33 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - ToolRecord 判据、unit key、flush 顺序、JSONL wire、GUI/TUI 行为与持久化格式不变；
 - 回退方式：恢复两个 core host adapter 文件，把装配/调用点切回 core。
 
+## EP-064：Environment Trace 归属迁移
+
+- 环境尾部标记、稳定排序、SSH/local 地址投影、名称/地址单行截断与空表退场
+  从 `application/core/environment_context.go` 迁入
+  `application/prompt/environment.go`；
+- `prompt.EnvironmentTraceDeps` 只接收 Session SSH 环境表、当前固定环境与项目根
+  三个读回调；core assembler 提供适配，不复制渲染判据；
+- core 集成测试通过 `_test.go` alias 保留既有 fixture；纯渲染与稳定顺序测试已归
+  prompt owner；
+- 红测：`TestEnvironmentContextLivesInPromptPackage` 点名 legacy core 文件与缺失
+  prompt owner；
+- 绿测：`go test ./application/prompt ./application/core -run 'Environment' -count=1`；
+- core 生产文件 60 → 59，生产代码 8,486 → 8,383 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- 环境标记、行顺序、SSH 地址、GUI/TUI wire 与持久化格式不变；
+- 回退方式：恢复 `application/core/environment_context.go` 并删除 prompt owner。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 60 |
-| core 生产代码 | 18,723 行 | 8,486 行 |
+| core 生产文件 | 126 | 59 |
+| core 生产代码 | 18,723 行 | 8,383 行 |
 
-core 生产代码净减 10,237 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 10,340 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

@@ -58,7 +58,7 @@
   capability package 与 `compat.Frontend` 承载；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 60 个、生产代码 8,486 行；
+- 冻结 `application/core` 非测试生产文件 59 个、生产代码 8,383 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
   当前 23 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
@@ -153,8 +153,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 23 |
-| `application/core` 生产文件 | 60 |
-| `application/core` 生产代码 | 8,486 行 |
+| `application/core` 生产文件 | 59 |
+| `application/core` 生产代码 | 8,383 行 |
 
 已落地领域包：
 
@@ -661,8 +661,9 @@ Service 对应方法只保留一行转发。
 工具记录的成功/失败累计、失败原因词表、执行单元 stage、`lastSeq` 幂等、
 批量 flush、懒加载、看板错误与 dropped diagnostics 迁入
 [`application/execution/toolrecord`](execution/toolrecord/README.md)。core 的
-`tool_record.go` / `tool_record_stage.go` 只保留一行 Service 转发和
-`WritableSession` 宿主判据。`Accumulator` 与叶子 `Stage` 已归 ToolRecord 包，
+ToolRecord host adapter 与 subagent/teammate 终态收口位于
+`execution/toolrecord/host.go`；core 只保留 draft 可写与 view session 装配回调。
+`Accumulator` 与叶子 `Stage` 已归 ToolRecord 包，
 `store/record` 已退场；存储只消费整份快照端口。
 
 ### WorkTable Publisher 包（AP-115C1，已实现）

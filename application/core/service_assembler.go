@@ -368,7 +368,20 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return ""
 		},
 		EnvironmentTraceBlock: func(sessionID string) string {
-			return service.environmentTraceBlockFor(sessionID)
+			return prompt.EnvironmentTraceBlockFor(prompt.EnvironmentTraceDeps{
+				ProjectEnvironments: service.components.sessionSSHApplication.ProjectEnvironments,
+				CurrentEnvironment: func(sessionID string) (string, error) {
+					state, err := service.components.sessionSSHApplication.State(sessionID)
+					return state.CurrentEnv, err
+				},
+				ProjectRoot: func(sessionID string) string {
+					if service.Deps.Workspace == nil {
+						return ""
+					}
+					workspace, _ := service.Deps.Workspace.SessionWorkspace(sessionID)
+					return workspace.RootPath
+				},
+			}, sessionID)
 		},
 		CompactionIndex: compactionIndex,
 	})

@@ -400,7 +400,8 @@ Tool Hook Bridge（AP-115A）已把 Seele loop-hook 状态机迁入
 
 Tool Record（AP-115B）已把按会话累计、stage/seq、开关、失败原因和批量落盘迁入
 [`application/execution/toolrecord`](../execution/toolrecord/README.md)；core 的
-`tool_record.go` / `tool_record_stage.go` 只保留 Service 兼容转发与物化会话判据。
+ToolRecord host adapter 已归 `execution/toolrecord/host.go`；core 只注入 draft
+可写判据与 view session 读数。
 
 WorkTable publisher（AP-115C1）已把 latest-wins 汇聚和子代理树 payload 去重迁入
 [`application/execution/table`](../execution/table/README.md)；core 只保留行投影、
