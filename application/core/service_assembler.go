@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/event"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
@@ -303,6 +304,25 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
+	service.components.conversationStreamRuntime = applicationconversation.NewStreamRuntime(applicationconversation.StreamRuntimeDeps{
+		Core:                kernel,
+		Units:               sessionDomain,
+		View:                service.components.view,
+		Streams:             service.components.conversationStreams,
+		SessionIDForRequest: service.components.tasks.SessionIDForRequest,
+		RoleRoundFor:        service.components.tasks.RoleRoundFor,
+		EngineHistory:       service.engineHistoryFor,
+		TakeServedRoute: func(sessionID string) (dto.ServedRoute, bool) {
+			if service.Deps.Runtime == nil {
+				return dto.ServedRoute{}, false
+			}
+			return service.Deps.Runtime.TakeServedRoute(sessionID)
+		},
+		StampServedRoute: func(sessionID, requestID, role, model, provider string) {
+			_ = service.components.tasks.StampAssistantRouteFor(sessionID, requestID, role, model, provider)
+		},
+		PublishSessionEvent: service.publishSessionEvent,
+	})
 	service.components.residencyRuntime = applicationsessionresidency.NewRuntime(applicationsessionresidency.RuntimeDeps{
 		Core:                 kernel,
 		Units:                sessionDomain,

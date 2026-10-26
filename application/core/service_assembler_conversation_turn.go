@@ -151,7 +151,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 	})
 
 	service.components.conversationTurnResponse = applicationconversation.NewTurnResponse(applicationconversation.TurnResponseDeps{
-		AttachReasoning: service.attachLatestReasoning,
+		AttachReasoning: service.components.conversationStreamRuntime.AttachLatestReasoning,
 		ObserveOutput: func(ctx context.Context, requestID, reply string, err error) error {
 			return service.components.tasks.ObserveModelOutput(ctx, task_context.ModelOutput{
 				RequestID: requestID, Reply: reply, Err: err,
@@ -182,7 +182,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 	})
 
 	service.components.conversationTurnCleanup = applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
-		StampRoute:     service.stampServedRoute,
+		StampRoute:     service.components.conversationStreamRuntime.StampServedRoute,
 		DiscardMailbox: service.discardPendingSubagentContextsFor,
 		CollectProjection: func(sessionID string) view_state.RuntimeStateProjection {
 			return service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
@@ -205,7 +205,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		ClearReActBudget:   service.components.tasks.ClearReActBudget,
 		Debug:              runChatDebug,
 		NewBatchedDeltaSink: func(requestID string) (applicationconversation.StreamBatcher, func(string)) {
-			batcher, onChunk := service.newBatchedDeltaSink(requestID)
+			batcher, onChunk := service.components.conversationStreamRuntime.NewBatchedDeltaSink(requestID)
 			return batcher, onChunk
 		},
 		Stream:   service.chatStream,

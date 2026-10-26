@@ -172,6 +172,10 @@ draft 可写判据与 view session 读数，不再保留 host adapter 文件。
 Provider 上下文/历史拒绝后的 checkpoint 恢复、可重放判据与恢复信封清理也已归
 同一 context owner；core 的 turn assembly 只注入 history/stream/task/view 回调。
 
+可见流式 chunk、batcher、后台会话增量、reasoning 回填和 served route 标记已归
+[`application/conversation`](../conversation/README.md) 的 `StreamRuntime`；
+core 的 `chat.go` 只保留回合准入、Task/Engine 编排与 history 适配。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、

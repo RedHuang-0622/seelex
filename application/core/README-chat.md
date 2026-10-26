@@ -148,17 +148,6 @@ Session 的遗留执行开关。
 - `func closedSignal() chan struct`
 - `func (service *Service) markBusyLocked()`
 - `func (service *Service) markIdleLocked()`
-- `func (service *Service) appendDelta(requestID, chunk string)`
-- `func (service *Service) newBatchedDeltaSink(requestID string) (applicationconversation.StreamBatcher, func(string))`
-- `func (service *Service) flushStreamBatcherFor(sessionID string)` — flushStreamBatcherFor 把指定会话的流式缓冲同步落地（工具钩子边界调用：
-- `func (service *Service) consumeVisibleChunk(requestID, chunk string) string`
-- `func (service *Service) consumeVisibleChunkBackground(sessionID, requestID, chunk string) string` — consumeVisibleChunkBackground 后台会话的流式消费：仅触碰该会话单元自身的
-- `func (service *Service) appendVisibleDelta(requestID, chunk string)`
-- `func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk string)` — appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
-- `func (service *Service) attachLatestReasoning(sessionID, requestID string)` — attachLatestReasoning 在聊天回合结束后，把引擎历史里**每个 assistant 步骤**
-- `func (service *Service) stampServedRoute(sessionID, requestID string)` — stampServedRoute 在回合收尾把本轮请求的实际承接路由（config role / config
-- `func (service *Service) streamedAssistantTextLocked(sessionID string) string` — streamedAssistantTextLocked 返回会话本轮的可见 assistant 正文累积
-- `func (service *Service) streamedRequestTextLocked(sessionID string) string` — streamedRequestTextLocked 返回会话当前请求已累积的可见流式正文（会话单元无
 - `func (service *Service) appendHistoryLocked(history []contract.EngineMessage)`
 - `func (service *Service) appendHistoryLockedFor(sessionID string, history []contract.EngineMessage)` — appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
 
@@ -190,6 +179,13 @@ Session 的遗留执行开关。
 ### chat_state_event_test.go
 
 - `func TestChatStateIsPublishedNotInferred(t *testing.T)` — TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
+
+### chat_stream_test_aliases_test.go
+
+- `func (service *Service) appendDelta(requestID, chunk string)`
+- `func (service *Service) attachLatestReasoning(sessionID, requestID string)`
+- `func (service *Service) stampServedRoute(sessionID, requestID string)`
+- `func (service *Service) streamedAssistantTextLocked(sessionID string) string`
 
 ### chat_turn_cleanup_test.go
 

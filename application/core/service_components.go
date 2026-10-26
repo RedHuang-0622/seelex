@@ -66,6 +66,7 @@ type serviceComponents struct {
 	roleSessions                 contract.RoleSessionsPort
 	conversationQueue            *applicationconversation.QueueApplication
 	conversationTurnState        *conversationTurnState
+	conversationStreamRuntime    *applicationconversation.StreamRuntime
 	sessionLifecycle             *applicationsession.LifecycleApplication
 	interactionApplication       *applicationsession.InteractionApplication
 	forkApplication              *applicationsession.ForkApplication

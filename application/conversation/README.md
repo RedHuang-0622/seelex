@@ -40,6 +40,8 @@
 - `turn_execution.go`：会话执行策略同步。
 - `reasoning.go`：历史推理步骤提取、可见步骤配对和 legacy fallback。
 - `stream.go`：`StreamOutputPort`、可见输出与 batcher 的消费方契约。
+- `stream_runtime.go`：可见 chunk/batcher、后台会话增量、reasoning 回填与
+  served route 标记的 Application runtime。
 - `session_access.go`：统一会话读面与 `SessionRecordsPort`；分页、UTF-8
   裁剪仍由 Middle 的唯一分页实现拥有。
 - `unified.go`：`UnifiedApplication` 负责 main/subagent/teammate 路由、

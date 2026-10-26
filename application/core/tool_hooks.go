@@ -20,7 +20,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		service.ViewMu.RUnlock()
 	}
 	// 先落地本会话未交付的流式文本（工具消息之前），与活跃视图无关。
-	service.flushStreamBatcherFor(sessionID)
+	service.components.conversationStreamRuntime.FlushStreamBatcherFor(sessionID)
 	service.ViewMu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
 	if sessionID == "" {
@@ -33,7 +33,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	// application/core/context_narration_attribution_test.go）。
 	service.components.tasks.AttributeToolNarrationLocked(sessionID,
 		model.TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
-		service.streamedAssistantTextLocked(sessionID))
+		service.components.conversationStreamRuntime.StreamedAssistantTextLocked(sessionID))
 	var message model.Message
 	// 工具调起/结果归属调起方（EXEC）：与同轮的 assistant 行共享 role_name 与
 	// round_id，前端把过程归到主持这一轮的 agent 名下（§2.1 表：tool → 调起方）。
@@ -85,7 +85,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 		service.ViewMu.RUnlock()
 	}
 	emit("toolhook.complete.flush.start")
-	service.flushStreamBatcherFor(sessionID)
+	service.components.conversationStreamRuntime.FlushStreamBatcherFor(sessionID)
 	emit("toolhook.complete.flush.done")
 	runtimeProjection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
 	emit("toolhook.complete.lock.start")
