@@ -58,10 +58,10 @@
   capability package 与 `compat.Frontend` 承载；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 56 个、生产代码 7,268 行；
+- 冻结 `application/core` 非测试生产文件 55 个、生产代码 7,178 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
-  当前 23 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
+  当前 22 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
   生产代码已不再直接 import `store`。迁移期 identity facade 与 host adapter
   必须在兼容层台账登记，不得成为第二份状态机；
 - 校验
@@ -152,9 +152,9 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 |---|---:|
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 23 |
-| `application/core` 生产文件 | 56 |
-| `application/core` 生产代码 | 7,268 行 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 22 |
+| `application/core` 生产文件 | 55 |
+| `application/core` 生产代码 | 7,178 行 |
 
 已落地领域包：
 
@@ -715,7 +715,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | 目录 | 职责 |
 |---|---|
 | [`../contract/protocol/`](../contract/protocol/README.md) | Snapshot、Message、Plan、Interaction 等版本化 DTO（M5-R3 迁出 `application/model/`）。 |
-| [`../middle/protocol/event/`](../middle/protocol/event/README.md) | 有序事件封装、订阅和 fan-out（M5-R3 迁出 `application/event/`）。 |
+| [`../kernel/event/`](../kernel/event/README.md) | 有序事件封装、订阅和 fan-out；Application 经 [`event/`](event/README.md) identity facade 使用。Middle 旧路径仅保留兼容 alias。 |
 | ~~`approval/`~~ | 异步审批已按 plan §2.8 归位到 [`backend/limit/approval/`](../backend/limit/approval/README.md)（M2-C）；端口形状在 [`contract/approval.go`](../contract/approval.go)。 |
 | [`prompt/`](prompt/README.md) | PromptStack 与 Effort 策略。 |
 | [`admin/`](admin/README.md) | 账号管理、账号切换与逐账号上下文窗口。 |
@@ -899,7 +899,7 @@ sequenceDiagram
     participant F as GUI / TUI
     participant S as core.Service
     participant P as 端口实现
-    participant E as middle/protocol/event.Hub
+    participant E as kernel/event.Hub
 
     H->>A: New(Dependencies)
     A->>A: 校验必需端口 + 嵌入 prompt assets

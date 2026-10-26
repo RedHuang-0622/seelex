@@ -272,7 +272,9 @@ func (service *Service) assembleInteractionApplication() {
 func (service *Service) assembleForkApplication() {
 	service.components.forkApplication = applicationsession.NewFork(applicationsession.ForkDeps{
 		TransitionForKey: service.transitionForKey,
-		ForkLocked:       service.forkSessionLocked,
+		ForkLocked: func(parentID string, request model.ForkRequest) (string, error) {
+			return service.components.sessionForkRuntime.ForkSessionLocked(parentID, request)
+		},
 		LatestForkCut: func(parentID string) (uint64, error) {
 			location := service.components.sessions.LocateSession(parentID)
 			return service.components.sessions.LatestForkCut(location, parentID)

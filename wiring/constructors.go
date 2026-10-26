@@ -15,7 +15,7 @@ import (
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/kernel/event"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 

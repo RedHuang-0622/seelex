@@ -753,10 +753,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestEffortOwnershipPerSession(t *testing.T)` — TestEffortOwnershipPerSession（G4）：effort 选择归属进 SessionUnit——
 - `func TestSubagentPolicySlotSyncPerSession(t *testing.T)` — TestSubagentPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
 
-### session_fork.go
-
-- `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
-
 ### session_fork_lineage_test.go
 
 - `func TestSessionForkLineageRulesAreCentralized(t *testing.T)`
@@ -840,24 +836,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func (e *streamEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 覆盖内嵌引擎：先发流式块，再委托底层阻塞执行。
 - `func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T)` — TestConcurrentStreamingViewSwitchNoPollution 钉住两个会话在流式输出与热
 
-### session_history.go
-
-- `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
-- `func (service *Service) pointViewAtRestoringShell(sessionID string) bool` — pointViewAtRestoringShell 把视图重指到一个"装载在途"会话的空壳上（幂等，
-- `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
-- `func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
-- `func (service *Service) attachSessionContextFor(workspaceID, sessionID string) error` — attachSessionContextFor 把目标会话的 context 模块（system prompt + 四栈）挂到
-- `func (service *Service) visibleTailServedFromMemory(sessionID string, assembler applicationhistory.WindowAssembler) bool` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
-- `func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (applicationhistory.Page, error)` — loadConversationTailPage 读发布点处的尾部窗口：先探总数（未过滤空间，只用来
-- `func (service *Service) loadEarlierVisiblePage( workspaceID, sessionID string, offset, limit, window int, seam model.Message, assembler applicationhistory.WindowAssembler, ) (applicationhistory.Page, error)` — loadEarlierVisiblePage 读可见窗口之前的一页历史（「加载更早」的冷读面）。
-- `func currentWorkspaceIDLocked(service *Service) string` — applicationhistory.Page 是一段冷读结果，**两个坐标空间分开记**：
-- `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (applicationhistory.Page, error)` — loadConversationPage 读回一段历史：record conversation 模块优先（长会话翻页不
-- `func (service *Service) installVisibleHistory( sessionID string, page applicationhistory.Page, window int, mode applicationhistory.InstallMode, assembler applicationhistory.WindowAssembler, ) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
-- `func (service *Service) visibleWindowFirstRow(sessionID string, assembler applicationhistory.WindowAssembler) model.Message` — visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
-- `func (service *Service) adaptEngineMessage(msg contract.EngineMessage) model.Message`
-- `func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string) model.Message`
-- `func isVisibleHistoryMessage(message contract.EngineMessage) bool`
-
 ### session_history_browsing_submit_repro_test.go
 
 - `func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T)` — TestReproSubmitWhileBrowsingKeepsUserRowInWindow 回看历史时提交一轮对话，
@@ -916,12 +894,12 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T)` — TestAppendWhileBrowsingHistoryKeepsWindow 红灯 4：正在翻更早历史时新到达的
 - `func TestColdLoadRecordDoesNotReadProviderHistory(t *testing.T)` — TestColdLoadRecordDoesNotReadProviderHistory 钉住 v8 冷加载的重复读边界：
 
-### session_input_index.go
+### session_history_test_aliases_test.go
 
-- `func (service *Service) readSessionInputIndex(sessionID string) (model.SessionInputIndex, error)`
-- `func (service *Service) sessionInputIndexConversation(location session_runtime.Location, sessionID string) ([]model.Message, int, error)` — sessionInputIndexConversation 读取会话的完整可见会话（用户输入的事实源）。
-- `func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string)` — sessionInputWindowLoaded 返回目标会话的已加载窗口元数据与窗口内已加载的
-- `func inputIndexUserText(message model.Message) string` — inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
+- `func (service *Service) pointViewAtRestoringShell(sessionID string) bool`
+- `func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string) protocol.Message`
+- `func messageFromEngineHistory(msg contract.EngineMessage, stripThoughtBlocks func(string) string) protocol.Message`
+- `func isVisibleHistoryMessage(message contract.EngineMessage) bool`
 
 ### session_input_index_test.go
 

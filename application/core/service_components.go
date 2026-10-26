@@ -21,6 +21,7 @@ import (
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	applicationsessionfork "github.com/RedHuang-0622/seelex/application/session/fork"
 	applicationsessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	applicationsessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
@@ -41,6 +42,7 @@ type serviceComponents struct {
 	history               *conversationcontext.EngineHistoryCoordinator
 	sessions              *session_runtime.Coordinator
 	sessionHistoryRuntime *applicationsessionhistory.Runtime
+	sessionForkRuntime    *applicationsessionfork.Runtime
 	tasks                 *task_context.Coordinator
 	terminalHandler       *task_context.TerminalHandlerApplication
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor；

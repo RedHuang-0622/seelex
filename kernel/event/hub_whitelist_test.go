@@ -1,5 +1,8 @@
 package event
 
+// These tests run at the implementation owner; the Middle package is a
+// compatibility alias surface.
+
 import (
 	"strings"
 	"testing"

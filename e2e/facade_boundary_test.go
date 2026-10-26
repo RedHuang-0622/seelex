@@ -161,9 +161,11 @@ const (
 // 上限按“新模块可 +1”抬到 119。
 // EP-043：SessionState/ViewState 迁入 Application 后，两个 Middle 包退出闭包。
 // EP-062：resident/content LRU 从 core 归位 application/session/residency，
-// EP-069：Session resume/cold restore/history 归位 application/session/history，
-// 门面闭包按“新模块可 +1”登记到 121。
-const facadeClosureAllowListMax = 121
+// EP-069：Session resume/cold restore/history 归位 application/session/history。
+// EP-070：Event Hub 从 Middle 归位 kernel；同时删除 7 个已不在闭包中的 stale
+// allowlist 项。EP-071：durable Session fork 归位 application/session/fork，
+// 门面闭包按“新模块可 +1”登记到 115。
+const facadeClosureAllowListMax = 115
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -193,6 +195,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/review",
 	"github.com/RedHuang-0622/seelex/application/session",
 	"github.com/RedHuang-0622/seelex/application/session/cold",
+	// EP-071：durable Session fork 的 Application owner。
+	"github.com/RedHuang-0622/seelex/application/session/fork",
 	// EP-069：Session resume/cold restore/history 的 Application owner。
 	"github.com/RedHuang-0622/seelex/application/session/history",
 	"github.com/RedHuang-0622/seelex/application/session/state",
@@ -215,7 +219,6 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol",
 	"github.com/RedHuang-0622/seelex/backend/engine/context",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
-	"github.com/RedHuang-0622/seelex/backend/engine/input",
 	"github.com/RedHuang-0622/seelex/kernel/state",
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
@@ -238,15 +241,15 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	"github.com/RedHuang-0622/seelex/middle/view/worktable",
+	// EP-070：Event Hub 唯一实现归入中立 kernel；Middle 路径仅为兼容 facade。
+	"github.com/RedHuang-0622/seelex/kernel/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",
 	"github.com/RedHuang-0622/seelex/middle/protocol/model",
 	"github.com/RedHuang-0622/seelex/application/prompt",
 	// M2-C3：每账号上下文窗口的判据层（从 seelexctx/window.go 抽出）。
-	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow",
 	"github.com/RedHuang-0622/seelex/backend/limit",
 	// M2-C：审批实现从 application/approval 搬到这里——同一份代码换落点，
 	// 清单规模不变（等量替换，见 D-M2-11）；契约层因此**少**了 application/approval。
-	"github.com/RedHuang-0622/seelex/backend/limit/approval",
 	// M2-B：ReAct 循环上限的判据层（从 application/prompt + wiring/adapters +
 	// backend/tool/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
 	"github.com/RedHuang-0622/seelex/backend/limit/loop",
@@ -285,15 +288,12 @@ var facadeClosureAllowList = []string{
 	// M5-R-tool-reference：工具结果引用与分页判据归位 tool 板块（plan §2.6）。**新增登记的理由**：
 	// "把 core 的判据抽成独立叶子模块"的一次换落点 + 落点新建；新包只依赖 `middle/protocol/model`
 	// （已在清单内）与标准库，没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/backend/tool/reference",
 	// M5-R6-residency-preview：快照预算的截断判据归位中间层常驻/预算落点（plan §2.4 的
 	// `middle/residency`，本片建包）。**新增登记的理由**："计算入中间层、取数留宿主"的
 	// 换落点 + 落点新建；新包只依赖标准库，没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/middle/residency",
 	// M5-R6-history-page：历史分页的窗口装配判据归位 `middle/switch/history`（plan §2.4，本片建包）。
 	// **新增登记的理由**："把 core 的窗口装配判据抽成中间层叶子模块"的换落点 + 落点新建；
 	// 新包只依赖 `middle/protocol/model` 与 `middle/view/state`（都已在清单内），没有引入第三方或反向依赖。
-	"github.com/RedHuang-0622/seelex/middle/switch/history",
 	// M5-R6-session-meta：会话展示元数据的读写判据归位 `middle/switch` 根包（plan §2.4，本片建包）。
 	// **新增登记的理由**：换落点 + 落点新建；新包只依赖 `middle/protocol/model`（已在清单内），
 	// 存储端口由宿主断言后注入，没有引入第三方或反向依赖。
@@ -321,7 +321,6 @@ var facadeClosureAllowList = []string{
 	// 属"一条出一条进"的等量替换，清单上限不变。
 	"github.com/RedHuang-0622/seelex/backend/engine/skill",
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule",
-	"github.com/RedHuang-0622/seelex/backend/tool/search",
 	"github.com/RedHuang-0622/seelex/backend/limit/gate",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/subagent",
 	"github.com/RedHuang-0622/seelex/backend/tool/task",

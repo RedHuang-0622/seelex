@@ -55,10 +55,12 @@ func (service *Service) assembleEditForkComponents() {
 		},
 		Validate:         service.components.editForkValidator.Validate,
 		TransitionForKey: service.transitionForKey,
-		Fork:             service.forkSessionLocked,
-		Resume:           service.components.sessionResume.Resume,
-		Submit:           service.submitConversationFor,
-		Rollback:         service.components.editForkRollback.Rollback,
+		Fork: func(parentID string, request model.ForkRequest) (string, error) {
+			return service.components.sessionForkRuntime.ForkSessionLocked(parentID, request)
+		},
+		Resume:   service.components.sessionResume.Resume,
+		Submit:   service.submitConversationFor,
+		Rollback: service.components.editForkRollback.Rollback,
 	})
 
 	service.components.editForkApplication = applicationedit.NewEditApplication(applicationedit.EditApplicationDeps{

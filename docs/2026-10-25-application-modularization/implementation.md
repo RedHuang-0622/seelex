@@ -157,6 +157,7 @@
 | EP-067 | 已完成 | provider context recovery/cleanup 迁入 conversation/context | 结构门禁、recovery/core 回归 |
 | EP-068 | 已完成 | 可见流式投影、reasoning 与 served-route stamping 迁入 conversation | 结构门禁、stream/core 回归 |
 | EP-069 | 已完成 | Session resume/cold restore/history window 迁入 session/history | 结构门禁、history/core 回归 |
+| EP-071 | 已完成 | durable Session fork runtime 迁入 session/fork | 结构门禁、fork/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5653,16 +5654,52 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   发布顺序、恢复失败回退和 GUI/TUI wire 不变；
 - 回退方式：恢复 `session_history.go`，把 core callbacks 切回原方法。
 
+## EP-070：共享事件 Hub 归入 Kernel
+
+- 把 Event、EventKind、CompactionProgress、Subscription、Hub 与 EventHub 的唯一
+  实现从 `middle/protocol/event` 迁入中立的 `kernel/event`；
+- `middle/protocol/event` 保留同身份 alias、常量与 `NewEventHub` 单行转发；
+  `application/event` 直接以 kernel 为 identity owner；
+- Application 生产代码的 6 个直接 Middle event import 全部重定向到
+  `kernel/event`，事件白名单、全局 seq、订阅过滤、delivery_seq 与重放窗口
+  仍只有一份实现；
+- 红测：`TestApplicationEventRuntimeUsesNeutralKernelOwner` 初始点名
+  `application.go`、compat、conversation 与 viewstate 的 6 个直接依赖；
+- 绿测：Kernel/Middle/Application Event、Application 全包与 `go build ./...`；
+- Application 具体 Backend/Middle/Store 依赖包 23 → 22，Store 保持 0；
+  `Service` 保持 0，core 生产规模不变；Event JSON、kind 字符串、seq/revision、
+  delivery_seq、重放与 resync 语义均未改变；
+- 回退方式：恢复 Middle 内部实现，把 Application import 改回
+  `middle/protocol/event`。
+
+## EP-071：Session Fork Runtime 归属迁移
+
+- `application/core/session_fork.go` 的父会话 gate、child ID/engine 占位、
+  `PrepareFork`/深拷贝、snapshot/context 持久化、workspace 绑定与空引擎卸载迁入
+  `application/session/fork/fork_runtime.go`；
+- `sessionfork.RuntimeDeps` 只接收 Core/Deps、Session runtime/domain、Task、
+  lifecycle 与 workspace-scope 回调，不 import `application/core`；
+- ForkApplication 与 Edit/Fork assembly 通过 closures 直接调用唯一 owner；
+- 红测：`TestSessionForkRuntimeLivesInSessionForkPackage` 点名 legacy core 文件与
+  缺失 owner；
+- 绿测：`go test ./application/session/fork ./application/core -run
+  'Fork|Session' -count=1`；fork owner 新增 lifecycle callback parity；
+- core 生产文件 56 → 55，生产代码 7,268 → 7,178 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- fork 错误身份、copy 可达集合、seq 基线、workspace binding、引擎卸载与目录刷新
+  顺序不变；
+- 回退方式：恢复 `session_fork.go`，把 ForkApplication callbacks 切回 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 56 |
-| core 生产代码 | 18,723 行 | 7,268 行 |
+| core 生产文件 | 126 | 55 |
+| core 生产代码 | 18,723 行 | 7,178 行 |
 
-core 生产代码净减 11,455 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 11,545 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

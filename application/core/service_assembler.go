@@ -15,6 +15,7 @@ import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessionfork "github.com/RedHuang-0622/seelex/application/session/fork"
 	applicationsessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
 	applicationsessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
@@ -400,6 +401,20 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		ResetTurnState: func(unit *session.SessionUnit) {
 			service.components.conversationTurnState.ResetLocked(unit)
 		},
+	})
+	service.components.sessionForkRuntime = applicationsessionfork.NewRuntime(applicationsessionfork.RuntimeDeps{
+		Core:                kernel,
+		Deps:                service.Deps,
+		SessionsRuntime:     service.components.sessions,
+		Tasks:               service.components.tasks,
+		Sessions:            sessionDomain,
+		Closed:              func() bool { return service.closed },
+		Draining:            func() bool { return service.draining },
+		PerSessionExecution: service.perSessionExecution,
+		NewSessionID:        service.newGeneratedSessionID,
+		SetWorkspaceScope:   service.setWorkspaceWriteScope,
+		ErrDraining:         ErrApplicationDraining,
+		ErrRunning:          ErrChatRunning,
 	})
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，

@@ -1,4 +1,4 @@
-package core
+package sessionfork
 
 import (
 	"errors"
@@ -24,10 +24,10 @@ import (
 // forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
 // 截断后的子会话快照 → 写入子会话键 → 绑定项目并切换写作用域。
 // 只检查父会话自身是否运行中（并行会话的其它会话执行不影响 fork）。
-func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error) {
+func (service *Runtime) forkSessionLocked(parentID string, request model.ForkRequest) (string, error) {
 	service.ViewMu.RLock()
-	closed := service.closed
-	draining := service.draining
+	closed := service.closed()
+	draining := service.draining()
 	running := false
 	if unit := service.sessions.Unit(parentID); unit != nil {
 		running = unit.ChatState().Running
@@ -36,8 +36,8 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	gate := switching.ForkGate{
 		Closed: closed, Draining: draining, Running: running,
 		ErrClosed:   errors.New("application is shut down"),
-		ErrDraining: ErrApplicationDraining,
-		ErrRunning:  ErrChatRunning,
+		ErrDraining: service.errDraining,
+		ErrRunning:  service.errRunning,
 	}
 	if err := gate.Reject(); err != nil {
 		return "", err

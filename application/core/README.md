@@ -180,6 +180,9 @@ Session resume、restoring/cold 恢复顶层流程、durable 分页与可见窗�
 [`application/session/history`](../session/history/README.md)。core 只保留
 Session scope、binder 和跨领域锁序。
 
+durable Session fork 的父会话 gate、深拷贝、snapshot/context 写入和 workspace
+绑定已归 [`application/session/fork`](../session/fork/README.md)。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、

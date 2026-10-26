@@ -1,49 +1,49 @@
 // Package event is the Application-facing identity facade for the shared
-// Middle protocol event implementation.
+// kernel event implementation.
 package event
 
-import middleevent "github.com/RedHuang-0622/seelex/middle/protocol/event"
+import kernelevent "github.com/RedHuang-0622/seelex/kernel/event"
 
 type (
-	EventKind               = middleevent.EventKind
-	Event                   = middleevent.Event
-	MessageDelta            = middleevent.MessageDelta
-	CompactionProgressState = middleevent.CompactionProgressState
-	CompactionProgress      = middleevent.CompactionProgress
-	Subscription            = middleevent.Subscription
-	ReplayResult            = middleevent.ReplayResult
-	Hub                     = middleevent.Hub
-	SessionAwareHub         = middleevent.SessionAwareHub
-	EventHub                = middleevent.EventHub
+	EventKind               = kernelevent.EventKind
+	Event                   = kernelevent.Event
+	MessageDelta            = kernelevent.MessageDelta
+	CompactionProgressState = kernelevent.CompactionProgressState
+	CompactionProgress      = kernelevent.CompactionProgress
+	Subscription            = kernelevent.Subscription
+	ReplayResult            = kernelevent.ReplayResult
+	Hub                     = kernelevent.Hub
+	SessionAwareHub         = kernelevent.SessionAwareHub
+	EventHub                = kernelevent.EventHub
 )
 
 const (
-	EventSnapshotChanged       = middleevent.EventSnapshotChanged
-	EventMessageAdded          = middleevent.EventMessageAdded
-	EventMessageDelta          = middleevent.EventMessageDelta
-	EventToolStarted           = middleevent.EventToolStarted
-	EventToolCompleted         = middleevent.EventToolCompleted
-	EventSubagentChanged       = middleevent.EventSubagentChanged
-	EventSubagentToolStarted   = middleevent.EventSubagentToolStarted
-	EventSubagentToolCompleted = middleevent.EventSubagentToolCompleted
-	EventRuntimeChanged        = middleevent.EventRuntimeChanged
-	EventChatChanged           = middleevent.EventChatChanged
-	EventWorkTableChanged      = middleevent.EventWorkTableChanged
-	EventTaskChanged           = middleevent.EventTaskChanged
-	EventInteractionOpened     = middleevent.EventInteractionOpened
-	EventInteractionClosed     = middleevent.EventInteractionClosed
-	EventError                 = middleevent.EventError
-	EventResyncRequired        = middleevent.EventResyncRequired
-	EventExitRequested         = middleevent.EventExitRequested
-	EventTeamChanged           = middleevent.EventTeamChanged
-	EventTeammateToolStarted   = middleevent.EventTeammateToolStarted
-	EventTeammateToolCompleted = middleevent.EventTeammateToolCompleted
-	EventCompactionProgress    = middleevent.EventCompactionProgress
-	EventViewSessionChanged    = middleevent.EventViewSessionChanged
-	EventSessionsChanged       = middleevent.EventSessionsChanged
+	EventSnapshotChanged       = kernelevent.EventSnapshotChanged
+	EventMessageAdded          = kernelevent.EventMessageAdded
+	EventMessageDelta          = kernelevent.EventMessageDelta
+	EventToolStarted           = kernelevent.EventToolStarted
+	EventToolCompleted         = kernelevent.EventToolCompleted
+	EventSubagentChanged       = kernelevent.EventSubagentChanged
+	EventSubagentToolStarted   = kernelevent.EventSubagentToolStarted
+	EventSubagentToolCompleted = kernelevent.EventSubagentToolCompleted
+	EventRuntimeChanged        = kernelevent.EventRuntimeChanged
+	EventChatChanged           = kernelevent.EventChatChanged
+	EventWorkTableChanged      = kernelevent.EventWorkTableChanged
+	EventTaskChanged           = kernelevent.EventTaskChanged
+	EventInteractionOpened     = kernelevent.EventInteractionOpened
+	EventInteractionClosed     = kernelevent.EventInteractionClosed
+	EventError                 = kernelevent.EventError
+	EventResyncRequired        = kernelevent.EventResyncRequired
+	EventExitRequested         = kernelevent.EventExitRequested
+	EventTeamChanged           = kernelevent.EventTeamChanged
+	EventTeammateToolStarted   = kernelevent.EventTeammateToolStarted
+	EventTeammateToolCompleted = kernelevent.EventTeammateToolCompleted
+	EventCompactionProgress    = kernelevent.EventCompactionProgress
+	EventViewSessionChanged    = kernelevent.EventViewSessionChanged
+	EventSessionsChanged       = kernelevent.EventSessionsChanged
 )
 
 // NewEventHub constructs the shared protocol event hub.
 func NewEventHub() *EventHub {
-	return middleevent.NewEventHub()
+	return kernelevent.NewEventHub()
 }

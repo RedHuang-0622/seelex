@@ -3,7 +3,7 @@ package adapters
 import (
 	"github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/kernel/event"
 )
 
 // NewApprovalBrokerFactory returns the composition-root factory for the

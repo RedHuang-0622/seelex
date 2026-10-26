@@ -26,6 +26,8 @@
 
 BM-003 已完成：`Deps.Limits` 接收 `func() dto.ViewLimits`，Application 从生效
 `limit.Limits` 的唯一 `ViewLimits()` 投影注入；本包到 `backend/limit` 的边已删除。
+Application 现通过 [`application/execution`](../../../application/execution/README.md)
+的同身份 alias 消费 Coordinator，core 不再直接 import 本包。
 
 ## 数据流图
 

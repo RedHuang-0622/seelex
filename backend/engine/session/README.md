@@ -7,6 +7,9 @@
 `LoadSessionResumeRecord`（compact 指针后的后缀）+ transcript 尾窗；provider
 history 只服务无 record 的旧格式会话。根包 Service 负责跨域事务编排
 （BeginNewSession/ResumeSession/BindWorkspace），本包只提供原子域操作。
+`application/core` 经
+[`application/session/runtime`](../../../application/session/runtime/README.md)
+的 identity facade 消费本 Coordinator/helper，不再直接 import session_runtime。
 
 ## 职责与非职责
 
@@ -41,6 +44,10 @@ tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只�
 读取 `MessageToSeq+1` 之后的可见后缀；未实现该端口时自动回退
 `LoadSessionRecord`。上下文由 `assembleWire` 使用同一 compact 摘要装配，
 `PrefixDigest` 的 SHA-256 在重启前后必须一致。
+
+durable queue 的恢复端口只返回 `contract/dto.QueueItem` /
+`QueueRecoveryReport`；Store 的旧类型是同身份 alias，因此队列顺序、`seq`、
+`turn_id` 与持久化 JSON 不变，Application 不再依赖 Store 的具体类型。
 
 `AppendDraftSnapshot` 是长任务的周期草稿写面：调用方只提交 `(left,right]`
 后缀，方法在会话单写者内写 message 草稿尾但不推进发布点。最终提交仍由
