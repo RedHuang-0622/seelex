@@ -49,6 +49,7 @@ var repositoryModules = []string{
 	"middle/protocol/event", "middle/protocol/model", "application/prompt",
 	"console", "backend/limit/accountwindow", "backend/limit/approval",
 	"kernel/limit", "kernel/limit/effort", "kernel/limit/loop",
+	"kernel/rolesessions",
 	// M5-R-limitc：权限档位域（原 application/core/{session_permission_tier,session_scope,
 	// service_interaction}.go 的三处散落实现）归位 limit 板块（plan §2.8）。
 	"kernel/limit/tier",

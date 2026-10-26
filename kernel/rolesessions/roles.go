@@ -1,4 +1,4 @@
-package team
+package rolesessions
 
 // roles.go 把 R2/R4 的会话存储基建接到"角色会话 + 定时插话"两个**可选**端口。
 //

@@ -5919,6 +5919,19 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 7,178 行；Subagent 事件 JSON 与前端行为不变；
 - 回退方式：把参数改回 `seelsession.SubagentToolEvent` 并恢复 import。
 
+## EP-086：RoleSessions 组合门面归入 Kernel
+
+- 把 `backend/multiagent/team/roles.go` 与测试物理迁入
+  `kernel/rolesessions`；该类型只聚合 `contract.RoleSessionPort` 与
+  `contract.SchedulePort`，不拥有角色或调度状态；
+- Compat 与 Wiring 直接消费 `kernel/rolesessions.RoleSessions`，不再为了未装配
+  fallback 引入整个 Backend team 包；
+- 红测：Application 全局依赖预算收紧到 4；迁移后预算、RoleSessions、
+  Compat、Wiring、Backend team、E2E `Facade|Layout` 与 `go build ./...` 通过；
+- Application 具体依赖由 5 降至 4；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；未装配错误、角色转发与调度行为不变；
+- 回退方式：把 roles 文件移回 `backend/multiagent/team` 并恢复调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

@@ -214,6 +214,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/workspace",
 	"github.com/RedHuang-0622/seelex/application/core",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team",
+	"github.com/RedHuang-0622/seelex/kernel/rolesessions",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession",
 	"github.com/RedHuang-0622/seelex/kernel/react",
 	"github.com/RedHuang-0622/seelex/kernel/contextcontrol",

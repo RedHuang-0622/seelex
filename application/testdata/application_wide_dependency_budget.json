@@ -1,10 +1,9 @@
 {
-  "concrete_dependency_limit": 5,
+  "concrete_dependency_limit": 4,
   "allowed_concrete_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/context",
     "github.com/RedHuang-0622/seelex/backend/engine/session",
     "github.com/RedHuang-0622/seelex/backend/engine/task",
-    "github.com/RedHuang-0622/seelex/backend/multiagent/goal",
-    "github.com/RedHuang-0622/seelex/backend/multiagent/team"
+    "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
   ]
 }
