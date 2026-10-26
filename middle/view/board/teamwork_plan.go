@@ -23,6 +23,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -32,7 +33,7 @@ type TeamworkPlanDeps struct {
 	// KeyFor 把会话号解析成作用域键（未装配 / 解析不出 ⇒ ok = false）。
 	KeyFor func(sessionID string) (store.Key, bool)
 	// ReadPlan 读该键下的计划（未装配 / 读失败都返回错误）。
-	ReadPlan func(ctx context.Context, key store.Key) (store.TeamworkPlan, error)
+	ReadPlan func(ctx context.Context, key store.Key) (dto.TeamworkPlan, error)
 }
 
 // TeamworkPlanFor 返回该会话的 teamwork 计划。
@@ -40,32 +41,32 @@ type TeamworkPlanDeps struct {
 // 未装配 teamwork 面 / 会话解析不出作用域 / 键不完整 / 该会话没有计划 / 读失败
 // ⇒ (零值, false)。读失败与"没有计划"同解，是因为调用方（看板投影）对两者只做同一件事：
 // 整块退场（I6：空则退场，不建文件、不留空壳）。
-func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (store.TeamworkPlan, bool) {
+func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (dto.TeamworkPlan, bool) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return store.TeamworkPlan{}, false
+		return dto.TeamworkPlan{}, false
 	}
 	if deps.KeyFor == nil || deps.ReadPlan == nil {
-		return store.TeamworkPlan{}, false
+		return dto.TeamworkPlan{}, false
 	}
 	key, ok := deps.KeyFor(sessionID)
 	if !ok {
-		return store.TeamworkPlan{}, false
+		return dto.TeamworkPlan{}, false
 	}
 	// 键的两个分量都必须齐全：投影落点是按 (项目, 会话) 分层的，半截键读出来的东西
 	// 归不到任何一个会话上。判据随 `store.Key` 走（`Key.Complete`），宿主的团队作用域
 	// 解析与这里问的是同一句，不各写一份。
 	if !key.Complete() {
-		return store.TeamworkPlan{}, false
+		return dto.TeamworkPlan{}, false
 	}
 	plan, err := deps.ReadPlan(context.Background(), key)
 	if err != nil {
-		return store.TeamworkPlan{}, false
+		return dto.TeamworkPlan{}, false
 	}
 	// 空计划 = 还没有团队（读面契约：缺失返回空计划而不是错误）。投影面按
 	// "没有计划"处理，与读不到同款——否则一个空计划会被当成真计划去渲染一张空看板。
-	if plan.IsEmpty() {
-		return store.TeamworkPlan{}, false
+	if dto.TeamworkPlanIsEmpty(plan) {
+		return dto.TeamworkPlan{}, false
 	}
 	return plan, true
 }

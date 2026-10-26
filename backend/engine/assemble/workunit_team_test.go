@@ -154,7 +154,7 @@ func TestTeamSettleClassifiesWithTheSharedClassifier(t *testing.T) {
 				t.Fatal(err)
 			}
 			item := plan.Milestones[0].Items[0]
-			if got := item.StatusOrPending(); got != testCase.wantStatus {
+			if got := store.TeamworkWorkItemStatusOrPending(item); got != testCase.wantStatus {
 				t.Fatalf("工作项状态 = %s，want %s（未提交 / 挡路都进 review：现场与产出都留，不许判死）",
 					got, testCase.wantStatus)
 			}
@@ -503,7 +503,7 @@ func TestWorkerRoundPersistsTheUnitRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := view.Milestones[0].Items[0].StatusOrPending(); got != store.TeamworkItemReview {
+	if got := store.TeamworkWorkItemStatusOrPending(view.Milestones[0].Items[0]); got != store.TeamworkItemReview {
 		t.Fatalf("尾插之后这件事应当待验收，得到 %s", got)
 	}
 }

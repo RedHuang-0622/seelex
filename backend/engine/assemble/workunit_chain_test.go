@@ -162,7 +162,7 @@ func TestChainOneFinishScriptForBothLayers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := plan.Milestones[0].Items[0].StatusOrPending(); got != row.teamState {
+			if got := store.TeamworkWorkItemStatusOrPending(plan.Milestones[0].Items[0]); got != row.teamState {
 				t.Errorf("teammate 层工作项终态 = %s，want %s（未提交/挡路都进 review，不许判死）", got, row.teamState)
 			}
 			if _, unmerged := plan.State.Unmerged["wi-1"]; unmerged != row.unmerged {

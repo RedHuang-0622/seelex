@@ -80,7 +80,7 @@ type JobReading struct {
 // 优先级：终态 > 在飞 > 待裁决（含合并残边）> 失败 > 依赖闸门 > 可派。顺序本身就是语义：
 // 一件已是 done 的事不该再报"依赖未 done"，一件还在跑的事也不该报"等你裁决"。
 func ItemGateOf(plan store.TeamworkPlan, item store.TeamworkWorkItem, job JobReading) ItemGate {
-	switch item.StatusOrPending() {
+	switch store.TeamworkWorkItemStatusOrPending(item) {
 	case store.TeamworkItemDone:
 		return ItemGateDone
 	case store.TeamworkItemRunning:
@@ -174,7 +174,7 @@ func unmetDependencies(plan store.TeamworkPlan, item store.TeamworkWorkItem) []s
 	unmet := make([]string, 0, len(item.DependsOn))
 	for _, dependency := range item.DependsOn {
 		_, dependencyItem, ok := findItem(&plan, dependency)
-		if !ok || dependencyItem.StatusOrPending() != store.TeamworkItemDone {
+		if !ok || store.TeamworkWorkItemStatusOrPending(*dependencyItem) != store.TeamworkItemDone {
 			unmet = append(unmet, dependency)
 		}
 	}

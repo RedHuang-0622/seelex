@@ -139,7 +139,7 @@ func itemID(i int) string { return fmt.Sprintf("wi-%d", i) }
 
 func assertItemStatus(t *testing.T, fixture *itemFixture, id, want string) {
 	t.Helper()
-	if got := itemState(t, fixture, id).StatusOrPending(); got != want {
+	if got := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, id)); got != want {
 		t.Fatalf("工作项 %s 状态 = %s，want %s", id, got, want)
 	}
 }
@@ -172,7 +172,7 @@ func TestConcurrentSettleDoesNotLoseUpdates(t *testing.T) {
 	close(block)
 
 	for i := 0; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != store.TeamworkItemReview {
+		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != store.TeamworkItemReview {
 			t.Fatalf("并发 settle 丢失更新：%s 状态 = %s，want review", itemID(i), status)
 		}
 	}
@@ -242,7 +242,7 @@ func TestConcurrentSettleAndAcceptDoNotResurrectDone(t *testing.T) {
 	close(block)
 
 	for i := 2; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != store.TeamworkItemDone {
+		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != store.TeamworkItemDone {
 			t.Fatalf("已 done 被并发 settle 的陈旧快照覆盖：%s 状态 = %s，want done", itemID(i), status)
 		}
 	}
@@ -250,7 +250,7 @@ func TestConcurrentSettleAndAcceptDoNotResurrectDone(t *testing.T) {
 		assertItemStatus(t, fixture, itemID(i), store.TeamworkItemReview)
 	}
 	for i := 0; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status == store.TeamworkItemRunning {
+		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status == store.TeamworkItemRunning {
 			t.Fatalf("收口风暴之后仍有工作项停在 running：%s（settle 与 accept 混跑丢了更新）", itemID(i))
 		}
 	}

@@ -26,7 +26,7 @@ var errNoPlan = errors.New("teamwork: 本会话还没有团队计划——先用
 
 // requireTeam 是"这次调用需要一个已声明的团队"的**唯一判据**（空计划 → errNoPlan）。
 func requireTeam(plan store.TeamworkPlan) error {
-	if plan.IsEmpty() {
+	if store.TeamworkPlanIsEmpty(plan) {
 		return errNoPlan
 	}
 	return nil
@@ -482,7 +482,7 @@ func (c *Coordinator) AliveSceneNodes(ctx context.Context) (map[string]bool, err
 	alive := map[string]bool{}
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
-			if item.StatusOrPending() == store.TeamworkItemRunning && c.handleAlive(item.Handle) {
+			if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning && c.handleAlive(item.Handle) {
 				alive[SceneNodeID(item.Role, item.ID)] = true
 			}
 		}

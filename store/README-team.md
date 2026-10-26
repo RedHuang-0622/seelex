@@ -156,7 +156,7 @@
 
 ### teamwork.go
 
-- `func (plan TeamworkPlan) IsEmpty() bool` — IsEmpty 报告"这份计划还没声明过团队"（team_plan 一次都没写过）。
+- `func TeamworkPlanIsEmpty(plan TeamworkPlan) bool` — 报告"这份计划还没声明过团队"（team_plan 一次都没写过）；唯一实现位于 `contract/dto`。
 - `func Teamwork(repository Repository) (TeamworkRepository, bool)` — Teamwork 把 Repository 收窄到 teamwork 面。JSON 后端实现它；其他后端返回 false。
 - `func (router *Router) TeamworkFor() (TeamworkRepository, bool)` — TeamworkFor 返回**当前活跃后端**的 teamwork 读/写面（JSON 后端实现它；其他后端
 - `func (store *storeEngine) teamworkDir(key Key) string` — teamworkDir 返回 teamwork 模块的数据目录。
@@ -175,8 +175,8 @@
 
 ### teamwork_items.go
 
-- `func (item TeamworkWorkItem) StatusOrPending() string` — StatusOrPending 把空状态读成 pending（"空 = pending"的唯一读法）。
-- `func (item TeamworkWorkItem) Terminal() bool` — Terminal 报告这个工作项是否已经有结论（done / failed）。
+- `func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string` — 把空状态读成 pending；唯一实现位于 `contract/dto`。
+- `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool` — 报告工作项是否已经有 done/failed 结论；唯一实现位于 `contract/dto`。
 - `func TeamworkBindings(rows []TeamworkBinding) map[string]TeamworkBinding` — TeamworkBindings 把绑定流水折成"每个 Work Item 当前的绑定"。
 - `func validateTeamworkWorkItems(plan TeamworkPlan, roles map[string]struct{}) error` — ValidateTeamworkPlan 之外的**第二道校验**：里程碑图与 Work Item。
 - `func validateMilestoneGraphAcyclic(milestones []TeamworkMilestone) error` — validateMilestoneGraphAcyclic 用 Kahn 拓扑消元检出里程碑依赖环。

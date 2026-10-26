@@ -163,7 +163,7 @@ func resolveMilestoneStatus(plan *store.TeamworkPlan, index int, memo map[int]st
 	// 空工作项的里程碑**不算完成**（没排活 = 还没干），但屏障打开时它是 active。
 	allDone := len(milestone.Items) > 0
 	for _, item := range milestone.Items {
-		if item.StatusOrPending() != store.TeamworkItemDone {
+		if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemDone {
 			allDone = false
 			break
 		}
@@ -269,9 +269,9 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	if item.StatusOrPending() != store.TeamworkItemPending {
+	if store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemPending {
 		return fmt.Errorf("teamwork: 工作项 %q 已经开始（状态 %s），开始与结束的工作是既定的，不可调整",
-			item.ID, item.StatusOrPending())
+			item.ID, store.TeamworkWorkItemStatusOrPending(*item))
 	}
 	if err := c.milestoneOpen(plan, *milestone); err != nil {
 		return err
@@ -341,7 +341,7 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 	if err := c.milestoneOpen(plan, *milestone); err != nil {
 		return "", err
 	}
-	status := item.StatusOrPending()
+	status := store.TeamworkWorkItemStatusOrPending(*item)
 	switch status {
 	case store.TeamworkItemDone:
 		return "", fmt.Errorf("teamwork: 工作项 %q 已经完成（验收通过之后不可重派）", itemID)
@@ -358,9 +358,9 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 		if !exists {
 			return "", fmt.Errorf("teamwork: 工作项 %q 依赖的 %q 不在计划里", itemID, dependency)
 		}
-		if dependencyItem.StatusOrPending() != store.TeamworkItemDone {
+		if store.TeamworkWorkItemStatusOrPending(*dependencyItem) != store.TeamworkItemDone {
 			return "", fmt.Errorf("teamwork: 工作项 %q 依赖的 %q 还没完成（状态 %s）——里程碑内的依赖是硬闸门（V 模型：exec 做完 test 才能跟上）",
-				itemID, dependency, dependencyItem.StatusOrPending())
+				itemID, dependency, store.TeamworkWorkItemStatusOrPending(*dependencyItem))
 		}
 	}
 	member, enrolled := memberFor(plan, item.Role)
@@ -569,7 +569,7 @@ func (c *Coordinator) ItemStatus(ctx context.Context, itemID string) (string, bo
 	if !ok {
 		return "", false
 	}
-	return item.StatusOrPending(), true
+	return store.TeamworkWorkItemStatusOrPending(*item), true
 }
 
 // ItemSettled 报告这件事是不是已经收过尾（计划里已经不是 running）。
@@ -602,7 +602,7 @@ func (c *Coordinator) MergeWorkItem(ctx context.Context, request WorkerRequest) 
 		c.unlockPlan()
 		return err
 	}
-	if _, item, ok := findItem(&plan, itemID); !ok || item.StatusOrPending() != store.TeamworkItemRunning {
+	if _, item, ok := findItem(&plan, itemID); !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
 		c.unlockPlan()
 		return nil // 已经收口过了（幂等：合并恰好一次）
 	}
@@ -646,7 +646,7 @@ func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequ
 		return workunit.Outcome{}, err
 	}
 	milestone, item, ok := findItem(&plan, itemID)
-	if !ok || item.StatusOrPending() != store.TeamworkItemRunning {
+	if !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
 		return workunit.Outcome{}, nil // 合并期间已被收口：幂等返回（不再重复尾插 / 写态）
 	}
 	// 步 2：尾插（有界一行；bug 原文与合并失败说明都在里面）。
@@ -749,7 +749,7 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	switch item.StatusOrPending() {
+	switch store.TeamworkWorkItemStatusOrPending(*item) {
 	case store.TeamworkItemReview:
 		// 尾插已走完（合并 → 回执 → 状态）：链尾该动的地方，放行。
 	case store.TeamworkItemRunning:
@@ -766,7 +766,7 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 		// 已验收但上次清理失败：只重试 worktree 释放，不再改状态、不再清 Session。
 		return c.cleanupAcceptedItem(ctx, plan.TeamID, *item)
 	default:
-		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, item.StatusOrPending())
+		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, store.TeamworkWorkItemStatusOrPending(*item))
 	}
 	// 现场与会话**不动**（这里删掉的是旧的 releaseItem("accept") 调用）：teammate 的
 	// session/worktree 归 team 托管，只由整队收口（team_close）回收。验收留下的
@@ -839,7 +839,7 @@ func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error {
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	if item.StatusOrPending() == store.TeamworkItemDone {
+	if store.TeamworkWorkItemStatusOrPending(*item) == store.TeamworkItemDone {
 		return fmt.Errorf("teamwork: 工作项 %q 已经完成，不能判失败", item.ID)
 	}
 	item.Status = store.TeamworkItemFailed
@@ -908,7 +908,7 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			report.Items++
-			switch item.StatusOrPending() {
+			switch store.TeamworkWorkItemStatusOrPending(item) {
 			case store.TeamworkItemPending:
 				report.Pending++
 			case store.TeamworkItemRunning:

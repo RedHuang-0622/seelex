@@ -25,8 +25,6 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 ## 文件结构
 
 - `project_board.go`：`ProjectBoardDeps`、`ProjectBoardApplication` 与构造器。
-- `teamwork_plan.go`：ProjectBoard 消费的 TeamworkPlan/State 迁移期同身份类型；
-  Store 继续拥有计划状态机与持久化载荷。
 - `work_item.go`：WorkItem/teammate 读取与 todo 状态变更。
 - `board_reader.go`：`BoardReader`，WorkItem 消费的团队看板与 teammate live 只读端口。
 - `board_facade.go`：Middle `ProjectBoardSink` / `TeamworkPlanSource` 的 identity alias。
@@ -56,8 +54,9 @@ Runtime 和 subagent view coordinator。
 
 ## 依赖方向
 
-允许依赖 `contract/dto`、`middle/protocol/model`、`middle/view/worktable` 和
-`store` 的只读暴露类型。禁止依赖 `application/core`、backend 实现、GUI/TUI 或写入路径。
+允许依赖 `contract/dto`、`middle/protocol/model` 与 `middle/view/worktable`。
+TeamworkPlan 直接使用 `contract/dto`，本包不再保留类型 alias，也不依赖 `store` 类型。
+禁止依赖 `application/core`、backend 实现、GUI/TUI 或写入路径。
 
 ## 并发与错误
 
@@ -106,8 +105,8 @@ go test ./application/... -count=1
 - `func NewProjectBoard(deps ProjectBoardDeps) *ProjectBoardApplication` — 构造项目看板读应用。
 - `func (application *ProjectBoardApplication) WorkTableRowsFor(sessionID string) []model.WorkItem` — 返回会话活体 WorkTable。
 - `func (application *ProjectBoardApplication) ProjectRootFor(sessionID string) string` — 读取会话绑定项目根。
-- `func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan` — 读取可选团队计划。
-- `func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState` — 从计划提取运行态。
+- `func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *dto.TeamworkPlan` — 读取可选团队计划。
+- `func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *dto.TeamworkState` — 从计划提取运行态。
 
 ### `work_item.go`
 

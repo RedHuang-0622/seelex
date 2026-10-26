@@ -457,6 +457,7 @@ type BoardRepository interface {
 - EP-041：层边界与全局应用依赖预算。
 - EP-042：Conversation window helper 归位。
 - EP-043：SessionState/ViewState 迁入 Application。
+- EP-044：TeamworkPlan 五类实体完整 DTO 化，删除 Application 迁移 alias。
 
 每组都必须单独提交，提交前后报告：
 

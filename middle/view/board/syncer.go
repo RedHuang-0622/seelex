@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -45,7 +46,7 @@ var (
 // harness 都要为一条没有消费者的能力改接口（与 contract.TeamworkBoardProjection
 // 同一口径：**有就有、没有就是没有**）。
 type TeamworkPlanSource interface {
-	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
+	TeamworkPlanFor(sessionID string) (dto.TeamworkPlan, bool)
 }
 
 // projectBoardDefaultFlushIdle 是 flush 静默窗缺省值（毫秒级抖动的合并窗口：同批
@@ -59,8 +60,8 @@ const projectBoardDefaultFlushIdle = 2 * time.Second
 type ProjectBoardDeps struct {
 	Store         ProjectBoardStore
 	WorkTableRows func(sessionID string) []model.WorkItem
-	TeamPlanFor   func(sessionID string) *store.TeamworkPlan
-	TeamStateFor  func(sessionID string) *store.TeamworkState
+	TeamPlanFor   func(sessionID string) *dto.TeamworkPlan
+	TeamStateFor  func(sessionID string) *dto.TeamworkState
 	// ProjectRootFor 是「会话 → 项目根」的解析（"" = 没有落点：未绑定工作区的会话
 	// 不落盘）。落点就是 `<项目根>/.seelex/board/`；不再要工作区 ID——它是
 	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
@@ -233,11 +234,11 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 	if s.deps.WorkTableRows != nil {
 		items = s.deps.WorkTableRows(sessionID)
 	}
-	var plan *store.TeamworkPlan
+	var plan *dto.TeamworkPlan
 	if s.deps.TeamPlanFor != nil {
 		plan = s.deps.TeamPlanFor(sessionID)
 	}
-	var state *store.TeamworkState
+	var state *dto.TeamworkState
 	if s.deps.TeamStateFor != nil {
 		state = s.deps.TeamStateFor(sessionID)
 	}
@@ -267,8 +268,8 @@ func (s *ProjectBoardSyncer) flushFile(
 	file string,
 	at int64,
 	items []model.WorkItem,
-	plan *store.TeamworkPlan,
-	state *store.TeamworkState,
+	plan *dto.TeamworkPlan,
+	state *dto.TeamworkState,
 	evidenceChars int,
 ) {
 	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, sessionID, file)

@@ -21,11 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 // teamworkBindingFile 是 Work Item ↔ Session/worktree 绑定账本的文件名（追加、不重写）。
@@ -33,66 +35,24 @@ const teamworkBindingFile = "worktrees.jsonl"
 
 // Work Item 的状态取值（空 = pending，与里程碑"空 = pending"同口径）。
 const (
-	TeamworkItemPending = "pending"
-	TeamworkItemRunning = "running"
-	// TeamworkItemReview 是**待验收**：teammate 已经跑完、改动已合并（或显式报告合并
-	// 失败），但 leader 还没给结论。它把"做完"与"验收通过"分开——这正是尾插程序与
-	// leader 评估之间的那一段（见 backend/multiagent/teamwork/items.go 的 SettleWorkItem）。
-	TeamworkItemReview = "review"
-	TeamworkItemDone   = "done"
-	TeamworkItemFailed = "failed"
+	TeamworkItemPending = dto.TeamworkItemPending
+	TeamworkItemRunning = dto.TeamworkItemRunning
+	TeamworkItemReview  = dto.TeamworkItemReview
+	TeamworkItemDone    = dto.TeamworkItemDone
+	TeamworkItemFailed  = dto.TeamworkItemFailed
 )
 
-// TeamworkWorkItem 是里程碑里的一个工作项（甘特图的节点）。
-//
-// 依赖（DependsOn）只在**同一个里程碑内部**表达：里程碑之间由屏障串行
-// （Milestone.DependsOn），里程碑内部才是 DAG 并行——这正是 V 模型要的形状
-// （exec 做完，test_case 立刻跟上，两者同属一个里程碑）。
-type TeamworkWorkItem struct {
-	// ID 是工作项的稳定标识（依赖、派发、验收、销项都以它为准），全计划唯一。
-	ID string `json:"id"`
-	// Milestone 是它所属的里程碑 id。
-	Milestone string `json:"milestone"`
-	// Role 是执行它的 teammate 角色（一 Work Item 一个 teammate）。
-	Role string `json:"role"`
-	// Name / Description / Goal 是工作内容三件：名称、描述、达成目标。
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Goal        string `json:"goal,omitempty"`
-	// DependsOn 是同里程碑内前置工作项的 id（顺序/依赖的唯一事实之一）。
-	DependsOn []string `json:"depends_on,omitempty"`
-	// Status 空 = pending；取值见 TeamworkItem* 常量。
-	Status string `json:"status,omitempty"`
-	// SessionID / Worktree 是这一件事自己的执行隔离（一 Work Item 一套）。
-	SessionID     string `json:"session_id,omitempty"`
-	Worktree      string `json:"worktree,omitempty"`
-	WorkspaceMode string `json:"workspace_mode,omitempty"`
-	// Handle 是最近一次派发的作业句柄——**只是投影**（jobs I-4：句柄只在内存，
-	// 进程重启即作废），读侧一律以 Observe 的返回为准。
-	Handle string `json:"handle,omitempty"`
-	// Note 是 leader 的验收结论 / 失败说明（收尾时写回，看板直接显示）。
-	Note string `json:"note,omitempty"`
-	// StartedAt / FinishedAt 是派发与验收的时间戳（unix 秒；0 = 未发生）。
-	StartedAt  int64 `json:"started_at,omitempty"`
-	FinishedAt int64 `json:"finished_at,omitempty"`
+// TeamworkWorkItem 是 contract/dto.TeamworkWorkItem 的持久化兼容 alias。
+type TeamworkWorkItem = dto.TeamworkWorkItem
+
+// TeamworkWorkItemStatusOrPending 是 contract/dto 自由函数的兼容入口。
+func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string {
+	return dto.TeamworkWorkItemStatusOrPending(item)
 }
 
-// StatusOrPending 把空状态读成 pending（"空 = pending"的唯一读法）。
-func (item TeamworkWorkItem) StatusOrPending() string {
-	if strings.TrimSpace(item.Status) == "" {
-		return TeamworkItemPending
-	}
-	return item.Status
-}
-
-// Terminal 报告这个工作项是否已经有结论（done / failed）。
-func (item TeamworkWorkItem) Terminal() bool {
-	switch item.StatusOrPending() {
-	case TeamworkItemDone, TeamworkItemFailed:
-		return true
-	default:
-		return false
-	}
+// TeamworkWorkItemTerminal 是 contract/dto 自由函数的兼容入口。
+func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool {
+	return dto.TeamworkWorkItemTerminal(item)
 }
 
 // TeamworkBinding 是「一个 Work Item ↔ 一个 Session + 一个 worktree」的绑定事实。
@@ -198,7 +158,7 @@ func validateTeamworkWorkItems(plan TeamworkPlan, roles map[string]struct{}) err
 			if strings.TrimSpace(item.Name) == "" {
 				return fmt.Errorf("teamwork: 工作项 %q 的 name is required（工作内容必须有名字）", id)
 			}
-			switch item.StatusOrPending() {
+			switch TeamworkWorkItemStatusOrPending(item) {
 			case TeamworkItemPending, TeamworkItemRunning, TeamworkItemReview, TeamworkItemDone, TeamworkItemFailed:
 			default:
 				return fmt.Errorf("teamwork: 工作项 %q 的状态 %q 非法（pending|running|review|done|failed）", id, item.Status)

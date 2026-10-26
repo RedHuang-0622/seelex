@@ -6,7 +6,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestProjectBoardApplicationTrimsInputsAndBuildsLiveRows(t *testing.T) {
@@ -27,13 +26,13 @@ func TestProjectBoardApplicationTrimsInputsAndBuildsLiveRows(t *testing.T) {
 			}
 			return "/repo"
 		},
-		TeamPlan: func(sessionID string) *store.TeamworkPlan {
+		TeamPlan: func(sessionID string) *dto.TeamworkPlan {
 			if sessionID != "session-a" {
 				t.Fatalf("TeamPlan session = %q", sessionID)
 			}
-			return &store.TeamworkPlan{
+			return &dto.TeamworkPlan{
 				TeamID: "team-a",
-				State:  store.TeamworkState{State: store.TeamworkStateClosed},
+				State:  dto.TeamworkState{State: dto.TeamworkStateClosed},
 			}
 		},
 	})
@@ -49,11 +48,11 @@ func TestProjectBoardApplicationTrimsInputsAndBuildsLiveRows(t *testing.T) {
 		t.Fatalf("ProjectBoardTeamPlanFor = %+v", plan)
 	}
 	state := application.ProjectBoardTeamStateFor(" session-a ")
-	if state == nil || state.State != store.TeamworkStateClosed {
+	if state == nil || state.State != dto.TeamworkStateClosed {
 		t.Fatalf("ProjectBoardTeamStateFor = %+v", state)
 	}
 	plan.State.State = "mutated"
-	if state.State != store.TeamworkStateClosed {
+	if state.State != dto.TeamworkStateClosed {
 		t.Fatalf("state aliases plan storage: %+v", state)
 	}
 }
@@ -64,7 +63,7 @@ func TestProjectBoardTeamStateUsesPlanOnly(t *testing.T) {
 			return nil, nil, nil, nil
 		},
 		WorkTableLimits: func() worktable.Limits { return worktable.Limits{} },
-		TeamPlan:        func(string) *store.TeamworkPlan { return nil },
+		TeamPlan:        func(string) *dto.TeamworkPlan { return nil },
 	})
 	if state := application.ProjectBoardTeamStateFor("session-a"); state != nil {
 		t.Fatalf("state without plan = %+v", state)

@@ -25,7 +25,7 @@ func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
 
 	// ── ① 空值档：零值 + nil ────────────────────────────────────────────
 	t.Run("空值档", func(t *testing.T) {
-		if plan, err := repository.ReadTeamworkPlan(ctx, key); err != nil || !plan.IsEmpty() {
+		if plan, err := repository.ReadTeamworkPlan(ctx, key); err != nil || !TeamworkPlanIsEmpty(plan) {
 			t.Fatalf("ReadTeamworkPlan = (%+v, %v)，want 空计划 + nil", plan, err)
 		}
 		if events, err := repository.ReadTeamworkEvents(ctx, key); err != nil || len(events) != 0 {

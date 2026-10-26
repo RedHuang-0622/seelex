@@ -107,7 +107,7 @@ func TestAcceptCleanupFailureIsIdempotentlyRetryable(t *testing.T) {
 	if !IsAcceptedWithCleanupPending(err) {
 		t.Fatalf("first accept must expose accepted-with-cleanup-pending, got %v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); item.StatusOrPending() != store.TeamworkItemDone {
+	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemDone {
 		t.Fatalf("done must be persisted before cleanup, got %+v", item)
 	}
 	for _, call := range fixture.calls.snapshot() {
@@ -229,7 +229,7 @@ func TestDispatchUsesDeclarePersistThenStart(t *testing.T) {
 			return
 		}
 		_, item, ok := findItem(&plan, "wi-order")
-		if !ok || item.StatusOrPending() != store.TeamworkItemRunning {
+		if !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
 			t.Errorf("Start 时计划尚未写 running: %+v", item)
 		}
 		bindings, readErr := memory.ReadBindings(ctx, key)
@@ -276,7 +276,7 @@ func TestDispatchWorktreeFailureStopsBeforeDeclare(t *testing.T) {
 		!strings.Contains(err.Error(), "worktree unavailable") {
 		t.Fatalf("worktree failure must be returned, got %v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); item.StatusOrPending() != store.TeamworkItemPending {
+	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemPending {
 		t.Fatalf("worktree failure must leave the WorkItem pending, got %+v", item)
 	}
 	if records := fixture.jobs.Snapshot(jobs.Scope{Session: fixture.coordinator.Key().SessionID}); len(records) != 0 {
@@ -305,7 +305,7 @@ func (s *failingPlanStore) WritePlan(ctx context.Context, key store.Key, plan st
 	if s.failRunning {
 		for _, milestone := range plan.Milestones {
 			for _, item := range milestone.Items {
-				if item.StatusOrPending() == store.TeamworkItemRunning {
+				if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning {
 					return errors.New("injected running-plan write failure")
 				}
 			}

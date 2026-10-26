@@ -243,13 +243,13 @@ func waitItemStatus(t *testing.T, fixture *itemFixture, id, want string) store.T
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		item := itemState(t, fixture, id)
-		if item.StatusOrPending() == want {
+		if store.TeamworkWorkItemStatusOrPending(item) == want {
 			return item
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
 	item := itemState(t, fixture, id)
-	t.Fatalf("工作项 %s 状态 = %s，want %s（窗口内没收敛）", id, item.StatusOrPending(), want)
+	t.Fatalf("工作项 %s 状态 = %s，want %s（窗口内没收敛）", id, store.TeamworkWorkItemStatusOrPending(item), want)
 	return store.TeamworkWorkItem{}
 }
 
@@ -375,7 +375,7 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	itemA := itemState(t, fixture, "wi-a")
 	itemB := itemState(t, fixture, "wi-b")
 	// 验收只销状态并释放 A 的 worktree；Session 指针保留到 team_close。
-	if itemA.StatusOrPending() != store.TeamworkItemDone {
+	if store.TeamworkWorkItemStatusOrPending(itemA) != store.TeamworkItemDone {
 		t.Fatalf("A 应当已验收: %+v", itemA)
 	}
 	if itemA.SessionID == "" || itemA.Worktree == "" {
@@ -433,8 +433,8 @@ func TestDispatchItemReturnsBeforeTheRoundFinishes(t *testing.T) {
 		t.Fatalf("派发之后作业应当在跑（后台），得到 %+v ok=%v", record, ok)
 	}
 	item := itemState(t, fixture, "wi-req")
-	if item.StatusOrPending() != store.TeamworkItemRunning {
-		t.Fatalf("派发之后工作项应当是 running，得到 %s", item.StatusOrPending())
+	if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemRunning {
+		t.Fatalf("派发之后工作项应当是 running，得到 %s", store.TeamworkWorkItemStatusOrPending(item))
 	}
 	close(block)
 	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
@@ -742,8 +742,8 @@ func TestSettlePrintsTheRunErrorIntoTheTeammateMessage(t *testing.T) {
 		t.Fatalf("bug 必须直接打印进 teammate 的消息: %v", texts)
 	}
 	item := itemState(t, fixture, "wi-req")
-	if item.StatusOrPending() != store.TeamworkItemFailed {
-		t.Fatalf("带错误收尾应当判失败（可重派），得到 %s", item.StatusOrPending())
+	if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemFailed {
+		t.Fatalf("带错误收尾应当判失败（可重派），得到 %s", store.TeamworkWorkItemStatusOrPending(item))
 	}
 }
 
@@ -808,7 +808,7 @@ func TestCloseIsIdempotentAndKeepsThePlanFacts(t *testing.T) {
 		t.Fatalf("收口后计划必须标 closed: %+v", plan.State)
 	}
 	// 收口不改工作项的结论（事实不因收口被改写）。
-	if item := itemState(t, fixture, "wi-req"); item.StatusOrPending() != store.TeamworkItemReview {
+	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemReview {
 		t.Fatalf("收口不该改写工作项的结论: %+v", item)
 	}
 	if alreadyClosed, err := fixture.coordinator.Close(ctx); err != nil || !alreadyClosed {

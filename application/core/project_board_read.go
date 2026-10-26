@@ -28,7 +28,7 @@ func newServiceProjectBoardQuery(service *Service) *applicationexecution.Project
 		ProjectRoot: func(sessionID string) string {
 			return service.components.sessionQuery.ProjectRootFor(sessionID)
 		},
-		TeamPlan: func(sessionID string) *applicationexecution.TeamworkPlan {
+		TeamPlan: func(sessionID string) *dto.TeamworkPlan {
 			if service.Deps.Runtime == nil || sessionID == "" {
 				return nil
 			}

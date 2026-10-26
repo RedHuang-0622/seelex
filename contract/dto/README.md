@@ -2,7 +2,8 @@
 
 ## 生态位
 
-`contract/dto` 是 Seelex 跨层共享的**纯数据契约**包：只放数据形状（结构体、枚举字面量、常量），不放行为方法，也不 import 存储、框架或 UI 包。
+`contract/dto` 是 Seelex 跨层共享的**纯数据契约**包：放数据形状（结构体、枚举字面量、常量）
+与不绑定类型的自由函数判据，不把行为方法捆进 DTO，也不 import 存储、框架或 UI 包。
 
 主要调用方：`contract`（端口签名）、`application/core` 及其域包、`middle/protocol/model`、
 `gui/`、`tui/`，以及 `seelebridge/`（以类型 alias 复用同一定义，保证单源）。
@@ -44,6 +45,7 @@
 | `review_request.go` | 「agent 请求 GUI 打开待审阅文件」这一格的契约：`ReviewRequest` / `ReviewFileRef` / `ReviewSkip` + 上限 `MaxReviewFilesPerRequest`（10）与跳过原因词表。**只带路径**，文件内容仍走只读预览通道（`dto.FileContent`）。 |
 | `workspace.go` | 批量新建项目契约：`WorkspaceCreateRequest`、`WorkspaceCreateResult`、`WorkspaceCreateBatchResult`。批量创建只登记 workspace，不绑定当前会话；绑定仍走 `BindWorkspace`。 |
 | `queue_item.go` | durable lifecycle queue 的只读恢复载荷：`QueueItem` 与 `QueueRecoveryReport`。字段与既有持久化 JSON 逐字一致，Store/backend session 以同身份 alias 复用。 |
+| `teamwork_plan.go` | Teamwork 计划的完整持久化 DTO：`TeamworkPlan` / `TeamworkMember` / `TeamworkMilestone` / `TeamworkWorkItem` / `TeamworkState`、状态常量与自由函数判据。字段和 JSON tag 与既有 `plan.json` 逐字一致；Store、backend 与 middle 看板保留同身份 alias。 |
 
 ## 依赖方向
 
@@ -69,6 +71,9 @@ flowchart LR
   `middle/protocol/model` 与各域协调器。
 - **逻辑角色 vs provider role**：`RoleKind` 只是 metadata，provider role 仍然只有
   system / user / assistant / tool；subagent 是 tool calling 能力，不属于任何 `RoleKind`。
+- **持久化实体不归实现层独占**：`TeamworkPlan` 系列是 Store head payload、runtime
+  编排输入与看板投影共用的同一份合同。Store 只保留 alias，避免 Application 为读一份计划
+  反向 import 持久化实现。
 
 ## 数据流
 
@@ -109,9 +114,11 @@ flowchart LR
 
 ## 测试与验证
 
-本包无独立测试文件；契约由消费方测试覆盖，最小验证命令：
+本包为高风险 wire 形状保留独立契约测试（例如 Goal、TeamworkPlan 与枚举编码）；
+其余契约由消费方测试覆盖。最小验证命令：
 
 ```text
+go test ./contract/dto -count=1
 go build ./application/...
 go test ./application/... -count=1
 node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
@@ -341,6 +348,16 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func wantSorted(keys []string) []string`
 - `func TestPluginAssemblyViewWireKeysAreFrozen(t *testing.T)` — TestPluginAssemblyViewWireKeysAreFrozen 逐键断言装配读数的 wire 形状。
 - `func TestTeamworkMemberViewCarriesAssemblyGates(t *testing.T)` — TestTeamworkMemberViewCarriesAssemblyGates 钉成员行的装配两格：
+
+### teamwork_plan.go
+
+- `func TeamworkPlanIsEmpty(plan TeamworkPlan) bool` — TeamworkPlanIsEmpty 报告计划尚未声明团队（TeamID 为空）。
+- `func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string` — TeamworkWorkItemStatusOrPending 把空状态读成 pending。
+- `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool` — TeamworkWorkItemTerminal 报告工作项是否已有 done/failed 结论。
+
+### teamwork_plan_test.go
+
+- `func TestTeamworkPlanContractWireShapeAndFreeFunctions(t *testing.T)`
 
 ### tool_record.go
 

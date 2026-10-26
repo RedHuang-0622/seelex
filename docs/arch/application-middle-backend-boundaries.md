@@ -127,7 +127,7 @@ Application session command lock
 
 ## 5. `TeamworkPlan` 契约策略
 
-选择完整 DTO 化：
+选择完整 DTO 化，当前已完成（EP-044）：
 
 - `TeamworkPlan`、`TeamworkMember`、`TeamworkMilestone`、
   `TeamworkWorkItem`、`TeamworkState` 迁入 `contract/dto` 或专用
@@ -135,7 +135,8 @@ Application session command lock
 - Store 保留同身份 alias，JSON 字段逐字不变；
 - 类型方法改为自由函数，例如 `TeamworkPlanIsEmpty`，保持 DTO 纯数据；
 - Middle 看板与 Backend teamwork 改用 DTO 和自己的窄端口；
-- `application/execution.TeamworkPlan` 当前 alias 是迁移桥，最终删除。
+- `application/execution.TeamworkPlan` 迁移 alias 已删除，Application 直接消费
+  `contract/dto`。
 
 不采用“只给看板做窄投影”作为终态，因为 Store、Backend teamwork、Middle board 与
 Application project-board 都需要同一计划的完整字段；只做窄投影会把同一事实拆成
@@ -168,7 +169,7 @@ AP-003 分开两条指标：
 |---|---|
 | `application/core -> sessionusecase` | 已完成：SessionState/ViewState 已迁入 `application/session` |
 | Application identity facade | 业务消费方改用 Contract 类型，预算归零 |
-| `execution.TeamworkPlan` alias | TeamworkPlan 完整 DTO 化完成 |
+| `execution.TeamworkPlan` alias | 已完成：EP-044 完整 DTO 化并删除迁移 alias |
 | `backend -> middle` 6 条 | BM-005 runtime 装配迁移完成 |
 | `middle -> store` board 边 | BM-005 看板 runtime 端口化完成 |
 

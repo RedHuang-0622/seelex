@@ -98,7 +98,7 @@ func TestReadTeamworkPlanMissingIsEmptyPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("缺少计划不是错误：%v", err)
 	}
-	if !plan.IsEmpty() {
+	if !TeamworkPlanIsEmpty(plan) {
 		t.Fatalf("缺失必须读成空计划（IsEmpty 为真）：%+v", plan)
 	}
 }

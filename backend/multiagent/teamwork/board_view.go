@@ -136,7 +136,7 @@ func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records 
 				if item.Role != member.Role {
 					continue
 				}
-				if item.StatusOrPending() == store.TeamworkItemDone {
+				if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemDone {
 					continue // 已销项：不占队列
 				}
 				view.Queue = append(view.Queue, item.Name)
@@ -170,7 +170,7 @@ func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string {
 			if item.Role != member.Role {
 				continue
 			}
-			if item.StatusOrPending() == store.TeamworkItemRunning {
+			if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning {
 				return MemberRunning
 			}
 		}
@@ -193,7 +193,7 @@ func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem st
 			if item.Role != role || strings.TrimSpace(item.SessionID) == "" {
 				continue
 			}
-			switch item.StatusOrPending() {
+			switch store.TeamworkWorkItemStatusOrPending(item) {
 			case store.TeamworkItemRunning:
 				// 在跑的那件事优先（同一个人同时只跑一件事：派发按工作项去重）。
 				runningSession, runningItem = item.SessionID, item.ID
@@ -240,7 +240,7 @@ func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, re
 				ID: item.ID, Milestone: item.Milestone, Role: item.Role, Name: item.Name,
 				Description: item.Description, Goal: item.Goal,
 				DependsOn: append([]string(nil), item.DependsOn...),
-				Status:    item.StatusOrPending(), SessionID: item.SessionID, Worktree: item.Worktree,
+				Status:    store.TeamworkWorkItemStatusOrPending(item), SessionID: item.SessionID, Worktree: item.Worktree,
 				WorkspaceMode: item.WorkspaceMode,
 				Handle:        item.Handle, Note: item.Note,
 				StartedAt: item.StartedAt, FinishedAt: item.FinishedAt,

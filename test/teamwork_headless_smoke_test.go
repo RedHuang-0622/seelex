@@ -820,7 +820,7 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	// 看板只是两者的投影。三条读数不一致时，这份探针能指出是哪一条没落。
 	if settled, ok := smoke.persistedItem(ctx, "wi-impl"); ok {
 		smoke.report.add("P4 落盘事实", "wi-impl 状态=%s 句柄=%s note=%q",
-			settled.StatusOrPending(), settled.Handle, firstLineOf(settled.Note))
+			store.TeamworkWorkItemStatusOrPending(settled), settled.Handle, firstLineOf(settled.Note))
 	}
 
 	board = smoke.waitBoard(t, sessionID, func(board *dto.TeamworkBoardView) bool {

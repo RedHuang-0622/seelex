@@ -44,6 +44,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
@@ -95,8 +96,8 @@ func BuildProjectBoardRows(
 	seq uint64,
 	at int64,
 	workItems []model.WorkItem,
-	teamPlan *store.TeamworkPlan,
-	teamState *store.TeamworkState,
+	teamPlan *dto.TeamworkPlan,
+	teamState *dto.TeamworkState,
 	evidenceChars int,
 ) []store.ProjectBoardRow {
 	rows := make([]store.ProjectBoardRow, 0, len(workItems)+8)
@@ -193,7 +194,7 @@ func projectBoardWorkPayload(item model.WorkItem, evidenceChars int) map[string]
 // 整队收口写在里程碑行上（载荷 team_state / team_closed）：它是"这一板还在不在册"的唯一读法，
 // 而里程碑行是**团队块**的锚（work 行是"活"，里程碑行是"编排"）。没有里程碑时无从表达——
 // 没有编排就没有"收口"这一问（不是漏读）。
-func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState, evidenceChars int) map[string]any {
+func projectBoardMilestonePayload(milestone dto.TeamworkMilestone, state dto.TeamworkState, evidenceChars int) map[string]any {
 	payload := map[string]any{"id": strings.TrimSpace(milestone.ID)}
 	projectBoardPutText(payload, "name", milestone.Name)
 	projectBoardPutText(payload, "status", projectBoardMilestoneStatus(milestone, state))
@@ -204,7 +205,7 @@ func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store
 	if len(milestone.Required) > 0 {
 		payload["required"] = append([]string(nil), milestone.Required...)
 	}
-	payload["team_closed"] = state.State == store.TeamworkStateClosed
+	payload["team_closed"] = state.State == dto.TeamworkStateClosed
 	projectBoardPutText(payload, "team_state", state.State)
 	return payload
 }
@@ -213,7 +214,7 @@ func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store
 //
 // 空串**原样返回**（不补 "pending"）：`空 = pending` 是存储层的约定
 // （store/teamwork.go 的常量注释），补值就是把同一条约定写成第二份判据。
-func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.TeamworkState) string {
+func projectBoardMilestoneStatus(milestone dto.TeamworkMilestone, state dto.TeamworkState) string {
 	if runtime := strings.TrimSpace(state.Milestones[strings.TrimSpace(milestone.ID)]); runtime != "" {
 		return runtime
 	}
@@ -224,7 +225,7 @@ func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.
 //
 // milestone 取**父节点 id**：归属就是 plan 的结构，而声明的 item.Milestone 在
 // ValidateTeamworkPlan 里必须与父节点一致（不一致整份计划被拒），读侧不再二次判定。
-func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem, evidenceChars int) map[string]any {
+func projectBoardMilestoneItemPayload(milestoneID string, item dto.TeamworkWorkItem, evidenceChars int) map[string]any {
 	payload := map[string]any{
 		"id":        strings.TrimSpace(item.ID),
 		"milestone": milestoneID,
@@ -253,14 +254,14 @@ func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWor
 // 注意计划里的 `State` **本身就是**一个 TeamworkState（TeamworkPlan.State 字段类型，见
 // store/teamwork.go:98）——所以"读整队收口"读的永远是 TeamworkState.State，
 // 不存在"TeamworkPlan.State 是另一个字符串"这种事。
-func projectBoardTeamState(plan *store.TeamworkPlan, state *store.TeamworkState) store.TeamworkState {
+func projectBoardTeamState(plan *dto.TeamworkPlan, state *dto.TeamworkState) dto.TeamworkState {
 	if state != nil {
 		return *state
 	}
 	if plan != nil {
 		return plan.State
 	}
-	return store.TeamworkState{}
+	return dto.TeamworkState{}
 }
 
 // projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
@@ -295,8 +296,8 @@ func projectBoardRowsForFile(
 	seq uint64,
 	at int64,
 	workItems []model.WorkItem,
-	teamPlan *store.TeamworkPlan,
-	teamState *store.TeamworkState,
+	teamPlan *dto.TeamworkPlan,
+	teamState *dto.TeamworkState,
 	file string,
 	evidenceChars int,
 ) []store.ProjectBoardRow {

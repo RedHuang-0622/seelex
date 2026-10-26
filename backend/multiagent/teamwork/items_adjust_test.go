@@ -69,8 +69,8 @@ func TestAdjustItemRewritesPendingWorkAndReadsBack(t *testing.T) {
 	if after.ID != "wi-test" || after.Milestone != "m-build" {
 		t.Fatalf("调整动了不该动的格（id/里程碑）：%+v", after)
 	}
-	if after.StatusOrPending() != store.TeamworkItemPending {
-		t.Fatalf("调整不是派发：状态仍是 pending，得到 %q", after.StatusOrPending())
+	if store.TeamworkWorkItemStatusOrPending(after) != store.TeamworkItemPending {
+		t.Fatalf("调整不是派发：状态仍是 pending，得到 %q", store.TeamworkWorkItemStatusOrPending(after))
 	}
 	// 未派发的工作项没有自己的会话/现场（那是派发才发生的）。
 	if after.SessionID != "" || after.Worktree != "" || after.Handle != "" {
@@ -119,7 +119,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 	}
 	// 被拒之后不得留下任何派发痕迹（没有会话/现场/绑定）。
 	blocked := itemState(t, fixture, "wi-test")
-	if blocked.StatusOrPending() != store.TeamworkItemPending || blocked.SessionID != "" ||
+	if store.TeamworkWorkItemStatusOrPending(blocked) != store.TeamworkItemPending || blocked.SessionID != "" ||
 		blocked.Worktree != "" || blocked.StartedAt != 0 {
 		t.Fatalf("派发被拒不得改动工作项：%+v", blocked)
 	}
@@ -136,8 +136,8 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 		t.Fatalf("依赖完成后必须放行：%v", err)
 	}
 	dispatched := itemState(t, fixture, "wi-test")
-	if dispatched.StatusOrPending() != store.TeamworkItemRunning {
-		t.Fatalf("放行后工作项应在跑，得到 %q", dispatched.StatusOrPending())
+	if store.TeamworkWorkItemStatusOrPending(dispatched) != store.TeamworkItemRunning {
+		t.Fatalf("放行后工作项应在跑，得到 %q", store.TeamworkWorkItemStatusOrPending(dispatched))
 	}
 	if dispatched.SessionID == "" || dispatched.Worktree == "" {
 		t.Fatalf("派发必须落上「这件事自己的会话 + 现场」：%+v", dispatched)

@@ -16,7 +16,7 @@ type ProjectBoardDeps struct {
 	WorkTableInputs func(sessionID string) (*model.PlanState, []dto.TaskRecord, []dto.SubAgentTreeNode, []dto.AsyncRunRecord)
 	WorkTableLimits func() worktable.Limits
 	ProjectRoot     func(sessionID string) string
-	TeamPlan        func(sessionID string) *TeamworkPlan
+	TeamPlan        func(sessionID string) *dto.TeamworkPlan
 }
 
 // ProjectBoardApplication coordinates the four project-board read entries.
@@ -42,12 +42,12 @@ func (application *ProjectBoardApplication) ProjectRootFor(sessionID string) str
 }
 
 // ProjectBoardTeamPlanFor returns the optional teamwork plan for the session.
-func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *TeamworkPlan {
+func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *dto.TeamworkPlan {
 	return application.deps.TeamPlan(strings.TrimSpace(sessionID))
 }
 
 // ProjectBoardTeamStateFor extracts the run state from the authoritative plan.
-func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *TeamworkState {
+func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *dto.TeamworkState {
 	plan := application.ProjectBoardTeamPlanFor(sessionID)
 	if plan == nil {
 		return nil

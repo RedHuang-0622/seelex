@@ -22,11 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 // teamworkEventFile 是审计流水文件名（追加、不重写）。
@@ -45,15 +47,15 @@ const teamworkJobSubdir = "jobs"
 // 这里重复一次常量而不是 import agentteam：存储层不该依赖上层角色装配，
 // 而这条约束必须在**计划可被 leader 改写**的第二道校验关口上仍然成立。
 const (
-	TeamworkRoleMain = "main"
-	TeamworkRoleUser = "user"
+	TeamworkRoleMain = dto.TeamworkRoleMain
+	TeamworkRoleUser = dto.TeamworkRoleUser
 )
 
 // 里程碑状态取值（空 = pending）。
 const (
-	TeamworkMilestonePending = "pending"
-	TeamworkMilestoneActive  = "active"
-	TeamworkMilestoneDone    = "done"
+	TeamworkMilestonePending = dto.TeamworkMilestonePending
+	TeamworkMilestoneActive  = dto.TeamworkMilestoneActive
+	TeamworkMilestoneDone    = dto.TeamworkMilestoneDone
 )
 
 // 审计事件的 kind 取值。
@@ -85,10 +87,8 @@ const (
 //
 // **闭板事实双写：域内权威在 plan.State**（U3 裁决）——看板存档（moduleBoardTeam）
 // 只作历史/恢复，读侧不得据存档反推域内是否已收口。
-const (
-	// TeamworkStateClosed：整队已收口（team_close）。
-	TeamworkStateClosed = "closed"
-)
+// TeamworkStateClosed 是整队已收口（team_close）的兼容常量。
+const TeamworkStateClosed = dto.TeamworkStateClosed
 
 // TeamworkPlan 是 leader 的硬编排计划（moduleTeamwork head 的 payload）。
 //
@@ -96,86 +96,21 @@ const (
 // （Milestones[].DependsOn）+ 里程碑内的工作项 DAG（Items[].DependsOn）。读一份
 // 阶段制时代留下的旧计划时，`stages` 这个未知字段被 JSON 解码直接忽略——旧计划
 // 因此照常读得出来，只是它的"顺序"不再被任何读侧认作事实。
-type TeamworkPlan struct {
-	TeamID     string              `json:"team_id"`
-	Version    int                 `json:"version"`
-	Members    []TeamworkMember    `json:"members"`
-	Milestones []TeamworkMilestone `json:"milestones,omitempty"`
-	State      TeamworkState       `json:"state,omitempty"`
-}
+// TeamworkPlan 是 contract/dto.TeamworkPlan 的持久化兼容 alias。
+type TeamworkPlan = dto.TeamworkPlan
 
-// IsEmpty 报告"这份计划还没声明过团队"（team_plan 一次都没写过）。
-//
-// 判据只有一条（团队标识为空），放在类型自己身上：读面（store 的宽容读、看板投影）与
-// 写面（requireTeam 的领域文案）都问这一处，免得三处各写一遍"什么算还没组队"。
-func (plan TeamworkPlan) IsEmpty() bool {
-	return strings.TrimSpace(plan.TeamID) == ""
-}
+// TeamworkMember 是 contract/dto.TeamworkMember 的持久化兼容 alias。
+type TeamworkMember = dto.TeamworkMember
 
-// TeamworkMember 是一个 teammate 的在编条目（人 + 会话 + 工作区指派）。
-type TeamworkMember struct {
-	Role          string `json:"role"`
-	RoleSessionID string `json:"role_session_id"`
-	Worktree      string `json:"worktree,omitempty"`
-	// ToolsPolicy 是权责档（readonly / readwrite / inherit）；与 Permission 的
-	// 关系同 dto.RoleSpec：显式 Permission 非空则以格子为准，档位只用于选分支。
-	ToolsPolicy string         `json:"tools_policy,omitempty"`
-	Permission  map[string]int `json:"permission_groups,omitempty"`
-	// Plugins 是这个 teammate 的**按会话插件装配**（能力轴）：插件名清单，空/缺失
-	// = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。权限不在这里——插件只
-	// 收窄能力，永不放宽权限面。
-	Plugins []string `json:"plugins,omitempty"`
-	// MaxTurns 是这个 teammate **自己**的角色回合上限（可选；0 = 装配层默认
-	// roleTurnMaxLoops=12）。与 subagent 的 per-subagent max_loops 同构：它是
-	// "一个工作单元自己的执行参数"在 teammate 层的落点，随载荷走完整条透传链
-	// （成员条目 → WorkerRequest.MaxTurns → roleRoundSpec.MaxLoops →
-	// session.SessionConfig.MaxLoops）：派发时带了、执行时不许丢。
-	MaxTurns int `json:"max_turns,omitempty"`
-}
+// TeamworkMilestone 是 contract/dto.TeamworkMilestone 的持久化兼容 alias。
+type TeamworkMilestone = dto.TeamworkMilestone
 
-// TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。
-//
-// 它同时是**屏障**：里程碑之间串行（DependsOn 是里程碑层的顺序唯一事实），
-// 里程碑内部才按 Items 的依赖 DAG 并行。阶段制时代的 `after`（指向阶段 id）已随
-// 阶段口径一起退场——留一个指向不存在的东西的字段，就是把两套语义继续焊在一起。
-type TeamworkMilestone struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
-	// DependsOn 是里程碑之间的依赖（屏障）：依赖未 done 的里程碑不进入"可排活"。
-	DependsOn []string `json:"depends_on,omitempty"`
-	// Required 是"这个里程碑需要哪些在编角色"的声明（**角色名**，不是阶段 id）；
-	// 它只做校验（必须在编），不参与顺序判定——顺序归 DependsOn。
-	Required []string `json:"required,omitempty"`
-	Status   string   `json:"status,omitempty"`
-	Content  string   `json:"content,omitempty"`
-	// Items 是这个里程碑下的工作项（甘特图节点；一 Work Item 一个 teammate 一套
-	// Session + worktree）。分里程碑安排工作 = 只往当前这一步的 Items 里加东西。
-	Items []TeamworkWorkItem `json:"items,omitempty"`
-}
+// TeamworkState 是 contract/dto.TeamworkState 的持久化兼容 alias。
+type TeamworkState = dto.TeamworkState
 
-// TeamworkState 是计划的运行态投影（作业句柄/里程碑结论）。
-//
-// 注意：jobs 里的句柄只是**投影**，不是事实来源（jobs I-4：句柄只在内存，
-// 进程重启后这里的值一律视为过期，由调用方以 Observe 的返回为准）。
-type TeamworkState struct {
-	Jobs       map[string]string `json:"jobs,omitempty"`
-	Milestones map[string]string `json:"milestones,omitempty"`
-	// Unmerged 是"尾插把现场留给了 leader"的工作项（工作项 id → 未落地的原因）。
-	//
-	// 它不是第二份状态：工作项的状态仍是 review（**不判死**——一份已完成的产出不该
-	// 被说成"得重派"），这一格只回答"它的现场里还留着没合进去的改动"。收口闸门据此
-	// 把它算作**没落定**：整队收口是唯一会拆 per-item 现场的地方，把一份未合并的产出
-	// 连同分支一起静默删掉，与 failed 的后果同族（产出只剩 reflog）。
-	//
-	// 清除点有三处，都是"这一格描述的事实已经变了"：重新派发（这次没合并的现场不再是
-	// 它的现场）、下一次尾插落定（重新按分类记）、leader 验收销项（裁决已下）。
-	Unmerged map[string]string `json:"unmerged,omitempty"`
-	// 闭板三字段（closed 事实的域内权威，U3 裁决）：State 空 = 未收口。
-	// ClosedReason 取 store 的收口原因词表（team.close）；看板存档里的同名字段
-	// 只是这份事实的历史副本，读侧判定"还在不在册"一律读这里。
-	State        string `json:"state,omitempty"`
-	ClosedAt     int64  `json:"closed_at,omitempty"`
-	ClosedReason string `json:"closed_reason,omitempty"`
+// TeamworkPlanIsEmpty 是 contract/dto.TeamworkPlanIsEmpty 的兼容自由函数。
+func TeamworkPlanIsEmpty(plan TeamworkPlan) bool {
+	return dto.TeamworkPlanIsEmpty(plan)
 }
 
 // TeamworkEvent 是审计流水的一行：只追加，不重写。

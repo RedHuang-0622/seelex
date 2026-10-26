@@ -43,7 +43,7 @@ func runningItem(t *testing.T, fixture *itemFixture, id string) {
 		t.Fatalf("DispatchItem(%s): %v", id, err)
 	}
 	waitRequests(t, fixture, 1)
-	if status := itemState(t, fixture, id).StatusOrPending(); status != store.TeamworkItemRunning {
+	if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, id)); status != store.TeamworkItemRunning {
 		t.Fatalf("前置：worker 还在飞时 %s 应在跑，得到 %q", id, status)
 	}
 }
@@ -101,7 +101,7 @@ func TestAcceptAllowsRunningItemWhoseHandleIsGone(t *testing.T) {
 
 	// 重启：新协调器 + 空作业表——句柄只在内存，重启必然作废；状态照旧停在 running。
 	restarted := newItemFixtureOver(t, fixture)
-	if status := itemState(t, restarted, "wi-req").StatusOrPending(); status != store.TeamworkItemRunning {
+	if status := store.TeamworkWorkItemStatusOrPending(itemState(t, restarted, "wi-req")); status != store.TeamworkItemRunning {
 		t.Fatalf("前置：重启后状态仍是 running（句柄作废不是错误，是「可重派」的信号），得到 %q", status)
 	}
 	if err := restarted.coordinator.AcceptItem(context.Background(), "wi-req", "重启后清理现场"); err != nil {

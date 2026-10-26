@@ -209,6 +209,7 @@
 | EP-041 | 已完成 | 层边界裁决与 Application 全局依赖预算 | Session 聚合归 session、全局 concrete dependency 30 冻结 |
 | EP-042 | 已完成 | Conversation window pure helper 归位 | history 不再依赖 view_state，为 SessionState 迁移清障 |
 | EP-043 | 已完成 | SessionState / ViewState 物理迁入 Application | core 直接依赖归零、middle sessionusecase/viewstate 删除 |
+| EP-044 | 已完成 | TeamworkPlan 五类实体完整 DTO 化 | contract 唯一定义、Store/backend alias、execution 迁移桥删除 |
 
 ## 基线指标
 
@@ -5140,6 +5141,28 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - Application 全局具体依赖包 30 → 28；
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 字段均未改变；
 - 回退方式：将两包移回 Middle，恢复 core 直接 import；状态与算法不复制。
+
+## EP-044：TeamworkPlan 完整 DTO 化
+
+- `TeamworkPlan`、`TeamworkMember`、`TeamworkMilestone`、`TeamworkWorkItem`、
+  `TeamworkState` 及里程碑/工作项状态常量迁入 `contract/dto/teamwork_plan.go`；
+- `TeamworkPlanIsEmpty`、`TeamworkWorkItemStatusOrPending`、
+  `TeamworkWorkItemTerminal` 是 Contract 自由函数；原类型方法退出，JSON tag 不变；
+- Store 保留五类同身份 alias 与一行兼容自由函数，持久化校验仍只在 Store；
+- Middle 看板的可选计划端口改为直接消费 `contract/dto`；
+  Backend teamwork 调用点改用自由函数，不复制状态判据；
+- `application/execution.TeamworkPlan/TeamworkState` 迁移 alias 已删除，
+  ProjectBoard 与 Core 直接使用 Contract 类型；
+- 红测：`TeamworkPlan` Contract 类型尚不存在时，
+  `TestTeamworkPlanContractWireShapeAndFreeFunctions` 与
+  `TestTeamworkPlanUsesContractIdentity` 编译失败并逐项点名缺口；
+- 绿测：Contract DTO、Application/Core/Execution、Store、Middle board、
+  Backend teamwork 与 Engine assemble 全部通过；
+- Application 全局具体依赖包保持 28：本批删除 `application/execution -> store`
+  类型边，但 `goal`、`session` 与 `toolrecord` 仍有后续 Store 迁移；
+- `Service` 保持 23，core 生产文件/行数保持 114 / 11,602；
+- GUI/TUI wire、Snapshot revision/seq 与 `plan.json` 持久化 JSON 均未改变；
+- 回退方式：恢复 Store 本地类型与方法，让 Middle/Application 回退到 Store alias。
 
 ## 本轮收口指标
 
