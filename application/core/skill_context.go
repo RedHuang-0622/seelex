@@ -13,36 +13,6 @@ const (
 	skillContextEnvelopeSuffix = " -->"
 )
 
-type chatRequest struct {
-	displayInput string
-	modelInput   string
-	skills       []prompt.PromptLayer
-	budget       ReActBudget
-}
-
-func chatRequestDisplays(requests []chatRequest) []string {
-	displays := make([]string, len(requests))
-	for index, request := range requests {
-		displays[index] = request.displayInput
-	}
-	return displays
-}
-
-func newChatRequest(input string, layers []prompt.PromptLayer) chatRequest {
-	display := strings.TrimSpace(input)
-	return chatRequest{displayInput: display, modelInput: display, skills: selectedSkillLayers(layers)}
-}
-
-func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer {
-	skilled := make([]prompt.PromptLayer, 0, len(layers))
-	for _, layer := range layers {
-		if layer.Kind == "skill" {
-			skilled = append(skilled, layer)
-		}
-	}
-	return skilled
-}
-
 func formatSkillUserInput(layers []prompt.PromptLayer, input string) string {
 	_ = layers
 	return input
@@ -77,51 +47,6 @@ func displayUserInput(modelInput string) string {
 		return modelInput
 	}
 	return display
-}
-
-func combineChatRequests(requests []chatRequest) chatRequest {
-	displays := make([]string, 0, len(requests))
-	models := make([]string, 0, len(requests))
-	decorated := false
-	combined := chatRequest{}
-	for _, request := range requests {
-		displays = append(displays, request.displayInput)
-		_, bodyOffset, ok := parseModelEnvelope(request.modelInput)
-		if ok {
-			decorated = true
-			models = append(models, request.modelInput[bodyOffset:])
-		} else {
-			models = append(models, request.modelInput)
-		}
-	}
-	display := strings.Join(displays, "\n---\n")
-	model := strings.Join(models, "\n---\n")
-	if decorated {
-		model = wrapModelInput(display, model)
-	}
-	combined.displayInput = display
-	combined.modelInput = model
-	for _, request := range requests {
-		combined.skills = mergeSkillLayers(combined.skills, request.skills)
-	}
-	return combined
-}
-
-func mergeSkillLayers(current, incoming []prompt.PromptLayer) []prompt.PromptLayer {
-	for _, layer := range incoming {
-		found := false
-		for index := range current {
-			if current[index].Name == layer.Name {
-				current[index] = layer
-				found = true
-				break
-			}
-		}
-		if !found {
-			current = append(current, layer)
-		}
-	}
-	return current
 }
 
 func parseModelEnvelope(input string) (string, int, bool) {

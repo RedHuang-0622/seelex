@@ -2,14 +2,14 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"github.com/RedHuang-0622/Seele/session"
+	applicationtoolhooks "github.com/RedHuang-0622/seelex/application/execution/toolhooks"
+	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	selexsession "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
-	"sync"
 	"time"
 )
 
@@ -186,13 +186,13 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.unlock.done")
 	emit("toolhook.complete.event.start")
 	service.publishSessionEvent(EventToolCompleted, revision, requestID, sessionID, message)
-	// 工具记录（唯一判据 = toolStatusFailed + toolRecordReason，读数落全局台账）：
+	// 工具记录（唯一判据 = toolrecord.Failed + toolrecord.Reason，读数落全局台账）：
 	// 放在**发布之后**是刻意的——这里已经出了 ViewMu（台账要写文件，绝不在视图锁下做 IO）。
 	//
 	// 原因归并吃的是**原始错误**（toolErr），不是给模型看的 errorText：后者是呈现层的
 	// 包装文案（"该工具未能完成本次操作…"），它刻意不含内部细节，拿它归因只会全落到
 	// "其它"。成功也记（开关打开时）：没有分母的失败计数会把优化带偏。
-	service.recordToolOutcome(sessionID, name, toolStatusFailed(status), toolErrorText(toolErr))
+	service.recordToolOutcome(sessionID, name, applicationtoolrecord.Failed(status), applicationtoolrecord.ErrorText(toolErr))
 	if assistant != nil {
 		service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, *assistant)
 	}
@@ -213,168 +213,65 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 }
 
 type ToolHookBridge struct {
-	mu         sync.Mutex
-	service    *Service
-	toolSeq    uint64
-	pending    map[string][]string
-	diagnostic ToolHookDiagnosticObserver
+	bridge *applicationtoolhooks.Bridge
 }
 
-// ToolHookDiagnosticEvent is metadata-only instrumentation for the boundary
-// between the framework session loop and application event projection.
-// Arguments and tool output are intentionally excluded.
-type ToolHookDiagnosticEvent struct {
-	Stage string
-	Name  string
-	Err   error
+// NewToolHookBridge constructs the Seele-to-Application hook adapter.
+func NewToolHookBridge() *ToolHookBridge {
+	return &ToolHookBridge{bridge: applicationtoolhooks.New()}
 }
 
-// ToolHookDiagnosticObserver receives best-effort ToolHookBridge stages.
-type ToolHookDiagnosticObserver func(ToolHookDiagnosticEvent)
-
-func NewToolHookBridge() *ToolHookBridge { return &ToolHookBridge{} }
+// Bind installs the current Service as the hook host.
 func (bridge *ToolHookBridge) Bind(service *Service) {
-	bridge.mu.Lock()
-	bridge.service = service
-	bridge.mu.Unlock()
+	bridge.bridge.Bind(applicationtoolhooks.Deps{
+		RecordLLMComplete: service.components.tasks.RecordLLMComplete,
+		RecordReActToolCall: func(ctx context.Context) {
+			service.components.tasks.RecordReActToolCall(ctx)
+		},
+		HandleToolStart: func(ctx context.Context, name, id, arguments string) {
+			service.handleToolStart(ctx, name, id, arguments)
+		},
+		HandleToolComplete: func(ctx context.Context, info session.ToolCallInfo, id string, observe func(string)) {
+			service.handleToolCompleteObserved(
+				ctx, info.Name, id, info.Arguments, info.Result, info.Error, info.Duration, observe,
+			)
+		},
+		AllowNextReActIteration: service.components.tasks.AllowNextReActIteration,
+		SessionBacked: func() bool {
+			reentrant, ok := service.Deps.Engine.(interface{ SessionBacked() bool })
+			return ok && reentrant.SessionBacked()
+		},
+		QueuedInputs: func() bool {
+			service.ViewMu.RLock()
+			queued := len(service.activeQueuedChatRequestsLocked()) > 0
+			service.ViewMu.RUnlock()
+			return queued
+		},
+		ActiveRequestID: func() string {
+			service.ViewMu.RLock()
+			requestID := service.Core.Snapshot.Chat.RequestID
+			service.ViewMu.RUnlock()
+			return requestID
+		},
+		PrepareHistory: func(ctx context.Context) error {
+			return service.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx))
+		},
+		RecordContextFailure: service.components.context.RecordContextControlFailure,
+	})
 }
 
-// SetDiagnosticObserver 安装可选、尽力而为的生命周期诊断。传入 nil 关闭。
+// SetDiagnosticObserver installs optional metadata-only hook diagnostics.
 func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver) {
-	bridge.mu.Lock()
-	bridge.diagnostic = observer
-	bridge.mu.Unlock()
+	bridge.bridge.SetDiagnosticObserver(applicationtoolhooks.DiagnosticObserver(observer))
 }
 
-func (bridge *ToolHookBridge) observeDiagnostic(event ToolHookDiagnosticEvent) {
-	bridge.mu.Lock()
-	observer := bridge.diagnostic
-	bridge.mu.Unlock()
-	if observer == nil {
-		return
-	}
-	defer func() { _ = recover() }()
-	observer(event)
-}
+// Hooks returns Seele loop hooks.
 func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
-	return &session.LoopHooks{
-		OnLLMComplete: func(ctx context.Context, info session.LLMInfo) {
-			bridge.mu.Lock()
-			svc := bridge.service
-			bridge.mu.Unlock()
-			if svc != nil {
-				svc.components.tasks.RecordLLMComplete(ctx, info)
-			}
-		},
-		OnToolStart: func(ctx context.Context, info session.ToolCallInfo) {
-			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.enter", Name: info.Name})
-			service, id := bridge.beginTool(info)
-			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.matched", Name: info.Name})
-			if service != nil {
-				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.project.start", Name: info.Name})
-				service.components.tasks.RecordReActToolCall(ctx)
-				service.handleToolStart(ctx, info.Name, id, info.Arguments)
-				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.project.done", Name: info.Name})
-			}
-		},
-		OnToolComplete: func(ctx context.Context, info session.ToolCallInfo) {
-			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.enter", Name: info.Name, Err: info.Error})
-			service, id := bridge.completeTool(info)
-			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.matched", Name: info.Name, Err: info.Error})
-			if service != nil {
-				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.project.start", Name: info.Name, Err: info.Error})
-				service.handleToolCompleteObserved(ctx, info.Name, id, info.Arguments, info.Result, info.Error, info.Duration, func(stage string) {
-					bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: stage, Name: info.Name, Err: info.Error})
-				})
-				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.project.done", Name: info.Name, Err: info.Error})
-			}
-		},
-		OnIterationComplete: func(ctx context.Context, turn int) bool {
-			bridge.mu.Lock()
-			svc := bridge.service
-			bridge.mu.Unlock()
-			if svc == nil {
-				return true
-			}
-			if !svc.components.tasks.AllowNextReActIteration(ctx, turn) {
-				return false
-			}
-			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
-			// OnIterationComplete 在回合内、同一条 goroutine 上同步执行。Seele
-			// 已把「整轮持锁」换成回合闸门 + 工作状态短临界区：这里再调引擎的
-			// 历史方法不会自锁（忙时排队到下一个检查点），所以下面这段提前返回
-			// 是**语义**选择而不是锁规避——压缩决策移交 ContextController
-			// （seelectx.ContextController，plan.md §3.5：OnIterationComplete 不再
-			// 触发 compactTaskContext）；配对修复由装配/请求前
-			// （prepareProviderHistory / 批处理路径）承担，进度回调与事件流不变。
-			if reentrant, ok := svc.Deps.Engine.(interface{ SessionBacked() bool }); ok && reentrant.SessionBacked() {
-				// 每轮 ReAct 迭代结束检查输入队列：非空 → 返回 false 中断本轮
-				// （本轮工具已全部完成，是安全边界），由 runChat 结尾的队列提升
-				// 自动开启下一轮并清空队列——一轮一消费，无需等整条 loop。
-				svc.ViewMu.RLock()
-				queued := len(svc.activeQueuedChatRequestsLocked()) > 0
-				svc.ViewMu.RUnlock()
-				return !queued
-			}
-			svc.ViewMu.RLock()
-			activeRequestID := svc.Core.Snapshot.Chat.RequestID
-			svc.ViewMu.RUnlock()
-			// The engine adds assistant/tool records after the initial preflight.
-			// Repair empty content before its next provider request, not only
-			// before loop 0. 残缺链配对修复（注入缺失 tool 结果）不在活跃
-			// ReAct 中间态执行 —— 新 append 的 assistant 工具记录可能仍在
-			// 执行中，误判会与即将到达的真结果重复；定稿链由装配/请求前
-			// 的 PrepareProviderHistoryFor 补齐。
-			//
-			// 这条回调跑在 ChatStream 同一条 goroutine 上，但 Seele 已不再让
-			// 回合持锁跑整轮：这里的读写经 Session 的工作状态短临界区 / 检查点
-			// 队列落地，因此**不存在自锁**。保留 NewHistoryContentFor 只修空正文
-			// 的窄语义仍是刻意的（不要在中间态做配对修复），不是因为锁。
-			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx)); err != nil {
-				svc.components.context.RecordContextControlFailure(activeRequestID, err)
-				return false
-			}
-			// 非 Session-backed 引擎（仅测试）：队列输入统一由 runChat 结尾
-			// 单点消费并开启下一轮，不在此处注入引擎历史。
-			return true
-		},
-	}
+	return bridge.bridge.Hooks()
 }
 
-func (bridge *ToolHookBridge) beginTool(info session.ToolCallInfo) (*Service, string) {
-	bridge.mu.Lock()
-	defer bridge.mu.Unlock()
-	id := bridge.nextToolIDLocked()
-	if bridge.pending == nil {
-		bridge.pending = make(map[string][]string)
-	}
-	key := toolHookKey(info)
-	bridge.pending[key] = append(bridge.pending[key], id)
-	return bridge.service, id
-}
+// ToolHookDiagnosticEvent is metadata-only hook instrumentation.
+type ToolHookDiagnosticEvent = applicationtoolhooks.DiagnosticEvent
 
-func (bridge *ToolHookBridge) completeTool(info session.ToolCallInfo) (*Service, string) {
-	bridge.mu.Lock()
-	defer bridge.mu.Unlock()
-	key := toolHookKey(info)
-	ids := bridge.pending[key]
-	if len(ids) == 0 {
-		return bridge.service, bridge.nextToolIDLocked()
-	}
-	id := ids[0]
-	if len(ids) == 1 {
-		delete(bridge.pending, key)
-	} else {
-		bridge.pending[key] = ids[1:]
-	}
-	return bridge.service, id
-}
-
-func (bridge *ToolHookBridge) nextToolIDLocked() string {
-	bridge.toolSeq++
-	return fmt.Sprintf("tool-%d", bridge.toolSeq)
-}
-
-func toolHookKey(info session.ToolCallInfo) string {
-	return fmt.Sprintf("%d\x00%s\x00%s", info.Turn, info.Name, info.Arguments)
-}
+// ToolHookDiagnosticObserver receives best-effort hook stages.
+type ToolHookDiagnosticObserver = applicationtoolhooks.DiagnosticObserver

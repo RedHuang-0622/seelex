@@ -94,6 +94,11 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 // (0,0) = 全量，与 store.EventStore.LoadRange 同一语义）。目标会话
 // 未驻留时同样可用（事件库按项目键直接读回，不依赖内存态）。
 func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
+	return service.components.sessionQuery.GetSessionTranscript(sessionID, fromSeq, toSeq)
+}
+
+// readSessionTranscript 是查询组件的宿主读面：只走事件库，不进入共享写锁。
+func (service *Service) readSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return nil, errors.New("session ID is required")

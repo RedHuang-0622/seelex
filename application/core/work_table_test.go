@@ -312,7 +312,7 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
 
-	service.RefreshWorkTableSnapshot()
+	service.refreshWorkTableSnapshot()
 	event := waitForWorkTableEvent(t, subscription)
 	if len(event.Items) != 1 || event.Items[0].ID != "subagent:s1" || event.Items[0].Status != "running" {
 		t.Fatalf("worktable.changed = %+v", event.Items)
@@ -362,7 +362,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	subscription := service.Subscribe(16)
 	defer subscription.Close()
 
-	service.RefreshWorkTableSnapshot()
+	service.refreshWorkTableSnapshot()
 	first := waitForWorkTableEvent(t, subscription)
 	if len(first.SubAgentTree) != 1 || len(first.SubAgentTree[0].Children) != 1 ||
 		first.SubAgentTree[0].Children[0].ID != "s1" || first.SubAgentTree[0].Children[0].Status != dto.SubAgentRunning {
@@ -370,7 +370,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	}
 
 	// 树内容未变：后续表格增量不再重复携带树（避免表格增量被运行期树撑大）。
-	service.RefreshWorkTableSnapshot()
+	service.refreshWorkTableSnapshot()
 	unchanged := waitForWorkTableEvent(t, subscription)
 	if unchanged.SubAgentTree != nil {
 		t.Fatalf("未变化的树不得重复下发: %+v", unchanged.SubAgentTree)
@@ -386,7 +386,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 		}},
 	}}
 	engine.mu.Unlock()
-	service.RefreshWorkTableSnapshot()
+	service.refreshWorkTableSnapshot()
 	completed := waitForWorkTableEvent(t, subscription)
 	if len(completed.SubAgentTree) != 1 || completed.SubAgentTree[0].Children[0].Status != dto.SubAgentDone {
 		t.Fatalf("变化后的树必须重新下发: %+v", completed.SubAgentTree)
@@ -396,7 +396,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	engine.mu.Lock()
 	engine.subAgentTree = nil
 	engine.mu.Unlock()
-	service.RefreshWorkTableSnapshot()
+	service.refreshWorkTableSnapshot()
 	cleared := waitForWorkTableEvent(t, subscription)
 	if cleared.SubAgentTree == nil || len(cleared.SubAgentTree) != 0 {
 		t.Fatalf("树清空必须显式下发空数组: %#v", cleared.SubAgentTree)

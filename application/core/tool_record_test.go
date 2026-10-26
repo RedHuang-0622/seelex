@@ -92,19 +92,18 @@ func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T) {
 	// teammate 的读数走**阶梯提交**（2026-10-19 方向 C）：先落进角色会话自己的暂存，
 	// 这一轮收口时才一次性交给会话累计——所以这里必须显式收口，否则它还没入账。
 	service.CloseRoleToolRecordUnit(sessionID, "role-impl")
-	service.HandleSubagentToolEvent(seelsession.SubagentToolEvent{ID: "sub#1", NodeID: "node-1", Name: "bash_bg", Status: dto.ToolEventRunning})
+	service.handleSubagentToolEvent(seelsession.SubagentToolEvent{ID: "sub#1", NodeID: "node-1", Name: "bash_bg", Status: dto.ToolEventRunning})
 
-	accumulator := service.toolRecords.accumulator(sessionID)
-	if accumulator == nil {
+	view := service.toolRecords.SessionView(sessionID)
+	if !view.Exists {
 		t.Fatal("该会话必须有一份累计")
 	}
-	stats := accumulator.Stats()
+	stats := view.Tools
 	if len(stats) != 3 {
 		t.Fatalf("三个工具在册（bash 成功一笔 + read_file/grep_search 各失败一笔）：%+v", stats)
 	}
-	total, success, failure := accumulator.Totals()
-	if total != 3 || success != 1 || failure != 2 {
-		t.Fatalf("口径不对（running 帧不计；成功也记）：total=%d success=%d failure=%d", total, success, failure)
+	if view.Total != 3 || view.Success != 1 || view.Failure != 2 {
+		t.Fatalf("口径不对（running 帧不计；成功也记）：total=%d success=%d failure=%d", view.Total, view.Success, view.Failure)
 	}
 	for _, stat := range stats {
 		switch stat.Tool {
@@ -221,12 +220,11 @@ func TestToolCommandOutcomeCountsNonZeroExitAsFailure(t *testing.T) {
 	service.RecordToolCommandOutcome(sessionID, "bash", 0)
 	service.RecordToolCommandOutcome(sessionID, "bash", 1)
 
-	accumulator := service.toolRecords.accumulator(sessionID)
-	total, success, failure := accumulator.Totals()
-	if total != 2 || success != 1 || failure != 1 {
-		t.Fatalf("退出码口径：total=%d success=%d failure=%d", total, success, failure)
+	view := service.toolRecords.SessionView(sessionID)
+	if view.Total != 2 || view.Success != 1 || view.Failure != 1 {
+		t.Fatalf("退出码口径：total=%d success=%d failure=%d", view.Total, view.Success, view.Failure)
 	}
-	stats := accumulator.Stats()
+	stats := view.Tools
 	if len(stats[0].Reasons) != 1 || stats[0].Reasons[0].Reason != dto.ToolReasonCommandFailed {
 		t.Fatalf("非零退出码归 %s：%+v", dto.ToolReasonCommandFailed, stats[0].Reasons)
 	}
@@ -240,9 +238,8 @@ func TestToolRecordIgnoresUnknownStatusWords(t *testing.T) {
 	for _, status := range []string{"", "unknown", "weird"} {
 		service.HandleRoleToolActivity(dto.RoleToolActivity{ID: "r" + status, MainSessionID: sessionID, Name: "bash", Status: status})
 	}
-	accumulator := service.toolRecords.accumulator(sessionID)
-	if total, _, _ := accumulator.Totals(); total != 0 {
-		t.Fatalf("认不得的状态词不得记：%d", total)
+	if view := service.toolRecords.SessionView(sessionID); view.Total != 0 {
+		t.Fatalf("认不得的状态词不得记：%d", view.Total)
 	}
 }
 
@@ -255,11 +252,11 @@ func TestToolRecordIsPerSession(t *testing.T) {
 			service.RecordToolCommandOutcome(sessionID, "bash", 0)
 		}
 	}
-	if total, _, _ := service.toolRecords.accumulator("sess-a").Totals(); total != 1 {
-		t.Fatalf("sess-a 只该有 1 笔：%d", total)
+	if view := service.toolRecords.SessionView("sess-a"); view.Total != 1 {
+		t.Fatalf("sess-a 只该有 1 笔：%d", view.Total)
 	}
-	if total, _, _ := service.toolRecords.accumulator("sess-b").Totals(); total != 2 {
-		t.Fatalf("sess-b 只该有 2 笔：%d", total)
+	if view := service.toolRecords.SessionView("sess-b"); view.Total != 2 {
+		t.Fatalf("sess-b 只该有 2 笔：%d", view.Total)
 	}
 }
 
@@ -268,11 +265,8 @@ func TestToolRecordWithoutSessionIsDropped(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	enableToolRecord(t, service, nil)
 	service.RecordToolCommandOutcome("  ", "bash", 1)
-	service.toolRecords.mu.Lock()
-	count := len(service.toolRecords.byID)
-	service.toolRecords.mu.Unlock()
-	if count != 0 {
-		t.Fatalf("无会话归属的调用不该建出累计：%d", count)
+	if diagnostics := service.toolRecords.Diagnostics(); diagnostics.SessionCount != 0 {
+		t.Fatalf("无会话归属的调用不该建出累计：%d", diagnostics.SessionCount)
 	}
 }
 
@@ -283,8 +277,8 @@ func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T) {
 	}
 	service.RecordToolCommandOutcome("sess-nostore", "bash", 1)
 	service.FlushToolRecord("sess-nostore") // 没装落盘口：空操作，不 panic
-	if total, _, _ := service.toolRecords.accumulator("sess-nostore").Totals(); total != 1 {
-		t.Fatalf("没装落盘口也要保住内存读数：%d", total)
+	if view := service.toolRecords.SessionView("sess-nostore"); view.Total != 1 {
+		t.Fatalf("没装落盘口也要保住内存读数：%d", view.Total)
 	}
 	_ = fmt.Sprintf("%v", service.ToolRecordBoard())
 }

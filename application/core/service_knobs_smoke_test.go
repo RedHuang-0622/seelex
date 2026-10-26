@@ -93,7 +93,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 5) 档位是"两条拉条的预设"：切一次 lite，两条一起落到 low/15，思考强度再下发一次。
-	if err := service.SwitchEffort(ctx, "lite"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(ctx, "lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	rounds, loops = runtimeKnobs(service)

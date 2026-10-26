@@ -38,11 +38,8 @@ func subagentReading(tool string, status dto.ToolEventStatus, errorText string) 
 
 // totals 读某会话的累计三数（不存在 ⇒ 全 0）。
 func totals(service *Service, sessionID string) (int, int, int) {
-	accumulator := service.toolRecords.accumulator(sessionID)
-	if accumulator == nil {
-		return 0, 0, 0
-	}
-	return accumulator.Totals()
+	view := service.toolRecords.SessionView(sessionID)
+	return view.Total, view.Success, view.Failure
 }
 
 // toolRecordHarness 是"两个真实会话 + 计数落盘口"的夹具：A 由一次真回合物化
@@ -124,7 +121,7 @@ func TestToolRecordSubagentReadingStaysWithOwnerAcrossViewSwitch(t *testing.T) {
 		ID: "evt-1", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess,
 	})
 	// 节点收口（终态）：一次性提交给 A 的会话累计。
-	service.CloseSubagentToolRecordUnit(harness.aID, "node-a")
+	service.closeSubagentToolRecordUnit(harness.aID, "node-a")
 
 	if total, success, failure := totals(service, harness.aID); total != 1 || success != 1 || failure != 0 {
 		t.Fatalf("A 应该 +1：total=%d success=%d failure=%d", total, success, failure)
@@ -156,8 +153,8 @@ func TestToolRecordConcurrentSubagentsStayInOwnSession(t *testing.T) {
 	service.HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a1", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
 	service.HandleSubagentToolEventFor(bID, seelsession.SubagentToolEvent{ID: "b1", NodeID: "node-b", Name: "read_file", Status: dto.ToolEventError, Error: "permission denied"})
 	service.HandleSubagentToolEventFor(aID, seelsession.SubagentToolEvent{ID: "a2", NodeID: "node-a", Name: "bash", Status: dto.ToolEventSuccess})
-	service.CloseSubagentToolRecordUnit(aID, "node-a")
-	service.CloseSubagentToolRecordUnit(bID, "node-b")
+	service.closeSubagentToolRecordUnit(aID, "node-a")
+	service.closeSubagentToolRecordUnit(bID, "node-b")
 
 	if total, success, _ := totals(service, aID); total != 2 || success != 2 {
 		t.Fatalf("A：total=%d success=%d（want 2/2）", total, success)
@@ -165,11 +162,11 @@ func TestToolRecordConcurrentSubagentsStayInOwnSession(t *testing.T) {
 	if total, _, failure := totals(service, bID); total != 1 || failure != 1 {
 		t.Fatalf("B：total=%d failure=%d（want 1/1）", total, failure)
 	}
-	stats := service.toolRecords.accumulator(aID).Stats()
+	stats := service.toolRecords.SessionView(aID).Tools
 	if len(stats) != 1 || stats[0].Tool != "bash" {
 		t.Fatalf("A 只该有 bash 一格：%+v", stats)
 	}
-	bStats := service.toolRecords.accumulator(bID).Stats()
+	bStats := service.toolRecords.SessionView(bID).Tools
 	if len(bStats) != 1 || bStats[0].Reasons[0].Reason != dto.ToolReasonPermission {
 		t.Fatalf("B 只该有 read_file 一格且原因归 permission：%+v", bStats)
 	}
@@ -187,20 +184,17 @@ func TestToolRecordTeammateWithoutMainSessionIsDropped(t *testing.T) {
 		ID: "role#1", RoleSessionID: "role-impl", Name: "bash",
 		Status: dto.ToolEventError.String(), Error: "permission denied",
 	})
-	service.toolRecords.mu.Lock()
-	_, viewHasAccumulator := service.toolRecords.byID[viewSessionID]
-	sessions := len(service.toolRecords.byID)
-	service.toolRecords.mu.Unlock()
-	if viewHasAccumulator || sessions != 0 {
-		t.Fatalf("没有归属的读数不许落到视图会话（累计表条目 %d）：%v", sessions, viewSessionID)
+	diagnostics := service.toolRecords.Diagnostics()
+	if diagnostics.SessionCount != 0 || service.toolRecords.SessionView(viewSessionID).Exists {
+		t.Fatalf("没有归属的读数不许落到视图会话（累计表条目 %d）：%v", diagnostics.SessionCount, viewSessionID)
 	}
 	if total, _, _ := totals(service, viewSessionID); total != 0 {
 		t.Fatalf("没有归属的读数不许落到视图会话：%d", total)
 	}
-	if count := service.ToolRecordDroppedReadings()[toolRecordDropNoOwner]; count != 1 {
-		t.Fatalf("丢弃必须可见（诊断计数）：%+v", service.ToolRecordDroppedReadings())
+	if count := service.toolRecordDroppedReadings()[toolRecordDropNoOwner]; count != 1 {
+		t.Fatalf("丢弃必须可见（诊断计数）：%+v", service.toolRecordDroppedReadings())
 	}
-	if units := service.toolStages.unitCount(); units != 0 {
+	if units := service.toolRecords.Diagnostics().UnitCount; units != 0 {
 		t.Fatalf("丢弃的读数也不该建出暂存：%d", units)
 	}
 }
@@ -212,13 +206,13 @@ func TestToolRecordCommitIsIdempotentPerSeq(t *testing.T) {
 	enableToolRecord(t, service, nil)
 	const sessionID = "sess-idem"
 
-	service.CommitUnitToolRecord(sessionID, "subagent:node-a", 3, toolRecordStat("bash", 1, 0, ""))
-	service.CommitUnitToolRecord(sessionID, "subagent:node-a", 3, toolRecordStat("bash", 1, 0, ""))
+	service.commitUnitToolRecord(sessionID, "subagent:node-a", 3, toolRecordStat("bash", 1, 0, ""))
+	service.commitUnitToolRecord(sessionID, "subagent:node-a", 3, toolRecordStat("bash", 1, 0, ""))
 	if total, _, _ := totals(service, sessionID); total != 1 {
 		t.Fatalf("同 seq 重复提交只计一次：%d", total)
 	}
 	// 往下退的 seq 同样不算（乱序到达的老批次）。
-	service.CommitUnitToolRecord(sessionID, "subagent:node-a", 2, toolRecordStat("bash", 1, 0, ""))
+	service.commitUnitToolRecord(sessionID, "subagent:node-a", 2, toolRecordStat("bash", 1, 0, ""))
 	if total, _, _ := totals(service, sessionID); total != 1 {
 		t.Fatalf("旧 seq 不得覆盖：%d", total)
 	}
@@ -231,12 +225,12 @@ func TestToolRecordCommitAccumulatesAcrossSeqs(t *testing.T) {
 	enableToolRecord(t, service, nil)
 	const sessionID = "sess-seq"
 
-	service.CommitUnitToolRecord(sessionID, "role:role-impl", 1, toolRecordStat("bash", 1, 0, ""))
-	service.CommitUnitToolRecord(sessionID, "role:role-impl", 2, toolRecordStat("bash", 1, 1, dto.ToolReasonTimeout))
+	service.commitUnitToolRecord(sessionID, "role:role-impl", 1, toolRecordStat("bash", 1, 0, ""))
+	service.commitUnitToolRecord(sessionID, "role:role-impl", 2, toolRecordStat("bash", 1, 1, dto.ToolReasonTimeout))
 	if total, success, failure := totals(service, sessionID); total != 3 || success != 2 || failure != 1 {
 		t.Fatalf("两次增量都要计入：total=%d success=%d failure=%d", total, success, failure)
 	}
-	stats := service.toolRecords.accumulator(sessionID).Stats()
+	stats := service.toolRecords.SessionView(sessionID).Tools
 	if len(stats) != 1 || stats[0].Total != 3 || stats[0].Reasons[0].Count != 1 {
 		t.Fatalf("同一工具名合并成一格：%+v", stats)
 	}
@@ -262,8 +256,8 @@ func TestToolRecordDraftSessionNeverWrites(t *testing.T) {
 
 	// 两回合：每回合都有读数、都在回合末尾那次落盘调用上过一遍。
 	for round := 0; round < 2; round++ {
-		service.StageUnitToolOutcome(draftID, "subagent:node-a", "bash", true, "")
-		service.CloseSubagentToolRecordUnit(draftID, "node-a")
+		service.stageUnitToolOutcome(draftID, "subagent:node-a", "bash", true, "")
+		service.closeSubagentToolRecordUnit(draftID, "node-a")
 		service.FlushToolRecord(draftID)
 	}
 	if saves := store.savesSnapshot(); len(saves) != 0 {
@@ -282,8 +276,8 @@ func TestToolRecordDraftMaterializationWritesOnceWithLeafReadings(t *testing.T) 
 	draftID := service.Snapshot().Session.ID
 
 	// 物化之前：子代理与 teammate 各记一笔（叶子暂存 → 收口到会话累计）。
-	service.StageUnitToolOutcome(draftID, "subagent:node-a", "bash", true, "")
-	service.CloseSubagentToolRecordUnit(draftID, "node-a")
+	service.stageUnitToolOutcome(draftID, "subagent:node-a", "bash", true, "")
+	service.closeSubagentToolRecordUnit(draftID, "node-a")
 	service.HandleRoleToolActivity(dto.RoleToolActivity{
 		ID: "role#1", MainSessionID: draftID, RoleSessionID: "role-impl", Name: "read_file",
 		Status: dto.ToolEventError.String(), Error: "permission denied",
@@ -332,8 +326,8 @@ func TestToolRecordFlushDrainsUnclosedLeafStages(t *testing.T) {
 	sessionID := service.currentViewSessionID()
 
 	// 叶子只攒不收口（节点还在跑）。
-	service.StageUnitToolOutcome(sessionID, "subagent:node-a", "bash", true, "")
-	service.StageUnitToolOutcome(sessionID, "role:role-impl", "read_file", true, "permission denied")
+	service.stageUnitToolOutcome(sessionID, "subagent:node-a", "bash", true, "")
+	service.stageUnitToolOutcome(sessionID, "role:role-impl", "read_file", true, "permission denied")
 	if total, _, _ := totals(service, sessionID); total != 0 {
 		t.Fatalf("没收口前会话累计不该有读数（阶梯提交的意义）：%d", total)
 	}
@@ -391,29 +385,22 @@ func TestToolRecordReleaseRecyclesStageAndSeq(t *testing.T) {
 	const aID, bID = "sess-del-a", "sess-del-b"
 
 	// A：一笔已入账（占住 lastSeq = 7）+ 一笔还在暂存里。B：一笔已入账。
-	service.CommitUnitToolRecord(aID, "subagent:node-a", 7, toolRecordStat("bash", 1, 0, ""))
-	service.StageUnitToolOutcome(aID, "subagent:node-a", "bash", true, "")
-	service.CommitUnitToolRecord(bID, "subagent:node-b", 1, toolRecordStat("read_file", 1, 0, ""))
+	service.commitUnitToolRecord(aID, "subagent:node-a", 7, toolRecordStat("bash", 1, 0, ""))
+	service.stageUnitToolOutcome(aID, "subagent:node-a", "bash", true, "")
+	service.commitUnitToolRecord(bID, "subagent:node-b", 1, toolRecordStat("read_file", 1, 0, ""))
 
 	if err := service.releaseSessionMemory(aID, releaseFull); err != nil {
 		t.Fatalf("释放 A：%v", err)
 	}
 	// A 的台账整格回收：累计、暂存、lastSeq 都不留。
-	service.toolRecords.mu.Lock()
-	_, stillThere := service.toolRecords.byID[aID]
-	service.toolRecords.mu.Unlock()
-	if stillThere {
+	if service.toolRecords.SessionView(aID).Exists {
 		t.Fatal("A 的累计必须随会话一起回收")
 	}
-	service.toolStages.mu.Lock()
-	units := len(service.toolStages.stages)
-	_, seqLeft := service.toolStages.lastSeq[toolRecordUnitKey{sessionID: aID, unitID: "subagent:node-a"}]
-	service.toolStages.mu.Unlock()
-	if units != 0 || seqLeft {
-		t.Fatalf("A 的暂存与 lastSeq 必须回收：units=%d seqLeft=%v", units, seqLeft)
+	if diagnostics := service.toolRecords.Diagnostics(); diagnostics.UnitCount != 0 {
+		t.Fatalf("A 的暂存必须回收：units=%d", diagnostics.UnitCount)
 	}
 	// 复用同一 ID 的新会话：从 seq=1 重新开始也必须入账（旧 lastSeq 不能把它判成重复）。
-	service.CommitUnitToolRecord(aID, "subagent:node-a", 1, toolRecordStat("bash", 1, 0, ""))
+	service.commitUnitToolRecord(aID, "subagent:node-a", 1, toolRecordStat("bash", 1, 0, ""))
 	if total, _, _ := totals(service, aID); total != 1 {
 		t.Fatalf("回收后同 ID 的新会话要能重新记账：%d", total)
 	}
@@ -434,16 +421,16 @@ func TestToolRecordDisabledStagesNothing(t *testing.T) {
 	}
 	sessionID := service.currentViewSessionID()
 
-	service.StageUnitToolOutcome(sessionID, "subagent:node-a", "bash", true, "")
+	service.stageUnitToolOutcome(sessionID, "subagent:node-a", "bash", true, "")
 	service.HandleRoleToolActivity(dto.RoleToolActivity{
 		ID: "role#1", MainSessionID: sessionID, RoleSessionID: "role-impl", Name: "bash",
 		Status: dto.ToolEventSuccess.String(),
 	})
 	service.HandleSubagentToolEventFor(sessionID, subagentReading("bash", dto.ToolEventSuccess, ""))
-	service.CloseUnitToolRecord(sessionID, "subagent:node-a")
+	service.closeUnitToolRecord(sessionID, "subagent:node-a")
 	service.FlushToolRecord(sessionID)
 
-	if units := service.toolStages.unitCount(); units != 0 {
+	if units := service.toolRecords.Diagnostics().UnitCount; units != 0 {
 		t.Fatalf("关着计数时叶子不攒：%d", units)
 	}
 	if total, _, _ := totals(service, sessionID); total != 0 {
@@ -465,7 +452,7 @@ func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T) {
 	service.RecordToolCommandOutcome(sessionID, "bash", 0)
 	// 子代理 → 失败一笔，原因 permission。
 	service.HandleSubagentToolEventFor(sessionID, subagentReading("read_file", dto.ToolEventError, "permission denied"))
-	service.CloseSubagentToolRecordUnit(sessionID, "node-a")
+	service.closeSubagentToolRecordUnit(sessionID, "node-a")
 	// teammate → 失败一笔，同一原因（只归一一次词表，不写第二份判据）。
 	service.HandleRoleToolActivity(dto.RoleToolActivity{
 		ID: "role#1", MainSessionID: sessionID, RoleSessionID: "role-impl", Name: "grep_search",
@@ -477,10 +464,10 @@ func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T) {
 	if total != 3 || success != 1 || failure != 2 {
 		t.Fatalf("三类读数都要进同一格：total=%d success=%d failure=%d", total, success, failure)
 	}
-	if units := service.toolStages.unitCount(); units != 2 {
+	if units := service.toolRecords.Diagnostics().UnitCount; units != 2 {
 		t.Fatalf("两个执行单元各一份暂存（收口后仍在表里、内容已清空）：%d", units)
 	}
-	for _, stat := range service.toolRecords.accumulator(sessionID).Stats() {
+	for _, stat := range service.toolRecords.SessionView(sessionID).Tools {
 		if stat.Failure == 0 {
 			continue
 		}

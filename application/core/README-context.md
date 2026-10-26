@@ -221,6 +221,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact.go
 
+- `func newContextCompactionApplication(deps contextCompactionApplicationDeps) *contextCompactionApplication`
 - `func compactionReasonLabel(reason string) string` — compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
 - `func failureReasonLabel(failure string) string` — failureReasonLabel 渲染压缩失败的原因（用户可读），并把数字事实原样带在括号里。
 - `func compactionRecordNote(result ContextCompactionResult) string` — compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
@@ -228,9 +229,13 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func compactionGateDuration(milliseconds int) string` — compactionGateDuration 渲染单关耗时。毫秒整数里 0 的含义是"不到一毫秒"，
 - `func compactionRangeLabel(result ContextCompactionResult) string` — compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
 - `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
+- `func (application *contextCompactionApplication) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)`
 - `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
+- `func (application *contextCompactionApplication) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)`
 - `func contextCompactionGates(gates []context_runtime.CompactionGateTiming) []CompactionGateTiming` — contextCompactionGates 把 context_runtime 的门禁耗时映射为回执面类型（JSON
 - `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
+- `func (service *Service) contextCompactionApplicationComponent() *contextCompactionApplication`
+- `func newServiceContextCompactionApplication(service *Service) *contextCompactionApplication`
 
 ### context_compact_across_rounds_repro_test.go
 
@@ -313,6 +318,8 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact_test.go
 
+- `func TestContextCompactionApplicationIsAssembled(t *testing.T)`
+- `func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 - `func TestCompactContextHandlerCompactsTranscript(t *testing.T)` — TestCompactContextHandlerCompactsTranscript：compact_context 工具（= /compact
 - `func TestCompactManualCompactsBelowThreshold(t *testing.T)` — TestCompactManualCompactsBelowThreshold：显式压缩（/compact、compact_context）

@@ -269,7 +269,7 @@ func TestLegacySessionWithoutRecordExposesEarlierHistory(t *testing.T) {
 		t.Fatal("旧格式长会话必须暴露 has_more_history（否则前端「加载更早」不可用）")
 	}
 
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	assertRange(t, "legacy page back", service.Snapshot(), 8, 6)
@@ -304,7 +304,7 @@ func TestLoadMoreHistoryPrependsPageAndSurvivesMirror(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	assertRange(t, "after one page back", service.Snapshot(), 8, 6)
@@ -360,7 +360,7 @@ func TestLoadMoreHistoryPagesToBeginning(t *testing.T) {
 		if pages > 10 {
 			t.Fatalf("分页在 %d 页后仍未到底（history_offset = %d）：分页态未随会话可见投影持久", pages, service.Snapshot().HistoryOffset)
 		}
-		if err := service.LoadMoreHistory(0); err != nil {
+		if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 			t.Fatalf("load more history page %d: %v", pages, err)
 		}
 		check(fmt.Sprintf("page %d", pages), service.Snapshot())
@@ -383,7 +383,7 @@ func TestLoadLatestHistoryReturnsToTail(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, store := openLongSession(t, 6, 20)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	assertRange(t, "paged back", service.Snapshot(), 8, 6)
@@ -394,7 +394,7 @@ func TestLoadLatestHistoryReturnsToTail(t *testing.T) {
 	}
 
 	// 红灯期占位：LoadLatestHistory 是本轮新增的应用边界（回到最新一页）。
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
 	// total=23、窗口 6 → 尾窗 = [17, 23)：前三条是 durable-17..19，末三条是
@@ -422,7 +422,7 @@ func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, store := openLongSession(t, 6, 20)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 

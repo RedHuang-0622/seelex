@@ -1,16 +1,9 @@
 package core
 
-import (
-	"errors"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/middle/switch"
-	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-)
-
 // 排队输入的编辑面（调换顺序 / 撤回到输入框）。
 //
 // 队列只承载「回合运行中」接受的输入（回合收尾时整批提升为下一轮，见
-// chat.go 的 queuedChatRequests/combineChatRequests）。因此这两个操作只在
+// chat_turn_request.go 的 QueuedRequests/Combine）。因此这两个操作只在
 // 目标会话的运行态下有意义：非运行态一律以 ErrQueueNotRunning 明确拒绝，
 // 绝不触碰正在运行的回合（不动 Chat.Running/RequestID/StartedAt，不动引擎
 // 历史、任务槽或可见会话）。
@@ -26,32 +19,17 @@ import (
 // RecallRequest / ReorderRequests 直接作用在这套下标上。因此 GUI/TUI 渲染的
 // 第 i 行，就是撤回/调换操作的第 i 项，不需要任何换算。
 //
-// 反面：若在此处对载荷过滤（旧实现用 queuedChatRequests + chatRequestDisplays，
+// 反面：若在此处对载荷过滤（旧实现按载荷另拼投影，
 // 只保留 chatRequest），投影会比真实队列短，用户看到的行与队列项错位——调换会
 // "操作成功但列表不变"，撤回会把没显示过的条目交还输入框。执行面（下一轮批量
-// 提升，chat.go 的 queuedChatRequests）与展示面因此解耦：展示要"看得见就能
+// 提升，chat_turn_request.go 的 QueuedRequests）与展示面因此解耦：展示要"看得见就能
 // 操作"，执行要"载荷类型正确"。
 
 // ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
 // （调换排队顺序；seq 身份不变，仅位置变化）。目标会话的空 sessionID 表示
 // 当前视图会话。
-func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error {
-	service.ViewMu.Lock()
-	if err := service.queueEditGuardLocked(); err != nil {
-		service.ViewMu.Unlock()
-		return err
-	}
-	unit, err := service.queuedInputUnitLocked(sessionID)
-	if err != nil {
-		service.ViewMu.Unlock()
-		return err
-	}
-	if !unit.ReorderRequests(from, to) {
-		service.ViewMu.Unlock()
-		return switching.ReorderIndexError(from, to)
-	}
-	service.applyQueueEditLocked(unit) // 释放 Core.ViewMu 并发布事件
-	return nil
+func (frontend *Frontend) ReorderQueuedInput(sessionID string, from, to int) error {
+	return frontend.queueComponent().ReorderQueuedInput(sessionID, from, to)
 }
 
 // RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
@@ -59,71 +37,6 @@ func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error
 // （执行内核的 chatRequest，含每次提交固化的 skill 上下文与预算）随条目一并
 // 丢弃——重新提交会产生一份新的固化载荷。目标会话的空 sessionID 表示当前
 // 视图会话。
-func (service *Service) RecallQueuedInput(sessionID string, index int) (string, error) {
-	service.ViewMu.Lock()
-	if err := service.queueEditGuardLocked(); err != nil {
-		service.ViewMu.Unlock()
-		return "", err
-	}
-	unit, err := service.queuedInputUnitLocked(sessionID)
-	if err != nil {
-		service.ViewMu.Unlock()
-		return "", err
-	}
-	request, ok := unit.RecallRequest(index)
-	if !ok {
-		service.ViewMu.Unlock()
-		return "", switching.RecallIndexError(index)
-	}
-	service.applyQueueEditLocked(unit) // 释放 Core.ViewMu 并发布事件
-	return request.DisplayInput, nil
-}
-
-// queueEditGuardLocked 是队列编辑的关闭/排空门禁（与 Submit 同口径）。
-func (service *Service) queueEditGuardLocked() error {
-	if service == nil {
-		return errors.New("application is not available")
-	}
-	return switching.QueueEditGate(service.closed, service.draining, switching.QueueGateErrors{
-		Closed:   errors.New("application is shut down"),
-		Draining: ErrApplicationDraining,
-	})
-}
-
-// queuedInputUnitLocked 解析队列编辑的目标会话单元（调用方持有 Core.ViewMu）。
-// 空 sessionID = 当前视图会话（草稿会话亦由视图 ID 归属）。错误语义：
-//   - 会话不在会话域注册表且不是当前视图会话 → ErrQueueSessionNotFound
-//   - 会话当前没有运行中的回合 → ErrQueueNotRunning（视图会话尚未注册时
-//     同样按"没有回合在跑"处理，而不是"会话不存在"）
-func (service *Service) queuedInputUnitLocked(sessionID string) (*session.SessionUnit, error) {
-	viewID := service.Core.Snapshot.Session.ID
-	sessionID = switching.QueueTargetSession(sessionID, viewID)
-	unit := service.sessions.Unit(sessionID)
-	running := unit != nil && unit.ChatState().Running
-	if err := switching.QueueTargetError(sessionID, viewID, unit != nil, running); err != nil {
-		return nil, err
-	}
-	return unit, nil
-}
-
-// applyQueueEditLocked 在队列编辑成功后重投影该会话的 ChatState.InputQueue /
-// QueuedCount 并发布事件。调用方持有 Core.ViewMu；本函数在发布前释放它
-// （事件必须在 ViewMu 之外下发，与 submitConversation 的排队分支同口径）。
-func (service *Service) applyQueueEditLocked(unit *session.SessionUnit) {
-	sessionID := unit.ID
-	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *model.ChatState) {
-		chat.InputQueue = displays
-		chat.QueuedCount = count
-	}, nil)
-	if service.isActiveSessionLocked(sessionID) {
-		service.setSessionChatLockedFor(sessionID, unit.ChatState())
-		revision := service.bumpLocked()
-		service.ViewMu.Unlock()
-		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-	} else {
-		service.ViewMu.Unlock()
-		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
-	}
-	service.publishChatStateFor(sessionID)
+func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string, error) {
+	return frontend.queueComponent().RecallQueuedInput(sessionID, index)
 }

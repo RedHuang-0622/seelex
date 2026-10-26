@@ -120,7 +120,7 @@ func TestSetReasoningEffortRejectsUnknownVocabulary(t *testing.T) {
 // 两条读数一起落到该档（lite → low / 15）。
 func TestSwitchEffortSeedsBothKnobReadings(t *testing.T) {
 	service, engine := knobService(t)
-	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	if engine.maxLoops != 15 {

@@ -30,7 +30,11 @@
 
 ### completion.go
 
+- `func newCompletionApplication(deps completionApplicationDeps) *completionApplication`
 - `func (service *Service) Suggestions(input string) []Suggestion` — Suggestions 按输入前缀给出候选：前缀不认识、或已经进入参数区（含空格）时
+- `func (application *completionApplication) Suggestions(input string) []Suggestion`
+- `func (service *Service) completionApplicationComponent() *completionApplication`
+- `func newServiceCompletionApplication(service *Service) *completionApplication`
 - `func splitSigil(input string) (trigger, prefix string, ok bool)` — splitSigil 拆出输入前缀与它后面的文本（前缀不认识时 ok=false）。
 - `func HasSigilPrefix(input string) bool` — HasSigilPrefix 报告输入是否以前缀开头（TUI 的 suggMode 与前端内联建议共用同一条
 - `func SigilOf(input string) string` — SigilOf 返回输入的首字符前缀；不可解析时返回空串（调用方自行给默认值）。
@@ -46,15 +50,15 @@
 
 ### completion_test.go
 
+- `func TestCompletionApplicationIsAssembled(t *testing.T)`
+- `func TestCompletionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestSuggestionsExcludeModelSideTools(t *testing.T)` — TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 
 ### compressed_turn.go
 
 - `func (a *CompressedTurnArchiver) resolveProjectID(sessionID string) string` — resolveProjectID 解析落盘的项目作用域：先按会话自己的绑定（数据实际所在），
 - `func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error)` — StoreTurn 实现 seelexctx.TurnArchiver。会话归属优先取 ctx（runChat 注入
-- `func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error)` — ReadCompressedTurnHandler 读回一次压缩的轮次原文（分页 + 过滤）。
-- `func renderCompressedTurns(messages []types.Message) string` — renderCompressedTurns 把轮次原文渲染为可读文本（按角色标记，工具链
-- `func pageCompressedTurns(rendered string, offset, limit int, contains string) (string, error)` — pageCompressedTurns 按 offset/limit（字符）/contains 过滤渲染文本分页。
+- `func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error)` — 兼容入口；参数、归档读取、渲染与分页已迁到 `application/reference`。
 
 ### compressed_turn_test.go
 
@@ -75,12 +79,19 @@
 
 ### fault_guard.go
 
+- `func newFaultGuardApplication(deps faultGuardApplicationDeps) *faultGuardApplication`
 - `func (service *Service) degradeAndRequestExit(reason string)` — degradeAndRequestExit 进入降级退出路径（幂等）。调用方不得持有任何锁。
+- `func (application *faultGuardApplication) DegradeAndRequestExit(reason string)`
 - `func (service *Service) handleLifecycleFault(recovered any)` — handleLifecycleFault 处理生命周期消费者中的并发/逻辑故障：先降级退出，
+- `func (application *faultGuardApplication) HandleLifecycleFault(recovered any)`
 - `func logPanicReason(recovered any) string`
+- `func (service *Service) faultGuardApplicationComponent() *faultGuardApplication`
+- `func newServiceFaultGuardApplication(service *Service) *faultGuardApplication`
 
 ### fault_guard_test.go
 
+- `func TestFaultGuardApplicationIsAssembled(t *testing.T)`
+- `func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestDegradeAndRequestExitNotifiesHost(t *testing.T)` — TestDegradeAndRequestExitNotifiesHost：降级退出必须幂等、标记 closed/
 - `func TestLifecycleFaultPanicsAfterDegrade(t *testing.T)` — TestLifecycleFaultPanicsAfterDegrade：生命周期消费者中的故障不再被静默
 
@@ -93,7 +104,11 @@
 
 ### perf_stats.go
 
+- `func newPerfStatsApplication(deps perfStatsApplicationDeps) *perfStatsApplication`
 - `func (service *Service) PerfStats() model.PerfStats` — PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
+- `func (application *perfStatsApplication) PerfStats() model.PerfStats`
+- `func (service *Service) perfStatsApplicationComponent() *perfStatsApplication`
+- `func newServicePerfStatsApplication(service *Service) *perfStatsApplication`
 
 ### plugin_source_projection_test.go
 
@@ -161,19 +176,26 @@
 
 ### review_files.go
 
-- `func (service *Service) reviewRequests() *review.Requests` — reviewRequests 返回落点（每次调用构造一次值语义的宿主适配；无状态）。
+- `func newReviewApplication(deps reviewApplicationDeps) *reviewApplication`
+- `func (application *reviewApplication) reviewRequests() *review.Requests` — reviewRequests 返回落点（每次调用构造一次值语义的宿主适配；无状态）。
 - `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 assemble.ReviewFilesPort（判据在 `backend/tool/review`）。
+- `func (application *reviewApplication) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)`
 - `func (service *Service) ClearReviewRequest(sessionID string)` — ClearReviewRequest 清空指定会话的待审阅请求（工作区切换/解绑的失效面；
-- `func (host serviceReviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
-- `func (host serviceReviewHost) NextRequestID() string` — NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。
-- `func (host serviceReviewHost) SessionIDFromContext(ctx context.Context) string`
-- `func (host serviceReviewHost) ViewSessionID() string`
-- `func (host serviceReviewHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
-- `func (host serviceReviewHost) ClearReviewRequest(sessionID string)`
-- `func (host serviceReviewHost) PublishSnapshotChanged(sessionID string, revision uint64)`
+- `func (application *reviewApplication) ClearReviewRequest(sessionID string)`
+- `func (host reviewApplicationHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
+- `func (host reviewApplicationHost) NextRequestID() string` — NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。
+- `func (host reviewApplicationHost) SessionIDFromContext(ctx context.Context) string`
+- `func (host reviewApplicationHost) ViewSessionID() string`
+- `func (host reviewApplicationHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
+- `func (host reviewApplicationHost) ClearReviewRequest(sessionID string)`
+- `func (host reviewApplicationHost) PublishSnapshotChanged(sessionID string, revision uint64)`
+- `func (service *Service) reviewApplicationComponent() *reviewApplication`
+- `func newServiceReviewApplication(service *Service) *reviewApplication`
 
 ### review_files_test.go
 
+- `func TestReviewApplicationIsAssembled(t *testing.T)`
+- `func TestReviewFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func reviewFixture(t *testing.T) (*Service, string)` — reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
 - `func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T)` — TestRequestFileReviewClassifiesByWorkspaceBoundary：一次批处理召唤的裁决口径——
 - `func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T)` — TestRequestFileReviewProjectsIntoSnapshotAndClears：落点是**会话作用域的可重放
@@ -184,7 +206,11 @@
 
 ### runtime_projection.go
 
+- `func newRuntimeApplication(deps runtimeApplicationDeps) *runtimeApplication`
+- `func (application *runtimeApplication) Refresh()`
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布
+- `func (service *Service) runtimeApplicationComponent() *runtimeApplication`
+- `func newServiceRuntimeApplication(service *Service) *runtimeApplication`
 
 ### served_route_test.go
 
@@ -219,6 +245,17 @@
 - `func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
 - `func (r retainWindowLimits) ContextWindow() int`
 - `func (r retainWindowLimits) MaxOutputTokens() int`
+
+### workspace_environments.go
+
+- `func (service *Service) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)` — 一行转发到 `application/workspace`。
+- `func (service *Service) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)` — 一行转发到 `application/workspace`。
+- `func (service *Service) DeleteWorkspaceEnvironment(projectID, name string) error` — 一行转发到 `application/workspace`。
+- `func (service *Service) SetDefaultWorkspaceEnvironment(projectID, name string) error` — 一行转发到 `application/workspace`。
+
+### workspace_gitrepos.go
+
+- `func (service *Service) WorkspaceGitRepos() (dto.GitReposResult, error)` — 一行转发到 `application/workspace`。
 
 ### workspace_file_usecase_test.go
 
@@ -265,12 +302,15 @@
 - `func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceTreeUseCaseReadsRealFilesystem 走真实 workspace.Repo（实现
 - `func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T)`
 - `func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T)` — TestWorkspaceChangesUseCaseReadsRealGitRepo 走真实 workspace.Repo（实现
+- `func TestWorkspaceApplicationIsAssembled(t *testing.T)`
+- `func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T)`
 
 ### workspace_usecase.go
 
 - `func (service *Service) releaseSessionAsync(sessionID string)` — releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。
 - `func (service *Service) DeleteSession(sessionID string) error` — DeleteSession 删除会话记录并走完整释放面（会话域用例，留在 application/core）。
 - `func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error` — CreateWorkspace 建工作区并绑定到当前视图（实现：middle/switch/workspace）。
+- `func (service *Service) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — CreateWorkspaces 批量登记项目，不绑定当前会话（GUI 新建项目 temp list 的提交口）。
 - `func (service *Service) BindWorkspace(workspaceID string) error` — BindWorkspace 把工作区绑定到当前视图会话/草稿（实现：middle/switch/workspace）。
 - `func (service *Service) UnbindWorkspace()` — UnbindWorkspace 解绑当前视图会话/草稿的工作区（实现：middle/switch/workspace）。
 - `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（root 只来自后端当前 workspace）。
@@ -282,37 +322,15 @@
 - `func (service *Service) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取某文件在**指定仓库**某个提交时的内容（git 对象库）。
 - `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（面板编辑保存）。
 - `func (service *Service) applyWorkspaceProjectionLocked(projection switchworkspace.Projection)` — applyWorkspaceProjectionLocked 把 middle 产出的窄投影写进 Snapshot。
-
-### workspace_gitrepos.go（多仓库 git 的应用用例面）
-
-多仓库 git 只在这一处编排两件事：仓库**发现**与仓库**路径解析**。
-
-- `func (service *Service) WorkspaceGitRepos() (dto.GitReposResult, error)` —
-  发现当前工作区内的 git 仓库。端口是 optional 的
-  `contract.WorkspaceGitReposPort`（`workspace.Repo` 实现，`wiring/adapters`
-  薄转发），在这里用**类型断言**启用；未绑定工作区、后端没有这个端口都只回一份
-  带 `Error` 文案的**空结果**（不报错）：面板显示"不可用"，不是整块渲染失败。
-  `limit` 传 0，默认值（64）与钳制（1..256）都归 `store/workspace` 一份口径。
-- `func (service *Service) workspaceRepoPort(repo string) (contract.WorkspacePort, string, error)` —
-  四条 git 查询共用的入口：取当前工作区根 → 解析 repo → 连同后端端口交出。
-- `func resolveWorkspaceRepo(root, repo string) (string, error)` —
-  repo（前端给的**相对**路径，`""`/`"."` = 工作区根）→ 绝对仓库根。绝对路径、
-  `..` 逃逸、软链逃逸（`EvalSymlinks` 两侧再判一次 containment）、目录不存在
-  都是**调用方传错参数 → Go error**（不是 `Result.Error`）。端口签名与 git 查询
-  语义一律不变。
-- `func repoWithinRoot(root, candidate string) bool` — 词法 containment 判据
-  （与 `store/workspace` 目录树同口径）。
-
-四条查询因此都多了 `repo` 参数：`WorkspaceGitLog(repo, limit)`、
-`WorkspaceChanges(repo, limit)`、`WorkspaceGitCommitDetail(repo, hash, limit)`、
-`WorkspaceGitCommitFileContent(repo, hash, relPath, limit)`。
+- `func (service *Service) workspaceApplicationComponent() *applicationworkspace.Application`
+- `func newServiceWorkspaceApplication(service *Service) *applicationworkspace.Application`
 
 ### workspace_gitrepos_usecase_test.go
 
 - `func (fake *gitReposFakeWorkspace) GitRepos(root string, limit int) (dto.GitReposResult, error)`
-- `func TestResolveWorkspaceRepoContainment(t *testing.T)` — 四种入参口径：空/"." → 工作区根；相对 → 根内绝对路径；绝对路径与 `..` 逃逸 → Go error。
-- `func TestResolveWorkspaceRepoRejectsSymlinkEscape(t *testing.T)` — 软链逃逸必须报错，指向根内的链接放行（Windows 无权限造链接时跳过）。
 - `func TestWorkspaceGitQueriesForwardResolvedRepoRoot(t *testing.T)` — 三条查询把解析后的绝对仓库根（及 hash/limit）原样转发；越界入参一次端口调用都不发生。
 - `func TestWorkspaceGitCommitFileContentForwardsResolvedRepoRoot(t *testing.T)` — 提交内文件内容走同一个仓库根与文件端口。
 - `func TestWorkspaceGitReposForwardsWorkspaceRoot(t *testing.T)` — 仓库发现的 root 只来自后端当前 workspace。
 - `func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T)` — 缺端口 / 未绑定工作区都只给文案，不是 Go error。
+- `func TestWorkspaceGitApplicationIsAssembled(t *testing.T)`
+- `func TestWorkspaceGitFacadeOnlyDelegatesToApplication(t *testing.T)`

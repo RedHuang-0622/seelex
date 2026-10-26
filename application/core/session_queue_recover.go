@@ -1,7 +1,6 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"github.com/RedHuang-0622/seelex/store"
 	"strings"
@@ -32,18 +31,14 @@ func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []stor
 		if content == "" {
 			continue
 		}
-		unit.Enqueue(session.QueuedRequest{DisplayInput: content, Payload: newChatRequest(content, layers)})
+		unit.Enqueue(session.QueuedRequest{DisplayInput: content, Payload: service.components.conversationTurnState.NewRequest(content, layers)})
 		enqueued++
 	}
 	if enqueued == 0 {
 		service.ViewMu.Unlock()
 		return
 	}
-	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *model.ChatState) {
-		chat.InputQueue = displays
-		chat.QueuedCount = count
-	}, nil)
+	service.components.conversationTurnState.ProjectQueueLocked(unit)
 	revision := uint64(0)
 	if service.isActiveSessionLocked(sessionID) {
 		service.setSessionChatLockedFor(sessionID, unit.ChatState())
@@ -61,15 +56,11 @@ func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []stor
 // 两条路径互斥（Running 是同一把 ViewMu 下的判据），不会重复消费。返回
 // changed=false 表示队列为空、request 原样。
 func (service *Service) drainRecoveredQueueLocked(unit *session.SessionUnit, request chatRequest) (chatRequest, bool) {
-	pending := queuedChatRequests(unit.PendingRequests())
+	pending := service.components.conversationTurnState.QueuedRequests(unit.PendingRequests())
 	if len(pending) == 0 {
 		return request, false
 	}
 	unit.SetRequests(nil)
-	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *model.ChatState) {
-		chat.InputQueue = displays
-		chat.QueuedCount = count
-	}, nil)
-	return combineChatRequests(append(pending, request)), true
+	service.components.conversationTurnState.ProjectQueueLocked(unit)
+	return service.components.conversationTurnState.Combine(append(pending, request)), true
 }

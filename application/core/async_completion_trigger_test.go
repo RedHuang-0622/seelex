@@ -6,10 +6,63 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/switch"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 )
+
+func TestAsyncCompletionApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("asyncCompletionApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 asyncCompletionApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationexecution.CompletionApplication)(nil)) {
+		t.Fatalf("asyncCompletionApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestAsyncCompletionFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "async_completion.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"triggerAsyncCompletions":       false,
+		"triggerTeamworkJobCompletions": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 asyncCompletionApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // 后台作业终态触发对话（第五个生命周期消费者，async_completion.go）。
 //

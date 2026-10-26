@@ -12,6 +12,12 @@ import (
 // testServiceOption 定制 newTestService 的依赖注入。
 type testServiceOption func(*contract.Dependencies)
 
+// frontendOfTestService adapts a test service to the migrated frontend entry
+// points without restoring compatibility methods on Service production types.
+func frontendOfTestService(service *Service) *Frontend {
+	return &Frontend{Service: service}
+}
+
 func withTestSessions(sessions contract.SessionPort) testServiceOption {
 	return func(deps *contract.Dependencies) { deps.Sessions = sessions }
 }

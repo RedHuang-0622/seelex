@@ -27,7 +27,7 @@ func (service *Service) environmentTraceBlockFor(sessionID string) string {
 	if service == nil {
 		return ""
 	}
-	environments, defaultEnv, err := service.projectEnvironments(sessionID)
+	environments, defaultEnv, err := service.sessionSSHApplicationComponent().ProjectEnvironments(sessionID)
 	if err != nil || len(environments) == 0 {
 		return ""
 	}

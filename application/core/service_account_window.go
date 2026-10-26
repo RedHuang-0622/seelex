@@ -10,10 +10,6 @@ package core
 
 import (
 	"context"
-	"errors"
-
-	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
-	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
@@ -21,9 +17,5 @@ import (
 // 判据与落盘顺序（先写盘再改内存）都在 `backend/limit/accountwindow.Setter`——本方法只解析
 // 宿主端口并转发（M5-R-limita 的接收者转移），错误语义与迁移前逐字一致。
 func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error) {
-	if service == nil {
-		return 0, errors.New("account window: service is unavailable")
-	}
-	runtimePort, _ := service.Deps.Runtime.(contract.AccountWindowPort)
-	return accountwindow.Setter{Runtime: runtimePort, Store: service.Deps.AccountWindowStore}.Set(name, window)
+	return service.adminApplicationComponent().SetAccountWindow(context.Background(), name, window)
 }

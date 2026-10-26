@@ -147,7 +147,7 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
 	runtime.Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "临时补充需求",
-		Payload:      chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"},
+		Payload:      chatRequest{DisplayInput: "临时补充需求", ModelInput: "临时补充需求"},
 	})
 	service.ViewMu.Unlock()
 	if hooks.OnIterationComplete(ctx, 2) {

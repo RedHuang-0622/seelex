@@ -3,6 +3,8 @@ package core
 
 import (
 	"errors"
+	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
+	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -36,7 +38,7 @@ var (
 	// record 可拼只读基线（C1：未驻留会话从 record 冷拼装；两者皆无即不可用）。
 	ErrSessionSnapshotUnavailable = errors.New("session snapshot unavailable: no resident engine and no persisted record")
 	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
-	ErrEmptySearchQuery = errors.New("search_history: query is required")
+	ErrEmptySearchQuery = conversationsearch.ErrEmptyQuery
 	// ErrQueueNotRunning / ErrQueueIndexOutOfRange / ErrQueueSessionNotFound 的**判据**
 	// 已在 M5-R6-queue-edit 随接收者转移归位 `middle/switch`（plan §2.4 的 `service_queue.go`）；
 	// 这三个名字是宿主侧的兼容面，与 `switching.ErrQueue*` 是**同一个错误值**
@@ -58,21 +60,12 @@ type Service struct {
 	components serviceComponents
 }
 
+// Frontend is the frontend compatibility adapter.
+type Frontend struct{ *Service }
+
 // SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-//
-// **接口冻结（M3 装配项按此签名写装配段（wiring/bootstrap），签名不再变）**：
-//
-//	func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink)
-//
-// `*board.ProjectBoardSyncer` 直接实现 `board.ProjectBoardSink`（middle/view/board
-// 的 syncer.go 有编译期断言），装配处传它本身即可：不必写适配器，也不必传方法值。
-//
-// 落点：写进 components 的 projectBoard 槽位（装配期交接一次、此后只读；不是会话
-// 状态、不参与任何用例判定），写锁只保护这一次赋值——允许重复调用（后注的顶掉先注的）。
-//
-// nil ⇒ **能力整体缺席**：完成段判空后什么都不做（零写盘、零读取面，与
-// `limits.project_board.enabled:false` 的"关就是关"同款）。挂/不挂由装配根决定，
-// Service 不解释为什么没挂。
+// `*board.ProjectBoardSyncer` 直接满足 `board.ProjectBoardSink`，无需适配器。
+// 写入是装配期一次性槽位；nil 表示能力整体缺席，完成段判空后不执行读写。
 func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink) {
 	if service == nil {
 		return
@@ -97,12 +90,6 @@ func New(deps contract.Dependencies) (*Service, error) {
 	return serviceAssembler{deps: deps}.assemble()
 }
 
-// ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
-// 见 Runtime 单向可见性投影；锁内快照，无锁外访问）。
-func (service *Service) ActiveSkillIDs() []string {
-	return service.components.tasks.ActiveSkillIDs()
-}
-
 // PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
 // instructions/skill；GUI 轨迹视图"前缀注入"数据源，经桥接方法单独拉取，
 // 不进 Snapshot 序列化——避免把私有指令泄漏进常规快照）。
@@ -125,14 +112,14 @@ func (service *Service) PublishRuntimeProjections() {
 	service.publishRuntimeProjections()
 }
 
-// HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
+// handleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 // 发布一次前端增量。
 //
 // **兼容面**（2026-10-19 方向 C）：这条入口不带 owner 归属，因此**不记读数**
 // （记账要求 `(ownerSessionID, unitID)` 两维都在，见 tool_record_stage.go）；
 // Plan 投影照旧。生产装配走 HandleSubagentToolEventFor（装配层从执行上下文
 // 解析出主会话再调进来）。
-func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
+func (service *Service) handleSubagentToolEvent(event seelsession.SubagentToolEvent) {
 	service.components.subagent.HandleSubagentToolEvent(event)
 }
 
@@ -200,8 +187,8 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 	// （CloseRoleToolRecordUnit，由 Runtime 在 runRoleRound 收尾处回调）。
 	// 归属 = `event.MainSessionID`（事件自带、执行上下文给出）；空 ⇒ 丢弃 + 计数，
 	// 不回落到视图会话（这是 #8/#13 的根因）。判据仍与主代理那条链同一格
-	// （toolStatusFailed + toolRecordReason）。
-	unitID := roleToolRecordUnitID(event.RoleSessionID, event.ID)
+	// （toolrecord.Failed + toolrecord.Reason）。
+	unitID := applicationtoolrecord.RoleUnitID(event.RoleSessionID, event.ID)
 	service.stageUnitToolOutcomeForStatus(sessionID, unitID, event.Name, event.Status, event.Error)
 	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
 }
@@ -209,15 +196,11 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 // SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 // 功能打点）。
 func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
-	return service.components.subagent.SubagentDetail(nodeID)
+	return service.subagentApplicationComponent().Detail(nodeID)
 }
 
 // ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
 // 完成后刷新快照投影，前端经 runtime.changed 增量收到空树 → 分区隐藏）。
 func (service *Service) ClearSubagentTree() error {
-	if err := service.Deps.Runtime.ClearSubagentTree(); err != nil {
-		return err
-	}
-	service.RefreshRuntimeSnapshot()
-	return nil
+	return service.subagentApplicationComponent().ClearTree()
 }

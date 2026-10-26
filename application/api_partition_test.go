@@ -26,7 +26,6 @@ var smallApplicationAPIs = []reflect.Type{
 	reflect.TypeOf((*application.LifecycleAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.WorkItemQueryAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.TeammateQueryAPI)(nil)).Elem(),
-	reflect.TypeOf((*application.TeamworkQueryAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.SubagentQueryAPI)(nil)).Elem(),
 	reflect.TypeOf((*application.TranscriptQueryAPI)(nil)).Elem(),
 }
@@ -71,7 +70,6 @@ func TestExecutionQueryAPIIsCoveredByReadOnlyCapabilitySlices(t *testing.T) {
 	capabilities := []reflect.Type{
 		reflect.TypeOf((*application.WorkItemQueryAPI)(nil)).Elem(),
 		reflect.TypeOf((*application.TeammateQueryAPI)(nil)).Elem(),
-		reflect.TypeOf((*application.TeamworkQueryAPI)(nil)).Elem(),
 		reflect.TypeOf((*application.SubagentQueryAPI)(nil)).Elem(),
 		reflect.TypeOf((*application.TranscriptQueryAPI)(nil)).Elem(),
 	}

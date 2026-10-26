@@ -118,7 +118,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 
 	// 视图会话 A 运行中：effort 变更必须被拒绝，且不触碰引擎。
 	_, _, loopsBefore, clearsBefore := engine.promptSnapshot()
-	if err := service.SwitchEffort(ctx, "lite"); err == nil {
+	if err := frontendOfTestService(service).SwitchEffort(ctx, "lite"); err == nil {
 		t.Fatal("SwitchEffort must be rejected while the view session is running")
 	}
 	if got := service.effortManager.Current(); got != "high" {
@@ -130,7 +130,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 	}
 
 	// 任一会话 running：plugin 切换必须被拒绝，且不触碰插件/引擎历史。
-	if err := service.SwitchPlugin(ctx, "code"); err == nil {
+	if err := frontendOfTestService(service).SwitchPlugin(ctx, "code"); err == nil {
 		t.Fatal("SwitchPlugin must be rejected while any session is running")
 	}
 	if current, _ := service.Deps.Plugins.Current(); current.Name != "default" {
@@ -147,7 +147,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 
 	// effort 只作用于 idle 视图会话：允许，且写的是 per-session prompt。
 	promptForBefore, globalBefore, _, _ := engine.promptSnapshot()
-	if err := service.SwitchEffort(ctx, "lite"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(ctx, "lite"); err != nil {
 		t.Fatalf("SwitchEffort rejected while view is idle (background B running): %v", err)
 	}
 	promptFor, globalCount, _, _ := engine.promptSnapshot()
@@ -160,7 +160,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 	}
 
 	// plugin 仍是进程级动作：B 在跑 → 拒绝。
-	if err := service.SwitchPlugin(ctx, "code"); err == nil {
+	if err := frontendOfTestService(service).SwitchPlugin(ctx, "code"); err == nil {
 		t.Fatal("SwitchPlugin must remain rejected while the background session B is running")
 	}
 
@@ -169,7 +169,7 @@ func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T) {
 	if err := service.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SwitchPlugin(ctx, "code"); err != nil {
+	if err := frontendOfTestService(service).SwitchPlugin(ctx, "code"); err != nil {
 		t.Fatalf("SwitchPlugin rejected while idle: %v", err)
 	}
 	if current, _ := service.Deps.Plugins.Current(); current.Name != "code" {
@@ -219,14 +219,14 @@ func TestPluginSwitchPreservesEffort(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.SwitchEffort(ctx, "max"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(ctx, "max"); err != nil {
 		t.Fatalf("SwitchEffort(max): %v", err)
 	}
 	if current, _ := service.Deps.Plugins.Current(); current.Name != "default" {
 		t.Fatalf("precondition plugin = %q, want default", current.Name)
 	}
 
-	if err := service.SwitchPlugin(ctx, "code"); err != nil {
+	if err := frontendOfTestService(service).SwitchPlugin(ctx, "code"); err != nil {
 		t.Fatalf("SwitchPlugin(code): %v", err)
 	}
 	if got := service.effortManager.Current(); got != "max" {
@@ -240,7 +240,7 @@ func TestPluginSwitchPreservesEffort(t *testing.T) {
 	}
 
 	// 停用插件（off）同样不得重置强度。
-	if err := service.SwitchPlugin(ctx, "off"); err != nil {
+	if err := frontendOfTestService(service).SwitchPlugin(ctx, "off"); err != nil {
 		t.Fatalf("SwitchPlugin(off): %v", err)
 	}
 	if got := service.effortManager.Current(); got != "max" {

@@ -563,7 +563,7 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions.SetWorkspace("project-2") // simulate unrelated active-scope drift
-	if err := service.LoadMoreHistory(50); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(50); err != nil {
 		t.Fatal(err)
 	}
 	if sessions.LoadedWorkspace() != "project-1" || service.Snapshot().HistoryOffset != 0 {
@@ -718,7 +718,7 @@ func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 	service.Core.Snapshot.HistoryOffset = 1
 	service.ViewMu.Unlock()
 
-	if err := service.LoadMoreHistory(1); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(1); err != nil {
 		t.Fatal(err)
 	}
 	conversation := service.Snapshot().Conversation

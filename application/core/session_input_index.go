@@ -32,6 +32,10 @@ import (
 // 轻量契约：一次扫描 + 有界摘要，不建引擎、不驻留会话、不改任何内存态；
 // 未驻留会话同样可用（与 GetSessionTranscript 同一冷读口径）。
 func (service *Service) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
+	return service.components.sessionQuery.SessionInputIndex(sessionID)
+}
+
+func (service *Service) readSessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return model.SessionInputIndex{}, errors.New("session ID is required")

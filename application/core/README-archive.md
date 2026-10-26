@@ -6,6 +6,12 @@
 
 覆盖：`archive*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
+## Session archive 宿主适配（AP-011 首个切片）
+
+归档的宿主闭包已移到 `session_archive_use_case.go`：
+`middle/residency.Archive` 仍是准入、persist、归档写入和目录刷新的唯一判据；
+`Service.ArchiveSession` 只做一行组件转发。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -18,8 +24,6 @@
 ### archive_session.go
 
 - `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话（判据与文案在 `middle/residency`）。
-- `func (service *Service) archiveDeps(sessionID string) residency.ArchiveDeps` — archiveDeps 装配归档用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。
-- `func (service *Service) archiveGate(sessionID string) residency.ArchiveGate` — archiveGate 在视图锁内取归档门控的四个读数，并带上宿主自己的错误值。
 
 ### archive_session_test.go
 

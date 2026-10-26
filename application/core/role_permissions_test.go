@@ -2,10 +2,18 @@ package core
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -205,7 +213,7 @@ func TestRestoreRolePermissionsPrefersStoredVector(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	restored, err := service.RestoreRolePermissions("sess-1", []string{"tl", "coworker"})
+	restored, err := service.restoreRolePermissions("sess-1", []string{"tl", "coworker"})
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}
@@ -232,7 +240,7 @@ func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	restored, err := service.RestoreRolePermissions("sess-1", []string{"coworker"})
+	restored, err := service.restoreRolePermissions("sess-1", []string{"coworker"})
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}
@@ -244,7 +252,7 @@ func TestRestoreRolePermissionsExplicitEmptyVectorWins(t *testing.T) {
 
 func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}) // 默认 fakeSessions 不暴露登记能力
-	if _, err := service.RestoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
+	if _, err := service.restoreRolePermissions("sess-1", []string{"tl"}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
 	if _, err := service.RolePermissionVector("sess-1", "tl"); !errors.Is(err, ErrRolePermissionsUnavailable) {
@@ -253,7 +261,7 @@ func TestRestoreRolePermissionsWithoutRegistryFailsLoudly(t *testing.T) {
 	if err := service.SetRolePermissionVector("sess-1", "tl", []string{dto.PermissionTagRO}); !errors.Is(err, ErrRolePermissionsUnavailable) {
 		t.Fatalf("写错误 = %v, want ErrRolePermissionsUnavailable", err)
 	}
-	if _, err := service.RestoreRolePermissions("  ", []string{"tl"}); err == nil {
+	if _, err := service.restoreRolePermissions("  ", []string{"tl"}); err == nil {
 		t.Fatal("缺会话号必须报错")
 	}
 }
@@ -344,7 +352,7 @@ func TestRoleAccountPushesToRuntimeAndRestores(t *testing.T) {
 		t.Fatalf("运行时收到 %q %q", runtime.role, runtime.account)
 	}
 	runtime.role, runtime.account = "", ""
-	if err := service.RestoreRoleAccounts("sess-1"); err != nil {
+	if err := service.restoreRoleAccounts("sess-1"); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.role != "teammate" || runtime.account != "teammate-2" {
@@ -466,11 +474,226 @@ func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
 	}
 	wait.Wait()
 
-	restored, err := service.RestoreRolePermissions("sess-1", roles)
+	restored, err := service.restoreRolePermissions("sess-1", roles)
 	if err != nil {
 		t.Fatalf("RestoreRolePermissions: %v", err)
 	}
 	if len(restored) != len(roles) {
 		t.Fatalf("恢复角色 %d 个, want %d", len(restored), len(roles))
 	}
+}
+
+func TestRoleApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("roleApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 roleApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationpolicy.RoleApplication)(nil)) {
+		t.Fatalf("roleApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestRoleAccountApplicationSetAccountRollsBackRuntime(t *testing.T) {
+	storeErr := errors.New("store failed")
+	var calls []string
+	port := &roleAccountApplicationFakeStore{
+		roleAccount: func(string, string) (string, bool, error) {
+			return "old-account", true, nil
+		},
+		setRoleAccount: func(string, string, string) error {
+			calls = append(calls, "store")
+			return storeErr
+		},
+	}
+	runtimePort := &roleAccountApplicationFakeRuntime{
+		setRoleAccount: func(role, account string) error {
+			calls = append(calls, role+":"+account)
+			return nil
+		},
+	}
+	application := applicationpolicy.NewRoleApplication(applicationpolicy.Deps{
+		RoleDefaults: func() applicationpolicy.RoleDefaultsPort { return port },
+		Runtime:      func() contract.AccountRoleSelectionPort { return runtimePort },
+	})
+
+	err := application.SetRoleAccount(" sess-1 ", " teammate ", " teammate-2 ")
+	if !errors.Is(err, storeErr) {
+		t.Fatalf("SetRoleAccount error = %v", err)
+	}
+	want := "teammate:teammate-2,store,teammate:"
+	if strings.Join(calls, ",") != want {
+		t.Fatalf("calls = %v, want %s", calls, want)
+	}
+}
+
+func TestRoleAccountApplicationRestoreSkipsExplicitlyMissingAccount(t *testing.T) {
+	port := &roleAccountApplicationFakeStore{
+		roleAccount: func(_ string, role string) (string, bool, error) {
+			if role == string(dto.RoleTeammate) {
+				return "teammate-2", true, nil
+			}
+			return "", false, nil
+		},
+	}
+	var calls []string
+	runtimePort := &roleAccountApplicationFakeRuntime{
+		setRoleAccount: func(role, account string) error {
+			calls = append(calls, role+":"+account)
+			return nil
+		},
+	}
+	application := applicationpolicy.NewRoleApplication(applicationpolicy.Deps{
+		RoleDefaults: func() applicationpolicy.RoleDefaultsPort { return port },
+		Runtime:      func() contract.AccountRoleSelectionPort { return runtimePort },
+	})
+
+	if err := application.RestoreRoleAccounts("sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	if want := string(dto.RoleTeammate) + ":teammate-2"; strings.Join(calls, ",") != want {
+		t.Fatalf("calls = %v, want %s", calls, want)
+	}
+}
+
+func TestRoleAccountFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"RoleAccount":         false,
+		"SetRoleAccount":      false,
+		"restoreRoleAccounts": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 roleApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+func TestRolePermissionFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"RoleDefaultVector":       false,
+		"SetRoleDefaultVector":    false,
+		"restoreRolePermissions":  false,
+		"RolePermissionVector":    false,
+		"SetRolePermissionVector": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 roleApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+func TestRoleInheritanceFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "role_permissions.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"RoleInheritMainAgent":        false,
+		"SetRoleInheritMainAgent":     false,
+		"RoleSSHUserSpaces":           false,
+		"RoleDefaultSSHUserSpaces":    false,
+		"SetRoleSSHUserSpaces":        false,
+		"SetRoleSessionSSHUserSpaces": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 roleApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+type roleAccountApplicationFakeStore struct {
+	applicationpolicy.RoleDefaultsPort
+	roleAccount    func(string, string) (string, bool, error)
+	setRoleAccount func(string, string, string) error
+}
+
+func (store *roleAccountApplicationFakeStore) RoleAccount(sessionID, role string) (string, bool, error) {
+	return store.roleAccount(sessionID, role)
+}
+
+func (store *roleAccountApplicationFakeStore) SetRoleAccount(sessionID, role, account string) error {
+	return store.setRoleAccount(sessionID, role, account)
+}
+
+type roleAccountApplicationFakeRuntime struct{ setRoleAccount func(string, string) error }
+
+func (runtime *roleAccountApplicationFakeRuntime) SetRoleAccount(role, account string) error {
+	return runtime.setRoleAccount(role, account)
 }

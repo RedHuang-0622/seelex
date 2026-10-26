@@ -6,10 +6,65 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
+
+	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 )
+
+func TestReviewApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("reviewApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 reviewApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationreview.Application)(nil)) {
+		t.Fatalf("reviewApplication 字段类型 = %s", field.Type)
+	}
+	if _, exists := reflect.TypeOf(serviceState{}).FieldByName("reviewSeq"); exists {
+		t.Fatal("reviewSeq 应归 reviewApplication，不再属于 serviceState")
+	}
+}
+
+func TestReviewFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "review_files.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"RequestFileReview": false}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 reviewApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
 // 目录 / 不存在），并返回装配在 workspace.Repo 上的服务。
@@ -115,7 +170,7 @@ func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T) {
 		t.Fatal("快照深拷贝失效：外部改写污染了权威快照")
 	}
 
-	service.ClearReviewRequest("")
+	service.reviewApplicationComponent().ClearReviewRequest("")
 	if service.Snapshot().ReviewRequest != nil {
 		t.Fatal("ClearReviewRequest 之后快照不得残留请求")
 	}

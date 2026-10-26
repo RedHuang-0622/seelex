@@ -1,13 +1,9 @@
 package core
 
 import (
-	"errors"
-	"fmt"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"strings"
 	"time"
 )
 
@@ -34,125 +30,7 @@ func (service *Service) newDraftSessionIDLocked() string {
 // `ContextCompactions`），漏清会让新会话显示、并在首次提交时按会话落盘成
 // 上一个会话的任务面与已读文件。口径与 unloadSession 的同名字段清理一致。
 func (service *Service) BeginNewSession() error {
-	transition := service.transitionView()
-	transition.Lock()
-	defer transition.Unlock()
-
-	service.ViewMu.RLock()
-	closed := service.closed
-	draining := service.draining
-	draft := service.Core.Snapshot.Session.Draft
-	sessionID := service.Core.Snapshot.Session.ID
-	currentRunning := false
-	if unit := service.sessions.Unit(sessionID); unit != nil {
-		currentRunning = unit.ChatState().Running
-	}
-	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-	service.ViewMu.RUnlock()
-	if closed {
-		return errors.New("application is shut down")
-	}
-	if draining {
-		return ErrApplicationDraining
-	}
-	if draft {
-		return nil
-	}
-
-	if !currentRunning && len(service.engineHistoryFor(sessionID)) > 0 {
-		service.setWorkspaceWriteScope(currentWorkspaceID)
-		location := service.components.sessions.LocateSession(sessionID)
-		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
-			return fmt.Errorf("save current session before drafting a new one: %w", err)
-		}
-	}
-	// 离开当前会话：清空**该会话自己的**引擎历史（历史已持久化；会话引擎缓存按需
-	// 由 ResumeSession 重建），防止 draft 状态串入旧会话内容。禁止经进程级活跃
-	// 别名清空：别名指向哪个会话不可预期，可能是另一个正在跑的会话（其 framework
-	// Session 锁被 ChatStream 全程持有，清空会排在它后面并清掉它的运行历史）。
-	if !currentRunning {
-		service.clearEngineHistoryFor(sessionID)
-	}
-	service.promptStack.ClearKind("skill")
-	// 离开会话：解绑 context 模块，防止四栈串到下一个会话。**只在被离开的会话
-	// 空闲时**做（2026-10-04）：`DetachSessionContext()` 解绑的是**当前活跃
-	// bundle**，而会话还在跑时它的回合会继续装配 provider 上下文——那一步遇到
-	// 装配层压缩就会发现自己"未绑定"，PushCompactionFrame 报
-	// "会话上下文存储未绑定（压缩栈不可用）"，与新建会话那条路径同一个症状。
-	// 复用紧邻上方 `clearEngineHistoryFor` 的同一条判据：跑着的会话的状态一律不动；
-	// 空闲会话解绑后，它下次作为当前会话会走 resume/切项目那条挂接重新绑上。
-	if !currentRunning {
-		if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
-			store.DetachSessionContext()
-		}
-	}
-	// 新会话是「任务会话」——必须真正未关联工作区：清空上一个会话继承的
-	// 项目绑定（CurrentWorkspace / Runtime project root / session store
-	// workspace），防止上个对话的项目信息（项目地址、资源管理器文件树与
-	// 提交记录、工作台投影）污染新会话。旧会话的 workspace binding 保留
-	// （上面已按 currentWorkspaceID 持久化，会话树仍归入原工作区分组）。
-	// 需要项目上下文的「工作区会话」由调用方在草稿上显式 BindWorkspace，
-	// 再在首次请求物化时绑定。
-	// 草稿槽位：恢复已保留的草稿（含早分配 ID 与工作区绑定）或新建并
-	// 早分配真实 SID。
-	service.ViewMu.Lock()
-	slot := service.draft
-	if slot == nil {
-		slot = &draftSlot{ID: service.newDraftSessionIDLocked(), CreatedAt: time.Now()}
-		service.draft = slot
-	}
-	slot.UpdatedAt = time.Now()
-	draftID := slot.ID
-	var restoredWorkspace *model.WorkspaceInfo
-	if slot.Workspace != nil {
-		item := *slot.Workspace
-		restoredWorkspace = &item
-	}
-	service.ViewMu.Unlock()
-
-	// 需求变更（P1-1 补口）：新会话的权限档位必须在这里**读回并重算**，与
-	// 冷启动 / 热挂载 / 冷恢复三条切换路径同构。草稿槽位是可复用的（切走再新建
-	// 会恢复同一份早分配 SID），所以"这个会话之前选过档位"是真实存在的情形；读盘
-	// 只能在锁外（readStoredPermissionTier 含磁盘读，不得持 Core.ViewMu）。
-	storedTier := service.readStoredPermissionTier(draftID)
-
-	if restoredWorkspace == nil {
-		// 任务会话草稿：必须真正未关联工作区（清空上个会话继承的项目绑定）。
-		if service.Deps.Runtime != nil {
-			service.unbindGlobalProjectRoot()
-		}
-		service.setWorkspaceWriteScope("")
-	}
-	// 恢复"工作区会话"草稿：只恢复展示绑定，不在此处切换全局工程根 / store
-	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
-
-	service.ViewMu.Lock()
-	// 档位重算落在同一临界区里（会话单元已就位）：草稿自己的档位（会话槽或进程
-	// 默认）覆盖掉上一个会话留在快照里的那个值——否则新会话的 chip 显示的是**上一个
-	// 会话的档位**，而真正生效的是本会话的档位（见 syncViewPermissionTierLocked）。
-	// `/new` 是唯一要读盘取档位的路径（草稿槽可复用 ⇒ "这个会话之前选过档位"真实存在），
-	// 读盘已在锁外完成，这里只把值应用下去。
-	service.enterDraftShellLocked(draftShellOptions{
-		sessionID:          draftID,
-		workspace:          restoredWorkspace,
-		resetHistoryWindow: true,
-		composerFromUnit:   true,
-		resetTitle:         true,
-		tier: func(sessionID string) {
-			service.applyStoredPermissionTier(sessionID, storedTier)
-		},
-	})
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishRuntimeProjections()
-	// 会话切换：换当前会话指针并清空子代理树。工作表格是项目/全局台账
-	// （TaskSnapshot = 注册表 + 全部分区），不在此清空——/new 只切换指针，
-	// 先前会话的条目仍留在表里。
-	service.Deps.Runtime.SwitchSessionTasks(draftID, nil)
-	_ = service.Deps.Runtime.ClearSubagentTree()
-	service.refreshWorkTableFromSources()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", draftID, nil)
-	return nil
+	return service.components.sessionDraftEntry.Begin()
 }
 
 // draftShellOptions 是一次"把视图单例切到草稿壳"的**显式差异表**（M5-P18：三条路径的字段清理收成一处）。
@@ -222,7 +100,7 @@ func (service *Service) enterDraftShellLocked(options draftShellOptions) *sessio
 		service.Core.Snapshot.Interaction = nil
 	}
 	runtime := service.sessionUnitLocked(options.sessionID)
-	runtime.SetChatState(model.ChatState{}, nil)
+	service.components.conversationTurnState.ResetLocked(runtime)
 	runtime.SetCancel(nil)
 	runtime.SetRequests(nil)
 	service.Core.Snapshot.Chat = runtime.ChatState()
@@ -246,62 +124,7 @@ func (service *Service) enterDraftShellLocked(options draftShellOptions) *sessio
 // 两条路径共用它。
 // 调用方必须持有 sessionTransitionMu。
 func (service *Service) materializeDraftSession(firstQuestion string) error {
-	service.ViewMu.RLock()
-	draft := service.Core.Snapshot.Session.Draft
-	draftID := service.Core.Snapshot.Session.ID
-	if service.draft != nil && service.draft.ID != "" {
-		draftID = service.draft.ID
-	}
-	var workspace *model.WorkspaceInfo
-	if service.Core.Snapshot.CurrentWorkspace != nil {
-		item := *service.Core.Snapshot.CurrentWorkspace
-		workspace = &item
-	}
-	service.ViewMu.RUnlock()
-	if !draft {
-		return nil
-	}
-	if draftID == "" {
-		return errors.New("draft session has no pre-assigned session ID")
-	}
-
-	if workspace != nil {
-		if err := service.bindGlobalProjectRoot(workspace.RootPath); err != nil {
-			return fmt.Errorf("bind project root for new session: %w", err)
-		}
-		service.setWorkspaceWriteScope(workspace.ID)
-	} else {
-		service.unbindGlobalProjectRoot()
-		service.setWorkspaceWriteScope("")
-	}
-	newID, err := service.openSessionEngine(draftID, workspace)
-	if err != nil {
-		return err
-	}
-	workspaceProjection := service.components.workspace.Projection()
-
-	service.ViewMu.Lock()
-	service.draft = nil // 草稿已物化为真实会话，消费槽位
-	title := model.SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
-	service.Core.Snapshot.Session = model.SessionState{ID: newID, Name: title.Value}
-	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
-	// 步路径），否则流式增量会按 ActiveID="" 误判为后台，Snapshot 收不到增量。
-	service.sessions.SetActive(newID)
-	service.components.sessions.SetSessionTitleLocked(newID, title)
-	service.components.tasks.ResetPlanStateLocked()
-	service.applyWorkspaceProjectionLocked(workspaceProjection)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishRuntimeProjections()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
-	service.components.sessions.RequestCatalogRefresh()
-	// 真相源提交时刻的**批量落盘**：草稿物化进真相源 = 这一会话的读数入账点
-	// （见 tool_record.go 的 FlushToolRecord：不做逐次工具写盘，避免磁盘一直忙）。
-	// 在锁外调（只读内存累计 + 写会话存储，不碰视图状态）。
-	service.FlushToolRecord(newID)
-	// G6 驻留 LRU：物化完成（引擎 bundle 已建）即记录使用序并收敛超限。
-	service.touchResident(newID)
-	return nil
+	return service.components.sessionDraftMaterialization.Materialize(firstQuestion)
 }
 
 // isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
@@ -340,17 +163,5 @@ func (service *Service) draftTargetLocked() switching.DraftTarget {
 // 草稿上时才允许；否则返回 ErrDraftNotInView（渲染层拿着过期快照提交，明确失败
 // 比把输入投给别的会话安全）。调用方不得持有视图过渡锁。
 func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error {
-	if !service.isUnmaterializedDraftTarget(sessionID) {
-		return nil
-	}
-	transition := service.transitionView()
-	transition.Lock()
-	defer transition.Unlock()
-	service.ViewMu.RLock()
-	mine := service.draftTargetLocked().InView(sessionID)
-	service.ViewMu.RUnlock()
-	if !mine {
-		return ErrDraftNotInView
-	}
-	return service.materializeDraftSession(strings.TrimSpace(firstInput))
+	return service.components.sessionDraftSubmission.Materialize(sessionID, firstInput)
 }

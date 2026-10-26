@@ -24,12 +24,12 @@ import (
 // 不设运行守卫（与 SetLoopLimit / SetReasoningEffort 不同）：窗口只约束"哪个已静默的会话可以被释放"，
 // 受保护集含运行/排队/在飞会话，所以会话在跑时改它既打断不了谁，也放不掉任何在飞的内存。
 func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
-	return switching.SetReleaseWindow(service.releaseWindowDeps(), window)
+	return service.components.policyApplication.SetSessionReleaseWindow(window)
 }
 
 // SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
 func (service *Service) SessionReleaseWindow() int {
-	return switching.ReleaseWindow(service.releaseWindowDeps())
+	return service.components.policyApplication.SessionReleaseWindow()
 }
 
 // releaseWindowDeps 装配驻留窗口可调面的宿主面。

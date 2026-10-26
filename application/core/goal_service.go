@@ -9,7 +9,6 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -17,25 +16,10 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-var errGoalCoordinatorUnavailable = errors.New("goal: 会话 goal 协调器未装配")
-
 // GoalGovernanceViewFor 返回指定会话的 goal 治理只读视图（view_state 装配
 // 端口；无 goal/未装配 → nil，前端隐藏面板）。
 func (service *Service) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
-	if service == nil || service.components.goal == nil {
-		return nil
-	}
-	return service.components.goal.GoalGovernanceViewFor(sessionID)
-}
-
-func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, error) {
-	if service == nil || service.components.goal == nil {
-		return nil, errGoalCoordinatorUnavailable
-	}
-	if strings.TrimSpace(sessionID) == "" {
-		return nil, fmt.Errorf("goal: session ID is required")
-	}
-	return service.components.goal, nil
+	return service.goalApplicationComponent().GovernanceViewFor(sessionID)
 }
 
 // GoalBeginFor 按显式会话注册 goal（多会话路由）。
@@ -47,16 +31,7 @@ func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, 
 //  2. **团队是独立的产品事实**：会话里谁在编由用户/leader 决定（teamwork 的
 //     team plan），不是 goal 生命周期的副产品。
 func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	record, err := coordinator.Begin(ctx, sessionID, request)
-	if err != nil {
-		return nil, err
-	}
-	service.refreshGoalRuntimeProjection(sessionID)
-	return record, nil
+	return service.goalApplicationComponent().BeginFor(ctx, sessionID, request)
 }
 
 // teamJoinSeqFor 已随 `@` 手动召唤团队退场（2026-10-12 J-1a）删除：它的唯一调用方
@@ -65,26 +40,18 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 // 没有"入伙切点"这个输入；角色会话号仍由 `RoleSnapshot` 那条既有读面提供（B1 保留
 // 面，未动）。
 
-// GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
-func (service *Service) GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+// goalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
+func (service *Service) goalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	return service.GoalBeginFor(ctx, sessionIDFromContext(ctx), request)
 }
 
 // GoalUpdateFor 按显式会话更新栈顶 goal。
 func (service *Service) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	record, err := coordinator.Update(ctx, sessionID, request)
-	if err == nil {
-		service.refreshGoalRuntimeProjection(sessionID)
-	}
-	return record, err
+	return service.goalApplicationComponent().UpdateFor(ctx, sessionID, request)
 }
 
-// GoalUpdate 按执行 ctx 会话更新（main agent 工具调用路径）。
-func (service *Service) GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+// goalUpdate 按执行 ctx 会话更新（main agent 工具调用路径）。
+func (service *Service) goalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
 	return service.GoalUpdateFor(ctx, sessionIDFromContext(ctx), request)
 }
 
@@ -97,29 +64,17 @@ func (service *Service) GoalUpdate(ctx context.Context, request goaldomain.Updat
 // 收口后的收尾：刷新运行态投影。目标看板不在这里封板——它跟着审计流水走（goal.finish /
 // goal.abort 由 closedInfo 从终态审计反解），多一条收口路径就是两份事实。
 func (service *Service) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	record, err := coordinator.FinishDirect(ctx, sessionID, request, abort)
-	if err == nil {
-		service.refreshGoalRuntimeProjection(sessionID)
-	}
-	return record, err
+	return service.goalApplicationComponent().DoneFor(ctx, sessionID, request, abort)
 }
 
-// GoalDone 按执行 ctx 会话直接收口（main agent 工具调用路径）。
-func (service *Service) GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+// goalDone 按执行 ctx 会话直接收口（main agent 工具调用路径）。
+func (service *Service) goalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
 	return service.GoalDoneFor(ctx, sessionIDFromContext(ctx), request, abort)
 }
 
 // GoalStatusFor 按显式会话返回 goal 栈全量视图。
 func (service *Service) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return goaldomain.StatusView{}, err
-	}
-	return coordinator.StatusFor(sessionID), nil
+	return service.goalApplicationComponent().StatusFor(sessionID)
 }
 
 // GoalNextFor / GoalNext / GoalBreakFor 已随席位轮转退场删除（2026-10-01 阶段三
@@ -144,7 +99,7 @@ func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (
 	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
 		return "", fmt.Errorf("goal_begin: invalid arguments: %w", err)
 	}
-	record, err := service.GoalBegin(ctx, request)
+	record, err := service.goalBegin(ctx, request)
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +113,7 @@ func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) 
 	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
 		return "", fmt.Errorf("goal_update: invalid arguments: %w", err)
 	}
-	record, err := service.GoalUpdate(ctx, request)
+	record, err := service.goalUpdate(ctx, request)
 	if err != nil {
 		return "", err
 	}
@@ -186,7 +141,7 @@ func (service *Service) goalDoneHandler(ctx context.Context, argsJSON string) (s
 	default:
 		return "", fmt.Errorf("goal_done: action 只能是 finish 或 abort（得到 %q）", raw.Action)
 	}
-	record, err := service.GoalDone(ctx, goaldomain.FinishRequest{Reason: raw.Reason, Result: raw.Result}, abort)
+	record, err := service.goalDone(ctx, goaldomain.FinishRequest{Reason: raw.Reason, Result: raw.Result}, abort)
 	if err != nil {
 		return "", fmt.Errorf("goal_done: %w", err)
 	}

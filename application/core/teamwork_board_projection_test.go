@@ -97,7 +97,7 @@ func TestCollectRuntimeProjectionOmitsTeamworkBoardWithoutPort(t *testing.T) {
 func TestTeamworkBoardViewForWithoutPort(t *testing.T) {
 	// Service 侧转发面的降温路径：Runtime 不是 TeamworkBoardProjection → nil。
 	svc := newTestService(t, &fakeEngine{})
-	if view := svc.TeamworkBoardViewFor("session-a"); view != nil {
+	if view := svc.teamworkBoardViewFor("session-a"); view != nil {
 		t.Fatalf("未装配时转发面必须返回 nil，得到 %+v", view)
 	}
 }

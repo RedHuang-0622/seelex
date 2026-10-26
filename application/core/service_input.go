@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"strings"
 )
@@ -101,12 +101,8 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 // 行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。三条入队路径
 // （视图提交、显式目标提交、起跑时发现回合已起的收口）共用这一份判据。
 func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64 {
-	runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
-	displays, count := runtime.QueueProjection()
-	runtime.UpdateChat(func(chat *model.ChatState) {
-		chat.InputQueue = displays
-		chat.QueuedCount = count
-	}, nil)
+	runtime.Enqueue(session.QueuedRequest{DisplayInput: request.DisplayInput, Payload: request})
+	service.components.conversationTurnState.ProjectQueueLocked(runtime)
 	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 	if !active {
 		return 0
@@ -121,7 +117,7 @@ func (service *Service) enqueueChatLocked(sessionID string, runtime *session.Ses
 func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest) {
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishChatStateFor(sessionID)
-	if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
+	if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.DisplayInput); enqueueErr != nil {
 		runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
 	}
 }
@@ -132,20 +128,20 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// "并发"换成"拒绝"——输入照样要发，只是发得晚一点。
 	//
 	// 现在走**既有那条链路**：本会话有回合在跑 → 入队（下面的 Enqueue 分支），
-	// 回合收尾整批提升为下一轮（chat.go 的 queuedChatRequests/combineChatRequests，
+	// 回合收尾整批提升为下一轮（chat_turn_request.go 的 QueuedRequests/Combine，
 	// durable queue 与调序/撤回同源）；没有回合在跑 → 照常开新回合。
 	//
 	// 并发写主工作区的风险改由合并侧收口，而不是靠拒绝输入回避：
 	// backend/tool/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
 	// 主工作区脏/真冲突时落 ErrMergeBlockedByMain 待合并（保留现场 + 提示），
 	// 不再把一个子代理的产出判死。
-	request := newChatRequest(input, service.promptStack.Layers())
+	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(service.currentViewSessionID())
-	request.budget = reactBudgetFor(effort)
+	request.Budget = reactBudgetFor(effort)
 	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
-	if err := service.materializeDraftSession(request.displayInput); err != nil {
+	if err := service.materializeDraftSession(request.DisplayInput); err != nil {
 		return err
 	}
 	service.ViewMu.Lock()
@@ -211,9 +207,9 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	// fork 执行期不再拒绝输入（同 submitConversation 的退役口径）：目标会话有回合
 	// 在跑 → 投进该会话自己的队列，回合收尾整批提升；没有回合在跑 → 在它的上下文
 	// 里后台启动。门控退役之后，teammate/fork 两条链在输入面上走的是同一条链路。
-	request := newChatRequest(input, service.promptStack.Layers())
+	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(sessionID)
-	request.budget = reactBudgetFor(effort)
+	request.Budget = reactBudgetFor(effort)
 	service.ViewMu.Lock()
 	if service.closed {
 		service.ViewMu.Unlock()
@@ -263,53 +259,27 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 // BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 // 自然完成。
 func (service *Service) BeginGracefulShutdown() {
-	service.ViewMu.Lock()
-	service.draining = true
-	service.ViewMu.Unlock()
+	service.lifecycleApplicationComponent().BeginGracefulShutdown()
 }
 
 // WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
 // 通过 ctx 控制放弃。
 func (service *Service) WaitForIdle(ctx context.Context) error {
-	for {
-		service.ViewMu.RLock()
-		idle := service.idle
-		service.ViewMu.RUnlock()
-		select {
-		case <-idle:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return service.lifecycleApplicationComponent().WaitForIdle(ctx)
 }
 
 // AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
 // 而后台会话仍在跑也必须在 graceful drain 中等待）。多会话并行下视图快照
 // 的 Chat.Running 只反映当前会话，不是进程空闲判据。
 func (service *Service) AnyChatRunning() bool {
-	service.ViewMu.RLock()
-	defer service.ViewMu.RUnlock()
-	return service.anyChatRunningLocked()
+	return service.lifecycleApplicationComponent().AnyChatRunning()
 }
 
 // CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
 // 占用引擎与持久化通道，不能只取消视图会话）。取消后每个 runChat 走正常
 // 收尾（逐会话 persist），随后 WaitForIdle 自然收敛。
 func (service *Service) CancelAllChats() {
-	service.ViewMu.RLock()
-	cancels := make([]context.CancelFunc, 0, 4)
-	for _, sid := range service.sessions.UnitIDs() {
-		if unit := service.sessions.Unit(sid); unit != nil {
-			if cancel := unit.CancelFunc(); cancel != nil {
-				cancels = append(cancels, cancel)
-			}
-		}
-	}
-	service.ViewMu.RUnlock()
-	for _, cancel := range cancels {
-		cancel()
-	}
+	service.lifecycleApplicationComponent().CancelAllChats()
 }
 
 // CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
@@ -327,45 +297,95 @@ func (service *Service) CancelAllChats() {
 // 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
 // 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
 func (service *Service) CancelChat(requestID string) bool {
-	service.ViewMu.Lock()
-	defer service.ViewMu.Unlock()
-	sessionID := service.Core.Snapshot.Session.ID
-	runtime := service.sessionUnitLocked(sessionID)
-	chat := runtime.ChatState()
-	if !chat.Running || runtime.CancelFunc() == nil {
-		return false
+	return service.lifecycleApplicationComponent().CancelChat(requestID)
+}
+
+func (service *Service) lifecycleApplicationComponent() *applicationlifecycle.Application {
+	if service == nil {
+		return nil
 	}
-	if requestID != "" && requestID != chat.RequestID {
-		runChatDebug("cancel request id %q is stale; cancelling current request %q of session %s", requestID, chat.RequestID, sessionID)
-	}
-	runtime.CancelFunc()()
-	return true
+	return service.components.lifecycleApplication
+}
+
+func newServiceLifecycleApplication(service *Service) *applicationlifecycle.Application {
+	return applicationlifecycle.New(applicationlifecycle.Deps{
+		SetDraining: func() {
+			service.ViewMu.Lock()
+			service.draining = true
+			service.ViewMu.Unlock()
+		},
+		Idle: func() <-chan struct{} {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.idle
+		},
+		AnyRunning: func() bool {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.anyChatRunningLocked()
+		},
+		ReadCancels: func() []context.CancelFunc {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			cancels := make([]context.CancelFunc, 0, 4)
+			for _, sid := range service.sessions.UnitIDs() {
+				if unit := service.sessions.Unit(sid); unit != nil {
+					if cancel := unit.CancelFunc(); cancel != nil {
+						cancels = append(cancels, cancel)
+					}
+				}
+			}
+			return cancels
+		},
+		CancelChat: func(requestID string) bool {
+			service.ViewMu.Lock()
+			defer service.ViewMu.Unlock()
+			sessionID := service.Core.Snapshot.Session.ID
+			runtime := service.sessionUnitLocked(sessionID)
+			chat := runtime.ChatState()
+			if !chat.Running || runtime.CancelFunc() == nil {
+				return false
+			}
+			if requestID != "" && requestID != chat.RequestID {
+				runChatDebug("cancel request id %q is stale; cancelling current request %q of session %s", requestID, chat.RequestID, sessionID)
+			}
+			runtime.CancelFunc()()
+			return true
+		},
+		BeginShutdown: func() bool {
+			service.ViewMu.Lock()
+			if service.closed {
+				service.ViewMu.Unlock()
+				return false
+			}
+			service.closed = true
+			for _, sid := range service.sessions.UnitIDs() {
+				if unit := service.sessions.Unit(sid); unit != nil {
+					if cancel := unit.CancelFunc(); cancel != nil {
+						cancel()
+					}
+				}
+			}
+			service.ViewMu.Unlock()
+			return true
+		},
+		FlushToolRecords: service.flushAllToolRecords,
+		StopCatalogRefresh: func() {
+			service.components.sessions.StopCatalogRefresh()
+		},
+		CloseSessions: service.sessions.Close,
+		StopLifecycleConsumers: func() {
+			service.stopLifecycleConsumers()
+		},
+		CloseWorkTable: func() {
+			if service.workTable != nil {
+				service.workTable.Close()
+			}
+		},
+		ShutdownApproval: service.Approval.Shutdown,
+	})
 }
 
 func (service *Service) Shutdown() {
-	service.ViewMu.Lock()
-	if service.closed {
-		service.ViewMu.Unlock()
-		return
-	}
-	service.closed = true
-	// 取消所有运行中会话的执行（会话域持有 cancel；core 不再持有全局镜像）。
-	for _, sid := range service.sessions.UnitIDs() {
-		if unit := service.sessions.Unit(sid); unit != nil {
-			if cancel := unit.CancelFunc(); cancel != nil {
-				cancel()
-			}
-		}
-	}
-	service.ViewMu.Unlock()
-	// 停机兜底：把每个会话还留在内存里的读数批量落一次（真相源提交点之外的漏网部分）。
-	// 放在会话域关闭之前：FlushToolRecord 只需要存储口与内存累计，不依赖会话 actor。
-	service.flushAllToolRecords()
-	service.components.sessions.StopCatalogRefresh()
-	service.sessions.Close() // 会话域 actor 收尾（注册表 + V 指针）
-	service.stopLifecycleConsumers()
-	if service.workTablePublisher != nil {
-		service.workTablePublisher.Close()
-	}
-	service.Approval.Shutdown()
+	service.lifecycleApplicationComponent().Shutdown()
 }

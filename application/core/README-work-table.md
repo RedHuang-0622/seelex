@@ -6,9 +6,23 @@
 
 覆盖：`work_table*.go`、`async*.go`、`project_board*.go`；未归属文件由覆盖自检拦下。
 
+## Execution Application 用例（AP-017 首个切片）
+
+`work_table_application.go` 集中 WorkItem execution、teammate inspection/live、
+团队看板和 todo 状态更新。Runtime 与 teamwork board reader 仍是具体能力提供方；
+Service 入口只保留一行转发。
+
 `worktable.changed` 既是表格增量，也是子代理树的送达通道：树内容变化时
 随包附带 `subagent_tree`（清空时显式空数组），前端详情入口据此把工作表格行
 解析成弹窗节点，避免"行先到、树未到"时详情打不开。
+
+AP-115C1 起，latest-wins publisher 与树 payload 去重已迁入
+[`application/execution/table`](../execution/table/README.md)；core 只保留树快照、
+session ID 和事件发布回调。
+AP-115C2a 起，TraceBlock 的过滤、排序、预算与 async/teamwork 提示也由该包生成。
+AP-115C2b1 起，async/teamwork 信号 consumer 和补扫 timer 由该包管理。
+AP-115C2b2 起，subagent/task consumer 与三路 start-once 也由该包管理。
+AP-115C2c 起，WorkItem/批次输入投影与 task-change 依赖补齐也经该包委托。
 
 ## 后台命令行（第四路输入，只读投影）
 
@@ -28,7 +42,8 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   句柄、`kind`、state、已产出字节，在途行带标题、完成行带**有界摘要**（state + exit +
   行数 + 字节数 + 有界末行，≤512B）。**不含**日志路径、末行原文（摘要里的末行是压成一行、
   限长的采样）、时间戳——那三者是探针给 GUI 的，进上下文等于每轮重付一遍，还会把日志正文
-  变成注入面。整块行数（含开/闭标记、标题与读法说明）≤ `workTableTraceMaxLines`；被截断
+  变成注入面。整块行数（含开/闭标记、标题与读法说明）≤
+  `application/execution/table.TraceMaxLines`；被截断
   的完成行补一行汇总，不静默消失。模型 `bg_manage(op=fetch)` 取回（或 `op=done` 销项）
   之后那一行才从投影里消失——history 里的结果成为唯一事实。
 - 生命周期消费者由三个变四个：`consumeAsyncRuns()` 收登记表的变化信号（派发/终态/驱逐/
@@ -126,14 +141,23 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### project_board_read.go
 
+- `func newProjectBoardQuery(deps projectBoardQueryDeps) *projectBoardQuery`
 - `func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
+- `func (query *projectBoardQuery) WorkTableRowsFor(sessionID string) []model.WorkItem`
 - `func (service *Service) ProjectRootFor(sessionID string) string` — ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
+- `func (query *projectBoardQuery) ProjectRootFor(sessionID string) string`
 - `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
+- `func (query *projectBoardQuery) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan`
 - `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
+- `func (query *projectBoardQuery) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState`
+- `func (service *Service) projectBoardQueryComponent() *projectBoardQuery`
+- `func newServiceProjectBoardQuery(service *Service) *projectBoardQuery`
 - `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
 
 ### project_board_read_test.go
 
+- `func TestProjectBoardQueryIsAssembled(t *testing.T)`
+- `func TestProjectBoardReadFacadeOnlyDelegatesToQuery(t *testing.T)`
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)`
 - `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
 - `func TestProjectBoardIsNotAnInput(t *testing.T)`
@@ -148,7 +172,6 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
-- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) model.WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。

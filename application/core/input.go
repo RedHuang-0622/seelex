@@ -67,7 +67,7 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 // （`#` 曾经是"召回 Skill"）；其它失败原样返回错误，由调用方按既有口径呈现，
 // 不在这里重复一份错误文案。
 func (service *Service) submitPluginSwitch(ctx context.Context, name string) error {
-	if err := service.SwitchPlugin(ctx, name); err != nil {
+	if err := service.components.policyApplication.SwitchPlugin(ctx, name); err != nil {
 		if hint := service.sigilMigrationHint(SigilPlugin, name); hint != "" {
 			service.addNotice(fmt.Sprintf("未知 Plugin: %s%s", name, hint))
 		}

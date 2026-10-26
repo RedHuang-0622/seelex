@@ -56,7 +56,7 @@ func TestSwitchEffortPushesWireReasoningEffort(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			service, runtime := newEffortWireService(t)
-			if err := service.SwitchEffort(context.Background(), testCase.level); err != nil {
+			if err := frontendOfTestService(service).SwitchEffort(context.Background(), testCase.level); err != nil {
 				t.Fatalf("SwitchEffort(%q): %v", testCase.level, err)
 			}
 			pushed := runtime.pushedEfforts()
@@ -75,7 +75,7 @@ func TestSwitchEffortPushesWireReasoningEffort(t *testing.T) {
 // 与显式档位走同一条链，不得绕过下发。默认档是 high，循环一次应到 max。
 func TestSwitchEffortCyclePushesNextLevel(t *testing.T) {
 	service, runtime := newEffortWireService(t)
-	if err := service.SwitchEffort(context.Background(), "cycle"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "cycle"); err != nil {
 		t.Fatalf("SwitchEffort(cycle): %v", err)
 	}
 	pushed := runtime.pushedEfforts()
@@ -88,7 +88,7 @@ func TestSwitchEffortCyclePushesNextLevel(t *testing.T) {
 // 一个字节都不该动——否则会出现"档位没换成、思考强度先变了"的半截状态。
 func TestSwitchEffortUnknownLevelDoesNotPush(t *testing.T) {
 	service, runtime := newEffortWireService(t)
-	if err := service.SwitchEffort(context.Background(), "turbo"); err == nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "turbo"); err == nil {
 		t.Fatal("SwitchEffort(turbo) 应当被拒")
 	}
 	if pushed := runtime.pushedEfforts(); len(pushed) != 0 {

@@ -19,12 +19,12 @@ import (
 // SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
 // 判据与守卫在 `limit.Knobs`：本方法只转发（错误语义与迁移前逐字一致）。
 func (service *Service) SetReasoningEffort(_ context.Context, effort string) error {
-	return service.knobs.SetReasoningEffort(effort)
+	return service.components.policyApplication.SetReasoningEffort(effort)
 }
 
 // SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。判据与守卫在 `limit.Knobs`。
 func (service *Service) SetLoopLimit(_ context.Context, limit int) error {
-	return service.knobs.SetLoopLimit(limit)
+	return service.components.policyApplication.SetLoopLimit(limit)
 }
 
 // serviceKnobsHost 把 Service 的能力实现成 limit.KnobsHost。

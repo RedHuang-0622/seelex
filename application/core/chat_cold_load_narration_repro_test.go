@@ -81,7 +81,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	// 前端自动翻更早一页（生产 API）：可见窗口后退 → 回看态。
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 

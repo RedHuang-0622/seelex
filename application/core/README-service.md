@@ -9,6 +9,59 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 `service_api_faces.go` 同时保存旧四组兼容接口与 AP-002 的能力型入站接口；
 根 `application/faces.go` 只做类型别名再导出，避免根门面新增类型身份。
 
+## Policy Application 首批（AP-054 首个切片）
+
+`service_policy_application.go` 集中技能激活、reasoning/loop 两条独立拉条、
+Session release window 和 FullAccess 兼容壳。底层 `limit.Knobs`、
+`skill.Activator`、`middle/switch` 和权限档位状态机仍是唯一判据来源。
+
+AP-055 进一步把 PermissionTier 本体的持久化、SessionUnit、审批门、Runtime 门、
+生效档位和 runtime 事件收拢到该组件。
+
+AP-056 把 Effort 切换的视图空闲守卫、cycle/apply、subagent/reasoning 下发、
+prompt 同步和 runtime 收口收拢到同一组件。
+
+AP-057 把 Plugin 切换的全进程空闲守卫、activate/deactivate、prompt/history
+重建、Effort 恢复、会话 reset 和 runtime 发布收拢到同一组件。
+
+AP-058 新增 `service_admin_application.go`，集中 Admin 账号添加、详情、更新、
+删除和余额查询的调用时端口解析、输入裁剪与缺失能力错误。
+`service_account.go` 的五个入口只保留一行转发；账号档写入与余额探测仍是宿主
+端口中的唯一实现。
+
+AP-059 把 Admin 账号选择收拢到同一组件：Runtime 准入、runtime projection、
+锁内账户/投影/revision、解锁后事件发布和通知保持原顺序；
+AP-116E 后由 `Frontend.SelectAccount` 直接调用该组件。
+
+AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime 端口解析与
+`accountwindow.Setter` 适配；`Service.SetAccountWindow` 只保留一行转发。
+
+## Frontend 兼容适配器（AP-116E）
+
+`Frontend` 是 AP-116 迁移期的前端兼容适配器，内嵌唯一 `*Service` 以继续取得
+组件装配，但已迁出的方法不再回到 `Service` 公开面。首批 8 个入口为：
+
+- `Suggestions`
+- `SelectAccount`
+- `SwitchEffort`
+- `SwitchPlugin`
+- `LoadMoreHistory`
+- `LoadLatestHistory`
+- `ReorderQueuedInput`
+- `RecallQueuedInput`
+
+这些方法直接调用唯一领域组件，不持有第二份状态机。GUI、TUI、headless 与
+wiring 已改用 `Frontend`；能力接口的编译期钉子也固定在 `*Frontend`。
+
+AP-068 新增 `schedulerApplication`，集中定时任务创建、编辑、取消的默认参数、
+workspace/plugin/执行参数校验顺序与成功后的 runtime 投影刷新。
+三条旧入口只保留一行转发。
+
+AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移入
+`runtimeApplication`。AP-070 把提交前的定时运行装配移入
+`scheduledRunApplication`；AP-071 把定时新会话顶层编排移入
+`scheduledSessionApplication`。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -73,6 +126,33 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)`
 - `func (store *recordingWindowStoreForForward) SaveAccountWindow(string, int) error`
 
+### service_admin_application.go
+
+- `func newAdminApplication(deps adminApplicationDeps) *adminApplication`
+- `func (application *adminApplication) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)`
+- `func (application *adminApplication) AccountDetails(name string) (dto.AccountDetails, error)`
+- `func (application *adminApplication) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
+- `func (application *adminApplication) DeleteAccount(name string) (dto.AccountDetails, error)`
+- `func (application *adminApplication) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)`
+- `func (application *adminApplication) SelectAccount(_ context.Context, name string) error`
+- `func (application *adminApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error)`
+- `func (application *adminApplication) accountAdmin(action string) (contract.AccountAdminPort, error)`
+- `func newServiceAdminApplication(service *Service) *adminApplication`
+
+### service_admin_application_test.go
+
+- `func TestServiceAdminApplicationIsAssembled(t *testing.T)`
+- `func TestAdminApplicationDelegatesAccountOperations(t *testing.T)`
+- `func TestAdminApplicationPreservesUnavailableErrors(t *testing.T)`
+- `func TestAdminApplicationPropagatesHostErrors(t *testing.T)`
+- `func TestAdminApplicationSelectAccountRunsFullPath(t *testing.T)`
+- `func TestAdminApplicationSelectAccountStopsWhenUnavailable(t *testing.T)`
+- `func TestAdminApplicationSetAccountWindowDelegates(t *testing.T)`
+- `func TestAdminApplicationSetAccountWindowPreservesUnavailableErrors(t *testing.T)`
+- `func TestAccountFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
+- `func TestSelectAccountFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
+- `func TestSetAccountWindowFacadeOnlyDelegatesToAdminApplication(t *testing.T)`
+
 ### service_assembler.go
 
 - `func (p taskPromptPort) CurrentEffort() string`
@@ -98,12 +178,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_components.go
 
-- `func (port *toolRecordPort) setEnabled(enabled bool)`
-- `func (port *toolRecordPort) enabledValue() bool`
-- `func (port *toolRecordPort) noteFlushError(err error)`
-- `func (port *toolRecordPort) flushErrorMessage() string`
-- `func (port *toolRecordPort) setSnapshotStore(store contract.ToolRecordSnapshotStore)`
-- `func (port *toolRecordPort) snapshotStoreValue() contract.ToolRecordSnapshotStore`
 - `func (port *projectBoardPort) store(sink board.ProjectBoardSink)`
 - `func (port *projectBoardPort) load() board.ProjectBoardSink`
 
@@ -279,6 +353,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input.go
 
+- `func newLifecycleApplication(deps lifecycleApplicationDeps) *lifecycleApplication`
 - `func (service *Service) discardPendingSubagentContexts()` — discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 - `func (service *Service) discardPendingSubagentContextsFor(_ string)` — discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
@@ -292,10 +367,18 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 - `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
+- `func (application *lifecycleApplication) BeginGracefulShutdown()`
 - `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
+- `func (application *lifecycleApplication) WaitForIdle(ctx context.Context) error`
 - `func (service *Service) AnyChatRunning() bool` — AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
+- `func (application *lifecycleApplication) AnyChatRunning() bool`
 - `func (service *Service) CancelAllChats()` — CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
+- `func (application *lifecycleApplication) CancelAllChats()`
 - `func (service *Service) CancelChat(requestID string) bool` — CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
+- `func (application *lifecycleApplication) CancelChat(requestID string) bool`
+- `func (application *lifecycleApplication) Shutdown()`
+- `func (service *Service) lifecycleApplicationComponent() *lifecycleApplication`
+- `func newServiceLifecycleApplication(service *Service) *lifecycleApplication`
 - `func (service *Service) Shutdown()`
 
 ### service_input_fork_queue_test.go
@@ -305,6 +388,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input_test.go
 
+- `func TestLifecycleApplicationIsAssembled(t *testing.T)`
+- `func TestLifecycleApplicationWaitForIdle(t *testing.T)`
+- `func TestLifecycleApplicationShutdownRunsCleanupOnce(t *testing.T)`
+- `func TestLifecycleFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func trustedSkillInHistory(t *testing.T, history []contract.EngineMessage, name, text string) bool` — trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 - `func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T)`
 - `func TestWorkTableTraceBlock(t *testing.T)`
@@ -317,9 +404,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
 - `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
-- `func (service *Service) SelectAccount(_ context.Context, name string) error`
-- `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
-- `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
+- `func (frontend *Frontend) SelectAccount(ctx context.Context, name string) error`
+- `func (frontend *Frontend) SwitchEffort(ctx context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
+- `func (frontend *Frontend) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
 - `func (service *Service) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
 - `func (service *Service) SetFullAccess(on bool) bool` — SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
@@ -343,6 +430,33 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T)` — TestEffortAndPluginGuardsAroundRunningSessions 覆盖 G0b 守卫：
 - `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
 - `func TestPluginSwitchPreservesEffort(t *testing.T)` — TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
+
+### service_policy_application.go
+
+- `func newPolicyApplication(deps policyApplicationDeps) *policyApplication`
+- `func (application *policyApplication) ActivateSkill(name string) (model.SkillInfo, error)`
+- `func (application *policyApplication) SetReasoningEffort(effort string) error`
+- `func (application *policyApplication) SetLoopLimit(limit int) error`
+- `func (application *policyApplication) SetSessionReleaseWindow(window int) (int, error)`
+- `func (application *policyApplication) SessionReleaseWindow() int`
+- `func (application *policyApplication) SetFullAccess(on bool) bool`
+- `func (application *policyApplication) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 规范化并持久化档位，同步会话/审批/Runtime 后发布生效值。
+- `func (application *policyApplication) SwitchEffort(level string) error` — SwitchEffort 执行视图空闲守卫、Effort 应用和 runtime 同步。
+- `func (application *policyApplication) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 执行插件切换、prompt/history 重建与 runtime 发布。
+- `func newServicePolicyApplication(service *Service) *policyApplication`
+
+### service_policy_application_test.go
+
+- `func TestPolicyApplicationIsAssembled(t *testing.T)`
+- `func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T)`
+- `func TestPolicyApplicationFullAccessError(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T)`
 
 ### service_knobs.go
 
@@ -382,11 +496,16 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_queue.go
 
-- `func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
-- `func (service *Service) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
-- `func (service *Service) queueEditGuardLocked() error` — queueEditGuardLocked 是队列编辑的关闭/排空门禁（与 Submit 同口径）。
-- `func (service *Service) queuedInputUnitLocked(sessionID string) (*session.SessionUnit, error)` — queuedInputUnitLocked 解析队列编辑的目标会话单元（调用方持有 Core.ViewMu）。
-- `func (service *Service) applyQueueEditLocked(unit *session.SessionUnit)` — applyQueueEditLocked 在队列编辑成功后重投影该会话的 ChatState.InputQueue /
+- `func (frontend *Frontend) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
+- `func (frontend *Frontend) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
+
+### service_queue_component_test.go
+
+- `func TestServiceComponentsAssembleConversationQueue(t *testing.T)`
+- `func TestQueueFacadeOnlyDelegatesToConversationQueue(t *testing.T)`
+- `func TestConversationQueueDoesNotOwnServiceOrDuplicateQueueState(t *testing.T)`
+- `func TestQueueFacadeNilServiceKeepsExistingError(t *testing.T)`
+- `func TestConversationQueuePreservesPresentationEventOrder(t *testing.T)`
 
 ### service_queue_test.go
 
@@ -421,22 +540,47 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_scheduler.go
 
+- `func newSchedulerApplication(deps schedulerApplicationDeps) *schedulerApplication`
+- `func newScheduledRunApplication(deps scheduledRunApplicationDeps) *scheduledRunApplication`
+- `func newScheduledSessionApplication(deps scheduledSessionApplicationDeps) *scheduledSessionApplication`
 - `func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
 - `func scheduledRunParams(effort string, loopLimit int) (string, int)` — scheduledRunParams 返回这条任务触发时**真正要用**的两条参数：声明优先，未声明（空/0）
 - `func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error` — validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
 - `func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error` — applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
 - `func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
+- `func (application *schedulerApplication) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
 - `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
+- `func (application *schedulerApplication) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
 - `func (service *Service) validateScheduledWorkspace(workspaceID string) error` — validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
 - `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)` — resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
 - `func (service *Service) validateScheduledPlugins(plugins []string) error` — validateScheduledPlugins 校验任务声明的插件装配都存在（空 = 不覆盖，合法）。
 - `func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
+- `func (application *scheduledRunApplication) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error)`
 - `func (service *Service) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
+- `func (application *schedulerApplication) CancelScheduledTask(id string) error`
+- `func (service *Service) schedulerApplicationComponent() *schedulerApplication`
+- `func newServiceSchedulerApplication(service *Service) *schedulerApplication`
 - `func (service *Service) RefreshRuntimeSnapshot()` — RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
+- `func (service *Service) schedulerApplicationComponent() *schedulerApplication`
+- `func (service *Service) scheduledRunApplicationComponent() *scheduledRunApplication`
+- `func (service *Service) scheduledSessionApplicationComponent() *scheduledSessionApplication`
+- `func newServiceSchedulerApplication(service *Service) *schedulerApplication`
+- `func newServiceScheduledRunApplication(service *Service) *scheduledRunApplication`
+- `func newServiceScheduledSessionApplication(service *Service) *scheduledSessionApplication`
 - `func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
+- `func (application *scheduledSessionApplication) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error)`
 
 ### service_scheduler_test.go
 
+- `func TestSchedulerApplicationIsAssembled(t *testing.T)`
+- `func TestRuntimeApplicationIsAssembled(t *testing.T)`
+- `func TestScheduledRunApplicationIsAssembled(t *testing.T)`
+- `func TestScheduledSessionApplicationIsAssembled(t *testing.T)`
+- `func TestSchedulerApplicationCreateStopsOnValidationError(t *testing.T)`
+- `func TestSchedulerFacadeOnlyDelegatesToApplication(t *testing.T)`
+- `func TestRefreshRuntimeSnapshotFacadeOnlyDelegatesToRuntimeApplication(t *testing.T)`
+- `func TestAssembleScheduledRunFacadeOnlyDelegatesToApplication(t *testing.T)`
+- `func TestStartScheduledSessionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T)` — TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
 - `func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T)` — TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound 钉住"工作区是
 - `func (runtime *fakeRuntime) sessionProjectRoot(sessionID string) string` — sessionProjectRoot 读 fakeRuntime 的按会话工具根（同包测试直读，加锁）。
@@ -487,6 +631,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_snapshot_test.go
 
+- `func TestPerfStatsApplicationIsAssembled(t *testing.T)`
+- `func TestPerfStatsFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestSnapshotNeverSerializesSystemPrompt(t *testing.T)`
 - `func TestEventHubOrdersAndResyncs(t *testing.T)`
 - `func TestMessageDeltaIncludesStableMessageID(t *testing.T)`

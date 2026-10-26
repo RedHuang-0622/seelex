@@ -37,7 +37,7 @@ func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := openLongSession(t, 6, 20)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
@@ -75,7 +75,7 @@ func TestReproSubmitWhileBrowsingEndsBrowsingState(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := openLongSession(t, 6, 20)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	if !service.components.view.SessionViewBrowsingHistoryLocked("long-session") {

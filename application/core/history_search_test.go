@@ -4,10 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
 
+	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 )
+
+func TestHistorySearchApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("historySearchApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 historySearchApplication")
+	}
+	if field.Type != reflect.TypeOf((*conversationsearch.Application)(nil)) {
+		t.Fatalf("historySearchApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestHistorySearchFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "history_search.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"SearchHistory": false, "SearchHistoryHandler": false}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 historySearchApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // searchRuntime 是支持检索断言的 fakeRuntime 包装（记录查询参数）。
 type searchRuntime struct {
@@ -39,8 +91,8 @@ func TestSearchHistoryHandlerReturnsStructuredHits(t *testing.T) {
 	if runtime.query != "数据库优化" {
 		t.Fatalf("runtime query = %q, want 数据库优化（trim 后）", runtime.query)
 	}
-	if runtime.limit != seelexctxsearch.DefaultLimit {
-		t.Fatalf("runtime limit = %d, want DefaultLimit %d", runtime.limit, seelexctxsearch.DefaultLimit)
+	if runtime.limit != 0 {
+		t.Fatalf("runtime limit = %d, want 0（默认值与 clamp 归 search 实现）", runtime.limit)
 	}
 	var decoded seelexctxsearch.Result
 	if err := json.Unmarshal([]byte(output), &decoded); err != nil {

@@ -130,12 +130,12 @@ func TestReproColdLoadThenReturnToLatestReachesTail(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := coldLoadLongSession(t, 1)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("加载更早一页: %v", err)
 	}
 	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
 
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("回到最新: %v", err)
 	}
 	assertWindowAtTail(t, service, "冷加载后回到最新")
@@ -150,12 +150,12 @@ func TestReproColdLoadReturnToLatestWhenTailWindowIsInternalRows(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := coldLoadLongSession(t, 6)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("加载更早一页: %v", err)
 	}
 	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
 
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("回到最新: %v", err)
 	}
 	assertWindowAtTail(t, service, "尾窗被内部行占掉后回到最新")

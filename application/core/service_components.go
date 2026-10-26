@@ -1,11 +1,29 @@
 package core
 
 import (
+	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
+	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
+	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
+	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
+	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
+	applicationreview "github.com/RedHuang-0622/seelex/application/review"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/contract"
 	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
@@ -30,8 +48,74 @@ type serviceComponents struct {
 
 	// sessionQuery 与 conversationHistoryQuery 是 Application 查询面：
 	// 只持窄读依赖，不持完整 Service，也不承担会话生命周期状态机。
-	sessionQuery             *sessionQuery
-	conversationHistoryQuery *conversationHistoryQuery
+	sessionQuery                 *applicationsessionquery.Application
+	conversationHistoryQuery     *applicationhistory.Application
+	conversationQueue            *applicationconversation.QueueApplication
+	conversationTurnState        *conversationTurnState
+	sessionLifecycle             *applicationsession.LifecycleApplication
+	sessionArchive               *applicationsession.ArchiveApplication
+	sessionDelete                *applicationsession.DeleteApplication
+	sessionDraftSubmission       *applicationsession.DraftSubmissionApplication
+	sessionDraftMaterialization  *applicationsession.DraftMaterializationApplication
+	sessionDraftEntry            *applicationsession.DraftEntryApplication
+	sessionResume                *applicationsession.ResumeApplication
+	editForkOperationRegistry    *applicationedit.OperationRegistry
+	editForkApplication          *applicationedit.EditApplication
+	editForkValidator            *applicationedit.Validator
+	editForkTargetResolver       *applicationedit.TargetResolver
+	editForkRollback             *applicationedit.RollbackApplication
+	editForkProcess              *applicationedit.ProcessApplication
+	editForkAnnotation           *applicationedit.AnnotationApplication
+	sessionForkLineage           *applicationsession.ForkLineageApplication
+	sessionRestoringShell        *applicationsession.RestoringShellApplication
+	sessionRestoreRecovery       *applicationsession.RestoreRecoveryApplication
+	sessionRestoreDraftReset     *applicationsession.RestoreDraftResetApplication
+	sessionColdRead              *applicationsessioncold.ReadApplication
+	sessionColdHistory           *applicationsessioncold.HistoryApplication
+	sessionColdRestore           *applicationsessioncold.RestoreApplication
+	sessionColdWorkspace         *applicationsessioncold.WorkspaceApplication
+	sessionColdActivation        *applicationsessioncold.ActivationApplication
+	sessionColdTask              *applicationsessioncold.TaskApplication
+	sessionColdView              *applicationsessioncold.ViewApplication
+	sessionColdPublish           *applicationsessioncold.PublishApplication
+	sessionColdCommit            *applicationsessioncold.CommitApplication
+	conversationTurnProcess      *applicationconversation.TurnProcessApplication
+	conversationTurnCompletion   *applicationconversation.TurnCompletionApplication
+	conversationTurnOutcome      *applicationconversation.TurnOutcomeApplication
+	conversationTurnPublisher    *applicationconversation.TurnPublisherApplication
+	conversationTurnTail         *applicationconversation.TurnTailApplication
+	conversationTurnInput        *applicationconversation.TurnInputApplication
+	conversationTurnResponse     *applicationconversation.TurnResponseApplication
+	conversationTurnRecovery     *applicationconversation.TurnRecoveryApplication
+	conversationTurnCleanup      *applicationconversation.TurnCleanupApplication
+	conversationTurnCommit       *applicationconversation.TurnCommitApplication
+	conversationTurnFinalize     *applicationconversation.TurnFinalizeApplication
+	conversationTurnExecution    *applicationconversation.TurnExecutionApplication
+	conversationTurnRunner       *applicationconversation.TurnRunnerApplication
+	policyApplication            *applicationpolicy.SwitchApplication
+	adminApplication             *applicationadmin.AccountApplication
+	workspaceApplication         *applicationworkspace.Application
+	sessionSSHApplication        *applicationsession.SSHApplication
+	roleApplication              *applicationpolicy.RoleApplication
+	schedulerApplication         *applicationscheduler.SchedulerApplication
+	scheduledRunApplication      *applicationscheduler.RunApplication
+	scheduledSessionApplication  *applicationscheduler.SessionApplication
+	runtimeApplication           *applicationadmin.RuntimeApplication
+	reviewApplication            *applicationreview.Application
+	lifecycleApplication         *applicationlifecycle.Application
+	historySearchApplication     *conversationsearch.Application
+	completionApplication        *applicationinput.Application
+	referenceApplication         *applicationreference.Application
+	sessionMetaApplication       *applicationsession.MetaApplication
+	projectBoardQuery            *applicationexecution.ProjectBoardApplication
+	sessionReleaseApplication    *applicationsession.ReleaseApplication
+	contextCompactionApplication *conversationcontext.Application
+	faultGuardApplication        *applicationlifecycle.FaultGuardApplication
+	perfStatsApplication         *applicationobservability.PerfApplication
+	asyncCompletionApplication   *applicationexecution.CompletionApplication
+	goalApplication              *applicationgoal.Application
+	subagentApplication          *applicationexecution.SubagentApplication
+	executionApplication         *applicationexecution.WorkItemApplication
 
 	// projectBoard 是装配期注入的**可选写侧端口**（项目看板投影的订阅口，M3）。
 	//
@@ -47,66 +131,28 @@ type serviceComponents struct {
 	// （vet: "copies lock value"），指针让"可变性"只留在槽位自己身上。
 	projectBoard *projectBoardPort
 
-	// toolRecord 是工具记录台账的可变槽位（可选端口 + 计数开关，见 tool_record.go）。
-	// 与 projectBoard 同一生态位与同一套锁形状：装配期交接一次、此后每个工具完成读一份。
-	toolRecord *toolRecordPort
 	// workspace 是工作区用例的装配载体（middle/switch/workspace）：创建/绑定/
 	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
 	workspace *switchworkspace.UseCase
 }
 
-// toolRecordPort 是**计数开关 + 落盘错误**的可变槽位（读数本身按会话存在
-// serviceState.toolRecords 里，见 tool_record.go）。
-//
-// 开关与错误读数放同一把锁：它们回答的是同一件事（"现在记不记、最近一次落盘成没成"）。
-type toolRecordPort struct {
-	mu           sync.RWMutex
-	enabled      bool
-	lastFlushErr error
-	// snapshotStore 是读数落盘口（会话粒度、批次更新，见 tool_record.go 的
-	// FlushToolRecord）。装配根在 New 之后注入（SetToolRecordSnapshotStore）：
-	// 它依赖存储后端与工作区解析，两者在装配顺序上都晚于 core 的构造。
-	snapshotStore contract.ToolRecordSnapshotStore
-}
+// Temporary aliases keep the ChatTurn migration compatible while the
+// Conversation aggregate still consumes these values.
+type conversationTurnProcess = applicationconversation.TurnProcessApplication
+type conversationTurnCompletion = applicationconversation.TurnCompletionApplication
+type conversationTurnOutcome = applicationconversation.TurnOutcomeApplication
+type conversationTurnPublisher = applicationconversation.TurnPublisherApplication
+type conversationTurnTail = applicationconversation.TurnTailApplication
+type conversationTurnCommit = applicationconversation.TurnCommitApplication
+type conversationTurnFinalize = applicationconversation.TurnFinalizeApplication
+type conversationTurnExecution = applicationconversation.TurnExecutionApplication
 
-func (port *toolRecordPort) setEnabled(enabled bool) {
-	port.mu.Lock()
-	port.enabled = enabled
-	port.mu.Unlock()
-}
+type chatTurnStartOptions = applicationconversation.StartOptions
+type chatTurnPromotion = applicationconversation.Promotion
+type chatTurnCommitResult = applicationconversation.CommitResult
+type chatTurnPublication = applicationconversation.Publication
 
-func (port *toolRecordPort) enabledValue() bool {
-	port.mu.RLock()
-	defer port.mu.RUnlock()
-	return port.enabled
-}
-
-func (port *toolRecordPort) noteFlushError(err error) {
-	port.mu.Lock()
-	port.lastFlushErr = err
-	port.mu.Unlock()
-}
-
-func (port *toolRecordPort) flushErrorMessage() string {
-	port.mu.RLock()
-	defer port.mu.RUnlock()
-	if port.lastFlushErr == nil {
-		return ""
-	}
-	return port.lastFlushErr.Error()
-}
-
-func (port *toolRecordPort) setSnapshotStore(store contract.ToolRecordSnapshotStore) {
-	port.mu.Lock()
-	port.snapshotStore = store
-	port.mu.Unlock()
-}
-
-func (port *toolRecordPort) snapshotStoreValue() contract.ToolRecordSnapshotStore {
-	port.mu.RLock()
-	defer port.mu.RUnlock()
-	return port.snapshotStore
-}
+type editForkOperation = applicationedit.Operation
 
 // projectBoardPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。

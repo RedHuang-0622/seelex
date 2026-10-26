@@ -25,6 +25,17 @@ func TestApplicationQueryFacesStayReadOnlyAndNarrow(t *testing.T) {
 
 func TestApplicationServiceSatisfiesQueryFaces(t *testing.T) {
 	var service *application.Service
-	var _ application.SessionQuery = service
-	var _ application.ConversationHistoryQuery = service
+	frontend := &application.Frontend{Service: service}
+	var _ application.SessionQuery = frontend
+	var _ application.ConversationHistoryQuery = frontend
+}
+
+func TestSessionQueryCoversDurableReadProjections(t *testing.T) {
+	query := reflect.TypeOf((*application.SessionQuery)(nil)).Elem()
+	want := []string{"GetSessionTranscript", "SessionInputIndex", "SnapshotOf"}
+	for _, name := range want {
+		if _, ok := query.MethodByName(name); !ok {
+			t.Errorf("SessionQuery 缺少只读方法 %s", name)
+		}
+	}
 }

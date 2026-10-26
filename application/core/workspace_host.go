@@ -101,5 +101,5 @@ func (host workspaceHost) RequestCatalogRefresh() {
 }
 
 func (host workspaceHost) ClearReviewRequest() {
-	host.service.ClearReviewRequest("")
+	host.service.reviewApplicationComponent().ClearReviewRequest("")
 }

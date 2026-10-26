@@ -1,8 +1,8 @@
 package core
 
 import (
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	view "github.com/RedHuang-0622/seelex/middle/view"
 )
 
 // PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
@@ -13,7 +13,28 @@ import (
 // 派生读数的计算在中间层读数面 `middle/view`（plan §2.4：`perf_stats.go` →
 // `middle/view/`）；这里只保留锁与取数（进程级上限、归档读数口都在宿主侧）。
 func (service *Service) PerfStats() model.PerfStats {
-	service.ViewMu.RLock()
-	defer service.ViewMu.RUnlock()
-	return view.PerfStats(service.Core.Snapshot, Limits().HistoryWindow, service.components.tasks.ToolResultRefs())
+	return service.perfStatsApplicationComponent().PerfStats()
+}
+
+func (service *Service) perfStatsApplicationComponent() *applicationobservability.PerfApplication {
+	if service == nil {
+		return nil
+	}
+	return service.components.perfStatsApplication
+}
+
+func newServicePerfStatsApplication(service *Service) *applicationobservability.PerfApplication {
+	return applicationobservability.NewPerfApplication(applicationobservability.PerfDeps{
+		LockView:   service.ViewMu.RLock,
+		UnlockView: service.ViewMu.RUnlock,
+		Snapshot: func() model.Snapshot {
+			return service.Core.Snapshot
+		},
+		HistoryWindow: func() int {
+			return Limits().HistoryWindow
+		},
+		ToolResultRefs: func() []model.ToolResultRef {
+			return service.components.tasks.ToolResultRefs()
+		},
+	})
 }

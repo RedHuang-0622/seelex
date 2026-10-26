@@ -14,18 +14,19 @@ package core
 //     宿主（测试桩 / 精简宿主）走类型断言失败分支返回空视图，而不是让 RuntimePort
 //     长出一个恒返回零值的成员。
 
-import (
-	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-)
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
-// TeamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
+// teamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
 // 前端与 TUI 据此整块退场，不留空壳）。
-func (service *Service) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
-	if service == nil {
-		return nil
-	}
-	return teamwork.NewBoardReader(service.Deps.Runtime).BoardViewFor(sessionID)
+func (service *Service) teamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
+	return service.executionApplicationComponent().BoardView(sessionID)
+}
+
+// teamworkBoardViewPort satisfies the view coordinator without a public Service method.
+type teamworkBoardViewPort struct{ service *Service }
+
+func (port teamworkBoardViewPort) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView {
+	return port.service.teamworkBoardViewFor(sessionID)
 }
 
 // TeammateSessionLiveFor 返回**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
@@ -36,10 +37,7 @@ func (service *Service) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoar
 // 员工的角色会话落盘、可回读；而一个 Work Item 自己的会话是**进程内执行面**（刻意不接
 // DurableHistory），正文不在会话库里——从存储读只会读到主会话的历史。
 func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView {
-	if service == nil {
-		return dto.TeammateSessionLiveView{SessionID: sessionID}
-	}
-	return teamwork.NewBoardReader(service.Deps.Runtime).SessionLiveFor(sessionID)
+	return service.executionApplicationComponent().SessionLive(sessionID)
 }
 
 // TeammateSessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +
@@ -49,8 +47,5 @@ func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSes
 // offset 从该会话可投影的第一条算起（0 = 最旧）；未装配 / 会话不在本进程 → Running=false
 // 的空页（不是错误，理由同上）。
 func (service *Service) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
-	if service == nil {
-		return dto.TeammateSessionLiveView{SessionID: sessionID, Offset: offset, Limit: limit}
-	}
-	return teamwork.NewBoardReader(service.Deps.Runtime).SessionLivePageFor(sessionID, offset, limit)
+	return service.executionApplicationComponent().SessionPage(sessionID, offset, limit)
 }

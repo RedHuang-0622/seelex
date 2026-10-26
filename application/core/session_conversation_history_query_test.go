@@ -39,7 +39,7 @@ func TestLoadMoreHistoryReadsOutsideSharedWriteLock(t *testing.T) {
 
 	loadDone := make(chan error, 1)
 	go func() {
-		loadDone <- service.LoadMoreHistory(0)
+		loadDone <- frontendOfTestService(service).LoadMoreHistory(0)
 	}()
 	select {
 	case <-store.entered:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
@@ -88,38 +89,16 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		service.afterChatEnqueued(sessionID, revision, request)
 		return nil
 	}
-	requestID := service.nextChatRequestIDLocked()
-	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.displayInput, active)
-	effort := service.effortForSession(sessionID)
-	budget := request.budget
-	if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
-		budget = reactBudgetFor(effort)
-	}
-	chatContext, cancel := context.WithCancel(parent)
-	runtime.SetCancel(cancel)
-	service.components.tasks.StartReActBudgetForLocked(sessionID, requestID, budget)
-	previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	previousCheckpoint := model.TaskCheckpoint{}
-	if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
-		previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
-	}
-	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, effort, previousTask, previousCheckpoint)
-	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
-	// R4 群聊归属：用户行开启新 round；可见消息与 transcript 事件共用同一归属，
-	// 前端才可能按"哪个 agent 主持这一轮"渲染（app/model.MessageOrigin）。
-	userEvent := service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
-	runtime.SetStream(chat.NewVisibleOutputStream(requestID))
-	service.markBusyLocked()
-	runtime.SetChatState(model.ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}, nil)
-	// 阶段 1：聊天运行态投影写会话 scope（活跃会话镜像 Snapshot.Chat）。
-	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-	if active {
-		service.components.tasks.SetTaskStateLocked(requestID, TurnProgressing, "Task is in progress.")
-	}
+	chatContext, requestID, userEvent := service.components.conversationTurnProcess.BeginLocked(
+		parent, sessionID, runtime, request, chatTurnStartOptions{
+			MarkBusy: true, TaskProgressAfterMirror: active,
+		},
+	)
+	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.DisplayInput, active)
 	// L2：标题按会话设置（后台会话首次请求也归属自己的标题，不读活跃槽）；
 	// 仅活跃会话同步到快照展示名。
 	if service.components.sessions.SessionTitleFor(sessionID).Value == "" {
-		title := model.SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()}
+		title := model.SessionTitle{Value: session_runtime.SessionTitle(request.DisplayInput), Source: "first_request", FinalizedAt: time.Now()}
 		service.components.sessions.SetSessionTitleLocked(sessionID, title)
 		if active {
 			service.Core.Snapshot.Session.Name = title.Value
@@ -134,11 +113,11 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 流式增量写入同一条消息，归属字段不会丢。
 	mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 	if active {
-		user = *service.appendMessageWithOriginLocked("user", request.displayInput, nil, userOrigin)
+		user = *service.appendMessageWithOriginLocked("user", request.DisplayInput, nil, userOrigin)
 		assistant = *service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
 	} else {
 		// 阶段 1：后台会话也维护自己的可见投影（hot_attach 回看有数据）。
-		user = *service.appendSessionMessageWithOriginLocked(sessionID, "user", request.displayInput, nil, userOrigin)
+		user = *service.appendSessionMessageWithOriginLocked(sessionID, "user", request.DisplayInput, nil, userOrigin)
 		assistant = *service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
 	}
 	revision := uint64(0)
@@ -176,267 +155,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 // 事件指纹方法：相同输入序列 → 相同事件序列（kind + session/request/message
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
-	ctx = withSessionID(ctx, sessionID)
-	stopDraftSnapshot := service.startDraftSnapshotLoop(ctx, sessionID, requestID)
-	defer stopDraftSnapshot()
-	// 工具面项目根按执行会话绑定：视图可能停在别的项目的会话上，后台会话
-	// 不得借用它的根（工作区污染回归，见 session_project_root_test.go）。
-	service.bindSessionProjectRoot(sessionID)
-	// 会话起步同步子代理策略槽：fork 在引擎内按执行 ctx 读取本会话策略
-	// （含后台会话），不继承进程默认槽。
-	service.syncSubagentPolicyFor(sessionID)
-	// 会话起步同步思考强度：账号池是进程级共享的，所以每个回合起点都按**本会话**
-	// 该用的那条强度下发一次（定时任务声明的强度就在这一步生效；其余会话下发的
-	// 是 composer 拉条的读数）。放在这里的理由与上下文窗口/策略槽一致：账号池的
-	// "后切者生效"一旦跨回合遗留，就会变成"用着用着变了强度"。
-	service.syncSessionReasoningEffortFor(sessionID)
-	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
-	// 不继承别的会话遗留的开关。
-	service.syncFullAccessFor(sessionID)
-	defer service.components.tasks.ClearReActBudget(requestID)
-	var err error
-	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)
-	defer func() { runChatDebug("runChat end session=%s request=%s err=%v", sessionID, requestID, err) }()
-	recovered := false
-	modelInput := request.modelInput
-	batcher, onChunk := service.newBatchedDeltaSink(requestID)
-	service.components.prompts.ApplyActiveTaskSystemPromptFor(sessionID, requestID)
-	modelInput, err = service.components.context.PrepareExecutionContextFor(sessionID, requestID, modelInput)
-	if err == nil {
-		modelInput = nonEmptyProviderInput(modelInput)
-		runChatDebug("runChat entering chatStream session=%s request=%s", sessionID, requestID)
-		var reply string
-		reply, err = service.chatStream(ctx, sessionID, modelInput, onChunk)
-		runChatDebug("runChat chatStream returned session=%s request=%s replyLen=%d err=%v", sessionID, requestID, len(reply), err)
-		if err == nil {
-			// 回合结束后把引擎历史中最后一次 assistant 的推理内容挂到可见消息：
-			// 聊天区一行带过，轨迹区完整查看（reasoning_content 与 content 分离）。
-			service.attachLatestReasoning(sessionID, requestID)
-		}
-		// 模型输出观测（自然终态判定输入面）
-		_ = service.components.tasks.ObserveModelOutput(ctx, task_context.ModelOutput{RequestID: requestID, Reply: reply, Err: err})
-		if reply != "" {
-			service.components.tasks.EnsureFinalAssistantTranscript(requestID, reply)
-		}
-		// 推理草稿只在引擎历史可见（hook 的 LLMInfo 不回传 reasoning）：
-		// 落盘前回填 transcript 事件，使 record/重启恢复保留工具轮间的
-		// LLM 输出与草稿（2026-09-08 持久化缺口修复）。
-		service.components.tasks.BackfillAssistantReasoning(sessionID, service.engineHistoryFor(sessionID))
-		// 工具轮说明正文的归位已前移到工具钩子边界
-		// （handleToolStart → AttributeToolNarrationLocked）：回合收尾不再做
-		// “事后填充”，否则叙述会落到别的轮次
-		// （application/core/context_narration_attribution_test.go）。
-		if contextErr := service.components.context.TakeContextControlFailure(requestID); contextErr != nil {
-			err = contextErr
-		}
-		var recoveryErr error
-		recovered, recoveryErr = service.recoverProviderFailureFor(ctx, err, request.displayInput)
-		if recoveryErr != nil {
-			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
-		}
-		if recovered && recoveryErr == nil && retryableAfterRecovery(err) {
-			if retryErr := service.retryContextRecovery(ctx, requestID, onChunk); retryErr != nil {
-				err = fmt.Errorf("%w; bounded context recovery turn failed: %v", err, retryErr)
-			} else {
-				err = nil
-			}
-		}
-		if err == nil {
-			err = service.finalizeReActBudgetWithSink(ctx, requestID, onChunk)
-		}
-		if err == nil {
-			// 自然停止 → 自动终态（finalizeTaskExecution 演进为 OnChatEnd）
-			var endErr error
-			endErr = service.components.tasks.FinalizeTask(ctx, task_context.ChatEndSummary{RequestID: requestID, Reply: reply})
-			err = endErr
-		}
-	}
-	if flushErr := batcher.Flush(); flushErr != nil && err == nil {
-		err = fmt.Errorf("flush streamed response: %w", flushErr)
-	}
-	// 本轮请求的实际承接路由（config role / config model / 厂商类型）随
-	// response 回填真相源（2026-10-10 用户决定：会话内通知退役，元信息长在
-	// 消息上）。放在 flush 之后：message.added 全量 upsert 后到，前端必然
-	// 看到"正文 + 路由"齐平的最终形状。
-	service.stampServedRoute(sessionID, requestID)
-	// plan_run may have completed child agents while the main framework session
-	// was locked. Drain and discard their Runtime-owned mailbox after ChatStream
-	// returns: child results travel back as tool results, never as mailbox
-	// content injected into engine history or the durable transcript.
-	service.discardPendingSubagentContextsFor(sessionID)
-	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
-	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
-		err = cleanupErr
-	}
-	if err == nil {
-		if cleanupErr := service.removeProviderContextRecoveryFor(sessionID); cleanupErr != nil {
-			err = cleanupErr
-		}
-	}
-	if err != nil {
-		service.ViewMu.Lock()
-		service.recordUnhandledTaskErrorLocked(sessionID, requestID, err)
-		service.ViewMu.Unlock()
-	}
-	stopDraftSnapshot()
-	location := service.components.sessions.LocateSession(sessionID)
-	saveErr := service.components.sessions.PersistCurrentSession(location, sessionID)
-	if saveErr != nil {
-		// durable queue：本轮消费项所在轮的 message **未发布** → 内容回草稿
-		// （「失败回草稿」）。不留"已消费但永不重发"的死条目：进程内不重启
-		// 时它不会再被任何一轮接管（consumed_by 非空会被标记跳过）。
-		_ = service.components.sessions.QueueFailConsumedInput(location, sessionID, requestID)
-		if err != nil {
-			err = viewerrors.Wrap(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), contract.ErrorCodePersistenceFailed)
-		} else {
-			err = viewerrors.Wrap(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), contract.ErrorCodePersistenceFailed)
-		}
-	} else {
-		// durable queue：本轮的消费项已随 message 发布（PersistCurrentSession
-		// 成功即"该轮已发布"）= 最终确认，出队。
-		_ = service.components.sessions.QueueConfirmConsumedInput(location, sessionID, requestID)
-		if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
-			releaser.ReleaseWorkingHistoryFor(sessionID)
-		}
-	}
-	service.ViewMu.Lock()
-	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.sessionUnitLocked(sessionID)
-	if runtime.ChatState().RequestID != requestID {
-		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.ChatState().RequestID)
-		service.ViewMu.Unlock()
-		return
-	}
-	runtime.UpdateChat(func(chat *model.ChatState) { chat.Error = "" }, nil)
-	visibleError := ""
-	if err != nil {
-		if viewerrors.IsUnclassified(err) {
-			// 分类只服务诊断日志：用户可见错误一律是原始 err 正文，
-			// 与下面三个出口（chat.Error / 会话 error 行 / EventError）同源。
-			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
-		}
-		// chat 报错恢复原始错误正文（诊断优先）：不再经 viewerrors.Presented 文案
-		// 改写，UI/事件里就是 runChat 拿到的那条 err。错误分类呈现只保留给
-		// 工具错误出口（viewerrors.PresentToolError → tool.Error 呈现文本）。
-		visibleError = err.Error()
-		runtime.UpdateChat(func(chat *model.ChatState) { chat.Error = visibleError }, nil)
-		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
-	}
-	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
-	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
-	// 全量重建可能带入跨会话的残留消息。
-	// 每会话投影写回本会话槽（G1）：后台会话的运行态不再丢弃——回看/切换
-	// 时 SnapshotOf 直接读槽；活跃会话由协调器镜像 Snapshot.Runtime。
-	service.applyRuntimeProjectionForLocked(sessionID, runtimeProjection)
-	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
-	pendingQueue := queuedChatRequests(runtime.PendingRequests())
-	processQueue := len(pendingQueue) > 0
-	var batchRequest chatRequest
-	var nextContext context.Context
-	var nextCancel context.CancelFunc
-	nextRequestID := ""
-	var nextUser, nextAssistant *model.Message
-	if processQueue {
-		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
-		batchRequest = combineChatRequests(pendingQueue)
-		runtime.SetRequests(nil)
-		// 队列被整批提升进本轮——**这就是 user 的发言机会**：用户只经这条队列
-		// 提升通道发言（历史上的团队发言环把 user 排除在环外，那条环已于
-		// 2026-10-15 A04 删除；见 docs/2026-10-15-product-architecture-pre-design/
-		// legacy-capability-audit.md），因此不需要任何"轮到 user"的口径。
-		runtime.UpdateChat(func(chat *model.ChatState) {
-			chat.QueuedCount = 0
-			chat.InputQueue = nil
-		}, nil)
-		nextRequestID = service.nextChatRequestIDLocked()
-		effort := service.effortForSession(sessionID)
-		budget := batchRequest.budget
-		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
-			budget = reactBudgetFor(effort)
-		}
-		nextContext, nextCancel = context.WithCancel(context.Background())
-		runtime.SetCancel(nextCancel)
-		service.components.tasks.StartReActBudgetForLocked(sessionID, nextRequestID, budget)
-		previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-		previousCheckpoint := model.TaskCheckpoint{}
-		if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
-			previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
-		}
-		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, effort, previousTask, previousCheckpoint)
-		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
-		userEvent := service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
-		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
-		runtime.SetChatState(model.ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
-		service.components.tasks.SetTaskStateLocked(nextRequestID, TurnProgressing, "Task is in progress.")
-		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-		userOrigin := model.MessageOrigin{
-			RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
-			RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq, EventSeq: userEvent.Seq,
-		}
-		mainOrigin := model.MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
-		if active {
-			nextUser = service.appendMessageWithOriginLocked("user", batchRequest.displayInput, nil, userOrigin)
-			nextAssistant = service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
-		} else {
-			nextUser = service.appendSessionMessageWithOriginLocked(sessionID, "user", batchRequest.displayInput, nil, userOrigin)
-			nextAssistant = service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
-		}
-	} else {
-		runtime.UpdateChat(func(chat *model.ChatState) { chat.Running = false }, nil)
-		runtime.SetCancel(nil)
-		if !service.anyChatRunningLocked() {
-			service.markIdleLocked()
-		}
-	}
-	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
-	// F 镜像收口：TaskService 不再直写 Snapshot.Task——runChat 收尾在
-	// ViewMu 段把当前会话的权威任务状态镜像进快照（前台发布 snapshot.changed
-	// 前完成），task 域只维护自有状态与 lastTaskState。
-	if active {
-		if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
-			service.Core.Snapshot.Task = task
-		}
-	}
-	revision := uint64(0)
-	if active {
-		revision = service.bumpLocked()
-	}
-	service.ViewMu.Unlock()
-	// 进程回到完全空闲：补齐运行期间因"运行中不改根"跳过的当前会话工作区
-	// 重绑（后台会话收尾时当前视图可能已切走，工具根必须跟随当前视图会话）。
-	service.rebindViewWorkspaceWhenIdle()
-	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
-	// durable queue：本批排队输入已被提升为下一轮（nextRequestID = 该轮
-	// message 行的 TaskID），标记为该轮消费。放在 ViewMu 之外（文件 IO 不占
-	// 内核锁），且在下一轮 goroutine 启动之前——崩溃时最多把已消费项留在
-	// 队列（可见、不丢），不会把未发送项误判为已发送。
-	if processQueue && nextRequestID != "" {
-		if markErr := service.components.sessions.QueueMarkConsumedInput(location, sessionID, nextRequestID); markErr != nil {
-			runChatDebug("durable queue mark consumed session=%s turn=%s err=%v", sessionID, nextRequestID, markErr)
-		}
-	}
-	service.publishChatStateFor(sessionID)
-	if err != nil {
-		service.publishSessionEvent(EventError, revision, requestID, sessionID, map[string]string{"message": visibleError})
-	} else {
-		service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
-	}
-	// 批量发送：所有排队消息一次发给 LLM
-	if processQueue {
-		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextUser)
-		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextAssistant)
-		service.Deps.Runtime.SetCurrentTaskBatch(sessionID, nextRequestID)
-		service.publishRuntimeProjections()
-		go service.runChat(nextContext, sessionID, nextRequestID, batchRequest)
-	}
-	// 会话**由忙转闲**的收敛点（会话释放面）：切走之后跑完的那个会话在这里变成
-	// 可释放候选——没有这一步，它得等到下一次 touch（切回/分页）才会被收回。
-	// 放在 ViewMu 之外：reconcile 自取锁，释放里含 flush 的文件 I/O。
-	service.reconcileSessionRelease()
-	// 工具记录的**批次落盘点**（2026-10-15 用户口径：不做逐次工具写盘，避免磁盘写忙）。
-	// 一回合写一次：这一轮跑过的工具读数在这里统一入账（会话粒度）。
-	// 放在 ViewMu 之外（写的是会话存储，文件 I/O 不占内核锁）。
-	service.FlushToolRecord(sessionID)
+	service.components.conversationTurnRunner.Run(ctx, sessionID, requestID, request)
 }
 
 func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error) {
@@ -473,18 +192,6 @@ func (service *Service) finalizeReActBudget(ctx context.Context, requestID strin
 	return service.finalizeReActBudgetWithSink(ctx, requestID, func(chunk string) {
 		service.appendDelta(requestID, chunk)
 	})
-}
-
-// queuedInputRefs 取排队输入的最小引用（displayInput），供任务终态恢复记录
-// 使用（TaskService 经装配端口读取；调用方持有 Core.ViewMu）。
-func queuedInputRefs(queue []chatRequest) []string {
-	refs := make([]string, 0, len(queue))
-	for _, request := range queue {
-		if input := strings.TrimSpace(request.displayInput); input != "" {
-			refs = append(refs, input)
-		}
-	}
-	return refs
 }
 
 // TaskTerminalHandler 返回面向 Runtime 的终态工具 handler，同时把请求状态
@@ -848,7 +555,7 @@ func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk
 // 与"已有推理不覆盖"的保守策略都保留。
 func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 	history := service.engineHistoryFor(sessionID)
-	steps := reasoningStepsFromHistory(history)
+	steps := applicationconversation.ReasoningStepsFromHistory(history)
 	if len(steps) == 0 {
 		return
 	}
@@ -862,11 +569,11 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 	// G5 访问器化：经 View.mu 读写可见消息（Mutate 内完成查找+写入，
 	// 避免 ViewMu 下的裸字段穿越）。
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		attached = attachStepReasoningLocked(view, steps)
+		attached = applicationconversation.AttachStepReasoningLocked(view, steps)
 		if len(attached) > 0 {
 			return
 		}
-		if delta, ok := attachLastReasoningLocked(view, lastReasoningFromHistory(history)); ok {
+		if delta, ok := applicationconversation.AttachLastReasoningLocked(view, applicationconversation.LastReasoningFromHistory(history)); ok {
 			attached = append(attached, delta)
 		}
 	})
@@ -936,133 +643,6 @@ func (service *Service) stampServedRoute(sessionID, requestID string) {
 	}
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, stamped)
-}
-
-// stepReasoning 是引擎历史里一个 assistant 步骤的推理及其配对身份。
-type stepReasoning struct {
-	content   string
-	callIDs   map[string]bool
-	reasoning string
-}
-
-// reasoningStepsFromHistory 按出现顺序取出引擎历史里带推理的 assistant 步骤。
-func reasoningStepsFromHistory(history []contract.EngineMessage) []stepReasoning {
-	steps := make([]stepReasoning, 0, len(history))
-	for _, message := range history {
-		if message.Role != "assistant" || strings.TrimSpace(message.ReasoningContent) == "" {
-			continue
-		}
-		step := stepReasoning{
-			content:   strings.TrimSpace(message.Content),
-			reasoning: message.ReasoningContent,
-			callIDs:   make(map[string]bool, len(message.ToolCalls)),
-		}
-		for _, call := range message.ToolCalls {
-			step.callIDs[call.ID] = true
-		}
-		steps = append(steps, step)
-	}
-	return steps
-}
-
-// lastReasoningFromHistory 返回引擎历史里最后一条 assistant 推理（老口径）。
-func lastReasoningFromHistory(history []contract.EngineMessage) string {
-	for index := len(history) - 1; index >= 0; index-- {
-		if history[index].Role == "assistant" && history[index].ReasoningContent != "" {
-			return history[index].ReasoningContent
-		}
-	}
-	return ""
-}
-
-// attachStepReasoningLocked 给可见窗口里每个 assistant 步骤挂上**它自己**的推理
-// （配对口径与落盘回填一致：工具调用 ID 集合 + 归一化正文，顺序消费）。
-// 返回本次真正写入的 delta（MessageID + reasoning）。已有推理的消息不覆盖。
-func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []event.MessageDelta {
-	var attached []event.MessageDelta
-	for index := range view.Conversation {
-		message := &view.Conversation[index]
-		if message.Role != "assistant" || message.Tool != nil || message.ReasoningContent != "" {
-			continue
-		}
-		match := takeReasoningStep(steps, message.Content, visibleStepCallIDs(view.Conversation, index))
-		if match < 0 {
-			continue
-		}
-		step := steps[match]
-		steps = append(steps[:match], steps[match+1:]...)
-		message.ReasoningContent = step.reasoning
-		attached = append(attached, event.MessageDelta{MessageID: message.ID, ReasoningContent: step.reasoning})
-	}
-	return attached
-}
-
-// visibleStepCallIDs 返回可见窗口里第 index 条 assistant 步骤声明的工具调用 ID
-// 集合：实时视图把工具调用渲染成紧随其后的 role=tool 消息（Tool 自带 ID）。
-func visibleStepCallIDs(conversation []model.Message, index int) map[string]bool {
-	ids := map[string]bool{}
-	for next := index + 1; next < len(conversation); next++ {
-		message := conversation[next]
-		if message.Role != "tool" || message.Tool == nil {
-			break
-		}
-		ids[message.Tool.ID] = true
-	}
-	return ids
-}
-
-// takeReasoningStep 取第一个与 (content, ids) 匹配的步骤下标（-1 = 没有），
-// 口径与 task_context.findReasoningCandidate 一致。
-func takeReasoningStep(steps []stepReasoning, content string, ids map[string]bool) int {
-	trimmed := strings.TrimSpace(content)
-	for index := range steps {
-		step := steps[index]
-		if len(step.callIDs) != len(ids) {
-			continue
-		}
-		matched := true
-		for id := range ids {
-			if !step.callIDs[id] {
-				matched = false
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if len(ids) > 0 {
-			// 工具轮：调用 ID 已唯一确定迭代，正文差异（说明文本归位）不参与区分。
-			if step.content != "" && step.content != trimmed {
-				continue
-			}
-			return index
-		}
-		if trimmed != step.content {
-			continue
-		}
-		return index
-	}
-	return -1
-}
-
-// attachLastReasoningLocked 是没有任何步骤配上时的老口径兜底：把推理挂到窗口
-// 最后一条 assistant 消息（已有相同推理视为已挂，静默返回）。
-func attachLastReasoningLocked(view *session.View, reasoning string) (event.MessageDelta, bool) {
-	if reasoning == "" {
-		return event.MessageDelta{}, false
-	}
-	for index := len(view.Conversation) - 1; index >= 0; index-- {
-		message := &view.Conversation[index]
-		if message.Role != "assistant" || message.Tool != nil {
-			continue
-		}
-		if message.ReasoningContent == reasoning {
-			return event.MessageDelta{}, false
-		}
-		message.ReasoningContent = reasoning
-		return event.MessageDelta{MessageID: message.ID, ReasoningContent: reasoning}, true
-	}
-	return event.MessageDelta{}, false
 }
 
 // streamedAssistantTextLocked 返回会话本轮的可见 assistant 正文累积

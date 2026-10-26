@@ -58,19 +58,20 @@ func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T) {
 }
 
 func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T) {
-	first := newChatRequest("plain", nil)
-	second := newChatRequest("$review focused", []prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
-	combined := combineChatRequests([]chatRequest{first, second})
+	turns := newConversationTurnState()
+	first := turns.NewRequest("plain", nil)
+	second := turns.NewRequest("$review focused", []prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
+	combined := turns.Combine([]chatRequest{first, second})
 
-	if got, want := combined.displayInput, "plain\n---\n$review focused"; got != want {
+	if got, want := combined.DisplayInput, "plain\n---\n$review focused"; got != want {
 		t.Fatalf("display = %q, want %q", got, want)
 	}
 	for _, expected := range []string{"plain", "$review focused"} {
-		if !strings.Contains(combined.modelInput, expected) {
-			t.Fatalf("combined model input missing %q:\n%s", expected, combined.modelInput)
+		if !strings.Contains(combined.ModelInput, expected) {
+			t.Fatalf("combined model input missing %q:\n%s", expected, combined.ModelInput)
 		}
 	}
-	if strings.Contains(combined.modelInput, "review prompt") || len(combined.skills) != 1 || combined.skills[0].Name != "review" {
-		t.Fatalf("combined trusted Skills = %#v, input=%q", combined.skills, combined.modelInput)
+	if strings.Contains(combined.ModelInput, "review prompt") || len(combined.Skills) != 1 || combined.Skills[0].Name != "review" {
+		t.Fatalf("combined trusted Skills = %#v, input=%q", combined.Skills, combined.ModelInput)
 	}
 }

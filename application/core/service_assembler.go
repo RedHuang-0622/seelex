@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
@@ -69,20 +71,76 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
+	service.components.executionApplication = newServiceExecutionApplication(service)
+	service.components.adminApplication = newServiceAdminApplication(service)
+	service.components.sessionSSHApplication = newServiceSessionSSHApplication(service)
+	service.components.roleApplication = newServiceRoleApplication(service)
+	service.components.schedulerApplication = newServiceSchedulerApplication(service)
+	service.components.scheduledRunApplication = newServiceScheduledRunApplication(service)
+	service.components.scheduledSessionApplication = newServiceScheduledSessionApplication(service)
+	service.components.runtimeApplication = newServiceRuntimeApplication(service)
+	service.components.reviewApplication = newServiceReviewApplication(service)
+	service.components.lifecycleApplication = newServiceLifecycleApplication(service)
+	service.components.historySearchApplication = newServiceHistorySearchApplication(service)
+	service.components.completionApplication = newServiceCompletionApplication(service)
+	service.components.referenceApplication = newServiceReferenceApplication(service)
+	service.components.sessionMetaApplication = newServiceSessionMetaApplication(service)
+	service.components.projectBoardQuery = newServiceProjectBoardQuery(service)
+	service.components.sessionReleaseApplication = newServiceSessionReleaseApplication(service)
+	service.components.contextCompactionApplication = newServiceContextCompactionApplication(service)
+	service.components.faultGuardApplication = newServiceFaultGuardApplication(service)
+	service.components.perfStatsApplication = newServicePerfStatsApplication(service)
+	service.components.asyncCompletionApplication = newServiceAsyncCompletionApplication(service)
 	service.components.sessionQuery = newServiceSessionQuery(service)
 	service.components.conversationHistoryQuery = newServiceConversationHistoryQuery(service)
+	service.components.conversationTurnState = newConversationTurnState()
+	service.components.conversationQueue = newServiceConversationQueue(service)
+	service.components.sessionLifecycle = newServiceSessionLifecycle(service)
+	service.components.sessionArchive = newServiceSessionArchive(service)
+	service.components.sessionDelete = newServiceSessionDelete(service)
+	service.components.sessionDraftSubmission = newServiceSessionDraftSubmission(service)
+	service.components.sessionDraftMaterialization = newServiceSessionDraftMaterialization(service)
+	service.components.sessionDraftEntry = newServiceSessionDraftEntry(service)
+	service.components.sessionResume = newServiceSessionResume(service)
+	service.components.sessionRestoringShell = newServiceSessionRestoringShell(service)
+	service.components.sessionRestoreRecovery = newServiceSessionRestoreRecovery(service)
+	service.components.sessionRestoreDraftReset = newServiceSessionRestoreDraftReset(service)
+	service.components.sessionColdRead = newServiceSessionColdRead(service)
+	service.components.sessionColdHistory = newServiceSessionColdHistory(service)
+	service.components.sessionColdRestore = newServiceSessionColdRestore(service)
+	service.components.sessionColdWorkspace = newServiceSessionColdWorkspace(service)
+	service.components.sessionColdActivation = newServiceSessionColdActivation(service)
+	service.components.sessionColdTask = newServiceSessionColdTask(service)
+	service.components.sessionColdView = newServiceSessionColdView(service)
+	service.components.sessionColdPublish = newServiceSessionColdPublish(service)
+	service.components.sessionColdCommit = newServiceSessionColdCommit(service)
+	service.components.editForkOperationRegistry = newServiceEditForkOperationRegistry(service)
+	service.components.editForkValidator = newServiceEditForkValidator(service)
+	service.components.editForkTargetResolver = newServiceEditForkTargetResolver(service)
+	service.components.editForkRollback = newServiceEditForkRollback(service)
+	service.components.editForkProcess = newServiceEditForkProcess(service)
+	service.components.editForkApplication = newServiceEditForkApplication(service)
+	service.components.editForkAnnotation = newServiceEditForkAnnotation(service)
+	service.components.sessionForkLineage = newServiceSessionForkLineage(service)
 	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
 	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
 	service.knobs = newServiceKnobs(service)
+	service.components.policyApplication = newServicePolicyApplication(service)
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
 	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
-	// 工具记录台账槽位同理在装配期建好：未注入时判空什么都不做（有就有、没有就是没装配）。
-	service.components.toolRecord = &toolRecordPort{}
-	// 工具读数的按会话累计表同理在装配期建好（键 = 会话 ID）。
-	service.toolRecords = newToolRecordAccumulators()
-	// 叶子暂存登记表（执行单元 → 本地累加）：阶梯提交的下一级台阶，同样装配期建好。
-	service.toolStages = newToolRecordStages()
+	// Tool-record state and its optional ports are one extracted application
+	// object. Host callbacks keep draft/view policy inside core assembly.
+	service.toolRecords = applicationtoolrecord.New(applicationtoolrecord.Deps{
+		SaveEnabled: func(enabled bool) error {
+			if service.Deps.ToolRecordStore == nil {
+				return nil
+			}
+			return service.Deps.ToolRecordStore.SaveToolRecordEnabled(enabled)
+		},
+		WritableSession: service.toolRecordWritableSession,
+		ViewSessionID:   service.currentViewSessionID,
+	})
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
@@ -117,7 +175,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			if unit == nil {
 				return nil
 			}
-			return queuedInputRefs(queuedChatRequests(unit.PendingRequests()))
+			return queuedInputRefs(service.components.conversationTurnState.QueuedRequests(unit.PendingRequests()))
 		},
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
@@ -129,6 +187,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.Deps.Runtime.AsyncPendingFor(sessionID)
 		},
 	})
+	service.components.conversationTurnProcess = newServiceConversationTurnProcess(service)
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
 	var goalStoreFor func(sessionID string) *store.SessionContextStore
@@ -141,6 +200,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
 		StoreFor: goalStoreFor,
 	})
+	service.components.goalApplication = newServiceGoalApplication(service)
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
 		PromptStack:   promptStack,
@@ -185,13 +245,19 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// 团队看板读面（计划 + 作业行 + 审计流水）：与 Goals 同构——Deps 收窄成
 		// 「会话 → 只读投影」，转发与缓存的责任留给桥（未装配 teamwork 时
 		// TeamworkBoardViewFor 走类型断言失败分支返回 nil）。
-		Teamwork: service,
+		Teamwork: teamworkBoardViewPort{service: service},
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 			service.refreshWorkTableLocked(tasks, asyncRuns)
 		},
 		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
+	service.components.conversationTurnCompletion = newServiceConversationTurnCompletion(service)
+	service.components.conversationTurnOutcome = newServiceConversationTurnOutcome(service)
+	service.components.conversationTurnPublisher = newServiceConversationTurnPublisher(service)
+	service.components.conversationTurnTail = newServiceConversationTurnTail(service)
+	service.components.conversationTurnCommit = newServiceConversationTurnCommit(service)
+	service.components.conversationTurnFinalize = newServiceConversationTurnFinalize(service)
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
 	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
 	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
@@ -218,6 +284,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		ChatRunningError: ErrChatRunning,
 	})
+	service.components.workspaceApplication = newServiceWorkspaceApplication(service)
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，
@@ -241,11 +308,17 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		CompactionIndex: compactionIndex,
 	})
+	service.components.conversationTurnInput = newServiceConversationTurnInput(service)
+	service.components.conversationTurnExecution = newServiceConversationTurnExecution(service)
+	service.components.conversationTurnResponse = newServiceConversationTurnResponse(service)
+	service.components.conversationTurnRecovery = newServiceConversationTurnRecovery(service)
+	service.components.conversationTurnCleanup = newServiceConversationTurnCleanup(service)
+	service.components.conversationTurnRunner = newServiceConversationTurnRunner(service)
 	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{
 		Core:   kernel,
 		View:   service.components.view,
 		Limits: func() dto.ViewLimits { return Limits().ViewLimits() },
-		// 工具记录走 core 里那**唯一**一处判据（toolStatusFailed + toolRecordReason），
+		// 工具记录走 toolrecord 的**唯一**判据（Failed + Reason），
 		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
 		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。
 		RecordToolOutcome: func(ownerSessionID string, event dto.SubagentToolEvent) {
@@ -253,9 +326,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		// 节点收口（终态）：把暂存一次性提交给主会话累计（同步、返回即入账）。
 		CommitToolRecord: func(ownerSessionID, nodeID string) {
-			service.CloseSubagentToolRecordUnit(ownerSessionID, nodeID)
+			service.closeSubagentToolRecordUnit(ownerSessionID, nodeID)
 		},
 	})
+	service.components.subagentApplication = newServiceSubagentApplication(service)
 	service.components.input = newInputRouter(inputRouteHandlers{
 		Command: service.submitCommand,
 		Plugin:  service.submitPluginSwitch,
@@ -265,13 +339,21 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.submitConversation(ctx, input)
 		},
 	})
-	// worktable.changed 汇聚发布器：与事件 hub 解耦，突发时 latest-wins。
-	service.workTablePublisher = worktable.NewWorkTablePublisher(func(update worktable.WorkTableUpdate) {
-		service.ViewMu.RLock()
-		sessionID := service.Core.Snapshot.Session.ID
-		service.ViewMu.RUnlock()
-		service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID,
-			service.workTableEventPayload(update))
+	// worktable.changed publisher: latest-wins coalescing lives in the extracted
+	// table application; core supplies session identity and tree snapshot.
+	service.workTable = applicationtable.New(applicationtable.Deps{
+		SubAgentTree: func() []dto.SubAgentTreeNode {
+			service.ViewMu.RLock()
+			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+			service.ViewMu.RUnlock()
+			return tree
+		},
+		Publish: func(update worktable.WorkTableUpdate, payload model.WorkTableEvent) {
+			service.ViewMu.RLock()
+			sessionID := service.Core.Snapshot.Session.ID
+			service.ViewMu.RUnlock()
+			service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID, payload)
+		},
 	})
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。
@@ -317,9 +399,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 的作用是"装配缺口与坏配置在加载时暴露 + 把该会话的登记格热起来"；未装配登记能力的
 	// 宿主（CLI / 测试假实现 / headless）不因此启动失败，只有显式读面才报
 	// ErrRolePermissionsUnavailable。
-	_, _ = service.RestoreRolePermissions(service.currentViewSessionID(), []string{"root"})
+	_, _ = service.restoreRolePermissions(service.currentViewSessionID(), []string{"root"})
 	// 角色账号与权限同属项目级默认；恢复失败不回滚会话打开（此时还没有回合）。
-	_ = service.RestoreRoleAccounts(service.currentViewSessionID())
+	_ = service.restoreRoleAccounts(service.currentViewSessionID())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}

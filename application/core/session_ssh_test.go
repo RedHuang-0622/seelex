@@ -1,8 +1,15 @@
 package core
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
 
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
@@ -13,41 +20,6 @@ import (
 //
 // 端到端（会话端口 + 项目环境表）的路径由装配侧的测试覆盖；这两条是**规则本身**，
 // 放在纯函数上跑得最快，也最难被后续重构悄悄改掉。
-
-func knownEnvironments(names ...string) map[string]struct{} {
-	set := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		set[name] = struct{}{}
-	}
-	return set
-}
-
-func TestValidateAllowedEnvsRejectsNamesOutsideProject(t *testing.T) {
-	known := knownEnvironments("dev", "test")
-
-	if _, err := validateAllowedEnvs(known, []string{"prod"}); err == nil {
-		t.Fatal("放权集合含项目里不存在的环境必须报错")
-	}
-	if _, err := validateAllowedEnvs(known, []string{"dev", "prod"}); err == nil {
-		t.Fatal("只要有一个不在项目环境表里，整组就该拒绝（不做部分接受）")
-	}
-
-	got, err := validateAllowedEnvs(known, []string{" dev ", "", "test", "dev"})
-	if err != nil {
-		t.Fatalf("合法集合不该报错: %v", err)
-	}
-	if len(got) != 2 || got[0] != "dev" || got[1] != "test" {
-		t.Fatalf("规整结果 = %#v, want [dev test]（去空白、去空项、保序去重）", got)
-	}
-
-	empty, err := validateAllowedEnvs(known, nil)
-	if err != nil {
-		t.Fatalf("空集合合法（= 什么都不放权）: %v", err)
-	}
-	if empty == nil || len(empty) != 0 {
-		t.Fatalf("空集合 = %#v, want 非 nil 空切片", empty)
-	}
-}
 
 func TestSessionEnvironmentCanBeFixedOnceAndNeverChanged(t *testing.T) {
 	workspace := &environmentTraceWorkspace{
@@ -86,4 +58,109 @@ func TestSessionEnvironmentCanBeFixedOnceAndNeverChanged(t *testing.T) {
 	if _, err := service.SetSessionSSHEnv("sess-fixed", project.ID, "missing"); err == nil {
 		t.Fatal("未知环境也不得替换固定值")
 	}
+}
+
+func TestSessionSSHApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("sessionSSHApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 sessionSSHApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationsession.SSHApplication)(nil)) {
+		t.Fatalf("sessionSSHApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestWorkspaceEnvironmentFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "workspace_environments.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"WorkspaceEnvironments":          false,
+		"SetWorkspaceEnvironment":        false,
+		"DeleteWorkspaceEnvironment":     false,
+		"SetDefaultWorkspaceEnvironment": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil {
+			continue
+		}
+		if !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 workspaceEnvironmentApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+func TestSessionSSHFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "session_ssh.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"SessionSSHState":      false,
+		"SetSessionSSHAllowed": false,
+		"SetSessionSSHEnv":     false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 sessionSSHApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+func functionHasReceiver(function *ast.FuncDecl, name string) bool {
+	if function == nil || function.Recv == nil || len(function.Recv.List) != 1 {
+		return false
+	}
+	receiver := function.Recv.List[0].Type
+	if pointer, ok := receiver.(*ast.StarExpr); ok {
+		receiver = pointer.X
+	}
+	identifier, ok := receiver.(*ast.Ident)
+	return ok && identifier.Name == name
 }

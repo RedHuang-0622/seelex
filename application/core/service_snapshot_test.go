@@ -3,14 +3,59 @@ package core
 import (
 	"context"
 	"encoding/json"
+	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPerfStatsApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("perfStatsApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 perfStatsApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationobservability.PerfApplication)(nil)) {
+		t.Fatalf("perfStatsApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestPerfStatsFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "perf_stats.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "PerfStats" ||
+			!functionHasReceiver(function, "Service") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("PerfStats 有 %d 条语句，want 一行 perfStatsApplication 转发", len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
+			t.Fatal("PerfStats 不是单行 return 转发")
+		}
+		return
+	}
+	t.Fatal("未找到 PerfStats")
+}
 
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})

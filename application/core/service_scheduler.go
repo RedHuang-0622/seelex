@@ -4,60 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/limit"
-	effortpolicy "github.com/RedHuang-0622/seelex/backend/limit/effort"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"strings"
+	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
-// —— 定时任务的执行参数（思考强度 / 循环次数）——
-//
-// 这两条参数与 composer 底部那两条**独立拉条**同源同名：拉条给的是"当前会话随后
-// 回合"的两条读数，定时任务声明的是"触发那次会话"的两条读数，落点也各走原来那条链
-// （强度 → 跟随会话的账号；次数 → 该会话自己的引擎）。
-//
-// 默认参数 = **默认档位的那两条读数**（判据在 `backend/limit/effort`）：一个什么都没
-// 声明 的定时任务，与刚开的新会话开局完全一致。数字与词表只有一份。
-//
-// 为什么默认要落成显式值，而不是"空 = 触发时跟随当前档位"：定时任务在后台跑，它的
-// 行为不该随用户此刻把拉条拖到哪儿而漂移；落进定义 = 面板上看得见、跨重启稳定。
-
-// withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
 func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec {
-	spec.ReasoningEffort, spec.LoopLimit = scheduledRunParams(spec.ReasoningEffort, spec.LoopLimit)
-	return spec
+	return applicationscheduler.WithRunDefaults(spec)
 }
 
-// scheduledRunParams 返回这条任务触发时**真正要用**的两条参数：声明优先，未声明（空/0）
-// 落默认。创建/编辑入口与触发入口共用这一份，两边不会各算一套默认（老定义里没有这两格
-// 时也兜得住）。
-//
-// 只有 0 算"未声明"：**负数是非法取值**，留给 validateScheduledRunParams 显式拒绝
-// （在这里一并抹成默认值，等于把用户的错误数据当没看见）。
 func scheduledRunParams(effort string, loopLimit int) (string, int) {
-	return effortpolicy.DefaultRunParams(effort, loopLimit)
+	return applicationscheduler.RunParams(effort, loopLimit)
 }
 
-// validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
-// 与两条拉条同源：强度走契约词表，次数走 limits.input_loop_limit）。
 func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error {
-	if _, err := dto.NormalizeWireReasoningEffort(spec.ReasoningEffort); err != nil {
-		return err
-	}
-	return limit.ValidateLoopLimit(spec.LoopLimit)
+	return applicationscheduler.ValidateRunParams(spec)
 }
 
-// applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
-// 新建会话与显式绑定会话两条入口共用）：
-//   - 循环次数 → 该会话自己的引擎（按会话钉；不改进程默认值，也不动别的会话）；
-//   - 思考强度 → 记一笔租约，由该会话的回合起点下发一次（见 borrowSessionReasoningEffort：
-//     账号池是进程级共享的，只能"回合起点按自己的声明下发一次"）。
-//
-// 次数这一格是**硬依赖**：宿主给不出按会话的循环上限时显式报错（fail-closed），
-// 不静默退回进程默认值——那正是"面板说 48 轮、实际按 384 轮跑"的读数与行为相反。
 func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error {
 	effort, loops := scheduledRunParams(task.ReasoningEffort, task.LoopLimit)
 	pinner, ok := service.Deps.Engine.(contract.SessionLoopLimitPort)
@@ -69,78 +37,29 @@ func (service *Service) applyScheduledRunParams(sessionID string, task assemble.
 	return nil
 }
 
-// ── 定时周期任务服务面（GUI Bridge 变更入口）────────────────────────────
-// 数据与执行都归 seelebridge 调度器（见 backend/engine/schedule/schedule.go）；
-// application 只提供变更入口 + 快照投影发布：变更成功后重新收集运行时投影
-// 并发布 runtime.changed 增量，GUI 定时任务面板随之更新。
-// 调度器运行中的状态变化（开始/完成/失败）经 main 装配的 observer 回调
-// RefreshRuntimeSnapshot，同样走 runtime.changed 增量路径。
-
-// ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
+// ScheduleTask creates one scheduled task.
 func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
-	// 执行参数（思考强度 / 循环次数）：没声明的在这里落成**默认参数**，随后才交给
-	// 调度器（定义里存的就是触发时要用的值，面板上不会出现"这两格空着、行为靠猜"）。
-	spec = withScheduledRunDefaults(spec)
-	if err := service.validateScheduledRunParams(spec); err != nil {
-		return nil, err
-	}
-	// 工作区存在性在**创建/编辑时**判：触发的会话要装配到哪个项目，用户在这
-	// 一刻就看得见；留到触发时才发现"工作区没了"只会变成一次失败的运行记录。
-	if err := service.validateScheduledWorkspace(spec.WorkspaceID); err != nil {
-		return nil, err
-	}
-	// 插件装配同理：名字写错在触发时才发现，就是一次跑到一半才失灵的任务
-	// （runtime 侧对未知插件名的处理是"失灵 = 空工具面"，fail-closed 但难排查）。
-	if err := service.validateScheduledPlugins(spec.Plugins); err != nil {
-		return nil, err
-	}
-	created, err := service.Deps.Runtime.ScheduleTask(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
-	service.RefreshRuntimeSnapshot()
-	return created, nil
+	return service.schedulerApplicationComponent().ScheduleTask(ctx, spec)
 }
 
-// UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
-// 校验口径与创建完全一致：定义合法性在调度器内（与 Schedule 共用同一份判据），
-// 工作区存在性在这里（与 ScheduleTask 共用同一份判据）。
+// UpdateScheduledTask replaces one scheduled task.
 func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
-	if strings.TrimSpace(id) == "" {
-		return nil, errors.New("任务 ID 不能为空")
-	}
-	spec = withScheduledRunDefaults(spec)
-	if err := service.validateScheduledRunParams(spec); err != nil {
-		return nil, err
-	}
-	if err := service.validateScheduledWorkspace(spec.WorkspaceID); err != nil {
-		return nil, err
-	}
-	if err := service.validateScheduledPlugins(spec.Plugins); err != nil {
-		return nil, err
-	}
-	updated, err := service.Deps.Runtime.UpdateScheduledTask(ctx, id, spec)
-	if err != nil {
-		return nil, err
-	}
-	service.RefreshRuntimeSnapshot()
-	return updated, nil
+	return service.schedulerApplicationComponent().UpdateScheduledTask(ctx, id, spec)
 }
 
-// validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
-// 创建与编辑共用这一份，避免"建的时候拦得住、改的时候漏得过"。
+// CancelScheduledTask removes one scheduled task.
+func (service *Service) CancelScheduledTask(id string) error {
+	return service.schedulerApplicationComponent().CancelScheduledTask(id)
+}
+
 func (service *Service) validateScheduledWorkspace(workspaceID string) error {
 	_, err := service.resolveScheduledWorkspace(workspaceID)
 	return err
 }
 
-// resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
-// "工作区能力没装配 / 工作区查不到"这组判据与文案只有这一处：创建、编辑、
-// 触发时解析都从这里走。
 func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
-		// 空 ID = 不绑项目（合法输入，不是缺失）。
 		var unbound *model.WorkspaceInfo
 		return unbound, nil
 	}
@@ -154,14 +73,6 @@ func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.Wo
 	return &info, nil
 }
 
-// validateScheduledPlugins 校验任务声明的插件装配都存在（空 = 不覆盖，合法）。
-//
-// 口径与 team_plan 的成员装配一致：**未知插件名显式拒绝**，不静默忽略——runtime
-// 侧遇到"声明过、但本进程没有定义"的插件名按失灵处理（空工具面，fail-closed），
-// 那种失败发生在触发之后，只体现为"这一轮什么工具都没有"，用户在面板上看不出原因。
-//
-// 插件目录未装配（裸宿主/测试桩）时只做归一校验：那是宿主能力缺失，不是用户
-// 写错了名字。
 func (service *Service) validateScheduledPlugins(plugins []string) error {
 	names, err := dto.NormalizePlugins(plugins, 0)
 	if err != nil {
@@ -189,151 +100,112 @@ func (service *Service) validateScheduledPlugins(plugins []string) error {
 	return nil
 }
 
-// AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
-//
-// 权限档位：写进该会话的档位槽 + 执行门 + 审批自动放行，并按会话级设置落盘
-// （档位是"这一 session 的权限设置"，跨重启要记住）。任务默认 full access——
-// 后台跑没人能在审批弹窗上点"同意"。
-// 插件装配：带进这一轮的执行 ctx（工具面每轮现算；不切宿主全局激活插件、
-// 也不在任何句柄上缓存"当前装配"）。
-// 执行参数（思考强度 / 循环次数）：按会话落——次数钉在该会话的引擎上，强度记一笔
-// 租约由该会话的回合起点下发一次（见 applyScheduledRunParams）。
-//
-// 返回带装配的 ctx，调用方用它提交这一轮。新建会话路径与显式绑定会话路径
-// 共用这一份，不各写一遍。
+// AssembleScheduledRun applies session execution policy before submit.
 func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return ctx, errors.New("会话 ID 不能为空")
+	return service.scheduledRunApplicationComponent().AssembleScheduledRun(ctx, sessionID, task)
+}
+
+func (service *Service) schedulerApplicationComponent() *applicationscheduler.SchedulerApplication {
+	if service == nil {
+		return nil
 	}
-	tier := strings.TrimSpace(task.PermissionTier)
-	if tier == "" {
-		// 任务定义里空档位的语义是 full（见 scheduler 的 scheduledPermissionTier）；
-		// 直接给了未归一 spec 的调用方按同一条默认兜住。
-		tier = dto.PermissionTierFull
+	return service.components.schedulerApplication
+}
+
+func (service *Service) scheduledRunApplicationComponent() *applicationscheduler.RunApplication {
+	if service == nil {
+		return nil
 	}
-	normalized, err := dto.NormalizePermissionTier(tier)
-	if err != nil {
-		return ctx, err
+	return service.components.scheduledRunApplication
+}
+
+func (service *Service) scheduledSessionApplicationComponent() *applicationscheduler.SessionApplication {
+	if service == nil {
+		return nil
 	}
-	// 档位落在会话单元上，单元不存在就先登记：定时会话是后台新建的，提交之前
-	// 还没人替它建过单元；不先建，applyStoredPermissionTier 找不到槽位，执行门
-	// 就按进程默认（手动）算——"默认全权"会当场变成"卡在一次没人回答的审批上"。
-	service.ViewMu.Lock()
-	service.sessionUnitLocked(sessionID)
-	service.ViewMu.Unlock()
-	if err := service.persistPermissionTier(sessionID, normalized); err != nil {
-		return ctx, fmt.Errorf("定时任务装配权限档位失败: %w", err)
-	}
-	service.applyStoredPermissionTier(sessionID, normalized)
-	// 执行参数在提交之前落定：次数要挂在这一轮用的引擎上，强度要在回合起点前记好
-	// （提交之后那次回合随时可能开始）。
-	if err := service.applyScheduledRunParams(sessionID, task); err != nil {
-		return ctx, err
-	}
-	plugins, err := dto.NormalizePlugins(task.Plugins, 0)
-	if err != nil {
-		return ctx, err
-	}
-	if len(plugins) == 0 {
-		return ctx, nil
-	}
-	carrier, ok := service.Deps.Runtime.(interface {
-		WithPluginAssembly(context.Context, []string) context.Context
+	return service.components.scheduledSessionApplication
+}
+
+func newServiceSchedulerApplication(service *Service) *applicationscheduler.SchedulerApplication {
+	return applicationscheduler.NewScheduler(applicationscheduler.SchedulerDeps{
+		ValidateWorkspace: service.validateScheduledWorkspace,
+		ValidatePlugins:   service.validateScheduledPlugins,
+		ScheduleTask: func(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
+			return service.Deps.Runtime.ScheduleTask(ctx, spec)
+		},
+		UpdateScheduledTask: func(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
+			return service.Deps.Runtime.UpdateScheduledTask(ctx, id, spec)
+		},
+		CancelScheduledTask: service.Deps.Runtime.CancelScheduledTask,
+		Refresh:             service.RefreshRuntimeSnapshot,
 	})
-	if !ok {
-		return ctx, errors.New("宿主不支持插件装配（WithPluginAssembly 未实现）")
-	}
-	return carrier.WithPluginAssembly(ctx, plugins), nil
 }
 
-// CancelScheduledTask 取消并移除定时/周期任务。
-func (service *Service) CancelScheduledTask(id string) error {
-	if err := service.Deps.Runtime.CancelScheduledTask(id); err != nil {
-		return err
-	}
-	service.RefreshRuntimeSnapshot()
-	return nil
+func newServiceScheduledRunApplication(service *Service) *applicationscheduler.RunApplication {
+	return applicationscheduler.NewRun(applicationscheduler.RunDeps{
+		EnsureSessionUnit: func(sessionID string) {
+			service.ViewMu.Lock()
+			service.sessionUnitLocked(sessionID)
+			service.ViewMu.Unlock()
+		},
+		PersistTier:     service.persistPermissionTier,
+		ApplyStoredTier: service.applyStoredPermissionTier,
+		ApplyRunParams:  service.applyScheduledRunParams,
+		WithPluginAssembly: func(ctx context.Context, plugins []string) (context.Context, error) {
+			carrier, ok := service.Deps.Runtime.(interface {
+				WithPluginAssembly(context.Context, []string) context.Context
+			})
+			if !ok {
+				return ctx, errors.New("宿主不支持插件装配（WithPluginAssembly 未实现）")
+			}
+			return carrier.WithPluginAssembly(ctx, plugins), nil
+		},
+	})
 }
 
-// RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
-// runtime.changed 增量。供 Runtime 侧状态变化通知（调度器 observer）与
-// 定时/周期任务变更入口复用；与 SelectAccount 等既有路径内联逻辑一致。
+func newServiceScheduledSessionApplication(service *Service) *applicationscheduler.SessionApplication {
+	return applicationscheduler.NewSession(applicationscheduler.SessionDeps{
+		LifecycleState: func() (bool, bool) {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.closed, service.draining
+		},
+		ResolveWorkspace: service.resolveScheduledWorkspace,
+		NewSessionID: func(prefix string) string {
+			return service.newGeneratedSessionID(prefix)
+		},
+		OpenSession: func(sessionID string, workspace *model.WorkspaceInfo) (string, error) {
+			transition := service.transitionForSession(sessionID)
+			transition.Lock()
+			defer transition.Unlock()
+			return service.openSessionEngine(sessionID, workspace)
+		},
+		Projection: func() switchworkspace.Projection {
+			return service.components.workspace.Projection()
+		},
+		LockView:                       service.ViewMu.Lock,
+		ApplyWorkspaceProjectionLocked: service.applyWorkspaceProjectionLocked,
+		BumpLocked:                     service.bumpLocked,
+		UnlockView:                     service.ViewMu.Unlock,
+		PublishSnapshotChanged: func(revision uint64, sessionID string) {
+			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+		},
+		TouchResident: service.touchResident,
+		RequestCatalogRefresh: func() {
+			service.components.sessions.RequestCatalogRefresh()
+		},
+		AssembleRun:        service.AssembleScheduledRun,
+		SubmitConversation: service.submitConversationFor,
+		DrainingError:      ErrApplicationDraining,
+	})
+}
+
+// RefreshRuntimeSnapshot refreshes runtime projection.
 func (service *Service) RefreshRuntimeSnapshot() {
-	projection := service.collectRuntimeProjection(context.Background())
-	service.ViewMu.Lock()
-	service.applyRuntimeProjectionLocked(projection)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), service.Snapshot().Runtime)
-	service.publishTaskDeltas()
+	service.runtimeApplicationComponent().Refresh()
 }
 
-// StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
-//
-// 三件事，一件都不少、也不多做：
-//   - 新会话：早分配一个会话 ID 并装好引擎 bundle / context store（与草稿
-//     物化共用 openSessionEngine）；
-//   - 工作区装配：workspaceID 非空时按该工作区绑定项目（会话级绑定 + 项目根），
-//     于是这个会话的工具面与它的**会话记录落盘作用域**都归到那个项目；
-//   - 权限/插件装配：按任务定义落档位与能力包（见 AssembleScheduledRun）；
-//   - 发起：把提示词提交到新会话（后台执行，不切用户的视图指针）。
-//
-// 会话记录仍然按会话自己的存储与读写纪律落盘（项目作用域由绑定决定），本方法
-// 不碰任何存储实现——它只是"新建 + 装配 + 提交"。
+// StartScheduledSession creates and submits one scheduled background session.
 func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
-	input := strings.TrimSpace(task.Prompt)
-	if input == "" {
-		return "", errors.New("提示词内容不能为空")
-	}
-	service.ViewMu.RLock()
-	closed, draining := service.closed, service.draining
-	service.ViewMu.RUnlock()
-	if closed {
-		return "", errors.New("application is shut down")
-	}
-	if draining {
-		return "", ErrApplicationDraining
-	}
-	workspace, err := service.resolveScheduledWorkspace(task.WorkspaceID)
-	if err != nil {
-		return "", err
-	}
-	sessionID := service.newGeneratedSessionID("sched")
-	transition := service.transitionForSession(sessionID)
-	transition.Lock()
-	newID, err := service.openSessionEngine(sessionID, workspace)
-	transition.Unlock()
-	if err != nil {
-		return "", err
-	}
-	// 叫醒一次目录刷新（与草稿物化同序）：新会话仍在内存里，要等它的回合落盘
-	// 才会被目录枚举看见；内存行由 Snapshot 的（withLiveSessionRowsLocked）补，
-	// 这里再把"新会话的会话级绑定"落进工作区投影——`openSessionEngine` 已经把
-	// 绑定写进存储，但投影还停在上一次采集，不重采这一轮的分组就会把这条后台
-	// 会话先摆进「未关联会话」。
-	workspaceProjection := service.components.workspace.Projection()
-	service.ViewMu.Lock()
-	service.applyWorkspaceProjectionLocked(workspaceProjection)
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	// 立刻发布一次：定时触发发生在用户视野之外，前端只有收到这版快照才知道
-	// "多了一个会跑的会话"（等到下一个快照很可能就是这一轮跑完之后了）。
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
-	service.touchResident(newID)
-	service.components.sessions.RequestCatalogRefresh()
-	// 装配必须在提交之前：档位槽要在回合起点被 syncFullAccessFor 读到，插件装配
-	// 要挂在这一轮的 ctx 上。
-	ctx, err = service.AssembleScheduledRun(ctx, newID, task)
-	if err != nil {
-		return newID, err
-	}
-	if err := service.submitConversationFor(ctx, newID, input); err != nil {
-		return newID, err
-	}
-	return newID, nil
+	return service.scheduledSessionApplicationComponent().StartScheduledSession(ctx, task)
 }
-
-// ScheduledTaskSpec 是定时/周期任务创建入参的类型别名（GUI Bridge 直接使用）。
-
-// ScheduledTaskStatus 是定时/周期任务快照的类型别名（GUI 面板消费）。

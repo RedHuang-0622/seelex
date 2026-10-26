@@ -27,13 +27,9 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // FaceTypeNames 是门面 A 组（类型与事件身份）的**逐字清单**：
@@ -67,7 +63,7 @@ var FaceTypeNames = []string{
 	"Event",
 	"EventHub",
 	"EventKind",
-	"EventRange",
+	"EventRange", "Frontend",
 	"Interaction",
 	"InteractionOption",
 	"Message",
@@ -136,28 +132,25 @@ var FaceTypeNames = []string{
 // ViewFace 读投影（plan §1.3 B 组）：只读查询、订阅与历史窗口读回；不改内存/磁盘状态。
 type ViewFace interface {
 	AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)
-	ActiveSkillIDs() []string
 	AnyChatRunning() bool
 	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
 	ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
 	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 	GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	GoalSkillActive() bool
-	GoalStatusFor(sessionID string) (goaldomain.StatusView, error)
+	GoalStatusFor(sessionID string) (dto.GoalStatusView, error)
 	ListRoleSessions(mainSessionID string) ([]string, error)
 	ListSessions() []model.SessionInfo
 	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
 	LoadLatestHistory() error
 	LoadMoreHistory(limit int) error
 	PerfStats() model.PerfStats
-	ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan
-	ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState
 	ProjectRootFor(sessionID string) string
 	PromptLayers() []prompt.PromptLayer
 	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)
 	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
-	SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)
+	SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)
 	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
 	SessionMeta(sessionID string) (model.SessionMeta, error)
 	SessionReleaseWindow() int
@@ -170,7 +163,6 @@ type ViewFace interface {
 	TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
-	TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	ToolRecordBoard() dto.ToolRecordBoard
 	ToolRecordEnabled() bool
 	ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)
@@ -209,12 +201,9 @@ type CommandFace interface {
 	EditUserMessageAndFork(ctx context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)
 	ForkSessionLatest(parentID string) (string, error)
 	ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)
-	GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
-	GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
-	GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
-	GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
-	GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
-	GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
+	GoalBeginFor(ctx context.Context, sessionID string, request dto.BeginGoalRequest) (*dto.GoalRecord, error)
+	GoalDoneFor(ctx context.Context, sessionID string, request dto.FinishGoalRequest, abort bool) (*dto.GoalRecord, error)
+	GoalUpdateFor(ctx context.Context, sessionID string, request dto.UpdateGoalRequest) (*dto.GoalRecord, error)
 	RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)
 	RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
 	ResolveInteraction(ctx context.Context, id, optionID string) error
@@ -246,7 +235,7 @@ type PolicyFace interface {
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
-	ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
+	ScheduleTask(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	SelectAccount(_ context.Context, name string) error
 	SetAccountWindow(_ context.Context, name string, window int) (int, error)
 	SetFullAccess(on bool) bool
@@ -259,7 +248,7 @@ type PolicyFace interface {
 	SetSessionReleaseWindow(_ context.Context, window int) (int, error)
 	SwitchEffort(_ context.Context, level string) error
 	SwitchPlugin(ctx context.Context, name string) error
-	UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
+	UpdateScheduledTask(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 }
 
 // QueueFace 队列面（plan §1.3 E 组）：排队输入的召回/调序与输入建议；同组的无状态函数（`HasSigilPrefix` / `SigilOf` / `RenderDiag` / `ValidEffortLevels` / `AccountWindowPresets`）不是接口成员，仍以包级函数提供。
@@ -323,13 +312,6 @@ type TeammateQueryAPI interface {
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 }
 
-// TeamworkQueryAPI 覆盖团队看板和项目看板的只读事实面。
-type TeamworkQueryAPI interface {
-	ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan
-	ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState
-	TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
-}
-
 // SubagentQueryAPI 覆盖子代理详情与中断恢复目录。
 type SubagentQueryAPI interface {
 	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
@@ -339,7 +321,7 @@ type SubagentQueryAPI interface {
 // TranscriptQueryAPI 覆盖会话 transcript、检索与工具结果正文回读。
 type TranscriptQueryAPI interface {
 	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
-	SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)
+	SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)
 	ToolResultContent(ctx context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)
 }
 
@@ -348,7 +330,6 @@ type TranscriptQueryAPI interface {
 type ExecutionQueryAPI interface {
 	WorkItemQueryAPI
 	TeammateQueryAPI
-	TeamworkQueryAPI
 	SubagentQueryAPI
 	TranscriptQueryAPI
 }
@@ -379,15 +360,12 @@ type WorkspaceAPI interface {
 
 // GoalAPI 覆盖目标状态机与只读治理视图。
 type GoalAPI interface {
-	GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
-	GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
-	GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
-	GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)
+	GoalBeginFor(ctx context.Context, sessionID string, request dto.BeginGoalRequest) (*dto.GoalRecord, error)
+	GoalDoneFor(ctx context.Context, sessionID string, request dto.FinishGoalRequest, abort bool) (*dto.GoalRecord, error)
 	GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	GoalSkillActive() bool
-	GoalStatusFor(sessionID string) (goaldomain.StatusView, error)
-	GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
-	GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
+	GoalStatusFor(sessionID string) (dto.GoalStatusView, error)
+	GoalUpdateFor(ctx context.Context, sessionID string, request dto.UpdateGoalRequest) (*dto.GoalRecord, error)
 }
 
 // PolicyAPI 覆盖当前进程/会话的用户策略选择；账号与调度管理归 AdminAPI。
@@ -413,11 +391,11 @@ type AdminAPI interface {
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
-	ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
+	ScheduleTask(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	SelectAccount(ctx context.Context, name string) error
 	SetAccountWindow(ctx context.Context, name string, window int) (int, error)
 	UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)
-	UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
+	UpdateScheduledTask(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 }
 
 // RoleAPI 覆盖群聊角色会话、草稿、生命周期顺序与角色权限读面。
@@ -447,7 +425,6 @@ type SubagentAPI interface {
 
 // StateAPI 覆盖 Snapshot、订阅、空闲读数和工具记录等进程级只读投影。
 type StateAPI interface {
-	ActiveSkillIDs() []string
 	AnyChatRunning() bool
 	PerfStats() model.PerfStats
 	PromptLayers() []prompt.PromptLayer
@@ -474,9 +451,12 @@ type LifecycleAPI interface {
 // SessionQuery 是 AP-004 的只读会话面：目录、项目根、展示元数据与目录刷新等待。
 // 它只持有窄读端口，不持有完整 Service，也不得进入共享写锁或慢 I/O。
 type SessionQuery interface {
+	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 	ListSessions() []model.SessionInfo
 	ProjectRootFor(sessionID string) string
+	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
 	SessionMeta(sessionID string) (model.SessionMeta, error)
+	SnapshotOf(sessionID string) (model.SessionSnapshot, error)
 	WaitCatalogRefresh(ctx context.Context) error
 }
 
@@ -487,25 +467,25 @@ type ConversationHistoryQuery interface {
 	LoadMoreHistory(limit int) error
 }
 
-// 编译期钉子（契约 §1.2 第 1 条）：`Service` 在结构上满足新旧全部入站面。
+// 编译期钉子（契约 §1.2 第 1 条）：`Frontend` 在结构上满足新旧全部入站面。
 var (
-	_ ViewFace                 = (*Service)(nil)
-	_ CommandFace              = (*Service)(nil)
-	_ PolicyFace               = (*Service)(nil)
-	_ QueueFace                = (*Service)(nil)
-	_ ConversationAPI          = (*Service)(nil)
-	_ SessionAPI               = (*Service)(nil)
-	_ ExecutionQueryAPI        = (*Service)(nil)
-	_ ExecutionCommandAPI      = (*Service)(nil)
-	_ WorkspaceAPI             = (*Service)(nil)
-	_ GoalAPI                  = (*Service)(nil)
-	_ PolicyAPI                = (*Service)(nil)
-	_ AdminAPI                 = (*Service)(nil)
-	_ RoleAPI                  = (*Service)(nil)
-	_ SubagentAPI              = (*Service)(nil)
-	_ StateAPI                 = (*Service)(nil)
-	_ QueueAPI                 = (*Service)(nil)
-	_ LifecycleAPI             = (*Service)(nil)
-	_ SessionQuery             = (*Service)(nil)
-	_ ConversationHistoryQuery = (*Service)(nil)
+	_ ViewFace                 = (*Frontend)(nil)
+	_ CommandFace              = (*Frontend)(nil)
+	_ PolicyFace               = (*Frontend)(nil)
+	_ QueueFace                = (*Frontend)(nil)
+	_ ConversationAPI          = (*Frontend)(nil)
+	_ SessionAPI               = (*Frontend)(nil)
+	_ ExecutionQueryAPI        = (*Frontend)(nil)
+	_ ExecutionCommandAPI      = (*Frontend)(nil)
+	_ WorkspaceAPI             = (*Frontend)(nil)
+	_ GoalAPI                  = (*Frontend)(nil)
+	_ PolicyAPI                = (*Frontend)(nil)
+	_ AdminAPI                 = (*Frontend)(nil)
+	_ RoleAPI                  = (*Frontend)(nil)
+	_ SubagentAPI              = (*Frontend)(nil)
+	_ StateAPI                 = (*Frontend)(nil)
+	_ QueueAPI                 = (*Frontend)(nil)
+	_ LifecycleAPI             = (*Frontend)(nil)
+	_ SessionQuery             = (*Frontend)(nil)
+	_ ConversationHistoryQuery = (*Frontend)(nil)
 )

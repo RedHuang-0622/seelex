@@ -2,14 +2,108 @@ package core
 
 import (
 	"context"
+	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLifecycleApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("lifecycleApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 lifecycleApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationlifecycle.Application)(nil)) {
+		t.Fatalf("lifecycleApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestLifecycleApplicationWaitForIdle(t *testing.T) {
+	idle := make(chan struct{})
+	close(idle)
+	application := applicationlifecycle.New(applicationlifecycle.Deps{
+		Idle: func() <-chan struct{} { return idle },
+	})
+	if err := application.WaitForIdle(context.Background()); err != nil {
+		t.Fatalf("WaitForIdle: %v", err)
+	}
+}
+
+func TestLifecycleApplicationShutdownRunsCleanupOnce(t *testing.T) {
+	var calls []string
+	closed := false
+	application := applicationlifecycle.New(applicationlifecycle.Deps{
+		BeginShutdown: func() bool {
+			if closed {
+				return false
+			}
+			closed = true
+			calls = append(calls, "begin")
+			return true
+		},
+		FlushToolRecords:       func() { calls = append(calls, "flush") },
+		StopCatalogRefresh:     func() { calls = append(calls, "catalog") },
+		CloseSessions:          func() { calls = append(calls, "sessions") },
+		StopLifecycleConsumers: func() { calls = append(calls, "consumers") },
+		CloseWorkTable:         func() { calls = append(calls, "worktable") },
+		ShutdownApproval:       func() { calls = append(calls, "approval") },
+	})
+	application.Shutdown()
+	application.Shutdown()
+	want := "begin,flush,catalog,sessions,consumers,worktable,approval"
+	if strings.Join(calls, ",") != want {
+		t.Fatalf("calls = %v, want %s", calls, want)
+	}
+}
+
+func TestLifecycleFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "service_input.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"BeginGracefulShutdown": false,
+		"WaitForIdle":           false,
+		"AnyChatRunning":        false,
+		"CancelAllChats":        false,
+		"CancelChat":            false,
+		"Shutdown":              false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 lifecycleApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 // （ActiveSkillMarker 标记、role=user）：技能正文在激活时 append 进 transcript，
@@ -142,7 +236,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	suggestions := service.Suggestions("/R")
+	suggestions := frontendOfTestService(service).Suggestions("/R")
 	if len(suggestions) != 2 || suggestions[0].Kind != "command" || suggestions[1].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
 	}
@@ -163,7 +257,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 		{"#", SuggestionKindPlugin, "code", true},
 		{"$", SuggestionKindSkill, "review", true},
 	} {
-		got := service.Suggestions(testCase.input)
+		got := frontendOfTestService(service).Suggestions(testCase.input)
 		if len(got) == 0 {
 			t.Fatalf("%q 建议为空", testCase.input)
 		}
@@ -183,16 +277,16 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 		}
 	}
 	// 未知前缀与进入参数区（含空格）都不给建议（不弹面板）。
-	if got := service.Suggestions("%review"); got != nil {
+	if got := frontendOfTestService(service).Suggestions("%review"); got != nil {
 		t.Fatalf("未知前缀不该给建议：%#v", got)
 	}
 	// `@` 的候选在**团队库**里，而本夹具的会话端口（fakeSessions）没有团队库读写面：
 	// 取不到库时不该炸、也不该弹一个空面板。真正的 `@` 建议面（列出库里的团队、
 	// 前缀过滤、写库/删库即时反映）由 team_summon_suggestions_repro_test.go 钉。
-	if got := service.Suggestions("@"); len(got) != 0 {
+	if got := frontendOfTestService(service).Suggestions("@"); len(got) != 0 {
 		t.Fatalf("宿主未装配团队库时 `@` 不该有候选：%#v", got)
 	}
-	if got := service.Suggestions("#code prompt"); got != nil {
+	if got := frontendOfTestService(service).Suggestions("#code prompt"); got != nil {
 		t.Fatalf("参数区不该给建议：%#v", got)
 	}
 	if err := service.Submit(context.Background(), "/review strict"); err != nil {

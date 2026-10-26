@@ -7,9 +7,63 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestContextCompactionApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("contextCompactionApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 contextCompactionApplication")
+	}
+	if field.Type != reflect.TypeOf((*contextCompactionApplication)(nil)) {
+		t.Fatalf("contextCompactionApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "context_compact.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"CompactContextNow":     false,
+		"CompactContextHandler": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 contextCompactionApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 // （TaskExecutionState.RequestID），没有纪元就无从压缩。

@@ -1,9 +1,55 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
+
+	applicationinput "github.com/RedHuang-0622/seelex/application/input"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
+
+func TestCompletionApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("completionApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 completionApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationinput.Application)(nil)) {
+		t.Fatalf("completionApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestCompletionFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "completion.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "Suggestions" ||
+			!functionHasReceiver(function, "Frontend") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("Suggestions 有 %d 条语句，want 一行 completionApplication 转发", len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
+			t.Fatal("Suggestions 不是单行 return 转发")
+		}
+		return
+	}
+	t.Fatal("未找到 Suggestions")
+}
 
 // TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 // 命令与 Skill。工具即使对模型可见也不进建议面（2026-09-23 口径修订）：一个能力
@@ -21,7 +67,7 @@ func TestSuggestionsExcludeModelSideTools(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	defer service.Shutdown()
 
-	suggestions := service.Suggestions("/")
+	suggestions := frontendOfTestService(service).Suggestions("/")
 	if len(suggestions) == 0 {
 		t.Fatal("/ 面板不该为空")
 	}

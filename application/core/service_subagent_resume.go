@@ -18,32 +18,17 @@ import (
 
 // ListSubagentRecovery 列出目标会话下残留子代理单元的恢复态（只读）。
 func (service *Service) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
-	if service == nil || service.Deps.Runtime == nil {
-		return nil, fmt.Errorf("list subagent recovery: runtime is not assembled")
-	}
-	return service.Deps.Runtime.ListSubagentRecovery(sessionID)
+	return service.subagentApplicationComponent().ListRecovery(sessionID)
 }
 
 // ResumeInterruptedSubagents 冷恢复续跑目标会话下所有未完成子代理。
 func (service *Service) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error) {
-	if service == nil || service.Deps.Runtime == nil {
-		return dto.SubagentResumeReport{}, fmt.Errorf("resume subagents: runtime is not assembled")
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return service.Deps.Runtime.ResumeInterruptedSubagents(ctx, sessionID)
+	return service.subagentApplicationComponent().ResumeInterrupted(ctx, sessionID)
 }
 
 // ResumeSubagent 定点续跑单个子代理（失败可重试）。
 func (service *Service) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
-	if service == nil || service.Deps.Runtime == nil {
-		return dto.SubagentResumeResult{}, fmt.Errorf("resume subagent: runtime is not assembled")
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return service.Deps.Runtime.ResumeSubagent(ctx, sessionID, nodeID)
+	return service.subagentApplicationComponent().Resume(ctx, sessionID, nodeID)
 }
 
 // PrepareProviderHistory 补齐目标会话 provider 历史的残缺工具链：中断的
@@ -61,11 +46,5 @@ func (service *Service) PrepareProviderHistory(sessionID string) error {
 // ForkSubagents 直接派发一批子代理（自动化/冒烟入口；与模型调用
 // fork_subagents 同一条执行链）。
 func (service *Service) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
-	if service == nil || service.Deps.Runtime == nil {
-		return "", fmt.Errorf("fork subagents: runtime is not assembled")
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return service.Deps.Runtime.ForkSubagents(ctx, sessionID, specs)
+	return service.subagentApplicationComponent().Fork(ctx, sessionID, specs)
 }

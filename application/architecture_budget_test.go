@@ -22,6 +22,8 @@ import (
 type applicationBudget struct {
 	ServiceMethodCount                 int      `json:"service_method_count"`
 	CoreInternalDependencyLimit        int      `json:"core_internal_dependency_limit"`
+	CoreProductionFileLimit            int      `json:"core_production_file_limit"`
+	CoreProductionLineLimit            int      `json:"core_production_line_limit"`
 	AllowedCoreInternalDependencies    []string `json:"allowed_core_internal_dependencies"`
 	CompatibilityLedger                string   `json:"compatibility_ledger"`
 	CompatibilityLedgerRequiredHeading string   `json:"compatibility_ledger_required_heading"`
@@ -54,6 +56,16 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 		if !allowed[dependency] {
 			t.Fatalf("application/core 新增未登记的直接内部依赖：%s", dependency)
 		}
+	}
+
+	productionFiles, productionLines := coreProductionSize(t, filepath.Join(applicationDir, "core"))
+	if productionFiles > budget.CoreProductionFileLimit {
+		t.Fatalf("application/core 生产 Go 文件 = %d，预算 = %d：包提取必须减少或显式收紧预算",
+			productionFiles, budget.CoreProductionFileLimit)
+	}
+	if productionLines > budget.CoreProductionLineLimit {
+		t.Fatalf("application/core 生产代码 = %d 行，预算 = %d：包提取必须让 core 净下降或显式更新预算",
+			productionLines, budget.CoreProductionLineLimit)
 	}
 
 	ledgerPath := filepath.Join(applicationDir, "..", budget.CompatibilityLedger)
@@ -157,16 +169,57 @@ func isApplicationInternalDependency(path string) bool {
 		strings.HasPrefix(relative, "middle/")
 }
 
+func coreProductionSize(t *testing.T, packageDir string) (files, lines int) {
+	t.Helper()
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		t.Fatalf("读取 %s: %v", packageDir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		files++
+		raw, err := os.ReadFile(filepath.Join(packageDir, name))
+		if err != nil {
+			t.Fatalf("读取 %s: %v", name, err)
+		}
+		lines += sourceLineCount(raw)
+	}
+	return files, lines
+}
+
+func sourceLineCount(raw []byte) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	lines := strings.Count(string(raw), "\n")
+	if raw[len(raw)-1] != '\n' {
+		lines++
+	}
+	return lines
+}
+
 func TestQueryImplementationsAvoidSharedWriteLockAndServiceField(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	queryFiles := []string{
-		filepath.Join(applicationDir, "core", "session_query.go"),
-		filepath.Join(applicationDir, "core", "session_conversation_history_query.go"),
+	queries := []struct {
+		path     string
+		typeName string
+	}{
+		{
+			path:     filepath.Join(applicationDir, "session", "query", "application.go"),
+			typeName: "Application",
+		},
+		{
+			path:     filepath.Join(applicationDir, "history", "application.go"),
+			typeName: "Application",
+		},
 	}
-	for _, path := range queryFiles {
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	for _, query := range queries {
+		file, err := parser.ParseFile(token.NewFileSet(), query.path, nil, 0)
 		if err != nil {
-			t.Fatalf("解析查询实现 %s: %v", path, err)
+			t.Fatalf("解析查询实现 %s: %v", query.path, err)
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
@@ -175,13 +228,13 @@ func TestQueryImplementationsAvoidSharedWriteLockAndServiceField(t *testing.T) {
 			}
 			identifier, ok := selector.X.(*ast.Ident)
 			if ok && identifier.Name == "ViewMu" && selector.Sel.Name == "Lock" {
-				t.Errorf("%s 在查询路径获取了共享写锁 ViewMu.Lock", filepath.Base(path))
+				t.Errorf("%s 在查询路径获取了共享写锁 ViewMu.Lock", filepath.Base(query.path))
 			}
 			return true
 		})
 		ast.Inspect(file, func(node ast.Node) bool {
 			declaration, ok := node.(*ast.TypeSpec)
-			if !ok || (declaration.Name.Name != "sessionQuery" && declaration.Name.Name != "conversationHistoryQuery") {
+			if !ok || declaration.Name.Name != query.typeName {
 				return true
 			}
 			structure, ok := declaration.Type.(*ast.StructType)

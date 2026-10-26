@@ -1,11 +1,12 @@
 {
-  "service_method_count": 171,
-  "core_internal_dependency_limit": 39,
+  "service_method_count": 148,
+  "core_internal_dependency_limit": 34,
+  "core_production_file_limit": 125,
+  "core_production_line_limit": 12810,
   "allowed_core_internal_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",
     "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx",
-    "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search",
     "github.com/RedHuang-0622/seelex/backend/engine/input",
     "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol",
     "github.com/RedHuang-0622/seelex/backend/engine/prompt",
@@ -17,14 +18,11 @@
     "github.com/RedHuang-0622/seelex/backend/limit",
     "github.com/RedHuang-0622/seelex/backend/limit/accountwindow",
     "github.com/RedHuang-0622/seelex/backend/limit/approval",
-    "github.com/RedHuang-0622/seelex/backend/limit/effort",
     "github.com/RedHuang-0622/seelex/backend/limit/tier",
     "github.com/RedHuang-0622/seelex/backend/multiagent/goal",
     "github.com/RedHuang-0622/seelex/backend/multiagent/subagent",
     "github.com/RedHuang-0622/seelex/backend/multiagent/team",
     "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
-    "github.com/RedHuang-0622/seelex/backend/tool/reference",
-    "github.com/RedHuang-0622/seelex/backend/tool/review",
     "github.com/RedHuang-0622/seelex/middle/protocol/event",
     "github.com/RedHuang-0622/seelex/middle/protocol/model",
     "github.com/RedHuang-0622/seelex/middle/residency",
@@ -39,8 +37,7 @@
     "github.com/RedHuang-0622/seelex/middle/view/state",
     "github.com/RedHuang-0622/seelex/middle/view/subagent",
     "github.com/RedHuang-0622/seelex/middle/view/worktable",
-    "github.com/RedHuang-0622/seelex/store",
-    "github.com/RedHuang-0622/seelex/store/record"
+    "github.com/RedHuang-0622/seelex/store"
   ],
   "compatibility_ledger": "docs/2026-10-25-application-modularization/implementation.md",
   "compatibility_ledger_required_heading": "## 兼容层台账"

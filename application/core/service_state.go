@@ -1,6 +1,8 @@
 package core
 
 import (
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -8,7 +10,6 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,19 +33,9 @@ type serviceState struct {
 	// 会话的只读视图指针 V，不再持有任何会话容器）。
 	sessions *session.Domain
 
-	// toolRecords 是**每会话**一份的工具记录内存累计（键 = 会话 ID；落盘按批次走
-	// Deps.ToolRecordSnapshotStore）。放这里而不是 components：它是随工具调用持续变化的
-	// 会话状态，不是装配期交接一次的外部端口。
-	toolRecords *toolRecordAccumulators
-
-	// toolStages 是**叶子暂存**的登记表（执行单元 → 它自己那份本地累加，见
-	// tool_record_stage.go）。与 toolRecords 同一生态位（随工具调用变化、不落盘），
-	// 但作用域是"执行单元"而不是"会话"：读数在这里先攒、收口时才交给会话累计。
-	toolStages *toolRecordStages
-
-	// editForkOps 是「编辑用户消息并分叉」的幂等操作表（Core.ViewMu 保护）：
-	// operation_id → 在飞/短期完成结果。双击与传输重试因此只产生一个 child。
-	editForkOps map[string]*editForkOperation
+	// toolRecords owns the per-session accumulators, leaf stages, switch, snapshot
+	// port and flush error. Host callbacks make draft and view policy explicit.
+	toolRecords *applicationtoolrecord.Application
 
 	// draft 是"新建会话"草稿槽位（Core.ViewMu 保护）：早分配 SID 的草稿
 	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
@@ -62,19 +53,12 @@ type serviceState struct {
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
 	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
 	chatSeq uint64
-	// reviewSeq 是「请 GUI 打开待审阅文件」召唤 ID 的单调序号（与 chatSeq 同一
-	// 理由：时间戳在同一 tick 内会撞号，撞号会让前端把"新的一次召唤"读成
-	// "同一份快照的补放"而不重新开 chip）。无锁（atomic），因为它在 ViewMu 之外
-	// 也要可用。
-	reviewSeq atomic.Uint64
 	// draftSeq 是草稿会话 ID 的单调序号（Core.ViewMu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64
 	// sessionIDSeq 是显式新建会话（fork/切项目）ID 的全局原子序号
 	// （F-4：逐会话宿主不再经 engine.StartSession 拿活跃别名 ID）。
 	sessionIDSeq atomic.Uint64
-	// degradeOnce 保证并发故障只触发一次降级退出。
-	degradeOnce sync.Once
 	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
@@ -144,15 +128,9 @@ type draftSlot struct {
 type conversationRuntimeState struct {
 }
 
-// workTableRuntimeState 持有工作表格增量发布器（CSP 汇聚；见
-// worktable_publisher.go）。
+// workTableRuntimeState owns the extracted WorkTable publisher application.
 type workTableRuntimeState struct {
-	workTablePublisher *worktable.WorkTablePublisher
-	// lastPublishedSubagentTreeSig 是上一次随 worktable.changed 发出的子代理
-	// 树内容签名（只由工作表格发布器 goroutine 读写，见
-	// Service.workTableEventPayload）：相同签名不重复下发树，避免表格增量被
-	// 运行期树投影撑大。
-	lastPublishedSubagentTreeSig string
+	workTable *applicationtable.Application
 }
 
 type lifecycleRuntimeState struct {

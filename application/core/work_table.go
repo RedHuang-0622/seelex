@@ -2,16 +2,12 @@ package core
 
 import (
 	"context"
-	"fmt"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
@@ -34,55 +30,26 @@ import (
 // 写锁采样 = 把整块交互面押在一次慢活上（2026-09-29 锁面审计 §2.5，与 2026-09-29
 // 压缩持 ViewMu 推帧的"后果②"同形）。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
-	rows := worktable.BuildWorkTable(
-		state.Snapshot.Runtime.Plan,
-		tasks,
-		state.Snapshot.Runtime.SubAgentTree,
-		asyncRuns,
-		workTableBounds(),
-	)
+	rows, batches := applicationtable.BuildRows(applicationtable.RowInputs{
+		Plan:         state.Snapshot.Runtime.Plan,
+		Tasks:        tasks,
+		SubAgentTree: state.Snapshot.Runtime.SubAgentTree,
+		AsyncRuns:    asyncRuns,
+		Limits:       workTableBounds(),
+	})
 	state.Snapshot.Runtime.WorkTable = rows
-	state.Snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
+	state.Snapshot.Runtime.WorkTableBatches = batches
 }
 
 // publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 // 是同一临界区克隆的不可变快照，保证 revision 与内容一致）。
 func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch) {
-	if state.workTablePublisher == nil {
+	if state.workTable == nil {
 		return
 	}
-	state.workTablePublisher.Send(worktable.WorkTableUpdate{
+	state.workTable.Send(worktable.WorkTableUpdate{
 		Revision: revision, RequestID: requestID, Items: items, Batches: batches,
 	})
-}
-
-// workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
-// 子代理树增量。
-//
-// 树只在内容变化时随包下发（nil = 不带、空数组 = 已清空）：详情入口在前端
-// 要先把行解析成节点（Plan DSL / 子代理树投影），而树此前只由整份快照与
-// runtime.changed 携带；同一批次还有子代理在跑时，表格行已通过本事件到达、
-// 树却还没到，详情点开会静默失败（2026-09-13 回归）。比较基准是"上一次
-// 实际发布出去的树"，因此被 CSP 汇聚合并掉的中间更新不会漏发。
-//
-// 只由 workTablePublisher 的发布 goroutine 调用：lastPublishedSubagentTreeSig
-// 因此无需额外加锁（发布器是单 goroutine）。
-func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) model.WorkTableEvent {
-	service.ViewMu.RLock()
-	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
-	service.ViewMu.RUnlock()
-	payload := model.WorkTableEvent{Items: update.Items, Batches: update.Batches}
-	signature := worktable.SubagentTreePayloadSignature(tree)
-	if signature == service.lastPublishedSubagentTreeSig {
-		return payload
-	}
-	service.lastPublishedSubagentTreeSig = signature
-	if tree == nil {
-		// 显式空数组：前端据此清空既有树（nil/缺省 = 本次不带，保留）。
-		tree = []dto.SubAgentTreeNode{}
-	}
-	payload.SubAgentTree = tree
-	return payload
 }
 
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
@@ -264,18 +231,10 @@ func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTree
 // task.changed 增量与 worktable.changed 整表必须同源：增量只带单条记录
 // （没有 plan 上下文），若不补齐，前端按增量更新该行时会把依赖列擦成空。
 func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem {
-	item := worktable.TaskRecordToWorkItem(record, workTableBounds())
-	if record.Kind != "plan" {
-		return item
-	}
 	service.ViewMu.RLock()
 	plan := service.sessionActivePlanLocked(sessionID)
 	service.ViewMu.RUnlock()
-	item.Dependencies = worktable.MergeWorkDependencies(
-		item.Dependencies,
-		worktable.PlanDependencies(plan, worktable.PlanNodeIDFor(record)),
-	)
-	return item
+	return applicationtable.WorkItemForRecord(record, plan, workTableBounds())
 }
 
 // ── 工作打点表（上下文标记块）─────────────────────────────
@@ -284,9 +243,8 @@ func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID strin
 // 删除（打点完即删），且不落历史 → 天然不参与上下文压缩。
 
 const (
-	workTableTraceMarkerOpen  = "<!-- seelex:worktable:v1 -->"
-	workTableTraceMarkerClose = "<!-- /seelex:worktable:v1 -->"
-	workTableTraceMaxLines    = 30
+	workTableTraceMarkerOpen  = applicationtable.TraceMarkerOpen
+	workTableTraceMarkerClose = applicationtable.TraceMarkerClose
 )
 
 // workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
@@ -319,88 +277,23 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	state.ViewMu.RLock()
 	viewID := state.Snapshot.Session.ID
 	state.ViewMu.RUnlock()
-	effectiveSession := sessionID
-	if effectiveSession == "" || effectiveSession == viewID {
-		effectiveSession = viewID
-	}
 	// 会话作用域取数（唯一实现见 project_board.go 的 taskRecordsForSession：视图/活跃
 	// 会话 = 实时注册表 "" 分区，后台会话 = 自身 scope 分区）。
 	records := state.taskRecordsForSession(sessionID, viewID)
-	active := make([]dto.TaskRecord, 0, len(records))
-	for _, record := range records {
-		if record.Status != dto.TaskCompleted && record.Status != dto.TaskFailed {
-			active = append(active, record)
-		}
-	}
-	sort.SliceStable(active, func(left, right int) bool {
-		return active[left].ID < active[right].ID
+	return applicationtable.BuildTraceBlock(applicationtable.TraceInputs{
+		SessionID:     sessionID,
+		ViewSessionID: viewID,
+		Tasks:         records,
+		AsyncRuns:     state.Deps.Runtime.AsyncRunsSnapshot(),
+		TeamworkRuns:  teamworkJobCompletions(state.Deps.Runtime),
+		Limits:        workTableBounds(),
 	})
-	lines := make([]string, 0, len(active)+1)
-	for _, record := range active {
-		retry := ""
-		if record.RetryCount > 0 {
-			retry = fmt.Sprintf(" retry=%d", record.RetryCount)
-		}
-		lines = append(lines, fmt.Sprintf("- %s %s%s %s",
-			record.ID, record.Status, retry, worktable.TruncateWorkEvidence(record.Task, 80)))
-	}
-	asyncLines := worktable.AsyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession, workTableBounds())
-	lines = append(lines, asyncLines...)
-	// teammate 作业（jobs.Manager 那张表）单独成行：句柄空间与取回工具都不同
-	// （jobs_manage vs bg_manage），合并成同一种行模型就会拿错工具。
-	teamworkLines := worktable.TeamworkTraceLines(teamworkJobCompletions(state.Deps.Runtime), effectiveSession, workTableBounds())
-	lines = append(lines, teamworkLines...)
-	if len(lines) == 0 {
-		return ""
-	}
-
-	var builder strings.Builder
-	builder.WriteString(workTableTraceMarkerOpen + "\n# 工作打点表（系统维护，只读；任务状态与打点以工作表格为准）\n")
-	// 预算必须把**整块**算进去（开/闭标记 + 标题 + 读法说明），否则"块 ≤ 30 行"这条
-	// 上限会被固定开销吃掉几行（打点 K-2 的判据是整块行数）。
-	budget := workTableTraceMaxLines - 3 // 开标记 + 标题 + 闭标记
-	hint := ""
-	if len(asyncLines) > 0 {
-		hint = "async:<句柄> 行是作业（bash_bg 后台命令 / read_batch 扇出读 / subagent）：" +
-			"字节数=已产出输出量；在途行带标题，完成行带摘要（exit/行数/末行采样）。" +
-			"句柄自带来源（工具作业 bt-3 / 子代理作业 bs-7）。" +
-			"取结果用 bg_manage(op=fetch, handle)、只读看进展用 op=observe、终止用 op=kill、" +
-			"销项用 op=done。"
-		budget--
-	}
-	if len(teamworkLines) > 0 {
-		// teammate 行的读法**不是** bg_manage：那是另一张表（jobs.Manager）。
-		hint += "teamwork:<句柄> 行是 teammate 作业（leader 派出去的活）：" +
-			"句柄形如 bteam-7（团队作业表；拿错工具会被显式拒绝，不会静默命中别的作业）。" +
-			"结论用 team_context（非消费读）、产物正文用 jobs_manage(op=observe|fetch, handle)，" +
-			"复核完用 team_accept / team_fail 收口（验收通过即销掉那条作业行，不必自己销项）。"
-		if len(asyncLines) == 0 {
-			budget--
-		}
-	}
-	truncated := false
-	if len(lines) > budget {
-		// 提示行也占一格：截断要让模型看见"还有更多"，而不是静默变短。
-		lines = lines[:budget-1]
-		truncated = true
-	}
-	for _, line := range lines {
-		builder.WriteString(line + "\n")
-	}
-	if truncated {
-		builder.WriteString("- …（打点表已达上限，详情见工作表格）\n")
-	}
-	if hint != "" {
-		builder.WriteString(hint + "\n")
-	}
-	builder.WriteString(workTableTraceMarkerClose)
-	return builder.String()
 }
 
-// RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
+// refreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
 // 消费者 consumeSubagentLifecycle 驱动）：fork 注册/完成自动同步 task 注册表
 // 并发布增量，不依赖模型主观意愿调用任何工具。
-func (service *Service) RefreshWorkTableSnapshot() {
+func (service *Service) refreshWorkTableSnapshot() {
 	// 锁外取子代理树：Engine.SubAgentTree() 会对运行中子代理做 ExportSnapshot
 	// （拿子代理会话锁），不能在持 service.ViewMu 时调用——避免与 runner 持会话
 	// 锁 → 注册表 actor → 变更 channel 的路径成环死锁。
@@ -423,10 +316,7 @@ func (service *Service) refreshWorkTableFromSources() {
 
 // ── CSP 生命周期消费者（取代同步回调 observer）────────────
 
-// startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
-// 工作表格；task 变更 → 直发 task.changed；后台执行表变化 →
-// 重投影（这一路同时驱动"后台作业终态触发对话"，见 consumeAsyncRuns 的注释）。数据经
-// channel（CSP）流转，runtime 侧不再同步回调进 application。
+// startLifecycleConsumers wires the extracted WorkTable lifecycle consumers.
 func (service *Service) startLifecycleConsumers() {
 	if service.Deps.Runtime == nil {
 		return
@@ -434,17 +324,37 @@ func (service *Service) startLifecycleConsumers() {
 	if service.lifecycleStop == nil {
 		service.lifecycleStop = make(chan struct{})
 	}
-	go service.consumeSubagentLifecycle(service.Deps.Runtime)
-	// 三个消费者都在**起 goroutine 之前**拿到宿主面：契约上信号口必须在 wiring.New 之前就绪
-	// （见 consumeAsyncRuns 的装配说明），所以消费者本来就不该在运行期读 `service.Deps.Runtime`
-	// ——顺带消掉"启动后替换 Deps.Runtime"与这些读之间的 data race（P20：`-race` 抓到
-	// served_route 用例写 `Deps.Runtime` 与 consume{TaskChanges,AsyncRuns} 的读撞车）。
-	go service.consumeTaskChanges(service.Deps.Runtime)
-	// 宿主面在**起 goroutine 之前**读一次传进去：消费者不再碰 `service.Deps.Runtime`。
-	// 这既守住下面那条"信号口在 wiring.New 之前就绪、消费者只读一次通道"的装配契约，
-	// 也消掉"启动后替换 Deps.Runtime"与消费者读之间的 data race（P20：`-race` 抓到
-	// served_route 用例改 `Deps.Runtime` 与 `consumeAsyncRuns` 的读撞在一起）。
-	go service.consumeAsyncRuns(service.Deps.Runtime)
+	runtime := service.Deps.Runtime
+	applicationtable.NewLifecycle(applicationtable.LifecycleDeps{
+		SubagentEvents:   runtime.SubagentTreeEvents(),
+		TaskChanges:      runtime.TaskChangedChannel(),
+		Stop:             service.lifecycleStop,
+		RefreshSubagents: service.refreshWorkTableSnapshot,
+		TaskContext: func() (uint64, string, string) {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.Core.Snapshot.Revision, service.Core.Snapshot.Chat.RequestID, service.Core.Snapshot.Session.ID
+		},
+		PublishTaskChange: service.publishTaskChanged,
+		SafeCall:          service.safeLifecycleCall,
+		Async: applicationtable.AsyncConsumerDeps{
+			AsyncEvents:    runtime.AsyncRunEvents(),
+			TeamworkEvents: teamworkJobEvents(runtime),
+			Refresh:        service.refreshWorkTableFromSources,
+			TriggerAsync: func(triggered map[string]struct{}) int {
+				if !Limits().AsyncExec.TriggerConversation {
+					return 0
+				}
+				return service.triggerAsyncCompletions(triggered)
+			},
+			TriggerTeamwork: func(triggered map[string]struct{}) int {
+				if !Limits().AsyncExec.TriggerConversation {
+					return 0
+				}
+				return service.triggerTeamworkJobCompletions(triggered)
+			},
+		},
+	}).Start()
 }
 
 func (service *Service) stopLifecycleConsumers() {
@@ -452,157 +362,6 @@ func (service *Service) stopLifecycleConsumers() {
 		service.lifecycleOnce.Do(func() { close(service.lifecycleStop) })
 	}
 }
-
-func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort) {
-	events := runtime.SubagentTreeEvents()
-	if events == nil {
-		return
-	}
-	for {
-		select {
-		case <-events:
-			service.safeLifecycleCall(service.RefreshWorkTableSnapshot)
-		case <-service.lifecycleStop:
-			return
-		}
-	}
-}
-
-func (service *Service) consumeTaskChanges(runtime contract.RuntimePort) {
-	changes := runtime.TaskChangedChannel()
-	if changes == nil {
-		return
-	}
-	for {
-		select {
-		case record, ok := <-changes:
-			if !ok {
-				return
-			}
-			service.ViewMu.RLock()
-			revision := service.Core.Snapshot.Revision
-			requestID := service.Core.Snapshot.Chat.RequestID
-			sessionID := service.Core.Snapshot.Session.ID
-			service.ViewMu.RUnlock()
-			service.safeLifecycleCall(func() { service.publishTaskChanged(record, revision, requestID, sessionID) })
-		case <-service.lifecycleStop:
-			return
-		}
-	}
-}
-
-// consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
-// 驱逐、以及去抖后的"有新字节"）就重投影工作表格。
-//
-// 为什么走 refreshWorkTableFromSources 而不是自己发一种新事件：后台行只是整表的
-// 一路输入，复用同一条发布路径才能保证"表格里看到的"与"上下文打点块里看到的"
-// 永远同源、同一个 revision。信号是容量 1 的汇聚口，被合并掉的中间态无所谓——
-// 每次重投影读的都是登记表当下全量。
-//
-// 同一个信号口还驱动**第二件事**：后台作业终态为**空闲**会话起一个回合
-// （triggerAsyncCompletions，见 async_completion.go）。
-//
-// 为什么并进这一个消费者而不是再起一个 goroutine 抢同一个通道：信号口是容量 1 的
-// **单接收者**通道——两个消费者同时等它时，一次发送只会交给先等待的那一个（FIFO），
-// 另一个永远收不到。现场表现就是"作业完成了，可什么都没发生"（本消费者先起，于是
-// 后起的那个一次也收不到）。信号是"有事发生"，一个消费者做完整套读侧动作才与契约一致。
-func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort) {
-	events := runtime.AsyncRunEvents()
-	// teammate 作业表（jobs.Manager）的信号口是**另一条**（见 contract.TeamworkJobCompletion）：
-	// 两张表各有各的上游，这里并进同一个消费者等它们——一个消费者做完整套读侧动作才与
-	// 契约一致（两个 goroutine 抢同一个容量 1 的通道时，后起的那个一次也收不到）。
-	//
-	// **装配顺序是契约**：两个信号口都必须在 `wiring.New` 之前就绪（组合根的顺序见
-	// wiring/bootstrap：SetTeamworkBackend 在 InitApplication 之前；测试基座同序见
-	// tool_full_chain_test.go 的 fullChainBackendInstaller）。消费者只在这里读一次通道，
-	// 后装配的宿主读到的必然是 nil——nil 在 select 里永不触发，"做完自动返回"会**静默
-	// 不存在**（不报错、不打日志）。这里不改成每次循环重读：一个消费者做完整套读侧动作
-	// 才与契约一致，靠重读掩盖顺序问题会把"装配写错了"变成"时好时坏"。
-	teamworkEvents := teamworkJobEvents(runtime)
-	if events == nil && teamworkEvents == nil {
-		return
-	}
-	triggered := map[string]struct{}{}
-	// 补扫定时器：忙会话被跳过的终态条目要靠它重试（见 triggerAsyncCompletions 的
-	// pending 回报）。信号只在"有变化"时来一次，而"会话忙"这一刻没有任何新信号会来——
-	// 只等信号就是丢唤醒（`-race` 下 worker 抢在 leader 回合收尾前完成，完成行永远不起
-	// 回合，TestTeamworkHeadlessSmoke 的 P5 等满 60s）。账本仍只由这一个 goroutine 读写。
-	//
-	// **两类补扫分开记**：后台执行表与 teammate 作业表是两张表、两套账本键
-	// （`<handle>` / `teamwork:<handle>`），合并扫描会让同一条记录被两条路各触发一次
-	// （TestTeamworkCompletionTriggersOncePerHandle 钉的就是这件事）。
-	var (
-		retryTimer      *time.Timer
-		retryC          <-chan time.Time
-		pendingAsync    bool
-		pendingTeamwork bool
-	)
-	scheduleRetry := func() {
-		if !pendingAsync && !pendingTeamwork {
-			return
-		}
-		if retryTimer == nil {
-			retryTimer = time.NewTimer(asyncTriggerRetryDelay)
-		} else {
-			if !retryTimer.Stop() {
-				select {
-				case <-retryTimer.C:
-				default:
-				}
-			}
-			retryTimer.Reset(asyncTriggerRetryDelay)
-		}
-		retryC = retryTimer.C
-	}
-	scanAsync := func() bool {
-		if !Limits().AsyncExec.TriggerConversation {
-			return false
-		}
-		pending := 0
-		service.safeLifecycleCall(func() { pending = service.triggerAsyncCompletions(triggered) })
-		return pending > 0
-	}
-	scanTeamwork := func() bool {
-		if !Limits().AsyncExec.TriggerConversation {
-			return false
-		}
-		pending := 0
-		service.safeLifecycleCall(func() { pending = service.triggerTeamworkJobCompletions(triggered) })
-		return pending > 0
-	}
-	for {
-		select {
-		case <-events:
-			service.safeLifecycleCall(service.refreshWorkTableFromSources)
-			// 开关关闭时连扫描都不做（默认关，见 limits.async_exec.trigger_conversation）。
-			pendingAsync = scanAsync()
-			scheduleRetry()
-		case <-teamworkEvents:
-			// teammate 作业终态**不改工作表格的行**（那两张表分开），只走"做完自动返回"：
-			// 空闲会话起一个回合，忙会话等补扫（或它自己那一轮的回合边界）。
-			pendingTeamwork = scanTeamwork()
-			scheduleRetry()
-		case <-retryC:
-			retryC = nil
-			if pendingAsync {
-				pendingAsync = scanAsync()
-			}
-			if pendingTeamwork {
-				pendingTeamwork = scanTeamwork()
-			}
-			scheduleRetry()
-		case <-service.lifecycleStop:
-			if retryTimer != nil {
-				retryTimer.Stop()
-			}
-			return
-		}
-	}
-}
-
-// asyncTriggerRetryDelay 是"忙会话跳过触发"之后的补扫间隔：短到完成行不会明显迟到，
-// 长到一次忙会话不会把消费者钉成忙等循环（每次补扫只是 O(在册作业数) 的一次扫描）。
-const asyncTriggerRetryDelay = 500 * time.Millisecond
 
 // safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 // 继续运行（可能持续污染其它会话）——先降级退出，再重新抛出 panic 让宿主
@@ -621,35 +380,7 @@ func (service *Service) safeLifecycleCall(call func()) {
 // 返回明确错误；成功路径发布 runtime.changed（todo 快照）与 task/worktable
 // 增量。
 func (service *Service) UpdateWorkItemStatus(id, status string) error {
-	kind, index, err := parseWorkItemID(id)
-	if err != nil {
-		return err
-	}
-	switch kind {
-	case "todo":
-		if err := service.Deps.Runtime.SetTodoStatus(index, dto.TodoItemStatus(strings.ToLower(strings.TrimSpace(status)))); err != nil {
-			return err
-		}
-		service.refreshRuntimeAfterTodoChange()
-		return nil
-	default:
-		return fmt.Errorf("work_item: %s 任务状态由执行器管理，不支持手动更新（仅支持 todo: 前缀）", kind)
-	}
-}
-
-func parseWorkItemID(id string) (kind string, index int, err error) {
-	parts := strings.SplitN(strings.TrimSpace(id), ":", 2)
-	if len(parts) != 2 || parts[0] == "" {
-		return "", 0, fmt.Errorf("work_item: 无效 ID %q（应为 todo:<index> 等）", id)
-	}
-	kind = parts[0]
-	if kind == "todo" {
-		index, err = strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err != nil || index < 0 {
-			return "", 0, fmt.Errorf("work_item: 无效 todo 索引 %q", parts[1])
-		}
-	}
-	return kind, index, nil
+	return service.executionApplicationComponent().UpdateWorkItemStatus(id, status)
 }
 
 // refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：

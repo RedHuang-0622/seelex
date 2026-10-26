@@ -6,6 +6,12 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 覆盖：`goal*.go`；未归属文件由覆盖自检拦下。
 
+## Goal Application 用例（AP-015 首个切片）
+
+`goal_application.go` 集中会话目标用例：协调器查找、Begin/Update/Done/Status、
+治理视图和运行投影刷新。`goalCoordinator` 继续持有按会话 bundle，
+`backend/multiagent/goal.Controller` 继续唯一拥有目标状态机。
+
 > **2026-10-03（阶段三 W3）**：goal 的**席位轮转已整条退场**。回合尾不再自动跑
 > "exec 让位 → advisor 评审"的座位循环（`govern` 包、`Adapter`/`NewAdvisorSeat`、
 > 座位作业面 `jobs.KindSeat`、headless `goal_gov_*`、视图的 Round/座次/断环 一并删除）。
@@ -28,6 +34,22 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T)` — TestGoalGovernanceViewRetiresBoardOnClosedArchive 验证"看板退场"：存档 state=closed
 - `func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T)` — TestGoalGovernanceViewCarriesHistoryLedgerWhileLive 验证账本与活动栈**正交**：
 - `func TestGoalGovernanceViewWithoutArchiveStaysHidden(t *testing.T)` — TestGoalGovernanceViewWithoutArchiveStaysHidden 验证未装配/无存档时的降级：
+
+### goal_application.go
+
+- `func newGoalApplication(deps goalApplicationDeps) *goalApplication`
+- `func (application *goalApplication) coordinatorFor(sessionID string) (*goalCoordinator, error)`
+- `func (application *goalApplication) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
+- `func (application *goalApplication) BeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)`
+- `func (application *goalApplication) UpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)`
+- `func (application *goalApplication) DoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)`
+- `func (application *goalApplication) StatusFor(sessionID string) (goaldomain.StatusView, error)`
+- `func newServiceGoalApplication(service *Service) *goalApplication`
+- `func (service *Service) goalApplicationComponent() *goalApplication`
+
+### goal_application_test.go
+
+- `func TestServiceComponentsAssembleGoalApplication(t *testing.T)`
 
 ### goal_coordinator.go
 

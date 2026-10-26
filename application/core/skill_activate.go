@@ -9,20 +9,10 @@ package core
 // 安全边界（历史结论，逐字保留）：本路径只改 promptStack 与会话通知，不触碰引擎锁
 // （运行中会话的 SetSystemPromptFor 会阻塞），也不提交新对话。
 
-import (
-	"errors"
-	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-)
+import "github.com/RedHuang-0622/seelex/middle/protocol/model"
 
 // ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
 // 工具的后端）。判据与文案在 `backend/engine/skill.Activator`；本方法只转发。
 func (service *Service) ActivateSkill(name string) (model.SkillInfo, error) {
-	if service == nil {
-		return model.SkillInfo{}, errors.New("service is not initialized")
-	}
-	return skill.NewActivator(skill.ActivateDeps{
-		Skills: service.Deps.Skills,
-		Apply:  service.applySkill,
-	}).Activate(name)
+	return service.policyApplicationComponent().ActivateSkill(name)
 }

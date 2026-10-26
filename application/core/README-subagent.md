@@ -6,6 +6,12 @@
 
 覆盖：`subagent*.go`；未归属文件由覆盖自检拦下。
 
+## Subagent Application 用例（AP-016 首个切片）
+
+`subagent_application.go` 集中恢复目录、中断恢复、定点恢复、fork 派发、
+树清理和详情读取。Runtime 继续提供执行/恢复能力，subagent view 继续负责详情投影；
+Service 对应入口只保留一行转发。
+
 ## 子代理工具记录的归属（阶梯提交第一级）
 
 子代理的每次工具调用都要记一笔读数，但**归属不在视图上**（2026-10-19 方向 C）：
@@ -26,6 +32,22 @@
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### subagent_application.go
+
+- `func newSubagentApplication(deps subagentApplicationDeps) *subagentApplication`
+- `func (application *subagentApplication) ListRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)`
+- `func (application *subagentApplication) ResumeInterrupted(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)`
+- `func (application *subagentApplication) Resume(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)`
+- `func (application *subagentApplication) Fork(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)`
+- `func (application *subagentApplication) Detail(nodeID string) (*model.SubagentDetail, error)`
+- `func (application *subagentApplication) ClearTree() error`
+- `func newServiceSubagentApplication(service *Service) *subagentApplication`
+- `func (service *Service) subagentApplicationComponent() *subagentApplication`
+
+### subagent_application_test.go
+
+- `func TestServiceComponentsAssembleSubagentApplication(t *testing.T)`
 
 ### subagent_detail_lock_regression_test.go
 

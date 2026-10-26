@@ -11,6 +11,7 @@ package core
 
 import (
 	"fmt"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
@@ -285,7 +286,7 @@ func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
 
 // TC-K5-1（打点 K-5 的"有界"判据）：注入 100 个已完成作业 →
 //   - 工作表格里的作业行 ≤ worktable.AsyncWorkMaxRows；
-//   - 打点块里的行 ≤ workTableTraceMaxLines（含块头块尾）；
+//   - 打点块里的行 ≤ table.TraceMaxLines（含块头块尾）；
 //   - 在途行优先于完成行（它们在动）；
 //   - 被截掉的完成行**补一行汇总**，不静默消失（静默会让模型以为"没有待取回的作业"）。
 func TestAsyncBackfillStaysBounded(t *testing.T) {
@@ -339,15 +340,15 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 		t.Fatalf("被截断的完成行没有汇总行: %v", lines)
 	}
 
-	// 整块（含块头块尾与读法说明）不得超过 workTableTraceMaxLines。
+	// 整块（含块头块尾与读法说明）不得超过 table.TraceMaxLines。
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 	defer service.Shutdown()
 	runtime.currentTaskSession = "session-a"
 	runtime.asyncRuns = records
 	block := service.workTableTraceBlockFor("")
-	if got := strings.Count(strings.TrimSpace(block), "\n") + 1; got > workTableTraceMaxLines {
-		t.Fatalf("打点块行数 = %d，超过上限 %d:\n%s", got, workTableTraceMaxLines, block)
+	if got := strings.Count(strings.TrimSpace(block), "\n") + 1; got > applicationtable.TraceMaxLines {
+		t.Fatalf("打点块行数 = %d，超过上限 %d:\n%s", got, applicationtable.TraceMaxLines, block)
 	}
 }
 

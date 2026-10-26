@@ -28,6 +28,7 @@ package core
 
 import (
 	"fmt"
+	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 	"log"
@@ -228,5 +229,5 @@ func (service *Service) reloadSessionContent(sessionID string) error {
 		return fmt.Errorf("reload session content %q: %w", sessionID, err)
 	}
 	// 安装即一次正文使用（installVisibleHistory 负责 touch 内容 LRU）。
-	return service.installVisibleHistory(sessionID, page, window, historyPageReplace)
+	return service.installVisibleHistory(sessionID, page, window, applicationhistory.InstallReplace)
 }

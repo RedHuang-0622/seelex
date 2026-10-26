@@ -108,7 +108,7 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	for _, input := range []string{"first follow-up", "second follow-up"} {
 		runtime.Enqueue(selexsession.QueuedRequest{
 			DisplayInput: input,
-			Payload:      chatRequest{displayInput: input},
+			Payload:      chatRequest{DisplayInput: input},
 		})
 	}
 	service.ViewMu.Unlock()
@@ -138,7 +138,7 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, model.TaskCheckpoint{})
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "queued after natural stop",
-		Payload:      chatRequest{displayInput: "queued after natural stop"},
+		Payload:      chatRequest{DisplayInput: "queued after natural stop"},
 	})
 	service.ViewMu.Unlock()
 

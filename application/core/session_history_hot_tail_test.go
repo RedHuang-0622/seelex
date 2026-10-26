@@ -71,7 +71,7 @@ func TestLoadLatestHistoryKeepsInFlightTail(t *testing.T) {
 	tail := append(wantRange(18, 2), inFlight...)
 	assertVisibleWindow(t, "在飞窗口基线", service.Snapshot(), 18, tail, 24)
 
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
 	assertVisibleWindow(t, "回到最新不得丢掉未落盘尾部", service.Snapshot(), 18, tail, 24)
@@ -86,7 +86,7 @@ func TestColdPageReadDoesNotRegressVisibleTotal(t *testing.T) {
 	service, store := openLongSession(t, 6, 20)
 	beginInFlightTurn(t, service, store, 4)
 
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	snapshot := service.Snapshot()
@@ -106,7 +106,7 @@ func TestToolResultAfterPagingDoesNotPunchHole(t *testing.T) {
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
 	// 半页翻页：窗口落在 [15,21) —— 15..19 已发布，20 起在飞，跨发布点且不贴尾。
-	if err := service.LoadMoreHistory(3); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(3); err != nil {
 		t.Fatalf("load more history (half page): %v", err)
 	}
 	halfPage := append(wantRange(15, 5), inFlight[:1]...)
@@ -136,13 +136,13 @@ func TestLoadLatestHistorySplicesStraddlingHotTail(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
-	if err := service.LoadMoreHistory(3); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(3); err != nil {
 		t.Fatalf("load more history (half page): %v", err)
 	}
 	halfPage := append(wantRange(15, 5), inFlight[:1]...)
 	assertVisibleWindow(t, "跨发布点的半页窗口", service.Snapshot(), 15, halfPage, 24)
 
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
 	snapshot := service.Snapshot()
@@ -160,15 +160,15 @@ func TestInFlightTailReturnsAfterCommit(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	if err := service.LoadMoreHistory(0); err != nil {
+	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history (second page): %v", err)
 	}
 
 	store.publishDraftTail()
-	if err := service.LoadLatestHistory(); err != nil {
+	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history after commit: %v", err)
 	}
 	tail := append(wantRange(18, 2), inFlight...)

@@ -120,10 +120,63 @@ const (
 // 按“新模块可 +1”的既有规则，上限从 86 抬到 88。
 // BM-002 共享协议下沉：`contract/protocol` 成为门面依赖闭包内的新契约子包。
 // 这是一次换落点后的新包登记，且自身只依赖标准库与 `contract/dto`，上限抬到 89。
-const facadeClosureAllowListMax = 89
+// P1 Session 包提取（2026-10-26）：`application/session` 承接不拥有 chat 状态的
+// Session 应用用例。core 在迁移期仍是门面依赖，因此这是“一条进”的领域包，
+// 上限抬到 90；后续兼容退场时会与 core 一起收回。
+// AP-085 Reference 包提取（2026-10-26）：`application/reference` 承接
+// read_tool_result/read_plan 的纯应用编排。它从 core 抽出且不反向依赖
+// application，按“新领域落点可 +1”规则，上限抬到 91。
+// AP-086 Conversation Search 包提取（2026-10-26）：
+// `application/conversation/search` 承接历史检索工具适配；同样是从 core
+// 抽出的领域包，不反向依赖 application，上限按同一规则抬到 92。
+// 同一批的 Input Suggestions 与 Observability Perf 包也从 core 抽出；两者都是
+// 无状态应用适配，不反向依赖 application，上限按 93、94 递进。
+// AP-091/092 包提取：`application/lifecycle` 承接 drain/cancel/shutdown/fault guard，
+// `application/policy` 承接角色账号与权限策略。两者均只依赖窄 deps/contract/model，
+// 不反向依赖 application/core，按新领域落点规则将上限抬到 96。
+// AP-094 `application/admin` 承接账号管理适配，只依赖 contract、protocol/model 与
+// view/state 的只读投影形状；AP-095 `application/workspace` 承接项目环境、
+// Git 查询与批量登记投影。两者都不反向依赖 application/core；上限抬到 98。
+// AP-096 `application/session/query` 承接只读会话目录与 durable 查询；AP-097
+// `application/history` 承接历史分页类型与窗口决策；AP-098
+// `application/execution` 承接项目看板查询；AP-101 `application/review` 承接
+// 文件审阅请求适配；AP-103 `application/goal` 承接 Goal 路由；AP-107A
+// `application/session/cold` 承接冷恢复组件链，上限抬到 104。
+// AP-109 `application/admin/scheduler` 承接定时任务应用编排；AP-111
+// `application/conversation/context` 承接显式压缩应用编排；AP-112
+// `application/conversation` 承接 Queue 应用编排；AP-114
+// `application/conversation/edit` 承接 Edit/Fork 组件，上限抬到 108。
+// AP-115A `application/execution/toolhooks` 承接 ToolHookBridge，上限抬到 109。
+// AP-115B `application/execution/toolrecord` 承接工具记录状态机，上限抬到 110。
+// AP-115C1 `application/execution/table` 承接 WorkTable publisher，上限抬到 111。
+// AP-115D1 `application/input/command` 承接基础内置命令，上限抬到 112。
+const facadeClosureAllowListMax = 112
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
+	"github.com/RedHuang-0622/seelex/application/admin",
+	"github.com/RedHuang-0622/seelex/application/admin/scheduler",
+	"github.com/RedHuang-0622/seelex/application/conversation/search",
+	"github.com/RedHuang-0622/seelex/application/conversation",
+	"github.com/RedHuang-0622/seelex/application/conversation/context",
+	"github.com/RedHuang-0622/seelex/application/conversation/edit",
+	"github.com/RedHuang-0622/seelex/application/execution",
+	"github.com/RedHuang-0622/seelex/application/execution/table",
+	"github.com/RedHuang-0622/seelex/application/execution/toolhooks",
+	"github.com/RedHuang-0622/seelex/application/execution/toolrecord",
+	"github.com/RedHuang-0622/seelex/application/goal",
+	"github.com/RedHuang-0622/seelex/application/history",
+	"github.com/RedHuang-0622/seelex/application/input",
+	"github.com/RedHuang-0622/seelex/application/input/command",
+	"github.com/RedHuang-0622/seelex/application/lifecycle",
+	"github.com/RedHuang-0622/seelex/application/observability",
+	"github.com/RedHuang-0622/seelex/application/policy",
+	"github.com/RedHuang-0622/seelex/application/reference",
+	"github.com/RedHuang-0622/seelex/application/review",
+	"github.com/RedHuang-0622/seelex/application/session",
+	"github.com/RedHuang-0622/seelex/application/session/cold",
+	"github.com/RedHuang-0622/seelex/application/session/query",
+	"github.com/RedHuang-0622/seelex/application/workspace",
 	"github.com/RedHuang-0622/seelex/application/core",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession",

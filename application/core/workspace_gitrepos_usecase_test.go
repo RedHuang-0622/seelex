@@ -1,12 +1,17 @@
 package core
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -33,79 +38,6 @@ func makeDir(t *testing.T, root, rel string) string {
 		t.Fatal(err)
 	}
 	return full
-}
-
-// TestResolveWorkspaceRepoContainment 钉住 repo 解析的四种入参口径：
-// 空/"." → 工作区根；相对路径 → 根内绝对路径；绝对路径与 `..` 逃逸 → Go error。
-func TestResolveWorkspaceRepoContainment(t *testing.T) {
-	root := t.TempDir()
-	repoDir := makeDir(t, root, "vendor/lib")
-
-	for _, empty := range []string{"", ".", "  "} {
-		got, err := resolveWorkspaceRepo(root, empty)
-		if err != nil {
-			t.Fatalf("resolveWorkspaceRepo(%q): %v", empty, err)
-		}
-		if got != filepath.Clean(root) {
-			t.Fatalf("resolveWorkspaceRepo(%q)=%q, want workspace root", empty, got)
-		}
-	}
-
-	got, err := resolveWorkspaceRepo(root, "vendor/lib")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != filepath.Clean(repoDir) {
-		t.Fatalf("relative repo resolved to %q, want %q", got, repoDir)
-	}
-
-	absolute := filepath.Join(t.TempDir(), "elsewhere")
-	if err := os.MkdirAll(absolute, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolveWorkspaceRepo(root, absolute); err == nil {
-		t.Fatal("absolute repo path must be a Go error")
-	}
-	if _, err := resolveWorkspaceRepo(root, "../outside"); err == nil {
-		t.Fatal("repo path escaping the root must be a Go error")
-	}
-	if _, err := resolveWorkspaceRepo(root, "vendor/../../outside"); err == nil {
-		t.Fatal("repo path escaping via nested .. must be a Go error")
-	}
-	if _, err := resolveWorkspaceRepo(root, "vendor/missing"); err == nil {
-		t.Fatal("missing repo directory must be a Go error")
-	}
-	if _, err := resolveWorkspaceRepo("", "."); err == nil {
-		t.Fatal("unbound workspace root must be a Go error")
-	}
-}
-
-// TestResolveWorkspaceRepoRejectsSymlinkEscape 钉住软链逃逸：根内链接指向根外
-// 目录时必须报错（词法 containment 挡不住它）。
-func TestResolveWorkspaceRepoRejectsSymlinkEscape(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		// Windows 造符号链接需要开发者模式/管理员；造不出来就跳过（判据本身
-		// 与平台无关，靠 EvalSymlinks 的两次 containment 比对）。
-		t.Skip("symlink creation needs privileges on windows")
-	}
-	root := t.TempDir()
-	outside := t.TempDir()
-	link := filepath.Join(root, "linked")
-	if err := os.Symlink(outside, link); err != nil {
-		t.Skipf("cannot create symlink: %v", err)
-	}
-	if _, err := resolveWorkspaceRepo(root, "linked"); err == nil {
-		t.Fatal("symlink escaping the workspace root must be a Go error")
-	}
-
-	inside := makeDir(t, root, "real")
-	innerLink := filepath.Join(root, "inside-link")
-	if err := os.Symlink(inside, innerLink); err != nil {
-		t.Skipf("cannot create symlink: %v", err)
-	}
-	if _, err := resolveWorkspaceRepo(root, "inside-link"); err != nil {
-		t.Fatalf("symlink pointing inside the root must be allowed: %v", err)
-	}
 }
 
 // TestWorkspaceGitQueriesForwardResolvedRepoRoot 钉住四条查询：repo 先解析成
@@ -259,4 +191,67 @@ func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T) {
 			t.Fatalf("error payload=%q, want unbound message", result.Error)
 		}
 	})
+}
+
+func TestWorkspaceGitApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("workspaceApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 workspaceApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
+		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestWorkspaceGitFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	dir := filepath.Dir(file)
+	tests := []struct {
+		file    string
+		methods []string
+	}{
+		{file: "workspace_gitrepos.go", methods: []string{"WorkspaceGitRepos"}},
+		{file: "workspace_usecase.go", methods: []string{
+			"WorkspaceGitLog",
+			"WorkspaceChanges",
+			"WorkspaceGitCommitDetail",
+			"WorkspaceGitCommitFileContent",
+		}},
+	}
+	for _, test := range tests {
+		parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, test.file), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := make(map[string]bool, len(test.methods))
+		for _, method := range test.methods {
+			want[method] = false
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+				continue
+			}
+			if _, tracked := want[function.Name.Name]; !tracked {
+				continue
+			}
+			want[function.Name.Name] = true
+			if len(function.Body.List) != 1 {
+				t.Fatalf("%s 有 %d 条语句，want 一行 workspaceGitApplication 转发", function.Name.Name, len(function.Body.List))
+			}
+			returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(returnStatement.Results) != 1 {
+				t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+			}
+		}
+		for method, found := range want {
+			if !found {
+				t.Fatalf("%s 未找到 %s", test.file, method)
+			}
+		}
+	}
 }

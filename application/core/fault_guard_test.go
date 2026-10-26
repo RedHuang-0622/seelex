@@ -1,9 +1,64 @@
 package core
 
 import (
+	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
+
+func TestFaultGuardApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("faultGuardApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 faultGuardApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationlifecycle.FaultGuardApplication)(nil)) {
+		t.Fatalf("faultGuardApplication 字段类型 = %s", field.Type)
+	}
+	if _, exists := reflect.TypeOf(serviceState{}).FieldByName("degradeOnce"); exists {
+		t.Fatal("degradeOnce 应归 faultGuardApplication，不再属于 serviceState")
+	}
+}
+
+func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "fault_guard.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"degradeAndRequestExit": false,
+		"handleLifecycleFault":  false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 faultGuardApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // TestDegradeAndRequestExitNotifiesHost：降级退出必须幂等、标记 closed/
 // draining，并向订阅者发布进程级退出事件（host 据此关窗/退出）。

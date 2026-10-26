@@ -1,447 +1,123 @@
 package core
 
-import (
-	"errors"
-	"path"
-	"strings"
+// role_permissions.go keeps only the core-side port adapters and one-line
+// Service compatibility entries. Role policy rules live in application/policy.
 
+import (
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// role_permissions.go 是「角色权限登记」的应用层读取面：会话加载时把每个角色的
-// 权限恢复出来，**没有登记的按五级链路解析**。
-//
-// 生态位（为什么这里只有读面、没有第二份内存表）：
-//   - 登记的**事实源**只有一处——存储层的会话级角色权限登记（键 (sessionID, role)，
-//     见 store 的 RolePermissionStore）。那里每个角色一格、各自持锁，跨角色并发
-//     读写不会落到同一把锁或同一张裸 map 上；
-//   - 五级优先级的**判据**也只有一处——`dto.ResolvePermissionVector` /
-//     `dto.ResolveRoleSettings`；
-//   - 本文件因此只做装配缝：把会话端口上可选的两项能力（登记读写、五层来源）类型
-//     断言出来，按"登记优先、缺失走链路"合成为每角色的生效设置。
-//
-// 刻意**不**在应用层缓存一份权限向量：那会变成第二份事实源，且两份之间没有任何
-// 失效协议（改一处不改另一处 = 判定链前后不一致）。需要提速就在存储层的登记格里
-// 缓存（本进程权威、写入即更新，已实现）。
-//
-// 解析结果也**不**写回盘：配置文件改了应当在下一次加载生效，而不是被一次解析
-// 冻结成用户数据。
+// ErrRolePermissionsUnavailable preserves the established error identity.
+var ErrRolePermissionsUnavailable = applicationpolicy.ErrRolePermissionsUnavailable
 
-// ErrRolePermissionsUnavailable 表示会话端口没有暴露角色权限登记能力（装配缺口）。
-//
-// 显式失败而不是静默返回空权限：空权限与"装配漏了"在界面上长得一样，但一个是
-// 用户的选择、一个是宿主的缺陷。与 `connectionPort()` 缺失时的口径一致。
-var ErrRolePermissionsUnavailable = errors.New("role permissions: session port does not expose the role permission registry")
-
-// rolePermissionPort 是会话端口上的**可选**能力：会话级角色权限登记（键 (sessionID, role)）。
-//
-// 接口定义在消费方（本包）：契约层的 `contract.SessionPort` 是稳定面，不为一个
-// 尚在接入的能力扩成员；装配处（wiring/adapters）在实现会话端口的同时实现本接口，
-// 与 `contract.RoleSessionPort` 的发现方式同款（类型断言，缺失即不可用）。
-type rolePermissionPort interface {
-	// RolePermissionVectors 返回该会话下所有**显式登记过**的角色 → 权限向量。
-	RolePermissionVectors(sessionID string) (map[string][]string, error)
-	// RolePermissionVector 读单个角色；第二个返回值报告"是否登记过"（区分
-	// "显式空集"与"从未定过"）。
-	RolePermissionVector(sessionID, role string) ([]string, bool, error)
-	// SetRolePermissionVector 写入一个角色的权限向量（空集合法，含义是显式不给）。
-	SetRolePermissionVector(sessionID, role string, vector []string) error
-}
-
-// roleDefaultPort 是**角色级默认向量**的读写面（2026-10-23 新增）。
-//
-// 与 rolePermissionPort 的区别：那个是"这个会话里显式登记过什么"（键带 sessionID），
-// 这个是"这个角色在所有会话里的默认是什么"（键只有角色名）。两个都取同一份存储，
-// 但语义与优先级不同：会话登记永远压过角色默认。
-//
-// 方法带 sessionID 只是为了让适配层解析归属项目（默认按项目存一份）。
-type roleDefaultPort interface {
-	// RoleDefaultVectors 返回该数据根下所有显式定过的角色默认。
-	RoleDefaultVectors(sessionID string) (map[string][]string, error)
-	// RoleDefault 读单个角色的默认；第二个返回值报告"是否显式定过"。
-	RoleDefault(sessionID, role string) ([]string, bool, error)
-	// SetRoleDefault 写入一个角色的默认向量（空集合法，含义是默认什么都不给）。
-	SetRoleDefault(sessionID, role string, vector []string) error
-	// RoleAccount / SetRoleAccount 读写该角色优先使用的账号（项目作用域）。
-	RoleAccount(sessionID, role string) (string, bool, error)
-	SetRoleAccount(sessionID, role, account string) error
-	RoleInheritance(sessionID, role string) (bool, bool, error)
-	SetRoleInheritance(sessionID, role string, inherit bool) error
-	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
-	RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)
-	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
-	SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error
-}
-
-// roleDefaultStore 取角色默认端口（未装配返回 nil）。
-func (service *Service) roleDefaultStore() roleDefaultPort {
-	if service == nil || service.Deps.Sessions == nil {
-		return nil
-	}
-	port, _ := service.Deps.Sessions.(roleDefaultPort)
-	return port
-}
-
-// RoleDefaultVector 读一个角色的默认向量；第二个返回值报告"是否显式定过"。
-//
-// 没定过时返回空向量 + false：界面据此把状态写成"未设置"，而不是把当前生效值
-// 冒充成用户的选择。当前生效值由 RolePermissionVector 单独读取。
+// RoleDefaultVector reads a role's explicit default permission vector.
 func (service *Service) RoleDefaultVector(sessionID, role string) ([]string, bool, error) {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return nil, false, ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if role == "" {
-		return nil, false, errors.New("role default: role is required")
-	}
-	vector, explicit, err := port.RoleDefault(sessionID, role)
-	if err != nil {
-		return nil, false, err
-	}
-	if explicit {
-		if vector == nil {
-			return []string{}, true, nil
-		}
-		return vector, true, nil
-	}
-	return []string{}, false, nil
+	return service.roleApplicationComponent().RoleDefaultVector(sessionID, role)
 }
 
-// SetRoleDefaultVector 写入一个角色的默认向量（写入侧先规整，非法项显式报错）。
-//
-// 语义边界：它写的是**默认**，不会改任何会话里已显式登记过的向量——那一条在会话
-// 里优先，改默认不改已定过的会话（要改会话请用 SetRolePermissionVector）。
+// SetRoleDefaultVector writes a role's default permission vector.
 func (service *Service) SetRoleDefaultVector(sessionID, role string, vector []string) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if role == "" {
-		return errors.New("role default: role is required")
-	}
-	normalized, err := dto.NormalizePermissionVector(vector)
-	if err != nil {
-		return err
-	}
-	return port.SetRoleDefault(sessionID, role, normalized)
+	return service.roleApplicationComponent().SetRoleDefaultVector(sessionID, role, vector)
 }
 
-// RoleAccount 读角色默认账号；第二个返回值报告是否显式设置过。
+// RoleAccount reads a role's explicit default account.
 func (service *Service) RoleAccount(sessionID, role string) (string, bool, error) {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return "", false, ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if role == "" {
-		return "", false, errors.New("role account: role is required")
-	}
-	return port.RoleAccount(sessionID, role)
+	return service.roleApplicationComponent().RoleAccount(sessionID, role)
 }
 
-// SetRoleAccount 写角色默认账号。账号是否属于该角色由 Bridge 按当前快照校验。
+// SetRoleAccount applies and persists a role's default account.
 func (service *Service) SetRoleAccount(sessionID, role, account string) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	sessionID, role, account = strings.TrimSpace(sessionID), strings.TrimSpace(role), strings.TrimSpace(account)
-	if role == "" || account == "" {
-		return errors.New("role account: role and account are required")
-	}
-	runtimePort, _ := service.Deps.Runtime.(contract.AccountRoleSelectionPort)
-	if runtimePort != nil {
-		if err := runtimePort.SetRoleAccount(role, account); err != nil {
-			return err
-		}
-	}
-	if err := port.SetRoleAccount(sessionID, role, account); err != nil {
-		if runtimePort != nil {
-			_ = runtimePort.SetRoleAccount(role, "")
-		}
-		return err
-	}
-	return nil
+	return service.roleApplicationComponent().SetRoleAccount(sessionID, role, account)
 }
 
-// RestoreRoleAccounts 在会话加载点把项目里保存的角色账号推回运行时。
-// 没有保存值或宿主不支持该窄能力时保持角色账号池的默认选择。
-func (service *Service) RestoreRoleAccounts(sessionID string) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	runtimePort, _ := service.Deps.Runtime.(contract.AccountRoleSelectionPort)
-	if runtimePort == nil {
-		return nil
-	}
-	for _, role := range dto.AccountRoleVocabulary() {
-		account, ok, err := port.RoleAccount(sessionID, role)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		if err := runtimePort.SetRoleAccount(role, account); err != nil {
-			return err
-		}
-	}
-	return nil
+// restoreRoleAccounts applies saved role accounts to the runtime.
+func (service *Service) restoreRoleAccounts(sessionID string) error {
+	return service.roleApplicationComponent().RestoreRoleAccounts(sessionID)
 }
 
-// RoleInheritMainAgent 读角色默认权限是否继承 mainagent。未设置时对外返回
-// subagent / teammate 的默认继承口径。
+// RoleInheritMainAgent reports whether a role inherits mainagent settings.
 func (service *Service) RoleInheritMainAgent(sessionID, role string) (bool, error) {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return false, ErrRolePermissionsUnavailable
-	}
-	role = strings.TrimSpace(role)
-	inherit, explicit, err := port.RoleInheritance(sessionID, role)
-	if err != nil {
-		return false, err
-	}
-	if explicit {
-		return inherit, nil
-	}
-	return role == string(dto.RoleSubAgent) || role == string(dto.RoleTeammate), nil
+	return service.roleApplicationComponent().RoleInheritMainAgent(sessionID, role)
 }
 
-// SetRoleInheritMainAgent 设置 subagent / teammate 是否继承 mainagent 默认权限。
+// SetRoleInheritMainAgent updates role inheritance.
 func (service *Service) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	role = strings.TrimSpace(role)
-	if role != string(dto.RoleSubAgent) && role != string(dto.RoleTeammate) {
-		return errors.New("role inheritance: only subagent and teammate can inherit mainagent")
-	}
-	return port.SetRoleInheritance(sessionID, role, inherit)
+	return service.roleApplicationComponent().SetRoleInheritMainAgent(sessionID, role, inherit)
 }
 
-// RoleSSHUserSpaces 读 SSH 能力的路径允许范围。
+// RoleSSHUserSpaces reads a role's effective SSH path scope.
 func (service *Service) RoleSSHUserSpaces(sessionID, role string) ([]string, error) {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return nil, ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if role == string(dto.RoleSubAgent) || role == string(dto.RoleTeammate) {
-		inherit, explicit, err := port.RoleInheritance(sessionID, role)
-		if err != nil {
-			return nil, err
-		}
-		// SSH 路径范围与权限向量同属一份继承语义：默认继承时读
-		// mainagent 的范围；关闭继承后才读该角色自己的覆盖。否则子角色会显示
-		// “继承了 ssh”却因空路径而全部 fail-closed。
-		if !explicit || inherit {
-			return port.RoleSSHUserSpaces(sessionID, string(dto.RoleAgent))
-		}
-	}
-	return port.RoleSSHUserSpaces(sessionID, role)
+	return service.roleApplicationComponent().RoleSSHUserSpaces(sessionID, role)
 }
 
-// RoleDefaultSSHUserSpaces 读角色跨会话默认的 SSH 路径白名单，不叠加会话覆盖。
+// RoleDefaultSSHUserSpaces reads a role's default SSH path scope.
 func (service *Service) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error) {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return nil, ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if role == "" {
-		return nil, errors.New("role user spaces: role is required")
-	}
-	return port.RoleDefaultSSHUserSpaces(sessionID, role)
+	return service.roleApplicationComponent().RoleDefaultSSHUserSpaces(sessionID, role)
 }
 
-// SetRoleSSHUserSpaces 写 SSH 能力的路径允许范围（远端 POSIX 绝对路径）。
+// SetRoleSSHUserSpaces writes a role's default SSH path scope.
 func (service *Service) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	role = strings.TrimSpace(role)
-	if role == "" {
-		return errors.New("role user spaces: role is required")
-	}
-	normalized, err := normalizeRemoteUserSpaces(paths)
-	if err != nil {
-		return err
-	}
-	return port.SetRoleSSHUserSpaces(sessionID, role, normalized)
+	return service.roleApplicationComponent().SetRoleSSHUserSpaces(sessionID, role, paths)
 }
 
-// SetRoleSessionSSHUserSpaces 写当前会话中单个 agent role 的 SSH 路径覆盖。
+// SetRoleSessionSSHUserSpaces writes a session-local SSH path scope.
 func (service *Service) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error {
-	port := service.roleDefaultStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if sessionID == "" || role == "" {
-		return errors.New("role user spaces: session and role are required")
-	}
-	normalized, err := normalizeRemoteUserSpaces(paths)
-	if err != nil {
-		return err
-	}
-	return port.SetRoleSessionSSHUserSpaces(sessionID, role, normalized)
+	return service.roleApplicationComponent().SetRoleSessionSSHUserSpaces(sessionID, role, paths)
 }
 
-func normalizeRemoteUserSpaces(paths []string) ([]string, error) {
-	if len(paths) > 64 {
-		return nil, errors.New("role user spaces: at most 64 paths are allowed")
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(paths))
-	for _, raw := range paths {
-		item := strings.TrimSpace(raw)
-		if item == "" {
-			continue
-		}
-		if len(item) > 512 || !strings.HasPrefix(item, "/") {
-			return nil, errors.New("role user spaces: every path must be an absolute remote POSIX path")
-		}
-		clean := path.Clean(item)
-		if clean == "/" {
-			return nil, errors.New("role user spaces: root path is too broad; list specific directories")
-		}
-		if _, exists := seen[clean]; exists {
-			continue
-		}
-		seen[clean] = struct{}{}
-		out = append(out, clean)
-	}
-	if len(out) == 0 {
-		return nil, errors.New("role user spaces: list at least one absolute remote path")
-	}
-	return out, nil
+// restoreRolePermissions restores effective settings for the requested roles.
+func (service *Service) restoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error) {
+	return service.roleApplicationComponent().RestoreRolePermissions(sessionID, roles)
 }
 
-// rolePermissionLayerPort 是五层来源的读取面（user_allow / agent_dispatch /
-// session_default / role_default / global_default）。
-// 由装配侧按会话与角色给出：user_allow 来自用户设置、agent_dispatch 来自派活的
-// 那一方、session_default 来自会话设置、global_default 来自配置派生。本包只消费
-// 已经排好序的一份，不自己读配置——否则"默认值从哪来"就会有第二份答案。
-type rolePermissionLayerPort interface {
-	RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers
-}
-
-// rolePermissionStore 取登记端口（未装配返回 nil）。
-func (service *Service) rolePermissionStore() rolePermissionPort {
-	if service == nil || service.Deps.Sessions == nil {
-		return nil
-	}
-	port, _ := service.Deps.Sessions.(rolePermissionPort)
-	return port
-}
-
-// rolePermissionLayers 取五层来源端口（未装配返回 nil）。
-func (service *Service) rolePermissionLayers() rolePermissionLayerPort {
-	if service == nil || service.Deps.Sessions == nil {
-		return nil
-	}
-	port, _ := service.Deps.Sessions.(rolePermissionLayerPort)
-	return port
-}
-
-// RestoreRolePermissions 是**会话加载点**的恢复入口：为 roles 里的每个角色恢复
-// 生效设置——先读登记，登记缺失则按五级链路解析。
-//
-// 参数 roles 是该会话在装配角色时认定的角色名列表（去重由调用方保证；这里只跳过
-// 空白项）。返回的 map 键是规整后的角色名，每份设置的 PermissionVector 非 nil。
-//
-// 未装配登记能力时返回 ErrRolePermissionsUnavailable（不静默给"空权限"）。
-func (service *Service) RestoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error) {
-	port := service.rolePermissionStore()
-	if port == nil {
-		return nil, ErrRolePermissionsUnavailable
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil, errors.New("role permissions: session id is required")
-	}
-	stored, err := port.RolePermissionVectors(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	layers := service.rolePermissionLayers()
-	restored := make(map[string]dto.RoleSettings, len(roles))
-	for _, raw := range roles {
-		role := strings.TrimSpace(raw)
-		if role == "" {
-			continue
-		}
-		settings := dto.RoleSettings{}
-		if layers != nil {
-			// 层序（高→低）由 dto.RoleSettingsLayers.Ordered 定义，本包不重复一遍。
-			settings = dto.ResolveRoleSettings(layers.RolePermissionLayers(sessionID, role).Ordered()...)
-		}
-		// 登记优先：登记过就是"显式定过"，哪怕向量是空集——不能回落到链路
-		// （回落方向是权限放大）。
-		if vector, ok := stored[role]; ok {
-			settings.PermissionVector = vector
-		}
-		if settings.PermissionVector == nil {
-			settings.PermissionVector = []string{}
-		}
-		restored[role] = settings
-	}
-	return restored, nil
-}
-
-// RolePermissionVector 读单个角色的生效权限向量（登记优先、缺失走链路）。
-//
-// 与 RestoreRolePermissions 同一判据的**单角色形态**：工具判定这类高频读点用它，
-// 避免为了一个角色把整会话的角色都算一遍。
+// RolePermissionVector reads one effective role permission vector.
 func (service *Service) RolePermissionVector(sessionID, role string) ([]string, error) {
-	port := service.rolePermissionStore()
-	if port == nil {
-		return nil, ErrRolePermissionsUnavailable
-	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if sessionID == "" || role == "" {
-		return nil, errors.New("role permissions: session id and role are required")
-	}
-	vector, stored, err := port.RolePermissionVector(sessionID, role)
-	if err != nil {
-		return nil, err
-	}
-	if stored {
-		if vector == nil {
-			return []string{}, nil
-		}
-		return vector, nil
-	}
-	layers := service.rolePermissionLayers()
-	if layers == nil {
-		return []string{}, nil
-	}
-	resolved := dto.ResolveRoleSettings(layers.RolePermissionLayers(sessionID, role).Ordered()...)
-	return resolved.PermissionVector, nil
+	return service.roleApplicationComponent().RolePermissionVector(sessionID, role)
 }
 
-// SetRolePermissionVector 写入一个角色的权限向量（空切片 = 显式不给任何能力，
-// 与"删除登记"是两件事：删除由存储层的 Drop 负责）。
-//
-// 写入侧先规整再落盘：非法项显式报错，绝不静默丢项（丢项等于用户以为给了能力）。
+// SetRolePermissionVector writes a session-local role permission vector.
 func (service *Service) SetRolePermissionVector(sessionID, role string, vector []string) error {
-	port := service.rolePermissionStore()
-	if port == nil {
-		return ErrRolePermissionsUnavailable
+	return service.roleApplicationComponent().SetRolePermissionVector(sessionID, role, vector)
+}
+
+func (service *Service) roleApplicationComponent() *applicationpolicy.RoleApplication {
+	if service == nil {
+		return nil
 	}
-	sessionID, role = strings.TrimSpace(sessionID), strings.TrimSpace(role)
-	if sessionID == "" || role == "" {
-		return errors.New("role permissions: session id and role are required")
-	}
-	normalized, err := dto.NormalizePermissionVector(vector)
-	if err != nil {
-		return err
-	}
-	return port.SetRolePermissionVector(sessionID, role, normalized)
+	return service.components.roleApplication
+}
+
+func newServiceRoleApplication(service *Service) *applicationpolicy.RoleApplication {
+	return applicationpolicy.NewRoleApplication(applicationpolicy.Deps{
+		RoleDefaults: func() applicationpolicy.RoleDefaultsPort {
+			if service == nil || service.Deps.Sessions == nil {
+				return nil
+			}
+			port, _ := service.Deps.Sessions.(applicationpolicy.RoleDefaultsPort)
+			return port
+		},
+		Runtime: func() contract.AccountRoleSelectionPort {
+			if service == nil || service.Deps.Runtime == nil {
+				return nil
+			}
+			port, _ := service.Deps.Runtime.(contract.AccountRoleSelectionPort)
+			return port
+		},
+		Registry: func() applicationpolicy.PermissionRegistryPort {
+			if service == nil || service.Deps.Sessions == nil {
+				return nil
+			}
+			port, _ := service.Deps.Sessions.(applicationpolicy.PermissionRegistryPort)
+			return port
+		},
+		Layers: func() applicationpolicy.PermissionLayerPort {
+			if service == nil || service.Deps.Sessions == nil {
+				return nil
+			}
+			port, _ := service.Deps.Sessions.(applicationpolicy.PermissionLayerPort)
+			return port
+		},
+	})
 }

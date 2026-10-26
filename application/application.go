@@ -7,11 +7,6 @@ package application
 import (
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
-	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
-	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
-	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
-	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
@@ -20,12 +15,13 @@ import (
 
 type (
 	Service                    = core.Service
+	Frontend                   = core.Frontend
 	ToolHookBridge             = core.ToolHookBridge
 	ToolHookDiagnosticEvent    = core.ToolHookDiagnosticEvent
 	ToolHookDiagnosticObserver = core.ToolHookDiagnosticObserver
 	Suggestion                 = core.Suggestion
-	Command                    = input_router.Command
-	CommandResult              = input_router.CommandResult
+	Command                    = contract.Command
+	CommandResult              = contract.CommandResult
 	Dependencies               = contract.Dependencies
 	EngineMessage              = contract.EngineMessage
 	EngineToolCall             = contract.EngineToolCall
@@ -109,14 +105,14 @@ type (
 	// backend/limit/approval。门面这里只是把两者按既有名字再导出。
 	ApprovalRequest  = contract.ApprovalRequest
 	ApprovalDecision = contract.ApprovalDecision
-	ApprovalBroker   = limitapproval.ApprovalBroker
+	ApprovalBroker   = contract.ApprovalBroker
 	PromptLayer      = prompt.PromptLayer
 	PromptStack      = prompt.PromptStack
 	EffortManager    = prompt.EffortManager
-	WebSearchConfig  = search.WebSearchConfig
+	WebSearchConfig  = dto.WebSearchConfig
 	// 会话历史检索结果（`SearchHistory` 用例的返回形状，GUI 历史检索面板
 	// 数据源）。终局（规划）：plan §2.1 的 `contract.SearchPort`（M4）。
-	SearchResult = seelexctxsearch.Result
+	SearchResult = dto.SearchResult
 )
 
 const (
@@ -211,7 +207,7 @@ func ValidEffortLevels() []string { return prompt.ValidEffortLevels() }
 //
 // 挡位表只有一处（`seelexctx` 的 limits 段），前端不自己写死一份——与权限档位、
 // effort 档位同一条口径（门面 E 组：无状态纯函数）。
-func AccountWindowPresets() []int { return accountwindow.Presets() }
+func AccountWindowPresets() []int { return dto.AccountWindowPresets() }
 
 // AccountRoles 返回可手动添加的账号角色名（界面「设置 → 账户 → 添加」的角色下拉）。
 //

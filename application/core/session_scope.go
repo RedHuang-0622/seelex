@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"log"
 	"strings"
 	"sync"
@@ -305,18 +304,6 @@ func (service *Service) mirrorActiveChatLocked() {
 	}
 }
 
-// queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的
-// chatRequest 列表（排序一致；无法还原的载荷跳过）。
-func queuedChatRequests(requests []session.QueuedRequest) []chatRequest {
-	out := make([]chatRequest, 0, len(requests))
-	for _, request := range requests {
-		if payload, ok := request.Payload.(chatRequest); ok {
-			out = append(out, payload)
-		}
-	}
-	return out
-}
-
 // activeQueuedChatRequestsLocked 返回当前会话域的排队输入（还原为执行内核
 // 的 chatRequest；调用方持有 Core.ViewMu）。会话域是队列唯一所有者。
 func (service *Service) activeQueuedChatRequestsLocked() []chatRequest {
@@ -324,7 +311,7 @@ func (service *Service) activeQueuedChatRequestsLocked() []chatRequest {
 	if unit == nil {
 		return nil
 	}
-	return queuedChatRequests(unit.PendingRequests())
+	return service.components.conversationTurnState.QueuedRequests(unit.PendingRequests())
 }
 
 // publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
@@ -541,29 +528,26 @@ func (service *Service) ActivateSession(sessionID string) error {
 // 会话身份/可见对话/聊天运行态/会话运行原件（本会话槽）/task/工作表格/
 // 子代理树/本会话 revision（INV-G5，与进程 revision 分离）。
 func (service *Service) SnapshotOf(sessionID string) (model.SessionSnapshot, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return model.SessionSnapshot{}, errors.New("session ID is required")
-	}
-	// C1 冷读面：未驻留（unit 不存在或 Resident=false）的会话走持久化基线，
-	// 不再 clone 视图 Runtime 冒充其它会话（M4 撤销）。
-	service.ViewMu.RLock()
-	unit := service.sessions.Unit(sessionID)
-	resident := service.sessionResidentLocked(unit, sessionID)
-	viewSession := service.Core.Snapshot.Session.ID
-	service.ViewMu.RUnlock()
-	if !resident {
-		return service.snapshotOfCold(sessionID)
-	}
-	if sessionID != viewSession && service.sessionContentUnloaded(sessionID) {
-		// 可见正文已被内容 LRU 卸载的驻留会话：快照走持久化基线（只读 record，
-		// 不把正文拉回内存，也不解除「内容未加载」状态）；磁盘不可读时才退回
-		// 内存快照（宁可少一份基线，也不因内存治理报「快照不可用」）。
-		if snapshot, err := service.snapshotOfCold(sessionID); err == nil {
-			return snapshot, nil
-		}
-	}
-	return service.snapshotOfResident(sessionID)
+	return service.components.sessionQuery.SnapshotOf(sessionID)
+}
+
+func (service *Service) readSnapshotOf(sessionID string) (model.SessionSnapshot, error) {
+	return applicationsessionquery.ReadSnapshot(sessionID, applicationsessionquery.SnapshotReadDeps{
+		State: func(id string) applicationsessionquery.SnapshotReadState {
+			service.ViewMu.RLock()
+			unit := service.sessions.Unit(id)
+			resident := service.sessionResidentLocked(unit, id)
+			viewSession := service.Core.Snapshot.Session.ID
+			service.ViewMu.RUnlock()
+			return applicationsessionquery.SnapshotReadState{
+				Resident:        resident,
+				ViewSessionID:   viewSession,
+				ContentUnloaded: service.sessionContentUnloaded(id),
+			}
+		},
+		ColdSnapshot:     service.snapshotOfCold,
+		ResidentSnapshot: service.snapshotOfResident,
+	})
 }
 
 // sessionResidentLocked 判定目标会话引擎是否驻留（SnapshotOf 热/冷分界；
@@ -618,78 +602,31 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 	if revision == 0 {
 		revision = service.Core.Snapshot.Revision
 	}
-	snapshot := model.SessionSnapshot{
+	return applicationsessionquery.BuildResidentSnapshot(applicationsessionquery.ResidentSnapshotInput{
 		ProtocolVersion:      ProtocolVersion,
 		Revision:             revision,
 		ConversationRevision: service.components.tasks.LatestTranscriptSeqFor(sessionID),
-		Session:              model.SessionState{ID: sessionID, Name: name, ForkedFrom: model.CloneSessionForkRef(view.ForkedFrom)},
-		Conversation:         append([]model.Message(nil), view.Conversation...),
+		Session:              model.SessionState{ID: sessionID, Name: name, ForkedFrom: view.ForkedFrom},
+		Conversation:         view.Conversation,
 		Chat:                 unit.ChatState(),
-		Runtime:              sessionRuntimeOf(runtime),
+		Runtime:              applicationsessionquery.SessionRuntimeOf(runtime),
 		Capabilities:         model.Capabilities{SessionResume: true, SessionSnapshot: true},
-		Resident:             true,
 		HistoryOffset:        view.HistoryOffset,
 		TotalMessages:        view.TotalMessages,
 		HasMoreHistory:       view.HasMoreHistory,
 		ConversationWindow:   view.ConversationWindow,
-		ReadFiles:            append([]model.ReadFileRef(nil), view.ReadFiles...),
-		// 待审阅请求随会话快照一起下发（会话作用域的可重放状态；前端起来/切回
-		// 该会话时按它补放）。冷读路径为空（不落盘）。
-		ReviewRequest: dto.CloneReviewRequest(view.ReviewRequest),
-	}
-	snapshot.Conversation = service.annotateConversationForEditLocked(sessionID, snapshot.Conversation, unit.ChatState().Running)
-	if len(approvals) > 0 {
-		snapshot.Approvals = append([]model.Interaction(nil), approvals...)
-	}
-	if plan := service.planProjectionLocked(sessionID); plan != nil {
-		snapshot.Runtime.Plan = worktable.ClonePlanForSync(plan)
-	}
-	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
-		taskCopy := *task
-		taskCopy.ContextCompactions = append([]model.ContextCompaction(nil), task.ContextCompactions...)
-		snapshot.Task = &taskCopy
-	}
-	// 工作表格是项目/全局台账（与视图投影同源）：会话快照里的表格也取全局
-	// 读面，避免"切到哪个会话才看到哪些行"。会话级读面（落盘）仍走
-	// TaskSnapshotFor。
-	if len(taskRecords) > 0 || len(asyncRuns) > 0 {
-		rows := worktable.BuildWorkTable(snapshot.Runtime.Plan, taskRecords, nil, asyncRuns, workTableBounds())
-		snapshot.Runtime.WorkTable = rows
-		snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
-	}
-	return snapshot, nil
-}
-
-// sessionRuntimeOf 从全量 RuntimeState 投影提取会话专属运行原件（G3 字段
-// 归属表：进程级字段 model/provider/plugin/accounts/skills/tools/scheduled
-// 不进入 SessionSnapshot）。
-func sessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime {
-	return model.SessionRuntime{
-		Effort:           runtime.Effort,
-		FullAccess:       runtime.FullAccess,
-		PermissionTier:   runtime.PermissionTier,
-		Tokens:           runtime.Tokens,
-		Replan:           runtime.Replan,
-		Plan:             cloneRuntimeState(model.RuntimeState{Plan: runtime.Plan}).Plan,
-		TodoItems:        append([]dto.TodoItem(nil), runtime.TodoItems...),
-		SubAgentTree:     append([]dto.SubAgentTreeNode(nil), runtime.SubAgentTree...),
-		GoalSkillActive:  runtime.GoalSkillActive,
-		GoalGovernance:   cloneGoalGovernanceView(runtime.GoalGovernance),
-		ActiveSkills:     append([]string(nil), runtime.ActiveSkills...),
-		WorkTable:        CloneWorkItems(runtime.WorkTable),
-		WorkTableBatches: CloneWorkTableBatches(runtime.WorkTableBatches),
-	}
-}
-
-func cloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceView {
-	if view == nil {
-		return nil
-	}
-	copyView := *view
-	// 收口账本是切片：克隆必须断开共享，否则一个视图的消费者能改到另一个视图的
-	// 账本（会话快照按会话隔离的前提）。
-	copyView.History = append([]dto.GoalHistoryView(nil), view.History...)
-	return &copyView
+		ReadFiles:            view.ReadFiles,
+		ReviewRequest:        view.ReviewRequest,
+		Approvals:            approvals,
+		Plan:                 service.planProjectionLocked(sessionID),
+		Task:                 service.components.tasks.VisibleTaskStateFor(sessionID),
+		TaskRecords:          taskRecords,
+		AsyncRuns:            asyncRuns,
+		Limits:               workTableBounds(),
+		AnnotateConversation: func(messages []model.Message, running bool) []model.Message {
+			return service.annotateConversationForEditLocked(sessionID, messages, running)
+		},
+	}), nil
 }
 
 // sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。

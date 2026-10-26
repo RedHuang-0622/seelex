@@ -6,10 +6,202 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 )
+
+func TestSchedulerApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("schedulerApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 schedulerApplication")
+	}
+	if field.Type != reflect.TypeOf((*schedulerApplication)(nil)) {
+		t.Fatalf("schedulerApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestRuntimeApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("runtimeApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 runtimeApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationadmin.RuntimeApplication)(nil)) {
+		t.Fatalf("runtimeApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestScheduledRunApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("scheduledRunApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 scheduledRunApplication")
+	}
+	if field.Type != reflect.TypeOf((*scheduledRunApplication)(nil)) {
+		t.Fatalf("scheduledRunApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestScheduledSessionApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("scheduledSessionApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 scheduledSessionApplication")
+	}
+	if field.Type != reflect.TypeOf((*scheduledSessionApplication)(nil)) {
+		t.Fatalf("scheduledSessionApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestSchedulerApplicationCreateStopsOnValidationError(t *testing.T) {
+	application := newSchedulerApplication(schedulerApplicationDeps{
+		ValidateWorkspace: func(string) error {
+			t.Fatal("参数校验失败后不得校验工作区")
+			return nil
+		},
+		ScheduleTask: func(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
+			t.Fatal("参数校验失败后不得调用调度器")
+			return nil, nil
+		},
+	})
+
+	_, err := application.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{LoopLimit: -1})
+	if err == nil {
+		t.Fatal("ScheduleTask accepted invalid loop limit")
+	}
+}
+
+func TestSchedulerFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"ScheduleTask":        false,
+		"UpdateScheduledTask": false,
+		"CancelScheduledTask": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 schedulerApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
+
+func TestRefreshRuntimeSnapshotFacadeOnlyDelegatesToRuntimeApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "RefreshRuntimeSnapshot" ||
+			!functionHasReceiver(function, "Service") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("RefreshRuntimeSnapshot 有 %d 条语句，want 一行 runtimeApplication 转发", len(function.Body.List))
+		}
+		if _, ok := function.Body.List[0].(*ast.ExprStmt); !ok {
+			t.Fatal("RefreshRuntimeSnapshot 不是单行调用转发")
+		}
+		return
+	}
+	t.Fatal("未找到 RefreshRuntimeSnapshot")
+}
+
+func TestAssembleScheduledRunFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "AssembleScheduledRun" ||
+			!functionHasReceiver(function, "Service") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("AssembleScheduledRun 有 %d 条语句，want 一行 scheduledRunApplication 转发", len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatal("AssembleScheduledRun 不是单行 return 转发")
+		}
+		return
+	}
+	t.Fatal("未找到 AssembleScheduledRun")
+}
+
+func TestStartScheduledSessionFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "service_scheduler.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "StartScheduledSession" ||
+			!functionHasReceiver(function, "Service") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("StartScheduledSession 有 %d 条语句，want 一行 scheduledSessionApplication 转发", len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatal("StartScheduledSession 不是单行 return 转发")
+		}
+		return
+	}
+	t.Fatal("未找到 StartScheduledSession")
+}
 
 // TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
 //

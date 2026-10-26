@@ -468,7 +468,7 @@ func TestService_ShutdownThenStartChat(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	service.Shutdown()
 
-	err := service.startChat(context.Background(), newChatRequest("hello", nil))
+	err := service.startChat(context.Background(), newConversationTurnState().NewRequest("hello", nil))
 	if err == nil {
 		t.Error("startChat after Shutdown should return error")
 	}

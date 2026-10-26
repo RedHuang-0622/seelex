@@ -11,7 +11,7 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionA := service.Snapshot().Session.ID
 
-	if err := service.SwitchEffort(context.Background(), "high"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "high"); err != nil {
 		t.Fatalf("SwitchEffort(high): %v", err)
 	}
 	if unit := service.sessions.Unit(sessionA); unit == nil || unit.EffortLevel() != "high" {
@@ -25,7 +25,7 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
-	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	if unit := service.sessions.Unit(draftID); unit == nil || unit.EffortLevel() != "lite" {
@@ -48,7 +48,7 @@ func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 	runtime := service.Deps.Runtime.(*fakeRuntime)
 	sessionA := service.Snapshot().Session.ID
 
-	if err := service.SwitchEffort(context.Background(), "high"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "high"); err != nil {
 		t.Fatalf("SwitchEffort(high): %v", err)
 	}
 	service.syncSubagentPolicyFor(sessionA)
@@ -61,7 +61,7 @@ func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.Snapshot().Session.ID
-	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
+	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	service.syncSubagentPolicyFor(draftID)

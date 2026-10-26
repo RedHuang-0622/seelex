@@ -9,12 +9,64 @@ package core
 //   - 释放 = 引擎 + 桥侧本体 + 正文；会话单元/目录行/磁盘事实保留。
 
 import (
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestSessionReleaseApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("sessionReleaseApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 sessionReleaseApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationsession.ReleaseApplication)(nil)) {
+		t.Fatalf("sessionReleaseApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestSessionReleaseFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "session_release.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"releaseSessionMemory":    false,
+		"reconcileSessionRelease": false,
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
+			continue
+		}
+		if _, tracked := want[function.Name.Name]; !tracked {
+			continue
+		}
+		want[function.Name.Name] = true
+		if len(function.Body.List) != 1 {
+			t.Fatalf("%s 有 %d 条语句，want 一行 sessionReleaseApplication 转发", function.Name.Name, len(function.Body.List))
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("未找到 %s", name)
+		}
+	}
+}
 
 // withSessionReleaseWindow 把统一窗口改成 window，并把两个分层覆盖键归零
 // （0 = 交给统一窗口管辖），返回还原函数（与 withResidentLimit / withContentLimit

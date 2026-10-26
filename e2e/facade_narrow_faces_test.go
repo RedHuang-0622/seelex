@@ -4,8 +4,10 @@ package e2e
 // 本文件由 `tmp/reshape/r10a_gen_faces.py` 生成：清单就是契约文本，改清单＝改契约，必须显式说明。
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -19,7 +21,6 @@ import (
 var wantFaceMethods = map[string][]string{
 	"ViewFace": {
 		"AccountBalance",
-		"ActiveSkillIDs",
 		"AnyChatRunning",
 		"AssembleRoleWire",
 		"ConversationView",
@@ -33,8 +34,6 @@ var wantFaceMethods = map[string][]string{
 		"LoadLatestHistory",
 		"LoadMoreHistory",
 		"PerfStats",
-		"ProjectBoardTeamPlanFor",
-		"ProjectBoardTeamStateFor",
 		"ProjectRootFor",
 		"PromptLayers",
 		"ReadRoleDraft",
@@ -53,7 +52,6 @@ var wantFaceMethods = map[string][]string{
 		"TeammateInspectionFor",
 		"TeammateSessionLiveFor",
 		"TeammateSessionLivePageFor",
-		"TeamworkBoardViewFor",
 		"ToolRecordBoard",
 		"ToolRecordEnabled",
 		"ToolResultContent",
@@ -91,11 +89,8 @@ var wantFaceMethods = map[string][]string{
 		"ForkSession",
 		"ForkSessionLatest",
 		"ForkSubagents",
-		"GoalBegin",
 		"GoalBeginFor",
-		"GoalDone",
 		"GoalDoneFor",
-		"GoalUpdate",
 		"GoalUpdateFor",
 		"RequestFileReview",
 		"RecoverConversation",
@@ -151,7 +146,6 @@ var wantFaceMethods = map[string][]string{
 var assemblyOnlyMethods = []string{
 	"ApplyToolRecordEnabled",
 	"AssembleScheduledRun",
-	"ClearReviewRequest",
 	"CompactContextHandler",
 	"FlushToolRecord",
 	"GoalBeginHandler",
@@ -159,15 +153,15 @@ var assemblyOnlyMethods = []string{
 	"GoalStatusHandler",
 	"GoalUpdateHandler",
 	"HandleRoleToolActivity",
-	"HandleSubagentToolEvent",
 	"PrepareProviderHistory",
+	"ProjectBoardTeamPlanFor",
+	"ProjectBoardTeamStateFor",
 	"PublishRuntimeProjections",
 	"ReadCompressedTurnHandler",
 	"ReadPlanHandler",
 	"ReadToolResultHandler",
 	"RecordToolCommandOutcome",
 	"RefreshRuntimeSnapshot",
-	"RefreshWorkTableSnapshot",
 	"SearchHistoryHandler",
 	"SetProjectBoardSink",
 	"SetToolRecordEnabled",
@@ -176,7 +170,8 @@ var assemblyOnlyMethods = []string{
 	"TaskTerminalHandler",
 }
 
-// 断言 1（编译期结构满足）写在 `application/faces.go` 的 `var _ ViewFace = (*Service)(nil)` 一族里；
+// 断言 1（编译期结构满足）写在 `application/core/service_api_faces.go` 的
+// `var _ ViewFace = (*Frontend)(nil)` 一族里；
 // 这里再跑一遍运行时快照，保证接口方法集与本文件的冻结清单逐字一致。
 func TestFacadeFacesMethodSetsAreFrozen(t *testing.T) {
 	faces := map[string]reflect.Type{
@@ -245,18 +240,39 @@ func TestFacadeTypeAliasSetMatchesFaceTypeNames(t *testing.T) {
 	}
 }
 
-// 断言 4：TUI 仍只消费 Application。GUI 在本轮团队详情/会话能力中是明确
-// 的变更面，因此不再沿用"gui 零 diff"这条历史批次约束。
-func TestFacadeTUIHasNoDiff(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("no git in PATH")
-	}
-	output, err := exec.Command("git", "diff", "--name-only", "HEAD", "--", "tui").CombinedOutput()
+// 断言 4：TUI 可以迁移到 Frontend，但只能依赖 Application 根门面或零依赖
+// contract，不得绕过门面直连 core、backend、middle 或 store。
+func TestFacadeTUIStaysOnApplicationBoundary(t *testing.T) {
+	entries, err := os.ReadDir("../tui")
 	if err != nil {
-		t.Skipf("git diff 不可用（%v）：%s", err, output)
+		t.Fatalf("读取 tui: %v", err)
 	}
-	if strings.TrimSpace(string(output)) != "" {
-		t.Fatalf("TUI 仍只消费 Application，本批不得直接改 tui：\n%s", output)
+	fileSet := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		file, err := parser.ParseFile(fileSet, filepath.Join("../tui", entry.Name()), nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("解析 tui/%s: %v", entry.Name(), err)
+		}
+		for _, imported := range file.Imports {
+			path := strings.Trim(imported.Path.Value, `"`)
+			if !strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/") {
+				continue
+			}
+			if path == "github.com/RedHuang-0622/seelex/application" ||
+				path == "github.com/RedHuang-0622/seelex/contract" ||
+				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/contract/") ||
+				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/tui/") {
+				continue
+			}
+			if strings.HasSuffix(entry.Name(), "_test.go") &&
+				path == "github.com/RedHuang-0622/seelex/wiring" {
+				continue
+			}
+			t.Errorf("tui/%s 绕过 Application 门面直接依赖 %s", entry.Name(), path)
+		}
 	}
 }
 

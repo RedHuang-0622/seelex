@@ -45,11 +45,18 @@
 
 ### history_search.go
 
-- `func (service *Service) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)` — SearchHistory 返回会话历史检索结果（GUI 历史检索面板数据源；query 非空
+- `func newHistorySearchApplication(deps historySearchApplicationDeps) *historySearchApplication`
+- `func (service *Service) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)` — SearchHistory 返回会话历史检索结果（GUI 历史检索面板数据源；query 非空
+- `func (application *historySearchApplication) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)`
 - `func (service *Service) SearchHistoryHandler(_ context.Context, argsJSON string) (string, error)` — SearchHistoryHandler 实现 search_history 工具：模型在上下文缺少相关历史
+- `func (application *historySearchApplication) SearchHistoryHandler(argsJSON string) (string, error)`
+- `func (service *Service) historySearchApplicationComponent() *historySearchApplication`
+- `func newServiceHistorySearchApplication(service *Service) *historySearchApplication`
 
 ### history_search_test.go
 
+- `func TestHistorySearchApplicationIsAssembled(t *testing.T)`
+- `func TestHistorySearchFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func (runtime *searchRuntime) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error)`
 - `func TestSearchHistoryHandlerReturnsStructuredHits(t *testing.T)`
 - `func TestSearchHistoryHandlerRejectsEmptyQuery(t *testing.T)`

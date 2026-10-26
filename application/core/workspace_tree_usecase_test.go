@@ -1,6 +1,13 @@
 package core
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"reflect"
+	"runtime"
+
+	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store/workspace"
@@ -11,6 +18,45 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestWorkspaceApplicationIsAssembled(t *testing.T) {
+	components := reflect.TypeOf(serviceComponents{})
+	field, ok := components.FieldByName("workspaceApplication")
+	if !ok {
+		t.Fatal("serviceComponents 未装配 workspaceApplication")
+	}
+	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
+		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
+	}
+}
+
+func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试源码")
+	}
+	path := filepath.Join(filepath.Dir(file), "workspace_usecase.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "CreateWorkspaces" ||
+			!functionHasReceiver(function, "Service") {
+			continue
+		}
+		if len(function.Body.List) != 1 {
+			t.Fatalf("CreateWorkspaces 有 %d 条语句，want 一行 workspaceApplication 转发", len(function.Body.List))
+		}
+		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) != 1 {
+			t.Fatal("CreateWorkspaces 不是单行 return 转发")
+		}
+		return
+	}
+	t.Fatal("未找到 CreateWorkspaces")
+}
 
 // treeFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现
 // WorkspaceTreePort，供工作树用例测试。

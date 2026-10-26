@@ -20,24 +20,22 @@ package core
 // verdict.md §3 A1），只丢 EnginePort 的引用等于把"驱逐"做成空操作。
 
 import (
-	"fmt"
-	"strings"
-
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
 )
 
 // sessionReleaseMode 是一次释放的强度。
-type sessionReleaseMode int
+type sessionReleaseMode = applicationsession.ReleaseMode
 
 const (
 	// releaseIdle 是 LRU 释放：先把内存态 flush 到盘，再释放引擎/桥本体/正文；
 	// 会话单元、标题与任务投影保留（重开走冷加载）。
-	releaseIdle sessionReleaseMode = iota
+	releaseIdle = applicationsession.ReleaseIdle
 	// releaseFull 是卸载/归档/删除用的完整释放：在 releaseIdle 之上连会话单元、
 	// 标题与任务投影一起移除（会话在内存里不留任何一格）。
-	releaseFull
+	releaseFull = applicationsession.ReleaseFull
 )
 
 // protectedSessionLocked 报告目标会话是否属于**受保护集**（绝不释放；调用方持有
@@ -72,88 +70,7 @@ func releaseBudget(legacyLimit int, protectedCount int) int {
 // 调用方保证"挑中"时的守卫检查在 ViewMu 临界区内完成；这里再确认一次（挑选与释放
 // 之间状态可能已变），确认不过就原样返回 nil（保持超限容忍，不做半途释放）。
 func (service *Service) releaseSessionMemory(sessionID string, mode sessionReleaseMode) error {
-	if service == nil {
-		return nil
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil
-	}
-
-	// 1) 二次确认：releaseIdle（LRU）必须再过一次受保护集——挑选与释放之间
-	//    状态可能已变（切成视图 / 起了回合 / 等待审批 / 进入恢复）。
-	//    releaseFull 的调用方（卸载 / 归档 / 删除）已经在自己的守卫里确认过
-	//    （运行中会报 ErrChatRunning），且**卸载当前视图会话是合法入口**，
-	//    因此不在这里用受保护集拦住它。
-	if mode == releaseIdle {
-		service.ViewMu.RLock()
-		protected := service.protectedSessionLocked(sessionID)
-		service.ViewMu.RUnlock()
-		if protected {
-			return nil
-		}
-	}
-
-	// 2) flush（释放前必须落盘）：内存窗口里可能还有尚未发布的收尾消息。
-	//    失败就不释放（数据不丢；下一轮 touch/收尾再试）。
-	if mode == releaseIdle {
-		location := service.components.sessions.LocateSession(sessionID)
-		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
-			return fmt.Errorf("flush session %q before release: %w", sessionID, err)
-		}
-	}
-	// 2b) 工具记录：释放前先把该会话的叶子暂存抽干并落一次（读数不能丢在内存里）。
-	//     releaseFull 之后会连台账（暂存 + 累计 + 提交序号）一起回收（见第 9 步）。
-	service.FlushToolRecord(sessionID)
-
-	// 3) 引擎实例：先放引擎（可失败：会话在飞时端口会拒绝）。
-	if engine, ok := service.Deps.Engine.(residentEngine); ok {
-		if err := engine.UnloadSession(sessionID); err != nil {
-			return fmt.Errorf("unload engine %q: %w", sessionID, err)
-		}
-	}
-
-	// 4) 桥侧会话本体 + per-会话残格（可选能力：legacy 引擎没有这一格）。
-	if releaser, ok := service.Deps.Engine.(interface{ ReleaseSessionBundle(string) bool }); ok {
-		releaser.ReleaseSessionBundle(sessionID)
-	}
-
-	// 5) 下游按会话缓存了"释放面句柄"的格子一起清：goal 协调器把 StoreFor 解析
-	//    出来的上下文存储适配器按会话缓存（第五栈持久化句柄）。本体重开时会绑新的
-	//    store，旧句柄留着 = 同一会话两个 store 同时写盘（存储层单写者纪律失效）。
-	service.components.goal.ForgetSession(sessionID)
-
-	// 6) 可见正文（只丢内存副本；窗口标志/统计/文件引用保留，冷回读据此还原）。
-	service.releaseSessionContentMemory(sessionID)
-
-	// 7) 完整释放：会话单元 / 标题 / 任务投影一起移除。
-	//
-	// 移除会话单元是**卸载/删除的既有契约**（重开走 cold_load 重建单元），因此这里
-	// 无条件移除。"卸载/删掉正在看的那个会话"由调用方在自己的临界区里收口——卸载与
-	// 删除都在**移除之后**把视图切到一个新建草稿单元（见
-	// switchViewToFreshDraftLocked），视图单例因此始终有对应单元。
-	if mode == releaseFull {
-		service.ViewMu.Lock()
-		service.sessions.Remove(sessionID)
-		service.components.tasks.DropPlanProjection(sessionID)
-		service.components.tasks.UnloadSessionState(sessionID)
-		service.components.sessions.UnloadSessionTitle(sessionID)
-		service.ViewMu.Unlock()
-	}
-
-	// 8) 使用序记账：移出两层序（重开时经 touch 重新入序为最近使用）。
-	service.ViewMu.Lock()
-	service.forgetResidentLocked(sessionID)
-	service.forgetContentLocked(sessionID)
-	service.ViewMu.Unlock()
-	// 9) 完整释放：工具记录台账（叶子暂存 + 提交序号 + 该会话累计 + 读盘标记）一起
-	//    回收——会话没了，这些读数的归属也就没了；留着只会让复用同一 ID 的新会话
-	//    读到旧账（旧 lastSeq 还会把新会话的第一批读数误判成重复提交）。
-	if mode == releaseFull {
-		service.releaseToolRecordSession(sessionID)
-	}
-	service.components.sessions.RequestCatalogRefresh()
-	return nil
+	return service.sessionReleaseApplicationComponent().Release(sessionID, mode)
 }
 
 // releaseSessionContentMemory 只释放可见正文（调用方已完成守卫与 flush）：会话
@@ -189,6 +106,64 @@ func (service *Service) forgetResidentLocked(sessionID string) {
 // "切走之后那个会话跑完了"的唯一收敛点：没有它，一个刚跑完的后台会话要等到
 // 下一次 touch 才可能被收回。
 func (service *Service) reconcileSessionRelease() {
-	service.reconcileResidentLimit()
-	service.reconcileLoadedContentLimit("")
+	service.sessionReleaseApplicationComponent().Reconcile()
+}
+
+func (service *Service) sessionReleaseApplicationComponent() *applicationsession.ReleaseApplication {
+	if service == nil {
+		return nil
+	}
+	return service.components.sessionReleaseApplication
+}
+
+func newServiceSessionReleaseApplication(service *Service) *applicationsession.ReleaseApplication {
+	return applicationsession.NewReleaseApplication(applicationsession.ReleaseDeps{
+		Protected: func(sessionID string) bool {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.protectedSessionLocked(sessionID)
+		},
+		Persist: func(sessionID string) error {
+			location := service.components.sessions.LocateSession(sessionID)
+			return service.components.sessions.PersistCurrentSession(location, sessionID)
+		},
+		FlushToolRecord: service.FlushToolRecord,
+		UnloadEngine: func(sessionID string) error {
+			if engine, ok := service.Deps.Engine.(residentEngine); ok {
+				return engine.UnloadSession(sessionID)
+			}
+			return nil
+		},
+		ReleaseBundle: func(sessionID string) {
+			if releaser, ok := service.Deps.Engine.(interface{ ReleaseSessionBundle(string) bool }); ok {
+				releaser.ReleaseSessionBundle(sessionID)
+			}
+		},
+		ForgetGoal: func(sessionID string) {
+			service.components.goal.ForgetSession(sessionID)
+		},
+		ReleaseContent: service.releaseSessionContentMemory,
+		ReleaseFull: func(sessionID string) {
+			service.ViewMu.Lock()
+			service.sessions.Remove(sessionID)
+			service.components.tasks.DropPlanProjection(sessionID)
+			service.components.tasks.UnloadSessionState(sessionID)
+			service.components.sessions.UnloadSessionTitle(sessionID)
+			service.ViewMu.Unlock()
+		},
+		ForgetOrders: func(sessionID string) {
+			service.ViewMu.Lock()
+			service.forgetResidentLocked(sessionID)
+			service.forgetContentLocked(sessionID)
+			service.ViewMu.Unlock()
+		},
+		ReleaseToolRecord: service.releaseToolRecordSession,
+		RequestRefresh: func() {
+			service.components.sessions.RequestCatalogRefresh()
+		},
+		ReconcileResident: service.reconcileResidentLimit,
+		ReconcileContent: func() {
+			service.reconcileLoadedContentLimit("")
+		},
+	})
 }
