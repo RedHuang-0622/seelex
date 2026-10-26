@@ -23,7 +23,7 @@ const (
 
 // ErrReActBudgetExceeded 标记请求被其捕获的执行预算终止。
 //
-// 身份唯一：引擎（backend/engine/task）产生它，呈现层（middle/view/errors）
+// 身份唯一：引擎（backend/engine/task）产生它，呈现层（application/errorpresentation）
 // 与用例断言都按同一个 sentinel 判定——判据只有这一处（AGENTS §8.3）。
 var ErrReActBudgetExceeded = errors.New("ReAct execution budget exhausted")
 

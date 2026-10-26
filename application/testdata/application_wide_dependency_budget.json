@@ -1,5 +1,5 @@
 {
-  "concrete_dependency_limit": 19,
+  "concrete_dependency_limit": 18,
   "allowed_concrete_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",
@@ -18,7 +18,6 @@
     "github.com/RedHuang-0622/seelex/backend/multiagent/team",
     "github.com/RedHuang-0622/seelex/middle/switch",
     "github.com/RedHuang-0622/seelex/middle/view",
-    "github.com/RedHuang-0622/seelex/middle/view/board",
-    "github.com/RedHuang-0622/seelex/middle/view/errors"
+    "github.com/RedHuang-0622/seelex/middle/view/board"
   ]
 }

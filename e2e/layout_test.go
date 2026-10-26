@@ -32,7 +32,7 @@ var repositoryModules = []string{
 	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）
 	// 归位中间层视图子包（plan §2.4）；跨层共享的错误判据（码/provider 失败分类/
 	// ReAct 预算哨兵）下沉 contract，中间层与后端都只依赖契约。
-	"middle/view/errors",
+	"application/errorpresentation",
 	// M5-R6-residency-preview：快照预算的截断判据（原 application/core/snapshot_budget.go）
 	// 归位中间层常驻/预算落点（plan §2.4 的 middle/residency，本片建包）。
 	"middle/residency",

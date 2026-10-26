@@ -5768,6 +5768,22 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 7,178 行；Workspace/Subagent JSON、GUI/TUI wire 与用户行为不变；
 - 回退方式：把两个 import 改回 `middle/protocol/model`（仅用于回退，不作为新代码路径）。
 
+## EP-076：Error Presentation 归入 Application
+
+- 把 `middle/view/errors` 的 2 个生产文件、行为测试与 README 物理迁入
+  `application/errorpresentation`，包名统一为 `errorpresentation`；
+- Conversation 的 turn completion/outcome、Core 回归和 Wiring adapter 直接引用新
+  owner；错误分类、用户文案、结构化 code 与 provider 细节隐藏保持原实现；
+- 先收紧全局依赖预算到 18 并制造红测，确认 Application 仍 import 旧 Middle 呈现包；
+  迁移后结构红测转绿，同时禁止整个 `application/**` 恢复旧 import；
+- 绿测：`go test ./application/errorpresentation ./application/conversation
+  ./application/core ./wiring/adapters`、Application 全局依赖预算、
+  E2E `Facade|Layout` 与 `go build ./...` 通过；
+- Application 具体依赖由 19 降至 18；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；错误文案、error code、GUI/TUI wire 与持久化格式不变；
+- 回退方式：把 `application/errorpresentation` 移回 `middle/view/errors`，
+  恢复 package 名 `viewerrors` 与旧 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

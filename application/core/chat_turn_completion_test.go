@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
-	viewerrors "github.com/RedHuang-0622/seelex/middle/view/errors"
 )
 
 func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T) {

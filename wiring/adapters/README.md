@@ -26,7 +26,7 @@ think-block 过滤、可见输出流和 batcher 仍由 `backend/engine/react` �
 UTF-8 裁剪与会话记录页判据仍由 `middle/view/sessionaccess` 唯一实现。
 
 `NewErrorPresentationPort` 返回 `contract.ErrorPresentationPort`；错误分类优先级、
-用户可见文案与 provider 细节隐藏仍由 `middle/view/errors` 唯一实现。
+用户可见文案与 provider 细节隐藏仍由 `application/errorpresentation` 唯一实现。
 
 `NewApprovalBrokerFactory` 返回 `func(event.Hub) contract.ApprovalBroker`；审批状态机、
 超时、会话归属与幂等判据仍由 `backend/limit/approval` 唯一实现。

@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
 	"github.com/RedHuang-0622/seelex/contract"
-	viewerrors "github.com/RedHuang-0622/seelex/middle/view/errors"
 )
 
 func TestErrorPresentationPortMatchesMiddleRules(t *testing.T) {

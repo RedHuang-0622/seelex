@@ -1,9 +1,9 @@
-// Package viewerrors 是中间层的**错误呈现**落点：把引擎/工具产生的错误分类成
+// Package errorpresentation 是 Application 的**错误呈现**落点：把引擎/工具产生的错误分类成
 // 稳定的用户可见文本（模块 + 方法 + 摘要 + 下一步），供工具错误出口与视图使用。
 //
 // 生态位与依赖方向见 README.md；跨层共享的判据（错误码、provider 失败分类、
 // ReAct 预算哨兵）在 `contract`，本包只消费它们。
-package viewerrors
+package errorpresentation
 
 import (
 	seeleerrors "github.com/RedHuang-0622/Seele/errors"

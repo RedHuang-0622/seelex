@@ -3,9 +3,9 @@ package conversation
 import (
 	"fmt"
 
+	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
 	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
-	viewerrors "github.com/RedHuang-0622/seelex/middle/view/errors"
 )
 
 // TurnCompletionDeps supplies persistence and consumed-queue settlement.

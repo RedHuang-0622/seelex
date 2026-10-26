@@ -231,7 +231,7 @@ var facadeClosureAllowList = []string{
 	// 中间层视图子包（plan §2.4）。**新增登记的理由**：这是一次"换落点 + 落点新建"，
 	// 门面闭包里 `application/core` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，
 	// 闭包因此多了这一个包；同一片没有引入任何新的第三方/反向依赖（只依赖 contract 与 Seele/errors）。
-	"github.com/RedHuang-0622/seelex/middle/view/errors",
+	"github.com/RedHuang-0622/seelex/application/errorpresentation",
 	// M5-R-limitc：权限档位域归位 limit 板块（plan §2.8）。**新增登记的理由**：这是
 	// "把 application/core 三处散落实现抽成独立模块"的一次换落点 + 落点新建，门面闭包里
 	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。

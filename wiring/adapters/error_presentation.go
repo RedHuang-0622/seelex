@@ -1,8 +1,8 @@
 package adapters
 
 import (
+	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
 	"github.com/RedHuang-0622/seelex/contract"
-	viewerrors "github.com/RedHuang-0622/seelex/middle/view/errors"
 )
 
 type errorPresentationPort struct{}

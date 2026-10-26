@@ -1,4 +1,4 @@
-package viewerrors
+package errorpresentation
 
 import (
 	"context"

@@ -1,8 +1,8 @@
-# middle/view/errors
+# application/errorpresentation
 
 ## 生态位
 
-`middle/view/errors`（包名 `viewerrors`）是中间层的**错误呈现**落点：把引擎与工具产生的错误
+`application/errorpresentation` 是 Application 的**错误呈现** owner：把引擎与工具产生的错误
 翻译成稳定的用户可见文本（模块 / 方法 / 摘要 / 下一步四段），供**工具错误出口**与视图侧消费。
 
 主要调用方：
@@ -13,7 +13,7 @@
 
 跨层共享的判据（结构化错误码、provider 失败分类、ReAct 预算哨兵）不在本包，而在
 [`contract`](../../../contract/README.md)：plan §1.1 规定
-「前端 → 门面 → 中间层 → 后端 → 底座」的单向依赖，中间层与后端都只能依赖契约层，
+Application、Middle 与 Backend 都只能依赖契约层的错误判据，
 所以判据必须落在契约，本包只消费。
 
 ## 职责与非职责
@@ -64,7 +64,8 @@
 ## 依赖方向
 
 允许：标准库、`contract`、`Seele/errors`（**只读错误信封结构**）。
-禁止：`backend/*`、`application/*`、`store` 写面、任何前端包——本包是中间层，只被上层调用。
+禁止：`backend/*`、`middle/*`、`store` 写面与前端包；本包是 Application 呈现 owner，
+由 Frontend/Wiring 消费。
 
 ## 并发与错误语义
 
@@ -87,7 +88,7 @@
 ## 测试与验证
 
 ```text
-go test ./middle/view/errors/ -count=1
+go test ./application/errorpresentation -count=1
 go test ./application/core/ -run 'ChatErrorSurface|RawUnclassified|PersistenceFailure' -count=1
 go test ./e2e/ -count=1
 ```
