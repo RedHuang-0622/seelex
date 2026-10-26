@@ -77,7 +77,7 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 		ReadViewState: func() (sessionID, workspaceID string, offset int) {
 			service.ViewMu.RLock()
 			sessionID = service.Core.Snapshot.Session.ID
-			workspaceID = currentWorkspaceIDLocked(service)
+			workspaceID = service.components.sessionHistoryRuntime.CurrentWorkspaceIDLocked()
 			offset = service.Core.Snapshot.HistoryOffset
 			service.ViewMu.RUnlock()
 			return sessionID, workspaceID, offset
@@ -85,12 +85,22 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 		ContentUnloaded: func(sessionID string) bool {
 			return service.components.residencyRuntime.ContentUnloaded(sessionID)
 		},
-		ReloadContent:          service.reloadSessionContent,
-		WindowAssembler:        historyWindowAssembler,
-		VisibleWindowFirstRow:  service.visibleWindowFirstRow,
-		LoadEarlierVisiblePage: service.loadEarlierVisiblePage,
-		InstallVisibleHistory:  service.installVisibleHistory,
-		VisibleTailInMemory:    service.visibleTailServedFromMemory,
-		LoadConversationTail:   service.loadConversationTailPage,
+		ReloadContent:   service.reloadSessionContent,
+		WindowAssembler: historyWindowAssembler,
+		VisibleWindowFirstRow: func(sessionID string, assembler applicationhistory.WindowAssembler) model.Message {
+			return service.components.sessionHistoryRuntime.VisibleWindowFirstRow(sessionID, assembler)
+		},
+		LoadEarlierVisiblePage: func(workspaceID, sessionID string, offset, limit, window int, seam model.Message, assembler applicationhistory.WindowAssembler) (applicationhistory.Page, error) {
+			return service.components.sessionHistoryRuntime.LoadEarlierVisiblePage(workspaceID, sessionID, offset, limit, window, seam, assembler)
+		},
+		InstallVisibleHistory: func(sessionID string, page applicationhistory.Page, window int, mode applicationhistory.InstallMode, assembler applicationhistory.WindowAssembler) error {
+			return service.components.sessionHistoryRuntime.InstallVisibleHistory(sessionID, page, window, mode, assembler)
+		},
+		VisibleTailInMemory: func(sessionID string, assembler applicationhistory.WindowAssembler) bool {
+			return service.components.sessionHistoryRuntime.VisibleTailServedFromMemory(sessionID, assembler)
+		},
+		LoadConversationTail: func(workspaceID, sessionID string, window int) (applicationhistory.Page, error) {
+			return service.components.sessionHistoryRuntime.LoadConversationTailPage(workspaceID, sessionID, window)
+		},
 	})
 }

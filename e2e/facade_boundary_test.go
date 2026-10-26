@@ -161,8 +161,9 @@ const (
 // 上限按“新模块可 +1”抬到 119。
 // EP-043：SessionState/ViewState 迁入 Application 后，两个 Middle 包退出闭包。
 // EP-062：resident/content LRU 从 core 归位 application/session/residency，
-// 门面闭包按“新模块可 +1”登记到 120。
-const facadeClosureAllowListMax = 120
+// EP-069：Session resume/cold restore/history 归位 application/session/history，
+// 门面闭包按“新模块可 +1”登记到 121。
+const facadeClosureAllowListMax = 121
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -192,6 +193,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/review",
 	"github.com/RedHuang-0622/seelex/application/session",
 	"github.com/RedHuang-0622/seelex/application/session/cold",
+	// EP-069：Session resume/cold restore/history 的 Application owner。
+	"github.com/RedHuang-0622/seelex/application/session/history",
 	"github.com/RedHuang-0622/seelex/application/session/state",
 	"github.com/RedHuang-0622/seelex/application/session/query",
 	// EP-033：Engine Session Runtime 身份门面。

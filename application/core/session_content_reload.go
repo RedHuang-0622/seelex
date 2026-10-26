@@ -14,11 +14,11 @@ func (service *Service) reloadSessionContent(sessionID string) error {
 		window = 1
 	}
 	workspaceID := service.components.sessions.LocateSession(sessionID).WorkspaceID
-	page, err := service.loadConversationTailPage(workspaceID, sessionID, window)
+	page, err := service.components.sessionHistoryRuntime.LoadConversationTailPage(workspaceID, sessionID, window)
 	if err != nil {
 		return fmt.Errorf("reload session content %q: %w", sessionID, err)
 	}
-	return service.installVisibleHistory(
+	return service.components.sessionHistoryRuntime.InstallVisibleHistory(
 		sessionID,
 		page,
 		window,

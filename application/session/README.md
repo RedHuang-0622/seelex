@@ -32,6 +32,7 @@ Middle 只提供纯切换、历史和驻留策略。
 - `residency.go`：`ResidencyPort`（预览、LRU 序、输入索引、驱逐、归档）与纯值 deps。
 - `residency/`：Application-owned resident/content 两层 LRU、受保护集、正文卸载
   与自动回读运行时。
+- `history/`：Session resume、冷恢复顶层流程、durable 分页与可见窗口安装。
 - `lifecycle.go`：unload 的过渡锁、持久化、释放和视图续接。
 - `archive.go`：archive 门控、记录/引擎卸载与后台释放。
 - `delete.go`：删除记录、释放内存、解绑工作区与快照发布。

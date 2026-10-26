@@ -15,6 +15,7 @@ import (
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
 	applicationsessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
@@ -361,7 +362,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.newGeneratedSessionID(prefix)
 		},
 		AttachSessionContext: func(workspaceID, sessionID string) error {
-			return service.attachSessionContextFor(workspaceID, sessionID)
+			return service.components.sessionHistoryRuntime.AttachSessionContextFor(workspaceID, sessionID)
 		},
 		RefreshWorkTable: func() {
 			service.components.workTableRuntime.RefreshFromSources()
@@ -372,6 +373,34 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		ChatRunningError: ErrChatRunning,
 	})
 	service.assembleWorkspaceApplication()
+	service.components.sessionHistoryRuntime = applicationsessionhistory.NewRuntime(applicationsessionhistory.RuntimeDeps{
+		Core:                kernel,
+		Deps:                service.Deps,
+		ConversationStreams: service.components.conversationStreams,
+		Workspace:           service.components.workspace,
+		Residency:           service.components.residencyRuntime,
+		Sessions:            service.components.sessions,
+		View:                service.components.view,
+		ColdRead:            service.components.sessionColdRead,
+		ColdHistory:         service.components.sessionColdHistory,
+		ColdRestore:         service.components.sessionColdRestore,
+		ColdWorkspace:       service.components.sessionColdWorkspace,
+		ColdActivation:      service.components.sessionColdActivation,
+		ColdTask:            service.components.sessionColdTask,
+		ColdView:            service.components.sessionColdView,
+		ColdPublish:         service.components.sessionColdPublish,
+		ColdCommit:          service.components.sessionColdCommit,
+		RestoreRecovery:     service.components.sessionRestoreRecovery,
+		RestoringShell:      service.components.sessionRestoringShell,
+		Closed:              func() bool { return service.closed },
+		SessionUnit:         service.sessionUnitLocked,
+		PublishEvent:        service.publishSessionEvent,
+		StoredTier:          service.readStoredPermissionTier,
+		DisplayInput:        displayUserInput,
+		ResetTurnState: func(unit *session.SessionUnit) {
+			service.components.conversationTurnState.ResetLocked(unit)
+		},
+	})
 	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，

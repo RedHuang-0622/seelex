@@ -277,16 +277,22 @@ func (service *Service) assembleSessionUseCaseApplications() {
 				Previous:  service.Core.Snapshot.Session.ID,
 			}
 		},
-		PointViewAtRestoringShell: service.pointViewAtRestoringShell,
-		HotAttach:                 service.hotAttachSession,
+		PointViewAtRestoringShell: func(sessionID string) bool {
+			return service.components.sessionHistoryRuntime.PointViewAtRestoringShell(sessionID)
+		},
+		HotAttach: service.hotAttachSession,
 		MarkViewIntent: func(sessionID string) {
 			service.components.view.MarkSessionViewIntent(sessionID)
 		},
-		BeginAsyncRestore: service.beginAsyncRestore,
-		ResumeColdInBackground: func(sessionID, previousID string, epoch uint64) {
-			go service.resumeSessionColdInBackground(sessionID, previousID, epoch)
+		BeginAsyncRestore: func(sessionID string) (uint64, error) {
+			return service.components.sessionHistoryRuntime.BeginAsyncRestore(sessionID)
 		},
-		ResumeCold: service.resumeSessionCold,
+		ResumeColdInBackground: func(sessionID, previousID string, epoch uint64) {
+			go service.components.sessionHistoryRuntime.ResumeSessionColdInBackground(sessionID, previousID, epoch)
+		},
+		ResumeCold: func(sessionID string, epoch uint64) error {
+			return service.components.sessionHistoryRuntime.ResumeSessionCold(sessionID, epoch)
+		},
 		HandleFailure: func(sessionID, previousID string, epoch uint64, cause error) {
 			service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, cause)
 		},

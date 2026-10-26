@@ -144,7 +144,7 @@ func (service *Service) openSessionEngine(sessionID string, workspace *model.Wor
 	// 只解绑：解绑状态下这个会话的整段第一生命周期都推不了压缩帧、也没有任何栈块
 	// （见 attachSessionContextFor 的注释与 2026-10-04 现场）。早分配 SID 就是本会话
 	// 的最终键，全新键上的 Load 只落到空记录——既不继承上一个会话的四栈，也不多写。
-	if err := service.attachSessionContextFor(session_runtime.WorkspaceID(workspace), newID); err != nil {
+	if err := service.components.sessionHistoryRuntime.AttachSessionContextFor(session_runtime.WorkspaceID(workspace), newID); err != nil {
 		return "", err
 	}
 	service.writeSessionSystemPrompt(newID)

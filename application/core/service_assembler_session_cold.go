@@ -167,7 +167,7 @@ func (service *Service) assembleSessionColdComponents() {
 			}
 		},
 		AttachContext: func(location session_runtime.Location, sessionID string) error {
-			return service.attachSessionContextFor(location.WorkspaceID, sessionID)
+			return service.components.sessionHistoryRuntime.AttachSessionContextFor(location.WorkspaceID, sessionID)
 		},
 		SwitchTasks: func(sessionID string, tasks []dto.TaskRecord) {
 			service.Deps.Runtime.SwitchSessionTasks(sessionID, tasks)

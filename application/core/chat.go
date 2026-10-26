@@ -343,7 +343,7 @@ func (service *Service) appendHistoryLocked(history []contract.EngineMessage) {
 // record 的旧格式会话恢复路径；阶段 1：写会话 view）。
 func (service *Service) appendHistoryLockedFor(sessionID string, history []contract.EngineMessage) {
 	for _, historyMessage := range history {
-		if !isVisibleHistoryMessage(historyMessage) {
+		if !service.components.sessionHistoryRuntime.IsVisibleHistoryMessage(historyMessage) {
 			continue
 		}
 		// 引擎历史只有 provider role（这里的历史全部属于 EXEC 会话），按

@@ -1,4 +1,4 @@
-package core
+package sessionhistory
 
 import (
 	"errors"
@@ -27,16 +27,16 @@ import (
 // beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
 // 会话树/当前快照呈现 SessionStatusRestoring，内容由后台 resumeSessionCold
 // 完成后发布。调用方已持有视图过渡锁；内部自取 Core.ViewMu。
-func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
+func (service *Runtime) beginAsyncRestore(sessionID string) (uint64, error) {
 	service.ViewMu.Lock()
-	if service.closed {
+	if service.closed() {
 		service.ViewMu.Unlock()
 		return 0, errors.New("application is shut down")
 	}
 	epoch := service.components.view.MarkSessionViewIntentLocked(sessionID)
 	service.components.view.SetRestoringLocked(sessionID)
 	unit := service.sessionUnitLocked(sessionID)
-	service.components.conversationTurnState.ResetLocked(unit)
+	service.ResetTurnState(unit)
 	unit.SetCancel(nil)
 	unit.SetRequests(nil)
 	// 空壳：清空该会话单元的可见区（新建单元默认空，此处幂等），避免把
@@ -69,12 +69,12 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 //
 // 返回值：true = 视图已指向目标（本次归位或本来就在）；false = 装载已收口，
 // 调用方应改走正常热挂载（"返回时视图 = 目标"的契约不能靠静默返回维持）。
-func (service *Service) pointViewAtRestoringShell(sessionID string) bool {
+func (service *Runtime) pointViewAtRestoringShell(sessionID string) bool {
 	if service == nil || sessionID == "" {
 		return false
 	}
 	service.ViewMu.Lock()
-	if service.closed {
+	if service.closed() {
 		service.ViewMu.Unlock()
 		return true // 已关闭：保持既有静默语义，不再动视图
 	}
@@ -98,7 +98,7 @@ func (service *Service) pointViewAtRestoringShell(sessionID string) bool {
 // resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
 // 是否仍可发布视图基线；被更新的切换取代时只完成目标会话自身装载，不抢占
 // 视图。
-func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64) {
+func (service *Runtime) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64) {
 	if err := service.resumeSessionCold(sessionID, epoch); err != nil {
 		service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, err)
 	}
@@ -115,7 +115,7 @@ func (service *Service) resumeSessionColdInBackground(sessionID, previousID stri
 // activateEpoch 是本次装载对应的视图意图序号（调用方在激活 restoring 空壳时
 // 推进）：装载完成时若不是最新序号、或视图已不再指向目标，本次只完成目标会话
 // 自身的状态装载（引擎驻留、可见投影、任务槽），不发布基线、不抢占当前视图。
-func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error {
+func (service *Runtime) resumeSessionCold(sessionID string, activateEpoch uint64) error {
 	loaded, err := service.components.sessionColdRead.Read(sessionID)
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 // 全新会话键上挂接是安全的：store 的 Load 是惰性的，各通道 not-found 都按 S19 口径
 // 静默初始化成空记录，既不继承上一个会话的四栈，也不多写任何东西——写只发生在
 // Persist。挂接落点是**当前活跃 bundle**（会话槽化后按会话隔离），因此不会串台。
-func (service *Service) attachSessionContextFor(workspaceID, sessionID string) error {
+func (service *Runtime) attachSessionContextFor(workspaceID, sessionID string) error {
 	store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort)
 	if !ok {
 		return nil
@@ -266,7 +266,7 @@ func (service *Service) attachSessionContextFor(workspaceID, sessionID string) e
 // visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
 // 贴尾）。贴尾 = 用户已经在最新处；窗口为空（草稿/刚被卸载）时按「未带到」
 // 处理，必须走冷读。
-func (service *Service) visibleTailServedFromMemory(sessionID string, assembler applicationhistory.WindowAssembler) bool {
+func (service *Runtime) visibleTailServedFromMemory(sessionID string, assembler applicationhistory.WindowAssembler) bool {
 	atTail := false
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
 		durable := len(assembler.DurableRows(view.Conversation))
@@ -282,7 +282,7 @@ func (service *Service) visibleTailServedFromMemory(sessionID string, assembler 
 //
 // 探测与窗口读是两次独立加锁操作（与 session_runtime.LoadHistoryTailWindow 同一
 // 观察项）：两读之间会话并发增长时窗口会短一两行，下一次加载自我纠正。
-func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (applicationhistory.Page, error) {
+func (service *Runtime) loadConversationTailPage(workspaceID, sessionID string, window int) (applicationhistory.Page, error) {
 	// limit=1 只为拿总数（区间读把 total 一并带回）。
 	probe, err := service.loadConversationPage(workspaceID, sessionID, 0, 1)
 	if err != nil {
@@ -322,7 +322,7 @@ func (service *Service) loadConversationTailPage(workspaceID, sessionID string, 
 // 扩到「已发布的行全读回来」仍没有对位（窗口首行是在飞行，磁盘上根本没有），或
 // 窗口为空（没有对位锚）时，返回读到的整段，交给安装路径按「宁可窗口短一页，也
 // 不在列表中间留一段谁都没有的下标区间」处理。
-func (service *Service) loadEarlierVisiblePage(
+func (service *Runtime) loadEarlierVisiblePage(
 	workspaceID, sessionID string,
 	offset, limit, window int,
 	seam model.Message,
@@ -365,7 +365,7 @@ func (service *Service) loadEarlierVisiblePage(
 // 这一页读到发布点了吗。
 // currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 // Core.ViewMu）。
-func currentWorkspaceIDLocked(service *Service) string {
+func currentWorkspaceIDLocked(service *Runtime) string {
 	if service.Core.Snapshot.CurrentWorkspace == nil {
 		return ""
 	}
@@ -376,7 +376,7 @@ func currentWorkspaceIDLocked(service *Service) string {
 // 反序列化整份 state），旧格式会话回退 provider 历史区间。返回的 rows 已过滤到
 // 可见空间，rawRows / diskTotal 则是**未过滤**空间的行数（读回面把内部标记行也
 // 当普通 conversation 行，见 applicationhistory.Page）。
-func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (applicationhistory.Page, error) {
+func (service *Runtime) loadConversationPage(workspaceID, sessionID string, offset, limit int) (applicationhistory.Page, error) {
 	page := applicationhistory.Page{Start: offset}
 	if limit <= 0 {
 		return page, nil
@@ -397,7 +397,7 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 	}
 	page.Rows = make([]model.Message, 0, len(history))
 	for _, msg := range history {
-		if !isVisibleHistoryMessage(msg) {
+		if !isVisibleHistoryMessage(msg, service.displayUserInput) {
 			continue
 		}
 		page.Rows = append(page.Rows, service.adaptEngineMessage(msg))
@@ -424,7 +424,7 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 //   - 只拼得上的才拼：接缝对不上（窗口首行不在磁盘上——整窗都是在飞行）时不
 //     假装连续，宁可窗口原地不动，也不在列表中间留一段谁都没有的下标区间；
 //     一页可见行都没读到时保持现有窗口。
-func (service *Service) installVisibleHistory(
+func (service *Runtime) installVisibleHistory(
 	sessionID string,
 	page applicationhistory.Page,
 	window int,
@@ -479,7 +479,7 @@ func (service *Service) installVisibleHistory(
 
 // visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
 // 前面，所以它是「更早一页」的接缝对位锚（窗口为空时返回零值行：没有对位锚）。
-func (service *Service) visibleWindowFirstRow(sessionID string, assembler applicationhistory.WindowAssembler) model.Message {
+func (service *Runtime) visibleWindowFirstRow(sessionID string, assembler applicationhistory.WindowAssembler) model.Message {
 	var first model.Message
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
 		rows := assembler.DurableRows(view.Conversation)
@@ -490,14 +490,18 @@ func (service *Service) visibleWindowFirstRow(sessionID string, assembler applic
 	return first
 }
 
-func (service *Service) adaptEngineMessage(msg contract.EngineMessage) model.Message {
-	return adaptEngineMessage(msg, service.components.conversationStreams.StripThoughtBlocks)
+func (service *Runtime) adaptEngineMessage(msg contract.EngineMessage) model.Message {
+	strip := func(value string) string { return value }
+	if service.components.conversationStreams != nil {
+		strip = service.components.conversationStreams.StripThoughtBlocks
+	}
+	return adaptEngineMessage(msg, strip, service.displayUserInput)
 }
 
-func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string) model.Message {
+func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string, display func(string) string) model.Message {
 	content := msg.Content
 	if msg.Role == "user" {
-		content = displayUserInput(content)
+		content = display(content)
 	} else if (msg.Role == "assistant" || msg.Role == "tool") && stripThoughtBlocks != nil {
 		content = stripThoughtBlocks(content)
 	}
@@ -513,12 +517,23 @@ func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(stri
 	return message
 }
 
-func isVisibleHistoryMessage(message contract.EngineMessage) bool {
+func isVisibleHistoryMessage(message contract.EngineMessage, display func(string) string) bool {
 	if message.Role == "system" {
 		return false
 	}
 	if message.Role != "user" {
 		return true
 	}
-	return displayUserInput(message.Content) != ""
+	return display(message.Content) != ""
+}
+
+// AdaptEngineMessage exposes the history message projection to core tests and
+// composition adapters.
+func (service *Runtime) AdaptEngineMessage(msg contract.EngineMessage) model.Message {
+	return service.adaptEngineMessage(msg)
+}
+
+// IsVisibleHistoryMessage exposes the history visibility predicate.
+func (service *Runtime) IsVisibleHistoryMessage(message contract.EngineMessage) bool {
+	return isVisibleHistoryMessage(message, service.displayUserInput)
 }

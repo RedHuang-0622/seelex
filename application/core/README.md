@@ -176,6 +176,10 @@ Provider 上下文/历史拒绝后的 checkpoint 恢复、可重放判据与恢�
 [`application/conversation`](../conversation/README.md) 的 `StreamRuntime`；
 core 的 `chat.go` 只保留回合准入、Task/Engine 编排与 history 适配。
 
+Session resume、restoring/cold 恢复顶层流程、durable 分页与可见窗口安装已归
+[`application/session/history`](../session/history/README.md)。core 只保留
+Session scope、binder 和跨领域锁序。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、
