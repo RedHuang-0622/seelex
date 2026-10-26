@@ -243,16 +243,6 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestCompactionFailureNoteCarriesReadbackProbeError(t *testing.T)` — TestCompactionFailureNoteCarriesReadbackProbeError：读数闸**调用本身报错**（不是
 - `func TestFrontendCompactionFailureErrorMarkerMatchesBackend(t *testing.T)` — TestFrontendCompactionFailureErrorMarkerMatchesBackend：失败痕 note 的报错段标记是
 
-### context_compact_gate.go
-
-- `func (service *Service) isCompactingLocked(sessionID string) bool` — isCompactingLocked 报告该会话是否有一轮上下文压缩正在进行（调用方持有
-- `func (service *Service) signalCompactionLocked()` — signalCompactionLocked 广播一次「compacting 集合已变化」（调用方持有
-- `func (service *Service) compactionSignalLocked() <-chan struct` — compactionSignalLocked 返回当前收口信号（调用方持有 Core.ViewMu）。惰性
-- `func (service *Service) acquireCompactionRound(ctx context.Context, sessionID string) error` — acquireCompactionRound 领取该会话的压缩轮：已有轮在跑时先等它收口（同会话
-- `func (service *Service) releaseCompactionRound(sessionID string)` — releaseCompactionRound 收口该会话的压缩轮并唤醒等待方。幂等：没领过轮的
-- `func (service *Service) awaitCompactionRound(ctx context.Context, sessionID string) error` — awaitCompactionRound 等到该会话没有压缩轮在跑（ctx 取消即返回错误）。
-- `func (service *Service) deferSubmitUntilCompacted(ctx context.Context, sessionID, text string)` — deferSubmitUntilCompacted 把一次对话提交挂到该会话压缩轮的收口点：门开着时
-
 ### context_compact_gate_test.go
 
 - `func seedLongRounds(t *testing.T, service *Service, requestID string)` — seedLongRounds 与 TestCompactContextHandlerCompactsTranscript 同一份量：4 轮、每轮
@@ -361,6 +351,12 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func persistRestartSession(t *testing.T, service *Service, store *retiredRecordChannelSessions, sessionID string)` — persistRestartSession 按会话落盘（事件流是会话自己的 durable 事实，重启后按同一
 - `func TestReproCompactionFactsSurviveProcessRestart(t *testing.T)` — TestReproCompactionFactsSurviveProcessRestart 重启后压缩栈必须从存储读回来：
 - `func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T)` — TestReproCompactionFailureTraceSurvivesProcessRestart 压缩失败痕同样要跨重启：
+
+### context_compaction_gate_test_aliases_test.go
+
+- `func (service *Service) isCompactingLocked(sessionID string) bool`
+- `func (service *Service) releaseCompactionRound(sessionID string)`
+- `func (service *Service) awaitCompactionRound(ctx context.Context, sessionID string) error`
 
 ### context_compaction_real_session_probe_test.go
 
@@ -480,15 +476,10 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func lastCompactionRecord(t *testing.T, service *Service, sessionID string) model.ContextCompaction`
 - `func TestCompactContextHandlerReportsRecordedRange(t *testing.T)` — TestCompactContextHandlerReportsRecordedRange：compact_context 工具/命令的
 
-### environment_context.go
-
-- `func (service *Service) environmentTraceBlockFor(sessionID string) string` — environmentTraceBlockFor 返回指定会话当前项目的工作环境块。
-- `func renderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []model.WorkspaceEnvironmentInfo) string` — renderEnvironmentTraceBlock 是纯渲染面，供单元测试直接钉住顺序、地址与标记。
-- `func environmentAddress(item model.WorkspaceEnvironmentInfo, projectRoot string) string`
-- `func singleLine(value string) string`
-
 ### environment_context_test.go
 
+- `func renderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []protocol.WorkspaceEnvironmentInfo) string`
+- `func (service *Service) environmentTraceBlockFor(sessionID string) string`
 - `func (workspace *environmentTraceWorkspace) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
 - `func (*environmentTraceWorkspace) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
 - `func (*environmentTraceWorkspace) DeleteWorkspaceEnvironment(string, string) error`

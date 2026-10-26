@@ -33,12 +33,13 @@ import (
 // serviceComponents is the application composition graph. Service coordinates
 // these parts but does not own their implementation details.
 type serviceComponents struct {
-	prompts         *applicationprompt.Coordinator
-	context         *conversationcontext.EngineCoordinator
-	history         *conversationcontext.EngineHistoryCoordinator
-	sessions        *session_runtime.Coordinator
-	tasks           *task_context.Coordinator
-	terminalHandler *task_context.TerminalHandlerApplication
+	prompts               *applicationprompt.Coordinator
+	context               *conversationcontext.EngineCoordinator
+	contextCompactionGate *conversationcontext.CompactionGate
+	history               *conversationcontext.EngineHistoryCoordinator
+	sessions              *session_runtime.Coordinator
+	tasks                 *task_context.Coordinator
+	terminalHandler       *task_context.TerminalHandlerApplication
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor；
 	// 视图投影/工具路由经 Service 面暴露）。
 	goal             *applicationgoal.Coordinator

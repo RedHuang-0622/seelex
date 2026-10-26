@@ -164,8 +164,8 @@ func (service *Service) assembleContextCompactionApplication() {
 			}
 			return sessionID
 		},
-		Acquire: service.acquireCompactionRound,
-		Release: service.releaseCompactionRound,
+		Acquire: service.components.contextCompactionGate.Acquire,
+		Release: service.components.contextCompactionGate.Release,
 		Compact: func(ctx context.Context, sessionID string) (conversationcontext.EngineCompactResult, error) {
 			return service.components.context.CompactContextNow(ctx, sessionID)
 		},

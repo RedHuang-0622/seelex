@@ -152,6 +152,7 @@
 | EP-062 | 已完成 | resident/content LRU 与释放保护状态迁入 session/residency | 结构门禁、residency/core 回归 |
 | EP-063 | 已完成 | ToolRecord teammate/subagent host adapter 迁入 toolrecord | 结构门禁、toolrecord/core 回归 |
 | EP-064 | 已完成 | 环境尾部渲染与 Session/Workspace 取数适配迁入 prompt | 结构门禁、prompt/core 回归 |
+| EP-065 | 已完成 | explicit compaction gate 与 deferred submit 迁入 conversation/context | 结构门禁、context/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5557,16 +5558,32 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 环境标记、行顺序、SSH 地址、GUI/TUI wire 与持久化格式不变；
 - 回退方式：恢复 `application/core/environment_context.go` 并删除 prompt owner。
 
+## EP-065：Compaction Gate 归属迁移
+
+- per-session compacting 集合与广播信号、领轮、等待、释放和 deferred submit
+  从 `application/core/context_compact_gate.go` 迁入
+  `application/conversation/context/compaction_gate.go`；
+- gate 只接收共享状态内核与 deferred submit 回调；提交入口、显式压缩和
+  capabilities 装配直接消费 owner，core 不再保存 compacting 状态；
+- 红测：`TestCompactionGateLivesInConversationContext` 点名 legacy core 文件与
+  缺失的新 owner；
+- 绿测：`go test ./application/conversation/context ./application/core -run
+  'Compaction' -count=1`；context 新增串行/取消用例；
+- core 生产文件 59 → 58，生产代码 8,383 → 8,248 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- 同会话压缩串行、deferred submit 目标会话、上下文取消和 note/事件语义不变；
+- 回退方式：恢复 core gate 文件与两个状态字段，把调用点切回 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 59 |
-| core 生产代码 | 18,723 行 | 8,383 行 |
+| core 生产文件 | 126 | 58 |
+| core 生产代码 | 18,723 行 | 8,248 行 |
 
-core 生产代码净减 10,340 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 10,475 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

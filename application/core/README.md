@@ -165,6 +165,10 @@ ToolRecord 的 teammate/subagent 终态帧解析、稳定 unit key 和递归终�
 [`application/execution/toolrecord`](../execution/toolrecord/README.md)。core 只注入
 draft 可写判据与 view session 读数，不再保留 host adapter 文件。
 
+显式压缩的 per-session gate、收口广播和 deferred submit 已归
+[`application/conversation/context`](../conversation/context/README.md)。core
+不再持有 `compacting` / `compactSig` 状态。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、

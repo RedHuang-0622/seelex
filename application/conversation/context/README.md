@@ -25,6 +25,8 @@
 ## 文件结构
 
 - `application.go`：`Deps`、`Application`、`Result`、`GateTiming` 与用例。
+- `compaction_gate.go`：per-session compaction 集合、收口信号、领轮/等待与
+  deferred submit 重放。
 - `engine_facade.go`：Engine Context Coordinator/History/Deps alias 与 predicate/warning
   一行转发，供 core 装配。
 
@@ -35,8 +37,9 @@
 
 ## 并发与错误
 
-压缩 gate 覆盖压缩、落盘和回执构造；模型调用在本地回合内也不会持有 Session
-写锁。错误与五种 outcome 的 note 文案保持迁移前语义。
+压缩 gate 覆盖压缩、落盘和回执构造；`CompactionGate` 直接拥有 per-session
+compacting 集合与广播信号，所有读写都由共享 `Core.ViewMu` 保护。模型调用在本地
+回合内也不会持有 Session 写锁。错误与五种 outcome 的 note 文案保持迁移前语义。
 
 ## 测试与验证
 

@@ -51,12 +51,9 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	// 预置：另一个调用方已经领到这一会话的压缩轮（它正在压缩中）。
 	// 与被删掉的 tryAcquireCompactionRound 做的事完全一致——生产代码里没有
 	// 「非阻塞领轮」这条路径了（见 gate 文件的加锁纪律注释）。
-	service.ViewMu.Lock()
-	if service.compacting == nil {
-		service.compacting = map[string]struct{}{}
+	if err := service.components.contextCompactionGate.Acquire(ctx, sessionID); err != nil {
+		t.Fatal(err)
 	}
-	service.compacting[sessionID] = struct{}{}
-	service.ViewMu.Unlock()
 	done := make(chan error, 1)
 	go func() {
 		_, err := frontendOfTestService(service).CompactContextNow(ctx)

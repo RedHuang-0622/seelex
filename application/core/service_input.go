@@ -158,9 +158,9 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// 会把"有人在跑这个会话"漏进快照与停止按钮），所以这里的 busy 判据必须自己
 	// 看见它——否则新回合的装配与压缩读写同一份引擎历史，后写的那份把压缩丢掉。
 	// 不排队：显式压缩没有回合，队列的正常提升点（回合结束）永远不会到来。
-	if service.isCompactingLocked(sessionID) {
+	if service.components.contextCompactionGate.IsCompactingLocked(sessionID) {
 		service.ViewMu.Unlock()
-		service.deferSubmitUntilCompacted(ctx, sessionID, input)
+		service.components.contextCompactionGate.DeferSubmitAfterCompaction(ctx, sessionID, input)
 		return nil
 	}
 	// 非运行分支：队列里可能遗留待发项（如重启回填的「已发送未确认」输入），
@@ -218,9 +218,9 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	}
 	// 同会话压缩门：与 submitConversation 同一条判据（见那里的注释），后台提交
 	// 路径也经此。挂起后在同一 sessionID 上重放，不改目标会话。
-	if service.isCompactingLocked(sessionID) {
+	if service.components.contextCompactionGate.IsCompactingLocked(sessionID) {
 		service.ViewMu.Unlock()
-		service.deferSubmitUntilCompacted(ctx, sessionID, input)
+		service.components.contextCompactionGate.DeferSubmitAfterCompaction(ctx, sessionID, input)
 		return nil
 	}
 	// 非运行分支：与 submitConversation 同一条提升规则（队列遗留待发项并入

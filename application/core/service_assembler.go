@@ -113,6 +113,12 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		sessions:           sessionDomain,
 	}
 	service := &Service{serviceState: svcState}
+	service.components.contextCompactionGate = context_runtime.NewCompactionGate(context_runtime.CompactionGateDeps{
+		Core: kernel,
+		DeferredSubmit: func(ctx context.Context, sessionID, text string) error {
+			return service.submitConversationFor(ctx, sessionID, text)
+		},
+	})
 	service.assembleExecutionApplication(assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
 	service.assembleAdminApplication()
 	service.assembleSessionSSHApplication()
