@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-074；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
+EP-001～EP-075；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
 下一步处理会话主循环与剩余 Application 具体依赖。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
@@ -17,7 +17,7 @@ EP-001～EP-074；`newService*` 构造适配审计与 `Service` 公开业务方�
 |---|---:|
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle 依赖包 | 20，Store 为 0 |
+| `application/**` 具体 Backend/Middle 依赖包 | 19，Store 为 0 |
 | `application/core` 生产文件 | 55 |
 | `application/core` 生产代码 | 7,178 行 |
 

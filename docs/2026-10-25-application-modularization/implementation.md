@@ -5755,6 +5755,19 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `kernel/worktable` 移回 `middle/view/worktable`，恢复 table facade，
   并把 Board/Application 调用点改回旧 import。
 
+## EP-075：Application 退出 Middle Model 兼容门面
+
+- Workspace Switch 与 Subagent View 的最后两个生产 import 从
+  `middle/protocol/model` 直接改为 `contract/protocol`；两处类型身份不变，
+  未新增 alias 或转换层；
+- 先收紧全局依赖预算到 19 并制造红测，确认旧 Model import 仍被扫描到；改完 import
+  后结构预算转绿；
+- 绿测：Application 全局依赖预算、Workspace Switch、Subagent View 与
+  `go build ./...` 通过；
+- Application 具体依赖由 20 降至 19；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；Workspace/Subagent JSON、GUI/TUI wire 与用户行为不变；
+- 回退方式：把两个 import 改回 `middle/protocol/model`（仅用于回退，不作为新代码路径）。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
