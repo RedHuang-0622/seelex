@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 // ProjectionPort is the application view surface used after batch workspace

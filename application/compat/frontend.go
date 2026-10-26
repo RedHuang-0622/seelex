@@ -27,6 +27,7 @@ import (
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
@@ -36,7 +37,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/event"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 	subagent_view "github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 

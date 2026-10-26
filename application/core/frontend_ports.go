@@ -23,6 +23,7 @@ import (
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
@@ -75,7 +76,7 @@ type FrontendPorts struct {
 	FrontendSnapshot    *view_state.SnapshotApplication
 	SubagentView        *applicationexecution.SubagentViewCoordinator
 	Workspace           *applicationworkspace.Application
-	WorkspaceUseCase    *applicationworkspace.SwitchUseCase
+	WorkspaceUseCase    *switchworkspace.UseCase
 	AddNotice           func(string)
 	PublishRuntime      func()
 	SetProjectBoardSink func(applicationexecution.ProjectBoardSink)

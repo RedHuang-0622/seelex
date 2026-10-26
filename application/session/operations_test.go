@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 )
 
 func TestDeleteApplicationOrdersRecordReleaseAndPublication(t *testing.T) {

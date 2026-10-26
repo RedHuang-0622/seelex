@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 func TestSessionColdCommitRulesAreExtracted(t *testing.T) {

@@ -33,7 +33,7 @@ port。任务定义仍是 Runtime 单一事实源。
 ## 依赖方向
 
 允许依赖 `contract/dto`、`backend/limit`、`backend/limit/effort` 与
-`middle/switch/workspace.Projection`。禁止依赖 `application/core`、GUI/TUI。
+`application/workspace/switch.Projection`。禁止依赖 `application/core`、GUI/TUI。
 
 ## 并发与错误
 

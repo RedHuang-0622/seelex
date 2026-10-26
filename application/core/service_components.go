@@ -28,6 +28,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	"sync"
 )
@@ -155,9 +156,9 @@ type serviceComponents struct {
 	// （vet: "copies lock value"），指针让"可变性"只留在槽位自己身上。
 	projectBoard *projectBoardPort
 
-	// workspace 是工作区用例的装配载体（middle/switch/workspace）：创建/绑定/
+	// workspace 是工作区用例的装配载体（application/workspace/switch）：创建/绑定/
 	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
-	workspace *applicationworkspace.SwitchUseCase
+	workspace *switchworkspace.UseCase
 }
 
 // Temporary aliases keep the ChatTurn migration compatible while the

@@ -9,7 +9,7 @@ import (
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	switching "github.com/RedHuang-0622/seelex/application/session/switchpolicy"
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -249,7 +249,7 @@ func (service *Service) assembleSessionUseCaseApplications() {
 		UnbindWorkspace: func(sessionID string) {
 			service.Deps.Workspace.UnbindSession(sessionID)
 		},
-		WorkspaceProjection: func() applicationworkspace.SwitchProjection {
+		WorkspaceProjection: func() switchworkspace.Projection {
 			return service.components.workspace.Projection()
 		},
 		ApplyWorkspace: service.applyWorkspaceProjectionLocked,

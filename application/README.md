@@ -514,7 +514,7 @@ Workspace Git 查询现位于 [`workspace/`](workspace/README.md)，集中多仓
 Workspace 批量登记用例现位于 [`workspace/`](workspace/README.md)，集中成功后的
 目录投影读取、锁内应用、revision bump 和解锁后 `snapshot.changed` 发布。
 `Service.CreateWorkspaces` 只保留一行转发，项目创建与持久化仍由
-`middle/switch/workspace` 唯一实现。
+`application/workspace/switch` 唯一实现。
 
 ### Session SSH 应用用例（AP-064 首个切片，已实现）
 

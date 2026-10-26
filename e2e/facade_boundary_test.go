@@ -298,7 +298,7 @@ var facadeClosureAllowList = []string{
 	// **新增登记的理由**：换落点 + 落点新建；新包只依赖 `middle/protocol/model`（已在清单内），
 	// 存储端口由宿主断言后注入，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/middle/switch",
-	"github.com/RedHuang-0622/seelex/middle/switch/workspace",
+	"github.com/RedHuang-0622/seelex/application/workspace/switch",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",

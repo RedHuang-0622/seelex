@@ -1,7 +1,7 @@
 package core
 
 import (
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -16,7 +16,7 @@ func (service *Service) releaseSessionAsync(sessionID string) {
 
 // applyWorkspaceProjectionLocked copies a middle-layer projection into the
 // authoritative application snapshot. The caller holds Core.ViewMu.
-func (service *Service) applyWorkspaceProjectionLocked(projection applicationworkspace.SwitchProjection) {
+func (service *Service) applyWorkspaceProjectionLocked(projection switchworkspace.Projection) {
 	service.Core.Snapshot.Workspaces = append([]model.WorkspaceInfo(nil), projection.Workspaces...)
 	service.Core.Snapshot.SessionWorkspaces = make(map[string]string, len(projection.Bindings))
 	for sessionID, workspaceID := range projection.Bindings {
@@ -28,7 +28,7 @@ type serviceWorkspaceProjectionPort struct {
 	service *Service
 }
 
-func (port serviceWorkspaceProjectionPort) Projection() applicationworkspace.SwitchProjection {
+func (port serviceWorkspaceProjectionPort) Projection() switchworkspace.Projection {
 	return port.service.components.workspace.Projection()
 }
 
@@ -36,7 +36,7 @@ func (port serviceWorkspaceProjectionPort) LockView() {
 	port.service.ViewMu.Lock()
 }
 
-func (port serviceWorkspaceProjectionPort) ApplyWorkspaceProjectionLocked(projection applicationworkspace.SwitchProjection) {
+func (port serviceWorkspaceProjectionPort) ApplyWorkspaceProjectionLocked(projection switchworkspace.Projection) {
 	port.service.applyWorkspaceProjectionLocked(projection)
 }
 

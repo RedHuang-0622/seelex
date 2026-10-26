@@ -469,7 +469,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 `Role application` 只保留 Session/Runtime 端口适配与 14 个一行兼容入口；
 五层解析、显式空集优先、运行时账号回滚和 SSH 路径规范化不再有 core 副本。
 
-`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`middle/switch/workspace`](../../middle/switch/workspace/README.md)，本包公开方法只做一行转发，视图投影写面仍由本包持有。
+`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`application/workspace/switch`](../workspace/switch/README.md)，视图投影写面仍由本包持有。
 
 `service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
 

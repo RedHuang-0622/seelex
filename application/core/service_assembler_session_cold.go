@@ -6,7 +6,7 @@ import (
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -205,7 +205,7 @@ func (service *Service) assembleSessionColdComponents() {
 		SystemPrompt: func() string {
 			return service.components.prompts.SystemPromptForActiveTaskLocked()
 		},
-		ApplyWorkspace: func(_ *model.WorkspaceInfo, projection applicationworkspace.SwitchProjection) {
+		ApplyWorkspace: func(_ *model.WorkspaceInfo, projection switchworkspace.Projection) {
 			service.applyWorkspaceProjectionLocked(projection)
 		},
 		BumpRevision: func() uint64 {

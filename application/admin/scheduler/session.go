@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
 )
 
 // SessionDeps supplies session creation, workspace projection, publication and

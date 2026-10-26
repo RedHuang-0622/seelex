@@ -12,7 +12,7 @@ import (
 	sessionruntime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	viewstate "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	appworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	kernelstate "github.com/RedHuang-0622/seelex/kernel/state"
@@ -25,7 +25,7 @@ const (
 
 type historyComponents struct {
 	conversationStreams    appconversation.StreamOutputPort
-	workspace              *appworkspace.SwitchUseCase
+	workspace              *switchworkspace.UseCase
 	residencyRuntime       *appsessionresidency.Runtime
 	sessions               *sessionruntime.Coordinator
 	view                   *viewstate.Coordinator
@@ -48,7 +48,7 @@ type RuntimeDeps struct {
 	Core                *kernelstate.Core
 	Deps                contract.Dependencies
 	ConversationStreams appconversation.StreamOutputPort
-	Workspace           *appworkspace.SwitchUseCase
+	Workspace           *switchworkspace.UseCase
 	Residency           *appsessionresidency.Runtime
 	Sessions            *sessionruntime.Coordinator
 	View                *viewstate.Coordinator

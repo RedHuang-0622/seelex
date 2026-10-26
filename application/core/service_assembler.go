@@ -21,7 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -348,8 +348,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// forwarding wrapper.
 	service.assembleConversationTurnCoreComponents()
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
-	// middle/switch/workspace；视图投影写面仍由本 Service 持有，经窄 Host 注入。
-	service.components.workspace = applicationworkspace.NewSwitch(applicationworkspace.SwitchDeps{
+	// application/workspace/switch；视图投影写面仍由本 Service 持有，经窄 Host 注入。
+	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
 		Store:    service.Deps.Workspace,
 		Sessions: service.Deps.Sessions,
 		Runtime:  service.Deps.Runtime,

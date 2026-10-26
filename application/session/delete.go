@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	switchworkspace "github.com/RedHuang-0622/seelex/middle/switch/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 )
 
 // DeleteDeps supplies record deletion, release, workspace and publication

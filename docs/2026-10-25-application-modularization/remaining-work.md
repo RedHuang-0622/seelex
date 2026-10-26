@@ -5,7 +5,7 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-071；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
+EP-001～EP-072；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
 下一步处理会话主循环与剩余 Application 具体依赖。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
@@ -38,6 +38,8 @@ EP-001～EP-071；`newService*` 构造适配审计与 `Service` 公开业务方�
   `application/session` 不再 import Store 载荷类型；
 - SessionState/ViewState 已迁入 `application/session/state` 与
   `application/session/viewstate`，`application/core` 直接内部依赖已归零。
+- Workspace 切换用例已从 `middle/switch/workspace` 物理迁入
+  `application/workspace/switch`，旧 Middle owner 已删除。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
   当前 22 个唯一 Backend/Middle 包，只许下降，最终为 0；具体 Store 包已归零。

@@ -7,7 +7,7 @@ import (
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
@@ -66,7 +66,7 @@ func (service *Service) assembleSchedulerApplications() {
 			defer transition.Unlock()
 			return service.openSessionEngine(sessionID, workspace)
 		},
-		Projection: func() applicationworkspace.SwitchProjection {
+		Projection: func() switchworkspace.Projection {
 			return service.components.workspace.Projection()
 		},
 		LockView:                       service.ViewMu.Lock,

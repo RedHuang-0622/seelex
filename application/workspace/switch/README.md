@@ -2,13 +2,14 @@
 
 ## 生态位
 
-`middle/switch/workspace/` 是 Seelex **工作区用例**的唯一编排点：创建工作区、
+`application/workspace/switch/` 是 Seelex **工作区用例**的唯一编排点：创建工作区、
 把工作区绑定/解绑到当前视图会话或草稿、解析当前工作区根，以及为应用视图收集
-工作区投影。主要调用方是 `application/core` 的门面（公开方法只做一行转发）；
+工作区投影。主要调用方是 `application/core`、Session、Scheduler 与 Frontend；
 工作区存储与 Git/文件能力仍由 [`store/workspace`](../../../store/workspace/README.md)
 提供，经 `contract.WorkspacePort` 及其 optional 端口注入。
 
-本包不 import `application/*`、`store` 具体类型、`wiring` 或 `backend/*`。
+本包只依赖 Contract、DTO 与 `middle/protocol/model`，不 import `store` 具体类型、
+`wiring` 或 `backend/*`。
 视图快照（`Snapshot.Workspaces` / `CurrentWorkspace` / 绑定表）的 owner 仍是
 应用视图：本包只产出 `Projection`，由宿主在 `ViewMu` 内写入。
 
@@ -105,7 +106,7 @@ bindInfo
 检查方式：
 
 ```text
-go list -deps ./middle/switch/workspace/ | select-string 'seelex/(application|store|wiring|backend)'
+go list -deps ./application/workspace/switch/ | select-string 'seelex/(store|wiring|backend)'
 ```
 
 输出应为空（`contract`/`middle` 之外的 Seelex 包都不应出现）。
@@ -145,7 +146,7 @@ go list -deps ./middle/switch/workspace/ | select-string 'seelex/(application|st
 ## 测试与验证
 
 ```text
-go test ./middle/switch/workspace/ -count=1
+go test ./application/workspace/switch/ -count=1
 go test ./application/core/ -run 'Workspace|BindWorkspace|Review' -count=1
 go test ./middle/switch/... ./store/workspace/ -count=1
 ```

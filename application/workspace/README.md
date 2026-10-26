@@ -14,7 +14,7 @@ Application 投影编排。当前真实调用方是 `application/core.Service` �
 - 把客户端仓库相对路径解析为工作区根内绝对路径；
 - 按可选端口能力分派仓库发现、Git 日志、改动、提交详情与提交内文件读取；
 - 固定批量登记成功后的 projection、视图锁、revision 和发布顺序。
-- 以 identity alias 暴露 `middle/switch/workspace` 的 UseCase/Deps/Projection/ViewState。
+- 工作区切换用例的唯一实现位于 `switch/`，不再通过 Middle identity alias 暴露。
 
 非职责：
 
@@ -47,7 +47,7 @@ workspace root，再把受控相对路径解析为仓库根，随后分派到
 ## 依赖方向
 
 允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
-`middle/switch/workspace` 的同身份 Switch Workspace alias。禁止导入
+Switch Workspace 用例的唯一源码。禁止导入
 `application/core`、持有完整 `Service`、执行 Git 命令或读写真凭证。
 
 ## 并发与错误语义
@@ -59,7 +59,7 @@ revision，事件发布在解锁后。未绑定工作区、缺少能力端口和
 ## 扩展方式
 
 新增 Workspace 能力前先确认状态所有者与真实调用方。只允许扩展消费方实际使用的
-窄端口；项目创建/绑定等仍由 `middle/switch/workspace` 的既有用例拥有，不复制进
+窄端口；项目创建/绑定等仍由 `switch/` 的既有用例拥有，不复制进
 本包。兼容 Service 入口必须保持一行转发。
 
 ## Review 指南

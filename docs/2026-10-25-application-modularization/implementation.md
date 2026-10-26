@@ -5690,6 +5690,28 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   顺序不变；
 - 回退方式：恢复 `session_fork.go`，把 ForkApplication callbacks 切回 core。
 
+## EP-072：Workspace Switch UseCase 归入 Application
+
+- 把 `middle/switch/workspace` 的 528 行唯一实现、行为测试与 README 物理迁入
+  `application/workspace/switch`；工作区创建、绑定、解绑、当前根读面与 Projection
+  收集仍只有一份实现；
+- Core、Compat、Session、Cold Restore、Scheduler 与 Frontend 的调用点直接引用
+  新 owner，删除 `application/workspace` 的 `SwitchUseCase` / `NewSwitch` identity
+  alias，不保留第二层转发；
+- `Projection`、`ViewState`、`Deps`、`UseCase` 与 `New` 的字段、方法和调用顺序
+  不变；视图锁、Snapshot 写入、revision 与发布仍由 Core `workspaceHost` 持有；
+- 红测：`TestApplicationDoesNotImportMiddleSwitchWorkspace` 初始因新 owner 文件
+  缺失失败，随后构造出“Application 仍直接 import Middle owner”的第二红面；
+- 绿测：`go test ./application/workspace/... ./application/session/...`、
+  `go test ./application/core ./application/compat`、完整
+  `go test ./application/...`、E2E `Facade|Layout` 与 `go build ./...` 通过；
+- `Service` 公开方法保持 0，core 生产文件保持 55，生产代码保持 7,178 行；
+  Application 具体依赖集合把 `middle/switch/workspace` 替换为已在闭包内的
+  `middle/protocol/model`，唯一包数保持 22，旧 Middle Workspace owner 删除；
+- Workspace JSON、GUI/TUI wire、事件 revision/seq、持久化格式及用户行为不变；
+- 回退方式：把 `application/workspace/switch` 目录移回 `middle/switch/workspace`，
+  并把调用点 import 改回旧路径。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
