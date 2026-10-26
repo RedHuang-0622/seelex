@@ -1,6 +1,6 @@
 # Application 未完成项开发计划
 
-日期：2026-10-26
+日期：2026-10-27
 
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
@@ -16,10 +16,28 @@ EP-001～EP-040；下一步拆除最后一条 SessionUseCase 直接依赖。**
 |---|---:|
 | `Service` 公开方法 | 23 |
 | `application/core` 直接内部依赖 | 1 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 30 |
 | `application/core` 生产文件 | 114 |
 | `application/core` 生产代码 | 11,602 行 |
 
 本轮包提取起点为 126 个文件、18,723 行；当前净减 7,121 行。
+
+## 裁决已冻结
+
+长期依赖与状态边界见
+[`docs/arch/application-middle-backend-boundaries.md`](../../docs/arch/application-middle-backend-boundaries.md)。
+
+- Session 聚合最终归 `application/session`；Middle 只保留纯策略/投影，
+  Backend Engine 保留执行运行时；
+- AP-003 分两条验收：入站 API 只用 Contract；整个 `application/**` 的具体
+  Backend/Middle/Store 依赖另设预算并最终归零；
+- `TeamworkPlan` 系列选择完整 DTO 化，Store 保留 alias，现有
+  `application/execution` 类型门面只是迁移桥；
+- 下一阻断项不是“选所有权”，而是按该边界迁移 Session 聚合并删除
+  `application/core -> sessionusecase` 最后一条直接依赖。
+- 全局具体依赖预算见
+  [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
+  当前 30 个唯一包，只许下降，最终为 0。
 
 已迁出的领域包：
 

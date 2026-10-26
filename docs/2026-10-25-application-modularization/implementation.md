@@ -7,6 +7,9 @@
 的执行记录。代码与测试仍是“已实现”能力的最终事实源；本文只记录批次状态、
 结构指标和跨会话门禁。
 
+依赖方向与三个裁决项的冻结结论见
+[`docs/arch/application-middle-backend-boundaries.md`](../../docs/arch/application-middle-backend-boundaries.md)。
+
 下一阶段可直接使用
 [`next-session-prompt.md`](next-session-prompt.md)
 启动 Conversation 聚合的设计门禁。
@@ -203,6 +206,7 @@
 | EP-038 | 已完成 | CompressedTurn Archiver 与 Goal Store 解析归位 | Store commit port、Event DTO alias、core 净减 104 行 |
 | EP-039 | 已完成 | Event 段落与 Queue 恢复 DTO 契约化 | `contract/protocol` 唯一段落实现、`contract/dto` queue DTO、core Store import 7 → 1 |
 | EP-040 | 已完成 | ProjectBoard Store 类型边归位 | execution 类型门面、core Store import 归零、直接依赖 2 → 1 |
+| EP-041 | 已完成 | 层边界裁决与 Application 全局依赖预算 | Session 聚合归 session、全局 concrete dependency 30 冻结 |
 
 ## 基线指标
 
@@ -5087,6 +5091,21 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 11,603 → 11,602 行；
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 字段均未改变；
 - 回退方式：恢复 core 直接 import Store，并删除 execution 的 Teamwork 类型门面。
+
+## EP-041：层边界裁决与 Application 全局依赖预算
+
+- 新增长期契约
+  [`docs/arch/application-middle-backend-boundaries.md`](../../docs/arch/application-middle-backend-boundaries.md)；
+- 裁决 Session 聚合最终归 `application/session`；Middle 只保留纯策略/读投影，
+  Backend Engine 保留执行运行时；
+- 裁决整个 `application/**` 的具体 Backend/Middle/Store 依赖最终归零；
+  迁移期 identity facade 与 host adapter 必须登记，不得持状态或第二份判据；
+- 裁决 `TeamworkPlan` 系列完整 DTO 化，当前 `application/execution` alias
+  仅为迁移桥；
+- 新增 `application_wide_dependency_budget.json` 与结构测试，当前冻结 30 个
+  唯一具体依赖包，只许下降；
+- core 直接依赖保持 1，`Service` 方法保持 23；
+- 回退方式：删除全局预算测试与架构文档；`core` 预算不受影响。
 
 ## 本轮收口指标
 

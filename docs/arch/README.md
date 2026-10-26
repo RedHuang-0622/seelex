@@ -15,6 +15,7 @@
 | 文档 | 说明 |
 |------|------|
 | [`seele-v2-runtime-architecture.md`](seele-v2-runtime-architecture.md) | Seelex 使用 Seele v0.1.1 远程模块边界的稳定架构（迁移完成） |
+| [`application-middle-backend-boundaries.md`](application-middle-backend-boundaries.md) | Application / Middle / Backend / Store 的依赖矩阵、Session 聚合所有权与迁移期例外 |
 | [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) | 上下文控制/数据流架构评审（历史，待与当前代码同步刷新） |
 | [`plan.md`](plan.md) | 上下文、Skill、Plugin 与 Seele 薄封装实现方案 |
 | [`design-decisions-mcp-storage.md`](design-decisions-mcp-storage.md) | MCP 中间件从 CAD 专属→通用→存储解耦的设计推演 |
