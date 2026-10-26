@@ -5909,6 +5909,16 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   生产代码 7,178 行；调度 DTO、wire 与持久化格式不变；
 - 回退方式：把四个签名改回 `assemble.ScheduledTask*` 并恢复 import。
 
+## EP-085：Application 退出 Subagent DTO Alias
+
+- Compat 的 `HandleSubagentToolEventFor` 参数从 Backend subagent alias 直接改为
+  `contract/dto.SubagentToolEvent`；
+- 两者本就是同身份类型，事件字段、路由和 ToolRecord 投影顺序不变；
+- 红测：Application 全局依赖预算收紧到 5；迁移后预算与 Compat 测试转绿；
+- Application 具体依赖由 6 降至 5；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；Subagent 事件 JSON 与前端行为不变；
+- 回退方式：把参数改回 `seelsession.SubagentToolEvent` 并恢复 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

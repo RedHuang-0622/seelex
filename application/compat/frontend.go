@@ -31,7 +31,6 @@ import (
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
-	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -789,7 +788,7 @@ func (frontend *Frontend) GoalSkillActive() bool {
 }
 
 // HandleSubagentToolEventFor projects an attributed subagent tool event.
-func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, toolEvent seelsession.SubagentToolEvent) {
+func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, toolEvent dto.SubagentToolEvent) {
 	frontend.subagentView().HandleSubagentToolEventFor(ownerSessionID, toolEvent)
 }
 
