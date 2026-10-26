@@ -80,6 +80,15 @@ type toolRecordBoardProvider interface {
 	SetToolRecordEnabled(enabled bool) (bool, error)
 }
 
+var (
+	_ Application             = (*application.Frontend)(nil)
+	_ sessionAwareApplication = (*application.Frontend)(nil)
+	_ toolRecordBoardProvider = (*application.Frontend)(nil)
+	_ roleRPCApplication      = (*application.Frontend)(nil)
+	_ goalRPCApplication      = (*application.Frontend)(nil)
+	_ subagentRPCApplication  = (*application.Frontend)(nil)
+)
+
 // Server 是 headless 冒烟接口的 HTTP 服务（单进程内绑定）。
 type Server struct {
 	app Application

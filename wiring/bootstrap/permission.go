@@ -27,7 +27,7 @@ type permissionRuntime interface {
 // 起始先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），config/seele.yaml
 // 的 permission 段按字段覆盖它（缺失/为空的字段保持默认，不再整体替换规则集）。
 // 权限档位（manual/edit/auto/full）只作为进程级默认启用；运行期由 GUI/CLI 按会话切换。
-func SetupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker, mode string) error {
+func SetupPermissionGate(runtime permissionRuntime, approval application.ApprovalBroker, mode string) error {
 	tier, err := config.ParsePermissionMode(mode)
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func LoadPermissionConfig(path string) (toolspermission.PermissionConfig, error)
 
 // NewPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
 // 每次工具触发审批时，阻塞等待用户在 TUI 交互面板中作出选择。
-func NewPermissionBridge(broker *application.ApprovalBroker) toolspermission.ApprovalHandler {
+func NewPermissionBridge(broker application.ApprovalBroker) toolspermission.ApprovalHandler {
 	return func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		req := ctx.Request
 		appReq := application.ApprovalRequest{

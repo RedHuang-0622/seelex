@@ -8,6 +8,7 @@ package wiring
 import (
 	"context"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
@@ -22,6 +23,11 @@ import (
 // （plan §1.3 ④）。返回值 *core.Service 与门面别名 application.Service 是同一
 // 类型身份（别名不是新类型）。
 func New(deps contract.Dependencies) (*core.Service, error) { return core.New(deps) }
+
+// NewFrontend constructs the frontend compatibility adapter.
+func NewFrontend(app *core.Service) *application.Frontend {
+	return &application.Frontend{Service: app}
+}
 
 // NewEventHub 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。
 func NewEventHub() *event.EventHub { return event.NewEventHub() }

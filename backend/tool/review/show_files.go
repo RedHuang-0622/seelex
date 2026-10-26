@@ -27,6 +27,18 @@ type ShowFilesPort interface {
 	RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)
 }
 
+// ToolRegistrar 是 show_files 注册动作需要的最小工具面。
+//
+// *backend/engine/assemble.Runtime 结构满足该端口；wiring/registry 与迁移期
+// assemble 兼容入口都只调用本包的 RegisterTool，避免各自重复拼工具定义。
+type ToolRegistrar interface {
+	RegisterTool(
+		name, description string,
+		inputSchema map[string]interface{},
+		handler func(context.Context, string) (string, error),
+	)
+}
+
 // ShowFilesReceipt 是 show_files 的工具返回值形状（模型面 JSON）。
 //
 // 它必须回契约：工具结果进对话、被后续回合读到。所以"请求了几份 / 哪几份打开了 /
@@ -89,6 +101,20 @@ func ShowFilesSchema() map[string]interface{} {
 		},
 		"required": []string{"files"},
 	}
+}
+
+// RegisterShowFilesTool 是 show_files 的唯一注册实现：把本域已有的名字、描述、schema
+// 与 handler 交给装配方。它不持有状态，也不执行工具。
+func RegisterShowFilesTool(registrar ToolRegistrar, port ShowFilesPort) {
+	if registrar == nil || port == nil {
+		return
+	}
+	registrar.RegisterTool(
+		ShowFilesToolName,
+		ShowFilesDescription(),
+		ShowFilesSchema(),
+		ShowFilesHandler(port),
+	)
 }
 
 // ShowFilesHandler 是工具处理函数：只做两件事——形状校验（非空 / 上限）与把清单交给落点。

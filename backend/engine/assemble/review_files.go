@@ -1,14 +1,12 @@
 package assemble
 
-// review_files.go 是 **show_files 工具的宿主注册面**。
+// review_files.go 是 **show_files 工具注册面的 D1 兼容入口**。
 //
-// 落点沿革（P21-4，plan §2.5 的 `review_files` → `backend/tool/review`）：工具**形状**
-// （名字 / 描述 / schema / 参数校验 / 返回值）搬进域包
-// [`backend/tool/review/show_files.go`](../tool/review/show_files.go)；这里只留
-// "把域包给的三件套 + handler 注册进工具面"这一句装配（与 `RegisterTaskTerminalTools` 同款形状）。
+// 工具形状、唯一注册 helper 与落点端口都在
+// [`backend/tool/review`](../tool/review/show_files.go)；生产装配已改由
+// wiring/registry 直接调用 domain helper。这里保留旧签名，正文只做一行转发。
 //
-// 分工不变：工具面（模型看得见的那一层）在域包，**落点**（会话快照与沙盒边界）由宿主实现
-// `ShowFilesPort` 注入——装配点（`wiring/registry`）传 `app`，逐份过 workspace 域裁决。
+// 删除里程碑：BM-007（旧 assemble Runtime 路径退场时）。
 
 import (
 	"github.com/RedHuang-0622/seelex/backend/tool/review"
@@ -17,15 +15,12 @@ import (
 // ReviewFilesPort 是落点端口的**同身份别名**（既有调用方与用例零改动）。
 type ReviewFilesPort = review.ShowFilesPort
 
+var _ review.ToolRegistrar = (*Runtime)(nil)
+
 // RegisterReviewFilesTool 把 show_files 注册进 Runtime 工具面（形状见域包）。
 func RegisterReviewFilesTool(runtime *Runtime, port ReviewFilesPort) {
 	if runtime == nil || port == nil {
 		return
 	}
-	runtime.RegisterTool(
-		review.ShowFilesToolName,
-		review.ShowFilesDescription(),
-		review.ShowFilesSchema(),
-		review.ShowFilesHandler(port),
-	)
+	review.RegisterShowFilesTool(runtime, port)
 }

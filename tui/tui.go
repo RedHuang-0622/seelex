@@ -44,6 +44,11 @@ type queueController interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 }
 
+var (
+	_ AppController   = (*application.Frontend)(nil)
+	_ queueController = (*application.Frontend)(nil)
+)
+
 const maxPasteChars = 200 // 超过此字符数视为粘贴
 
 type Model struct {

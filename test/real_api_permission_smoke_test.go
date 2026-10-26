@@ -47,7 +47,7 @@ import (
 // 记录每一次页面的打开（按请求 ID 去重，附工具名），并立即在页面上点"允许"
 // ——等价于用户在 GUI 上看到审批卡片后点允许，让调用继续。
 type approvalPage struct {
-	broker *application.ApprovalBroker
+	broker application.ApprovalBroker
 
 	mu     sync.Mutex
 	orders []string          // 页面打开顺序（工具名）
@@ -58,7 +58,7 @@ type approvalPage struct {
 
 // openApprovalPage 起一个审批页面观察者。必须在提交回合**之前**调用：页面是
 // 及时打开的（回合进行中），订阅晚了就什么都看不到。
-func openApprovalPage(broker *application.ApprovalBroker) *approvalPage {
+func openApprovalPage(broker application.ApprovalBroker) *approvalPage {
 	page := &approvalPage{
 		broker: broker,
 		seen:   make(map[string]string),

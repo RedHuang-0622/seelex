@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	coretask "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/tool/review"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
@@ -327,7 +328,7 @@ func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Servi
 	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
 }
 
-func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
+func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval application.ApprovalBroker, skills *skill.Registry) {
 	runtime.SetPluginCapabilitiesProvider(func(names []string) []dto.PluginCapabilityView {
 		return safePluginCapabilities(plugins, names)
 	})
@@ -386,11 +387,14 @@ func safePluginCapabilities(plugins *plugin.Manager, names []string) []dto.Plugi
 // 待审阅文件（**一次调用 = 一次批处理召唤**，单次上限 dto.MaxReviewFilesPerRequest
 // = 10 份；超限显式报错，不静默截断）。
 //
-// 分工：工具形状与硬门在 seelebridge（RegisterReviewFilesTool），落点端口在
+// 分工：工具形状、注册 helper 与硬门在 backend/tool/review，落点端口在
 // application（会话作用域的可重放请求 + workspace 域统一裁决沙盒/敏感/二进制/上限）。
-// 与 RegisterAskApprove 同一分法——组合根只做装配，不在这里写第二份语义。
+// 本函数只把 *assemble.Runtime 与 application.Service 接进同一注册 helper。
 func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service) {
-	assemble.RegisterReviewFilesTool(runtime, app)
+	if runtime == nil || app == nil {
+		return
+	}
+	review.RegisterShowFilesTool(runtime, app)
 }
 
 // RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
@@ -796,7 +800,7 @@ func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager) {
 	eng.SetSystemPrompt(strings.TrimSpace(current.Prompt))
 }
 
-func RegisterAskApprove(runtime *assemble.Runtime, approval *application.ApprovalBroker) {
+func RegisterAskApprove(runtime *assemble.Runtime, approval application.ApprovalBroker) {
 	runtime.RegisterTool(
 		"ask_approve",
 		"向用户请求操作确认。当需要执行高风险操作时调用此工具。",

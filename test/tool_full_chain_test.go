@@ -186,7 +186,7 @@ type fullChainHarness struct {
 	// approval 是**生产审批 broker**（与 GUI/TUI 同一个实例）：权限用例可以
 	// 通过它对"执行选择页面"做端到端断言（页面是否打开、打开了几次、工具名），
 	// 而不是只在工具侧看一个桩被调了几次。
-	approval *application.ApprovalBroker
+	approval application.ApprovalBroker
 }
 
 func newFullChainHarness(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {

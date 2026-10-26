@@ -13,13 +13,13 @@ import (
 
 func guiAvailable() bool { return false }
 
-func startGUI(*application.Service, string, string) error {
+func startGUI(*application.Frontend, string, string) error {
 	return fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
 }
 
-func InitTUI(app *application.Service) tui.Model { return tui.NewModel(app) }
+func InitTUI(app *application.Frontend) tui.Model { return tui.NewModel(app) }
 
-func startTUI(app *application.Service) error {
+func startTUI(app *application.Frontend) error {
 	return StartTUI(InitTUI(app))
 }
 

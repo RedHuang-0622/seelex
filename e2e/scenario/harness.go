@@ -44,11 +44,12 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 		return nil, fmt.Errorf("initialize application harness: %w", err)
 	}
 	hookBridge.Bind(service)
+	frontend := wiring.NewFrontend(service)
 	if factory != nil {
 		scriptedEngine.SetToolExecutor(factory(approvals))
 	}
 	if value.Initial.Effort != "" {
-		if err := service.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
+		if err := frontend.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
 			service.Shutdown()
 			return nil, fmt.Errorf("set initial effort: %w", err)
 		}

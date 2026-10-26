@@ -43,6 +43,8 @@
   close，工具完成段判空后一个字节都不写（关就是关，不是"注册了但报错"）。
 - **接口放消费方**：`pluginPromptEngine`（只要求 `SetSystemPrompt(string)`）定义在本包，
   具体 Session 由组合根注入。
+- **show_files 注册归本包**：BM-005 首个切片起，本包直接调用
+  `backend/tool/review.RegisterShowFilesTool`；旧 assemble wrapper 只保留 D1 兼容。
 
 ## 数据流
 

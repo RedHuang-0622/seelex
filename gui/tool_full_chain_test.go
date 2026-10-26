@@ -239,7 +239,7 @@ func (*guiChainSessions) LoadHistoryRange(string, int, int) ([]application.Engin
 func (*guiChainSessions) SetWorkspace(string) {}
 func (*guiChainSessions) Workspace() string   { return "" }
 
-func newGUIChainApplication(t *testing.T) (*application.Service, *application.ApprovalBroker) {
+func newGUIChainApplication(t *testing.T) (*application.Frontend, application.ApprovalBroker) {
 	t.Helper()
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
@@ -254,7 +254,7 @@ func newGUIChainApplication(t *testing.T) (*application.Service, *application.Ap
 	}
 	hooks.Bind(app)
 	t.Cleanup(app.Shutdown)
-	return app, approval
+	return wiring.NewFrontend(app), approval
 }
 
 func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {

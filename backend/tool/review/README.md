@@ -5,10 +5,9 @@
 `backend/tool/review` 是「请 GUI 在侧边资源管理器打开待审阅文件」（`show_files`）的**落点**：
 逐份过 workspace 域裁决 → 记为会话作用域的可重放请求 → 回契约收据。
 
-主要调用方：`application/core`（门面实现 `ReviewFilesPort`，把 workspace 读面、召唤 ID、会话归属
-与视图写面经 `Host` 装配进来）；工具注册那一半（名字/参数/返回值形状）在
-`backend/engine/assemble`（`RegisterReviewFilesTool`）——它的签名绑在 `*assemble.Runtime` 上，
-按计划随 R11（`Runtime` 按域下沉）一起搬。
+主要调用方：`application/core`（门面实现 `ShowFilesPort`，把 workspace 读面、召唤 ID、会话归属
+与视图写面经 `Host` 装配进来）与 `wiring/registry`（直接调用本包唯一注册 helper
+`RegisterShowFilesTool`）。旧 `backend/engine/assemble.RegisterReviewFilesTool` 仅保留 D1 一行转发。
 
 落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/core/review_files.go`
 归位（plan §2.6）。
@@ -31,7 +30,7 @@
 |---|---|
 | `review.go` | `Requests`（落点本体）+ `Host`（宿主面）+ `ProbeLimit` / `NormalizeKey` / `ClassifyReadError` |
 | `review_test.go` | 读错误分类表、去重键、以及"全被跳过不写宿主 / 无会话不发布"等宿主契约用例 |
-| `show_files.go` | **show_files 的工具形状**（P21-4 从 `backend/engine/assemble/review_files.go` 归位）：`ShowFilesToolName` / `ShowFilesDescription` / `ShowFilesSchema` / `ShowFilesHandler` + `ShowFilesPort`（落点端口）与 `ShowFilesReceipt`（模型面回执）。工具面与落点分工不变：形状在这里，落点由宿主实现端口注入 |
+| `show_files.go` | **show_files 的工具形状与唯一注册 helper**：`ShowFilesToolName` / `ShowFilesDescription` / `ShowFilesSchema` / `ShowFilesHandler` / `RegisterShowFilesTool` + `ToolRegistrar`（注册消费端口）与 `ShowFilesPort`（落点端口）/ `ShowFilesReceipt`（模型面回执）。工具面与落点分工不变：形状和注册在这里，落点由宿主实现端口注入 |
 | `show_files_test.go` | schema 上下限回契约常量、名字与描述口径、形状校验先于落点（空清单/坏 JSON/超限都不惊动落点）、回执计数与跳过原因、落点错误原样冒泡 |
 
 ## 核心实现
@@ -70,9 +69,11 @@
 ## 扩展方式
 
 - 新增跳过原因：先加进 `contract/dto` 词表，再在 `ClassifyReadError` 的 switch 里加一条（判据一处）。
-- 新增工具入口：注册侧（assemble）只做形状校验后交给本包，不要在注册侧另写一份裁决。
+- 新增工具入口：注册侧（`wiring/registry`）只把 Runtime 接到 `RegisterShowFilesTool`，不要在注册侧另写工具形状或裁决。
 
 ## Review 指南
+
+- 是否出现第二份注册拼装（旧 assemble wrapper 必须仅一行转发）？
 
 - 裁决通道是否仍与前端预览**同一个 Port、同一处 root**（不得新增读盘旁路）？
 - `ClassifyReadError` 的文案表是否与 workspace 域的实际报错漂移（新增文案时改这一处）？
@@ -102,3 +103,13 @@ go test ./backend/engine/assemble/ -run Review -count=1   # 工具注册面（�
 - `func (r *Requests) Clear(sessionID string)` — 清空指定会话的待审阅请求（工作区切换/解绑的失效面）。
 - `func NormalizeKey(path string) string` — 同批次去重用的路径键（分隔符归一）。
 - `func ClassifyReadError(err error) string` — 把 workspace 域的读取拒绝归到契约词表里的原因格。
+
+### show_files.go
+
+- `type ToolRegistrar interface` — show_files 注册需要的窄工具面（由 Runtime 结构满足）。
+- `type ShowFilesPort interface` — 待审阅请求的落点端口（由 Application 实现）。
+- `type ShowFilesReceipt struct` — 模型面回执（requested / opened / skipped / request_id）。
+- `func ShowFilesDescription() string` — 工具描述与批处理上限说明。
+- `func ShowFilesSchema() map[string]interface` — 工具入参 schema。
+- `func RegisterShowFilesTool(registrar ToolRegistrar, port ShowFilesPort)` — 工具形状与 handler 的唯一注册实现。
+- `func ShowFilesHandler(port ShowFilesPort) func(context.Context, string) (string, error)` — 形状校验后把清单交给落点。

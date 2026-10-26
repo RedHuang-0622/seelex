@@ -248,13 +248,13 @@ type roleSessionApplication interface {
 var (
 	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
 	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
-	_ Application                = (*application.Service)(nil)
-	_ sessionAwareApplication    = (*application.Service)(nil)
-	_ replayAwareApplication     = (*application.Service)(nil)
-	_ roleSessionApplication     = (*application.Service)(nil)
-	_ queueAwareApplication      = (*application.Service)(nil)
-	_ roleSettingsApplication    = (*application.Service)(nil)
-	_ messageEditForkApplication = (*application.Service)(nil)
+	_ Application                = (*application.Frontend)(nil)
+	_ sessionAwareApplication    = (*application.Frontend)(nil)
+	_ replayAwareApplication     = (*application.Frontend)(nil)
+	_ roleSessionApplication     = (*application.Frontend)(nil)
+	_ queueAwareApplication      = (*application.Frontend)(nil)
+	_ roleSettingsApplication    = (*application.Frontend)(nil)
+	_ messageEditForkApplication = (*application.Frontend)(nil)
 )
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -861,7 +861,7 @@ type sessionInputIndexApplication interface {
 
 // 编译期断言：生产 Application（application.Service = *core.Service）必须满足
 // 本可选面；用假实现顶替会让真机在类型断言处退化成"未装配"。
-var _ sessionInputIndexApplication = (*application.Service)(nil)
+var _ sessionInputIndexApplication = (*application.Frontend)(nil)
 
 // SessionInputIndex 返回指定会话的全量用户输入索引（对话区右侧索引数据源：
 // 只索引用户输入，覆盖整会话含尚未加载到前端的早期轮次；只带摘要不带正文）。
