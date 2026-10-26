@@ -21,6 +21,7 @@
 | `context.go` | Task checkpoint、transcript 与 active skill 投影。 |
 | `fork.go` | 会话 fork 请求与血缘 DTO。 |
 | `event_units.go` | 完整协议轮次切分、Event 段落边界与 fork cut 的唯一实现。 |
+| `conversation_window.go` | Durable 行计数与头/尾有界窗口的唯一实现。 |
 | `session_input_index.go` | 会话输入索引只读形状。 |
 | `toolcall_status_record.go` | 工具调用存档词到契约枚举的唯一转换点。 |
 | `visible_output.go` | 流式可见正文的 think 块过滤（状态型 helper 的唯一实现）。 |

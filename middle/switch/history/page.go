@@ -5,13 +5,13 @@
 // 落点沿革：2026-10-16 随 M5-R6-history-page **接收者转移**从 `application/core/session_history.go`
 // 归位；"从哪读"（冷读面 / 分页读回 / 会话存储端口）与写快照仍由宿主负责。
 //
-// 依赖纪律：本包只依赖 `middle/protocol/model`（消息形状）与 `middle/view/state`（窗口边界收敛
-// 助手，同为中间层），不读配置、不持锁、不碰快照。
+// 依赖纪律：本包只依赖 `middle/protocol/model`（消息形状）与 `contract/protocol`
+// （窗口边界收敛助手），不读配置、不持锁、不碰快照。
 package history
 
 import (
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	view_state "github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 // ReplaceTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存窗口里发布点之后的那段
@@ -28,7 +28,7 @@ func ReplaceTail(pageRows, memoryRows []model.Message, memoryStart, memoryTotal,
 		rows = append(rows, memoryRows[at+1:]...)
 		end = memoryStart + len(memoryRows)
 	}
-	rows = view_state.BoundConversationTail(rows, window)
+	rows = protocol.BoundConversationTail(rows, window)
 	visible := len(DurableRows(rows))
 	if visible == 0 {
 		return nil, memoryStart
@@ -51,7 +51,7 @@ func Prepend(pageRows, memoryRows []model.Message, memoryStart, window int) ([]m
 		return nil, memoryStart
 	}
 	if len(memoryRows) == 0 {
-		rows := view_state.BoundConversationTail(append([]model.Message(nil), pageRows...), window)
+		rows := protocol.BoundConversationTail(append([]model.Message(nil), pageRows...), window)
 		start := memoryStart - len(DurableRows(rows))
 		if start < 0 {
 			start = 0
@@ -66,7 +66,7 @@ func Prepend(pageRows, memoryRows []model.Message, memoryStart, window int) ([]m
 	if len(earlier) > window {
 		earlier = earlier[len(earlier)-window:]
 	}
-	rows := view_state.BoundConversationHead(append(earlier, memoryRows...), window)
+	rows := protocol.BoundConversationHead(append(earlier, memoryRows...), window)
 	start := memoryStart - len(earlier)
 	if start < 0 {
 		start = 0

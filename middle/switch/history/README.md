@@ -43,7 +43,7 @@
 - 行身份：先按消息 ID 认（内存窗口与磁盘行同 ID 最稳）；旧格式 provider 历史行没有稳定 ID，退回
   「角色 + 正文 + 思考」内容对位；**空占位（占位 assistant、只有工具调用的 tool 行）不参与内容对位**——
   两条空占位长得一模一样，认错就把接缝挪了位；工具行只按**工具调用 ID** 对位。
-- `DurableRows` 与 `middle/view/state.DurableConversationCount` 同一口径（`system` 引导行不占
+- `DurableRows` 与 `contract/protocol.DurableConversationCount` 同一口径（`system` 引导行不占
   durable 下标空间）。
 
 ## 数据流
@@ -58,7 +58,7 @@
 
 ## 依赖方向
 
-允许：`middle/protocol/model`（消息形状）、`middle/view/state`（窗口边界收敛助手，同为中间层）。
+允许：`middle/protocol/model`（消息形状）、`contract/protocol`（窗口边界收敛助手）。
 禁止：`backend/*`、`application/*`、`store`——窗口大小与分页数据都由宿主给。
 
 ## 并发、存储与错误语义

@@ -7,6 +7,10 @@
 `CollectRuntimeProjection`/`AddNotice`/`ResetConversation`；消息序列与
 revision 在此自持。
 
+Application 通过
+[`application/session/viewstate`](../../../application/session/viewstate/README.md)
+的同身份 facade 消费本 Coordinator；core 不再直接 import 本包。
+
 ## 职责与非职责
 
 - 做：消息追加与窗口裁剪、runtime 投影收集/应用、revision bump。
@@ -33,6 +37,9 @@ revision 在此自持。
 
 BM-003 已完成：Application 注入 `func() dto.ViewLimits`，
 `middle/view/state -> backend/limit` 已删除并由架构预算归零。
+
+`DurableConversationCount`、`BoundConversationTail`、`BoundConversationHead`
+的窗口算法已下沉 `contract/protocol`；本包只保留同身份兼容转发。
 
 ## 数据流图
 

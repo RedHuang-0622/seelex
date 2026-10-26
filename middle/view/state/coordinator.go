@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -601,7 +602,7 @@ func (c *Coordinator) SessionViewBrowsingHistoryLocked(sessionID string) bool {
 // DurableConversationCount 返回参与历史游标的可见消息数（system 引导消息
 // 不占 durable 序号空间）。
 func DurableConversationCount(messages []model.Message) int {
-	return durableConversationCount(messages)
+	return protocol.DurableConversationCount(messages)
 }
 
 // endBrowsingForNewTurn 结束回看：把可见窗口原地重置为「以即将追加的新消息为尾」。
@@ -632,65 +633,17 @@ func (c *Coordinator) boundViewTailLocked(view *session.View) {
 }
 
 func durableConversationCount(messages []model.Message) int {
-	count := 0
-	for _, message := range messages {
-		if message.Role != "system" {
-			count++
-		}
-	}
-	return count
+	return protocol.DurableConversationCount(messages)
 }
 
 // BoundConversationTail 保留尾部窗口（system 与普通消息分列计数）。
 func BoundConversationTail(messages []model.Message, window int) []model.Message {
-	if window <= 0 {
-		return nil
-	}
-	keep := make([]bool, len(messages))
-	nonSystem, system := 0, 0
-	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Role == "system" {
-			if system < window {
-				keep[index] = true
-				system++
-			}
-			continue
-		}
-		if nonSystem < window {
-			keep[index] = true
-			nonSystem++
-		}
-	}
-	bounded := make([]model.Message, 0, nonSystem+system)
-	for index, message := range messages {
-		if keep[index] {
-			bounded = append(bounded, message)
-		}
-	}
-	return bounded
+	return protocol.BoundConversationTail(messages, window)
 }
 
 // BoundConversationHead 保留头部窗口（分页加载前置用）。
 func BoundConversationHead(messages []model.Message, window int) []model.Message {
-	if window <= 0 {
-		return nil
-	}
-	bounded := make([]model.Message, 0, min(len(messages), window*2))
-	nonSystem, system := 0, 0
-	for _, message := range messages {
-		if message.Role == "system" {
-			if system < window {
-				bounded = append(bounded, message)
-				system++
-			}
-			continue
-		}
-		if nonSystem < window {
-			bounded = append(bounded, message)
-			nonSystem++
-		}
-	}
-	return bounded
+	return protocol.BoundConversationHead(messages, window)
 }
 
 // BumpLocked 递增快照修订号。

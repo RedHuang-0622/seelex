@@ -207,6 +207,7 @@
 | EP-039 | 已完成 | Event 段落与 Queue 恢复 DTO 契约化 | `contract/protocol` 唯一段落实现、`contract/dto` queue DTO、core Store import 7 → 1 |
 | EP-040 | 已完成 | ProjectBoard Store 类型边归位 | execution 类型门面、core Store import 归零、直接依赖 2 → 1 |
 | EP-041 | 已完成 | 层边界裁决与 Application 全局依赖预算 | Session 聚合归 session、全局 concrete dependency 30 冻结 |
+| EP-042 | 已完成 | Conversation window pure helper 归位 | history 不再依赖 view_state，为 SessionState 迁移清障 |
 
 ## 基线指标
 
@@ -5106,6 +5107,19 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   唯一具体依赖包，只许下降；
 - core 直接依赖保持 1，`Service` 方法保持 23；
 - 回退方式：删除全局预算测试与架构文档；`core` 预算不受影响。
+
+## EP-042：Conversation window pure helper 归位
+
+- `DurableConversationCount`、`BoundConversationTail`、`BoundConversationHead`
+  的唯一实现迁入 `contract/protocol/conversation_window.go`；
+- `middle/switch/history` 改调 Contract，不再依赖 `middle/view/state`；
+- `middle/view/state` 保留同身份兼容转发，后续随 ViewState 一起迁入
+  `application/session/viewstate`；
+- 红测：Contract helper 不存在导致编译红；History import 门禁点名
+  `middle/view/state`；
+- 绿测：Contract window、History、ViewState 与 core History 回归；
+- 该批不改变 Application 预算与 wire；
+- 回退方式：恢复 ViewState 内函数体并让 History 重新调用该包。
 
 ## 本轮收口指标
 
