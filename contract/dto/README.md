@@ -20,6 +20,9 @@
 | 文件 | 承载 |
 |---|---|
 | `account.go` | 角色卡下的账户管理契约：`AccountDraft` / `AccountAddResult`（新增）、`AccountDetails` / `AccountUpdate`（读取与编辑，密钥只报告 `api_key_set`，编辑留空保留原密钥）、`AccountBalance` / `AccountBalanceInfo`（逐账号余额读数，金额保持供应商字符串原样），以及 `AccountRoleVocabulary()`（角色词表唯一来源）。 |
+| `account_window.go` | 账号上下文窗口的界面挡位表；backend/accountwindow 以 alias 复用。 |
+| `goal.go` | Goal 记录、预算、进度、Begin/Update/Finish 请求和 `GoalStatusView` 的纯数据形状；goal 域保留同身份 alias 与自由函数。 |
+| `websearch_config.go` | `WebSearchConfig` / `StrategyConfig` 跨层配置形状；backend/tool/search 保留 alias。 |
 | `plan.go` | `PlanEdge` 与 Plan 可序列化形状、`AccountRole`（agent / subagent / goalplan）。 |
 | `task.go` | 包文档、`TaskStatus` 生命周期、`TaskPhase*` worktable 阶段常量。 |
 | `projection.go` | `RuntimeVisibilityProjection`（application → runtime 的不可变可见性投影）、`GoalGovernanceView`（goal 治理只读投影）。 |
@@ -118,6 +121,15 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### account.go
+
+- `func AccountRoleFromName(name string) AccountRole` — AccountRoleFromName 从账号 ID 推断角色，只用于兼容尚未携带显式 Role 的旧快照。
+- `func AccountRoleVocabulary() []string` — AccountRoleVocabulary 返回可手动添加的账号角色名（顺序即界面下拉顺序）。
+
+### account_window.go
+
+- `func AccountWindowPresets() []int` — AccountWindowPresets returns the UI presets for per-account context windows.
+
 ### async_run.go
 
 - `func (s AsyncState) String() string` — String 给出对外词。
@@ -148,6 +160,12 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s GoalStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
 - `func (s *GoalStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
 
+### goal_test.go
+
+- `func TestGoalWireShapeStable(t *testing.T)`
+- `func TestGoalRequestWireShapeStable(t *testing.T)`
+- `func sortedKeys(fields map[string]json.RawMessage) []string`
+
 ### job_namespace.go
 
 - `func jobNamespacePrefix(namespace JobNamespace) string` — jobNamespacePrefix 是某个命名空间的**前缀**（token + 分隔符）。识别与解析都走它，
@@ -174,16 +192,13 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func PermissionGroupNames() []string` — PermissionGroupNames 返回规范组序（装配面板的"格子顺序"）。
 - `func ValidPermissionGroup(group string) bool` — ValidPermissionGroup 报告 group 是否是已知路由组。
 - `func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error)` — NormalizePermissionGroups 规整一份"逐格装配"的权限：校验组名与位值，返回**独立
+- `func CanonicalPermissionGroup(group string) string` — CanonicalPermissionGroup 把旧版保存值迁移到当前能力词表。
 - `func PermissionTiers() []PermissionTierInfo` — PermissionTiers 返回规范档位目录（升序 = 自动度递增；返回新切片，调用方
 - `func PermissionTierIDs() []string` — PermissionTierIDs 返回规范档位 id 序列（装配/校验/测试用）。
 - `func ValidPermissionTier(tier string) bool` — ValidPermissionTier 报告 tier 是否是已知档位 id。
 - `func NormalizePermissionTier(tier string) (string, error)` — NormalizePermissionTier 规整档位 id：空（未选择）→ manual（进程默认）；未识别
 - `func (e *PermissionTierError) Error() string`
 - `func PermissionTierFromFullAccess(on bool) string` — PermissionTierFromFullAccess 把旧的二元 full_access 口径映射成档位（兼容壳：
-
-### prompt_layer.go
-
-- `type PromptLayer struct` — PromptLayer 是一层 system prompt 或活动 Skill 的跨层只读形状。
 - `func PermissionTierIsFullAccess(tier string) bool` — PermissionTierIsFullAccess 报告档位是否等价旧 full_access（诊断/兼容读面）。
 - `func (e *PermissionGroupError) Error() string`
 
@@ -216,6 +231,29 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 ### review_request.go
 
 - `func CloneReviewRequest(request *ReviewRequest) *ReviewRequest` — CloneReviewRequest 深拷贝一份待审阅请求（快照是并发读者的共享值，浅拷贝会
+
+### role_settings.go
+
+- `func PermissionLayerNames() []string` — PermissionLayerNames 返回五级来源的规范顺序（高→低）。
+- `func PermissionTags() []string` — PermissionTags 返回规范标签序（权限面板的"格子顺序"，也是解析结果的展示序）。
+- `func (settings RoleSettings) Empty() bool` — Empty 报告这份设置是否什么都没配（调用方据此跳过写入/覆盖）。
+- `func (layers RoleSettingsLayers) Ordered() []RoleSettings` — Ordered 返回按优先级高→低排列的五层（新切片，顺序即 PermissionLayerNames）。
+- `func (layers RoleSettingsLayers) PermissionVectors() [][]string` — PermissionVectors 返回五层的权限向量（顺序同上）。
+- `func ResolvePermissionVector(layers ...[]string) []string` — ResolvePermissionVector 按五级优先级解析权限向量：**逐标签取首个出现者**，
+- `func ResolvePermissionVectorDecision(layers ...[]string) PermissionVectorDecision` — ResolvePermissionVectorDecision 是五级优先级解析的**唯一实现**
+- `func ResolveRoleSettings(layers ...RoleSettings) RoleSettings` — ResolveRoleSettings 按五级优先级解析整份角色设置（高→低参数序）：
+- `func NormalizePermissionVector(vector []string) ([]string, error)` — NormalizePermissionVector 规整一份**写入侧**的权限向量：逐项取 `解析形态`
+- `func (err *PermissionVectorError) Error() string`
+- `func parsePermissionTag(raw string) (string, bool, bool)` — parsePermissionTag 把一项原文解析成 (标签, 是否允许)。第二个返回 false 表示这一项
+- `func sortPermissionTags(tags []string)` — sortPermissionTags 就地把标签按"规范序在前、未知项按字典序在后"排好。
+
+### role_settings_test.go
+
+- `func TestResolvePermissionVectorTable(t *testing.T)`
+- `func TestResolvePermissionVectorLayersOrder(t *testing.T)` — TestResolvePermissionVectorLayersOrder 钉住 RoleSettingsLayers.PermissionVectors
+- `func TestRoleDefaultIsIndependentOfGlobalDefault(t *testing.T)` — TestRoleDefaultIsIndependentOfGlobalDefault 钉住角色默认的真实位置：它可以压住
+- `func TestResolveRoleSettingsFirstNonEmptyWins(t *testing.T)`
+- `func TestNormalizePermissionVector(t *testing.T)`
 
 ### routing_notice.go
 
@@ -321,8 +359,4 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s UnitStatus) Active() bool` — Active 报告这一单元是否要续跑（唯一判据：`Unit.Active()` 转调它）。
 - `func (s UnitStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
 - `func (s *UnitStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
-
-### view_limits.go
-
-- `type ViewLimits struct` — ViewLimits 是中间层只读投影需要的运行时上限窄面。
 

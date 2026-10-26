@@ -5,6 +5,9 @@
 输入分流（command/skill/plugin/conversation）与命令注册表：`CommandRegistry`
 /`Router`/`CommandFunc`。路由只持闭包，不持有 Service 状态。
 
+`Command` / `CommandResult` 的事实源已移到 `contract/command.go`；本包以
+同身份 alias 复用，Application 根门面不再直接依赖本实现包。
+
 ## 职责与非职责
 
 - 做：注册、查询、按路由策略分派。

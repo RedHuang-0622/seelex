@@ -74,20 +74,14 @@ var (
 	ErrStoreUnavailable = errors.New("goal: 存储不可用")
 )
 
-// Budget 是 goal 级预算护栏（design §3.2）。0 = 无限/未设。
-type Budget struct {
-	MaxLoops  int `json:"max_loops,omitempty"`  // goal 总循环护栏
-	MaxTokens int `json:"max_tokens,omitempty"` // goal 总 token 护栏
-}
-
-// ProgressKind 是 goal 进度条目类型（milestone/finding/decision/risk）。
-type ProgressKind string
+type Budget = dto.Budget
+type ProgressKind = dto.ProgressKind
 
 const (
-	ProgressMilestone ProgressKind = "milestone"
-	ProgressFinding   ProgressKind = "finding"
-	ProgressDecision  ProgressKind = "decision"
-	ProgressRisk      ProgressKind = "risk"
+	ProgressMilestone = dto.ProgressMilestone
+	ProgressFinding   = dto.ProgressFinding
+	ProgressDecision  = dto.ProgressDecision
+	ProgressRisk      = dto.ProgressRisk
 )
 
 var validProgressKinds = map[ProgressKind]bool{
@@ -95,32 +89,11 @@ var validProgressKinds = map[ProgressKind]bool{
 	ProgressDecision: true, ProgressRisk: true,
 }
 
-// Progress 是 goal_update 追加的一条进度/发现。
-type Progress struct {
-	At      int64        `json:"at"`
-	Kind    ProgressKind `json:"kind"`
-	Content string       `json:"content"`
-}
+type Progress = dto.Progress
+type GoalRecord = dto.GoalRecord
 
-// GoalRecord 是 goal 栈的持久化单元（design §3.2 GoalRecord）。
-type GoalRecord struct {
-	ID         string            `json:"id"`
-	Title      string            `json:"title"`
-	Statement  string            `json:"statement"`
-	Acceptance []string          `json:"acceptance,omitempty"`
-	OutOfScope []string          `json:"out_of_scope,omitempty"`
-	Budget     Budget            `json:"budget"`
-	Status     Status            `json:"status"`
-	Progress   []Progress        `json:"progress,omitempty"`
-	Directives []string          `json:"tl_directives,omitempty"` // Part II 预留（环形）
-	CreatedAt  int64             `json:"created_at"`
-	UpdatedAt  int64             `json:"updated_at"`
-	FinishedAt int64             `json:"finished_at,omitempty"`
-	Meta       map[string]string `json:"meta,omitempty"`
-}
-
-// Clone 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
-func (r *GoalRecord) Clone() *GoalRecord {
+// CloneGoalRecord 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
+func CloneGoalRecord(r *GoalRecord) *GoalRecord {
 	if r == nil {
 		return nil
 	}
@@ -141,7 +114,7 @@ func (r *GoalRecord) Clone() *GoalRecord {
 	return &copyRecord
 }
 
-func (r *GoalRecord) validateBegin() error {
+func validateGoalRecord(r *GoalRecord) error {
 	if r == nil {
 		return fmt.Errorf("%w: nil record", ErrInvalidArgument)
 	}
@@ -166,13 +139,7 @@ func (r *GoalRecord) validateBegin() error {
 }
 
 // BeginRequest 是 goal_begin 的入参。
-type BeginRequest struct {
-	Title      string   `json:"title"`
-	Statement  string   `json:"statement"`
-	Acceptance []string `json:"acceptance,omitempty"`
-	OutOfScope []string `json:"out_of_scope,omitempty"`
-	Budget     *Budget  `json:"budget,omitempty"`
-}
+type BeginRequest = dto.BeginGoalRequest
 
 // newGoalRecord 由 BeginRequest 构造记录并应用默认值。
 func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord {
@@ -195,26 +162,16 @@ func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord {
 
 // UpdateRequest 是 goal_update 的入参（仅作用于栈顶 active goal）。
 // 指针字段 = 有值才改；切片字段 = 非 nil 才替换。
-type UpdateRequest struct {
-	Title           *string      `json:"title,omitempty"`
-	Statement       *string      `json:"statement,omitempty"`
-	Acceptance      []string     `json:"acceptance,omitempty"`
-	OutOfScope      []string     `json:"out_of_scope,omitempty"`
-	ProgressKind    ProgressKind `json:"progress_kind,omitempty"`
-	ProgressContent string       `json:"progress_content,omitempty"`
-}
+type UpdateRequest = dto.UpdateGoalRequest
 
 // ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
 // 非目标范围。只追加 progress 的更新**不算**改定义——那是执行侧在汇报进展，不是重写目标。
 //
 // 权限口径（2026-09-29）：定义类变更只有 TL 裁决侧能发起；agent 工具面只允许追加进度
 // （见 application/core 的 authorizeAgentGoalMutation）。
-func (r UpdateRequest) ChangesDefinition() bool {
+func GoalUpdateChangesDefinition(r UpdateRequest) bool {
 	return r.Title != nil || r.Statement != nil || r.Acceptance != nil || r.OutOfScope != nil
 }
 
 // FinishRequest 是 goal_finish / goal_abort 的入参（reason/result 审计）。
-type FinishRequest struct {
-	Reason string `json:"reason,omitempty"`
-	Result string `json:"result,omitempty"`
-}
+type FinishRequest = dto.FinishGoalRequest

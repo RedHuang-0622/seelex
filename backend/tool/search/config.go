@@ -3,6 +3,7 @@ package search
 import (
 	"os"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,39 +18,11 @@ import (
 // 再套一层同名段名只是把每一行都埋深两格。
 const FileName = "search_engine.yaml"
 
-// WebSearchConfig 是 web_search 工具的搜索配置。Strategies 声明代理策略
-// （proxy strategy）列表；每个策略只需声明 name / endpoint / 密钥，请求与响应
-// 遵循标准 websearch 协议（Tavily 兼容），工具本身不绑定任何具体搜索引擎。
-type WebSearchConfig struct {
-	Provider       string           `yaml:"provider"`
-	APIKey         string           `yaml:"api_key"`
-	Endpoint       string           `yaml:"endpoint"`
-	MaxResults     int              `yaml:"max_results"`
-	IncludeAnswer  bool             `yaml:"include_answer"`
-	SearchDepth    string           `yaml:"search_depth"`
-	TimeoutSeconds int              `yaml:"timeout"`
-	Active         string           `yaml:"active"`
-	Strategies     []StrategyConfig `yaml:"strategies"`
-}
+// WebSearchConfig 是跨层稳定的 web_search 配置形状。
+type WebSearchConfig = dto.WebSearchConfig
 
-// StrategyConfig 描述一个代理策略：内置厂商类型（可选）+ 搜索端点与密钥。
-//
-// Type 为空或 "standard" 时使用标准 websearch 协议（Tavily 兼容：
-// POST JSON + Bearer 鉴权，响应含 results 数组），无需声明 method、header
-// 或字段映射；Type 为内置厂商名（tavily / bochaai / searxng，见 builtin.go）
-// 时使用该厂商的专有协议适配器。无论哪种 Type，装配出的 Strategy 对外
-// 入参 (ctx, query, maxResults) 与出参 (SearchResponse) 完全一致。
-type StrategyConfig struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`
-	Endpoint    string `yaml:"endpoint"`
-	APIKey      string `yaml:"api_key"`
-	APIKeyAlias string `yaml:"apikey"`
-	// APIKeyEnv 是密钥的**环境变量名**（可选）：api_key 为空时按它读取。
-	// 有了它，search_engine.yaml 可以进版本库而不带任何密钥（DeepSeek Search
-	// 与模型共用同一把 key，写一次环境变量即可）。
-	APIKeyEnv string `yaml:"api_key_env"`
-}
+// StrategyConfig 是跨层稳定的代理策略配置形状。
+type StrategyConfig = dto.StrategyConfig
 
 // DefaultConfig 返回 websearch 的默认配置：引擎无关（Provider 为空，
 // 不默认选择任何搜索引擎），只保留结果数与选项默认值。

@@ -1,6 +1,8 @@
 package contract_test
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -60,7 +62,7 @@ var runtimeAssemblyInventory = map[string]string{
 	"runtime_workitem_execution.go":     "application/teamwork",
 	"strings.go":                        "wiring/runtime",
 	"teamwork_job_namer.go":             "backend/multiagent/teamwork",
-	"teamwork_job_signals.go":           "backend/multiagent/teamwork",
+	"teamwork_job_signals.go":           "wiring/runtime",
 	"workunit_assembly.go":              "application/teamwork/workunit",
 	"workunit_node.go":                  "application/teamwork/workunit",
 	"workunit_team.go":                  "application/teamwork/workunit",
@@ -102,5 +104,33 @@ func TestBM005DomainPackagesDoNotImportRuntimeAssembly(t *testing.T) {
 	sort.Strings(violations)
 	if len(violations) > 0 {
 		t.Fatalf("领域包反向 import 组合根：\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T) {
+	root := repositoryRoot(t)
+	read := func(relative string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatalf("read %s: %v", relative, err)
+		}
+		return string(body)
+	}
+
+	domain := read("backend/tool/review/show_files.go")
+	registry := read("wiring/registry/registry.go")
+	compat := read("backend/engine/assemble/review_files.go")
+	if !strings.Contains(domain, "func RegisterShowFilesTool(") {
+		t.Error("backend/tool/review must own the single ToolRegistrar registration helper")
+	}
+	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, app)") {
+		t.Error("wiring/registry must call review.RegisterShowFilesTool directly after BM-005")
+	}
+	if strings.Contains(registry, "assemble.RegisterReviewFilesTool(runtime, app)") {
+		t.Error("wiring/registry still routes show_files registration through the composition package")
+	}
+	if !strings.Contains(compat, "review.RegisterShowFilesTool(runtime, port)") {
+		t.Error("the legacy assemble path must be a one-line forward to review.RegisterShowFilesTool")
 	}
 }

@@ -21,6 +21,9 @@
 主要调用方：`application/core`（`service_account_window.go` 的校验）、
 门面 `application.AccountWindowPresets()`（把挡位表下发给前端）。
 
+挡位值的事实源在 `contract/dto/account_window.go`；本包 `Presets()` 仅保留
+兼容 alias 调用，校验逻辑仍由本包拥有。
+
 物理位置：2026-10-16 按
 [`../../../docs/2026-10-15-architecture-reshape/plan.md`](../../../docs/2026-10-15-architecture-reshape/plan.md)
 §2.8 从 `backend/engine/context/seelectx/window.go`（该文件仍有窗口策略，但不含账号窗口）归位到 limit 板块（M2-C3）。

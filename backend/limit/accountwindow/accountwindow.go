@@ -5,7 +5,11 @@
 // 生态位与边界见 README.md。判据层只依赖标准库。
 package accountwindow
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
+)
 
 // MaxWindow 是自定义挡位的**防手滑上界**（1000 万 token）：它不是"模型真的有这么大"，
 // 只是拦掉多打一个 0 之类的输入；填得比模型真实窗口大，请求会被 provider 拒。
@@ -14,7 +18,7 @@ const MaxWindow = 10_000_000
 // Presets 返回界面上「每账号上下文窗口」的挡位（token，升序）。
 // 每账号也可以走自定义值（见 Validate）。
 func Presets() []int {
-	return []int{200_000, 400_000, 600_000, 1_000_000}
+	return dto.AccountWindowPresets()
 }
 
 // Validate 校验界面设的账号窗口。

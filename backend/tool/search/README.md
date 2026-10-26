@@ -14,6 +14,9 @@
 `type` 指定厂商名）。选型依据见
 [docs/research/websearch-provider-design-research-2026-08.md](../../../docs/research/websearch-provider-design-research-2026-08.md)。
 
+`WebSearchConfig` / `StrategyConfig` 的稳定形状位于
+`contract/dto/websearch_config.go`；本包用 alias 复用，配置加载和装配逻辑不变。
+
 ## 架构图
 
 ```mermaid

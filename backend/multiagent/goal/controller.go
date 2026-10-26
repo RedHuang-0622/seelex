@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // View 是前端投影的紧凑 goal 视图（字段与未来 dto.GoalView 对齐，
@@ -50,11 +52,7 @@ func projectionOf(records []*GoalRecord) Projection {
 }
 
 // StatusView 是 goal_status 返回的全量视图（含 acceptance/progress 副本）。
-type StatusView struct {
-	Stack   []*GoalRecord `json:"stack"`            // 栈底→栈顶
-	Active  *GoalRecord   `json:"active,omitempty"` // = 栈顶
-	History int           `json:"history_count"`    // 已收口目标数（审计计数）
-}
+type StatusView = dto.GoalStatusView
 
 // EventKind 是 goal 事件类型。
 type EventKind string
@@ -147,14 +145,14 @@ func (c *Controller) Begin(ctx context.Context, request BeginRequest) (*GoalReco
 	now := c.now()
 	if top := c.stack.Top(); top != nil && !IsTerminal(top.Status) &&
 		strings.EqualFold(strings.TrimSpace(top.Title), strings.TrimSpace(request.Title)) {
-		return top.Clone(), nil
+		return CloneGoalRecord(top), nil
 	}
 	if c.stack.Len() >= c.depth {
 		return nil, ErrStackFull
 	}
 	c.seq++
 	record := newGoalRecord(fmt.Sprintf("g-%d", c.seq), request, now)
-	if err := record.validateBegin(); err != nil {
+	if err := validateGoalRecord(record); err != nil {
 		return nil, err
 	}
 	// 嵌套：原栈顶降为 paused（弹栈时恢复 active，见 finish/abort 恢复路径）。
@@ -177,7 +175,7 @@ func (c *Controller) Begin(ctx context.Context, request BeginRequest) (*GoalReco
 		Kind: EventBegin, At: now, GoalID: record.ID, Status: record.Status,
 		Projection: c.projectionLocked(),
 	})
-	return record.Clone(), nil
+	return CloneGoalRecord(record), nil
 }
 
 // Update 更新栈顶 active goal（design §3.4 goal_update）。
@@ -221,7 +219,7 @@ func (c *Controller) Update(ctx context.Context, request UpdateRequest) (*GoalRe
 			top.Progress = top.Progress[len(top.Progress)-MaxProgressItems:]
 		}
 	}
-	if err := top.validateBegin(); err != nil {
+	if err := validateGoalRecord(top); err != nil {
 		return nil, err
 	}
 	top.UpdatedAt = now
@@ -245,7 +243,7 @@ func (c *Controller) Update(ctx context.Context, request UpdateRequest) (*GoalRe
 		Kind: EventUpdate, At: now, GoalID: top.ID, Status: top.Status,
 		Projection: c.projectionLocked(),
 	})
-	return top.Clone(), nil
+	return CloneGoalRecord(top), nil
 }
 
 // Finish 把栈顶 goal 标记 completed 并弹栈（design §3.4 goal_finish；
@@ -317,7 +315,7 @@ func (c *Controller) finishOrAbort(ctx context.Context, request FinishRequest, t
 		})
 	}
 	c.emitLocked(event)
-	return top.Clone(), nil
+	return CloneGoalRecord(top), nil
 }
 
 // Status 返回全量视图（深拷贝，锁外安全）。
@@ -326,7 +324,7 @@ func (c *Controller) Status() StatusView {
 	defer c.mu.Unlock()
 	view := StatusView{Stack: make([]*GoalRecord, 0, c.stack.Len()), History: len(c.history)}
 	for _, record := range c.stack.All() {
-		view.Stack = append(view.Stack, record.Clone())
+		view.Stack = append(view.Stack, CloneGoalRecord(record))
 	}
 	if len(view.Stack) > 0 {
 		view.Active = view.Stack[len(view.Stack)-1]
@@ -351,7 +349,7 @@ func (c *Controller) History() []*GoalRecord {
 	defer c.mu.Unlock()
 	out := make([]*GoalRecord, 0, len(c.history))
 	for _, record := range c.history {
-		out = append(out, record.Clone())
+		out = append(out, CloneGoalRecord(record))
 	}
 	return out
 }
@@ -471,7 +469,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 		if record == nil {
 			continue
 		}
-		clone := record.Clone()
+		clone := CloneGoalRecord(record)
 		if index < len(records)-1 {
 			clone.Status = StatusPaused
 		} else {

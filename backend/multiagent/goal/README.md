@@ -22,7 +22,7 @@ TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamw
 | 文件 | 职责 |
 |---|---|
 | `controller.go` | `Controller`：栈操作与状态迁移的唯一实现 |
-| `record.go` | `GoalRecord` / `Budget` / `Status` / 进度词表 |
+| `record.go` | `GoalRecord` / `Budget` / `Status` 等同身份 alias；数据形状事实源在 `contract/dto/goal.go`，行为保留为域自由函数 |
 | `store.go` / `sessionstore_store.go` | 持久化端口与会话上下文存储适配 |
 | `audit.go` | 收口审计端口与条目（append-only 账本） |
 | `stack.go` | 栈投影 |
@@ -34,6 +34,7 @@ TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamw
   每次成功迁移追加一条审计（装配了 `AuditAccount` 时）。
 - `Status` 是栈底→栈顶的全量只读视图；栈顶即 active，下层 paused。
 - `StatusOfRecord` 把持久记录里的状态词读回枚举（未知词不猜）。
+- `CloneGoalRecord` / `GoalUpdateChangesDefinition` 承接原方法行为，DTO 本身保持纯数据。
 
 ## 数据流
 
@@ -170,10 +171,10 @@ go test ./application/core/ -run Goal -count=1
 
 - `func StatusOfRecord(wire string) dto.GoalStatus` — StatusOfRecord 把 goal 存档里的状态词读回枚举（落盘格的唯一转换点；导出给跨包投影读方）。
 - `func IsTerminal(status Status) bool` — IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
-- `func (r *GoalRecord) Clone() *GoalRecord` — Clone 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
-- `func (r *GoalRecord) validateBegin() error`
+- `func CloneGoalRecord(r *GoalRecord) *GoalRecord` — CloneGoalRecord 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
+- `func validateGoalRecord(r *GoalRecord) error`
 - `func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord` — newGoalRecord 由 BeginRequest 构造记录并应用默认值。
-- `func (r UpdateRequest) ChangesDefinition() bool` — ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
+- `func GoalUpdateChangesDefinition(r UpdateRequest) bool` — ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
 
 ### record_status_test.go
 

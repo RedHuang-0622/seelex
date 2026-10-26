@@ -18,6 +18,9 @@ M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包
 - `contract/protocol`：Snapshot/事件 payload/会话记录等版本化 wire 形状（BM-002 从
   `middle/protocol/model` 下沉，旧路径保留同身份 alias）。
 
+`command.go` 定义 Application 命令入站面使用的 `Command` / `CommandResult`；
+`backend/engine/input` 以 alias 复用，避免根门面反向依赖具体路由实现。
+
 ## 架构图
 
 ```mermaid

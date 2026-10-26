@@ -37,7 +37,7 @@ func (m *MemoryStore) Load(_ context.Context) ([]*GoalRecord, error) {
 	defer m.mu.Unlock()
 	out := make([]*GoalRecord, 0, len(m.records))
 	for _, record := range m.records {
-		out = append(out, record.Clone())
+		out = append(out, CloneGoalRecord(record))
 	}
 	return out, nil
 }
@@ -48,7 +48,7 @@ func (m *MemoryStore) Save(_ context.Context, records []*GoalRecord) error {
 	defer m.mu.Unlock()
 	m.records = nil
 	for _, record := range records {
-		m.records = append(m.records, record.Clone())
+		m.records = append(m.records, CloneGoalRecord(record))
 	}
 	return nil
 }

@@ -9,22 +9,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // Command 是内置命令的注册契约（实现：CommandFunc 或测试桩）。
-type Command interface {
-	Name() string
-	Description() string
-	Execute(context.Context, []string) (CommandResult, error)
-}
+type Command = contract.Command
 
 // CommandResult 是命令执行的返回面（Notice/Exit/Interaction）。
-type CommandResult struct {
-	Notice      string
-	Exit        bool
-	Interaction *model.Interaction
-}
+type CommandResult = contract.CommandResult
 
 // CommandFunc 是命令的闭包实现（装配根注入执行体）。
 type CommandFunc struct {
