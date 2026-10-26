@@ -33,6 +33,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
@@ -42,7 +43,7 @@ import (
 func applyRetainFloorPercent(percent int) {
 	applied := core.Limits()
 	applied.ContextRetainFloorPercent = percent
-	core.ApplyLimits(applied)
+	applicationpolicy.Apply(applied)
 }
 
 // prefixLiveMetadata 是帧正文 v2 元数据块里本冒烟要断言的字段。
@@ -115,7 +116,7 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	defer applicationwindow.Apply(previousWindow)
 
 	previousLimits := core.Limits()
-	defer core.ApplyLimits(previousLimits)
+	defer applicationpolicy.Apply(previousLimits)
 	applyRetainFloorPercent(0)
 
 	progress := subscribePrefixLiveProgress(harness.events)

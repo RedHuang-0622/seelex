@@ -34,6 +34,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
@@ -404,8 +405,8 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	// 少了这一步，消费者会按默认（关）跳过整条扫描——"做完自动返回"在冒烟里永远是关的，
 	// 测试就永远验不到它（假绿：什么都没发生也叫通过）。
 	previousLimits := core.Limits()
-	core.ApplyLimits(limits)
-	t.Cleanup(func() { core.ApplyLimits(previousLimits) })
+	applicationpolicy.Apply(limits)
+	t.Cleanup(func() { applicationpolicy.Apply(previousLimits) })
 
 	// teamwork 编排面：与 wiring/bootstrap 同一段装配（PlanStore + Boards + JobOutputs + KeyFor），
 	// 而且**同一个位置**——在 wiring.New 之前。位置是契约的一部分：应用的

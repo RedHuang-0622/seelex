@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -29,6 +30,10 @@ func withSessionID(ctx context.Context, sessionID string) context.Context {
 
 func sessionIDFromContext(ctx context.Context) string {
 	return task_context.SessionIDFromContext(ctx)
+}
+
+func ApplyLimits(limits applicationpolicy.Limits) {
+	applicationpolicy.Apply(limits)
 }
 
 func withTestSessions(sessions contract.SessionPort) testServiceOption {

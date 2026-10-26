@@ -5,12 +5,6 @@ import (
 	limit "github.com/RedHuang-0622/seelex/application/policy"
 )
 
-// ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
-// 门面导出，实现位于基座包 backend/limit（判据与进程级快照的唯一落点）。
-func ApplyLimits(l limit.Limits) {
-	limit.Apply(l)
-}
-
 // Limits 返回当前生效的运行时上限（只读拷贝语义）。
 func Limits() limit.Limits {
 	return limit.Get()

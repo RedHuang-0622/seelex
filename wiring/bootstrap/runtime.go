@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -53,7 +54,7 @@ func initRuntime(storePath string) (*assemble.Runtime, error) {
 	limits = overlay.Apply(limits, limitsOverlay)
 	runtimeLimits = limits // InitStore/InitEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
-	core.ApplyLimits(limits)
+	applicationpolicy.Apply(limits)
 	// window 段同时注入应用侧压缩保留窗口决策（压缩前缀 = min(retain_tokens,
 	// ratio × 全量上下文)，硬压缩阈值 force_compact_tokens）。
 	applicationwindow.Apply(windowConfig)
