@@ -111,7 +111,7 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	}
 	// 会话粒度深拷贝（thin-wrapper §5）：子会话 record 前缀 + 上下文栈
 	// 引用与父不相交（T2.7/B4）；改子不影响父。
-	forkContext.Record = deepCopyForkRecord(forkContext.Record)
+	forkContext.Record = switching.DeepCopyRecord(forkContext.Record, session_runtime.CloneSessionPlanStack)
 	forkContext.Events = append([]model.TranscriptEvent(nil), forkContext.Events...)
 	forkContext.ToolResults = append([]model.StoredToolResult(nil), forkContext.ToolResults...)
 	// 子会话内存 transcript 的序号基线对齐到继承事件的最大 seq：磁盘快照
@@ -152,10 +152,4 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	}
 	service.components.sessions.RequestCatalogRefresh()
 	return childID, nil
-}
-
-// deepCopyForkRecord 是 fork 深拷贝判据的**宿主转发**：判据在 `middle/switch.DeepCopyRecord`
-// （M5-R6-fork），PlanStack 的克隆实现（后端 `session.CloneSessionPlanStack`）由宿主注入。
-func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord {
-	return switching.DeepCopyRecord(record, session_runtime.CloneSessionPlanStack)
 }

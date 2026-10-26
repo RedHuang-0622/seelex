@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	cc "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -27,7 +27,7 @@ import (
 func applyWindowConfig(t *testing.T, config cc.WindowConfig) {
 	t.Helper()
 	previous := cc.Current()
-	ApplyWindowConfig(config)
+	cc.Apply(config)
 	t.Cleanup(func() { cc.Apply(previous) })
 }
 

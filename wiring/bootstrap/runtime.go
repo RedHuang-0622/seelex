@@ -56,7 +56,7 @@ func initRuntime(storePath string) (*assemble.Runtime, error) {
 	core.ApplyLimits(limits)
 	// window 段同时注入应用侧压缩保留窗口决策（压缩前缀 = min(retain_tokens,
 	// ratio × 全量上下文)，硬压缩阈值 force_compact_tokens）。
-	core.ApplyWindowConfig(windowConfig)
+	applicationwindow.Apply(windowConfig)
 	search.ApplyLimits(int(searchTimeout / time.Second))
 	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath: config.AccountsPath(), StorePath: storePath,

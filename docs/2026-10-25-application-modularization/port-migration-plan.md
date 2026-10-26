@@ -9,8 +9,9 @@ Team Role Sessions 端口、Teamwork Board Reader 端口、Assemble DTO/Host Ses
 Goal Session Coordinator 迁移、Middle Model alias 退场、Middle View 只读模型归位、
 Engine Prompt Coordinator、Context Window Policy、Event Protocol、Board Contract、
 Subagent View、WorkTable Projection、View State、Switch Workspace、Switch Policy、
-Limit Tier、Limit Base、Engine Context、Engine Task Context 与 Engine Session 入口归位
-已落地；其余端口待实施。本文只规定拆除 `application/core` 剩余 2 个
+Limit Tier、Limit Base、Engine Context、Engine Task Context、Engine Session 入口归位
+与 core package-function helper 退场已落地；其余端口待实施。
+本文只规定拆除 `application/core` 剩余 2 个
 直接内部依赖所需的端口，不把本阶段的 `application/compat` 转发层当成终态。
 
 ## 0. 当前事实与总原则
@@ -444,6 +445,7 @@ type BoardRepository interface {
 - EP-029：Limit Base 入口归位。
 - EP-030：Engine Context 入口归位。
 - EP-031：Engine Task Context 入口归位。
+- EP-032：Core assembly helper 转发退场。
 - EP-033：Engine Session Runtime 入口归位。
 
 每组都必须单独提交，提交前后报告：

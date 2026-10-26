@@ -33,6 +33,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -109,9 +110,9 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	// 占比窗口收到 0.05：min(token1, token2) 本会把保留区压到很小 —— 这正是保护区
 	// 下限要挡的坏方向（《压缩四区模型》边界判定）。保留上限沿用配置（token1 兜底 =
 	// 账号窗口），因此下限不会与保留上限冲突（floor <= retain_tokens）。
-	previousWindow := core.CurrentWindowConfig()
-	core.ApplyWindowConfig(core.WindowConfig{Ratio: 0.05})
-	defer core.ApplyWindowConfig(previousWindow)
+	previousWindow := applicationwindow.Current()
+	applicationwindow.Apply(applicationwindow.WindowConfig{Ratio: 0.05})
+	defer applicationwindow.Apply(previousWindow)
 
 	previousLimits := core.Limits()
 	defer core.ApplyLimits(previousLimits)

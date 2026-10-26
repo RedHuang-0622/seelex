@@ -79,21 +79,16 @@ func newServiceCompletionApplication(service *Service) *applicationinput.Applica
 	})
 }
 
-// splitSigil 拆出输入前缀与它后面的文本（前缀不认识时 ok=false）。
-func splitSigil(input string) (trigger, prefix string, ok bool) {
-	return applicationinput.Parse(input)
-}
-
 // HasSigilPrefix 报告输入是否以前缀开头（TUI 的 suggMode 与前端内联建议共用同一条
 // 判定，避免"哪些字符算前缀"在多个前端各写一份而漂移）。
 func HasSigilPrefix(input string) bool {
-	_, _, ok := splitSigil(input)
+	_, _, ok := applicationinput.Parse(input)
 	return ok
 }
 
 // SigilOf 返回输入的首字符前缀；不可解析时返回空串（调用方自行给默认值）。
 func SigilOf(input string) string {
-	trigger, _, ok := splitSigil(input)
+	trigger, _, ok := applicationinput.Parse(input)
 	if !ok {
 		return ""
 	}

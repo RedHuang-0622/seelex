@@ -2,7 +2,7 @@
   "service_method_count": 23,
   "core_internal_dependency_limit": 2,
   "core_production_file_limit": 116,
-  "core_production_line_limit": 11764,
+  "core_production_line_limit": 11736,
   "allowed_core_internal_dependencies": [
     "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase",
     "github.com/RedHuang-0622/seelex/store"

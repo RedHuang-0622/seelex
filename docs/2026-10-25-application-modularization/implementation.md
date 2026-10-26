@@ -196,6 +196,7 @@
 | EP-031 | 已完成 | Engine Task Context 入口归位 | core backend/engine/task import 归零、execution/taskcontext facade、依赖预算 3 |
 | EP-032 | 已完成 | Core assembly helper 转发退场 | 删除 11 个纯转发 helper、core 净减 52 行、结构门禁覆盖 |
 | EP-033 | 已完成 | Engine Session Runtime 入口归位 | core backend/engine/session import 归零、session/runtime facade、依赖预算 2 |
+| EP-034 | 已完成 | Core 剩余纯 helper 转发退场 | teamwork/sigil/fork/window 6 个 wrapper 删除、core 净减 28 行 |
 
 ## 基线指标
 
@@ -241,6 +242,7 @@ AP-075 移除 `seelectx/search` 后降至 38；Reference 包提取后
 | `application/core -> middle/switch/history` | `application/history.WindowAssembler` + Wiring 注入 `history.Assembler` | History 查询宿主 | EP-001（已完成） | core import 为零；依赖预算 33 | 恢复 core 直接 import 与旧构造签名 |
 | `application/core -> middle/residency` | `application/session.ResidencyPort` + Wiring 注入 Middle 判据 | core Session/Residency 宿主 | EP-002A（已完成） | core import 为零；依赖预算 32 | 恢复 core 直接 import 与旧 deps |
 | `application/core -> middle/switch/sessionusecase` | 待会话聚合归属裁决 | core Chat/Queue/Session 生命周期 | EP-002B（受阻） | 旧 import 尚在 | 保留当前状态 owner |
+| `application/core -> store` | Session/Event/ToolResult/Queue/Teamwork repository ports + pure DTO | compressed turn、edit/fork、project board、goal store、queue recovery | 待 repository DTO 设计门禁 | `rg 'github.com/RedHuang-0622/seelex/store' application/core` 归零 | 保留现有注入端口与 store payload |
 | `application/core -> backend/engine/react stream primitives` | `application/conversation.StreamOutputPort` + Wiring adapter | Chat 流与冷读正文适配 | EP-003（已完成） | core import 为零 | 恢复 engine/react 直接 import |
 | `application/core -> backend/limit/accountwindow` | `application/admin.AccountWindowPolicy` + Wiring adapter | 账号窗口设置 | EP-004（已完成） | core import 为零 | 恢复直接构造 Setter |
 | `application/core -> backend/engine/skill` | `application/policy.SkillActivationPort` + Wiring adapter | skill_activate | EP-005（已完成） | core import 为零 | 恢复直接构造 Activator |
@@ -4964,6 +4966,20 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - core 直接内部依赖 3 → 2，生产文件与行数不变；
 - GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
 - 回退方式：恢复 core 直接 import `backend/engine/session`。
+
+## EP-034：Core 剩余纯 helper 转发退场
+
+- 删除 `teamworkJobCompletions`、`teamworkJobEvents`、`splitSigil`、
+  `deepCopyForkRecord`、`ApplyWindowConfig` 与 `CurrentWindowConfig` 六个
+  core 纯转发 helper；
+- WorkTable completion 信号直接调用 `application/session/switchpolicy`，
+  sigil 解析直接调用 `application/input.Parse`，fork 深拷贝直接调用
+  switchpolicy；窗口配置的写/读调用方直接调用 `application/window`；
+- 红测：`TestCoreHasNoPackageFunctionForwarders` 逐项点名六个 wrapper；
+- 绿测：Application、Contract、Wiring 与 E2E Facade/Document 全绿；
+- core 直接内部依赖保持 2，生产文件保持 116，生产代码 11,764 → 11,736 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化格式均未改变；
+- 回退方式：恢复对应 core helper，并把调用方改回 core。
 
 ## 本轮收口指标
 

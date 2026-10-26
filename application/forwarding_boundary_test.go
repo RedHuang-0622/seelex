@@ -60,6 +60,12 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		"maxLoopsFor":            "application/prompt",
 		"reasoningEffortFor":     "application/prompt",
 		"reactBudgetFor":         "application/prompt",
+		"teamworkJobCompletions": "application/session/switchpolicy",
+		"teamworkJobEvents":      "application/session/switchpolicy",
+		"splitSigil":             "application/input",
+		"deepCopyForkRecord":     "application/session/switchpolicy",
+		"ApplyWindowConfig":      "application/window",
+		"CurrentWindowConfig":    "application/window",
 	}
 	entries, err := os.ReadDir(coreDir)
 	if err != nil {

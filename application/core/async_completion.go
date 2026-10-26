@@ -5,7 +5,6 @@ import (
 
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
-	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -37,14 +36,6 @@ func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool {
 	return !unit.ChatState().Running
 }
 
-func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord {
-	return switching.TeamworkJobCompletions(runtime)
-}
-
-func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct{} {
-	return switching.TeamworkJobEvents(runtime)
-}
-
 func (service *Service) asyncCompletionApplicationComponent() *applicationexecution.CompletionApplication {
 	if service == nil {
 		return nil
@@ -54,9 +45,11 @@ func (service *Service) asyncCompletionApplicationComponent() *applicationexecut
 
 func newServiceAsyncCompletionApplication(service *Service) *applicationexecution.CompletionApplication {
 	return applicationexecution.NewCompletion(applicationexecution.CompletionDeps{
-		AsyncRuns:    service.Deps.Runtime.AsyncRunsSnapshot,
-		TeamworkRuns: func() []dto.TeamworkJobCompletionRecord { return teamworkJobCompletions(service.Deps.Runtime) },
-		SessionIdle:  service.sessionIdleForAsyncTrigger,
+		AsyncRuns: service.Deps.Runtime.AsyncRunsSnapshot,
+		TeamworkRuns: func() []dto.TeamworkJobCompletionRecord {
+			return switching.TeamworkJobCompletions(service.Deps.Runtime)
+		},
+		SessionIdle: service.sessionIdleForAsyncTrigger,
 		SubmitConversation: func(ctx context.Context, sessionID, input string) error {
 			return service.submitConversationFor(ctx, sessionID, input)
 		},

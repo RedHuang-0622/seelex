@@ -59,7 +59,7 @@
 - 冻结 `Service` 当前 23 个公开方法；新增必须显式更新预算，删除必须同步递减；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 2，预算只允许下降；
-- 冻结 `application/core` 非测试生产文件 116 个、生产代码 11,764 行；
+- 冻结 `application/core` 非测试生产文件 116 个、生产代码 11,736 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 校验
   [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
@@ -150,7 +150,7 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | `Service` 公开方法 | 23 |
 | `application/core` 直接内部依赖 | 2 |
 | `application/core` 生产文件 | 116 |
-| `application/core` 生产代码 | 11,764 行 |
+| `application/core` 生产代码 | 11,736 行 |
 
 已落地领域包：
 
@@ -162,19 +162,25 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | [`execution/toolhooks/`](execution/toolhooks/README.md) | Seele Tool Hook 适配、并发工具 ID 配对与诊断 |
 | [`execution/toolrecord/`](execution/toolrecord/README.md) | 工具记录累计、失败原因、暂存与批量落盘 |
 | [`execution/table/`](execution/table/README.md) | WorkTable publisher、latest-wins 汇聚与 payload 去重 |
+| [`execution/taskcontext/`](execution/taskcontext/README.md) | Engine Task Coordinator/helper identity facade |
+| [`event/`](event/README.md) | Event/Hub/Subscription identity facade |
 | [`input/command/`](input/command/README.md) | 基础内置命令注册与结果适配 |
 | [`goal/`](goal/README.md) | Goal 路由、治理视图与 Runtime 刷新 |
 | [`history/`](history/README.md) | 历史窗口分页、Page 坐标与安装模式 |
 | [`workspace/`](workspace/README.md) | 项目环境表、Git 查询与批量登记投影 |
 | [`session/`](session/README.md) | Session Meta、SSH、Release |
 | [`session/cold/`](session/cold/README.md) | 冷恢复读取、历史、引擎恢复、workspace、激活、Task/View/Commit/Publish |
+| [`session/runtime/`](session/runtime/README.md) | Engine Session Coordinator/helper identity facade |
+| [`session/switchpolicy/`](session/switchpolicy/README.md) | queue/draft/interaction/release 等 Middle 纯策略 facade |
+| [`session/viewstate/`](session/viewstate/README.md) | Snapshot/message/revision View State identity facade |
 | [`session/query/`](session/query/README.md) | Session 只读目录、元数据与 durable 查询 |
 | [`policy/`](policy/README.md) | Role policy、Permission Tier、Effort、Plugin 与运行时策略切换 |
 | [`lifecycle/`](lifecycle/README.md) | drain、cancel、shutdown、fault guard |
 | [`reference/`](reference/README.md) | `read_tool_result` / `read_plan` / `read_compressed_turn` |
 | [`review/`](review/README.md) | 文件审阅请求身份、会话投影与清理 |
 | [`input/`](input/README.md) | sigil 解析与 Suggestions |
-| [`observability/`](observability/README.md) | PerfStats 输入装配 |
+| [`observability/`](observability/README.md) | PerfStats 输入装配与 `/diag` 诊断文本 |
+| [`window/`](window/README.md) | Engine context window 配置与策略 identity facade |
 | [`conversation/search/`](conversation/search/README.md) | 历史检索工具适配 |
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |

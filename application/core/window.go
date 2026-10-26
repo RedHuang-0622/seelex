@@ -7,18 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
-// ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
-// 门面导出，实现位于 context_control。压缩保留窗口决策（context_runtime）
-// 与框架侧 WindowPolicy 读同一份配置，避免第二套硬编码窗口数字。
-func ApplyWindowConfig(config cc.WindowConfig) {
-	cc.Apply(config)
-}
-
-// CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
-func CurrentWindowConfig() cc.WindowConfig {
-	return cc.Current()
-}
-
 // RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
 // 保留前缀 token 预算，与请求装配侧同一实现、同一份 window 配置：
 //
@@ -32,7 +20,7 @@ func CurrentWindowConfig() cc.WindowConfig {
 // 返回 0 = 无法判定（调用方保持不设限/旧口径）。
 func RetainedReadTailBudget(runtime any) int {
 	budget := task_context.ContextBudgetFor(runtime)
-	return CurrentWindowConfig().RetainedContextTokensWithFloor(budget.Window, budget.Window, RetainFloorTokens(budget))
+	return cc.Current().RetainedContextTokensWithFloor(budget.Window, budget.Window, RetainFloorTokens(budget))
 }
 
 // RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：

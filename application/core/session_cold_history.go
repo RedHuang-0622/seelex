@@ -4,6 +4,7 @@ import (
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
@@ -11,7 +12,7 @@ import (
 func newServiceSessionColdHistory(service *Service) *applicationsessioncold.HistoryApplication {
 	return applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget: func() int { return RetainedReadTailBudget(service.Deps.Runtime) },
-		MinRounds:  func() int { return CurrentWindowConfig().MinRounds },
+		MinRounds:  func() int { return applicationwindow.Current().MinRounds },
 		LatestUser: func(messages []model.Message) string {
 			return service.components.sessions.LatestUserContent(messages)
 		},

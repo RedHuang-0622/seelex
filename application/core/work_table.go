@@ -4,6 +4,7 @@ import (
 	"context"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	"github.com/RedHuang-0622/seelex/application/session/switchpolicy"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
@@ -284,7 +285,7 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 		ViewSessionID: viewID,
 		Tasks:         records,
 		AsyncRuns:     state.Deps.Runtime.AsyncRunsSnapshot(),
-		TeamworkRuns:  teamworkJobCompletions(state.Deps.Runtime),
+		TeamworkRuns:  switching.TeamworkJobCompletions(state.Deps.Runtime),
 		Limits:        workTableBounds(),
 	})
 }
@@ -338,7 +339,7 @@ func (service *Service) startLifecycleConsumers() {
 		SafeCall:          service.safeLifecycleCall,
 		Async: applicationtable.AsyncConsumerDeps{
 			AsyncEvents:    runtime.AsyncRunEvents(),
-			TeamworkEvents: teamworkJobEvents(runtime),
+			TeamworkEvents: switching.TeamworkJobEvents(runtime),
 			Refresh:        service.refreshWorkTableFromSources,
 			TriggerAsync: func(triggered map[string]struct{}) int {
 				if !Limits().AsyncExec.TriggerConversation {
