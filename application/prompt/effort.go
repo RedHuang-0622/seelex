@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	promptassets "github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit/effort"
 	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
+	promptassets "github.com/RedHuang-0622/seelex/kernel/prompt/assets"
 )
 
 // effort.go 是 effort 档位的**宿主侧管理器**：它把档位策略应用到 PromptStack

@@ -17,7 +17,7 @@ var repositoryModules = []string{
 	"application/core", "backend/engine/react", "backend/engine/input/contextcontrol",
 	"backend/engine/context", "backend/engine/input",
 	"kernel/state",
-	"backend/engine/prompt", "backend/engine/session",
+	"kernel/prompt", "kernel/prompt/assets", "backend/engine/session",
 	"application/execution/subagentview", "backend/engine/task",
 	"application/session/state", "application/session/residency", "application/session/history",
 	"application/session/fork",

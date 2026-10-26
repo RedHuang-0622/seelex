@@ -1,7 +1,7 @@
 package prompt
 
 import (
-	promptlayer "github.com/RedHuang-0622/seelex/backend/engine/prompt"
+	promptlayer "github.com/RedHuang-0622/seelex/kernel/prompt"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 )
 

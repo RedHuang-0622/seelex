@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`backend/engine/prompt/assets/assets/` is the source of truth for Seelex-owned
+`kernel/prompt/assets/assets/` is the source of truth for Seelex-owned
 system, effort, optional Plan prompts, and the subagent charter. Assets are
 **embedded at build time** (`//go:embed`) so a release binary has no mutable
 prompt-file dependency: 单二进制可部署、提示词与代码同版本。
@@ -118,6 +118,6 @@ not claim more than that implementation enforces.
 `PlanActHarnessCases` 是确定性的提示词回归 harness。它覆盖“验证完成后交付”“导出 Markdown 后再答复”和“拒绝未计划的第二轮验证”等正反场景；它检查渲染后的 system + effort 指令仍包含这些收束契约，不以真实模型输出冒充确定性测试。
 
 ```text
-go test ./backend/engine/prompt/assets ./application/prompt ./application/core -count=1
+go test ./kernel/prompt/assets ./application/prompt ./application/core -count=1
 go build ./...
 ```

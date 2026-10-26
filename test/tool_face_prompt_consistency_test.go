@@ -34,7 +34,7 @@ import (
 var promptToolFaces = []string{
 	filepath.Join("plugins", "default", "teamwork", "SKILL.md"),
 	filepath.Join("plugins", "default", "goal", "SKILL.md"),
-	// M5-R7h：提示词资产从 internal/promptassets 归位 backend/engine/prompt/assets（plan §2.5）。
+	// M5-R7h：提示词资产从 internal/promptassets 归位 kernel/prompt/assets（plan §2.5）。
 	filepath.Join("backend", "engine", "prompt", "assets", "assets", "system", "instructions.md"),
 }
 

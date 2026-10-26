@@ -61,7 +61,7 @@
 ## 依赖方向
 
 允许：标准库、`backend/limit/overlay`（覆盖层路径拼接口径）、`internal/bootseed`（缺失即初始化）、
-`backend/engine/prompt/assets`（提示词资产清单）、`internal/buildinfo`（默认前端）、`plugin`、
+`kernel/prompt/assets`（提示词资产清单）、`internal/buildinfo`（默认前端）、`plugin`、
 `contract/dto`（档位词表）、`store/root`（进程存活判据）、`Seele/tools/permission`（档位别名）。
 
 禁止：`application/*`、`backend/engine/*`、`gui`、`tui`、`wiring/bootstrap`、`wiring/registry`

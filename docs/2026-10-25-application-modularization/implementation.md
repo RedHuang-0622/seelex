@@ -5859,6 +5859,21 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：把 `kernel/limit` 根及 effort/loop/tier 移回 `backend/limit`，
   并恢复全部调用点 import。
 
+## EP-081：Prompt Runtime 与 Assets 归入中立 Kernel
+
+- 把 `backend/engine/prompt` 与 `prompt/assets` 的生产代码、测试、README 和内置
+  prompt 资源物理迁入 `kernel/prompt/**`；prompt coordinator、角色提示词优化、
+  Skill catalog、环境段和 assets override 仍只有一份实现；
+- Application Prompt、Backend assemble、Wiring config/bootstrap、tool node 与测试
+  全部直接引用 `kernel/prompt/**`；
+- 红测：Application 全局依赖预算收紧到 9，旧 Prompt/Assets 依赖仍被扫描；
+  迁移后预算、Kernel Prompt 全包、Application Prompt、Backend assemble、Wiring、
+  E2E `Facade|Layout` 与 `go build ./...` 通过；
+- Application 具体依赖由 11 降至 9；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；prompt 文本、embedded assets、override 顺序、GUI/TUI wire
+  与持久化格式不变；
+- 回退方式：把 `kernel/prompt` 移回 `backend/engine/prompt`，并恢复调用点 import。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

@@ -39,12 +39,12 @@ package assemble
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"github.com/RedHuang-0622/seelex/kernel/prompt"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

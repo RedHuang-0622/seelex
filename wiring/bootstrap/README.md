@@ -62,7 +62,7 @@ mwiring/config.Flagsm + minternal/buildinfo.Versionm（入口）→ mRunm → mA
 允许：标准库、mapplicationm（含 core、console、mcore/task_contextm、mcore/session_runtimem）、
 mbackend/engine/assemblem（Runtime）、mkernel/limit{,overlay,policy}m、
 mbackend/multiagent/teamworkm、mbackend/tool/{registry,search}m、mguim、mtuim、
-minternal/bootseedm、mbackend/engine/prompt/assetsm、mpluginm、msessionm、mskillm、mstore{,/workspace}m、
+minternal/bootseedm、mkernel/prompt/assetsm、mpluginm、msessionm、mskillm、mstore{,/workspace}m、
 mwiringm、mwiring/configm、mwiring/registrym、Seele 的 msessionm/mtypesm/mtools/permissionm。
 
 禁止：mwiring/bootstrapm 不得被 mapplication/*m、mbackend/*m、mguim、mtuim 反向依赖；它只被

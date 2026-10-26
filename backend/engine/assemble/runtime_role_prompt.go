@@ -1,7 +1,7 @@
 // runtime_role_prompt.go — 员工提示词的"装配读面"（宿主状态 + 一行转发）。
 //
 // 落点沿革（P21-15「域方法随类型走」）：**优化那一半**（元指令、请求渲染、输出契约解析、
-// 回执组装）搬进提示词域 [`backend/engine/prompt`](../../engine/prompt/README.md) 的
+// 回执组装）搬进提示词域 [`kernel/prompt`](../../engine/prompt/README.md) 的
 // `role_prompt_optimize.go`（plan §2.5：`seelebridge/runtime_role_prompt.go` →
 // `backend/engine/prompt/`）；本文件只留**读面状态**与两格宿主读数。
 //
@@ -30,8 +30,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	promptlayer "github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	promptlayer "github.com/RedHuang-0622/seelex/kernel/prompt"
 )
 
 // SetRolePromptProvider 注入"已装配提示词"读面；传 nil 取消注入（回退内置）。

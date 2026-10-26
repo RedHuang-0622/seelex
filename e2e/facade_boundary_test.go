@@ -220,7 +220,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/context",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
 	"github.com/RedHuang-0622/seelex/kernel/state",
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt",
+	"github.com/RedHuang-0622/seelex/kernel/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
 	"github.com/RedHuang-0622/seelex/backend/engine/session",
 	"github.com/RedHuang-0622/seelex/application/execution/subagentview",
@@ -265,7 +265,7 @@ var facadeClosureAllowList = []string{
 	// BM-002：共享 wire 形状从 middle/protocol/model 下沉；旧路径以 alias 保留。
 	"github.com/RedHuang-0622/seelex/contract/protocol",
 	"github.com/RedHuang-0622/seelex/internal/frontmatter",
-	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets",
+	"github.com/RedHuang-0622/seelex/kernel/prompt/assets",
 	"github.com/RedHuang-0622/seelex/internal/winhide",
 	"github.com/RedHuang-0622/seelex/internal/jsonobj",
 	// M5-R9：mcpstack 归位到 engine 板块的 mcp 子域（plan §2.5）；原先的

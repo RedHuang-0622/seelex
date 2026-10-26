@@ -59,7 +59,7 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 
 ## 测试
 
-`go test ./backend/engine/prompt -count=1` 覆盖组装、缓存稳定性与端口注入。
+`go test ./kernel/prompt -count=1` 覆盖组装、缓存稳定性与端口注入。
 
 ## 文件与函数索引
 

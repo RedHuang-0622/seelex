@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	promptlayer "github.com/RedHuang-0622/seelex/backend/engine/prompt"
+	promptlayer "github.com/RedHuang-0622/seelex/kernel/prompt"
 )
 
 func TestCoordinatorIsEngineIdentity(t *testing.T) {

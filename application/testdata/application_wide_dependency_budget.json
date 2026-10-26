@@ -1,11 +1,9 @@
 {
-  "concrete_dependency_limit": 11,
+  "concrete_dependency_limit": 9,
   "allowed_concrete_dependencies": [
     "github.com/RedHuang-0622/seelex/backend/engine/assemble",
     "github.com/RedHuang-0622/seelex/backend/engine/context",
     "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol",
-    "github.com/RedHuang-0622/seelex/backend/engine/prompt",
-    "github.com/RedHuang-0622/seelex/backend/engine/prompt/assets",
     "github.com/RedHuang-0622/seelex/backend/engine/react",
     "github.com/RedHuang-0622/seelex/backend/engine/session",
     "github.com/RedHuang-0622/seelex/backend/engine/task",
