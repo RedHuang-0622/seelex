@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/application/event"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	"github.com/RedHuang-0622/seelex/application/prompt"
@@ -139,7 +140,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		PrepareContext: func(sessionID, requestID, modelInput string) (string, error) {
 			return service.components.context.PrepareExecutionContextFor(sessionID, requestID, modelInput)
 		},
-		Normalize: nonEmptyProviderInput,
+		Normalize: context_runtime.NonEmptyProviderInput,
 	})
 
 	service.components.conversationTurnExecution = applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
@@ -169,9 +170,9 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		TakeContextFailure: func(requestID string) error {
 			return service.components.context.TakeContextControlFailure(requestID)
 		},
-		Recover:        service.recoverProviderFailureFor,
-		Retryable:      retryableAfterRecovery,
-		Retry:          service.retryContextRecovery,
+		Recover:        service.components.providerRecovery.RecoverProviderFailureFor,
+		Retryable:      context_runtime.RetryableAfterRecovery,
+		Retry:          service.components.providerRecovery.RetryContextRecovery,
 		FinalizeBudget: service.finalizeReActBudgetWithSink,
 		FinalizeTask: func(ctx context.Context, requestID, reply string) error {
 			return service.components.tasks.FinalizeTask(ctx, task_context.ChatEndSummary{
@@ -189,7 +190,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		RemoveCheckpoints: func(sessionID string) error {
 			return service.components.context.RemoveTaskContextCheckpointsFor(sessionID)
 		},
-		RemoveRecovery: service.removeProviderContextRecoveryFor,
+		RemoveRecovery: service.components.providerRecovery.RemoveProviderContextRecoveryFor,
 		RecordError: func(sessionID, requestID string, err error) {
 			service.ViewMu.Lock()
 			service.recordUnhandledTaskErrorLocked(sessionID, requestID, err)

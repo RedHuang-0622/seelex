@@ -36,6 +36,7 @@ type serviceComponents struct {
 	prompts               *applicationprompt.Coordinator
 	context               *conversationcontext.EngineCoordinator
 	contextCompactionGate *conversationcontext.CompactionGate
+	providerRecovery      *conversationcontext.RecoveryApplication
 	history               *conversationcontext.EngineHistoryCoordinator
 	sessions              *session_runtime.Coordinator
 	tasks                 *task_context.Coordinator

@@ -3,12 +3,44 @@ package core
 import (
 	"context"
 	"errors"
+	appcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"
 	"testing"
 )
+
+const (
+	contextRecoveryPrefix           = appcontext.ContextRecoveryPrefix
+	providerRecoveryPrefix          = appcontext.ProviderRecoveryPrefix
+	contextRecoveryRequestDelimiter = appcontext.ContextRecoveryRequestDelimiter
+	contextRecoveryAgentInput       = appcontext.ContextRecoveryAgentInput
+)
+
+func nonEmptyProviderInput(input string) string {
+	return appcontext.NonEmptyProviderInput(input)
+}
+
+func (service *Service) recoverProviderContext(err error, originalRequest string) error {
+	return service.components.providerRecovery.RecoverProviderContext(err, originalRequest)
+}
+
+func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error) {
+	return service.components.providerRecovery.RecoverProviderFailure(err, originalRequest)
+}
+
+func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error) {
+	return service.components.providerRecovery.RecoverProviderFailureFor(ctx, err, originalRequest)
+}
+
+func retryableAfterRecovery(err error) bool {
+	return appcontext.RetryableAfterRecovery(err)
+}
+
+func (service *Service) removeProviderContextRecovery() error {
+	return service.components.providerRecovery.RemoveProviderContextRecovery()
+}
 
 func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 	if got := nonEmptyProviderInput("  \n"); got == "" {

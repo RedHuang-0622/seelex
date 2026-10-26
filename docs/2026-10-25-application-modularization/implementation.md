@@ -153,6 +153,8 @@
 | EP-063 | 已完成 | ToolRecord teammate/subagent host adapter 迁入 toolrecord | 结构门禁、toolrecord/core 回归 |
 | EP-064 | 已完成 | 环境尾部渲染与 Session/Workspace 取数适配迁入 prompt | 结构门禁、prompt/core 回归 |
 | EP-065 | 已完成 | explicit compaction gate 与 deferred submit 迁入 conversation/context | 结构门禁、context/core 回归 |
+| EP-066 | 已完成 | SessionInputIndex 读取编排迁入 session/query | 结构门禁、query/core 回归 |
+| EP-067 | 已完成 | provider context recovery/cleanup 迁入 conversation/context | 结构门禁、recovery/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5594,16 +5596,33 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：恢复 `application/core/session_input_index.go`，把
   `SessionQuery.InputIndex` 回调切回旧方法。
 
+## EP-067：Provider Recovery 归属迁移
+
+- provider context/history 拒绝后的有界 checkpoint、恢复/重放、可重放判据和恢复
+  信封清理从 `application/core/history_safety.go` 迁入
+  `application/conversation/context/recovery.go`；
+- `RecoveryDeps` 只接收 Core/Task/View/Context、engine history replace、stream 和
+  event 发布回调；core turn assembly 直接消费 owner；
+- display 层通过 context owner 的公开恢复标记判断内部行；core 只保留测试 shim；
+- 红测：`TestProviderRecoveryLivesInConversationContext` 点名 legacy core 文件与
+  缺失 owner；
+- 绿测：`go test ./application/conversation/context ./application/core -run
+  'Provider|Recovery|Context' -count=1`；context 新增 retryable/non-empty parity；
+- core 生产文件 58 → 57，生产代码 8,248 → 8,061 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- provider 错误分类、checkpoint、超时不自动重放、恢复信封和事件顺序不变；
+- 回退方式：恢复 `history_safety.go`，把 turn assembly 切回 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 58 |
-| core 生产代码 | 18,723 行 | 8,248 行 |
+| core 生产文件 | 126 | 57 |
+| core 生产代码 | 18,723 行 | 8,061 行 |
 
-core 生产代码净减 10,475 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 10,662 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

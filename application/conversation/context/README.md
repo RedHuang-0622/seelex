@@ -27,6 +27,8 @@
 - `application.go`：`Deps`、`Application`、`Result`、`GateTiming` 与用例。
 - `compaction_gate.go`：per-session compaction 集合、收口信号、领轮/等待与
   deferred submit 重放。
+- `recovery.go`：provider 拒绝后的有界 checkpoint、恢复/重放、可重放判据和
+  恢复信封清理。
 - `engine_facade.go`：Engine Context Coordinator/History/Deps alias 与 predicate/warning
   一行转发，供 core 装配。
 

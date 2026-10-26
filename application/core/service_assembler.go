@@ -391,6 +391,16 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		CompactionIndex: compactionIndex,
 	})
+	service.components.providerRecovery = context_runtime.NewRecovery(context_runtime.RecoveryDeps{
+		Core:                kernel,
+		Tasks:               service.components.tasks,
+		View:                service.components.view,
+		Context:             service.components.context,
+		EngineHistory:       service.engineHistoryFor,
+		ReplaceHistory:      service.replaceEngineHistory,
+		ChatStream:          service.chatStream,
+		PublishSessionEvent: service.publishSessionEvent,
+	})
 	service.assembleConversationTurnRuntimeComponents()
 	service.components.subagent = applicationexecution.NewSubagentView(applicationexecution.SubagentViewDeps{
 		Core:   kernel,

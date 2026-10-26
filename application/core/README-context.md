@@ -132,7 +132,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
   紧随其后 append 的结果行成孤儿。多保留的是本轮自己的消息，**不参与压缩判据**。
 - 观测面读历史（`/history`、工作区切换、子代理落账）不再需要"循环发布的检查点快照"：
   `History()` 任何时刻都返回当前工作历史，且不会因长流式阻塞。
-- 同会话压缩门（`context_compact_gate.go`）仍在：并发压缩会各自读同一段历史、各自替换，后写的
+- 同会话压缩门（`application/conversation/context/compaction_gate.go`）仍在：并发压缩会各自读同一段历史、各自替换，后写的
   那份把前一轮整个丢掉。区别是现在**所有**调用方都走阻塞领轮——没有谁持着"对方要用的锁"，等待只
   会排队。
 
@@ -478,7 +478,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### environment_context_test.go
 
-- `func renderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []protocol.WorkspaceEnvironmentInfo) string`
+- `func renderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []model.WorkspaceEnvironmentInfo) string`
 - `func (service *Service) environmentTraceBlockFor(sessionID string) string`
 - `func (workspace *environmentTraceWorkspace) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
 - `func (*environmentTraceWorkspace) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`

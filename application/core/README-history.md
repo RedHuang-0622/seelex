@@ -11,20 +11,14 @@
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### history_safety.go
-
-- `func nonEmptyProviderInput(input string) string`
-- `func (service *Service) recoverProviderContext(err error, originalRequest string) error` — recoverProviderContext 在 provider 因超出上下文窗口拒绝累积 transcript 后，
-- `func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error)` — recoverProviderFailure 仅在 provider 拒绝请求后，把不可用 transcript 替换
-- `func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error)` — recoverProviderFailureFor 与 recoverProviderFailure 相同，但 ctx 携带会话
-- `func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error` — retryContextRecovery 在 provider 于执行前拒绝请求（上下文长度 / 记录不合法）
-- `func retryableAfterRecovery(err error) bool` — retryableAfterRecovery 判定"被 provider 拒绝的这次请求"能否安全地重放一次
-- `func providerRecoveryDetails(kind contract.ProviderFailureKind) (prefix, heading, summary string)`
-- `func (service *Service) removeProviderContextRecovery() error`
-- `func (service *Service) removeProviderContextRecoveryFor(sessionID string) error` — removeProviderContextRecoveryFor 清理引擎私有的上下文控制信封：provider
-
 ### history_safety_test.go
 
+- `func nonEmptyProviderInput(input string) string`
+- `func (service *Service) recoverProviderContext(err error, originalRequest string) error`
+- `func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error)`
+- `func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error)`
+- `func retryableAfterRecovery(err error) bool`
+- `func (service *Service) removeProviderContextRecovery() error`
 - `func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T)`
 - `func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T)`
 - `func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t *testing.T)`
