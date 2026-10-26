@@ -159,9 +159,10 @@ const (
 // 规则将上限抬到 116。EP-026～EP-033 再新增 switchpolicy、taskcontext
 // 与 session/runtime 三个身份门面，同样只重定向稳定类型的消费边界，
 // 上限按“新模块可 +1”抬到 119。
-// EP-043：SessionState/ViewState 迁入 Application 后，两个 Middle 包退出闭包，
-// 净减少一条，上限收紧到 119。
-const facadeClosureAllowListMax = 119
+// EP-043：SessionState/ViewState 迁入 Application 后，两个 Middle 包退出闭包。
+// EP-062：resident/content LRU 从 core 归位 application/session/residency，
+// 门面闭包按“新模块可 +1”登记到 120。
+const facadeClosureAllowListMax = 120
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -195,6 +196,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/session/query",
 	// EP-033：Engine Session Runtime 身份门面。
 	"github.com/RedHuang-0622/seelex/application/session/runtime",
+	// EP-062：Session resident/content LRU 的唯一 Application owner。
+	"github.com/RedHuang-0622/seelex/application/session/residency",
 	// EP-027：Middle session-switch 纯策略身份门面。
 	"github.com/RedHuang-0622/seelex/application/session/switchpolicy",
 	// EP-025：View State 身份门面；Snapshot/revision 编排仍只有 Middle state 一份。

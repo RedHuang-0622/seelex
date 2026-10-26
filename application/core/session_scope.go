@@ -487,7 +487,7 @@ func (service *Service) readSnapshotOf(sessionID string) (model.SessionSnapshot,
 			return applicationsessionquery.SnapshotReadState{
 				Resident:        resident,
 				ViewSessionID:   viewSession,
-				ContentUnloaded: service.sessionContentUnloaded(id),
+				ContentUnloaded: service.components.residencyRuntime.ContentUnloaded(id),
 			}
 		},
 		ColdSnapshot:     service.snapshotOfCold,

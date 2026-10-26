@@ -16,7 +16,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	// 内容 LRU 回读：目标会话的可见正文可能已被卸载（视图未切换到的空闲会话
 	// 会释放正文）。热挂载只换视图指针、不重建历史，正文必须在这里从磁盘补回
 	// ——否则用户切回来看到的是空会话（磁盘为准，不丢数据）。
-	if err := service.ensureSessionContent(sessionID); err != nil {
+	if err := service.components.residencyRuntime.EnsureContent(sessionID); err != nil {
 		return err
 	}
 	// 目标会话运行中：其 framework Session 锁被 ChatStream 全程持有，
@@ -105,9 +105,9 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()
 	// G6 驻留 LRU：热切换 = 一次引擎使用（移动到使用序最前）。
-	service.touchResident(sessionID)
+	service.components.residencyRuntime.TouchResident(sessionID)
 	// 内容 LRU：热挂载的会话正文刚被使用（切换回来即最近使用）。
-	service.touchContent(sessionID)
+	service.components.residencyRuntime.TouchContent(sessionID)
 	return nil
 }
 

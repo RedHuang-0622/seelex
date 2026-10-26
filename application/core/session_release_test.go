@@ -17,6 +17,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -41,32 +42,23 @@ func TestSessionReleaseFacadeOnlyDelegatesToApplication(t *testing.T) {
 	if !ok {
 		t.Fatal("无法定位测试源码")
 	}
-	path := filepath.Join(filepath.Dir(file), "session_release.go")
+	corePath := filepath.Join(filepath.Dir(file), "session_release.go")
+	if _, err := os.Stat(corePath); err == nil {
+		t.Fatal("application/core/session_release.go must be removed")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	path := filepath.Join(filepath.Dir(file), "..", "session", "residency", "runtime.go")
 	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
-	}
-	want := map[string]bool{
-		"releaseSessionMemory":    false,
-		"reconcileSessionRelease": false,
 	}
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Service") {
 			continue
 		}
-		if _, tracked := want[function.Name.Name]; !tracked {
-			continue
-		}
-		want[function.Name.Name] = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("%s 有 %d 条语句，want 一行 sessionReleaseApplication 转发", function.Name.Name, len(function.Body.List))
-		}
-	}
-	for name, found := range want {
-		if found {
-			t.Fatalf("core %s forwarder must be removed", name)
-		}
+		t.Errorf("residency runtime must not hold a *Service receiver: %s", function.Name.Name)
 	}
 }
 

@@ -55,20 +55,6 @@ type serviceState struct {
 	// sessionIDSeq 是显式新建会话（fork/切项目）ID 的全局原子序号
 	// （F-4：逐会话宿主不再经 engine.StartSession 拿活跃别名 ID）。
 	sessionIDSeq atomic.Uint64
-	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
-	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
-	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
-	residentOrder []string
-
-	// loadedContentOrder 是「已加载会话可见正文」的 LRU 使用序（Core.ViewMu
-	// 保护；索引 0 = 最近使用）。内容上限 = limits.loaded_content_limit
-	// （默认 12，见 seelexctx.LoadedContentLimit）；超限时按最旧优先卸载正文
-	// （application/core/content_lru.go）：视图会话 / running / queued /
-	// awaiting_approval（含待批/排队输入）/ restoring / 本已无正文的会话都
-	// 不做候选。与 residentOrder 是两层独立治理：引擎驻留与否、正文留内存
-	// 与否互不替代。
-	loadedContentOrder []string
-
 	// compacting 是「该会话有一轮上下文压缩正在进行」的集合（Core.ViewMu 保护）。
 	// 它必须独立于 ChatState.Running 存在：落在**没有在飞回合**的会话上的显式
 	// 压缩（冷加载/刚清空 → compactSessionContextWithoutEpoch）刻意不写 Running

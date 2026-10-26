@@ -280,7 +280,7 @@ func (service *Service) assembleSubmitApplication() {
 			service.ViewMu.RLock()
 			loaded := service.sessionLoaded(sessionID)
 			service.ViewMu.RUnlock()
-			return loaded, service.sessionContentUnloaded(sessionID)
+			return loaded, service.components.residencyRuntime.ContentUnloaded(sessionID)
 		},
 		Resume: service.components.sessionResume.Resume,
 		Submit: service.submitConversationFor,

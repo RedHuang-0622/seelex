@@ -81,7 +81,9 @@ func (service *Service) assembleSessionDraftComponents() {
 			service.components.sessions.RequestCatalogRefresh()
 		},
 		FlushToolRecord: service.flushToolRecord,
-		TouchResident:   service.touchResident,
+		TouchResident: func(sessionID string) {
+			service.components.residencyRuntime.TouchResident(sessionID)
+		},
 	})
 
 	service.components.sessionDraftEntry = applicationsession.NewDraftEntry(applicationsession.DraftEntryDeps{

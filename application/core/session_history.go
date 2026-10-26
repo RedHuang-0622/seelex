@@ -473,7 +473,7 @@ func (service *Service) installVisibleHistory(
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	// 内容 LRU：分页/回读都是一次正文使用（移动到使用序最前并收敛超限）。
-	service.touchContent(sessionID)
+	service.components.residencyRuntime.TouchContent(sessionID)
 	return nil
 }
 

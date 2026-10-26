@@ -373,24 +373,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestApprovalConcurrentSessionsStayAttributed(t *testing.T)` — TestApprovalConcurrentSessionsStayAttributed -race 靶场：两会话并发开
 - `func startsWithApprovalID(id, prefix string) bool`
 
-### content_lru.go
-
-- `func (service *Service) touchContent(sessionID string)` — touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），
-- `func (service *Service) markContentRecentLocked(sessionID string)` — markContentRecentLocked 把会话移到内容 LRU 使用序最前（索引 0 = 最近使用；
-- `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
-- `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
-- `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
-- `func (service *Service) contentLimitSnapshotLocked(protect string) applicationsession.EvictionSnapshot` — contentLimitSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
-- `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
-- `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
-- `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要
-- `func (service *Service) ensureSessionContent(sessionID string) error` — ensureSessionContent 在目标会话正文已被卸载时从磁盘回读（热挂载不重建
-- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口：经与「回到最新」同一条尾部
-
-### content_lru_snapshot_test.go
-
-- `func TestEvictionSnapshotsDoNotAliasOrderBackingArray(t *testing.T)` — P20 回归：超限收敛的**快照必须不别名**会话使用序的底层数组。
-
 ### content_lru_test.go
 
 - `func withContentLimit(limit int) func()` — withContentLimit 临时把进程级 loaded_content_limit 改成 limit，返回还原
@@ -648,6 +630,10 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestConcurrentSessionsKeepOwnContent(t *testing.T)`
 - `func concurrentTranscriptText(events []model.TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
 - `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
+
+### session_content_reload.go
+
+- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent reloads an evicted visible window from durable pages.
 
 ### session_conversation_history_query_test.go
 
@@ -1114,12 +1100,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 
 - `func BenchmarkSessionRecoveryPath(b *testing.B)` — BenchmarkSessionRecoveryPath 对照应用层两条恢复路径：
 
-### session_release.go
-
-- `func (service *Service) protectedSessionLocked(sessionID string) bool` — protectedSessionLocked 报告目标会话是否属于**受保护集**（绝不释放；调用方持有
-- `func (service *Service) releaseSessionContentMemory(sessionID string)` — releaseSessionMemory 释放一个会话的内存占用（引擎 + 桥侧本体 + 正文 + 使用序，
-- `func (service *Service) forgetResidentLocked(sessionID string)` — forgetResidentLocked 把会话移出驻留使用序并清驻留标记（调用方持有 Core.ViewMu）。
-
 ### session_release_async_test.go
 
 - `func TestDeleteSessionReleasesBackgroundRuns(t *testing.T)`
@@ -1144,6 +1124,11 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestDeleteSessionReleasesMemory(t *testing.T)` — TestDeleteSessionReleasesMemory：删除**非视图**会话必须把内存一起放掉（引擎 +
 - `func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T)` — TestDeleteViewSessionSwitchesViewToFreshDraft：删除**当前视图**会话时，重的三面
 - `func TestReleaseSessionMemorySkipsProtectedSession(t *testing.T)` — TestReleaseSessionMemorySkipsProtectedSession：释放面自身带二次确认——直接调用
+
+### session_residency_runtime_test_aliases_test.go
+
+- `func (service *Service) ensureSessionContent(sessionID string) error`
+- `func (service *Service) sessionContentUnloaded(sessionID string) bool`
 
 ### session_resource_isolation_test.go
 

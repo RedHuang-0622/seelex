@@ -78,7 +78,9 @@ func (service *Service) assembleSchedulerApplications() {
 		PublishSnapshotChanged: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
-		TouchResident: service.touchResident,
+		TouchResident: func(sessionID string) {
+			service.components.residencyRuntime.TouchResident(sessionID)
+		},
 		RequestCatalogRefresh: func() {
 			service.components.sessions.RequestCatalogRefresh()
 		},

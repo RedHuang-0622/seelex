@@ -22,6 +22,7 @@ import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	applicationsessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
@@ -54,6 +55,7 @@ type serviceComponents struct {
 	conversationHistoryQuery     *applicationhistory.Application
 	historyWindowAssembler       applicationhistory.WindowAssembler
 	residency                    applicationsession.ResidencyPort
+	residencyRuntime             *applicationsessionresidency.Runtime
 	conversationStreams          applicationconversation.StreamOutputPort
 	accountWindowPolicy          applicationadmin.AccountWindowPolicy
 	skillActivation              applicationpolicy.SkillActivationPort

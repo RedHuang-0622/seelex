@@ -186,8 +186,12 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 		PublishRuntime: service.publishRuntimeProjections,
 		RefreshCatalog: func() { service.components.sessions.RequestCatalogRefresh() },
-		TouchResident:  service.touchResident,
-		TouchContent:   service.touchContent,
+		TouchResident: func(sessionID string) {
+			service.components.residencyRuntime.TouchResident(sessionID)
+		},
+		TouchContent: func(sessionID string) {
+			service.components.residencyRuntime.TouchContent(sessionID)
+		},
 	})
 
 	service.components.sessionColdCommit = applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{

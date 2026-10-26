@@ -149,6 +149,7 @@
 | AP-115C2c | 已完成 | WorkItem/批次输入投影进入 table 包 | row/batch parity、core 行数净减 |
 | EP-060 | 已完成 | WorkTable runtime、源同步、生命周期消费者与 Todo 刷新迁入 table | 结构门禁、core WorkTable 全量回归 |
 | EP-061 | 已完成 | Session restore/view-intent 与目录富化状态迁入 viewstate | 结构门禁、viewstate/core 回归 |
+| EP-062 | 已完成 | resident/content LRU 与释放保护状态迁入 session/residency | 结构门禁、residency/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5501,16 +5502,36 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - Snapshot、目录行状态、GUI/TUI wire、事件 revision/seq 与持久化格式不变；
 - 回退方式：恢复 `service_snapshot.go` 与 core 字段，把 assembler/调用点切回 core。
 
+## EP-062：Session Residency Runtime 归属迁移
+
+- resident engine 使用序、loaded content 使用序、受保护集、两层驱逐、
+  正文卸载和自动回读入口从
+  `application/core/{resident_lru,content_lru,session_release}.go` 迁入
+  `application/session/residency/runtime.go`；
+- 新 owner 只接收共享状态内核、Session/View、`ResidencyPort`、上限及
+  flush/release/reload/catalog 回调，不 import `application/core`，不持有 `Service`；
+- core assembler 构造唯一 `residency.Runtime`，Session lifecycle/draft/cold/query、
+  Turn tail 和历史安装均直接调用 owner；core 只保留 history-page 的
+  `reloadSessionContent` 读回适配；
+- 红测：`TestSessionResidencyRuntimeLivesInSessionPackage` 初始点名三个 legacy
+  core 文件和缺失的新 runtime；
+- 绿测：`go test ./application/session/residency ./application/core -count=1`；
+  snapshot 不别名底层顺序的双层回归随 owner 迁入新包；
+- core 生产文件 64 → 62，生产代码 9,069 → 8,573 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- LRU 顺序、释放窗口、内容卸载、Snapshot 目录刷新、GUI/TUI wire 与持久化格式不变；
+- 回退方式：恢复三个 core 文件与顺序字段，把 assembler/调用点切回 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 64 |
-| core 生产代码 | 18,723 行 | 9,069 行 |
+| core 生产文件 | 126 | 62 |
+| core 生产代码 | 18,723 行 | 8,573 行 |
 
-core 生产代码净减 9,654 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 10,150 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

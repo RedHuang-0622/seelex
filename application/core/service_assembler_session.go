@@ -75,7 +75,7 @@ func (service *Service) assembleSessionReleaseApplication() {
 		Protected: func(sessionID string) bool {
 			service.ViewMu.RLock()
 			defer service.ViewMu.RUnlock()
-			return service.protectedSessionLocked(sessionID)
+			return service.components.residencyRuntime.ProtectedSessionLocked(sessionID)
 		},
 		Persist: func(sessionID string) error {
 			location := service.components.sessions.LocateSession(sessionID)
@@ -96,7 +96,9 @@ func (service *Service) assembleSessionReleaseApplication() {
 		ForgetGoal: func(sessionID string) {
 			service.components.goal.ForgetSession(sessionID)
 		},
-		ReleaseContent: service.releaseSessionContentMemory,
+		ReleaseContent: func(sessionID string) {
+			service.components.residencyRuntime.ReleaseContentMemory(sessionID)
+		},
 		ReleaseFull: func(sessionID string) {
 			service.ViewMu.Lock()
 			service.sessions.Remove(sessionID)
@@ -107,17 +109,19 @@ func (service *Service) assembleSessionReleaseApplication() {
 		},
 		ForgetOrders: func(sessionID string) {
 			service.ViewMu.Lock()
-			service.forgetResidentLocked(sessionID)
-			service.forgetContentLocked(sessionID)
+			service.components.residencyRuntime.ForgetResidentLocked(sessionID)
+			service.components.residencyRuntime.ForgetContentLocked(sessionID)
 			service.ViewMu.Unlock()
 		},
 		ReleaseToolRecord: service.releaseToolRecordSession,
 		RequestRefresh: func() {
 			service.components.sessions.RequestCatalogRefresh()
 		},
-		ReconcileResident: service.reconcileResidentLimit,
+		ReconcileResident: func() {
+			service.components.residencyRuntime.ReconcileResident()
+		},
 		ReconcileContent: func() {
-			service.reconcileLoadedContentLimit("")
+			service.components.residencyRuntime.ReconcileContent("")
 		},
 	})
 }
@@ -172,7 +176,7 @@ func (service *Service) assembleSessionUseCaseApplications() {
 			gate := applicationsession.ArchiveGate{
 				Closed:    service.closed,
 				Draining:  service.draining,
-				Busy:      service.sessionBusy(service.sessions.Unit(sessionID)),
+				Busy:      service.components.residencyRuntime.SessionBusy(service.sessions.Unit(sessionID)),
 				Restoring: service.components.view.IsRestoringLocked(sessionID),
 			}
 			service.ViewMu.RUnlock()
@@ -213,7 +217,7 @@ func (service *Service) assembleSessionUseCaseApplications() {
 		},
 		ForgetResident: func(sessionID string) {
 			service.ViewMu.Lock()
-			service.forgetResidentLocked(sessionID)
+			service.components.residencyRuntime.ForgetResidentLocked(sessionID)
 			service.ViewMu.Unlock()
 		},
 		ReleaseSession: service.releaseSessionAsync,

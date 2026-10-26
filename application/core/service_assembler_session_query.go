@@ -43,7 +43,9 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 			service.ViewMu.RUnlock()
 			return sessionID, workspaceID, offset
 		},
-		ContentUnloaded:        service.sessionContentUnloaded,
+		ContentUnloaded: func(sessionID string) bool {
+			return service.components.residencyRuntime.ContentUnloaded(sessionID)
+		},
 		ReloadContent:          service.reloadSessionContent,
 		WindowAssembler:        historyWindowAssembler,
 		VisibleWindowFirstRow:  service.visibleWindowFirstRow,

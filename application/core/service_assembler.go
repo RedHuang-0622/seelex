@@ -13,6 +13,8 @@ import (
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
@@ -288,6 +290,23 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 	})
 	service.components.sessions.BindView(service.components.view)
+	service.components.residencyRuntime = applicationsessionresidency.NewRuntime(applicationsessionresidency.RuntimeDeps{
+		Core:                 kernel,
+		Units:                sessionDomain,
+		View:                 service.components.view,
+		Port:                 service.components.residency,
+		ResidentSessionLimit: func() int { return applicationpolicy.Get().ResidentSessionLimit },
+		LoadedContentLimit:   func() int { return applicationpolicy.Get().LoadedContentLimit },
+		ReleaseWindow:        func() int { return applicationpolicy.Get().ReleaseWindow() },
+		FlushSession: func(sessionID string) error {
+			return service.components.sessions.PersistCurrentSession(service.components.sessions.LocateSession(sessionID), sessionID)
+		},
+		ReleaseResident: func(sessionID string) error {
+			return service.components.sessionReleaseApplication.Release(sessionID, applicationsession.ReleaseIdle)
+		},
+		RequestCatalogRefresh: func() { _ = service.components.sessions.RequestCatalogRefresh() },
+		ReloadContent:         service.reloadSessionContent,
+	})
 	service.assembleFrontendSnapshotApplication()
 	// TurnProcess captures the view coordinator method value, so it must be
 	// assembled after the coordinator exists. This is composition order, not a

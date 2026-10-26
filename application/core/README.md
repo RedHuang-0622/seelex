@@ -157,6 +157,10 @@ Session 的 restoring 集合、restore 广播、view epoch/intent、目录行状
 [`application/session/viewstate`](../session/viewstate/README.md)。core 只通过
 `viewstate.Coordinator` 访问这些状态，不再保存第二份视图意图或恢复集合。
 
+resident engine 与 loaded content 两层 LRU、受保护集、正文卸载及自动回读已归
+[`application/session/residency`](../session/residency/README.md)。core 不再持有
+`residentOrder` / `loadedContentOrder` 状态，也不复制释放判据。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、
