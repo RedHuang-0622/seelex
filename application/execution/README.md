@@ -29,8 +29,8 @@ Role Tool Activity 的 Application 用例。真实调用方是
 - `project_board.go`：`ProjectBoardDeps`、`ProjectBoardApplication` 与构造器。
 - `work_item.go`：WorkItem/teammate 读取与 todo 状态变更。
 - `board_reader.go`：`BoardReader`，WorkItem 消费的团队看板与 teammate live 只读端口。
-- `board_facade.go`：Middle `ProjectBoardSink` / `TeamworkPlanSource` 的 identity alias。
-- `subagent_view.go`：Middle subagent view Coordinator/Deps 的 identity alias 与构造转发。
+- `subagentview/`：子代理详情、live 事件与 Plan 节点投影 owner。
+- `kernel/board`：ProjectBoardSink、TeamworkPlanSource 与看板读写的唯一 owner。
 - `subagent.go`：子代理恢复、fork、详情与树清理。
 - `completion.go`：异步作业与 teammate 作业终态触发。
 - `role_activity.go`：`RoleActivityApplication`，负责任务归属、状态分类、
@@ -96,16 +96,6 @@ go test ./application/... -count=1
 ### `board_reader.go`
 
 - `type BoardReader interface` — WorkItem 消费的团队看板与 teammate live 只读投影。
-
-### `board_facade.go`
-
-- `type ProjectBoardSink = board.ProjectBoardSink` — 工具完成订阅口的同身份 alias。
-- `type TeamworkPlanSource = board.TeamworkPlanSource` — Runtime 可选团队计划读面的同身份 alias。
-
-### `subagent_view.go`
-
-- `type SubagentViewCoordinator = subagentview.Coordinator` — 子代理投影协调器的同身份 alias。
-- `func NewSubagentView(deps SubagentViewDeps) *SubagentViewCoordinator` — 转发 Middle 唯一构造。
 
 ### `project_board.go`
 

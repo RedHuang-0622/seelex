@@ -18,7 +18,7 @@ flowchart LR
 ```
 
 本包只做「配置装载 + 策略类型」，窗口轮数的实际计算在 `backend/engine/context/seelectx/window.go`。
-Application 通过 [`application/window`](../../../../application/window/README.md)
+Application 通过 [`application/window`](../../application/window/README.md)
 的同身份 alias 消费本包；core 不直接 import contextcontrol。
 
 ## 测试

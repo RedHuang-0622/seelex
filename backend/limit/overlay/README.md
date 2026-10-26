@@ -65,7 +65,7 @@ flowchart LR
 
 ## 依赖方向
 
-- 允许：标准库 + [`backend/limit`](../README.md)（`Limits` 与窗口校验）。
+- 允许：标准库 + [`kernel/limit`](../../../kernel/limit/README.md)（`Limits` 与窗口校验）。
 - 禁止：`application/*`、`seelebridge/*`、`seelexctx`——覆盖层在 limit 板块内部，
   不许回头依赖上层。核对：`go list -deps ./backend/limit/overlay`。
 

@@ -34,7 +34,7 @@
   [`backend/engine/task`](../../backend/engine/task/README.md)，包名不变。）
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
-  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`kernel/limit`](../../backend/limit/README.md)。
+  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`kernel/limit`](../../kernel/limit/README.md)。
 
 域包依赖 `state.Core` 与装配根注入的消费方窄接口，禁止反向依赖 core 根包；
 `service_assembler.go` 是唯一组合根。
@@ -64,7 +64,7 @@ flowchart TB
         SV["application/execution/subagentview<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
         TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
-        PL["backend/engine/prompt<br/>prompt_layer：system prompt 组装"]
+        PL["kernel/prompt<br/>prompt_layer：system prompt 组装"]
     end
 
     subgraph LEAF["零依赖叶子域"]
@@ -520,7 +520,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [../../backend/engine/session/](../../backend/engine/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |
 | [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [../../backend/engine/context/](../../backend/engine/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |
-| [../../backend/engine/prompt/](../../backend/engine/prompt/README.md) | system prompt 组装与引擎同步（M5-R7 归位，包名 `prompt_layer`） |
+| [../../kernel/prompt/](../../kernel/prompt/README.md) | system prompt 组装、资源与引擎同步（M5-R7 归位） |
 | [../session/viewstate/](../session/viewstate/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../execution/subagentview/](../execution/subagentview/README.md) | 子代理详情/live/树投影 |
 | [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |

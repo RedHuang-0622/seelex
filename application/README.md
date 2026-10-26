@@ -175,7 +175,7 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | [`session/`](session/README.md) | Session Meta、SSH、Release |
 | [`session/cold/`](session/cold/README.md) | 冷恢复读取、历史、引擎恢复、workspace、激活、Task/View/Commit/Publish |
 | [`session/runtime/`](session/runtime/README.md) | Engine Session Coordinator/helper identity facade |
-| [`session/switchpolicy/`](session/switchpolicy/README.md) | queue/draft/interaction/release 等 Middle 纯策略 facade |
+| [`../kernel/sessionpolicy/`](../kernel/sessionpolicy/README.md) | queue/draft/interaction/release 等中立纯策略 owner |
 | [`session/viewstate/`](session/viewstate/README.md) | Snapshot/message/revision View State identity facade |
 | [`session/query/`](session/query/README.md) | Session 只读目录、元数据与 durable 查询 |
 | [`policy/`](policy/README.md) | Role policy、Permission Tier、Effort、Plugin 与运行时策略切换 |
@@ -759,7 +759,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 <!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [`../backend/engine/input/`](../backend/engine/input/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表（M5-R7 迁出 `core/input_router/`，包名不变）。 |
 | [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
-| [`../backend/engine/prompt/`](../backend/engine/prompt/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）（M5-R7 迁出 `core/prompt_layer/`，包名不变）。 |
+| [`../kernel/prompt/`](../kernel/prompt/README.md) | system prompt 层组装、资源与引擎同步（前缀缓存友好）。 |
 | [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
 | [`../backend/engine/session/`](../backend/engine/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
 | [`execution/subagentview/`](execution/subagentview/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（EP-073 迁入 Application）。 |
@@ -769,7 +769,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`../kernel/worktable/`](../kernel/worktable/README.md) | 工作表格纯投影与增量事件中枢（CSP 汇聚、latest-wins、有界背压）（EP-074 中立 owner）。 |
 
 `core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
-[`backend/limit/`](../backend/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
+[`kernel/limit/`](../kernel/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
 同一处）；
 `application/search` 已于 2026-08-22 迁至 `backend/tool/search/`（后端能力归位）；
 `application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口（薄转发）已于

@@ -265,7 +265,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 任何信号说明该换入口。作业面关闭时**不**审查：没有 `bash_bg` 可派发，拒绝一条长命令等于
 既不执行也不给替代路径。没声明 `timeout` 的调用同样不审查（没有"声明的时长"），长命令该
 去哪由描述与系统提示词负责说明。这条线的数字在三份工具描述与
-[`assets/system/instructions.md`](../../engine/prompt/assets/assets/system/instructions.md)
+[`assets/system/instructions.md`](../../../kernel/prompt/assets/assets/system/instructions.md)
 的 `Long-Running Commands` 段里各出现一次，来源只有 `serialBashBudget`：
 `serial_bash_budget_test.go` 同时钉住拒绝、边界、开关不误伤与"提示词里的数字就是代码执行
 的数字"。

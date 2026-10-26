@@ -191,7 +191,7 @@ go list -deps ./kernel/limit
 
 跨包互钉：`backend/engine/context/seelectx/controller_limits_test.go`（注入的比例真的改变阈值）、
 `gui/frontend/dist/settings-release-window.test.mjs`（前端边界与
-`backend/limit/limits.go` 的常量逐值一致）。
+`limits.go` 的常量逐值一致）。
 
 ## 文件与函数索引
 

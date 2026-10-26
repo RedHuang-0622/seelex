@@ -12,7 +12,7 @@
 | 来源 | 家 |
 |---|---|
 | 界面上设的（挡位/自定义） | 数据根的覆盖层 [`../overlay`](../overlay/README.md)（`account_windows`） |
-| 全局阈值 | `config/seelex.yaml` 的 `limits.context_window`（[`backend/limit`](../README.md)） |
+| 全局阈值 | `config/seelex.yaml` 的 `limits.context_window`（[`kernel/limit`](../../../kernel/limit/README.md)） |
 | 账号档自报值 | 账号池（遗留兜底） |
 
 优先级（账号级 > 全局 > 账号档）由运行时的 `ContextWindowFor` 一处判定；

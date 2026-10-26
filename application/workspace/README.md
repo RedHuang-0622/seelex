@@ -26,7 +26,7 @@ Application 投影编排。当前真实调用方是 `application/core.Service` �
 ## 文件结构
 
 - `application.go`：窄端口、`Application`、Workspace 查询与批量登记编排。
-- `switch_workspace.go`：Switch Workspace 类型 alias 与 `NewSwitch` 转发。
+- `switch/`：Workspace Switch 用例唯一实现。
 - `application_test.go`：环境表、路径 containment、端口降级和发布顺序测试。
 
 ## 核心实现

@@ -12,7 +12,7 @@
 - 未来收口后的 `backend/engine/*`（同款注入面）。
 
 跨层共享的判据（结构化错误码、provider 失败分类、ReAct 预算哨兵）不在本包，而在
-[`contract`](../../../contract/README.md)：plan §1.1 规定
+[`contract`](../../contract/README.md)：plan §1.1 规定
 Application、Middle 与 Backend 都只能依赖契约层的错误判据，
 所以判据必须落在契约，本包只消费。
 
