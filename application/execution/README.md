@@ -25,6 +25,8 @@ Application 用例。真实调用方是 `application/core.Service` 的兼容入�
 ## 文件结构
 
 - `project_board.go`：`ProjectBoardDeps`、`ProjectBoardApplication` 与构造器。
+- `teamwork_plan.go`：ProjectBoard 消费的 TeamworkPlan/State 迁移期同身份类型；
+  Store 继续拥有计划状态机与持久化载荷。
 - `work_item.go`：WorkItem/teammate 读取与 todo 状态变更。
 - `board_reader.go`：`BoardReader`，WorkItem 消费的团队看板与 teammate live 只读端口。
 - `board_facade.go`：Middle `ProjectBoardSink` / `TeamworkPlanSource` 的 identity alias。

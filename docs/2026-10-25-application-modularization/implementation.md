@@ -202,6 +202,7 @@
 | EP-037 | 已完成 | Limits 读取与 ReleaseWindow 写入归位 | 删除 core Limits；ApplySessionReleaseWindow 迁入 policy |
 | EP-038 | 已完成 | CompressedTurn Archiver 与 Goal Store 解析归位 | Store commit port、Event DTO alias、core 净减 104 行 |
 | EP-039 | 已完成 | Event 段落与 Queue 恢复 DTO 契约化 | `contract/protocol` 唯一段落实现、`contract/dto` queue DTO、core Store import 7 → 1 |
+| EP-040 | 已完成 | ProjectBoard Store 类型边归位 | execution 类型门面、core Store import 归零、直接依赖 2 → 1 |
 
 ## 基线指标
 
@@ -5074,16 +5075,29 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - 回退方式：恢复 Store 内段落函数本体与 Queue 本地类型，并把 edit/fork 消费点
   改回 Store Event；Contract alias 可整体删除。
 
+## EP-040：ProjectBoard Store 类型边归位
+
+- `application/execution` 暴露 `TeamworkPlan/TeamworkState` 迁移期同身份类型，
+  ProjectBoard Application 与 core 不再直接 import Store；
+- ProjectBoard 的 WorkTable、Team Plan、Team State 与 ProjectRoot 读面仍保持原签名；
+  Store 继续唯一拥有 TeamworkPlan 状态机、校验和持久化载荷；
+- 红测：`TestCoreProjectBoardDoesNotImportStore` 初始点名 `project_board_read.go`；
+- 绿测：Application ProjectBoard、Execution、Core、Wiring registry 与架构预算；
+- core 直接内部依赖 2 → 1；直接 Store import 1 → 0；生产文件保持 114，
+  生产代码 11,603 → 11,602 行；
+- GUI/TUI wire、事件 revision/seq、snapshot 与持久化 JSON 字段均未改变；
+- 回退方式：恢复 core 直接 import Store，并删除 execution 的 Teamwork 类型门面。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 23 |
-| core 直接内部依赖 | 37 | 2 |
+| core 直接内部依赖 | 37 | 1 |
 | core 生产文件 | 126 | 114 |
-| core 生产代码 | 18,723 行 | 11,603 行 |
+| core 生产代码 | 18,723 行 | 11,602 行 |
 
-core 生产代码净减 7,120 行，直接内部依赖从 37 降到 2；
+core 生产代码净减 7,121 行，直接内部依赖从 37 降到 1；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

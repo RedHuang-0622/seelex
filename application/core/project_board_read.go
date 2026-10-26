@@ -5,7 +5,6 @@ import (
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func (service *Service) projectBoardQueryComponent() *applicationexecution.ProjectBoardApplication {
@@ -29,7 +28,7 @@ func newServiceProjectBoardQuery(service *Service) *applicationexecution.Project
 		ProjectRoot: func(sessionID string) string {
 			return service.components.sessionQuery.ProjectRootFor(sessionID)
 		},
-		TeamPlan: func(sessionID string) *store.TeamworkPlan {
+		TeamPlan: func(sessionID string) *applicationexecution.TeamworkPlan {
 			if service.Deps.Runtime == nil || sessionID == "" {
 				return nil
 			}

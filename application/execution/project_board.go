@@ -8,7 +8,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ProjectBoardDeps supplies the authoritative live inputs for the project
@@ -17,7 +16,7 @@ type ProjectBoardDeps struct {
 	WorkTableInputs func(sessionID string) (*model.PlanState, []dto.TaskRecord, []dto.SubAgentTreeNode, []dto.AsyncRunRecord)
 	WorkTableLimits func() worktable.Limits
 	ProjectRoot     func(sessionID string) string
-	TeamPlan        func(sessionID string) *store.TeamworkPlan
+	TeamPlan        func(sessionID string) *TeamworkPlan
 }
 
 // ProjectBoardApplication coordinates the four project-board read entries.
@@ -43,12 +42,12 @@ func (application *ProjectBoardApplication) ProjectRootFor(sessionID string) str
 }
 
 // ProjectBoardTeamPlanFor returns the optional teamwork plan for the session.
-func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan {
+func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *TeamworkPlan {
 	return application.deps.TeamPlan(strings.TrimSpace(sessionID))
 }
 
 // ProjectBoardTeamStateFor extracts the run state from the authoritative plan.
-func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState {
+func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *TeamworkState {
 	plan := application.ProjectBoardTeamPlanFor(sessionID)
 	if plan == nil {
 		return nil

@@ -1,11 +1,10 @@
 {
   "service_method_count": 23,
-  "core_internal_dependency_limit": 2,
+  "core_internal_dependency_limit": 1,
   "core_production_file_limit": 114,
-  "core_production_line_limit": 11603,
+  "core_production_line_limit": 11602,
   "allowed_core_internal_dependencies": [
-    "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase",
-    "github.com/RedHuang-0622/seelex/store"
+    "github.com/RedHuang-0622/seelex/middle/switch/sessionusecase"
   ],
   "compatibility_ledger": "docs/2026-10-25-application-modularization/implementation.md",
   "compatibility_ledger_required_heading": "## 兼容层台账"

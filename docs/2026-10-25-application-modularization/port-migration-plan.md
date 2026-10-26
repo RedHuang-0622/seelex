@@ -20,7 +20,7 @@ AP-116F2f 后：
 
 - `application/core`：115 个生产文件、11,709 行；
 - `Service` 公开方法：23；
-- core 直接内部依赖：2。
+- core 直接内部依赖：1。
 
 解除外部包依赖不能只写“把 import 改成 interface”。必须满足：
 
