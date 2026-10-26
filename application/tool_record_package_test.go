@@ -2,8 +2,6 @@ package application_test
 
 import (
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,20 +16,13 @@ func TestToolRecordApplicationIsExtractedFromCore(t *testing.T) {
 
 	coreFiles := []string{"tool_record.go", "tool_record_stage.go"}
 	for _, name := range coreFiles {
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "core", name), nil, 0)
-		if err != nil {
-			t.Fatalf("解析 core %s: %v", name, err)
+		path := filepath.Join(applicationDir, "core", name)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			t.Fatalf("检查 core %s: %v", name, err)
 		}
-		for _, duplicate := range []string{
-			"toolRecordAccumulators",
-			"toolRecordStages",
-			"toolStatusFailed",
-			"toolRecordReason",
-		} {
-			if fileDeclares(file, duplicate) {
-				t.Errorf("duplicate tool-record state machine %s remains in application/core/%s", duplicate, name)
-			}
-		}
+		t.Errorf("application/core/%s must be removed; ToolRecord host adapters live in toolrecord", name)
 	}
 }
 

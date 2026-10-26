@@ -15,7 +15,8 @@
 5. **两层的超限收敛**（`EvictUntilWithinLimit`）：按使用序逐个卸载**最旧且可卸载**的会话，
    直到占用本层的会话数进入额度；受保护集既不计数也不参与挑选，没有候选即容忍超限。
    正文层（可见正文窗口）与引擎层（引擎 bundle 驻留）逐字同形，因此**只有这一份循环**
-   （M5-R6-content-lru 来自 `content_lru.go`；M5-R6-resident-lru 来自 `resident_lru.go`）。
+   （M5-R6 的宿主编排现归 `application/session/residency/runtime.go`；本包只保留
+   纯顺序、预算与驱逐判据）。
 
 `session_cold_read` / `session_input_index` / `window` 随 R6 续做搬入；两层的**受保护集读数**
 （要读会话单元状态与引擎桥）留在宿主，只把判据送进来。

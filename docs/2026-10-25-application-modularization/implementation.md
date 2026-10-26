@@ -150,6 +150,7 @@
 | EP-060 | 已完成 | WorkTable runtime、源同步、生命周期消费者与 Todo 刷新迁入 table | 结构门禁、core WorkTable 全量回归 |
 | EP-061 | 已完成 | Session restore/view-intent 与目录富化状态迁入 viewstate | 结构门禁、viewstate/core 回归 |
 | EP-062 | 已完成 | resident/content LRU 与释放保护状态迁入 session/residency | 结构门禁、residency/core 回归 |
+| EP-063 | 已完成 | ToolRecord teammate/subagent host adapter 迁入 toolrecord | 结构门禁、toolrecord/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5522,16 +5523,32 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - LRU 顺序、释放窗口、内容卸载、Snapshot 目录刷新、GUI/TUI wire 与持久化格式不变；
 - 回退方式：恢复三个 core 文件与顺序字段，把 assembler/调用点切回 core。
 
+## EP-063：ToolRecord Host Adapter 归属迁移
+
+- teammate 状态帧解析、subagent event 解析、稳定 subagent unit key 与终态节点
+  递归收口从 `application/core/{tool_record,tool_record_stage}.go` 迁入
+  `application/execution/toolrecord/host.go`；
+- core 的 assemble、RoleActivity、Subagent view、WorkTable runtime、turn tail、
+  release 和 shutdown 路径直接调用 ToolRecord 组件；core 只保留 draft 可写判据与
+  view session 两个装配回调；
+- 红测：`TestToolRecordHostAdaptersLiveInToolRecord` 点名两个 legacy core 文件和
+ 缺失的新 owner；
+- 绿测：`go test ./application/execution/toolrecord ./application/core -count=1`；
+- core 生产文件 62 → 60，生产代码 8,573 → 8,486 行；`Service` 公开方法保持 0，
+  core 直接内部依赖和 Application 具体依赖包数不变；
+- ToolRecord 判据、unit key、flush 顺序、JSONL wire、GUI/TUI 行为与持久化格式不变；
+- 回退方式：恢复两个 core host adapter 文件，把装配/调用点切回 core。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
-| core 生产文件 | 126 | 62 |
-| core 生产代码 | 18,723 行 | 8,573 行 |
+| core 生产文件 | 126 | 60 |
+| core 生产代码 | 18,723 行 | 8,486 行 |
 
-core 生产代码净减 10,150 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 10,237 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

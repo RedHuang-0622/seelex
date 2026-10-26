@@ -158,7 +158,11 @@ func (service *Service) assembleLifecycleApplication() {
 			service.ViewMu.Unlock()
 			return true
 		},
-		FlushToolRecords: service.flushAllToolRecords,
+		FlushToolRecords: func() {
+			if service.toolRecords != nil {
+				service.toolRecords.FlushAll()
+			}
+		},
 		StopCatalogRefresh: func() {
 			service.components.sessions.StopCatalogRefresh()
 		},

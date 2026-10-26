@@ -3,8 +3,8 @@
 ## 生态位
 
 `application/execution/toolrecord` 拥有工具记录的应用侧台账：成功/失败累计、失败原因、
-执行单元暂存、会话批次落盘与看板投影。主要调用方是 `application/core` 的
-`Service` 兼容入口；具体工具执行与持久化仍分别归工具层和 Session Store 的
+执行单元暂存、会话批次落盘与看板投影。主要调用方是 `application/core` 装配后的
+ToolRecord 组件；具体工具执行与持久化仍分别归工具层和 Session Store 的
 `tool-record.jsonl` 端口。
 
 ## 职责
@@ -16,11 +16,11 @@
 - 在提交点 drain 叶子暂存并批量落盘整份会话快照；
 - 每个会话最多懒加载一次持久快照；
 - 把累计读数投影成 `dto.ToolRecordBoard`。
+- 解析 teammate/subagent 终态帧、稳定单元键和递归终态收口。
 
 ## 非职责
 
 - 不执行工具、不判断工具权限、不生成工具消息；
-- 不执行工具；
 - 不直接读写存储文件；持久化只通过 `contract.ToolRecordSnapshotStore`；
 - 不决定会话是否已物化；该宿主判据由 `Deps.WritableSession` 注入；
 - 不持有完整 `Service`，也不 import `application/core`。
@@ -46,6 +46,16 @@ type Deps struct {
 4. `Flush` 先 drain、再检查可写会话、最后在 dirty 时写整份快照；
 5. `Board` lazily load 一次持久快照，再读取当前会话累计与最近 flush 错误；
 6. 会话释放通过 `ReleaseSession` 回收累计、暂存、加载标记和幂等序号。
+7. `StageStatus` / `StageSubagentEvent` / `CloseTerminalSubagents` 只做稳定帧分类、
+   单元键折算与终态收口，不再在 core 保留第二套 adapter。
+
+文件结构：
+
+- `application.go`：累计、暂存、flush、看板与生命周期接口；
+- `accumulator.go`：会话累计与失败原因唯一判据；
+- `stage.go`：执行单元暂存、序号幂等和 dropped 诊断；
+- `host.go`：teammate/subagent 状态帧与终态单元收口；
+- `*_test.go`：内存台账、持久化 parity 与 host adapter 回归。
 
 ## 并发与错误语义
 

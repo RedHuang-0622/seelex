@@ -191,7 +191,9 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// 原因归并吃的是**原始错误**（toolErr），不是给模型看的 errorText：后者是呈现层的
 	// 包装文案（"该工具未能完成本次操作…"），它刻意不含内部细节，拿它归因只会全落到
 	// "其它"。成功也记（开关打开时）：没有分母的失败计数会把优化带偏。
-	service.recordToolOutcome(sessionID, name, applicationtoolrecord.Failed(status), applicationtoolrecord.ErrorText(toolErr))
+	if service.toolRecords != nil {
+		service.toolRecords.RecordOutcome(sessionID, name, applicationtoolrecord.Failed(status), applicationtoolrecord.ErrorText(toolErr))
+	}
 	if assistant != nil {
 		service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, *assistant)
 	}

@@ -161,6 +161,10 @@ resident engine 与 loaded content 两层 LRU、受保护集、正文卸载及�
 [`application/session/residency`](../session/residency/README.md)。core 不再持有
 `residentOrder` / `loadedContentOrder` 状态，也不复制释放判据。
 
+ToolRecord 的 teammate/subagent 终态帧解析、稳定 unit key 和递归终态收口已归
+[`application/execution/toolrecord`](../execution/toolrecord/README.md)。core 只注入
+draft 可写判据与 view session 读数，不再保留 host adapter 文件。
+
 查询面（AP-004/AP-005）现由独立 Application 包实现，core 只保留 adapter：
 
 - [`application/session/query`](../session/query/README.md) 组合会话目录、项目根、

@@ -81,7 +81,11 @@ func (service *Service) assembleSessionReleaseApplication() {
 			location := service.components.sessions.LocateSession(sessionID)
 			return service.components.sessions.PersistCurrentSession(location, sessionID)
 		},
-		FlushToolRecord: service.flushToolRecord,
+		FlushToolRecord: func(sessionID string) {
+			if service.toolRecords != nil {
+				service.toolRecords.Flush(sessionID)
+			}
+		},
 		UnloadEngine: func(sessionID string) error {
 			if engine, ok := service.Deps.Engine.(residentEngine); ok {
 				return engine.UnloadSession(sessionID)
@@ -113,7 +117,11 @@ func (service *Service) assembleSessionReleaseApplication() {
 			service.components.residencyRuntime.ForgetContentLocked(sessionID)
 			service.ViewMu.Unlock()
 		},
-		ReleaseToolRecord: service.releaseToolRecordSession,
+		ReleaseToolRecord: func(sessionID string) {
+			if service.toolRecords != nil {
+				service.toolRecords.ReleaseSession(sessionID)
+			}
+		},
 		RequestRefresh: func() {
 			service.components.sessions.RequestCatalogRefresh()
 		},

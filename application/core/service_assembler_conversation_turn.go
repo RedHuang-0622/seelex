@@ -76,8 +76,12 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 			go service.components.conversationTurnRunner.Run(ctx, sessionID, requestID, request)
 		},
 		ReconcileSessionRelease: service.components.sessionReleaseApplication.Reconcile,
-		FlushToolRecord:         service.flushToolRecord,
-		Debug:                   runChatDebug,
+		FlushToolRecord: func(sessionID string) {
+			if service.toolRecords != nil {
+				service.toolRecords.Flush(sessionID)
+			}
+		},
+		Debug: runChatDebug,
 	})
 
 	service.components.conversationTurnCommit = applicationconversation.NewTurnCommit(applicationconversation.TurnCommitDeps{

@@ -148,7 +148,9 @@ func NewFrontendPorts(service *Service) FrontendPorts {
 			service.components.projectBoard.store(sink)
 		},
 		CloseRoleToolRecord: func(mainSessionID, roleSessionID string) {
-			service.closeUnitToolRecord(mainSessionID, applicationtoolrecord.RoleUnitID(roleSessionID, ""))
+			if service.toolRecords != nil {
+				service.toolRecords.CloseUnit(mainSessionID, applicationtoolrecord.RoleUnitID(roleSessionID, ""))
+			}
 		},
 	}
 }

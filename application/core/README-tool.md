@@ -184,13 +184,6 @@ core 兼容转发与宿主判据的边界说明。
 - `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)` — TestToolCompleteTruncatesSnapshotOutput 验证实时截断链端到端：大工具
 - `func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T)` — TestAppendHistoryLockedTruncatesRestoredOutput 验证会话恢复路径：恢复的
 
-### tool_record.go
-
-- `func (service *Service) toolRecordWritableSession(sessionID string) bool` — toolRecordWritableSession is the host's draft-versus-materialized predicate.
-- `func (service *Service) flushAllToolRecords()` — flushAllToolRecords writes every in-memory session as a shutdown fallback.
-- `func (service *Service) flushToolRecord(sessionID string)`
-- `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)` — recordToolOutcome is the single main-agent outcome forwarding entry.
-
 ### tool_record_isolation_test.go
 
 - `func toolRecordStat(tool string, success, failure int, reason string) []dto.ToolRecordStat` — toolRecordStat 造一格增量读数（失败笔数挂一个原因）。
@@ -213,19 +206,6 @@ core 兼容转发与宿主判据的边界说明。
 - `func TestToolRecordDisabledStagesNothing(t *testing.T)`
 - `func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T)`
 
-### tool_record_stage.go
-
-- `func (service *Service) stageUnitToolOutcome(sessionID, unitID, tool string, failed bool, errorText string)` — stageUnitToolOutcome records a leaf result in its execution-unit stage.
-- `func (service *Service) commitUnitToolRecord(sessionID, unitID string, seq uint64, stats []dto.ToolRecordStat)` — commitUnitToolRecord is the idempotent leaf-to-session commit entry.
-- `func (service *Service) closeUnitToolRecord(sessionID, unitID string)` — closeUnitToolRecord synchronously commits one unit's pending stage.
-- `func (service *Service) closeSubagentToolRecordUnit(ownerSessionID, nodeID string)` — closeSubagentToolRecordUnit closes the stable subagent unit key.
-- `func (service *Service) releaseToolRecordSession(sessionID string)` — releaseToolRecordSession reclaims all ledger state for a released session.
-- `func (service *Service) noteDroppedToolRecordReading(reason string)` — noteDroppedToolRecordReading records a dropped reading in diagnostics.
-- `func (service *Service) toolRecordDroppedReadings() map[string]int` — toolRecordDroppedReadings returns dropped-reading diagnostics.
-- `func (service *Service) stageUnitToolOutcomeForStatus(ownerSessionID, unitID, name, status, errorText string)` — stageUnitToolOutcomeForStatus records a parsed teammate result frame.
-- `func (service *Service) stageSubagentToolOutcome(ownerSessionID string, event dto.SubagentToolEvent)` — stageSubagentToolOutcome records a terminal subagent result frame.
-- `func (service *Service) closeTerminalSubagentToolRecords(nodes []dto.SubAgentTreeNode)` — closeTerminalSubagentToolRecords closes every terminal node's staged reading.
-
 ### tool_record_test.go
 
 - `func (s *recordingSnapshotStore) SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error`
@@ -243,3 +223,15 @@ core 兼容转发与宿主判据的边界说明。
 - `func TestToolRecordIsPerSession(t *testing.T)` — 每会话一份：两个会话的读数互不串（切会话看到的是自己的）。
 - `func TestToolRecordWithoutSessionIsDropped(t *testing.T)` — 每条记录都要有会话归属：没有归属的调用记不进任何会话（别造出"没有主人的读数"）。
 - `func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T)`
+
+### toolrecord_host_test_aliases_test.go
+
+- `func (service *Service) stageUnitToolOutcome(sessionID, unitID, tool string, failed bool, errorText string)`
+- `func (service *Service) commitUnitToolRecord(sessionID, unitID string, seq uint64, stats []dto.ToolRecordStat)`
+- `func (service *Service) closeUnitToolRecord(sessionID, unitID string)`
+- `func (service *Service) closeSubagentToolRecordUnit(ownerSessionID, nodeID string)`
+- `func (service *Service) toolRecordDroppedReadings() map[string]int`
+- `func (service *Service) stageUnitToolOutcomeForStatus(ownerSessionID, unitID, name, status, errorText string)`
+- `func (service *Service) stageSubagentToolOutcome(ownerSessionID string, event dto.SubagentToolEvent)`
+- `func (service *Service) closeTerminalSubagentToolRecords(nodes []dto.SubAgentTreeNode)`
+- `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)`

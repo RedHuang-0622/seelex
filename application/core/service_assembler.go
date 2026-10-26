@@ -166,8 +166,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			}
 			return service.Deps.ToolRecordStore.SaveToolRecordEnabled(enabled)
 		},
-		WritableSession: service.toolRecordWritableSession,
-		ViewSessionID:   service.currentViewSessionID,
+		WritableSession: func(sessionID string) bool {
+			if service == nil || service.Core == nil {
+				return true
+			}
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return !service.draftTargetLocked().Matches(sessionID)
+		},
+		ViewSessionID: service.currentViewSessionID,
 	})
 	service.assembleRoleActivityApplication()
 	service.effortManager = prompt.NewEffortManager(promptStack, service.Deps.Engine)
@@ -374,11 +381,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// 且**先落进执行单元自己的暂存**（阶梯提交的第一级台阶）：本包只报
 		// "哪个单元、谁、什么状态、错误原文"，单元键折算与主侧合并都在 core 里。
 		RecordToolOutcome: func(ownerSessionID string, event dto.SubagentToolEvent) {
-			service.stageSubagentToolOutcome(ownerSessionID, event)
+			if service.toolRecords != nil {
+				service.toolRecords.StageSubagentEvent(ownerSessionID, event)
+			}
 		},
 		// 节点收口（终态）：把暂存一次性提交给主会话累计（同步、返回即入账）。
 		CommitToolRecord: func(ownerSessionID, nodeID string) {
-			service.closeSubagentToolRecordUnit(ownerSessionID, nodeID)
+			if service.toolRecords != nil {
+				service.toolRecords.CloseSubagentUnit(ownerSessionID, nodeID)
+			}
 		},
 	})
 	service.assembleSubagentApplication()
@@ -396,12 +407,16 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// latest-wins publication. Core only supplies the host state and narrow
 	// callbacks.
 	service.components.workTableRuntime = applicationtable.NewRuntime(applicationtable.RuntimeDeps{
-		Core:                             kernel,
-		Tasks:                            service.components.tasks,
-		View:                             service.components.view,
-		Limits:                           workTableBounds,
-		TaskRecordsForSession:            service.taskRecordsForSession,
-		CloseTerminalSubagentToolRecords: service.closeTerminalSubagentToolRecords,
+		Core:                  kernel,
+		Tasks:                 service.components.tasks,
+		View:                  service.components.view,
+		Limits:                workTableBounds,
+		TaskRecordsForSession: service.taskRecordsForSession,
+		CloseTerminalSubagentToolRecords: func(nodes []dto.SubAgentTreeNode) {
+			if service.toolRecords != nil {
+				service.toolRecords.CloseTerminalSubagents(nodes)
+			}
+		},
 		SubAgentTree: func() []dto.SubAgentTreeNode {
 			service.ViewMu.RLock()
 			tree := applicationtable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
