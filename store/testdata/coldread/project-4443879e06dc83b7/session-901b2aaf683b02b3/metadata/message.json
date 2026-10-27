@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "message",
+  "commit_id": "msg-3785e31df55399d8",
+  "checksum": "c25a37161b8cfe2bce42f64b24b35cc50d4f1774b736cae0f91105ca29c0c034",
+  "updated_at": "2026-10-27T14:04:37.2527881Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "last_seq": 3,
+    "last_message_id": "m2",
+    "shards": [
+      {
+        "path": "message_1_3.jsonl",
+        "from_seq": 1,
+        "to_seq": 3,
+        "count": 3,
+        "sha256": "228c798bbd1be13ee499f085c43e2aeea09c766b56f618e1a006796fe0e72171",
+        "bytes": 727
+      }
+    ],
+    "total_rows": 3,
+    "last_commit_id": "msg-3785e31df55399d8",
+    "meta": {
+      "session_id": "session-coldread",
+      "token_count": 0,
+      "shard_count": 1,
+      "created_at": "2026-10-27T14:04:37.2527881Z",
+      "updated_at": "2026-10-27T14:04:37.2527881Z"
+    }
+  }
+}

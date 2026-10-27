@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "event",
+  "commit_id": "event-commit-coldread",
+  "checksum": "29a43ebdd1e57b4777cbed72da1572a98c16e2241d079b9b014969ae3b879927",
+  "updated_at": "2026-10-27T14:04:37.2632617Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "last_event_id": 1,
+    "last_commit_id": "event-commit-coldread",
+    "total": 1,
+    "shards": [
+      {
+        "path": "event_1_1.jsonl",
+        "from_id": 1,
+        "to_id": 1,
+        "count": 1,
+        "bytes": 133
+      }
+    ]
+  }
+}

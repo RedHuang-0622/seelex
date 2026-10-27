@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "compaction",
+  "commit_id": "compaction-records-a3bc564f4ffe9563",
+  "checksum": "5c585f9cf10f6784bf3e0146db4d79bf611905bc98ca800f387bba53be7c0bf0",
+  "updated_at": "2026-10-27T14:04:37.2562169Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "count": 2,
+    "last_checksum": "cr-e0ebd53905c8beb4"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "lifecycle",
+  "commit_id": "head-lifecycle-00c6021add1da895",
+  "checksum": "5434def2bfcbb43e2b7e434323bc87e8a79ecfd924202399e7ab3270b5354062",
+  "updated_at": "2026-10-27T14:04:37.3182427Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "draft_revision": 3,
+    "queue_count": 1,
+    "queue_head_seq": 1,
+    "head_state": "queued",
+    "commit_id": "head-lifecycle-00c6021add1da895",
+    "archived_at": "0001-01-01T00:00:00Z",
+    "updated_at": "2026-10-27T14:04:37.3182427Z"
+  }
+}

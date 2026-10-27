@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "compact",
+  "commit_id": "compact-commit-coldread",
+  "checksum": "705d62734e2d4f2f24175186588fd8670e5718dd881c82e36bf15019c1a5ef9e",
+  "updated_at": "2026-10-27T14:04:37.2776523Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "last_frame_id": "frame-coldread",
+    "last_message_to": "m2",
+    "last_message_to_seq": 2,
+    "frame_count": 1,
+    "latest_frame": {
+      "frame_id": "frame-coldread",
+      "message_from": "m0",
+      "message_to": "m2",
+      "message_from_seq": 0,
+      "message_to_seq": 2,
+      "summary": "coldread compact summary",
+      "boundary_status": "complete",
+      "commit_id": "compact-commit-coldread",
+      "compressed_at": "2026-10-27T10:00:00Z"
+    }
+  }
+}

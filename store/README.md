@@ -724,6 +724,34 @@ go test ./store -run 'TestV8' -count=1   # M1–M4 契约（65 条）
 go test ./store -run 'ProjectRecord|ProjectRefresh|ProjectKnowledge' -count=1
 ```
 
+### 拆分基线门禁（M0）
+
+Store 领域拆分（[`docs/2026-10-27-store-ddd-split/`](../docs/2026-10-27-store-ddd-split/plan.md)）
+会在 M1–M10 反复搬迁实现。下面五组用例不测业务正确性，只钉「搬迁不许顺手改掉的既有事实」：
+
+| 门禁 | 文件 | 用途 |
+|---|---|---|
+| 物理布局 golden | `layout_golden_test.go` | 会话目录相对路径逐字相等；`metadata/<module>.json` 顶层 key 集合固定 |
+| Commit 写序 | `commit_write_order_test.go` | artifact → refs → message → compaction，以及三条半失败语义 |
+| 方法面 ratchet | `god_type_ratchet_test.go` + `testdata/god_type_methods.json` | `Router`/`jsonRepository`/`storeEngine`/`SessionGranularStore` 的方法名集合只许收缩 |
+| 冷读 fixture | `cold_read_fixture_test.go` + `testdata/coldread/` | 用固定数据集冷读 9 条读路径，搬迁后必须读出同样语义 |
+| 底座 import 门禁 | `e2e/store_boundary_test.go` | `./store/...` 每个包的 Seelex 内依赖闭包只许向下 |
+
+```text
+go test ./store -run 'TestSessionLayoutGolden|TestCommit|TestGodType' -count=1
+go test ./store -run 'TestColdReadFixture' -count=1
+SEELEX_COLDREAD_REGENERATE=1 go test ./store -run 'TestColdReadFixtureRegenerate' -count=1
+go test ./e2e -run 'TestStore' -count=1
+```
+
+- ratchet 变红说明新增了方法：先删旧方法或改调用点，不要直接改 `testdata/god_type_methods.json`。
+- 冷读 fixture 只在**显式置** `SEELEX_COLDREAD_REGENERATE=1` 时重建，且只接受包内
+  `testdata/coldread` 路径；`testdata/coldread` 里刻意不含数据根锁文件。
+- golden 只钉落盘位置与 head 信封，不钉读回语义——读回语义由冷读 fixture 负责，
+  两者是两条不同的判据，不要合并。
+- 当前实测基线（方法数、向上依赖、直接 import 根 `store` 的文件清单）记录在
+  [`progress.md`](../docs/2026-10-27-store-ddd-split/progress.md)。
+
 ## Atomic transcript and result contract
 
 `WriteCommit` publishes bounded provider history, append-only transcript events, opaque application state, and immutable tool-result objects under one `(project_id, session_id)` scope. `WriteAtomic` remains a compatibility wrapper for history-only callers.

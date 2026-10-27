@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "retention",
+  "commit_id": "head-retention-a1f157a2d839bd0c",
+  "checksum": "2685cce8ff9115b2cc07c24591d98b6b5b8c7bc0c8b845a98187346e29a793fa",
+  "updated_at": "2026-10-27T14:04:37.3446059Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "mode": "manual",
+    "dry_run": true,
+    "compact_frame_threshold": 30,
+    "raw_bytes_alert": 268435456,
+    "updated_at": "2026-10-27T14:04:37.3446059Z"
+  }
+}

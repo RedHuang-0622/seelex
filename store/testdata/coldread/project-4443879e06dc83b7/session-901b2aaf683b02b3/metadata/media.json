@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "session_id": "session-coldread",
+  "module_id": "media",
+  "commit_id": "head-media-22a7790b6ea5d310",
+  "checksum": "4605309d57330424296c1d06a7aedac7547c1634cb74429fc2cf150fc896b3f4",
+  "updated_at": "2026-10-27T14:04:37.3394489Z",
+  "payload": {
+    "session_id": "session-coldread",
+    "items": [
+      {
+        "ref": "media:15fe67a7525c42136ded260ae0b2899675d6ee161bb9c2698cdbc21fc95a5cf3",
+        "hash": "15fe67a7525c42136ded260ae0b2899675d6ee161bb9c2698cdbc21fc95a5cf3",
+        "digest": "sha256:15fe67a7525c42136ded260ae0b2899675d6ee161bb9c2698cdbc21fc95a5cf3",
+        "name": "coldread-note.txt",
+        "mime_type": "text/plain",
+        "kind": "screenshot",
+        "bytes": 20,
+        "session_id": "session-coldread",
+        "created_at": "2026-10-27T14:04:37.3200555Z"
+      }
+    ],
+    "total_bytes": 20,
+    "updated_at": "2026-10-27T14:04:37.3394489Z"
+  }
+}
