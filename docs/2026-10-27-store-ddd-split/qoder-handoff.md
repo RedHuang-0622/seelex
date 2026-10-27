@@ -15,8 +15,8 @@
    和最新提交为事实源。
 4. 继续 M5 Session 核心：首片已迁 message/event 分片命名、pending-tail、
    head JSON、seq 分配、EVENT identity 与 JSONL 读写/残尾修复；提交
-   `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`。下一步迁 head 发布/自愈
-   编排与 draft-tail 推进。
+   `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
+   下一步迁 draft-tail 推进与 Session 聚合写编排。
 5. 首次验证：
 
 ```text
