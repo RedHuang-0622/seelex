@@ -5997,6 +5997,7 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 |---|---:|---:|
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
+| Application 具体 Backend/Middle/Store 依赖包 | 38 | 0 |
 | core 生产文件 | 126 | 55 |
 | core 生产代码 | 18,723 行 | 7,178 行 |
 

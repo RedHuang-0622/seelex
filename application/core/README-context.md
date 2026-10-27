@@ -32,7 +32,7 @@ DeepSeek 的模型输出缓存单元：provider 会在 user input 结束和 mode
   `provider_content`（`contract/protocol/context.go` 的 `TranscriptEvent`、
   `store/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
   `store/durable_history.go` 的 `eventsToMessages`、`store/wire_assembler.go`
-  的会话 wire 装配、`backend/engine/task/plan_transcript.go` 的
+  的会话 wire 装配、`kernel/task/plan_transcript.go` 的
   `transcriptEventMessage`。守卫用例：
   `prefix_invariant_fullchain_test.go::TestFullChainPrefixInvariantToolErrorAcrossTurns`
   与 `...OversizedToolResultAcrossTurns`（比对生产路径录到的真实 wire 字节）、
@@ -67,7 +67,7 @@ DeepSeek 的模型输出缓存单元：provider 会在 user input 结束和 mode
 （伪造会把"有人在跑这个会话"写进可见面），但落成了"只登记"，等于把用户明确要求的
 压缩推迟到他自己再发一条消息。
 
-**改法**：新增**会话级维护身份**（`backend/engine/task/session_context_maintenance.go`）：
+**改法**：新增**会话级维护身份**（`kernel/task/session_context_maintenance.go`）：
 `BeginSessionContextMaintenanceLocked` 给这类会话开一个带前缀的维护 `RequestID`
 （`session-maintenance:<sessionID>`），没有任务状态时按会话自己的事实（最后一条真实
 用户输入作 objective）建一份上下文状态，状态标记 `idle`；`CompactContextNow` 用它跑

@@ -10,7 +10,7 @@
 都不补占位（补写即让该点之后的 prefix cache 失效）。
 
 `application/core` 现经
-[`application/conversation/context`](../../../application/conversation/context/README.md)
+[`application/conversation/context`](../../application/conversation/context/README.md)
 的 Engine alias/forwarder 消费本包，不再直接 import context_runtime。
 
 ## 职责与非职责

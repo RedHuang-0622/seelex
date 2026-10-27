@@ -8,7 +8,7 @@
 history 只服务无 record 的旧格式会话。根包 Service 负责跨域事务编排
 （BeginNewSession/ResumeSession/BindWorkspace），本包只提供原子域操作。
 `application/core` 经
-[`application/session/runtime`](../../../application/session/runtime/README.md)
+[`application/session/runtime`](../../application/session/runtime/README.md)
 的 identity facade 消费本 Coordinator/helper，不再直接 import session_runtime。
 
 ## 职责与非职责
