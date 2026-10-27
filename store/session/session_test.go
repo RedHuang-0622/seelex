@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -69,5 +70,21 @@ func TestMessageShardRouteOnHead(t *testing.T) {
 	head.LastSeq = 2
 	if head.SessionID != "session" || head.Shards[0].Path != "message_1_2.jsonl" || head.LastSeq != 2 {
 		t.Fatalf("head=%+v", head)
+	}
+}
+
+func TestStructuralEventIdentity(t *testing.T) {
+	events := []StructuralEvent{{
+		Kind: StructuralEventFork, AnchorMessageID: "m1", FrameID: "f1",
+		Payload: json.RawMessage(`{"reason":"branch"}`),
+	}}
+	first := StructuralEventsCommitID(events)
+	second := StructuralEventsCommitID(events)
+	if first == "" || first != second || first[:3] != "ev-" {
+		t.Fatalf("commit ids=%q %q", first, second)
+	}
+	events[0].AnchorMessageID = "m2"
+	if next := StructuralEventsCommitID(events); next == first {
+		t.Fatal("event identity ignored anchor change")
 	}
 }

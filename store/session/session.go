@@ -4,11 +4,14 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 const (
@@ -97,6 +100,67 @@ func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string
 		delta = append(delta, row)
 	}
 	return delta, nil
+}
+
+// StructuralEventKind is the stable EVENT channel kind vocabulary.
+type StructuralEventKind string
+
+const (
+	StructuralEventCompacted          StructuralEventKind = "compacted"
+	StructuralEventFork               StructuralEventKind = "fork"
+	StructuralEventSubagent           StructuralEventKind = "subagent"
+	StructuralEventRoleSession        StructuralEventKind = "role_session"
+	StructuralEventInterrupted        StructuralEventKind = "interrupted"
+	StructuralEventRolledBack         StructuralEventKind = "rolled_back"
+	StructuralEventRequestBegin       StructuralEventKind = "request_begin"
+	StructuralEventRequestEnd         StructuralEventKind = "request_end"
+	StructuralEventTurnBegin          StructuralEventKind = "turn_begin"
+	StructuralEventTurnEnd            StructuralEventKind = "turn_end"
+	StructuralEventTokenUsage         StructuralEventKind = "token_usage"
+	StructuralEventArchived           StructuralEventKind = "session_archived"
+	StructuralEventScheduleRegistered StructuralEventKind = "schedule.registered"
+	StructuralEventScheduleCancelled  StructuralEventKind = "schedule.cancelled"
+	StructuralEventScheduleFired      StructuralEventKind = "schedule.fired"
+)
+
+// StructuralEvent is one append-only EVENT row.
+type StructuralEvent struct {
+	EventID         uint64              `json:"event_id"`
+	Kind            StructuralEventKind `json:"kind"`
+	AnchorMessageID string              `json:"anchor_message_id,omitempty"`
+	AnchorSeq       uint64              `json:"anchor_seq,omitempty"`
+	FrameID         string              `json:"frame_id,omitempty"`
+	CommitID        string              `json:"commit_id"`
+	Payload         json.RawMessage     `json:"payload,omitempty"`
+	CreatedAt       time.Time           `json:"created_at"`
+}
+
+// EventShardInfo is one event-head shard entry.
+type EventShardInfo struct {
+	Path   string `json:"path"`
+	FromID uint64 `json:"from_id"`
+	ToID   uint64 `json:"to_id"`
+	Count  int    `json:"count"`
+	Bytes  int64  `json:"bytes"`
+}
+
+// EventHead is metadata/event.json payload.
+type EventHead struct {
+	SessionID    string           `json:"session_id"`
+	LastID       uint64           `json:"last_event_id"`
+	LastCommitID string           `json:"last_commit_id,omitempty"`
+	Total        uint64           `json:"total"`
+	Shards       []EventShardInfo `json:"shards,omitempty"`
+}
+
+// StructuralEventsCommitID derives the deterministic EVENT commit identity.
+func StructuralEventsCommitID(events []StructuralEvent) string {
+	identity := make([]string, 0, len(events))
+	for _, event := range events {
+		identity = append(identity, string(event.Kind)+"|"+event.AnchorMessageID+
+			"|"+event.FrameID+"|"+string(event.Payload))
+	}
+	return "ev-" + storeroot.Hash(strings.Join(identity, "\n"))
 }
 
 // ClassifyPendingTail preserves the single draft-tail recoverability rule.

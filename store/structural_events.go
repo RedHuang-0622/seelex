@@ -26,66 +26,33 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 )
 
-// structuralEventKind 是结构性操作类别（沿用 my_design 附录 A.1 名单）。
-type structuralEventKind string
+type structuralEventKind = storesession.StructuralEventKind
 
 const (
-	structuralEventCompacted          structuralEventKind = "compacted"
-	structuralEventFork               structuralEventKind = "fork"
-	structuralEventSubagent           structuralEventKind = "subagent"
-	structuralEventRoleSession        structuralEventKind = "role_session"
-	structuralEventInterrupted        structuralEventKind = "interrupted"
-	structuralEventRolledBack         structuralEventKind = "rolled_back"
-	structuralEventRequestBegin       structuralEventKind = "request_begin"
-	structuralEventRequestEnd         structuralEventKind = "request_end"
-	structuralEventTurnBegin          structuralEventKind = "turn_begin"
-	structuralEventTurnEnd            structuralEventKind = "turn_end"
-	structuralEventTokenUsage         structuralEventKind = "token_usage"
-	structuralEventArchived           structuralEventKind = "session_archived"
-	structuralEventScheduleRegistered structuralEventKind = "schedule.registered"
-	structuralEventScheduleCancelled  structuralEventKind = "schedule.cancelled"
-	structuralEventScheduleFired      structuralEventKind = "schedule.fired"
+	structuralEventCompacted          = storesession.StructuralEventCompacted
+	structuralEventFork               = storesession.StructuralEventFork
+	structuralEventSubagent           = storesession.StructuralEventSubagent
+	structuralEventRoleSession        = storesession.StructuralEventRoleSession
+	structuralEventInterrupted        = storesession.StructuralEventInterrupted
+	structuralEventRolledBack         = storesession.StructuralEventRolledBack
+	structuralEventRequestBegin       = storesession.StructuralEventRequestBegin
+	structuralEventRequestEnd         = storesession.StructuralEventRequestEnd
+	structuralEventTurnBegin          = storesession.StructuralEventTurnBegin
+	structuralEventTurnEnd            = storesession.StructuralEventTurnEnd
+	structuralEventTokenUsage         = storesession.StructuralEventTokenUsage
+	structuralEventArchived           = storesession.StructuralEventArchived
+	structuralEventScheduleRegistered = storesession.StructuralEventScheduleRegistered
+	structuralEventScheduleCancelled  = storesession.StructuralEventScheduleCancelled
+	structuralEventScheduleFired      = storesession.StructuralEventScheduleFired
 )
 
-// structuralEvent 是一行结构性事件摘要。
-type structuralEvent struct {
-	EventID uint64              `json:"event_id"`
-	Kind    structuralEventKind `json:"kind"`
-	// AnchorMessageID = 事件发生在该行之后（anchor 是 message 坐标）。
-	AnchorMessageID string          `json:"anchor_message_id,omitempty"`
-	AnchorSeq       uint64          `json:"anchor_seq,omitempty"`
-	FrameID         string          `json:"frame_id,omitempty"`
-	CommitID        string          `json:"commit_id"`
-	Payload         json.RawMessage `json:"payload,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-}
-
-// eventShardInfo 是 event head 内的分片路由项。Count/Bytes 让写路径在不打开
-// 文件的前提下就能定位尾分片剩余容量并判断有无崩溃残尾（message 通道的
-// 分片索引仍按 H3 专项处理，这里不复用它那份额外开销）。
-type eventShardInfo struct {
-	Path   string `json:"path"`
-	FromID uint64 `json:"from_id"`
-	ToID   uint64 `json:"to_id"`
-	Count  int    `json:"count"`
-	Bytes  int64  `json:"bytes"`
-}
-
-// eventHeadRecord 是 metadata/event.json payload：只有发布点水位与分片路由。
-type eventHeadRecord struct {
-	SessionID string `json:"session_id"`
-	// LastID 是已发布的最大 event_id（空 = 0）。
-	LastID uint64 `json:"last_event_id"`
-	// LastCommitID 是最近一次发布 EVENT 的 commit_id（A.2 幂等判据）。
-	LastCommitID string           `json:"last_commit_id,omitempty"`
-	Total        uint64           `json:"total"`
-	Shards       []eventShardInfo `json:"shards,omitempty"`
-}
+type structuralEvent = storesession.StructuralEvent
+type eventShardInfo = storesession.EventShardInfo
+type eventHeadRecord = storesession.EventHead
 
 // eventStats 是 EVENT 写路径的归因累加器（T-EV-05：写路径读历史分片必须为 0）。
 type eventStats struct {
@@ -173,12 +140,7 @@ func (store *storeEngine) readEventHead(key Key) (eventHeadRecord, error) {
 
 // structuralEventsCommitID 由结构性事件身份字段确定性推导一次提交的凭据。
 func structuralEventsCommitID(events []structuralEvent) string {
-	identity := make([]string, 0, len(events))
-	for _, event := range events {
-		identity = append(identity, string(event.Kind)+"|"+event.AnchorMessageID+
-			"|"+event.FrameID+"|"+string(event.Payload))
-	}
-	return "ev-" + storeroot.Hash(strings.Join(identity, "\n"))
+	return storesession.StructuralEventsCommitID(events)
 }
 
 // reapEventUnpublishedLocked 清理未发布残迹（head 未索引的分片删除；尾分片
