@@ -93,3 +93,36 @@ func TestContextPayloadWireIdentity(t *testing.T) {
 		t.Fatalf("system=%s err=%v", system, err)
 	}
 }
+
+func TestStackWireAndVocabulary(t *testing.T) {
+	if !ValidStackKind(StackKindPlan) || !ValidStackKind(StackKindTask) ||
+		!ValidStackKind(StackKindGoal) || !ValidStackKind(StackKindSubagent) ||
+		ValidStackKind("bad") {
+		t.Fatal("stack kind vocabulary mismatch")
+	}
+	for _, status := range []string{
+		StackStatusPlanClosed, StackStatusTaskCompleted, StackStatusTaskFailed,
+		StackStatusGoalAborted, StackStatusSubagentDone, StackStatusArchived,
+	} {
+		if !IsTerminalStackStatus(status) {
+			t.Fatalf("status %q should be terminal", status)
+		}
+	}
+	if IsTerminalStackStatus("active") {
+		t.Fatal("active must not be terminal")
+	}
+	record := StackItemRecord{
+		ItemID: "i1", BatchID: "b1", StackID: "plan|active",
+		Kind: StackKindPlan, Seq: 1, Status: "active", Revision: 2,
+		Payload: json.RawMessage(`{"id":"i1"}`),
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"item_id", "batch_id", "stack_id", "kind", "seq", "payload", "revision"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("missing stack field %s: %s", key, data)
+		}
+	}
+}

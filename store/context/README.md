@@ -50,4 +50,11 @@ go test ./store/context ./store -run 'Context|Checkpoint' -count=1
 - `func TestCheckpointStorageKey(t *testing.T)`
 - `func TestSessionContextRecordWireIdentity(t *testing.T)`
 - `func TestContextPayloadWireIdentity(t *testing.T)`
+- `func TestStackWireAndVocabulary(t *testing.T)`
+
+### stacks.go
+
+- `func ValidStackKind(kind StackKind) bool`
+- `func StackKindIndex(kind StackKind) int`
+- `func IsTerminalStackStatus(status string) bool`
 

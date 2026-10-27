@@ -20,25 +20,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"slices"
 	"strings"
 	"time"
 )
 
-// StackKind 是设计稿 §2.4 的三类栈（ER STACK.kind）。
-type StackKind string
+type StackKind = storecontext.StackKind
 
 const (
-	// StackKindPlan 是计划栈（批次弹栈）。
-	StackKindPlan StackKind = "plan"
-	// StackKindTask 是任务栈（批次弹栈）。
-	StackKindTask StackKind = "task"
-	// StackKindGoal 是 goal 治理栈（单条目批次，LIFO）。
-	StackKindGoal StackKind = "goal"
-	// StackKindSubagent 是第四栈：subagent 批次（S18，§2.4/§8.2）。条目 =
-	// 一次派发的子代理现场，含结果状态；子代理子树不入主会话三栈 fork 拷贝。
-	StackKindSubagent StackKind = "subagent"
+	StackKindPlan     = storecontext.StackKindPlan
+	StackKindTask     = storecontext.StackKindTask
+	StackKindGoal     = storecontext.StackKindGoal
+	StackKindSubagent = storecontext.StackKindSubagent
 )
 
 // terminalStackStatus 是「批次内该项已完成」的状态词集合：批次内全部条目落在这
@@ -53,113 +48,29 @@ const (
 //	子代理帧（子代理记录状态那一格）：done
 //	归档态（会话粒度记录 store.Status）：archived
 const (
-	stackStatusPlanClosed    = "closed"    // 计划帧：批次已闭合
-	stackStatusTaskCompleted = "completed" // 任务帧 / goal 帧
-	stackStatusTaskFailed    = "failed"    // 任务帧 / goal 帧
-	stackStatusGoalAborted   = "aborted"   // goal 帧
-	stackStatusSubagentDone  = "done"      // 子代理帧
-	stackStatusArchived      = "archived"  // 归档态
+	stackStatusPlanClosed    = storecontext.StackStatusPlanClosed
+	stackStatusTaskCompleted = storecontext.StackStatusTaskCompleted
+	stackStatusTaskFailed    = storecontext.StackStatusTaskFailed
+	stackStatusGoalAborted   = storecontext.StackStatusGoalAborted
+	stackStatusSubagentDone  = storecontext.StackStatusSubagentDone
+	stackStatusArchived      = storecontext.StackStatusArchived
 )
 
-var terminalStackStatus = map[string]bool{
-	stackStatusPlanClosed:    true,
-	stackStatusTaskCompleted: true,
-	stackStatusTaskFailed:    true,
-	stackStatusGoalAborted:   true,
-	stackStatusSubagentDone:  true,
-	stackStatusArchived:      true,
-}
-
-// StackItemInput 是一次入栈请求的条目（payload 为该域自有结构，栈通道按原样
-// 存取，不解释语义）。
-type StackItemInput struct {
-	ItemID  string
-	Kind    StackKind
-	Status  string
-	Payload json.RawMessage
-	// RoleName / RoleSessionID 是群聊角色归属（§8.3/R2）。goal 栈条目用它记录
-	// techleader 子会话锚；其它栈未用到时留空。
-	RoleName      string
-	RoleSessionID string
-	// EnteredAt 为零值时由通道按当前时间盖章。
-	EnteredAt time.Time
-}
-
-// StackItemRecord 是 ER STACK_ITEM 的一行（含批次与 message 锚）。
-type StackItemRecord struct {
-	ItemID  string          `json:"item_id"`
-	BatchID string          `json:"batch_id"`
-	StackID string          `json:"stack_id"`
-	Kind    StackKind       `json:"kind"`
-	Seq     uint64          `json:"seq"`
-	Status  string          `json:"status"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-	// RoleName / RoleSessionID 是群聊角色归属（§8.3/R2）。
-	RoleName      string `json:"role_name,omitempty"`
-	RoleSessionID string `json:"role_session_id,omitempty"`
-	// Revision 是发布该投影时的 stack head_seq；reader 只承认 revision ≤ head
-	// 的行（head 未发布 = 未提交）。
-	Revision uint64 `json:"revision"`
-	// ItemMessageID/ItemMessageSeq = 条目进入 active 时的 message 坐标。
-	ItemMessageID  string `json:"item_message_id,omitempty"`
-	ItemMessageSeq uint64 `json:"item_message_seq,omitempty"`
-	// BatchMessageFrom/BatchMessageTo = 批次首条目坐标 / 整批弹栈坐标。
-	BatchMessageFrom string `json:"batch_message_from,omitempty"`
-	BatchMessageTo   string `json:"batch_message_to,omitempty"`
-	// BatchMessageToSeq 是弹栈坐标的 seq 形式（fork 按 message 点重建栈快照用）。
-	BatchMessageToSeq uint64    `json:"batch_message_to_seq,omitempty"`
-	EnteredAt         time.Time `json:"entered_at"`
-	ClosedAt          time.Time `json:"closed_at,omitempty"`
-}
-
-// stackWatermark 是单个 kind 的水位（head 只装水位，不装条目）。
-type stackWatermark struct {
-	HeadSeq      uint64 `json:"head_seq"`
-	ActiveCount  int    `json:"active_count"`
-	HistoryCount uint64 `json:"history_count"`
-	// HistoryBytes 是归档数据文件在 head 发布时刻的字节长度（JSON 后端用它
-	// 回收 head 未发布的归档尾行，使写路径完全不必解析归档文件）。
-	HistoryBytes uint64 `json:"history_bytes,omitempty"`
-	// LastCommitID 是该 kind 最近一次已发布提交的逻辑操作凭据（§2.0 规则 4、
-	// D10/D13/S17：逐操作唯一、确定性推导，供发布失败后的重放判重）。
-	LastCommitID string `json:"last_commit_id,omitempty"`
-}
-
-// stackModuleHead 是 metadata/stack.json payload：只有水位，不含条目内容。
-type stackModuleHead struct {
-	SessionID string                       `json:"session_id"`
-	HeadSeq   uint64                       `json:"head_seq"`
-	Kinds     map[StackKind]stackWatermark `json:"kinds,omitempty"`
-}
+type StackItemInput = storecontext.StackItemInput
+type StackItemRecord = storecontext.StackItemRecord
+type stackWatermark = storecontext.StackWatermark
+type stackModuleHead = storecontext.StackModuleHead
 
 func validStackKind(kind StackKind) bool {
-	return kind == StackKindPlan || kind == StackKindTask ||
-		kind == StackKindGoal || kind == StackKindSubagent
+	return storecontext.ValidStackKind(kind)
 }
 
 // stackKindIndex 把 kind 映射到固定下标（内存读投影数组用）。
 func stackKindIndex(kind StackKind) int {
-	switch kind {
-	case StackKindTask:
-		return 1
-	case StackKindGoal:
-		return 2
-	case StackKindSubagent:
-		return 3
-	default:
-		return 0
-	}
+	return storecontext.StackKindIndex(kind)
 }
 
-// StackMutation 描述一次栈变更的结果（供上层与 EVENT 使用）。
-type StackMutation struct {
-	Revision  uint64
-	Pushed    []StackItemRecord
-	Updated   []StackItemRecord
-	Archived  []StackItemRecord
-	BatchID   string
-	BatchDone bool
-}
+type StackMutation = storecontext.StackMutation
 
 // stackState 是一次提交内可见的栈投影（actor 私有状态：只在提交临界区内被
 // 触碰，读者拿到的是发布后的不可变副本）。
@@ -189,7 +100,7 @@ func (state *stackState) batchDone(batchID string) bool {
 		return false
 	}
 	for _, row := range batch {
-		if !terminalStackStatus[row.Status] {
+		if !storecontext.IsTerminalStackStatus(row.Status) {
 			return false
 		}
 	}
@@ -392,12 +303,12 @@ func stackSetStatusMessage(itemID, status string) func(*stackState) (StackMutati
 		}
 		target := state.active[index]
 		target.Status = status
-		if terminalStackStatus[status] {
+		if storecontext.IsTerminalStackStatus(status) {
 			target.ClosedAt = time.Now().UTC()
 		}
 		state.active[index] = target
 		mutation := StackMutation{Updated: []StackItemRecord{target}}
-		if terminalStackStatus[status] && state.batchDone(target.BatchID) {
+		if storecontext.IsTerminalStackStatus(status) && state.batchDone(target.BatchID) {
 			mutation.BatchID = target.BatchID
 			mutation.Archived = state.closeBatch(target.BatchID, status)
 			mutation.BatchDone = true
@@ -454,7 +365,7 @@ func stackReplaceMessage(kind StackKind, items []StackItemInput, closedStatus st
 				continue
 			}
 			status := row.Status
-			if !terminalStackStatus[status] {
+			if !storecontext.IsTerminalStackStatus(status) {
 				status = closedStatus
 				if status == "" {
 					status = "closed"
@@ -474,7 +385,7 @@ func stackReplaceMessage(kind StackKind, items []StackItemInput, closedStatus st
 				if item.Status != "" && item.Status != existing.Status {
 					existing.Status = item.Status
 					changed = true
-					if terminalStackStatus[item.Status] {
+					if storecontext.IsTerminalStackStatus(item.Status) {
 						existing.ClosedAt = time.Now().UTC()
 					}
 				}
