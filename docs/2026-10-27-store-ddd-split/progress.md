@@ -15,7 +15,7 @@
 | M2 | layout 内核 | 已完成 | 见 §2.6 |
 | M3 | Artifact | 已完成 | 见 §2.7 |
 | M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
-| M5 | Session 核心 | 进行中 | 首个分片/草稿尾切片已完成，见 §2.9 |
+| M5 | Session 核心 | 已完成 | 见 §2.9 |
 | M6 | Session 状态机 | 未开始 | — |
 | M7 | Context | 未开始 | — |
 | M8 | Teamwork | 未开始 | — |
@@ -371,7 +371,7 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - ProviderHistory/State 继续不落盘；fork 后栈重建顺序保持在快照提交之后。
 - 没有引入跨通道原子事务；message 已发布后 compaction 失败仍保留 M0 语义。
 
-## 2.9 M5：Session 核心（进行中）
+## 2.9 M5：Session 核心（已完成）
 
 ### 2.9.1 已完成切片
 
@@ -394,9 +394,13 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - message 已追加后的 head/commit/token/meta 状态转换下沉 Session；
 
 根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
-head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
-全文读写、draft tail 推进与 `SessionGranularStore` 收缩仍待后续切片，因此本里程碑
-不标记完成。
+head 类型、JSONL 读写、seq 分配、head publish/heal 与 draft-tail 计算只保留
+alias/单层转发。kernel 消费者使用 `SessionSnapshotPort`、
+`SessionTranscriptPort`、`SessionConversationRangePort` 等窄端口，wiring adapter
+负责映射到根存储。`Event` 继续是同身份 `protocol.TranscriptEvent` alias。
+
+完成门禁：完整 `store/e2e`、M0 冷读/写序/半失败、draft/pending-tail、并发读、
+重建和 fork 回归均通过；路径、JSON tag、head、watermark 零变化。
 
 ### 2.9.2 红测
 
@@ -557,5 +561,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-继续 M5：把 message/event head 发布与 message 全文读写迁入 `store/session`，
-再将 draft-tail 推进编排下沉；根 Router/SessionGranularStore 仅保留迁移期转发。
+M6：Session 状态机，按 `milestones.md` §10 迁移 lifecycle/queue/retention/
+compact/fork，保持队列 FIFO、LRU 不越过 watermark、compact 边界与 fork 起点语义。

@@ -1,6 +1,6 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0–M4 已完成，M5 进行中。
+状态快照：M0–M5 已完成，下一步 M6。
 
 工作区：`C:\Users\redre\.codex\worktrees\store-ddd-m1\seelex`
 
@@ -13,11 +13,11 @@
    `progress.md` 和 `impact/M1-external-deps.md`。
 3. 运行 `git status --short --branch` 与 `git worktree list`，以 `progress.md`
    和最新提交为事实源。
-4. 继续 M5 Session 核心：首片已迁 message/event 分片命名、pending-tail、
+4. 下一里程碑是 M6 Session 状态机：M5 已迁 message/event 分片命名、pending-tail、
    head JSON、seq 分配、EVENT identity 与 JSONL 读写/残尾修复；提交
    `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
-   `711bfc67`、`a162e565`、`c393c418`。下一步是 Session 聚合写编排与
-   消费方窄端口收口。
+   `711bfc67`、`a162e565`、`c393c418`。下一步迁 lifecycle/queue/retention/
+   compact/fork 状态规则。
    C: 盘空间不足时设置 `GOTMPDIR=G:\go-build-tmp\seelex`，禁止清理缓存或用户数据。
 5. 首次验证：
 
