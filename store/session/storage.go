@@ -8,6 +8,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"sort"
 
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
@@ -233,4 +235,55 @@ func AppendStructuralEvents(path string, rows []StructuralEvent) (int64, error) 
 		return 0, err
 	}
 	return size, nil
+}
+
+// ListMessageShardFiles returns valid message shards ordered by FromSeq.
+func ListMessageShardFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []string(nil), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	type shardFile struct {
+		name string
+		from uint64
+	}
+	files := make([]shardFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		from, _, ok := ParseMessageShardName(entry.Name())
+		if !ok {
+			continue
+		}
+		files = append(files, shardFile{name: entry.Name(), from: from})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].from < files[j].from })
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		names = append(names, file.name)
+	}
+	return names, nil
+}
+
+// DraftBaseSeq returns the physical last row seq under a message directory.
+func DraftBaseSeq(messageDir string, headSeq uint64) (uint64, error) {
+	names, err := ListMessageShardFiles(messageDir)
+	if err != nil {
+		return 0, err
+	}
+	if len(names) == 0 {
+		return headSeq, nil
+	}
+	rows, err := ReadMessageRowsAt(filepath.Join(messageDir, names[len(names)-1]), 0, nil)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return headSeq, nil
+	}
+	return rows[len(rows)-1].Seq, nil
 }

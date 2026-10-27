@@ -1,10 +1,7 @@
 package store
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -44,37 +41,7 @@ type PendingTailReport = storesession.PendingTailReport
 // messageShardFilesLocked 列出 message 目录下的分片文件，按文件名解析出的
 // from_seq 升序（调用方持 messageMu）。
 func (store *storeEngine) messageShardFilesLocked(key Key) ([]string, error) {
-	entries, err := os.ReadDir(store.messageDir(key))
-	if errors.Is(err, fs.ErrNotExist) {
-		// 显式写出类型的零值而不是裸 `nil, nil`：语义与之前完全一致（调用方一律
-		// 看 len / range），但静态门禁禁止非测试代码出现裸 `return nil, nil`
-		// —— 那通常是吞掉错误的信号。
-		return []string(nil), nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	type shardFile struct {
-		name string
-		from uint64
-	}
-	files := make([]shardFile, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !isMessageShardFile(entry.Name()) {
-			continue
-		}
-		from, _, ok := storesession.ParseMessageShardName(entry.Name())
-		if !ok {
-			continue
-		}
-		files = append(files, shardFile{name: entry.Name(), from: from})
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].from < files[j].from })
-	names := make([]string, 0, len(files))
-	for _, file := range files {
-		names = append(names, file.name)
-	}
-	return names, nil
+	return storesession.ListMessageShardFiles(store.messageDir(key))
 }
 
 // pendingTailLocked 读出「seq > head.LastSeq」的全部物理行（调用方持
@@ -174,21 +141,11 @@ func (store *storeEngine) pendingTailReport(key Key) (PendingTailReport, error) 
 // 分片的最后一行就是物理末行。索引末分片可能已被写入草稿行（索引里的区间/计数
 // 还停在发布时的值），因此只认文件内容、不认索引的 ToSeq。
 func (store *storeEngine) draftBaseSeqLocked(key Key, head messageHead) (uint64, error) {
-	last, err := store.physicalLastShardLocked(key)
+	seq, err := storesession.DraftBaseSeq(store.messageDir(key), head.LastSeq)
 	if err != nil {
 		return 0, err
 	}
-	if last == "" {
-		return head.LastSeq, nil
-	}
-	rows, err := readMessageRowsFileAt(filepath.Join(store.messageDir(key), last))
-	if err != nil {
-		return 0, err
-	}
-	if len(rows) == 0 {
-		return head.LastSeq, nil
-	}
-	if seq := rows[len(rows)-1].Seq; seq > head.LastSeq {
+	if seq > head.LastSeq {
 		return seq, nil
 	}
 	return head.LastSeq, nil

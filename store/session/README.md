@@ -67,6 +67,7 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func TestMessageShardReadAppendRepairsTail(t *testing.T)`
 - `func TestTypedHeadPublish(t *testing.T)`
 - `func TestApplyPendingTailHead(t *testing.T)`
+- `func TestListAndDraftBaseSeq(t *testing.T)`
 
 ### storage.go
 
@@ -79,4 +80,6 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func ReadStructuralEventsFile(file *os.File) ([]StructuralEvent, error)` — ReadStructuralEventsFile reads all EVENT rows from an open shard.
 - `func ReadStructuralEventsAt(path string) ([]StructuralEvent, error)` — ReadStructuralEventsAt reads an EVENT shard, treating absence as empty.
 - `func AppendStructuralEvents(path string, rows []StructuralEvent) (int64, error)` — AppendStructuralEvents writes EVENT rows and returns the resulting byte size.
+- `func ListMessageShardFiles(dir string) ([]string, error)` — ListMessageShardFiles returns valid message shards ordered by FromSeq.
+- `func DraftBaseSeq(messageDir string, headSeq uint64) (uint64, error)` — DraftBaseSeq returns the physical last row seq under a message directory.
 

@@ -164,3 +164,24 @@ func TestApplyPendingTailHead(t *testing.T) {
 		t.Fatal("empty commit identity")
 	}
 }
+
+func TestListAndDraftBaseSeq(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"message_5_6.jsonl", "message_1_2.jsonl", "junk.jsonl"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := AppendMessageRows(filepath.Join(dir, "message_5_6.jsonl"), []protocol.TranscriptEvent{{Seq: 5}, {Seq: 6}}); err != nil {
+		t.Fatal(err)
+	}
+	names, err := ListMessageShardFiles(dir)
+	if err != nil || len(names) != 2 || names[0] != "message_1_2.jsonl" || names[1] != "message_5_6.jsonl" {
+		t.Fatalf("names=%v err=%v", names, err)
+	}
+	seq, err := DraftBaseSeq(dir, 3)
+	if err != nil || seq != 6 {
+		t.Fatalf("draft base=(%d,%v)", seq, err)
+	}
+}

@@ -390,6 +390,7 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
   直接调用通用 `publishModuleHead`；
 - message commit identity、pending-tail head 推进计算与草稿发布后的 head 字段
   更新下沉 Session；根只负责文件枚举、锁和缓存协同；
+- message 分片目录枚举与草稿物理末行序号基准下沉 Session；
 
 根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
 head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
@@ -428,6 +429,7 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 | message/EVENT production head 发布调用 | `store/session.PublishMessageHead/PublishEventHead` |
 | `store/message_rows.go` message commit identity | `store/session.MessageRowsCommitID` |
 | `store/pending_tail.go` 发布 head 字段计算 | `store/session.ApplyPendingTailHead` |
+| `store/pending_tail.go` 分片枚举与物理末行基准 | `store/session.ListMessageShardFiles/DraftBaseSeq` |
 
 数据路径与 JSON tag 零变化。
 
