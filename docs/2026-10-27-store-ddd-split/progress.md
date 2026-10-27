@@ -14,7 +14,7 @@
 | M1 | Board 试点 | 已完成 | 见 §2.5 |
 | M2 | layout 内核 | 已完成 | 见 §2.6 |
 | M3 | Artifact | 已完成 | 见 §2.7 |
-| M4 | Commit/Turn UoW | 未开始 | — |
+| M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
 | M5 | Session 核心 | 未开始 | — |
 | M6 | Session 状态机 | 未开始 | — |
 | M7 | Context | 未开始 | — |
@@ -311,6 +311,66 @@ go test ./e2e -run TestStoreDDDMArtifactOwnershipGate -count=1   PASS
 - 文本软限/硬限、媒体硬限、Tombstone 等价的内容寻址、GC dry-run 与 JSON 字段不变。
 - artifact 复用 M2 的同一 layout 实例；media 锁身份仍为 `media`，未创建第二套锁表。
 
+## 2.8 M4：Commit/Turn UoW（已完成）
+
+### 2.8.1 领域归属
+
+- `application/conversation.TurnStoreCommitApplication` 拥有跨聚合写序：
+  Artifact → Session(message/head) → Compaction。
+- `store.CommitWriter` 只暴露 `WriteArtifacts`、`WriteMessages`、
+  `WriteCompactions` 三个单聚合写口，不再承载跨聚合 UoW。
+- `store.Commit` / `Repository.WriteCommit` 保留迁移期兼容 adapter；生产 snapshot
+  持久化已经改走 application UoW + wiring adapter。
+
+### 2.8.2 红测
+
+首次失败：
+
+```text
+go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
+--- FAIL: application TurnStoreCommit 尚未落位:
+The system cannot find the file specified.
+```
+
+应用层单测同时钉住：
+
+- 正常顺序严格为 `artifact, message, compaction`；
+- message 失败后不得继续 compaction；
+- M0 的 compaction 半失败可见性由既有 store 特征测试继续覆盖。
+
+### 2.8.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `json_layout.writeCommitLayout` 内 artifact 写序 | `application/conversation.TurnStoreCommitApplication.Commit` |
+| `json_layout.writeCommitLayout` 内 message/compaction 顺序 | 同上 |
+| 根顺序实现调用的三段逻辑 | `store/commit_writer.go` 三个 free phase 函数 |
+| wiring snapshot 直接构造 `store.Commit` | `turnStoreCommitAdapter` → application UoW → store 单聚合写口 |
+
+### 2.8.4 外部批次与验证
+
+- 分支：`codex/store-ddd-M4`
+- checkpoint：`ba80a33f948358620cdaf1e75557333a77e16f64`
+- manifest：`impact/M4-external-deps.{json,md}`
+- script：`scripts/store-ddd/M4-external-migrate.py`；dry-run/apply 通过
+- journal：`%TEMP%\seelex-store-ddd-M4-16576.json`
+
+已验证：
+
+```text
+go test ./application/conversation ./application/assembly ./wiring/adapters ./store -count=1
+go test ./test -count=1
+go build ./...
+go vet ./...
+go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
+```
+
+### 2.8.5 数据兼容
+
+- 路径、JSON tag、head、watermark、refs 索引与 compaction 水位零变化。
+- ProviderHistory/State 继续不落盘；fork 后栈重建顺序保持在快照提交之后。
+- 没有引入跨通道原子事务；message 已发布后 compaction 失败仍保留 M0 语义。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -433,6 +493,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M4：Commit/Turn UoW，按 `milestones.md` §8 拆 Session/Artifact/Compaction 提交，
-在 application 层编排 artifact → message → compaction 写序，并以 M0 半失败矩阵作为
-逐字兼容门禁。
+M5：Session 核心，按 `milestones.md` §9 迁 message/event/head/draft-tail；
+根 Router/SessionGranularStore 仅保留迁移期转发，冷读和 M0 写序矩阵持续回归。

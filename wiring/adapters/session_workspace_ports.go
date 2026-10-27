@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/store/workspace"
@@ -529,18 +531,8 @@ func (port SessionPort) SaveSessionSnapshot(
 	events []model.TranscriptEvent,
 	results []model.StoredToolResult,
 ) error {
-	payload, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("encode session record: %w", err)
-	}
-	commit := store.Commit{
-		ProviderHistory:   restoreMessages(providerHistory),
-		Events:            storeTranscriptEvents(events),
-		State:             payload,
-		ToolResults:       storeToolResults(results),
-		CompactionRecords: compactionRecordPayloads(record),
-	}
-	return port.granular().SaveCommit("", id, commit)
+	_ = providerHistory
+	return port.saveSessionTurnCommit("", id, record, events, results)
 }
 
 // LoadEventRangeWorkspace 按 EventSeq 范围读取事件流（fork 切断点解析用）。
@@ -563,22 +555,10 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 	events []model.TranscriptEvent,
 	results []model.StoredToolResult,
 ) error {
-	payload, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("encode session record: %w", err)
-	}
-	commit := store.Commit{
-		ProviderHistory:   restoreMessages(providerHistory),
-		Events:            storeTranscriptEvents(events),
-		State:             payload,
-		ToolResults:       storeToolResults(results),
-		CompactionRecords: compactionRecordPayloads(record),
-	}
-	if err := port.granular().SaveCommit(projectID, sessionID, commit); err != nil {
+	_ = providerHistory
+	if err := port.saveSessionTurnCommit(projectID, sessionID, record, events, results); err != nil {
 		return err
 	}
-	// fork 子会话的三栈由 §2.4 栈通道按 message 锚重建（context blob 不再
-	// 携带栈）；失败必须显式报错，不能留下丢栈的子会话。
 	if ref := record.ForkedFrom; ref != nil {
 		if err := port.Manager.Router().ForkStacks(
 			ref.ParentWorkspaceID, ref.ParentSessionID, projectID, sessionID, ref.ForkPoint.EventSeq,
@@ -1362,4 +1342,35 @@ func adaptPlugin(item plugin.Plugin) model.PluginInfo {
 }
 func adaptSkill(item skill.Skill) model.SkillInfo {
 	return model.SkillInfo{Name: item.Name, Description: item.Description, Prompt: item.Prompt}
+}
+
+type turnStoreCommitAdapter struct {
+	writer *store.CommitWriter
+}
+
+func (adapter turnStoreCommitAdapter) WriteArtifacts(_ context.Context, projectID, sessionID string, results []protocol.StoredToolResult) error {
+	return adapter.writer.WriteArtifacts(context.Background(), projectID, sessionID, storeToolResults(results))
+}
+
+func (adapter turnStoreCommitAdapter) WriteMessages(_ context.Context, projectID, sessionID string, events []protocol.TranscriptEvent) error {
+	return adapter.writer.WriteMessages(context.Background(), projectID, sessionID, storeTranscriptEvents(events))
+}
+
+func (adapter turnStoreCommitAdapter) WriteCompactions(_ context.Context, projectID, sessionID string, records []json.RawMessage) error {
+	return adapter.writer.WriteCompactions(context.Background(), projectID, sessionID, records)
+}
+
+func (port SessionPort) saveSessionTurnCommit(
+	projectID, sessionID string,
+	record model.SessionRecord,
+	events []model.TranscriptEvent,
+	results []model.StoredToolResult,
+) error {
+	commit := applicationconversation.NewTurnStoreCommit(turnStoreCommitAdapter{
+		writer: store.NewCommitWriter(port.Manager.Router()),
+	})
+	return commit.Commit(context.Background(), applicationconversation.TurnStoreCommitBatch{
+		ProjectID: projectID, SessionID: sessionID,
+		ToolResults: results, Events: events, Compactions: compactionRecordPayloads(record),
+	})
 }

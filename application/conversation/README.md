@@ -15,6 +15,7 @@
 - 关闭/排空门禁。
 - assistant 推理步骤与可见消息的配对回填。
 - 单个 ChatTurn 从输入准备到 commit/finalize 的应用编排。
+- 单个持久回合的 artifact → session → compaction 跨聚合写序。
 - 统一 main/subagent/teammate 会话的 View、Chat、Recover 路由。
 
 ## 非职责
@@ -36,6 +37,8 @@
 - `turn_process.go`：ChatTurn 起点事务与队列提升。
 - `turn_outcome.go`：终态结果、错误和活动 Task 镜像。
 - `turn_completion.go`：持久化完成与 consumed queue 结算。
+- `turn_store_commit.go`：`TurnStoreCommitPort` 与 `TurnStoreCommitApplication`；
+  唯一负责三个聚合提交的跨聚合写序，store 只提供单聚合写口。
 - `turn_commit.go`：persist/outcome/promote/mirror 的锁内串联。
 - `turn_finalize.go`：commit result 到 publication。
 - `turn_publication.go`：`chat.changed` / snapshot / error / message 事件发布。
@@ -60,6 +63,9 @@ Conversation 定义 `StreamOutputPort` 与 `SessionRecordsPort`；Wiring 分别�
 `kernel/react` 的可见输出/batcher 实现和
 `middle/view/sessionaccess.PaginateRecords`。`application/assembly` 不再 import
 engine/react 或 sessionaccess。
+
+`TurnStoreCommitPort` 由消费方定义，wiring adapter 把 App DTO 映射到 `store`
+的三个单聚合写口；本包不 import store，也不复制内容寻址或 head 发布规则。
 
 `UnifiedApplication` 只接收 Session Snapshot 查询、Record 分页、
 `AgentConversationPort` 与 `SubmitToSession` 回调。GUI/headless 经

@@ -19,7 +19,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/RedHuang-0622/seelex/contract/protocol"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TurnStoreCommitPort is the consumer-owned three-aggregate persistence port.
@@ -146,7 +146,7 @@ def build_adapter(source: str) -> str:
     )
     source = source.replace(
         '"github.com/RedHuang-0622/seelex/contract/dto"',
-        '"github.com/RedHuang-0622/seelex/contract/dto"\n\t"github.com/RedHuang-0622/seelex/contract/protocol"',
+        '"github.com/RedHuang-0622/seelex/contract/dto"\n\tprotocol "github.com/RedHuang-0622/seelex/contract/protocol"',
         1,
     )
     source = replace_between(

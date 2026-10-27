@@ -1,6 +1,6 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0、M1、M2、M3 已完成，下一步 M4。
+状态快照：M0、M1、M2、M3、M4 已完成，下一步 M5。
 
 工作区：`C:\Users\redre\.codex\worktrees\store-ddd-m1\seelex`
 
@@ -13,13 +13,12 @@
    `progress.md` 和 `impact/M1-external-deps.md`。
 3. 运行 `git status --short --branch` 与 `git worktree list`，以 `progress.md`
    和最新提交为事实源。
-4. 下一里程碑是 M4 Commit/Turn UoW：按 M0 写序/半失败矩阵拆 Session、
-   Artifact、Compaction 提交，并在 application 层保留 artifact → message →
-   compaction 的现有可见性。
+4. 下一里程碑是 M5 Session 核心：迁移 message/event/head/draft-tail，
+   保持草稿不可见、event anchor/seq/commit_id 和冷读语义。
 5. 首次验证：
 
 ```text
-go test ./application/core/... ./store/... ./wiring/... ./test/ -count=1
+go test ./store/... ./backend/engine/session/... ./application/... ./test/ -count=1
 go test ./store/... ./e2e/... -count=1
 ```
 
