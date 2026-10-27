@@ -256,6 +256,52 @@ func (l *Layout) ReadLenientHead(scope Scope, module ModuleID) (Head, bool) {
 	return head, true
 }
 
+// ReadWithHeal performs the bounded invalid-head recovery sequence:
+// raw read -> beforeRetry -> retry -> optional lock -> domain repair -> read.
+// repair owns payload-specific rebuild semantics; layout owns only the order.
+func (l *Layout) ReadWithHeal(
+	scope Scope,
+	module ModuleID,
+	lockHeld bool,
+	lock func() *sync.Mutex,
+	beforeRetry func(),
+	repair func(error) error,
+) (Head, error) {
+	head, err := l.ReadHead(scope, module)
+	if err == nil || IsNotExist(err) {
+		return head, err
+	}
+	if beforeRetry != nil {
+		beforeRetry()
+	}
+	head, retryErr := l.ReadHead(scope, module)
+	if retryErr == nil || IsNotExist(retryErr) {
+		return head, retryErr
+	}
+	if lockHeld {
+		if repair != nil && repair(err) == nil {
+			return l.ReadHead(scope, module)
+		}
+		return Head{}, err
+	}
+	moduleLock := lock()
+	if !moduleLock.TryLock() {
+		head, finalErr := l.ReadHead(scope, module)
+		if finalErr == nil || IsNotExist(finalErr) {
+			return head, finalErr
+		}
+		return Head{}, err
+	}
+	defer moduleLock.Unlock()
+	if head, retryErr = l.ReadHead(scope, module); retryErr == nil || IsNotExist(retryErr) {
+		return head, retryErr
+	}
+	if repair != nil && repair(err) == nil {
+		return l.ReadHead(scope, module)
+	}
+	return Head{}, err
+}
+
 // IsNotExist reports the shared missing-state classification.
 func IsNotExist(err error) bool {
 	return errors.Is(err, os.ErrNotExist)

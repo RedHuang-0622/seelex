@@ -269,32 +269,17 @@ func (store *storeEngine) readModuleHeadFileLocked(key Key, module storageModule
 // readModuleHeadFileHeal 是两条自愈读入口的共享实现；lockHeld 表示调用方已持
 // 该模块锁（true 时不得再取锁）。
 func (store *storeEngine) readModuleHeadFileHeal(key Key, module storageModule, lockHeld bool) (moduleHeadFile, error) {
-	head, err := store.readModuleHeadFileRaw(key, module)
-	if err == nil || errors.Is(err, fs.ErrNotExist) {
-		return head, err
-	}
-	// 自愈读：先重读一次；仍失败才重建（校验失败可能来自并发替换的瞬时态）。
-	if hook := readSelfHealHook; hook != nil {
-		hook()
-	}
-	head, retryErr := store.readModuleHeadFileRaw(key, module)
-	if retryErr == nil || errors.Is(retryErr, fs.ErrNotExist) {
-		return head, retryErr
-	}
-	if lockHeld {
-		return store.repairModuleHeadLocked(key, module, err)
-	}
-	lock := store.mu(key, module)
-	if !lock.TryLock() {
-		// 锁不在本调用栈可用：另一 writer 正持锁发布（其发布即自愈），或本
-		// 调用栈其实已持锁（该走 Locked 入口）。两种情况都只重读，绝不发布。
-		return store.retryRawHeadOrCause(key, module, err)
-	}
-	defer lock.Unlock()
-	if head, ok := store.retryHeadAfterLock(key, module); ok {
-		return head, nil
-	}
-	return store.repairModuleHeadLocked(key, module, err)
+	return store.layout.ReadWithHeal(
+		layoutScope(key),
+		module,
+		lockHeld,
+		func() *sync.Mutex { return store.mu(key, module) },
+		readSelfHealHook,
+		func(cause error) error {
+			_, err := store.repairModuleHeadLocked(key, module, cause)
+			return err
+		},
+	)
 }
 
 // retryRawHeadOrCause 在模块锁不可得时重读一次：成功即返回，仍失败上报原始

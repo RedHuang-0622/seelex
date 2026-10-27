@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -43,6 +44,37 @@ func TestPathsGuideHeadAndLocks(t *testing.T) {
 	}
 	if layout.Lock(scope, "message") == layout.Lock(scope, "event") {
 		t.Fatal("different module IDs aliased")
+	}
+}
+
+func TestReadWithHealRunsDomainRepairAfterBoundedRetry(t *testing.T) {
+	layout := New(t.TempDir())
+	scope := Scope{ProjectID: "project", SessionID: "session"}
+	if _, err := layout.Publish(scope, "message", "c1", map[string]int{"last_seq": 1}, time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	path := layout.ModulePath(scope, "message")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `"checksum": "`, `"checksum": "bad`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repaired := 0
+	head, err := layout.ReadWithHeal(scope, "message", true, func() *sync.Mutex { return layout.Lock(scope, "message") }, nil, func(cause error) error {
+		if cause == nil {
+			t.Fatal("repair received nil cause")
+		}
+		repaired++
+		_, publishErr := layout.Publish(scope, "message", "c1", map[string]int{"last_seq": 1}, time.Unix(2, 0))
+		return publishErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired != 1 || head.CommitID != "c1" {
+		t.Fatalf("repaired=%d head=%+v", repaired, head)
 	}
 }
 

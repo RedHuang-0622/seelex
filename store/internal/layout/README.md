@@ -8,7 +8,8 @@ JSON v8 会话布局机制 owner：物理路径、guide、module head 信封/校
 
 ## 职责与非职责
 
-- 职责：稳定路径派生、guide 幂等创建、head 原子发布/严格读/宽容读、锁一对一。
+- 职责：稳定路径派生、guide 幂等创建、head 原子发布/严格读/宽容读、
+  有界自愈重读顺序、锁一对一。
 - 非职责：解释 message/event/compact payload、按数据文件重建领域 head、决定模块
   是否启用，或读写用户内容。
 
@@ -21,7 +22,8 @@ JSON v8 会话布局机制 owner：物理路径、guide、module head 信封/校
 
 领域调用方持对应模块锁 → 先把不可变数据写到物理通道 → `Publish` 编码 head 信封、
 计算 checksum 并原子替换 `metadata/<module>.json`。读者经 `ReadHead` 做共享读并
-校验 schema/session/module/checksum；校验失败后的领域重建仍由调用方编排。
+校验 schema/session/module/checksum；`ReadWithHeal` 拥有“重读一次 → 可选锁 →
+领域 repair”的顺序，payload 如何重建仍由调用方回调提供。
 
 ## 依赖方向
 
