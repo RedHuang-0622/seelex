@@ -30,61 +30,13 @@ import (
 	"strings"
 	"time"
 
-	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
-// messageHead 是 metadata/message.json 的 payload：head/水位 + 分片索引。
-// head.LastSeq = 已发布最大 seq（发布点）；WatermarkSeq 由 LRU 淘汰前移
-// （message_id/seq 保持空洞、不重编号，I2）。
-type messageHead struct {
-	SessionID string `json:"session_id"`
-	// LastSeq 是已发布的最大事件行 seq（空会话 = 0）。
-	LastSeq uint64 `json:"last_seq"`
-	// LastMessageID 是最后一行非空 message_id（可能为空：流式中间行）。
-	LastMessageID string `json:"last_message_id,omitempty"`
-	// Shards 是有序分片索引（FromSeq 升序）；LRU 删除后保留空洞。
-	Shards []shardInfo `json:"shards,omitempty"`
-	// TotalRows 是当前物理存在（未淘汰）的已发布行数。
-	TotalRows uint64 `json:"total_rows"`
-	// WatermarkSeq / WatermarkMessageID 是 LRU 淘汰水位：只允许删除水位
-	// 之前的连续前缀；锚 ≤ watermark 视为已淘汰区引用，不算损坏。
-	WatermarkSeq       uint64 `json:"watermark_seq,omitempty"`
-	WatermarkMessageID string `json:"watermark_message_id,omitempty"`
-	// LastCommitID 是最近一次已发布提交的凭据（§2.0 规则 4 / S17）。
-	LastCommitID string `json:"last_commit_id,omitempty"`
-	// Meta 是目录枚举面（与 legacy manifest.Meta 同语义：UpdatedAt /
-	// TokenCount / ShardCount）。TokenCount 按已发布事件行累计。
-	Meta frameworkStorage.SessionMeta `json:"meta,omitempty"`
-	// Floor 是当前发言角色记录（§8.3）：随 message head 原子发布，不新增
-	// metadata 文件、不额外 rename。只有 sequencer 写，其他角色只读。
-	Floor *Floor `json:"floor,omitempty"`
-}
-
-// Floor 是「当前轮到这里发言的角色」记录。唯一写者 = sequencer；
-// 运行期内存态由 sequencer 维护，冷恢复从 message head.floor 重建。
-type Floor struct {
-	RoleName      string    `json:"role_name"`
-	RoleSessionID string    `json:"role_session_id,omitempty"`
-	RoundID       uint64    `json:"round_id,omitempty"`
-	Seq           uint64    `json:"seq,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-// shardInfo 是一个 message 分片文件的索引项。
-type shardInfo struct {
-	Path    string `json:"path"`
-	FromSeq uint64 `json:"from_seq"`
-	ToSeq   uint64 `json:"to_seq"`
-	Count   int    `json:"count"`
-	SHA256  string `json:"sha256,omitempty"`
-	// Bytes 是该分片文件的字节数（写入时落账）。它让写侧可以**不解码整片**就
-	// 判断索引是否仍然可信（见 shardTailTrust）：字节数一致 + 以换行收尾 ⇒
-	// 既没有崩溃残尾、也没有索引外的草稿行。0 表示未记账（老 head / 未重建
-	// 索引）→ 调用方退回整片读回的慢路径。
-	Bytes int64 `json:"bytes,omitempty"`
-}
+type messageHead = storesession.MessageHead
+type Floor = storesession.Floor
+type shardInfo = storesession.ShardInfo
 
 // fileSize 返回文件字节数（不存在/出错返回 0）。
 func fileSize(path string) int64 {
@@ -167,7 +119,7 @@ func (store *storeEngine) shardPath(key Key, fromSeq, toSeq uint64) string {
 
 // emptyMessageHead 返回空会话 head。
 func emptyMessageHead(key Key) messageHead {
-	return messageHead{SessionID: key.SessionID}
+	return storesession.EmptyMessageHead(key.SessionID)
 }
 
 // readMessageHead 读取 message head（缺失 = 空会话 head，不报错）。
@@ -647,29 +599,7 @@ func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commit
 // 「续号基准脱离发布点」的意义：逐步 append 的草稿行（seq > 发布点）已经是物理
 // 末行，后续写入必须从它们之后续号，否则草稿行与新一轮行会在同一 seq 上重叠。
 func assignRowSeqs(rows []Event, base uint64, commitID string) ([]Event, error) {
-	if len(rows) == 0 {
-		return []Event{}, nil
-	}
-	next := base
-	delta := make([]Event, 0, len(rows))
-	for _, row := range rows {
-		if row.Seq == 0 {
-			next++
-			row.Seq = next
-		} else {
-			if row.Seq <= base {
-				// 重复提交（基准已包含该行）= 幂等空操作，跳过。
-				continue
-			}
-			if row.Seq <= next {
-				return nil, fmt.Errorf("session storage: message rows must be strictly increasing (seq %d)", row.Seq)
-			}
-			next = row.Seq
-		}
-		row.CommitID = commitID
-		delta = append(delta, row)
-	}
-	return delta, nil
+	return storesession.AssignRowSeqs(rows, base, commitID)
 }
 
 // appendRowsLocked 把 delta append 进当前分片（满片滚动到新文件），并

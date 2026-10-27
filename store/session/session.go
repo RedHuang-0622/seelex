@@ -5,7 +5,9 @@ package session
 
 import (
 	"fmt"
+	"time"
 
+	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
@@ -31,6 +33,71 @@ type PendingTailReport struct {
 
 // RowCount returns the number of unpublished rows.
 func (report PendingTailReport) RowCount() int { return len(report.Rows) }
+
+// MessageHead is metadata/message.json payload and its stable JSON wire.
+type MessageHead struct {
+	SessionID          string                       `json:"session_id"`
+	LastSeq            uint64                       `json:"last_seq"`
+	LastMessageID      string                       `json:"last_message_id,omitempty"`
+	Shards             []ShardInfo                  `json:"shards,omitempty"`
+	TotalRows          uint64                       `json:"total_rows"`
+	WatermarkSeq       uint64                       `json:"watermark_seq,omitempty"`
+	WatermarkMessageID string                       `json:"watermark_message_id,omitempty"`
+	LastCommitID       string                       `json:"last_commit_id,omitempty"`
+	Meta               frameworkStorage.SessionMeta `json:"meta,omitempty"`
+	Floor              *Floor                       `json:"floor,omitempty"`
+}
+
+// ShardInfo is one message shard index entry.
+type ShardInfo struct {
+	Path    string `json:"path"`
+	FromSeq uint64 `json:"from_seq"`
+	ToSeq   uint64 `json:"to_seq"`
+	Count   int    `json:"count"`
+	SHA256  string `json:"sha256,omitempty"`
+	Bytes   int64  `json:"bytes,omitempty"`
+}
+
+// Floor is the current speaking-role record carried by message head.
+type Floor struct {
+	RoleName      string    `json:"role_name"`
+	RoleSessionID string    `json:"role_session_id,omitempty"`
+	RoundID       uint64    `json:"round_id,omitempty"`
+	Seq           uint64    `json:"seq,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// EmptyMessageHead returns the canonical zero head for a session.
+func EmptyMessageHead(sessionID string) MessageHead {
+	return MessageHead{SessionID: sessionID}
+}
+
+// AssignRowSeqs is the single event seq allocator. Explicit seq <= base is
+// idempotently skipped; explicit seq must otherwise be strictly increasing.
+func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error) {
+	if len(rows) == 0 {
+		return []protocol.TranscriptEvent{}, nil
+	}
+	next := base
+	delta := make([]protocol.TranscriptEvent, 0, len(rows))
+	for _, row := range rows {
+		if row.Seq == 0 {
+			next++
+			row.Seq = next
+		} else {
+			if row.Seq <= base {
+				continue
+			}
+			if row.Seq <= next {
+				return nil, fmt.Errorf("session storage: message rows must be strictly increasing (seq %d)", row.Seq)
+			}
+			next = row.Seq
+		}
+		row.CommitID = commitID
+		delta = append(delta, row)
+	}
+	return delta, nil
+}
 
 // ClassifyPendingTail preserves the single draft-tail recoverability rule.
 func ClassifyPendingTail(headSeq uint64, rows []protocol.TranscriptEvent, duplicate bool) (string, string) {

@@ -380,10 +380,13 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - message/event 分片文件名的唯一格式与解析；
 - `PendingTailReport` 的 wire/状态词表；
 - 草稿尾连续性与重复 seq 分类。
+- `MessageHead` / `ShardInfo` / `Floor` 的 JSON 身份与空 head 构造；
+- 唯一 seq 分配器 `AssignRowSeqs`（显式 Seq 幂等窗口与严格递增校验）。
 
-根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名与分类只保留
-单层转发。M5 尚未完成：message/event head 发布、全文读写、draft tail 推进与
-`SessionGranularStore` 收缩仍待后续切片，因此本里程碑不标记完成。
+根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
+head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
+全文读写、draft tail 推进与 `SessionGranularStore` 收缩仍待后续切片，因此本里程碑
+不标记完成。
 
 ### 2.9.2 红测
 
@@ -408,6 +411,8 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 | `store/pending_tail.go` 的连续性/重复 seq 判据 | `store/session.ClassifyPendingTail` |
 | `store/message_rows.go` 的 message 分片名生成/解析 | `store/session.MessageShardName/ParseMessageShardName` |
 | `store/structural_events.go` 的 event 分片名生成/解析 | `store/session.EventShardName/ParseEventShardName` |
+| `store/message_rows.go` 的 message head/shard/floor JSON 类型 | `store/session.MessageHead/ShardInfo/Floor` |
+| `store/message_rows.go` 的 `assignRowSeqs` | `store/session.AssignRowSeqs` |
 
 数据路径与 JSON tag 零变化。
 

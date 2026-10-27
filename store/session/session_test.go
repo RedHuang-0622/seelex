@@ -40,3 +40,34 @@ func TestShardNames(t *testing.T) {
 		t.Fatalf("event parse=(%d,%d,%v)", from, to, ok)
 	}
 }
+
+func TestAssignRowSeqs(t *testing.T) {
+	rows := []protocol.TranscriptEvent{
+		{Seq: 0, MessageID: "auto"},
+		{Seq: 5, MessageID: "explicit"},
+	}
+	assigned, err := AssignRowSeqs(rows, 2, "commit-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assigned) != 2 || assigned[0].Seq != 3 || assigned[1].Seq != 5 ||
+		assigned[0].CommitID != "commit-1" || assigned[1].CommitID != "commit-1" {
+		t.Fatalf("assigned=%+v", assigned)
+	}
+	duplicate, err := AssignRowSeqs([]protocol.TranscriptEvent{{Seq: 2}}, 2, "commit")
+	if err != nil || len(duplicate) != 0 {
+		t.Fatalf("duplicate=(%+v,%v)", duplicate, err)
+	}
+	if _, err := AssignRowSeqs([]protocol.TranscriptEvent{{Seq: 5}, {Seq: 5}}, 2, "commit"); err == nil {
+		t.Fatal("non-increasing explicit seq must fail")
+	}
+}
+
+func TestMessageShardRouteOnHead(t *testing.T) {
+	head := EmptyMessageHead("session")
+	head.Shards = []ShardInfo{{Path: "message_1_2.jsonl", FromSeq: 1, ToSeq: 2, Count: 2}}
+	head.LastSeq = 2
+	if head.SessionID != "session" || head.Shards[0].Path != "message_1_2.jsonl" || head.LastSeq != 2 {
+		t.Fatalf("head=%+v", head)
+	}
+}
