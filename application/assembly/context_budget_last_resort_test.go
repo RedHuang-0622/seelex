@@ -13,6 +13,7 @@ import (
 // "达峰装配 / 主动压缩 / 同批进展不重复压"的**机制**，不验证出厂默认档
 // （默认档由 seelexctx/limits_test.go 钉住）。显式注入后，默认档从
 // 95/98/80 调整不会再让机制用例随阈值漂移而红。
+
 func pinMechanismCompactionRatios(t *testing.T) {
 	t.Helper()
 	previous := limit.Get()
@@ -37,7 +38,7 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-1"}
@@ -85,7 +86,7 @@ func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-3"}
@@ -134,7 +135,7 @@ func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)
 	}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-budget-2"}

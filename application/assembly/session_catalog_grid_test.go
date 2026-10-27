@@ -11,6 +11,7 @@ import (
 // TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids 钉住 G6 目录按
 // projectID 分格：只刷新项目 A 的目录请求不得顺带重算/覆盖项目 B 的格子，
 // 项目 B 新增的会话必须等 B 自己的刷新轮次才进入联合快照镜像。
+
 func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
@@ -18,7 +19,7 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if _, err := service.Deps.Workspace.Create("proj", "C:\\proj", ""); err != nil {
@@ -36,7 +37,7 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("project-scoped catalog refresh did not converge")
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	ids := sessionIDsOf(snapshot.Sessions)
 	if containsSessionID(ids, "session-b") {
 		t.Fatalf("scoped refresh of default project must not touch project-1 grid; got %v", ids)
@@ -51,7 +52,7 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("project-1 catalog refresh did not converge")
 	}
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	ids = sessionIDsOf(snapshot.Sessions)
 	if !containsSessionID(ids, "session-b") || !containsSessionID(ids, "session-a2") {
 		t.Fatalf("catalog after both scoped rounds must merge both project grids; got %v", ids)
@@ -59,10 +60,10 @@ func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	ids = sessionIDsOf(snapshot.Sessions)
 	if !containsSessionID(ids, "session-b") || !containsSessionID(ids, "session-a2") {
 		t.Fatalf("full catalog after scoped rounds must keep both project grids; got %v", ids)
@@ -83,26 +84,26 @@ func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T) {
 		},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-removed", updatedAt)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
-	if got := len(service.Snapshot().Sessions); got != 2 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 2 {
 		t.Fatalf("catalog after add = %d sessions, want 2", got)
 	}
 
 	if err := sessions.Delete("session-removed"); err != nil {
 		t.Fatalf("delete session: %v", err)
 	}
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh after delete: %v", err)
 	}
-	ids := sessionIDsOf(service.Snapshot().Sessions)
+	ids := sessionIDsOf(service.components.frontendSnapshot.Snapshot().Sessions)
 	if containsSessionID(ids, "session-removed") || !containsSessionID(ids, "session-a") {
 		t.Fatalf("full refresh must replace grid rows after deletion; got %v", ids)
 	}

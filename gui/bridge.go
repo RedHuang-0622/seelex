@@ -18,138 +18,6 @@ import (
 
 const eventName = "seelex:event"
 
-// Application is the narrow application-core contract consumed by the GUI.
-// The interface belongs to the caller so the desktop bridge can be tested
-// without constructing the Seele runtime.
-type Application interface {
-	Snapshot() application.Snapshot
-	BeginGracefulShutdown()
-	WaitForIdle(context.Context) error
-	Subscribe(buffer int) application.Subscription
-	Submit(context.Context, string) error
-	BeginNewSession() error
-	ResumeSession(string) error
-	// ForkSessionLatest 从指定会话最新完整轮次分支出新会话并切换（fork
-	// 一期 GUI 入口；返回子会话 ID）。
-	ForkSessionLatest(string) (string, error)
-	CancelChat(string) bool
-	ResolveInteraction(context.Context, string, string) error
-	DeleteSession(string) error
-	// ArchiveSession 把指定会话置为 archived（record 级状态；运行中/待批
-	// 拒绝）。归档会话从常规目录隐藏，数据五片保留可按 ID 重开。
-	ArchiveSession(string) error
-	// SetSessionMeta 写会话展示元数据（置顶/别名/排序位），随会话目录下发。
-	SetSessionMeta(string, application.SessionMeta) error
-	// WaitCatalogRefresh 等待会话目录 worker 完成一轮覆盖本次变更的刷新，使随后
-	// 的 Snapshot() 直接携带权威目录（前端因此不必回填上一次列表伪造状态）。
-	WaitCatalogRefresh(context.Context) error
-	CreateWorkspace(name, rootPath, gitRemote string) error
-	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
-	BindWorkspace(workspaceID string) error
-	UnbindWorkspace()
-	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
-	ClearSubagentTree() error
-	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
-	// pending/doing/done；plan/subagent 由执行器管理）。
-	UpdateWorkItemStatus(id, status string) error
-	ScheduleTask(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
-	// UpdateScheduledTask 用一份新定义覆盖既有任务（编辑；ID 是操作键）。
-	UpdateScheduledTask(context.Context, string, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
-	CancelScheduledTask(string) error
-	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
-	// GUI 历史检索面板数据源）。
-	SearchHistory(context.Context, string, int) (application.SearchResult, error)
-	// WorkspaceTree 列出当前工作区某目录的子条目（工作树数据源；只含
-	// 元数据，不含文件内容）。
-	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
-	// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge）。
-	WorkspaceFileCount() (dto.TreeCount, error)
-	// WorkspaceGitRepos 发现当前工作区内的 git 仓库（多仓库面板的仓库标签
-	// 数据源；只读扫描，有界——深度/目录/条目预算触顶时 Truncated 如实上报）。
-	// 未绑定工作区或后端不支持时返回带 Error 文案的空结果，不是 Go error。
-	WorkspaceGitRepos() (dto.GitReposResult, error)
-	// WorkspaceGitLog 返回**指定仓库**最近 limit 条提交（repo 相对工作区根，
-	// "." = 工作区根；含父提交拓扑；只读元数据，不含 diff/文件内容；非 git
-	// 仓库返回 Result.Error）。repo 越界/绝对路径是调用方传错参数 → Go error。
-	WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)
-	// WorkspaceChanges 返回**指定仓库**未提交改动（repo 口径同 WorkspaceGitLog；
-	// 只读元数据——路径与状态字符，不含 diff/文件内容）。
-	WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)
-	// WorkspaceGitCommitDetail 返回**指定仓库**某个提交改了哪些文件（提交记录
-	// 「点开某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含
-	// diff 或文件内容；非 git 仓库或提交不存在返回 Result.Error）。hash 由前端
-	// 从提交列表原样带回，形状校验在后端。
-	WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)
-	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
-	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
-	// workspace 层保证；只读受控字节，不进快照）。
-	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
-	// WorkspaceGitCommitFileContent 读取某文件在**指定仓库**某个提交时的内容
-	// （提交记录「点开某个文件」数据源）。与 WorkspaceFileContent 同一条可见性
-	// 边界，只是字节来自 git 对象库；这条通道只有读，不回写工作区。
-	WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)
-	// WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（文件详情面板的
-	// 编辑保存；可见性边界与原子发布在 workspace 层保证）。用户即动作主体，
-	// 不走主代理权限档位与审批；未装配写端口的宿主显式报错。
-	WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)
-	// ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
-	// 工具输出，前端"加载完整输出"数据源；复用 read_tool_result 通道）。
-	ToolResultContent(context.Context, string, int, int) (application.ToolResultPage, error)
-	// PerfStats 返回性能追踪钩子的后端数据面（无内容指标，供前端渲染
-	// 进程对照 DOM/JS heap 与快照载荷体积）。
-	PerfStats() application.PerfStats
-	// PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图"前缀注入"
-	// 数据源；经桥接单独拉取，不进 Snapshot，避免私有指令泄漏）。
-	PromptLayers() []application.PromptLayer
-}
-
-// roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
-// 成员行「查看会话」与「员工会话」入口）。
-//
-// 语义边界（2026-10-12 J-1a）：Agent Team 的**装配面**（成员表 / 角色 CRUD / 工作
-// 顺序 / 团队库 / 员工库 / 全局母本 / 员工提示词）已整条退场，因此本接口只留两条
-// **读者**：
-//
-//   - RoleSnapshot：某个角色会话的只读观察面（`dto.RoleSnapshot`，角色 draft 的
-//     投影；B1 保留面，全仓唯一实现在 application/assembly/role_session.go）；
-//   - TeammateSessionLiveFor / TeammateSessionLivePageFor：当前 teammate 会话的实时
-//     投影（团队看板的「这件事的会话此刻在说什么」）。
-//
-// 为什么它们留下：这两条读的是**角色会话**这件事实，与"会话里装配了哪支团队"无关；
-// 团队看板（teamwork）是保留能力面。接口名不再叫 agentTeam*：名字里的 Agent Team
-// 面已经不在了，继续用它只会让下一个人以为成员表还能从这里读到。
-type roleSessionApplication interface {
-	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
-	// TeammateSessionLiveFor 是**当前 teammate 会话**的实时读面（这件事自己的会话——
-	// 进程内执行面，正文不在会话库里）。
-	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
-	// TeammateSessionLivePageFor 是同一份读面的**分页读法**（有界窗口 + 分页）。
-	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
-	// WorkItemExecutionFor is the single WorkItem detail/progress read.
-	WorkItemExecutionFor(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
-	// TeammateInspectionFor is the safe teammate detail projection.
-	TeammateInspectionFor(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
-	// ConversationView is the unified main/subagent/teammate history capability.
-	ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
-	ConversationChat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)
-	RecoverConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
-}
-
-// 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
-// 接口。此前这里的方法名漂移成 AgentTeamMaterializePreset（Service 侧叫
-// MaterializeAgentTeamPreset），只有测试假实现满足它——于是 bridge 单测全绿，
-// 而真机 GUI 一调 Agent Team 就断言失败、报"当前 Application 未装配 A2A 角色
-// 管理面"（2026-09-11 修复）。用假实现顶替接口断言是这类漂移的温床，故在此
-// 用真实类型钉死。
-// 2026-10-12（J-1a）：Agent Team 装配面退场后，本断言的对象只剩"角色会话只读观察
-// 面"——它仍然钉死真机（读面漂移同样会退化成"未装配"），只是钉的东西变窄了。
-var (
-	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
-	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
-	_ Application            = (*application.Frontend)(nil)
-	_ roleSessionApplication = (*application.Frontend)(nil)
-)
-
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
 // forwards events into their renderer runtime.
@@ -191,8 +59,7 @@ type ProjectSource struct {
 
 // Bridge adapts the headless application service to desktop-safe methods.
 type Bridge struct {
-	// deps 是装配表交出的应用面：已迁移的组走各自 owner 端口，尚未迁移的组仍走
-	// deps.App（宽门面，只减不增，S7 删除）。
+	// deps 是装配表交出的逐 owner 窄端口。
 	deps Dependencies
 	info AppInfo
 	mu   sync.Mutex
@@ -598,18 +465,18 @@ func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.deps.ViewS
 // SubagentSessionDetail 返回子代理节点详情（会话记录 + 上下文快照 +
 // 功能打点；条目详情弹窗唯一的数据面）。
 func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error) {
-	return bridge.deps.App.SubagentSessionDetail(nodeID)
+	return bridge.deps.Subagents.Detail(nodeID)
 }
 
 // ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。
 func (bridge *Bridge) ClearSubagentTree() error {
-	return bridge.deps.App.ClearSubagentTree()
+	return bridge.deps.Subagents.ClearTree()
 }
 
 // UpdateWorkItemStatus 更新工作表格任务状态（参数透传；业务校验在
 // application 层，Bridge 不维护状态）。
 func (bridge *Bridge) UpdateWorkItemStatus(id, status string) error {
-	return bridge.deps.App.UpdateWorkItemStatus(id, status)
+	return bridge.deps.WorkItems.UpdateWorkItemStatus(id, status)
 }
 
 func (bridge *Bridge) Submit(text string) error {
@@ -662,6 +529,9 @@ func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
 func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
+	if bridge.deps.MessageEdit == nil {
+		return model.EditUserMessageForkResult{}, errors.New("gui: MessageEdit 未装配")
+	}
 	result, err := bridge.deps.MessageEdit.EditUserMessageAndFork(bridge.requestContext(), parentSessionID, request)
 	if err != nil {
 		return model.EditUserMessageForkResult{}, err
@@ -897,20 +767,20 @@ func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string
 }
 
 func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {
-	return bridge.deps.App.CreateWorkspace(name, rootPath, gitRemote)
+	return bridge.deps.WorkspaceActions.CreateWorkspace(name, rootPath, gitRemote)
 }
 
 // CreateWorkspaces 批量登记项目（不绑定当前会话）；前端在确认 temp list 后一次提交。
 func (bridge *Bridge) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
-	return bridge.deps.App.CreateWorkspaces(requests)
+	return bridge.deps.WorkspaceCatalog.CreateWorkspaces(requests)
 }
 
 func (bridge *Bridge) BindWorkspace(workspaceID string) error {
-	return bridge.deps.App.BindWorkspace(workspaceID)
+	return bridge.deps.WorkspaceActions.BindWorkspace(workspaceID)
 }
 
 func (bridge *Bridge) UnbindWorkspace() {
-	bridge.deps.App.UnbindWorkspace()
+	bridge.deps.WorkspaceActions.UnbindWorkspace()
 }
 
 // SetFullAccess 切换全权模式并返回**真正生效的值**：前端据此渲染开关，
@@ -951,93 +821,63 @@ const sessionSelfRole = string(dto.RoleAgent)
 //     项目操作直接收项目 ID，与会话是否已经建立持久 binding 无关；
 //   · 会话只持有首次固定、之后不可切换的环境名。
 //
-// 桥面照抄角色设置面的做法（端口在 dependencies.go 里由装配表绑定），不往那条面上
-// 加方法（那条面是所有 fake 都要满足的最小集）。
-
-// sessionSSHApplication 是会话 SSH 要用到的应用层方法（窄接口，由本包声明）。
-type sessionSSHApplication interface {
-	WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)
-	SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)
-	DeleteWorkspaceEnvironment(projectID, name string) error
-	SetDefaultWorkspaceEnvironment(projectID, name string) error
-	SessionSSHState(sessionID string) (model.SessionSSHInfo, error)
-	SetSessionSSHEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error)
-	SetSessionSSHAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)
-}
-
-func (bridge *Bridge) sessionSSH() (sessionSSHApplication, error) {
-	if bridge == nil || bridge.deps.App == nil {
-		return nil, errors.New("bridge is not assembled")
-	}
-	app, ok := bridge.deps.App.(sessionSSHApplication)
-	if !ok {
-		return nil, errors.New("当前 Application 未装配会话 SSH 面（WorkspaceEnvironments / SessionSSHState）")
-	}
-	return app, nil
-}
+// 桥面照抄角色设置面的做法（端口在 dependencies.go 里由装配表绑定）。
 
 // WorkspaceEnvironments 读指定项目的环境表与默认环境名。
 func (bridge *Bridge) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error) {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return nil, "", err
+	if bridge.deps.WorkspaceCatalog == nil {
+		return nil, "", errors.New("gui: WorkspaceCatalog 未装配")
 	}
-	return app.WorkspaceEnvironments(strings.TrimSpace(projectID))
+	return bridge.deps.WorkspaceCatalog.WorkspaceEnvironments(strings.TrimSpace(projectID))
 }
 
 // SetWorkspaceEnvironment 写一个项目环境（口令三态；Delete=true 则删除）。
 func (bridge *Bridge) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error) {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return model.WorkspaceEnvironmentInfo{}, err
+	if bridge.deps.WorkspaceCatalog == nil {
+		return model.WorkspaceEnvironmentInfo{}, errors.New("gui: WorkspaceCatalog 未装配")
 	}
-	return app.SetWorkspaceEnvironment(strings.TrimSpace(projectID), name, change)
+	return bridge.deps.WorkspaceCatalog.SetWorkspaceEnvironment(strings.TrimSpace(projectID), name, change)
 }
 
 // DeleteWorkspaceEnvironment 删除一个项目环境（连同它的口令）。
 func (bridge *Bridge) DeleteWorkspaceEnvironment(projectID, name string) error {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return err
+	if bridge.deps.WorkspaceCatalog == nil {
+		return errors.New("gui: WorkspaceCatalog 未装配")
 	}
-	return app.DeleteWorkspaceEnvironment(strings.TrimSpace(projectID), name)
+	return bridge.deps.WorkspaceCatalog.DeleteWorkspaceEnvironment(strings.TrimSpace(projectID), name)
 }
 
 // SetDefaultWorkspaceEnvironment 指定项目默认环境（空串 = 取消默认）。
 func (bridge *Bridge) SetDefaultWorkspaceEnvironment(projectID, name string) error {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return err
+	if bridge.deps.WorkspaceCatalog == nil {
+		return errors.New("gui: WorkspaceCatalog 未装配")
 	}
-	return app.SetDefaultWorkspaceEnvironment(strings.TrimSpace(projectID), name)
+	return bridge.deps.WorkspaceCatalog.SetDefaultWorkspaceEnvironment(strings.TrimSpace(projectID), name)
 }
 
 // SessionSSHState 读当前视图会话的固定工作环境。
 func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return model.SessionSSHInfo{}, err
+	if bridge.deps.SessionSSH == nil {
+		return model.SessionSSHInfo{}, errors.New("gui: SessionSSH 未装配")
 	}
-	return app.SessionSSHState(bridge.deps.ViewSnapshot.Snapshot().Session.ID)
+	return bridge.deps.SessionSSH.State(bridge.deps.ViewSnapshot.Snapshot().Session.ID)
 }
 
 // SetSessionSSHEnv 首次固定当前视图会话的工作环境。绑定后不可修改或清空；
 // 换环境必须新建会话。
 func (bridge *Bridge) SetSessionSSHEnv(projectID, env string) (model.SessionSSHInfo, error) {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return model.SessionSSHInfo{}, err
+	if bridge.deps.SessionSSH == nil {
+		return model.SessionSSHInfo{}, errors.New("gui: SessionSSH 未装配")
 	}
-	return app.SetSessionSSHEnv(bridge.deps.ViewSnapshot.Snapshot().Session.ID, strings.TrimSpace(projectID), env)
+	return bridge.deps.SessionSSH.SetEnv(bridge.deps.ViewSnapshot.Snapshot().Session.ID, strings.TrimSpace(projectID), env)
 }
 
 // SetSessionSSHAllowed 是旧会话放权状态的兼容写面；新流程以固定环境为准。
 func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo, error) {
-	app, err := bridge.sessionSSH()
-	if err != nil {
-		return model.SessionSSHInfo{}, err
+	if bridge.deps.SessionSSH == nil {
+		return model.SessionSSHInfo{}, errors.New("gui: SessionSSH 未装配")
 	}
-	return app.SetSessionSSHAllowed(bridge.deps.ViewSnapshot.Snapshot().Session.ID, envs)
+	return bridge.deps.SessionSSH.SetAllowed(bridge.deps.ViewSnapshot.Snapshot().Session.ID, envs)
 }
 
 // PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按五级
@@ -1279,18 +1119,18 @@ func (bridge *Bridge) SetDefaultPlugin(name string) error {
 }
 
 func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
-	return bridge.deps.App.ScheduleTask(bridge.requestContext(), spec)
+	return bridge.deps.Schedules.ScheduleTask(bridge.requestContext(), spec)
 }
 
 // UpdateScheduledTask 编辑既有定时/周期任务（同一份 spec 形状；任务 ID 是操作键，
 // 名称只做展示）。
 func (bridge *Bridge) UpdateScheduledTask(id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
-	return bridge.deps.App.UpdateScheduledTask(bridge.requestContext(), id, spec)
+	return bridge.deps.Schedules.UpdateScheduledTask(bridge.requestContext(), id, spec)
 }
 
 // CancelScheduledTask 取消并移除定时/周期任务。
 func (bridge *Bridge) CancelScheduledTask(id string) error {
-	return bridge.deps.App.CancelScheduledTask(id)
+	return bridge.deps.Schedules.CancelScheduledTask(id)
 }
 
 // ── 角色会话读面（团队看板用）────────────────────────────────────────
@@ -1301,14 +1141,6 @@ func (bridge *Bridge) CancelScheduledTask(id string) error {
 //
 // sessionID 为空 = 当前视图会话（前端不必自己记会话号；会话切换后重拉即可）。
 // 这些方法只做参数归一与窄转发，语义在 application 与存储侧。
-
-func (bridge *Bridge) roleSessionApp() (roleSessionApplication, error) {
-	app, ok := bridge.deps.App.(roleSessionApplication)
-	if !ok {
-		return nil, errors.New("当前 Application 未装配角色会话读面")
-	}
-	return app, nil
-}
 
 // roleSessionTarget 解析目标会话：显式 ID 优先，空值取当前视图会话。
 func (bridge *Bridge) roleSessionTarget(sessionID string) string {
@@ -1330,9 +1162,8 @@ func (bridge *Bridge) roleSessionTarget(sessionID string) string {
 // 从成员表（`AgentTeamView`）反解角色会话号——那张成员表已随装配面退场，回退没有
 // 事实来源，所以这里**不再有回退**（缺号即报错，不再猜）。
 func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.RoleSnapshot{}, err
+	if bridge.deps.RoleSessions == nil {
+		return dto.RoleSnapshot{}, errors.New("当前 Application 未装配角色会话读面")
 	}
 	roleName = strings.TrimSpace(roleName)
 	if roleName == "" {
@@ -1346,7 +1177,7 @@ func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID s
 	if roleSessionID == "" {
 		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（role_session_id 必填）", roleName)
 	}
-	return app.RoleSnapshot(session, roleName, roleSessionID)
+	return bridge.deps.RoleSessions.RoleSnapshot(session, roleName, roleSessionID)
 }
 
 // TeammateSessionLive 读取**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
@@ -1372,63 +1203,57 @@ func (bridge *Bridge) TeammateSessionLivePage(roleSessionID string, offset, limi
 
 // teammateSessionLive 是上面两个读法的共同实现（同一份参数归一：只读、不写任何状态）。
 func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit int, paginated bool) (dto.TeammateSessionLiveView, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.TeammateSessionLiveView{}, err
+	if bridge.deps.WorkItems == nil {
+		return dto.TeammateSessionLiveView{}, errors.New("当前 Application 未装配工作项读面")
 	}
 	roleSessionID = strings.TrimSpace(roleSessionID)
 	if roleSessionID == "" {
 		return dto.TeammateSessionLiveView{}, errors.New("会话号不能为空（工作项自己的会话号）")
 	}
 	if paginated {
-		return app.TeammateSessionLivePageFor(roleSessionID, offset, limit), nil
+		return bridge.deps.WorkItems.SessionPage(roleSessionID, offset, limit), nil
 	}
-	return app.TeammateSessionLiveFor(roleSessionID), nil
+	return bridge.deps.WorkItems.SessionLive(roleSessionID), nil
 }
 
 // WorkItemExecution is the single server read for WorkItem details and the
 // teammate WorkItem progress/session page.
 func (bridge *Bridge) WorkItemExecution(mainSessionID, itemID string, offset, limit int) (dto.WorkItemExecutionView, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.WorkItemExecutionView{}, err
+	if bridge.deps.WorkItems == nil {
+		return dto.WorkItemExecutionView{}, errors.New("当前 Application 未装配工作项读面")
 	}
-	return app.WorkItemExecutionFor(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(itemID), dto.ConversationViewRequest{
+	return bridge.deps.WorkItems.WorkItemExecution(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(itemID), dto.ConversationViewRequest{
 		Offset: offset, Limit: limit,
 	})
 }
 
 // TeammateInspection returns prompt, plugin, limit, and permission details.
 func (bridge *Bridge) TeammateInspection(mainSessionID, role string) (dto.TeammateInspectionView, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.TeammateInspectionView{}, err
+	if bridge.deps.WorkItems == nil {
+		return dto.TeammateInspectionView{}, errors.New("当前 Application 未装配工作项读面")
 	}
-	return app.TeammateInspectionFor(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(role))
+	return bridge.deps.WorkItems.TeammateInspection(bridge.requestContext(), strings.TrimSpace(mainSessionID), strings.TrimSpace(role))
 }
 
 func (bridge *Bridge) ConversationView(ref dto.ConversationSessionRef, offset, limit int) (dto.SessionRecordPage, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.SessionRecordPage{}, err
+	if bridge.deps.Conversation == nil {
+		return dto.SessionRecordPage{}, errors.New("当前 Application 未装配统一会话读面")
 	}
-	return app.ConversationView(bridge.requestContext(), ref, dto.ConversationViewRequest{Offset: offset, Limit: limit})
+	return bridge.deps.Conversation.View(bridge.requestContext(), ref, dto.ConversationViewRequest{Offset: offset, Limit: limit})
 }
 
 func (bridge *Bridge) ConversationChat(ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.ChatReceipt{}, err
+	if bridge.deps.Conversation == nil {
+		return dto.ChatReceipt{}, errors.New("当前 Application 未装配统一会话写面")
 	}
-	return app.ConversationChat(bridge.requestContext(), ref, dto.ConversationChatRequest{Message: message, WaitMS: waitMS})
+	return bridge.deps.Conversation.Chat(bridge.requestContext(), ref, dto.ConversationChatRequest{Message: message, WaitMS: waitMS})
 }
 
 func (bridge *Bridge) RecoverConversation(ref dto.ConversationSessionRef) (dto.SessionRecovery, error) {
-	app, err := bridge.roleSessionApp()
-	if err != nil {
-		return dto.SessionRecovery{}, err
+	if bridge.deps.Conversation == nil {
+		return dto.SessionRecovery{}, errors.New("当前 Application 未装配统一会话恢复面")
 	}
-	return app.RecoverConversation(bridge.requestContext(), ref)
+	return bridge.deps.Conversation.Recover(bridge.requestContext(), ref)
 }
 
 // ── Agent Team 装配面已退场（2026-10-12 J-1a）
@@ -1440,70 +1265,70 @@ func (bridge *Bridge) RecoverConversation(ref dto.ConversationSessionRef) (dto.S
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 // Wails 前端历史检索面板数据源，返回门面再导出的 `application.SearchResult`）。
 func (bridge *Bridge) SearchHistory(query string, limit int) (application.SearchResult, error) {
-	return bridge.deps.App.SearchHistory(bridge.requestContext(), query, limit)
+	return bridge.deps.HistorySearch.SearchHistory(bridge.requestContext(), query, limit)
 }
 
 // WorkspaceTree 转发工作树目录列表（参数与业务校验在 application 层）。
 func (bridge *Bridge) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error) {
-	return bridge.deps.App.WorkspaceTree(relPath, depth)
+	return bridge.deps.WorkspaceActions.Tree(relPath, depth)
 }
 
 // WorkspaceFileCount 转发工作区文件统计。
 func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
-	return bridge.deps.App.WorkspaceFileCount()
+	return bridge.deps.WorkspaceActions.FileCount()
 }
 
 // WorkspaceGitRepos 转发「工作区内 git 仓库发现」（仓库标签栏数据源；扫描边界、
 // 剪枝与预算在 workspace 域内保证，应用层只做端口断言与文案回落）。
 func (bridge *Bridge) WorkspaceGitRepos() (dto.GitReposResult, error) {
-	return bridge.deps.App.WorkspaceGitRepos()
+	return bridge.deps.WorkspaceCatalog.WorkspaceGitRepos()
 }
 
 // WorkspaceGitLog 转发指定仓库的 git 提交记录（repo 相对工作区根，"." = 工作
 // 区根；最近 limit 条提交 + 父提交拓扑；只读元数据，不含 diff/文件内容；
 // 非 git 仓库返回 Result.Error）。
 func (bridge *Bridge) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error) {
-	return bridge.deps.App.WorkspaceGitLog(repo, limit)
+	return bridge.deps.WorkspaceCatalog.GitLog(repo, limit)
 }
 
 // WorkspaceChanges 转发指定仓库的未提交改动（repo 口径同 WorkspaceGitLog；暂存/
 // 未暂存/未跟踪/冲突；只读元数据——路径与状态字符，不含 diff/文件内容；
 // 非 git 仓库返回 Result.Error 供面板显示错误态）。
 func (bridge *Bridge) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error) {
-	return bridge.deps.App.WorkspaceChanges(repo, limit)
+	return bridge.deps.WorkspaceCatalog.Changes(repo, limit)
 }
 
 // WorkspaceGitCommitDetail 转发指定仓库某个提交的改动文件清单（提交记录「点开
 // 某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含 diff 或文件
 // 内容；非 git 仓库返回 Result.Error 供面板显示错误态）。
 func (bridge *Bridge) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
-	return bridge.deps.App.WorkspaceGitCommitDetail(repo, hash, limit)
+	return bridge.deps.WorkspaceCatalog.CommitDetail(repo, hash, limit)
 }
 
 // WorkspaceGitCommitFileContent 转发指定仓库"某文件在某个提交时的内容"读取
 // （提交记录「点开某个文件」数据源；字节来自 git 对象库，可见性边界与工作树
 // 预览同一条；只读受控字节，不进快照，也不写回工作区）。
 func (bridge *Bridge) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
-	return bridge.deps.App.WorkspaceGitCommitFileContent(repo, hash, relPath, limit)
+	return bridge.deps.WorkspaceCatalog.CommitFileContent(repo, hash, relPath, limit)
 }
 
 // WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限
 // 在 application + workspace 层保证；只读受控字节，不进快照）。
 func (bridge *Bridge) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
-	return bridge.deps.App.WorkspaceFileContent(relPath, limit)
+	return bridge.deps.WorkspaceActions.FileContent(relPath, limit)
 }
 
 // WorkspaceWriteFile 转发工作树文件写入（「文件详情」面板的编辑保存）：用户
 // 自己按下的保存，是用户动作而不是主代理动作——不经过权限档位与执行选择页面；
 // 可见性边界、二进制拒绝与原子发布在 application + workspace 层保证。
 func (bridge *Bridge) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error) {
-	return bridge.deps.App.WorkspaceWriteFile(relPath, content)
+	return bridge.deps.WorkspaceActions.WriteFile(relPath, content)
 }
 
 // ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
 // 工具输出，"加载完整输出"数据源；参数透传，业务校验在 application 层）。
 func (bridge *Bridge) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error) {
-	return bridge.deps.App.ToolResultContent(bridge.requestContext(), resultRef, offset, limit)
+	return bridge.deps.References.ToolResultContent(resultRef, offset, limit)
 }
 
 // PerfStats 返回性能追踪钩子的后端数据面（无内容指标：快照载荷体积/
@@ -1512,29 +1337,15 @@ func (bridge *Bridge) PerfStats() application.PerfStats {
 	return bridge.deps.Perf.PerfStats()
 }
 
-// toolFailureBoardProvider 是 Application 的**窄可选**能力面：工具失败分布看板
-// （会话级读数：跟当前视图会话走，落该会话自己的 tool-record.jsonl）。
-//
-// 为什么是"可选窄接口 + 类型断言"而不是 Application 的成员：口径与
-// contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 一致——
-// **有就有、没有就是没装配**。未装配时返回空看板（前端整块 hidden），而不是逼每个
-// fake / harness 为了一个只读面板长出空方法。
-type toolRecordBoardProvider interface {
-	ToolRecordBoard() application.ToolRecordBoard
-	// ToolRecordEnabled / SetToolRecordEnabled：计数开关的读与写（设置里那一个开关）。
-	ToolRecordEnabled() bool
-	SetToolRecordEnabled(enabled bool) (bool, error)
-}
-
 // ToolRecordBoard 返回工具记录看板（会话级读数：当前视图会话自己的累计）。
 //
 // 走"按需拉取"而不是快照：快照是**会话作用域**的可重放状态，把进程级计数塞进去会
 // 让"重放一份会话快照"听起来像"重放这台机器的计数"（与 PerfStats 同一条理由）。
 func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard {
-	if provider, ok := bridge.deps.App.(toolRecordBoardProvider); ok {
-		return provider.ToolRecordBoard()
+	if bridge.deps.ToolRecords == nil {
+		return application.ToolRecordBoard{}
 	}
-	return application.ToolRecordBoard{}
+	return bridge.deps.ToolRecords.Board()
 }
 
 // SetToolRecordEnabled 开关工具记录计数（设置里那一个开关；返回生效值）。
@@ -1542,16 +1353,15 @@ func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard {
 // 未装配记录面的宿主显式报错（而不是静默返回 false）：用户按了开关却什么都没发生，
 // 比"这个宿主不支持"更坏。
 func (bridge *Bridge) SetToolRecordEnabled(enabled bool) (bool, error) {
-	provider, ok := bridge.deps.App.(toolRecordBoardProvider)
-	if !ok {
+	if bridge.deps.ToolRecords == nil {
 		return false, fmt.Errorf("工具记录未装配（宿主不支持计数开关）")
 	}
-	return provider.SetToolRecordEnabled(enabled)
+	return bridge.deps.ToolRecords.SetEnabled(enabled)
 }
 
 // PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图数据源）。
 func (bridge *Bridge) PromptLayers() []application.PromptLayer {
-	if bridge == nil || bridge.deps.App == nil {
+	if bridge == nil || bridge.deps.Prompts == nil {
 		return nil
 	}
 	return bridge.deps.Prompts.Layers()

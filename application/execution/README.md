@@ -4,7 +4,7 @@
 
 `application/execution` 承载执行域、项目看板、WorkItem/teammate、Subagent 与
 Role Tool Activity 的 Application 用例。真实调用方是
-`application/compat.Frontend` 与看板装配入口。
+GUI/headless 的消费方窄端口、assembly 组件快照与看板装配入口。
 
 ## 职责与非职责
 

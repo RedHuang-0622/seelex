@@ -1,23 +1,23 @@
 package assembly
 
-// 并发会话的内容隔离守卫：多会话同时跑时，本会话的正文/工具结果绝不落到别的
-// 会话的 record（transcript）或可见视图上。
-//
-// 生产装配把会话 ID 注入 chat ctx（chat.go:145 `ctx = withSessionID(ctx, ...)`），
-// 所有会话作用域的写入（transcript 事件、视图消息、工具轮说明正文的按迭代
-// 归位）都以它为键。本用例把 A 放后台、B 放活跃视图，交错驱动同样形状的一轮
-// （说明正文 → 工具轮宣告 → 工具起止 → 终答），断言：
-//   - 两侧 transcript / 视图都保留本会话内容；
-//   - 两侧都不出现另一侧的文本；
-//   - 说明正文归位到本会话自己的工具轮事件（不跨会话、不跨迭代）。
-//
-// 运行：go test ./application/assembly -run ConcurrentSessions -v -count=1
-
 import (
 	"context"
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	selexsession "github.com/RedHuang-0622/seelex/application/session/state"
+
+	// 并发会话的内容隔离守卫：多会话同时跑时，本会话的正文/工具结果绝不落到别的
+	// 会话的 record（transcript）或可见视图上。
+	//
+	// 生产装配把会话 ID 注入 chat ctx（chat.go:145 `ctx = withSessionID(ctx, ...)`），
+	// 所有会话作用域的写入（transcript 事件、视图消息、工具轮说明正文的按迭代
+	// 归位）都以它为键。本用例把 A 放后台、B 放活跃视图，交错驱动同样形状的一轮
+	// （说明正文 → 工具轮宣告 → 工具起止 → 终答），断言：
+	//   - 两侧 transcript / 视图都保留本会话内容；
+	//   - 两侧都不出现另一侧的文本；
+	//   - 说明正文归位到本会话自己的工具轮事件（不跨会话、不跨迭代）。
+	//
+	// 运行：go test ./application/assembly -run ConcurrentSessions -v -count=1
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/react"
 	"strings"
@@ -27,7 +27,7 @@ import (
 
 func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	ctx := context.Background()
 
 	type concurrentCase struct {
@@ -65,7 +65,7 @@ func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 		narration := item.marker + " 的说明正文：我先读取入口。"
 
 		// 说明正文（流式进本会话视图）→ LLM 完成宣告工具调用 → 工具起止。
-		service.appendDelta(item.request, narration)
+		service.components.conversationStreamRuntime.AppendDelta(item.request, narration)
 		service.components.tasks.RecordLLMComplete(sessionCtx, seelesession.LLMInfo{
 			Turn: 0,
 			ToolCalls: []types.ToolCall{{

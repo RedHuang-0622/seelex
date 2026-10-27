@@ -2,7 +2,7 @@ package assembly
 
 import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	sessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
+	"github.com/RedHuang-0622/seelex/application/session/history"
 	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"testing"

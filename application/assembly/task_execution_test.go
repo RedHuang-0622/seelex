@@ -16,13 +16,13 @@ import (
 
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
-	result, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{
+	result, err := service.components.terminalHandler.Handler(task_context.ToolComplete)(context.Background(), `{
 		"summary":"report is ready",
 		"artifacts":["report.md"],
 		"evidence":["go test ./..."]
@@ -43,26 +43,26 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 
 func TestTaskFailedRequiresFailureType(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "verify", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
-	if _, err := service.TaskTerminalHandler(task_context.ToolFailed)(context.Background(), `{"summary":"blocked"}`); err == nil || !strings.Contains(err.Error(), "failure_type") {
+	if _, err := service.components.terminalHandler.Handler(task_context.ToolFailed)(context.Background(), `{"summary":"blocked"}`); err == nil || !strings.Contains(err.Error(), "failure_type") {
 		t.Fatalf("task_failed error = %v, want failure_type validation", err)
 	}
 }
 
 func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "choose migration", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
-	_, err := service.TaskTerminalHandler(task_context.ToolNeedsUserDecision)(context.Background(), `{
+	_, err := service.components.terminalHandler.Handler(task_context.ToolNeedsUserDecision)(context.Background(), `{
 		"summary":"Two compatible migration paths remain.",
 		"decision_question":"Choose incremental or breaking migration.",
 		"decision_options":["incremental","breaking"]
@@ -76,25 +76,25 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	if state.Status != TurnNeedsUserDecision {
 		t.Fatalf("terminal status = %q", state.Status)
 	}
-	if visible := service.Snapshot().Task; visible == nil || visible.Status != TurnNeedsUserDecision {
+	if visible := service.components.frontendSnapshot.Snapshot().Task; visible == nil || visible.Status != TurnNeedsUserDecision {
 		t.Fatalf("visible task state = %#v", visible)
 	}
 }
 
 func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Nodes: []model.PlanNode{{ID: "inspect"}, {ID: "verify"}}}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
-	_, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect"]}`)
+	_, err := service.components.terminalHandler.Handler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect"]}`)
 	if err == nil || !strings.Contains(err.Error(), "verify") {
 		t.Fatalf("incomplete plan completion error = %v", err)
 	}
-	_, err = service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect","verify"]}`)
+	_, err = service.components.terminalHandler.Handler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect","verify"]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 
 func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanPending, Nodes: []model.PlanNode{{ID: "inspect"}}}
@@ -124,7 +124,7 @@ func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) 
 	if state.Status != TurnNeedsUserDecision || state.Terminal == nil || state.Terminal.Kind != task_context.ToolNeedsUserDecision {
 		t.Fatalf("task terminal = %#v, want needs-user-decision", state)
 	}
-	visible := service.Snapshot().Task
+	visible := service.components.frontendSnapshot.Snapshot().Task
 	if visible == nil || visible.Status != TurnNeedsUserDecision || !strings.Contains(visible.Summary, "not executed") {
 		t.Fatalf("visible task state = %#v", visible)
 	}
@@ -140,7 +140,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: "found the current call path"},
 	}}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -169,14 +169,14 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 			t.Fatalf("old raw transcript survived checkpoint compaction: %+v", history)
 		}
 	}
-	payload, err := json.Marshal(service.Snapshot())
+	payload, err := json.Marshal(service.components.frontendSnapshot.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(payload), context_runtime.TaskContextCheckpointPrefix) {
 		t.Fatalf("frontend snapshot leaked internal checkpoint: %s", payload)
 	}
-	compactions := service.Snapshot().Task.ContextCompactions
+	compactions := service.components.frontendSnapshot.Snapshot().Task.ContextCompactions
 	if len(compactions) != 1 || compactions[0].Version != 2 || compactions[0].Reason != "context_budget" || compactions[0].MessagesBefore != 6 || compactions[0].EstimatedTokens == 0 {
 		t.Fatalf("visible compactions = %#v", compactions)
 	}
@@ -193,7 +193,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *testing.T) {
 	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "system", Content: "system instruction", ContentSet: true}}}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -229,7 +229,7 @@ func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *test
 			t.Fatalf("round %d compacted history = %+v, normal path must not inject checkpoints", round, compacted)
 		}
 	}
-	compactions := service.Snapshot().Task.ContextCompactions
+	compactions := service.components.frontendSnapshot.Snapshot().Task.ContextCompactions
 	if len(compactions) != 2 || compactions[0].Version != 2 || compactions[1].Version != 3 {
 		t.Fatalf("visible compactions = %#v", compactions)
 	}
@@ -256,7 +256,7 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: strings.Repeat("x", Limits().MaxToolResultChars+1)},
 	}}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, model.TaskCheckpoint{})
@@ -271,7 +271,7 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 		!strings.HasPrefix(history[len(history)-1].Content, context_runtime.ToolResultOmittedPrefix) || !strings.Contains(history[len(history)-1].Content, "result_ref=tr-") || strings.Contains(history[len(history)-1].Content, strings.Repeat("x", 32)) {
 		t.Fatalf("large tool output entered provider history: %#v", history)
 	}
-	if compactions := service.Snapshot().Task.ContextCompactions; len(compactions) != 0 {
+	if compactions := service.components.frontendSnapshot.Snapshot().Task.ContextCompactions; len(compactions) != 0 {
 		t.Fatalf("a single large tool result must not trigger global compaction: %#v", compactions)
 	}
 }
@@ -302,7 +302,7 @@ func TestTaskContextSummaryIgnoresMetadataOnlyCheckpoint(t *testing.T) {
 func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.promptStack.Push("skill", "review", "review prompt")
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Task = &model.TaskState{RequestID: "old-task", Status: TurnInterrupted}
@@ -312,7 +312,7 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	service.ViewMu.Unlock()
 
-	if err := service.Submit(t.Context(), "continue"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "continue"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
@@ -356,7 +356,7 @@ func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
 
 func TestNoProgressBudgetStopsRepeatedToolRounds(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})

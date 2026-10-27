@@ -1,24 +1,26 @@
 package test
 
-// headless 恢复前缀一致性探针（2026-09-08 工作包）
-//
-// 目的：不靠代码推断，用真实装配（full chain harness + 本地 mock provider +
-// 同一 store 双进程）跑一遍，检查“进程重启 → ResumeSession → 下一轮提交”
-// 发往 provider 的上下文，是否等于重启前同会话继续运行时应发送的内容
-// （即会话事件原序 + 新输入，不丢前缀、不重复、不乱序）。
-//
-// 运行（无真实 API，全部走本地 mock）：
-//
-//	go test . -run TestHeadlessRestorePrefixProbe -count=1 -v -timeout 5m
-//
-// 说明：旧会话记录无真实价值，探针全部使用 t.TempDir() 独立 store。
-
 import (
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
+
+	// headless 恢复前缀一致性探针（2026-09-08 工作包）
+	//
+	// 目的：不靠代码推断，用真实装配（full chain harness + 本地 mock provider +
+	// 同一 store 双进程）跑一遍，检查“进程重启 → ResumeSession → 下一轮提交”
+	// 发往 provider 的上下文，是否等于重启前同会话继续运行时应发送的内容
+	// （即会话事件原序 + 新输入，不丢前缀、不重复、不乱序）。
+	//
+	// 运行（无真实 API，全部走本地 mock）：
+	//
+	//	go test . -run TestHeadlessRestorePrefixProbe -count=1 -v -timeout 5m
+	//
+	// 说明：旧会话记录无真实价值，探针全部使用 t.TempDir() 独立 store。
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,8 +29,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // probeWireMessage 是 provider 请求里一条消息的归一化形态（只比较顺序与
@@ -161,11 +161,11 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessContinue := newFullChainHarness(t, continuationAccounts, continuationStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
-	if err := harnessContinue.frontend.Submit(ctx, nextPrompt); err != nil {
+	runSettledRounds(t, ctx, harnessContinue.components, settledRounds)
+	if err := harnessContinue.components.Conversation.Submission.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("继续运行提交第 13 轮: %v", err)
 	}
-	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
+	if err := harnessContinue.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("继续运行等待空闲: %v", err)
 	}
 	continuationRecords := continuationRecorder.snapshot()
@@ -173,7 +173,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatalf("对照进程请求数 = %d, want %d", len(continuationRecords), settledRounds+1)
 	}
 	continued := continuationRecords[len(continuationRecords)-1]
-	harnessContinue.frontend.Shutdown()
+	harnessContinue.components.Runtime.Lifecycle.Shutdown()
 	t.Logf("对照（不重启）第13轮请求消息数=%d", len(continued))
 	for index, message := range continued {
 		t.Logf("对照[%02d] %s: %.120s", index, message.Role, message.Content)
@@ -190,28 +190,28 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
-	sessionID := harnessFirst.frontend.Snapshot().Session.ID
+	runSettledRounds(t, ctx, harnessFirst.components, settledRounds)
+	sessionID := harnessFirst.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
-	harnessFirst.frontend.Shutdown()
+	harnessFirst.components.Runtime.Lifecycle.Shutdown()
 	assertSessionStorageEvidence(t, restartStore)
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
+	if err := harnessRestarted.components.Session.Resume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession: %v", err)
 	}
-	resumed := harnessRestarted.frontend.Snapshot()
+	resumed := harnessRestarted.components.Session.Snapshot.Snapshot()
 	if resumed.Session.ID != sessionID {
 		t.Fatalf("重启后视图会话 = %q, want %q", resumed.Session.ID, sessionID)
 	}
 	t.Logf("重启后可见会话消息数=%d（期望 %d）", len(visiblePairMessages(resumed.Conversation)), settledRounds*2)
-	if err := harnessRestarted.frontend.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessRestarted.components.Conversation.Submission.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("重启后提交第 13 轮: %v", err)
 	}
-	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {
+	if err := harnessRestarted.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("重启后等待空闲: %v", err)
 	}
 	assertSessionStorageContainsKind(t, restartStore, "session_meta")
@@ -236,17 +236,14 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	t.Logf("恢复前缀一致：重启后首请求与未重启继续运行的第13轮请求逐条相同（消息数=%d）", len(afterRestart))
 }
 
-func runSettledRounds(t *testing.T, ctx context.Context, app interface {
-	Submit(context.Context, string) error
-	WaitForIdle(context.Context) error
-}, rounds int) {
+func runSettledRounds(t *testing.T, ctx context.Context, components assembly.Components, rounds int) {
 	t.Helper()
 	for round := 0; round < rounds; round++ {
 		prompt := fmt.Sprintf("round-%02d", round)
-		if err := app.Submit(ctx, prompt); err != nil {
+		if err := components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit round %d: %v", round, err)
 		}
-		if err := app.WaitForIdle(ctx); err != nil {
+		if err := components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("wait idle round %d: %v", round, err)
 		}
 	}

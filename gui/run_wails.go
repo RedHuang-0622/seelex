@@ -31,7 +31,7 @@ func Run(deps Dependencies, config Options) error {
 	if height <= 0 {
 		height = 900
 	}
-	closer := newCloseCoordinator(deps.App, func() { runtime.Quit(bridge.requestContext()) })
+	closer := newCloseCoordinator(deps.Turn, func() { runtime.Quit(bridge.requestContext()) })
 
 	appOptions := &wailsoptions.App{
 		Title:     bridge.info.Title,

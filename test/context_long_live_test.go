@@ -4,13 +4,12 @@ package test
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/application"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // TestManualSmokeRealAccountLongContextRehydration uses the real provider to
@@ -33,13 +32,13 @@ func TestManualSmokeRealAccountLongContextRehydration(t *testing.T) {
 
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live long-context turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live long-context turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -50,11 +49,11 @@ func TestManualSmokeRealAccountLongContextRehydration(t *testing.T) {
 		submit("这是长上下文压力测试第 " + string(rune('0'+round)) + " 轮。请只回复‘本轮已记录’，不要调用工具。材料如下：\n" + filler)
 	}
 
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Session.ID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}
-	if err := harness.frontend.ResumeSession(snapshot.Session.ID); err != nil {
+	if err := harness.components.Session.Resume.Resume(snapshot.Session.ID); err != nil {
 		t.Fatalf("resume live session: %v", err)
 	}
 	submit("回到最初那条消息，只回答我的名字，不要调用任何工具。")

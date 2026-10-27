@@ -27,10 +27,6 @@
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### policy_test_aliases_test.go
-
-- `func newPolicyApplication(deps policyApplicationDeps) *policyApplication`
-
 ### role_permissions_test.go
 
 - `func newRolePermissionFakeSessions() *rolePermissionFakeSessions`
@@ -66,9 +62,6 @@
 - `func TestRoleApplicationIsAssembled(t *testing.T)`
 - `func TestRoleAccountApplicationSetAccountRollsBackRuntime(t *testing.T)`
 - `func TestRoleAccountApplicationRestoreSkipsExplicitlyMissingAccount(t *testing.T)`
-- `func TestRoleAccountFacadeOnlyDelegatesToApplication(t *testing.T)`
-- `func TestRolePermissionFacadeOnlyDelegatesToApplication(t *testing.T)`
-- `func TestRoleInheritanceFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func (store *roleAccountApplicationFakeStore) RoleAccount(sessionID, role string) (string, bool, error)`
 - `func (store *roleAccountApplicationFakeStore) SetRoleAccount(sessionID, role, account string) error`
 - `func (runtime *roleAccountApplicationFakeRuntime) SetRoleAccount(role, account string) error`

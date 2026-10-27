@@ -9,6 +9,7 @@ import (
 
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -239,9 +240,9 @@ func (*guiChainSessions) LoadHistoryRange(string, int, int) ([]application.Engin
 func (*guiChainSessions) SetWorkspace(string) {}
 func (*guiChainSessions) Workspace() string   { return "" }
 
-// newGUIChainApplication 返回一条真实流水线的门面、按同一份 owner 绑好的 GUI 依赖表
+// newGUIChainApplication 返回一条真实流水线、按同一份 owner 绑好的 GUI 依赖表
 // 与审批端口。
-func newGUIChainApplication(t *testing.T) (*application.Frontend, Dependencies, application.ApprovalBroker) {
+func newGUIChainApplication(t *testing.T) (*assembly.Service, Dependencies, application.ApprovalBroker) {
 	t.Helper()
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
@@ -255,13 +256,13 @@ func newGUIChainApplication(t *testing.T) (*application.Frontend, Dependencies, 
 		t.Fatal(err)
 	}
 	hooks.Bind(app)
-	frontend := wiring.NewFrontend(app)
-	t.Cleanup(frontend.Shutdown)
-	return frontend, frontendDependencies(app, frontend), approval
+	components := assembly.ComponentsFor(app)
+	t.Cleanup(components.Runtime.Lifecycle.Shutdown)
+	return app, frontendDependencies(app), approval
 }
 
 func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
-	app, deps, _ := newGUIChainApplication(t)
+	service, deps, _ := newGUIChainApplication(t)
 	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +305,7 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 	}
 	idleContext, idleCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer idleCancel()
-	if err := app.WaitForIdle(idleContext); err != nil {
+	if err := assembly.ComponentsFor(service).Runtime.Lifecycle.WaitForIdle(idleContext); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -319,7 +320,7 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 }
 
 func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
-	app, deps, approval := newGUIChainApplication(t)
+	service, deps, approval := newGUIChainApplication(t)
 	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -335,7 +336,7 @@ func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
 		t.Fatalf("first GUI event = %q, want seelex:ready", ready.name)
 	}
 	decision := make(chan application.ApprovalDecision, 1)
-	viewSessionID := app.Snapshot().Session.ID
+	viewSessionID := assembly.ComponentsFor(service).Session.Snapshot.Snapshot().Session.ID
 	go func() {
 		value, requestErr := approval.Request(context.Background(), application.ApprovalRequest{
 			ID: "approval-gui", SessionID: viewSessionID, Question: "run tool?",

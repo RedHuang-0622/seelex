@@ -12,9 +12,9 @@ import (
 func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	skill, err := frontendOfTestService(service).ActivateSkill("review")
+	skill, err := service.components.policyApplication.ActivateSkill("review")
 	if err != nil {
 		t.Fatalf("ActivateSkill: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T) {
 	// 普通提交（不带 #）→ newChatRequest 从 promptStack 收集 skill 层 →
 	// 任务 TrustedSkillLayers → ActivateTaskSkillsLocked 把正文 append-only 落进
 	// transcript（internal user 事件；system 保持稳定、不含技能正文）。
-	if err := service.Submit(context.Background(), "继续审查这段代码"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "继续审查这段代码"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
@@ -47,11 +47,11 @@ func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T) {
 // TestActivateSkillIdempotent：同名重复激活不产生重复层（Push 同名覆盖）。
 func TestActivateSkillIdempotent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
-	if _, err := frontendOfTestService(service).ActivateSkill("review"); err != nil {
+	defer service.components.lifecycleApplication.Shutdown()
+	if _, err := service.components.policyApplication.ActivateSkill("review"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := frontendOfTestService(service).ActivateSkill("review"); err != nil {
+	if _, err := service.components.policyApplication.ActivateSkill("review"); err != nil {
 		t.Fatal(err)
 	}
 	var skills []string
@@ -68,9 +68,9 @@ func TestActivateSkillIdempotent(t *testing.T) {
 // TestActivateSkillRejectsBadNames：空名/未知技能/goal 均拒绝且不改状态。
 func TestActivateSkillRejectsBadNames(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	for _, name := range []string{"", "  ", "ghost", "goal"} {
-		if _, err := frontendOfTestService(service).ActivateSkill(name); err == nil {
+		if _, err := service.components.policyApplication.ActivateSkill(name); err == nil {
 			t.Fatalf("ActivateSkill(%q) must error", name)
 		}
 	}
@@ -84,12 +84,12 @@ func TestActivateSkillRejectsBadNames(t *testing.T) {
 func TestActivateSkillCoexistsWithUserSlashSkill(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
-	if err := service.Submit(context.Background(), "/review strict"); err != nil {
+	defer service.components.lifecycleApplication.Shutdown()
+	if err := service.components.submission.Submit(context.Background(), "/review strict"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if _, err := frontendOfTestService(service).ActivateSkill("review"); err != nil {
+	if _, err := service.components.policyApplication.ActivateSkill("review"); err != nil {
 		t.Fatal(err)
 	}
 	var count int

@@ -1,19 +1,20 @@
 package test
 
-// A/B 全链路对比（记录见 docs/test/session-transition-ab.md）：同一脚本
-// 用真实链路（seelebridge Runtime + adapters.EnginePort + store
-// 真数据 + 假 provider）跑两遍（变体 A/B），断言：
-//   - 每次运行内热挂载"运行中"会话快速返回（无死锁）；
-//   - A 的对话不掺入 B 内容、B 正常完成；
-//   - 两次运行的行为一致（活跃会话/会话列表/对话文本/事件指纹）。
-// 脚本：A 首轮完成 → fork 出 B 并切换 → 切回 A → A 第二轮阻塞运行中 →
-// 切到 B → B 提交并完成 → 切回运行中的 A → 释放 A → 全部收敛。
-
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application"
 	"net/http"
 	"net/http/httptest"
+
+	// A/B 全链路对比（记录见 docs/test/session-transition-ab.md）：同一脚本
+	// 用真实链路（seelebridge Runtime + adapters.EnginePort + store
+	// 真数据 + 假 provider）跑两遍（变体 A/B），断言：
+	//   - 每次运行内热挂载"运行中"会话快速返回（无死锁）；
+	//   - A 的对话不掺入 B 内容、B 正常完成；
+	//   - 两次运行的行为一致（活跃会话/会话列表/对话文本/事件指纹）。
+	// 脚本：A 首轮完成 → fork 出 B 并切换 → 切回 A → A 第二轮阻塞运行中 →
+	// 切到 B → B 提交并完成 → 切回运行中的 A → 释放 A → 全部收敛。
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,8 +22,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 type chainABResult struct {
@@ -56,29 +55,29 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	defer sub.Close()
 
 	// A 首轮完成。
-	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 	// fork 出 B 并切换。
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
-	if harness.frontend.Snapshot().Session.ID != sessionB {
-		t.Fatalf("active after fork = %q, want B", harness.frontend.Snapshot().Session.ID)
+	if harness.components.Session.Snapshot.Snapshot().Session.ID != sessionB {
+		t.Fatalf("active after fork = %q, want B", harness.components.Session.Snapshot.Snapshot().Session.ID)
 	}
 	// 切回 A，发起长任务（provider 第二请求阻塞 → A 运行中）。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -87,15 +86,15 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 		t.Fatalf("A second turn did not block: %v", ctx.Err())
 	}
 	// 切到 B（空闲）→ B 提交并完成（第三请求不阻塞）。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	bDone := time.Now().Add(20 * time.Second)
 	for {
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
@@ -107,21 +106,21 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 
 	// 关键：切回运行中的 A——热挂载必须快速返回（无死锁）。
 	hotStart := time.Now()
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume running A: %v", err)
 	}
 	hotAttachMS := time.Since(hotStart).Milliseconds()
-	if harness.frontend.Snapshot().Session.ID != sessionA {
-		t.Fatalf("active after hot attach = %q, want A", harness.frontend.Snapshot().Session.ID)
+	if harness.components.Session.Snapshot.Snapshot().Session.ID != sessionA {
+		t.Fatalf("active after hot attach = %q, want A", harness.components.Session.Snapshot.Snapshot().Session.ID)
 	}
 	// 释放 A → 收敛。
 	close(provider.releaseSecond)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// 收集结果。
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	fingerprint, ordinals := drainChainFingerprint(t, sub)
 	result := chainABResult{
 		activeID:     snapshot.Session.ID,

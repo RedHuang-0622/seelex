@@ -5,7 +5,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"strings"
 	"testing"
@@ -233,22 +233,22 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 		{Text: "b", Status: dto.TodoItemPending},
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	subscription := frontendOfTestService(service).Subscribe(16)
+	subscription := service.components.view.Subscribe(16)
 	defer subscription.Close()
 
-	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:0", "doing"); err != nil {
+	if err := service.components.executionApplication.UpdateWorkItemStatus("todo:0", "doing"); err != nil {
 		t.Fatal(err)
 	}
 	workEvent := waitForWorkTableEvent(t, subscription)
 	if len(workEvent.Items) != 2 || workEvent.Items[0].Status != "doing" {
 		t.Fatalf("worktable.changed items = %+v", workEvent.Items)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Runtime.WorkTable[0].Status != "doing" || snapshot.Runtime.TodoItems[0].Status != dto.TodoItemDoing {
 		t.Fatalf("snapshot work table = %+v todo = %+v", snapshot.Runtime.WorkTable, snapshot.Runtime.TodoItems)
 	}
 
-	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:1", "done"); err != nil {
+	if err := service.components.executionApplication.UpdateWorkItemStatus("todo:1", "done"); err != nil {
 		t.Fatal(err)
 	}
 	workEvent = waitForWorkTableEvent(t, subscription)
@@ -259,16 +259,16 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 
 func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription := frontendOfTestService(service).Subscribe(8)
+	subscription := service.components.view.Subscribe(8)
 	defer subscription.Close()
 
-	if err := frontendOfTestService(service).UpdateWorkItemStatus("todo:99", "doing"); err == nil || !strings.Contains(err.Error(), "out of range") {
+	if err := service.components.executionApplication.UpdateWorkItemStatus("todo:99", "doing"); err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("out-of-range todo must fail, got %v", err)
 	}
-	if err := frontendOfTestService(service).UpdateWorkItemStatus("plan:n1", "completed"); err == nil || !strings.Contains(err.Error(), "执行器管理") {
+	if err := service.components.executionApplication.UpdateWorkItemStatus("plan:n1", "completed"); err == nil || !strings.Contains(err.Error(), "执行器管理") {
 		t.Fatalf("plan status update must be rejected, got %v", err)
 	}
-	if err := frontendOfTestService(service).UpdateWorkItemStatus("bogus", "doing"); err == nil {
+	if err := service.components.executionApplication.UpdateWorkItemStatus("bogus", "doing"); err == nil {
 		t.Fatal("malformed id must be rejected")
 	}
 	// 拒绝路径不得发布 worktable.changed（允许其他生命周期事件，
@@ -296,7 +296,7 @@ func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T) {
 func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	viewSessionID := service.Snapshot().Session.ID
+	viewSessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if viewSessionID == "" {
 		t.Fatal("view session has no ID")
 	}
@@ -309,15 +309,15 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 		}},
 	}}
 	engine.mu.Unlock()
-	subscription := frontendOfTestService(service).Subscribe(8)
+	subscription := service.components.view.Subscribe(8)
 	defer subscription.Close()
 
-	service.refreshWorkTableSnapshot()
+	service.components.workTableRuntime.RefreshSubagents()
 	event := waitForWorkTableEvent(t, subscription)
 	if len(event.Items) != 1 || event.Items[0].ID != "subagent:s1" || event.Items[0].Status != "running" {
 		t.Fatalf("worktable.changed = %+v", event.Items)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if len(snapshot.Runtime.WorkTable) != 1 || snapshot.Runtime.WorkTable[0].Phase != "subagent" ||
 		snapshot.Runtime.WorkTable[0].Assignee != "subagent:node-s1" {
 		t.Fatalf("snapshot work table = %+v", snapshot.Runtime.WorkTable)
@@ -359,10 +359,10 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	}}
 	engine.mu.Unlock()
 	service := newTestService(t, engine)
-	subscription := frontendOfTestService(service).Subscribe(16)
+	subscription := service.components.view.Subscribe(16)
 	defer subscription.Close()
 
-	service.refreshWorkTableSnapshot()
+	service.components.workTableRuntime.RefreshSubagents()
 	first := waitForWorkTableEvent(t, subscription)
 	if len(first.SubAgentTree) != 1 || len(first.SubAgentTree[0].Children) != 1 ||
 		first.SubAgentTree[0].Children[0].ID != "s1" || first.SubAgentTree[0].Children[0].Status != dto.SubAgentRunning {
@@ -370,7 +370,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	}
 
 	// 树内容未变：后续表格增量不再重复携带树（避免表格增量被运行期树撑大）。
-	service.refreshWorkTableSnapshot()
+	service.components.workTableRuntime.RefreshSubagents()
 	unchanged := waitForWorkTableEvent(t, subscription)
 	if unchanged.SubAgentTree != nil {
 		t.Fatalf("未变化的树不得重复下发: %+v", unchanged.SubAgentTree)
@@ -386,7 +386,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 		}},
 	}}
 	engine.mu.Unlock()
-	service.refreshWorkTableSnapshot()
+	service.components.workTableRuntime.RefreshSubagents()
 	completed := waitForWorkTableEvent(t, subscription)
 	if len(completed.SubAgentTree) != 1 || completed.SubAgentTree[0].Children[0].Status != dto.SubAgentDone {
 		t.Fatalf("变化后的树必须重新下发: %+v", completed.SubAgentTree)
@@ -396,7 +396,7 @@ func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
 	engine.mu.Lock()
 	engine.subAgentTree = nil
 	engine.mu.Unlock()
-	service.refreshWorkTableSnapshot()
+	service.components.workTableRuntime.RefreshSubagents()
 	cleared := waitForWorkTableEvent(t, subscription)
 	if cleared.SubAgentTree == nil || len(cleared.SubAgentTree) != 0 {
 		t.Fatalf("树清空必须显式下发空数组: %#v", cleared.SubAgentTree)

@@ -5,8 +5,7 @@ package bootstrap
 //
 // 绑定语句本身就是编译期结构断言（左端字段类型是 consumer 接口、右端是具体 owner
 // 指针），因此这里不写适配器，也不再需要 `_ headless.X = (*owner)(nil)` 一行。
-// 每一行右值都与兼容门面（`application/compat`，M4 删除）转发的字段逐字相同：门面
-// 每个方法都转发到同一个 owner 的同名方法，迁移前后判据落在同一处。
+// 每一行右值都是拥有该用例的 owner；不存在中间转发层或运行时能力探测。
 //
 // 三个前端各自声明自己的 dependencies（tui/、headless/、console/），共同点是只按
 // owner 切分；禁止为了复用把三份接口合并回一个 application 级宽接口。

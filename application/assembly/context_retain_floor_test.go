@@ -1,7 +1,6 @@
 package assembly
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	appwindow "github.com/RedHuang-0622/seelex/application/window"
@@ -108,8 +107,7 @@ func TestCompactFrameBodyCarriesZoneLayout(t *testing.T) {
 	if record.FrameRef == "" {
 		t.Fatalf("压缩记录没有 frame_ref，四区报表不可回读：%+v", record)
 	}
-	page, err := frontendOfTestService(service).ReadToolResultHandler(context.Background(),
-		fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":8000}`, record.FrameRef))
+	page, err := service.components.referenceApplication.ReadToolResultHandler(fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":8000}`, record.FrameRef))
 	if err != nil {
 		t.Fatalf("回读帧正文失败：%v", err)
 	}

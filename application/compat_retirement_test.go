@@ -23,7 +23,7 @@ const (
 	retiredCompatFrontendLiteral      = "compat" + "." + "Frontend"
 	retiredApplicationFrontendLiteral = "application" + "." + "Frontend"
 	retiredAssemblyFrontendLiteral    = "assembly" + "." + "Frontend"
-	retiredFrontendPortsLiteral       = "Frontend" + "Ports"
+	retiredFlatPortsLiteral           = "Frontend" + "Ports"
 )
 
 // retiredCompatibilityLiterals 是整个退场程序唯一的禁止字面量清单（单一事实源）：
@@ -35,7 +35,7 @@ var retiredCompatibilityLiterals = []string{
 	retiredCompatFrontendLiteral,
 	retiredApplicationFrontendLiteral,
 	retiredAssemblyFrontendLiteral,
-	retiredFrontendPortsLiteral,
+	retiredFlatPortsLiteral,
 }
 
 // historicalRecordMarker 是历史工作包文档的过期标记，也是 Markdown 豁免的唯一依据：
@@ -87,26 +87,14 @@ type frontendTestConstructorRegistration struct {
 // maxRegisteredFrontendTestConstructors 是不增长棘轮：登记表只许收缩。删掉一条登记时
 // 必须同时下调本常量；想新增登记，就得先解释为什么必须多一份 service→frontend
 // 反向构造（review 里会被当作 M4 的欠债而不是合法扩展）。
-const maxRegisteredFrontendTestConstructors = 1
+const maxRegisteredFrontendTestConstructors = 0
 
-// registeredFrontendTestConstructors 是当前唯一被豁免的测试专用转发构造器：
-// `service_helpers_test.go:frontendOfTestService` 是自由函数而非方法，旧判据只找
-// 「带接收者的同名方法」，所以全仓命中 0 文件 —— 判据看得见它，才谈得上 Ratchet。
+// registeredFrontendTestConstructors 已归零：测试直接持有 service.components
+// 的 owner 指针，不再从 Service 反向构造 *Frontend。
 //
 // 豁免条件是「在这张表里」，不是「名字长得像」：新增第二个同类构造器不会自动继承
 // 豁免，必须同时补一条登记（旧面 + 新面 owner + 删除里程碑 + 归零命令），否则红。
-var registeredFrontendTestConstructors = []frontendTestConstructorRegistration{
-	{
-		Declaration: "service_helpers_test.go:frontendOfTestService",
-		LegacySurface: "func frontendOfTestService(service *Service) *Frontend —— 自由函数，" +
-			"把 *Service 包成 assembly.Frontend，让 150 个 assembly 测试继续从前端入口调用",
-		Successor: "测试直接持 service.components 或 consumer-owned 端口；生产 Frontend 由 " +
-			"wiring 装配后传入，测试不再需要 service → frontend 的反向构造",
-		RemovalMilestone: "M4：application/compat 与其测试转发层（frontend_migration_test.go、" +
-			"*_legacy_test.go、*_test_alias*_test.go）整条删除时一并删除本登记项",
-		ZeroCommand: `grep -rn "frontendOfTestService" application/ | wc -l`,
-	},
-}
+var registeredFrontendTestConstructors []frontendTestConstructorRegistration
 
 // TestApplicationCompatibilitySurfaceIsRetired is the ratchet for the final
 // frontend shape: compatibility packages, compatibility receiver methods and
@@ -255,8 +243,7 @@ func TestApplicationCompatibilitySurfaceIsRetired(t *testing.T) {
 }
 
 // retiredCompatibilityTypeNames 从禁止字面量清单推导需要在 Go 源码里禁止的类型标识符：
-// 取每个拼写最后一个点号右侧的片段，保留合法 Go 标识符并去重。当前清单推导出
-// Frontend、FrontendPorts 以及 import 别名 applicationcompat。
+// 取每个拼写最后一个点号右侧的片段，保留合法 Go 标识符并去重。
 func retiredCompatibilityTypeNames() []string {
 	var names []string
 	seen := make(map[string]bool, len(retiredCompatibilityLiterals))
@@ -454,7 +441,7 @@ func TestRetiredCompatibilityDocScanHonoursHistoricalMarker(t *testing.T) {
 	}
 
 	writeDoc("unmarked.md", "# 现状\n\n"+retiredCompatPackageLiteral+" 仍被引用。\n")
-	writeDoc("marked.md", "> "+historicalRecordMarker+"\n\n# 历史\n\n"+retiredFrontendPortsLiteral+" 当时存在。\n")
+	writeDoc("marked.md", "> "+historicalRecordMarker+"\n\n# 历史\n\n"+retiredFlatPortsLiteral+" 当时存在。\n")
 	writeDoc("late-marker.md", strings.Repeat("> 说明\n", historicalMarkerScanLines)+
 		"\n> "+historicalRecordMarker+"\n"+retiredCompatAliasLiteral+" 出现在标记之后。\n")
 	writeDoc(filepath.Join("dist", "skipped.md"), "产物副本里的 "+retiredApplicationFrontendLiteral+"\n")
@@ -463,11 +450,11 @@ func TestRetiredCompatibilityDocScanHonoursHistoricalMarker(t *testing.T) {
 		retiredCompatAliasLiteral+"。\n")
 	// 标记只出现在代码围栏里时同样不得豁免。
 	writeDoc("fenced.md", "# 现状\n\n```\n> "+historicalRecordMarker+"\n```\n\n"+
-		retiredFrontendPortsLiteral+" 仍在使用。\n")
+		retiredFlatPortsLiteral+" 仍在使用。\n")
 
 	offenders := retiredCompatibilityDocOffenders(t, root)
 	want := []string{
-		"fenced.md:7: " + retiredFrontendPortsLiteral,
+		"fenced.md:7: " + retiredFlatPortsLiteral,
 		"late-marker.md:" + strconv.Itoa(historicalMarkerScanLines+3) + ": " + retiredCompatAliasLiteral,
 		"mention.md:3: " + retiredCompatAliasLiteral,
 		"unmarked.md:3: " + retiredCompatPackageLiteral,
@@ -558,8 +545,7 @@ func TestAssemblyHasNoTestOnlyForwardingFixtures(t *testing.T) {
 // scanFrontendTestConstructors 是「测试专用 *Frontend 转发构造器」判据的唯一实现：
 // 逐个解析 assembly 目录下的 *_test.go，收集所有结果里带 *Frontend 的函数（自由函数与
 // 方法一视同仁），返回「文件:函数名」的排序列表。判据不看接收者、不看文件命名、不看
-// 函数名，只看返回值形状 —— 这正是旧判据的盲区：frontendOfTestService 是自由函数，
-// 而旧判据要求 function.Recv != nil 且函数名恰好等于 frontendOfTestService。
+// 函数名，只看返回值形状 —— 旧判据只看带接收者的方法，无法覆盖自由函数构造器。
 func scanFrontendTestConstructors(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -591,8 +577,7 @@ func scanFrontendTestConstructors(t *testing.T, dir string) []string {
 	return found
 }
 
-// returnsFrontendPointer 判断结果列表里是否有 *Frontend（同包内 assembly.Frontend
-// 就是 Frontend，不需要限定符）。
+// returnsFrontendPointer 判断结果列表里是否有旧前端指针类型。
 func returnsFrontendPointer(results *ast.FieldList) bool {
 	if results == nil {
 		return false

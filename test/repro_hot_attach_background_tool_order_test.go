@@ -1,19 +1,27 @@
 package test
 
-// 复现：A、B 两个会话同时在运行。视图先后停在 A；B 在后台跑一轮
-// “纯工具调用（无正文）→ 工具结果 → 最终 llm 正文”的工具链，跑完（idle）
-// 之后才热切到 B。用户现象：切到 B 后，工具调用/结果是“后插入”到整个
-// 会话的——最终 llm 正文出现在工具消息之前（顺序应为 user → tool →
-// tool_result → assistant 最终正文）。
-//
-// 代码路径嫌疑：handleToolCompleteObserved 只对“活跃”分支在 tool_result
-// 后补空 assistant 占位；后台分支不补，随后 appendVisibleDeltaBackground
-// 会把下一段 llm 正文追加到工具消息之前的旧 assistant 空消息上。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/seelex/application"
+
+	// 复现：A、B 两个会话同时在运行。视图先后停在 A；B 在后台跑一轮
+	// “纯工具调用（无正文）→ 工具结果 → 最终 llm 正文”的工具链，跑完（idle）
+	// 之后才热切到 B。用户现象：切到 B 后，工具调用/结果是“后插入”到整个
+	// 会话的——最终 llm 正文出现在工具消息之前（顺序应为 user → tool →
+	// tool_result → assistant 最终正文）。
+	//
+	// 代码路径嫌疑：handleToolCompleteObserved 只对“活跃”分支在 tool_result
+	// 后补空 assistant 占位；后台分支不补，随后 appendVisibleDeltaBackground
+	// 会把下一段 llm 正文追加到工具消息之前的旧 assistant 空消息上。
+	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,14 +30,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // newToolInlineHarness 复制 full-chain harness 装配，并额外注册一个必然
@@ -107,10 +107,10 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	if err != nil {
 		t.Fatal(err)
 	}
-	frontend := wiring.NewFrontend(app)
-	t.Cleanup(frontend.Shutdown)
+	components := applicationassembly.ComponentsFor(app)
+	t.Cleanup(components.Runtime.Lifecycle.Shutdown)
 	hooks.Bind(app)
-	return fullChainHarness{app: app, frontend: frontend, events: events}
+	return fullChainHarness{app: app, components: components, events: events}
 }
 
 // toolOrderGateProvider 按全局请求序号应答：
@@ -302,16 +302,16 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 
 	submitAndIdle := func(text string) string {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, text); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v", text, err)
 		}
-		return harness.frontend.Snapshot().Session.ID
+		return harness.components.Session.Snapshot.Snapshot().Session.ID
 	}
 	sessionA := submitAndIdle("seed A")
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
@@ -320,28 +320,28 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	}
 
 	// A 长任务在跑（#3 阻塞），视图 = A。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 3)
 
 	// 切到 B，B 长任务（工具轮 #4）也在跑 → 两个会话同时在运行。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "tool B round"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "tool B round"); err != nil {
 		t.Fatalf("submit tool B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
 
 	// 视图切回 A（运行中热挂载），B 进入后台。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A while B running: %v", err)
 	}
-	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionA {
+	if snap := harness.components.Session.Snapshot.Snapshot(); snap.Session.ID != sessionA {
 		t.Fatalf("view = %q, want A", snap.Session.ID)
 	}
 
@@ -349,7 +349,7 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	provider.releaseNumber(4)
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snap, err := harness.frontend.SnapshotOf(sessionB)
+		snap, err := harness.components.Session.Query.SnapshotOf(sessionB)
 		if err != nil {
 			t.Fatalf("SnapshotOf(B): %v", err)
 		}
@@ -361,35 +361,35 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionA {
+	if snap := harness.components.Session.Snapshot.Snapshot(); snap.Session.ID != sessionA {
 		t.Fatalf("view drifted while B finished: %q, want A", snap.Session.ID)
 	}
 
 	// A 收尾，全部 idle。
 	provider.releaseNumber(3)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
 
 	// 关键：B 做完之后才热切到 B（驻留 → hot attach）。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B after background completion: %v", err)
 	}
-	if snap := harness.frontend.Snapshot(); snap.Session.ID != sessionB {
+	if snap := harness.components.Session.Snapshot.Snapshot(); snap.Session.ID != sessionB {
 		t.Fatalf("view = %q, want B", snap.Session.ID)
 	}
-	hotConversation := harness.frontend.Snapshot().Conversation
+	hotConversation := harness.components.Session.Snapshot.Snapshot().Conversation
 	hotIssue := toolOrderIssue(hotConversation)
 	t.Logf("B hot conversation order:\n%s", formatConversation(hotConversation))
 
 	// 二次验证：卸载后冷恢复（record/transcript 重建），看顺序是否同样错位。
-	if err := harness.frontend.UnloadSession(sessionB); err != nil {
+	if err := harness.components.Session.Lifecycle.Unload(sessionB); err != nil {
 		t.Fatalf("unload B: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("cold resume B: %v", err)
 	}
-	coldConversation := harness.frontend.Snapshot().Conversation
+	coldConversation := harness.components.Session.Snapshot.Snapshot().Conversation
 	coldIssue := toolOrderIssue(coldConversation)
 	t.Logf("B cold conversation order:\n%s", formatConversation(coldConversation))
 

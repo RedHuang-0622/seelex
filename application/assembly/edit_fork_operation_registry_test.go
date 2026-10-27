@@ -2,6 +2,8 @@ package assembly
 
 import (
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestEditForkOperationRegistryIsAssembledAndOwnsState(t *testing.T) {
@@ -21,7 +21,7 @@ func TestEditForkOperationRegistryIsAssembledAndOwnsState(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkOperationRegistry")
 	}
-	if field.Type != reflect.TypeOf((*editForkOperationRegistry)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.OperationRegistry)(nil)) {
 		t.Fatalf("editForkOperationRegistry 字段类型 = %s", field.Type)
 	}
 	state := reflect.TypeOf(serviceState{})
@@ -64,7 +64,7 @@ func TestEditForkOperationRegistryIsAssembledAndOwnsState(t *testing.T) {
 }
 
 func TestEditForkOperationRegistryDeduplicatesMatchingRequest(t *testing.T) {
-	registry := newEditForkOperationRegistry(5*time.Minute, time.Now)
+	registry := applicationedit.NewOperationRegistry(5*time.Minute, time.Now)
 	request := model.EditUserMessageForkRequest{OperationID: "op-a", NewText: "new"}
 
 	first, owner, err := registry.Begin("parent-a", request)
@@ -81,7 +81,7 @@ func TestEditForkOperationRegistryDeduplicatesMatchingRequest(t *testing.T) {
 }
 
 func TestEditForkOperationRegistryRejectsReusedIDWithDifferentRequest(t *testing.T) {
-	registry := newEditForkOperationRegistry(5*time.Minute, time.Now)
+	registry := applicationedit.NewOperationRegistry(5*time.Minute, time.Now)
 	if _, _, err := registry.Begin("parent-a", model.EditUserMessageForkRequest{OperationID: "op-a", NewText: "one"}); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestEditForkOperationRegistryRejectsReusedIDWithDifferentRequest(t *testing
 
 func TestEditForkOperationRegistryExpiresSuccessfulOperations(t *testing.T) {
 	now := time.Unix(100, 0)
-	registry := newEditForkOperationRegistry(5*time.Minute, func() time.Time { return now })
+	registry := applicationedit.NewOperationRegistry(5*time.Minute, func() time.Time { return now })
 	request := model.EditUserMessageForkRequest{OperationID: "op-a", NewText: "new"}
 	operation, owner, err := registry.Begin("parent-a", request)
 	if err != nil || !owner {
@@ -115,7 +115,7 @@ func TestEditForkOperationRegistryExpiresSuccessfulOperations(t *testing.T) {
 }
 
 func TestEditForkOperationRegistryDropsFailedOperation(t *testing.T) {
-	registry := newEditForkOperationRegistry(5*time.Minute, time.Now)
+	registry := applicationedit.NewOperationRegistry(5*time.Minute, time.Now)
 	request := model.EditUserMessageForkRequest{OperationID: "op-a", NewText: "new"}
 	operation, owner, err := registry.Begin("parent-a", request)
 	if err != nil || !owner {
@@ -143,7 +143,7 @@ func TestEditForkOperationRegistryDropsFailedOperation(t *testing.T) {
 }
 
 func TestEditForkOperationRegistryWaiterSeesCompletedResult(t *testing.T) {
-	registry := newEditForkOperationRegistry(5*time.Minute, time.Now)
+	registry := applicationedit.NewOperationRegistry(5*time.Minute, time.Now)
 	request := model.EditUserMessageForkRequest{OperationID: "op-a", NewText: "new"}
 	operation, owner, err := registry.Begin("parent-a", request)
 	if err != nil || !owner {

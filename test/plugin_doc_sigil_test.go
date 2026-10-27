@@ -1,5 +1,13 @@
 package test
 
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
 // 插件文档的输入前缀守卫。
 //
 // 2026-09-17 的「输入前缀一字符一含义」把 `#` 从 Skill 改成「切换 Plugin」、
@@ -10,14 +18,6 @@ package test
 //
 // 这条守卫把「插件文档用 `#` 引用本插件自己的 Skill」钉成失败：插件目录名
 // （SKILL.md 所在目录）就是 Skill 名，文档里出现 `#<skill>` 即红。
-
-import (
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"testing"
-)
 
 func TestPluginDocsDoNotUsePluginSigilForSkills(t *testing.T) {
 	pluginEntries, err := os.ReadDir("plugins")

@@ -6113,3 +6113,20 @@ Service 入口继续保留一行兼容转发。
   「看不见」修成「看得见且可登记」。`TestApplicationCompatibilitySurfaceIsRetired` 的
   红同样来自 `application/compat` 包、`application/faces_api.go` 与 26 处 README 的
   现状描述，属于 M4 范围，未做任何放宽。
+
+## M8 兼容层物理退场终验（2026-10-27）
+
+> 本节记录当前实现，不描述历史设计。
+
+- **目录与类型**：兼容包目录已删除；application 根包不再导出旧前端 alias；assembly
+  不再定义旧前端测试壳；旧宽入站接口与编译期绑定文件已删除。
+- **前端依赖**：GUI、TUI、headless、console 与 e2e scenario 各自声明消费方窄接口，
+  由 `wiring/bootstrap` 从 `assembly.Components` 逐字段注入 concrete owner。
+- **测试迁移**：原 `frontendOfTestService` 的 150 个文件、862 处调用全部改到
+  `service.components.<owner>`；24 个 alias/legacy 文件确认不含 `Test*` 后删除；
+  真实行为测试保留并直接使用 owner API。
+- **结构门禁**：
+  - `TestApplicationCompatibilitySurfaceIsRetired`
+  - `TestAssemblyHasNoTestOnlyForwardingFixtures`
+  - `application/compat` 目录不存在；
+  - 旧前端类型、旧扁平端口快照与测试转发构造器均为 0。

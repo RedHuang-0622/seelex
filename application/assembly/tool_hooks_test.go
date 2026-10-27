@@ -2,22 +2,21 @@ package assembly
 
 import (
 	"context"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/Seele/session"
-	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
+	"github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"strings"
+	"testing"
+	"time"
 )
 
 // TestHandleSubagentToolEventProjectsBoundedIncrementals 钉住子代理工具事件的
 // 有界投影：详情面只保留上限内的参数/结果，不把整段长文本搬进快照。
 func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	// 历史 Plan 投影（执行引擎已退役）：直接种一个含 worker 节点的只读状态。
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
@@ -28,7 +27,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 
 	// 事件流现包含 worktable.changed（CSP 汇聚，异步到达）：订阅缓冲调大，
 	// 避免杂散生命周期事件触发 deliver 排空丢弃本测试关注的工具事件。
-	subscription := frontendOfTestService(service).Subscribe(16)
+	subscription := service.components.view.Subscribe(16)
 	defer subscription.Close()
 	long := strings.Repeat("x", Limits().EvidenceChars+20)
 	started := seelsession.SubagentToolEvent{
@@ -42,7 +41,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	completed.Duration = time.Second
 	service.components.subagent.HandleSubagentToolEvent(completed)
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	node := subagentview.FindPlanNodeByID(snapshot.Runtime.Plan.Nodes, "worker")
 	if node == nil || len(node.ToolEvents) != 1 {
 		t.Fatalf("worker tool events = %#v", node)
@@ -54,7 +53,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 
 func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	hooks := bridge.Hooks()
@@ -66,7 +65,7 @@ func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
 	hooks.OnToolComplete(context.Background(), info)
 
 	ids := make([]string, 0, 2)
-	for _, message := range service.Snapshot().Conversation {
+	for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 		if message.Role == "tool" && message.Tool != nil {
 			ids = append(ids, message.Tool.ID)
 		}

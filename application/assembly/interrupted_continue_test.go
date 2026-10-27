@@ -1,13 +1,12 @@
 package assembly
 
 import (
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/task"
+	"strings"
+	"testing"
 )
 
 // TestColdResumeContinueAfterInterruptedToolChain：重启后 continue 场景端到端
@@ -19,6 +18,7 @@ import (
 //  3. chat 前装配 seam（PrepareProviderHistory）补齐 t2 合成占位；
 //  4. 用户输入 continue → 引擎历史末尾追加，模型上下文含原任务、已完成
 //     t1 结果与"t2 状态未知"信号，可继续未完成步骤而非失忆重启。
+
 func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T) {
 	events := []model.TranscriptEvent{
 		{Role: "user", Content: "任务1：重构模块并验证", TokenCount: 40},
@@ -37,7 +37,7 @@ func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T) {
 
 	engine := &fakeEngine{history: engineHistory}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// chat 前装配 seam：残缺链补成协议合法序列。
 	if err := service.components.history.PrepareProviderHistory(); err != nil {

@@ -16,7 +16,7 @@ import (
 func TestRunningSessionAccumulatesAllRoundsInOrderControl(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-order-1"}
@@ -38,7 +38,7 @@ func TestRunningSessionAccumulatesAllRoundsInOrderControl(t *testing.T) {
 func TestColdRestoreTailFirstRequestKeepsTranscriptOrder(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-order-2"}

@@ -2,6 +2,9 @@ package assembly
 
 import (
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,9 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestChatTurnOutcomeRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestChatTurnOutcomeRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnOutcome")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnOutcome)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnOutcomeApplication)(nil)) {
 		t.Fatalf("conversationTurnOutcome 字段类型 = %s", field.Type)
 	}
-	outcomeType := reflect.TypeOf((*conversationTurnOutcome)(nil))
+	outcomeType := reflect.TypeOf((*applicationconversation.TurnOutcomeApplication)(nil))
 	if _, ok := outcomeType.MethodByName("ApplyLocked"); !ok {
 		t.Fatal("conversationTurnOutcome 缺少 ApplyLocked")
 	}
@@ -72,7 +72,7 @@ func TestChatTurnOutcomeRulesAreCentralized(t *testing.T) {
 
 func TestConversationTurnOutcomeAppliesCurrentResult(t *testing.T) {
 	var calls []string
-	outcome := newConversationTurnOutcome(conversationTurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		ClearError: func(unit conversationChatStateUnit) {
 			calls = append(calls, "clear")
 			unit.UpdateChat(func(chat *model.ChatState) { chat.Error = "" }, nil)
@@ -110,7 +110,7 @@ func TestConversationTurnOutcomeAppliesCurrentResult(t *testing.T) {
 func TestConversationTurnOutcomeRecordsErrorAndProjection(t *testing.T) {
 	turnErr := errors.New("provider unavailable")
 	var appended string
-	outcome := newConversationTurnOutcome(conversationTurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		ClearError: func(conversationChatStateUnit) {},
 		SetError: func(unit conversationChatStateUnit, visibleError string) {
 			unit.UpdateChat(func(chat *model.ChatState) { chat.Error = visibleError }, nil)
@@ -135,7 +135,7 @@ func TestConversationTurnOutcomeRecordsErrorAndProjection(t *testing.T) {
 }
 
 func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T) {
-	outcome := newConversationTurnOutcome(conversationTurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		ClearError: func(conversationChatStateUnit) {
 			t.Fatal("stale request 不得清理当前状态")
 		},
@@ -164,7 +164,7 @@ func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T) {
 
 func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T) {
 	var calls []string
-	outcome := newConversationTurnOutcome(conversationTurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		SetSessionChat: func(sessionID string, chat model.ChatState) {
 			calls = append(calls, "chat:"+sessionID+":"+chat.RequestID)
 		},
@@ -193,7 +193,7 @@ func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T) {
 
 func TestConversationTurnOutcomeDoesNotMirrorBackgroundTask(t *testing.T) {
 	var calls []string
-	outcome := newConversationTurnOutcome(conversationTurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		SetSessionChat: func(sessionID string, _ model.ChatState) {
 			calls = append(calls, "chat:"+sessionID)
 		},

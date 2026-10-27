@@ -1,17 +1,5 @@
 package test
 
-// 全链路回归：会话 A 运行中接收一条输入（进 A 自己的消息队列、尚未发送），随后
-//
-//	① 切换到另一个正在运行的会话 B；
-//	② 再切换到没有正在运行的会话 C；
-//	③ 放行 A 的本轮 → A 队列里的输入必须被整批提升为下一轮（真的发出去）。
-//
-// 观测：队列里有东西但没人发送 = 红灯；A 的下一轮出现在 provider 上 = 绿灯。
-// 这条用例跑的是真实 EnginePort + 真实会话存储（不是包内桩），钉的就是
-// "运行中收下的输入在切换会话之后仍会被提升发送"这一条生产路径；
-// 迭代边界注入撞会话锁的那次自锁死见
-// application/core/goal_directive_session_lock_test.go。
-
 import (
 	"context"
 	"fmt"
@@ -21,6 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	// 全链路回归：会话 A 运行中接收一条输入（进 A 自己的消息队列、尚未发送），随后
+	//
+	//	① 切换到另一个正在运行的会话 B；
+	//	② 再切换到没有正在运行的会话 C；
+	//	③ 放行 A 的本轮 → A 队列里的输入必须被整批提升为下一轮（真的发出去）。
+	//
+	// 观测：队列里有东西但没人发送 = 红灯；A 的下一轮出现在 provider 上 = 绿灯。
+	// 这条用例跑的是真实 EnginePort + 真实会话存储（不是包内桩），钉的就是
+	// "运行中收下的输入在切换会话之后仍会被提升发送"这一条生产路径；
+	// 迭代边界注入撞会话锁的那次自锁死见
+	// application/core/goal_directive_session_lock_test.go。
 	"time"
 )
 
@@ -48,24 +48,24 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 
 	submitAndIdle := func(ctx context.Context, text string) string {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, text); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.frontend.Snapshot().Session.ID
+		return harness.components.Session.Snapshot.Snapshot().Session.ID
 	}
 
 	sessionA := submitAndIdle(ctx, "seed A") // provider #1
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "seed B"); got != sessionB {
 		t.Fatalf("seed B active = %q, want %q", got, sessionB)
 	} // provider #2
-	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
+	sessionC, err := harness.components.Session.Fork.ForkLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -74,19 +74,19 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	} // provider #3
 
 	// 会话 A 起一轮长回合（provider #4 阻塞）。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long A"); err != nil {
 		t.Fatalf("submit long A: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 4)
 
 	// 消息队列里有东西没发出去：往运行中的 A 再发一条（显式路由到 A）。
-	if err := harness.frontend.SubmitToSession(ctx, sessionA, "queued for A"); err != nil {
+	if err := harness.components.Session.Submit.SubmitToSession(ctx, sessionA, "queued for A"); err != nil {
 		t.Fatalf("submit queued for A: %v", err)
 	}
-	snapA, err := harness.frontend.SnapshotOf(sessionA)
+	snapA, err := harness.components.Session.Query.SnapshotOf(sessionA)
 	if err != nil {
 		t.Fatalf("SnapshotOf(A): %v", err)
 	}
@@ -95,10 +95,10 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	}
 
 	// ① 切换到另一个正在运行的会话 B（provider #5 阻塞）。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long B"); err != nil {
 		t.Fatalf("submit long B: %v", err)
 	}
 	provider.waitBlocked(t, ctx, 5)
@@ -106,7 +106,7 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	// ② 切换到没有正在运行的会话 C（A、B 都在跑 → 异步冷加载）。
 	switchDone := make(chan error, 1)
 	started := time.Now()
-	go func() { switchDone <- harness.frontend.ResumeSession(sessionC) }()
+	go func() { switchDone <- harness.components.Session.Resume.Resume(sessionC) }()
 	select {
 	case err := <-switchDone:
 		if err != nil {
@@ -132,16 +132,16 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	case number := <-sent:
 		t.Logf("队列提升发出新请求 #%d", number)
 	case <-time.After(15 * time.Second):
-		snapA, _ = harness.frontend.SnapshotOf(sessionA)
+		snapA, _ = harness.components.Session.Query.SnapshotOf(sessionA)
 		t.Fatalf("RED: A 队列里的输入没有发出去（A.Chat=%+v，provider %s）\n%s",
 			snapA.Chat, provider.debug(), allGoroutineStacks())
 	}
 
 	provider.releaseAll()
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v\n%s", err, allGoroutineStacks())
 	}
-	snapA, err = harness.frontend.SnapshotOf(sessionA)
+	snapA, err = harness.components.Session.Query.SnapshotOf(sessionA)
 	if err != nil {
 		t.Fatalf("SnapshotOf(A) after idle: %v", err)
 	}

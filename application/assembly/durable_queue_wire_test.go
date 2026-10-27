@@ -3,14 +3,13 @@ package assembly
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/store"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // durable queue 应用侧接线（A1b）的接线证明：
@@ -126,7 +125,7 @@ func TestDurableQueueMirrorsQueuedInputAndConfirmsTurn(t *testing.T) {
 	sessions := &queueRecordingSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.Submit(context.Background(), "第一轮输入"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "第一轮输入"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -135,7 +134,7 @@ func TestDurableQueueMirrorsQueuedInputAndConfirmsTurn(t *testing.T) {
 		t.Fatal("第一轮未进入引擎")
 	}
 	// 会话运行中：本条输入进内存队列 + durable 镜像（先队列后草稿）。
-	if err := service.Submit(context.Background(), "排队第二问"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "排队第二问"); err != nil {
 		t.Fatal(err)
 	}
 	waitQueueCalls(t, sessions, func(enqueued, _, _, _ []string) bool {
@@ -167,7 +166,7 @@ func TestDurableQueueReturnsConsumedContentToDraftOnPersistFailure(t *testing.T)
 	sessions := &snapshotFailingSessions{queueRecordingSessions: &queueRecordingSessions{}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.Submit(context.Background(), "第一轮输入"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "第一轮输入"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -193,12 +192,12 @@ func TestDurableQueueBackfillVisibleAndDrainedOnNextSubmit(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &queueRecordingSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	service.reEnqueueRecoveredInputs(sessionID, []store.QueueItem{
 		{Seq: 1, Content: "重启恢复的输入", State: string("queued")},
 	})
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Chat.QueuedCount != 1 {
 		t.Fatalf("QueuedCount = %d, want 1（恢复输入必须可见）", snapshot.Chat.QueuedCount)
 	}
@@ -206,7 +205,7 @@ func TestDurableQueueBackfillVisibleAndDrainedOnNextSubmit(t *testing.T) {
 		t.Fatalf("InputQueue = %v, want [重启恢复的输入]", snapshot.Chat.InputQueue)
 	}
 
-	if err := service.Submit(context.Background(), "新消息"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "新消息"); err != nil {
 		t.Fatal(err)
 	}
 	// 非运行分支：队列遗留项与新输入合并为同一轮。
@@ -217,7 +216,7 @@ func TestDurableQueueBackfillVisibleAndDrainedOnNextSubmit(t *testing.T) {
 		engine.mu.Unlock()
 		for _, input := range inputs {
 			if strings.Contains(input, "重启恢复的输入") && strings.Contains(input, "新消息") {
-				drained := service.Snapshot()
+				drained := service.components.frontendSnapshot.Snapshot()
 				if drained.Chat.QueuedCount != 0 {
 					t.Fatalf("提升后 QueuedCount = %d, want 0", drained.Chat.QueuedCount)
 				}

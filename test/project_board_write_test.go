@@ -1,22 +1,22 @@
 package test
 
-// project_board_write_test.go — 项目看板的**写侧端到端**用例：模型真的调 todo_add，
-// 项目根的 `.seelex/board/` 里就真的多出东西。
-//
-// 为什么必须有这一条（2026-10-15 补）：`project_board_e2e_test.go` 钉的是**读**面，
-// `TestProjectBoardEnabledWritesArtifacts` 钉的是"同步器 + 真实存储面"，两者之间那段
-// ——**工具完成段 → 同步器取数（活体工作表格）→ 落盘**——此前没有任何用例覆盖，于是
-// 文档写着"已实现"，而盘面上一个文件都没有也没人发现。它同时把契约 §9.3 R-2 的假设
-// 坐实为实测：**按生产口径新建的会话（草稿早分配 SID → 物化复用同一 SID → 视图会话 =
-// 运行时当前 task 会话），`WorkTableRowsFor` 取得到该会话的行**；换一条不经过该口径的
-// 会话（视图会话 ≠ 运行时当前 task 会话）就会取到空集 ⇒ I6 退场、什么都不落——这条
-// 差别正是"文档说实现了、实机没东西"的根源，写在用例里防误读。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/application/assembly"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+
+	// project_board_write_test.go — 项目看板的**写侧端到端**用例：模型真的调 todo_add，
+	// 项目根的 `.seelex/board/` 里就真的多出东西。
+	//
+	// 为什么必须有这一条（2026-10-15 补）：`project_board_e2e_test.go` 钉的是**读**面，
+	// `TestProjectBoardEnabledWritesArtifacts` 钉的是"同步器 + 真实存储面"，两者之间那段
+	// ——**工具完成段 → 同步器取数（活体工作表格）→ 落盘**——此前没有任何用例覆盖，于是
+	// 文档写着"已实现"，而盘面上一个文件都没有也没人发现。它同时把契约 §9.3 R-2 的假设
+	// 坐实为实测：**按生产口径新建的会话（草稿早分配 SID → 物化复用同一 SID → 视图会话 =
+	// 运行时当前 task 会话），`WorkTableRowsFor` 取得到该会话的行**；换一条不经过该口径的
+	// 会话（视图会话 ≠ 运行时当前 task 会话）就会取到空集 ⇒ I6 退场、什么都不落——这条
+	// 差别正是"文档说实现了、实机没东西"的根源，写在用例里防误读。
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
@@ -41,37 +41,37 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.frontend.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
-		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
+		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	harness.frontend.SetProjectBoardSink(sink)
-	harness.st.SetProjectBoardRootFor(harness.frontend.ProjectRootFor)
+	harness.components.Execution.ProjectBoardSink.Store(sink)
+	harness.st.SetProjectBoardRootFor(harness.components.Execution.ProjectBoard.ProjectRootFor)
 
 	// 生产口径的新会话：建工作区 → 新建草稿（早分配 SID）→ 绑定工作区 → 首次提交物化。
 	// 草稿 SID 就是物化后的会话 ID（openSessionEngine 复用早分配 SID），所以"视图会话 =
 	// 运行时当前 task 会话"这条前提在这里是**真的**（不是用例替它假设的）。
-	if err := harness.frontend.CreateWorkspace("board-write", projectRoot, ""); err != nil {
+	if err := harness.components.Workspace.Switch.CreateWorkspace("board-write", projectRoot, ""); err != nil {
 		t.Fatalf("建工作区: %v", err)
 	}
-	if err := harness.frontend.BeginNewSession(); err != nil {
+	if err := harness.components.Session.DraftEntry.Begin(); err != nil {
 		t.Fatalf("新建会话: %v", err)
 	}
-	draftSession := harness.frontend.Snapshot().Session.ID
+	draftSession := harness.components.Session.Snapshot.Snapshot().Session.ID
 	workspaceID := ""
-	for _, item := range harness.frontend.Snapshot().Workspaces {
+	for _, item := range harness.components.Session.Snapshot.Snapshot().Workspaces {
 		if item.RootPath == projectRoot {
 			workspaceID = item.ID
 		}
 	}
 	if workspaceID == "" {
-		t.Fatalf("工作区没进快照：%+v", harness.frontend.Snapshot().Workspaces)
+		t.Fatalf("工作区没进快照：%+v", harness.components.Session.Snapshot.Snapshot().Workspaces)
 	}
-	if err := harness.frontend.BindWorkspace(workspaceID); err != nil {
+	if err := harness.components.Workspace.Switch.BindWorkspace(workspaceID); err != nil {
 		t.Fatalf("绑定工作区: %v", err)
 	}
 
@@ -79,13 +79,13 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 		projectBoardE2EScript{tool: "todo_add", args: `{"item":"` + projectBoardWriteItem + `"}`},
 		projectBoardE2EScript{},
 	)
-	if err := harness.frontend.Submit(ctx, "请调用 todo_add 加一条待办，然后只回复『好』。"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "请调用 todo_add 加一条待办，然后只回复『好』。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Chat.Error != "" {
 		t.Fatalf("回合失败: %s", snapshot.Chat.Error)
 	}
@@ -93,10 +93,10 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	if sessionID == "" || sessionID != draftSession {
 		t.Fatalf("物化后的会话 ID = %q，草稿 SID = %q（应复用同一 SID）", sessionID, draftSession)
 	}
-	if root := harness.frontend.ProjectRootFor(sessionID); root != projectRoot {
+	if root := harness.components.Execution.ProjectBoard.ProjectRootFor(sessionID); root != projectRoot {
 		t.Fatalf("会话的项目根 = %q，期望 %q", root, projectRoot)
 	}
-	if rows := harness.frontend.WorkTableRowsFor(sessionID); len(rows) == 0 {
+	if rows := harness.components.Execution.ProjectBoard.WorkTableRowsFor(sessionID); len(rows) == 0 {
 		t.Fatal("活体工作表格里没有这个会话的行：写侧一定会退场（I6），本用例的前提不成立")
 	}
 

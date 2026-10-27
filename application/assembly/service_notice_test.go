@@ -1,14 +1,13 @@
 package assembly
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"testing"
 )
 
 func TestServiceAddNoticeAppendsSystemMessage(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	frontendOfTestService(service).AddNotice("startup warning")
+	service.components.view.AddNotice("startup warning")
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		if len(snapshot.Conversation) == 0 {
 			return false

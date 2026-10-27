@@ -1,12 +1,12 @@
 package assembly
 
-// 会话资源隔离单元测试（test-cases.md 第 7 节：不变量 Ⅰ–Ⅲ，fake 端口）。
-// 目标：后台会话收尾/视图切换不得读全局活跃槽；A/B 域不相交。
-
 import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/session"
+
+	// 会话资源隔离单元测试（test-cases.md 第 7 节：不变量 Ⅰ–Ⅲ，fake 端口）。
+	// 目标：后台会话收尾/视图切换不得读全局活跃槽；A/B 域不相交。
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +16,7 @@ import (
 // TranscriptFor(A) 读不到 B 任何内容。
 func TestSessionDomainsDisjoint(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
@@ -61,7 +61,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 		},
 	}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
@@ -71,7 +71,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	aRuntime.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 	service.ViewMu.Unlock()
 
-	if err := frontendOfTestService(service).ResumeSession("session-b"); err != nil {
+	if err := service.components.sessionResume.Resume("session-b"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 func TestPersistReadsOnlyOwnDomain(t *testing.T) {
 	sessions := &archiveSessions{history: []contract.EngineMessage{{Role: "system", Content: "system", ContentSet: true}}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"}, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	// 全局快照归属会话 = B（模拟 A 后台完成时活跃会话是 B）。

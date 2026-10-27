@@ -7,12 +7,33 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 )
 
-type Application interface {
+type Submitter interface {
 	Submit(context.Context, string) error
+}
+
+type Snapshotter interface {
 	Snapshot() application.Snapshot
+}
+
+type Subscriber interface {
 	Subscribe(int) application.Subscription
-	ResolveInteraction(context.Context, string, string) error
+}
+
+type InteractionResolver interface {
+	Resolve(context.Context, string, string) error
+}
+
+type Lifecycle interface {
 	Shutdown()
+}
+
+// Dependencies is the data-only assembly graph consumed by the scenario runner.
+type Dependencies struct {
+	Submission  Submitter
+	Snapshot    Snapshotter
+	Events      Subscriber
+	Interaction InteractionResolver
+	Lifecycle   Lifecycle
 }
 
 type ScriptState interface {

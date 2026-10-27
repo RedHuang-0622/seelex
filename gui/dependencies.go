@@ -13,14 +13,14 @@ package gui
 // 转发层，而转发层不拥有任何判据。桥面的 Go 方法名与 Wails 暴露给 JS 的名字
 // （`/rpc` 线上名）保持不变，改名吸收在 `bridge.go` 的方法层一行转发里。
 //
-// 过渡形态：`App` 只承载尚未迁移的片（宽门面 `application.Frontend`），**只减不增**；
-// 分片迁移完成后由 S7 删除该字段与 `Application` 接口。已迁移的组不再做运行时能力
-// 探测：能力有无只由装配表说话，缺 owner 就是装配错误。
+// 所有字段都只承载一个 owner 的最小消费面；能力有无只由装配表说话，缺 owner
+// 就是装配错误。这里不存在运行时能力探测或宽门面回退。
 
 import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -230,17 +230,105 @@ type Queue interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 }
 
+// ConversationSessions 是统一主/子代理会话读写面（唯一 owner：
+// `application/conversation.UnifiedApplication`）。
+type ConversationSessions interface {
+	View(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)
+	Chat(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)
+	Recover(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)
+}
+
+// HistorySearch 是压缩栈索引的历史检索面（唯一 owner：
+// `application/conversation/search.Application`）。
+type HistorySearch interface {
+	SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)
+}
+
+// References 是工具结果引用读面（唯一 owner：`application/reference.Application`）。
+type References interface {
+	ToolResultContent(resultRef string, offset, limit int) (model.ToolResultPage, error)
+}
+
+// WorkspaceCatalog 是项目环境与工作区查询面（唯一 owner：
+// `application/workspace.Application`）。
+type WorkspaceCatalog interface {
+	WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)
+	SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)
+	DeleteWorkspaceEnvironment(projectID, name string) error
+	SetDefaultWorkspaceEnvironment(projectID, name string) error
+	WorkspaceGitRepos() (dto.GitReposResult, error)
+	GitLog(repo string, limit int) (dto.GitLogResult, error)
+	Changes(repo string, limit int) (dto.WorkspaceChangesResult, error)
+	CommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)
+	CommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)
+	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
+}
+
+// WorkspaceActions 是工作区绑定、树与文件写面（唯一 owner：
+// `application/workspace/switch.UseCase`）。
+type WorkspaceActions interface {
+	CreateWorkspace(name, rootPath, gitRemote string) error
+	BindWorkspace(workspaceID string) error
+	UnbindWorkspace()
+	Tree(relPath string, depth int) (dto.TreeListing, error)
+	FileCount() (dto.TreeCount, error)
+	FileContent(relPath string, limit int64) (dto.FileContent, error)
+	WriteFile(relPath, content string) (dto.FileWriteResult, error)
+}
+
+// ScheduledTasks 是定时任务增改删面（唯一 owner：
+// `application/admin/scheduler.SchedulerApplication`）。
+type ScheduledTasks interface {
+	ScheduleTask(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
+	UpdateScheduledTask(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
+	CancelScheduledTask(id string) error
+}
+
+// WorkItems 是工作项、teammate 与会话实时投影面（唯一 owner：
+// `application/execution.WorkItemApplication`）。
+type WorkItems interface {
+	WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)
+	TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)
+	SessionLive(sessionID string) dto.TeammateSessionLiveView
+	SessionPage(sessionID string, offset, limit int) dto.TeammateSessionLiveView
+	UpdateWorkItemStatus(id, status string) error
+}
+
+// Subagents 是子代理详情与清理面（唯一 owner：
+// `application/execution.SubagentApplication`）。
+type Subagents interface {
+	Detail(nodeID string) (*application.SubagentDetail, error)
+	ClearTree() error
+}
+
+// RoleSessionReader 是角色会话只读观察面（唯一 owner：装配后的
+// `contract.RoleSessionsPort`）。
+type RoleSessionReader interface {
+	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
+}
+
+// ToolRecords 是工具台账看板与开关面（唯一 owner：
+// `application/execution/toolrecord.Application`）。
+type ToolRecords interface {
+	Board() application.ToolRecordBoard
+	Enabled() bool
+	SetEnabled(enabled bool) (bool, error)
+}
+
+// SessionSSH 是会话固定环境与放权面（唯一 owner：
+// `application/session.SSHApplication`）。
+type SessionSSH interface {
+	State(sessionID string) (model.SessionSSHInfo, error)
+	SetAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)
+	SetEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error)
+}
+
 // Dependencies 是 GUI 从这里取应用能力的装配面：一个字段一个 owner 端口。
 //
 // 绑定语句（`gui/dependencies.go` 的字段类型 ← `assembly.Components` 的具体组件指针）
 // 就是编译期结构断言，因此 gui 包内既没有适配器类型，也不再需要
-// `_ Application = (*application.Frontend)(nil)` 一类的断言来钉住真机。
-//
-// `App` 是过渡字段：只承载尚未迁移的片，只减不增，S7 删除。
+// 额外的统一接口断言来钉住真机。
 type Dependencies struct {
-	// App 是尚未迁移的宽门面（S7 删除）。
-	App Application
-
 	// Accounts：S1 账号管理面。
 	Accounts Accounts
 	// Switches：权限档位（S1）+ composer 旋钮（S2）。
@@ -286,4 +374,26 @@ type Dependencies struct {
 	MessageEdit MessageEdit
 	// Queue：S4 排队输入编辑。
 	Queue Queue
+	// Conversation：统一主/子代理会话读写。
+	Conversation ConversationSessions
+	// HistorySearch：压缩栈索引历史检索。
+	HistorySearch HistorySearch
+	// References：工具结果引用读面。
+	References References
+	// WorkspaceCatalog：项目环境、git 与批量项目查询。
+	WorkspaceCatalog WorkspaceCatalog
+	// WorkspaceActions：工作区绑定、树与文件写面。
+	WorkspaceActions WorkspaceActions
+	// Schedules：定时任务增改删。
+	Schedules ScheduledTasks
+	// WorkItems：工作项、teammate 与会话实时投影。
+	WorkItems WorkItems
+	// Subagents：子代理详情与清理。
+	Subagents Subagents
+	// RoleSessions：角色会话只读观察。
+	RoleSessions RoleSessionReader
+	// ToolRecords：工具台账看板与开关。
+	ToolRecords ToolRecords
+	// SessionSSH：会话固定环境与放权。
+	SessionSSH SessionSSH
 }

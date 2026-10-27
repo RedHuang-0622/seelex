@@ -1,23 +1,23 @@
 package assembly
 
-// 内容 LRU 用例（content_lru.go）：已加载会话内容（View.Conversation 窗口）
-// 按 loaded_content_limit 做 LRU，只卸载「视图未切换到的、且不在运行中的」
-// 空闲会话的正文；会话事实/元数据/标题/统计与磁盘数据全部保留，再激活或
-// 分页时经冷回读恢复同一窗口。
-//
-// 断言口径：
-//   - 超限时卸载最旧的空闲会话正文（最新使用与当前视图保留）；
-//   - 运行中（busy）会话与当前视图会话绝不卸载，宁可容忍超限；
-//   - 卸载只丢内存副本：磁盘消息数不变、目录（左侧列表）条目与标题不变；
-//   - 冷回读（resumeSession 冷路径）与热挂载回读（ensureSessionContent）
-//     都还原同一窗口位置（HistoryOffset/内容一致）。
-
 import (
 	"context"
 	"fmt"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+
+	// 内容 LRU 用例（content_lru.go）：已加载会话内容（View.Conversation 窗口）
+	// 按 loaded_content_limit 做 LRU，只卸载「视图未切换到的、且不在运行中的」
+	// 空闲会话的正文；会话事实/元数据/标题/统计与磁盘数据全部保留，再激活或
+	// 分页时经冷回读恢复同一窗口。
+	//
+	// 断言口径：
+	//   - 超限时卸载最旧的空闲会话正文（最新使用与当前视图保留）；
+	//   - 运行中（busy）会话与当前视图会话绝不卸载，宁可容忍超限；
+	//   - 卸载只丢内存副本：磁盘消息数不变、目录（左侧列表）条目与标题不变；
+	//   - 冷回读（resumeSession 冷路径）与热挂载回读（ensureSessionContent）
+	//     都还原同一窗口位置（HistoryOffset/内容一致）。
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"io/fs"
 	"sort"
@@ -251,11 +251,11 @@ func snapshotSessions(t *testing.T, service *Service) map[string]model.SessionIn
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 	rows := map[string]model.SessionInfo{}
-	for _, item := range service.Snapshot().Sessions {
+	for _, item := range service.components.frontendSnapshot.Snapshot().Sessions {
 		rows[item.ID] = item
 	}
 	return rows
@@ -288,12 +288,12 @@ func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
 
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	evicted := assertContentLoaded(t, service, "sess-a", false)
@@ -331,7 +331,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10, "sess-c": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	// A 变忙（运行中）：busy 会话不可卸载（与 resident LRU 同一守卫）。
@@ -341,7 +341,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	}
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	// 运行中会话存在时冷加载走后台 goroutine（先是 restoring 空壳），等正文落地。
@@ -350,7 +350,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	assertContentWindow(t, service, "sess-a", 6, 4)
 	assertContentWindow(t, service, "sess-b", 6, 4)
 
-	if err := frontendOfTestService(service).ResumeSession("sess-c"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-c"); err != nil {
 		t.Fatalf("resume sess-c: %v", err)
 	}
 	waitForContentLoaded(t, service, "sess-c")
@@ -371,22 +371,22 @@ func TestContentEvictionColdReloadsSameWindow(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
 
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	assertContentLoaded(t, service, "sess-a", false)
 
-	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-a"); err != nil {
 		t.Fatalf("re-activate sess-a: %v", err)
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)
 	// 当前视图（会话记录）与窗口一致：回读后前端拿到的就是磁盘尾部窗口。
-	assertRange(t, "after cold reload", service.Snapshot(), 6, 4)
+	assertRange(t, "after cold reload", service.components.frontendSnapshot.Snapshot(), 6, 4)
 }
 
 // TestEnsureSessionContentRebuildsEvictedWindow 热挂载回读面
@@ -401,21 +401,21 @@ func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T) {
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := frontendOfTestService(service).ResumeSession("sess-a"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-a"); err != nil {
 		t.Fatalf("resume sess-a: %v", err)
 	}
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)
 	}
 	assertContentLoaded(t, service, "sess-a", false)
-	if !service.sessionContentUnloaded("sess-a") {
+	if !service.components.residencyRuntime.ContentUnloaded("sess-a") {
 		t.Fatal("sess-a should report unloaded content before reload")
 	}
 
-	if err := service.ensureSessionContent("sess-a"); err != nil {
+	if err := service.components.residencyRuntime.EnsureContent("sess-a"); err != nil {
 		t.Fatalf("ensure content: %v", err)
 	}
-	if service.sessionContentUnloaded("sess-a") {
+	if service.components.residencyRuntime.ContentUnloaded("sess-a") {
 		t.Fatal("sess-a still reports unloaded content after reload")
 	}
 	assertContentWindow(t, service, "sess-a", 6, 4)

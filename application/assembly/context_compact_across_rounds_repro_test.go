@@ -37,11 +37,11 @@ import (
 func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	appendWindowRounds(t, service, "task-cold-repro", 2, 400)
 
 	// 1. 冷加载会话的显式压缩（与 TestCompactWithoutEpochKeepsExecutionFacesClean 同一入口）。
-	if _, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
+	if _, err := service.components.contextCompactionApplication.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 
@@ -99,10 +99,10 @@ func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T
 func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	appendWindowRounds(t, service, "task-completed-repro", 2, 400)
 
-	if _, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
+	if _, err := service.components.contextCompactionApplication.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 

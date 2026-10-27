@@ -1,26 +1,25 @@
 package test
 
-// 复现：多轮会话（第 1 轮纯文本、第 2 轮工具链、第 3 轮纯文本），每轮都
-// 有独立的最终 llm 正文。逐轮完成后分别走热恢复（驻留切回）与冷恢复
-// （Unload → Resume），对比 Snapshot 里的可见 llm 正文行是否全部保留、
-// 顺序是否一致。
-//
-// 用户反馈现象：恢复后“第一轮之后的 llm 消失了”——多轮正文只留下第一轮。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
 	"net/http"
 	"net/http/httptest"
+
+	// 复现：多轮会话（第 1 轮纯文本、第 2 轮工具链、第 3 轮纯文本），每轮都
+	// 有独立的最终 llm 正文。逐轮完成后分别走热恢复（驻留切回）与冷恢复
+	// （Unload → Resume），对比 Snapshot 里的可见 llm 正文行是否全部保留、
+	// 顺序是否一致。
+	//
+	// 用户反馈现象：恢复后“第一轮之后的 llm 消失了”——多轮正文只留下第一轮。
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // multiRoundLLMProvider 请求序号即轮内次序：
@@ -133,10 +132,10 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 
 	submitRound := func(text string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, text); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
 	}
@@ -145,35 +144,35 @@ func TestMultiRoundLLMPreservedAfterHotAndColdResume(t *testing.T) {
 	submitRound("round two with tool")
 	submitRound("round three")
 
-	sessionID := harness.frontend.Snapshot().Session.ID
-	live := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
+	sessionID := harness.components.Session.Snapshot.Snapshot().Session.ID
+	live := visibleAssistantTexts(harness.components.Session.Snapshot.Snapshot().Conversation)
 	t.Logf("live assistant texts: %v", live)
 
 	// 热恢复：切到一个无关会话再切回（驻留 → hot attach）。
-	other, err := harness.frontend.ForkSessionLatest(sessionID)
+	other, err := harness.components.Session.Fork.ForkLatest(sessionID)
 	if err != nil {
 		t.Fatalf("fork other: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(other); err != nil {
+	if err := harness.components.Session.Resume.Resume(other); err != nil {
 		t.Fatalf("resume other: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(sessionID); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionID); err != nil {
 		t.Fatalf("hot resume: %v", err)
 	}
-	hot := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
+	hot := visibleAssistantTexts(harness.components.Session.Snapshot.Snapshot().Conversation)
 	t.Logf("hot assistant texts: %v", hot)
 	if strings.Join(hot, "\n") != strings.Join(live, "\n") {
 		t.Fatalf("RED: hot resume changed assistant texts\nlive=%v\nhot =%v", live, hot)
 	}
 
 	// 冷恢复：Unload 后从磁盘重建。
-	if err := harness.frontend.UnloadSession(sessionID); err != nil {
+	if err := harness.components.Session.Lifecycle.Unload(sessionID); err != nil {
 		t.Fatalf("unload: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(sessionID); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionID); err != nil {
 		t.Fatalf("cold resume: %v", err)
 	}
-	cold := visibleAssistantTexts(harness.frontend.Snapshot().Conversation)
+	cold := visibleAssistantTexts(harness.components.Session.Snapshot.Snapshot().Conversation)
 	t.Logf("cold assistant texts: %v", cold)
 	if strings.Join(cold, "\n") != strings.Join(live, "\n") {
 		t.Fatalf("RED: cold resume changed assistant texts\nlive=%v\ncold=%v", live, cold)

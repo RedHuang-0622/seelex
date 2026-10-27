@@ -36,11 +36,9 @@ func (fake *replayAwareFakeApplication) SubscribeSessionWithReplay(
 	return subscription, nil
 }
 
-// deps 把变体自己绑进 ViewEvents 端口：重放窗口这条路只有它实现，桥面因此走
-// SubscribeSessionWithReplay（replayRequests 才有观测值）。宽门面字段同样走变体
-// （尚未迁移的片仍旧路）。
+// deps 把变体自己绑进 ViewEvents 端口：重放窗口这条路只有它实现。
 func (fake *replayAwareFakeApplication) deps() Dependencies {
-	deps := fake.depsFor(fake)
+	deps := fake.sessionAwareFakeApplication.deps()
 	deps.ViewEvents = fake
 	return deps
 }

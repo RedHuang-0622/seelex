@@ -2,27 +2,20 @@ package assembly
 
 import (
 	"context"
-	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	middlehistory "github.com/RedHuang-0622/seelex/middle/switch/history"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"sync"
 	"testing"
 	"time"
-
-	middlehistory "github.com/RedHuang-0622/seelex/middle/switch/history"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // testServiceOption 定制 newTestService 的依赖注入。
 type testServiceOption func(*contract.Dependencies)
-
-// frontendOfTestService adapts a test service to the migrated frontend entry
-// points without restoring compatibility methods on Service production types.
-func frontendOfTestService(service *Service) *Frontend {
-	return &Frontend{Service: service}
-}
 
 func withSessionID(ctx context.Context, sessionID string) context.Context {
 	return task_context.WithSessionID(ctx, sessionID)
@@ -86,7 +79,7 @@ func newTestService(t testing.TB, engine contract.ChatEngine, options ...testSer
 		option(&deps)
 	}
 	service := mustNew(t, deps)
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 	return service
 }
 
@@ -119,7 +112,7 @@ func waitForSnapshot(t *testing.T, service *Service, ready func(model.Snapshot) 
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		snapshot := service.Snapshot()
+		snapshot := service.components.frontendSnapshot.Snapshot()
 		if ready(snapshot) {
 			return snapshot
 		}
@@ -196,7 +189,7 @@ func waitForChatCompletion(t *testing.T, service *Service) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if !service.Snapshot().Chat.Running {
+		if !service.components.frontendSnapshot.Snapshot().Chat.Running {
 			return
 		}
 		time.Sleep(time.Millisecond)

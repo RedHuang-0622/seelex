@@ -1,6 +1,11 @@
 package assembly
 
 import (
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,11 +14,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdViewRulesAreExtracted(t *testing.T) {
@@ -22,10 +22,10 @@ func TestSessionColdViewRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdView")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdView)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.ViewApplication)(nil)) {
 		t.Fatalf("sessionColdView 字段类型 = %s", field.Type)
 	}
-	viewType := reflect.TypeOf((*sessionColdView)(nil))
+	viewType := reflect.TypeOf((*applicationsessioncold.ViewApplication)(nil))
 	if _, ok := viewType.MethodByName("InstallLocked"); !ok {
 		t.Fatal("sessionColdView 缺少 InstallLocked")
 	}
@@ -72,7 +72,7 @@ func TestSessionColdViewInstallsRecordWindowAndActiveFacts(t *testing.T) {
 	}
 	var installed *sessioncase.View
 	var advanced bool
-	component := newSessionColdView(sessionColdViewDeps{
+	component := applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
 		LoadForkRef: func(got session_runtime.Location, sessionID string) *model.SessionForkRef {
 			if got != location {
 				t.Fatalf("fork location = %+v", got)
@@ -112,7 +112,7 @@ func TestSessionColdViewKeepsNewerVisibleConversation(t *testing.T) {
 	record := model.SessionRecord{}
 	setCalled := false
 	mirrored := false
-	component := newSessionColdView(sessionColdViewDeps{
+	component := applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
 		LoadForkRef:      func(session_runtime.Location, string) *model.SessionForkRef { return nil },
 		AdvanceSeq:       func(string, []model.Message) {},
 		RecordTail:       func(model.SessionRecord, int) []model.Message { return nil },
@@ -135,7 +135,7 @@ func TestSessionColdViewAppendsLegacyAndFixesPaging(t *testing.T) {
 	appended := false
 	mutated := false
 	mirrored := false
-	component := newSessionColdView(sessionColdViewDeps{
+	component := applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
 		LoadForkRef: func(session_runtime.Location, string) *model.SessionForkRef { return nil },
 		AdvanceSeq:  func(string, []model.Message) { t.Fatal("legacy path 不得 advance record seq") },
 		RecordTail:  func(model.SessionRecord, int) []model.Message { return nil },

@@ -1,5 +1,10 @@
 package test
 
+import (
+	"strings"
+	"testing"
+)
+
 // 运行树**插件载荷刷新通路**的守卫（2026-10-05 事故的直接回归）。
 //
 // 事故：dist/seelex-gui-dev/plugins/ 是一份**冻结的快照**——仓库在 10-05 02:23 的提交里
@@ -15,11 +20,6 @@ package test
 //
 // 这条守卫钉三件事：判据不再依赖管道退出码；两条通路（hook 的 build-dev.sh 与 flow 的
 // sync-dev-plugins.ps1）都在且指向同一个目标；flow 的 Deploy 真的会调用它。
-
-import (
-	"strings"
-	"testing"
-)
 
 // nonCommentLines 去掉整行注释（注释里会引用那条坏写法当反例，不该被判成回归）。
 func nonCommentLines(text string) string {

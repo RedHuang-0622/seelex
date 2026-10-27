@@ -1,22 +1,22 @@
 package assembly
 
-// 压缩记录跨重启：从「只活在 record 通道」改到「住本会话自己的压缩记录通道」。
-//
-// 现场（docs/research/2026-10-02-compaction-record-and-failure-trace-survey.md §4.3
-// 的真布局实测）：现行存储布局（v8/S20）下 `record.Execution.Task.ContextCompactions`
-// **写不进也读不回** —— `SaveRecordRaw` 只把 status/title 写穿，`LoadRecordRaw` 交回
-// 按 message head 派生的最小 record。于是重启后「压缩帧在（compact 通道）、压缩记录
-// 不在」：右栏「上下文压缩」整条为空、保留窗口起点归零。
-//
-// 本文件的替身把这条实测事实写进形状里：record 通道停写 `execution`（置 nil），压缩
-// 记录改由 `LoadCompactionRecordsWorkspace`（= 生产 store 的
-// compaction-records.jsonl 通道）承载。改掉读侧之前，下面两条用例都是红的。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
+
+	// 压缩记录跨重启：从「只活在 record 通道」改到「住本会话自己的压缩记录通道」。
+	//
+	// 现场（docs/research/2026-10-02-compaction-record-and-failure-trace-survey.md §4.3
+	// 的真布局实测）：现行存储布局（v8/S20）下 `record.Execution.Task.ContextCompactions`
+	// **写不进也读不回** —— `SaveRecordRaw` 只把 status/title 写穿，`LoadRecordRaw` 交回
+	// 按 message head 派生的最小 record。于是重启后「压缩帧在（compact 通道）、压缩记录
+	// 不在」：右栏「上下文压缩」整条为空、保留窗口起点归零。
+	//
+	// 本文件的替身把这条实测事实写进形状里：record 通道停写 `execution`（置 nil），压缩
+	// 记录改由 `LoadCompactionRecordsWorkspace`（= 生产 store 的
+	// compaction-records.jsonl 通道）承载。改掉读侧之前，下面两条用例都是红的。
 	"testing"
 )
 
@@ -76,7 +76,7 @@ func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runt
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
 	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	appendWindowRounds(t, service, requestID, rounds, 32_000)
 	return service, sessionID
 }
@@ -129,18 +129,18 @@ func TestReproCompactionFactsSurviveProcessRestart(t *testing.T) {
 	if len(store.facts) != 1 {
 		t.Fatalf("夹具前提：压缩记录应落进压缩记录通道：%+v", store.facts)
 	}
-	frontendOfTestService(first).Shutdown()
+	first.components.lifecycleApplication.Shutdown()
 
 	// ── 进程重启 ─────────────────────────────────────────────────────────
 	second := newTestService(t, &fakeEngine{},
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
+	if err := second.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 
-	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
+	snapshot, err := second.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}
@@ -192,16 +192,16 @@ func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T) {
 	if len(store.facts) != 1 || !store.facts[0].Failed {
 		t.Fatalf("夹具前提：失败痕应落进压缩记录通道：%+v", store.facts)
 	}
-	frontendOfTestService(first).Shutdown()
+	first.components.lifecycleApplication.Shutdown()
 
 	second := newTestService(t, &fakeEngine{},
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
+	if err := second.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
-	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
+	snapshot, err := second.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

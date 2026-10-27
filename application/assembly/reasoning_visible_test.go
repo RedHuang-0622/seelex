@@ -13,7 +13,7 @@ import (
 func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	sessionID := service.Core.Snapshot.Session.ID
 	engine.ReplaceHistory(sessionID, []contract.EngineMessage{
@@ -28,7 +28,7 @@ func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	assistant := service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
-	service.attachLatestReasoning(sessionID, "request-1")
+	service.components.conversationStreamRuntime.AttachLatestReasoning(sessionID, "request-1")
 
 	service.ViewMu.Lock()
 	got := assistant.ReasoningContent

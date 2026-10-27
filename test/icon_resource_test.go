@@ -1,5 +1,13 @@
 package test
 
+import (
+	"bytes"
+	"encoding/binary"
+	"os"
+	"strings"
+	"testing"
+)
+
 // Windows 图标资源的回归护栏。
 //
 // 图标是"表现层但最容易悄悄丢"的东西：换了品牌图没重新生成 .ico/.syso、.syso 被误删，
@@ -9,14 +17,6 @@ package test
 //   - .ico 必须是多档 ICO（资源管理器/任务栏/标题栏各取一档）；
 //   - .syso 必须是 x86-64 COFF，且**内容里能原样找到 .ico 的最大一档**——用内容包含
 //     而不是时间戳，因为 git 不保留 mtime（克隆后时间戳不可信，内容关系恒真）。
-
-import (
-	"bytes"
-	"encoding/binary"
-	"os"
-	"strings"
-	"testing"
-)
 
 func TestWindowsIconResourcePipeline(t *testing.T) {
 	t.Parallel()

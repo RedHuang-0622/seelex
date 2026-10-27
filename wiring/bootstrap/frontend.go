@@ -13,8 +13,8 @@ import (
 
 // StartFrontend 按 `-frontend` 选择形态，并把装配表交出的 owner 直接给该形态。
 //
-// 这里不构造兼容门面：门面（`application.Frontend`，M4 删除）只是把 17 个 owner 的
-// 方法缝成一张宽接口，不拥有任何判据。各形态需要的窄端口由 frontend_ports.go 逐行绑定。
+// 这里不构造统一前端门面。各形态需要的窄端口由 frontend_ports.go 逐行绑定到
+// owner，前端包只持有自己声明的最小依赖。
 func StartFrontend(flags *config.Flags, app *application.Service, backendOutput io.Writer, startupWarning string, version string) error {
 	components := assembly.ComponentsFor(app)
 	switch flags.FrontendMode {

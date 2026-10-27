@@ -2,6 +2,8 @@ package assembly
 
 import (
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 )
 
 func TestChatTurnCleanupRulesAreCentralized(t *testing.T) {
@@ -20,10 +20,10 @@ func TestChatTurnCleanupRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnCleanup")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnCleanup)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnCleanupApplication)(nil)) {
 		t.Fatalf("conversationTurnCleanup 字段类型 = %s", field.Type)
 	}
-	cleanupType := reflect.TypeOf((*conversationTurnCleanup)(nil))
+	cleanupType := reflect.TypeOf((*applicationconversation.TurnCleanupApplication)(nil))
 	if _, ok := cleanupType.MethodByName("Cleanup"); !ok {
 		t.Fatal("conversationTurnCleanup 缺少 Cleanup")
 	}
@@ -71,7 +71,7 @@ func TestChatTurnCleanupRulesAreCentralized(t *testing.T) {
 func TestConversationTurnCleanupRunsFullSuccessfulPath(t *testing.T) {
 	var calls []string
 	projection := view_state.RuntimeStateProjection{}
-	cleanup := newConversationTurnCleanup(conversationTurnCleanupDeps{
+	cleanup := applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
 		StampRoute:     func(string, string) { calls = append(calls, "route") },
 		DiscardMailbox: func(string) { calls = append(calls, "mailbox") },
 		CollectProjection: func(string) view_state.RuntimeStateProjection {
@@ -105,7 +105,7 @@ func TestConversationTurnCleanupCombinesErrorsAndKeepsRunning(t *testing.T) {
 	checkpointErr := errors.New("checkpoint failed")
 	var recorded error
 	var calls []string
-	cleanup := newConversationTurnCleanup(conversationTurnCleanupDeps{
+	cleanup := applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
 		StampRoute:     func(string, string) { calls = append(calls, "route") },
 		DiscardMailbox: func(string) { calls = append(calls, "mailbox") },
 		CollectProjection: func(string) view_state.RuntimeStateProjection {
@@ -152,7 +152,7 @@ func TestConversationTurnCleanupWrapsFlushAndRecoveryErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cleanup := newConversationTurnCleanup(conversationTurnCleanupDeps{
+			cleanup := applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
 				StampRoute:        func(string, string) {},
 				DiscardMailbox:    func(string) {},
 				CollectProjection: func(string) view_state.RuntimeStateProjection { return view_state.RuntimeStateProjection{} },

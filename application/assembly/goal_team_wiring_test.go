@@ -3,12 +3,11 @@ package assembly
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // teamRecordingSessions 在默认 fakeSessions 上补出 A2A 团队存储面（顺序策略 + 注册表），
@@ -222,7 +221,7 @@ func TestGoalBeginLeavesSessionTeamAlone(t *testing.T) {
 	})
 	sessions.setLifecycle(dto.OrderPolicyGoalLoop, []string{"user", "main", "tl", "worker"})
 
-	if _, err := frontendOfTestService(service).GoalBeginFor(context.Background(), "sess-goal", goaldomain.BeginRequest{Title: "接线验证"}); err != nil {
+	if _, err := service.components.goalApplication.BeginFor(context.Background(), "sess-goal", goaldomain.BeginRequest{Title: "接线验证"}); err != nil {
 		t.Fatalf("GoalBeginFor: %v", err)
 	}
 
@@ -244,7 +243,7 @@ func TestGoalBeginLeavesSessionTeamAlone(t *testing.T) {
 func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 
-	record, err := frontendOfTestService(service).GoalBeginFor(context.Background(), "sess-plain", goaldomain.BeginRequest{Title: "无团队存储"})
+	record, err := service.components.goalApplication.BeginFor(context.Background(), "sess-plain", goaldomain.BeginRequest{Title: "无团队存储"})
 	if err != nil {
 		t.Fatalf("GoalBeginFor 在无团队存储时必须成功（best-effort），实际: %v", err)
 	}

@@ -1,14 +1,17 @@
 package test
 
-// 阶段 0 后台会话收尾测试集（test-cases.md 第 2/3 节）：
-// TC-A1-02 后台完成落盘后 record 全域只属 A；
-// TC-A1-03 后台完成不影响活跃会话 B 的队列与运行态；
-// TC-A2-01 收尾时再次切换 C，A 收尾不清 C 的引擎工作历史。
-
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/store"
+
+	// 阶段 0 后台会话收尾测试集（test-cases.md 第 2/3 节）：
+	// TC-A1-02 后台完成落盘后 record 全域只属 A；
+	// TC-A1-03 后台完成不影响活跃会话 B 的队列与运行态；
+	// TC-A2-01 收尾时再次切换 C，A 收尾不清 C 的引擎工作历史。
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -19,10 +22,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // backgroundScenario 是"A 运行中切 B → B 完成 → A 后台完成"的标准场景产物。
@@ -57,24 +56,24 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 
-	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v", err)
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -82,25 +81,25 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 	case <-ctx.Done():
 		t.Fatalf("provider did not block: %v", ctx.Err())
 	}
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("B did not finish in time: %+v", harness.frontend.Snapshot().Chat)
+			t.Fatalf("B did not finish in time: %+v", harness.components.Session.Snapshot.Snapshot().Chat)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	close(provider.releaseSecond)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v", err)
 	}
 
@@ -278,21 +277,21 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -300,10 +299,10 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("A long task did not block")
 	}
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -312,10 +311,10 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 		t.Fatal("B first turn did not block")
 	}
 	// B 运行中排队 q1/q2。
-	if err := harness.frontend.Submit(ctx, "q1"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "q1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "q2"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "q2"); err != nil {
 		t.Fatal(err)
 	}
 	// A 后台完成。
@@ -340,7 +339,7 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	// B 仍运行中（请求 #3 未释放），队列应保留 q1/q2，且不被 A 收尾清掉。
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Session.ID != sessionB {
 		t.Fatalf("active session = %q, want %q", snapshot.Session.ID, sessionB)
 	}
@@ -352,7 +351,7 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 		t.Fatalf("B input queue = %v, want [q1 q2]", queue)
 	}
 	close(provider.release[3])
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("B did not finish after release: %v", err)
 	}
 }
@@ -379,21 +378,21 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -401,46 +400,46 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("A long task did not block")
 	}
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("B did not finish: %+v", harness.frontend.Snapshot().Chat)
+			t.Fatalf("B did not finish: %+v", harness.components.Session.Snapshot.Snapshot().Chat)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	// C：fork B 后完成一轮（请求 #4 快速返回）。
-	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
+	sessionC, err := harness.components.Session.Fork.ForkLatest(sessionB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.ResumeSession(sessionC); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionC); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello C"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello C"); err != nil {
 		t.Fatal(err)
 	}
 	for {
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Session.ID == sessionC && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("C first turn did not finish: %+v", harness.frontend.Snapshot().Chat)
+			t.Fatalf("C first turn did not finish: %+v", harness.components.Session.Snapshot.Snapshot().Chat)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	// C 运行中（请求 #5 阻塞）：此刻释放 A，使 A 收尾与 C 运行并发。
-	if err := harness.frontend.Submit(ctx, "hello C2"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello C2"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -470,7 +469,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	// A 收尾完成：C 仍运行中（工作历史未被 A 清掉）。
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Session.ID != sessionC || !snapshot.Chat.Running {
 		t.Fatalf("C execution affected by A completion: %+v", snapshot.Chat)
 	}
@@ -485,15 +484,15 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	}
 	// 释放 C：C 完整收尾，可见内容含 hello C 与 hello C2。
 	close(provider.release[5])
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("C did not finish: %v", err)
 	}
-	if err := harness.frontend.ResumeSession(sessionC); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionC); err != nil {
 		t.Fatal(err)
 	}
-	if !containsUserText(harness.frontend.Snapshot().Conversation, "hello C") ||
-		!containsUserText(harness.frontend.Snapshot().Conversation, "hello C2") {
-		t.Fatalf("C conversation incomplete after A completion: %v", conversationTexts(harness.frontend.Snapshot().Conversation))
+	if !containsUserText(harness.components.Session.Snapshot.Snapshot().Conversation, "hello C") ||
+		!containsUserText(harness.components.Session.Snapshot.Snapshot().Conversation, "hello C2") {
+		t.Fatalf("C conversation incomplete after A completion: %v", conversationTexts(harness.components.Session.Snapshot.Snapshot().Conversation))
 	}
 }
 
@@ -502,7 +501,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 // "请求被队列/锁挡住"与"请求在传输层丢了"。
 func dumpBackgroundTurnStall(t *testing.T, harness fullChainHarness, reason string) {
 	t.Helper()
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	t.Logf("%s: session=%s chat=%+v view=%+v",
 		reason, snapshot.Session.ID, snapshot.Chat, snapshot.Session)
 	_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)

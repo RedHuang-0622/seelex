@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -18,10 +19,10 @@ func TestEditForkRollbackRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkRollback")
 	}
-	if field.Type != reflect.TypeOf((*editForkRollback)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.RollbackApplication)(nil)) {
 		t.Fatalf("editForkRollback 字段类型 = %s", field.Type)
 	}
-	componentType := reflect.TypeOf((*editForkRollback)(nil))
+	componentType := reflect.TypeOf((*applicationedit.RollbackApplication)(nil))
 	if _, ok := componentType.MethodByName("Rollback"); !ok {
 		t.Fatal("editForkRollback 缺少 Rollback")
 	}
@@ -56,7 +57,7 @@ func TestEditForkRollbackRulesAreCentralized(t *testing.T) {
 
 func TestEditForkRollbackReturnsCauseWhenBothActionsSucceed(t *testing.T) {
 	cause := errors.New("submit failed")
-	component := newEditForkRollback(editForkRollbackDeps{
+	component := applicationedit.NewRollback(applicationedit.RollbackDeps{
 		Delete: func(childID string) error {
 			if childID != "child" {
 				t.Fatalf("delete child = %q", childID)
@@ -92,7 +93,7 @@ func TestEditForkRollbackCombinesChildAndParentFailures(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cause := errors.New("submit failed")
-			component := newEditForkRollback(editForkRollbackDeps{
+			component := applicationedit.NewRollback(applicationedit.RollbackDeps{
 				Delete: func(string) error { return test.deleteErr },
 				Resume: func(string) error { return test.resumeErr },
 			})

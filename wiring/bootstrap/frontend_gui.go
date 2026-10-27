@@ -9,7 +9,6 @@ import (
 	"github.com/RedHuang-0622/seelex/application/assembly"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/headless"
-	wiringroot "github.com/RedHuang-0622/seelex/wiring"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
@@ -19,21 +18,42 @@ func guiAvailable() bool { return gui.Available() }
 //
 // 绑定语句本身就是编译期结构断言（左端字段类型是 gui 自己的 consumer 接口、右端是
 // 具体 owner 指针），所以这里不写适配器，也不再需要 `_ gui.X = (*owner)(nil)` 一行。
-// 每一行右值都与兼容门面（`application/compat`，M4 删除）转发的字段逐字相同：门面
-// 每个方法都转发到同一个 owner 的同名方法，迁移前后判据落在同一处。
-//
-// `App` 是过渡字段（宽门面，M3 分片迁移后由 S7 删除）；它只承载尚未迁移的片，
-// 新能力一律进按 owner 切分的端口，禁止再往宽门面上加方法。
-func guiDependencies(components assembly.Components, app *application.Frontend) gui.Dependencies {
+// 每一行右值都是拥有该用例的 owner，前端因此不需要兼容门面或适配器。
+func guiDependencies(components assembly.Components) gui.Dependencies {
 	return gui.Dependencies{
-		App:          app,
-		Accounts:     components.Admin.Account,
-		Switches:     components.Policy.Switch,
-		RoleSettings: components.Policy.Role,
-		Completion:   components.Conversation.Completion,
-		History:      components.Conversation.History,
-		ViewSnapshot: components.Session.Snapshot,
-		ViewEvents:   components.Session.View,
+		Accounts:         components.Admin.Account,
+		Switches:         components.Policy.Switch,
+		RoleSettings:     components.Policy.Role,
+		Completion:       components.Conversation.Completion,
+		History:          components.Conversation.History,
+		ViewSnapshot:     components.Session.Snapshot,
+		ViewEvents:       components.Session.View,
+		SessionCatalog:   components.Session.Query,
+		Draft:            components.Session.DraftEntry,
+		Resume:           components.Session.Resume,
+		Fork:             components.Session.Fork,
+		Delete:           components.Session.Delete,
+		Archive:          components.Session.Archive,
+		Meta:             components.Session.Meta,
+		SessionSubmit:    components.Session.Submit,
+		Submission:       components.Conversation.Submission,
+		Turn:             components.Runtime.Lifecycle,
+		Interaction:      components.Session.Interaction,
+		Prompts:          components.Conversation.PromptStack,
+		Perf:             components.Admin.Perf,
+		MessageEdit:      components.Conversation.EditFork,
+		Queue:            components.Conversation.Queue,
+		Conversation:     components.Conversation.Unified,
+		HistorySearch:    components.Conversation.HistorySearch,
+		References:       components.Conversation.Reference,
+		WorkspaceCatalog: components.Workspace.Projects,
+		WorkspaceActions: components.Workspace.Switch,
+		Schedules:        components.Runtime.Scheduler,
+		WorkItems:        components.Execution.WorkItem,
+		Subagents:        components.Execution.Subagent,
+		RoleSessions:     components.Policy.RoleSessions,
+		ToolRecords:      components.Execution.ToolRecords,
+		SessionSSH:       components.Session.SSH,
 	}
 }
 
@@ -48,7 +68,7 @@ func startGUI(service *application.Service, startupWarning, version string) erro
 		return err
 	}
 	defer stopHeadless()
-	return gui.Run(guiDependencies(components, wiringroot.NewFrontend(service)), gui.Options{
+	return gui.Run(guiDependencies(components), gui.Options{
 		Title: "Seelex", Version: version, StartupWarning: startupWarning,
 		AppearancePath: config.GUIAppearancePath(),
 	})

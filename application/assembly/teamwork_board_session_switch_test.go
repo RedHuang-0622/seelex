@@ -1,5 +1,10 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"testing"
+)
+
 // teamwork_board_session_switch_test.go — 钉住「切换会话 / 重启后打开会话」时**会话运行
 // 原件要重建**（2026-10-04 现场：切走再切回来，团队看板整块消失；数据都在磁盘上，
 // 是"重建"路径断了）。
@@ -13,12 +18,6 @@ package assembly
 // 为什么在这一层钉：桥侧（seelebridge）的投影组装、模型层的深拷贝、前端渲染件各自都有
 // 用例，但如果会话（重）激活不采这一次，"三跳都通、就是没人调"——现象与后端毫无关系的
 // 一面空白。
-
-import (
-	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-)
 
 // sessionSwitchBoardRuntime 是**按会话**回答团队看板的运行时桩：上一个会话说"有"、
 // 另一个会话说"没有"——切换语义只有这样才能被验出来（一个恒定返回同一份看板的桩，
@@ -38,7 +37,7 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 	runtime.boards[sessionA] = board
 	// 让 A 走**热挂载**（引擎实例在内存）：本用例要钉的就是"换视图指针那一步也要重建槽"。
 	if engine.loadedSessions == nil {
@@ -46,22 +45,22 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 	engine.loadedSessions[sessionA] = true
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	sessionB := service.Snapshot().Session.ID
+	sessionB := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionB == sessionA {
 		t.Fatal("新建会话必须换一个会话号（否则本用例没在测切换）")
 	}
-	if got := service.Snapshot().Runtime.TeamworkBoard; got != nil {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.TeamworkBoard; got != nil {
 		t.Fatalf("新会话没有团队计划时槽里不该有看板：%+v", got)
 	}
 
 	// 切回 A：**第一帧**快照就必须带看板（不能等下一轮回合尾）。
-	if err := frontendOfTestService(service).ActivateSession(sessionA); err != nil {
+	if err := service.components.sessionResume.Resume(sessionA); err != nil {
 		t.Fatalf("ActivateSession: %v", err)
 	}
-	got := service.Snapshot().Runtime.TeamworkBoard
+	got := service.components.frontendSnapshot.Snapshot().Runtime.TeamworkBoard
 	if got == nil {
 		t.Fatal("切回会话时没有重建会话运行原件（团队看板缺失）：数据没丢，是重建路径断了")
 	}
@@ -70,16 +69,16 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 
 	// 切到 B 再切回 A：B 的槽里不该留着 A 的看板（过渡帧不许说谎）。
-	if err := frontendOfTestService(service).ActivateSession(sessionB); err != nil {
+	if err := service.components.sessionResume.Resume(sessionB); err != nil {
 		t.Fatalf("ActivateSession(B): %v", err)
 	}
-	if got := service.Snapshot().Runtime.TeamworkBoard; got != nil {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.TeamworkBoard; got != nil {
 		t.Fatalf("切到没有计划的会话后不得留着上一个会话的看板：%+v", got)
 	}
-	if err := frontendOfTestService(service).ActivateSession(sessionA); err != nil {
+	if err := service.components.sessionResume.Resume(sessionA); err != nil {
 		t.Fatalf("ActivateSession(A): %v", err)
 	}
-	if service.Snapshot().Runtime.TeamworkBoard == nil {
+	if service.components.frontendSnapshot.Snapshot().Runtime.TeamworkBoard == nil {
 		t.Fatal("再切回来仍必须带看板（重建是每一步切换都要做的，不是一次性的）")
 	}
 }

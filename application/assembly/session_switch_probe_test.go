@@ -2,7 +2,7 @@ package assembly
 
 import (
 	"context"
-	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sync"
@@ -20,9 +20,9 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "task in flight"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "task in flight"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -32,14 +32,14 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}})
 
 	start := time.Now()
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("[%s] switch while in-flight: %v", label, err)
 	}
 	switchCost := time.Since(start)
 	if switchCost > 2*time.Second {
 		t.Fatalf("[%s] switch took %s while engine in-flight（疑似等待引擎锁）", label, switchCost)
 	}
-	if got := service.Snapshot().Session.ID; got != "sess-b" {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != "sess-b" {
 		t.Fatalf("[%s] active session after switch = %q, want sess-b", label, got)
 	}
 	// 原会话仍驻留且运行中（未被切换打断）。
@@ -47,7 +47,7 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 		t.Fatalf("[%s] source session engine lost after switch", label)
 	}
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("[%s] switch while in-flight cost %s（引擎回合未被打断）", label, switchCost)
@@ -136,17 +136,17 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, engine, withTestSessions(gated))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	t.Cleanup(gated.releaseNow)
 
 	engine.register("sess-b")
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("initial resume b: %v", err)
 	}
 	// 先让目录 worker 完成首轮枚举（其标题回退也会走历史读，避免与冷加载
 	// 门闩混淆）。
 	settleCtx, cancelSettle := context.WithTimeout(context.Background(), 5*time.Second)
-	err := frontendOfTestService(service).WaitCatalogRefresh(settleCtx)
+	err := service.components.sessionQuery.WaitCatalogRefresh(settleCtx)
 	cancelSettle()
 	if err != nil {
 		t.Fatalf("catalog settle: %v", err)
@@ -157,7 +157,7 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 
 	coldDone := make(chan error, 1)
 	go func() {
-		coldDone <- frontendOfTestService(service).ResumeSession("sess-cold")
+		coldDone <- service.components.sessionResume.Resume("sess-cold")
 	}()
 	select {
 	case <-gated.entered:
@@ -167,7 +167,7 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 
 	switchDone := make(chan error, 1)
 	go func() {
-		switchDone <- frontendOfTestService(service).ResumeSession("sess-b")
+		switchDone <- service.components.sessionResume.Resume("sess-b")
 	}()
 	// 预期：切到 B **不等** A 的冷加载（装载不再占视图过渡 key）。旧实现这里
 	// 必然超时（B 排队等 A），正是用户现场的「另一个会话没反应」。
@@ -224,7 +224,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 		},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.draft = &sessionstate.DraftSlot{ID: "draft-current", CreatedAt: now, UpdatedAt: now}
@@ -232,20 +232,20 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	service.sessions.SetActive("draft-current")
 	service.ViewMu.Unlock()
 
-	first := service.Snapshot().Session.ID
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	first := service.components.frontendSnapshot.Snapshot().Session.ID
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if got := service.Snapshot().Session.ID; got != first || got != "draft-current" {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != first || got != "draft-current" {
 		t.Fatalf("BeginNewSession changed draft owner: before=%q after=%q", first, got)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	rows := sessionIDsOf(snapshot.Sessions)
 	if containsSessionID(rows, "draft-old") {
 		t.Fatalf("stale draft visible in list: %v", rows)
@@ -253,7 +253,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	if !containsSessionID(rows, "draft-current") {
 		t.Fatalf("current draft missing from list: %v", rows)
 	}
-	listed := frontendOfTestService(service).ListSessions()
+	listed := service.components.sessionQuery.ListSessions()
 	if containsSessionID(sessionIDsOf(listed), "draft-old") {
 		t.Fatalf("stale draft visible in ListSessions: %v", listed)
 	}

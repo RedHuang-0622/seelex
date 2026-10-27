@@ -16,6 +16,7 @@ import (
 // inputIndexService 用「durable 消息 + record + conversation 窗口读」的仿真
 // 端口（pagedSessionStore，见 session_history_pagination_test.go）装配服务：
 // 两条通道索引空间一致，正好验证"全量索引 = 整会话用户输入"。
+
 func inputIndexService(t *testing.T, store *pagedSessionStore) *Service {
 	t.Helper()
 	service := mustNew(t, contract.Dependencies{
@@ -26,7 +27,7 @@ func inputIndexService(t *testing.T, store *pagedSessionStore) *Service {
 		Sessions:  store,
 		Workspace: newFakeWorkspace(),
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 	return service
 }
 
@@ -52,7 +53,7 @@ func TestSessionInputIndexCoversUnloadedEarlyRounds(t *testing.T) {
 	// 前端只加载了最后 4 条（durable-8..11）：早 4 条输入不在窗口里。
 	setLoadedWindow(t, service, "index-session", 8, 12, store.messages)
 
-	index, err := frontendOfTestService(service).SessionInputIndex("index-session")
+	index, err := service.components.sessionQuery.SessionInputIndex("index-session")
 	if err != nil {
 		t.Fatalf("SessionInputIndex: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestSessionInputIndexEmptySession(t *testing.T) {
 	store := newPagedSessionStore("empty-session", 0)
 	service := inputIndexService(t, store)
 
-	index, err := frontendOfTestService(service).SessionInputIndex("empty-session")
+	index, err := service.components.sessionQuery.SessionInputIndex("empty-session")
 	if err != nil {
 		t.Fatalf("SessionInputIndex(empty): %v", err)
 	}
@@ -128,7 +129,7 @@ func TestSessionInputIndexEmptySession(t *testing.T) {
 func TestSessionInputIndexRequiresSessionID(t *testing.T) {
 	store := newPagedSessionStore("index-session", 2)
 	service := inputIndexService(t, store)
-	if _, err := frontendOfTestService(service).SessionInputIndex("   "); err == nil {
+	if _, err := service.components.sessionQuery.SessionInputIndex("   "); err == nil {
 		t.Fatal("empty session ID must fail")
 	}
 }
@@ -143,7 +144,7 @@ func TestSessionInputIndexTruncatesSummary(t *testing.T) {
 	)
 	service := inputIndexService(t, store)
 
-	index, err := frontendOfTestService(service).SessionInputIndex("summary-session")
+	index, err := service.components.sessionQuery.SessionInputIndex("summary-session")
 	if err != nil {
 		t.Fatalf("SessionInputIndex: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T) {
 	)
 	service := inputIndexService(t, store)
 
-	index, err := frontendOfTestService(service).SessionInputIndex("filter-session")
+	index, err := service.components.sessionQuery.SessionInputIndex("filter-session")
 	if err != nil {
 		t.Fatalf("SessionInputIndex: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestSessionInputIndexFallsBackToRecord(t *testing.T) {
 	sessions.add("", "record-session")
 	service := archiveTestService(t, sessions)
 
-	index, err := frontendOfTestService(service).SessionInputIndex("record-session")
+	index, err := service.components.sessionQuery.SessionInputIndex("record-session")
 	if err != nil {
 		t.Fatalf("SessionInputIndex(record): %v", err)
 	}

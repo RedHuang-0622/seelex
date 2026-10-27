@@ -2,9 +2,8 @@ package assembly
 
 import (
 	"context"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"testing"
 )
 
 // session_permission_tier_test.go — 主会话权限档位（tier）在 application 层的验收：
@@ -14,9 +13,9 @@ import (
 // 自己的档位，切换/新建后互不覆盖；未选择会话回退进程默认档位。
 func TestPermissionTierOwnershipPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	effective, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierAuto)
+	effective, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierAuto)
 	if err != nil {
 		t.Fatalf("SetPermissionTier(auto): %v", err)
 	}
@@ -35,10 +34,10 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 		t.Fatal("auto 档不得被当成旧全权（fullAccessForSession 应为 false）")
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if unit := service.sessions.Unit(draftID); unit == nil {
 		t.Fatal("draft unit missing")
 	} else if _, ok := unit.PermissionTier(); ok {
@@ -57,14 +56,14 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 // 经 CurrentPermissionTier 注入），并携带档位目录供前端渲染列表。
 func TestPermissionTierProjectionPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
-	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierEdit); err != nil {
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierEdit); err != nil {
 		t.Fatalf("SetPermissionTier(edit): %v", err)
 	}
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	projectionA := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionA)
 	if projectionA.Runtime.PermissionTier != dto.PermissionTierEdit {
@@ -82,11 +81,11 @@ func TestPermissionTierProjectionPerSession(t *testing.T) {
 // TestSetPermissionTierRejectsUnknown：非法档位 id 报错且**不改变**当前档位。
 func TestSetPermissionTierRejectsUnknown(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
-	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err != nil {
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
-	if _, err := frontendOfTestService(service).SetPermissionTier("superuser"); err == nil {
+	if _, err := service.components.policyApplication.SetPermissionTier("superuser"); err == nil {
 		t.Fatal("未知档位应当报错")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierFull {
@@ -98,9 +97,9 @@ func TestSetPermissionTierRejectsUnknown(t *testing.T) {
 // false ⇔ manual），且投影同步 full_access 派生位。
 func TestSetFullAccessCompatMapsToTier(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	if !frontendOfTestService(service).SetFullAccess(true) {
+	if !service.components.policyApplication.SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) 应返回 true（full 档生效）")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierFull {
@@ -115,7 +114,7 @@ func TestSetFullAccessCompatMapsToTier(t *testing.T) {
 			projection.Runtime.FullAccess, projection.Runtime.PermissionTier)
 	}
 
-	if frontendOfTestService(service).SetFullAccess(false) {
+	if service.components.policyApplication.SetFullAccess(false) {
 		t.Fatal("SetFullAccess(false) 应返回 false（manual 档）")
 	}
 	if got := service.permissionTierForSession(sessionA); got != dto.PermissionTierManual {

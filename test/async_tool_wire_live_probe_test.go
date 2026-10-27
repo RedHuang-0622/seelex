@@ -51,8 +51,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 // ---------- 账号加载（只取三个字段，永不打印 key） ----------

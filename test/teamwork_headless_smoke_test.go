@@ -1,27 +1,35 @@
 package test
 
-// teamwork_headless_smoke_test.go — **headless 冒烟**：把团队作业面（leader 派活 → teammate
-// 干活 → 尾插回执 → 做完自动返回 → 会话查看 → 验收收口）在**真实装配**上跑一遍，逐阶段留探针。
-//
-// 为什么必须是这一层：假装载只能证明"我调用过的那些函数是对的"。这条链的每一跳都在不同层
-// （工具面 → 编排域 → jobs.Manager → 应用层触发 → 会话投影），任何一跳错位都只会在**真实
-// 装配**上显形——而本轮的三个现场（切会话看板消失 / 做完不自动返回 / 看 teammate 会话看到的
-// 是历史）全都是这种错位。
-//
-// 与前端同源的那条路径也在探针里：看板与"这件事的会话"读的都是**后端只读投影**
-// （runtime.teamwork_board / TeammateSessionLive）——GUI 与 TUI 都只消费它们，因此这一遍
-// 冒烟覆盖的就是有前端的那条路径（不是另造一条 headless 专用的）。
-//
-// 驱动方式：脚本化 provider（**不真调模型**）。leader 的每个回合按脚本发一个工具调用，
-// worker 那一轮按标记（<round_input> + "以 exec 的身份"）识别并回一句正文——
-// 标记取自**解码后的正文**（wire 上 `<` 是 `\u003c`，见 requestBodyText）。
-// 「做完自动返回」起的那个回合（正文是 application 侧那条回执）**不消费脚本**：
-// 它是框架自己起的，验收由用例自己选时机驱动。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+
+	// teamwork_headless_smoke_test.go — **headless 冒烟**：把团队作业面（leader 派活 → teammate
+	// 干活 → 尾插回执 → 做完自动返回 → 会话查看 → 验收收口）在**真实装配**上跑一遍，逐阶段留探针。
+	//
+	// 为什么必须是这一层：假装载只能证明"我调用过的那些函数是对的"。这条链的每一跳都在不同层
+	// （工具面 → 编排域 → jobs.Manager → 应用层触发 → 会话投影），任何一跳错位都只会在**真实
+	// 装配**上显形——而本轮的三个现场（切会话看板消失 / 做完不自动返回 / 看 teammate 会话看到的
+	// 是历史）全都是这种错位。
+	//
+	// 与前端同源的那条路径也在探针里：看板与"这件事的会话"读的都是**后端只读投影**
+	// （runtime.teamwork_board / TeammateSessionLive）——GUI 与 TUI 都只消费它们，因此这一遍
+	// 冒烟覆盖的就是有前端的那条路径（不是另造一条 headless 专用的）。
+	//
+	// 驱动方式：脚本化 provider（**不真调模型**）。leader 的每个回合按脚本发一个工具调用，
+	// worker 那一轮按标记（<round_input> + "以 exec 的身份"）识别并回一句正文——
+	// 标记取自**解码后的正文**（wire 上 `<` 是 `\u003c`，见 requestBodyText）。
+	// 「做完自动返回」起的那个回合（正文是 application 侧那条回执）**不消费脚本**：
+	// 它是框架自己起的，验收由用例自己选时机驱动。
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"github.com/RedHuang-0622/seelex/store"
+	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,15 +39,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
-	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 // smokeStep 是一次探针：名字 + 结论（宁可留痕，也不静默通过）。
@@ -369,10 +368,10 @@ func truncateBodyForLog(body string) string {
 
 // teamworkSmoke 是一次冒烟的现场：真实装配 + 报告。
 type teamworkSmoke struct {
-	harness  fullChainHarness
-	app      *application.Frontend
-	provider *teamworkSmokeProvider
-	report   *smokeReport
+	harness    fullChainHarness
+	components applicationassembly.Components
+	provider   *teamworkSmokeProvider
+	report     *smokeReport
 	// planStore / keyFor 是**取证面**：探针要能把"落盘的计划事实"与"看板投影"分开读，
 	// 否则"投影陈旧"会被误判成"尾插没落"（反过来也一样）。
 	planStore seeteamwork.PlanStore
@@ -438,7 +437,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 			})
 		})
 	smoke := &teamworkSmoke{
-		harness: harness, app: harness.frontend, provider: provider, report: &smokeReport{},
+		harness: harness, components: harness.components, provider: provider, report: &smokeReport{},
 		planStore: planStoreForProbe, keyFor: keyForForProbe,
 	}
 	return smoke
@@ -449,7 +448,7 @@ func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store
 	if s.planStore == nil || s.keyFor == nil {
 		return store.TeamworkWorkItem{}, false
 	}
-	key, ok := s.keyFor(s.app.Snapshot().Session.ID)
+	key, ok := s.keyFor(s.components.Session.Snapshot.Snapshot().Session.ID)
 	if !ok {
 		return store.TeamworkWorkItem{}, false
 	}
@@ -471,16 +470,16 @@ func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store
 func (s *teamworkSmoke) startProjectSession(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := s.app.CreateWorkspace("smoke-project", root, ""); err != nil {
+	if err := s.components.Workspace.Switch.CreateWorkspace("smoke-project", root, ""); err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
-	if err := s.app.Submit(ctx, "开一个团队，把两件事排进契约里程碑"); err != nil {
+	if err := s.components.Conversation.Submission.Submit(ctx, "开一个团队，把两件事排进契约里程碑"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if err := s.app.WaitForIdle(ctx); err != nil {
+	if err := s.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
-	sessionID := s.app.Snapshot().Session.ID
+	sessionID := s.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("会话没有物化")
 	}
@@ -524,7 +523,7 @@ func (s *teamworkSmoke) waitUserRow(t *testing.T, needle string) string {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, message := range s.app.Snapshot().Conversation {
+		for _, message := range s.components.Session.Snapshot.Snapshot().Conversation {
 			if message.Role == "user" && strings.Contains(message.Content, needle) {
 				return message.Content
 			}
@@ -541,7 +540,7 @@ func (s *teamworkSmoke) waitToolResult(t *testing.T, tool, needle string) string
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, message := range s.app.Snapshot().Conversation {
+		for _, message := range s.components.Session.Snapshot.Snapshot().Conversation {
 			if message.Role != "tool" || message.Tool == nil || message.Tool.Name != tool {
 				continue
 			}
@@ -558,7 +557,7 @@ func (s *teamworkSmoke) waitToolResult(t *testing.T, tool, needle string) string
 // toolStatuses 按顺序取某个工具每次调用的状态（success / error）。
 func (s *teamworkSmoke) toolStatuses(name string) []string {
 	statuses := []string{}
-	for _, message := range s.app.Snapshot().Conversation {
+	for _, message := range s.components.Session.Snapshot.Snapshot().Conversation {
 		// 一次工具调用在可见会话里有两行（tool 行 + tool_result 行）：只数 tool 行，
 		// 否则每次调用都被数两遍（状态位也就错位了）。
 		if message.Role != "tool" || message.Tool == nil || message.Tool.Name != name {
@@ -581,7 +580,7 @@ func firstLineOf(text string) string {
 // conversationDump 把可见会话逐行摊开（探针失败时的取证：哪一行是谁、工具名与正文）。
 func (s *teamworkSmoke) conversationDump() string {
 	lines := []string{}
-	for index, message := range s.app.Snapshot().Conversation {
+	for index, message := range s.components.Session.Snapshot.Snapshot().Conversation {
 		tool := ""
 		if message.Tool != nil {
 			tool = fmt.Sprintf("tool=%s status=%s result=%q", message.Tool.Name, message.Tool.Status, message.Tool.Result)
@@ -595,7 +594,7 @@ func (s *teamworkSmoke) conversationDump() string {
 // 多次，取"最后一次"会把负路径的证据覆盖掉——本轮冒烟里 team_work 正是这种情形）。
 func (s *teamworkSmoke) toolResultsOf(name string) []string {
 	results := []string{}
-	for _, message := range s.app.Snapshot().Conversation {
+	for _, message := range s.components.Session.Snapshot.Snapshot().Conversation {
 		if message.Role != "tool" || message.Tool == nil || message.Tool.Name != name {
 			continue
 		}
@@ -724,16 +723,16 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 
 	// ── P0：会话 + 项目工作区（必须是真 git 仓库：worktree 跳才验得到）────────
 	root := initSmokeGitRepo(t)
-	if err := smoke.app.CreateWorkspace("smoke-project", root, ""); err != nil {
+	if err := smoke.components.Workspace.Switch.CreateWorkspace("smoke-project", root, ""); err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
-	if err := smoke.app.Submit(ctx, "开一个团队，把两件事排进契约里程碑"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "开一个团队，把两件事排进契约里程碑"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
-	sessionID := smoke.app.Snapshot().Session.ID
+	sessionID := smoke.components.Session.Snapshot.Snapshot().Session.ID
 	smoke.report.add("P0 会话与项目", "session=%s git-root=%s", sessionID, root)
 
 	// ── P2：计划 + 看板投影 ──────────────────────────────────────────
@@ -849,7 +848,7 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	smoke.report.add("P5 自动返回", "空闲会话被起回合；正文含 team_context/team_accept，未指向 bg_manage")
 	// 这一回合跑完再往下看：P6 读的是"这件事的会话**此刻**在说什么"，回合还在飞的时候
 	// 读数会随执行面变化（而且要等它落定，才谈得上"验收把它释放掉"）。
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("P5 WaitForIdle: %v", err)
 	}
 
@@ -881,7 +880,7 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	// 读到的是一份"全是 undefined"的对象——2026-10-04 现场：这条读面在 GUI 上永远走
 	// "执行面不在本进程"的分支（字段缺 json tag ⇒ wire 上是 Go 字段名）。
 	// 探针取的是**应用层**那一面（不是 runtime 的直接调用），所以窄端口漏转发也会在这里红。
-	liveWire, err := json.Marshal(smoke.app.TeammateSessionLiveFor(itemSession))
+	liveWire, err := json.Marshal(smoke.components.Execution.WorkItem.SessionLive(itemSession))
 	if err != nil {
 		t.Fatalf("P6b 编码实时读数：%v", err)
 	}
@@ -898,10 +897,10 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	// ── P7：验收收口 + 下游闸门 ──────────────────────────────────────
 	// 验收由冒烟**自己驱动**：自动返回那一回合只回正文（见 provider 的 triggeredTurn 分支），
 	// 于是 P6 读到的是还没被释放的"这件事自己的会话"。这里再推一个回合做验收。
-	if err := smoke.app.Submit(ctx, "验收 wi-impl，然后派下游的复核"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "验收 wi-impl，然后派下游的复核"); err != nil {
 		t.Fatalf("P7 Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("P7 WaitForIdle: %v", err)
 	}
 	acceptReceipt := smoke.waitToolResult(t, "team_accept", `"ok":true`)

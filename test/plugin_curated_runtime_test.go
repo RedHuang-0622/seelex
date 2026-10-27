@@ -1,28 +1,26 @@
 package test
 
-// 精选目录**进运行期**的守卫（A：从声明面变成装配面）与根读数**进 UI 面**的守卫（B）。
-//
-// 复核实读背景（2026-10-05）：`plugin.LoadCuratedFromRoot` / `ActivateFromCatalog` 当时
-// 只出现在测试里 —— 真走 team_plan 时，一个 pending 名字落到的是 `validateMemberPlugins`
-// 的"插件 %q 未定义"，文案里既没有 pending 也没有来源；装配段的 `startupWarnings` 是
-// 唯一进 UI 面的通路，而根读数（config.LogPluginRoots）只写终端日志。
-//
-// 本文件钉四件事：
-//  1. `config.ResolveCuratedRead` 真的从**已解析的插件根**读（first-wins）、并与本次真正加载出来的
-//     插件集合交叉校验；
-//  2. 目录**读不到**时出声（Err 非空 + 说清找过哪些根），判决函数对每个未定义名显式拒绝
-//     ——不得静默当空目录；
-//  3. 判决文案三种分支各自可判别（pending + 上游来源 + 实读页 / 两边都不在 / 目录说它已落盘）；
-//  4. 根读数（加载了几个、从哪个根）与 config.LogPluginRoots 是**同一份字节**，且进得了 UI 面。
-
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	// 精选目录**进运行期**的守卫（A：从声明面变成装配面）与根读数**进 UI 面**的守卫（B）。
+	//
+	// 复核实读背景（2026-10-05）：`plugin.LoadCuratedFromRoot` / `ActivateFromCatalog` 当时
+	// 只出现在测试里 —— 真走 team_plan 时，一个 pending 名字落到的是 `validateMemberPlugins`
+	// 的"插件 %q 未定义"，文案里既没有 pending 也没有来源；装配段的 `startupWarnings` 是
+	// 唯一进 UI 面的通路，而根读数（config.LogPluginRoots）只写终端日志。
+	//
+	// 本文件钉四件事：
+	//  1. `config.ResolveCuratedRead` 真的从**已解析的插件根**读（first-wins）、并与本次真正加载出来的
+	//     插件集合交叉校验；
+	//  2. 目录**读不到**时出声（Err 非空 + 说清找过哪些根），判决函数对每个未定义名显式拒绝
+	//     ——不得静默当空目录；
+	//  3. 判决文案三种分支各自可判别（pending + 上游来源 + 实读页 / 两边都不在 / 目录说它已落盘）；
+	//  4. 根读数（加载了几个、从哪个根）与 config.LogPluginRoots 是**同一份字节**，且进得了 UI 面。
 )
 
 // ── A：运行期读精选目录 ─────────────────────────────────────────────────────

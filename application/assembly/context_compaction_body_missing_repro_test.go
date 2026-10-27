@@ -33,6 +33,7 @@ import (
 //
 // 本用例钉住的是**素材本身**：交给压缩模型的那份历史里必须含本次要压缩的对话正文。
 // 修复前（红）：素材只有 system 行，断言在 ① 处失败。
+
 func TestCompactionMaterialMustCarryConversationBody(t *testing.T) {
 	recorder := &compactionIndexRecorder{receipt: context_runtime.CompactionIndexReceipt{
 		SegmentID:     "compact-body-missing",
@@ -63,7 +64,7 @@ func TestCompactionMaterialMustCarryConversationBody(t *testing.T) {
 	service.ViewMu.Unlock()
 	// transcript 里有 4 个真实对话轮——这才是本次要压的正文。
 	appendIndexRounds(t, service, "task-body-missing")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	// 夹具自证（前置）：正文确实在 transcript 里，而引擎历史里确实没有对话行。
 	// 少了这两条，红线就说不清「是没东西可给」还是「有东西没给」。
@@ -78,7 +79,7 @@ func TestCompactionMaterialMustCarryConversationBody(t *testing.T) {
 	}
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -142,10 +143,10 @@ func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T) {
 	service.components.tasks.BeginTask("task-empty-history", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-empty-history")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

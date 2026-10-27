@@ -2,6 +2,9 @@ package assembly
 
 import (
 	"errors"
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,9 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdRestoreRulesAreExtracted(t *testing.T) {
@@ -22,10 +22,10 @@ func TestSessionColdRestoreRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdRestore")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdRestore)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.RestoreApplication)(nil)) {
 		t.Fatalf("sessionColdRestore 字段类型 = %s", field.Type)
 	}
-	restoreType := reflect.TypeOf((*sessionColdRestore)(nil))
+	restoreType := reflect.TypeOf((*applicationsessioncold.RestoreApplication)(nil))
 	if _, ok := restoreType.MethodByName("Restore"); !ok {
 		t.Fatal("sessionColdRestore 缺少 Restore")
 	}
@@ -66,7 +66,7 @@ func TestSessionColdRestoreResumesEngineAndQueue(t *testing.T) {
 	location := session_runtime.Location{WorkspaceID: "workspace-a"}
 	history := []contract.EngineMessage{{Role: "user", Content: "resume"}}
 	var calls []string
-	component := newSessionColdRestore(sessionColdRestoreDeps{
+	component := applicationsessioncold.NewRestore(applicationsessioncold.RestoreDeps{
 		SetWorkspace: func(sessionID, workspaceID string) {
 			calls = append(calls, "workspace:"+workspaceID)
 		},
@@ -103,7 +103,7 @@ func TestSessionColdRestoreResumesEngineAndQueue(t *testing.T) {
 
 func TestSessionColdRestoreFallsBackToReplaceHistory(t *testing.T) {
 	var replaced bool
-	component := newSessionColdRestore(sessionColdRestoreDeps{
+	component := applicationsessioncold.NewRestore(applicationsessioncold.RestoreDeps{
 		SetWorkspace: func(string, string) {},
 		ResumeEngine: func(string, []contract.EngineMessage) (bool, error) {
 			return false, nil
@@ -144,7 +144,7 @@ func TestSessionColdRestoreStopsOnEngineAndQueueErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			promptCalled := false
-			component := newSessionColdRestore(sessionColdRestoreDeps{
+			component := applicationsessioncold.NewRestore(applicationsessioncold.RestoreDeps{
 				SetWorkspace: func(string, string) {},
 				ResumeEngine: func(string, []contract.EngineMessage) (bool, error) {
 					return test.resumeOK, test.resumeErr

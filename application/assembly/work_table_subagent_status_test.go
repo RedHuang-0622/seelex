@@ -1,10 +1,9 @@
 package assembly
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
+	"testing"
 )
 
 // TestTaskStatusForSubagentInterrupted（G4 stale）：崩溃遗留节点经树恢复为

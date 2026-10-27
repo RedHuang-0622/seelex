@@ -45,4 +45,4 @@
 
 ### task_skills_for_test.go
 
-- `func TestActiveSkillsProjectionForSession(t *testing.T)` — TestActiveSkillsProjectionForSession（G1-A）：skill/目标可见性按会话取
+- `func TestActiveSkillsProjectionForSession(t *testing.T)`

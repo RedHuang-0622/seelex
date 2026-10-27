@@ -3,6 +3,7 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -19,10 +20,10 @@ func TestChatTurnRecoveryRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnRecovery")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnRecovery)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnRecoveryApplication)(nil)) {
 		t.Fatalf("conversationTurnRecovery 字段类型 = %s", field.Type)
 	}
-	recoveryType := reflect.TypeOf((*conversationTurnRecovery)(nil))
+	recoveryType := reflect.TypeOf((*applicationconversation.TurnRecoveryApplication)(nil))
 	if _, ok := recoveryType.MethodByName("Finalize"); !ok {
 		t.Fatal("conversationTurnRecovery 缺少 Finalize")
 	}
@@ -59,7 +60,7 @@ func TestChatTurnRecoveryRulesAreCentralized(t *testing.T) {
 func TestConversationTurnRecoveryRetriesAfterRecovery(t *testing.T) {
 	turnErr := errors.New("context overflow")
 	var calls []string
-	recovery := newConversationTurnRecovery(conversationTurnRecoveryDeps{
+	recovery := applicationconversation.NewTurnRecovery(applicationconversation.TurnRecoveryDeps{
 		TakeContextFailure: func(requestID string) error { return turnErr },
 		Recover: func(ctx context.Context, gotErr error, input string) (bool, error) {
 			calls = append(calls, "recover:"+input)
@@ -114,7 +115,7 @@ func TestConversationTurnRecoveryPropagatesRecoveryAndRetryErrors(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			budgetCalled := false
-			recovery := newConversationTurnRecovery(conversationTurnRecoveryDeps{
+			recovery := applicationconversation.NewTurnRecovery(applicationconversation.TurnRecoveryDeps{
 				TakeContextFailure: func(string) error { return nil },
 				Recover: func(context.Context, error, string) (bool, error) {
 					if test.recoveryErr != nil {
@@ -146,7 +147,7 @@ func TestConversationTurnRecoveryPropagatesRecoveryAndRetryErrors(t *testing.T) 
 func TestConversationTurnRecoveryStopsBeforeTaskOnBudgetError(t *testing.T) {
 	budgetErr := errors.New("budget failed")
 	taskCalled := false
-	recovery := newConversationTurnRecovery(conversationTurnRecoveryDeps{
+	recovery := applicationconversation.NewTurnRecovery(applicationconversation.TurnRecoveryDeps{
 		TakeContextFailure: func(string) error { return nil },
 		Recover:            func(context.Context, error, string) (bool, error) { return false, nil },
 		Retryable:          func(error) bool { return false },

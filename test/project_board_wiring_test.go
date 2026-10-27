@@ -1,27 +1,26 @@
 package test
 
-// project_board_wiring_test.go — 项目看板的**装配门**验收（M3，wi-m3-switch）。
-//
-// 三件事，一件一个判据：
-//   - 关就是关（enabled:false）：不返回订阅口、不落任何文件；
-//   - 拼错的 hook 档名**显式失败**（不静默降级成"开了但没生效"）；
-//   - 开着时：真实存储面（store.Router）+ 真实同步器 ⇒ 命中触发面的工具完成后
-//     投影真的落到 `<项目根>/.seelex/board/` 里（**数据根下一份都不落**），未命中的工具
-//     一行都不写，Close 可重入。
-
 import (
+	"github.com/RedHuang-0622/seelex/kernel/board"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+
+	// project_board_wiring_test.go — 项目看板的**装配门**验收（M3，wi-m3-switch）。
+	//
+	// 三件事，一件一个判据：
+	//   - 关就是关（enabled:false）：不返回订阅口、不落任何文件；
+	//   - 拼错的 hook 档名**显式失败**（不静默降级成"开了但没生效"）；
+	//   - 开着时：真实存储面（store.Router）+ 真实同步器 ⇒ 命中触发面的工具完成后
+	//     投影真的落到 `<项目根>/.seelex/board/` 里（**数据根下一份都不落**），未命中的工具
+	//     一行都不写，Close 可重入。
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/kernel/board"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 const projectBoardWiringSession = "session-board-wiring"

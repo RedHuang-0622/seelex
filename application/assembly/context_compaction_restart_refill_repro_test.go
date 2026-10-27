@@ -1,5 +1,13 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
+	"os"
+	"strings"
+	"testing"
+)
+
 // 重启恢复会话 → 上下文再次到达压缩额度 → 压缩失败 → 现场实际发生了什么？
 //
 // 用户口径（2026-10-02）：压缩失败 → 留下失败记录 → **原始上下文继续存在** →
@@ -9,14 +17,6 @@ package assembly
 // 这次压缩仍然拿不到模型读后感（失败）。判据只有一条——**尚未被任何压缩覆盖的
 // 轮次，必须仍然在 provider 历史里**：压缩失败什么都不该动，更不能在失败的同时
 // 把模型还看得见的轮次悄悄丢掉（那正是"保留了失败痕、同时把上下文截断"）。
-
-import (
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/kernel/context"
-	"os"
-	"strings"
-	"testing"
-)
 
 // restartRefillRounds 是重启后新追加的轮数（每轮约 8000 tokens）。26 轮 = 实测
 // 已经越出 provider 窗口（200k）的量：那一档下最早 2 轮被截掉。
@@ -81,7 +81,7 @@ func TestProbeCompactionFailureAfterRestartEncounter(t *testing.T) {
 		t.Fatalf("夹具前提：首次压缩应带区间：%+v", compacted)
 	}
 	persistRestartSession(t, first, store, sessionID)
-	frontendOfTestService(first).Shutdown()
+	first.components.lifecycleApplication.Shutdown()
 
 	// ── 进程重启：宿主这次拿不到模型读后感，之后的压缩必然失败 ──────────
 	engine := &fakeEngine{}
@@ -89,7 +89,7 @@ func TestProbeCompactionFailureAfterRestartEncounter(t *testing.T) {
 		withTestSessions(store),
 		withTestRuntime(restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)),
 	)
-	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
+	if err := second.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	// 会话继续跑：新一轮（自动路径，不是 /compact），上下文再次长到阈值之上。
@@ -159,7 +159,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 		t.Fatalf("夹具前提：首次压缩应带区间：%+v", compacted)
 	}
 	persistRestartSession(t, first, store, sessionID)
-	frontendOfTestService(first).Shutdown()
+	first.components.lifecycleApplication.Shutdown()
 
 	// ── 进程重启：宿主这次拿不到模型读后感，之后的压缩必然失败 ──────────
 	readback := restartCompactionRuntime(&compactionIndexRecorder{}, context_runtime.CompactionSummarySourceLocal)
@@ -169,7 +169,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 		withTestSessions(store),
 		withTestRuntime(readback),
 	)
-	if err := frontendOfTestService(second).ResumeSession(sessionID); err != nil {
+	if err := second.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	// ① 重启前的成功记录必须已经读回来（否则下面的"新痕"与"旧记录"无从区分）。
@@ -209,7 +209,7 @@ func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)
 	}
 
 	// ③ 同一条痕进快照可见面（右栏「上下文压缩」的唯一来路）。
-	snapshot, err := frontendOfTestService(second).SnapshotOf(sessionID)
+	snapshot, err := second.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

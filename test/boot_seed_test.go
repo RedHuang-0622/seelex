@@ -1,22 +1,20 @@
 package test
 
-// boot_seed_test.go — 启动期"责任链 + 缺失即初始化"的钉子（口径见 internal/bootseed）。
-//
-// 钉住三件事，都是现场踩过的：
-//
-//	1. 新解开的包里（CWD 没有 config/、二进制旁边也没有）→ 缺失时用内嵌默认档
-//	   初始化到二进制旁边，且与仓库规范档逐字节相同；
-//	2. 初始化过之后就"存在即读"：路径稳定、内容不再被改写；
-//	3. 白名单命令脚本目录走同一条链（仓库里那份存在时命中，不存在时落骨架）。
-
 import (
+	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/internal/bootseed"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	// boot_seed_test.go — 启动期"责任链 + 缺失即初始化"的钉子（口径见 internal/bootseed）。
+	//
+	// 钉住三件事，都是现场踩过的：
+	//
+	//	1. 新解开的包里（CWD 没有 config/、二进制旁边也没有）→ 缺失时用内嵌默认档
+	//	   初始化到二进制旁边，且与仓库规范档逐字节相同；
+	//	2. 初始化过之后就"存在即读"：路径稳定、内容不再被改写；
+	//	3. 白名单命令脚本目录走同一条链（仓库里那份存在时命中，不存在时落骨架）。
 )
 
 // executableDir 返回当前测试二进制的目录（等价于"包自己的目录"）：

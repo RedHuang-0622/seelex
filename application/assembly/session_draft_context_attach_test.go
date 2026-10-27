@@ -28,15 +28,16 @@ import (
 // 会话一旦被 resume（切走再切回、或重启后打开）就一切正常——所以症状只出现在"新开
 // 的会话"里。现场那两帧所属的两个会话键（`seelex-1791042860343116700-1`、
 // `draft_1790523014165652000_1`）都是"新建会话"的早分配 SID。
+
 func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &contextAwareSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if draftID == "" {
 		t.Fatal("新建会话没有早分配 SID")
 	}
@@ -53,7 +54,7 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 		t.Fatalf("materializeDraftForSubmit: %v", err)
 	}
 	// 物化后活跃会话就是那个新会话（早分配 SID 复用）。
-	if got := service.Snapshot().Session.ID; got != draftID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != draftID {
 		t.Fatalf("物化后会话 ID = %q，want %q", got, draftID)
 	}
 
@@ -88,7 +89,7 @@ func TestBeginNewSessionKeepsRunningSessionContextStore(t *testing.T) {
 	service.sessionUnitLocked("session-a").SetChatState(model.ChatState{Running: true, RequestID: "req-a"}, nil)
 	service.ViewMu.Unlock()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	sessions.mu.Lock()
@@ -133,7 +134,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 	if _, err := workspaces.Create("A", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -141,24 +142,24 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-a"); err != nil {
 		t.Fatalf("BindWorkspace(A): %v", err)
 	}
-	if err := service.Submit(context.Background(), "A 的第一轮"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "A 的第一轮"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	waitSessionIdle(t, service)
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	// 切到项目 B：当前会话有历史 → 起一条独立会话。
-	if err := frontendOfTestService(service).BindWorkspace("project-b"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-b"); err != nil {
 		t.Fatalf("BindWorkspace(B): %v", err)
 	}
 	waitSessionIdle(t, service)
-	sessionB := service.Snapshot().Session.ID
+	sessionB := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionB == "" || sessionB == sessionA {
 		t.Fatalf("项目切换应新建独立会话（否则这条用例没有判别力）：A=%q B=%q", sessionA, sessionB)
 	}

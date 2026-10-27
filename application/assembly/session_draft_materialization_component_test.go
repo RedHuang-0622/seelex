@@ -2,6 +2,8 @@ package assembly
 
 import (
 	"errors"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,9 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestSessionDraftMaterializationRulesAreCentralized(t *testing.T) {

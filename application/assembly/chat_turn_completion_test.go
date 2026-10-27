@@ -2,18 +2,18 @@ package assembly
 
 import (
 	"errors"
-	"strings"
-	"testing"
-
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
 	"github.com/RedHuang-0622/seelex/contract"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
+	"github.com/RedHuang-0622/seelex/kernel/session"
+	"strings"
+	"testing"
 )
 
 func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T) {
 	location := session_runtime.Location{WorkspaceID: "workspace-a"}
 	var calls []string
-	completion := newConversationTurnCompletion(conversationTurnCompletionDeps{
+	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
 		LocateSession: func(sessionID string) session_runtime.Location {
 			calls = append(calls, "locate:"+sessionID)
 			return location
@@ -63,7 +63,7 @@ func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *t
 	var failed bool
 	var confirmed bool
 	var released bool
-	completion := newConversationTurnCompletion(conversationTurnCompletionDeps{
+	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
 		LocateSession: func(string) session_runtime.Location { return location },
 		PersistSession: func(session_runtime.Location, string) error {
 			return saveErr

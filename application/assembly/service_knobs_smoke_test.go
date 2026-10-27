@@ -2,10 +2,9 @@ package assembly
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // service_knobs_smoke_test.go —— composer 底部两条独立拉条的**全链路冒烟**。
@@ -64,7 +63,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 2) 拖「循环次数」：引擎与快照一起动。
-	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err != nil {
+	if err := service.components.policyApplication.SetLoopLimit(600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	if got := engine.loops(); got != 600 {
@@ -72,7 +71,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 3) 拖「推理强度」：账号池拿到 wire 值，循环上限不受影响。
-	if err := frontendOfTestService(service).SetReasoningEffort(ctx, dto.ReasoningEffortMax); err != nil {
+	if err := service.components.policyApplication.SetReasoningEffort(dto.ReasoningEffortMax); err != nil {
 		t.Fatalf("SetReasoningEffort(max): %v", err)
 	}
 	if pushed := runtime.pushedEfforts(); len(pushed) != 1 || pushed[0] != dto.ReasoningEffortMax {
@@ -93,7 +92,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 5) 档位是"两条拉条的预设"：切一次 lite，两条一起落到 low/15，思考强度再下发一次。
-	if err := frontendOfTestService(service).SwitchEffort(ctx, "lite"); err != nil {
+	if err := service.components.policyApplication.SwitchEffort("lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	rounds, loops = runtimeKnobs(service)
@@ -110,7 +109,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	// 6) 插件切换会重放一次档位（Apply 把引擎循环上限写回档位默认值）——用户的拉条值
 	//    不能被这次重放吃掉。这里直接调那条重放（SwitchPlugin 的装配面在别处，见
 	//    service_interaction.go 的 reapplyEffortAfterPluginSwitch）。
-	if err := frontendOfTestService(service).SetLoopLimit(ctx, 600); err != nil {
+	if err := service.components.policyApplication.SetLoopLimit(600); err != nil {
 		t.Fatalf("SetLoopLimit(600): %v", err)
 	}
 	service.reapplyEffortAfterPluginSwitch()
@@ -122,7 +121,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	}
 
 	// 7) 会话运行中：两条都被后端挡住（前端置灰只是体验）。
-	if err := service.Submit(ctx, "跑一个回合"); err != nil {
+	if err := service.components.submission.Submit(ctx, "跑一个回合"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	sessionID := engine.SessionID()
@@ -134,10 +133,10 @@ func TestKnobChainSmoke(t *testing.T) {
 		t.Fatalf("回合起点没有按会话下发强度：%v, want [max low low]", pushed)
 	}
 
-	if err := frontendOfTestService(service).SetLoopLimit(ctx, 999); err == nil {
+	if err := service.components.policyApplication.SetLoopLimit(999); err == nil {
 		t.Fatal("运行中 SetLoopLimit 必须被拒")
 	}
-	if err := frontendOfTestService(service).SetReasoningEffort(ctx, dto.ReasoningEffortLow); err == nil {
+	if err := service.components.policyApplication.SetReasoningEffort(dto.ReasoningEffortLow); err == nil {
 		t.Fatal("运行中 SetReasoningEffort 必须被拒")
 	}
 	if got := engine.loops(); got != 600 {

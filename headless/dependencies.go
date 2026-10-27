@@ -145,7 +145,7 @@ type SubagentRecovery interface {
 // Dependencies 是 headless 控制面需要的全部应用面：一行一个 owner。
 //
 // 绑定语句本身就是编译期结构断言（左端字段类型是 consumer 接口、右端是具体 owner
-// 指针），因此控制面里既没有适配器，也不再需要 `_ X = (*application.Frontend)(nil)`
+// 指针），因此控制面里既没有适配器，也不需要额外的编译期类型绑定。
 // 一类的编译期断言，更没有运行时能力探测。
 //
 // 全部字段都是控制面的骨架：装配表必须逐个交出 owner，缺任一个即装配错误。

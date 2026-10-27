@@ -1,20 +1,5 @@
 package test
 
-// 全链路跨轮前缀不变量回归（本地、确定性、无网络）：
-//
-//	用脚本化 mock provider + 生产 harness 驱动两轮"先说明 → 再调用工具"的会话
-//	（工具轮说明正文属于模型输出），然后断言**相邻两次 provider 请求的消息序列
-//	保持前缀关系**：上一条请求已发出的每条消息，在下一条请求里必须逐字节不变
-//	（追加只发生在尾部）。
-//
-// 该用例对应真实 API 冒烟（real_api_prefix_live_test.go）在 DeepSeek 上实测到的
-// 两类跨轮改写：
-//  1. 工具轮 assistant 的模型输出正文、reasoning 与 tool_calls 未完整复现；
-//  2. 工具失败结果的正文从 wire 上的原始输出变成应用呈现文本（viewerrors.PresentToolError）。
-//
-// 两者的共同后果：同一会话的后续请求不再以前一条请求的字节为前缀，provider 的
-// 前缀缓存自该消息起全部失效（实测命中率波动 81%–95%）。
-
 import (
 	"bytes"
 	"context"
@@ -25,6 +10,21 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+
+	// 全链路跨轮前缀不变量回归（本地、确定性、无网络）：
+	//
+	//	用脚本化 mock provider + 生产 harness 驱动两轮"先说明 → 再调用工具"的会话
+	//	（工具轮说明正文属于模型输出），然后断言**相邻两次 provider 请求的消息序列
+	//	保持前缀关系**：上一条请求已发出的每条消息，在下一条请求里必须逐字节不变
+	//	（追加只发生在尾部）。
+	//
+	// 该用例对应真实 API 冒烟（real_api_prefix_live_test.go）在 DeepSeek 上实测到的
+	// 两类跨轮改写：
+	//  1. 工具轮 assistant 的模型输出正文、reasoning 与 tool_calls 未完整复现；
+	//  2. 工具失败结果的正文从 wire 上的原始输出变成应用呈现文本（viewerrors.PresentToolError）。
+	//
+	// 两者的共同后果：同一会话的后续请求不再以前一条请求的字节为前缀，provider 的
+	// 前缀缓存自该消息起全部失效（实测命中率波动 81%–95%）。
 	"strings"
 	"sync"
 	"testing"
@@ -193,13 +193,13 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -340,13 +340,13 @@ func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T) {
 	harness := newUnboundFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -398,13 +398,13 @@ func TestFullChainPrefixInvariantOversizedToolResultAcrossTurns(t *testing.T) {
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 		}
 	}

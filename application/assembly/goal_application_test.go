@@ -1,10 +1,9 @@
 package assembly
 
 import (
+	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	"reflect"
 	"testing"
-
-	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 )
 
 func TestServiceComponentsAssembleGoalApplication(t *testing.T) {

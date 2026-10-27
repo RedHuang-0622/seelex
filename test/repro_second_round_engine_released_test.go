@@ -1,38 +1,37 @@
 package test
 
-// 红灯复现（用户现象）：同一会话进入“第二轮”时，runChat 在没有发出任何
-// LLM 请求的情况下失败。
-//
-// 现象记录时的 UI 只显示兜底文案「代理运行时 / runChat / 当前任务未能完成」
-// （= viewerrors.Classify 的 unclassifiedPresentation）；自 chat 报错恢复
-// 原始正文后，该场景会直接显示 runChat 拿到的原始错误，兜底文案不再出现，
-// 但本文件的红灯判据（第二轮没有新增 provider 请求 / 会话出现 error 行）不变。
-//
-// 本文件用生产装配（真实 store / 真实引擎 / 假 provider）复刻两种“第二轮”
-// 形状，逐条排除/坐实：
-//   A. 第一轮结束后会话引擎被释放（驻留驱逐 / 空闲后未挂载）→ 用户直接发
-//      第二轮；
-//   B. 第一轮以终态工具 task_needs_user_decision 收口（任务停在
-//      needs_user_decision，非完成）→ 用户直接发第二轮。
-//
-// 2026-09-14 复测：A/B 两形状均不复现（A: provider requests 1→2；B: 2→3，
-// chat.error 为空）。本文件保留为回归守卫，待真实现场再次出现时以原始错误
-// 正文定位。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
 	"net/http"
 	"net/http/httptest"
+
+	// 红灯复现（用户现象）：同一会话进入“第二轮”时，runChat 在没有发出任何
+	// LLM 请求的情况下失败。
+	//
+	// 现象记录时的 UI 只显示兜底文案「代理运行时 / runChat / 当前任务未能完成」
+	// （= viewerrors.Classify 的 unclassifiedPresentation）；自 chat 报错恢复
+	// 原始正文后，该场景会直接显示 runChat 拿到的原始错误，兜底文案不再出现，
+	// 但本文件的红灯判据（第二轮没有新增 provider 请求 / 会话出现 error 行）不变。
+	//
+	// 本文件用生产装配（真实 store / 真实引擎 / 假 provider）复刻两种“第二轮”
+	// 形状，逐条排除/坐实：
+	//   A. 第一轮结束后会话引擎被释放（驻留驱逐 / 空闲后未挂载）→ 用户直接发
+	//      第二轮；
+	//   B. 第一轮以终态工具 task_needs_user_decision 收口（任务停在
+	//      needs_user_decision，非完成）→ 用户直接发第二轮。
+	//
+	// 2026-09-14 复测：A/B 两形状均不复现（A: provider requests 1→2；B: 2→3，
+	// chat.error 为空）。本文件保留为回归守卫，待真实现场再次出现时以原始错误
+	// 正文定位。
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // scriptedResponse 是一次 provider 应答：纯文本或一个工具调用。
@@ -161,10 +160,10 @@ func newScriptedHarness(t *testing.T, responses []scriptedResponse) (*fullChainH
 
 func submitAndWait(t *testing.T, harness *fullChainHarness, ctx context.Context, text string) {
 	t.Helper()
-	if err := harness.frontend.Submit(ctx, text); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 		t.Fatalf("submit %q: %v", text, err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 	}
 }
@@ -177,20 +176,20 @@ func TestSecondRoundStartsAfterSessionEngineReleased(t *testing.T) {
 	defer cancel()
 
 	submitAndWait(t, harness, ctx, "round one")
-	sessionID := harness.frontend.Snapshot().Session.ID
+	sessionID := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("first round produced no session")
 	}
-	if err := harness.frontend.UnloadSession(sessionID); err != nil {
+	if err := harness.components.Session.Lifecycle.Unload(sessionID); err != nil {
 		t.Fatalf("unload session %s: %v", sessionID, err)
 	}
 	before := provider.count()
 	submitAndWait(t, harness, ctx, "round two")
-	t.Logf("A: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.frontend.Snapshot().Chat.Error)
+	t.Logf("A: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.components.Session.Snapshot.Snapshot().Chat.Error)
 	if provider.count() == before {
-		t.Fatalf("RED(A): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.frontend.Snapshot().Conversation))
+		t.Fatalf("RED(A): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation))
 	}
-	if errors := errorMessages(harness.frontend.Snapshot().Conversation); len(errors) > 0 {
+	if errors := errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation); len(errors) > 0 {
 		t.Fatalf("RED(A): 第二轮出现可见错误：%v", errors)
 	}
 }
@@ -210,15 +209,15 @@ func TestSecondRoundStartsAfterTerminalDecisionTool(t *testing.T) {
 	defer cancel()
 
 	submitAndWait(t, harness, ctx, "round one")
-	t.Logf("B: round 1 tool results=%v errors=%v", toolResultTexts(harness.frontend.Snapshot().Conversation), errorMessages(harness.frontend.Snapshot().Conversation))
+	t.Logf("B: round 1 tool results=%v errors=%v", toolResultTexts(harness.components.Session.Snapshot.Snapshot().Conversation), errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation))
 	before := provider.count()
 	submitAndWait(t, harness, ctx, "A")
-	t.Logf("B: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.frontend.Snapshot().Chat.Error)
-	t.Logf("B: conversation errors=%v", errorMessages(harness.frontend.Snapshot().Conversation))
+	t.Logf("B: provider requests %d -> %d, chat.error=%q", before, provider.count(), harness.components.Session.Snapshot.Snapshot().Chat.Error)
+	t.Logf("B: conversation errors=%v", errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation))
 	if provider.count() == before {
-		t.Fatalf("RED(B): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.frontend.Snapshot().Conversation))
+		t.Fatalf("RED(B): 第二轮没有发出 LLM 请求；错误=%v", errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation))
 	}
-	if errors := errorMessages(harness.frontend.Snapshot().Conversation); len(errors) > 0 {
+	if errors := errorMessages(harness.components.Session.Snapshot.Snapshot().Conversation); len(errors) > 0 {
 		t.Fatalf("RED(B): 第二轮出现可见错误：%v", errors)
 	}
 }

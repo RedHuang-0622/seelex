@@ -2,6 +2,11 @@ package assembly
 
 import (
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,11 +16,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestChatTurnCommitRulesAreCentralized(t *testing.T) {
@@ -24,10 +24,10 @@ func TestChatTurnCommitRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnCommit")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnCommit)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnCommitApplication)(nil)) {
 		t.Fatalf("conversationTurnCommit 字段类型 = %s", field.Type)
 	}
-	commitType := reflect.TypeOf((*conversationTurnCommit)(nil))
+	commitType := reflect.TypeOf((*applicationconversation.TurnCommitApplication)(nil))
 	if _, ok := commitType.MethodByName("Commit"); !ok {
 		t.Fatal("conversationTurnCommit 缺少 Commit")
 	}
@@ -79,7 +79,7 @@ func TestConversationTurnCommitRunsPersistenceOutcomePromotion(t *testing.T) {
 	nextUser := &model.Message{ID: "user-b"}
 	nextAssistant := &model.Message{ID: "assistant-b"}
 	var calls []string
-	commit := newConversationTurnCommit(conversationTurnCommitDeps{
+	commit := applicationconversation.NewTurnCommit(applicationconversation.TurnCommitDeps{
 		Persist: func(sessionID, requestID string, gotErr error) (session_runtime.Location, error) {
 			calls = append(calls, "persist")
 			if gotErr != turnErr {
@@ -137,7 +137,7 @@ func TestConversationTurnCommitStopsOnStaleRequest(t *testing.T) {
 	}
 	locker := &recordingLocker{}
 	var staleCalled bool
-	commit := newConversationTurnCommit(conversationTurnCommitDeps{
+	commit := applicationconversation.NewTurnCommit(applicationconversation.TurnCommitDeps{
 		Persist: func(string, string, error) (session_runtime.Location, error) {
 			return session_runtime.Location{}, nil
 		},

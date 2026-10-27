@@ -7,6 +7,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
+	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -44,17 +45,23 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 		return nil, fmt.Errorf("initialize application harness: %w", err)
 	}
 	hookBridge.Bind(service)
-	frontend := wiring.NewFrontend(service)
+	components := applicationassembly.ComponentsFor(service)
 	if factory != nil {
 		scriptedEngine.SetToolExecutor(factory(approvals))
 	}
 	if value.Initial.Effort != "" {
-		if err := frontend.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
-			frontend.Shutdown()
+		if err := components.Policy.Switch.SwitchEffort(value.Initial.Effort); err != nil {
+			components.Runtime.Lifecycle.Shutdown()
 			return nil, fmt.Errorf("set initial effort: %w", err)
 		}
 	}
-	return NewRunner(value, frontend, scriptedEngine), nil
+	return NewRunner(value, Dependencies{
+		Submission:  components.Conversation.Submission,
+		Snapshot:    components.Session.Snapshot,
+		Events:      components.Session.View,
+		Interaction: components.Session.Interaction,
+		Lifecycle:   components.Runtime.Lifecycle,
+	}, scriptedEngine), nil
 }
 
 func initialPlugin(value Scenario) string {

@@ -2,6 +2,10 @@ package assembly
 
 import (
 	"encoding/json"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
+	"github.com/RedHuang-0622/seelex/store"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,10 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestSessionForkLineageRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestSessionForkLineageRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionForkLineage")
 	}
-	if field.Type != reflect.TypeOf((*sessionForkLineage)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsession.ForkLineageApplication)(nil)) {
 		t.Fatalf("sessionForkLineage 字段类型 = %s", field.Type)
 	}
-	lineageType := reflect.TypeOf((*sessionForkLineage)(nil))
+	lineageType := reflect.TypeOf((*applicationsession.ForkLineageApplication)(nil))
 	if _, ok := lineageType.MethodByName("Load"); !ok {
 		t.Fatal("sessionForkLineage 缺少 Load")
 	}
@@ -68,7 +68,7 @@ func TestSessionForkLineageReturnsNilWhenPayloadUnavailable(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			lineage := newSessionForkLineage(sessionForkLineageDeps{
+			lineage := applicationsession.NewForkLineage(applicationsession.ForkLineageDeps{
 				LoadPayload: func(session_runtime.Location, string) ([]byte, error) {
 					return test.payload, test.err
 				},
@@ -92,7 +92,7 @@ func TestSessionForkLineageRejectsInvalidRecords(t *testing.T) {
 		"invalid-ref":     invalidRef,
 	} {
 		t.Run(name, func(t *testing.T) {
-			lineage := newSessionForkLineage(sessionForkLineageDeps{
+			lineage := applicationsession.NewForkLineage(applicationsession.ForkLineageDeps{
 				LoadPayload: func(session_runtime.Location, string) ([]byte, error) {
 					return payload, nil
 				},
@@ -113,7 +113,7 @@ func TestSessionForkLineageDecodesValidReference(t *testing.T) {
 	}
 	payload := mustLineagePayload(t, store.SessionContextRecord{ForkedFrom: mustJSON(t, want)})
 	var gotSessionID string
-	lineage := newSessionForkLineage(sessionForkLineageDeps{
+	lineage := applicationsession.NewForkLineage(applicationsession.ForkLineageDeps{
 		LoadPayload: func(_ session_runtime.Location, sessionID string) ([]byte, error) {
 			gotSessionID = sessionID
 			return payload, nil

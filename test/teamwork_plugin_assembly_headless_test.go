@@ -1,38 +1,37 @@
 package test
 
-// teamwork_plugin_assembly_headless_test.go — 「装配 plugin 的 teammate」在**组合根装配**上跑一遍。
-//
-// 分工（两份证据各回答一半问题）：
-//   - `backend/engine/assemble/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
-//     （不跑真回合、不开 worktree、不落计划）；
-//   - 本文件：把同一件事放到**真实装配**上跑——真 store / 真 workspace / 真插件根
-//     （`wiring/bootstrap` 里 InitPluginSystem 用 config.PluginRoots 解析到的那一份）/ 真计划落盘 /
-//     真 role session / 真 worktree，模型侧用脚本化 provider（不真调模型）。
-//
-// 为什么非要这一层：装配的**落点**是"员工那一轮的 system prompt 里有没有装配进来的技能目录"
-// ——它只存在于 wire 上。只在函数层断言，"派发时带了、执行时丢了"永远测不到（上一轮的
-// 对抗复核点名的就是这个失败模式）。
-//
-// 阶段（每段都留痕，失败时能指出是哪一跳断的）：
-//
-//	A1 计划与回执读数     —— members[].plugins 落盘；回执带 plugin_limit_per_teammate + 逐成员 assemblies
-//	A2 装 impeccable 的 teammate —— 真 worker 回合的 system prompt 里带**它自己的**技能目录
-//	A3 不装配的对照           —— 同一支团队里没声明 plugins 的那位：没有目录段（默认 default 面）
-//	A4 当前划分上的错别字     —— 显式拒绝，且被拒的计划不覆盖已落盘的那一份
-
 import (
 	"context"
 	"encoding/json"
-	"strings"
-	"testing"
-	"time"
-
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+
+	// teamwork_plugin_assembly_headless_test.go — 「装配 plugin 的 teammate」在**组合根装配**上跑一遍。
+	//
+	// 分工（两份证据各回答一半问题）：
+	//   - `backend/engine/assemble/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
+	//     （不跑真回合、不开 worktree、不落计划）；
+	//   - 本文件：把同一件事放到**真实装配**上跑——真 store / 真 workspace / 真插件根
+	//     （`wiring/bootstrap` 里 InitPluginSystem 用 config.PluginRoots 解析到的那一份）/ 真计划落盘 /
+	//     真 role session / 真 worktree，模型侧用脚本化 provider（不真调模型）。
+	//
+	// 为什么非要这一层：装配的**落点**是"员工那一轮的 system prompt 里有没有装配进来的技能目录"
+	// ——它只存在于 wire 上。只在函数层断言，"派发时带了、执行时丢了"永远测不到（上一轮的
+	// 对抗复核点名的就是这个失败模式）。
+	//
+	// 阶段（每段都留痕，失败时能指出是哪一跳断的）：
+	//
+	//	A1 计划与回执读数     —— members[].plugins 落盘；回执带 plugin_limit_per_teammate + 逐成员 assemblies
+	//	A2 装 impeccable 的 teammate —— 真 worker 回合的 system prompt 里带**它自己的**技能目录
+	//	A3 不装配的对照           —— 同一支团队里没声明 plugins 的那位：没有目录段（默认 default 面）
+	//	A4 当前划分上的错别字     —— 显式拒绝，且被拒的计划不覆盖已落盘的那一份
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/wiring/config"
+	"strings"
+	"testing"
+	"time"
 )
 
 // assemblyProbeMarker 是塞进工作项 goal 的探针标记：worker 回合靠它辨认"这轮是不是我派的活"。
@@ -84,16 +83,16 @@ func TestTeamworkPluginAssemblyHeadlessSmoke(t *testing.T) {
 	attachRealSkills(t, smoke.harness.runtime)
 
 	root := initSmokeGitRepo(t)
-	if err := smoke.app.CreateWorkspace("plugin-assembly", root, ""); err != nil {
+	if err := smoke.components.Workspace.Switch.CreateWorkspace("plugin-assembly", root, ""); err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
-	if err := smoke.app.Submit(ctx, "开一个团队：一名装 impeccable 的设计工程 + 一名不装配的对照"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "开一个团队：一名装 impeccable 的设计工程 + 一名不装配的对照"); err != nil {
 		t.Fatalf("A1 Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("A1 WaitForIdle: %v", err)
 	}
-	sessionID := smoke.app.Snapshot().Session.ID
+	sessionID := smoke.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("会话没有物化")
 	}
@@ -148,10 +147,10 @@ func TestTeamworkPluginAssemblyHeadlessSmoke(t *testing.T) {
 		ui.PluginFaceTools, ui.TotalTools, plain.Mode, plain.PluginFaceTools, plain.TotalTools)
 
 	// ── A2/A3：排活 + 派两名 → 真 worker 回合 ────────────────────────────
-	if err := smoke.app.Submit(ctx, "排活并派两名成员"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "排活并派两名成员"); err != nil {
 		t.Fatalf("A2 Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("A2 WaitForIdle: %v", err)
 	}
 	handles := assemblyDispatchHandles(t, smoke.toolResultsOf("team_dispatch"))
@@ -203,10 +202,10 @@ func TestTeamworkPluginAssemblyHeadlessSmoke(t *testing.T) {
 		len(plainSample.SystemPrompt))
 
 	// ── A4：当前划分上的错别字：显式拒绝，且不覆盖已落盘的计划 ─────────────
-	if err := smoke.app.Submit(ctx, "再写一份计划，故意把一个插件名写错"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "再写一份计划，故意把一个插件名写错"); err != nil {
 		t.Fatalf("A4 Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("A4 WaitForIdle: %v", err)
 	}
 	statuses := smoke.toolStatuses("team_plan")

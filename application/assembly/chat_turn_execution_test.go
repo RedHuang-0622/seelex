@@ -1,6 +1,7 @@
 package assembly
 
 import (
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -17,10 +18,10 @@ func TestChatTurnExecutionRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnExecution")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnExecution)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnExecutionApplication)(nil)) {
 		t.Fatalf("conversationTurnExecution 字段类型 = %s", field.Type)
 	}
-	executionType := reflect.TypeOf((*conversationTurnExecution)(nil))
+	executionType := reflect.TypeOf((*applicationconversation.TurnExecutionApplication)(nil))
 	if _, ok := executionType.MethodByName("Prepare"); !ok {
 		t.Fatal("conversationTurnExecution 缺少 Prepare")
 	}
@@ -55,7 +56,7 @@ func TestChatTurnExecutionRulesAreCentralized(t *testing.T) {
 
 func TestConversationTurnExecutionPreparesInOrder(t *testing.T) {
 	var calls []string
-	execution := newConversationTurnExecution(conversationTurnExecutionDeps{
+	execution := applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
 		BindProjectRoot:     func(sessionID string) { calls = append(calls, "root") },
 		SyncSubagentPolicy:  func(sessionID string) { calls = append(calls, "subagent") },
 		SyncReasoningEffort: func(sessionID string) { calls = append(calls, "reasoning") },

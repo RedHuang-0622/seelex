@@ -3,23 +3,18 @@ package assembly
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/application/event"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 func TestLifecycleApplicationIsAssembled(t *testing.T) {
@@ -68,44 +63,6 @@ func TestLifecycleApplicationShutdownRunsCleanupOnce(t *testing.T) {
 	want := "begin,flush,catalog,sessions,consumers,worktable,approval"
 	if strings.Join(calls, ",") != want {
 		t.Fatalf("calls = %v, want %s", calls, want)
-	}
-}
-
-func TestLifecycleFacadeOnlyDelegatesToApplication(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{
-		"BeginGracefulShutdown": false,
-		"WaitForIdle":           false,
-		"AnyChatRunning":        false,
-		"CancelAllChats":        false,
-		"CancelChat":            false,
-		"Shutdown":              false,
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
-			continue
-		}
-		if _, tracked := want[function.Name.Name]; !tracked {
-			continue
-		}
-		want[function.Name.Name] = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("%s 有 %d 条语句，want 一行 lifecycleApplication 转发", function.Name.Name, len(function.Body.List))
-		}
-	}
-	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
-		}
 	}
 }
 
@@ -179,8 +136,8 @@ func TestWorkTableTraceBlock(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	block := service.workTableTraceBlock()
-	if !strings.HasPrefix(block, workTableTraceMarkerOpen) || !strings.HasSuffix(block, workTableTraceMarkerClose) {
+	block := service.components.workTableRuntime.TraceBlock()
+	if !strings.HasPrefix(block, applicationtable.TraceMarkerOpen) || !strings.HasSuffix(block, applicationtable.TraceMarkerClose) {
 		t.Fatalf("trace block must be wrapped in markers: %q", block)
 	}
 	if !strings.Contains(block, "task:1 running retry=2") || !strings.Contains(block, "todo:0 doing") {
@@ -194,7 +151,7 @@ func TestWorkTableTraceBlock(t *testing.T) {
 	runtime.tasks = map[string]dto.TaskRecord{
 		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: dto.TaskCompleted},
 	}
-	if got := service.workTableTraceBlock(); got != "" {
+	if got := service.components.workTableRuntime.TraceBlock(); got != "" {
 		t.Fatalf("trace block must be empty when no active tasks: %q", got)
 	}
 }
@@ -213,7 +170,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, workTableTraceMarkerOpen) || !strings.Contains(out, "继续") {
+	if !strings.Contains(out, applicationtable.TraceMarkerOpen) || !strings.Contains(out, "继续") {
 		t.Fatalf("request input must carry the trace block before the input: %q", out)
 	}
 
@@ -222,7 +179,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, workTableTraceMarkerOpen) {
+	if strings.Contains(out, applicationtable.TraceMarkerOpen) {
 		t.Fatalf("trace block must be removed when no active tasks: %q", out)
 	}
 }
@@ -239,8 +196,8 @@ func TestNewRejectsMissingDependencies(t *testing.T) {
 func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
-	suggestions := frontendOfTestService(service).Suggestions("/R")
+	defer service.components.lifecycleApplication.Shutdown()
+	suggestions := service.components.completionApplication.Suggestions("/R")
 	if len(suggestions) != 2 || suggestions[0].Kind != "command" || suggestions[1].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
 	}
@@ -261,7 +218,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 		{"#", applicationinput.SuggestionKindPlugin, "code", true},
 		{"$", applicationinput.SuggestionKindSkill, "review", true},
 	} {
-		got := frontendOfTestService(service).Suggestions(testCase.input)
+		got := service.components.completionApplication.Suggestions(testCase.input)
 		if len(got) == 0 {
 			t.Fatalf("%q 建议为空", testCase.input)
 		}
@@ -281,19 +238,19 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 		}
 	}
 	// 未知前缀与进入参数区（含空格）都不给建议（不弹面板）。
-	if got := frontendOfTestService(service).Suggestions("%review"); got != nil {
+	if got := service.components.completionApplication.Suggestions("%review"); got != nil {
 		t.Fatalf("未知前缀不该给建议：%#v", got)
 	}
 	// `@` 的候选在**团队库**里，而本夹具的会话端口（fakeSessions）没有团队库读写面：
 	// 取不到库时不该炸、也不该弹一个空面板。真正的 `@` 建议面（列出库里的团队、
 	// 前缀过滤、写库/删库即时反映）由 team_summon_suggestions_repro_test.go 钉。
-	if got := frontendOfTestService(service).Suggestions("@"); len(got) != 0 {
+	if got := service.components.completionApplication.Suggestions("@"); len(got) != 0 {
 		t.Fatalf("宿主未装配团队库时 `@` 不该有候选：%#v", got)
 	}
-	if got := frontendOfTestService(service).Suggestions("#code prompt"); got != nil {
+	if got := service.components.completionApplication.Suggestions("#code prompt"); got != nil {
 		t.Fatalf("参数区不该给建议：%#v", got)
 	}
-	if err := service.Submit(context.Background(), "/review strict"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/review strict"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
@@ -320,7 +277,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 		t.Fatalf("activated skill body must appear in assembled engine history: %#v", firstSentHistory)
 	}
 	// `$` 是 Skill 的专用前缀（`#` 改成"切换插件"后由它接管）。
-	if err := service.Submit(context.Background(), "$review focused"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "$review focused"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)

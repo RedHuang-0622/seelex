@@ -4,6 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/seelex/application"
+	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"github.com/RedHuang-0622/seelex/store"
+	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,19 +27,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/limit/gate"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
-	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
-	"github.com/RedHuang-0622/seelex/wiring"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // requireGitBash 断言环境提供真实 bash（git-bash 或非 WSL 的 PATH bash）。
@@ -68,13 +68,13 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	harness := newFullChainHarness(t, AccountsPath, tempDir, 5*time.Second)
-	app, events := harness.frontend, harness.events
+	components, events := harness.components, harness.events
 
 	subscription := events.Subscribe(256)
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if err := app.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
+	if err := components.Conversation.Submission.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +106,7 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 	}
 
 	var toolResult string
-	for _, message := range app.Snapshot().Conversation {
+	for _, message := range components.Session.Snapshot.Snapshot().Conversation {
 		if message.Tool != nil && message.Tool.Name == "bash" && message.Tool.Status == dto.ToolEventSuccess {
 			toolResult = message.Tool.Result
 			break
@@ -117,10 +117,10 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 	}
 
 	close(server.releaseSecondRequest)
-	if err := app.WaitForIdle(ctx); err != nil {
+	if err := components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
-	if snapshot := app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+	if snapshot := components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("final chat state = %+v", snapshot.Chat)
 	} else if !conversationContainsAssistant(snapshot.Conversation, "BASH_CHAIN_OK") {
 		t.Fatalf("final assistant response missing from conversation: %#v", snapshot.Conversation)
@@ -147,7 +147,7 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if err := harness.frontend.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -167,15 +167,15 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	}
 
 	close(server.releaseSecondRequest)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 }
 
 type fullChainHarness struct {
-	app      *application.Service
-	frontend *application.Frontend
-	events   *application.EventHub
+	app        *application.Service
+	components applicationassembly.Components
+	events     *application.EventHub
 	// store / workspaces 是组合根的存储面与工作区仓库：**teamwork 编排面**的装配
 	// （SetTeamworkBackend 的 PlanStore + KeyFor）要用它们。只读交出，不改 harness 的
 	// 既有装配（在 harness 里默认装 teamwork 会改变所有全链路用例的工具面）。
@@ -306,7 +306,6 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	frontend := wiring.NewFrontend(app)
 	// 回读类工具（read_tool_result / read_compressed_turn / search_history /
 	// compact_context）在生产里由 main.run() 经 registry.RegisterContextReadTools 登记。
 	// 测试装配必须同等登记：否则模型收到「超限输入已外置，请用 read_tool_result
@@ -319,7 +318,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	runtimeBridge.SetScheduledPromptExecutor(registry.ScheduledPromptExecutor(app))
 	// 收尾顺序是契约（`t.Cleanup` LIFO ⇒ 后注册的先跑），这里合成一处，不靠注册先后：
 	//
-	//  1. `app.Shutdown()`：取消/收口在飞的回合与派发（它也停掉"驱逐"派发）；
+	//  1. lifecycle.Shutdown()：取消/收口在飞的回合与派发（它也停掉"驱逐"派发）；
 	//  2. 有界等静默：驱逐/释放是**异步**的，`Shutdown` 返回不等于它已经落完；这几秒
 	//     之内落下来的会话快照还找得到仓库；
 	//  3. `runtimeBridge.Shutdown()`：停引擎与写手；
@@ -329,10 +328,11 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	// repository is closed`），异步写手随后又在 `t.TempDir()` 清理时落文件——Linux CI
 	// 上表现成 `TempDir RemoveAll cleanup: unlinkat …: directory not empty`
 	// （`TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns`，`-race` 下稳定复现）。
+	components := applicationassembly.ComponentsFor(app)
 	t.Cleanup(func() {
-		frontend.Shutdown()
+		components.Runtime.Lifecycle.Shutdown()
 		if ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second); cancel != nil {
-			_ = frontend.WaitForIdle(ctx)
+			_ = components.Runtime.Lifecycle.WaitForIdle(ctx)
 			cancel()
 		}
 		runtimeBridge.Shutdown()
@@ -340,7 +340,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	})
 	hooks.Bind(app)
 	return fullChainHarness{
-		app: app, frontend: frontend,
+		app: app, components: components,
 		events: events, runtime: runtimeBridge, approval: approval,
 		st: st, workspaces: workspaces,
 	}

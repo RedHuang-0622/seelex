@@ -1,17 +1,17 @@
 package assembly
 
-// 运行期 CLI/TUI 切档（P1-2）：wiring/bootstrap 的装配注释早就写着"运行期由 GUI/CLI 按会话
-// 切换"，但命令注册表里一直没有 /permission（只有 /effort），于是 headless/TUI 用户
-// 无法在运行期改档位。本文件钉住：命令存在、带描述、无参回显当前档 + 目录、带参走
-// SetPermissionTier 单一路径（含写入侧校验与大小写宽容）。
-
 import (
 	"context"
-	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
+	"github.com/RedHuang-0622/seelex/backend/engine/input"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strings"
 	"testing"
 )
+
+// 运行期 CLI/TUI 切档（P1-2）：wiring/bootstrap 的装配注释早就写着"运行期由 GUI/CLI 按会话
+// 切换"，但命令注册表里一直没有 /permission（只有 /effort），于是 headless/TUI 用户
+// 无法在运行期改档位。本文件钉住：命令存在、带描述、无参回显当前档 + 目录、带参走
+// SetPermissionTier 单一路径（含写入侧校验与大小写宽容）。
 
 func permissionCommandFor(t *testing.T, service *Service) interface {
 	Description() string
@@ -80,7 +80,7 @@ func TestPermissionCommandSwitchesTier(t *testing.T) {
 	if !strings.Contains(result.Notice, dto.PermissionTierFull) {
 		t.Fatalf("切档提示未回显生效档位：%q", result.Notice)
 	}
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
 		t.Fatalf("快照档位 = %q, want full", got)
 	}
 	viewSessionID := service.currentViewSessionID()
@@ -103,7 +103,7 @@ func TestPermissionCommandSwitchesTier(t *testing.T) {
 	if got := service.permissionTierForSession(viewSessionID); got != dto.PermissionTierAuto {
 		t.Fatalf("非法档位不得改变会话档位：%q", got)
 	}
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierAuto {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierAuto {
 		t.Fatalf("非法档位不得改变快照档位：%q", got)
 	}
 }

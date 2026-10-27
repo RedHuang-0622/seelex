@@ -44,7 +44,7 @@
 ## 依赖方向
 
 `console → application（仅 DTO / Event 类型）+ contract/dto`。owner 由 `wiring/bootstrap`
-注入；禁止 import `gui`、`tui`、`application/assembly`、`application/compat` 或 `store`。
+注入；禁止 import `gui`、`tui`、`application/assembly` 或 `store`。
 
 ## 并发与安全
 

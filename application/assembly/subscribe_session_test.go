@@ -13,23 +13,23 @@ import (
 // 事件（G4 先行：草稿持有真实 sessionID，不再需要"空 sid 跟随视图"）。
 func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 	service := newTestService(t, &fakeEngine{lazyStart: true})
-	draftID := service.Snapshot().Session.ID
-	if draftID == "" || !service.Snapshot().Session.Draft {
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if draftID == "" || !service.components.frontendSnapshot.Snapshot().Session.Draft {
 		t.Fatal("expected the service to start as an unmaterialized draft with pre-assigned ID")
 	}
-	subscription, err := service.SubscribeSession(draftID, 256)
+	subscription, err := service.components.view.SubscribeSession(draftID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession(draft id): %v", err)
 	}
 	defer subscription.Close()
 
-	if err := service.Submit(context.Background(), "first question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	materialized := service.Snapshot().Session.ID
+	materialized := service.components.frontendSnapshot.Snapshot().Session.ID
 	if materialized != draftID {
 		t.Fatalf("materialized ID = %q, want pre-assigned draft ID %q", materialized, draftID)
 	}
@@ -53,7 +53,7 @@ func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 // 空 sid 充当"全局会话事件"。
 func TestSubscribeSessionFollowsViewPointer(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription, err := service.SubscribeSession("", 64)
+	subscription, err := service.components.view.SubscribeSession("", 64)
 	if err != nil {
 		t.Fatalf("SubscribeSession(view): %v", err)
 	}

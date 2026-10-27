@@ -2,14 +2,13 @@ package test
 
 import (
 	"flag"
-	"testing"
-
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
 	"github.com/RedHuang-0622/seelex/wiring"
 	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/config"
+	"testing"
 )
 
 func TestParseFrontendMode(t *testing.T) {

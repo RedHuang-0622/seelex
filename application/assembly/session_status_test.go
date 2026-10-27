@@ -10,6 +10,7 @@ import (
 
 // liveCatalogSessions 是会话粒度目录桩：SessionsOf 返回测试注入的会话列表
 // （模拟生产 Router 列表；状态由 Snapshot 运行时推导）。
+
 type liveCatalogSessions struct {
 	fakeSessions
 	mu    sync.Mutex
@@ -34,7 +35,7 @@ func catalogStatusOf(t *testing.T, service *Service, sessionID string) model.Ses
 	service.components.sessions.RequestCatalogRefresh()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, item := range service.Snapshot().Sessions {
+		for _, item := range service.components.frontendSnapshot.Snapshot().Sessions {
 			if item.ID == sessionID {
 				return item.Status
 			}
@@ -53,7 +54,7 @@ func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := engine.SessionID()
@@ -68,7 +69,7 @@ func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T) {
 	}
 
 	close(engine.release[sessionID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessions.setInfos([]model.SessionInfo{{ID: sessionID}})
@@ -85,7 +86,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -100,10 +101,10 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	// 切到空闲 B（A 继续后台运行）。
 	bID := "sess-status-B"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != bID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != bID {
 		t.Fatalf("active session = %q, want B", got)
 	}
 	if got := catalogStatusOf(t, service, aID); got != SessionStatusRunning {
@@ -114,10 +115,10 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	}
 
 	// 运行中切回 A：hot_attach 只移 V，不改写 A 执行态。
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("resume A while running: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != aID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != aID {
 		t.Fatalf("active session after switch-back = %q, want A", got)
 	}
 	historyAfter := engine.HistoryFor(aID)
@@ -131,7 +132,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 
 	// 释放 A：全部收敛到 idle。
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sessions.setInfos([]model.SessionInfo{{ID: aID}})

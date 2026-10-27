@@ -20,6 +20,7 @@ import (
 // 这条污染的代价不止显示：新会话首次提交时 `PersistCurrentSession` 按会话落盘
 // （`session_runtime/archive.go` 的 `Execution.Task` / `Execution.ReadFiles` 都取自
 // 这份全局镜像），于是上一个会话的压缩记录与已读文件会被**写成新会话自己的历史**。
+
 func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T) {
 	applyWindowConfig(t, cc.WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
 	service, _, sessionID := compactTestService(t, "task-draft-scope")
@@ -33,7 +34,7 @@ func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T) {
 	if records := compactionRecords(service, sessionID); len(records) == 0 {
 		t.Fatal("前置条件不成立：会话 A 没有压缩记录")
 	}
-	sessionA := service.Snapshot()
+	sessionA := service.components.frontendSnapshot.Snapshot()
 	if sessionA.Task == nil || len(sessionA.Task.ContextCompactions) == 0 {
 		t.Fatalf("前置条件不成立：会话 A 的快照任务面没有压缩记录：%+v", sessionA.Task)
 	}
@@ -41,10 +42,10 @@ func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T) {
 		t.Fatal("前置条件不成立：会话 A 没有已读文件")
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draft := service.Snapshot()
+	draft := service.components.frontendSnapshot.Snapshot()
 	if draft.Session.ID == sessionA.Session.ID || draft.Session.ID == "" {
 		t.Fatalf("新建会话 ID = %q，期望一个不同于 A(%q) 的草稿会话", draft.Session.ID, sessionA.Session.ID)
 	}

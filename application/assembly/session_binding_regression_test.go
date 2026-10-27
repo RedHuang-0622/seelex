@@ -10,6 +10,7 @@ import (
 // 根仍是进程级 projectScope（SetSessionWorkspace 只解决存储键），因此
 // BindWorkspace 必须设置全局项目根与 Router 写作用域——不管宿主是否声明
 // PerSessionExecution。
+
 func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
@@ -18,16 +19,16 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
 	if _, err := workspaces.Create("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
 	// 工具/工作树仍读进程级 projectScope：绑定后必须有根，否则工作区会话

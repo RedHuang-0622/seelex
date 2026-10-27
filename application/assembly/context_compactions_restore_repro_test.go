@@ -1,5 +1,10 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"testing"
+)
+
 // 冷恢复（进程重启）丢「上下文压缩栈」复现。
 //
 // 用户现象：应用重启后打开旧会话，右栏「上下文压缩」（压缩栈）整条不见了。
@@ -29,12 +34,6 @@ package assembly
 // `SaveSessionRecordWorkspace` / `LoadSessionRecord` 承载 record，与生产
 // store 的 record 通道同形。
 
-import (
-	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-)
-
 const restartCompactionRequestID = "task-restart-compaction"
 
 // compactedSessionStore 造一份「重启前」的持久面并结束进程：第一份 Service 在
@@ -52,7 +51,7 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.Contex
 	first.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: restartCompactionRequestID}
 	first.components.tasks.BeginTask(restartCompactionRequestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	first.ViewMu.Unlock()
-	sessionID := first.Snapshot().Session.ID
+	sessionID := first.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		sessionID = first.components.tasks.SessionIDForRequest(restartCompactionRequestID)
 	}
@@ -88,7 +87,7 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.Contex
 	// 区间序号属于这套空间）。
 	store.transcript = transcript
 	// 进程结束。
-	frontendOfTestService(first).Shutdown()
+	first.components.lifecycleApplication.Shutdown()
 	return store, sessionID, compacted, retained
 }
 
@@ -99,7 +98,7 @@ func coldResume(t *testing.T, store *archiveSessions, sessionID string) *Service
 		withTestSessions(store),
 		withTestRuntime(runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}),
 	)
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("重启后 ResumeSession(%q): %v", sessionID, err)
 	}
 	return service
@@ -113,7 +112,7 @@ func TestReproCompactionStackSurvivesProcessRestart(t *testing.T) {
 
 	// 判据 1：驻留读面的任务面必须带压缩记录（右栏「上下文压缩」的唯一来路）。
 	// 两条判据都想在同一轮里看清，所以这一条先报错不中断。
-	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
+	snapshot, err := service.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}
@@ -155,7 +154,7 @@ func TestReproCompactionStackVisibleWithoutProjection(t *testing.T) {
 	store.record.Projection = nil
 	service := coldResume(t, store, sessionID)
 
-	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
+	snapshot, err := service.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(%q): %v", sessionID, err)
 	}

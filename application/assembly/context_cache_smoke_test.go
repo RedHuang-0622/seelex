@@ -1,30 +1,30 @@
 package assembly
 
-// 上下文前缀缓存冒烟测试（本地可复现，不发网络请求）。
-//
-// 目标：沿生产装配路径（task_context 注册表 transcript → context_runtime
-// PrepareExecutionContextFor → replaceEngineHistory）驱动一个"单会话、多轮、
-// 长会话"的执行序列，逐轮把"实际会发给 provider 的请求"固化为本地 trace，
-// 再按前缀缓存模型在本地计算命中率：
-//
-//	hit_i = LCP(request_i, request_{i-1}) 的 token 数 / request_i 的 token 数
-//
-// 粒度：raw（token 估算）、64-token 块、1024-token 块（对齐真实 provider
-// 按块缓存的语义，如 Anthropic ≥1024 / DeepSeek 64 token 对齐）。
-//
-// 说明：系统提示词与工具 schema 由 provider 序列化在 message 之前或与其
-// 共同构成前缀；本测试把 system 放在串行化头部、工具 schema 放尾部（生产
-// harness 中工具列表恒定），因此除"常数偏移"外不改变命中率动力学。历史消息
-// 用字段级长度前缀串行化，保证字节级可判定；shared 的 token 用生产同款
-// seelexctx/tokens 估算器对公共前缀文本计数（估算误差对两侧同向，比值结论
-// 不受影响）。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
+
+	// 上下文前缀缓存冒烟测试（本地可复现，不发网络请求）。
+	//
+	// 目标：沿生产装配路径（task_context 注册表 transcript → context_runtime
+	// PrepareExecutionContextFor → replaceEngineHistory）驱动一个"单会话、多轮、
+	// 长会话"的执行序列，逐轮把"实际会发给 provider 的请求"固化为本地 trace，
+	// 再按前缀缓存模型在本地计算命中率：
+	//
+	//	hit_i = LCP(request_i, request_{i-1}) 的 token 数 / request_i 的 token 数
+	//
+	// 粒度：raw（token 估算）、64-token 块、1024-token 块（对齐真实 provider
+	// 按块缓存的语义，如 Anthropic ≥1024 / DeepSeek 64 token 对齐）。
+	//
+	// 说明：系统提示词与工具 schema 由 provider 序列化在 message 之前或与其
+	// 共同构成前缀；本测试把 system 放在串行化头部、工具 schema 放尾部（生产
+	// harness 中工具列表恒定），因此除"常数偏移"外不改变命中率动力学。历史消息
+	// 用字段级长度前缀串行化，保证字节级可判定；shared 的 token 用生产同款
+	// seelexctx/tokens 估算器对公共前缀文本计数（估算误差对两侧同向，比值结论
+	// 不受影响）。
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"strings"

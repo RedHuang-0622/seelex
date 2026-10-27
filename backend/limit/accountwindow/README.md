@@ -18,7 +18,7 @@
 优先级（账号级 > 全局 > 账号档）由运行时的 `ContextWindowFor` 一处判定；
 `application/assembly` 的 `SetAccountWindow` 只做"校验 → 写盘 → 改内存 → 报回生效值"。
 
-主要调用方：`application/compat`（旧账号窗口入口）和
+主要调用方：GUI 的 `Accounts` 消费方端口、
 `application/admin`（窗口应用编排）、
 门面 `application.AccountWindowPresets()`（把挡位表下发给前端）。
 

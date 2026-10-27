@@ -25,8 +25,6 @@ type applicationBudget struct {
 	AssemblyProductionFileLimit         int      `json:"assembly_production_file_limit"`
 	AssemblyProductionLineLimit         int      `json:"assembly_production_line_limit"`
 	AllowedAssemblyInternalDependencies []string `json:"allowed_assembly_internal_dependencies"`
-	CompatibilityLedger                 string   `json:"compatibility_ledger"`
-	CompatibilityLedgerRequiredHeading  string   `json:"compatibility_ledger_required_heading"`
 }
 
 func TestApplicationArchitectureBudget(t *testing.T) {
@@ -69,14 +67,6 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 			productionLines, budget.AssemblyProductionLineLimit)
 	}
 
-	ledgerPath := filepath.Join(applicationDir, "..", budget.CompatibilityLedger)
-	ledger, err := os.ReadFile(ledgerPath)
-	if err != nil {
-		t.Fatalf("读取兼容层台账 %s: %v", ledgerPath, err)
-	}
-	if !strings.Contains(string(ledger), budget.CompatibilityLedgerRequiredHeading) {
-		t.Fatalf("兼容层台账缺少必需章节 %q", budget.CompatibilityLedgerRequiredHeading)
-	}
 }
 
 func sourceApplicationDir(t *testing.T) string {

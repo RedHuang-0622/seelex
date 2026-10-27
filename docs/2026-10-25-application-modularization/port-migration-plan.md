@@ -11,8 +11,9 @@ Engine Prompt Coordinator、Context Window Policy、Event Protocol、Board Contr
 Subagent View、WorkTable Projection、View State、Switch Workspace、Switch Policy、
 Limit Tier、Limit Base、Engine Context、Engine Task Context、Engine Session 入口归位
 与 core package-function helper 退场已落地；其余端口待实施。
-本文只规定拆除 `application/core` 剩余 2 个
-直接内部依赖所需的端口，不把本阶段的 `application/compat` 转发层当成终态。
+本文只规定拆除 `application/core` 剩余 2 个直接内部依赖所需的端口。
+本文发布后，前端兼容转发层已完成退场；当前实现以 consumer-owned dependencies
+和 assembly 分组 owner 快照为准。
 
 ## 0. 当前事实与总原则
 

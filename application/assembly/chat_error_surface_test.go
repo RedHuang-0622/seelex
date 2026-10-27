@@ -14,6 +14,7 @@ import (
 )
 
 // failingSnapshotSessions 让快照持久化固定失败，用于断言"持久化失败不得声称进度已保存"。
+
 type failingSnapshotSessions struct{ fakeSessions }
 
 func (failingSnapshotSessions) SaveSessionSnapshot(string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error {
@@ -27,15 +28,15 @@ func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []co
 func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New(`ChatClient stream: HTTP 500: server_error request_id=req-secret`)}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	subscription := service.Events.Subscribe(16)
 	defer subscription.Close()
 
-	if err := service.Submit(t.Context(), "检查项目"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "检查项目"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	// chat 报错 = 原始 err 正文（诊断优先）：provider 细节原样可见。
 	if !strings.Contains(snapshot.Chat.Error, "HTTP 500") || !strings.Contains(snapshot.Chat.Error, "req-secret") {
 		t.Fatalf("chat error should carry the raw error text: %q", snapshot.Chat.Error)
@@ -70,7 +71,7 @@ func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) 
 
 	service.handleToolStart(context.Background(), "read", "tool-read", `{}`)
 	service.handleToolComplete("read", "tool-read", "", errors.New(`storage unavailable`), 0)
-	tool := service.Snapshot().Conversation[len(service.Snapshot().Conversation)-2].Tool
+	tool := service.components.frontendSnapshot.Snapshot().Conversation[len(service.components.frontendSnapshot.Snapshot().Conversation)-2].Tool
 	if tool == nil || strings.Contains(tool.Error, "storage unavailable") || !strings.Contains(tool.Error, "模块：") {
 		t.Fatalf("tool error = %#v", tool)
 	}
@@ -79,7 +80,7 @@ func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) 
 func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("unrecognized internal failure request_id=req-diagnostic")}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	var logs bytes.Buffer
 	previousOutput, previousFlags, previousPrefix := log.Writer(), log.Flags(), log.Prefix()
@@ -92,7 +93,7 @@ func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 		log.SetPrefix(previousPrefix)
 	}()
 
-	if err := service.Submit(t.Context(), "inspect project"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "inspect project"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
@@ -104,11 +105,11 @@ func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(failingSnapshotSessions{}))
 
-	if err := service.Submit(t.Context(), "inspect project"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "inspect project"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	got := service.Snapshot().Chat.Error
+	got := service.components.frontendSnapshot.Snapshot().Chat.Error
 	// chat 报错是原始正文：持久化失败必须自报风险，不得声称进度已保存。
 	if !strings.Contains(got, "persistence failed and recovery is not guaranteed") {
 		t.Fatalf("persistence error = %q", got)

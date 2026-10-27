@@ -1,17 +1,15 @@
 package test
 
-// 插件根责任链的守卫（与 plugin/loader.go 的"多根 first-wins"合起来是"一处发现、
-// 处处可用"的两半）。旧口径是纯 CWD 相对的单个 `-plugins`（缺省 "plugins"）：发行
-// 包里 plugins/ 放在二进制旁边也找不到，于是静默降级成"零插件零技能启动且无提示"。
-
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	// 插件根责任链的守卫（与 plugin/loader.go 的"多根 first-wins"合起来是"一处发现、
+	// 处处可用"的两半）。旧口径是纯 CWD 相对的单个 `-plugins`（缺省 "plugins"）：发行
+	// 包里 plugins/ 放在二进制旁边也找不到，于是静默降级成"零插件零技能启动且无提示"。
 )
 
 func TestPluginRootChainOrderAndDedup(t *testing.T) {

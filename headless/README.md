@@ -32,8 +32,7 @@ owner 用例并观察全量事件流。它是 `-frontend headless` 的入口，�
   因此本包既没有适配器，也没有 `_ X = (*impl)(nil)` 一类的编译期断言。
 - 全部字段都是骨架：有无只由装配表说话，缺 owner 即装配错误。旧形态用 9 处运行时类型断言
   探测 5 个可选面（`server.app.(roleRPCApplication)`、`.(toolRecordBoardProvider)` 等）；
-  生产路径上 `headless.Application` 的唯一实现者是兼容门面，它实现全部 5 个面（如
-  `application/compat/frontend.go:750,775`），因此断言在生产中恒为真。false 分支只被测试里
+  生产路径上的兼容门面已退场；旧断言在真实 owner 装配中恒为真。false 分支只被测试里
   刻意「只实现一部分面」的假实现触达，且没有任何用例断言那条「未装配」错误 —— 所以这层按
   不可达错误面删除，不复制成新端口。
 - `Server`：`NewServer(deps)` → `Serve(listener)` → `Shutdown(ctx)`；`StartIfRequested`

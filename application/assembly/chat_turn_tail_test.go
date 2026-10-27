@@ -3,6 +3,8 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,8 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestChatTurnTailRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestChatTurnTailRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnTail")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnTail)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnTailApplication)(nil)) {
 		t.Fatalf("conversationTurnTail 字段类型 = %s", field.Type)
 	}
-	tailType := reflect.TypeOf((*conversationTurnTail)(nil))
+	tailType := reflect.TypeOf((*applicationconversation.TurnTailApplication)(nil))
 	if _, ok := tailType.MethodByName("Complete"); !ok {
 		t.Fatal("conversationTurnTail 缺少 Complete")
 	}
@@ -68,7 +68,7 @@ func TestChatTurnTailRulesAreCentralized(t *testing.T) {
 
 func TestConversationTurnTailCompletesWithoutPromotion(t *testing.T) {
 	var calls []string
-	tail := newConversationTurnTail(conversationTurnTailDeps{
+	tail := applicationconversation.NewTurnTail(applicationconversation.TurnTailDeps{
 		RebindWorkspaceWhenIdle: func() { calls = append(calls, "rebind") },
 		MarkPromotedConsumed: func(session_runtime.Location, string, string) error {
 			t.Fatal("无队列提升时不得标记 consumed")
@@ -95,7 +95,7 @@ func TestConversationTurnTailCompletesWithoutPromotion(t *testing.T) {
 
 func TestConversationTurnTailSettlesAndStartsPromotedBatch(t *testing.T) {
 	var calls []string
-	tail := newConversationTurnTail(conversationTurnTailDeps{
+	tail := applicationconversation.NewTurnTail(applicationconversation.TurnTailDeps{
 		RebindWorkspaceWhenIdle: func() { calls = append(calls, "rebind") },
 		MarkPromotedConsumed: func(_ session_runtime.Location, sessionID, requestID string) error {
 			calls = append(calls, "mark:"+sessionID+":"+requestID)

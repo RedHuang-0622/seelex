@@ -2,6 +2,24 @@
 
 package test
 
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
 // 轮询型后台命令切片的 §8.3 五指标 A/B（真实 API，opt-in，不进 CI）。
 //
 // 两臂只差 limits.async_exec.enabled——装配、账号、模型、任务素材逐字段相同：
@@ -48,25 +66,6 @@ package test
 // 全量：删掉那三个变量（默认 T1,T2,T3 × 各 3 次 × 命令 20s）。原始数据落
 // SEELEX_ASYNC_AB_REPORT（默认 _logs/async_ab_raw.txt）。账号只作为不透明文件在本
 // 进程内改写 base_url，任何输出都不含 key。
-
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io/fs"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"sort"
-	"strconv"
-	"strings"
-	"testing"
-	"time"
-
-	"github.com/RedHuang-0622/seelex/kernel/limit"
-)
 
 const (
 	abArmA = "A" // 基线：开关关（同步阻塞）
@@ -304,11 +303,11 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	defer cancel()
 
 	start := time.Now()
-	if err := harness.frontend.Submit(ctx, abPrompt(arm, taskID, command, sentinel)); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, abPrompt(arm, taskID, command, sentinel)); err != nil {
 		sample.failure = fmt.Sprintf("submit: %v", err)
-	} else if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	} else if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		sample.failure = fmt.Sprintf("idle: %v", err)
-	} else if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+	} else if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 		sample.failure = snapshot.Chat.Error
 	}
 	sample.wall = time.Since(start)

@@ -2,6 +2,16 @@
 
 package test
 
+import (
+	"context"
+	"github.com/RedHuang-0622/seelex/application"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
 // TestRealAPISessionRestoreSmoke 是真实 API 会话链路冒烟（opt-in）：
 // 多轮真实请求 → 进程重启 → ResumeSession 冷恢复 → 再次提问，
 // 验证持久化会话在真实 provider 下可恢复且回答延续会话身份。
@@ -10,17 +20,6 @@ package test
 //   $env:SEELEX_SMOKE_ACCOUNTS='G:\Program\go\seelex\config\accounts.yaml'
 //   go test -tags manualsmoke2 . -run 'TestRealAPISessionRestoreSmoke' \
 //     -count=1 -v -cpuprofile %TEMP%\real-api.cpu -memprofile %TEMP%\real-api.mem -timeout 1500s
-
-import (
-	"context"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-)
 
 func TestRealAPISessionRestoreSmoke(t *testing.T) {
 	accountsSource := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
@@ -36,13 +35,13 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -52,14 +51,14 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 		filler := strings.Repeat("真实 API 会话连续性材料，不要遗漏。", 160)
 		submit("这是真实 API 冒烟第 " + string(rune('0'+round)) + " 轮。请只回复‘本轮已记录’，不要调用工具。材料如下：\n" + filler)
 	}
-	sessionID := harness.frontend.Snapshot().Session.ID
+	sessionID := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}
-	harness.frontend.Shutdown()
+	harness.components.Runtime.Lifecycle.Shutdown()
 
 	restarted := newFullChainHarness(t, AccountsPath, projectRoot, 45*time.Second)
-	if err := restarted.frontend.ResumeSession(sessionID); err != nil {
+	if err := restarted.components.Session.Resume.Resume(sessionID); err != nil {
 		t.Fatalf("restart resume live session: %v", err)
 	}
 	restarted.submitLive(ctx, t, "请回忆上一轮对话你回复的内容要求。只回答最近一轮你被要求回复的那句话，不要解释。")
@@ -72,10 +71,10 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 
 func (harness *fullChainHarness) submitLive(ctx context.Context, t *testing.T, prompt string) {
 	t.Helper()
-	if err := harness.frontend.Submit(ctx, prompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live resume turn did not become idle: %v", err)
 	}
 }

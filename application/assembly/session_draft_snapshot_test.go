@@ -1,11 +1,10 @@
 package assembly
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 type draftSnapshotSessions struct {
@@ -42,7 +41,7 @@ func (sessions *draftSnapshotSessions) snapshotCalls() [][]model.TranscriptEvent
 func TestDraftSnapshotAdvancesLeftPointerByMemorySuffix(t *testing.T) {
 	sessions := &draftSnapshotSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	const requestID = "draft-snapshot-turn"
 
 	service.ViewMu.Lock()
@@ -106,7 +105,7 @@ func TestDraftSnapshotLoopIsPeriodicAndStops(t *testing.T) {
 
 	sessions := &draftSnapshotSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	const requestID = "draft-snapshot-loop"
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{

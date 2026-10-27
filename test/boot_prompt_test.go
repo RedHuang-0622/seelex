@@ -1,24 +1,22 @@
 package test
 
-// boot_prompt_test.go — 提示词资产目录的责任链钉子（口径同 boot_seed_test.go，
-// 只是载荷从"一个配置文件"变成"一个目录"）。
-//
-// 钉住三件事：
-//
-//	1. 候选链形状：CWD 的 config/prompt/ 优先，<exe>/config/prompt/ 兜底，
-//	   落盘根固定取后者；没有 exe 路径时无处落盘（返回 ""，回退内嵌词）。
-//	2. 缺失即初始化：候选链全缺时用内嵌默认词落盘，入口内容与内嵌逐字相同，
-//	   且整份清单都落全（少列一份 = 那份永远无法被外部覆盖）。
-//	3. 存在即读：入口一旦存在就命中，之后一个字节都不写（用户改过的不被盖回去）。
-
 import (
+	"github.com/RedHuang-0622/seelex/kernel/prompt/assets"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/kernel/prompt/assets"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	// boot_prompt_test.go — 提示词资产目录的责任链钉子（口径同 boot_seed_test.go，
+	// 只是载荷从"一个配置文件"变成"一个目录"）。
+	//
+	// 钉住三件事：
+	//
+	//	1. 候选链形状：CWD 的 config/prompt/ 优先，<exe>/config/prompt/ 兜底，
+	//	   落盘根固定取后者；没有 exe 路径时无处落盘（返回 ""，回退内嵌词）。
+	//	2. 缺失即初始化：候选链全缺时用内嵌默认词落盘，入口内容与内嵌逐字相同，
+	//	   且整份清单都落全（少列一份 = 那份永远无法被外部覆盖）。
+	//	3. 存在即读：入口一旦存在就命中，之后一个字节都不写（用户改过的不被盖回去）。
 )
 
 func TestPromptDirChainShape(t *testing.T) {

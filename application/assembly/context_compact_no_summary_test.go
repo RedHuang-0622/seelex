@@ -17,6 +17,7 @@ import (
 // 探针刻意与 PushCompactionFrame 分开：compactionIndexRuntime（既有三条用例的
 // 夹具）**不实现**它，走的是"探针缺省 = 可用、压缩照常"的兼容路径——这条用例
 // 因此也是在钉"探针缺省不改变既有宿主行为"。
+
 type compactionIndexNoSummaryRuntime struct {
 	compactionIndexRuntime
 }
@@ -47,16 +48,16 @@ func TestCompactionFailureLeavesContextAndStackUntouched(t *testing.T) {
 	service.components.tasks.BeginTask("task-nosummary", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-nosummary")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

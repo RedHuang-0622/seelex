@@ -150,9 +150,9 @@ flowchart LR
 
 EP-046 后，assembly 不再暴露无参 `*ApplicationComponent` getter，也不再把入站
 能力接口、输入 sigil 词法、Session 订阅、Prompt、ProviderHistory 或 ToolRecord
-公开入口寄居在 `Service`。包内调用直接读 `service.components`；前端兼容方法由
-`application/compat` 直达领域组件。`Service` 当前不再暴露业务方法；剩余交互由
-装配后的领域组件和 `application/compat.Frontend` 承担。
+公开入口寄居在 `Service`。包内调用与前端测试直接读 `service.components`；
+生产前端由组合根把分组 owner 指针装配成各自的消费方依赖。`Service` 当前不再暴露
+业务方法，也不存在统一前端门面。
 
 WorkTable 的源同步、生命周期消费者、Todo 刷新与发布态已归
 [`application/execution/table`](../execution/table/README.md)。assembly 只保留共享
@@ -370,13 +370,12 @@ prompt/history 重建、Effort 恢复、会话 reset 和 runtime 发布。
 
 Admin 账号 CRUD、余额、账号切换和逐账号窗口已迁到
 [`application/admin`](../admin/README.md)。assembly 只保留 `service_admin_application.go`
-的窄 Host adapter；旧公开账号入口由
-[`application/compat`](../compat/README.md) 承接。
+的窄 Host adapter；GUI 的 `Accounts` 消费方端口直接调用 admin owner。
 
 项目环境表、Workspace Git 查询和批量登记后的投影发布已迁到
 [`application/workspace`](../workspace/README.md)。assembly 的
-`service_assembler_capabilities.go` 只保留组合期 host adapter；旧公开 Workspace 入口由
-[`application/compat`](../compat/README.md) 承接。`workspace_usecase.go` 另承载
+`service_assembler_capabilities.go` 只保留组合期 host adapter；GUI 的
+`WorkspaceCatalog` / `WorkspaceActions` 端口直接调用 owner。`workspace_usecase.go` 另承载
 剩余视图投影 helper；containment 判据在领域包内只有一份，
 查询不进入共享写锁。
 

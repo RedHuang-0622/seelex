@@ -24,17 +24,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
-	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // applyRetainFloorPercent 设置 limits.context_retain_floor_percent（进程内生效配置：
@@ -105,7 +104,7 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
-	defer harness.frontend.Shutdown()
+	defer harness.components.Runtime.Lifecycle.Shutdown()
 
 	// 占比窗口收到 0.05：min(token1, token2) 本会把保留区压到很小 —— 这正是保护区
 	// 下限要挡的坏方向（《压缩四区模型》边界判定）。保留上限沿用配置（token1 兜底 =
@@ -128,16 +127,16 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 		t.Helper()
 		turnCtx, turnCancel := context.WithTimeout(ctx, 4*time.Minute)
 		defer turnCancel()
-		if err := harness.frontend.Submit(turnCtx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(turnCtx, prompt); err != nil {
 			t.Fatalf("%s：提交失败: %v", stage, err)
 		}
-		if err := harness.frontend.WaitForIdle(turnCtx); err != nil {
-			snapshot := harness.frontend.Snapshot()
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(turnCtx); err != nil {
+			snapshot := harness.components.Session.Snapshot.Snapshot()
 			t.Fatalf("%s：真实回合未回到 idle（%v）：running=%v error=%q 对话=%s",
 				stage, err, snapshot.Chat.Running, snapshot.Chat.Error,
 				describeConversationTail(snapshot.Conversation, 4))
 		}
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Chat.Error != "" {
 			t.Fatalf("%s：真实回合失败: %s", stage, snapshot.Chat.Error)
 		}
@@ -263,8 +262,7 @@ func prefixLiveCompactAndReadFrame(
 	if record.FrameRef == "" {
 		t.Fatalf("%s：压缩记录没有 frame_ref，四区报表不可回读：%+v", stage, record)
 	}
-	page, err := harness.frontend.ReadToolResultHandler(ctx,
-		fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":20000}`, record.FrameRef))
+	page, err := harness.components.Conversation.Reference.ReadToolResultHandler(fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":20000}`, record.FrameRef))
 	if err != nil {
 		t.Fatalf("%s：回读帧正文失败：%v", stage, err)
 	}

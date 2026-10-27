@@ -22,8 +22,7 @@ func startGUI(*application.Service, string, string) error {
 //
 // 绑定语句本身就是编译期结构断言（左端字段类型是 consumer 接口、右端是具体
 // owner 指针），所以这里不写适配器，也不再需要 `_ tui.X = (*owner)(nil)` 一行。
-// 每个端口对应的 owner 与兼容门面（`application/compat`，M4 删除）逐字相同：
-// 门面每个方法都转发到同名分组字段，迁移前后判据落在同一处。
+// 每个端口直接对应拥有该用例的 owner，不存在中间转发层。
 func tuiDependencies(components assembly.Components) tui.Dependencies {
 	return tui.Dependencies{
 		Snapshot:    components.Session.Snapshot,

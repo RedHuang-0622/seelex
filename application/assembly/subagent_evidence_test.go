@@ -20,17 +20,17 @@ func TestSubagentMailboxContentDoesNotReachFrontendOrStorage(t *testing.T) {
 	}}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 
-	if err := service.Submit(context.Background(), "main task"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "main task"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
 		t.Fatalf("mailbox was not drained by application: %q", pending)
 	}
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for _, message := range snapshot.Conversation {
 		if strings.HasPrefix(message.Content, "[子代理产出]") ||
 			strings.Contains(message.Content, "重叠依赖") ||

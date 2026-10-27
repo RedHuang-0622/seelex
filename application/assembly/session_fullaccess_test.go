@@ -11,9 +11,9 @@ import (
 func TestFullAccessOwnershipPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	runtime := service.Deps.Runtime.(*fakeRuntime)
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	frontendOfTestService(service).SetFullAccess(true)
+	service.components.policyApplication.SetFullAccess(true)
 	if unit := service.sessions.Unit(sessionA); unit == nil {
 		t.Fatal("session A unit missing")
 	} else if on, ok := unit.FullAccessMode(); !ok || !on {
@@ -29,10 +29,10 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("进程级默认全权不得被会话级选择改写（未选择会话的回退面）")
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if unit := service.sessions.Unit(draftID); unit == nil {
 		t.Fatal("draft unit missing")
 	} else if _, ok := unit.FullAccessMode(); ok {
@@ -52,7 +52,7 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("A 的全权在新建会话后仍须生效")
 	}
 
-	frontendOfTestService(service).SetFullAccess(false) // 视图已切到草稿：选择落在草稿上
+	service.components.policyApplication.SetFullAccess(false) // 视图已切到草稿：选择落在草稿上
 	if unit := service.sessions.Unit(draftID); unit == nil {
 		t.Fatal("draft unit missing")
 	} else if on, ok := unit.FullAccessMode(); !ok || on {
@@ -81,13 +81,13 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 // 会话的开关。
 func TestFullAccessProjectionPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
-	frontendOfTestService(service).SetFullAccess(true)
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
+	service.components.policyApplication.SetFullAccess(true)
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	projectionA := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionA)
 	if !projectionA.Runtime.FullAccess {

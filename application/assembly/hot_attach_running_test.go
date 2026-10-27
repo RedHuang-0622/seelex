@@ -71,7 +71,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "长会话 A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "长会话 A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -84,17 +84,17 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 	// 切到空闲 B（引擎已注册 = 驻留，走 hot_attach）。
 	const bID = "sess-hot-B"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != bID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != bID {
 		t.Fatalf("active = %q, want B", got)
 	}
 
 	// 切回运行中的 A：必须在超时内返回，且不得对 A 设置 prompt。
 	promptCallsBefore := engine.promptCallCount(aID)
 	done := make(chan error, 1)
-	go func() { done <- frontendOfTestService(service).ResumeSession(aID) }()
+	go func() { done <- service.components.sessionResume.Resume(aID) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -107,18 +107,18 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 		t.Fatalf("SetSystemPromptFor called on running A during hot attach: before=%d after=%d",
 			promptCallsBefore, got)
 	}
-	if got := service.Snapshot().Session.ID; got != aID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != aID {
 		t.Fatalf("active = %q, want A", got)
 	}
 
 	// 关键：切换后消息仍然发得出去、也还能切到其它会话（TransitionLock 未被攥住）。
-	if err := service.Submit(ctx, "B 的消息（A 运行中入队/后台）"); err != nil {
+	if err := service.components.submission.Submit(ctx, "B 的消息（A 运行中入队/后台）"); err != nil {
 		t.Fatalf("submit after hot attach blocked: %v", err)
 	}
 	const cID = "sess-hot-C"
 	engine.register(cID)
 	done2 := make(chan error, 1)
-	go func() { done2 <- frontendOfTestService(service).ResumeSession(cID) }()
+	go func() { done2 <- service.components.sessionResume.Resume(cID) }()
 	select {
 	case err := <-done2:
 		if err != nil {
@@ -130,7 +130,7 @@ func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T) {
 
 	// 释放 A：全部收敛。
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

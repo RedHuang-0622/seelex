@@ -14,20 +14,12 @@ const (
 	cancelDrainTimeout = 2 * time.Second
 )
 
-// sessionActivityApplication 是 Application 的可选扩展（G0c）：桌面宿主需要
-// 判定「任一会话是否在运行」（视图空闲、后台在跑也必须 graceful drain），
-// 并在超时后取消**全部**运行中会话——不只视图会话。
-type sessionActivityApplication interface {
-	AnyChatRunning() bool
-	CancelAllChats()
-}
-
 // closeCoordinator turns a window-close request into a bounded graceful
 // application shutdown. Once closing starts it rejects new input through the
 // application, waits briefly for accepted work, and cancels a stalled chat
 // before invoking quit exactly once.
 type closeCoordinator struct {
-	app  Application
+	turn TurnControl
 	quit func()
 
 	mu      sync.Mutex
@@ -36,15 +28,15 @@ type closeCoordinator struct {
 	timeout time.Duration
 }
 
-func newCloseCoordinator(app Application, quit func()) *closeCoordinator {
-	return newCloseCoordinatorWithTimeout(app, quit, defaultGracefulCloseTimeout)
+func newCloseCoordinator(turn TurnControl, quit func()) *closeCoordinator {
+	return newCloseCoordinatorWithTimeout(turn, quit, defaultGracefulCloseTimeout)
 }
 
-func newCloseCoordinatorWithTimeout(app Application, quit func(), timeout time.Duration) *closeCoordinator {
+func newCloseCoordinatorWithTimeout(turn TurnControl, quit func(), timeout time.Duration) *closeCoordinator {
 	if timeout <= 0 {
 		timeout = defaultGracefulCloseTimeout
 	}
-	return &closeCoordinator{app: app, quit: quit, timeout: timeout}
+	return &closeCoordinator{turn: turn, quit: quit, timeout: timeout}
 }
 
 // BeforeClose returns true when the native window close must be prevented.
@@ -59,7 +51,7 @@ func (coordinator *closeCoordinator) BeforeClose() bool {
 		return true
 	}
 
-	coordinator.app.BeginGracefulShutdown()
+	coordinator.turn.BeginGracefulShutdown()
 	if !coordinator.hasActiveChat() {
 		coordinator.mu.Unlock()
 		return false
@@ -71,19 +63,15 @@ func (coordinator *closeCoordinator) BeforeClose() bool {
 	return true
 }
 
-// hasActiveChat 报告是否存在任一会话的运行中回合。生产 Application 实现
-// AnyChatRunning（每会话单元权威状态；视图空闲、后台在跑也要等待），其它
-// 实现回退到视图快照的 Chat.Running。
+// hasActiveChat 报告是否存在任一会话的运行中回合。AnyChatRunning 读取每个
+// 会话单元的权威状态；视图空闲但后台在跑同样要等待。
 func (coordinator *closeCoordinator) hasActiveChat() bool {
-	if app, ok := coordinator.app.(sessionActivityApplication); ok {
-		return app.AnyChatRunning()
-	}
-	return coordinator.app.Snapshot().Chat.Running
+	return coordinator.turn.AnyChatRunning()
 }
 
 func (coordinator *closeCoordinator) finishWhenIdle() {
 	ctx, cancel := context.WithTimeout(context.Background(), coordinator.timeout)
-	err := coordinator.app.WaitForIdle(ctx)
+	err := coordinator.turn.WaitForIdle(ctx)
 	cancel()
 	if err != nil {
 		// A tool, approval, or provider can fail to settle the chat state. Do
@@ -94,20 +82,15 @@ func (coordinator *closeCoordinator) finishWhenIdle() {
 		// 取消后 runChat 走正常收尾（逐会话 flush），再等一个短预算让其收敛，
 		// 避免窗口在数据落盘完成前退出。
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), cancelDrainTimeout)
-		_ = coordinator.app.WaitForIdle(drainCtx)
+		_ = coordinator.turn.WaitForIdle(drainCtx)
 		drainCancel()
 	}
 	coordinator.completeClose()
 }
 
-// cancelActiveChats 取消全部运行中会话；不支持会话级活动面的宿主回退到只
-// 取消视图会话（旧语义）。
+// cancelActiveChats 取消全部运行中会话（视图会话与后台会话）。
 func (coordinator *closeCoordinator) cancelActiveChats() {
-	if app, ok := coordinator.app.(sessionActivityApplication); ok {
-		app.CancelAllChats()
-		return
-	}
-	coordinator.app.CancelChat("")
+	coordinator.turn.CancelAllChats()
 }
 
 func (coordinator *closeCoordinator) completeClose() {

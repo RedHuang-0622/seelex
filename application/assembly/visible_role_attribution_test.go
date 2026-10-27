@@ -31,7 +31,7 @@ import (
 // 且同属一个 round。
 func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 	service := newTestService(t, &fakeEngine{chunks: []string{"an", "swer"}})
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })

@@ -2,6 +2,24 @@
 
 package test
 
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
 // TestManualSmokeRealAccountPrefixInvariant 是「跨轮前缀 + 模型输出边界」的
 // **真实 API 冒烟**：在真实 provider 前挂一台录制反向代理，逐条记录 provider 请求体
 // （真实 wire 字节）与响应 usage（含 DeepSeek 的 prompt_cache_hit_tokens），再驱动
@@ -30,24 +48,6 @@ package test
 // 代理的边界：只做「转发」+「在转发体里补 stream_options.include_usage」（让 provider
 // 在流式最后一帧回报 usage，OpenAI 策略的 SSE 解析器本就支持该帧）；不读/不打印/不落盘
 // 任何凭据，accounts.yaml 由调用方指向，测试仅把 base_url 改写到本地代理。
-
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-)
 
 // ── 录制代理 ──────────────────────────────────────────────────
 
@@ -543,13 +543,13 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -566,7 +566,7 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 	// 错误；wire 上是框架合成的 `{"error": %q}`，记录侧曾是应用分类呈现文本。
 	submit("第 4 轮：调用 read_file 读取 missing_probe.txt，然后如实向用户报告这次调用的结果，不要重试。")
 
-	sessionID := harness.frontend.Snapshot().Session.ID
+	sessionID := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("live session did not receive a durable session ID")
 	}

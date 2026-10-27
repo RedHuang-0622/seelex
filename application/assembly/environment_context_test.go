@@ -1,12 +1,11 @@
 package assembly
 
 import (
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"strings"
+	"testing"
 )
 
 const (

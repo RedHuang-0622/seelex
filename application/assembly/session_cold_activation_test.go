@@ -1,6 +1,10 @@
 package assembly
 
 import (
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,10 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestSessionColdActivationRulesAreExtracted(t *testing.T) {
@@ -21,10 +21,10 @@ func TestSessionColdActivationRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdActivation")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdActivation)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.ActivationApplication)(nil)) {
 		t.Fatalf("sessionColdActivation 字段类型 = %s", field.Type)
 	}
-	activationType := reflect.TypeOf((*sessionColdActivation)(nil))
+	activationType := reflect.TypeOf((*applicationsessioncold.ActivationApplication)(nil))
 	if _, ok := activationType.MethodByName("PrepareLocked"); !ok {
 		t.Fatal("sessionColdActivation 缺少 PrepareLocked")
 	}
@@ -67,7 +67,7 @@ func TestSessionColdActivationPreparesActiveSession(t *testing.T) {
 	unit.SetCancel(func() {})
 	snapshot := model.Snapshot{Session: model.SessionState{ID: "session-a", Status: SessionStatusRestoring}}
 	var calls []string
-	activation := newSessionColdActivation(sessionColdActivationDeps{
+	activation := applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
 		ClearRestoring: func(sessionID string) { calls = append(calls, "clear:"+sessionID) },
 		ViewIntent:     func(string) uint64 { return 9 },
 		TitleFromHistory: func([]contract.EngineMessage) string {
@@ -126,7 +126,7 @@ func TestSessionColdActivationKeepsViewWhenEpochOrTargetChanged(t *testing.T) {
 				t.Fatal(err)
 			}
 			snapshot := model.Snapshot{Session: model.SessionState{ID: test.viewID, Name: "current"}}
-			activation := newSessionColdActivation(sessionColdActivationDeps{
+			activation := applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
 				ClearRestoring:   func(string) {},
 				ViewIntent:       func(string) uint64 { return 9 },
 				TitleFromHistory: func([]contract.EngineMessage) string { return "legacy" },

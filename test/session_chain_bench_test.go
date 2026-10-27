@@ -1,20 +1,22 @@
 package test
 
-// 新链路会话冒烟与基准（2026-09-09，旧链路已删除后）。
-//
-// 场景与先前 AB 的 v8 链路一致：6 轮快速请求 → 进程重启 → ResumeSession →
-// 提交下一轮；断言"重启后首请求 == 不重启继续运行"逐条一致，并采集：
-//   - 轮次总耗时与冷恢复耗时（3 次采样平均）；
-//   - store 文件数/字节/目录数与按类别字节分布（读写热点）；
-//   - 可见会话消息数与重启请求消息数。
-//
-// 运行：
-//   go test . -run TestSessionChainSmokeAndMetricsNew -count=1 -v -timeout=600s
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/assembly"
+
+	// 新链路会话冒烟与基准（2026-09-09，旧链路已删除后）。
+	//
+	// 场景与先前 AB 的 v8 链路一致：6 轮快速请求 → 进程重启 → ResumeSession →
+	// 提交下一轮；断言"重启后首请求 == 不重启继续运行"逐条一致，并采集：
+	//   - 轮次总耗时与冷恢复耗时（3 次采样平均）；
+	//   - store 文件数/字节/目录数与按类别字节分布（读写热点）；
+	//   - 可见会话消息数与重启请求消息数。
+	//
+	// 运行：
+	//   go test . -run TestSessionChainSmokeAndMetricsNew -count=1 -v -timeout=600s
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,8 +24,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // chainRunMetrics 是一次新链路会话冒烟的实测指标。
@@ -70,11 +70,11 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	}
 	harnessContinue := newFullChainHarness(t, continueAccounts, continueStore, 10*time.Second)
 	roundStart := time.Now()
-	runSettledRounds(t, ctx, harnessContinue.frontend, settledRounds)
-	if err := harnessContinue.frontend.Submit(ctx, nextPrompt); err != nil {
+	runSettledRounds(t, ctx, harnessContinue.components, settledRounds)
+	if err := harnessContinue.components.Conversation.Submission.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("continue submit: %v", err)
 	}
-	if err := harnessContinue.frontend.WaitForIdle(ctx); err != nil {
+	if err := harnessContinue.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("continue idle: %v", err)
 	}
 	metrics.RoundsWall = time.Since(roundStart)
@@ -83,7 +83,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		t.Fatalf("continue requests=%d want %d", len(continueRecords), settledRounds+1)
 	}
 	continued := continueRecords[len(continueRecords)-1]
-	harnessContinue.frontend.Shutdown()
+	harnessContinue.components.Runtime.Lifecycle.Shutdown()
 
 	// 对照 B：同样轮数 → 重启 → ResumeSession → 提交下一轮。
 	restartRecorder := newPrefixRecordingServer(t)
@@ -96,24 +96,24 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	harnessFirst := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
-	runSettledRounds(t, ctx, harnessFirst.frontend, settledRounds)
-	sessionID := harnessFirst.frontend.Snapshot().Session.ID
+	runSettledRounds(t, ctx, harnessFirst.components, settledRounds)
+	sessionID := harnessFirst.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("session did not materialize")
 	}
-	harnessFirst.frontend.Shutdown()
+	harnessFirst.components.Runtime.Lifecycle.Shutdown()
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 	resumeStart := time.Now()
-	if err := harnessRestarted.frontend.ResumeSession(sessionID); err != nil {
+	if err := harnessRestarted.components.Session.Resume.Resume(sessionID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	waitColdContent := func(app *application.Frontend, sid string) {
+	waitColdContent := func(components assembly.Components, sid string) {
 		t.Helper()
 		deadline := time.Now().Add(8 * time.Second)
 		for {
-			snap := app.Snapshot()
+			snap := components.Session.Snapshot.Snapshot()
 			if snap.Session.ID == sid && snap.Session.Status != application.SessionStatusRestoring &&
 				strings.Contains(conversationText(snap.Conversation), fmt.Sprintf("round-%02d", settledRounds-1)) {
 				return
@@ -124,12 +124,12 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	waitColdContent(harnessRestarted.frontend, sessionID)
+	waitColdContent(harnessRestarted.components, sessionID)
 	firstResume := time.Since(resumeStart)
-	if err := harnessRestarted.frontend.Submit(ctx, nextPrompt); err != nil {
+	if err := harnessRestarted.components.Conversation.Submission.Submit(ctx, nextPrompt); err != nil {
 		t.Fatalf("restart submit: %v", err)
 	}
-	if err := harnessRestarted.frontend.WaitForIdle(ctx); err != nil {
+	if err := harnessRestarted.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("restart idle: %v", err)
 	}
 	restartRecords := restartRecorder.snapshot()
@@ -142,19 +142,19 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 	if !metrics.RestartMatches {
 		t.Fatalf("重启后首请求与不重启继续运行不一致:\n%s", strings.Join(compareWirePrefix(restarted, continued), "\n"))
 	}
-	harnessRestarted.frontend.Shutdown()
+	harnessRestarted.components.Runtime.Lifecycle.Shutdown()
 
 	// 冷恢复耗时 3 次采样取平均。
 	totalResume := firstResume
 	for repeat := 1; repeat < 3; repeat++ {
 		repeatHarness := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
 		start := time.Now()
-		if err := repeatHarness.frontend.ResumeSession(sessionID); err != nil {
+		if err := repeatHarness.components.Session.Resume.Resume(sessionID); err != nil {
 			t.Fatalf("repeat resume: %v", err)
 		}
-		waitColdContent(repeatHarness.frontend, sessionID)
+		waitColdContent(repeatHarness.components, sessionID)
 		totalResume += time.Since(start)
-		repeatHarness.frontend.Shutdown()
+		repeatHarness.components.Runtime.Lifecycle.Shutdown()
 	}
 	metrics.ColdResumeAvg = totalResume / 3
 

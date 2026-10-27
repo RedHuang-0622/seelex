@@ -1,10 +1,9 @@
 package assembly
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 // TestBackgroundSessionStateChangeNotifiesDisplaySurfaces 钉住"状态 owner 到
@@ -13,9 +12,10 @@ import (
 //
 // 当前视图会话则不需要这条额外通知（它自己的 chat.changed / snapshot.changed
 // 已经到达显示面）——通知重复会让每次状态变化多一次整份刷新。
+
 func TestBackgroundSessionStateChangeNotifiesDisplaySurfaces(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	subscription := service.Events.Subscribe(64)
 	defer subscription.Close()

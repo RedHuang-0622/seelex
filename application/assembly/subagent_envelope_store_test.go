@@ -25,14 +25,14 @@ func TestInheritedContextEnvelopeNotEnteringContextStores(t *testing.T) {
 	runtime := &fakeRuntime{mailbox: []string{inheritedContextEnvelopeFixture}}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 
-	if err := service.Submit(context.Background(), "main task"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "main task"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for _, message := range snapshot.Conversation {
 		if strings.Contains(message.Content, "以上为继承的上下文") {
 			t.Fatalf("inherited-context envelope leaked into visible conversation: %+v", message)

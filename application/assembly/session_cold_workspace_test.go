@@ -1,6 +1,8 @@
 package assembly
 
 import (
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestSessionColdWorkspaceRulesAreExtracted(t *testing.T) {
@@ -20,10 +20,10 @@ func TestSessionColdWorkspaceRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdWorkspace")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdWorkspace)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.WorkspaceApplication)(nil)) {
 		t.Fatalf("sessionColdWorkspace 字段类型 = %s", field.Type)
 	}
-	workspaceType := reflect.TypeOf((*sessionColdWorkspace)(nil))
+	workspaceType := reflect.TypeOf((*applicationsessioncold.WorkspaceApplication)(nil))
 	if _, ok := workspaceType.MethodByName("Bind"); !ok {
 		t.Fatal("sessionColdWorkspace 缺少 Bind")
 	}
@@ -63,7 +63,7 @@ func TestSessionColdWorkspaceRulesAreExtracted(t *testing.T) {
 func TestSessionColdWorkspaceBindsExistingWorkspace(t *testing.T) {
 	workspace := &model.WorkspaceInfo{ID: "workspace-a", RootPath: "C:/workspace-a"}
 	var calls []string
-	component := newSessionColdWorkspace(sessionColdWorkspaceDeps{
+	component := applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
 		BindProjectRootIfSafe: func(sessionID, rootPath string) bool {
 			calls = append(calls, "root:"+rootPath)
 			return true
@@ -83,7 +83,7 @@ func TestSessionColdWorkspaceBindsExistingWorkspace(t *testing.T) {
 func TestSessionColdWorkspaceSkipsGlobalRootWhileChatRuns(t *testing.T) {
 	workspace := &model.WorkspaceInfo{ID: "workspace-a", RootPath: "C:/workspace-a"}
 	var calls []string
-	component := newSessionColdWorkspace(sessionColdWorkspaceDeps{
+	component := applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
 		BindProjectRootIfSafe: func(string, string) bool { return false },
 		SetWriteScope:         func(string) { t.Fatal("不安全时不得切全局写作用域") },
 		BindSession: func(_ string, workspaceID string) {
@@ -100,7 +100,7 @@ func TestSessionColdWorkspaceSkipsGlobalRootWhileChatRuns(t *testing.T) {
 
 func TestSessionColdWorkspaceUnbindsOnlyTrulyUnboundSession(t *testing.T) {
 	var calls []string
-	component := newSessionColdWorkspace(sessionColdWorkspaceDeps{
+	component := applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
 		AnyChatRunning:    func() bool { return false },
 		UnbindGlobalRoot:  func() { calls = append(calls, "global") },
 		SetWriteScope:     func(workspaceID string) { calls = append(calls, "scope:"+workspaceID) },
@@ -118,7 +118,7 @@ func TestSessionColdWorkspaceUnbindsOnlyTrulyUnboundSession(t *testing.T) {
 
 func TestSessionColdWorkspaceDoesNotUnbindMissingWorkspaceMetadata(t *testing.T) {
 	var calls []string
-	component := newSessionColdWorkspace(sessionColdWorkspaceDeps{
+	component := applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
 		UnbindGlobalRoot: func() { t.Fatal("归属项目存在但元数据缺失时不得全局解绑") },
 		UnbindSession:    func(string) { t.Fatal("归属项目存在但元数据缺失时不得永久解绑") },
 	})

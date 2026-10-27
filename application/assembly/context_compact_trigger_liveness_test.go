@@ -1,32 +1,32 @@
 package assembly
 
-// 触发场景全覆盖的**存活断言**（把 2026-09-29 那条守卫从显式路径扩到全部入口）。
-//
-// 历史：装配层压缩的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
-// 帧正文落存储」放在**单个** Core.ViewMu 写锁临界区里，而生产推帧会回调宿主读面
-// （wiring/bootstrap 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
-// 于是同 goroutine 持写锁再取读锁 = 确定性自锁（f643f2d 修，见
-// docs/devlog/2026-09-29-compaction-fold-lock-granularity.md）。
-//
-// 那次的守卫只有两条，都落在**显式**路径上：
-//   - context_compact_selfdeadlock_repro_test.go（/compact + 生产归档接线）
-//   - context_compact_viewmu_hold_repro_test.go（/compact + 推帧可阻塞的索引面桩）
-//
-// 但压缩的入口不止一条（自动硬阈值 / 维护入口 / 无在飞回合的会话级 / 显式与自动
-// 并发）。本文件把**同一条判据面**铺到这些入口上：推帧进行中，交互面
-// （ViewMu 写锁本身 / Snapshot / 提交入口 / 切会话）必须照常返回。
-//
-// 判据与"修法是否还在"一一对应：
-//   - 任一入口把推帧放回 ViewMu 临界区 → 本文件对应用例立刻红（写锁拿不到）；
-//   - 推帧桩内部读一次视图快照，与生产归档器同形：若某条入口把 pushLock 与 ViewMu
-//     按相反次序取（持 ViewMu 等 pushLock，而推帧持 pushLock 等 ViewMu.RLock），
-//     这里就是死锁的观测点。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/kernel/context"
+
+	// 触发场景全覆盖的**存活断言**（把 2026-09-29 那条守卫从显式路径扩到全部入口）。
+	//
+	// 历史：装配层压缩的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
+	// 帧正文落存储」放在**单个** Core.ViewMu 写锁临界区里，而生产推帧会回调宿主读面
+	// （wiring/bootstrap 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
+	// 于是同 goroutine 持写锁再取读锁 = 确定性自锁（f643f2d 修，见
+	// docs/devlog/2026-09-29-compaction-fold-lock-granularity.md）。
+	//
+	// 那次的守卫只有两条，都落在**显式**路径上：
+	//   - context_compact_selfdeadlock_repro_test.go（/compact + 生产归档接线）
+	//   - context_compact_viewmu_hold_repro_test.go（/compact + 推帧可阻塞的索引面桩）
+	//
+	// 但压缩的入口不止一条（自动硬阈值 / 维护入口 / 无在飞回合的会话级 / 显式与自动
+	// 并发）。本文件把**同一条判据面**铺到这些入口上：推帧进行中，交互面
+	// （ViewMu 写锁本身 / Snapshot / 提交入口 / 切会话）必须照常返回。
+	//
+	// 判据与"修法是否还在"一一对应：
+	//   - 任一入口把推帧放回 ViewMu 临界区 → 本文件对应用例立刻红（写锁拿不到）；
+	//   - 推帧桩内部读一次视图快照，与生产归档器同形：若某条入口把 pushLock 与 ViewMu
+	//     按相反次序取（持 ViewMu 等 pushLock，而推帧持 pushLock 等 ViewMu.RLock），
+	//     这里就是死锁的观测点。
 	"sync"
 	"testing"
 	"time"
@@ -79,13 +79,13 @@ func triggerLivenessFixture(t *testing.T, requestID string) (*Service, *reentran
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	runtime.snapshot = func() { _ = service.Snapshot() }
+	runtime.snapshot = func() { _ = service.components.frontendSnapshot.Snapshot() }
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
 	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		sessionID = service.components.tasks.SessionIDForRequest(requestID)
 	}
@@ -122,10 +122,10 @@ func assertInteractionFaceLive(t *testing.T, service *Service, what string) {
 	}) {
 		t.Fatalf("%s：推帧期间 ViewMu 写锁拿不到（推帧落在临界区内 = 自锁/互等）", what)
 	}
-	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Snapshot() }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.components.frontendSnapshot.Snapshot() }) {
 		t.Fatalf("%s：推帧期间快照取不到（会话切不动、列表与右栏不刷新）", what)
 	}
-	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.Submit(context.Background(), "hello") }) {
+	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.components.submission.Submit(context.Background(), "hello") }) {
 		t.Fatalf("%s：推帧期间提交入口不返回（消息连队列都进不去）", what)
 	}
 	if !returnsWithin(testutil.Budget(time.Second), func() { _ = service.components.sessionResume.Resume("session-other") }) {
@@ -202,7 +202,7 @@ func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	runtime.snapshot = func() { _ = service.Snapshot() }
+	runtime.snapshot = func() { _ = service.components.frontendSnapshot.Snapshot() }
 	// 刻意**不** BeginTask：会话没有在飞回合，但有已装载的对话材料。
 	appendIndexRounds(t, service, "task-trigger-cold")
 	release := releaseGate(runtime)
@@ -210,7 +210,7 @@ func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T) {
 
 	commandReturned := make(chan struct{})
 	go func() {
-		_ = service.Submit(context.Background(), "/compact")
+		_ = service.components.submission.Submit(context.Background(), "/compact")
 		close(commandReturned)
 	}()
 
@@ -251,7 +251,7 @@ func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testin
 
 	commandDone := make(chan struct{})
 	go func() {
-		_ = service.Submit(context.Background(), "/compact")
+		_ = service.components.submission.Submit(context.Background(), "/compact")
 		close(commandDone)
 	}()
 	// 让显式这一侧走到推帧排队（或自己收口）；无论哪种，交互面都必须活着。
@@ -286,7 +286,7 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	const iterations = 6
 	step := func(what string, fn func() error) {
@@ -311,7 +311,7 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			step("显式 /compact", func() error { return service.Submit(context.Background(), "/compact") })
+			step("显式 /compact", func() error { return service.components.submission.Submit(context.Background(), "/compact") })
 		}()
 		wait.Add(1)
 		go func() {
@@ -323,7 +323,7 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_ = service.Snapshot()
+			_ = service.components.frontendSnapshot.Snapshot()
 			_ = service.components.sessionResume.Resume("session-other")
 		}()
 	}

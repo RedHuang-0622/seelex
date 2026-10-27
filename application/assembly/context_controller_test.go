@@ -45,7 +45,7 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 // 这种结构性超限仍必须显式返回 ErrProviderContextBudgetExceeded。
 func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
 	service.ViewMu.Lock()
@@ -84,7 +84,7 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 func TestPreparedRequestAutonomouslyCompactsOversizedRounds(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
@@ -122,7 +122,7 @@ func TestPreparedRequestAutonomouslyCompactsOversizedRounds(t *testing.T) {
 func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
@@ -236,7 +236,7 @@ func TestTranscriptTailAccumulatesAllSettledRoundsWhenUnlimited(t *testing.T) {
 func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})

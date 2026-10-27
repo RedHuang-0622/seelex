@@ -181,7 +181,7 @@ assembly 兼容转发与宿主判据的边界说明。
 
 ### tool_hooks_truncation_test.go
 
-- `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)` — TestToolCompleteTruncatesSnapshotOutput 验证实时截断链端到端：大工具
+- `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)`
 - `func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T)` — TestAppendHistoryLockedTruncatesRestoredOutput 验证会话恢复路径：恢复的
 
 ### tool_record_isolation_test.go
@@ -223,15 +223,3 @@ assembly 兼容转发与宿主判据的边界说明。
 - `func TestToolRecordIsPerSession(t *testing.T)` — 每会话一份：两个会话的读数互不串（切会话看到的是自己的）。
 - `func TestToolRecordWithoutSessionIsDropped(t *testing.T)` — 每条记录都要有会话归属：没有归属的调用记不进任何会话（别造出"没有主人的读数"）。
 - `func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T)`
-
-### toolrecord_host_test_aliases_test.go
-
-- `func (service *Service) stageUnitToolOutcome(sessionID, unitID, tool string, failed bool, errorText string)`
-- `func (service *Service) commitUnitToolRecord(sessionID, unitID string, seq uint64, stats []dto.ToolRecordStat)`
-- `func (service *Service) closeUnitToolRecord(sessionID, unitID string)`
-- `func (service *Service) closeSubagentToolRecordUnit(ownerSessionID, nodeID string)`
-- `func (service *Service) toolRecordDroppedReadings() map[string]int`
-- `func (service *Service) stageUnitToolOutcomeForStatus(ownerSessionID, unitID, name, status, errorText string)`
-- `func (service *Service) stageSubagentToolOutcome(ownerSessionID string, event dto.SubagentToolEvent)`
-- `func (service *Service) closeTerminalSubagentToolRecords(nodes []dto.SubAgentTreeNode)`
-- `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)`

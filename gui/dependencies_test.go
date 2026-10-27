@@ -24,17 +24,42 @@ import (
 // 为什么不复用 wiring/bootstrap 的那张表：生产装配表所在的包 import 了 gui，
 // 内部测试包（package gui）再反向 import 它就成环。这里逐字段绑定的是同一份真实
 // owner（不是替身、不是适配器），端口形状漂移时同样编译失败。
-func frontendDependencies(service *assembly.Service, frontend *application.Frontend) Dependencies {
+func frontendDependencies(service *assembly.Service) Dependencies {
 	components := assembly.ComponentsFor(service)
 	return Dependencies{
-		App:          frontend,
-		Accounts:     components.Admin.Account,
-		Switches:     components.Policy.Switch,
-		RoleSettings: components.Policy.Role,
-		Completion:   components.Conversation.Completion,
-		History:      components.Conversation.History,
-		ViewSnapshot: components.Session.Snapshot,
-		ViewEvents:   components.Session.View,
+		Accounts:         components.Admin.Account,
+		Switches:         components.Policy.Switch,
+		RoleSettings:     components.Policy.Role,
+		Completion:       components.Conversation.Completion,
+		History:          components.Conversation.History,
+		ViewSnapshot:     components.Session.Snapshot,
+		ViewEvents:       components.Session.View,
+		SessionCatalog:   components.Session.Query,
+		Draft:            components.Session.DraftEntry,
+		Resume:           components.Session.Resume,
+		Fork:             components.Session.Fork,
+		Delete:           components.Session.Delete,
+		Archive:          components.Session.Archive,
+		Meta:             components.Session.Meta,
+		SessionSubmit:    components.Session.Submit,
+		Submission:       components.Conversation.Submission,
+		Turn:             components.Runtime.Lifecycle,
+		Interaction:      components.Session.Interaction,
+		Prompts:          components.Conversation.PromptStack,
+		Perf:             components.Admin.Perf,
+		MessageEdit:      components.Conversation.EditFork,
+		Queue:            components.Conversation.Queue,
+		Conversation:     components.Conversation.Unified,
+		HistorySearch:    components.Conversation.HistorySearch,
+		References:       components.Conversation.Reference,
+		WorkspaceCatalog: components.Workspace.Projects,
+		WorkspaceActions: components.Workspace.Switch,
+		Schedules:        components.Runtime.Scheduler,
+		WorkItems:        components.Execution.WorkItem,
+		Subagents:        components.Execution.Subagent,
+		RoleSessions:     components.Policy.RoleSessions,
+		ToolRecords:      components.Execution.ToolRecords,
+		SessionSSH:       components.Session.SSH,
 	}
 }
 
@@ -42,25 +67,39 @@ func frontendDependencies(service *assembly.Service, frontend *application.Front
 // 重新声明 deps() 覆盖对应字段（凭 Shadowing 生效，不是加一个"全能"字段）。
 func (fake *fakeApplication) deps() Dependencies {
 	return Dependencies{
-		App:          fake,
-		Accounts:     fakeAccounts{recorder: fake},
-		Switches:     fakeSwitches{recorder: fake},
-		RoleSettings: &fakeRoleSettings{},
-		Completion:   fakeCompletion{recorder: fake},
-		History:      fakeHistory{recorder: fake},
-		ViewSnapshot: fakeViewSnapshot{recorder: fake},
-		ViewEvents:   fakeViewEvents{recorder: fake},
+		Accounts:         fake,
+		Switches:         fake,
+		RoleSettings:     &fakeRoleSettings{},
+		Completion:       fake,
+		History:          fake,
+		ViewSnapshot:     fake,
+		ViewEvents:       fakeViewEvents{recorder: fake},
+		SessionCatalog:   fake,
+		Draft:            fake,
+		Resume:           fake,
+		Fork:             fake,
+		Delete:           fake,
+		Archive:          fake,
+		Meta:             fake,
+		SessionSubmit:    fake,
+		Submission:       fake,
+		Turn:             fake,
+		Interaction:      fake,
+		Prompts:          fake,
+		Perf:             fake,
+		Queue:            fake,
+		Conversation:     fake,
+		HistorySearch:    fake,
+		References:       fakeReferences{recorder: fake},
+		WorkspaceCatalog: fake,
+		WorkspaceActions: fake,
+		Schedules:        fake,
+		WorkItems:        fake,
+		Subagents:        fake,
+		RoleSessions:     fake,
+		ToolRecords:      fake,
+		SessionSSH:       fake,
 	}
-}
-
-// depsFor 把传入的 app 绑成宽门面字段，其余端口仍由本记录器提供。
-//
-// 变体替身（内嵌 *fakeApplication，只覆盖自己驱动的那几个尚未迁移的方法）用
-// depsFor(self) 把自己交给桥面：端口走共享记录器，宽门面走变体本身，两者不混。
-func (fake *fakeApplication) depsFor(app Application) Dependencies {
-	deps := fake.deps()
-	deps.App = app
-	return deps
 }
 
 // ── S1：账号与权限档位 ──────────────────────────────────────────────────
@@ -198,6 +237,13 @@ type fakeHistory struct{ recorder *fakeApplication }
 func (fake fakeHistory) LoadMoreHistory(limit int) error { return fake.recorder.LoadMoreHistory(limit) }
 
 func (fake fakeHistory) LoadLatestHistory() error { return fake.recorder.LoadLatestHistory() }
+
+// fakeReferences 把工具结果读面的无 ctx owner 形状接到共享记录器。
+type fakeReferences struct{ recorder *fakeApplication }
+
+func (fake fakeReferences) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error) {
+	return fake.recorder.ToolResultContent(context.Background(), resultRef, offset, limit)
+}
 
 // ── S3：视图快照与事件订阅 ──────────────────────────────────────────────
 

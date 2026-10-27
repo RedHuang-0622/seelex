@@ -1,10 +1,5 @@
 package assembly
 
-// 阶段 2 生命周期用例（test-cases.md 第 4/8 节）：
-// TC-A3-01/02 运行中会话允许 hot_attach 回看（不触碰执行）；
-// TC-LC-02 hot_attach 不重放历史；
-// TC-LC-03 unload 释放 scope/引擎/任务运行时，重开走 cold_load。
-
 import (
 	"context"
 	"errors"
@@ -14,6 +9,11 @@ import (
 	"time"
 )
 
+// 阶段 2 生命周期用例（test-cases.md 第 4/8 节）：
+// TC-A3-01/02 运行中会话允许 hot_attach 回看（不触碰执行）；
+// TC-LC-02 hot_attach 不重放历史；
+// TC-LC-03 unload 释放 scope/引擎/任务运行时，重开走 cold_load。
+
 // TestResumeRunningSessionAllowsHotAttach（TC-A3-01 新语义）：运行中会话
 // resume 允许回看——换视图指针，不触碰执行态。
 func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
@@ -21,7 +21,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -32,7 +32,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("ResumeSession(running A) = %v, want hot attach nil", err)
 	}
 	service.ViewMu.RLock()
@@ -52,7 +52,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -64,7 +64,7 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -75,12 +75,12 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 	}
 	bID := "sess-hot-B"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("hot attach A while running: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -96,7 +96,7 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -108,7 +108,7 @@ func TestHotAttachNoReplay(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "first A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -118,17 +118,17 @@ func TestHotAttachNoReplay(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	bID := "sess-noreplay-B"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatal(err)
 	}
 	historyBefore := engine.HistoryFor(aID)
 
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("hot attach A: %v", err)
 	}
 	historyAfter := engine.HistoryFor(aID)
@@ -136,7 +136,7 @@ func TestHotAttachNoReplay(t *testing.T) {
 		t.Fatalf("hot attach replayed history: before=%d after=%d",
 			len(historyBefore), len(historyAfter))
 	}
-	if snap := service.Snapshot(); snap.Session.ID != aID {
+	if snap := service.components.frontendSnapshot.Snapshot(); snap.Session.ID != aID {
 		t.Fatalf("active = %q, want %q", snap.Session.ID, aID)
 	}
 }
@@ -161,13 +161,13 @@ func TestUnloadReleasesScope(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	const sessionID = "sess-unload"
 
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if !engine.HasSession(sessionID) {
 		t.Fatalf("session %q not loaded after cold load", sessionID)
 	}
-	if err := frontendOfTestService(service).UnloadSession(sessionID); err != nil {
+	if err := service.components.sessionLifecycle.Unload(sessionID); err != nil {
 		t.Fatalf("unload: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -180,12 +180,12 @@ func TestUnloadReleasesScope(t *testing.T) {
 		t.Fatal("unload retained engine instance")
 	}
 	// 重开走 cold_load：从持久化恢复。
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("reopen after unload: %v", err)
 	}
-	if !containsMessageContent(service.Snapshot().Conversation, "persisted content") {
+	if !containsMessageContent(service.components.frontendSnapshot.Snapshot().Conversation, "persisted content") {
 		t.Fatalf("reopened conversation lost persisted content: %v",
-			conversationTextsForTest(service.Snapshot().Conversation))
+			conversationTextsForTest(service.components.frontendSnapshot.Snapshot().Conversation))
 	}
 }
 
@@ -199,7 +199,7 @@ func TestUnloadRejectsRunningSession(t *testing.T) {
 		release:    make(chan struct{}),
 	}
 	service := newTestService(t, engine)
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -207,16 +207,16 @@ func TestUnloadRejectsRunningSession(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("chat did not start")
 	}
-	sessionID := service.Snapshot().Session.ID
-	if err := frontendOfTestService(service).UnloadSession(sessionID); !errors.Is(err, ErrChatRunning) {
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if err := service.components.sessionLifecycle.Unload(sessionID); !errors.Is(err, ErrChatRunning) {
 		close(engine.release)
 		t.Fatalf("unload while running = %v, want ErrChatRunning", err)
 	}
 	close(engine.release)
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).UnloadSession(sessionID); err != nil {
+	if err := service.components.sessionLifecycle.Unload(sessionID); err != nil {
 		t.Fatalf("unload after idle: %v", err)
 	}
 	service.ViewMu.RLock()

@@ -10,10 +10,11 @@ import (
 // TestSessionSnapshotTransportShape（G3）：SessionSnapshot 是传输完备的会话
 // 粒度制品——JSON 不含进程级目录/工作区/能力清单字段，capabilities 显式声明
 // session_snapshot；ProcessSnapshot 反之不含会话字段。协议版本保持原值。
+
 func TestSessionSnapshotTransportShape(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionID := service.Snapshot().Session.ID
-	snapshot, err := frontendOfTestService(service).SnapshotOf(sessionID)
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	snapshot, err := service.components.sessionQuery.SnapshotOf(sessionID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(active): %v", err)
 	}

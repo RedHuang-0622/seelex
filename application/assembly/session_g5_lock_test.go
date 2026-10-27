@@ -1,10 +1,5 @@
 package assembly
 
-// 波 3 G5 锁拆分验收靶场：流式输出进行中，两个会话在「活跃 ↔ 后台」之间
-// 高频热切换，穿插 Snapshot 读与目录刷新，配合 -race 运行。钉住 View.mu
-// 访问器化后的内存安全：会话 View 的增量写（后台路径 view.Mutate）与镜像
-// 读（热挂载 view.Read）互斥，不再依赖"写者恒持 ViewMu"这一隐式前提。
-
 import (
 	"context"
 	"strings"
@@ -12,6 +7,11 @@ import (
 	"testing"
 	"time"
 )
+
+// 波 3 G5 锁拆分验收靶场：流式输出进行中，两个会话在「活跃 ↔ 后台」之间
+// 高频热切换，穿插 Snapshot 读与目录刷新，配合 -race 运行。钉住 View.mu
+// 访问器化后的内存安全：会话 View 的增量写（后台路径 view.Mutate）与镜像
+// 读（热挂载 view.Read）互斥，不再依赖"写者恒持 ViewMu"这一隐式前提。
 
 // streamEngine 是多会话路由引擎：ChatStreamFor 先按固定节奏吐出 chunk
 // （模拟流式正文），再阻塞等待 release（与 multiSessionEngine 同构）。
@@ -60,10 +60,10 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 		interval:           time.Millisecond,
 	}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatalf("submit A: %v", err)
 	}
 	aID := engine.SessionID()
@@ -71,10 +71,10 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 
 	const bID = "sess-stream-B"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("hot attach B: %v", err)
 	}
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatalf("background submit B: %v", err)
 	}
 	waitChatStarted(t, engine.started[bID])
@@ -90,19 +90,19 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				_ = service.Snapshot()
+				_ = service.components.frontendSnapshot.Snapshot()
 			}
 		}
 	}()
 	for round := 0; round < 20; round++ {
-		if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+		if err := service.components.sessionResume.Resume(aID); err != nil {
 			t.Fatalf("hot attach A round %d: %v", round, err)
 		}
-		_ = service.Snapshot()
-		if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+		_ = service.components.frontendSnapshot.Snapshot()
+		if err := service.components.sessionResume.Resume(bID); err != nil {
 			t.Fatalf("hot attach B round %d: %v", round, err)
 		}
-		_ = service.Snapshot()
+		_ = service.components.frontendSnapshot.Snapshot()
 		service.components.sessions.RequestCatalogRefresh()
 	}
 	close(stop)
@@ -112,7 +112,7 @@ func TestConcurrentStreamingViewSwitchNoPollution(t *testing.T) {
 	close(engine.release[bID])
 	drainCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(drainCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(drainCtx); err != nil {
 		t.Fatalf("sessions did not drain (deadlock?): %v", err)
 	}
 

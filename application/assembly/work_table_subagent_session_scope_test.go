@@ -1,24 +1,24 @@
 package assembly
 
-// E 靶场：子代理行的**归属会话**必须来自"发起 fork 的那个会话"，不是"正在被
-// 同步的那个会话"。
-//
-// 现场症状（用户报告）：别的会话的工作表格里出现本会话的子代理行；反过来本会话
-// 「仅本会话」筛不到自己的子代理。根因在同步路径：子代理树是**进程级**的一张树
-// （fork 的子代理节点没有归属主会话标记），而 syncTasksFromSourcesFor 把整棵树
-// 投影进"被同步会话"的 task scope——视图在 B 时同步 A，就把 B 的子代理写进 A 的
-// 分区（还顺带把 A 的行贴上 B 的会话号）。前端按 `row.session_id` 做会话轴
-// （「仅本会话」与「实发」都取它），于是行落在谁的表格里完全取决于"谁触发了同步"。
-//
-// 目标约束（会话粒度）：
-//   - 归属 A 的子代理只进 A 的 scope / 台账，归属 B 的只进 B 的；
-//   - 视图会话（活跃注册表）同步时同样只收自己的行；
-//   - 后台会话同步时不再把视图会话（或任何别的会话）的子代理写进它的分区。
-
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
+
+	// E 靶场：子代理行的**归属会话**必须来自"发起 fork 的那个会话"，不是"正在被
+	// 同步的那个会话"。
+	//
+	// 现场症状（用户报告）：别的会话的工作表格里出现本会话的子代理行；反过来本会话
+	// 「仅本会话」筛不到自己的子代理。根因在同步路径：子代理树是**进程级**的一张树
+	// （fork 的子代理节点没有归属主会话标记），而 syncTasksFromSourcesFor 把整棵树
+	// 投影进"被同步会话"的 task scope——视图在 B 时同步 A，就把 B 的子代理写进 A 的
+	// 分区（还顺带把 A 的行贴上 B 的会话号）。前端按 `row.session_id` 做会话轴
+	// （「仅本会话」与「实发」都取它），于是行落在谁的表格里完全取决于"谁触发了同步"。
+	//
+	// 目标约束（会话粒度）：
+	//   - 归属 A 的子代理只进 A 的 scope / 台账，归属 B 的只进 B 的；
+	//   - 视图会话（活跃注册表）同步时同样只收自己的行；
+	//   - 后台会话同步时不再把视图会话（或任何别的会话）的子代理写进它的分区。
 	"strings"
 	"testing"
 )
@@ -50,7 +50,7 @@ func subagentSessionScopeFixture(t *testing.T) (*fakeRuntime, *Service) {
 func TestSubagentRowsStayOutOfActiveRegistryOfOtherSessions(t *testing.T) {
 	runtime, service := subagentSessionScopeFixture(t)
 
-	service.syncTasksFromSources()
+	service.components.workTableRuntime.SyncFromSources()
 
 	rows := runtime.TaskSnapshotFor("session-a")
 	if !hasTaskKey(rows, "subagent:node-a") {
@@ -85,7 +85,7 @@ func TestBackgroundSyncKeepsForeignSubagentRowsOut(t *testing.T) {
 	service.ViewMu.Unlock()
 	runtime.currentTaskSession = "session-b"
 
-	service.syncTasksFromSourcesFor("session-a")
+	service.components.workTableRuntime.SyncFromSourcesFor("session-a")
 
 	background := runtime.TaskSnapshotFor("session-a")
 	if hasTaskKey(background, "subagent:node-b") {
@@ -101,7 +101,7 @@ func TestBackgroundSyncKeepsForeignSubagentRowsOut(t *testing.T) {
 func TestSubagentWorkItemCarriesOwningSession(t *testing.T) {
 	runtime, service := subagentSessionScopeFixture(t)
 
-	service.syncTasksFromSources()
+	service.components.workTableRuntime.SyncFromSources()
 	rows := worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	found := false
 	for _, row := range rows {

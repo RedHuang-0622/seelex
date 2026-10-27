@@ -1,32 +1,30 @@
 package test
 
-// project_board_i7_test.go — I7 回归：项目看板**不进模型上下文**（M4，T4.1/T4.2）。
-//
-// 两条判据，各钉一半：
-//
-//	T4.1 **装配前缀**：能力开/关两臂的 PromptLayers 渲染字节**逐字节相同**——
-//	     投影不进 system/project 前缀，开关本身也不改前缀（能开能关的东西不许进缓存前缀）。
-//	T4.2 **整份请求**：把一份**带标记**的投影真的写进存储面，再跑一轮真实请求：
-//	     标记不得出现在 provider 请求体的**任何位置**（前缀与尾部都不进），投影文件名与
-//	     投影 key 前缀同样不出现。
-//
-// 为什么要有 T4.2 这一半：只看前缀会漏掉"装配层把投影塞进请求尾部"这条路径——而尾部
-// 同样是缓存前缀的一部分（前后两轮之间尾部一变，缓存就整段作废）。
-
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application/assembly"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
+
+	// project_board_i7_test.go — I7 回归：项目看板**不进模型上下文**（M4，T4.1/T4.2）。
+	//
+	// 两条判据，各钉一半：
+	//
+	//	T4.1 **装配前缀**：能力开/关两臂的 PromptLayers 渲染字节**逐字节相同**——
+	//	     投影不进 system/project 前缀，开关本身也不改前缀（能开能关的东西不许进缓存前缀）。
+	//	T4.2 **整份请求**：把一份**带标记**的投影真的写进存储面，再跑一轮真实请求：
+	//	     标记不得出现在 provider 请求体的**任何位置**（前缀与尾部都不进），投影文件名与
+	//	     投影 key 前缀同样不出现。
+	//
+	// 为什么要有 T4.2 这一半：只看前缀会漏掉"装配层把投影塞进请求尾部"这条路径——而尾部
+	// 同样是缓存前缀的一部分（前后两轮之间尾部一变，缓存就整段作废）。
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/assembly"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // projectBoardMarker 是写进投影载荷的**唯一标记**：它只可能来自投影文件，
@@ -42,9 +40,9 @@ const projectBoardMarkerSession = "session-marker"
 // 为什么渲染而不是直接比较切片：这条判据问的是"发给 provider 的前缀字节一样不一样"，
 // 而 PromptStack.Render 的拼接规则（kind 顺序、分隔）正是那串字节的生成规则——按同样
 // 的字段顺序拼出来即可，不需要知道分隔符细节。
-func promptLayerBytes(t *testing.T, app *application.Frontend) string {
+func promptLayerBytes(t *testing.T, components assembly.Components) string {
 	t.Helper()
-	layers := app.PromptLayers()
+	layers := components.Conversation.PromptStack.Layers()
 	if len(layers) == 0 {
 		t.Fatal("装配前缀为空：这条用例会退化成同义反复，先修装配")
 	}
@@ -80,7 +78,7 @@ func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, p
 		t.Fatalf("建工作区: %v", err)
 	}
 	harness.workspaces.BindSession(projectBoardMarkerSession, workspace.ID)
-	sinkRoot := harness.frontend.ProjectRootFor(projectBoardMarkerSession)
+	sinkRoot := harness.components.Execution.ProjectBoard.ProjectRootFor(projectBoardMarkerSession)
 	if strings.TrimSpace(sinkRoot) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：这条用例会退化成同义反复")
 	}
@@ -114,7 +112,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 
 	offRoot := t.TempDir()
 	off := newFullChainHarnessWithLimits(t, AccountsPath, offRoot, 30*time.Second, true, limit.Limits{})
-	offPrefix := promptLayerBytes(t, off.frontend)
+	offPrefix := promptLayerBytes(t, off.components)
 
 	onRoot := t.TempDir()
 	onLimits := limit.Limits{}
@@ -125,19 +123,19 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
-		on.frontend.WorkTableRowsFor, assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
-		assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, on.frontend.ProjectRootFor,
+		on.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, on.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	on.frontend.SetProjectBoardSink(sink)
+	on.components.Execution.ProjectBoardSink.Store(sink)
 	registry.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
 	writeMarkedProjectBoardProjection(t, on, onRoot)
 
-	onPrefix := promptLayerBytes(t, on.frontend)
+	onPrefix := promptLayerBytes(t, on.components)
 	if offPrefix != onPrefix {
 		t.Fatalf("能力开/关的装配前缀必须逐字节相同（I7）\n off=%q\n on =%q",
 			clipForFailure(offPrefix, 800), clipForFailure(onPrefix, 800))
@@ -165,25 +163,25 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.frontend.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
-		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
+		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
-	harness.frontend.SetProjectBoardSink(sink)
+	harness.components.Execution.ProjectBoardSink.Store(sink)
 	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
-	if err := harness.frontend.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("turn did not become idle: %v", err)
 	}
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 	}
 

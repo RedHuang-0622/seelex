@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/session"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +43,7 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	catalog := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 2 }).Sessions
 	if len(catalog) != 2 {
@@ -75,13 +75,13 @@ func TestSessionTitleUsesFirstUserQuestion(t *testing.T) {
 
 func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if err := service.Submit(context.Background(), "  first live question  "); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "  first live question  "); err != nil {
 		t.Fatal(err)
 	}
-	if got := service.Snapshot().Session.Name; got != "first live question" {
+	if got := service.components.frontendSnapshot.Snapshot().Session.Name; got != "first live question" {
 		t.Fatalf("current session name = %q", got)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -102,11 +102,11 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 				Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 				Skills: fakeSkills{}, Sessions: test.sessions,
 			})
-			defer frontendOfTestService(service).Shutdown()
-			if err := service.Submit(context.Background(), "persist before release"); err != nil {
+			defer service.components.lifecycleApplication.Shutdown()
+			if err := service.components.submission.Submit(context.Background(), "persist before release"); err != nil {
 				t.Fatal(err)
 			}
-			if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+			if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			engine.mu.Lock()
@@ -126,12 +126,12 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	engine.mu.Lock()
@@ -141,7 +141,7 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	if startsBeforeSubmit != 0 || !clearedForDraft {
 		t.Fatalf("draft engine state: starts=%d cleared=%v", startsBeforeSubmit, clearedForDraft)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if !snapshot.Session.Draft || snapshot.Session.ID == "" || snapshot.Session.Name != "新会话" {
 		t.Fatalf("draft session = %+v", snapshot.Session)
 	}
@@ -155,10 +155,10 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	}
 	sessions.mu.Unlock()
 
-	if err := service.Submit(context.Background(), "first lazy question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first lazy question"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.Draft || snapshot.Session.ID != draftID || snapshot.Session.Name != "first lazy question" {
 		t.Fatalf("materialized session = %+v", snapshot.Session)
 	}
@@ -169,7 +169,7 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	if !loaded || sessionID != draftID {
 		t.Fatalf("materialize must activate the pre-assigned draft ID: loaded=%v sessionID=%q draftID=%q", loaded, sessionID, draftID)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -183,17 +183,17 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if draftID == "" {
 		t.Fatal("draft session must hold a pre-assigned session ID")
 	}
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, exists := workspaces.bindings[""]; exists {
@@ -202,7 +202,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session was bound before first request: %v", workspaces.bindings)
 	}
-	if err := service.Submit(context.Background(), "project question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "project question"); err != nil {
 		t.Fatal(err)
 	}
 	if got := workspaces.bindings[draftID]; got != "project-1" {
@@ -211,7 +211,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if sessions.Workspace() != "project-1" || runtime.ProjectRoot() != root {
 		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.Workspace(), runtime.ProjectRoot())
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -223,9 +223,9 @@ func TestCreateWorkspacesPublishesCatalogWithoutBindingCurrentSession(t *testing
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	result, err := frontendOfTestService(service).CreateWorkspaces([]dto.WorkspaceCreateRequest{
+	result, err := service.components.workspaceApplication.CreateWorkspaces([]dto.WorkspaceCreateRequest{
 		{Name: "alpha", RootPath: t.TempDir()},
 	})
 	if err != nil {
@@ -234,7 +234,7 @@ func TestCreateWorkspacesPublishesCatalogWithoutBindingCurrentSession(t *testing
 	if len(result.Workspaces) != 1 {
 		t.Fatalf("created workspaces = %d, want 1", len(result.Workspaces))
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if len(snapshot.Workspaces) != 1 || snapshot.Workspaces[0].Name != "alpha" {
 		t.Fatalf("snapshot workspace catalog was not refreshed: %+v", snapshot.Workspaces)
 	}
@@ -253,20 +253,20 @@ func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// Startup with a lazy engine must present an unmaterialized draft so the
 	// first submission creates a real session under the pre-assigned draft ID.
-	initial := service.Snapshot()
+	initial := service.components.frontendSnapshot.Snapshot()
 	if !initial.Session.Draft || initial.Session.ID == "" {
 		t.Fatalf("initial lazy session = %+v, want Draft=true with pre-assigned ID", initial.Session)
 	}
 	draftID := initial.Session.ID
 
-	if err := service.Submit(context.Background(), "first question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.Draft || snapshot.Session.ID != draftID {
 		t.Fatalf("materialized session = %+v", snapshot.Session)
 	}
@@ -291,12 +291,12 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
@@ -331,19 +331,19 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.ProjectRoot() != root || sessions.Workspace() != "project-1" || workspaces.bindings["session-1"] != "project-1" {
 		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.ProjectRoot(), sessions.Workspace(), workspaces.bindings)
 	}
-	if err := service.Submit(context.Background(), "/new"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/new"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.CurrentWorkspace != nil {
 		t.Fatalf("/new must clear project binding: %+v", snapshot.CurrentWorkspace)
 	}
@@ -360,10 +360,10 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if runtime.ProjectRoot() != "" || sessions.Workspace() != "" {
 		t.Fatalf("draft must unbind project scope: root=%q sessionStore=%q", runtime.ProjectRoot(), sessions.Workspace())
 	}
-	if err := service.Submit(context.Background(), "first unbound question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first unbound question"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	if got := workspaces.bindings[draftID]; got != "" {
 		t.Fatalf("materialized task session must stay unbound: %v", workspaces.bindings)
 	}
@@ -376,7 +376,7 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if snapshot.Session.Name != "first unbound question" {
 		t.Fatalf("materialized session name = %q", snapshot.Session.Name)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -393,19 +393,19 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if !snapshot.Session.Draft || snapshot.Session.ID == "" {
 		t.Fatalf("workspace session must stay a draft with pre-assigned ID: %+v", snapshot.Session)
 	}
@@ -416,17 +416,17 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
 	}
-	if err := service.Submit(context.Background(), "first project question"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first project question"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	if workspaces.bindings[draftID] != "project-1" || sessions.Workspace() != "project-1" {
 		t.Fatalf("materialized workspace session did not bind: bindings=%v sessionStore=%q", workspaces.bindings, sessions.Workspace())
 	}
 	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" || snapshot.SessionWorkspaces[draftID] != "project-1" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -443,8 +443,8 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	defer service.components.lifecycleApplication.Shutdown()
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.ProjectRoot() != root || sessions.Workspace() != "project-1" {
@@ -469,7 +469,7 @@ func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 2 })
 	if len(snapshot.Workspaces) != 2 || len(snapshot.Sessions) != 2 {
@@ -500,9 +500,9 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
 	if sessions.LoadedWorkspace() != "project-1" || sessions.Workspace() != "project-1" {
@@ -528,9 +528,9 @@ func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
 	if workspaces.bindings["saved"] != "project-1" {
@@ -557,17 +557,17 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
 	sessions.SetWorkspace("project-2") // simulate unrelated active-scope drift
-	if err := frontendOfTestService(service).LoadMoreHistory(50); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(50); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.LoadedWorkspace() != "project-1" || service.Snapshot().HistoryOffset != 0 {
-		t.Fatalf("history range workspace=%q offset=%d", sessions.LoadedWorkspace(), service.Snapshot().HistoryOffset)
+	if sessions.LoadedWorkspace() != "project-1" || service.components.frontendSnapshot.Snapshot().HistoryOffset != 0 {
+		t.Fatalf("history range workspace=%q offset=%d", sessions.LoadedWorkspace(), service.components.frontendSnapshot.Snapshot().HistoryOffset)
 	}
 }
 
@@ -583,12 +583,12 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).BindWorkspace("project-2"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-2"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.ID != "session-new" || snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-2" {
 		t.Fatalf("switched snapshot=%+v workspace=%+v", snapshot.Session, snapshot.CurrentWorkspace)
 	}
@@ -603,7 +603,7 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 	t.Parallel()
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if len(snapshot.Sessions) != 1 {
@@ -620,7 +620,7 @@ func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	defer close(sessions.release)
 
 	select {
@@ -629,7 +629,7 @@ func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 		t.Fatal("catalog worker did not start")
 	}
 	for index := 0; index < 10; index++ {
-		_ = service.Snapshot()
+		_ = service.components.frontendSnapshot.Snapshot()
 	}
 	if calls := sessions.calls.Load(); calls != 1 {
 		t.Fatalf("Snapshot invoked SessionPort.List %d times while catalog was blocked", calls)
@@ -649,7 +649,7 @@ func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
 		t.Fatal("catalog worker did not start")
 	}
 	started := time.Now()
-	frontendOfTestService(service).Shutdown()
+	service.components.lifecycleApplication.Shutdown()
 	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
 		t.Fatalf("shutdown waited for blocked catalog I/O: %s", elapsed)
 	}
@@ -673,13 +673,13 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	service.Core.Snapshot.Runtime.WorkTable = worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	service.ViewMu.Unlock()
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if got := runtime.TaskSnapshot(); len(got) != 1 {
 		t.Fatalf("global work table must keep prior rows on new session: %+v", got)
 	}
-	if got := service.Snapshot().Runtime.WorkTable; len(got) != 1 {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.WorkTable; len(got) != 1 {
 		t.Fatalf("snapshot worktable must show the global ledger on new session: %+v", got)
 	}
 }
@@ -692,16 +692,16 @@ func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:  fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "continue"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for service.Snapshot().Chat.Running && time.Now().Before(deadline) {
+	for service.components.frontendSnapshot.Snapshot().Chat.Running && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
 	sessions.mu.Lock()
@@ -713,15 +713,15 @@ func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 
 func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.HistoryOffset = 1
 	service.ViewMu.Unlock()
 
-	if err := frontendOfTestService(service).LoadMoreHistory(1); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(1); err != nil {
 		t.Fatal(err)
 	}
-	conversation := service.Snapshot().Conversation
+	conversation := service.components.frontendSnapshot.Snapshot().Conversation
 	if len(conversation) == 0 || conversation[0].ID == "" {
 		t.Fatalf("loaded history message has no stable ID: %#v", conversation)
 	}
@@ -729,13 +729,13 @@ func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 
 func TestResumeCommandOpensSessionInteraction(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
-	if err := service.Submit(context.Background(), "/resume"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "/resume"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Interaction == nil || snapshot.Interaction.Kind != "session" {
 		t.Fatalf("resume should open a session interaction: %#v", snapshot.Interaction)
 	}

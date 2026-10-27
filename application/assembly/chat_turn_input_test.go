@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -18,10 +19,10 @@ func TestChatTurnInputRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnInput")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnInput)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnInputApplication)(nil)) {
 		t.Fatalf("conversationTurnInput 字段类型 = %s", field.Type)
 	}
-	inputType := reflect.TypeOf((*conversationTurnInput)(nil))
+	inputType := reflect.TypeOf((*applicationconversation.TurnInputApplication)(nil))
 	if _, ok := inputType.MethodByName("Prepare"); !ok {
 		t.Fatal("conversationTurnInput 缺少 Prepare")
 	}
@@ -54,7 +55,7 @@ func TestChatTurnInputRulesAreCentralized(t *testing.T) {
 
 func TestConversationTurnInputPreparesPromptAndContext(t *testing.T) {
 	var calls []string
-	input := newConversationTurnInput(conversationTurnInputDeps{
+	input := applicationconversation.NewTurnInput(applicationconversation.TurnInputDeps{
 		ApplyPrompt: func(sessionID, requestID string) {
 			calls = append(calls, "prompt:"+sessionID+":"+requestID)
 		},
@@ -83,7 +84,7 @@ func TestConversationTurnInputPreparesPromptAndContext(t *testing.T) {
 
 func TestConversationTurnInputStopsOnContextError(t *testing.T) {
 	prepareErr := errors.New("context failed")
-	input := newConversationTurnInput(conversationTurnInputDeps{
+	input := applicationconversation.NewTurnInput(applicationconversation.TurnInputDeps{
 		ApplyPrompt: func(string, string) {},
 		PrepareContext: func(string, string, string) (string, error) {
 			return "", prepareErr

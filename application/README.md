@@ -17,36 +17,19 @@
   `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
   [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
 
-## 五组窄接口（`faces_api.go`，M5-R10a）
+## 前端消费方依赖
 
-门面按 plan §1.3 的「用例方法面收窄成五组」落地（契约
-[`docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md`](../docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md) §1）：
+`application` 根包只保留稳定别名、常量、错误与无状态 helper，不提供统一前端门面。
+可变的业务入口由领域 owner 直接拥有，组合根从 `assembly.Components` 读取 owner 指针：
 
-| 组 | 形态 | 内容 |
-|---|---|---|
-| A 类型与事件身份 | `FaceTypeNames` 清单（89 个名字，别名表达不了方法集） | `application/application.go` 的 `type (...)` 别名块，按字母序逐字钉住 |
-| B 读投影 | `ViewFace`（49 个方法） | 只读查询、订阅、历史窗口读回；项目看板装配方法已移出 |
-| C 命令面 | `CommandFace`（40 个方法） | 提交/取消、会话与工作区生命周期（含批量项目登记）、子代理与角色草稿动作 |
-| D 档位与策略 | `PolicyFace`（24 个方法） | 限制、档位、账号、存储配置、插件、角色生命周期、调度策略 |
-| E 队列面 | `QueueFace`（3 个方法）+ 包级无状态函数 | 排队输入召回/调序、输入建议；`HasSigilPrefix` / `SigilOf` / `ValidEffortLevels` / `AccountWindowPresets` 仍是包级函数（接口装不下函数） |
+- GUI、TUI、headless、console 与 e2e scenario 在各自包内声明实际消费的窄接口；
+- `wiring/bootstrap` 把 owner 逐字段注入这些依赖，绑定语句本身就是编译期结构断言；
+- 单个消费方接口不超过 20 个方法，不按 UI 页面重新拼接万能接口；
+- `assembly.Components` 只含分组 owner 指针，不含方法、函数闭包、业务判据或锁；
+- 前端不直接 import `application/assembly`、Backend、Middle 或 Store 实现。
 
-- 四个接口的方法名与签名取自今日门面已导出的方法面：不改名、不改签名——
-  它们就是 gui/tui 今天消费的兼容契约（I5）。方法集由
-  `e2e/facade_narrow_faces_test.go` 逐字冻结。
-- `Frontend` 在**结构上**满足新旧入站面：`application/frontend_assertions.go` 有
-  `var _ ViewFace = (*Frontend)(nil)` 一族编译期钉子（契约 §1.2 第 1 条）；
-  `Service` 只保留尚未迁出的兼容方法。
-- 不在四组的第三类方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：
-  ToolRecord 装配/落盘入口、事件钩子与 `TaskTerminalHandler`。其余装配、调度、
-  订阅、Prompt 与 ProviderHistory 入口已经由 compat 或领域包承接。清单是
-  `e2e/facade_narrow_faces_test.go` 里的 `assemblyOnlyMethods`。
-- 机械断言（`e2e/facade_narrow_faces_test.go`，契约 §1.2）：①四个面的方法集与本文件冻结清单逐字比对；
-  ②`Service` 的每个公开方法要么在四组、要么在装配面清单（本片追加，防止新方法绕过分组）；
-  ③A 组别名集合逐字等于 `FaceTypeNames`（解析 `application.go` 的 `type (...)` 块——Go 反射列不出包级别名，
-  故按事实源源码比对）；④`git diff -- gui tui` 为空（I5）。
-- 分类口径：B = 只读投影/订阅；C = 会改会话、对话或工作区状态的动作；D = 档位与策略（含账号、存储配置、
-  插件、角色、调度）；E = 队列与输入建议。逐方法分组理由是生成器
-  `tmp/reshape/r10a_groups.py` 的显式清单，新增方法必须显式归类（断言 ② 会拦住漏网）。
+结构门禁以现有源码为事实源：根包不导出旧宽入口，assembly 不保留前端转发方法，
+前端缺失依赖是显式装配错误，不存在运行时 optional type assertion。
 
 ### Application 结构预算（AP-001，已实现）
 
@@ -55,21 +38,17 @@
 [`testdata/service_methods.txt`](testdata/service_methods.txt) 为事实源：
 
 - `Service` 公开业务方法已归零；新增必须显式更新预算，能力入口只能由
-  capability package 与 `compat.Frontend` 承载；
+  capability package 与消费方自己的窄依赖承载；
 - 冻结 `application/assembly` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
 - 冻结 `application/assembly` 非测试生产文件 54 个、生产代码 7,092 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
   当前 0 个唯一包，预算只允许保持为零。Application
-  生产代码已不再直接 import `store`。迁移期 identity facade 与 host adapter
-  必须在兼容层台账登记，不得成为第二份状态机；
-- 校验
-  [`docs/2026-10-25-application-modularization/implementation.md`](../docs/2026-10-25-application-modularization/implementation.md)
-  中的兼容层台账存在。
+  生产代码已不再直接 import `store`。identity facade 与 host adapter
+  必须保持窄端口，不得成为第二份状态机。
 
-本轮 AP-001 只增加门禁和台账，不改变 API 行为；AP-002 起的小接口仍须让
-`Service` 结构满足，旧四组接口在调用方归零前保留。
+本轮 AP-001 只增加结构预算，不改变 API 行为。
 
 ### 入站 API 契约净化（AP-003，已实现）
 
@@ -90,38 +69,6 @@
 该数字由内部实现迁移单独治理，
 不与入站 API 纯度混算。
 
-### 按能力拆分的入站 API（AP-002，已实现）
-
-[`faces_api.go`](faces_api.go) 同时定义四组兼容接口和 AP-002 能力型入站面，
-接口事实源不再寄居 `application/assembly`。每个接口不超过
-20 个方法，调用方可以直接声明所需能力：
-
-| 接口 | 方法数 | 用途 |
-|---|---:|---|
-| `ConversationAPI` | 10 | 提交、取消、恢复、对话视图与审批决议 |
-| `SessionAPI` | 19 | 会话目录、快照、历史窗口、订阅、恢复与 fork |
-| `ExecutionQueryAPI` | 13 | WorkItem、teammate、子代理、历史与工作表格只读投影 |
-| `WorkItemQueryAPI` | 2 | WorkItem 执行记录与工作表格只读投影 |
-| `TeammateQueryAPI` | 3 | teammate 安全详情与 WorkItem 会话实时只读投影 |
-| `TeamworkQueryAPI` | 1 | 团队看板只读事实；项目看板计划/状态已归装配面 |
-| `SubagentQueryAPI` | 2 | 子代理详情与中断恢复目录 |
-| `TranscriptQueryAPI` | 3 | transcript、历史检索与工具结果正文回读 |
-| `ExecutionCommandAPI` | 1 | WorkItem 用户可写状态 |
-| `WorkspaceAPI` | 15 | 工作区生命周期、文件/Git 读取、写入与审阅 |
-| `GoalAPI` | 9 | Goal 状态机与治理视图 |
-| `PolicyAPI` | 9 | 当前会话/进程策略与能力切换 |
-| `AdminAPI` | 13 | 账号与调度任务管理 |
-| `RoleAPI` | 11 | 角色会话、草稿、顺序与权限读面 |
-| `SubagentAPI` | 6 | 子代理派发、详情、恢复与树清理 |
-| `StateAPI` | 9 | Snapshot、订阅、空闲与只读运行投影 |
-| `QueueAPI` | 3 | 排队输入编辑与建议 |
-| `LifecycleAPI` | 2 | 优雅停机与强制关闭 |
-
-`var _ ConversationAPI = (*Frontend)(nil)` 一族是编译期结构断言；
-[`api_partition_test.go`](api_partition_test.go) 另有机械断言：单个 API 不超过
-20 方法，且旧 `ViewFace`/`CommandFace`/`PolicyFace`/`QueueFace` 的方法全部
-被新接口联合覆盖。此批只新增接口，不迁移 GUI/TUI 调用点，wire 字段与行为不变。
-
 ### 只读查询面（AP-004 / AP-005，已实现）
 
 - `SessionQuery`：`ListSessions`、`ProjectRootFor`、`SessionMeta`、
@@ -136,7 +83,7 @@
 - `BuildResidentSnapshot`：统一驻留 Snapshot 的字段克隆、Task/Plan 深拷贝和
   WorkTable enrichment；assembly 的 `snapshotOfResident` 只提供锁内读面。
 
-`LoadMoreHistory` / `LoadLatestHistory` 已由 `Frontend` 直接调用历史查询组件；
+`LoadMoreHistory` / `LoadLatestHistory` 已由 GUI/TUI 的消费方端口直接调用历史查询组件；
 历史窗口算法仍只有
 [`middle/switch/history`](../middle/switch/history/README.md) 一份实现；
 `application/assembly` 通过 `application/history.WindowAssembler` 消费该唯一实现；
@@ -192,14 +139,13 @@ Wiring 注入 Middle `Assembler`，assembly 不再 import `middle/switch/history
 | [`conversation/`](conversation/README.md) | Conversation Queue 与 ChatState 应用面 |
 | [`conversation/context/`](conversation/context/README.md) | 显式上下文压缩应用编排与回执 |
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
-| [`compat/`](compat/README.md) | 迁移期前端兼容适配器；已承接全部非共享状态的旧入口 |
 
 退出条件不是“文件存在”：旧 `Service` 入口必须只保留一行转发、assembly
 不得定义第二份领域实现、生产行数只能收紧，并且 facade 闭包只登记真实依赖。
-`Service` 不再暴露业务方法。组件 getter、输入
+`Service` 不再暴露业务方法，也不再提供统一前端门面。组件 getter、输入
 facade、订阅、ProviderHistory、PromptLayers、ProjectBoardSink 与 ToolRecord
-公开入口已经退场；
-`compat.Frontend` 同签名承接，旧四组窄接口也继续兼容。
+旧公开入口已经退场；GUI、TUI、headless 与 console 直接消费各自的窄 owner 依赖，
+旧四组宽接口已删除。
 
 ### SessionQuery durable 读取面（AP-013 首个切片，已实现）
 
@@ -212,7 +158,7 @@ facade、订阅、ProviderHistory、PromptLayers、ProjectBoardSink 与 ToolReco
 `application/conversation/queue.go` 把排队输入的锁内编排从 `Service` 收拢到
 `conversationQueue`。`SessionUnit.Queue` / `ChatState` 仍是唯一状态所有者；
 组件只持窄依赖，不持完整 `Service`，也不复制队列内容。
-`Frontend.ReorderQueuedInput` / `RecallQueuedInput` 直接调用该组件。
+GUI 的 `Queue` 与 TUI 自己的队列依赖直接调用该组件。
 
 AP-007 的完整聚合边界、不变量、状态恢复来源和 AP-003 验收口径见
 [`ap-007-conversation-design.md`](../docs/2026-10-25-application-modularization/ap-007-conversation-design.md)。

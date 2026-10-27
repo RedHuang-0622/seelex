@@ -2,11 +2,10 @@ package assembly
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // stagedChatEngine 分两段流式输出：第一段在提交后立即到达，第二段在
@@ -50,9 +49,9 @@ var _ contract.SessionChatEngine = (*stagedChatEngine)(nil)
 func TestSwitchBackShowsLatestBackgroundContent(t *testing.T) {
 	engine := newStagedChatEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(context.Background(), "start a"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "start a"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -65,19 +64,19 @@ func TestSwitchBackShowsLatestBackgroundContent(t *testing.T) {
 	engine.fakeEngine.mu.Lock()
 	engine.fakeEngine.loadedSessions["sess-b"] = true
 	engine.fakeEngine.mu.Unlock()
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("switch to b: %v", err)
 	}
 
 	close(engine.stage2) // A 后台产生第二段正文
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("switch back to a: %v", err)
 	}
 	found := false
-	for _, message := range service.Snapshot().Conversation {
+	for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 		if message.Content == "after-switch-live-part" {
 			found = true
 			break

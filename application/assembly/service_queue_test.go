@@ -14,9 +14,10 @@ import (
 // 域层 Payload 是 any（域不解释载荷），任何"投递即固化"的新载荷类型
 // （控制指令 / 系统注入 / 未来的排队对象）都从这里进队列。它只用于暴露
 // 「投影下标空间」与「队列下标空间」是否同一套。
+
 func enqueueRawQueuedInput(t *testing.T, service *Service, text string) {
 	t.Helper()
-	unit := service.sessionUnitLocked(service.Snapshot().Session.ID)
+	unit := service.sessionUnitLocked(service.components.frontendSnapshot.Snapshot().Session.ID)
 	if unit == nil {
 		t.Fatal("session unit missing")
 	}
@@ -32,11 +33,11 @@ func TestQueueEditIndexSpaceMatchesProjection(t *testing.T) {
 	service, _ := startBlockingChat(t)
 	enqueueQueuedInputs(t, service, "second")
 	enqueueRawQueuedInput(t, service, "control")
-	if err := service.Submit(context.Background(), "fourth"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "fourth"); err != nil {
 		t.Fatalf("Submit(fourth): %v", err)
 	}
 
-	chat := service.Snapshot().Chat
+	chat := service.components.frontendSnapshot.Snapshot().Chat
 	want := []string{"second", "control", "fourth"}
 	if len(chat.InputQueue) != len(want) {
 		t.Fatalf("投影长度 = %d (%v), want %d (%v)：投影下标空间必须与队列下标空间逐项对齐",
@@ -53,14 +54,14 @@ func TestQueueEditIndexSpaceMatchesProjection(t *testing.T) {
 
 	// 撤回第 1 行 = 用户看到的 "control"。旧实现（按载荷过滤投影）会撤回队列
 	// 第 1 项却把"没显示过的条目"交还输入框。
-	text, err := frontendOfTestService(service).RecallQueuedInput("", 1)
+	text, err := service.components.conversationQueue.RecallQueuedInput("", 1)
 	if err != nil {
 		t.Fatalf("RecallQueuedInput(1): %v", err)
 	}
 	if text != "control" {
 		t.Fatalf("撤回第 1 行得到 %q, want %q（下标空间错位）", text, "control")
 	}
-	chat = service.Snapshot().Chat
+	chat = service.components.frontendSnapshot.Snapshot().Chat
 	if len(chat.InputQueue) != 2 || chat.InputQueue[0] != "second" || chat.InputQueue[1] != "fourth" {
 		t.Fatalf("撤回后投影 = %v, want [second fourth]", chat.InputQueue)
 	}
@@ -74,10 +75,10 @@ func TestReorderQueuedInputFollowsProjectionIndex(t *testing.T) {
 	enqueueRawQueuedInput(t, service, "control")
 
 	// 用户看到 [second control]，把第 0 行移到第 1 行 → 期望 [control second]。
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 1); err != nil {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 0, 1); err != nil {
 		t.Fatalf("ReorderQueuedInput(0,1): %v", err)
 	}
-	chat := service.Snapshot().Chat
+	chat := service.components.frontendSnapshot.Snapshot().Chat
 	if len(chat.InputQueue) != 2 || chat.InputQueue[0] != "control" || chat.InputQueue[1] != "second" {
 		t.Fatalf("投影 = %v, want [control second]：调换必须作用在用户看到的那一行", chat.InputQueue)
 	}
@@ -95,8 +96,8 @@ func startBlockingChat(t *testing.T) (*Service, *blockingEngine) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)
 	}
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.Running })
@@ -107,7 +108,7 @@ func startBlockingChat(t *testing.T) (*Service, *blockingEngine) {
 func enqueueQueuedInputs(t *testing.T, service *Service, inputs ...string) {
 	t.Helper()
 	for _, input := range inputs {
-		if err := service.Submit(context.Background(), input); err != nil {
+		if err := service.components.submission.Submit(context.Background(), input); err != nil {
 			t.Fatalf("Submit(%q): %v", input, err)
 		}
 	}
@@ -119,16 +120,16 @@ func TestReorderQueuedInputReordersVisibleQueue(t *testing.T) {
 	service, _ := startBlockingChat(t)
 	enqueueQueuedInputs(t, service, "second", "third", "fourth")
 
-	before := service.Snapshot().Chat
+	before := service.components.frontendSnapshot.Snapshot().Chat
 	if got := before.InputQueue; len(got) != 3 || got[0] != "second" || got[2] != "fourth" {
 		t.Fatalf("queued order before reorder = %v", got)
 	}
 
 	// second third fourth --(0 → 2)--> third fourth second
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 2); err != nil {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 0, 2); err != nil {
 		t.Fatalf("ReorderQueuedInput(0,2): %v", err)
 	}
-	after := service.Snapshot().Chat
+	after := service.components.frontendSnapshot.Snapshot().Chat
 	want := []string{"third", "fourth", "second"}
 	if len(after.InputQueue) != len(want) {
 		t.Fatalf("queued order after reorder = %v, want %v", after.InputQueue, want)
@@ -152,7 +153,7 @@ func TestReorderQueuedInputReordersVisibleQueue(t *testing.T) {
 func TestReorderQueuedInputDrivesPromotedBatchOrder(t *testing.T) {
 	service, engine := startBlockingChat(t)
 	enqueueQueuedInputs(t, service, "second", "third")
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 1, 0); err != nil {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 1, 0); err != nil {
 		t.Fatalf("ReorderQueuedInput(1,0): %v", err)
 	}
 	close(engine.blockCh) // 放开首轮 → 队列提升为下一轮
@@ -182,14 +183,14 @@ func TestRecallQueuedInputPopsEntryAndReturnsText(t *testing.T) {
 	service, _ := startBlockingChat(t)
 	enqueueQueuedInputs(t, service, "second", "third")
 
-	text, err := frontendOfTestService(service).RecallQueuedInput("", 1)
+	text, err := service.components.conversationQueue.RecallQueuedInput("", 1)
 	if err != nil {
 		t.Fatalf("RecallQueuedInput(1): %v", err)
 	}
 	if text != "third" {
 		t.Fatalf("recalled text = %q, want third", text)
 	}
-	chat := service.Snapshot().Chat
+	chat := service.components.frontendSnapshot.Snapshot().Chat
 	if len(chat.InputQueue) != 1 || chat.InputQueue[0] != "second" || chat.QueuedCount != 1 {
 		t.Fatalf("queue after recall = %v (count %d), want [second] (1)", chat.InputQueue, chat.QueuedCount)
 	}
@@ -198,11 +199,11 @@ func TestRecallQueuedInputPopsEntryAndReturnsText(t *testing.T) {
 	}
 
 	// 撤回的条目不会再出现在下一轮里。
-	left, err := frontendOfTestService(service).RecallQueuedInput("", 0)
+	left, err := service.components.conversationQueue.RecallQueuedInput("", 0)
 	if err != nil || left != "second" {
 		t.Fatalf("second recall = %q/%v, want second/nil", left, err)
 	}
-	chat = service.Snapshot().Chat
+	chat = service.components.frontendSnapshot.Snapshot().Chat
 	if len(chat.InputQueue) != 0 || chat.QueuedCount != 0 {
 		t.Fatalf("queue after draining = %v (count %d), want empty", chat.InputQueue, chat.QueuedCount)
 	}
@@ -213,27 +214,27 @@ func TestQueueEditErrorSemantics(t *testing.T) {
 	service, _ := startBlockingChat(t)
 	enqueueQueuedInputs(t, service, "second")
 
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 1); !errors.Is(err, ErrQueueIndexOutOfRange) {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 0, 1); !errors.Is(err, ErrQueueIndexOutOfRange) {
 		t.Fatalf("reorder out of range = %v, want ErrQueueIndexOutOfRange", err)
 	}
-	if _, err := frontendOfTestService(service).RecallQueuedInput("", 2); !errors.Is(err, ErrQueueIndexOutOfRange) {
+	if _, err := service.components.conversationQueue.RecallQueuedInput("", 2); !errors.Is(err, ErrQueueIndexOutOfRange) {
 		t.Fatalf("recall out of range = %v, want ErrQueueIndexOutOfRange", err)
 	}
-	if err := frontendOfTestService(service).ReorderQueuedInput("no-such-session", 0, 0); !errors.Is(err, ErrQueueSessionNotFound) {
+	if err := service.components.conversationQueue.ReorderQueuedInput("no-such-session", 0, 0); !errors.Is(err, ErrQueueSessionNotFound) {
 		t.Fatalf("unknown session = %v, want ErrQueueSessionNotFound", err)
 	}
 
 	// 非运行态：没有回合在跑就没有「排队中」的输入。先把队列排空，否则取消
 	// 首轮会把残余输入提升成下一轮（同样是运行态）。
-	if text, err := frontendOfTestService(service).RecallQueuedInput("", 0); err != nil || text != "second" {
+	if text, err := service.components.conversationQueue.RecallQueuedInput("", 0); err != nil || text != "second" {
 		t.Fatalf("drain queue = %q/%v, want second/nil", text, err)
 	}
-	frontendOfTestService(service).CancelChat("")
+	service.components.lifecycleApplication.CancelChat("")
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 0); !errors.Is(err, ErrQueueNotRunning) {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 0, 0); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("reorder while idle = %v, want ErrQueueNotRunning", err)
 	}
-	if _, err := frontendOfTestService(service).RecallQueuedInput("", 0); !errors.Is(err, ErrQueueNotRunning) {
+	if _, err := service.components.conversationQueue.RecallQueuedInput("", 0); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("recall while idle = %v, want ErrQueueNotRunning", err)
 	}
 }
@@ -242,10 +243,10 @@ func TestQueueEditErrorSemantics(t *testing.T) {
 // 「没有回合在跑」拒绝，而不是「会话不存在」。
 func TestQueueEditErrorsBeforeAnySession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if err := frontendOfTestService(service).ReorderQueuedInput("", 0, 1); !errors.Is(err, ErrQueueNotRunning) {
+	if err := service.components.conversationQueue.ReorderQueuedInput("", 0, 1); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("reorder on a fresh process = %v, want ErrQueueNotRunning", err)
 	}
-	if _, err := frontendOfTestService(service).RecallQueuedInput("", 0); !errors.Is(err, ErrQueueNotRunning) {
+	if _, err := service.components.conversationQueue.RecallQueuedInput("", 0); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("recall on a fresh process = %v, want ErrQueueNotRunning", err)
 	}
 }
@@ -266,7 +267,7 @@ func TestConcurrentRecallQueuedInput(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			text, err := frontendOfTestService(service).RecallQueuedInput("", 0)
+			text, err := service.components.conversationQueue.RecallQueuedInput("", 0)
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -287,7 +288,7 @@ func TestConcurrentRecallQueuedInput(t *testing.T) {
 	if succeed != 3 || rejected != 5 {
 		t.Fatalf("concurrent recall = %d succeeded / %d rejected, want 3/5", succeed, rejected)
 	}
-	chat := service.Snapshot().Chat
+	chat := service.components.frontendSnapshot.Snapshot().Chat
 	if len(chat.InputQueue) != 0 || chat.QueuedCount != 0 {
 		t.Fatalf("queue after concurrent recall = %v (count %d), want empty", chat.InputQueue, chat.QueuedCount)
 	}

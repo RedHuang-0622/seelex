@@ -178,14 +178,7 @@ Session 的遗留执行开关。
 
 ### chat_state_event_test.go
 
-- `func TestChatStateIsPublishedNotInferred(t *testing.T)` — TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
-
-### chat_stream_test_aliases_test.go
-
-- `func (service *Service) appendDelta(requestID, chunk string)`
-- `func (service *Service) attachLatestReasoning(sessionID, requestID string)`
-- `func (service *Service) stampServedRoute(sessionID, requestID string)`
-- `func (service *Service) streamedAssistantTextLocked(sessionID string) string`
+- `func TestChatStateIsPublishedNotInferred(t *testing.T)`
 
 ### chat_turn_cleanup_test.go
 
@@ -230,24 +223,6 @@ Session 的遗留执行开关。
 - `func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T)`
 - `func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T)`
 - `func TestConversationTurnOutcomeDoesNotMirrorBackgroundTask(t *testing.T)`
-
-### chat_turn_pipeline_test_aliases2_test.go
-
-- `func newConversationTurnProcess(deps conversationTurnProcessDeps) *conversationTurnProcess`
-- `func newConversationTurnCompletion(deps conversationTurnCompletionDeps) *conversationTurnCompletion`
-- `func newConversationTurnOutcome(deps conversationTurnOutcomeDeps) *conversationTurnOutcome`
-- `func newConversationTurnPublisher(deps conversationTurnPublisherDeps) *conversationTurnPublisher`
-- `func newConversationTurnTail(deps conversationTurnTailDeps) *conversationTurnTail`
-- `func newConversationTurnCommit(deps conversationTurnCommitDeps) *conversationTurnCommit`
-- `func newConversationTurnFinalize(deps conversationTurnFinalizeDeps) *conversationTurnFinalize`
-- `func newConversationTurnExecution(deps conversationTurnExecutionDeps) *conversationTurnExecution`
-
-### chat_turn_pipeline_test_aliases_test.go
-
-- `func newConversationTurnInput(deps conversationTurnInputDeps) *conversationTurnInput`
-- `func newConversationTurnResponse(deps conversationTurnResponseDeps) *conversationTurnResponse`
-- `func newConversationTurnRecovery(deps conversationTurnRecoveryDeps) *conversationTurnRecovery`
-- `func newConversationTurnCleanup(deps conversationTurnCleanupDeps) *conversationTurnCleanup`
 
 ### chat_turn_process_test.go
 

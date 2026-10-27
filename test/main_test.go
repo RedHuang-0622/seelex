@@ -3,11 +3,10 @@ package test
 import (
 	"flag"
 	"fmt"
-	"os"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/wiring/config"
+	"os"
+	"testing"
 )
 
 // launchFlags 是本包摆现场用的启动参数句柄：与入口 `main.go` 用**同一份定义**

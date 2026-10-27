@@ -1,5 +1,13 @@
 package assembly
 
+import (
+	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
+	"testing"
+	"time"
+)
+
 // 红灯复现（用户现象）：**冷加载之后点「回到最新」，看不到最新内容**。
 //
 // 用户形状（现场）：
@@ -38,14 +46,6 @@ package assembly
 // 与生产同一口径——按发布点闸门给出**同一份未过滤行**；本文件插入的内部行用的
 // 是生产真实标记（context_runtime.TaskContextCheckpointPrefix），正是
 // service_assembler.go:141-143 交给 RecordConversation 剔除的那一类。
-
-import (
-	"fmt"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/kernel/context"
-	"testing"
-	"time"
-)
 
 // internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
 // 存储层把它当普通 conversation 行（store/json_layout.go:295
@@ -89,10 +89,10 @@ func coldLoadLongSession(t *testing.T, trailingInternal int) (*Service, *pagedSe
 	store := newPagedSessionStore("long-session", 0)
 	seedDurableRows(store, 20, trailingInternal)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(service).ResumeSession("long-session"); err != nil {
+	if err := service.components.sessionResume.Resume("long-session"); err != nil {
 		t.Fatalf("冷加载会话: %v", err)
 	}
-	baseline := service.Snapshot()
+	baseline := service.components.frontendSnapshot.Snapshot()
 	if baseline.TotalMessages != 20 || baseline.HistoryOffset != 14 {
 		t.Fatalf("冷加载基线 = offset %d / total %d，want offset 14 / total 20（可见空间）",
 			baseline.HistoryOffset, baseline.TotalMessages)
@@ -108,7 +108,7 @@ func coldLoadLongSession(t *testing.T, trailingInternal int) (*Service, *pagedSe
 // 推理挂接、工具结果写回继续被跳过）。
 func assertWindowAtTail(t *testing.T, service *Service, label string) {
 	t.Helper()
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	visible := visibleContents(snapshot)
 	if snapshot.HistoryOffset+len(visible) < snapshot.TotalMessages {
 		t.Fatalf("%s：窗口仍够不到尾（offset=%d visible=%d total=%d，可见=%v）——前端 historyWindowed 会一直为真，"+
@@ -130,12 +130,12 @@ func TestReproColdLoadThenReturnToLatestReachesTail(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := coldLoadLongSession(t, 1)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("加载更早一页: %v", err)
 	}
-	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
+	assertRange(t, "回看更早一页", service.components.frontendSnapshot.Snapshot(), 8, 6)
 
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("回到最新: %v", err)
 	}
 	assertWindowAtTail(t, service, "冷加载后回到最新")
@@ -150,12 +150,12 @@ func TestReproColdLoadReturnToLatestWhenTailWindowIsInternalRows(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := coldLoadLongSession(t, 6)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("加载更早一页: %v", err)
 	}
-	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
+	assertRange(t, "回看更早一页", service.components.frontendSnapshot.Snapshot(), 8, 6)
 
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("回到最新: %v", err)
 	}
 	assertWindowAtTail(t, service, "尾窗被内部行占掉后回到最新")

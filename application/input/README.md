@@ -3,8 +3,8 @@
 ## 生态位
 
 `application/input` 承载输入受理门禁、输入框建议塑形与输入前缀词法。主要调用方是
-`application/compat.Frontend` 的 `Submit` / `Suggestions`，以及根门面的
-`HasSigilPrefix` / `SigilOf` 兼容函数。
+GUI 的 `Submitter` / `Completion` 消费方端口、TUI/headless/console 自己的输入依赖，
+以及根门面的 `HasSigilPrefix` / `SigilOf` 稳定函数。
 
 ## 职责
 

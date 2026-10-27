@@ -14,3 +14,5 @@
 // 依赖方向：本包只依赖生产包的公开 API（`wiring/*`、`application/*`、`store/*`…），
 // 不复制任何业务判定；夹具就地建在临时目录里。
 package test
+
+import ()

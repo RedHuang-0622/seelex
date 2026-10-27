@@ -60,7 +60,7 @@ engine/react 或 sessionaccess。
 
 `UnifiedApplication` 只接收 Session Snapshot 查询、Record 分页、
 `AgentConversationPort` 与 `SubmitToSession` 回调。GUI/headless 经
-`application/compat.Frontend` 使用同一方法签名，core 不再保存统一会话适配器。
+消费方自己的 `ConversationSessions` 端口直接调用该组件，core 不保存统一会话适配器。
 
 ## 并发与错误
 
