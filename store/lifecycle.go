@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
 	"os"
@@ -328,14 +327,7 @@ func nextQueueSeq(items []queueItem) uint64 {
 }
 
 func newQueueItem(state lifecycleState, requestID, content string) queueItem {
-	itemID := "q:" + requestID
-	if requestID == "" {
-		itemID = "q:" + storeroot.Hash(content+"|"+fmt.Sprintf("%d", nextQueueSeq(state.Queue)))
-	}
-	return queueItem{
-		Seq: nextQueueSeq(state.Queue), ItemID: itemID, RequestID: requestID,
-		Content: content, State: queueQueued, CreatedAt: time.Now().UTC(),
-	}
+	return storesession.NewQueueItem(state, requestID, content, time.Now().UTC())
 }
 
 // draftToQueue 草稿 D → 入队（同一次 lifecycle 提交：queue 含 D，draft
@@ -347,8 +339,7 @@ func (store *storeEngine) draftToQueue(key Key, content string) error {
 	if err != nil {
 		return err
 	}
-	state.Draft = nil
-	state.Queue = append(state.Queue, newQueueItem(state, "", content))
+	state = storesession.MoveDraftToQueue(state, key.SessionID, content, time.Now().UTC())
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 
@@ -360,9 +351,7 @@ func (store *storeEngine) saveDraft(key Key, content string) error {
 	if err != nil {
 		return err
 	}
-	state.Draft = &draftItem{
-		SessionID: key.SessionID, Content: content, State: "未发送", SavedAt: time.Now().UTC(),
-	}
+	state = storesession.SaveDraft(state, key.SessionID, content, time.Now().UTC())
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 
@@ -376,10 +365,7 @@ func (store *storeEngine) draftDirectSend(key Key, content string) error {
 	if err != nil {
 		return err
 	}
-	state.Draft = nil
-	if len(state.Queue) > 0 {
-		state.Queue = append(state.Queue, newQueueItem(state, "", content))
-	}
+	state, _ = storesession.DirectSendState(state, content, time.Now().UTC())
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 
@@ -391,12 +377,11 @@ func (store *storeEngine) queueEnqueue(key Key, requestID, content string) error
 	if err != nil {
 		return err
 	}
-	for _, item := range state.Queue {
-		if requestID != "" && item.RequestID == requestID {
-			return nil // 同 requestID 重放幂等（S17/D10）
-		}
+	var changed bool
+	state, changed = storesession.Enqueue(state, requestID, content, time.Now().UTC())
+	if !changed {
+		return nil
 	}
-	state.Queue = append(state.Queue, newQueueItem(state, requestID, content))
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 
@@ -417,16 +402,11 @@ func (store *storeEngine) queueSendFront(key Key) (queueItem, error) {
 	if err != nil {
 		return queueItem{}, err
 	}
-	if len(state.Queue) == 0 {
-		return queueItem{}, errors.New("session storage: queue empty")
+	var item queueItem
+	state, item, err = storesession.SendFront(state)
+	if err != nil {
+		return queueItem{}, err
 	}
-	item := state.Queue[0]
-	if item.State == queueSending || item.State == queueSent {
-		return queueItem{}, errors.New("session storage: queue head already sending")
-	}
-	item.State = queueSending
-	item.SendCount++
-	state.Queue[0] = item
 	if err := store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state); err != nil {
 		return queueItem{}, err
 	}
@@ -442,17 +422,10 @@ func (store *storeEngine) queueConfirmSent(key Key, requestID string) error {
 	if err != nil {
 		return err
 	}
-	if len(state.Queue) == 0 {
-		return errors.New("session storage: queue empty")
+	state, err = storesession.ConfirmFront(state, requestID)
+	if err != nil {
+		return err
 	}
-	front := state.Queue[0]
-	if front.State != queueSending && front.State != queueSent {
-		return errors.New("session storage: illegal queued -> sent without send record")
-	}
-	if requestID != "" && front.RequestID != "" && front.RequestID != requestID {
-		return errors.New("session storage: queue head request mismatch")
-	}
-	state.Queue = state.Queue[1:]
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 
@@ -464,14 +437,9 @@ func (store *storeEngine) queueSendFailed(key Key) error {
 	if err != nil {
 		return err
 	}
-	if len(state.Queue) == 0 {
-		return errors.New("session storage: queue empty")
-	}
-	front := state.Queue[0]
-	state.Queue = state.Queue[1:]
-	state.Draft = &draftItem{
-		SessionID: key.SessionID, Content: front.Content,
-		State: "发送失败退回", SavedAt: time.Now().UTC(),
+	state, err = storesession.FailFront(state, key.SessionID, time.Now().UTC())
+	if err != nil {
+		return err
 	}
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
@@ -484,10 +452,7 @@ func (store *storeEngine) directSendFailed(key Key, content string) error {
 	if err != nil {
 		return err
 	}
-	state.Draft = &draftItem{
-		SessionID: key.SessionID, Content: content,
-		State: "发送失败退回", SavedAt: time.Now().UTC(),
-	}
+	state = storesession.FailDirect(state, key.SessionID, content, time.Now().UTC())
 	return store.publishLifecycleLocked(key, "lc-"+storeroot.RandomID(), state)
 }
 

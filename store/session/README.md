@@ -54,6 +54,16 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func ValidateCompactFrame(frame CompactFrameRecord, publishedSeq uint64) error` — ValidateCompactFrame rejects frames beyond the published message head.
 - `func ValidateForkStart( parentProject, parentSession, childProject, childSession string, watermark, fromSeq uint64, childExists bool, ) error` — ValidateForkStart enforces distinct child, watermark and non-overwrite rules.
 - `func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, lastSeq uint64) error` — ValidateRetentionPrefix rejects deleting a non-contiguous published prefix.
+- `func NextQueueSeq(items []QueueItem) uint64` — NextQueueSeq returns the next stable queue sequence.
+- `func NewQueueItem(state LifecycleState, requestID, content string, now time.Time) QueueItem` — NewQueueItem creates one queued item with deterministic identity.
+- `func Enqueue(state LifecycleState, requestID, content string, now time.Time) (LifecycleState, bool)` — Enqueue appends one item unless the same requestID is already queued.
+- `func SaveDraft(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — SaveDraft installs a normal unsent draft.
+- `func MoveDraftToQueue(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — MoveDraftToQueue atomically clears draft and appends the queued copy.
+- `func DirectSendState(state LifecycleState, content string, now time.Time) (LifecycleState, bool)` — DirectSendState clears draft and appends only when an older queue item exists.
+- `func SendFront(state LifecycleState) (LifecycleState, QueueItem, error)` — SendFront transitions the FIFO head to sending.
+- `func ConfirmFront(state LifecycleState, requestID string) (LifecycleState, error)` — ConfirmFront removes the head after a published send.
+- `func FailFront(state LifecycleState, sessionID string, now time.Time) (LifecycleState, error)` — FailFront removes the head and returns its content to draft.
+- `func FailDirect(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — FailDirect returns a directly-sent content back to draft.
 - `func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error)` — PublishMessageHead publishes the typed message head through layout.
 - `func PublishEventHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head EventHead, updatedAt time.Time) (string, error)` — PublishEventHead publishes the typed event head through layout.
 - `func ClassifyPendingTail(headSeq uint64, rows []protocol.TranscriptEvent, duplicate bool) (string, string)` — ClassifyPendingTail preserves the single draft-tail recoverability rule.
@@ -74,6 +84,7 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func TestApplyPendingTailHead(t *testing.T)`
 - `func TestListAndDraftBaseSeq(t *testing.T)`
 - `func TestSessionStateValidators(t *testing.T)`
+- `func TestLifecycleQueueTransitions(t *testing.T)`
 
 ### storage.go
 

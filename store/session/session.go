@@ -389,6 +389,118 @@ func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, last
 	return nil
 }
 
+// NextQueueSeq returns the next stable queue sequence.
+func NextQueueSeq(items []QueueItem) uint64 {
+	var top uint64
+	for _, item := range items {
+		if item.Seq > top {
+			top = item.Seq
+		}
+	}
+	return top + 1
+}
+
+// NewQueueItem creates one queued item with deterministic identity.
+func NewQueueItem(state LifecycleState, requestID, content string, now time.Time) QueueItem {
+	seq := NextQueueSeq(state.Queue)
+	itemID := "q:" + requestID
+	if requestID == "" {
+		itemID = "q:" + storeroot.Hash(content+"|"+fmt.Sprintf("%d", seq))
+	}
+	return QueueItem{
+		Seq: seq, ItemID: itemID, RequestID: requestID,
+		Content: content, State: QueueQueued, CreatedAt: now,
+	}
+}
+
+// Enqueue appends one item unless the same requestID is already queued.
+func Enqueue(state LifecycleState, requestID, content string, now time.Time) (LifecycleState, bool) {
+	for _, item := range state.Queue {
+		if requestID != "" && item.RequestID == requestID {
+			return state, false
+		}
+	}
+	state.Queue = append(state.Queue, NewQueueItem(state, requestID, content, now))
+	return state, true
+}
+
+// SaveDraft installs a normal unsent draft.
+func SaveDraft(state LifecycleState, sessionID, content string, now time.Time) LifecycleState {
+	state.Draft = &DraftItem{SessionID: sessionID, Content: content, State: "未发送", SavedAt: now}
+	return state
+}
+
+// MoveDraftToQueue atomically clears draft and appends the queued copy.
+func MoveDraftToQueue(state LifecycleState, sessionID, content string, now time.Time) LifecycleState {
+	state.Draft = nil
+	state.Queue = append(state.Queue, NewQueueItem(state, "", content, now))
+	return state
+}
+
+// DirectSendState clears draft and appends only when an older queue item exists.
+func DirectSendState(state LifecycleState, content string, now time.Time) (LifecycleState, bool) {
+	state.Draft = nil
+	if len(state.Queue) == 0 {
+		return state, false
+	}
+	state.Queue = append(state.Queue, NewQueueItem(state, "", content, now))
+	return state, true
+}
+
+// SendFront transitions the FIFO head to sending.
+func SendFront(state LifecycleState) (LifecycleState, QueueItem, error) {
+	if len(state.Queue) == 0 {
+		return state, QueueItem{}, errors.New("session storage: queue empty")
+	}
+	item := state.Queue[0]
+	if item.State == QueueSending || item.State == QueueSent {
+		return state, QueueItem{}, errors.New("session storage: queue head already sending")
+	}
+	item.State = QueueSending
+	item.SendCount++
+	state.Queue[0] = item
+	return state, item, nil
+}
+
+// ConfirmFront removes the head after a published send.
+func ConfirmFront(state LifecycleState, requestID string) (LifecycleState, error) {
+	if len(state.Queue) == 0 {
+		return state, errors.New("session storage: queue empty")
+	}
+	front := state.Queue[0]
+	if front.State != QueueSending && front.State != QueueSent {
+		return state, errors.New("session storage: illegal queued -> sent without send record")
+	}
+	if requestID != "" && front.RequestID != "" && front.RequestID != requestID {
+		return state, errors.New("session storage: queue head request mismatch")
+	}
+	state.Queue = state.Queue[1:]
+	return state, nil
+}
+
+// FailFront removes the head and returns its content to draft.
+func FailFront(state LifecycleState, sessionID string, now time.Time) (LifecycleState, error) {
+	if len(state.Queue) == 0 {
+		return state, errors.New("session storage: queue empty")
+	}
+	front := state.Queue[0]
+	state.Queue = state.Queue[1:]
+	state.Draft = &DraftItem{
+		SessionID: sessionID, Content: front.Content,
+		State: "发送失败退回", SavedAt: now,
+	}
+	return state, nil
+}
+
+// FailDirect returns a directly-sent content back to draft.
+func FailDirect(state LifecycleState, sessionID, content string, now time.Time) LifecycleState {
+	state.Draft = &DraftItem{
+		SessionID: sessionID, Content: content,
+		State: "发送失败退回", SavedAt: now,
+	}
+	return state
+}
+
 // PublishMessageHead publishes the typed message head through layout.
 func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error) {
 	return layout.Publish(scope, "message", commitID, head, updatedAt)

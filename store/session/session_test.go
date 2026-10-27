@@ -220,3 +220,33 @@ func TestSessionStateValidators(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLifecycleQueueTransitions(t *testing.T) {
+	state := LifecycleState{Draft: &DraftItem{Content: "draft"}}
+	state = MoveDraftToQueue(state, "s", "draft", time.Unix(1, 0))
+	if state.Draft != nil || len(state.Queue) != 1 || state.Queue[0].Seq != 1 {
+		t.Fatalf("move draft=%+v", state)
+	}
+	state, changed := Enqueue(state, "request-1", "second", time.Unix(2, 0))
+	if !changed || len(state.Queue) != 2 || state.Queue[1].RequestID != "request-1" {
+		t.Fatalf("enqueue=%+v changed=%v", state, changed)
+	}
+	if _, duplicate := Enqueue(state, "request-1", "second", time.Unix(3, 0)); duplicate {
+		t.Fatal("same requestID must be idempotent")
+	}
+	state, item, err := SendFront(state)
+	if err != nil || item.State != QueueSending || item.SendCount != 1 {
+		t.Fatalf("send front=%+v err=%v", item, err)
+	}
+	state, err = FailFront(state, "s", time.Unix(4, 0))
+	if err != nil || state.Draft == nil || state.Draft.Content != "draft" || len(state.Queue) != 1 {
+		t.Fatalf("fail front=%+v err=%v", state, err)
+	}
+	if _, _, err := SendFront(state); err != nil {
+		t.Fatal(err)
+	}
+	state, err = ConfirmFront(state, "request-1")
+	if err != nil || len(state.Queue) != 0 {
+		t.Fatalf("confirm=%+v err=%v", state, err)
+	}
+}

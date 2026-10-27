@@ -16,7 +16,7 @@
 | M3 | Artifact | 已完成 | 见 §2.7 |
 | M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
 | M5 | Session 核心 | 已完成 | 见 §2.9 |
-| M6 | Session 状态机 | 进行中 | 首片状态类型/校验已完成，见 §2.10 |
+| M6 | Session 状态机 | 已完成 | 见 §2.10 |
 | M7 | Context | 未开始 | — |
 | M8 | Teamwork | 未开始 | — |
 | M9 | Role/WorkUnit | 未开始 | — |
@@ -439,7 +439,7 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 
 数据路径与 JSON tag 零变化。
 
-## 2.10 M6：Session 状态机（进行中）
+## 2.10 M6：Session 状态机（已完成）
 
 ### 2.10.1 已完成切片
 
@@ -451,10 +451,11 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 - compact frame/head、边界词表与“不得越过已发布 message head”校验；
 - fork 的 watermark、子会话身份与已存在冲突校验。
 - retention 连续前缀校验；
+- queue 入队幂等、draft→queue、直发、发送态、确认出队、失败回草稿；
 
-根 lifecycle/retention/compact/fork 文件保留 alias、I/O 与锁协调。队列 FIFO、
-失败回草稿、compaction 链与 fork 深拷贝的跨文件事务仍待后续 M6 切片，因此本里程碑
-不标记完成。
+根 lifecycle/retention/compact/fork 文件保留 alias、I/O 与锁协调；状态词表、
+状态转移、watermark/prefix、compact 边界和 fork 冲突判据均由 `store/session`
+唯一拥有。队列 FIFO、失败回草稿、LRU、compact、fork 的既有特征测试全绿。
 
 ### 2.10.2 门禁
 
@@ -463,7 +464,7 @@ go test ./store/session -count=1
 go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 ```
 
-两者通过；路径、JSON tag、head、watermark 与锁粒度未变化。
+两者以及完整 `store/e2e` 通过；路径、JSON tag、head、watermark 与锁粒度未变化。
 
 ## 3. 未决风险
 
@@ -587,5 +588,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-继续 M6：把 lifecycle 队列迁移、retention 前缀判定、compact 链与 fork 深拷贝的
-纯状态转移继续下沉 `store/session`，根只保留锁、I/O 与缓存协调。
+M7：Context，迁移 prompt、四类上下文栈、checkpoint 与 compact bridge；
+`wire_assembler` 归 engine context 读侧，SessionContextRecord 不再作为万能快照。
