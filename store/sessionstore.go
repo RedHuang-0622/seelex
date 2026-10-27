@@ -1097,7 +1097,7 @@ func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, res
 		if refs, refsErr := repository.layout.readToolResultRefs(key); refsErr == nil && !containsValue(refs, resultRef) {
 			return ToolResult{}, fs.ErrNotExist
 		}
-		data, err := os.ReadFile(repository.toolResultPath(key, resultRef))
+		data, err := repository.layout.artifacts.ReadToolResult(layoutScope(key), resultRef)
 		if err != nil {
 			return ToolResult{}, err
 		}
@@ -1126,7 +1126,7 @@ func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([
 		if refsErr == nil {
 			results = make([]ToolResult, 0, len(refs))
 			for _, ref := range refs {
-				data, readErr := os.ReadFile(repository.toolResultPath(key, ref))
+				data, readErr := repository.layout.artifacts.ReadToolResult(layoutScope(key), ref)
 				if readErr != nil {
 					return nil, readErr
 				}
@@ -1604,15 +1604,11 @@ func (repository *jsonRepository) writeToolResultLocked(key Key, result ToolResu
 	if strings.TrimSpace(result.Ref) == "" {
 		return errors.New("session storage: result ref is required")
 	}
-	directory := filepath.Dir(repository.toolResultPath(key, result.Ref))
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-	return storeroot.WriteAtomic(repository.toolResultPath(key, result.Ref), data, 0o600)
+	return repository.layout.artifacts.WriteToolResult(layoutScope(key), result.Ref, data)
 }
 
 func (repository *jsonRepository) projectDir(projectID string) string {
@@ -1624,7 +1620,7 @@ func (repository *jsonRepository) sessionDir(key Key) string {
 func (repository *jsonRepository) toolResultPath(key Key, resultRef string) string {
 	// S13：结果记录与超大输出同走 big_tool_result 单通道（独立后缀，避开
 	// blob GC 的 .jsonl 枚举；旧 tool-results/ 目录不再产生）。
-	return filepath.Join(repository.layout.blobDir(key), storeroot.Hash(resultRef)+".result.json")
+	return repository.layout.artifacts.ToolResultPath(layoutScope(key), resultRef)
 }
 
 func eventTokenCount(events []Event) int {

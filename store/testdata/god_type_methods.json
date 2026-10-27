@@ -275,7 +275,6 @@
     "mediaItemMetaPath",
     "mediaLimits",
     "mediaRoot",
-    "mediaUsageBytes",
     "messageAnchorCached",
     "messageCommit",
     "messageCommitLocked",
@@ -328,7 +327,6 @@
     "readLifecycleState",
     "readLifecycleStateLocked",
     "readMediaLocked",
-    "readMediaMetaFile",
     "readMessageHead",
     "readMessageHeadLocked",
     "readModuleHeadFile",
@@ -404,7 +402,6 @@
     "withPublishedHead",
     "writeBlob",
     "writeMediaLocked",
-    "writeMediaMetaFile",
     "writeShardRowsLocked",
     "writeTeamRegistry"
   ],

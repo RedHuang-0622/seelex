@@ -88,7 +88,8 @@ JSON v8 会话路径、guide、module head 信封/checksum 与模块锁身份由
 
 领域包入口：[`board/README.md`](board/README.md) 是看板追加、折叠、压实、路径锁与
 `BOARD.md` 渲染的唯一 owner；[`internal/layout/README.md`](internal/layout/README.md)
-是会话布局/head/模块锁 owner；`store/internal/textsanitize` 统一派生文本清洗。
+是会话布局/head/模块锁 owner；[`artifact/README.md`](artifact/README.md) 是不可变
+tool result/blob/media 与搜索索引 owner；`store/internal/textsanitize` 统一派生文本清洗。
 
 ## 架构图
 

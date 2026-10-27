@@ -6,6 +6,11 @@
 
 覆盖：`media*.go`、`search_index*.go`、`tool_record*.go`、`schedule_events*.go`；未归属文件由覆盖自检拦下。
 
+M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索索引的唯一实现位于
+[`artifact/README.md`](artifact/README.md)。本卷 `media.go` / `search_index.go`
+只保留类型与错误 alias、`MediaStore` 能力面、Router/Repository 适配，以及既有包内
+测试所需的薄路径转发。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。

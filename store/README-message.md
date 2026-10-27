@@ -6,6 +6,10 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 
 覆盖：`message_rows*.go`、`structural_events*.go`、`event_store*.go`、`event_range*.go`、`paragraphs*.go`、`wire_assembler*.go`、`big_tool_result*.go`、`provider_wire*.go`；未归属文件由覆盖自检拦下。
 
+M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
+[`artifact/README.md`](artifact/README.md) 唯一实现；本卷的 `big_tool_result.go`
+只保留兼容 alias 与 `storeEngine` 薄转发。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。

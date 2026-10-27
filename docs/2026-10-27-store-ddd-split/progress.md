@@ -13,7 +13,7 @@
 | M0 | 基线门禁 | 已完成 | 见 §2 |
 | M1 | Board 试点 | 已完成 | 见 §2.5 |
 | M2 | layout 内核 | 已完成 | 见 §2.6 |
-| M3 | Artifact | 未开始 | — |
+| M3 | Artifact | 已完成 | 见 §2.7 |
 | M4 | Commit/Turn UoW | 未开始 | — |
 | M5 | Session 核心 | 未开始 | — |
 | M6 | Session 状态机 | 未开始 | — |
@@ -256,6 +256,61 @@ go test ./e2e -run TestStoreDDDMLayoutOwnershipGate -count=1   PASS
   零变化。
 - `store/internal/layout` 只依赖标准库与 `store/root`，自动受 I6 覆盖。
 
+## 2.7 M3：Artifact（已完成）
+
+### 2.7.1 领域归属
+
+`store/artifact` 成为不可变内容寻址资产与派生搜索索引 owner：
+
+- `big_tool_result/` 文本 blob、硬限/软限/会话配额与 GC；
+- immutable tool-result JSON 文件；
+- `meta/<sha256>/` 媒体去重、名称清洗、独立配额、索引发布与 GC；
+- `metadata-index/search.json` 的 token 化、构建和查询。
+
+根 `storeEngine/jsonRepository` 保留迁移期 Router/Repository 能力接口与数据投影
+适配；message/compact 的读取及 tool-result refs head 发布仍由 Session/Commit 用例
+编排，artifact 不读取 transcript。
+
+### 2.7.2 红测与结构门禁
+
+首次失败：
+
+```text
+go test ./e2e -run TestStoreDDDMArtifactOwnershipGate -count=1
+--- FAIL: store/artifact 缺少模块 README:
+The system cannot find the file specified.
+```
+
+领域测试与定向回归：
+
+```text
+go test ./store/artifact -count=1   PASS
+go test ./store -run 'Media|Blob|Search|ToolResult|Commit' -count=1   PASS
+go test ./e2e -run TestStoreDDDMArtifactOwnershipGate -count=1   PASS
+```
+
+### 2.7.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/big_tool_result.go` 的限额、截断、blob 文件、GC | `store/artifact/blob.go` |
+| `store/media.go` 的内容摘要、名称清洗、配额、元数据、索引、媒体 GC | `store/artifact/media.go` |
+| `store/search_index.go` 的 token 化、hit 合并、排序与索引文件 | `store/artifact/search.go` |
+| `jsonRepository.writeToolResultLocked/readToolResult` 的文件实现 | `artifact.Store.WriteToolResult/ReadToolResult` |
+| `jsonRepository` 四个 media 方法的锁内实现 | `artifact.Store` 媒体方法，根只转发 |
+
+根文件只保留类型/错误 alias、`MediaStore` 能力面、Router 适配和既有包内测试所需的
+薄路径转发；`e2e/store_ddd_artifact_gate_test.go` 禁止内容寻址/配额/索引实现回流。
+
+### 2.7.4 结构指标与数据兼容
+
+- `storeEngine` 方法面 `183 -> 180`，删除 `mediaUsageBytes`、`readMediaMetaFile`、
+  `writeMediaMetaFile`；`Router/jsonRepository/SessionGranularStore` 未增长。
+- 路径保持 `big_tool_result/*.result.json`、`big_tool_result/*.jsonl`、
+  `meta/<sha256>/`、`metadata-index/search.json`、`metadata/media.json` 不变。
+- 文本软限/硬限、媒体硬限、Tombstone 等价的内容寻址、GC dry-run 与 JSON 字段不变。
+- artifact 复用 M2 的同一 layout 实例；media 锁身份仍为 `media`，未创建第二套锁表。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -378,5 +433,6 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M3：Artifact，按 `milestones.md` §7 迁移 tool result、blob、media、search index；
-先定义 artifact 引用契约与消费方窄端口，再迁唯一实现并删除根重复判据。
+M4：Commit/Turn UoW，按 `milestones.md` §8 拆 Session/Artifact/Compaction 提交，
+在 application 层编排 artifact → message → compaction 写序，并以 M0 半失败矩阵作为
+逐字兼容门禁。

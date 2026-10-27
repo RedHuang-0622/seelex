@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
@@ -90,9 +91,10 @@ type moduleHeadFile = storelayout.Head
 // 不同模块互不阻塞，不设全会话/全仓库写锁。sessionMu 注册表本身只承担
 // 取锁指针的短临界区（registryMu），数据保护全部落在各会话模块锁上。
 type storeEngine struct {
-	root     string
-	settings storeroot.Settings
-	layout   *storelayout.Layout
+	root      string
+	settings  storeroot.Settings
+	layout    *storelayout.Layout
+	artifacts *storeartifact.Store
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
@@ -129,10 +131,12 @@ var readSelfHealHook func()
 // （与 jsonRepository 惰性建目录一致）。
 func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 	resolved := storeroot.ResolveSettings(settings)
+	sharedLayout := storelayout.New(root)
 	return &storeEngine{
 		root:      filepath.Clean(root),
 		settings:  resolved,
-		layout:    storelayout.New(root),
+		layout:    sharedLayout,
+		artifacts: storeartifact.New(sharedLayout, resolved),
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
 		event:     &eventStats{},
