@@ -1,36 +1,36 @@
 package assembly
 
-// 复现：**一次会话冷加载会打到另一个会话身上**（用户报告：「一个会话激发了
-// 会话的冷加载，然后另一个会话就容易断掉」）。
-//
-// 两条判据（各自的机理由源码给出，断言只认可观测量）：
-//
-//  1. 冷加载在**进程级视图过渡 key** 上读完整个磁盘才放手。
-//     生产宿主 assemble.Runtime.PerSessionExecution()==false
-//     （backend/engine/assemble/runtime.go:718），于是 service.transitionForSession
-//     （application/assembly/session_scope.go:37）一律回退 transitionForKey("")
-//     ——视图过渡锁是**全进程唯一**的一把。resumeSession
-//     （application/assembly/session_history.go:30）在持有这把锁期间调用
-//     resumeSessionCold（:246），后者在锁内做三读（record/history/transcript，
-//     :270 起）、wire 装配、引擎恢复、队列回填。于是另一个会话的
-//     SubmitToSession → ActivateSession（session_scope.go 的 SubmitToSession
-//     未加载分支）在这把锁上排队，整段冷加载期间消息发不出去（GUI 侧表现为
-//     "另一个会话没反应/超时报错"）。
-//
-//  2. 后台冷加载即使**不激活视图**（mayActivate=false，视图已切回运行中的
-//     另一个会话），仍然无条件改写**进程级**执行面：Deps.Runtime.
-//     SwitchSessionTasks（把实时 task 注册表的 currentTaskSessionID 换成冷
-//     会话，见 backend/engine/assemble/ports.go:277）与 Deps.Runtime.ClearSubagentTree
-//     （清空全进程子代理树，session_history.go:404-405）。运行中会话的
-//     执行面因此被冷加载抢走。
-//
-// 两条用例都以"稳定红"的形式报告：先证明当前代码的问题，并附上阻塞现场。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+
+	// 复现：**一次会话冷加载会打到另一个会话身上**（用户报告：「一个会话激发了
+	// 会话的冷加载，然后另一个会话就容易断掉」）。
+	//
+	// 两条判据（各自的机理由源码给出，断言只认可观测量）：
+	//
+	//  1. 冷加载在**进程级视图过渡 key** 上读完整个磁盘才放手。
+	//     生产宿主 assemble.Runtime.PerSessionExecution()==false
+	//     （backend/engine/assemble/runtime.go:718），于是 service.transitionForSession
+	//     （application/assembly/session_scope.go:37）一律回退 transitionForKey("")
+	//     ——视图过渡锁是**全进程唯一**的一把。resumeSession
+	//     （application/assembly/session_history.go:30）在持有这把锁期间调用
+	//     resumeSessionCold（:246），后者在锁内做三读（record/history/transcript，
+	//     :270 起）、wire 装配、引擎恢复、队列回填。于是另一个会话的
+	//     SubmitToSession → ActivateSession（session_scope.go 的 SubmitToSession
+	//     未加载分支）在这把锁上排队，整段冷加载期间消息发不出去（GUI 侧表现为
+	//     "另一个会话没反应/超时报错"）。
+	//
+	//  2. 后台冷加载即使**不激活视图**（mayActivate=false，视图已切回运行中的
+	//     另一个会话），仍然无条件改写**进程级**执行面：Deps.Runtime.
+	//     SwitchSessionTasks（把实时 task 注册表的 currentTaskSessionID 换成冷
+	//     会话，见 backend/engine/assemble/ports.go:277）与 Deps.Runtime.ClearSubagentTree
+	//     （清空全进程子代理树，session_history.go:404-405）。运行中会话的
+	//     执行面因此被冷加载抢走。
+	//
+	// 两条用例都以"稳定红"的形式报告：先证明当前代码的问题，并附上阻塞现场。
 	"runtime"
 	"strings"
 	"sync"
@@ -157,7 +157,7 @@ func waitRestoringCleared(t *testing.T, service *Service, sessionID string) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		service.ViewMu.RLock()
-		restoring := service.isRestoringLocked(sessionID)
+		restoring := service.components.view.IsRestoringLocked(sessionID)
 		service.ViewMu.RUnlock()
 		if !restoring {
 			return
@@ -191,7 +191,7 @@ func drainColdLoadFixture(t *testing.T, service *Service, engine *multiSessionEn
 	releaseEngineSession(engine, "sess-b")
 	idleCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(idleCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(idleCtx); err != nil {
 		t.Logf("收尾时 WaitForIdle: %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T) {
 	defer sessions.releaseNow()
 
 	coldDone := make(chan error, 1)
-	go func() { coldDone <- frontendOfTestService(service).ResumeSession("sess-cold") }()
+	go func() { coldDone <- service.components.sessionResume.Resume("sess-cold") }()
 
 	select {
 	case <-sessions.entered:
@@ -218,7 +218,9 @@ func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T) {
 	// B 未加载 → SubmitToSession 走 ActivateSession（resumeSession）→ 需要
 	// 同一把进程级视图过渡 key；A 的冷加载此刻正持有它。
 	submitDone := make(chan error, 1)
-	go func() { submitDone <- service.SubmitToSession(context.Background(), "sess-b", "hello from b") }()
+	go func() {
+		submitDone <- service.components.submitApplication.SubmitToSession(context.Background(), "sess-b", "hello from b")
+	}()
 
 	var submitErr error
 	blocked := true
@@ -276,10 +278,10 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 
 	// B：驻留 + 在飞（ChatStream 阻塞在 release）。
 	engine.register("sess-b")
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("resume b: %v", err)
 	}
-	if err := service.Submit(ctx, "long B"); err != nil {
+	if err := service.components.submission.Submit(ctx, "long B"); err != nil {
 		t.Fatalf("submit b: %v", err)
 	}
 	select {
@@ -289,7 +291,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 	}
 
 	// A：未驻留 + 有会话运行中 → restoring 空壳 + 后台冷加载。
-	if err := frontendOfTestService(service).ResumeSession("sess-cold"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-cold"); err != nil {
 		t.Fatalf("resume cold: %v", err)
 	}
 	select {
@@ -300,7 +302,7 @@ func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T) {
 
 	// 视图在 A 装载完成前切回运行中的 B：A 的装载至此 mayActivate=false，
 	// 只允许完成它自己会话的状态，不得抢占进程级执行面。
-	if err := frontendOfTestService(service).ResumeSession("sess-b"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-b"); err != nil {
 		t.Fatalf("switch back to b: %v", err)
 	}
 	sessions.releaseNow()

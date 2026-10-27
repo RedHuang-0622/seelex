@@ -2,13 +2,12 @@ package assembly
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"testing"
+	"time"
 )
 
 // 会话目录的可见性判据（用户报告 2026-07）：
@@ -28,18 +27,18 @@ func TestWorkspaceDraftShowsItsWorkspaceInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	draftID := snapshot.Session.ID
 	if draftID == "" || !snapshot.Session.Draft {
 		t.Fatalf("workspace draft = %+v", snapshot.Session)
@@ -71,16 +70,16 @@ func TestTaskDraftStaysUnboundInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	// 先在一个工作区会话里，再 /new 进「任务会话」：项目绑定必须被清掉。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.CurrentWorkspace != nil {
 		t.Fatalf("task draft must not inherit workspace: %+v", snapshot.CurrentWorkspace)
 	}
@@ -101,19 +100,19 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-1"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {
 		t.Fatal(err)
 	}
-	draftID := service.Snapshot().Session.ID
-	if err := service.Submit(context.Background(), "first question"); err != nil {
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if err := service.components.submission.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -121,10 +120,10 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("chat did not start")
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	row, ok := findSessionRow(snapshot.Sessions, draftID)
 	close(engine.release)
-	_ = frontendOfTestService(service).WaitForIdle(context.Background())
+	_ = service.components.lifecycleApplication.WaitForIdle(context.Background())
 	if !ok {
 		t.Fatalf("running session %s missing from directory: %v", draftID, snapshot.Sessions)
 	}
@@ -151,13 +150,13 @@ func TestScheduledSessionVisibleBeforePersist(t *testing.T) {
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
 	workspaceID := "project-1"
-	sessionID, err := frontendOfTestService(service).StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
+	sessionID, err := service.components.scheduledSessionApplication.StartScheduledSession(context.Background(), assemble.ScheduledTaskSpec{
 		Name:        "scheduled",
 		Kind:        dto.ScheduledTaskPrompt,
 		Prompt:      "scheduled prompt",
@@ -172,10 +171,10 @@ func TestScheduledSessionVisibleBeforePersist(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("scheduled chat did not start")
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	row, ok := findSessionRow(snapshot.Sessions, sessionID)
 	close(engine.release)
-	_ = frontendOfTestService(service).WaitForIdle(context.Background())
+	_ = service.components.lifecycleApplication.WaitForIdle(context.Background())
 	if !ok {
 		t.Fatalf("scheduled session %s missing from directory: %v", sessionID, snapshot.Sessions)
 	}

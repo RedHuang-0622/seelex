@@ -1,6 +1,8 @@
 package assembly
 
-import "testing"
+import (
+	"testing"
+)
 
 // BenchmarkSessionRecoveryPath 对照应用层两条恢复路径：
 //   - hot：目标会话已驻留，只重指视图与会话 scope；
@@ -14,13 +16,13 @@ func BenchmarkSessionRecoveryPath(b *testing.B) {
 	b.Run("hot", func(b *testing.B) {
 		store := newPagedSessionStore(sessionID, 316)
 		service := newTestService(b, &fakeEngine{}, withTestSessions(store))
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			b.Fatal(err)
 		}
 		b.ReportAllocs()
 		b.ResetTimer()
 		for index := 0; index < b.N; index++ {
-			if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+			if err := service.components.sessionResume.Resume(sessionID); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -33,11 +35,11 @@ func BenchmarkSessionRecoveryPath(b *testing.B) {
 			store := newPagedSessionStore(sessionID, 316)
 			service := newTestService(b, &fakeEngine{}, withTestSessions(store))
 			b.StartTimer()
-			if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+			if err := service.components.sessionResume.Resume(sessionID); err != nil {
 				b.Fatal(err)
 			}
 			b.StopTimer()
-			frontendOfTestService(service).Shutdown()
+			service.components.lifecycleApplication.Shutdown()
 			b.StartTimer()
 		}
 	})

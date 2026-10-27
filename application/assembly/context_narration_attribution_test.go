@@ -1,5 +1,11 @@
 package assembly
 
+import (
+	"fmt"
+	"github.com/RedHuang-0622/Seele/types"
+	"testing"
+)
+
 // 工具轮说明正文的**归属**守卫（红灯用例：修复前叙述会落到别的轮次/迭代上）。
 //
 // 背景：工具轮说明文本同时属于模型 output、引擎历史和可见视图。record / 重启
@@ -14,13 +20,6 @@ package assembly
 // 本用例断言：每个工具轮事件的正文**恰好等于**它自己那次迭代的说明文本。
 //
 // 运行：go test ./application/assembly -run ToolNarration -v -count=1
-
-import (
-	"fmt"
-	"testing"
-
-	"github.com/RedHuang-0622/Seele/types"
-)
 
 func TestToolNarrationStaysWithOwningIteration(t *testing.T) {
 	harness := newPrefixProbeHarness(t, 1_000_000)

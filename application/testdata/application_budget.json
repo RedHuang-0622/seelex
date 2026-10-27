@@ -3,7 +3,5 @@
   "assembly_internal_dependency_limit": 0,
   "assembly_production_file_limit": 54,
   "assembly_production_line_limit": 7092,
-  "allowed_assembly_internal_dependencies": [],
-  "compatibility_ledger": "docs/2026-10-25-application-modularization/implementation.md",
-  "compatibility_ledger_required_heading": "## 兼容层台账"
+  "allowed_assembly_internal_dependencies": []
 }

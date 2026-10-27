@@ -11,18 +11,19 @@ import (
 // TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
 // chat.changed(running=true)，回合收尾再收到 chat.changed(running=false)，
 // 客户端不需要从"收到增量事件"反推自己是否在跑。
+
 func TestChatStateIsPublishedNotInferred(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription, err := service.SubscribeSession("", 256)
+	subscription, err := service.components.view.SubscribeSession("", 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession(view): %v", err)
 	}
 	defer subscription.Close()
 
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -35,7 +36,7 @@ collect:
 			if event.Kind != EventChatChanged {
 				continue
 			}
-			if event.SessionID != service.Snapshot().Session.ID {
+			if event.SessionID != service.components.frontendSnapshot.Snapshot().Session.ID {
 				t.Fatalf("chat.changed routed to %q, want the view session", event.SessionID)
 			}
 			var state model.ChatState

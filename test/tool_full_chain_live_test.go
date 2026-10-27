@@ -5,15 +5,14 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/gui"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/gui"
 )
 
 // TestManualSmokeRealAccountBashFullChain is an opt-in paid-provider smoke
@@ -34,7 +33,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := harness.frontend.Submit(ctx, "Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,10 +57,10 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
 		t.Fatalf("live bash result = %+v, want project directory %q", result, projectDir)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("live final chat state = %+v", snapshot.Chat)
 	}
 }
@@ -122,7 +121,7 @@ func TestManualSmokeRealAccountGUIBridgeBashFullChain(t *testing.T) {
 	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
 		t.Fatalf("GUI Bridge live bash result = %+v, want project directory %q", result, projectDir)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("GUI Bridge live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	if snapshot := bridge.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
@@ -148,7 +147,7 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if err := harness.frontend.Submit(ctx, "Call todolist_init exactly once with one item named inspect, then reply done. Do not call any other tool."); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "Call todolist_init exactly once with one item named inspect, then reply done. Do not call any other tool."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,10 +162,10 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	if !strings.Contains(completedMessage.Tool.Result, `"total":1`) {
 		t.Fatalf("live todolist result = %q, want one item", completedMessage.Tool.Result)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("live final chat state = %+v", snapshot.Chat)
 	}
 }

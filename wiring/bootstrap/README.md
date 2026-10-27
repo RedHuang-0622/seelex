@@ -115,7 +115,7 @@ mrelease_test.gom（档位与默认值的契约）。
 ### application.go
 
 - `func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *adapters.SessionManager`
-- `func InitApplication( eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *adapters.SessionManager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval *application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
+- `func InitApplication( eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *adapters.SessionManager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
 
 ### bootstrap.go
 
@@ -128,17 +128,35 @@ mrelease_test.gom（档位与默认值的契约）。
 
 ### frontend.go
 
-- `func InitTUI(app *application.Service) tui.Model`
+- `func StartFrontend(flags *config.Flags, app *application.Service, backendOutput io.Writer, startupWarning string, version string) error` — StartFrontend 按 `-frontend` 选择形态，并把装配表交出的 owner 直接给该形态。
+
+### frontend_gui.go
+
+- `func guiAvailable() bool`
+- `func startGUI(service *application.Service, startupWarning, version string) error` — startGUI 拥有 GUI 形态的构造与关闭顺序：headless 冒烟控制面（只在
+- `func startTUI(*application.Service) error` — GUI 产物专注桌面形态；TUI 使用不带 gui 标签的独立二进制。
+
+### frontend_ports.go
+
+- `func headlessDependencies(components assembly.Components) headless.Dependencies`
+- `func consoleDependencies(components assembly.Components) console.Dependencies`
+
+### frontend_tui.go
+
+- `func guiAvailable() bool`
+- `func startGUI(*application.Service, string, string) error`
+- `func tuiDependencies(components assembly.Components) tui.Dependencies` — tuiDependencies 是 TUI 的装配表：一行一个端口，右值是拥有该用例的组件指针。
+- `func InitTUI(service *application.Service) tui.Model`
+- `func startTUI(service *application.Service) error`
 - `func StartTUI(model tui.Model) error`
-- `func StartFrontend(flags *config.Flags, app *application.Service, backendOutput io.Writer, startupWarning string, version string) error`
 
 ### permission.go
 
-- `func SetupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker, mode string) error` — SetupPermissionGate 根据 -permission 标志安装权限门控与起始档位。
+- `func SetupPermissionGate(runtime permissionRuntime, approval application.ApprovalBroker, mode string) error` — SetupPermissionGate 根据 -permission 标志安装权限门控与起始档位。
 - `func MergePermissionConfig(base, override toolspermission.PermissionConfig) toolspermission.PermissionConfig` — MergePermissionConfig 把 seele.yaml 的 permission 段叠加到默认权责配置上：只覆盖
 - `func DefaultManualRules() []toolspermission.PermissionRule` — DefaultManualRules 是 manual 模式的默认白名单（seele.yaml 未配置规则时回退）。
 - `func LoadPermissionConfig(path string) (toolspermission.PermissionConfig, error)` — LoadPermissionConfig 读取 seele.yaml 的 permission 段（权限专用文件）：rules /
-- `func NewPermissionBridge(broker *application.ApprovalBroker) toolspermission.ApprovalHandler` — NewPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
+- `func NewPermissionBridge(broker application.ApprovalBroker) toolspermission.ApprovalHandler` — NewPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
 
 ### plugins.go
 
@@ -151,10 +169,10 @@ mrelease_test.gom（档位与默认值的契约）。
 - `func initRuntime(storePath string) (*assemble.Runtime, error)` — initRuntime 装配 Runtime：配置责任链 → limits（含数据根覆盖层）→ 账号池。
 - `func guardMultiProcess(storePath string) error`
 - `func InitStore(storePath string) (*store.Router, error)`
-- `func sessionStorageLimits() storeroot.Settings` — sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
+- `func sessionStorageLimits() storeroot.Settings` — sessionStorageLimits 把 seelex.yaml limits.session_storage 映射成存储覆盖层
 - `func InitWorkspaceRepo(storePath string) (*workspace.Repo, error)`
 - `func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error)` — InitEngine 按新装配模型创建主会话（session.NewSession）。
-- `func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Service) toolreg.BashDiagnosticObserver` — toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
+- `func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, recorder commandOutcomeRecorder) toolreg.BashDiagnosticObserver` — toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
 - `func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (store.Key, bool)` — sessionKeyFor 把会话 ID 解析成存储作用域键（项目 + 会话）：**按会话自己的项目绑定**解析，
 - `func (st sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error`
 - `func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error)`

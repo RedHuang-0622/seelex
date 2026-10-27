@@ -2,15 +2,14 @@ package assembly
 
 import (
 	"context"
+	"github.com/RedHuang-0622/Seele/session"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/session"
 )
 
 func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	var stages []string

@@ -3,6 +3,8 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/contract"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,8 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract"
 )
 
 func TestChatTurnResponseRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestChatTurnResponseRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnResponse")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnResponse)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnResponseApplication)(nil)) {
 		t.Fatalf("conversationTurnResponse 字段类型 = %s", field.Type)
 	}
-	responseType := reflect.TypeOf((*conversationTurnResponse)(nil))
+	responseType := reflect.TypeOf((*applicationconversation.TurnResponseApplication)(nil))
 	if _, ok := responseType.MethodByName("Finalize"); !ok {
 		t.Fatal("conversationTurnResponse 缺少 Finalize")
 	}
@@ -60,7 +60,7 @@ func TestChatTurnResponseRulesAreCentralized(t *testing.T) {
 func TestConversationTurnResponseFinalizesSuccessfulReply(t *testing.T) {
 	history := []contract.EngineMessage{{Role: "assistant", Content: "reply"}}
 	var calls []string
-	response := newConversationTurnResponse(conversationTurnResponseDeps{
+	response := applicationconversation.NewTurnResponse(applicationconversation.TurnResponseDeps{
 		AttachReasoning: func(sessionID, requestID string) { calls = append(calls, "reasoning") },
 		ObserveOutput: func(ctx context.Context, requestID, reply string, err error) error {
 			calls = append(calls, "observe:"+reply)
@@ -87,7 +87,7 @@ func TestConversationTurnResponseFinalizesSuccessfulReply(t *testing.T) {
 func TestConversationTurnResponseSkipsReasoningOnErrorAndEmptyFinal(t *testing.T) {
 	turnErr := errors.New("provider failed")
 	var calls []string
-	response := newConversationTurnResponse(conversationTurnResponseDeps{
+	response := applicationconversation.NewTurnResponse(applicationconversation.TurnResponseDeps{
 		AttachReasoning: func(string, string) { calls = append(calls, "reasoning") },
 		ObserveOutput: func(_ context.Context, _, reply string, err error) error {
 			if !errors.Is(err, turnErr) {

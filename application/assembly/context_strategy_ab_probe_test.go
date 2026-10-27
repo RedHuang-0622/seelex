@@ -1,40 +1,40 @@
 package assembly
 
-// Seelex vs Codex 上下文策略「对照组」探针（本地可复现，不发网络请求）。
-//
-// 对照组设计——唯一变量是**上下文管理策略**：
-//
-//	同一脚本（同样的用户输入、工具调用、工具结果、assistant 正文）
-//	+ 同一串行化器（serializeRequest / abSerializeAssembled，字段序固定）
-//	+ 同一 token 估算器（生产同款 seelexctx/tokens）
-//	+ 同一工具目录（按 name 排序后序列化，消除"工具序"这个额外变量）
-//
-// 三个 arm：
-//
-//	arm S-prod   Seelex 生产：每轮收尾清空工作历史 → 下一轮从 durable transcript
-//	             全量重投影；工具轮 assistant 的 content/reasoning/tool_calls
-//	             作为模型输出原样保留并回放。
-//	arm D-drop   回归对照：丢弃工具轮 content，只命中 user-input cache unit。
-//	arm C        Codex 策略模型：append-only item 流；已发布的 item 永不改写、
-//	             不编造占位；动态事实只在变化时作为**尾部**片段追加/替换
-//	             （`openai/codex@main`：`core/src/client.rs` 常量 instructions、
-//	             `core/src/context_manager/updates.rs:32-60` merge_contextual_fragments、
-//	             `core/tests/suite/prompt_caching.rs` 前缀断言）。
-//
-// 注意：arm C 是「按 Codex 公开文档/源码语义实现的策略模型」，度量的是该策略在同一
-// 脚本上的**可达上界**，不是对真实 Codex 进程的抓包。arm S-prod / D-drop 是沿生产装配路径的
-// 真实字节（本地复现）。
-//
-// 运行：
-//
-//	go test ./application/assembly -run ContextStrategyAB -v -count=1
-
 import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+
+	// Seelex vs Codex 上下文策略「对照组」探针（本地可复现，不发网络请求）。
+	//
+	// 对照组设计——唯一变量是**上下文管理策略**：
+	//
+	//	同一脚本（同样的用户输入、工具调用、工具结果、assistant 正文）
+	//	+ 同一串行化器（serializeRequest / abSerializeAssembled，字段序固定）
+	//	+ 同一 token 估算器（生产同款 seelexctx/tokens）
+	//	+ 同一工具目录（按 name 排序后序列化，消除"工具序"这个额外变量）
+	//
+	// 三个 arm：
+	//
+	//	arm S-prod   Seelex 生产：每轮收尾清空工作历史 → 下一轮从 durable transcript
+	//	             全量重投影；工具轮 assistant 的 content/reasoning/tool_calls
+	//	             作为模型输出原样保留并回放。
+	//	arm D-drop   回归对照：丢弃工具轮 content，只命中 user-input cache unit。
+	//	arm C        Codex 策略模型：append-only item 流；已发布的 item 永不改写、
+	//	             不编造占位；动态事实只在变化时作为**尾部**片段追加/替换
+	//	             （`openai/codex@main`：`core/src/client.rs` 常量 instructions、
+	//	             `core/src/context_manager/updates.rs:32-60` merge_contextual_fragments、
+	//	             `core/tests/suite/prompt_caching.rs` 前缀断言）。
+	//
+	// 注意：arm C 是「按 Codex 公开文档/源码语义实现的策略模型」，度量的是该策略在同一
+	// 脚本上的**可达上界**，不是对真实 Codex 进程的抓包。arm S-prod / D-drop 是沿生产装配路径的
+	// 真实字节（本地复现）。
+	//
+	// 运行：
+	//
+	//	go test ./application/assembly -run ContextStrategyAB -v -count=1
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/contract"

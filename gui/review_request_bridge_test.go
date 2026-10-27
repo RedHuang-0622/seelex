@@ -21,7 +21,7 @@ func TestBridgeSnapshotCarriesReviewRequest(t *testing.T) {
 		Files:     []dto.ReviewFileRef{{Path: "docs/readme.md", Note: "看这里", StartLine: 2, EndLine: 4}},
 		Skipped:   []dto.ReviewSkip{{Path: "config/accounts.yaml", Reason: dto.ReviewSkipSensitive}},
 	}
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

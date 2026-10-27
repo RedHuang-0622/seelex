@@ -11,8 +11,8 @@ import (
 	"github.com/RedHuang-0622/seelex/wiring"
 )
 
-// queueFakeApp 是队列编辑面的 TUI 假实现：AppController + 可选
-// queueController（与真实 application.Service 的能力面一致）。
+// queueFakeApp 是队列编辑面的 TUI 假实现：装配 fakeApp 同款端口，外加
+// QueueEditor（顺序事实源在应用层，假实现只记录调用）。
 type queueFakeApp struct {
 	snapshot   application.Snapshot
 	hub        *application.EventHub
@@ -46,12 +46,10 @@ func (app *queueFakeApp) CancelChat(id string) bool        { app.cancelled = id;
 func (*queueFakeApp) Suggestions(string) []application.Suggestion {
 	return nil
 }
-func (*queueFakeApp) ResolveInteraction(context.Context, string, string) error { return nil }
-func (*queueFakeApp) SelectAccount(context.Context, string) error              { return nil }
-func (*queueFakeApp) SwitchPlugin(context.Context, string) error               { return nil }
-func (*queueFakeApp) SwitchEffort(context.Context, string) error               { return nil }
-func (*queueFakeApp) LoadMoreHistory(int) error                                { return nil }
-func (*queueFakeApp) LoadLatestHistory() error                                 { return nil }
+func (*queueFakeApp) Resolve(context.Context, string, string) error { return nil }
+func (*queueFakeApp) SwitchEffort(string) error                     { return nil }
+func (*queueFakeApp) LoadMoreHistory(int) error                     { return nil }
+func (*queueFakeApp) LoadLatestHistory() error                      { return nil }
 func (app *queueFakeApp) ReorderQueuedInput(_ string, from, to int) error {
 	app.reorders = append(app.reorders, [2]int{from, to})
 	return app.reorderErr
@@ -59,6 +57,21 @@ func (app *queueFakeApp) ReorderQueuedInput(_ string, from, to int) error {
 func (app *queueFakeApp) RecallQueuedInput(_ string, index int) (string, error) {
 	app.recalled = index
 	return app.recallText, app.recallErr
+}
+
+// deps 装配本假实现的端口：队列编辑面在这里，工具记录读面刻意留 nil。
+func (app *queueFakeApp) deps() Dependencies {
+	return Dependencies{
+		Snapshot:    app,
+		Events:      app,
+		Submission:  app,
+		Completion:  app,
+		Interaction: app,
+		Lifecycle:   app,
+		Effort:      app,
+		History:     app,
+		Queue:       app,
+	}
 }
 
 func altKey(r rune) tea.KeyMsg {
@@ -69,7 +82,7 @@ func altKey(r rune) tea.KeyMsg {
 // 调换顺序：顺序事实源在应用层（TUI 不本地重排），选中行跟随被移动的条目。
 func TestQueueFocusReorderRoutesThroughApplication(t *testing.T) {
 	app := newQueueFakeApp([]string{"one", "two"})
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 
 	updated, _ := model.handleKey(altKey('q'))
@@ -100,7 +113,7 @@ func TestQueueFocusReorderRoutesThroughApplication(t *testing.T) {
 func TestQueueFocusRecallWritesComposer(t *testing.T) {
 	app := newQueueFakeApp([]string{"one", "two"})
 	app.recallText = "two"
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.textarea.SetValue("draft")
 
@@ -126,7 +139,7 @@ func TestQueueFocusRecallWritesComposer(t *testing.T) {
 // 当前回合，Esc 退出焦点。
 func TestQueueFocusDoesNotSwallowGlobalKeys(t *testing.T) {
 	app := newQueueFakeApp([]string{"one", "two"})
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 
 	updated, _ := model.handleKey(altKey('q'))
@@ -152,7 +165,7 @@ func TestQueueFocusDoesNotSwallowGlobalKeys(t *testing.T) {
 // TestQueueFocusRejectedWhenQueueEmpty 没有排队输入时不进入焦点，给明确提示。
 func TestQueueFocusRejectedWhenQueueEmpty(t *testing.T) {
 	app := newQueueFakeApp(nil)
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 
 	updated, _ := model.handleKey(altKey('q'))
@@ -169,7 +182,7 @@ func TestQueueFocusRejectedWhenQueueEmpty(t *testing.T) {
 // 只读态（未聚焦）不出现选择标记。
 func TestRenderQueueHighlightsSelection(t *testing.T) {
 	app := newQueueFakeApp([]string{"one", "two"})
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 
 	readOnly := model.renderQueue()

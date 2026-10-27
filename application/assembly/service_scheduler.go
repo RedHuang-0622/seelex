@@ -11,16 +11,8 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec {
-	return applicationscheduler.WithRunDefaults(spec)
-}
-
 func scheduledRunParams(effort string, loopLimit int) (string, int) {
 	return applicationscheduler.RunParams(effort, loopLimit)
-}
-
-func (service *Service) validateScheduledRunParams(spec dto.ScheduledTaskSpec) error {
-	return applicationscheduler.ValidateRunParams(spec)
 }
 
 func (service *Service) applyScheduledRunParams(sessionID string, task dto.ScheduledTaskSpec) error {

@@ -153,18 +153,18 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_budget_frequency_test.go
 
-- `func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T)` — TestContextBudgetDoesNotRecompactWithoutNewContent 钉住回合边界达峰判据的
+- `func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T)`
 
 ### context_budget_last_resort_test.go
 
-- `func pinMechanismCompactionRatios(t *testing.T)` — pinMechanismCompactionRatios 把压缩阈值钉回 75/90/60：这组用例验证的是
+- `func pinMechanismCompactionRatios(t *testing.T)`
 - `func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T)` — TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
 - `func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T)` — TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
 - `func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身
 
 ### context_budget_margin_idempotency_test.go
 
-- `func pinIneffectiveCompactRatios(t *testing.T)` — pinIneffectiveCompactRatios 把压缩比例钉成「压缩落点够不到软线」的**合法**档：
+- `func pinIneffectiveCompactRatios(t *testing.T)`
 - `func TestContextBudgetSkipsCompactionWithoutMargin(t *testing.T)` — TestContextBudgetSkipsCompactionWithoutMargin 钉住软线压缩的**幂等/有效性校验**：
 
 ### context_cache_divergence_probe_test.go
@@ -296,7 +296,6 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 ### context_compact_test.go
 
 - `func TestContextCompactionApplicationIsAssembled(t *testing.T)`
-- `func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 - `func TestCompactContextHandlerCompactsTranscript(t *testing.T)` — TestCompactContextHandlerCompactsTranscript：compact_context 工具（= /compact
 - `func TestCompactManualCompactsBelowThreshold(t *testing.T)` — TestCompactManualCompactsBelowThreshold：显式压缩（/compact、compact_context）
@@ -334,7 +333,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compaction_body_missing_repro_test.go
 
-- `func TestCompactionMaterialMustCarryConversationBody(t *testing.T)` — ── 现场复现（红灯，第一跳：素材）──────────────────────────────────────
+- `func TestCompactionMaterialMustCarryConversationBody(t *testing.T)`
 - `func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T)` — ── 对照组（断言当前行为，不是红灯）────────────────────────────────────
 - `func dialogueRows(messages []contract.EngineMessage) []string` — dialogueRows 返回引擎历史里的**对话正文行**（role=user/assistant 且内容非空）。
 - `func describeRoles(messages []contract.EngineMessage) string` — describeRoles 渲染素材的角色构成（红线里要能一眼看出「全是 system」）。
@@ -351,12 +350,6 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func persistRestartSession(t *testing.T, service *Service, store *retiredRecordChannelSessions, sessionID string)` — persistRestartSession 按会话落盘（事件流是会话自己的 durable 事实，重启后按同一
 - `func TestReproCompactionFactsSurviveProcessRestart(t *testing.T)` — TestReproCompactionFactsSurviveProcessRestart 重启后压缩栈必须从存储读回来：
 - `func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T)` — TestReproCompactionFailureTraceSurvivesProcessRestart 压缩失败痕同样要跨重启：
-
-### context_compaction_gate_test_aliases_test.go
-
-- `func (service *Service) isCompactingLocked(sessionID string) bool`
-- `func (service *Service) releaseCompactionRound(sessionID string)`
-- `func (service *Service) awaitCompactionRound(ctx context.Context, sessionID string) error`
 
 ### context_compaction_real_session_probe_test.go
 

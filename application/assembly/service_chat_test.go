@@ -16,7 +16,7 @@ import (
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
 	service.ViewMu.Unlock()
@@ -44,7 +44,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
 	}}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
@@ -103,7 +103,7 @@ func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.discardPendingSubagentContexts()
 	history := engine.History()
@@ -112,7 +112,7 @@ func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 			t.Fatalf("mailbox content was injected into Engine history: %#v", history)
 		}
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for _, message := range snapshot.Conversation {
 		if strings.Contains(message.Content, "child conclusion") {
 			t.Fatalf("mailbox content leaked into visible conversation: %#v", snapshot.Conversation)
@@ -172,13 +172,13 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"an", "swer"}}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	defer service.components.lifecycleApplication.Shutdown()
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		snapshot := service.Snapshot()
+		snapshot := service.components.frontendSnapshot.Snapshot()
 		if !snapshot.Chat.Running {
 			if len(snapshot.Conversation) < 2 || snapshot.Conversation[len(snapshot.Conversation)-1].Content != "answer" {
 				t.Fatalf("unexpected conversation: %#v", snapshot.Conversation)
@@ -194,7 +194,7 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 	engine := newGracefulShutdownEngine()
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -202,16 +202,16 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first chat did not start")
 	}
-	if err := service.Submit(context.Background(), "queued"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "queued"); err != nil {
 		t.Fatal(err)
 	}
-	frontendOfTestService(service).BeginGracefulShutdown()
-	if err := service.Submit(context.Background(), "rejected"); !errors.Is(err, ErrApplicationDraining) {
+	service.components.lifecycleApplication.BeginGracefulShutdown()
+	if err := service.components.submission.Submit(context.Background(), "rejected"); !errors.Is(err, ErrApplicationDraining) {
 		t.Fatalf("Submit after graceful shutdown = %v, want ErrApplicationDraining", err)
 	}
 
 	idle := make(chan error, 1)
-	go func() { idle <- frontendOfTestService(service).WaitForIdle(context.Background()) }()
+	go func() { idle <- service.components.lifecycleApplication.WaitForIdle(context.Background()) }()
 	close(engine.releaseFirst)
 	select {
 	case <-engine.secondStarted:
@@ -223,7 +223,7 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 		t.Fatalf("WaitForIdle returned before queued chat completed: %v", err)
 	default:
 	}
-	if !service.Snapshot().Chat.Running {
+	if !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		t.Fatal("queued chat left an observable idle gap")
 	}
 	close(engine.releaseSecond)
@@ -246,7 +246,7 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	sessions := &blockingSaveSessions{entered: make(chan struct{}), release: make(chan struct{})}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -254,7 +254,7 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first chat did not start")
 	}
-	if err := service.Submit(context.Background(), "queued"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "queued"); err != nil {
 		t.Fatal(err)
 	}
 	close(engine.release)
@@ -263,7 +263,7 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("current turn did not reach persistence")
 	}
-	if got := service.Snapshot().Chat.QueuedCount; got != 1 {
+	if got := service.components.frontendSnapshot.Snapshot().Chat.QueuedCount; got != 1 {
 		t.Fatalf("queued count while persistence is draining = %d, want 1", got)
 	}
 	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（"供无锁调用点"），外层
@@ -274,32 +274,32 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 		t.Fatalf("persistence resume refs = %#v, want queued input", resume.QueuedRefs)
 	}
 	close(sessions.release)
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
 	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
-	if err := service.Submit(context.Background(), "interrupt me"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "interrupt me"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+	for time.Now().Before(deadline) && !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		time.Sleep(time.Millisecond)
 	}
-	if !service.Snapshot().Chat.Running {
+	if !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		t.Fatal("chat did not start")
 	}
-	if !frontendOfTestService(service).CancelChat("") {
+	if !service.components.lifecycleApplication.CancelChat("") {
 		t.Fatal("CancelChat returned false for the active request")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
-	if task := service.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
+	if task := service.components.frontendSnapshot.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
 		t.Fatalf("cancelled task = %#v, want interrupted", task)
 	}
 }
@@ -309,26 +309,26 @@ func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
 // Bridge 用空 id 重试实现，属于业务判断，现收在本服务内。
 func TestCancelChatWithStaleRequestID(t *testing.T) {
 	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
-	if err := service.Submit(context.Background(), "stop the spinner"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "stop the spinner"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+	for time.Now().Before(deadline) && !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		time.Sleep(time.Millisecond)
 	}
-	if !service.Snapshot().Chat.Running {
+	if !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		t.Fatal("chat did not start")
 	}
-	if !frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
+	if !service.components.lifecycleApplication.CancelChat("request-from-a-previous-turn") {
 		t.Fatal("CancelChat with a stale request id returned false, want the current turn cancelled")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
 	// 空闲后不得"顺手取消"任何东西。
-	if frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
+	if service.components.lifecycleApplication.CancelChat("request-from-a-previous-turn") {
 		t.Fatal("CancelChat succeeded while idle")
 	}
 }

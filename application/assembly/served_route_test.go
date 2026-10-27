@@ -35,7 +35,7 @@ func TestStampServedRouteFillsAssistantMessageAndPublishes(t *testing.T) {
 	}
 	service.Deps.Runtime = runtime
 
-	service.stampServedRoute(sessionID, "chat-request-1")
+	service.components.conversationStreamRuntime.StampServedRoute(sessionID, "chat-request-1")
 
 	if appended.ConfigRole != "agent" || appended.ConfigModel != "glm-5.3-flash" || appended.ConfigProvider != "openai" {
 		t.Fatalf("可见消息未回填路由：%+v", appended)
@@ -66,7 +66,7 @@ func TestStampServedRouteWithoutFactIsNoop(t *testing.T) {
 	appended := service.components.view.AppendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
 	service.ViewMu.Unlock()
 
-	service.stampServedRoute(sessionID, "chat-request-1")
+	service.components.conversationStreamRuntime.StampServedRoute(sessionID, "chat-request-1")
 
 	if appended.ConfigRole != "" || appended.ConfigModel != "" {
 		t.Fatalf("无路由事实时不得写消息：%+v", appended)
@@ -96,7 +96,7 @@ func TestStampServedRouteSkipsAlreadyStampedTail(t *testing.T) {
 	runtime.servedRoute = dto.ServedRoute{Role: "agent", Model: "new-model", Provider: "openai", At: time.Now()}
 	service.Deps.Runtime = runtime
 
-	service.stampServedRoute(sessionID, "chat-request-2")
+	service.components.conversationStreamRuntime.StampServedRoute(sessionID, "chat-request-2")
 
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()

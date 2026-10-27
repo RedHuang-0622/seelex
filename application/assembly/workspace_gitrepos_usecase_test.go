@@ -1,19 +1,14 @@
 package assembly
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"reflect"
-	"runtime"
-	"strings"
-	"testing"
-
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
 )
 
 // gitReposFakeWorkspace 内嵌 treeFakeWorkspace（WorkspacePort + WorkspaceTreePort）
@@ -55,26 +50,26 @@ func TestWorkspaceGitQueriesForwardResolvedRepoRoot(t *testing.T) {
 		deps.Workspace = fake
 	})
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	repoDir := makeDir(t, root, "vendor/lib")
 
-	if _, err := frontendOfTestService(service).WorkspaceGitLog("vendor/lib", 7); err != nil {
+	if _, err := service.components.workspaceApplication.GitLog("vendor/lib", 7); err != nil {
 		t.Fatal(err)
 	}
 	if fake.lastRoot != repoDir || fake.lastLimit != 7 {
 		t.Fatalf("git log forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)
 	}
 
-	if _, err := frontendOfTestService(service).WorkspaceChanges("vendor/lib", 200); err != nil {
+	if _, err := service.components.workspaceApplication.Changes("vendor/lib", 200); err != nil {
 		t.Fatal(err)
 	}
 	if fake.lastRoot != repoDir || fake.lastLimit != 200 {
 		t.Fatalf("changes forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)
 	}
 
-	if _, err := frontendOfTestService(service).WorkspaceGitCommitDetail("vendor/lib", "aaaa", 150); err != nil {
+	if _, err := service.components.workspaceApplication.CommitDetail("vendor/lib", "aaaa", 150); err != nil {
 		t.Fatal(err)
 	}
 	if fake.lastRoot != repoDir || fake.lastHash != "aaaa" || fake.lastLimit != 150 {
@@ -82,7 +77,7 @@ func TestWorkspaceGitQueriesForwardResolvedRepoRoot(t *testing.T) {
 	}
 
 	// repo 省略（"."）时仍按工作区根收发：既有语义不变。
-	if _, err := frontendOfTestService(service).WorkspaceGitLog(".", 20); err != nil {
+	if _, err := service.components.workspaceApplication.GitLog(".", 20); err != nil {
 		t.Fatal(err)
 	}
 	if fake.lastRoot != filepath.Clean(root) {
@@ -91,7 +86,7 @@ func TestWorkspaceGitQueriesForwardResolvedRepoRoot(t *testing.T) {
 
 	// 越界入参是 Go error，且一次端口调用都不该发生。
 	fake.lastRoot = ""
-	if _, err := frontendOfTestService(service).WorkspaceGitLog("../outside", 20); err == nil {
+	if _, err := service.components.workspaceApplication.GitLog("../outside", 20); err == nil {
 		t.Fatal("escaping repo must be a Go error")
 	}
 	if fake.lastRoot != "" {
@@ -110,12 +105,12 @@ func TestWorkspaceGitCommitFileContentForwardsResolvedRepoRoot(t *testing.T) {
 		deps.Workspace = fake
 	})
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 	repoDir := makeDir(t, root, "vendor/lib")
 
-	if _, err := frontendOfTestService(service).WorkspaceGitCommitFileContent("vendor/lib", "aaaa", "src/main.go", 16); err != nil {
+	if _, err := service.components.workspaceApplication.CommitFileContent("vendor/lib", "aaaa", "src/main.go", 16); err != nil {
 		t.Fatal(err)
 	}
 	if fake.commitRoot != repoDir || fake.commitHash != "aaaa" || fake.commitRel != "src/main.go" || fake.commitLimit != 16 {
@@ -138,11 +133,11 @@ func TestWorkspaceGitReposForwardsWorkspaceRoot(t *testing.T) {
 		deps.Workspace = fake
 	})
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := frontendOfTestService(service).WorkspaceGitRepos()
+	result, err := service.components.workspaceApplication.WorkspaceGitRepos()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,10 +156,10 @@ func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T) {
 		service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 			deps.Workspace = newFakeWorkspace()
 		})
-		if err := frontendOfTestService(service).CreateWorkspace("project", t.TempDir(), ""); err != nil {
+		if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 			t.Fatal(err)
 		}
-		result, err := frontendOfTestService(service).WorkspaceGitRepos()
+		result, err := service.components.workspaceApplication.WorkspaceGitRepos()
 		if err != nil {
 			t.Fatalf("missing port must not be a Go error: %v", err)
 		}
@@ -183,7 +178,7 @@ func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T) {
 		service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 			deps.Workspace = fake
 		})
-		result, err := frontendOfTestService(service).WorkspaceGitRepos()
+		result, err := service.components.workspaceApplication.WorkspaceGitRepos()
 		if err != nil {
 			t.Fatalf("unbound workspace must not be a Go error: %v", err)
 		}
@@ -201,57 +196,5 @@ func TestWorkspaceGitApplicationIsAssembled(t *testing.T) {
 	}
 	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
 		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
-	}
-}
-
-func TestWorkspaceGitFacadeOnlyDelegatesToApplication(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	dir := filepath.Join(filepath.Dir(file), "..", "compat")
-	tests := []struct {
-		file    string
-		methods []string
-	}{
-		{file: "frontend.go", methods: []string{
-			"WorkspaceGitRepos",
-			"WorkspaceGitLog",
-			"WorkspaceChanges",
-			"WorkspaceGitCommitDetail",
-			"WorkspaceGitCommitFileContent",
-		}},
-	}
-	for _, test := range tests {
-		parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, test.file), nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := make(map[string]bool, len(test.methods))
-		for _, method := range test.methods {
-			want[method] = false
-		}
-		for _, declaration := range parsed.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
-				continue
-			}
-			if _, tracked := want[function.Name.Name]; !tracked {
-				continue
-			}
-			want[function.Name.Name] = true
-			if len(function.Body.List) != 1 {
-				t.Fatalf("%s 有 %d 条语句，want 一行 workspaceGitApplication 转发", function.Name.Name, len(function.Body.List))
-			}
-			returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
-			if !ok || len(returnStatement.Results) != 1 {
-				t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
-			}
-		}
-		for method, found := range want {
-			if !found {
-				t.Fatalf("%s 未找到 %s", test.file, method)
-			}
-		}
 	}
 }

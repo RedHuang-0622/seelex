@@ -1,33 +1,33 @@
 package assembly
 
-// 冷加载缺「过程中 LLM 说了什么」复现（2026-09-29）。
-//
-// 现场：长会话里，用户发完一条消息后前端自动翻更早一页（回看态，可见窗口不贴尾，
-// 现网靠 IntersectionObserver/sentinel 的自动触发即可发生）。此时本轮工具轮的
-// **说明正文**（"我先把入口读一下" 这类先说一句再调工具的正文）在冷加载后消失。
-//
-// 为什么正文有两条观察面：
-//  1. Seele 在工具轮保留模型实际生成的 content，并同时经 onChunk 进入可见视图；
-//     LLMInfo.Response 也携带该正文；
-//  2. durable 归宿由 OnLLMComplete 写入，并在工具钩子边界按迭代归位
-//     （handleToolStart → AttributeToolNarrationLocked），而它的输入
-//     `streamedAssistantTextLocked` 读的是**可见窗口**里那条 assistant 消息。
-//
-// 回看态下 `appendVisibleDelta` 按设计跳过可见窗口写入（窗口里最后一条不是本轮
-// 消息，写进去会串写），于是归位输入为空/读到旧窗口正文：工具轮事件的正文要么
-// 空、要么是别的轮次的正文 → 落盘行没有本轮正文 → 冷加载（会话未驻留，从
-// durable rows 冷恢复）看不到过程中 LLM 说了什么。
-//
-// 本用例断言两件事，任一不成立即红：
-//   - 写盘侧：工具轮 transcript 事件的正文 == 本轮流式说明正文；
-//   - 冷加载侧：落盘 record 冷恢复到新 Service 后，可见会话里能找到该正文。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/react"
+
+	// 冷加载缺「过程中 LLM 说了什么」复现（2026-09-29）。
+	//
+	// 现场：长会话里，用户发完一条消息后前端自动翻更早一页（回看态，可见窗口不贴尾，
+	// 现网靠 IntersectionObserver/sentinel 的自动触发即可发生）。此时本轮工具轮的
+	// **说明正文**（"我先把入口读一下" 这类先说一句再调工具的正文）在冷加载后消失。
+	//
+	// 为什么正文有两条观察面：
+	//  1. Seele 在工具轮保留模型实际生成的 content，并同时经 onChunk 进入可见视图；
+	//     LLMInfo.Response 也携带该正文；
+	//  2. durable 归宿由 OnLLMComplete 写入，并在工具钩子边界按迭代归位
+	//     （handleToolStart → AttributeToolNarrationLocked），而它的输入
+	//     `streamedAssistantTextLocked` 读的是**可见窗口**里那条 assistant 消息。
+	//
+	// 回看态下 `appendVisibleDelta` 按设计跳过可见窗口写入（窗口里最后一条不是本轮
+	// 消息，写进去会串写），于是归位输入为空/读到旧窗口正文：工具轮事件的正文要么
+	// 空、要么是别的轮次的正文 → 落盘行没有本轮正文 → 冷加载（会话未驻留，从
+	// durable rows 冷恢复）看不到过程中 LLM 说了什么。
+	//
+	// 本用例断言两件事，任一不成立即红：
+	//   - 写盘侧：工具轮 transcript 事件的正文 == 本轮流式说明正文；
+	//   - 冷加载侧：落盘 record 冷恢复到新 Service 后，可见会话里能找到该正文。
 	"github.com/RedHuang-0622/seelex/kernel/session"
 	"strings"
 	"testing"
@@ -61,7 +61,7 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	const sessionID = "long-session"
 	store := &coldNarrationStore{pagedSessionStore: newPagedSessionStore(sessionID, 20)}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("resume long session: %v", err)
 	}
 	// 冷加载基线的序号空间 = 既有 durable 行（20 条）。
@@ -81,13 +81,13 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	// 前端自动翻更早一页（生产 API）：可见窗口后退 → 回看态。
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 
 	// 本次工具轮的流式说明正文（只在 onChunk 上存在）。
 	const narration = "先看一眼入口，再决定改哪里。"
-	service.appendDelta(coldNarrationRequestID, narration)
+	service.components.conversationStreamRuntime.AppendDelta(coldNarrationRequestID, narration)
 
 	// OnLLMComplete：工具轮正文与 tool_calls 同属模型输出。
 	callArguments := `{"path":"application/assembly/session_history.go"}`
@@ -125,10 +125,10 @@ func TestColdLoadKeepsToolWheelNarration(t *testing.T) {
 		t.Fatalf("persist session: %v", err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(restored).ResumeSession(sessionID); err != nil {
+	if err := restored.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatalf("cold resume: %v", err)
 	}
-	visible := visibleContents(restored.Snapshot())
+	visible := visibleContents(restored.components.frontendSnapshot.Snapshot())
 	found := false
 	for _, content := range visible {
 		if strings.TrimSpace(content) == narration {

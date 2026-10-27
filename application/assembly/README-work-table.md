@@ -178,7 +178,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### work_table_fuzz_test.go
 
-- `func FuzzBuildWorkTable(f *testing.F)` — FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
+- `func FuzzBuildWorkTable(f *testing.F)`
 
 ### work_table_plan_deps_test.go
 
@@ -200,24 +200,11 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### work_table_race_test.go
 
-- `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
-
-### work_table_runtime_test_aliases_test.go
-
-- `func (service *Service) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — Test-only aliases keep existing core integration harnesses on the public
-- `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)`
-- `func (service *Service) syncTasksFromSources()`
-- `func (service *Service) syncTasksFromSourcesFor(sessionID string)`
-- `func (service *Service) workTableTraceBlock() string`
-- `func (service *Service) workTableTraceBlockFor(sessionID string) string`
-- `func (service *Service) refreshWorkTableSnapshot()`
-- `func (service *Service) refreshWorkTableFromSources()`
-- `func (service *Service) safeLifecycleCall(call func())`
-- `func (service *Service) asyncRunsForTable() []dto.AsyncRunRecord`
+- `func TestWorkTableRaceConcurrentMutations(t *testing.T)`
 
 ### work_table_session_axis_test.go
 
-- `func TestWorkItemCarriesOwningSession(t *testing.T)` — 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
+- `func TestWorkItemCarriesOwningSession(t *testing.T)`
 - `func TestGlobalWorkTableCarriesOwningSession(t *testing.T)` — 全局台账行带归属会话：实时注册表 = 当前会话，后台 scope 分区 = 分区键。
 - `func TestMergeTaskRecordsStampsSecondarySession(t *testing.T)` — 冷读合并：磁盘记录不带会话标记（归属由 SessionRecord 容器表达），合并时按
 - `func TestTaskChangedIncrementCarriesOwningSession(t *testing.T)` — 增量面：task.changed 单行必须带归属会话（与整表路径 taskSnapshotAll 同源

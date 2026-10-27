@@ -19,6 +19,7 @@
 - `func (server *fullChainPrefixServer) recorded() [][]byte`
 - `func (server *fullChainPrefixServer) serve(t *testing.T, writer http.ResponseWriter, request *http.Request)`
 - `func TestFullChainPrefixInvariantAcrossTurns(t *testing.T)`
+- `func fullChainAssistantToolContent(t *testing.T, body []byte, toolCallID string) (string, bool)` — fullChainAssistantToolContent 返回指定请求里带 tool_calls 的 assistant content。
 - `func assertFullChainPrefixInvariant(t *testing.T, bodies [][]byte)` — assertFullChainPrefixInvariant 断言相邻两次 provider 请求保持消息前缀关系，
 - `func fullChainWireContent(t *testing.T, body []byte, toolCallID string) (string, bool)` — fullChainWireContent 返回第 index 次（1 起）provider 请求里指定 tool_call_id
 - `func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T)` — TestFullChainPrefixInvariantToolErrorAcrossTurns 覆盖第二类跨轮「事后改写」：

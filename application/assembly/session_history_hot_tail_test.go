@@ -1,5 +1,12 @@
 package assembly
 
+import (
+	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"strings"
+	"testing"
+)
+
 // 本文件复现「加载着加载着就只剩冷加载内容，尾部没了；一出个工具结果又像是恢复
 // 了正常」这条现场缺陷（2026-09-25）。
 //
@@ -19,13 +26,6 @@ package assembly
 //     是把洞盖住；
 //  3. 冷读一页短于请求（读到发布点就没了）时，offset 仍按调用方估计值写，
 //     窗口内容与窗口起点从此各说各话。
-
-import (
-	"fmt"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"strings"
-	"testing"
-)
 
 // beginInFlightTurn 造「本轮已进内存窗口、尚未落盘」的在飞尾部：store 只物理
 // append（不推进发布点），service 经真实 append 路径写可见窗口。
@@ -69,12 +69,12 @@ func TestLoadLatestHistoryKeepsInFlightTail(t *testing.T) {
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
 	tail := append(wantRange(18, 2), inFlight...)
-	assertVisibleWindow(t, "在飞窗口基线", service.Snapshot(), 18, tail, 24)
+	assertVisibleWindow(t, "在飞窗口基线", service.components.frontendSnapshot.Snapshot(), 18, tail, 24)
 
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
-	assertVisibleWindow(t, "回到最新不得丢掉未落盘尾部", service.Snapshot(), 18, tail, 24)
+	assertVisibleWindow(t, "回到最新不得丢掉未落盘尾部", service.components.frontendSnapshot.Snapshot(), 18, tail, 24)
 }
 
 // TestColdPageReadDoesNotRegressVisibleTotal 红灯 2（缺陷 2）：「加载更早」滑走
@@ -86,10 +86,10 @@ func TestColdPageReadDoesNotRegressVisibleTotal(t *testing.T) {
 	service, store := openLongSession(t, 6, 20)
 	beginInFlightTurn(t, service, store, 4)
 
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	assertVisibleWindow(t, "加载更早一页", snapshot, 12, wantRange(12, 6), 24)
 	if below := snapshot.TotalMessages - (snapshot.HistoryOffset + len(visibleContents(snapshot))); below != 6 {
 		t.Fatalf("窗口下方仍有 %d 行未可见，want 6（已发布未入窗 2 行 + 在飞 4 行）", below)
@@ -106,18 +106,18 @@ func TestToolResultAfterPagingDoesNotPunchHole(t *testing.T) {
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
 	// 半页翻页：窗口落在 [15,21) —— 15..19 已发布，20 起在飞，跨发布点且不贴尾。
-	if err := frontendOfTestService(service).LoadMoreHistory(3); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(3); err != nil {
 		t.Fatalf("load more history (half page): %v", err)
 	}
 	halfPage := append(wantRange(15, 5), inFlight[:1]...)
-	assertVisibleWindow(t, "跨发布点的半页窗口", service.Snapshot(), 15, halfPage, 24)
+	assertVisibleWindow(t, "跨发布点的半页窗口", service.components.frontendSnapshot.Snapshot(), 15, halfPage, 24)
 
 	store.appendDurable("tool_result", "tool-result")
 	service.ViewMu.Lock()
 	service.components.view.AppendMessageLocked("tool_result", "tool-result", nil)
 	service.ViewMu.Unlock()
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	assertVisibleWindow(t, "翻页后的新行只推进总数", snapshot, 15, halfPage, 25)
 	for _, content := range visibleContents(snapshot) {
 		if content == "tool-result" {
@@ -136,16 +136,16 @@ func TestLoadLatestHistorySplicesStraddlingHotTail(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
-	if err := frontendOfTestService(service).LoadMoreHistory(3); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(3); err != nil {
 		t.Fatalf("load more history (half page): %v", err)
 	}
 	halfPage := append(wantRange(15, 5), inFlight[:1]...)
-	assertVisibleWindow(t, "跨发布点的半页窗口", service.Snapshot(), 15, halfPage, 24)
+	assertVisibleWindow(t, "跨发布点的半页窗口", service.components.frontendSnapshot.Snapshot(), 15, halfPage, 24)
 
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	// 冷读到发布点 20 为止，内存能把右界再往前带到 21：窗口 = [15,21)。
 	assertVisibleWindow(t, "回到最新拼回在飞尾部", snapshot, 15, halfPage, 24)
 	if below := snapshot.TotalMessages - (snapshot.HistoryOffset + len(visibleContents(snapshot))); below != 3 {
@@ -160,17 +160,17 @@ func TestInFlightTailReturnsAfterCommit(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 	inFlight := beginInFlightTurn(t, service, store, 4)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history (second page): %v", err)
 	}
 
 	store.publishDraftTail()
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history after commit: %v", err)
 	}
 	tail := append(wantRange(18, 2), inFlight...)
-	assertVisibleWindow(t, "落盘后回到最新", service.Snapshot(), 18, tail, 24)
+	assertVisibleWindow(t, "落盘后回到最新", service.components.frontendSnapshot.Snapshot(), 18, tail, 24)
 }

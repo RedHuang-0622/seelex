@@ -1,30 +1,29 @@
 package test
 
-// teamwork_worktree_lifecycle_test.go — **teammate 那条链的现场生命周期端到端**
-// （真 git + 真装配 + 脚本化 provider；不调真实 API，因此是默认跑的那一档）。
-//
-// 为什么补这一条：既有用例里，teammate 链的"现场"只有两半各自被验过——
-//   - `TestDispatchBindsTeammateSceneAndRecordsLedger`（`backend/multiagent/teamwork`）用**替身**
-//     验"派发会调 BindWorkspace、指派名写进成员与账本"（不碰真 git）；
-//   - `TestWorkItemWorktreeIsBoundAsTeammateRoot`（`seelebridge`）验"绑根落到现场"，
-//     但**没有 worker 回合真的在里面干活**；
-//   - `TestTeamworkHeadlessSmoke` 走真装配，但 worker 回合只回正文、**不产文件**，
-//     于是"现场上有工作 + 合回主工作区"这一跳从未被断言过。
-// 本文件把三跳连起来：**派发 → 现场上有真文件 → 合并回主工作区 → 析构销项按 teammate
-// 自己的策略走（收尾/验收都不拆会话，整队收口才是唯一回收点）**。
-
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	// teamwork_worktree_lifecycle_test.go — **teammate 那条链的现场生命周期端到端**
+	// （真 git + 真装配 + 脚本化 provider；不调真实 API，因此是默认跑的那一档）。
+	//
+	// 为什么补这一条：既有用例里，teammate 链的"现场"只有两半各自被验过——
+	//   - `TestDispatchBindsTeammateSceneAndRecordsLedger`（`backend/multiagent/teamwork`）用**替身**
+	//     验"派发会调 BindWorkspace、指派名写进成员与账本"（不碰真 git）；
+	//   - `TestWorkItemWorktreeIsBoundAsTeammateRoot`（`seelebridge`）验"绑根落到现场"，
+	//     但**没有 worker 回合真的在里面干活**；
+	//   - `TestTeamworkHeadlessSmoke` 走真装配，但 worker 回合只回正文、**不产文件**，
+	//     于是"现场上有工作 + 合回主工作区"这一跳从未被断言过。
+	// 本文件把三跳连起来：**派发 → 现场上有真文件 → 合并回主工作区 → 析构销项按 teammate
+	// 自己的策略走（收尾/验收都不拆会话，整队收口才是唯一回收点）**。
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneProbe 是运行期对 teammate 现场的逐帧取证（只读轮询，不改运行时行为）。
@@ -129,7 +128,7 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	// 缺它时 `teamUnitLedger()==nil`，teammate 的单元记录一律不落盘——"收尾之后记录还在"
 	// 这条断言就变成空集上的恒真。这里读的就是基座装好的那一份。
 	root := initSmokeGitRepo(t)
-	if err := smoke.app.CreateWorkspace("wt-project", root, ""); err != nil {
+	if err := smoke.components.Workspace.Switch.CreateWorkspace("wt-project", root, ""); err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
 
@@ -159,13 +158,13 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	}()
 
 	// ── ① 派发 ────────────────────────────────────────────────────────
-	if err := smoke.app.Submit(ctx, "开一个团队，排一件事，让 exec 在仓库里创建 teammate-acceptance.txt 并提交，然后派发它"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "开一个团队，排一件事，让 exec 在仓库里创建 teammate-acceptance.txt 并提交，然后派发它"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
-	sessionID := smoke.app.Snapshot().Session.ID
+	sessionID := smoke.components.Session.Snapshot.Snapshot().Session.ID
 	dispatchReceipt := smoke.toolResultOf("team_dispatch")
 	if !strings.Contains(dispatchReceipt, `"item":"`+itemID+`"`) {
 		t.Fatalf("① 派发受理回执不对：%q\n会话逐行：\n%s", dispatchReceipt, smoke.conversationDump())
@@ -257,10 +256,10 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	}
 
 	// 验收：**不是**回收点。
-	if err := smoke.app.Submit(ctx, "验收 "+itemID); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "验收 "+itemID); err != nil {
 		t.Fatalf("Submit(accept): %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle(accept): %v", err)
 	}
 	if accept := smoke.toolResultOf("team_accept"); !strings.Contains(accept, `"ok":true`) {
@@ -275,10 +274,10 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	}
 
 	// 整队收口 = 唯一回收点。
-	if err := smoke.app.Submit(ctx, "收口整队"); err != nil {
+	if err := smoke.components.Conversation.Submission.Submit(ctx, "收口整队"); err != nil {
 		t.Fatalf("Submit(close): %v", err)
 	}
-	if err := smoke.app.WaitForIdle(ctx); err != nil {
+	if err := smoke.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle(close): %v", err)
 	}
 	if closeReceipt := smoke.toolResultOf("team_close"); !strings.Contains(closeReceipt, `"ok":true`) {

@@ -2,16 +2,15 @@ package test
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // newSkillToolHarness 构造 skill_activate 工具测试台：真实 skill.Registry +

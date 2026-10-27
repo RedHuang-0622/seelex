@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -18,10 +19,10 @@ func TestEditForkValidatorRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkValidator")
 	}
-	if field.Type != reflect.TypeOf((*editForkValidator)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.Validator)(nil)) {
 		t.Fatalf("editForkValidator 字段类型 = %s", field.Type)
 	}
-	validatorType := reflect.TypeOf((*editForkValidator)(nil))
+	validatorType := reflect.TypeOf((*applicationedit.Validator)(nil))
 	if _, ok := validatorType.MethodByName("Validate"); !ok {
 		t.Fatal("editForkValidator 缺少 Validate")
 	}
@@ -55,9 +56,9 @@ func TestEditForkValidatorRulesAreCentralized(t *testing.T) {
 }
 
 func TestEditForkValidatorRejectsNonCurrentParent(t *testing.T) {
-	validator := newEditForkValidator(editForkValidatorDeps{
-		Snapshot: func(string) editForkParentState {
-			return editForkParentState{CurrentSessionID: "session-b", HasWindow: true}
+	validator := applicationedit.NewValidator(applicationedit.ValidatorDeps{
+		Snapshot: func(string) applicationedit.ParentState {
+			return applicationedit.ParentState{CurrentSessionID: "session-b", HasWindow: true}
 		},
 	})
 
@@ -71,17 +72,18 @@ func TestEditForkValidatorRejectsNonCurrentParent(t *testing.T) {
 func TestEditForkValidatorRejectsBusyAndQueuedParent(t *testing.T) {
 	tests := []struct {
 		name  string
-		state editForkParentState
+		state applicationedit.ParentState
 		want  error
 		text  string
 	}{
-		{name: "running", state: editForkParentState{CurrentSessionID: "session-a", Running: true, HasWindow: true}, want: ErrChatRunning},
-		{name: "queued", state: editForkParentState{CurrentSessionID: "session-a", Queued: true, HasWindow: true}, text: "父会话还有排队输入"},
+		{name: "running", state: applicationedit.ParentState{CurrentSessionID: "session-a", Running: true, HasWindow: true}, want: ErrChatRunning},
+		{name: "queued", state: applicationedit.ParentState{CurrentSessionID: "session-a", Queued: true, HasWindow: true}, text: "父会话还有排队输入"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			validator := newEditForkValidator(editForkValidatorDeps{
-				Snapshot: func(string) editForkParentState { return test.state },
+			validator := applicationedit.NewValidator(applicationedit.ValidatorDeps{
+				Snapshot:         func(string) applicationedit.ParentState { return test.state },
+				ChatRunningError: ErrChatRunning,
 			})
 			err := validator.Validate("session-a", 7, 7, 3)
 			if test.want != nil {
@@ -100,29 +102,29 @@ func TestEditForkValidatorRejectsBusyAndQueuedParent(t *testing.T) {
 func TestEditForkValidatorRejectsRevisionWindowAndCompression(t *testing.T) {
 	tests := []struct {
 		name             string
-		state            editForkParentState
+		state            applicationedit.ParentState
 		parentRevision   uint64
 		expectedRevision uint64
 		targetSeq        uint64
 		text             string
 	}{
 		{
-			name: "revision", state: editForkParentState{CurrentSessionID: "session-a", HasWindow: true},
+			name: "revision", state: applicationedit.ParentState{CurrentSessionID: "session-a", HasWindow: true},
 			parentRevision: 8, expectedRevision: 7, targetSeq: 3, text: "父会话已推进",
 		},
 		{
-			name: "no-window", state: editForkParentState{CurrentSessionID: "session-a"},
+			name: "no-window", state: applicationedit.ParentState{CurrentSessionID: "session-a"},
 			parentRevision: 7, expectedRevision: 7, targetSeq: 3, text: editForkNoWindow,
 		},
 		{
-			name: "compressed", state: editForkParentState{CurrentSessionID: "session-a", HasWindow: true, Floor: 5},
+			name: "compressed", state: applicationedit.ParentState{CurrentSessionID: "session-a", HasWindow: true, Floor: 5},
 			parentRevision: 7, expectedRevision: 7, targetSeq: 3, text: editForkCompressed,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			validator := newEditForkValidator(editForkValidatorDeps{
-				Snapshot: func(string) editForkParentState { return test.state },
+			validator := applicationedit.NewValidator(applicationedit.ValidatorDeps{
+				Snapshot: func(string) applicationedit.ParentState { return test.state },
 			})
 			err := validator.Validate("session-a", test.parentRevision, test.expectedRevision, test.targetSeq)
 			if err == nil || !strings.Contains(err.Error(), test.text) {
@@ -133,12 +135,12 @@ func TestEditForkValidatorRejectsRevisionWindowAndCompression(t *testing.T) {
 }
 
 func TestEditForkValidatorAcceptsEditableCurrentWindow(t *testing.T) {
-	validator := newEditForkValidator(editForkValidatorDeps{
-		Snapshot: func(sessionID string) editForkParentState {
+	validator := applicationedit.NewValidator(applicationedit.ValidatorDeps{
+		Snapshot: func(sessionID string) applicationedit.ParentState {
 			if sessionID != "session-a" {
 				t.Fatalf("snapshot session = %q", sessionID)
 			}
-			return editForkParentState{CurrentSessionID: "session-a", HasWindow: true, Floor: 3}
+			return applicationedit.ParentState{CurrentSessionID: "session-a", HasWindow: true, Floor: 3}
 		},
 	})
 

@@ -1,40 +1,40 @@
 package assembly
 
-// 跨轮前缀发散探针（本地可复现，不发网络请求，不依赖真实 provider）。
-//
-// 目的：沿**生产装配路径**（task_context transcript → context_runtime
-// PrepareExecutionContextFor → replaceEngineHistory → PrepareProviderHistoryFor）
-// 驱动「第 1 轮含工具调用、第 2 轮继续」的两次会话回合，逐次 LLM 调用把
-// 「实际会发给 provider 的请求」固化为字节流，度量相邻请求的字节 LCP、
-// 首个差异消息（index/role）与失效后缀的 token 占比——这正是 provider 前缀
-// 缓存命中率的上限来源。
-//
-// 与既有 context_cache_smoke_test.go 的差别：冒烟用例用 appendSettledRound
-// 手工写入「已定稿轮次」（理想 append-only），本探针复刻**真实回合边界**：
-//
-//  1. Seele ReAct 循环 per-iteration 追加 assistant（tool_calls 时保留模型实际
-//     生成的 content/reasoning_content/tool_calls）与 tool 消息；
-//  2. OnLLMComplete 钩子（ToolHookBridge.Hooks）落 transcript assistant 事件，
-//     OnToolStart 钩子边界把本轮迭代的说明正文按迭代归位到该事件
-//     （AttributeToolNarrationLocked）；
-//  3. 回合结束的生产收尾两连：EnsureFinalAssistantTranscript →
-//     BackfillAssistantReasoning（说明正文的归位已前移，回合收尾不再事后填充）；
-//  4. 下一轮 PrepareExecutionContextFor 从 transcript 重建，并原样复现工具轮
-//     assistant 的模型输出。
-//
-// 请求序列化沿用冒烟用例的 serializeRequest（system 在头部、工具目录在尾部，
-// 两者跨轮常量），token 估算沿用生产同款 seelexctx/tokens。
-//
-// 运行：
-//
-//	go test ./application/assembly -run ContextCacheDivergenceProbe -v -count=1
-
 import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/seelectx"
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+
+	// 跨轮前缀发散探针（本地可复现，不发网络请求，不依赖真实 provider）。
+	//
+	// 目的：沿**生产装配路径**（task_context transcript → context_runtime
+	// PrepareExecutionContextFor → replaceEngineHistory → PrepareProviderHistoryFor）
+	// 驱动「第 1 轮含工具调用、第 2 轮继续」的两次会话回合，逐次 LLM 调用把
+	// 「实际会发给 provider 的请求」固化为字节流，度量相邻请求的字节 LCP、
+	// 首个差异消息（index/role）与失效后缀的 token 占比——这正是 provider 前缀
+	// 缓存命中率的上限来源。
+	//
+	// 与既有 context_cache_smoke_test.go 的差别：冒烟用例用 appendSettledRound
+	// 手工写入「已定稿轮次」（理想 append-only），本探针复刻**真实回合边界**：
+	//
+	//  1. Seele ReAct 循环 per-iteration 追加 assistant（tool_calls 时保留模型实际
+	//     生成的 content/reasoning_content/tool_calls）与 tool 消息；
+	//  2. OnLLMComplete 钩子（ToolHookBridge.Hooks）落 transcript assistant 事件，
+	//     OnToolStart 钩子边界把本轮迭代的说明正文按迭代归位到该事件
+	//     （AttributeToolNarrationLocked）；
+	//  3. 回合结束的生产收尾两连：EnsureFinalAssistantTranscript →
+	//     BackfillAssistantReasoning（说明正文的归位已前移，回合收尾不再事后填充）；
+	//  4. 下一轮 PrepareExecutionContextFor 从 transcript 重建，并原样复现工具轮
+	//     assistant 的模型输出。
+	//
+	// 请求序列化沿用冒烟用例的 serializeRequest（system 在头部、工具目录在尾部，
+	// 两者跨轮常量），token 估算沿用生产同款 seelexctx/tokens。
+	//
+	// 运行：
+	//
+	//	go test ./application/assembly -run ContextCacheDivergenceProbe -v -count=1
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
@@ -171,7 +171,7 @@ func (h *prefixProbeHarness) streamText(text string) {
 		return
 	}
 	for _, chunk := range splitProbeChunks(text, 32) {
-		h.service.appendDelta(prefixProbeRequestID, chunk)
+		h.service.components.conversationStreamRuntime.AppendDelta(prefixProbeRequestID, chunk)
 	}
 }
 
@@ -209,7 +209,7 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	// pendingProviderCalls 解析）。
 	h.service.components.tasks.AttributeToolNarrationLocked(h.session,
 		model.TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
-		h.service.streamedAssistantTextLocked(h.session))
+		h.service.components.conversationStreamRuntime.StreamedAssistantTextLocked(h.session))
 	h.service.components.view.AppendMessageLocked("tool", "", &model.ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
@@ -286,7 +286,7 @@ func (h *prefixProbeHarness) toolCallEventContents() []string {
 // visibleAssistantText 返回可见投影中最后一条 assistant 正文（生产视图里
 // 一个回合的流式正文跨迭代累积到同一条消息）。
 func (h *prefixProbeHarness) visibleAssistantText() string {
-	conversation := h.service.Snapshot().Conversation
+	conversation := h.service.components.frontendSnapshot.Snapshot().Conversation
 	for index := len(conversation) - 1; index >= 0; index-- {
 		if conversation[index].Role == "assistant" && conversation[index].Tool == nil {
 			return conversation[index].Content

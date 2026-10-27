@@ -19,7 +19,7 @@
 
 ### archive_reasoning_persist_test.go
 
-- `func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T)` — TestPersistKeepsToolNarrationAndReasoningInRecord：真实轨迹里工具轮之间
+- `func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T)`
 
 ### archive_session_test.go
 

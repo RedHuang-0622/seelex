@@ -1,17 +1,17 @@
 package assembly
 
 import (
-	"sync"
-	"testing"
-	"time"
-
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"sync"
+	"testing"
+	"time"
 )
 
 // lockOrderEngine 复刻真实锁序：节点执行期间会持有 "session 锁"
 // （sessionMu，对应 Seele Session.History 的 mu），引擎子树导出同样要拿它。
+
 type lockOrderEngine struct {
 	*fakeEngine
 	sessionMu sync.Mutex
@@ -61,7 +61,7 @@ func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T) {
 	var detailErr error
 	go func() {
 		defer wait.Done()
-		_, detailErr = frontendOfTestService(service).SubagentSessionDetail("node-1")
+		_, detailErr = service.components.subagentApplication.Detail("node-1")
 	}()
 
 	done := make(chan struct{})

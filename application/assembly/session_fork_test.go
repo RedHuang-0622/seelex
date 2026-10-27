@@ -14,6 +14,7 @@ import (
 
 // forkServiceSessions 是 Service.ForkSession 的会话桩：持有父会话数据面并
 // 记录子会话落盘参数；同时实现 resume 需要的 SessionRecordPort。
+
 type forkServiceSessions struct {
 	fakeSessions
 	parent     model.SessionRecord
@@ -176,7 +177,7 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	childID, err := service.ForkSession("parent", model.ForkRequest{RequestID: "chat-1"})
+	childID, err := service.components.forkApplication.Fork("parent", model.ForkRequest{RequestID: "chat-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 		t.Fatalf("saved child tasks = %#v, want only plan:1（todolist 全新）", sessions.savedRecord.Tasks)
 	}
 	// fork 后自动切换到子会话继续。
-	if got := service.Snapshot().Session.ID; got != "session-new" {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != "session-new" {
 		t.Fatalf("active session after fork = %q, want session-new", got)
 	}
 }
@@ -233,14 +234,14 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 	// 用默认 runtime 才能钉住该路径。
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	childID, err := service.ForkSessionLatest("parent")
+	childID, err := service.components.forkApplication.ForkLatest("parent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := service.Snapshot().Session.ID; got != childID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != childID {
 		t.Fatalf("active session after fork = %q, want %q", got, childID)
 	}
-	snapshot, err := frontendOfTestService(service).SnapshotOf(childID)
+	snapshot, err := service.components.sessionQuery.SnapshotOf(childID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(child): %v", err)
 	}
@@ -296,7 +297,7 @@ func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	childID, err := service.ForkSessionLatest("parent")
+	childID, err := service.components.forkApplication.ForkLatest("parent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 	if sessions.savedChild != "session-new" {
 		t.Fatalf("/fork did not fork the current session: saved under %q", sessions.savedChild)
 	}
-	if got := service.Snapshot().Session.ID; got != "session-new" {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != "session-new" {
 		t.Fatalf("active session after /fork = %q, want session-new", got)
 	}
 }
@@ -373,7 +374,7 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if _, err := service.ForkSession("parent", model.ForkRequest{RequestID: "chat-1"}); err != nil {
+	if _, err := service.components.forkApplication.Fork("parent", model.ForkRequest{RequestID: "chat-1"}); err != nil {
 		t.Fatal(err)
 	}
 	// 修改子会话 record：追加消息 + 改 tool 参数 + 改 plan。
@@ -432,7 +433,7 @@ func TestForkSessionRejectsRunningParent(t *testing.T) {
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "req-parent"}, nil)
 	service.ViewMu.Unlock()
 
-	if _, err := service.ForkSession("parent", model.ForkRequest{}); !errors.Is(err, ErrChatRunning) {
+	if _, err := service.components.forkApplication.Fork("parent", model.ForkRequest{}); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("ForkSession(running parent) = %v, want ErrChatRunning", err)
 	}
 	if sessions.savedChild != "" {

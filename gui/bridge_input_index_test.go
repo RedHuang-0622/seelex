@@ -22,6 +22,12 @@ func (stub *stubInputIndexApplication) SessionInputIndex(sessionID string) (mode
 	return stub.index, stub.err
 }
 
+func (stub *stubInputIndexApplication) deps() Dependencies {
+	deps := stub.fakeApplication.deps()
+	deps.SessionCatalog = stub
+	return deps
+}
+
 // TestBridgeSessionInputIndexForwards SessionInputIndex 只转发一次，
 // sessionID 与索引原样回传（右侧索引的唯一数据入口）。
 func TestBridgeSessionInputIndexForwards(t *testing.T) {
@@ -39,7 +45,7 @@ func TestBridgeSessionInputIndexForwards(t *testing.T) {
 			},
 		},
 	}
-	bridge, err := NewBridge(stub, Options{})
+	bridge, err := NewBridge(stub.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -62,7 +68,7 @@ func TestBridgeSessionInputIndexForwards(t *testing.T) {
 // （不静默成空索引：右侧轨道宁可报"不可用"，也不假装没有用户输入）。
 func TestBridgeSessionInputIndexUnavailableIsExplicit(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -84,7 +90,7 @@ func TestBridgeSessionInputIndexSurfacesApplicationError(t *testing.T) {
 	t.Parallel()
 	cause := errors.New("load session record \"sess-a\": disk on fire")
 	stub := &stubInputIndexApplication{fakeApplication: newFakeApplication(), err: cause}
-	bridge, err := NewBridge(stub, Options{})
+	bridge, err := NewBridge(stub.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}

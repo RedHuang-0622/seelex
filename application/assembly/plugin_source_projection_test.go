@@ -1,19 +1,19 @@
 package assembly
 
-// plugin_source_projection_test.go — 「这些前端显示出来的 plugin 我没有在我的 plugin
-// 下面见过」在应用层会话快照里的接线。
-//
-// 为什么这一层要单独钉：来源读数一共有四跳（curated.yaml → plugin.Manager →
-// adapters.PluginPort → view_state 收集 → 会话快照 JSON 键），中间任何一跳断了，前端
-// 拿到的都是 undefined——面板照旧只列名字，没有任何报错，用户只能继续猜"这插件哪来的"。
-// 所以这里从**真实**的 PluginPort（真的 loader、真的多根根链、真的 curated.yaml）走一遍，
-// 而不是喂一个手写的 PluginInfo。
-
 import (
 	"context"
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+
+	// plugin_source_projection_test.go — 「这些前端显示出来的 plugin 我没有在我的 plugin
+	// 下面见过」在应用层会话快照里的接线。
+	//
+	// 为什么这一层要单独钉：来源读数一共有四跳（curated.yaml → plugin.Manager →
+	// adapters.PluginPort → view_state 收集 → 会话快照 JSON 键），中间任何一跳断了，前端
+	// 拿到的都是 undefined——面板照旧只列名字，没有任何报错，用户只能继续猜"这插件哪来的"。
+	// 所以这里从**真实**的 PluginPort（真的 loader、真的多根根链、真的 curated.yaml）走一遍，
+	// 而不是喂一个手写的 PluginInfo。
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"

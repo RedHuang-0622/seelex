@@ -1,20 +1,19 @@
 package assembly
 
+import (
+	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"strings"
+	"testing"
+)
+
 // teamwork_board_projection_test.go — 团队看板在**应用层会话快照**里的接线（契约
 // docs/arch/team-board-gui-tui-contract.md §3）。
 //
 // 为什么这一层要单独钉：桥侧（seelebridge）的组装已经有自己的用例，模型层的深拷贝
 // 也有；但"装配探测 → view_state 收集 → SessionRuntime 槽位 → JSON 键"这三跳只要有一跳
 // 断了，GUI/TUI 拿到的就永远是 undefined（面板不出现，且没有任何报错）。
-
-import (
-	"encoding/json"
-	"strings"
-	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-)
 
 // teamBoardRuntime 给测试桩补上**窄可选**能力面：Runtime 实现它，投影里就有团队看板；
 // 不实现它的桩（默认 fakeRuntime）走"未装配"分支——两条路径都要有用例。

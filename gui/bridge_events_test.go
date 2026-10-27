@@ -36,6 +36,13 @@ func (fake *replayAwareFakeApplication) SubscribeSessionWithReplay(
 	return subscription, nil
 }
 
+// deps 把变体自己绑进 ViewEvents 端口：重放窗口这条路只有它实现。
+func (fake *replayAwareFakeApplication) deps() Dependencies {
+	deps := fake.sessionAwareFakeApplication.deps()
+	deps.ViewEvents = fake
+	return deps
+}
+
 // appliedRenderer 模拟渲染层落地：记录每个 delivery_seq 被应用几次与事件类型，
 // 并可丢弃指定序号的首次投递。
 type appliedRenderer struct {
@@ -125,7 +132,7 @@ func awaitWatermark(t *testing.T, subscription application.Subscription, atLeast
 
 func startReplayBridge(t *testing.T, app *replayAwareFakeApplication, renderer *appliedRenderer) *Bridge {
 	t.Helper()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -250,7 +257,7 @@ func TestBridgeReplayEventsRequiresRunningRelay(t *testing.T) {
 	app := &replayAwareFakeApplication{
 		sessionAwareFakeApplication: &sessionAwareFakeApplication{fakeApplication: newFakeApplication()},
 	}
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}

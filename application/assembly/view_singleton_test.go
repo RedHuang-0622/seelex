@@ -13,34 +13,34 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 
 	// 装配期：两镜像一致。
-	initial := service.Snapshot().Session.ID
+	initial := service.components.frontendSnapshot.Snapshot().Session.ID
 	if got := service.sessions.ActiveID(); got != initial {
 		t.Fatalf("assemble V mirrors diverge: ActiveID=%q Snapshot=%q", got, initial)
 	}
 
 	// 草稿：V 镜像同步为早分配的草稿 SID（draft）。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if draftID == "" {
 		t.Fatal("draft session must hold a pre-assigned ID")
 	}
 	if got := service.sessions.ActiveID(); got != draftID {
 		t.Fatalf("draft V mirrors diverge: ActiveID=%q Snapshot=%q", got, draftID)
 	}
-	if snapshot := service.Snapshot(); !snapshot.Session.Draft || snapshot.Session.ID != draftID {
+	if snapshot := service.components.frontendSnapshot.Snapshot(); !snapshot.Session.Draft || snapshot.Session.ID != draftID {
 		t.Fatal("snapshot not draft after BeginNewSession")
 	}
 
 	// 草稿物化：V 镜像随物化切到新会话（流式增量才能按活跃路径镜像 Snapshot）。
-	if err := service.Submit(context.Background(), "first request"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first request"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	newID := service.Snapshot().Session.ID
+	newID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if newID == "" {
 		t.Fatal("materialized session ID is empty")
 	}
@@ -49,10 +49,10 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	}
 
 	// 活跃卸载：V 镜像同步到新的早分配 SID 草稿（不残留旧 ActiveID）。
-	if err := frontendOfTestService(service).UnloadSession(newID); err != nil {
+	if err := service.components.sessionLifecycle.Unload(newID); err != nil {
 		t.Fatal(err)
 	}
-	after := service.Snapshot()
+	after := service.components.frontendSnapshot.Snapshot()
 	if after.Session.ID == "" || after.Session.ID == newID {
 		t.Fatalf("unload active must switch to a fresh draft ID: %+v", after.Session)
 	}
@@ -69,15 +69,15 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 func TestDraftMaterializeStreamsMirrorToSnapshot(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"hel", "lo"}}
 	service := newTestService(t, engine)
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		snapshot := service.Snapshot()
+		snapshot := service.components.frontendSnapshot.Snapshot()
 		if !snapshot.Chat.Running && len(snapshot.Conversation) > 0 {
 			last := snapshot.Conversation[len(snapshot.Conversation)-1]
 			if last.Role == "assistant" && containsText(last.Content, "hello") {
@@ -86,5 +86,5 @@ func TestDraftMaterializeStreamsMirrorToSnapshot(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("materialized draft streaming not mirrored to Snapshot: %+v", service.Snapshot().Conversation)
+	t.Fatalf("materialized draft streaming not mirrored to Snapshot: %+v", service.components.frontendSnapshot.Snapshot().Conversation)
 }

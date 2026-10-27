@@ -1,41 +1,7 @@
 package assembly
 
-// fixture_concurrency_test.go — 夹具竞态的**回归**与**防复发**。
-//
-// # 这个夹具竞态是什么
-//
-// 对象：测试夹具 teamRecordingSessions / librarySessions（fakeSessions 的团队存储面）。
-//
-// 成因：**锁只上在了一侧**。夹具自己的存取方法（ReadLifecycleOrder / WriteTeamRegistry
-// / setLifecycle ...）是加锁的——因为生产路径是并发的：服务与后台 goroutine 通过
-// contract.SessionPort 读 lifecycle 顺序、注册表、库。但测试侧曾经绕过入口直接写字段：
-//
-//	sessions.policy, sessions.order = dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"}
-//	sessions.order = nil
-//	sessions.registry = dto.TeamRegistry{}
-//
-// 按 Go 内存模型，**加锁的读**与**不加锁的写**之间没有 happens-before 关系，因此
-// 这仍然是数据竞争，与"读侧加没加锁"无关：`go test -race` 会直接报
-//
-//	WARNING: DATA RACE
-//	Read at 0x... by goroutine 18:
-//	  (*teamRecordingSessions).ReadLifecycleOrder()   goal_team_wiring_test.go:33
-//	Previous write at 0x... by goroutine 17:
-//	  TestZZZFixtureRaceRepro()                        fixture_race_repro_test.go:32
-//
-// 危害不只是"偶尔崩"：写侧拆成两条字段（policy 与 order），读侧可能读到**半边更新**
-// 的组合（新 policy + 旧 order）。装配/同步路径会按自相矛盾的顺序事实推进——症状
-// 飘忽、只在特定调度/核数下出现，是最难查的一类 flake。
-//
-// # 解
-//
-//  1. 两侧走同一把锁：字段只能通过夹具的加锁入口读写（见 goal_team_wiring_test.go
-//     的 setLifecycle/setOrder/setRegistry/lifecycleSnapshot/registrySnapshot/
-//     ensuredRoles/orderSnapshot，以及 librarySessions.writeCount/globalWriteCount）；
-//  2. 机械防线：TestFixturesDoNotBypassLockedAccessors 用 AST 扫本包测试源码，
-//     再出现"绕过入口的字段选择子"直接失败——人可能忘，检测不会。
-
 import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -44,8 +10,40 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
+	// fixture_concurrency_test.go — 夹具竞态的**回归**与**防复发**。
+	//
+	// # 这个夹具竞态是什么
+	//
+	// 对象：测试夹具 teamRecordingSessions / librarySessions（fakeSessions 的团队存储面）。
+	//
+	// 成因：**锁只上在了一侧**。夹具自己的存取方法（ReadLifecycleOrder / WriteTeamRegistry
+	// / setLifecycle ...）是加锁的——因为生产路径是并发的：服务与后台 goroutine 通过
+	// contract.SessionPort 读 lifecycle 顺序、注册表、库。但测试侧曾经绕过入口直接写字段：
+	//
+	//	sessions.policy, sessions.order = dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"}
+	//	sessions.order = nil
+	//	sessions.registry = dto.TeamRegistry{}
+	//
+	// 按 Go 内存模型，**加锁的读**与**不加锁的写**之间没有 happens-before 关系，因此
+	// 这仍然是数据竞争，与"读侧加没加锁"无关：`go test -race` 会直接报
+	//
+	//	WARNING: DATA RACE
+	//	Read at 0x... by goroutine 18:
+	//	  (*teamRecordingSessions).ReadLifecycleOrder()   goal_team_wiring_test.go:33
+	//	Previous write at 0x... by goroutine 17:
+	//	  TestZZZFixtureRaceRepro()                        fixture_race_repro_test.go:32
+	//
+	// 危害不只是"偶尔崩"：写侧拆成两条字段（policy 与 order），读侧可能读到**半边更新**
+	// 的组合（新 policy + 旧 order）。装配/同步路径会按自相矛盾的顺序事实推进——症状
+	// 飘忽、只在特定调度/核数下出现，是最难查的一类 flake。
+	//
+	// # 解
+	//
+	//  1. 两侧走同一把锁：字段只能通过夹具的加锁入口读写（见 goal_team_wiring_test.go
+	//     的 setLifecycle/setOrder/setRegistry/lifecycleSnapshot/registrySnapshot/
+	//     ensuredRoles/orderSnapshot，以及 librarySessions.writeCount/globalWriteCount）；
+	//  2. 机械防线：TestFixturesDoNotBypassLockedAccessors 用 AST 扫本包测试源码，
+	//     再出现"绕过入口的字段选择子"直接失败——人可能忘，检测不会。
 )
 
 // TestTeamRecordingSessionsAccessorsAreRaceFree 并发读写夹具：-race 下证明读写两侧

@@ -3,18 +3,17 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application"
 )
 
-// sessionAwareFakeApplication 是带会话级扩展的 Application 桩
-// （embedded *fakeApplication 提供其余接口面）。
+// sessionAwareFakeApplication 是带会话级 owner 桩的测试替身。
 type sessionAwareFakeApplication struct {
 	*fakeApplication
 	submitToSessionErr error
-	activated          string
 	snapshotOfID       string
 	subscribeErr       error
 	subscribeMu        sync.Mutex
@@ -26,15 +25,7 @@ func (fake *sessionAwareFakeApplication) SubmitToSession(_ context.Context, sess
 	return fake.submitToSessionErr
 }
 
-func (fake *sessionAwareFakeApplication) ActivateSession(sessionID string) error {
-	fake.activated = sessionID
-	fake.snapshotMu.Lock()
-	fake.snapshot.Session = application.SessionState{ID: sessionID}
-	fake.snapshotMu.Unlock()
-	return nil
-}
-
-func (fake *sessionAwareFakeApplication) ResumeSession(sessionID string) error {
+func (fake *sessionAwareFakeApplication) Resume(sessionID string) error {
 	fake.resumedSession = sessionID
 	fake.snapshotMu.Lock()
 	fake.snapshot.Session = application.SessionState{ID: sessionID}
@@ -42,7 +33,7 @@ func (fake *sessionAwareFakeApplication) ResumeSession(sessionID string) error {
 	return nil
 }
 
-func (fake *sessionAwareFakeApplication) ForkSessionLatest(sessionID string) (string, error) {
+func (fake *sessionAwareFakeApplication) ForkLatest(sessionID string) (string, error) {
 	fake.forkedSession = sessionID
 	child := "child-" + sessionID
 	fake.snapshotMu.Lock()
@@ -51,7 +42,7 @@ func (fake *sessionAwareFakeApplication) ForkSessionLatest(sessionID string) (st
 	return child, nil
 }
 
-func (fake *sessionAwareFakeApplication) BeginNewSession() error {
+func (fake *sessionAwareFakeApplication) Begin() error {
 	fake.beganNewSession = true
 	// G4 先行：草稿从新建即持有早分配的真实 SID。
 	fake.snapshotMu.Lock()
@@ -79,6 +70,24 @@ func (fake *sessionAwareFakeApplication) SubscribeSession(sessionID string, buff
 	return fake.hub.SubscribeSession(sessionID, buffer), nil
 }
 
+// SubscribeSessionWithReplay 刻意返回错误：本替身模拟"只有无窗口会话订阅"的宿主，
+// 桥面的运行期错误回退链因此落到 SubscribeSession（订阅键序列被记录下来）。
+func (fake *sessionAwareFakeApplication) SubscribeSessionWithReplay(string, int, int) (application.Subscription, error) {
+	return application.Subscription{}, errors.New("view events: replay window is not supported")
+}
+
+// deps 把变体自己绑进它驱动的逐 owner 端口。
+func (fake *sessionAwareFakeApplication) deps() Dependencies {
+	deps := fake.fakeApplication.deps()
+	deps.SessionCatalog = fake
+	deps.Draft = fake
+	deps.Resume = fake
+	deps.Fork = fake
+	deps.SessionSubmit = fake
+	deps.ViewEvents = fake
+	return deps
+}
+
 // subscriptionKeys 返回订阅键的快照：中继 goroutine 会并发追加
 // subscribeIDs，测试读取必须走这里（-race 下裸读会报数据竞争）。
 func (fake *sessionAwareFakeApplication) subscriptionKeys() []string {
@@ -89,7 +98,7 @@ func (fake *sessionAwareFakeApplication) subscriptionKeys() []string {
 
 func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -103,8 +112,8 @@ func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 	if err := bridge.ActivateSession("s2"); err != nil {
 		t.Fatalf("ActivateSession: %v", err)
 	}
-	if app.activated != "s2" {
-		t.Fatalf("ActivateSession routed id = %q, want s2", app.activated)
+	if app.resumedSession != "s2" {
+		t.Fatalf("ActivateSession routed id = %q, want s2", app.resumedSession)
 	}
 	if _, err := bridge.SnapshotOf("s3"); err != nil {
 		t.Fatalf("SnapshotOf: %v", err)
@@ -114,25 +123,6 @@ func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 	}
 	if _, err := bridge.SubscribeSession("s4", 8); err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
-	}
-}
-
-func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
-	bridge, err := NewBridge(newFakeApplication(), Options{})
-	if err != nil {
-		t.Fatalf("NewBridge: %v", err)
-	}
-	if err := bridge.SubmitToSession("s1", "hi"); err == nil {
-		t.Fatal("SubmitToSession on unsupported app should error")
-	}
-	if err := bridge.ActivateSession("s1"); err == nil {
-		t.Fatal("ActivateSession on unsupported app should error")
-	}
-	if _, err := bridge.SnapshotOf("s1"); err == nil {
-		t.Fatal("SnapshotOf on unsupported app should error")
-	}
-	if _, err := bridge.SubscribeSession("s1", 8); err == nil {
-		t.Fatal("SubscribeSession on unsupported app should error")
 	}
 }
 
@@ -146,7 +136,7 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	app.snapshotMu.Lock()
 	app.snapshot.Session = application.SessionState{ID: "session-b"}
 	app.snapshotMu.Unlock()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -227,7 +217,7 @@ func TestBridgeRelaysCompactionProgressToRenderer(t *testing.T) {
 	app.snapshotMu.Lock()
 	app.snapshot.Session = application.SessionState{ID: "session-progress"}
 	app.snapshotMu.Unlock()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}

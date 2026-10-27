@@ -9,15 +9,15 @@ import (
 
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "request-1"}
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).SetStream(chat.NewVisibleOutputStream("request-1"))
 	service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
-	service.appendDelta("request-1", "answer<think>private reasoning</think> done")
-	snapshot := service.Snapshot()
+	service.components.conversationStreamRuntime.AppendDelta("request-1", "answer<think>private reasoning</think> done")
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	content := snapshot.Conversation[len(snapshot.Conversation)-1].Content
 	if content != "answer done" || strings.Contains(content, "think") || strings.Contains(content, "private") {
 		t.Fatalf("visible content = %q", content)

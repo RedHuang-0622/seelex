@@ -1,9 +1,8 @@
 package assembly
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"testing"
 )
 
 // 本文件钉住"进草稿壳"三条路径的**差异矩阵**（M5-P18 的规整：字段清理收成
@@ -40,16 +39,16 @@ func seedPreviousSessionFacts(service *Service) {
 func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	// `/new` 是幂等的：视图已在草稿上时直接返回。所以先落到一个真实会话上，
 	// 再铺"上一个会话留下的会话事实"，这样 BeginNewSession 才走真正的清理路径。
 	engine.register("sess-before-new")
-	if err := frontendOfTestService(service).ResumeSession("sess-before-new"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-before-new"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	seedPreviousSessionFacts(service)
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 
@@ -79,7 +78,7 @@ func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T) {
 func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	seedPreviousSessionFacts(service)
 
 	service.components.sessionRestoreDraftReset.Reset()
@@ -110,7 +109,7 @@ func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T) {
 func TestUnloadViewDraftShellKeepsProcessInteractionAndWritesNoSlot(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	seedPreviousSessionFacts(service)
 
 	service.ViewMu.Lock()
@@ -148,7 +147,7 @@ func TestUnloadViewDraftShellKeepsProcessInteractionAndWritesNoSlot(t *testing.T
 func TestUnloadViewDraftShellDropsSessionScopedInteraction(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	seedPreviousSessionFacts(service)
 
 	service.ViewMu.Lock()

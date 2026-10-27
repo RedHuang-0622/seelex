@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"errors"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,8 +12,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-
-	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 )
 
 func TestSessionRestoreRecoveryRulesAreCentralized(t *testing.T) {

@@ -1,12 +1,6 @@
 package assembly
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"reflect"
-	"runtime"
-
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -15,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -28,34 +23,6 @@ func TestWorkspaceApplicationIsAssembled(t *testing.T) {
 	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
 		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
 	}
-}
-
-func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "CreateWorkspaces" ||
-			!functionHasReceiver(function, "Frontend") {
-			continue
-		}
-		if len(function.Body.List) != 1 {
-			t.Fatalf("CreateWorkspaces 有 %d 条语句，want 一行 workspaceApplication 转发", len(function.Body.List))
-		}
-		returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
-		if !ok || len(returnStatement.Results) != 1 {
-			t.Fatal("CreateWorkspaces 不是单行 return 转发")
-		}
-		return
-	}
-	t.Fatal("未找到 CreateWorkspaces")
 }
 
 // treeFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现
@@ -121,11 +88,11 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	listing, err := frontendOfTestService(service).WorkspaceTree("src", 1)
+	listing, err := service.components.workspace.Tree("src", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +103,7 @@ func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
 		t.Fatalf("forwarded root=%q rel=%q depth=%d", fake.lastRoot, fake.lastRel, fake.lastDepth)
 	}
 
-	count, err := frontendOfTestService(service).WorkspaceFileCount()
+	count, err := service.components.workspace.FileCount()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,19 +117,19 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = fake
 	})
-	if _, err := frontendOfTestService(service).WorkspaceTree("", 1); err == nil {
+	if _, err := service.components.workspace.Tree("", 1); err == nil {
 		t.Fatal("WorkspaceTree succeeded without a workspace")
 	}
-	if _, err := frontendOfTestService(service).WorkspaceFileCount(); err == nil {
+	if _, err := service.components.workspace.FileCount(); err == nil {
 		t.Fatal("WorkspaceFileCount succeeded without a workspace")
 	}
-	if _, err := frontendOfTestService(service).WorkspaceGitLog(".", 20); err == nil {
+	if _, err := service.components.workspaceApplication.GitLog(".", 20); err == nil {
 		t.Fatal("WorkspaceGitLog succeeded without a workspace")
 	}
-	if _, err := frontendOfTestService(service).WorkspaceChanges(".", 20); err == nil {
+	if _, err := service.components.workspaceApplication.Changes(".", 20); err == nil {
 		t.Fatal("WorkspaceChanges succeeded without a workspace")
 	}
-	if _, err := frontendOfTestService(service).WorkspaceGitCommitDetail(".", "abc", 20); err == nil {
+	if _, err := service.components.workspaceApplication.CommitDetail(".", "abc", 20); err == nil {
 		t.Fatal("WorkspaceGitCommitDetail succeeded without a workspace")
 	}
 }
@@ -179,11 +146,11 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := frontendOfTestService(service).WorkspaceGitLog(".", 10)
+	result, err := service.components.workspaceApplication.GitLog(".", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +176,11 @@ func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := frontendOfTestService(service).WorkspaceGitCommitDetail(".", "abc", 200)
+	result, err := service.components.workspaceApplication.CommitDetail(".", "abc", 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,10 +198,10 @@ func TestWorkspaceTreeFallsBackWhenBackendLacksTreePort(t *testing.T) {
 		deps.Workspace = newFakeWorkspace()
 	})
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := frontendOfTestService(service).WorkspaceTree("", 1); err == nil {
+	if _, err := service.components.workspace.Tree("", 1); err == nil {
 		t.Fatal("WorkspaceTree succeeded without tree-capable backend")
 	}
 }
@@ -261,11 +228,11 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	count, err := frontendOfTestService(service).WorkspaceFileCount()
+	count, err := service.components.workspace.FileCount()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +242,7 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 		t.Fatalf("unexpected count=%+v", count)
 	}
 
-	listing, err := frontendOfTestService(service).WorkspaceTree("", 1)
+	listing, err := service.components.workspace.Tree("", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,11 +287,11 @@ func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T) {
 	})
 
 	root := t.TempDir()
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := frontendOfTestService(service).WorkspaceChanges(".", 50)
+	result, err := service.components.workspaceApplication.Changes(".", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,11 +342,11 @@ func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, func(deps *contract.Dependencies) {
 		deps.Workspace = repo
 	})
-	if err := frontendOfTestService(service).CreateWorkspace("project", root, ""); err != nil {
+	if err := service.components.workspace.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := frontendOfTestService(service).WorkspaceChanges(".", 0)
+	result, err := service.components.workspaceApplication.Changes(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

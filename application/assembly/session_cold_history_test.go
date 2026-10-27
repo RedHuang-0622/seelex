@@ -2,6 +2,10 @@ package assembly
 
 import (
 	"errors"
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,10 +14,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdHistoryRulesAreExtracted(t *testing.T) {
@@ -22,10 +22,10 @@ func TestSessionColdHistoryRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdHistory")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdHistory)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.HistoryApplication)(nil)) {
 		t.Fatalf("sessionColdHistory 字段类型 = %s", field.Type)
 	}
-	historyType := reflect.TypeOf((*sessionColdHistory)(nil))
+	historyType := reflect.TypeOf((*applicationsessioncold.HistoryApplication)(nil))
 	if _, ok := historyType.MethodByName("Assemble"); !ok {
 		t.Fatal("sessionColdHistory 缺少 Assemble")
 	}
@@ -62,9 +62,9 @@ func TestSessionColdHistoryRulesAreExtracted(t *testing.T) {
 
 func TestSessionColdHistoryUsesLegacyHistoryWithoutRecord(t *testing.T) {
 	legacy := []contract.EngineMessage{{Role: "user", Content: "legacy"}}
-	component := newSessionColdHistory(sessionColdHistoryDeps{})
+	component := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{})
 
-	got, err := component.Assemble("session-a", sessionColdReadResult{
+	got, err := component.Assemble("session-a", applicationsessioncold.ReadResult{
 		Location:  session_runtime.Location{WorkspaceID: "workspace-a"},
 		HasRecord: false,
 		History:   legacy,
@@ -85,7 +85,7 @@ func TestSessionColdHistoryRebuildsTranscriptAndPrefersWireHistory(t *testing.T)
 	rebuilt := []model.TranscriptEvent{{Seq: 1, Role: "user", Content: "latest"}}
 	wireHistory := []contract.EngineMessage{{Role: "user", Content: "wire"}}
 	calls := []string{}
-	component := newSessionColdHistory(sessionColdHistoryDeps{
+	component := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget:             func() int { return 100 },
 		MinRounds:              func() int { return 2 },
 		LatestUser:             func([]model.Message) string { return "latest" },
@@ -116,7 +116,7 @@ func TestSessionColdHistoryRebuildsTranscriptAndPrefersWireHistory(t *testing.T)
 		},
 	})
 
-	got, err := component.Assemble("session-a", sessionColdReadResult{
+	got, err := component.Assemble("session-a", applicationsessioncold.ReadResult{
 		Location:   session_runtime.Location{WorkspaceID: "workspace-a"},
 		Record:     record,
 		HasRecord:  true,
@@ -139,7 +139,7 @@ func TestSessionColdHistoryRebuildsTranscriptAndPrefersWireHistory(t *testing.T)
 
 func TestSessionColdHistoryFallsBackToRecordAndResumeHistory(t *testing.T) {
 	record := model.SessionRecord{}
-	component := newSessionColdHistory(sessionColdHistoryDeps{
+	component := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget:             func() int { return 10 },
 		MinRounds:              func() int { return 1 },
 		LatestUser:             func([]model.Message) string { return "" },
@@ -158,7 +158,7 @@ func TestSessionColdHistoryFallsBackToRecordAndResumeHistory(t *testing.T) {
 		},
 	})
 
-	got, err := component.Assemble("session-a", sessionColdReadResult{
+	got, err := component.Assemble("session-a", applicationsessioncold.ReadResult{
 		Location:   session_runtime.Location{WorkspaceID: "workspace-a"},
 		Record:     record,
 		HasRecord:  true,
@@ -174,7 +174,7 @@ func TestSessionColdHistoryFallsBackToRecordAndResumeHistory(t *testing.T) {
 }
 
 func TestSessionColdHistoryUsesFinalResumeFallback(t *testing.T) {
-	component := newSessionColdHistory(sessionColdHistoryDeps{
+	component := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget:             func() int { return 10 },
 		MinRounds:              func() int { return 1 },
 		LatestUser:             func([]model.Message) string { return "" },
@@ -191,7 +191,7 @@ func TestSessionColdHistoryUsesFinalResumeFallback(t *testing.T) {
 		},
 	})
 
-	got, err := component.Assemble("session-a", sessionColdReadResult{
+	got, err := component.Assemble("session-a", applicationsessioncold.ReadResult{
 		Location:   session_runtime.Location{WorkspaceID: "workspace-a"},
 		HasRecord:  true,
 		Transcript: []model.TranscriptEvent{{Seq: 2}},
@@ -207,7 +207,7 @@ func TestSessionColdHistoryUsesFinalResumeFallback(t *testing.T) {
 
 func TestSessionColdHistoryWrapsWireError(t *testing.T) {
 	wireErr := errors.New("wire failed")
-	component := newSessionColdHistory(sessionColdHistoryDeps{
+	component := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget:             func() int { return 10 },
 		MinRounds:              func() int { return 1 },
 		LatestUser:             func([]model.Message) string { return "" },
@@ -222,7 +222,7 @@ func TestSessionColdHistoryWrapsWireError(t *testing.T) {
 		RecordResumeHistory: func(model.SessionRecord) []contract.EngineMessage { return nil },
 	})
 
-	_, err := component.Assemble("session-a", sessionColdReadResult{
+	_, err := component.Assemble("session-a", applicationsessioncold.ReadResult{
 		Location:   session_runtime.Location{WorkspaceID: "workspace-a"},
 		HasRecord:  true,
 		Transcript: []model.TranscriptEvent{{Seq: 2}},

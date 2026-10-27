@@ -15,13 +15,15 @@ import (
 	"github.com/RedHuang-0622/seelex/headless"
 )
 
-func newHeadlessTestServer(t *testing.T, app headless.Application) string {
+// newHeadlessTestServer 在回环监听器上起控制面，接收的是测试装配表交出的
+// headless.Dependencies（与 wiring/bootstrap.headlessDependencies 同一形状）。
+func newHeadlessTestServer(t *testing.T, deps headless.Dependencies) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := headless.NewServer(app)
+	server := headless.NewServer(deps)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -58,10 +60,10 @@ func headlessRPC(t *testing.T, base, method string, args ...any) headless.Respon
 }
 
 // TestHeadlessHealthAndRPC 验证 headless 冒烟接口的命令面：方法映射到
-// Application 契约，参数错误/未知方法显式报错。
+// 对应 owner 端口，参数错误/未知方法显式报错。
 func TestHeadlessHealthAndRPC(t *testing.T) {
-	fake := newFakeApplication()
-	base := newHeadlessTestServer(t, fake)
+	owners := newHeadlessTestOwners()
+	base := newHeadlessTestServer(t, owners.deps)
 
 	healthResponse, err := http.Get(base + "/healthz")
 	if err != nil {
@@ -74,23 +76,23 @@ func TestHeadlessHealthAndRPC(t *testing.T) {
 
 	if result := headlessRPC(t, base, "Submit", "hello headless"); !result.OK {
 		t.Fatalf("Submit failed: %s", result.Error)
-	} else if fake.submitted != "hello headless" {
-		t.Fatalf("Submit text = %q", fake.submitted)
+	} else if owners.submission.submitted != "hello headless" {
+		t.Fatalf("Submit text = %q", owners.submission.submitted)
 	}
 	if result := headlessRPC(t, base, "ResumeSession", "session-x"); !result.OK {
 		t.Fatalf("ResumeSession failed: %s", result.Error)
-	} else if fake.resumedSession != "session-x" {
-		t.Fatalf("resumed = %q", fake.resumedSession)
+	} else if owners.resume.resumed != "session-x" {
+		t.Fatalf("resumed = %q", owners.resume.resumed)
 	}
 	if result := headlessRPC(t, base, "BeginNewSession"); !result.OK {
 		t.Fatalf("BeginNewSession failed: %s", result.Error)
-	} else if !fake.beganNewSession {
-		t.Fatal("BeginNewSession did not reach application")
+	} else if !owners.draft.began {
+		t.Fatal("BeginNewSession did not reach the draft owner")
 	}
 	if result := headlessRPC(t, base, "CancelChat", "request-1"); !result.OK {
 		t.Fatalf("CancelChat failed: %s", result.Error)
-	} else if fake.cancelled != "request-1" {
-		t.Fatalf("cancelled = %q", fake.cancelled)
+	} else if owners.turn.cancelled != "request-1" {
+		t.Fatalf("cancelled = %q", owners.turn.cancelled)
 	}
 	if result := headlessRPC(t, base, "PerfStats"); !result.OK {
 		t.Fatalf("PerfStats failed: %s", result.Error)
@@ -106,8 +108,8 @@ func TestHeadlessHealthAndRPC(t *testing.T) {
 
 // TestHeadlessEventsStream 验证 /events 以 SSE 推送会话事件（公开元数据面）。
 func TestHeadlessEventsStream(t *testing.T) {
-	fake := newFakeApplication()
-	base := newHeadlessTestServer(t, fake)
+	owners := newHeadlessTestOwners()
+	base := newHeadlessTestServer(t, owners.deps)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	response, err := client.Get(base + "/events")
@@ -117,7 +119,7 @@ func TestHeadlessEventsStream(t *testing.T) {
 	defer response.Body.Close()
 	reader := bufio.NewReader(response.Body)
 
-	fake.hub.Publish(application.EventMessageDelta, 2, "request-1", application.MessageDelta{MessageID: "message-9"})
+	owners.hub.Publish(application.EventMessageDelta, 2, "request-1", application.MessageDelta{MessageID: "message-9"})
 
 	for {
 		line, readErr := reader.ReadString('\n')
@@ -144,27 +146,13 @@ func TestHeadlessEventsStream(t *testing.T) {
 	}
 }
 
-// gatedIdleApplication 让 WaitForIdle 阻塞到 gate 关闭或 ctx 到期，用于验证
-// WaitIdle RPC 的超时护栏（默认 fake 的 WaitForIdle 立即返回，测不到超时）。
-type gatedIdleApplication struct {
-	*fakeApplication
-	idleGate chan struct{}
-}
-
-func (fake *gatedIdleApplication) WaitForIdle(ctx context.Context) error {
-	select {
-	case <-fake.idleGate:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // TestHeadlessWaitRPC 验证异步等待口（WaitIdle / WaitCatalogRefresh）：
 // ok 路径 + 超时护栏路径（append-only 新增方法，不改变既有方法契约）。
+// 超时护栏由各 owner fake 的 gate 复现：gate 不关闭时 owner 只能被 ctx 结束，
+// headless 把它包装成可读的「等待空闲/目录收敛失败」。
 func TestHeadlessWaitRPC(t *testing.T) {
-	fake := newFakeApplication()
-	base := newHeadlessTestServer(t, fake)
+	owners := newHeadlessTestOwners()
+	base := newHeadlessTestServer(t, owners.deps)
 
 	if result := headlessRPC(t, base, "WaitIdle", 5); !result.OK {
 		t.Fatalf("WaitIdle failed: %s", result.Error)
@@ -184,36 +172,40 @@ func TestHeadlessWaitRPC(t *testing.T) {
 	}
 
 	// 超时护栏：目录收敛 gate 不关闭 → 1s 后返回可读超时错误。
-	fake.catalogGate = make(chan struct{})
+	owners.catalog.refreshGate = make(chan struct{})
 	if result := headlessRPC(t, base, "WaitCatalogRefresh", 1); result.OK ||
 		!strings.Contains(result.Error, "目录") {
 		t.Fatalf("WaitCatalogRefresh gate should time out, got ok=%v error=%q", result.OK, result.Error)
 	}
-	close(fake.catalogGate)
+	close(owners.catalog.refreshGate)
 
 	// 超时护栏：WaitForIdle 不返回 → 1s 后返回可读超时错误。
-	gated := &gatedIdleApplication{fakeApplication: newFakeApplication(), idleGate: make(chan struct{})}
-	gatedBase := newHeadlessTestServer(t, gated)
+	gated := newHeadlessTestOwners()
+	gated.turn.idleGate = make(chan struct{})
+	gatedBase := newHeadlessTestServer(t, gated.deps)
 	if result := headlessRPC(t, gatedBase, "WaitIdle", 1); result.OK ||
 		!strings.Contains(result.Error, "空闲") {
 		t.Fatalf("WaitIdle gate should time out, got ok=%v error=%q", result.OK, result.Error)
 	}
-	close(gated.idleGate)
+	close(gated.turn.idleGate)
 }
 
 // TestHeadlessPagingCommands 覆盖历史分页命令面：LoadMoreHistory(limit=0 =
-// 一整窗) 与 LoadLatestHistory（回到最新）都映射到 Application 契约。
+// 一整窗) 与 LoadLatestHistory（回到最新）都映射到 history owner 契约。
 func TestHeadlessPagingCommands(t *testing.T) {
-	fake := newFakeApplication()
-	base := newHeadlessTestServer(t, fake)
+	owners := newHeadlessTestOwners()
+	base := newHeadlessTestServer(t, owners.deps)
 
 	if result := headlessRPC(t, base, "LoadMoreHistory", 0); !result.OK {
 		t.Fatalf("LoadMoreHistory failed: %s", result.Error)
 	}
+	if owners.history.lastLimit != 0 {
+		t.Fatalf("LoadMoreHistory limit = %d, want 0（一整窗）", owners.history.lastLimit)
+	}
 	if result := headlessRPC(t, base, "LoadLatestHistory"); !result.OK {
 		t.Fatalf("LoadLatestHistory failed: %s", result.Error)
 	}
-	if !fake.loadedLatest {
-		t.Fatal("LoadLatestHistory was not forwarded to the application")
+	if !owners.history.loadedLatest {
+		t.Fatal("LoadLatestHistory was not forwarded to the history owner")
 	}
 }

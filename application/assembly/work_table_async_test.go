@@ -1,20 +1,20 @@
 package assembly
 
-// 后台命令（bash background=true）投影到工作表格与请求尾部打点块的判据
-// （台账 §10 S3；规格 docs/2026-09-24-async-tool-deferred-ack §10）。
-//
-// 钉住四件事：
-//  1. 界面上要看的一眼全在列里：描述（行标题）、指令（描述列）、实时读数（打点行）；
-//  2. 进上下文的那一份**只给最小事实**——不含日志路径、不含末行原文、不含时间戳；
-//  3. 登记表是唯一事实源：行随状态出现、随终态/驱逐消失，不进 task 注册表、不落盘；
-//  4. 第 4 个生命周期消费者真的接上了变化信号（不需要人工刷新）。
-
 import (
 	"fmt"
 	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+
+	// 后台命令（bash background=true）投影到工作表格与请求尾部打点块的判据
+	// （台账 §10 S3；规格 docs/2026-09-24-async-tool-deferred-ack §10）。
+	//
+	// 钉住四件事：
+	//  1. 界面上要看的一眼全在列里：描述（行标题）、指令（描述列）、实时读数（打点行）；
+	//  2. 进上下文的那一份**只给最小事实**——不含日志路径、不含末行原文、不含时间戳；
+	//  3. 登记表是唯一事实源：行随状态出现、随终态/驱逐消失，不进 task 注册表、不落盘；
+	//  4. 第 4 个生命周期消费者真的接上了变化信号（不需要人工刷新）。
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"strings"
 	"testing"
 	"time"
@@ -174,12 +174,12 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	runtime.currentTaskSession = "session-a"
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
-	block := service.workTableTraceBlockFor("")
-	if !strings.Contains(block, workTableTraceMarkerOpen) || !strings.Contains(block, "- async:a3 process running") {
+	block := service.components.workTableRuntime.TraceBlockFor("")
+	if !strings.Contains(block, applicationtable.TraceMarkerOpen) || !strings.Contains(block, "- async:a3 process running") {
 		t.Fatalf("只有后台命令时打点块没出现: %q", block)
 	}
 	if !strings.Contains(block, "bg_manage") {
@@ -192,14 +192,14 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 	done.Notified = true
 	done.Summary = "done · exit=0 · 3 行 · 12B · 末行: ok"
 	runtime.asyncRuns = []dto.AsyncRunRecord{done}
-	finishedBlock := service.workTableTraceBlockFor("")
+	finishedBlock := service.components.workTableRuntime.TraceBlockFor("")
 	if !strings.Contains(finishedBlock, "async:a3") || !strings.Contains(finishedBlock, "exit=0") {
 		t.Fatalf("完成行没有带着摘要回填: %q", finishedBlock)
 	}
 
 	// 取回之后行消失（登记表不再报它）⇒ 块自动消失。
 	runtime.asyncRuns = nil
-	if got := service.workTableTraceBlockFor(""); got != "" {
+	if got := service.components.workTableRuntime.TraceBlockFor(""); got != "" {
 		t.Fatalf("取回/销项之后打点块应自动消失: %q", got)
 	}
 }
@@ -209,16 +209,16 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
-	service.refreshWorkTableFromSources()
+	service.components.workTableRuntime.RefreshFromSources()
 	if _, ok := workItemByID(serviceWorkTableRows(service), "async:a3"); !ok {
 		t.Fatal("后台行没出现在工作表格里")
 	}
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a4")}
-	service.refreshWorkTableFromSources()
+	service.components.workTableRuntime.RefreshFromSources()
 	rows := serviceWorkTableRows(service)
 	if _, ok := workItemByID(rows, "async:a3"); ok {
 		t.Fatalf("登记表已经没有 a3，投影里还留着（事实源不唯一）: %+v", rows)
@@ -233,7 +233,7 @@ func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T) {
 func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{asyncEvents: make(chan struct{}, 1)}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// 服务已装配完（构造期的刷新看到的是空表），此时新增一行还不该出现在投影里。
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
@@ -343,10 +343,10 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 	// 整块（含块头块尾与读法说明）不得超过 table.TraceMaxLines。
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	runtime.currentTaskSession = "session-a"
 	runtime.asyncRuns = records
-	block := service.workTableTraceBlockFor("")
+	block := service.components.workTableRuntime.TraceBlockFor("")
 	if got := strings.Count(strings.TrimSpace(block), "\n") + 1; got > applicationtable.TraceMaxLines {
 		t.Fatalf("打点块行数 = %d，超过上限 %d:\n%s", got, applicationtable.TraceMaxLines, block)
 	}

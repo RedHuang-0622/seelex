@@ -6,7 +6,7 @@ package application
 
 import (
 	"github.com/RedHuang-0622/seelex/application/assembly"
-	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
+	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
@@ -18,7 +18,7 @@ import (
 
 type (
 	Service                    = assembly.Service
-	Frontend                   = applicationcompat.Frontend
+	ContextCompactionResult    = conversationcontext.Result
 	ToolHookBridge             = assembly.ToolHookBridge
 	ToolHookDiagnosticEvent    = assembly.ToolHookDiagnosticEvent
 	ToolHookDiagnosticObserver = assembly.ToolHookDiagnosticObserver

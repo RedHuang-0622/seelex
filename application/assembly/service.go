@@ -63,9 +63,6 @@ type Service struct {
 	components serviceComponents
 }
 
-// Frontend is the frontend compatibility adapter.
-type Frontend struct{ *Service }
-
 // projectBoardSink 在锁内只复制接口值；外部同步器不得在装配锁下执行。
 // 注入可发生在两个回合之间，工具完成段只消费这份快照。
 func (service *Service) projectBoardSink() board.ProjectBoardSink {

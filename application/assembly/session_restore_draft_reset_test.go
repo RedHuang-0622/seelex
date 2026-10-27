@@ -1,6 +1,7 @@
 package assembly
 
 import (
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +11,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-
-	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 )
 
 func TestSessionRestoreDraftResetRulesAreCentralized(t *testing.T) {

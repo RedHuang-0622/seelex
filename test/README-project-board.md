@@ -23,7 +23,7 @@
 
 ### project_board_i7_test.go
 
-- `func promptLayerBytes(t *testing.T, app *application.Service) string` — promptLayerBytes 把装配前缀（PromptLayers）渲染成可比较的字节。
+- `func promptLayerBytes(t *testing.T, components assembly.Components) string` — promptLayerBytes 把装配前缀（PromptLayers）渲染成可比较的字节。
 - `func projectBoardAccountsFor(t *testing.T, providerURL, root string) string` — projectBoardAccountsFor 写一份指向本地 mock provider 的 accounts.yaml。
 - `func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, projectRoot string)` — writeMarkedProjectBoardProjection 往存储面写一份带标记的投影（两份文件都写）。
 - `func TestProjectBoardPrefixBytesIdentical(t *testing.T)` — TestProjectBoardPrefixBytesIdentical（T4.1）：开/关两臂的装配前缀逐字节相同。

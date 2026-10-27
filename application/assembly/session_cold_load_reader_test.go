@@ -2,6 +2,10 @@ package assembly
 
 import (
 	"errors"
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,10 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdReadRulesAreExtracted(t *testing.T) {
@@ -23,10 +23,10 @@ func TestSessionColdReadRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdRead")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdRead)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.ReadApplication)(nil)) {
 		t.Fatalf("sessionColdRead 字段类型 = %s", field.Type)
 	}
-	readType := reflect.TypeOf((*sessionColdRead)(nil))
+	readType := reflect.TypeOf((*applicationsessioncold.ReadApplication)(nil))
 	if _, ok := readType.MethodByName("Read"); !ok {
 		t.Fatal("sessionColdRead 缺少 Read")
 	}
@@ -63,7 +63,7 @@ func TestSessionColdReadReturnsRecordAndTranscript(t *testing.T) {
 	location := session_runtime.Location{WorkspaceID: "workspace-a"}
 	record := model.SessionRecord{Title: model.SessionTitle{Value: "saved"}}
 	events := []model.TranscriptEvent{{Seq: 3}}
-	read := newSessionColdRead(sessionColdReadDeps{
+	read := applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
 		RecoverTail: func(sessionID string) string { return "notice:" + sessionID },
 		Locate:      func(string) session_runtime.Location { return location },
 		LoadRecord: func(got session_runtime.Location, sessionID string) (model.SessionRecord, int, bool, error) {
@@ -98,7 +98,7 @@ func TestSessionColdReadReturnsRecordAndTranscript(t *testing.T) {
 
 func TestSessionColdReadFallsBackToLegacyHistory(t *testing.T) {
 	history := []contract.EngineMessage{{Role: "user", Content: "legacy"}}
-	read := newSessionColdRead(sessionColdReadDeps{
+	read := applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
 		RecoverTail: func(string) string { return "" },
 		Locate:      func(string) session_runtime.Location { return session_runtime.Location{} },
 		LoadRecord: func(session_runtime.Location, string) (model.SessionRecord, int, bool, error) {
@@ -141,7 +141,7 @@ func TestSessionColdReadErrorPrecedence(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			read := newSessionColdRead(sessionColdReadDeps{
+			read := applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
 				RecoverTail: func(string) string { return "" },
 				Locate:      func(string) session_runtime.Location { return session_runtime.Location{} },
 				LoadRecord: func(session_runtime.Location, string) (model.SessionRecord, int, bool, error) {
@@ -165,7 +165,7 @@ func TestSessionColdReadErrorPrecedence(t *testing.T) {
 }
 
 func TestSessionColdReadIgnoresLegacyErrorsWhenRecordExists(t *testing.T) {
-	read := newSessionColdRead(sessionColdReadDeps{
+	read := applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
 		RecoverTail: func(string) string { return "" },
 		Locate:      func(string) session_runtime.Location { return session_runtime.Location{} },
 		LoadRecord: func(session_runtime.Location, string) (model.SessionRecord, int, bool, error) {

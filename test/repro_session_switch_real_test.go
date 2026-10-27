@@ -1,22 +1,21 @@
 package test
 
-// 临时复现测试：真实 runtime + 真实 application 装配下，会话运行中切换/新建是否
-// 死锁或长时间阻塞。假 provider 首个请求快速返回，后续请求阻塞（模拟长响应）。
-// 诊断用；通过后由维护者决定保留或删除。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
 	"net/http"
 	"net/http/httptest"
+
+	// 临时复现测试：真实 runtime + 真实 application 装配下，会话运行中切换/新建是否
+	// 死锁或长时间阻塞。假 provider 首个请求快速返回，后续请求阻塞（模拟长响应）。
+	// 诊断用；通过后由维护者决定保留或删除。
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // blockingAfterFirstProvider 首个请求立即回复，后续请求阻塞到 release（模拟 LLM 长响应）。
@@ -123,28 +122,28 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 	defer cancel()
 
 	// 创建会话 A（首个请求快速返回）。
-	if err := harness.frontend.Submit(ctx, "first"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v\n%s", err, allGoroutineStacks())
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 
 	// fork 出会话 B（持久化子会话）。
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
 
 	// 回到 A 并触发长任务（provider 阻塞 → A 运行中）。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -155,16 +154,16 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 
 	// A 运行中恢复 B。
 	resumeDone := make(chan error, 1)
-	go func() { resumeDone <- harness.frontend.ResumeSession(sessionB) }()
+	go func() { resumeDone <- harness.components.Session.Resume.Resume(sessionB) }()
 	if err := waitReal(t, resumeDone, "ResumeSession(B) while A running (real runtime)"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
 	}
-	if active := harness.frontend.Snapshot().Session.ID; active != sessionB {
+	if active := harness.components.Session.Snapshot.Snapshot().Session.ID; active != sessionB {
 		t.Fatalf("active = %q, want %q", active, sessionB)
 	}
 
 	close(provider.release)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 }
@@ -187,13 +186,13 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := harness.frontend.Submit(ctx, "first"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -203,17 +202,17 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	}
 
 	newDone := make(chan error, 1)
-	go func() { newDone <- harness.frontend.BeginNewSession() }()
+	go func() { newDone <- harness.components.Session.DraftEntry.Begin() }()
 	if err := waitReal(t, newDone, "BeginNewSession while A running (real runtime)"); err != nil {
 		t.Fatalf("BeginNewSession = %v (want nil: draft allowed while running)", err)
 	}
-	draft := harness.frontend.Snapshot()
+	draft := harness.components.Session.Snapshot.Snapshot()
 	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft while A running, got %+v", draft.Session)
 	}
 
 	close(provider.release)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 }
@@ -237,26 +236,26 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := harness.frontend.Submit(ctx, "first"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
 
 	// 新建会话 → 草稿：早分配真实 SID、无对话、不建引擎 bundle。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.BeginNewSession(); err != nil {
+	if err := harness.components.Session.DraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draft := harness.frontend.Snapshot()
+	draft := harness.components.Session.Snapshot.Snapshot()
 	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft session, got %+v", draft.Session)
 	}
@@ -266,10 +265,10 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	}
 
 	// 切换会话 B → 草稿槽位保留，会话树中仍可见草稿行。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
-	after := harness.frontend.Snapshot()
+	after := harness.components.Session.Snapshot.Snapshot()
 	if after.Session.ID != sessionB || after.Session.Draft {
 		t.Fatalf("after switch: session = %+v, want B (draft gone)", after.Session)
 	}
@@ -287,10 +286,10 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一草稿视图。
-	if err := harness.frontend.BeginNewSession(); err != nil {
+	if err := harness.components.Session.DraftEntry.Begin(); err != nil {
 		t.Fatalf("restore draft: %v", err)
 	}
-	restored := harness.frontend.Snapshot()
+	restored := harness.components.Session.Snapshot.Snapshot()
 	if !restored.Session.Draft || restored.Session.ID != draftID {
 		t.Fatalf("restored draft = %+v", restored.Session)
 	}

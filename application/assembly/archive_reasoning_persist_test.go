@@ -12,13 +12,14 @@ import (
 //   - assistant 普通消息的 ReasoningContent；
 //   - 同一 assistant 事件“正文 + ToolCalls”里的正文（应先出 assistant
 //     消息，再出工具调用消息，与实时视图一致）。
+
 func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T) {
 	sessions := &archiveSessions{record: model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "session-reasoning",
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-reasoning"}, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-reasoning"}
 	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "q1"})

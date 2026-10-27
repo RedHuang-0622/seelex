@@ -1,23 +1,23 @@
 package assembly
 
-// teamwork_completion_trigger_test.go — 钉住「teammate 干完了要像 subagent 一样**自动
-// 返回**」（2026-10-04 现场：「workitem done 了，内容我取回来了，但是没有像 subagent
-// 一样的自动返回」）。
-//
-// 根因：两条链只接了一条——subagent / bash_bg / read_batch 活在 tools 的后台执行登记表
-// （AsyncRunsSnapshot + AsyncRunEvents），teammate 作业活在 Seele 的 jobs.Manager 里
-// （contract.TeamworkJobCompletion）。同一件事（跑完了）在 teammate 侧既不在投影里、
-// 也不在信号口上。
-//
-// 这里逐条钉住与 subagent 侧**对齐的口径**：done/failed 触发、running/killed 不触发、
-// 绝不唤醒忙会话（跳过的条目还要留待重试）、一个句柄一次、两张表的句柄空间**互不压制**。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+
+	// teamwork_completion_trigger_test.go — 钉住「teammate 干完了要像 subagent 一样**自动
+	// 返回**」（2026-10-04 现场：「workitem done 了，内容我取回来了，但是没有像 subagent
+	// 一样的自动返回」）。
+	//
+	// 根因：两条链只接了一条——subagent / bash_bg / read_batch 活在 tools 的后台执行登记表
+	// （AsyncRunsSnapshot + AsyncRunEvents），teammate 作业活在 Seele 的 jobs.Manager 里
+	// （contract.TeamworkJobCompletion）。同一件事（跑完了）在 teammate 侧既不在投影里、
+	// 也不在信号口上。
+	//
+	// 这里逐条钉住与 subagent 侧**对齐的口径**：done/failed 触发、running/killed 不触发、
+	// 绝不唤醒忙会话（跳过的条目还要留待重试）、一个句柄一次、两张表的句柄空间**互不压制**。
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +104,7 @@ func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T) {
 	}
 	service, runtime := teamworkCompletionHarness(t, true, engine)
 
-	if err := service.Submit(context.Background(), "先占住这个会话"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "先占住这个会话"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	select {
@@ -135,7 +135,7 @@ func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T) {
 	runtime.teamworkEvents <- struct{}{}
 	time.Sleep(200 * time.Millisecond)
 	rounds := 0
-	for _, message := range service.Snapshot().Conversation {
+	for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 		if message.Role == "user" && strings.Contains(message.Content, "ab12") {
 			rounds++
 		}

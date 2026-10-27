@@ -254,10 +254,10 @@ func Run(opts Options) (*App, error) {
 	if err != nil {
 		return nil, boot.fail(err)
 	}
-	frontendApp := wiring.NewFrontend(app)
-	boot.addCleanup(frontendApp.Shutdown)
+	components := assembly.ComponentsFor(app)
+	boot.addCleanup(components.Runtime.Lifecycle.Shutdown)
 	roleUserSpaces := func(sessionID, role string) []string {
-		paths, err := frontendApp.RoleSSHUserSpaces(sessionID, role)
+		paths, err := components.Policy.Role.RoleSSHUserSpaces(sessionID, role)
 		if err != nil {
 			return nil
 		}
@@ -268,25 +268,25 @@ func Run(opts Options) (*App, error) {
 	console.LogStageIf(backendTrace, "startup.application.ready")
 	// 子代理中断恢复的「补历史」步骤：父侧缺失的工具结果（含中断的
 	// subagent 派发）在续跑前补齐 provider-only tool 占位。
-	runtime.SetSubagentParentRepairer(frontendApp.PrepareProviderHistory)
+	runtime.SetSubagentParentRepairer(components.Conversation.ContextHistory.PrepareProviderHistoryFor)
 	// 配置容错：启动期非致命警告（如 accounts.yaml 解析失败）以系统通知
 	// 进入会话可见区，GUI 另弹原生对话框；应用照常启动，不再闪退。
 	startupWarnings := runtime.StartupWarnings()
 	for _, warning := range startupWarnings {
-		frontendApp.AddNotice("⚠ 启动配置警告: " + warning)
+		components.Session.View.AddNotice("⚠ 启动配置警告: " + warning)
 	}
 	// 插件根读数（加载了几个插件、从哪个根）**进 UI 面**：旧口径里这条只写进终端
 	// 日志（wiring/config 的 LogPluginRoots），GUI 里根本看不到——所以"广播"那个词名不副实（它既不是
 	// 广播，也没有第二个读者）。现在终端与 UI 两处写的是**同一条读数**（config.PluginRootReport
 	// 生成一次，两处引用同一份字节）。
 	if pluginStartup.RootReading != "" {
-		frontendApp.AddNotice("插件: " + pluginStartup.RootReading)
+		components.Session.View.AddNotice("插件: " + pluginStartup.RootReading)
 	}
 	if pluginStartup.Curated != "" {
-		frontendApp.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
+		components.Session.View.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
 	}
 	registry.RegisterTaskTerminalTools(runtime, app)
-	registry.RegisterGoalTools(runtime, assembly.NewFrontendPorts(app).Goal)
+	registry.RegisterGoalTools(runtime, assembly.ComponentsFor(app).Admin.Goal)
 	// **J-1a 之后这里不再注入两条"角色自带"读面**（2026-10-12，Agent Team 用户面
 	// 退场）：
 	//
@@ -317,7 +317,7 @@ func Run(opts Options) (*App, error) {
 	// `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 仍在（运行时公开
 	// 读面，测试与 headless 宿主可用），只是不再有装配根来源。
 	registry.RegisterSkillActivateTool(runtime, skillRegistry, func(name string) (skill.Skill, error) {
-		info, err := frontendApp.ActivateSkill(name)
+		info, err := components.Policy.Switch.ActivateSkill(name)
 		if err != nil {
 			return skill.Skill{}, err
 		}
@@ -334,19 +334,19 @@ func Run(opts Options) (*App, error) {
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := registry.ProjectBoardSinkFor(
 		runtimeLimits.ProjectBoard, st,
-		frontendApp.WorkTableRowsFor, assembly.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamPlanFor,
-		assembly.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
+		components.Execution.ProjectBoard.WorkTableRowsFor, components.Execution.ProjectBoard.ProjectBoardTeamPlanFor,
+		components.Execution.ProjectBoard.ProjectBoardTeamStateFor, components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
 		return nil, boot.fail(err)
 	}
-	frontendApp.SetProjectBoardSink(projectBoardSink)
+	components.Execution.ProjectBoardSink.Store(projectBoardSink)
 	boot.addCleanup(closeProjectBoard)
 	// 工具记录（成功/失败计数 + 失败原因）：读数**按会话**存在会话自己的存储里，落盘是
 	// **批次**（真相源提交时刻统一更新一次，见 assembly.FlushToolRecord）——不做"每次工具调用
 	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
-	frontendApp.SetToolRecordSnapshotStore(sessionToolRecordStore{
+	components.Execution.ToolRecords.SetSnapshotStore(sessionToolRecordStore{
 		router:     st,
 		resolveKey: func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
 	})
@@ -362,7 +362,7 @@ func Run(opts Options) (*App, error) {
 	}
 	// 装配期只装内存（值本来就从覆盖层来）：用户拨开关才走 SetToolRecordEnabled 的
 	// "先落盘、再改内存"。这样覆盖层文件只在用户真改过之后才出现这一格。
-	frontendApp.ApplyToolRecordEnabled(toolRecordEnabled)
+	components.Execution.ToolRecords.ApplyEnabled(toolRecordEnabled)
 	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
 	// 所以在这里把解析器交给 Router 一次（见 store.SetProjectBoardRootFor）。
 	st.SetProjectBoardRootFor(func(sessionID string) string {
@@ -381,7 +381,7 @@ func Run(opts Options) (*App, error) {
 	// Application 在状态迁移后向 Runtime 发布不可变可见性和父证据投影；
 	// Runtime 只读自己的缓存，子代理 merge-back 写 Runtime 有界 mailbox，
 	// 由主会话在下一次 ChatStream 前锁外消费。
-	frontendApp.PublishRuntimeProjections()
+	assembly.PublishInitialRuntimeProjections(app)
 	// 启动期装配一次注入（RuntimeDeps）：项目知识/子代理工具回调/skill 目录
 	// + 计划事件钩子 + 压缩归档 + 调度器执行器/观察者 + 诊断观察者。
 	// 对应原散装单字段 setter，装配点统一走 Deps 结构。
@@ -393,12 +393,12 @@ func Run(opts Options) (*App, error) {
 	// 命令的退出码（那条 stage 只由同步 bash 链发出；bash_bg 走另一条链、不经这里），
 	// 命令面因此不需要第二个上报口。"退出码非零 = 一次命令失败"的判据在 core
 	// （RecordToolCommandOutcome），这里只做搬运；诊断日志照旧转发给下游。
-	bashObserver = toolCommandOutcomeObserver(bashObserver, frontendApp)
+	bashObserver = toolCommandOutcomeObserver(bashObserver, components.Execution.ToolRecords)
 	runtime.ApplyDeps(assemble.RuntimeDeps{
 		BashDiagnosticObserver: bashObserver,
 		TurnArchiver: &applicationreference.CompressedTurnArchiver{
 			Store:             adapters.NewCompressedTurnStore(sessionManager),
-			SessionIDProvider: func() string { return frontendApp.Snapshot().Session.ID },
+			SessionIDProvider: func() string { return components.Session.Snapshot.Snapshot().Session.ID },
 			// 显式项目作用域：压缩原文的落盘键必须与读面
 			// read_compressed_turn（LoadToolResultWorkspace(workspaceID, sessionID, ref)）
 			// 一致。先按会话自己的绑定解析（与 eventStore 同一解析器，R3 键漂移
@@ -410,7 +410,7 @@ func Run(opts Options) (*App, error) {
 				return ""
 			},
 			WorkspaceIDProvider: func() string {
-				return session_runtime.WorkspaceID(frontendApp.Snapshot().CurrentWorkspace)
+				return session_runtime.WorkspaceID(components.Session.Snapshot.Snapshot().CurrentWorkspace)
 			},
 		},
 		ProjectKnowledge: func() *store.ProjectRecord {
@@ -424,23 +424,22 @@ func Run(opts Options) (*App, error) {
 		// 子代理工具活动：事件 + 它的**归属主会话**（assemble 从执行上下文解析）。装配根
 		// 只做搬运，记账/投影都在 application（HandleSubagentToolEventFor）。
 		SubagentToolCallback: func(observation assemble.SubagentToolObservation) {
-			frontendApp.HandleSubagentToolEventFor(observation.OwnerSessionID, observation.Event)
+			components.Execution.SubagentView.HandleSubagentToolEventFor(observation.OwnerSessionID, observation.Event)
 		},
 		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
 		// 都在 application（HandleRoleToolActivity）。
-		RoleToolCallback: frontendApp.HandleRoleToolActivity,
+		RoleToolCallback: components.Execution.RoleActivity.Handle,
 		// 员工回合收口：该角色会话的工具记录暂存一次性提交给主会话累计
-		// （阶梯提交的收口点；同步入账）。
-		RoleTurnEndCallback: func(mainSessionID, roleSessionID string) {
-			frontendApp.CloseRoleToolRecordUnit(mainSessionID, roleSessionID)
-		},
-		SkillRegistry: skillRegistry,
+		// （阶梯提交的收口点；同步入账）。角色单元键的拼法属于 toolrecord 聚合，
+		// 装配根只搬方法，不再在这里拼一次 RoleUnitID。
+		RoleTurnEndCallback: components.Execution.ToolRecords.CloseRoleUnit,
+		SkillRegistry:       skillRegistry,
 		// 定时提示词任务的执行器：默认**新建会话**发起（可选装配工作区），
 		// 显式绑定了会话的任务才投递到那个会话。
 		// 单独一个函数是为了让测试基座（tool_full_chain_test.go 的 newFullChainHarness）
 		// 装的是同一份口径，而不是各写一份"看起来差不多"的闭包。
 		ScheduledPromptExecutor: registry.ScheduledPromptExecutor(app),
-		SchedulerObserver:       frontendApp.RefreshRuntimeSnapshot,
+		SchedulerObserver:       components.Runtime.Runtime.Refresh,
 	})
 	// 定时任务定义恢复（全局 JSONL → 内存排期）：必须在**执行器与观察者注入之后**，
 	// 恢复出来的任务才可能立刻按排期触发。副作用只有"多出几条已排期任务"与一次
@@ -451,7 +450,7 @@ func Run(opts Options) (*App, error) {
 		log.Printf("定时任务恢复：%d 条已排期，%d 条跳过（已过期/已失效）", restored, skipped)
 	}
 	if frontend == "backend" && strings.TrimSpace(flags.BackendProject) != "" {
-		if err := console.BindProject(frontendApp, flags.BackendProject); err != nil {
+		if err := console.BindProject(components.Session.Snapshot, components.Workspace.Switch, flags.BackendProject); err != nil {
 			return nil, boot.fail(err)
 		}
 		console.LogStageIf(backendTrace, "startup.workspace.ready")

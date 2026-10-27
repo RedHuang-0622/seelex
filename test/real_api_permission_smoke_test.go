@@ -2,45 +2,42 @@
 
 package test
 
-// real_api_permission_smoke_test.go — 权责系统的**真实 API 冒烟**（opt-in）。
-//
-// 跑法（凭据只从环境变量给出，不写入仓库、不打印内容）：
-//
-//	$env:SEELEX_SMOKE_ACCOUNTS='G:\Program\go\seelex\config\accounts.yaml'
-//	go test -tags manualsmoke2 . -run 'TestRealAPIPermissionSmoke' -count=1 -v -timeout 1500s
-//
-// 与其它用例的区别：审批面不再用桩，而是装**生产审批桥**
-// （wiring/bootstrap 的 NewPermissionBridge → application.ApprovalBroker），也就是 GUI/TUI
-// 渲染并回填的那条路径。因此下面三条断言都是"真实模型 + 真实工具调度 + 真审批页面"：
-//
-//	A. 主代理跑白名单命令（git status）→ 工具真的执行，且**页面一次都没打开**；
-//	B. 主代理跑越界命令（python …）→ 页面真的打开一次（工具名 = bash），
-//	   页面放行后工具执行；
-//	C. 主代理 fork 子代理 → 子代理的工具调用**一次页面都不打开**（子代理没有
-//	   人类在环：位齐直接放行），整轮正常收口。
-//
-// 违权直接拒绝（子代理碰 ctl/adm/共享外设）与内存释放由确定性用例覆盖：
-// backend/tool/registry/permission_subject_test.go、permission_config_test.go、
-// backend/multiagent/subagent/subagent_lifecycle_release_test.go。让模型稳定地"故意越权"
-// 不是可复现的冒烟手段，所以不放进真实 API 冒烟。
-
 import (
 	"context"
+	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
+	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"github.com/RedHuang-0622/seelex/wiring/config"
+
+	// real_api_permission_smoke_test.go — 权责系统的**真实 API 冒烟**（opt-in）。
+	//
+	// 跑法（凭据只从环境变量给出，不写入仓库、不打印内容）：
+	//
+	//	$env:SEELEX_SMOKE_ACCOUNTS='G:\Program\go\seelex\config\accounts.yaml'
+	//	go test -tags manualsmoke2 . -run 'TestRealAPIPermissionSmoke' -count=1 -v -timeout 1500s
+	//
+	// 与其它用例的区别：审批面不再用桩，而是装**生产审批桥**
+	// （wiring/bootstrap 的 NewPermissionBridge → application.ApprovalBroker），也就是 GUI/TUI
+	// 渲染并回填的那条路径。因此下面三条断言都是"真实模型 + 真实工具调度 + 真审批页面"：
+	//
+	//	A. 主代理跑白名单命令（git status）→ 工具真的执行，且**页面一次都没打开**；
+	//	B. 主代理跑越界命令（python …）→ 页面真的打开一次（工具名 = bash），
+	//	   页面放行后工具执行；
+	//	C. 主代理 fork 子代理 → 子代理的工具调用**一次页面都不打开**（子代理没有
+	//	   人类在环：位齐直接放行），整轮正常收口。
+	//
+	// 违权直接拒绝（子代理碰 ctl/adm/共享外设）与内存释放由确定性用例覆盖：
+	// backend/tool/registry/permission_subject_test.go、permission_config_test.go、
+	// backend/multiagent/subagent/subagent_lifecycle_release_test.go。让模型稳定地"故意越权"
+	// 不是可复现的冒烟手段，所以不放进真实 API 冒烟。
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"encoding/json"
-
-	"github.com/RedHuang-0622/seelex/application"
-	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
-	"github.com/RedHuang-0622/seelex/internal/bootseed"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 // approvalPage 是"执行选择页面"的测试侧人类：盯住生产审批 broker 的待批集合，
@@ -147,13 +144,13 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	defer cancel()
 	submit := func(prompt string) {
 		t.Helper()
-		if err := harness.frontend.Submit(ctx, prompt); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 			t.Fatal(err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("live turn did not become idle: %v", err)
 		}
-		if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+		if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 			t.Fatalf("live turn failed: %s", snapshot.Chat.Error)
 		}
 	}
@@ -202,7 +199,7 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	// 命中 `write_file: ask` 规则打开页面。写盘本身在 harness 里失败于
 	// `project scope: no project is bound to this session`（子代理节点会话没有项目
 	// 绑定，是环境/绑定面的事实，与权限判定无关），所以这里不断言文件落盘。
-	final := latestVisibleAssistantManual(harness.frontend.Snapshot())
+	final := latestVisibleAssistantManual(harness.components.Session.Snapshot.Snapshot())
 	t.Logf("主代理对本轮的最终答复: %s", final)
 	if strings.TrimSpace(final) == "" {
 		t.Fatal("本轮应当有最终答复")

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
@@ -15,6 +16,24 @@ type stubMessageEditForkApplication struct {
 	result   model.EditUserMessageForkResult
 	err      error
 }
+
+type stubSessionCatalog struct{}
+
+func (*stubSessionCatalog) ListSessions() []application.SessionInfo { return nil }
+
+func (*stubSessionCatalog) SnapshotOf(string) (application.SessionSnapshot, error) {
+	return application.SessionSnapshot{}, nil
+}
+
+func (*stubSessionCatalog) GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error) {
+	return nil, nil
+}
+
+func (*stubSessionCatalog) SessionInputIndex(string) (model.SessionInputIndex, error) {
+	return model.SessionInputIndex{}, nil
+}
+
+func (*stubSessionCatalog) WaitCatalogRefresh(context.Context) error { return nil }
 
 func (stub *stubMessageEditForkApplication) EditUserMessageAndFork(_ context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
 	stub.parentID = parentID
@@ -27,7 +46,10 @@ func TestBridgeForwardsEditUserMessageAndFork(t *testing.T) {
 		fakeApplication: newFakeApplication(),
 		result:          model.EditUserMessageForkResult{ChildSessionID: "child-1", ForkPoint: 8},
 	}
-	bridge, err := NewBridge(stub, Options{})
+	deps := stub.deps()
+	deps.SessionCatalog = &stubSessionCatalog{}
+	deps.MessageEdit = stub
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +69,7 @@ func TestBridgeForwardsEditUserMessageAndFork(t *testing.T) {
 }
 
 func TestBridgeEditUserMessageAndForkUnavailableIsExplicit(t *testing.T) {
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

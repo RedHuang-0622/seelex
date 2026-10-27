@@ -1,12 +1,10 @@
 package assembly
 
 import (
-	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // 「会话驻留窗口」可调面的用例（service_release_window.go）。
@@ -59,14 +57,14 @@ func TestSetSessionReleaseWindowAppliesImmediately(t *testing.T) {
 	store := &recordingReleaseWindowStore{}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
 
-	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), 3)
+	applied, err := service.components.policyApplication.SetSessionReleaseWindow(3)
 	if err != nil {
 		t.Fatalf("SetSessionReleaseWindow(3): %v", err)
 	}
 	if applied != 3 {
 		t.Fatalf("返回的生效值 = %d, want 3", applied)
 	}
-	if got := frontendOfTestService(service).SessionReleaseWindow(); got != 3 {
+	if got := service.components.policyApplication.SessionReleaseWindow(); got != 3 {
 		t.Fatalf("读数 = %d, want 3", got)
 	}
 	if got := Limits().ReleaseWindow(); got != 3 {
@@ -82,7 +80,7 @@ func TestSetSessionReleaseWindowAcceptsBoundaries(t *testing.T) {
 	snapshotWindowLimits(t)
 	service := newTestService(t, &fakeEngine{})
 	for _, window := range []int{limit.SessionReleaseWindowMin, limit.SessionReleaseWindowMax} {
-		applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), window)
+		applied, err := service.components.policyApplication.SetSessionReleaseWindow(window)
 		if err != nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被接受：%v", window, err)
 		}
@@ -97,14 +95,14 @@ func TestSetSessionReleaseWindowRejectsOutOfRange(t *testing.T) {
 	snapshotWindowLimits(t)
 	store := &recordingReleaseWindowStore{}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
-	before := frontendOfTestService(service).SessionReleaseWindow()
+	before := service.components.policyApplication.SessionReleaseWindow()
 
 	for _, window := range []int{0, -1, limit.SessionReleaseWindowMax + 1, 1000, 1 << 20} {
-		if _, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), window); err == nil {
+		if _, err := service.components.policyApplication.SetSessionReleaseWindow(window); err == nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被拒", window)
 		}
 	}
-	if got := frontendOfTestService(service).SessionReleaseWindow(); got != before {
+	if got := service.components.policyApplication.SessionReleaseWindow(); got != before {
 		t.Fatalf("被拒的取值改了内存：%d → %d", before, got)
 	}
 	if saved := store.calls(); len(saved) != 0 {
@@ -118,16 +116,16 @@ func TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails(t *testing
 	snapshotWindowLimits(t)
 	store := &recordingReleaseWindowStore{err: errors.New("disk full")}
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
-	before := frontendOfTestService(service).SessionReleaseWindow()
+	before := service.components.policyApplication.SessionReleaseWindow()
 
-	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), before+1)
+	applied, err := service.components.policyApplication.SetSessionReleaseWindow(before + 1)
 	if err == nil {
 		t.Fatal("落盘失败必须报错")
 	}
 	if applied != 0 {
 		t.Fatalf("落盘失败时不该给出生效值：%d", applied)
 	}
-	if got := frontendOfTestService(service).SessionReleaseWindow(); got != before {
+	if got := service.components.policyApplication.SessionReleaseWindow(); got != before {
 		t.Fatalf("落盘失败却改了内存：%d → %d", before, got)
 	}
 	if saved := store.calls(); len(saved) != 0 {
@@ -141,11 +139,11 @@ func TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly(t *testing.T) {
 	snapshotWindowLimits(t)
 	service := newTestService(t, &fakeEngine{})
 
-	applied, err := frontendOfTestService(service).SetSessionReleaseWindow(context.Background(), 2)
+	applied, err := service.components.policyApplication.SetSessionReleaseWindow(2)
 	if err != nil {
 		t.Fatalf("没装配落盘口不该失败：%v", err)
 	}
-	if applied != 2 || frontendOfTestService(service).SessionReleaseWindow() != 2 {
-		t.Fatalf("生效值 = (%d, %d), want (2, 2)", applied, frontendOfTestService(service).SessionReleaseWindow())
+	if applied != 2 || service.components.policyApplication.SessionReleaseWindow() != 2 {
+		t.Fatalf("生效值 = (%d, %d), want (2, 2)", applied, service.components.policyApplication.SessionReleaseWindow())
 	}
 }

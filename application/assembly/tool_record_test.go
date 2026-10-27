@@ -1,16 +1,16 @@
 package assembly
 
-// tool_record_test.go — 钉住「工具记录」这一跳（2026-10-15）。
-//
-// 三件事一起钉：判据（成败 + 原因归并只有一处）、开关（关就是关）、以及**批量落盘**
-// （会话粒度、只在提交点写、幂等、每个会话只读回一次）。
-
 import (
 	"context"
 	"errors"
 	"fmt"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+
+	// tool_record_test.go — 钉住「工具记录」这一跳（2026-10-15）。
+	//
+	// 三件事一起钉：判据（成败 + 原因归并只有一处）、开关（关就是关）、以及**批量落盘**
+	// （会话粒度、只在提交点写、幂等、每个会话只读回一次）。
 	"strings"
 	"sync"
 	"testing"
@@ -63,11 +63,11 @@ func (s *recordingSnapshotStore) loadCount() int {
 // enableToolRecord 打开开关并把落盘口装上（测试里两条装配动作各走一次）。
 func enableToolRecord(t *testing.T, service *Service, store *recordingSnapshotStore) {
 	t.Helper()
-	if _, err := service.SetToolRecordEnabled(true); err != nil {
+	if _, err := service.toolRecords.SetEnabled(true); err != nil {
 		t.Fatalf("SetToolRecordEnabled: %v", err)
 	}
 	if store != nil {
-		service.SetToolRecordSnapshotStore(store)
+		service.toolRecords.SetSnapshotStore(store)
 	}
 }
 
@@ -85,13 +85,13 @@ func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T) {
 	service.handleToolStart(ctx, "read_file", "tool-bad", `{"path":"nope"}`)
 	service.handleToolComplete("read_file", "tool-bad", "", errors.New("read_file: not found"), time.Millisecond)
 
-	service.HandleRoleToolActivity(dto.RoleToolActivity{ID: "role#1", MainSessionID: sessionID, Name: "grep_search", Status: "running"})
-	service.HandleRoleToolActivity(dto.RoleToolActivity{
+	service.components.roleActivity.Handle(dto.RoleToolActivity{ID: "role#1", MainSessionID: sessionID, Name: "grep_search", Status: "running"})
+	service.components.roleActivity.Handle(dto.RoleToolActivity{
 		ID: "role#2", MainSessionID: sessionID, RoleSessionID: "role-impl", Name: "grep_search", Status: "error", Error: "permission denied",
 	})
 	// teammate 的读数走**阶梯提交**（2026-10-19 方向 C）：先落进角色会话自己的暂存，
 	// 这一轮收口时才一次性交给会话累计——所以这里必须显式收口，否则它还没入账。
-	frontendOfTestService(service).CloseRoleToolRecordUnit(sessionID, "role-impl")
+	service.toolRecords.CloseRoleUnit(sessionID, "role-impl")
 	service.components.subagent.HandleSubagentToolEvent(seelsession.SubagentToolEvent{ID: "sub#1", NodeID: "node-1", Name: "bash_bg", Status: dto.ToolEventRunning})
 
 	view := service.toolRecords.SessionView(sessionID)
@@ -138,7 +138,7 @@ func TestToolRecordFlushIsBatchAndIdempotent(t *testing.T) {
 	service.handleToolStart(ctx, "bash", "tool-2", `{"command":"nope"}`)
 	service.handleToolComplete("bash", "tool-2", "", errors.New("boom"), time.Millisecond)
 
-	service.FlushToolRecord(sessionID)
+	service.toolRecords.Flush(sessionID)
 	saves := store.savesSnapshot()
 	if len(saves) != 1 {
 		t.Fatalf("一次批量落盘应只写一行整份快照：%d", len(saves))
@@ -147,14 +147,14 @@ func TestToolRecordFlushIsBatchAndIdempotent(t *testing.T) {
 		t.Fatalf("快照内容不对：%+v", saves[0].Tools)
 	}
 	// 没有再记过 ⇒ 不重写（避免"每开一次会话重写一遍同样的读数"）。
-	service.FlushToolRecord(sessionID)
+	service.toolRecords.Flush(sessionID)
 	if len(store.savesSnapshot()) != 1 {
 		t.Fatalf("没有新读数时不得重写：%d", len(store.savesSnapshot()))
 	}
 	// 再记一笔后再冲 ⇒ 第二行（整份，不是增量）。
 	service.handleToolStart(ctx, "bash", "tool-3", `{"command":"ls"}`)
 	service.handleToolComplete("bash", "tool-3", "ok", nil, time.Millisecond)
-	service.FlushToolRecord(sessionID)
+	service.toolRecords.Flush(sessionID)
 	saves = store.savesSnapshot()
 	if len(saves) != 2 || saves[1].Tools[0].Success != 2 || saves[1].Tools[0].Failure != 1 {
 		t.Fatalf("第二行必须是整份最新读数：%+v", saves)
@@ -168,9 +168,9 @@ func TestToolRecordFlushFailureSurfacesOnBoard(t *testing.T) {
 	enableToolRecord(t, service, store)
 	service.handleToolStart(context.Background(), "bash", "tool-x", `{"command":"ls"}`)
 	service.handleToolComplete("bash", "tool-x", "ok", nil, time.Millisecond)
-	service.FlushToolRecord(service.currentViewSessionID())
-	if !strings.Contains(service.ToolRecordBoard().LedgerError, "disk full") {
-		t.Fatalf("落盘失败必须显示在告警那格：%+v", service.ToolRecordBoard())
+	service.toolRecords.Flush(service.currentViewSessionID())
+	if !strings.Contains(service.toolRecords.Board().LedgerError, "disk full") {
+		t.Fatalf("落盘失败必须显示在告警那格：%+v", service.toolRecords.Board())
 	}
 }
 
@@ -183,14 +183,14 @@ func TestToolRecordLoadsPersistedReadingOnce(t *testing.T) {
 	store := &recordingSnapshotStore{persisted: &persisted}
 	enableToolRecord(t, service, store)
 
-	board := service.ToolRecordBoard()
+	board := service.toolRecords.Board()
 	if board.Total != 9 || board.Success != 7 || board.Failure != 2 {
 		t.Fatalf("看板必须显示落盘读数（重启后接着看）：%+v", board)
 	}
 	if len(board.Tools) != 1 || board.Tools[0].Reasons[0].Reason != dto.ToolReasonTimeout {
 		t.Fatalf("失败原因也要读回：%+v", board.Tools)
 	}
-	_ = service.ToolRecordBoard()
+	_ = service.toolRecords.Board()
 	if store.loadCount() != 1 {
 		t.Fatalf("每个会话只该读回一次：%d", store.loadCount())
 	}
@@ -200,13 +200,13 @@ func TestToolRecordLoadsPersistedReadingOnce(t *testing.T) {
 func TestToolRecordDisabledRecordsNothing(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	store := &recordingSnapshotStore{}
-	service.SetToolRecordSnapshotStore(store)
-	if applied, err := service.SetToolRecordEnabled(false); err != nil || applied {
+	service.toolRecords.SetSnapshotStore(store)
+	if applied, err := service.toolRecords.SetEnabled(false); err != nil || applied {
 		t.Fatalf("关掉开关失败：applied=%v err=%v", applied, err)
 	}
 	service.handleToolStart(context.Background(), "bash", "tool-y", `{"command":"ls"}`)
 	service.handleToolComplete("bash", "tool-y", "ok", nil, time.Millisecond)
-	service.FlushToolRecord("sess-off")
+	service.toolRecords.Flush("sess-off")
 	if len(store.savesSnapshot()) != 0 {
 		t.Fatalf("关着计数时不得落盘：%+v", store.savesSnapshot())
 	}
@@ -217,8 +217,8 @@ func TestToolCommandOutcomeCountsNonZeroExitAsFailure(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	enableToolRecord(t, service, nil)
 	const sessionID = "sess-cmd"
-	service.RecordToolCommandOutcome(sessionID, "bash", 0)
-	service.RecordToolCommandOutcome(sessionID, "bash", 1)
+	service.toolRecords.RecordCommandOutcome(sessionID, "bash", 0)
+	service.toolRecords.RecordCommandOutcome(sessionID, "bash", 1)
 
 	view := service.toolRecords.SessionView(sessionID)
 	if view.Total != 2 || view.Success != 1 || view.Failure != 1 {
@@ -236,7 +236,7 @@ func TestToolRecordIgnoresUnknownStatusWords(t *testing.T) {
 	enableToolRecord(t, service, nil)
 	const sessionID = "sess-unknown"
 	for _, status := range []string{"", "unknown", "weird"} {
-		service.HandleRoleToolActivity(dto.RoleToolActivity{ID: "r" + status, MainSessionID: sessionID, Name: "bash", Status: status})
+		service.components.roleActivity.Handle(dto.RoleToolActivity{ID: "r" + status, MainSessionID: sessionID, Name: "bash", Status: status})
 	}
 	if view := service.toolRecords.SessionView(sessionID); view.Total != 0 {
 		t.Fatalf("认不得的状态词不得记：%d", view.Total)
@@ -249,7 +249,7 @@ func TestToolRecordIsPerSession(t *testing.T) {
 	enableToolRecord(t, service, nil)
 	for index, sessionID := range []string{"sess-a", "sess-b"} {
 		for count := 0; count <= index; count++ {
-			service.RecordToolCommandOutcome(sessionID, "bash", 0)
+			service.toolRecords.RecordCommandOutcome(sessionID, "bash", 0)
 		}
 	}
 	if view := service.toolRecords.SessionView("sess-a"); view.Total != 1 {
@@ -264,7 +264,7 @@ func TestToolRecordIsPerSession(t *testing.T) {
 func TestToolRecordWithoutSessionIsDropped(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	enableToolRecord(t, service, nil)
-	service.RecordToolCommandOutcome("  ", "bash", 1)
+	service.toolRecords.RecordCommandOutcome("  ", "bash", 1)
 	if diagnostics := service.toolRecords.Diagnostics(); diagnostics.SessionCount != 0 {
 		t.Fatalf("无会话归属的调用不该建出累计：%d", diagnostics.SessionCount)
 	}
@@ -272,13 +272,13 @@ func TestToolRecordWithoutSessionIsDropped(t *testing.T) {
 
 func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if _, err := service.SetToolRecordEnabled(true); err != nil {
+	if _, err := service.toolRecords.SetEnabled(true); err != nil {
 		t.Fatalf("SetToolRecordEnabled: %v", err)
 	}
-	service.RecordToolCommandOutcome("sess-nostore", "bash", 1)
-	service.FlushToolRecord("sess-nostore") // 没装落盘口：空操作，不 panic
+	service.toolRecords.RecordCommandOutcome("sess-nostore", "bash", 1)
+	service.toolRecords.Flush("sess-nostore") // 没装落盘口：空操作，不 panic
 	if view := service.toolRecords.SessionView("sess-nostore"); view.Total != 1 {
 		t.Fatalf("没装落盘口也要保住内存读数：%d", view.Total)
 	}
-	_ = fmt.Sprintf("%v", service.ToolRecordBoard())
+	_ = fmt.Sprintf("%v", service.toolRecords.Board())
 }

@@ -17,6 +17,7 @@ import (
 // （scopedSessions）+ model.SessionRecord 读写面。目录行状态以 record 为准
 // （模拟生产 SessionPort：SessionsOf 从 record 补状态），供"归档→目录过滤"
 // 断言。
+
 type archiveCommandSessions struct {
 	*scopedSessions
 	mu      sync.Mutex
@@ -120,7 +121,7 @@ func archiveTestService(t *testing.T, sessions *archiveCommandSessions) *Service
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 	return service
 }
 
@@ -137,20 +138,20 @@ func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T) {
 	sessions.add("project-1", "session-b")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle after project add: %v", err)
 	}
-	if got := len(service.Snapshot().Sessions); got != 2 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 2 {
 		t.Fatalf("catalog after settle = %d sessions, want 2", got)
 	}
 
-	if err := frontendOfTestService(service).ArchiveSession("session-a"); err != nil {
+	if err := service.components.sessionArchive.Archive("session-a"); err != nil {
 		t.Fatalf("ArchiveSession: %v", err)
 	}
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle after archive: %v", err)
 	}
-	ids := sessionIDsOf(service.Snapshot().Sessions)
+	ids := sessionIDsOf(service.components.frontendSnapshot.Snapshot().Sessions)
 	if len(ids) != 1 || !containsSessionID(ids, "session-b") || containsSessionID(ids, "session-a") {
 		t.Fatalf("archived session-a still listed: %v", ids)
 	}
@@ -175,7 +176,7 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 	service := archiveTestService(t, sessions)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
 
@@ -183,26 +184,26 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 	unit := service.sessionUnitLocked("session-a")
 	unit.SetChatState(model.ChatState{Running: true}, nil)
 	service.ViewMu.Unlock()
-	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := service.components.sessionArchive.Archive("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while running = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.SetChatState(model.ChatState{QueuedCount: 1}, nil)
 	service.ViewMu.Unlock()
-	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := service.components.sessionArchive.Archive("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while queued = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.SetChatState(model.ChatState{}, nil)
 	unit.AddApproval("approval-1")
 	service.ViewMu.Unlock()
-	if err := frontendOfTestService(service).ArchiveSession("session-a"); !errors.Is(err, ErrChatRunning) {
+	if err := service.components.sessionArchive.Archive("session-a"); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("archive while awaiting approval = %v, want ErrChatRunning", err)
 	}
 	service.ViewMu.Lock()
 	unit.RemoveApproval("approval-1")
 	service.ViewMu.Unlock()
-	if err := frontendOfTestService(service).ArchiveSession("session-a"); err != nil {
+	if err := service.components.sessionArchive.Archive("session-a"); err != nil {
 		t.Fatalf("archive after idle: %v", err)
 	}
 	record, ok := sessions.recordFor("", "session-a")
@@ -216,7 +217,7 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 func TestArchiveSessionMissingRecord(t *testing.T) {
 	sessions := newArchiveCommandSessions()
 	service := archiveTestService(t, sessions)
-	if err := frontendOfTestService(service).ArchiveSession("ghost"); !errors.Is(err, ErrSessionNotFoundArchive) {
+	if err := service.components.sessionArchive.Archive("ghost"); !errors.Is(err, ErrSessionNotFoundArchive) {
 		t.Fatalf("archive missing session = %v, want ErrSessionNotFoundArchive", err)
 	}
 }

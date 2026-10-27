@@ -37,10 +37,10 @@ func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := openLongSession(t, 6, 20)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	assertRange(t, "回看更早一页", service.Snapshot(), 8, 6)
+	assertRange(t, "回看更早一页", service.components.frontendSnapshot.Snapshot(), 8, 6)
 
 	// 提交路径同形：一轮对话先落用户行，再落一条空的助手行（正文随后流式写入）。
 	service.ViewMu.Lock()
@@ -48,7 +48,7 @@ func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T) {
 	service.components.view.AppendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	visible := visibleContents(snapshot)
 	if !containsContent(visible, "刚发出去的这一句") {
 		t.Fatalf("回看状态下提交的用户行不在可见窗口里（前端 reducer 会吞掉 message.added）：offset=%d visible=%v total=%d",
@@ -75,7 +75,7 @@ func TestReproSubmitWhileBrowsingEndsBrowsingState(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, _ := openLongSession(t, 6, 20)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 	if !service.components.view.SessionViewBrowsingHistoryLocked("long-session") {

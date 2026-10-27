@@ -1,3 +1,5 @@
+> 历史记录，不描述当前实现：本文是 2026-10-25 Application 模块化工作包的批次执行记录，正文里出现的兼容门面包名与旧前端门面类型名都是“当时”的事实；该门面已由退场程序（`docs/2026-10-27-application-compat-removal/`）整条删除，这些包名与类型名在当前实现中已不存在。正文按当时状态原样保留，改写或删除会伪造批次证据；现行口径以代码、测试与 [`application/README.md`](../../application/README.md) 为准。
+
 # Application 模块化实施进度
 
 日期：2026-10-25
@@ -6058,3 +6060,73 @@ Service 入口继续保留一行兼容转发。
 | `application/assembly` 生产文件 / 代码 | 54 / 7,092 |
 | `application/assembly` 直接 Backend/Middle/Store 依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖 | 0 |
+
+## 兼容门面退场门禁：历史文档过期标记 + 测试转发夹具（2026-10-27 追加记录）
+
+> 本节是 2026-10-27 追加的门禁记录，不属于 2026-10-25 批次正文。门禁实现与判据的
+> 最终事实源是 [`application/compat_retirement_test.go`](../../application/compat_retirement_test.go)
+> 与它跑的用例；下文只记录当时观察到的结果。
+
+### 1. 历史文档过期标记（§5.5）
+
+- **标记落位**：本文件与 [`remaining-work.md`](remaining-work.md) 的第 1 行都以引用块
+  形式带着 `历史记录，不描述当前实现：…`。标记必须落在前 10 行内，且必须属于文档
+  开头的横幅区（连续引用块），正文里复述这句话或在代码围栏里写它都不算。
+- **判据三方向闭合**：
+  - `assertHistoricalRecordMarkers`：登记过的历史文档必须带标记，缺标记直接点名文件；
+  - `retiredCompatibilityDocOffenders`：全仓 `*.md` 逐行扫描已退场门面的拼写，只有带
+    标记的文档整篇豁免，`dist/` 等产物目录由 `nonSourceDirectories` 统一跳过；
+  - `unregisteredHistoricalMarkedDocuments`：反向判据，没登记进历史记录清单的文档
+    摆了标记也是 offender（标记不是给现行文档自签的豁免）。
+- **扫描覆盖**：一次运行实际读到 845 篇 Markdown，与仓库内同口径
+  `find` 结果 845 一致，因此不存在漏扫目录。
+- **非空转证据**（摘标记 → 红 → 恢复 → 绿，实盘 `implementation.md`）：
+  - 摘掉第 1 行标记后，`assertHistoricalRecordMarkers` 点名
+    `docs/2026-10-25-application-modularization/implementation.md 的前 10 行缺少过期标记`，
+    同时逐行报出该文档的 34 条门面拼写 offender；
+  - 恢复原文件（sha1 与备份一致）后，该文档的 offender 归零、点名错误消失；
+  - 用例 `TestRetiredCompatibilityDocScanHonoursHistoricalMarker` 在受控临时目录上锁定
+    了五种情形：无标记文档被逐行点名、横幅标记整篇豁免、标记落在 10 行之外不生效、
+    正文段落或代码围栏里的标记不生效、`dist/` 在盲区外。
+
+### 2. 测试专用转发夹具形状判据
+
+- **旧判据的盲区**：旧实现只在 `assembly/*_test.go` 里找「带接收者、且函数名恰好是
+  `frontendOfTestService`」的方法，全仓实测命中 0 —— 真正的夹具是自由函数
+  `application/assembly/service_helpers_test.go:23 frontendOfTestService(*Service) *Frontend`，
+  被 150 个 assembly 测试文件调用。
+- **新判据**：改为按返回值形状识别「任何以 `*Frontend` 为返回值的测试专用转发构造器」
+  （自由函数与方法一视同仁），在 25 个文件名命中的测试文件之外单独成一条判据。
+- **不增长棘轮**：当前唯一命中项登记在 `registeredFrontendTestConstructors`，
+  登记项记录旧面、新面 owner、删除里程碑（M4：`application/compat` 与其测试转发层整条删除）
+  与归零命令；未登记的同类构造器立即红，登记项失去声明也立即红。
+- **非空转证据**：
+  - 摘掉登记项 → 红，消息点名 `service_helpers_test.go:frontendOfTestService`；
+  - 临时新增 `application/assembly/zz_gate_scratch_test.go` 里的同类自由函数 → 红并点名它，
+    删除后转绿（临时文件已清理，工作区未留残留）；
+  - 未改动的仓库上，`TestAssemblyFrontendTestConstructorRatchet` 以 `t.Logf` 打印出
+    唯一命中的 `service_helpers_test.go:frontendOfTestService` 及其删除里程碑，证明判据
+    「看得见」而不是因为没匹配才不红。
+- **仍红的部分（不是本批放宽的对象）**：`TestAssemblyHasNoTestOnlyForwardingFixtures`
+  保留原有三类文件名判据（`legacy` / `test_alias` / `frontend_migration_test.go`），
+  当前仍有 24 个测试文件命中，因此该用例在 M4 前保持红；本批只把第 4 条判据从
+  「看不见」修成「看得见且可登记」。`TestApplicationCompatibilitySurfaceIsRetired` 的
+  红同样来自 `application/compat` 包、`application/faces_api.go` 与 26 处 README 的
+  现状描述，属于 M4 范围，未做任何放宽。
+
+## M8 兼容层物理退场终验（2026-10-27）
+
+> 本节记录当前实现，不描述历史设计。
+
+- **目录与类型**：兼容包目录已删除；application 根包不再导出旧前端 alias；assembly
+  不再定义旧前端测试壳；旧宽入站接口与编译期绑定文件已删除。
+- **前端依赖**：GUI、TUI、headless、console 与 e2e scenario 各自声明消费方窄接口，
+  由 `wiring/bootstrap` 从 `assembly.Components` 逐字段注入 concrete owner。
+- **测试迁移**：原 `frontendOfTestService` 的 150 个文件、862 处调用全部改到
+  `service.components.<owner>`；24 个 alias/legacy 文件确认不含 `Test*` 后删除；
+  真实行为测试保留并直接使用 owner API。
+- **结构门禁**：
+  - `TestApplicationCompatibilitySurfaceIsRetired`
+  - `TestAssemblyHasNoTestOnlyForwardingFixtures`
+  - `application/compat` 目录不存在；
+  - 旧前端类型、旧扁平端口快照与测试转发构造器均为 0。

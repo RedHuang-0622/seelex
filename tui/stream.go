@@ -24,16 +24,16 @@ func waitApplicationEvent(subscription application.Subscription) tea.Cmd {
 	}
 }
 
-func submitInput(app AppController, input string) tea.Cmd {
-	return func() tea.Msg { return submitResultMsg{err: app.Submit(context.Background(), input)} }
+func submitInput(submission Submitter, input string) tea.Cmd {
+	return func() tea.Msg { return submitResultMsg{err: submission.Submit(context.Background(), input)} }
 }
 
-func loadMoreHistory(app AppController, limit int) tea.Cmd {
-	return func() tea.Msg { return loadMoreMsg{err: app.LoadMoreHistory(limit)} }
+func loadMoreHistory(history HistoryPager, limit int) tea.Cmd {
+	return func() tea.Msg { return loadMoreMsg{err: history.LoadMoreHistory(limit)} }
 }
 
-func loadLatestHistory(app AppController) tea.Cmd {
-	return func() tea.Msg { return loadMoreMsg{err: app.LoadLatestHistory()} }
+func loadLatestHistory(history HistoryPager) tea.Cmd {
+	return func() tea.Msg { return loadMoreMsg{err: history.LoadLatestHistory()} }
 }
 
 // tickEvery 每 d 间隔发送一次 tickMsg，用于刷新界面中的时间显示等。

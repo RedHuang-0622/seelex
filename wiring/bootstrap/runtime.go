@@ -168,23 +168,31 @@ func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, se
 	return sess, nil
 }
 
+// commandOutcomeRecorder 是装配根上报"一条同步命令以某个退出码结束"所需的唯一能力。
+//
+// 端口由消费方（wiring/bootstrap）声明，只列出这里真正调用的一个方法；实现由拥有该
+// 判据的 toolrecord.Application 结构满足，装配根因此不必再持有任何前端门面。
+type commandOutcomeRecorder interface {
+	RecordCommandOutcome(sessionID, tool string, exitCode int)
+}
+
 // toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
 // 原样转发给下游观察者（诊断日志）。
 //
 // 为什么挂在既有的诊断口上：工具层已经在 `bash.process.exited` 里上报了每一次同步命令的
 // 退出码（同步主路径与 docker 重试同源于 executeScopedBash），命令面因此不必新增第二个
-// 上报口；"退出码非零 = 失败"这一格判据落在 core 的 `RecordToolCommandOutcome`，
-// 本函数只做搬运与转发。
+// 上报口；"退出码非零 = 失败"这一格判据落在 toolrecord 聚合的
+// `Application.RecordCommandOutcome`，本函数只做搬运与转发。
 //
 // 边界：这条 stage 目前**只由同步 `bash` 链发出**（bash_bg 走 async_run 的另一条链，
 // 不经 executeScopedBash）。将来若有第二个工具复用那条同步链，必须先把工具名带进事件
 // （BashDiagnosticEvent.Tool），否则命令结果会被记到 bash 名下。
-func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Frontend) toolreg.BashDiagnosticObserver {
+func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, recorder commandOutcomeRecorder) toolreg.BashDiagnosticObserver {
 	return func(event toolreg.BashDiagnosticEvent) {
 		if event.Stage == "bash.process.exited" {
 			// 会话号由工具层带在事件上（BashDiagnosticEvent.Session，只填 ID 不带正文）：
 			// 后台会话/teammate 跑的命令因此记在**它自己的**会话读数里，不会被归到视图会话。
-			app.RecordToolCommandOutcome(event.Session, "bash", event.ExitCode)
+			recorder.RecordCommandOutcome(event.Session, "bash", event.ExitCode)
 		}
 		if next != nil {
 			next(event)

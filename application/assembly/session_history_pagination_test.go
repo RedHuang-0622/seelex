@@ -261,18 +261,18 @@ func TestLegacySessionWithoutRecordExposesEarlierHistory(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"legacy-session": history}},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	if err := frontendOfTestService(service).ResumeSession("legacy-session"); err != nil {
+	if err := service.components.sessionResume.Resume("legacy-session"); err != nil {
 		t.Fatalf("resume legacy session: %v", err)
 	}
-	assertRange(t, "legacy cold load", service.Snapshot(), 14, 6)
-	if !service.Snapshot().HasMoreHistory {
+	assertRange(t, "legacy cold load", service.components.frontendSnapshot.Snapshot(), 14, 6)
+	if !service.components.frontendSnapshot.Snapshot().HasMoreHistory {
 		t.Fatal("旧格式长会话必须暴露 has_more_history（否则前端「加载更早」不可用）")
 	}
 
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	assertRange(t, "legacy page back", service.Snapshot(), 8, 6)
+	assertRange(t, "legacy page back", service.components.frontendSnapshot.Snapshot(), 8, 6)
 }
 
 // openLongSession 打开一个长会话（window 条尾窗 + offset），返回服务与存储。
@@ -280,10 +280,10 @@ func openLongSession(t *testing.T, window, total int) (*Service, *pagedSessionSt
 	t.Helper()
 	store := newPagedSessionStore("long-session", total)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(service).ResumeSession("long-session"); err != nil {
+	if err := service.components.sessionResume.Resume("long-session"); err != nil {
 		t.Fatalf("resume long session: %v", err)
 	}
-	assertRange(t, "cold load tail window", service.Snapshot(), total-window, window)
+	assertRange(t, "cold load tail window", service.components.frontendSnapshot.Snapshot(), total-window, window)
 	return service, store
 }
 
@@ -304,14 +304,14 @@ func TestLoadMoreHistoryPrependsPageAndSurvivesMirror(t *testing.T) {
 
 	service, store := openLongSession(t, 6, 20)
 
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	assertRange(t, "after one page back", service.Snapshot(), 8, 6)
+	assertRange(t, "after one page back", service.components.frontendSnapshot.Snapshot(), 8, 6)
 
 	mirrorOnce(t, service, store)
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.HistoryOffset != 8 {
 		t.Fatalf("history_offset after mirror = %d, want 8（分页结果必须随会话可见投影持久，不能只写 Snapshot 镜像）", snapshot.HistoryOffset)
 	}
@@ -352,22 +352,22 @@ func TestLoadMoreHistoryPagesToBeginning(t *testing.T) {
 		}
 	}
 
-	check("cold tail window", service.Snapshot())
+	check("cold tail window", service.components.frontendSnapshot.Snapshot())
 
 	pages := 0
-	for service.Snapshot().HasMoreHistory {
+	for service.components.frontendSnapshot.Snapshot().HasMoreHistory {
 		pages++
 		if pages > 10 {
-			t.Fatalf("分页在 %d 页后仍未到底（history_offset = %d）：分页态未随会话可见投影持久", pages, service.Snapshot().HistoryOffset)
+			t.Fatalf("分页在 %d 页后仍未到底（history_offset = %d）：分页态未随会话可见投影持久", pages, service.components.frontendSnapshot.Snapshot().HistoryOffset)
 		}
-		if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+		if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 			t.Fatalf("load more history page %d: %v", pages, err)
 		}
-		check(fmt.Sprintf("page %d", pages), service.Snapshot())
+		check(fmt.Sprintf("page %d", pages), service.components.frontendSnapshot.Snapshot())
 		mirrorOnce(t, service, store)
 	}
 
-	if got := service.Snapshot().HistoryOffset; got != 0 {
+	if got := service.components.frontendSnapshot.Snapshot().HistoryOffset; got != 0 {
 		t.Fatalf("history_offset after paging to beginning = %d, want 0", got)
 	}
 	for index := 0; index < 20; index++ {
@@ -383,10 +383,10 @@ func TestLoadLatestHistoryReturnsToTail(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, store := openLongSession(t, 6, 20)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
-	assertRange(t, "paged back", service.Snapshot(), 8, 6)
+	assertRange(t, "paged back", service.components.frontendSnapshot.Snapshot(), 8, 6)
 
 	// 回看期间到达的新消息必须由「回到最新」一并带回（不能只把窗口贴回旧尾）。
 	for index := 0; index < 3; index++ {
@@ -394,12 +394,12 @@ func TestLoadLatestHistoryReturnsToTail(t *testing.T) {
 	}
 
 	// 红灯期占位：LoadLatestHistory 是本轮新增的应用边界（回到最新一页）。
-	if err := frontendOfTestService(service).LoadLatestHistory(); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadLatestHistory(); err != nil {
 		t.Fatalf("load latest history: %v", err)
 	}
 	// total=23、窗口 6 → 尾窗 = [17, 23)：前三条是 durable-17..19，末三条是
 	// 回看期间到达的新消息（late-event）——回到最新必须把它们一并带回。
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.HistoryOffset != 17 {
 		t.Fatalf("history_offset = %d, want 17", snapshot.HistoryOffset)
 	}
@@ -422,7 +422,7 @@ func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T) {
 	defer withHistoryWindow(6)()
 
 	service, store := openLongSession(t, 6, 20)
-	if err := frontendOfTestService(service).LoadMoreHistory(0); err != nil {
+	if err := service.components.conversationHistoryQuery.LoadMoreHistory(0); err != nil {
 		t.Fatalf("load more history: %v", err)
 	}
 
@@ -430,7 +430,7 @@ func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T) {
 		mirrorOnce(t, service, store)
 	}
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	assertRange(t, "appends while browsing", snapshot, 8, 6)
 	if snapshot.TotalMessages != 23 {
 		t.Fatalf("total_messages = %d, want 23（新消息仍要计入总数）", snapshot.TotalMessages)
@@ -448,7 +448,7 @@ func TestColdLoadRecordDoesNotReadProviderHistory(t *testing.T) {
 	store := newPagedSessionStore("record-cold-load", 20)
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if err := frontendOfTestService(service).ResumeSession("record-cold-load"); err != nil {
+	if err := service.components.sessionResume.Resume("record-cold-load"); err != nil {
 		t.Fatalf("resume record session: %v", err)
 	}
 	if got := store.historyReads(); got != 0 {

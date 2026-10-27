@@ -14,23 +14,10 @@ import (
 //
 //   - 目标面板读 Snapshot.Runtime.GoalGovernance（同源投影），无活跃 goal 时给
 //     上线入口提示而不是空白；
-//   - 团队面板走一次 tea.Cmd 异步读服务层读面（*application.Service.AgentTeamView
-//     同签名），读面缺失 / 后端报错 / 未装配团队都有明确文案；
+//   - 团队面板只读快照投影（Snapshot.Runtime.TeamworkBoard），打开时不排任何
+//     异步命令（Agent Team 成员表读面已随 2026-10-12 J-1a 退场）；
 //   - 面板高度与渲染行数一致（convHeight 依赖它，错一行就撑破 viewport）；
 //   - 面板只读：不提交输入、不改后端状态；有待批选择时不打开（键义不打架）。
-
-// teamFakeApp 在 fakeApp 之上补团队读面（*application.Service.AgentTeamView 同形）。
-type teamFakeApp struct {
-	*fakeApp
-	view      dto.TeamView
-	err       error
-	sessionID string
-}
-
-func (app *teamFakeApp) AgentTeamView(mainSessionID string) (dto.TeamView, error) {
-	app.sessionID = mainSessionID
-	return app.view, app.err
-}
 
 func goalSnapshot() application.Snapshot {
 	snapshot := application.Snapshot{Runtime: application.RuntimeState{Model: "model"}}
@@ -42,33 +29,6 @@ func goalSnapshot() application.Snapshot {
 		Status: dto.GoalActive,
 	}
 	return snapshot
-}
-
-func teamViewFixture() dto.TeamView {
-	return dto.TeamView{
-		SessionID:   "sess-main-1",
-		TeamID:      "goal-a2a",
-		TeamKind:    "goal-a2a",
-		OrderPolicy: "goal_loop",
-		OrderRoles:  []string{"user", "main", "tl"},
-		Configured:  true,
-		FloorRole:   "main",
-		Members: []dto.TeamMember{
-			{RoleName: "user", RoleKind: dto.RoleKindUser, JoinPolicy: "builtin", OrderIndex: 0, InOrder: true},
-			{RoleName: "main", RoleKind: dto.RoleKindMain, JoinPolicy: "builtin", OrderIndex: 1, InOrder: true, RoleSessionID: "sess-main-1"},
-			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, JoinPolicy: "on_goal_create", OrderIndex: 2, InOrder: true, ToolsPolicy: "readonly", RoleSessionID: "goal-a2a-tl"},
-		},
-		Schedule: &dto.TeamSchedule{
-			OrderPolicy:     "goal_loop",
-			Order:           []string{"main", "tl"},
-			NextRole:        "tl",
-			Round:           2,
-			RoundLimit:      6,
-			NoProgress:      0,
-			NoProgressLimit: 3,
-			NoAutomaticTurn: []string{"tl"},
-		},
-	}
 }
 
 // altKey 造 Alt+<rune> 按键（tea 的 Alt+字母 = 带 Alt 修饰的 rune 键）。
@@ -92,7 +52,7 @@ func press(t *testing.T, model Model, message tea.KeyMsg) (Model, tea.Cmd) {
 func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot = goalSnapshot()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width, model.height = 100, 40
 
@@ -121,7 +81,7 @@ func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 
 func TestGoalPanelWithoutActiveGoalPointsAtEntry(t *testing.T) {
 	app := newFakeApp()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width = 80
 
@@ -148,7 +108,7 @@ func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
 		{GoalID: "g-3", Title: "<i>没人做过的目标</i>", Status: "aborted", ClosedAt: 1760003600, ClosedReason: "goal.abort"},
 	}
 	app.snapshot = snapshot
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width, model.height = 120, 40
 
@@ -174,7 +134,7 @@ func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
 		{GoalID: "g-3", Status: "completed"}, {GoalID: "g-4", Status: "completed"},
 		{GoalID: "g-5", Status: "completed"}, {GoalID: "g-6", Status: "completed"},
 	}
-	folded := NewModel(app)
+	folded := NewModel(app.deps())
 	folded.showLogo = false
 	folded.width, folded.height = 120, 40
 	folded, _ = press(t, folded, altRuneKey('g'))
@@ -190,7 +150,7 @@ func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
 		Active:  false,
 		History: []dto.GoalHistoryView{{GoalID: "g-1", Status: "completed"}},
 	}
-	closed := NewModel(app)
+	closed := NewModel(app.deps())
 	closed.showLogo = false
 	closed.width = 80
 	closed, _ = press(t, closed, altRuneKey('g'))
@@ -213,8 +173,7 @@ func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
 func TestPanelHeightMatchesRenderedLines(t *testing.T) {
 	base := newFakeApp()
 	base.snapshot = goalSnapshot()
-	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
-	model := NewModel(app)
+	model := NewModel(base.deps())
 	model.showLogo = false
 	model.width, model.height = 120, 40
 	model.ready = true
@@ -258,7 +217,7 @@ func TestPanelKeysDoNotHijackInteractionOrInput(t *testing.T) {
 		Title:   "需要批准",
 		Options: []application.InteractionOption{{Label: "允许"}, {Label: "拒绝"}},
 	}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width = 90
 
@@ -273,7 +232,7 @@ func TestPanelKeysDoNotHijackInteractionOrInput(t *testing.T) {
 	// 无选择时：普通字符进入输入框，Alt+G 打开面板，且不提交任何输入。
 	app2 := newFakeApp()
 	app2.snapshot = goalSnapshot()
-	model = NewModel(app2)
+	model = NewModel(app2.deps())
 	model.showLogo = false
 	model.width = 90
 	model, _ = press(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
@@ -292,7 +251,7 @@ func TestPanelKeysDoNotHijackInteractionOrInput(t *testing.T) {
 func TestStatusBarShowsGoalBadge(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot = goalSnapshot()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width = 120
 	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal") {
@@ -302,7 +261,7 @@ func TestStatusBarShowsGoalBadge(t *testing.T) {
 	// 只有 skill 激活（治理未上线）时显示裸 badge。
 	app.snapshot.Runtime.GoalGovernance = nil
 	app.snapshot.Runtime.GoalSkillActive = true
-	model = NewModel(app)
+	model = NewModel(app.deps())
 	model.showLogo = false
 	model.width = 120
 	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal") {
@@ -317,7 +276,7 @@ func TestPanelShortcutAvailableWhileRunning(t *testing.T) {
 	app.snapshot = goalSnapshot()
 	app.snapshot.Chat.Running = true
 	app.snapshot.Chat.RequestID = "req-1"
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.width = 100
 

@@ -5,13 +5,14 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"testing"
 	"time"
 )
 
 // 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
 // 的数据面）；漏掉就是全局台账里"行看得见、会话判不出"。
+
 func TestWorkItemCarriesOwningSession(t *testing.T) {
 	rows := worktable.BuildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: dto.TaskPhaseTask, Task: "a", Kind: "task", SessionID: "sess-a",
@@ -78,15 +79,15 @@ func TestMergeTaskRecordsStampsSecondarySession(t *testing.T) {
 // 正在运行的行——子代理任务每状态迁移都发增量，最易撞上。
 func TestTaskChangedIncrementCarriesOwningSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("view session has no ID")
 	}
-	subscription := frontendOfTestService(service).Subscribe(16)
+	subscription := service.components.view.Subscribe(16)
 	defer subscription.Close()
 
 	// 记录本身不带会话键（实时注册表语义）。
-	service.publishTaskChanged(dto.TaskRecord{
+	service.components.workTableRuntime.PublishTaskChanged(dto.TaskRecord{
 		ID: "task:sub-1", Key: "subagent:node-1", Phase: dto.TaskPhaseTask, Task: "跑子代理",
 		Status: dto.TaskRunning, Kind: "subagent",
 	}, 1, "req-sub", sessionID)

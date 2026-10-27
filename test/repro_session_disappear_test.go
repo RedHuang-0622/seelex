@@ -1,22 +1,21 @@
 package test
 
-// 复现测试：会话 A 运行中（provider 阻塞模拟长任务）时切到会话 B，
-// B 完成一轮对话后，A 在后台完成。验证 A 的持久化内容是否完好：
-// 期望 A 保留自己的消息（"long task A" 与回复），不被 B 的内容污染。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application"
 	"net/http"
 	"net/http/httptest"
+
+	// 复现测试：会话 A 运行中（provider 阻塞模拟长任务）时切到会话 B，
+	// B 完成一轮对话后，A 在后台完成。验证 A 的持久化内容是否完好：
+	// 期望 A 保留自己的消息（"long task A" 与回复），不被 B 的内容污染。
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // requestCountingProvider 按请求序号控制行为：
@@ -133,28 +132,28 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	defer cancel()
 
 	// 1) 会话 A 首轮（请求 #1 快速返回）。
-	if err := harness.frontend.Submit(ctx, "first A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "first A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("first turn did not idle: %v\n%s", err, allGoroutineStacks())
 	}
-	sessionA := harness.frontend.Snapshot().Session.ID
+	sessionA := harness.components.Session.Snapshot.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("session A not materialized")
 	}
 
 	// 2) fork 出会话 B（持久化子会话）。
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
 
 	// 3) 回到 A 触发长任务（请求 #2 阻塞 → A 运行中）。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "long task A"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "long task A"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -164,36 +163,36 @@ func TestBackgroundSessionCompletionMustNotPolluteOwner(t *testing.T) {
 	}
 
 	// 4) A 运行中切换到 B，并让 B 完成一轮（请求 #3 快速返回）。
-	if err := harness.frontend.ResumeSession(sessionB); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionB); err != nil {
 		t.Fatalf("resume B while A running: %v", err)
 	}
-	if err := harness.frontend.Submit(ctx, "hello B"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "hello B"); err != nil {
 		t.Fatal(err)
 	}
 	// B 是活跃会话：等 B 的 Chat 结束（Running=false）。
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		snapshot := harness.frontend.Snapshot()
+		snapshot := harness.components.Session.Snapshot.Snapshot()
 		if snapshot.Session.ID == sessionB && !snapshot.Chat.Running {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("B did not finish in time: %+v\n%s", harness.frontend.Snapshot().Chat, allGoroutineStacks())
+			t.Fatalf("B did not finish in time: %+v\n%s", harness.components.Session.Snapshot.Snapshot().Chat, allGoroutineStacks())
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	// 5) 释放 A：A 在后台（B 为活跃会话）完成 → 触发 PersistCurrentSession(A)。
 	close(provider.releaseSecond)
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 
 	// 6) 切回 A：验证 A 的内容完好（A 自己的消息在、B 的消息不混入）。
-	if err := harness.frontend.ResumeSession(sessionA); err != nil {
+	if err := harness.components.Session.Resume.Resume(sessionA); err != nil {
 		t.Fatalf("resume A after background completion: %v", err)
 	}
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Session.ID != sessionA {
 		t.Fatalf("active session = %q, want %q", snapshot.Session.ID, sessionA)
 	}

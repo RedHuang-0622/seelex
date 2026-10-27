@@ -1,5 +1,12 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
+	"strings"
+	"testing"
+)
+
 // 跨轮前缀 + 模型输出不变量守卫。
 //
 // 不变量：**每一条发给 provider 的请求，其字节流必须以「更早发出的某条请求」
@@ -20,13 +27,6 @@ package assembly
 // role / tool_calls / 两侧正文，使红灯原因可归因。
 //
 // 运行：go test ./application/assembly -run ContextPrefixInvariant -v -count=1
-
-import (
-	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/contract"
-	"strings"
-	"testing"
-)
 
 func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
 	harness := newPrefixProbeHarness(t, 1_000_000)

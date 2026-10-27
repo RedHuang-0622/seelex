@@ -10,6 +10,7 @@ import (
 
 // withResidentLimit 把进程级 resident_limit 临时改成 limit，返回还原函数
 // （core 测试串行执行；并行用例全部在串行段结束后才开始，无竞态）。
+
 func withResidentLimit(limit int) func() {
 	previous := Limits()
 	applied := previous
@@ -38,12 +39,12 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
 
 	for _, sessionID := range []string{"sess-1", "sess-2", "sess-3"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -69,10 +70,10 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	// 未含全部行的联合镜像（resident 标记由行数据源叠加）。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	byID := map[string]model.SessionInfo{}
 	for _, item := range snapshot.Sessions {
 		if item.Status == SessionStatusDraft {
@@ -102,9 +103,9 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(t.Context(), "task A"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -115,7 +116,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}})
 	for _, sessionID := range []string{"sess-b", "sess-c"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -129,7 +130,7 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 		t.Fatalf("current view sess-c evicted\n%s", engine.debugSnapshot())
 	}
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(t.Context()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }

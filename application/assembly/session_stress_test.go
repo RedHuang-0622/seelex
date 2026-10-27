@@ -1,8 +1,5 @@
 package assembly
 
-// 暴力测试（约束 C2：线程隔离）：N 个会话并行执行 + 高频移动视图指针 V +
-// 并发追加排队输入，断言会话之间互不污染、无死锁。配合 -race 运行。
-
 import (
 	"context"
 	"fmt"
@@ -13,10 +10,13 @@ import (
 	"time"
 )
 
+// 暴力测试（约束 C2：线程隔离）：N 个会话并行执行 + 高频移动视图指针 V +
+// 并发追加排队输入，断言会话之间互不污染、无死锁。配合 -race 运行。
+
 func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	ctx := context.Background()
 
 	const count = 6
@@ -33,7 +33,7 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 		submitWG.Add(1)
 		go func(sessionID string, n int) {
 			defer submitWG.Done()
-			_ = service.SubmitToSession(ctx, sessionID, fmt.Sprintf("task-%d", n))
+			_ = service.components.submitApplication.SubmitToSession(ctx, sessionID, fmt.Sprintf("task-%d", n))
 		}(sid, index)
 	}
 	startDeadline := time.After(10 * time.Second)
@@ -65,7 +65,7 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 		queueWG.Add(1)
 		go func(sessionID string, n int) {
 			defer queueWG.Done()
-			_ = service.SubmitToSession(ctx, sessionID, fmt.Sprintf("queued-%d", n))
+			_ = service.components.submitApplication.SubmitToSession(ctx, sessionID, fmt.Sprintf("queued-%d", n))
 		}(sid, index)
 	}
 

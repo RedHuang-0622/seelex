@@ -88,7 +88,7 @@ func startCompactionFailureSessionWith(t *testing.T, runtime contract.RuntimePor
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: taskID}
 	service.components.tasks.BeginTask(taskID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
-	return service, engine, service.Snapshot().Session.ID
+	return service, engine, service.components.frontendSnapshot.Snapshot().Session.ID
 }
 
 // compactionRecordsOf 取会话当前的压缩记录（内存态真值，不用快照投影代替）。
@@ -134,7 +134,7 @@ func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("压缩失败不得中断会话（这次返回 %v）", err)
 	}
@@ -174,7 +174,7 @@ func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T) {
 
 	// ②b 失败痕进可见面：状态页读的是快照投影，只在内存态留痕等于没留。
 	visible := 0
-	for _, item := range service.Snapshot().Task.ContextCompactions {
+	for _, item := range service.components.frontendSnapshot.Snapshot().Task.ContextCompactions {
 		if item.Failed {
 			visible++
 		}
@@ -193,7 +193,7 @@ func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T) {
 
 	// ③b 幂等：同一次失败（同一上下文版本 + 同一原因）不得每轮追加一条痕。再压一次
 	// 必须还是那一条——否则一条长期压不下去的会话会把状态页写成流水账。
-	if _, err := frontendOfTestService(service).CompactContextNow(ctx); err != nil {
+	if _, err := service.components.contextCompactionApplication.CompactContextNow(ctx); err != nil {
 		t.Fatalf("重复压缩失败不得中断会话：%v", err)
 	}
 	if again := compactionRecordsOf(t, service); len(again) != 1 {
@@ -222,7 +222,7 @@ func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 1, 700_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		if errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
 			t.Fatalf("压缩失败时不得用内部安全线中断会话（用户现场那句 ERROR 就是它）：%v", err)
@@ -265,7 +265,7 @@ func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("压缩失败不得中断会话：%v", err)
 	}
@@ -286,7 +286,7 @@ func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T) {
 	}
 
 	// 可见面同源：右栏只读快照投影，内存态留痕而投影不带等于没留。
-	task := service.Snapshot().Task
+	task := service.components.frontendSnapshot.Snapshot().Task
 	if task == nil || len(task.ContextCompactions) != 1 {
 		t.Fatalf("失败痕必须进快照可见面：%+v", task)
 	}
@@ -312,7 +312,7 @@ func TestCompactionFailureNoteCarriesReadbackProbeError(t *testing.T) {
 	appendSizedRounds(t, service, taskID, 4, 164_000)
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("读数闸调用报错不得中断会话：%v", err)
 	}

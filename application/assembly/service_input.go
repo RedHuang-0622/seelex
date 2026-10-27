@@ -37,15 +37,6 @@ func (service *Service) chatStream(ctx context.Context, sessionID, input string,
 	return service.Deps.Engine.ChatStream(ctx, input, onChunk)
 }
 
-// appendEngineMessage 追加消息到指定会话引擎历史。
-func (service *Service) appendEngineMessage(sessionID string, msg contract.EngineMessage) {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
-		routed.AppendHistoryFor(sessionID, msg)
-		return
-	}
-	service.Deps.Engine.AppendHistory(msg)
-}
-
 // replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 // ReplaceHistoryFor，不切活跃；否则回退契约 ReplaceHistory）。
 func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error {

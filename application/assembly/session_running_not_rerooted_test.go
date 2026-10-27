@@ -12,6 +12,7 @@ import (
 // 目标、原会话 A 仍在后台跑——此时“目标==当前视图”并不意味着没有在途会话），
 // bindProjectRootIfSafe 就必须拒绝重绑全局根——否则在途会话接下来的路径工具
 // 会解析到新绑定的项目根（跨会话串写）。进程完全空闲后才允许重绑/收尾对齐。
+
 func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
@@ -22,7 +23,7 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// 视图会话 = A（异步冷恢复把视图切到目标后、原会话仍在后台跑的形态：
 	// 绑定方拿到的“当前会话”正是这个视图会话，不能因此放行重绑）。

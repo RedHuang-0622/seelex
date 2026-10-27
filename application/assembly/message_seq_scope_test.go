@@ -12,14 +12,14 @@ import (
 // 重启换 ID）。2026-09-11 修复。
 func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	submitAndIdle := func(text string) {
 		t.Helper()
-		if err := service.Submit(context.Background(), text); err != nil {
+		if err := service.components.submission.Submit(context.Background(), text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+		if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 			t.Fatalf("wait idle after %q: %v", text, err)
 		}
 	}
@@ -27,8 +27,8 @@ func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	// 会话 A：跑两轮，把它的派号推到 message-2 以上。
 	submitAndIdle("A first")
 	submitAndIdle("A second")
-	sessionA := service.Snapshot().Session.ID
-	conversationA := service.Snapshot().Conversation
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
+	conversationA := service.components.frontendSnapshot.Snapshot().Conversation
 	if len(conversationA) == 0 {
 		t.Fatal("session A conversation is empty")
 	}
@@ -38,11 +38,11 @@ func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	}
 
 	// 新建会话 B：它的第一条消息必须从 1 起。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	submitAndIdle("B first")
-	snapshotB := service.Snapshot()
+	snapshotB := service.components.frontendSnapshot.Snapshot()
 	if sessionB := snapshotB.Session.ID; sessionB == sessionA || sessionB == "" {
 		t.Fatalf("新建会话 ID = %q，期望一个不同于 A(%q) 的会话", sessionB, sessionA)
 	}

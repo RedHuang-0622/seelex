@@ -170,7 +170,7 @@ go test ./e2e/scenario -count=1
 
 ### runner.go
 
-- `func NewRunner(value Scenario, app Application, script ScriptState) *Runner`
+- `func NewRunner(value Scenario, deps Dependencies, script ScriptState) *Runner`
 - `func (runner *Runner) Run(ctx context.Context) (Result, error)`
 - `func (runner *Runner) executeStep(ctx context.Context, recorder *eventRecorder, step Step) error`
 - `func (runner *Runner) executeAction(ctx context.Context, step Step) error`

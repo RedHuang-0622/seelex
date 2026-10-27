@@ -1,6 +1,10 @@
 package assembly
 
 import (
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,10 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestSessionColdCommitRulesAreExtracted(t *testing.T) {
@@ -21,10 +21,10 @@ func TestSessionColdCommitRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdCommit")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdCommit)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.CommitApplication)(nil)) {
 		t.Fatalf("sessionColdCommit 字段类型 = %s", field.Type)
 	}
-	commitType := reflect.TypeOf((*sessionColdCommit)(nil))
+	commitType := reflect.TypeOf((*applicationsessioncold.CommitApplication)(nil))
 	if _, ok := commitType.MethodByName("CommitLocked"); !ok {
 		t.Fatal("sessionColdCommit 缺少 CommitLocked")
 	}
@@ -75,7 +75,7 @@ func TestSessionColdCommitActivePath(t *testing.T) {
 	workspace := &model.WorkspaceInfo{ID: "workspace-a"}
 	projection := switchworkspace.Projection{}
 	var calls []string
-	commit := newSessionColdCommit(sessionColdCommitDeps{
+	commit := applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{
 		AppendPendingTail: func(sessionID, notice string) { calls = append(calls, "tail:"+notice) },
 		SetSessionChat: func(sessionID string, chat model.ChatState) {
 			calls = append(calls, "chat:"+chat.RequestID)
@@ -126,7 +126,7 @@ func TestSessionColdCommitNonActiveDoesNotTouchSharedFacts(t *testing.T) {
 	}
 	snapshot := model.Snapshot{Interaction: &model.Interaction{ID: "keep"}}
 	var calls []string
-	commit := newSessionColdCommit(sessionColdCommitDeps{
+	commit := applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{
 		AppendPendingTail: func(string, string) { calls = append(calls, "tail") },
 		SetSessionChat:    func(string, model.ChatState) { calls = append(calls, "chat") },
 		MirrorPlan:        func(string, *model.PlanState) { t.Fatal("非 active 不得镜像 plan") },

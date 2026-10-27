@@ -14,6 +14,7 @@ import (
 )
 
 // testStringPtr 返回字符串指针（测试消息正文）。
+
 func testStringPtr(value string) *string { return &value }
 
 // fakeCommitSession 实现 sessionCommitPort：记录 SaveCommitWorkspace 调用
@@ -210,7 +211,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(st))
 
 	args, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9"})
-	page, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(args))
+	page, err := service.components.referenceApplication.ReadCompressedTurnHandler(string(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +223,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 
 	// 过滤：contains 只返回匹配行。
 	filterArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9", "contains": "轮1"})
-	filtered, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(filterArgs))
+	filtered, err := service.components.referenceApplication.ReadCompressedTurnHandler(string(filterArgs))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,11 +233,11 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 
 	// 未知 segment：报错。
 	missingArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-missing"})
-	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(missingArgs)); err == nil {
+	if _, err := service.components.referenceApplication.ReadCompressedTurnHandler(string(missingArgs)); err == nil {
 		t.Fatal("missing segment must fail")
 	}
 	// 缺 segment_id：报错。
-	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), `{}`); err == nil {
+	if _, err := service.components.referenceApplication.ReadCompressedTurnHandler(`{}`); err == nil {
 		t.Fatal("missing segment_id must fail")
 	}
 }

@@ -9,12 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,33 +26,6 @@ func TestPerfStatsApplicationIsAssembled(t *testing.T) {
 	}
 }
 
-func TestPerfStatsFacadeOnlyDelegatesToApplication(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || function.Name.Name != "PerfStats" ||
-			!functionHasReceiver(function, "Frontend") {
-			continue
-		}
-		if len(function.Body.List) != 1 {
-			t.Fatalf("PerfStats 有 %d 条语句，want 一行 perfStatsApplication 转发", len(function.Body.List))
-		}
-		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
-			t.Fatal("PerfStats 不是单行 return 转发")
-		}
-		return
-	}
-	t.Fatal("未找到 PerfStats")
-}
-
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
@@ -68,7 +36,7 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service.components.view.ApplyRuntimeProjectionLocked(projection)
 	service.ViewMu.Unlock()
 
-	payload, err := json.Marshal(service.Snapshot())
+	payload, err := json.Marshal(service.components.frontendSnapshot.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +62,8 @@ func TestEventHubOrdersAndResyncs(t *testing.T) {
 
 func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
-	subscription := frontendOfTestService(service).Subscribe(8)
+	defer service.components.lifecycleApplication.Shutdown()
+	subscription := service.components.view.Subscribe(8)
 	defer subscription.Close()
 
 	service.ViewMu.Lock()
@@ -104,7 +72,7 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	messageID := message.ID
 	service.ViewMu.Unlock()
 
-	service.appendDelta("request-1", "next")
+	service.components.conversationStreamRuntime.AppendDelta("request-1", "next")
 	// 局部变量不能叫 `event`：会遮蔽 `middle/protocol/event` 包名（R10b 之后类型改成限定名）。
 	var evt protocol_event.Event
 	deadline := time.After(time.Second)
@@ -126,10 +94,10 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 
 func TestToolEventsUpdateSnapshot(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.handleToolStart(context.Background(), "read", "read-1", `{"path":"a"}`)
 	service.handleToolComplete("read", "read-1", "ok", nil, time.Second)
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	found := false
 	for _, message := range snapshot.Conversation {
 		if message.Tool != nil && message.Tool.ID == "read-1" && message.Tool.Status == dto.ToolEventSuccess {
@@ -149,7 +117,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	taskState := service.components.tasks.BeginTask("task-goal", "plan work", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, []prompt.PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
 	service.ViewMu.Unlock()
-	if !frontendOfTestService(service).GoalSkillActive() {
+	if !service.components.tasks.GoalSkillActive() {
 		t.Fatal("goal skill state was not projected")
 	}
 	service.publishRuntimeProjections()
@@ -165,7 +133,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("tool completion deadlocked while refreshing goal-skill visibility")
 	}
-	if visible := service.Snapshot().Runtime.VisibleTools; len(visible) != 1 || visible[0].Name != "plan_load" {
+	if visible := service.components.frontendSnapshot.Snapshot().Runtime.VisibleTools; len(visible) != 1 || visible[0].Name != "plan_load" {
 		t.Fatalf("visible tools = %#v, want goal-skill policy result", visible)
 	}
 }

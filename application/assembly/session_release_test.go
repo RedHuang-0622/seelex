@@ -1,18 +1,18 @@
 package assembly
 
-// 会话释放面用例（session_release.go）：受保护集不释放 + 窗口（受保护集之外保留
-// 几个）+ 释放**完整**（引擎实例 / 桥侧会话本体 / 可见正文一起放掉）。
-//
-// 口径见 docs/2026-10-14-memory-cpu-accumulation/release-surface.md：
-//   - 受保护集 = 当前视图 ∪ 待审批 ∪ 运行·排队·在飞 ∪ 正在恢复；
-//   - 窗口 = limits.session_release_window（默认 1 ⇒ 只保留上一个）；
-//   - 释放 = 引擎 + 桥侧本体 + 正文；会话单元/目录行/磁盘事实保留。
-
 import (
 	"context"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+
+	// 会话释放面用例（session_release.go）：受保护集不释放 + 窗口（受保护集之外保留
+	// 几个）+ 释放**完整**（引擎实例 / 桥侧会话本体 / 可见正文一起放掉）。
+	//
+	// 口径见 docs/2026-10-14-memory-cpu-accumulation/release-surface.md：
+	//   - 受保护集 = 当前视图 ∪ 待审批 ∪ 运行·排队·在飞 ∪ 正在恢复；
+	//   - 窗口 = limits.session_release_window（默认 1 ⇒ 只保留上一个）；
+	//   - 释放 = 引擎 + 桥侧本体 + 正文；会话单元/目录行/磁盘事实保留。
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	"go/ast"
 	"go/parser"
@@ -146,26 +146,26 @@ func TestPointViewAtRestoringShellKeepsTargetUnitContent(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}, {ID: "sess-target"}})
 
 	engine.register("sess-view")
-	if err := frontendOfTestService(service).ResumeSession("sess-view"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
 
 	// 目标会话：装载在途（restoring），单元里已经有在途装载写进去的内容。
 	service.ViewMu.Lock()
-	service.setRestoringLocked("sess-target")
+	service.components.view.SetRestoringLocked("sess-target")
 	service.sessionUnitLocked("sess-target")
 	service.ViewMu.Unlock()
 	service.components.view.SessionViewMutateLocked("sess-target", func(view *session.View) {
 		view.Conversation = []model.Message{{Role: "assistant", Content: "loaded"}}
 	})
 
-	service.pointViewAtRestoringShell("sess-target")
+	service.components.sessionHistoryRuntime.PointViewAtRestoringShell("sess-target")
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.ID != "sess-target" {
 		t.Fatalf("视图未归位：%q，want sess-target", snapshot.Session.ID)
 	}
@@ -183,17 +183,17 @@ func TestPointViewAtRestoringShellIgnoresSettledTarget(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}, {ID: "sess-settled"}})
 
 	engine.register("sess-view")
-	if err := frontendOfTestService(service).ResumeSession("sess-view"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
 
-	service.pointViewAtRestoringShell("sess-settled")
+	service.components.sessionHistoryRuntime.PointViewAtRestoringShell("sess-settled")
 
-	if snapshot := service.Snapshot(); snapshot.Session.ID != "sess-view" {
+	if snapshot := service.components.frontendSnapshot.Snapshot(); snapshot.Session.ID != "sess-view" {
 		t.Fatalf("视图被改成 %q，want sess-view（restoring 已清，不该动视图）", snapshot.Session.ID)
 	}
 }
@@ -209,12 +209,12 @@ func TestReleaseSessionMemoryForgetsGoalStoreHandle(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
 
 	for _, sessionID := range []string{"sess-gone", "sess-view"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -243,12 +243,12 @@ func TestSessionReleaseWindowKeepsOnlyPreviousSession(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-1"}, {ID: "sess-2"}, {ID: "sess-3"}})
 
 	for _, sessionID := range []string{"sess-1", "sess-2", "sess-3"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -282,9 +282,9 @@ func TestSessionReleaseWindowProtectsBusySession(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(t.Context(), "task A"); err != nil {
+	if err := service.components.submission.Submit(t.Context(), "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -295,7 +295,7 @@ func TestSessionReleaseWindowProtectsBusySession(t *testing.T) {
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}, {ID: "sess-c"}, {ID: "sess-d"}})
 	for _, sessionID := range []string{"sess-b", "sess-c", "sess-d"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -312,7 +312,7 @@ func TestSessionReleaseWindowProtectsBusySession(t *testing.T) {
 		t.Fatal("当前视图会话被释放")
 	}
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(t.Context()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -330,10 +330,10 @@ func TestSessionReleaseWindowDropsPreviousContent(t *testing.T) {
 
 	store := newMultiPagedStore(map[string]int{"sess-a": 10, "sess-b": 10, "sess-c": 10})
 	service := newTestService(t, &contentReleaseEngine{fakeEngine: &fakeEngine{}}, withTestSessions(store))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	for _, sessionID := range []string{"sess-a", "sess-b", "sess-c"} {
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
@@ -358,17 +358,17 @@ func TestDeleteSessionReleasesMemory(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-gone"}, {ID: "sess-view"}})
 
 	// 先激活要删的会话，再切到 sess-view：删除时 sess-gone 是**非视图**会话。
 	for _, sessionID := range []string{"sess-gone", "sess-view"} {
 		engine.register(sessionID)
-		if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+		if err := service.components.sessionResume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
 	}
-	if err := frontendOfTestService(service).DeleteSession("sess-gone"); err != nil {
+	if err := service.components.sessionDelete.Delete("sess-gone"); err != nil {
 		t.Fatalf("delete sess-gone: %v", err)
 	}
 	if engine.HasSession("sess-gone") {
@@ -389,14 +389,14 @@ func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}})
 
 	engine.register("sess-view")
-	if err := frontendOfTestService(service).ResumeSession("sess-view"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
-	if err := frontendOfTestService(service).DeleteSession("sess-view"); err != nil {
+	if err := service.components.sessionDelete.Delete("sess-view"); err != nil {
 		t.Fatalf("delete sess-view: %v", err)
 	}
 	if engine.HasSession("sess-view") {
@@ -408,7 +408,7 @@ func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T) {
 	if unit := service.sessions.Unit("sess-view"); unit != nil {
 		t.Fatal("删除后会话单元仍在内存")
 	}
-	viewID := service.Snapshot().Session.ID
+	viewID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if viewID == "sess-view" {
 		t.Fatalf("视图仍指着已删除的会话：%q", viewID)
 	}
@@ -426,11 +426,11 @@ func TestReleaseSessionMemorySkipsProtectedSession(t *testing.T) {
 	engine := newReleaseAwareEngine()
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	sessions.setInfos([]model.SessionInfo{{ID: "sess-view"}})
 
 	engine.register("sess-view")
-	if err := frontendOfTestService(service).ResumeSession("sess-view"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-view"); err != nil {
 		t.Fatalf("resume sess-view: %v", err)
 	}
 	if err := service.components.sessionReleaseApplication.Release("sess-view", releaseIdle); err != nil {

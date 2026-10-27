@@ -12,6 +12,7 @@ import (
 
 // perSessionFakeRuntime 声明宿主具备逐会话执行能力（生产 seelebridge
 // Runtime.PerSessionExecution=true 的镜像；内嵌 fakeRuntime 提供其余端口）。
+
 type perSessionFakeRuntime struct {
 	*fakeRuntime
 }
@@ -28,7 +29,7 @@ func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	if !service.perSessionExecution() {
 		t.Fatal("per-session capability not detected")
 	}
@@ -60,7 +61,7 @@ func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
 	}
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	select {
@@ -70,13 +71,13 @@ func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
 	}
 
 	// M2：跨会话提交不再被单飞门控拒绝（未加载会话回退切换恢复路径）。
-	err := service.SubmitToSession(context.Background(), "other-session", "to other session")
+	err := service.components.submitApplication.SubmitToSession(context.Background(), "other-session", "to other session")
 	if errors.Is(err, ErrSessionBusy) {
 		t.Fatalf("SubmitToSession(other) returned ErrSessionBusy, want M2 background/activate semantics")
 	}
 
 	close(engine.release)
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,23 +86,23 @@ func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
 // Submit 路径（运行中排队、空闲直跑）。
 func TestSubmitToSessionDelegatesForActiveSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		t.Fatal("expected materialized session ID")
 	}
-	if err := service.SubmitToSession(context.Background(), sessionID, "second"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(context.Background(), sessionID, "second"); err != nil {
 		t.Fatalf("SubmitToSession(active): %v", err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(service.Snapshot().Conversation); got < 4 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Conversation); got < 4 {
 		t.Fatalf("conversation messages = %d, want >= 4 (two exchanges)", got)
 	}
 }
@@ -109,7 +110,7 @@ func TestSubmitToSessionDelegatesForActiveSession(t *testing.T) {
 // TestSubmitToSessionRejectsEmptyID 验证会话级 API 拒绝空会话 ID。
 func TestSubmitToSessionRejectsEmptyID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if err := service.SubmitToSession(context.Background(), "  ", "hi"); err == nil {
+	if err := service.components.submitApplication.SubmitToSession(context.Background(), "  ", "hi"); err == nil {
 		t.Fatal("expected error for empty session ID")
 	}
 }
@@ -124,7 +125,7 @@ func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
 		release:    make(chan struct{}),
 	}
 	service := newTestService(t, engine)
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -133,11 +134,11 @@ func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
 		t.Fatal("chat did not start")
 	}
 	// M2：目标会话自身空闲即可切换/恢复（不再返回 ErrChatRunning）。
-	if err := frontendOfTestService(service).ActivateSession("other-session"); errors.Is(err, ErrChatRunning) {
+	if err := service.components.sessionResume.Resume("other-session"); errors.Is(err, ErrChatRunning) {
 		t.Fatalf("ActivateSession(idle target) while other running = ErrChatRunning, want M2 per-session gate")
 	}
 	close(engine.release)
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -146,17 +147,17 @@ func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
 // 有驻留快照。
 func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	sessionID := service.Snapshot().Session.ID
-	if _, err := frontendOfTestService(service).SnapshotOf(sessionID); err != nil {
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.sessionQuery.SnapshotOf(sessionID); err != nil {
 		t.Fatalf("SnapshotOf(active) = %v, want nil", err)
 	}
-	if _, err := frontendOfTestService(service).SnapshotOf("other-session"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
+	if _, err := service.components.sessionQuery.SnapshotOf("other-session"); !errors.Is(err, ErrSessionSnapshotUnavailable) {
 		t.Fatalf("SnapshotOf(other) = %v, want ErrSessionSnapshotUnavailable", err)
 	}
 }
@@ -164,16 +165,16 @@ func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
 // TestChatEventsCarrySessionID 验证 chat 生命周期事件携带会话路由键。
 func TestChatEventsCarrySessionID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sub := frontendOfTestService(service).Subscribe(64)
+	sub := service.components.view.Subscribe(64)
 	defer sub.Close()
 
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	deadline := time.After(2 * time.Second)
 	for {
 		select {
@@ -191,22 +192,22 @@ func TestChatEventsCarrySessionID(t *testing.T) {
 // （及全局空 SessionID）事件。
 func TestSubscribeSessionFiltersBySessionID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	initialSessionID := service.Snapshot().Session.ID
-	target, err := service.SubscribeSession(initialSessionID, 16)
+	initialSessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	target, err := service.components.view.SubscribeSession(initialSessionID, 16)
 	if err != nil {
 		t.Fatalf("SubscribeSession(target): %v", err)
 	}
 	defer target.Close()
-	other, err := service.SubscribeSession("does-not-exist", 16)
+	other, err := service.components.view.SubscribeSession("does-not-exist", 16)
 	if err != nil {
 		t.Fatalf("SubscribeSession(other): %v", err)
 	}
 	defer other.Close()
 
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

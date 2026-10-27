@@ -2,12 +2,11 @@ package assembly
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 // chunkCaptureEngine 在 multiSessionEngine 之上捕获每个会话进行中
@@ -91,7 +90,7 @@ func TestToolOrderingStableAfterSwitchToRunningSession(t *testing.T) {
 	engine.register(bID)
 
 	// A 后台启动并阻塞（活跃视图仍是初始会话）。
-	if err := service.SubmitToSession(ctx, aID, "task-A"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, aID, "task-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	select {
@@ -102,14 +101,14 @@ func TestToolOrderingStableAfterSwitchToRunningSession(t *testing.T) {
 
 	// 视图切到 B（空闲），A 继续后台运行——与「先切走再切回运行中会话」
 	// 场景等价，且保证切换路径先执行一次。
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 	// 切回运行中的 A（热挂载）。
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("switch back to running A: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != aID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != aID {
 		t.Fatalf("active view = %q, want %q", got, aID)
 	}
 
@@ -165,7 +164,7 @@ func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T) {
 	engine.register(aID)
 	engine.register(bID)
 
-	if err := service.SubmitToSession(ctx, aID, "task-A"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, aID, "task-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	select {
@@ -173,7 +172,7 @@ func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatalf("A did not start")
 	}
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 
@@ -233,7 +232,7 @@ func TestSubmitPromptWhileOtherSessionRuns(t *testing.T) {
 	engine.register(aID)
 	engine.register(bID)
 
-	if err := service.SubmitToSession(ctx, aID, "long-A"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, aID, "long-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	select {
@@ -242,13 +241,13 @@ func TestSubmitPromptWhileOtherSessionRuns(t *testing.T) {
 		t.Fatalf("A did not start")
 	}
 	// 活跃视图切到空闲 B（A 继续后台运行）。
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
 
 	started := time.Now()
 	submitDone := make(chan error, 1)
-	go func() { submitDone <- service.Submit(ctx, "prompt-to-B") }()
+	go func() { submitDone <- service.components.submission.Submit(ctx, "prompt-to-B") }()
 	select {
 	case err := <-submitDone:
 		if err != nil {
@@ -273,7 +272,7 @@ func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T) {
 
 	const aID = "sess-dyn-A"
 	engine.register(aID)
-	if err := service.SubmitToSession(ctx, aID, "task-A"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, aID, "task-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	select {
@@ -281,7 +280,7 @@ func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatalf("A did not start")
 	}
-	if err := frontendOfTestService(service).ResumeSession(aID); err != nil {
+	if err := service.components.sessionResume.Resume(aID); err != nil {
 		t.Fatalf("switch to running A: %v", err)
 	}
 

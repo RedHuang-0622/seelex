@@ -1,30 +1,5 @@
 package assembly
 
-// 复现（一）：**压缩在持有 Core.ViewMu 的临界区里做推帧**——锁的持有时间 = 推帧
-// 的耗时。推帧在生产路径上不是纯计算：
-//
-//   - backend/engine/assemble/runtime_compaction_index.go 先跑 MainCompactionDAG：
-//     DAG 的 chapter2 节点在 limits.context_compaction_summary.enabled 时做**前缀重放
-//     厚摘要**（整段历史重放的模型调用；溢出区超过片预算时逐片重放、多次调用）；
-//   - 再走归档器 CompressedTurnArchiver.StoreTurn（原文写盘）与 store.PushCompact
-//     （压缩栈写盘）。
-//
-// 这一段原先落在 coordinator.go 单个 `c.ViewMu.Lock()`…`c.ViewMu.Unlock()` 临界区
-// 里（推帧调用点在临界区内部），于是推帧没回来之前：
-//
-//	/compact 的 RPC 不返回 → GUI 不清空输入框（清空动作在 await 之后）；
-//	Snapshot（快照/列表/右栏）取不到读锁 → 会话切不动；
-//	Submit 的第一步就取 ViewMu.RLock → 消息连队列都进不去；
-//	进度条停在 replace 关（3/7）——index 关要等推帧返回才收口。
-//
-// 修法（2026-09-29）：临界区拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
-// （B）→ 锁内落存储与写记录（C）。于是推帧进行中只有"这一次压缩自己"在等，
-// 交互面（快照/提交/切会话/写锁本身）不再被扣住。
-//
-// 本用例用"推帧可阻塞"的索引面桩把这段耗时变成可控的判定点：判据 = 推帧进行中
-// 那四个交互入口是否照常（任一被冻 = 缺陷还在）；/compact 是否仍等自己的推帧
-// 则是**契约断言**（回执要嵌进记录与帧正文，不许提前返回）。
-
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -34,6 +9,30 @@ import (
 	"sync"
 	"testing"
 	"time"
+	// 复现（一）：**压缩在持有 Core.ViewMu 的临界区里做推帧**——锁的持有时间 = 推帧
+	// 的耗时。推帧在生产路径上不是纯计算：
+	//
+	//   - backend/engine/assemble/runtime_compaction_index.go 先跑 MainCompactionDAG：
+	//     DAG 的 chapter2 节点在 limits.context_compaction_summary.enabled 时做**前缀重放
+	//     厚摘要**（整段历史重放的模型调用；溢出区超过片预算时逐片重放、多次调用）；
+	//   - 再走归档器 CompressedTurnArchiver.StoreTurn（原文写盘）与 store.PushCompact
+	//     （压缩栈写盘）。
+	//
+	// 这一段原先落在 coordinator.go 单个 `c.ViewMu.Lock()`…`c.ViewMu.Unlock()` 临界区
+	// 里（推帧调用点在临界区内部），于是推帧没回来之前：
+	//
+	//	/compact 的 RPC 不返回 → GUI 不清空输入框（清空动作在 await 之后）；
+	//	Snapshot（快照/列表/右栏）取不到读锁 → 会话切不动；
+	//	Submit 的第一步就取 ViewMu.RLock → 消息连队列都进不去；
+	//	进度条停在 replace 关（3/7）——index 关要等推帧返回才收口。
+	//
+	// 修法（2026-09-29）：临界区拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
+	// （B）→ 锁内落存储与写记录（C）。于是推帧进行中只有"这一次压缩自己"在等，
+	// 交互面（快照/提交/切会话/写锁本身）不再被扣住。
+	//
+	// 本用例用"推帧可阻塞"的索引面桩把这段耗时变成可控的判定点：判据 = 推帧进行中
+	// 那四个交互入口是否照常（任一被冻 = 缺陷还在）；/compact 是否仍等自己的推帧
+	// 则是**契约断言**（回执要嵌进记录与帧正文，不许提前返回）。
 )
 
 // blockingIndexRuntime 是"索引面在、但推帧这一步要跑很久"的 Runtime 桩：进到
@@ -101,7 +100,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	// 4 个已定稿大轮（约 16 万 tokens）：越软阈值，显式压缩会折出非空溢出区，
 	// 压缩才会走到推帧那一关。
 	appendIndexRounds(t, service, "task-viewmu")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	// 无论断言怎么走，退出前一律释放推帧：本例的冻结必须是可控的（真正的永久
 	// 自锁在另一条用例里），否则 t.Cleanup 的 Shutdown 会跟着挂死。
@@ -109,7 +108,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	release := func() { releaseOnce.Do(func() { close(runtime.release) }) }
 	defer release()
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
@@ -121,7 +120,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	commandDone := make(chan error, 1)
 	commandReturned := make(chan struct{})
 	go func() {
-		commandDone <- service.Submit(context.Background(), "/compact")
+		commandDone <- service.components.submission.Submit(context.Background(), "/compact")
 		close(commandReturned)
 	}()
 
@@ -145,9 +144,9 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 		service.ViewMu.Lock()
 		service.ViewMu.Unlock()
 	})
-	snapshotBlocked := !returnsWithin(time.Second, func() { _ = service.Snapshot() })
+	snapshotBlocked := !returnsWithin(time.Second, func() { _ = service.components.frontendSnapshot.Snapshot() })
 	submitBlocked := !returnsWithin(time.Second, func() {
-		_ = service.Submit(context.Background(), "hello")
+		_ = service.components.submission.Submit(context.Background(), "hello")
 	})
 	switchBlocked := !returnsWithin(time.Second, func() { _ = service.components.sessionResume.Resume("session-other") })
 	commandBlocked := !returnsWithin(time.Second, func() { <-commandReturned })

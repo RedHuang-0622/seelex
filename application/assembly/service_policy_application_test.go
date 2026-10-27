@@ -3,13 +3,13 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"reflect"
 	"strings"
 	"testing"
-
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestPolicyApplicationIsAssembled(t *testing.T) {
@@ -18,14 +18,14 @@ func TestPolicyApplicationIsAssembled(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 policyApplication")
 	}
-	if field.Type != reflect.TypeOf((*policyApplication)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationpolicy.SwitchApplication)(nil)) {
 		t.Fatalf("policyApplication 字段类型 = %s", field.Type)
 	}
 }
 
 func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T) {
 	var calls []string
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		ActivateSkill: func(name string) (model.SkillInfo, error) {
 			calls = append(calls, "skill:"+name)
 			return model.SkillInfo{Name: name}, nil
@@ -78,7 +78,7 @@ func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T) {
 
 func TestPolicyApplicationFullAccessError(t *testing.T) {
 	tierErr := errors.New("persist failed")
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		SetPermissionTier: func(tier string) (string, error) {
 			if tier != dto.PermissionTierFull {
 				t.Fatalf("tier = %q", tier)
@@ -94,7 +94,7 @@ func TestPolicyApplicationFullAccessError(t *testing.T) {
 
 func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T) {
 	var calls []string
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		CurrentViewSessionID: func() string { return "session-a" },
 		PersistTier: func(sessionID, tier string) error {
 			calls = append(calls, "persist:"+tier)
@@ -149,7 +149,7 @@ func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *tes
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			unitCalled := false
-			application := newPolicyApplication(policyApplicationDeps{
+			application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 				CurrentViewSessionID: func() string { return "session-a" },
 				PersistTier:          func(string, string) error { return test.persistErr },
 				SetUnitTier:          func(string, string) { unitCalled = true },
@@ -173,7 +173,7 @@ func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *tes
 }
 
 func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T) {
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		CurrentViewSessionID: func() string { return "session-a" },
 		PersistTier:          func(string, string) error { return nil },
 		SetUnitTier:          func(string, string) {},
@@ -193,7 +193,7 @@ func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T) {
 
 func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T) {
 	var calls []string
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		EnsureViewIdle: func(label string) (string, error) {
 			calls = append(calls, "idle")
 			return "session-a", nil
@@ -260,7 +260,7 @@ func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			application := newPolicyApplication(policyApplicationDeps{
+			application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 				EnsureViewIdle: func(string) (string, error) {
 					if test.idleErr != nil {
 						return "", test.idleErr
@@ -298,7 +298,7 @@ func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.
 
 func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T) {
 	var calls []string
-	application := newPolicyApplication(policyApplicationDeps{
+	application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		AnyChatRunning: func() bool {
 			calls = append(calls, "running")
 			return false
@@ -342,7 +342,7 @@ func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T) {
 func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T) {
 	t.Run("off", func(t *testing.T) {
 		var calls []string
-		application := newPolicyApplication(policyApplicationDeps{
+		application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 			AnyChatRunning: func() bool { return false },
 			DeactivatePlugin: func(context.Context) error {
 				calls = append(calls, "deactivate")
@@ -366,7 +366,7 @@ func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T) {
 	})
 
 	t.Run("running", func(t *testing.T) {
-		application := newPolicyApplication(policyApplicationDeps{
+		application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 			AnyChatRunning: func() bool { return true },
 			ActivatePlugin: func(context.Context, string) error {
 				t.Fatal("running 不得 activate")
@@ -381,7 +381,7 @@ func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T) {
 
 	t.Run("activate-error", func(t *testing.T) {
 		activateErr := errors.New("activate failed")
-		application := newPolicyApplication(policyApplicationDeps{
+		application := applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 			AnyChatRunning: func() bool { return false },
 			ActivatePlugin: func(context.Context, string) error { return activateErr },
 			ClearHistory:   func() { t.Fatal("activate 失败后不得清历史") },

@@ -12,6 +12,7 @@ import (
 
 // s0ChunkEngine 在 multiSessionEngine 上于 ChatStream 起点发射一段带会话
 // 标记的流式文本（模拟后台会话运行中的可见输出），随后照常阻塞等待释放。
+
 type s0ChunkEngine struct {
 	*multiSessionEngine
 }
@@ -45,14 +46,14 @@ func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
 
 	// A 的会话级订阅：只应收 A 或全局事件。
-	subscription, err := service.SubscribeSession(aID, 256)
+	subscription, err := service.components.view.SubscribeSession(aID, 256)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T) {
 
 	bID := "sess-s0-b"
 	engine.register(bID)
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
@@ -100,10 +101,10 @@ func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T) {
 	// 释放两会话并等待收敛：活跃快照仍只含 A 的流式内容。
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if strings.Contains(strings.Join(conversationTexts(snapshot.Conversation), "\n"), "chunk-"+bID) {
 		t.Fatal("background session B streamed text polluted the active snapshot")
 	}
@@ -120,13 +121,13 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,25 +135,25 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	// 显式 sid 订阅的口径）。
 	bID := "sess-s0-switch-b"
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch to B: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != bID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != bID {
 		t.Fatalf("view session after switch = %q, want %q", got, bID)
 	}
 
-	subscription, err := service.SubscribeSession(bID, 128)
+	subscription, err := service.components.view.SubscribeSession(bID, 128)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer subscription.Close()
 
-	if err := service.Submit(ctx, "task B after switch"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task B after switch"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 

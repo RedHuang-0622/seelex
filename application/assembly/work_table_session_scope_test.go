@@ -1,5 +1,12 @@
 package assembly
 
+import (
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"strings"
+	"testing"
+)
+
 // S1 靶场：工作表格（打点表）跨会话耦合/污染回归。
 //
 // 场景还原（对应 dev 区多会话运行的真实症状：会话历史/上下文里出现别的
@@ -16,17 +23,10 @@ package assembly
 //   - 打点表必须按“执行该请求的会话”取 TaskSnapshotFor(sessionID)；
 //   - B 的上下文只含 B 分区打点，绝不含 A 的活动打点。
 
-import (
-	"strings"
-	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-)
-
 func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// A = 当前任务会话：A 的活动 plan 打点住在实时注册表。
 	runtime.currentTaskSession = "session-a"
@@ -47,7 +47,7 @@ func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, workTableTraceMarkerOpen) {
+	if !strings.Contains(out, applicationtable.TraceMarkerOpen) {
 		t.Fatalf("background session request must carry its own worktable block: %q", out)
 	}
 	if !strings.Contains(out, "B 后台打点") {
@@ -64,7 +64,7 @@ func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing
 func TestWorkTableTraceBlockForScopesBySession(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	runtime.currentTaskSession = "session-a"
 	runtime.tasks = map[string]dto.TaskRecord{
@@ -74,11 +74,11 @@ func TestWorkTableTraceBlockForScopesBySession(t *testing.T) {
 		"session-b": {{ID: "plan:bg", Key: "plan:bg", Phase: dto.TaskPhasePlan, Task: "B 后台打点", Status: dto.TaskRunning}},
 	}
 
-	bBlock := service.workTableTraceBlockFor("session-b")
+	bBlock := service.components.workTableRuntime.TraceBlockFor("session-b")
 	if !strings.Contains(bBlock, "B 后台打点") || strings.Contains(bBlock, "A 前台打点") {
 		t.Fatalf("session-scoped block wrong: %q", bBlock)
 	}
-	activeBlock := service.workTableTraceBlockFor("")
+	activeBlock := service.components.workTableRuntime.TraceBlockFor("")
 	if !strings.Contains(activeBlock, "A 前台打点") || strings.Contains(activeBlock, "B 后台打点") {
 		t.Fatalf("active-session block wrong: %q", activeBlock)
 	}

@@ -37,6 +37,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"github.com/RedHuang-0622/seelex/backend/tool/computer"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,9 +52,6 @@ import (
 	"testing"
 	"time"
 	"unicode"
-
-	"github.com/RedHuang-0622/seelex/backend/tool/computer"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 func TestComputerUseLiveSmoke(t *testing.T) {
@@ -85,19 +84,19 @@ func TestComputerUseLiveSmoke(t *testing.T) {
 	defer providerProxy.Close()
 	rewriteAccountsBaseURL(t, AccountsPath, originalBase, providerProxy.URL)
 	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
-	defer harness.frontend.Shutdown()
+	defer harness.components.Runtime.Lifecycle.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	prompt := "请调用 computer_screenshot 工具截取当前屏幕，然后只回答前台窗口标题的原文" +
 		"（照抄标题里出现的内容，不要解释、不要猜测、不要加引号）。"
-	if err := harness.frontend.Submit(ctx, prompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, prompt); err != nil {
 		t.Fatalf("提交真实回合: %v", err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("真实回合未回到 idle: %v", err)
 	}
-	snapshot := harness.frontend.Snapshot()
+	snapshot := harness.components.Session.Snapshot.Snapshot()
 	if snapshot.Chat.Error != "" {
 		t.Fatalf("真实回合失败: %s", snapshot.Chat.Error)
 	}

@@ -5,6 +5,8 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,9 +14,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // liveToolCall 是本轮真实 API 调用留下的一条工具完成记录（名字 / 状态 / 结果原文）。
@@ -116,7 +115,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 			case <-stopSampling:
 				return
 			case <-ticker.C:
-				snapshot := harness.frontend.Snapshot()
+				snapshot := harness.components.Session.Snapshot.Snapshot()
 				mu.Lock()
 				for _, row := range snapshot.Runtime.WorkTable {
 					if strings.HasPrefix(row.SourceID, "async:") {
@@ -138,10 +137,10 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 		", then read the handle from the acceptance receipt and call bg_manage with " +
 		`{"op":"observe","handle":"<that handle>"}` +
 		". Do not call any other tool. Reply with one short sentence containing the handle."
-	if err := harness.frontend.Submit(ctx, dispatchPrompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		close(stopSampling)
 		sampler.Wait()
 		t.Fatalf("live job turn did not become idle: %v\n%s", err, allGoroutineStacks())
@@ -159,17 +158,17 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 		" exactly once, then call bg_manage with " +
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		" exactly once. Do not call any other tool. Reply with one short sentence stating the terminal state and the exit_code."
-	if err := harness.frontend.Submit(ctx, killPrompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, killPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		close(stopSampling)
 		sampler.Wait()
 		t.Fatalf("live kill turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	close(stopSampling)
 	sampler.Wait()
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("live job turn failed: %s", snapshot.Chat.Error)
 	}
 
@@ -260,7 +259,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	}
 	t.Logf("=== 真实 API 子进程调用系冒烟通过（派发 / 观察 / 终止 / 取回）===")
 
-	if reply := latestVisibleAssistant(harness.frontend.Snapshot()); reply != "" {
+	if reply := latestVisibleAssistant(harness.components.Session.Snapshot.Snapshot()); reply != "" {
 		t.Logf("模型最终回复：%s", reply)
 	}
 }

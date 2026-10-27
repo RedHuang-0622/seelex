@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/headless"
 )
 
-// fakeSubagentApplication 在 headless RPC 单测里复刻 A 流的 subagent.* 扩展面；
-// 语义（七步模板、幂等收敛）由 application/assembly/resume 与 seelebridge 测试
-// 覆盖，这里只验证 headless 的参数解码与窄转发。
-type fakeSubagentApplication struct {
-	*fakeApplication
+// fakeSubagents 满足 headless 的 SubagentRecovery 端口（owner：application/execution
+// 的子代理用例）。方法名逐字等于 owner 的方法名。A 流的语义（七步模板、幂等收敛）
+// 由 application/execution/resume 与 seelebridge 用例覆盖，这里只钉 headless 的
+// 参数解码与分派落点。
+type fakeSubagents struct {
 	views    []dto.SubagentRecoveryView
 	report   dto.SubagentResumeReport
 	result   dto.SubagentResumeResult
@@ -21,32 +22,31 @@ type fakeSubagentApplication struct {
 	forked   []dto.SubagentForkSpec
 }
 
-func (app *fakeSubagentApplication) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
+func (app *fakeSubagents) ListRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
 	app.session = sessionID
 	return app.views, nil
 }
 
-func (app *fakeSubagentApplication) ResumeInterruptedSubagents(_ context.Context, sessionID string) (dto.SubagentResumeReport, error) {
+func (app *fakeSubagents) ResumeInterrupted(_ context.Context, sessionID string) (dto.SubagentResumeReport, error) {
 	app.session = sessionID
 	app.recoverC++
 	return app.report, nil
 }
 
-func (app *fakeSubagentApplication) ForkSubagents(_ context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
+func (app *fakeSubagents) Fork(_ context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
 	app.session = sessionID
 	app.forked = append(app.forked, specs...)
 	return "forked", nil
 }
 
-func (app *fakeSubagentApplication) ResumeSubagent(_ context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
+func (app *fakeSubagents) Resume(_ context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
 	app.session = sessionID
 	app.node = nodeID
 	return app.result, nil
 }
 
 func TestHeadlessSubagentRPC(t *testing.T) {
-	app := &fakeSubagentApplication{
-		fakeApplication: newFakeApplication(),
+	app := &fakeSubagents{
 		views: []dto.SubagentRecoveryView{{
 			NodeID: "sub-1", SessionID: "node-hash-1", Goal: "inspect",
 			Status: dto.SubAgentRunning, Active: true, Resumable: true,
@@ -57,7 +57,7 @@ func TestHeadlessSubagentRPC(t *testing.T) {
 		},
 		result: dto.SubagentResumeResult{NodeID: "sub-1", Resumed: true, Steps: []string{"decide", "reexecute"}},
 	}
-	base := newHeadlessTestServer(t, app)
+	base := newHeadlessTestServer(t, headless.Dependencies{Subagents: app})
 
 	result := headlessRPC(t, base, "subagent.list", "main-1")
 	if !result.OK || app.session != "main-1" {

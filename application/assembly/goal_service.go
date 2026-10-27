@@ -19,9 +19,6 @@ import (
 // 槽（GoalGovernanceView 进 Snapshot.Runtime），使治理面板在直接工具/headless
 // 调用路径也立即可见（不依赖下一次 ChatStream 的回合尾投影）。
 func (service *Service) refreshGoalRuntimeProjection(sessionID string) {
-	if service == nil || service.components.view == nil {
-		return
-	}
 	projection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
 	service.ViewMu.Lock()
 	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)

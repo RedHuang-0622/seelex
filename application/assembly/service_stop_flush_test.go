@@ -52,7 +52,7 @@ func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T) {
 	engine := &stopQueueEngine{fakeEngine: &fakeEngine{}, started: make(chan struct{})}
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -61,17 +61,17 @@ func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T) {
 		t.Fatal("首轮没有起步")
 	}
 	enqueueQueuedInputs(t, service, "queued-a", "queued-b")
-	if got := service.Snapshot().Chat.QueuedCount; got != 2 {
+	if got := service.components.frontendSnapshot.Snapshot().Chat.QueuedCount; got != 2 {
 		t.Fatalf("排队计数 = %d, want 2", got)
 	}
 
 	// 停止按钮。
-	if !frontendOfTestService(service).CancelChat("") {
+	if !service.components.lifecycleApplication.CancelChat("") {
 		t.Fatal("CancelChat returned false for the running turn")
 	}
 	waitContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +86,7 @@ func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T) {
 		}
 	}
 
-	chat := service.Snapshot().Chat
+	chat := service.components.frontendSnapshot.Snapshot().Chat
 	if chat.QueuedCount != 0 || len(chat.InputQueue) != 0 {
 		t.Fatalf("停止后队列必须清空: %#v", chat)
 	}

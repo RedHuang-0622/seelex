@@ -8,6 +8,7 @@ import (
 
 // TestActiveSkillsProjectionForSession（G1-A）：skill/目标可见性按会话取
 // 任务级投影——后台会话 A 的 goal skill 激活不因视图切到 B 而丢失。
+
 func TestActiveSkillsProjectionForSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 

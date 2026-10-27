@@ -1,27 +1,27 @@
 package test
 
-// project_board_e2e_test.go — M6 端到端：模型**真的**通过工具面把投影读回来。
-//
-// 这条用例走的链子：模型发起 project_board_read → 框架分发 → 权限面放行（ro 簇）→
-// handler（registry.RegisterProjectBoardReadTool）→ 存储面折叠读 → 投影行回到模型可见的
-// 工具结果里。它证明的是"读面端到端可用"，而不是只证明某个 Go 函数返回值正确。
-//
-// 写侧为什么不在这一条里（分段各有更准的用例，硬凑只会得到假绿）：
-//   - 「工具完成段 → 订阅口」：application/core 的 TestProjectBoardHooksOnExistingSyncPoint
-//     （真实完成段 + 记录替身，钉住转发的内容与会话归属）；
-//   - 「订阅口 → 真实存储面落盘」：本包 TestProjectBoardEnabledWritesArtifacts
-//     （真实 store.Router，断言 <项目根>/.seelex/board/ 下真的出现两份 jsonl）。
-//
-// 写侧的活体取数要求会话在**活体工作表格**里真有行；全链路 harness 的 task 注册表分区
-// 口径与生产不同（同一次 todo 落在会话分区，视图分区为空），现场造不出来——把写侧搬进
-// 这条用例只会得到"因为现场不存在所以什么都没发生"的假绿。故写侧分开钉，见上。
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+
+	// project_board_e2e_test.go — M6 端到端：模型**真的**通过工具面把投影读回来。
+	//
+	// 这条用例走的链子：模型发起 project_board_read → 框架分发 → 权限面放行（ro 簇）→
+	// handler（registry.RegisterProjectBoardReadTool）→ 存储面折叠读 → 投影行回到模型可见的
+	// 工具结果里。它证明的是"读面端到端可用"，而不是只证明某个 Go 函数返回值正确。
+	//
+	// 写侧为什么不在这一条里（分段各有更准的用例，硬凑只会得到假绿）：
+	//   - 「工具完成段 → 订阅口」：application/core 的 TestProjectBoardHooksOnExistingSyncPoint
+	//     （真实完成段 + 记录替身，钉住转发的内容与会话归属）；
+	//   - 「订阅口 → 真实存储面落盘」：本包 TestProjectBoardEnabledWritesArtifacts
+	//     （真实 store.Router，断言 <项目根>/.seelex/board/ 下真的出现两份 jsonl）。
+	//
+	// 写侧的活体取数要求会话在**活体工作表格**里真有行；全链路 harness 的 task 注册表分区
+	// 口径与生产不同（同一次 todo 落在会话分区，视图分区为空），现场造不出来——把写侧搬进
+	// 这条用例只会得到"因为现场不存在所以什么都没发生"的假绿。故写侧分开钉，见上。
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"io"
 	"net/http"
@@ -162,7 +162,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：生产里由工作区绑定给出，
 	// 所以这里也先把这个会话绑到一个真实工作区上——不绑就没有落点，读面读不到东西。
-	viewSession := harness.frontend.Snapshot().Session.ID
+	viewSession := harness.components.Session.Snapshot.Snapshot().Session.ID
 	workspace, err := harness.workspaces.Create("board-e2e", projectRoot, "")
 	if err != nil {
 		t.Fatalf("建工作区: %v", err)
@@ -176,7 +176,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	// 行归属**另一个**会话（session-e2e），落点仍是本项目的同一份平铺文件——"一个项目一份
 	// worktable.jsonl、多会话共用、行内 scope.session 区分"正是本轮的口径；读面按会话过滤。
 	const sessionID = "session-e2e"
-	projectRootForSession := harness.frontend.ProjectRootFor(viewSession)
+	projectRootForSession := harness.components.Execution.ProjectBoard.ProjectRootFor(viewSession)
 	if strings.TrimSpace(projectRootForSession) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：本用例会退化成同义反复")
 	}
@@ -197,13 +197,13 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 		projectBoardE2EScript{tool: "project_board_read", args: projectBoardE2EReadArgs(sessionID, "worktable")},
 		projectBoardE2EScript{},
 	)
-	if err := harness.frontend.Submit(ctx, "请用 project_board_read 读一下这个会话的看板，然后只回复『好』。"); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, "请用 project_board_read 读一下这个会话的看板，然后只回复『好』。"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("turn did not become idle: %v", err)
 	}
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("turn failed: %s", snapshot.Chat.Error)
 	}
 

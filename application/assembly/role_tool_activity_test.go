@@ -1,12 +1,5 @@
 package assembly
 
-// role_tool_activity_test.go — 钉住「员工工具活动 → 会话级实时事件」这一跳（2026-10-03）。
-//
-// 它是 subagent.tool.* 的员工侧对称面：子代理那条落进 Plan 节点的有界 tool_events
-// （`subagent_view.HandleSubagentToolEvent`），员工这条不落快照、只作"它刚动了"的推送。
-// 因此这里的判据是**事件本身**：kind 对（started/completed）、sid = 主会话、revision=0
-// （载荷不进快照，带 revision 会被"快照比事件新"的陈旧判据吃掉）、载荷按 EvidenceChars 截断。
-
 import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -15,6 +8,13 @@ import (
 	"testing"
 	"time"
 )
+
+// role_tool_activity_test.go — 钉住「员工工具活动 → 会话级实时事件」这一跳（2026-10-03）。
+//
+// 它是 subagent.tool.* 的员工侧对称面：子代理那条落进 Plan 节点的有界 tool_events
+// （`subagent_view.HandleSubagentToolEvent`），员工这条不落快照、只作"它刚动了"的推送。
+// 因此这里的判据是**事件本身**：kind 对（started/completed）、sid = 主会话、revision=0
+// （载荷不进快照，带 revision 会被"快照比事件新"的陈旧判据吃掉）、载荷按 EvidenceChars 截断。
 
 // waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。
 func waitRoleToolEvent(t *testing.T, subscription event.Subscription, wantKind event.EventKind) event.Event {
@@ -35,13 +35,13 @@ func waitRoleToolEvent(t *testing.T, subscription event.Subscription, wantKind e
 
 func TestHandleRoleToolActivityPublishesSessionEvent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription, err := service.SubscribeSession("s-main", 32)
+	subscription, err := service.components.view.SubscribeSession("s-main", 32)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
-	service.HandleRoleToolActivity(dto.RoleToolActivity{
+	service.components.roleActivity.Handle(dto.RoleToolActivity{
 		ID: "read_file#1#0a1b2c3d", MainSessionID: "s-main",
 		RoleName: "impl_ui", RoleSessionID: "role-impl-ui",
 		Name: "read_file", Arguments: `{"path":"gui/app.js"}`, Status: "running", Turn: 1,
@@ -61,7 +61,7 @@ func TestHandleRoleToolActivityPublishesSessionEvent(t *testing.T) {
 		t.Fatalf("载荷必须原样带上身份与工具读数：%+v", decoded)
 	}
 
-	service.HandleRoleToolActivity(dto.RoleToolActivity{
+	service.components.roleActivity.Handle(dto.RoleToolActivity{
 		ID: "read_file#1#0a1b2c3d", MainSessionID: "s-main",
 		RoleName: "impl_ui", RoleSessionID: "role-impl-ui",
 		Name: "read_file", Status: "success", Result: "…正文…", Turn: 1,
@@ -74,19 +74,19 @@ func TestHandleRoleToolActivityPublishesSessionEvent(t *testing.T) {
 
 func TestHandleRoleToolActivityTruncatesAndDropsUnroutable(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	subscription, err := service.SubscribeSession("s-main", 32)
+	subscription, err := service.components.view.SubscribeSession("s-main", 32)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	// 没有主会话归属 = 没有可以追加的尾部：宁可丢弃，也不回填到别的会话。
-	service.HandleRoleToolActivity(dto.RoleToolActivity{ID: "x#1#0", RoleSessionID: "role-impl", Status: "running"})
+	service.components.roleActivity.Handle(dto.RoleToolActivity{ID: "x#1#0", RoleSessionID: "role-impl", Status: "running"})
 	// 没有调用 ID = 认不出这是哪一次工具调用：同样不发。
-	service.HandleRoleToolActivity(dto.RoleToolActivity{MainSessionID: "s-main", RoleSessionID: "role-impl", Status: "running"})
+	service.components.roleActivity.Handle(dto.RoleToolActivity{MainSessionID: "s-main", RoleSessionID: "role-impl", Status: "running"})
 
 	long := strings.Repeat("证", Limits().EvidenceChars+50)
-	service.HandleRoleToolActivity(dto.RoleToolActivity{
+	service.components.roleActivity.Handle(dto.RoleToolActivity{
 		ID: "bash#2#0f0f0f0f", MainSessionID: "s-main", RoleName: "impl", RoleSessionID: "role-impl",
 		Name: "bash", Arguments: long, Result: long, Status: "success",
 	})

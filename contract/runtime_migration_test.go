@@ -120,17 +120,18 @@ func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T) {
 
 	domain := read("backend/tool/review/show_files.go")
 	registry := read("wiring/registry/registry.go")
-	compat := read("backend/engine/assemble/review_files.go")
+	delegate := read("backend/engine/assemble/review_files.go")
 	if !strings.Contains(domain, "func RegisterShowFilesTool(") {
 		t.Error("backend/tool/review must own the single ToolRegistrar registration helper")
 	}
-	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, applicationcompat.New(app))") {
-		t.Error("wiring/registry must call review.RegisterShowFilesTool directly after BM-005")
+	// 本用例锁的是「注册归 wiring、端口来自 owner 组件」。
+	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, appassembly.ComponentsFor(app).Admin.Review)") {
+		t.Error("wiring/registry must call review.RegisterShowFilesTool with the review owner component")
 	}
 	if strings.Contains(registry, "assemble.RegisterReviewFilesTool(runtime, app)") {
 		t.Error("wiring/registry still routes show_files registration through the composition package")
 	}
-	if !strings.Contains(compat, "review.RegisterShowFilesTool(runtime, port)") {
+	if !strings.Contains(delegate, "review.RegisterShowFilesTool(runtime, port)") {
 		t.Error("the legacy assemble path must be a one-line forward to review.RegisterShowFilesTool")
 	}
 }

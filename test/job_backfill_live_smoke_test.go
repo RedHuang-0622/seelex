@@ -2,45 +2,44 @@
 
 package test
 
-// 「作业做完了，但没人调 bg_manage」是作业面的**常态**，不是异常路径：模型派发
-// 之后继续干自己的活、回合结束，然后才想起来（或者永远想不起来）那条作业。本用例用
-// 真实 API 把这条常态跑一遍，并把它到底"靠什么回填"钉死在断言里。
-//
-// 三段：
-//
-//	第一轮：真实模型调 bash_bg 派发一条"3 行输出后就退出"的命令，**全程不调
-//	        bg_manage**（受理回执之外它拿不到任何输出字节）。
-//	终态：  作业自己收尾。没有任何人调用工具，登记表自己把终态**有界摘要**
-//	        （exit / 行数 / 字节数 / 有界末行）算出来并置上 notified 位。
-//	第二轮：模型**不许调任何工具**，只凭上下文报告句柄、终态、退出码与输出末行。
-//	        末行标记只存在于终态摘要里 —— 它出现在回复里，就是"结果已经自行 append
-//	        到请求尾部"的直接证据；而首行标记必须**不**出现（摘要只到末行）。
-//	第三轮：真实模型调 bg_manage(op=fetch) —— 首行标记这时才第一次进上下文。这就是
-//	        fetch 与打点块之间**唯一**的语义差：全文（消费式增量） vs 有界摘要。
-//
-// 判据全部落在 wire/DTO 事实上。唯一依赖模型输出的是第二轮那句"凭上下文报告"，它被
-// 「本回合零工具调用」钉住——不允许它用 observe/fetch 把答案问出来。三轮都有工具调用
-// 记录与快照可引用，失败时能看出是装配错了、回填没发生，还是模型没照做。
-//
-// 运行（config/accounts.yaml 的内容不会被读取/打印）：
-//
-//	$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
-//	go test -tags manualsmoke . -run TestManualSmokeRealAccountJobBackfillWithoutManage -count=1 -v -timeout=10m
-
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"os"
 	"path/filepath"
+
+	// 「作业做完了，但没人调 bg_manage」是作业面的**常态**，不是异常路径：模型派发
+	// 之后继续干自己的活、回合结束，然后才想起来（或者永远想不起来）那条作业。本用例用
+	// 真实 API 把这条常态跑一遍，并把它到底"靠什么回填"钉死在断言里。
+	//
+	// 三段：
+	//
+	//	第一轮：真实模型调 bash_bg 派发一条"3 行输出后就退出"的命令，**全程不调
+	//	        bg_manage**（受理回执之外它拿不到任何输出字节）。
+	//	终态：  作业自己收尾。没有任何人调用工具，登记表自己把终态**有界摘要**
+	//	        （exit / 行数 / 字节数 / 有界末行）算出来并置上 notified 位。
+	//	第二轮：模型**不许调任何工具**，只凭上下文报告句柄、终态、退出码与输出末行。
+	//	        末行标记只存在于终态摘要里 —— 它出现在回复里，就是"结果已经自行 append
+	//	        到请求尾部"的直接证据；而首行标记必须**不**出现（摘要只到末行）。
+	//	第三轮：真实模型调 bg_manage(op=fetch) —— 首行标记这时才第一次进上下文。这就是
+	//	        fetch 与打点块之间**唯一**的语义差：全文（消费式增量） vs 有界摘要。
+	//
+	// 判据全部落在 wire/DTO 事实上。唯一依赖模型输出的是第二轮那句"凭上下文报告"，它被
+	// 「本回合零工具调用」钉住——不允许它用 observe/fetch 把答案问出来。三轮都有工具调用
+	// 记录与快照可引用，失败时能看出是装配错了、回填没发生，还是模型没照做。
+	//
+	// 运行（config/accounts.yaml 的内容不会被读取/打印）：
+	//
+	//	$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
+	//	go test -tags manualsmoke . -run TestManualSmokeRealAccountJobBackfillWithoutManage -count=1 -v -timeout=10m
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 const (
@@ -79,14 +78,14 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		`{"command":"` + command + `","description":"live smoke: backfill probe"}` +
 		". Do NOT call bg_manage in this turn. Do not call any other tool. " +
 		"Reply with one short sentence that contains the handle."
-	if err := harness.frontend.Submit(ctx, dispatchPrompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("dispatch turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	firstTurn := collector.take()
-	if snapshot := harness.frontend.Snapshot(); snapshot.Chat.Error != "" {
+	if snapshot := harness.components.Session.Snapshot.Snapshot(); snapshot.Chat.Error != "" {
 		t.Fatalf("dispatch turn failed: %s", snapshot.Chat.Error)
 	}
 
@@ -141,17 +140,17 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	reportPrompt := "Do not call any tool in this turn. From the context you already have, " +
 		"report the background job's handle, its terminal state, its exit code, and the last line " +
 		"of its output. One short sentence."
-	if err := harness.frontend.Submit(ctx, reportPrompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, reportPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("report turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	secondTurn := collector.take()
 	for _, call := range secondTurn {
 		t.Fatalf("第二轮调用了工具 %s（status=%s）：这样「凭上下文报告」就不是回填证据了", call.name, call.status)
 	}
-	reply := latestVisibleAssistant(harness.frontend.Snapshot())
+	reply := latestVisibleAssistant(harness.components.Session.Snapshot.Snapshot())
 	t.Logf("第二轮回复（零工具调用）：%q", reply)
 
 	if !strings.Contains(reply, handle) {
@@ -176,10 +175,10 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		". Then reply with one short sentence containing the first line of its output. " +
 		"Do not call any other tool."
-	if err := harness.frontend.Submit(ctx, fetchPrompt); err != nil {
+	if err := harness.components.Conversation.Submission.Submit(ctx, fetchPrompt); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("fetch turn did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	thirdTurn := collector.take()

@@ -83,6 +83,10 @@ go test . -run '^TestGUI' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### application_boundary_test.go
+
+- `func TestTUIStaysOnApplicationBoundary(t *testing.T)` — TestTUIStaysOnApplicationBoundary keeps the TUI on its consumer-owned
+
 ### bootstrap_test.go
 
 - `func TestOfflineApplicationBootstrapComposition(t *testing.T)`
@@ -119,14 +123,6 @@ go test . -run '^TestGUI' -count=1
 - `func packageGoFiles(t *testing.T, dir string) []string` — packageGoFiles 返回目录下的非测试 .go 文件（生产面）。
 - `func isStdlib(importPath string) bool` — isStdlib 按 Go 的约定判定：import 路径第一段不含 "." 即为标准库
 - `func stringSet(values []string) map[string]struct`
-
-### facade_narrow_faces_test.go
-
-- `func TestFacadeFacesMethodSetsAreFrozen(t *testing.T)` — 断言 1（编译期结构满足）写在 `application/frontend_assertions.go` 的 `var _ ViewFace = (*Frontend)(nil)` 一族里；
-- `func TestFacadeEveryExportedMethodBelongsToAFace(t *testing.T)` — 断言 2（本片追加，理由：防止新方法绕过四组）：`Service` 的公开方法 = 四组 ∪ 装配面清单。
-- `func TestFacadeTypeAliasSetMatchesFaceTypeNames(t *testing.T)` — 断言 3：A 组别名集合逐字等于 `application.FaceTypeNames`。
-- `func TestFacadeFrontendHasNoDiff(t *testing.T)` — 断言 4：前端零改动（I5）——`gui/` 与 `tui/` 在本批里不得出现 diff。没有 git 就跳过。
-- `func methodNamesOf(value reflect.Type) []string` — methodNamesOf 返回类型（或接口）的公开方法名（排序）。
 
 ### governance_test.go
 

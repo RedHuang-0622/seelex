@@ -44,10 +44,10 @@ func TestLoopDelegatedToSeele(t *testing.T) {
 	engine := &singleLoopEngine{fakeEngine: &fakeEngine{}}
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "do the work"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "do the work"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +62,7 @@ func TestLoopDelegatedToSeele(t *testing.T) {
 		t.Fatalf("engine inputs = %+v, want a single non-empty submission", inputs)
 	}
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if len(snapshot.Conversation) < 2 {
 		t.Fatalf("conversation = %+v, want user + assistant", snapshot.Conversation)
 	}

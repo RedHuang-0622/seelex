@@ -18,7 +18,6 @@ func TestInboundAPIsDoNotImportConcreteImplementationPackages(t *testing.T) {
 	root := filepath.Dir(file)
 	apiFiles := []string{
 		filepath.Join(root, "application.go"),
-		filepath.Join(root, "faces_api.go"),
 	}
 	bannedPrefixes := []string{
 		"github.com/RedHuang-0622/seelex/backend/",

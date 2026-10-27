@@ -56,7 +56,7 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := frontendOfTestService(service).CompactContextNow(ctx)
+		_, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 		done <- err
 	}()
 	select {
@@ -65,7 +65,7 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	service.releaseCompactionRound(sessionID)
+	service.components.contextCompactionGate.Release(sessionID)
 	select {
 	case err := <-done:
 		if err != nil {
@@ -74,14 +74,14 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("门收口后压缩没有继续")
 	}
-	if service.isCompactingLocked(sessionID) {
+	if service.components.contextCompactionGate.IsCompactingLocked(sessionID) {
 		t.Fatal("压缩轮没有收口：后续压缩会一直等下去")
 	}
 
 	// 收口之后同一会话还能再压一次（门没有留在坏状态）。
 	second := make(chan error, 1)
 	go func() {
-		_, err := frontendOfTestService(service).CompactContextNow(ctx)
+		_, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 		second <- err
 	}()
 	select {

@@ -2,57 +2,56 @@
 
 package assembly
 
-import applicationwindow "github.com/RedHuang-0622/seelex/application/window"
-
-// 真实会话记录上实跑「第一次压缩触发点 → 被动压缩链路」。
-//
-// 为什么要有它：压缩链路此前只在**合成夹具**上跑过（每轮 N 个 ASCII 字符，token
-// 量可算可控）。合成夹具答不了三个现场问题——真实会话里第一次压缩在哪一步被触发、
-// 触发时内存里的 transcript 是什么、折出的区间与**真实帧**对不对得上——而它们正是
-// 判断链路对不对的现场事实。
-//
-// 本探针用**真实的会话存储**做输入、**真实的装配层压缩链路**做执行：
-//
-//	① 从真实存储读出该会话的压缩帧链，取第一帧（第一次压缩）的位置锚点
-//	   （message id + 事件 seq 区间）。位置事实来自 `TranscriptPrefixRange`，
-//	   它的 EventFrom 是**被折区间的首个事件**，因此这一条同时钉住了"那次触发时
-//	   内存 transcript 从哪里开始"；
-//	② 截取触发点之前的上下文：真实事件行**原样注入**（ReasoningContent / ToolCalls /
-//	   ResultRef / TokenCount / 真实 task_id 都照搬），序号基线抬到真实起点，因此
-//	   注入后的 seq 与真实存储逐行相等；
-//	③ 走**被动**压缩链路（自动路径 `PrepareExecutionContext`：判据命中才折，不是
-//	   /compact 那种显式路径），把这一轮的门禁数字、读数闸输入、推帧区间、压缩记录
-//	   （成功记录或失败痕）全部打出来，并与真实帧区间逐字对照。
-//
-// 口径（如实）：读数闸（前缀重放厚摘要）是**替身**——探针不调真模型，回执由夹具给。
-// 走真实代码的是：判据与阈值、保留窗口决策、区间推导、推帧请求、记录/失败痕的生成
-// 与形状、快照可见面。替身只替"这一次模型回读答了什么"。
-//
-// 只读铁律（MEMORY.md）：真实会话目录**只读拷贝**到 t.TempDir() 再打开，原目录一个
-// 字节都不写。
-//
-// 运行：
-//
-//	$env:SEELEX_REAL_COMPACT_PROBE='1'
-//	go test -tags realprobe ./application/assembly/ -run TestRealSessionCompactionChainProbe -v -count=1
-//
-// 环境变量（都有缺省值）：
-//
-//	SEELEX_REAL_STORE_ROOT   真实数据根（缺省 dist/seelex-gui-dev/.seelex）
-//	SEELEX_REAL_PROJECT      项目 id（缺省 project-2e6431eb439414d0）
-//	SEELEX_REAL_SESSION      会话 id（缺省 session-3a5c432dda14d33b）
-//	SEELEX_REAL_CONFIG       seelex.yaml（缺省 dist/seelex-gui-dev/config/seelex.yaml）
-//	SEELEX_REAL_WINDOW       账号上下文窗口（缺省 200000）
-//	SEELEX_REAL_COMPACT_OUT  报告落盘路径（缺省 _tmp/real-compaction-probe-report.md）
-
 import (
 	"encoding/json"
 	"fmt"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	cc "github.com/RedHuang-0622/seelex/kernel/contextcontrol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+
+	// 真实会话记录上实跑「第一次压缩触发点 → 被动压缩链路」。
+	//
+	// 为什么要有它：压缩链路此前只在**合成夹具**上跑过（每轮 N 个 ASCII 字符，token
+	// 量可算可控）。合成夹具答不了三个现场问题——真实会话里第一次压缩在哪一步被触发、
+	// 触发时内存里的 transcript 是什么、折出的区间与**真实帧**对不对得上——而它们正是
+	// 判断链路对不对的现场事实。
+	//
+	// 本探针用**真实的会话存储**做输入、**真实的装配层压缩链路**做执行：
+	//
+	//	① 从真实存储读出该会话的压缩帧链，取第一帧（第一次压缩）的位置锚点
+	//	   （message id + 事件 seq 区间）。位置事实来自 `TranscriptPrefixRange`，
+	//	   它的 EventFrom 是**被折区间的首个事件**，因此这一条同时钉住了"那次触发时
+	//	   内存 transcript 从哪里开始"；
+	//	② 截取触发点之前的上下文：真实事件行**原样注入**（ReasoningContent / ToolCalls /
+	//	   ResultRef / TokenCount / 真实 task_id 都照搬），序号基线抬到真实起点，因此
+	//	   注入后的 seq 与真实存储逐行相等；
+	//	③ 走**被动**压缩链路（自动路径 `PrepareExecutionContext`：判据命中才折，不是
+	//	   /compact 那种显式路径），把这一轮的门禁数字、读数闸输入、推帧区间、压缩记录
+	//	   （成功记录或失败痕）全部打出来，并与真实帧区间逐字对照。
+	//
+	// 口径（如实）：读数闸（前缀重放厚摘要）是**替身**——探针不调真模型，回执由夹具给。
+	// 走真实代码的是：判据与阈值、保留窗口决策、区间推导、推帧请求、记录/失败痕的生成
+	// 与形状、快照可见面。替身只替"这一次模型回读答了什么"。
+	//
+	// 只读铁律（MEMORY.md）：真实会话目录**只读拷贝**到 t.TempDir() 再打开，原目录一个
+	// 字节都不写。
+	//
+	// 运行：
+	//
+	//	$env:SEELEX_REAL_COMPACT_PROBE='1'
+	//	go test -tags realprobe ./application/assembly/ -run TestRealSessionCompactionChainProbe -v -count=1
+	//
+	// 环境变量（都有缺省值）：
+	//
+	//	SEELEX_REAL_STORE_ROOT   真实数据根（缺省 dist/seelex-gui-dev/.seelex）
+	//	SEELEX_REAL_PROJECT      项目 id（缺省 project-2e6431eb439414d0）
+	//	SEELEX_REAL_SESSION      会话 id（缺省 session-3a5c432dda14d33b）
+	//	SEELEX_REAL_CONFIG       seelex.yaml（缺省 dist/seelex-gui-dev/config/seelex.yaml）
+	//	SEELEX_REAL_WINDOW       账号上下文窗口（缺省 200000）
+	//	SEELEX_REAL_COMPACT_OUT  报告落盘路径（缺省 _tmp/real-compaction-probe-report.md）
 	"github.com/RedHuang-0622/seelex/store"
 	"os"
 	"path/filepath"
@@ -408,13 +407,13 @@ func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) real
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: arm.requestID}
 	service.components.tasks.BeginTask(arm.requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	outcome.sessionID = sessionID
 	// 序号基线抬到真实起点：注入后的 seq 与真实存储逐行相等（区间事实才可比）。
 	if first := events[0].Seq; first > 1 {
 		service.components.tasks.SeedTranscriptSeqFor(sessionID, first-1)
 	}
-	subscription, err := service.SubscribeSession(sessionID, 1024)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 1024)
 	if err != nil {
 		t.Fatalf("%s：SubscribeSession: %v", arm.name, err)
 	}
@@ -453,7 +452,7 @@ func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) real
 		outcome.readbackInput = host.lastReadback
 	}
 	outcome.records = compactionRecordsOf(t, service)
-	if snapshot, snapshotErr := frontendOfTestService(service).SnapshotOf(sessionID); snapshotErr == nil && snapshot.Task != nil {
+	if snapshot, snapshotErr := service.components.sessionQuery.SnapshotOf(sessionID); snapshotErr == nil && snapshot.Task != nil {
 		outcome.snapshotRecords = append([]model.ContextCompaction(nil), snapshot.Task.ContextCompactions...)
 	}
 	return outcome

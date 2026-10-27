@@ -19,7 +19,6 @@ type serviceState struct {
 	session.ApplicationRuntimeState
 	commands contract.CommandRegistryPort
 
-	conversationRuntimeState
 	lifecycleRuntimeState
 	promptRuntimeState
 
@@ -41,9 +40,6 @@ type serviceState struct {
 	// 宿主能力（视图锁、快照写面、引擎与档位读数）经 `serviceKnobsHost` 注入；
 	// 加锁次序仍是 视图锁 → 组件锁（只单向），见该组件与适配的注释。
 	knobs *limit.Knobs
-}
-
-type conversationRuntimeState struct {
 }
 
 type lifecycleRuntimeState struct {

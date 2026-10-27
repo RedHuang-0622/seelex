@@ -1,5 +1,12 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"testing"
+)
+
 // 红灯复现：热挂载（驻留会话只换视图指针、不重建正文）时，回合「过程」里
 // 工具轮之间的 assistant 步骤在可见窗口里没有 reasoning_content。
 //
@@ -9,17 +16,10 @@ package assembly
 // attachLatestReasoning 事后补——它只挂「最后一次」推理，工具轮的步骤因此
 // 永远看不到思考过程。
 
-import (
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"testing"
-)
-
 func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	sessionID := service.Core.Snapshot.Session.ID
 	engine.ReplaceHistory(sessionID, []contract.EngineMessage{
@@ -42,10 +42,10 @@ func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	service.components.view.AppendMessageLocked("assistant", "结论", nil)
 	service.ViewMu.Unlock()
 
-	service.attachLatestReasoning(sessionID, "request-1")
+	service.components.conversationStreamRuntime.AttachLatestReasoning(sessionID, "request-1")
 
 	// 热挂载不重建正文：前端拿到的就是这条可见窗口（mirror 进 Snapshot）。
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	want := []string{"先列目录", "再看文件", "综合结果"}
 	got := make([]string, 0, len(want))
 	for _, message := range snapshot.Conversation {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
+	"github.com/RedHuang-0622/seelex/kernel/worktable"
 	"testing"
 	"time"
 )
@@ -65,10 +65,10 @@ func TestServicePlanSyncExposesDAGDependencies(t *testing.T) {
 		},
 		Edges: []dto.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n3"}},
 	}
-	service.refreshWorkTableFromSources()
+	service.components.workTableRuntime.RefreshFromSources()
 
 	byID := map[string]model.WorkItem{}
-	for _, row := range service.Snapshot().Runtime.WorkTable {
+	for _, row := range service.components.frontendSnapshot.Snapshot().Runtime.WorkTable {
 		byID[row.ID] = row
 	}
 	if len(byID) != 3 {
@@ -86,7 +86,7 @@ func TestServicePlanSyncExposesDAGDependencies(t *testing.T) {
 // 必须与整表同源补齐依赖，否则前端按增量更新该行时会把「依赖」列擦成空。
 func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
 		Nodes: []model.PlanNode{
@@ -95,10 +95,10 @@ func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T) {
 		},
 		Edges: []dto.PlanEdge{{From: "n1", To: "n2"}},
 	}
-	subscription := frontendOfTestService(service).Subscribe(16)
+	subscription := service.components.view.Subscribe(16)
 	defer subscription.Close()
 
-	service.publishTaskChanged(dto.TaskRecord{
+	service.components.workTableRuntime.PublishTaskChanged(dto.TaskRecord{
 		ID: "plan:n2", Key: "plan:n2", Phase: dto.TaskPhasePlan, Task: "implement",
 		Status: dto.TaskRunning, Kind: "plan", SourceID: "n2",
 	}, 1, "req-plan", sessionID)

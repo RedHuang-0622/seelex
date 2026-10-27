@@ -16,6 +16,7 @@ import (
 // 直接持有会话容器字段（*session.SessionUnit 及其切片/映射；自造
 // Unit/ChatRuntime 平行容器已于 9.5 删除）。会话资源唯一所有者是 session
 // 域（registry 属共享面 G），core 只保留当前会话的只读视图指针 V。
+
 func TestCoreHoldsNoSessionContainerFields(t *testing.T) {
 	assertNoSessionContainerField(t, reflect.TypeOf(Service{}))
 	assertNoSessionContainerField(t, reflect.TypeOf(serviceState{}))
@@ -70,10 +71,10 @@ func runFingerprintScenario(t *testing.T) []string {
 	sub := service.Events.Subscribe(256)
 	defer sub.Close()
 
-	if err := service.Submit(context.Background(), "hello"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 
@@ -144,7 +145,7 @@ func messageIDFromPayload(raw json.RawMessage) string {
 
 func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	const bgID = "sess-bg"
 	service.ViewMu.Lock()
@@ -176,7 +177,7 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	go func() {
 		defer close(deltaDone)
 		// 后台会话流式增量：不应等待全局锁
-		service.appendDelta("bg-req", "hello chunk")
+		service.components.conversationStreamRuntime.AppendDelta("bg-req", "hello chunk")
 	}()
 
 	select {

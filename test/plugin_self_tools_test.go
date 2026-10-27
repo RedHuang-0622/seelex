@@ -3,15 +3,14 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // TestPluginSelfTools 验证内置自迭代工具族（plugin_create / plugins_reload /

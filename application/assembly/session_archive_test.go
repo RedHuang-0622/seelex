@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -17,10 +17,12 @@ import (
 	"time"
 )
 
+// mu 保护下面这些**会被目录刷新 worker 并发读**的字段（P20：`-race` 抓到
+// `compactedSessionStore` 写入 `sessionID` 与 worker 的 `SessionsOf` 读撞车）。
+
 type archiveSessions struct {
 	fakeSessions
-	// mu 保护下面这些**会被目录刷新 worker 并发读**的字段（P20：`-race` 抓到
-	// `compactedSessionStore` 写入 `sessionID` 与 worker 的 `SessionsOf` 读撞车）。
+
 	mu         sync.Mutex
 	history    []contract.EngineMessage
 	historyErr error
@@ -177,7 +179,7 @@ func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "old session"}
 	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
 	service.ViewMu.Unlock()
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	sessions.mu.Lock()
@@ -223,7 +225,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	if err := restored.components.sessionResume.Resume("session-a"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := restored.Snapshot()
+	snapshot := restored.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.Name != "Keep this title" || len(snapshot.Conversation) != 2 || snapshot.Conversation[1].Content != "Inspect the repository" {
 		t.Fatalf("restored snapshot = %#v", snapshot)
 	}
@@ -282,10 +284,10 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for _, message := range snapshot.Conversation {
 		if strings.HasPrefix(message.Content, context_runtime.TaskContextCheckpointPrefix) {
 			t.Fatalf("internal checkpoint leaked into visible conversation: %#v", snapshot.Conversation)
@@ -298,10 +300,10 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	if len(history) != 2 || history[0].Content != "所以你的评价是？" || history[1].Content != "评审报告摘要" {
 		t.Fatalf("provider history = %#v, want durable conversation fallback", history)
 	}
-	if err := service.Submit(context.Background(), "继续"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "继续"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	engine.mu.Lock()
@@ -354,13 +356,13 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	}
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "请回答开头的简单问题"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "请回答开头的简单问题"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -443,7 +445,7 @@ func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T) {
 
 func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-large"})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	raw := strings.Repeat("raw-secret-output", task_context.DefaultToolResultLimit())
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-large"}
@@ -466,7 +468,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 			t.Fatalf("result reference missing from archived tool: %#v", message.Tool)
 		}
 	}
-	page, err := frontendOfTestService(service).ReadToolResultHandler(t.Context(), `{"result_ref":"`+stored.Ref+`","offset":0,"limit":32}`)
+	page, err := service.components.referenceApplication.ReadToolResultHandler(`{"result_ref":"` + stored.Ref + `","offset":0,"limit":32}`)
 	if err != nil || !strings.Contains(page, "raw-secret-output") {
 		t.Fatalf("read_tool_result page=%q err=%v", page, err)
 	}
@@ -481,10 +483,10 @@ func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 		service.ViewMu.Unlock()
 		service.prepareCompletedTaskBoundary()
 		if skills := selectedSkillLayers(service.promptStack.Layers()); len(skills) != 0 {
-			frontendOfTestService(service).Shutdown()
+			service.components.lifecycleApplication.Shutdown()
 			t.Fatalf("terminal task %s retained skills: %#v", status, skills)
 		}
-		frontendOfTestService(service).Shutdown()
+		service.components.lifecycleApplication.Shutdown()
 	}
 }
 
@@ -502,10 +504,10 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).ResumeSession("session-record-only"); err != nil {
+	if err := service.components.sessionResume.Resume("session-record-only"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Session.ID != "session-record-only" || snapshot.Session.Name != "Saved title" || len(snapshot.Conversation) != 2 || snapshot.Conversation[1].Content != "Saved response" {
 		t.Fatalf("resumed snapshot = %#v", snapshot)
 	}
@@ -527,13 +529,13 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "continue"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -586,13 +588,13 @@ func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *t
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "continue"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -639,13 +641,13 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := frontendOfTestService(service).ResumeSession(sessionID); err != nil {
+	if err := service.components.sessionResume.Resume(sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "continue"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "continue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -662,7 +664,7 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 
 func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	service.ViewMu.Lock()
 	service.appendHistoryLocked([]contract.EngineMessage{{
 		Role:    "assistant",
@@ -673,7 +675,7 @@ func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 	}})
 	service.ViewMu.Unlock()
 
-	conversation := service.Snapshot().Conversation
+	conversation := service.components.frontendSnapshot.Snapshot().Conversation
 	if len(conversation) != 1 || conversation[0].Tool == nil || conversation[0].Content != "" {
 		t.Fatalf("visible conversation = %#v", conversation)
 	}

@@ -261,10 +261,10 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	// 启动一个 Chat
-	err := service.Submit(context.Background(), "hello")
+	err := service.components.submission.Submit(context.Background(), "hello")
 	if err != nil {
 		t.Fatal("first submit should succeed:", err)
 	}
@@ -272,13 +272,13 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 	// 等待 chat 开始运行
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if service.Snapshot().Chat.Running {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
 
-	if !service.Snapshot().Chat.Running {
+	if !service.components.frontendSnapshot.Snapshot().Chat.Running {
 		t.Fatal("chat should be running")
 	}
 
@@ -289,18 +289,18 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_ = service.Submit(context.Background(), fmt.Sprintf("msg-%d", id))
+			_ = service.components.submission.Submit(context.Background(), fmt.Sprintf("msg-%d", id))
 		}(i)
 	}
 	wg.Wait()
 
-	snap := service.Snapshot()
+	snap := service.components.frontendSnapshot.Snapshot()
 	if snap.Chat.QueuedCount != concurrentSubmits {
 		t.Errorf("expected %d queued, got %d", concurrentSubmits, snap.Chat.QueuedCount)
 	}
 
 	// 取消 chat 清理
-	frontendOfTestService(service).CancelChat("")
+	service.components.lifecycleApplication.CancelChat("")
 }
 
 // blockingEngine 包装 fakeEngine，在 ChatStream 中阻塞以模拟长时间运行。
@@ -340,14 +340,14 @@ func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	_ = service.Submit(context.Background(), "hello")
+	_ = service.components.submission.Submit(context.Background(), "hello")
 
 	// 等待 chat 开始
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if service.Snapshot().Chat.Running {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
 			break
 		}
 		time.Sleep(time.Millisecond)
@@ -363,22 +363,22 @@ func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = service.Snapshot()
-				_ = service.Snapshot().Chat
-				_ = service.Snapshot().Runtime
-				_ = service.Snapshot().Conversation
+				_ = service.components.frontendSnapshot.Snapshot()
+				_ = service.components.frontendSnapshot.Snapshot().Chat
+				_ = service.components.frontendSnapshot.Snapshot().Runtime
+				_ = service.components.frontendSnapshot.Snapshot().Conversation
 			}
 		}()
 	}
 
 	wg.Wait()
-	frontendOfTestService(service).CancelChat("")
+	service.components.lifecycleApplication.CancelChat("")
 }
 
 // TestChat_RaceToolHandling 验证 handleToolStart/Complete 与 Snapshot 并发安全。
 func TestChat_RaceToolHandling(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	var wg sync.WaitGroup
 	const rounds = 50
@@ -393,7 +393,7 @@ func TestChat_RaceToolHandling(t *testing.T) {
 		}(i)
 		go func() {
 			defer wg.Done()
-			_ = service.Snapshot()
+			_ = service.components.frontendSnapshot.Snapshot()
 		}()
 	}
 	wg.Wait()
@@ -414,11 +414,11 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			frontendOfTestService(service).Shutdown()
+			service.components.lifecycleApplication.Shutdown()
 		}()
 		go func(id int) {
 			defer wg.Done()
-			_ = service.Submit(context.Background(), "/help")
+			_ = service.components.submission.Submit(context.Background(), "/help")
 		}(i)
 	}
 	wg.Wait()
@@ -440,13 +440,13 @@ func TestService_RaceShutdownChat(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		_ = service.Submit(context.Background(), "chat during shutdown")
+		_ = service.components.submission.Submit(context.Background(), "chat during shutdown")
 	}()
 
 	go func() {
 		defer wg.Done()
 		time.Sleep(time.Millisecond * 5)
-		frontendOfTestService(service).Shutdown()
+		service.components.lifecycleApplication.Shutdown()
 	}()
 
 	wg.Wait()
@@ -455,9 +455,9 @@ func TestService_RaceShutdownChat(t *testing.T) {
 // TestService_ShutdownThenSubmit 验证 Shutdown 后 Submit 返回错误。
 func TestService_ShutdownThenSubmit(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	frontendOfTestService(service).Shutdown()
+	service.components.lifecycleApplication.Shutdown()
 
-	err := service.Submit(context.Background(), "hello after shutdown")
+	err := service.components.submission.Submit(context.Background(), "hello after shutdown")
 	if err == nil {
 		t.Error("Submit after Shutdown should return error")
 	}
@@ -469,7 +469,7 @@ func TestService_ShutdownThenSubmit(t *testing.T) {
 // TestService_ShutdownThenStartChat 验证 Shutdown 后 startChat 返回错误。
 func TestService_ShutdownThenStartChat(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	frontendOfTestService(service).Shutdown()
+	service.components.lifecycleApplication.Shutdown()
 
 	err := service.startChat(context.Background(), newConversationTurnState().NewRequest("hello", nil))
 	if err == nil {
@@ -620,14 +620,14 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	_ = service.Submit(context.Background(), "start")
+	_ = service.components.submission.Submit(context.Background(), "start")
 
 	// 等待 chat running
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if service.Snapshot().Chat.Running {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
 			break
 		}
 		time.Sleep(time.Millisecond)
@@ -640,17 +640,17 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_ = service.Submit(context.Background(), fmt.Sprintf("queue-%d", id))
+			_ = service.components.submission.Submit(context.Background(), fmt.Sprintf("queue-%d", id))
 		}(i)
 	}
 	wg.Wait()
 
-	snap := service.Snapshot()
+	snap := service.components.frontendSnapshot.Snapshot()
 	if snap.Chat.QueuedCount != submits {
 		t.Errorf("expected %d queued, got %d", submits, snap.Chat.QueuedCount)
 	}
 
-	frontendOfTestService(service).CancelChat("")
+	service.components.lifecycleApplication.CancelChat("")
 }
 
 // =============================================================================
@@ -660,7 +660,7 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 // TestSnapshot_RaceReadWrite 验证 Snapshot 读写并发安全。
 func TestSnapshot_RaceReadWrite(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	var wg sync.WaitGroup
 	const rounds = 100
@@ -675,7 +675,7 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 		// 读取者
 		go func() {
 			defer wg.Done()
-			snap := service.Snapshot()
+			snap := service.components.frontendSnapshot.Snapshot()
 			_ = snap.Revision
 			_ = snap.Chat
 			_ = snap.Runtime
@@ -705,9 +705,9 @@ func TestCancelChat_Race(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	_ = service.Submit(context.Background(), "start")
+	_ = service.components.submission.Submit(context.Background(), "start")
 	time.Sleep(time.Millisecond * 5)
 
 	var wg sync.WaitGroup
@@ -715,7 +715,7 @@ func TestCancelChat_Race(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			frontendOfTestService(service).CancelChat("")
+			service.components.lifecycleApplication.CancelChat("")
 		}()
 	}
 	wg.Wait()
@@ -728,7 +728,7 @@ func TestCancelChat_Race(t *testing.T) {
 // TestObserveInteraction_Race 验证 observeInteraction 并发安全。
 func TestObserveInteraction_Race(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {

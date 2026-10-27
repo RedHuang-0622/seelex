@@ -11,6 +11,7 @@ import (
 
 // waitApprovalCount 轮询指定会话单元的待批数直到到达目标（approval 观察
 // 回调由 broker goroutine 异步触发）。
+
 func waitApprovalCount(t *testing.T, service *Service, sessionID string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -37,9 +38,9 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -61,7 +62,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	if got := catalogStatusOf(t, service, aID); got != SessionStatusAwaitingApproval {
 		t.Fatalf("catalog status while awaiting = %q, want awaiting_approval", got)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Interaction == nil || snapshot.Interaction.ID != "ask-A" {
 		t.Fatalf("view interaction = %#v, want ask-A", snapshot.Interaction)
 	}
@@ -69,7 +70,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	if got := unit.ApprovalIDs(); len(got) != 1 || got[0] != "ask-A" {
 		t.Fatalf("unit approvals = %#v, want [ask-A]", got)
 	}
-	sessionSnap, err := frontendOfTestService(service).SnapshotOf(aID)
+	sessionSnap, err := service.components.sessionQuery.SnapshotOf(aID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 		t.Fatalf("SessionSnapshot approvals = %#v, want ask-A owned by %q", sessionSnap.Approvals, aID)
 	}
 
-	if err := service.ResolveInteraction(ctx, "ask-A", "allow"); err != nil {
+	if err := service.components.interactionApplication.Resolve(ctx, "ask-A", "allow"); err != nil {
 		t.Fatalf("resolve ask-A: %v", err)
 	}
 	select {
@@ -95,7 +96,7 @@ func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -108,9 +109,9 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -118,13 +119,13 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 
 	bID := "sess-approval-B"
 	engine.register(bID)
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
 	// SubmitToSession 只在目标未加载时切换视图；B 已注册（HasSession）→
 	// 后台并行运行，视图仍是 A。
-	if got := service.Snapshot().Session.ID; got != aID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != aID {
 		t.Fatalf("view session = %q, want A（B 后台运行不切换视图）", got)
 	}
 	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: bID}})
@@ -147,11 +148,11 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 		t.Fatalf("A catalog status = %q, want running（后台运行不因 B 待批丢失）", got)
 	}
 	// 视图仍是 A（无审批）：后台 B 的待批不得进入视图单格。
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Interaction != nil {
 		t.Fatalf("view single slot = %#v, want nil（后台 B 待批不得覆盖视图 A）", snapshot.Interaction)
 	}
-	sessionSnap, err := frontendOfTestService(service).SnapshotOf(bID)
+	sessionSnap, err := service.components.sessionQuery.SnapshotOf(bID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,29 +172,29 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 		}
 	}()
 	waitApprovalCount(t, service, bID, 2)
-	if got := service.Snapshot().Interaction; got != nil {
+	if got := service.components.frontendSnapshot.Snapshot().Interaction; got != nil {
 		t.Fatalf("view single slot after second background approval = %#v, want nil", got)
 	}
 
 	// 热切到 B：单格镜像 B 的首笔待批（激活镜像路径，不依赖审批发生在
 	// 视图会话的旧假设）。
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("resume B while running: %v", err)
 	}
-	slot := service.Snapshot().Interaction
+	slot := service.components.frontendSnapshot.Snapshot().Interaction
 	if slot == nil || slot.ID != "ask-B" || slot.SessionID != bID {
 		t.Fatalf("view single slot after hot attach = %#v, want ask-B owned by B", slot)
 	}
 	// 按 id 结案：先结首笔（视图单格同步镜像下一笔），再结第二笔。
-	if err := service.ResolveInteraction(ctx, "ask-B", "allow"); err != nil {
+	if err := service.components.interactionApplication.Resolve(ctx, "ask-B", "allow"); err != nil {
 		t.Fatalf("resolve ask-B: %v", err)
 	}
 	waitApprovalCount(t, service, bID, 1)
-	slot = service.Snapshot().Interaction
+	slot = service.components.frontendSnapshot.Snapshot().Interaction
 	if slot == nil || slot.ID != "ask-B2" {
 		t.Fatalf("view single slot after first resolve = %#v, want ask-B2（同会话镜像下一笔）", slot)
 	}
-	if err := service.ResolveInteraction(ctx, "ask-B2", "allow"); err != nil {
+	if err := service.components.interactionApplication.Resolve(ctx, "ask-B2", "allow"); err != nil {
 		t.Fatalf("resolve ask-B2: %v", err)
 	}
 	select {
@@ -208,7 +209,7 @@ func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -220,16 +221,16 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	ctx := context.Background()
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
 	bID := "sess-approval-concurrent-B"
 	engine.register(bID)
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
@@ -270,7 +271,7 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 		}
 	}
 	for _, entry := range service.Approval.Pending() {
-		if err := service.ResolveInteraction(ctx, entry.Interaction.ID, "allow"); err != nil {
+		if err := service.components.interactionApplication.Resolve(ctx, entry.Interaction.ID, "allow"); err != nil {
 			t.Fatalf("resolve %q: %v", entry.Interaction.ID, err)
 		}
 	}
@@ -287,7 +288,7 @@ func TestApprovalConcurrentSessionsStayAttributed(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

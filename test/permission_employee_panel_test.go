@@ -2,16 +2,15 @@ package test
 
 import (
 	"context"
-	"strings"
-	"testing"
-	"time"
-
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/wiring"
 	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"strings"
+	"testing"
+	"time"
 )
 
 // permission_employee_panel_test.go — 跨层验收：员工（角色会话）越权提权的审批

@@ -1,12 +1,12 @@
 package assembly
 
 import (
-	"reflect"
-	"testing"
-
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"reflect"
+	"testing"
 )
 
 func TestSessionRestoringShellIsAssembled(t *testing.T) {
@@ -15,10 +15,10 @@ func TestSessionRestoringShellIsAssembled(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionRestoringShell")
 	}
-	if field.Type != reflect.TypeOf((*sessionRestoringShell)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsession.RestoringShellApplication)(nil)) {
 		t.Fatalf("sessionRestoringShell 字段类型 = %s", field.Type)
 	}
-	shellType := reflect.TypeOf((*sessionRestoringShell)(nil))
+	shellType := reflect.TypeOf((*applicationsession.RestoringShellApplication)(nil))
 	if _, ok := shellType.MethodByName("PointLocked"); !ok {
 		t.Fatal("sessionRestoringShell 缺少 PointLocked")
 	}
@@ -45,7 +45,7 @@ func TestSessionRestoringShellClearsAllSessionFacts(t *testing.T) {
 	}
 	var activeSession string
 	var mirrored bool
-	shell := newSessionRestoringShell(sessionRestoringShellDeps{
+	shell := applicationsession.NewRestoringShell(applicationsession.RestoringShellDeps{
 		Title: func(sessionID string) string {
 			if sessionID != "session-b" {
 				t.Fatalf("title session = %q", sessionID)

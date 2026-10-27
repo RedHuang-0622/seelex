@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/headless"
 )
 
-// fakeRoleApplication 在 headless RPC 单测里复刻 Application 的 R2/R4 扩展面，
-// 不复制存储语义（语义由 store 测试与真实 headless 冒烟覆盖）。
-type fakeRoleApplication struct {
-	*fakeApplication
+// fakeRoleStore 满足 headless 的 RoleSessionStore 端口（owner：contract.RoleSessionsPort
+// 的角色会话读写面）。它只记录 RPC 是否落到对应方法，不复制排序/幂等/floor 语义——
+// 那些判据由 store 自己的用例与真实 headless 冒烟覆盖。
+type fakeRoleStore struct {
 	created   dto.RoleSessionInfo
 	draftRows []dto.RoleDraftRow
 	synced    dto.RoleDraftSyncResult
@@ -19,11 +20,11 @@ type fakeRoleApplication struct {
 	schedule  string
 }
 
-func newFakeRoleApplication() *fakeRoleApplication {
-	return &fakeRoleApplication{fakeApplication: newFakeApplication()}
+func newFakeRoleStore() *fakeRoleStore {
+	return &fakeRoleStore{}
 }
 
-func (app *fakeRoleApplication) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
+func (app *fakeRoleStore) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
 	app.created = dto.RoleSessionInfo{
 		MainSessionID: mainSessionID, RoleName: roleName,
 		RoleSessionID: roleSessionID, Root: "goal-x",
@@ -31,69 +32,69 @@ func (app *fakeRoleApplication) CreateRoleSession(mainSessionID, roleName, roleS
 	return app.created, nil
 }
 
-func (app *fakeRoleApplication) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
+func (app *fakeRoleStore) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
 	app.draftRows = append(app.draftRows, rows...)
 	return nil
 }
 
-func (app *fakeRoleApplication) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
+func (app *fakeRoleStore) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
 	return app.draftRows, nil
 }
 
-func (app *fakeRoleApplication) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
+func (app *fakeRoleStore) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
 	app.synced = dto.RoleDraftSyncResult{CommitID: "c1", SyncedRows: len(app.draftRows)}
 	return app.synced, nil
 }
 
-func (app *fakeRoleApplication) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
+func (app *fakeRoleStore) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
 	return nil
 }
 
-func (app *fakeRoleApplication) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
+func (app *fakeRoleStore) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
 	return nil, nil
 }
 
-func (app *fakeRoleApplication) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
+func (app *fakeRoleStore) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
 	app.snapshot = dto.RoleSnapshot{MainSessionID: mainSessionID, RoleName: roleName, RoleSessionID: roleSessionID}
 	return app.snapshot, nil
 }
 
-func (app *fakeRoleApplication) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
+func (app *fakeRoleStore) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
 	app.wire = dto.RoleWireSnapshot{MainSessionID: mainSessionID, RoleName: roleName, RoleSessionID: roleSessionID, PrefixDigest: "p1"}
 	return app.wire, nil
 }
 
-func (app *fakeRoleApplication) SetLifecycleOrder(sessionID, policy string, roles []string) error {
+func (app *fakeRoleStore) SetLifecycleOrder(sessionID, policy string, roles []string) error {
 	app.order = policy
 	return nil
 }
 
-func (app *fakeRoleApplication) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
+func (app *fakeRoleStore) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
 	return nil
 }
 
-func (app *fakeRoleApplication) ListRoleSessions(mainSessionID string) ([]string, error) {
+func (app *fakeRoleStore) ListRoleSessions(mainSessionID string) ([]string, error) {
 	return []string{"goal-x"}, nil
 }
 
-func (app *fakeRoleApplication) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
+func (app *fakeRoleStore) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
 	app.schedule = "registered:" + payload.ScheduleID
 	return nil
 }
 
-func (app *fakeRoleApplication) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
+func (app *fakeRoleStore) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
 	app.schedule = "cancelled:" + payload.ScheduleID
 	return nil
 }
 
-func (app *fakeRoleApplication) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
+func (app *fakeRoleStore) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
 	app.schedule = "fired:" + payload.ScheduleID
 	return nil
 }
 
 func TestHeadlessRoleRPC(t *testing.T) {
-	app := newFakeRoleApplication()
-	base := newHeadlessTestServer(t, app)
+	app := newFakeRoleStore()
+	base := newHeadlessTestServer(t, headless.Dependencies{Roles: app})
 
 	result := headlessRPC(t, base, "role.create", map[string]any{
 		"main_session_id": "main-1", "role_name": "tl", "role_session_id": "tl-1", "join_seq_id": 5,

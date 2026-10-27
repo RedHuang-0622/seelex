@@ -26,67 +26,6 @@ func TestPermissionRoleGroupsUseExplicitAccountRole(t *testing.T) {
 	}
 }
 
-type roleSettingsFakeApplication struct {
-	*fakeApplication
-	account      string
-	inherit      bool
-	userSpace    []string
-	defaultSpace []string
-}
-
-func (fake *roleSettingsFakeApplication) RolePermissionVector(_, _ string) ([]string, error) {
-	return []string{}, nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRolePermissionVector(_, _ string, _ []string) error {
-	return nil
-}
-
-func (fake *roleSettingsFakeApplication) RoleDefaultVector(_, _ string) ([]string, bool, error) {
-	return []string{}, false, nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRoleDefaultVector(_, _ string, _ []string) error {
-	return nil
-}
-
-func (fake *roleSettingsFakeApplication) RoleAccount(_, _ string) (string, bool, error) {
-	return fake.account, fake.account != "", nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRoleAccount(_, _, account string) error {
-	fake.account = account
-	return nil
-}
-
-func (fake *roleSettingsFakeApplication) RoleInheritMainAgent(_, _ string) (bool, error) {
-	return fake.inherit, nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRoleInheritMainAgent(_, _ string, inherit bool) error {
-	fake.inherit = inherit
-	return nil
-}
-
-func (fake *roleSettingsFakeApplication) RoleSSHUserSpaces(_, _ string) ([]string, error) {
-	return append([]string{}, fake.userSpace...), nil
-}
-
-func (fake *roleSettingsFakeApplication) RoleDefaultSSHUserSpaces(_, _ string) ([]string, error) {
-	return append([]string{}, fake.defaultSpace...), nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRoleSSHUserSpaces(_, _ string, paths []string) error {
-	fake.defaultSpace = append([]string{}, paths...)
-	fake.userSpace = append([]string{}, paths...)
-	return nil
-}
-
-func (fake *roleSettingsFakeApplication) SetRoleSessionSSHUserSpaces(_, _ string, paths []string) error {
-	fake.userSpace = append([]string{}, paths...)
-	return nil
-}
-
 func TestBridgeSetRoleAccountRejectsCrossRoleAccount(t *testing.T) {
 	base := newFakeApplication()
 	base.snapshot.Session.ID = "sess-role-account"
@@ -94,8 +33,10 @@ func TestBridgeSetRoleAccountRejectsCrossRoleAccount(t *testing.T) {
 		{Name: "agent-1", Role: "agent"},
 		{Name: "teammate-1", Role: "teammate"},
 	}
-	fake := &roleSettingsFakeApplication{fakeApplication: base}
-	bridge, err := NewBridge(fake, Options{})
+	settings := &fakeRoleSettings{}
+	deps := base.deps()
+	deps.RoleSettings = settings
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +56,10 @@ func TestBridgeSessionSSHPathsReturnSessionScope(t *testing.T) {
 	base := newFakeApplication()
 	base.snapshot.Session.ID = "sess-role-paths"
 	base.snapshot.Runtime.Accounts = []model.AccountInfo{{Name: "subagent-1", Role: "subagent"}}
-	fake := &roleSettingsFakeApplication{
-		fakeApplication: base,
-		defaultSpace:    []string{"/srv/default"},
-	}
-	bridge, err := NewBridge(fake, Options{})
+	settings := &fakeRoleSettings{defaultSpace: []string{"/srv/default"}}
+	deps := base.deps()
+	deps.RoleSettings = settings
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,9 +67,9 @@ func TestBridgeSessionSSHPathsReturnSessionScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(fake.userSpace, []string{"/srv/session"}) ||
+	if !reflect.DeepEqual(settings.userSpace, []string{"/srv/session"}) ||
 		!reflect.DeepEqual(info.SessionSSHUserSpaces, []string{"/srv/session"}) ||
 		!reflect.DeepEqual(info.DefaultSSHUserSpaces, []string{"/srv/default"}) {
-		t.Fatalf("session paths = %+v fake=%v default=%v", info, fake.userSpace, fake.defaultSpace)
+		t.Fatalf("session paths = %+v settings=%v default=%v", info, settings.userSpace, settings.defaultSpace)
 	}
 }

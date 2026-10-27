@@ -61,6 +61,6 @@
 
 ### input_unknown_command_notice_test.go
 
-- `func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T)` — 未知命令 / 帮助文案的服务发现一致性。
+- `func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T)`
 - `func TestUnknownCommandSubmitKeepsNoticeNotError(t *testing.T)` — TestUnknownCommandSubmitKeepsNoticeNotError：未知命令仍然不是错误（照常回
 - `func TestHelpStatesPanelListsOnlyExecutableEntries(t *testing.T)` — TestHelpStatesPanelListsOnlyExecutableEntries：`/help` 的口径必须与建议面板一致——

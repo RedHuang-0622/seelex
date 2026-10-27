@@ -11,6 +11,7 @@ import (
 //
 // 退役前这个读面就是**输入门控**的判据：fork_subagents 在跑 → Submit 返回
 // ErrForkRunningChat。退役后它只是**观察面**（有几个子代理作业在跑），不再挡输入。
+
 type forkQueueRuntime struct {
 	*fakeRuntime
 	forkOn bool
@@ -31,15 +32,15 @@ func TestSubmitQueuedWhileForkRunning(t *testing.T) {
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 
-	if err := service.Submit(context.Background(), "first"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)
 	}
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.Running })
 
 	// fork 在飞：提交必须收下并排队（不再拒绝）。
-	if err := service.Submit(context.Background(), "continue while fork runs"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "continue while fork runs"); err != nil {
 		t.Fatalf("fork 在跑时 Submit = %v, want nil（输入进队列，不拒绝）", err)
 	}
 	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.QueuedCount == 1 })

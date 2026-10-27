@@ -282,7 +282,7 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatalf("Submit A: %v", err)
 	}
 	aID := engine.SessionID()
@@ -299,7 +299,7 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 
 	submitted := make(chan error, 1)
 	go func() {
-		submitted <- service.SubmitToSession(ctx, bID, "task B")
+		submitted <- service.components.submitApplication.SubmitToSession(ctx, bID, "task B")
 	}()
 
 	// B 的后台提交应立即开始（不等 A 完成）。
@@ -338,12 +338,12 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 	// 释放 A 和 B。
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// 活跃会话快照只包含会话 A 的消息（B 的后台执行不污染）。
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for _, message := range snapshot.Conversation {
 		if message.Content == "task B" {
 			t.Logf("BREAKPOINT background session B polluted active snapshot:\n%s", dumpParallelState(service, engine, aID, bID))
@@ -369,7 +369,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -381,7 +381,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 	}
 
 	// A 运行中再向 A 提交 → 进 A 的队列。
-	if err := service.Submit(ctx, "queued A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "queued A"); err != nil {
 		t.Fatalf("Submit queued A: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -396,7 +396,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 	bID := "sess-queued-B"
 	engine.register(bID)
 	go func() {
-		_ = service.SubmitToSession(ctx, bID, "task B")
+		_ = service.components.submitApplication.SubmitToSession(ctx, bID, "task B")
 	}()
 	select {
 	case <-engine.started[bID]:
@@ -404,7 +404,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 		t.Logf("BREAKPOINT session B did not start:\n%s", dumpParallelState(service, engine, aID, bID))
 		t.Fatal("session B chat did not start")
 	}
-	if err := service.SubmitToSession(ctx, bID, "queued B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "queued B"); err != nil {
 		t.Fatalf("SubmitToSession queued B: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -417,7 +417,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

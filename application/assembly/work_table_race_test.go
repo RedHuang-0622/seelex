@@ -14,6 +14,7 @@ import (
 // UpdateWorkItemStatus（todo actor mailbox）、HandleSubagentToolEvent（plan
 // 节点 trace）、Snapshot（读路径）。配合 -race 验证 service.ViewMu 与 actor
 // mailbox 的并发安全（CI 运行 -race -covermode=atomic）。
+
 func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 	runtime := &fakeRuntime{todoItems: []dto.TodoItem{
 		{Text: "a", Status: dto.TodoItemPending},
@@ -27,7 +28,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		Status: PlanRunning,
 		Nodes:  []model.PlanNode{{ID: "n1", Label: "并行任务", Status: NodeRunning}},
 	}
-	service.refreshWorkTableLocked(service.Deps.Runtime.TaskSnapshot(), service.asyncRunsForTable())
+	service.components.workTableRuntime.RefreshLocked(service.Deps.Runtime.TaskSnapshot(), service.components.workTableRuntime.AsyncRuns())
 	service.ViewMu.Unlock()
 
 	const workers = 12
@@ -38,7 +39,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			<-start
-			_ = frontendOfTestService(service).UpdateWorkItemStatus(fmt.Sprintf("todo:%d", index%3), "doing")
+			_ = service.components.executionApplication.UpdateWorkItemStatus(fmt.Sprintf("todo:%d", index%3), "doing")
 		}(index)
 	}
 	for index := 0; index < workers; index++ {
@@ -57,13 +58,13 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_ = service.Snapshot()
+			_ = service.components.frontendSnapshot.Snapshot()
 		}()
 	}
 	close(start)
 	wg.Wait()
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	table := snapshot.Runtime.WorkTable
 	if len(table) < 3 { // 3 todo（注册表为唯一 task 源；plan 节点需经被动同步入表）
 		t.Fatalf("work table rows = %d, want >= 3", len(table))

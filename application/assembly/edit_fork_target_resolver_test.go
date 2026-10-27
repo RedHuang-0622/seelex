@@ -2,6 +2,9 @@ package assembly
 
 import (
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/store"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestEditForkTargetResolverRulesAreCentralized(t *testing.T) {
@@ -20,10 +21,10 @@ func TestEditForkTargetResolverRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkTargetResolver")
 	}
-	if field.Type != reflect.TypeOf((*editForkTargetResolver)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.TargetResolver)(nil)) {
 		t.Fatalf("editForkTargetResolver 字段类型 = %s", field.Type)
 	}
-	resolverType := reflect.TypeOf((*editForkTargetResolver)(nil))
+	resolverType := reflect.TypeOf((*applicationedit.TargetResolver)(nil))
 	if _, ok := resolverType.MethodByName("Resolve"); !ok {
 		t.Fatal("editForkTargetResolver 缺少 Resolve")
 	}
@@ -57,10 +58,11 @@ func TestEditForkTargetResolverRulesAreCentralized(t *testing.T) {
 }
 
 func TestEditForkTargetResolverRejectsMissingStore(t *testing.T) {
-	resolver := newEditForkTargetResolver(editForkTargetResolverDeps{
+	resolver := applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
 		LoadEvents: func(string) ([]store.Event, bool, error) {
 			return nil, false, nil
 		},
+		IsUserText: func(message model.Message) bool { return inputIndexUserText(message) != "" },
 	})
 
 	_, _, _, err := resolver.Resolve("parent", 1)
@@ -78,13 +80,14 @@ func TestEditForkTargetResolverComputesRevisionAndParagraphCut(t *testing.T) {
 		{Seq: 4, TaskID: "chat-2", Role: "assistant", Content: "old branch", MessageID: "m4"},
 		{Seq: 5, TaskID: "chat-3", Role: "user", Content: "latest", MessageID: "m5"},
 	}
-	resolver := newEditForkTargetResolver(editForkTargetResolverDeps{
+	resolver := applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
 		LoadEvents: func(parentID string) ([]store.Event, bool, error) {
 			if parentID != "parent" {
 				t.Fatalf("parentID = %q", parentID)
 			}
 			return events, true, nil
 		},
+		IsUserText: func(message model.Message) bool { return inputIndexUserText(message) != "" },
 	})
 
 	target, cut, revision, err := resolver.Resolve("parent", 3)
@@ -117,10 +120,11 @@ func TestEditForkTargetResolverRejectsIneligibleTargets(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolver := newEditForkTargetResolver(editForkTargetResolverDeps{
+			resolver := applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
 				LoadEvents: func(string) ([]store.Event, bool, error) {
 					return events, true, nil
 				},
+				IsUserText: func(message model.Message) bool { return inputIndexUserText(message) != "" },
 			})
 			_, _, _, err := resolver.Resolve("parent", test.target)
 			if err == nil || !strings.Contains(err.Error(), test.text) {
@@ -132,10 +136,11 @@ func TestEditForkTargetResolverRejectsIneligibleTargets(t *testing.T) {
 
 func TestEditForkTargetResolverWrapsLoadFailure(t *testing.T) {
 	loadErr := errors.New("read failed")
-	resolver := newEditForkTargetResolver(editForkTargetResolverDeps{
+	resolver := applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
 		LoadEvents: func(string) ([]store.Event, bool, error) {
 			return nil, true, loadErr
 		},
+		IsUserText: func(message model.Message) bool { return inputIndexUserText(message) != "" },
 	})
 
 	_, _, _, err := resolver.Resolve("parent", 1)

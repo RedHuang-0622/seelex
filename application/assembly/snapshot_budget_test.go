@@ -1,11 +1,10 @@
 package assembly
 
 import (
+	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
 // TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
@@ -35,7 +34,7 @@ func TestBoundToolResultForSnapshotArchives(t *testing.T) {
 		t.Fatalf("visible preview must carry note, got %q", visible)
 	}
 	// 归档已进入 pending 通道（ToolResultContent 立即可读，无需落盘）。
-	page, err := frontendOfTestService(service).ToolResultContent(t.Context(), ref, 0, 64)
+	page, err := service.components.referenceApplication.ToolResultContent(ref, 0, 64)
 	if err != nil {
 		t.Fatalf("read archived content: %v", err)
 	}
@@ -64,7 +63,7 @@ func TestToolResultContentPagination(t *testing.T) {
 	_, ref, _, _ := service.boundToolResultForSnapshot("bash", big)
 	service.ViewMu.Unlock()
 
-	page, err := frontendOfTestService(service).ToolResultContent(t.Context(), ref, 0, 1000)
+	page, err := service.components.referenceApplication.ToolResultContent(ref, 0, 1000)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -75,7 +74,7 @@ func TestToolResultContentPagination(t *testing.T) {
 		t.Fatalf("page content exceeds limit: %d runes", utf8.RuneCountInString(page.Content))
 	}
 
-	next, err := frontendOfTestService(service).ToolResultContent(t.Context(), ref, page.NextOffset, 1000)
+	next, err := service.components.referenceApplication.ToolResultContent(ref, page.NextOffset, 1000)
 	if err != nil {
 		t.Fatalf("next page: %v", err)
 	}
@@ -84,10 +83,10 @@ func TestToolResultContentPagination(t *testing.T) {
 	}
 
 	// 非法参数：空 ref / 负 offset。
-	if _, err := frontendOfTestService(service).ToolResultContent(t.Context(), "", 0, 0); err == nil {
+	if _, err := service.components.referenceApplication.ToolResultContent("", 0, 0); err == nil {
 		t.Fatal("empty ref must error")
 	}
-	if _, err := frontendOfTestService(service).ToolResultContent(t.Context(), ref, -1, 0); err == nil {
+	if _, err := service.components.referenceApplication.ToolResultContent(ref, -1, 0); err == nil {
 		t.Fatal("negative offset must error")
 	}
 }

@@ -1,5 +1,11 @@
 package test
 
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
 // Build layout regression guards.
 //
 // Single source of truth for artifact directories is scripts/build-layout.ps1
@@ -8,12 +14,6 @@ package test
 //   - canonical partitions must exist in the single-source file and the doc;
 //   - legacy artifact locations (the "today one folder, tomorrow another"
 //     churn) must never reappear in build scripts, the Makefile, CI or docs.
-
-import (
-	"os"
-	"strings"
-	"testing"
-)
 
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()

@@ -1,18 +1,17 @@
 package assembly
 
 import (
-	"reflect"
-	"testing"
-
 	applicationprompt "github.com/RedHuang-0622/seelex/application/prompt"
-	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
+	"github.com/RedHuang-0622/seelex/application/session/viewstate"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/task"
+	"reflect"
+	"testing"
 )
 
 func TestNewAssemblesFocusedServiceComponents(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	if service.serviceState == nil {
 		t.Fatal("service state was not assembled")

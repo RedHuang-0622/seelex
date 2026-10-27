@@ -30,7 +30,7 @@ func waitPendingApprovalsFor(t *testing.T, service *Service, sessionID string, w
 func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	runtime := service.Deps.Runtime.(*fakeRuntime)
-	viewSession := service.Snapshot().Session.ID
+	viewSession := service.components.frontendSnapshot.Snapshot().Session.ID
 	const backgroundSession = "session-background"
 
 	// 后台会话 B 已有一笔等待用户确认的权限请求。
@@ -41,7 +41,7 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 	}()
 	waitPendingApprovalsFor(t, service, backgroundSession, 1)
 
-	if !frontendOfTestService(service).SetFullAccess(true) {
+	if !service.components.policyApplication.SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) = false, want true（视图会话生效值）")
 	}
 
@@ -84,10 +84,10 @@ func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T) {
 func TestProbeFullAccessSurvivesBackgroundSessionStartSync(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	runtime := service.Deps.Runtime.(*fakeRuntime)
-	viewSession := service.Snapshot().Session.ID
+	viewSession := service.components.frontendSnapshot.Snapshot().Session.ID
 	const backgroundSession = "session-background"
 
-	if !frontendOfTestService(service).SetFullAccess(true) {
+	if !service.components.policyApplication.SetFullAccess(true) {
 		t.Fatal("SetFullAccess(true) = false, want true")
 	}
 
@@ -108,7 +108,7 @@ func TestProbeFullAccessSurvivesBackgroundSessionStartSync(t *testing.T) {
 	}
 
 	// 关掉全权只影响本会话。
-	frontendOfTestService(service).SetFullAccess(false)
+	service.components.policyApplication.SetFullAccess(false)
 	if runtime.FullAccessFor(viewSession) {
 		t.Fatal("SetFullAccess(false) 后视图会话执行门仍为全权")
 	}

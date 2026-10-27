@@ -1,7 +1,6 @@
 package assembly
 
 import (
-	"context"
 	"testing"
 )
 
@@ -9,9 +8,9 @@ import (
 // 每个会话保存自己的选择，切换/新建后互不覆盖；未选择会话回退进程默认。
 func TestEffortOwnershipPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "high"); err != nil {
+	if err := service.components.policyApplication.SwitchEffort("high"); err != nil {
 		t.Fatalf("SwitchEffort(high): %v", err)
 	}
 	if unit := service.sessions.Unit(sessionA); unit == nil || unit.EffortLevel() != "high" {
@@ -21,11 +20,11 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 		t.Fatalf("effortForSession(A) = %q, want high", got)
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
-	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "lite"); err != nil {
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if err := service.components.policyApplication.SwitchEffort("lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	if unit := service.sessions.Unit(draftID); unit == nil || unit.EffortLevel() != "lite" {
@@ -46,9 +45,9 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	runtime := service.Deps.Runtime.(*fakeRuntime)
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "high"); err != nil {
+	if err := service.components.policyApplication.SwitchEffort("high"); err != nil {
 		t.Fatalf("SwitchEffort(high): %v", err)
 	}
 	service.syncSubagentPolicyFor(sessionA)
@@ -57,11 +56,11 @@ func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 		t.Fatalf("plan policy slot A = %+v ok=%v, want high/无并发上限", gotA, ok)
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
-	if err := frontendOfTestService(service).SwitchEffort(context.Background(), "lite"); err != nil {
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if err := service.components.policyApplication.SwitchEffort("lite"); err != nil {
 		t.Fatalf("SwitchEffort(lite): %v", err)
 	}
 	service.syncSubagentPolicyFor(draftID)

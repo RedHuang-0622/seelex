@@ -17,6 +17,7 @@ import (
 //     transcript 事实未增长；
 //  3. 判据若仍从**整个 transcript 头部**重新累积，就会再次越过软阈值 → 每个
 //     回合都压一次（现场表现：一发消息一条压缩记录）。
+
 func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 	pinMechanismCompactionRatios(t)
 	applyWindowConfig(t, cc.WindowConfig{})

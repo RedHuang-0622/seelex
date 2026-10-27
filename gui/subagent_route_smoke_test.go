@@ -21,12 +21,12 @@ import (
 )
 
 func TestHeadlessSubagentRouteSmoke(t *testing.T) {
-	fake := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
-	base := newHeadlessTestServer(t, fake)
+	owners := newHeadlessTestOwners()
+	base := newHeadlessTestServer(t, owners.deps)
 
 	// 模拟前端按当前视图会话订阅（Bridge 在 ActivateSession/ResumeSession
 	// 后重建订阅，过滤在投递端完成）。
-	viewSubscription := fake.hub.SubscribeSession("main-session", 64)
+	viewSubscription := owners.hub.SubscribeSession("main-session", 64)
 	defer viewSubscription.Close()
 
 	// /events 全局拦截：SSE 元数据面（kind/session_id/delivery_seq）。
@@ -56,11 +56,11 @@ func TestHeadlessSubagentRouteSmoke(t *testing.T) {
 	}()
 
 	toolPayload := application.SubagentToolEvent{ID: "subtool-1", NodeID: "node-fk1", Name: "bash", Arguments: "{}", Status: dto.ToolEventRunning}
-	mainStarted := fake.hub.PublishSession(application.EventSubagentToolStarted, 2, "request-fork", "main-session", toolPayload)
+	mainStarted := owners.hub.PublishSession(application.EventSubagentToolStarted, 2, "request-fork", "main-session", toolPayload)
 	toolPayload.Status = dto.ToolEventSuccess
 	toolPayload.Result = "ok"
-	mainCompleted := fake.hub.PublishSession(application.EventSubagentToolCompleted, 3, "request-fork", "main-session", toolPayload)
-	otherChanged := fake.hub.PublishSession(application.EventSubagentChanged, 4, "request-background", "background-session", map[string]any{
+	mainCompleted := owners.hub.PublishSession(application.EventSubagentToolCompleted, 3, "request-fork", "main-session", toolPayload)
+	otherChanged := owners.hub.PublishSession(application.EventSubagentChanged, 4, "request-background", "background-session", map[string]any{
 		"node_id": "node-bg", "plan_status": "running", "progress": 0.1,
 		"node": map[string]any{"id": "node-bg", "status": "running", "children": []any{}},
 	})

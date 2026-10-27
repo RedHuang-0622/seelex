@@ -1,28 +1,27 @@
 package test
 
-// 精选目录**写侧**的链路用例（2026-10-05 事故的正面回归）。
-//
-// 现场：main agent 用 `plugin_create` 造出插件（下面还带 skill）放进运行树的 plugins/，
-// 但 `plugins/curated.yaml` 里没有它 —— 于是每次启动只能把磁盘上的事实读成"漂移"，使用者
-// 看到的是一条他无从下手的警告（"已落盘插件 %q 不在 entries 里"）。要他手抄进精选目录，
-// 就是把机器该做的簿记推给人。
-//
-// 本文件把「**发现 → 读回 → 落进 yaml**」这条闭环钉在真链路上：临时插件根（含一份发行
-// 风格的 curated.yaml + 一个 seed 插件）+ 真 `bootstrap.InitPluginSystem` + 真 `plugin_create` /
-// `plugins_reload` 工具，断言那份 yaml **文件本身**真的多出了登记条目。
-
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+
+	// 精选目录**写侧**的链路用例（2026-10-05 事故的正面回归）。
+	//
+	// 现场：main agent 用 `plugin_create` 造出插件（下面还带 skill）放进运行树的 plugins/，
+	// 但 `plugins/curated.yaml` 里没有它 —— 于是每次启动只能把磁盘上的事实读成"漂移"，使用者
+	// 看到的是一条他无从下手的警告（"已落盘插件 %q 不在 entries 里"）。要他手抄进精选目录，
+	// 就是把机器该做的簿记推给人。
+	//
+	// 本文件把「**发现 → 读回 → 落进 yaml**」这条闭环钉在真链路上：临时插件根（含一份发行
+	// 风格的 curated.yaml + 一个 seed 插件）+ 真 `bootstrap.InitPluginSystem` + 真 `plugin_create` /
+	// `plugins_reload` 工具，断言那份 yaml **文件本身**真的多出了登记条目。
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // catalogFixtureYAML 是"发行包自带的那份目录"的缩样：一个已登记插件（seed）+ 一条装配

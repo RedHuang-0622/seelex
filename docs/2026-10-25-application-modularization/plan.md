@@ -203,7 +203,7 @@ Application 层只保留少量流程管理器：
 | M5 Session 生命周期 | 2026-12-14 至 2026-12-25 | 抽 descriptor/catalog/draft、switch/resume、archive/delete | SessionID、binding、draft、归档不变式集中 |
 | M6 Goal / Team / Subagent 用例 | 2026-12-28 至 2027-01-08 | 迁出目标、团队、子代理读模型与事件适配 | Application 不再直接识别具体 backend 实现 |
 | M7 Policy / Workspace / Admin 收尾 | 2027-01-11 至 2027-01-22 | 收尾账号、权限、工作区、调度和装配入口 | `application/core` 生产规模显著下降 |
-| M8 兼容退场 | 2027-01-25 至 2027-02-05 | 删除旧接口、旧 DTO、旧 active-session 路径 | 零生产调用；旧兼容测试删除；门面只剩窄 API |
+| M8 兼容退场（已完成） | 2026-10-27 | 删除旧接口、旧 DTO、旧 active-session 路径 | 零生产调用；旧兼容测试删除；前端只剩消费方窄依赖 |
 | M9 终验与 `core` 删除（已完成） | 2027-02-08 至 2027-02-19 | 删除 `application/core`，验证目标依赖图 | 构建、race、E2E、前端门禁全部通过 |
 
 ## 8. 分阶段任务看板
@@ -353,7 +353,7 @@ Application 层只保留少量流程管理器：
 
 - 按能力恢复旧转发表。
 
-### M8：兼容退场
+### M8：兼容退场（已完成）
 
 范围：
 
@@ -366,6 +366,9 @@ Application 层只保留少量流程管理器：
 
 - 新调用方只依赖窄 API；
 - 兼容层不再产生状态或业务行为。
+- 2026-10-27 完成：统一 Application 前端门面、旧宽接口、assembly 测试转发层与
+  兼容包均已删除；A/B 与全量验证记录见
+  [`implementation.md`](implementation.md#m8-兼容层物理退场终验2026-10-27)。
 
 回退：
 

@@ -1,6 +1,10 @@
 package assembly
 
 import (
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,10 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
-	task_context "github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 func TestSessionColdTaskRulesAreExtracted(t *testing.T) {
@@ -21,10 +21,10 @@ func TestSessionColdTaskRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdTask")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdTask)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.TaskApplication)(nil)) {
 		t.Fatalf("sessionColdTask 字段类型 = %s", field.Type)
 	}
-	taskType := reflect.TypeOf((*sessionColdTask)(nil))
+	taskType := reflect.TypeOf((*applicationsessioncold.TaskApplication)(nil))
 	if _, ok := taskType.MethodByName("RestoreLocked"); !ok {
 		t.Fatal("sessionColdTask 缺少 RestoreLocked")
 	}
@@ -73,7 +73,7 @@ func TestSessionColdTaskRestoresCompactionsAndRetainedWindow(t *testing.T) {
 	}
 	transcript := []model.TranscriptEvent{{Seq: 4}}
 	var restored task_context.RestoredTaskState
-	component := newSessionColdTask(sessionColdTaskDeps{
+	component := applicationsessioncold.NewTask(applicationsessioncold.TaskDeps{
 		LoadCompactions: func(session_runtime.Location, string) ([]model.ContextCompaction, bool, error) {
 			t.Fatal("record compactions 存在时不得读新址")
 			return nil, false, nil
@@ -102,7 +102,7 @@ func TestSessionColdTaskRestoresCompactionsAndRetainedWindow(t *testing.T) {
 func TestSessionColdTaskLoadsCompactionsFromNewStore(t *testing.T) {
 	loaded := []model.ContextCompaction{{Version: 2, Reason: "new"}}
 	var got []model.ContextCompaction
-	component := newSessionColdTask(sessionColdTaskDeps{
+	component := applicationsessioncold.NewTask(applicationsessioncold.TaskDeps{
 		LoadCompactions: func(session_runtime.Location, string) ([]model.ContextCompaction, bool, error) {
 			return loaded, true, nil
 		},
@@ -127,7 +127,7 @@ func TestSessionColdTaskLoadsCompactionsFromNewStore(t *testing.T) {
 
 func TestSessionColdTaskResetsWithoutRecord(t *testing.T) {
 	reset := false
-	component := newSessionColdTask(sessionColdTaskDeps{
+	component := applicationsessioncold.NewTask(applicationsessioncold.TaskDeps{
 		Reset: func() { reset = true },
 	})
 

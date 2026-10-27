@@ -1,5 +1,13 @@
 package test
 
+import (
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
 // plugins/curated.yaml 的落地守卫（仿 plugin_doc_sigil_test.go）：精选目录必须与
 // **这个仓库此刻真实落盘的插件**一致。
 //
@@ -7,15 +15,6 @@ package test
 // pending 里混进已装插件 → 错误），以及 plugin/curated_test.go 里那组对抗性用例
 // （证明校验不是"永远报错"也不是"什么都收"）。本文件只管一件事：**发行仓库里那份
 // 文件本身**是对的，且它和 README 索引、加载器读出的插件集合三方一致。
-
-import (
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-)
 
 const curatedReadmePath = "plugins/README.md"
 

@@ -2,10 +2,9 @@ package assembly
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // sessionTokenEngine 在 multiSessionEngine 之上提供 per-session token
@@ -37,7 +36,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -47,7 +46,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	bID := "sess-slot-b"
 	engine.register(bID)
 	engine.tokens[bID] = "13"
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
@@ -63,7 +62,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 
 	close(engine.release[aID])
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,7 +83,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	}
 
 	// SnapshotOf(B) 读 B 自身槽：token 属于 B，任务表只含 B 的节点。
-	snapshotB, err := frontendOfTestService(service).SnapshotOf(bID)
+	snapshotB, err := service.components.sessionQuery.SnapshotOf(bID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,7 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	}
 
 	// 活跃快照仍是 A 的投影（B 的后台运行不污染视图 Runtime.Tokens）。
-	if got := service.Snapshot().Runtime.Tokens; got != "27" {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.Tokens; got != "27" {
 		t.Fatalf("active Snapshot tokens = %q, want 27 (A)", got)
 	}
 }

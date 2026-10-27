@@ -16,25 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// backendApplication is the diagnostic console's narrow Application boundary.
-// It keeps the console observational: all work still flows through Submit and
-// the public event stream.
-type backendApplication interface {
-	Submit(context.Context, string) error
-	WaitForIdle(context.Context) error
-	Subscribe(int) application.Subscription
-}
-
-// backendWorkspaceApplication is the explicit project-selection path used by
-// the diagnostic frontend. It deliberately has no implicit cwd fallback: a
-// test must name the project it intends to authorize for scoped tools.
-type backendWorkspaceApplication interface {
-	Snapshot() application.Snapshot
-	CreateWorkspace(name, rootPath, gitRemote string) error
-	BindWorkspace(workspaceID string) error
-}
-
-func BindProject(app backendWorkspaceApplication, rootPath string) error {
+func BindProject(view ViewSnapshot, commands WorkspaceBinder, rootPath string) error {
 	rootPath = strings.TrimSpace(rootPath)
 	if rootPath == "" {
 		return nil
@@ -50,9 +32,9 @@ func BindProject(app backendWorkspaceApplication, rootPath string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("backend: project is not a directory")
 	}
-	for _, workspace := range app.Snapshot().Workspaces {
+	for _, workspace := range view.Snapshot().Workspaces {
 		if filepath.Clean(workspace.RootPath) == filepath.Clean(absPath) {
-			if err := app.BindWorkspace(workspace.ID); err != nil {
+			if err := commands.BindWorkspace(workspace.ID); err != nil {
 				return fmt.Errorf("backend: bind project workspace: %w", err)
 			}
 			return nil
@@ -62,17 +44,17 @@ func BindProject(app backendWorkspaceApplication, rootPath string) error {
 	if name == "." || name == string(filepath.Separator) {
 		name = "backend-diagnostic"
 	}
-	if err := app.CreateWorkspace(name, absPath, ""); err != nil {
+	if err := commands.CreateWorkspace(name, absPath, ""); err != nil {
 		return fmt.Errorf("backend: create project workspace: %w", err)
 	}
 	return nil
 }
 
-func Start(app backendApplication, prompt string, timeout time.Duration, output io.Writer) error {
+func Start(deps Dependencies, prompt string, timeout time.Duration, output io.Writer) error {
 	if output == nil {
 		output = os.Stdout
 	}
-	return Run(context.Background(), app, prompt, timeout, os.Stdin, output)
+	return Run(context.Background(), deps, prompt, timeout, os.Stdin, output)
 }
 
 func OpenOutput(logPath string) (io.Writer, func() error, error) {
@@ -86,13 +68,13 @@ func OpenOutput(logPath string) (io.Writer, func() error, error) {
 	return io.MultiWriter(os.Stdout, file), file.Close, nil
 }
 
-func Run(ctx context.Context, app backendApplication, prompt string, timeout time.Duration, input io.Reader, output io.Writer) error {
+func Run(ctx context.Context, deps Dependencies, prompt string, timeout time.Duration, input io.Reader, output io.Writer) error {
 	logger := NewEventLogger(output, time.Now)
-	stopEvents := observeBackendEvents(ctx, app, logger)
+	stopEvents := observeBackendEvents(ctx, deps, logger)
 	defer stopEvents()
 
 	if prompt = strings.TrimSpace(prompt); prompt != "" {
-		return submitBackendPrompt(ctx, app, logger, prompt, timeout)
+		return submitBackendPrompt(ctx, deps, logger, prompt, timeout)
 	}
 
 	fmt.Fprintln(output, "[backend] diagnostic console ready; enter one request per line, or /quit")
@@ -106,16 +88,16 @@ func Run(ctx context.Context, app backendApplication, prompt string, timeout tim
 			return nil
 		}
 		logger.LogSubmit(text)
-		if err := app.Submit(ctx, text); err != nil {
+		if err := deps.Submission.Submit(ctx, text); err != nil {
 			logger.LogSubmitError(err)
 		}
 	}
 	return scanner.Err()
 }
 
-func submitBackendPrompt(ctx context.Context, app backendApplication, logger *EventLogger, prompt string, timeout time.Duration) error {
+func submitBackendPrompt(ctx context.Context, deps Dependencies, logger *EventLogger, prompt string, timeout time.Duration) error {
 	logger.LogSubmit(prompt)
-	if err := app.Submit(ctx, prompt); err != nil {
+	if err := deps.Submission.Submit(ctx, prompt); err != nil {
 		logger.LogSubmitError(err)
 		return err
 	}
@@ -123,14 +105,14 @@ func submitBackendPrompt(ctx context.Context, app backendApplication, logger *Ev
 		timeout = 2 * time.Minute
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	err := app.WaitForIdle(waitCtx)
+	err := deps.Turn.WaitForIdle(waitCtx)
 	cancel()
 	logger.LogIdle(err)
 	return err
 }
 
-func observeBackendEvents(ctx context.Context, app backendApplication, logger *EventLogger) func() {
-	subscription := app.Subscribe(256)
+func observeBackendEvents(ctx context.Context, deps Dependencies, logger *EventLogger) func() {
+	subscription := deps.Events.Subscribe(256)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

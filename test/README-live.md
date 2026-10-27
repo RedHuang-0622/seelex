@@ -128,7 +128,7 @@
 
 ### real_api_permission_smoke_test.go
 
-- `func openApprovalPage(broker *application.ApprovalBroker) *approvalPage` — openApprovalPage 起一个审批页面观察者。必须在提交回合**之前**调用：页面是
+- `func openApprovalPage(broker application.ApprovalBroker) *approvalPage` — openApprovalPage 起一个审批页面观察者。必须在提交回合**之前**调用：页面是
 - `func (p *approvalPage) note(id, tool string)`
 - `func (p *approvalPage) snapshot() []string` — snapshot 返回本次统计窗口内打开的页面（工具名，按打开顺序）。
 - `func (p *approvalPage) reset()` — reset 清空统计窗口（页面开合本身不再重放，只影响计数）。

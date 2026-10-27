@@ -15,43 +15,43 @@ import (
 	"github.com/RedHuang-0622/seelex/wiring"
 )
 
-type backendConsoleFakeApplication struct {
+type backendConsoleFake struct {
 	hub       *application.EventHub
 	submitted string
 	waited    bool
 }
 
-type backendWorkspaceFakeApplication struct {
+type backendWorkspaceFake struct {
 	snapshot application.Snapshot
 	created  struct{ name, root string }
 	boundID  string
 }
 
-func (fake *backendWorkspaceFakeApplication) Snapshot() application.Snapshot { return fake.snapshot }
-func (fake *backendWorkspaceFakeApplication) CreateWorkspace(name, rootPath, _ string) error {
+func (fake *backendWorkspaceFake) Snapshot() application.Snapshot { return fake.snapshot }
+func (fake *backendWorkspaceFake) CreateWorkspace(name, rootPath, _ string) error {
 	fake.created.name, fake.created.root = name, rootPath
 	return nil
 }
-func (fake *backendWorkspaceFakeApplication) BindWorkspace(workspaceID string) error {
+func (fake *backendWorkspaceFake) BindWorkspace(workspaceID string) error {
 	fake.boundID = workspaceID
 	return nil
 }
 
-func newBackendConsoleFakeApplication() *backendConsoleFakeApplication {
-	return &backendConsoleFakeApplication{hub: wiring.NewEventHub()}
+func newBackendConsoleFake() *backendConsoleFake {
+	return &backendConsoleFake{hub: wiring.NewEventHub()}
 }
 
-func (fake *backendConsoleFakeApplication) Submit(_ context.Context, text string) error {
+func (fake *backendConsoleFake) Submit(_ context.Context, text string) error {
 	fake.submitted = text
 	return nil
 }
 
-func (fake *backendConsoleFakeApplication) WaitForIdle(context.Context) error {
+func (fake *backendConsoleFake) WaitForIdle(context.Context) error {
 	fake.waited = true
 	return nil
 }
 
-func (fake *backendConsoleFakeApplication) Subscribe(buffer int) application.Subscription {
+func (fake *backendConsoleFake) Subscribe(buffer int) application.Subscription {
 	return fake.hub.Subscribe(buffer)
 }
 
@@ -101,9 +101,9 @@ func TestBackendEventLoggerLogsTeamChangedStage(t *testing.T) {
 
 func TestBackendConsolePromptSubmitsAndWaitsForIdle(t *testing.T) {
 	t.Parallel()
-	fake := newBackendConsoleFakeApplication()
+	fake := newBackendConsoleFake()
 	var output bytes.Buffer
-	if err := Run(context.Background(), fake, "inspect", time.Second, strings.NewReader(""), &output); err != nil {
+	if err := Run(context.Background(), Dependencies{Submission: fake, Turn: fake, Events: fake}, "inspect", time.Second, strings.NewReader(""), &output); err != nil {
 		t.Fatal(err)
 	}
 	if fake.submitted != "inspect" || !fake.waited {
@@ -160,16 +160,18 @@ func TestBindBackendProjectUsesExistingWorkspaceOrCreatesOne(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
-	existing := &backendWorkspaceFakeApplication{snapshot: application.Snapshot{Workspaces: []application.WorkspaceInfo{{ID: "workspace-1", RootPath: root}}}}
-	if err := BindProject(existing, root); err != nil {
+	// 读面（ViewSnapshot）与写面（WorkspaceBinder）是两个独立窄端口，
+	// 这里由同一个替身结构满足；生产装配（wiring/bootstrap）传的是两个不同 owner。
+	existing := &backendWorkspaceFake{snapshot: application.Snapshot{Workspaces: []application.WorkspaceInfo{{ID: "workspace-1", RootPath: root}}}}
+	if err := BindProject(existing, existing, root); err != nil {
 		t.Fatal(err)
 	}
 	if existing.boundID != "workspace-1" || existing.created.root != "" {
 		t.Fatalf("existing project binding = %+v", existing)
 	}
 
-	created := &backendWorkspaceFakeApplication{}
-	if err := BindProject(created, root); err != nil {
+	created := &backendWorkspaceFake{}
+	if err := BindProject(created, created, root); err != nil {
 		t.Fatal(err)
 	}
 	if created.created.root == "" || created.created.name == "" || created.boundID != "" {

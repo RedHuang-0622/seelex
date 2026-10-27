@@ -14,12 +14,11 @@
 ### completion_test.go
 
 - `func TestCompletionApplicationIsAssembled(t *testing.T)`
-- `func TestCompletionFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestSuggestionsExcludeModelSideTools(t *testing.T)` — TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 
 ### compressed_turn_test.go
 
-- `func testStringPtr(value string) *string` — testStringPtr 返回字符串指针（测试消息正文）。
+- `func testStringPtr(value string) *string`
 - `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error`
 - `func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T)` — TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
 - `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error)`
@@ -90,7 +89,7 @@
 
 ### resident_lru_test.go
 
-- `func withResidentLimit(limit int) func()` — withResidentLimit 把进程级 resident_limit 临时改成 limit，返回还原函数
+- `func withResidentLimit(limit int) func()`
 - `func residentOf(t *testing.T, service *Service, sessionID string) bool`
 - `func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T)` — TestResidentLimitEvictsLeastRecentlyUsedIdle 波 4 G6 INV-G8：驻留上限 2，
 - `func TestResidentLimitKeepsBusySessions(t *testing.T)` — TestResidentLimitKeepsBusySessions 波 4 G6 INV-G8：运行中会话不可驱逐
@@ -99,7 +98,6 @@
 ### review_files_test.go
 
 - `func TestReviewApplicationIsAssembled(t *testing.T)`
-- `func TestReviewFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func reviewFixture(t *testing.T) (*Service, string)` — reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
 - `func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T)` — TestRequestFileReviewClassifiesByWorkspaceBoundary：一次批处理召唤的裁决口径——
 - `func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T)` — TestRequestFileReviewProjectsIntoSnapshotAndClears：落点是**会话作用域的可重放
@@ -120,6 +118,7 @@
 - `func (port serviceRuntimeProjectionPort) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
 - `func (port serviceRuntimeProjectionPort) PublishTaskDeltas()`
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections copies application-owned state under the view lock
+- `func PublishInitialRuntimeProjections(service *Service)` — PublishInitialRuntimeProjections 是组合根触发**首次**运行时投影发布的唯一入口。
 
 ### served_route_test.go
 
@@ -142,7 +141,7 @@
 
 ### turn_status_single_word_test.go
 
-- `func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T)` — turn_status_single_word_test.go — 「一次回合（请求）现在处在哪一步」这件事，
+- `func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T)`
 - `func TestTurnStatusOfRecordKeepsLegacyRunningAndNeverFoldsToTerminal(t *testing.T)` — 落盘面读回：合并前的存档里"进行中"写的是 "running"，合并后写 "progressing"。
 
 ### workspace_file_usecase_test.go
@@ -173,7 +172,6 @@
 - `func TestWorkspaceGitReposForwardsWorkspaceRoot(t *testing.T)` — TestWorkspaceGitReposForwardsWorkspaceRoot 钉住仓库发现：root 只来自后端
 - `func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T)` — TestWorkspaceGitReposDegradesWithoutPort 钉住两种"不可用"：后端没有仓库发现
 - `func TestWorkspaceGitApplicationIsAssembled(t *testing.T)`
-- `func TestWorkspaceGitFacadeOnlyDelegatesToApplication(t *testing.T)`
 
 ### workspace_host.go
 
@@ -189,7 +187,6 @@
 ### workspace_tree_usecase_test.go
 
 - `func TestWorkspaceApplicationIsAssembled(t *testing.T)`
-- `func TestCreateWorkspacesFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error)`
 - `func (fake *treeFakeWorkspace) CountFiles(root string) (dto.TreeCount, error)`
 - `func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error)`

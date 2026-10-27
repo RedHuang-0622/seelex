@@ -10,8 +10,8 @@ import (
 
 // tool_record_panel_test.go — 工具记录的 TUI 只读面（2026-10-15）。
 //
-// 口径：与 GUI「状态 → 工具记录」**同源**（同一份 `Application.ToolRecordBoard()`，
-// 终端不再折一遍统计）；关着计数 / 没记过 / 未装配读面的宿主**整块退场**（不留空壳）；
+// 口径：与 GUI「状态 → 工具记录」**同源**（同一份工具台账读数，终端不再折一遍
+// 统计）；关着计数 / 没记过 / 未装配读面的宿主**整块退场**（不留空壳）；
 // 面板仍只读（开关是 GUI 设置的事）。
 
 // toolRecordFakeApp 在 fakeApp 之上补工具记录读面。
@@ -20,7 +20,14 @@ type toolRecordFakeApp struct {
 	board application.ToolRecordBoard
 }
 
-func (app *toolRecordFakeApp) ToolRecordBoard() application.ToolRecordBoard { return app.board }
+func (app *toolRecordFakeApp) Board() application.ToolRecordBoard { return app.board }
+
+// deps 在 fakeApp 的端口上再绑定工具记录读面。
+func (app *toolRecordFakeApp) deps() Dependencies {
+	deps := app.fakeApp.deps()
+	deps.ToolRecord = app
+	return deps
+}
 
 func TestToolRecordPanelRendersSuccessFailureAndTopReason(t *testing.T) {
 	app := &toolRecordFakeApp{
@@ -38,7 +45,7 @@ func TestToolRecordPanelRendersSuccessFailureAndTopReason(t *testing.T) {
 			},
 		},
 	}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.width = 160
 
 	rendered := strings.Join(model.toolRecordLines(), "\n")
@@ -52,14 +59,14 @@ func TestToolRecordPanelRendersSuccessFailureAndTopReason(t *testing.T) {
 // 关着计数 / 没记过 / 未装配读面 → 整块不出现。
 func TestToolRecordPanelStaysSilentWhenDisabledOrUnwired(t *testing.T) {
 	disabled := &toolRecordFakeApp{fakeApp: newFakeApp(), board: application.ToolRecordBoard{Total: 3, Success: 3}}
-	if lines := NewModel(disabled).toolRecordLines(); len(lines) != 0 {
+	if lines := NewModel(disabled.deps()).toolRecordLines(); len(lines) != 0 {
 		t.Fatalf("计数关着时不该出现看板：%v", lines)
 	}
 	empty := &toolRecordFakeApp{fakeApp: newFakeApp(), board: application.ToolRecordBoard{Enabled: true}}
-	if lines := NewModel(empty).toolRecordLines(); len(lines) != 0 {
+	if lines := NewModel(empty.deps()).toolRecordLines(); len(lines) != 0 {
 		t.Fatalf("没记过时不该出现空看板：%v", lines)
 	}
-	if lines := NewModel(newFakeApp()).toolRecordLines(); len(lines) != 0 {
+	if lines := NewModel(newFakeApp().deps()).toolRecordLines(); len(lines) != 0 {
 		t.Fatalf("未装配读面时必须整块退场：%v", lines)
 	}
 }
@@ -74,7 +81,7 @@ func TestToolRecordPanelSurfacesLedgerError(t *testing.T) {
 			LedgerError: "open tool-record.jsonl: access denied",
 		},
 	}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.width = 160
 	rendered := strings.Join(model.toolRecordLines(), "\n")
 	if !strings.Contains(rendered, "台账落盘失败") || !strings.Contains(rendered, "access denied") {

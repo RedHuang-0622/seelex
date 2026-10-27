@@ -2,6 +2,9 @@ package assembly
 
 import (
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,9 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 func TestChatTurnPublicationRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestChatTurnPublicationRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnPublisher")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnPublisher)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnPublisherApplication)(nil)) {
 		t.Fatalf("conversationTurnPublisher 字段类型 = %s", field.Type)
 	}
-	publisherType := reflect.TypeOf((*conversationTurnPublisher)(nil))
+	publisherType := reflect.TypeOf((*applicationconversation.TurnPublisherApplication)(nil))
 	if _, ok := publisherType.MethodByName("Publish"); !ok {
 		t.Fatal("conversationTurnPublisher 缺少 Publish")
 	}
@@ -67,7 +67,7 @@ func TestChatTurnPublicationRulesAreCentralized(t *testing.T) {
 
 func TestConversationTurnPublisherPublishesSnapshotWithoutPromotion(t *testing.T) {
 	var calls []string
-	publisher := newConversationTurnPublisher(conversationTurnPublisherDeps{
+	publisher := applicationconversation.NewTurnPublisher(applicationconversation.TurnPublisherDeps{
 		PublishChatState: func(sessionID string) {
 			calls = append(calls, "chat:"+sessionID)
 		},
@@ -99,7 +99,7 @@ func TestConversationTurnPublisherPublishesSnapshotWithoutPromotion(t *testing.T
 
 func TestConversationTurnPublisherReportsErrorBeforePromotedBatch(t *testing.T) {
 	var calls []string
-	publisher := newConversationTurnPublisher(conversationTurnPublisherDeps{
+	publisher := applicationconversation.NewTurnPublisher(applicationconversation.TurnPublisherDeps{
 		PublishChatState: func(sessionID string) {
 			calls = append(calls, "chat:"+sessionID)
 		},

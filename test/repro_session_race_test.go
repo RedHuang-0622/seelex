@@ -1,8 +1,5 @@
 package test
 
-// 竞态用例（test-cases.md 第 9 节 TC-R-01，-race 运行）：
-// 会话切换/提交/快照读取与后台完成并发；A 的 record 键与内容仍正确。
-
 import (
 	"context"
 	"strings"
@@ -10,6 +7,9 @@ import (
 	"testing"
 	"time"
 )
+
+// 竞态用例（test-cases.md 第 9 节 TC-R-01，-race 运行）：
+// 会话切换/提交/快照读取与后台完成并发；A 的 record 键与内容仍正确。
 
 // TestWorkspaceSwitchConcurrentWithBackgroundPersist（TC-R-01）：A 后台完成
 // 后，并发执行 ResumeSession(B)/Submit/Snapshot 与落盘读；断言 A record
@@ -24,15 +24,15 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.frontend.Snapshot()
+			_ = scenario.harness.components.Session.Snapshot.Snapshot()
 		}()
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.frontend.ResumeSession(scenario.sessionB)
+			_ = scenario.harness.components.Session.Resume.Resume(scenario.sessionB)
 		}()
 		go func() {
 			defer wg.Done()
-			_ = scenario.harness.frontend.Submit(ctx, "concurrent input")
+			_ = scenario.harness.components.Conversation.Submission.Submit(ctx, "concurrent input")
 		}()
 	}
 	wg.Wait()
@@ -49,7 +49,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 	// 活跃 chat；用有界 ctx 兜住"真的收敛不了"的情形，避免用例挂死。
 	settleCtx, settleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer settleCancel()
-	if err := scenario.harness.frontend.WaitForIdle(settleCtx); err != nil {
+	if err := scenario.harness.components.Runtime.Lifecycle.WaitForIdle(settleCtx); err != nil {
 		t.Fatalf("concurrent submits did not settle before assertions: %v", err)
 	}
 

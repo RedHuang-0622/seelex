@@ -1,5 +1,12 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
+	"strings"
+	"testing"
+)
+
 // S0 靶场：跨会话污染回归（会话域重构后必须转绿）。
 //
 // 场景还原（对应 dev 区会话记录中的真实症状）：
@@ -11,17 +18,10 @@ package assembly
 //   - A 的写必须路由到 A 自己的 scope，B 的注册表/工作台不得出现 A 的任务；
 //   - A 的 scope 实时一致（TaskSnapshotFor(A) 能看到 A 后台新增的任务）。
 
-import (
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/kernel/task"
-	"strings"
-	"testing"
-)
-
 func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) {
 	runtime := &fakeRuntime{}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	planWith := func(nodes ...model.PlanNode) []model.SessionPlanFrame {
 		return []model.SessionPlanFrame{{
@@ -42,7 +42,7 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 		planWith(model.PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}), "p1",
 	)
 	service.ViewMu.Unlock()
-	service.syncTasksFromSourcesFor("session-a")
+	service.components.workTableRuntime.SyncFromSourcesFor("session-a")
 	if got := runtime.TaskSnapshotFor("session-a"); len(got) != 1 || got[0].Key != "plan:n1" {
 		t.Fatalf("seed: A scope records = %+v, want plan:n1", got)
 	}
@@ -63,7 +63,7 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 		ActivePlanID: "p1",
 	})
 	service.ViewMu.Unlock()
-	service.syncTasksFromSourcesFor("session-a")
+	service.components.workTableRuntime.SyncFromSourcesFor("session-a")
 
 	// 目标态断言 1：B 的注册表不得出现 A 的 plan 任务
 	for _, record := range runtime.TaskSnapshotFor("session-b") {

@@ -12,6 +12,7 @@ import (
 )
 
 // compactionIndexRecorder 记录装配层压缩推进索引面的请求（回执与失败可配）。
+
 type compactionIndexRecorder struct {
 	mu       sync.Mutex
 	requests []context_runtime.CompactionIndexRequest
@@ -112,16 +113,16 @@ func TestCompactionPushesFrameIntoIndex(t *testing.T) {
 	service.components.tasks.BeginTask("task-index-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-index")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestCompactionPushesFrameIntoIndex(t *testing.T) {
 
 	// ③ 回执落到了帧正文：segment_id 与摘要来源都在元数据块里，读后感原样嵌入，
 	// 且 readback 段不再说"没有细筛入口"。
-	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -208,14 +209,14 @@ func TestCompactionWithoutIndexFaceReportsDegradedGate(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-index-degraded")
 	appendIndexRounds(t, service, "task-index-degraded")
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -228,7 +229,7 @@ func TestCompactionWithoutIndexFaceReportsDegradedGate(t *testing.T) {
 		t.Fatalf("未装配索引面时门禁 index 关 = %q，want index=unavailable", detail)
 	}
 
-	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -255,16 +256,16 @@ func TestCompactionPushFailureIsReportedNotFatal(t *testing.T) {
 	service.components.tasks.BeginTask("task-index-fail", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-index-fail")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("推帧失败不得中断压缩与请求：%v", err)
 	}
@@ -277,7 +278,7 @@ func TestCompactionPushFailureIsReportedNotFatal(t *testing.T) {
 		t.Fatalf("推帧失败应报 error 终局事实：%q", detail)
 	}
 
-	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -311,16 +312,16 @@ func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
 		service.components.tasks.AppendTranscriptEventLocked(event)
 	}
 	service.ViewMu.Unlock()
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -344,7 +345,7 @@ func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
 	}
 
 	// ③ 帧正文说"没有折出任何完整协议单元"，不得说成"索引面未启用"。
-	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}

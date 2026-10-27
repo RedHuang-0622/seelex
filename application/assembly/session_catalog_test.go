@@ -11,6 +11,7 @@ import (
 )
 
 // addCatalogSession 在会话端口的项目索引里追加一个会话（目录刷新会读到它）。
+
 func addCatalogSession(sessions *scopedSessions, projectID, sessionID string, updatedAt time.Time) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
@@ -43,17 +44,17 @@ func TestWaitCatalogRefreshSettlesFreshCatalog(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-b", updatedAt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
-	if got := len(service.Snapshot().Sessions); got != 2 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 2 {
 		t.Fatalf("catalog right after settle = %d sessions, want 2", got)
 	}
 }
@@ -67,7 +68,7 @@ func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	addCatalogSession(sessions, "", "session-b", updatedAt)
@@ -80,7 +81,7 @@ func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 			defer group.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			errs[index] = frontendOfTestService(service).WaitCatalogRefresh(ctx)
+			errs[index] = service.components.sessionQuery.WaitCatalogRefresh(ctx)
 		}(index)
 	}
 	group.Wait()
@@ -90,7 +91,7 @@ func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T) {
 			t.Fatalf("waiter %d: WaitCatalogRefresh: %v", index, err)
 		}
 	}
-	if got := len(service.Snapshot().Sessions); got != 2 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 2 {
 		t.Fatalf("catalog after %d coalesced waits = %d sessions, want 2", waiters, got)
 	}
 }
@@ -105,12 +106,12 @@ func TestWaitCatalogRefreshConvergesAfterShutdown(t *testing.T) {
 	}
 	service := newCatalogTestService(t, sessions)
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
-	frontendOfTestService(service).Shutdown()
+	service.components.lifecycleApplication.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	started := time.Now()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh after shutdown: %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
@@ -128,7 +129,7 @@ func TestCatalogCacheMirrorsWorkerRound(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	cached, _ := service.components.sessions.CatalogCache()
@@ -139,14 +140,14 @@ func TestCatalogCacheMirrorsWorkerRound(t *testing.T) {
 	addCatalogSession(sessions, "", "session-b", updatedAt)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	cached, _ = service.components.sessions.CatalogCache()
 	if len(cached) != 2 {
 		t.Fatalf("catalog cache after second round = %d sessions, want 2", len(cached))
 	}
-	if got := len(service.Snapshot().Sessions); got != 2 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 2 {
 		t.Fatalf("snapshot after second round = %d sessions, want 2", got)
 	}
 }
@@ -161,7 +162,7 @@ func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if _, err := service.Deps.Workspace.Create("proj", "C:\\proj", ""); err != nil {
@@ -178,7 +179,7 @@ func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitCatalogRefresh(ctx); err != nil {
+	if err := service.components.sessionQuery.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("WaitCatalogRefresh: %v", err)
 	}
 	cached, discovered := service.components.sessions.CatalogCache()
@@ -188,7 +189,7 @@ func TestCatalogCacheObservesProjectDiscoveredBindings(t *testing.T) {
 	if discovered["session-b"] != "project-1" {
 		t.Fatalf("catalog cache discovered binding = %+v, want session-b -> project-1", discovered)
 	}
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if got := snapshot.SessionWorkspaces["session-b"]; got != "project-1" {
 		t.Fatalf("snapshot binding for session-b = %q, want project-1", got)
 	}
@@ -205,7 +206,7 @@ func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 		histories: map[string]map[string][]contract.EngineMessage{"": {"session-a": {{Role: "user", Content: "a"}}}},
 	}
 	service := newCatalogTestService(t, sessions)
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	var group sync.WaitGroup
@@ -220,11 +221,11 @@ func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 			defer group.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			_ = frontendOfTestService(service).WaitCatalogRefresh(ctx)
+			_ = service.components.sessionQuery.WaitCatalogRefresh(ctx)
 		}()
 		go func() {
 			defer group.Done()
-			_ = service.Snapshot()
+			_ = service.components.frontendSnapshot.Snapshot()
 		}()
 	}
 	done := make(chan struct{})
@@ -237,7 +238,7 @@ func TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("catalog/title/snapshot concurrency did not converge (deadlock?)")
 	}
-	if got := len(service.Snapshot().Sessions); got != 1 {
+	if got := len(service.components.frontendSnapshot.Snapshot().Sessions); got != 1 {
 		t.Fatalf("catalog drifted under concurrency: %d sessions, want 1", got)
 	}
 }

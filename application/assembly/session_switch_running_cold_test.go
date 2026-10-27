@@ -19,6 +19,7 @@ import (
 //
 // 当前实现失败（RED）：冷加载在 resumeSession 内同步执行且占住视图过渡 key，
 // 第一步就会阻塞超过预算，第二步在 B 释放前也无法返回。
+
 func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	engine := newMultiSessionEngine()
 	now := time.Now()
@@ -41,11 +42,11 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	service := newTestService(t, engine, withTestSessions(gated))
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 	t.Cleanup(gated.releaseNow)
 
 	// 会话 A 运行中：启动一次 chat 并保持引擎回合未 release。
-	if err := service.Submit(context.Background(), "task in flight"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "task in flight"); err != nil {
 		t.Fatalf("submit A: %v", err)
 	}
 	aID := engine.SessionID()
@@ -60,7 +61,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	// 第 1、2 步：运行中切换到冷会话 B，RPC 必须在预算内返回（装载在后台），
 	// 快照立即反映 B + restoring。
 	coldDone := make(chan error, 1)
-	go func() { coldDone <- frontendOfTestService(service).ResumeSession("sess-cold") }()
+	go func() { coldDone <- service.components.sessionResume.Resume("sess-cold") }()
 	select {
 	case err := <-coldDone:
 		if err != nil {
@@ -76,7 +77,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("background cold load never entered gated history read")
 	}
-	snap := service.Snapshot()
+	snap := service.components.frontendSnapshot.Snapshot()
 	if snap.Session.ID != "sess-cold" {
 		t.Fatalf("shell active session = %q, want sess-cold", snap.Session.ID)
 	}
@@ -86,7 +87,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 
 	// 第 3 步：B 冷加载尚未完成（门闩仍持），热切换 C 必须快速返回。
 	hotDone := make(chan error, 1)
-	go func() { hotDone <- frontendOfTestService(service).ResumeSession("sess-b") }()
+	go func() { hotDone <- service.components.sessionResume.Resume("sess-b") }()
 	select {
 	case err := <-hotDone:
 		if err != nil {
@@ -95,7 +96,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("RED REPRO: hot switch to C blocked behind cold load of B (view key serialization)")
 	}
-	if active := service.Snapshot().Session.ID; active != "sess-b" {
+	if active := service.components.frontendSnapshot.Snapshot().Session.ID; active != "sess-b" {
 		t.Fatalf("active after C = %q, want sess-b", active)
 	}
 
@@ -108,7 +109,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if active := service.Snapshot().Session.ID; active != "sess-b" {
+	if active := service.components.frontendSnapshot.Snapshot().Session.ID; active != "sess-b" {
 		t.Fatalf("late cold-load completion stole view: active = %q, want sess-b", active)
 	}
 
@@ -116,7 +117,7 @@ func TestColdResumeWhileRunningIsAsync(t *testing.T) {
 	close(engine.release[aID])
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }

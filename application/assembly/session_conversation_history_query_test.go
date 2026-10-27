@@ -1,11 +1,10 @@
 package assembly
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 type blockingConversationRangeStore struct {
@@ -33,13 +32,13 @@ func TestLoadMoreHistoryReadsOutsideSharedWriteLock(t *testing.T) {
 		release:           make(chan struct{}),
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(service).ResumeSession("slow-history"); err != nil {
+	if err := service.components.sessionResume.Resume("slow-history"); err != nil {
 		t.Fatalf("resume slow history session: %v", err)
 	}
 
 	loadDone := make(chan error, 1)
 	go func() {
-		loadDone <- frontendOfTestService(service).LoadMoreHistory(0)
+		loadDone <- service.components.conversationHistoryQuery.LoadMoreHistory(0)
 	}()
 	select {
 	case <-store.entered:
@@ -49,7 +48,7 @@ func TestLoadMoreHistoryReadsOutsideSharedWriteLock(t *testing.T) {
 
 	snapshotDone := make(chan struct{})
 	go func() {
-		service.Snapshot()
+		service.components.frontendSnapshot.Snapshot()
 		close(snapshotDone)
 	}()
 	select {

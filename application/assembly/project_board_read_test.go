@@ -1,14 +1,16 @@
 package assembly
 
-// project_board_test.go — M2 交付的单测（T2.1–T2.9 + 触发表/落点/I6 三条配套）。
-//
-// 判据一句话：**投影读出来的每一行都能在活体投影里指到出处；活体与领域判定永远不看投影。**
-// （T2.1 一致、T2.2 零判定、T2.9 反例；其余是同步器语义。）
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	"github.com/RedHuang-0622/seelex/contract"
+
+	// project_board_test.go — M2 交付的单测（T2.1–T2.9 + 触发表/落点/I6 三条配套）。
+	//
+	// 判据一句话：**投影读出来的每一行都能在活体投影里指到出处；活体与领域判定永远不看投影。**
+	// （T2.1 一致、T2.2 零判定、T2.9 反例；其余是同步器语义。）
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/board"
@@ -20,8 +22,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 )
 
 func TestProjectBoardQueryIsAssembled(t *testing.T) {
@@ -39,13 +39,18 @@ func TestProjectBoardReadFacadeUsesPorts(t *testing.T) {
 	serviceType := reflect.TypeOf((*Service)(nil))
 	for _, name := range []string{"ProjectBoardTeamPlanFor", "ProjectBoardTeamStateFor"} {
 		if _, ok := serviceType.MethodByName(name); ok {
-			t.Fatalf("Service.%s must use FrontendPorts instead", name)
+			t.Fatalf("Service.%s must use Components instead", name)
 		}
 	}
-	ports := reflect.TypeOf(FrontendPorts{})
-	field, ok := ports.FieldByName("ProjectBoard")
+	// Components 是**分组**只读快照：读面 owner 挂在执行组里，快照必须先暴露这一组，
+	// 再在这一组里带出看板应用指针（两条都钉住，才等于迁移前那条断言的强度）。
+	group, ok := reflect.TypeOf(Components{}).FieldByName("Execution")
+	if !ok || group.Type != reflect.TypeOf(ExecutionComponents{}) {
+		t.Fatalf("Components.Execution = %v，希望执行组分片", group.Type)
+	}
+	field, ok := reflect.TypeOf(ExecutionComponents{}).FieldByName("ProjectBoard")
 	if !ok || field.Type != reflect.TypeOf((*applicationexecution.ProjectBoardApplication)(nil)) {
-		t.Fatalf("FrontendPorts.ProjectBoard = %v", field.Type)
+		t.Fatalf("Components.Execution.ProjectBoard = %v", field.Type)
 	}
 }
 
@@ -56,7 +61,7 @@ func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, 
 	if !ok {
 		t.Fatalf("测试夹具的 Runtime 不是 *fakeRuntime")
 	}
-	session := service.Snapshot().Session.ID
+	session := service.components.frontendSnapshot.Snapshot().Session.ID
 	runtime.currentTaskSession = session
 	return service, runtime, session
 }
@@ -69,7 +74,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		"plan:n1":    {ID: "plan:n1", Phase: "plan", Task: "计划节点", Status: dto.TaskPending, Kind: "plan", SourceID: "n1"},
 		"subagent:1": {ID: "subagent:1", Phase: "subagent", Task: "子代理", Status: dto.TaskRunning, Kind: "subagent"},
 	}
-	live := frontendOfTestService(service).WorkTableRowsFor(session)
+	live := service.components.projectBoardQuery.WorkTableRowsFor(session)
 	if len(live) != 4 {
 		t.Fatalf("活体工作表格行数 = %d，希望 4（todo/task/plan/subagent 各一）", len(live))
 	}
@@ -126,7 +131,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	service, runtime, session := newBoardTestService(t)
 	runtime.todoItems = []dto.TodoItem{{Text: "调研", Status: dto.TodoItemDoing}}
 
-	before := frontendOfTestService(service).WorkTableRowsFor(session)
+	before := service.components.projectBoardQuery.WorkTableRowsFor(session)
 	if len(before) != 1 || before[0].Status != "doing" {
 		t.Fatalf("活体投影 = %+v，希望一条 doing", before)
 	}
@@ -151,7 +156,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 
 	// 而活体投影与领域判定一字不变：投影**不是任何东西的输入**。
-	after := frontendOfTestService(service).WorkTableRowsFor(session)
+	after := service.components.projectBoardQuery.WorkTableRowsFor(session)
 	if marshalWorkItems(t, after) != marshalWorkItems(t, before) {
 		t.Fatalf("篡改投影文件后活体投影变了：\n before=%s\n after =%s", marshalWorkItems(t, before), marshalWorkItems(t, after))
 	}
@@ -161,7 +166,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 	// 投影输入（活体取数）也不受文件影响：再映射一次仍是 doing。
 	rows := board.BuildProjectBoardRows(store.ProjectBoardScope{Project: boardtest.Project, Session: session},
-		1, boardtest.At, frontendOfTestService(service).WorkTableRowsFor(session), nil, nil, 800)
+		1, boardtest.At, service.components.projectBoardQuery.WorkTableRowsFor(session), nil, nil, 800)
 	if len(rows) != 1 || boardtest.PayloadText(rows[0], "status") != "doing" {
 		t.Fatalf("活体输入映射出的行 = %+v，希望 status=doing", rows)
 	}
@@ -192,7 +197,7 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	service := newTestService(t, &fakeEngine{},
 		withTestRuntime(planSource),
 		func(deps *contract.Dependencies) { deps.Workspace = newFakeWorkspace() })
-	session := service.Snapshot().Session.ID
+	session := service.components.frontendSnapshot.Snapshot().Session.ID
 	planSource.fakeRuntime.currentTaskSession = session
 
 	if _, err := service.Deps.Workspace.Create("proj", `C:\proj`, ""); err != nil {
@@ -200,34 +205,34 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	}
 	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：未绑定 ⇒ 空串 ⇒
 	// 不落盘（契约 §3 未关联会话不落盘）；绑定后取的是工作区的 RootPath，**不是**工作区 ID。
-	if got := frontendOfTestService(service).ProjectRootFor(session); got != "" {
+	if got := service.components.projectBoardQuery.ProjectRootFor(session); got != "" {
 		t.Fatalf("未绑定的会话 ProjectRootFor = %q，希望空串", got)
 	}
 	service.Deps.Workspace.BindSession(session, "project-1")
-	if got := frontendOfTestService(service).ProjectRootFor(session); got != `C:\proj` {
+	if got := service.components.projectBoardQuery.ProjectRootFor(session); got != `C:\proj` {
 		t.Fatalf("绑定后 ProjectRootFor = %q，希望工作区的 RootPath（C:\\proj）", got)
 	}
 
 	// 运行态取的就是计划载荷里那一格（TeamworkPlan.State 就是 TeamworkState）。
-	plan := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamPlanFor(session)
+	plan := ComponentsFor(service).Execution.ProjectBoard.ProjectBoardTeamPlanFor(session)
 	if plan == nil || plan.TeamID != "team-1" {
 		t.Fatalf("装配后计划 = %+v，希望 team-1", plan)
 	}
-	state := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamStateFor(session)
+	state := ComponentsFor(service).Execution.ProjectBoard.ProjectBoardTeamStateFor(session)
 	if state == nil || state.State != store.TeamworkStateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
-	if got := len(frontendOfTestService(service).WorkTableRowsFor(session)); got != 0 {
+	if got := len(service.components.projectBoardQuery.WorkTableRowsFor(session)); got != 0 {
 		t.Fatalf("空注册表的工作表格行数 = %d，希望 0", got)
 	}
 
 	// 未装配端口（Runtime 不实现 board.TeamworkPlanSource）⇒ 计划与运行态都是 nil：
 	// "没有就是没有"，而不是让 RuntimePort 长出恒返回零值的成员。
 	plain := newTestService(t, &fakeEngine{})
-	if plan := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamPlanFor(plain.Snapshot().Session.ID); plan != nil {
+	if plan := ComponentsFor(plain).Execution.ProjectBoard.ProjectBoardTeamPlanFor(plain.components.frontendSnapshot.Snapshot().Session.ID); plan != nil {
 		t.Fatalf("未装配时计划 = %+v，希望 nil", plan)
 	}
-	if state := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamStateFor(plain.Snapshot().Session.ID); state != nil {
+	if state := ComponentsFor(plain).Execution.ProjectBoard.ProjectBoardTeamStateFor(plain.components.frontendSnapshot.Snapshot().Session.ID); state != nil {
 		t.Fatalf("未装配时运行态 = %+v，希望 nil", state)
 	}
 	if _, ok := plain.Deps.Runtime.(board.TeamworkPlanSource); ok {
@@ -303,7 +308,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	// 夹具常量同源（落点 = boardtest.ProjectRoot、触发档 = 默认档、时钟 = boardtest.At）。
 	syncer := board.NewProjectBoardSyncer(board.ProjectBoardDeps{
 		Store:          st,
-		WorkTableRows:  frontendOfTestService(service).WorkTableRowsFor,
+		WorkTableRows:  service.components.projectBoardQuery.WorkTableRowsFor,
 		EvidenceChars:  func() int { return 800 },
 		ProjectRootFor: func(string) string { return boardtest.ProjectRoot },
 		Triggers:       board.TriggerFor(board.ProjectBoardHookModeTodoList),
@@ -312,7 +317,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	})
 	defer syncer.Close()
 	recorder := &recordingBoardSink{next: syncer}
-	service.SetProjectBoardSink(recorder)
+	service.components.projectBoard.Store(recorder)
 
 	workFile := store.ProjectBoardWorkFile
 	complete := func(ctx context.Context, name, id string, toolErr error) {
@@ -370,7 +375,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 
 	// ⑤ 订阅口为 nil（能力缺席 / 装配根没挂）：完成段判空后什么都不做——不 panic、
 	// 不再转交、不落盘。这就是核心侧"关就是关"的那一半（另一半是装配门，见 wi-m3-switch）。
-	service.SetProjectBoardSink(nil)
+	service.components.projectBoard.Store(nil)
 	complete(withSessionID(context.Background(), session), "todo_add", "tool-5", nil)
 	boardtest.Settle(idle)
 	if got := len(recorder.snapshot()); got != 4 {

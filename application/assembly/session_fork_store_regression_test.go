@@ -1,16 +1,16 @@
 package assembly
 
-// 真实 Router + SessionGranularStore 的 fork 回归：父会话以与生产一致的
-// 提交（Commit: state+events）落盘，随后 ForkSessionLatest 走真实存储
-// 适配读写（LoadRecordRaw/EventRange/SaveCommit），断言子会话在恢复后
-// SnapshotOf 可见截至切点的正文。曾复现：子 record 落盘含 2 条消息，但
-// SnapshotOf(child) 恒 total=0。
-
 import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
+
+	// 真实 Router + SessionGranularStore 的 fork 回归：父会话以与生产一致的
+	// 提交（Commit: state+events）落盘，随后 ForkSessionLatest 走真实存储
+	// 适配读写（LoadRecordRaw/EventRange/SaveCommit），断言子会话在恢复后
+	// SnapshotOf 可见截至切点的正文。曾复现：子 record 落盘含 2 条消息，但
+	// SnapshotOf(child) 恒 total=0。
 	"os"
 	"testing"
 )
@@ -265,14 +265,14 @@ func TestForkChildVisibleWithRealStore(t *testing.T) {
 		withTestSessions(sessions),
 	)
 
-	childID, err := service.ForkSessionLatest("parent")
+	childID, err := service.components.forkApplication.ForkLatest("parent")
 	if err != nil {
 		t.Fatalf("ForkSessionLatest: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != childID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != childID {
 		t.Fatalf("active after fork = %q, want %q", got, childID)
 	}
-	snapshot, err := frontendOfTestService(service).SnapshotOf(childID)
+	snapshot, err := service.components.sessionQuery.SnapshotOf(childID)
 	if err != nil {
 		t.Fatalf("SnapshotOf(child): %v", err)
 	}

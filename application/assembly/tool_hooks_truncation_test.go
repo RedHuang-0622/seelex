@@ -12,6 +12,7 @@ import (
 // TestToolCompleteTruncatesSnapshotOutput 验证实时截断链端到端：大工具
 // 输出经 handleToolComplete 进入快照时被截断为预览 + result_ref，
 // ToolResultContent 能读回全文；小输出原样保留。
+
 func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	limit := snapshotToolOutputLimit()
@@ -20,7 +21,7 @@ func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	service.handleToolStart(context.Background(), "bash", "tool-1", "{}")
 	service.handleToolComplete("bash", "tool-1", big, nil, 1500*time.Millisecond)
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	var toolMessage *model.Message
 	for index := range snapshot.Conversation {
 		message := snapshot.Conversation[index]
@@ -50,7 +51,7 @@ func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	}
 
 	// 完整内容仍可读回（pending 通道，无需落盘）。
-	page, err := frontendOfTestService(service).ToolResultContent(t.Context(), tool.ResultRef, 0, 128)
+	page, err := service.components.referenceApplication.ToolResultContent(tool.ResultRef, 0, 128)
 	if err != nil {
 		t.Fatalf("read back full content: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestToolCompleteTruncatesSnapshotOutput(t *testing.T) {
 	// 小输出原样保留（无截断标记、无引用）。
 	service.handleToolStart(context.Background(), "read_file", "tool-2", "{}")
 	service.handleToolComplete("read_file", "tool-2", "tiny output", nil, 0)
-	snapshot = service.Snapshot()
+	snapshot = service.components.frontendSnapshot.Snapshot()
 	for index := range snapshot.Conversation {
 		message := snapshot.Conversation[index]
 		if message.Role == "tool_result" && message.Tool != nil && message.Tool.ID == "tool-2" {
@@ -92,7 +93,7 @@ func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T) {
 	service.appendHistoryLocked(history)
 	service.ViewMu.Unlock()
 
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	for index := range snapshot.Conversation {
 		message := snapshot.Conversation[index]
 		if message.Role == "tool_result" && message.Tool != nil && message.Tool.ID == "call-restore-1" {

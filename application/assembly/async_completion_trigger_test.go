@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"context"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
@@ -15,8 +16,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 )
 
 func TestAsyncCompletionApplicationIsAssembled(t *testing.T) {
@@ -82,7 +81,7 @@ func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string 
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, message := range service.Snapshot().Conversation {
+		for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 			if message.Role == "user" && strings.Contains(message.Content, needle) {
 				return message.Content
 			}
@@ -100,7 +99,7 @@ func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string 
 func assertNoTurn(t *testing.T, service *Service, needle string) {
 	t.Helper()
 	time.Sleep(200 * time.Millisecond)
-	for _, message := range service.Snapshot().Conversation {
+	for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 		if strings.Contains(message.Content, needle) {
 			t.Fatalf("不该触发的作业把回合起起来了：%q", message.Content)
 		}
@@ -183,7 +182,7 @@ func TestAsyncCompletionDoesNotWakeBusySession(t *testing.T) {
 	}
 	service, runtime := asyncCompletionHarness(t, true, engine)
 
-	if err := service.Submit(context.Background(), "先占住这个会话"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "先占住这个会话"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	select {
@@ -216,7 +215,7 @@ func TestAsyncCompletionTriggersOncePerHandle(t *testing.T) {
 	runtime.asyncEvents <- struct{}{}
 	time.Sleep(200 * time.Millisecond)
 	rounds := 0
-	for _, message := range service.Snapshot().Conversation {
+	for _, message := range service.components.frontendSnapshot.Snapshot().Conversation {
 		if message.Role == "user" && strings.Contains(message.Content, "a12") {
 			rounds++
 		}

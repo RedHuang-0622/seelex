@@ -156,7 +156,7 @@ type serviceComponents struct {
 	// 为什么是**指针**槽位：serviceComponents 是可复制/可 `%+v` 的纯装配图
 	// （既有用例与 `go vet` 都这么用它）；内联 mutex 会让整张图变成不可复制
 	// （vet: "copies lock value"），指针让"可变性"只留在槽位自己身上。
-	projectBoard *projectBoardPort
+	projectBoard *ProjectBoardSinkPort
 
 	// workspace 是工作区用例的装配载体（application/workspace/switch）：创建/绑定/
 	// 解绑、当前工作区读面与投影收集。视图锁与发布面经 workspaceHost 注入。
@@ -181,20 +181,21 @@ type chatTurnPublication = applicationconversation.Publication
 
 type editForkOperation = applicationedit.Operation
 
-// projectBoardPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
+// ProjectBoardSinkPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。
-type projectBoardPort struct {
+// 注入走组件自己的 Store 方法，不再由装配快照携带一份闭包。
+type ProjectBoardSinkPort struct {
 	mu   sync.RWMutex
 	sink board.ProjectBoardSink
 }
 
-func (port *projectBoardPort) store(sink board.ProjectBoardSink) {
+func (port *ProjectBoardSinkPort) Store(sink board.ProjectBoardSink) {
 	port.mu.Lock()
 	port.sink = sink
 	port.mu.Unlock()
 }
 
-func (port *projectBoardPort) load() board.ProjectBoardSink {
+func (port *ProjectBoardSinkPort) load() board.ProjectBoardSink {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.sink

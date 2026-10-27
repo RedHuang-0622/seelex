@@ -18,7 +18,7 @@
 - `func (recorder *prefixRecordingServer) snapshot() [][]probeWireMessage`
 - `func (recorder *prefixRecordingServer) serve(t *testing.T, writer http.ResponseWriter, request *http.Request)`
 - `func TestHeadlessRestorePrefixProbe(t *testing.T)` — TestHeadlessRestorePrefixProbe 是“恢复前缀一致性”的 headless 复现：
-- `func runSettledRounds(t *testing.T, ctx context.Context, app interface { Submit(context.Context, string) error WaitForIdle(context.Context) error }, rounds int)`
+- `func runSettledRounds(t *testing.T, ctx context.Context, components assembly.Components, rounds int)`
 - `func findRolloutFiles(root string) []string`
 - `func assertSessionStorageEvidence(t *testing.T, storeRoot string)`
 - `func findV8SessionDirs(t *testing.T, storeRoot string) []string`

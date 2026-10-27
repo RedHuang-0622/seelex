@@ -15,6 +15,7 @@ import (
 //     Suggestions），但提交路径只认命令与 Skill（input.go 的 submitCommand）
 //     ——照着面板打 `/compact_context` 只会得到"未知命令"，且不提示该怎么办；
 //   - `/help` 的提示行只写 "/=命令"，与面板口径（命令 + 工具 + Skill）不一致。
+
 func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T) {
 	runtime := &fakeRuntime{visibleTools: []model.Tool{
 		{Name: "compact_context", Description: "fold the transcript now"},

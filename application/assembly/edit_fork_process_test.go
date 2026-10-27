@@ -3,6 +3,9 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/store"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -12,9 +15,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestEditForkProcessRulesAreCentralized(t *testing.T) {
@@ -23,10 +23,10 @@ func TestEditForkProcessRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkProcess")
 	}
-	if field.Type != reflect.TypeOf((*editForkProcess)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.ProcessApplication)(nil)) {
 		t.Fatalf("editForkProcess 字段类型 = %s", field.Type)
 	}
-	processType := reflect.TypeOf((*editForkProcess)(nil))
+	processType := reflect.TypeOf((*applicationedit.ProcessApplication)(nil))
 	if _, ok := processType.MethodByName("Run"); !ok {
 		t.Fatal("editForkProcess 缺少 Run")
 	}
@@ -61,7 +61,7 @@ func TestEditForkProcessRulesAreCentralized(t *testing.T) {
 
 func TestEditForkProcessStopsBeforeValidateWhenResolveFails(t *testing.T) {
 	resolveErr := errors.New("missing target")
-	process := newEditForkProcess(editForkProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(string, uint64) (store.Event, uint64, uint64, error) {
 			return store.Event{}, 0, 0, resolveErr
 		},
@@ -80,7 +80,7 @@ func TestEditForkProcessStopsBeforeValidateWhenResolveFails(t *testing.T) {
 
 func TestEditForkProcessStopsBeforeForkWhenValidateFails(t *testing.T) {
 	validateErr := errors.New("stale")
-	process := newEditForkProcess(editForkProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(string, uint64) (store.Event, uint64, uint64, error) {
 			return store.Event{Seq: 3}, 2, 7, nil
 		},
@@ -108,7 +108,7 @@ func TestEditForkProcessStopsBeforeForkWhenValidateFails(t *testing.T) {
 func TestEditForkProcessForksUnderTransitionAndStartsChild(t *testing.T) {
 	locker := &recordingLocker{}
 	var calls []string
-	process := newEditForkProcess(editForkProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(string, uint64) (store.Event, uint64, uint64, error) {
 			return store.Event{Seq: 3, MessageID: "m3"}, 2, 7, nil
 		},
@@ -165,7 +165,7 @@ func TestEditForkProcessRollsBackWhenChildResumeFails(t *testing.T) {
 	locker := &recordingLocker{}
 	resumeErr := errors.New("resume failed")
 	var rollbackCause error
-	process := newEditForkProcess(editForkProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(string, uint64) (store.Event, uint64, uint64, error) {
 			return store.Event{Seq: 3}, 2, 7, nil
 		},
@@ -194,7 +194,7 @@ func TestEditForkProcessRollsBackWhenSubmitFails(t *testing.T) {
 	locker := &recordingLocker{}
 	submitErr := errors.New("submit failed")
 	var rollbackCalled bool
-	process := newEditForkProcess(editForkProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(string, uint64) (store.Event, uint64, uint64, error) {
 			return store.Event{Seq: 3}, 2, 7, nil
 		},

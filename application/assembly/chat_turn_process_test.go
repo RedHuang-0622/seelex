@@ -2,6 +2,9 @@ package assembly
 
 import (
 	"context"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,9 +12,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestServiceComponentsAssembleConversationTurnProcess(t *testing.T) {
@@ -20,7 +20,7 @@ func TestServiceComponentsAssembleConversationTurnProcess(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnProcess")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnProcess)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnProcessApplication)(nil)) {
 		t.Fatalf("conversationTurnProcess 字段类型 = %s", field.Type)
 	}
 }
@@ -56,7 +56,7 @@ func TestChatTurnPersistenceRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnCompletion")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnCompletion)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnCompletionApplication)(nil)) {
 		t.Fatalf("conversationTurnCompletion 字段类型 = %s", field.Type)
 	}
 
@@ -85,7 +85,7 @@ func TestChatTurnPersistenceRulesAreCentralized(t *testing.T) {
 }
 
 func TestChatTurnQueuePromotionRulesAreCentralized(t *testing.T) {
-	processType := reflect.TypeOf((*conversationTurnProcess)(nil))
+	processType := reflect.TypeOf((*applicationconversation.TurnProcessApplication)(nil))
 	if _, ok := processType.MethodByName("PromoteLocked"); !ok {
 		t.Fatal("conversationTurnProcess 缺少 PromoteLocked")
 	}
@@ -151,7 +151,7 @@ func (unit *queuePromotionTestUnit) SetRequests(requests []sessioncase.QueuedReq
 
 func TestConversationTurnProcessFinishesWhenQueueIsEmpty(t *testing.T) {
 	idleCalls := 0
-	process := newConversationTurnProcess(conversationTurnProcessDeps{
+	process := applicationconversation.NewTurnProcess(applicationconversation.TurnProcessDeps{
 		TurnState:      newConversationTurnState(),
 		AnyChatRunning: func() bool { return false },
 		MarkIdle:       func() { idleCalls++ },
@@ -179,7 +179,7 @@ func TestConversationTurnProcessFinishesWhenQueueIsEmpty(t *testing.T) {
 
 func TestConversationTurnProcessKeepsProcessBusyWhenOtherChatRuns(t *testing.T) {
 	idleCalls := 0
-	process := newConversationTurnProcess(conversationTurnProcessDeps{
+	process := applicationconversation.NewTurnProcess(applicationconversation.TurnProcessDeps{
 		TurnState:      newConversationTurnState(),
 		AnyChatRunning: func() bool { return true },
 		MarkIdle:       func() { idleCalls++ },

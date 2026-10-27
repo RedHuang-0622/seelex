@@ -8,9 +8,7 @@ package wiring
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/assembly"
-	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
@@ -42,11 +40,6 @@ func New(deps contract.Dependencies) (*assembly.Service, error) {
 		Goal:                   adapters.NewGoalCoordinator(deps.Runtime),
 		ReviewProcessor:        adapters.NewReviewProcessorFactory(),
 	})
-}
-
-// NewFrontend constructs the frontend compatibility adapter.
-func NewFrontend(app *assembly.Service) *application.Frontend {
-	return applicationcompat.New(app)
 }
 
 // NewEventHub 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。

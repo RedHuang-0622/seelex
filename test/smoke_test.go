@@ -5,12 +5,11 @@ package test
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"testing"
 	"time"
-
-	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 func TestSmokeLLM(t *testing.T) {

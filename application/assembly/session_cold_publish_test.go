@@ -2,6 +2,10 @@ package assembly
 
 import (
 	"errors"
+	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,10 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdPublishRulesAreExtracted(t *testing.T) {
@@ -23,10 +23,10 @@ func TestSessionColdPublishRulesAreExtracted(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 sessionColdPublish")
 	}
-	if field.Type != reflect.TypeOf((*sessionColdPublish)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationsessioncold.PublishApplication)(nil)) {
 		t.Fatalf("sessionColdPublish 字段类型 = %s", field.Type)
 	}
-	publishType := reflect.TypeOf((*sessionColdPublish)(nil))
+	publishType := reflect.TypeOf((*applicationsessioncold.PublishApplication)(nil))
 	if _, ok := publishType.MethodByName("Publish"); !ok {
 		t.Fatal("sessionColdPublish 缺少 Publish")
 	}
@@ -69,7 +69,7 @@ func TestSessionColdPublishActivatesRuntimeAndLRU(t *testing.T) {
 	location := session_runtime.Location{WorkspaceID: "workspace-a"}
 	record := model.SessionRecord{Tasks: []dto.TaskRecord{{Key: "task-1"}}}
 	var calls []string
-	component := newSessionColdPublish(sessionColdPublishDeps{
+	component := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
 		SetGlobalPrompt: func(prompt string) { calls = append(calls, "prompt:"+prompt) },
 		AttachContext: func(got session_runtime.Location, sessionID string) error {
 			calls = append(calls, "context")
@@ -106,7 +106,7 @@ func TestSessionColdPublishActivatesRuntimeAndLRU(t *testing.T) {
 
 func TestSessionColdPublishNonActiveStillAttachesAndTouches(t *testing.T) {
 	var calls []string
-	component := newSessionColdPublish(sessionColdPublishDeps{
+	component := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
 		SetGlobalPrompt: func(string) { t.Fatal("非 active 不得写全局 prompt") },
 		AttachContext: func(session_runtime.Location, string) error {
 			calls = append(calls, "context")
@@ -133,7 +133,7 @@ func TestSessionColdPublishNonActiveStillAttachesAndTouches(t *testing.T) {
 
 func TestSessionColdPublishStopsOnContextError(t *testing.T) {
 	attachErr := errors.New("attach failed")
-	component := newSessionColdPublish(sessionColdPublishDeps{
+	component := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
 		SetGlobalPrompt:   func(string) {},
 		AttachContext:     func(session_runtime.Location, string) error { return attachErr },
 		SwitchTasks:       func(string, []dto.TaskRecord) { t.Fatal("context 失败后不得切 task") },

@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,45 +19,8 @@ func TestContextCompactionApplicationIsAssembled(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 contextCompactionApplication")
 	}
-	if field.Type != reflect.TypeOf((*contextCompactionApplication)(nil)) {
+	if field.Type != reflect.TypeOf((*conversationcontext.Application)(nil)) {
 		t.Fatalf("contextCompactionApplication 字段类型 = %s", field.Type)
-	}
-}
-
-func TestContextCompactionFacadeOnlyDelegatesToApplication(t *testing.T) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "..", "compat", "frontend.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{
-		"CompactContextNow":     false,
-		"CompactContextHandler": false,
-	}
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name == nil || !functionHasReceiver(function, "Frontend") {
-			continue
-		}
-		if _, tracked := want[function.Name.Name]; !tracked {
-			continue
-		}
-		want[function.Name.Name] = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("%s 有 %d 条语句，want 一行 contextCompactionApplication 转发", function.Name.Name, len(function.Body.List))
-		}
-		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
-			t.Fatalf("%s 不是单行 return 转发", function.Name.Name)
-		}
-	}
-	for name, found := range want {
-		if !found {
-			t.Fatalf("未找到 %s", name)
-		}
 	}
 }
 
@@ -76,7 +35,7 @@ func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, 
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
 	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionID == "" {
 		sessionID = service.components.tasks.SessionIDForRequest(requestID)
 	}
@@ -106,7 +65,7 @@ func TestCompactContextHandlerCompactsTranscript(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{"reason":"准备开始一段长任务"}`)
+	raw, err := service.components.contextCompactionApplication.CompactContextHandler(ctx, `{"reason":"准备开始一段长任务"}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -163,7 +122,7 @@ func TestCompactManualCompactsBelowThreshold(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{}`)
+	raw, err := service.components.contextCompactionApplication.CompactContextHandler(ctx, `{}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -214,7 +173,7 @@ func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	raw, err := frontendOfTestService(service).CompactContextHandler(ctx, `{}`)
+	raw, err := service.components.contextCompactionApplication.CompactContextHandler(ctx, `{}`)
 	if err != nil {
 		t.Fatalf("compact_context: %v", err)
 	}
@@ -263,7 +222,7 @@ func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	if _, err := frontendOfTestService(service).CompactContextNow(ctx); err != nil {
+	if _, err := service.components.contextCompactionApplication.CompactContextNow(ctx); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	service.ViewMu.RLock()
@@ -289,14 +248,14 @@ func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
 	service.ViewMu.Unlock()
 
-	result, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
+	result, err := service.components.contextCompactionApplication.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if result.FrameRef == "" {
 		t.Fatalf("压缩记录应带帧正文引用：%+v", result)
 	}
-	page, err := frontendOfTestService(service).ToolResultContent(context.Background(), result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -364,7 +323,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	marks := appendWindowRounds(t, service, "task-cold", 4, 2_000)
 	// 冷加载的引擎历史：稳定 system 前缀 + 一段**不属于 transcript** 的旧对话
 	// （真实冷恢复会装载它）。压缩后这段必须退出 provider 历史，否则「压缩」
@@ -378,7 +337,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	}
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -398,7 +357,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 		t.Fatalf("记录应带被压区间：%+v", result)
 	}
 	// 帧正文可按 ref 读回：用户问「我需要你的摘要内容」时读到的就是它。
-	page, err := frontendOfTestService(service).ToolResultContent(ctx, result.FrameRef, 0, 0)
+	page, err := service.components.referenceApplication.ToolResultContent(result.FrameRef, 0, 0)
 	if err != nil {
 		t.Fatalf("按 ref 读帧正文: %v", err)
 	}
@@ -443,14 +402,14 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 	appendWindowRounds(t, service, "task-cold-faces", 2, 400)
 
 	service.ViewMu.RLock()
 	beforeRunning, beforeRequest := service.Core.Snapshot.Chat.Running, service.Core.Snapshot.Chat.RequestID
 	service.ViewMu.RUnlock()
 
-	if _, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
+	if _, err := service.components.contextCompactionApplication.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 
@@ -481,9 +440,9 @@ func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	result, err := frontendOfTestService(service).CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
+	result, err := service.components.contextCompactionApplication.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

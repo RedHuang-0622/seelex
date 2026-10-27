@@ -16,6 +16,7 @@ import (
 // 探针刻意与 PushCompactionFrame 分开，且**不实现**它的 fake/harness（
 // compactionIndexRuntime）走的是"没有读数闸 = 压缩照常"的兼容路径——因此这条
 // 夹具同时钉住"读数闸缺省不改变既有宿主行为"。
+
 type compactionReadbackRuntime struct {
 	compactionIndexRuntime
 	readback context_runtime.CompactionIndexReceipt
@@ -76,16 +77,16 @@ func TestCompactionFailureWithFailedReadbackLeavesContextUntouched(t *testing.T)
 	service.components.tasks.BeginTask("task-local-fallback", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-local-fallback")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
 	defer subscription.Close()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -177,10 +178,10 @@ func TestCompactionWithReadbackStillCompacts(t *testing.T) {
 	service.components.tasks.BeginTask("task-readback-ok", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-readback-ok")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
-	result, err := frontendOfTestService(service).CompactContextNow(ctx)
+	result, err := service.components.contextCompactionApplication.CompactContextNow(ctx)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

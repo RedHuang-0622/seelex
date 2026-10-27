@@ -17,6 +17,7 @@ import (
 //   - A 不被污染（视图/引擎历史/transcript 不含 B 内容）；
 //   - 上下文不漂移（A 的会话域状态与引擎历史保持 A 自身内容）；
 //   - A 随后仍能正常跑完（回复可见、状态回 idle、transcript 完整）。
+
 func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 	engine := newMultiSessionEngine()
 	sessions := &liveCatalogSessions{}
@@ -28,7 +29,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 	const bID = "sess-view-B"
 
 	// 1) 长会话 A 启动并阻塞在引擎上。
-	if err := service.Submit(ctx, aInput); err != nil {
+	if err := service.components.submission.Submit(ctx, aInput); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -45,15 +46,15 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 
 	// 2) 视图切换：切到空闲 B（A 继续后台运行）。
 	engine.register(bID)
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatalf("switch view to B: %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != bID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != bID {
 		t.Fatalf("active view after switch = %q, want B", got)
 	}
 
 	// 3) B 正常完成一轮。
-	if err := service.Submit(ctx, bInput); err != nil {
+	if err := service.components.submission.Submit(ctx, bInput); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -108,7 +109,7 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 
 	// 5) 释放 A：A 仍能正常跑完。
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := catalogStatusOf(t, service, aID); got != SessionStatusIdle {

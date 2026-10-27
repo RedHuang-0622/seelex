@@ -12,7 +12,7 @@ import (
 
 type Runner struct {
 	scenario Scenario
-	app      Application
+	deps     Dependencies
 	script   ScriptState
 }
 
@@ -24,22 +24,23 @@ type Result struct {
 	Snapshot      application.Snapshot `json:"snapshot"`
 }
 
-func NewRunner(value Scenario, app Application, script ScriptState) *Runner {
-	return &Runner{scenario: value, app: app, script: script}
+func NewRunner(value Scenario, deps Dependencies, script ScriptState) *Runner {
+	return &Runner{scenario: value, deps: deps, script: script}
 }
 
 func (runner *Runner) Run(ctx context.Context) (Result, error) {
-	if runner.app == nil || runner.script == nil {
-		return Result{}, fmt.Errorf("runner requires application and script state")
+	if runner.deps.Submission == nil || runner.deps.Snapshot == nil || runner.deps.Events == nil ||
+		runner.deps.Interaction == nil || runner.deps.Lifecycle == nil || runner.script == nil {
+		return Result{}, fmt.Errorf("runner dependencies and script state are required")
 	}
 	if err := runner.scenario.Validate(); err != nil {
 		return Result{}, err
 	}
-	initialRevision := runner.app.Snapshot().Revision
-	recorder := newEventRecorder(runner.app.Subscribe(256))
+	initialRevision := runner.deps.Snapshot.Snapshot().Revision
+	recorder := newEventRecorder(runner.deps.Events.Subscribe(256))
 	defer func() {
-		runner.app.Shutdown()
 		recorder.close()
+		runner.deps.Lifecycle.Shutdown()
 	}()
 
 	passed := 0
@@ -57,7 +58,7 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	if remaining := runner.script.Remaining(); remaining != 0 {
 		return Result{}, fmt.Errorf("script has %d unconsumed turn(s)", remaining)
 	}
-	finalSnapshot := runner.app.Snapshot()
+	finalSnapshot := runner.deps.Snapshot.Snapshot()
 	// Snapshot state is committed before its corresponding event is published.
 	// Wait for that event so the result cannot omit earlier lifecycle events
 	// that are still buffered in the recorder goroutine.
@@ -124,22 +125,22 @@ func (runner *Runner) executeAction(ctx context.Context, step Step) error {
 	switch step.Action {
 	case "submit":
 		if step.SessionID != "" {
-			current := runner.app.Snapshot().Session.ID
+			current := runner.deps.Snapshot.Snapshot().Session.ID
 			if step.SessionID != current {
 				return fmt.Errorf("submit session %q does not match active session %q", step.SessionID, current)
 			}
 		}
-		return runner.app.Submit(ctx, step.Text)
+		return runner.deps.Submission.Submit(ctx, step.Text)
 	case "resolve_interaction":
 		id := step.ID
 		if id == "" {
-			interaction := runner.app.Snapshot().Interaction
+			interaction := runner.deps.Snapshot.Snapshot().Interaction
 			if interaction == nil {
 				return fmt.Errorf("no active interaction to resolve")
 			}
 			id = interaction.ID
 		}
-		return runner.app.ResolveInteraction(ctx, id, step.Option)
+		return runner.deps.Interaction.Resolve(ctx, id, step.Option)
 	default:
 		return fmt.Errorf("unsupported action %q", step.Action)
 	}
@@ -147,7 +148,7 @@ func (runner *Runner) executeAction(ctx context.Context, step Step) error {
 
 func (runner *Runner) waitForSnapshot(ctx context.Context, recorder *eventRecorder, predicate func(application.Snapshot) bool) error {
 	for {
-		if predicate(runner.app.Snapshot()) {
+		if predicate(runner.deps.Snapshot.Snapshot()) {
 			return nil
 		}
 		if err := recorder.waitForChange(ctx); err != nil {

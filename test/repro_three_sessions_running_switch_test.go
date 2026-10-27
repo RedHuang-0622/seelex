@@ -1,13 +1,5 @@
 package test
 
-// 复现：三个会话同时在运行（每个会话一次 LLM 请求被 provider 阻塞），期间在
-// A/B/C 之间快速切换，验证：
-//   1) 切换不等待当前运行完成（ResumeSession 应毫秒级返回）；
-//   2) 切到的会话上下文不丢失（每个会话的可见对话只含自己的内容）；
-//   3) 全部释放后各会话均能正常收尾 idle。
-// 三个账号（各 MaxConcurrency=1）→ 允许 3 个在途请求同时阻塞，模拟
-// "≥3 个会话都在运行中"。
-
 import (
 	"context"
 	"encoding/json"
@@ -19,6 +11,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	// 复现：三个会话同时在运行（每个会话一次 LLM 请求被 provider 阻塞），期间在
+	// A/B/C 之间快速切换，验证：
+	//   1) 切换不等待当前运行完成（ResumeSession 应毫秒级返回）；
+	//   2) 切到的会话上下文不丢失（每个会话的可见对话只含自己的内容）；
+	//   3) 全部释放后各会话均能正常收尾 idle。
+	// 三个账号（各 MaxConcurrency=1）→ 允许 3 个在途请求同时阻塞，模拟
+	// "≥3 个会话都在运行中"。
 	"time"
 )
 
@@ -131,23 +131,23 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 创建三个空闲会话（首 3 个请求快速返回）。
 	submitAndIdle := func(ctx context.Context, text string) string {
-		if err := harness.frontend.Submit(ctx, text); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
-		if err := harness.frontend.WaitForIdle(ctx); err != nil {
+		if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 			t.Fatalf("idle after %q: %v\n%s", text, err, allGoroutineStacks())
 		}
-		return harness.frontend.Snapshot().Session.ID
+		return harness.components.Session.Snapshot.Snapshot().Session.ID
 	}
 	sessionA := submitAndIdle(ctx, "first A")
-	sessionB, err := harness.frontend.ForkSessionLatest(sessionA)
+	sessionB, err := harness.components.Session.Fork.ForkLatest(sessionA)
 	if err != nil {
 		t.Fatalf("fork B: %v", err)
 	}
 	if got := submitAndIdle(ctx, "first B"); got != sessionB {
 		t.Fatalf("first B active = %q, want %q", got, sessionB)
 	}
-	sessionC, err := harness.frontend.ForkSessionLatest(sessionB)
+	sessionC, err := harness.components.Session.Fork.ForkLatest(sessionB)
 	if err != nil {
 		t.Fatalf("fork C: %v", err)
 	}
@@ -157,10 +157,10 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 三个会话各自开始长任务（请求 #4/#5/#6 同时阻塞）→ 三个会话都在运行中。
 	startLong := func(sessionID, text string) {
-		if err := harness.frontend.ResumeSession(sessionID); err != nil {
+		if err := harness.components.Session.Resume.Resume(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
-		if err := harness.frontend.Submit(ctx, text); err != nil {
+		if err := harness.components.Conversation.Submission.Submit(ctx, text); err != nil {
 			t.Fatalf("submit %q: %v", text, err)
 		}
 	}
@@ -178,10 +178,10 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 三会话均确认在运行。
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
-		if err := harness.frontend.ResumeSession(sid); err != nil {
+		if err := harness.components.Session.Resume.Resume(sid); err != nil {
 			t.Fatalf("resume %s for state check: %v", sid, err)
 		}
-		snap := harness.frontend.Snapshot()
+		snap := harness.components.Session.Snapshot.Snapshot()
 		if snap.Session.ID != sid {
 			t.Fatalf("active = %q, want %q", snap.Session.ID, sid)
 		}
@@ -195,7 +195,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 		for _, sid := range []string{sessionA, sessionB, sessionC, sessionA} {
 			started := time.Now()
 			done := make(chan error, 1)
-			go func(sid string) { done <- harness.frontend.ResumeSession(sid) }(sid)
+			go func(sid string) { done <- harness.components.Session.Resume.Resume(sid) }(sid)
 			select {
 			case err := <-done:
 				if err != nil {
@@ -208,7 +208,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 			if elapsed > 5*time.Second {
 				t.Fatalf("ResumeSession(%s) took %v while 3 sessions running", sid, elapsed)
 			}
-			snap := harness.frontend.Snapshot()
+			snap := harness.components.Session.Snapshot.Snapshot()
 			if snap.Session.ID != sid {
 				t.Fatalf("after switch active = %q, want %q", snap.Session.ID, sid)
 			}
@@ -217,7 +217,7 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 关键断言 2：切到的会话上下文不丢失、不串台。
 	assertOwnContext := func(sid, ownText string) {
-		snap, err := harness.frontend.SnapshotOf(sid)
+		snap, err := harness.components.Session.Query.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s): %v", sid, err)
 		}
@@ -239,11 +239,11 @@ func TestThreeRunningSessionsSwitchDoesNotWaitAndKeepsContext(t *testing.T) {
 
 	// 释放全部阻塞请求，三会话应正常收尾 idle。
 	provider.releaseAllNow()
-	if err := harness.frontend.WaitForIdle(ctx); err != nil {
+	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatalf("wait idle after release: %v\n%s", err, allGoroutineStacks())
 	}
 	for _, sid := range []string{sessionA, sessionB, sessionC} {
-		snap, err := harness.frontend.SnapshotOf(sid)
+		snap, err := harness.components.Session.Query.SnapshotOf(sid)
 		if err != nil {
 			t.Fatalf("SnapshotOf(%s) after idle: %v", sid, err)
 		}

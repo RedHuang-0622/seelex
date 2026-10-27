@@ -13,40 +13,40 @@ func TestAnyChatRunningReflectsBackgroundSessions(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if frontendOfTestService(service).AnyChatRunning() {
+	if service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be false before any chat starts")
 	}
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
 	waitChatStarted(t, engine.started[aID])
-	if !frontendOfTestService(service).AnyChatRunning() {
+	if !service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be true while the view session runs")
 	}
 
 	bID := "sess-close-B"
 	engine.register(bID)
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
-	if !frontendOfTestService(service).AnyChatRunning() {
+	if !service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("AnyChatRunning must stay true while the background session runs")
 	}
 
 	// A 结束（视图转 idle）后 B 仍在跑：AnyChatRunning 必须仍为 true。
 	close(engine.release[aID])
 	waitUnitIdle(t, service, aID)
-	if !frontendOfTestService(service).AnyChatRunning() {
+	if !service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("AnyChatRunning must remain true while only the background session runs")
 	}
 
 	close(engine.release[bID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if frontendOfTestService(service).AnyChatRunning() {
+	if service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("AnyChatRunning must be false after all sessions finish")
 	}
 }
@@ -59,7 +59,7 @@ func TestCancelAllChatsDrainsEveryRunningSession(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -67,19 +67,19 @@ func TestCancelAllChatsDrainsEveryRunningSession(t *testing.T) {
 
 	bID := "sess-close-B"
 	engine.register(bID)
-	if err := service.SubmitToSession(ctx, bID, "task B"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, bID, "task B"); err != nil {
 		t.Fatal(err)
 	}
 	waitChatStarted(t, engine.started[bID])
 
-	frontendOfTestService(service).CancelAllChats()
+	service.components.lifecycleApplication.CancelAllChats()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("WaitForIdle did not converge after CancelAllChats: %v", err)
 	}
-	if frontendOfTestService(service).AnyChatRunning() {
+	if service.components.lifecycleApplication.AnyChatRunning() {
 		t.Fatal("sessions still running after CancelAllChats + WaitForIdle")
 	}
 	// 两个会话都实际执行过（取消发生在引擎阻塞点上，runChat 收尾完整）。

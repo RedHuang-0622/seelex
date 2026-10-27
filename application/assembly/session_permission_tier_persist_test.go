@@ -1,12 +1,5 @@
 package assembly
 
-// 主会话权限档位的**跨重启归属**回归（P1-1：用户口径「这一 session 的权限设置」
-// 必须记住）。
-//
-// 背景：档位落地时（b55382a）只写了 SessionUnit 内存槽，重启即回默认值。本文件先
-// 用"共享同一份会话级设置存储的两个 Service 实例"复现该缺口，再作为落盘实现的
-// 回归钉：写入必须落到该会话的设置条目上，重新装配必须读回同一个档位。
-
 import (
 	"errors"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -14,6 +7,13 @@ import (
 	"sync"
 	"testing"
 )
+
+// 主会话权限档位的**跨重启归属**回归（P1-1：用户口径「这一 session 的权限设置」
+// 必须记住）。
+//
+// 背景：档位落地时（b55382a）只写了 SessionUnit 内存槽，重启即回默认值。本文件先
+// 用"共享同一份会话级设置存储的两个 Service 实例"复现该缺口，再作为落盘实现的
+// 回归钉：写入必须落到该会话的设置条目上，重新装配必须读回同一个档位。
 
 // errTierSettingRejected 是"会话级设置写盘失败"的桩错误。
 var errTierSettingRejected = errors.New("session setting write rejected")
@@ -61,16 +61,16 @@ func TestPermissionTierSurvivesSessionReload(t *testing.T) {
 	store := newTierMemSessions()
 
 	before := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if _, err := frontendOfTestService(before).SetPermissionTier(dto.PermissionTierFull); err != nil {
+	if _, err := before.components.policyApplication.SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
 	if got := store.tierFor("session-1"); got != dto.PermissionTierFull {
 		t.Fatalf("会话级设置里的档位 = %q, want %q（档位必须写入会话持久设置）", got, dto.PermissionTierFull)
 	}
-	frontendOfTestService(before).Shutdown()
+	before.components.lifecycleApplication.Shutdown()
 
 	after := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if got := after.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
+	if got := after.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
 		t.Fatalf("重启后 Runtime.PermissionTier = %q, want %q", got, dto.PermissionTierFull)
 	}
 	if !after.fullAccessForSession("session-1") {
@@ -90,13 +90,13 @@ func TestPermissionTierReloadKeepsManualChoice(t *testing.T) {
 	if got := store.tierFor("session-1"); got != "" {
 		t.Fatalf("初始不该有档位条目：%q", got)
 	}
-	if _, err := frontendOfTestService(before).SetPermissionTier(dto.PermissionTierManual); err != nil {
+	if _, err := before.components.policyApplication.SetPermissionTier(dto.PermissionTierManual); err != nil {
 		t.Fatalf("SetPermissionTier(manual): %v", err)
 	}
 	if got := store.tierFor("session-1"); got != dto.PermissionTierManual {
 		t.Fatalf("显式 manual 未落盘：%q", got)
 	}
-	frontendOfTestService(before).Shutdown()
+	before.components.lifecycleApplication.Shutdown()
 
 	after := newTestService(t, &fakeEngine{}, withTestSessions(store))
 	if got := after.permissionTierForSession("session-1"); got != dto.PermissionTierManual {
@@ -108,7 +108,7 @@ func TestPermissionTierReloadKeepsManualChoice(t *testing.T) {
 // （测试桩 / 旧装配）不得让切档报错——档位退回内存态语义，与落盘前一致。
 func TestPermissionTierWithoutSettingPortStaysInMemory(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	effective, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull)
+	effective, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierFull)
 	if err != nil {
 		t.Fatalf("未装配设置端口时切档不得失败: %v", err)
 	}
@@ -126,13 +126,13 @@ func TestPermissionTierSettingPortErrorSurfaces(t *testing.T) {
 	store := &failingTierSessions{tierMemSessions: newTierMemSessions()}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 
-	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err == nil {
+	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierFull); err == nil {
 		t.Fatal("设置写失败时切档必须报错")
 	}
 	if got := service.permissionTierForSession("session-1"); got == dto.PermissionTierFull {
 		t.Fatalf("写失败后档位不得变成 full（当前 %q）", got)
 	}
-	if got := service.Snapshot().Runtime.PermissionTier; got == dto.PermissionTierFull {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got == dto.PermissionTierFull {
 		t.Fatalf("写失败后快照档位不得变成 full（当前 %q）", got)
 	}
 }
@@ -157,30 +157,30 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 	store := newTierMemSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
 	runtime := service.Deps.Runtime.(*fakeRuntime)
-	sessionA := service.Snapshot().Session.ID
-	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierFull); err != nil {
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierFull); err != nil {
 		t.Fatalf("SetPermissionTier(full): %v", err)
 	}
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
 		t.Fatalf("前置：视图会话档位 = %q, want full", got)
 	}
-	if !service.Snapshot().Runtime.FullAccess {
+	if !service.components.frontendSnapshot.Snapshot().Runtime.FullAccess {
 		t.Fatal("前置：full 档应派生 full_access=true")
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
 	if draftID == "" || draftID == sessionA {
 		t.Fatalf("草稿会话 ID 异常：%q（上一个 %q）", draftID, sessionA)
 	}
 	// 新会话没有档位选择 → 回退进程默认（manual）。快照必须显示这个值，
 	// 而不是上一个会话的 full。
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierManual {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierManual {
 		t.Fatalf("新建会话后快照档位 = %q, want manual（不得留着上一个会话的档位）", got)
 	}
-	if service.Snapshot().Runtime.FullAccess {
+	if service.components.frontendSnapshot.Snapshot().Runtime.FullAccess {
 		t.Fatal("新建会话后快照 full_access 仍为 true（危险方向：chip 说免审、实际要问人）")
 	}
 	if got := service.permissionTierForSession(draftID); got != dto.PermissionTierManual {
@@ -202,11 +202,11 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	store := newTierMemSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	draftID := service.Snapshot().Session.ID
-	if _, err := frontendOfTestService(service).SetPermissionTier(dto.PermissionTierAuto); err != nil {
+	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierAuto); err != nil {
 		t.Fatalf("SetPermissionTier(auto): %v", err)
 	}
 	if got := store.tierFor(draftID); got != dto.PermissionTierAuto {
@@ -223,13 +223,13 @@ func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一份槽位，档位必须从持久设置读回。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession(恢复槽位): %v", err)
 	}
-	if got := service.Snapshot().Session.ID; got != draftID {
+	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != draftID {
 		t.Fatalf("草稿槽位未复用：%q → %q", draftID, got)
 	}
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierAuto {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierAuto {
 		t.Fatalf("恢复草稿槽位后快照档位 = %q, want auto", got)
 	}
 	unit := service.sessions.Unit(draftID)
@@ -266,10 +266,10 @@ func TestPermissionTierSwitchMirrorsViewSnapshot(t *testing.T) {
 	}
 
 	switchView("session-b")
-	if got := service.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got != dto.PermissionTierFull {
 		t.Fatalf("切到 session-b 后快照档位 = %q, want full（切换未重算视图快照）", got)
 	}
-	if !service.Snapshot().Runtime.FullAccess {
+	if !service.components.frontendSnapshot.Snapshot().Runtime.FullAccess {
 		t.Fatal("切到 session-b 后快照 full_access = false, want true（兼容读面必须同步）")
 	}
 	if tier := service.permissionTierForSession("session-b"); tier != dto.PermissionTierFull {
@@ -278,10 +278,10 @@ func TestPermissionTierSwitchMirrorsViewSnapshot(t *testing.T) {
 
 	// 切回没有持久档位的会话：快照必须回到进程默认，不得留着 session-b 的 full。
 	switchView("session-a")
-	if got := service.Snapshot().Runtime.PermissionTier; got == dto.PermissionTierFull {
+	if got := service.components.frontendSnapshot.Snapshot().Runtime.PermissionTier; got == dto.PermissionTierFull {
 		t.Fatalf("切到无档位会话后快照仍显示 full（%q）：显示与实际不一致", got)
 	}
-	if service.Snapshot().Runtime.FullAccess {
+	if service.components.frontendSnapshot.Snapshot().Runtime.FullAccess {
 		t.Fatal("切到无档位会话后快照 full_access 仍为 true（危险方向：看着要问人其实免审）")
 	}
 	if tier := service.permissionTierForSession("session-a"); tier != dto.PermissionTierManual {

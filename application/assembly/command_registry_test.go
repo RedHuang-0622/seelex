@@ -93,7 +93,7 @@ func TestCommandRegistry_AllEmpty(t *testing.T) {
 
 func lastNotice(t *testing.T, svc *Service) string {
 	t.Helper()
-	snap := svc.Snapshot()
+	snap := svc.components.frontendSnapshot.Snapshot()
 	if len(snap.Conversation) == 0 {
 		return ""
 	}

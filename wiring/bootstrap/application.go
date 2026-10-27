@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
@@ -106,13 +107,14 @@ func InitApplication(
 	}
 	// 权限向量接管：把 (会话, 角色) → 生效权限向量的读面接进执行门。
 	//
-	// 这是"判定的输入只有一条"的接线口：读面自己实现"登记优先、缺失按四级链路
-	// 解析"（application/assembly 的 RolePermissionVector），执行门只消费结论并按
-	// policy 的格位表判定。decided=false（没登记、也没有任何一层表态）留给执行门
-	// 按 ctx 身份派生——绝不在执行门里再造一份解析。
+	// 这是"判定的输入只有一条"的接线口：owner（application/policy 的 RoleApplication）
+	// 自己实现"登记优先、缺失按四级链路解析"，执行门只消费结论并按 policy 的格位表
+	// 判定。decided=false（没登记、也没有任何一层表态）留给执行门按 ctx 身份派生
+	// ——绝不在执行门里再造一份解析。
 	if runtime != nil {
+		roleOwner := assembly.ComponentsFor(service).Policy.Role
 		runtime.SetRolePermissionVectorResolver(func(sessionID, role string) ([]string, bool, error) {
-			vector, err := wiring.NewFrontend(service).RolePermissionVector(sessionID, role)
+			vector, err := roleOwner.RolePermissionVector(sessionID, role)
 			if err != nil {
 				return nil, false, err
 			}

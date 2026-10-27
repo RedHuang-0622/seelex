@@ -15,6 +15,7 @@ import (
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/wiring"
 )
 
@@ -165,23 +166,26 @@ func (fake *fakeApplication) ResolveInteraction(_ context.Context, id, optionID 
 	fake.resolvedID, fake.resolvedOption = id, optionID
 	return nil
 }
+func (fake *fakeApplication) Resolve(ctx context.Context, id, optionID string) error {
+	return fake.ResolveInteraction(ctx, id, optionID)
+}
 func (fake *fakeApplication) SelectAccount(_ context.Context, name string) error {
 	fake.selectedAccount = name
 	return nil
 }
-func (fake *fakeApplication) SwitchEffort(_ context.Context, level string) error {
+func (fake *fakeApplication) SwitchEffort(level string) error {
 	fake.selectedEffort = level
 	return nil
 }
-func (fake *fakeApplication) SetReasoningEffort(_ context.Context, effort string) error {
+func (fake *fakeApplication) SetReasoningEffort(effort string) error {
 	fake.selectedReasoningEffort = effort
 	return nil
 }
-func (fake *fakeApplication) SetLoopLimit(_ context.Context, limit int) error {
+func (fake *fakeApplication) SetLoopLimit(limit int) error {
 	fake.selectedLoopLimit = limit
 	return nil
 }
-func (fake *fakeApplication) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
+func (fake *fakeApplication) SetSessionReleaseWindow(window int) (int, error) {
 	fake.selectedReleaseWindow = window
 	if fake.releaseWindowErr != nil {
 		return 0, fake.releaseWindowErr
@@ -414,10 +418,162 @@ func (fake *fakeApplication) PerfStats() application.PerfStats {
 func (fake *fakeApplication) PromptLayers() []application.PromptLayer {
 	return nil
 }
+func (fake *fakeApplication) Layers() []application.PromptLayer {
+	return fake.PromptLayers()
+}
+
+func (fake *fakeApplication) Begin() error { return fake.BeginNewSession() }
+
+func (fake *fakeApplication) Resume(sessionID string) error { return fake.ResumeSession(sessionID) }
+
+func (fake *fakeApplication) ForkLatest(sessionID string) (string, error) {
+	return fake.ForkSessionLatest(sessionID)
+}
+
+func (fake *fakeApplication) Delete(sessionID string) error { return fake.DeleteSession(sessionID) }
+
+func (fake *fakeApplication) Archive(sessionID string) error { return fake.ArchiveSession(sessionID) }
+
+func (fake *fakeApplication) SubmitToSession(_ context.Context, sessionID, text string) error {
+	fake.submitted = sessionID + ":" + text
+	return errors.New("session submit: not supported")
+}
+
+func (fake *fakeApplication) AnyChatRunning() bool {
+	fake.snapshotMu.RLock()
+	defer fake.snapshotMu.RUnlock()
+	return fake.snapshot.Chat.Running
+}
+
+func (*fakeApplication) CancelAllChats() {}
+
+func (fake *fakeApplication) SnapshotOf(sessionID string) (application.SessionSnapshot, error) {
+	return application.SessionSnapshot{
+		ProtocolVersion: application.ProtocolVersion,
+		Session:         application.SessionState{ID: sessionID},
+	}, nil
+}
+
+func (*fakeApplication) SessionInputIndex(string) (model.SessionInputIndex, error) {
+	return model.SessionInputIndex{}, errors.New("session input index: not supported")
+}
+
+func (*fakeApplication) ReorderQueuedInput(string, int, int) error { return nil }
+
+func (*fakeApplication) RecallQueuedInput(string, int) (string, error) { return "", nil }
+
+func (*fakeApplication) View(context.Context, dto.ConversationSessionRef, dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
+	return dto.SessionRecordPage{}, nil
+}
+
+func (*fakeApplication) Chat(context.Context, dto.ConversationSessionRef, dto.ConversationChatRequest) (dto.ChatReceipt, error) {
+	return dto.ChatReceipt{}, nil
+}
+
+func (*fakeApplication) Recover(context.Context, dto.ConversationSessionRef) (dto.SessionRecovery, error) {
+	return dto.SessionRecovery{}, nil
+}
+
+func (*fakeApplication) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error) {
+	return dto.RoleSnapshot{}, nil
+}
+
+func (fake *fakeApplication) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error) {
+	return nil, "", nil
+}
+
+func (*fakeApplication) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error) {
+	return model.WorkspaceEnvironmentInfo{}, nil
+}
+
+func (*fakeApplication) DeleteWorkspaceEnvironment(string, string) error { return nil }
+
+func (*fakeApplication) SetDefaultWorkspaceEnvironment(string, string) error { return nil }
+
+func (fake *fakeApplication) Tree(relPath string, depth int) (dto.TreeListing, error) {
+	fake.treeRel, fake.treeDepth = relPath, depth
+	return fake.treeListing, fake.treeErr
+}
+
+func (fake *fakeApplication) FileCount() (dto.TreeCount, error) {
+	return fake.treeCount, fake.treeErr
+}
+
+func (fake *fakeApplication) FileContent(relPath string, limit int64) (dto.FileContent, error) {
+	fake.fileRel, fake.fileLimit = relPath, limit
+	return fake.fileContent, fake.fileErr
+}
+
+func (fake *fakeApplication) WriteFile(relPath, content string) (dto.FileWriteResult, error) {
+	fake.writeRel, fake.writeContent = relPath, content
+	return fake.writeResult, fake.writeErr
+}
+
+func (fake *fakeApplication) GitLog(repo string, limit int) (dto.GitLogResult, error) {
+	fake.gitRepo, fake.gitLimit = repo, limit
+	return fake.gitLog, nil
+}
+
+func (fake *fakeApplication) Changes(repo string, limit int) (dto.WorkspaceChangesResult, error) {
+	fake.gitRepo, fake.changesLimit = repo, limit
+	return fake.changes, nil
+}
+
+func (fake *fakeApplication) CommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
+	fake.gitRepo, fake.gitCommitHash, fake.gitLimit = repo, hash, limit
+	return fake.gitCommit, nil
+}
+
+func (fake *fakeApplication) CommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
+	fake.gitRepo, fake.gitCommitHash, fake.commitRel, fake.commitLimit = repo, hash, relPath, limit
+	return fake.commitContent, fake.fileErr
+}
+
+func (fake *fakeApplication) WorkItemExecution(context.Context, string, string, dto.ConversationViewRequest) (dto.WorkItemExecutionView, error) {
+	return dto.WorkItemExecutionView{}, nil
+}
+
+func (*fakeApplication) TeammateInspection(context.Context, string, string) (dto.TeammateInspectionView, error) {
+	return dto.TeammateInspectionView{}, nil
+}
+
+func (*fakeApplication) SessionLive(sessionID string) dto.TeammateSessionLiveView {
+	return dto.TeammateSessionLiveView{SessionID: sessionID}
+}
+
+func (*fakeApplication) SessionPage(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	return dto.TeammateSessionLiveView{SessionID: sessionID, Offset: offset, Limit: limit}
+}
+
+func (fake *fakeApplication) Detail(nodeID string) (*application.SubagentDetail, error) {
+	return fake.SubagentSessionDetail(nodeID)
+}
+
+func (*fakeApplication) ClearTree() error { return nil }
+
+func (*fakeApplication) Board() application.ToolRecordBoard {
+	return application.ToolRecordBoard{}
+}
+
+func (*fakeApplication) Enabled() bool { return false }
+
+func (*fakeApplication) SetEnabled(enabled bool) (bool, error) { return enabled, nil }
+
+func (*fakeApplication) State(string) (model.SessionSSHInfo, error) {
+	return model.SessionSSHInfo{}, nil
+}
+
+func (*fakeApplication) SetAllowed(string, []string) (model.SessionSSHInfo, error) {
+	return model.SessionSSHInfo{}, nil
+}
+
+func (*fakeApplication) SetEnv(string, string, string) (model.SessionSSHInfo, error) {
+	return model.SessionSSHInfo{}, nil
+}
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()
-	if _, err := NewBridge(nil, Options{}); err == nil {
+	if _, err := NewBridge(Dependencies{}, Options{}); err == nil {
 		t.Fatal("NewBridge accepted a nil application")
 	}
 }
@@ -428,7 +584,7 @@ func TestBridgeDiscoversProjectSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("project"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bridge, err := NewBridge(newFakeApplication(), Options{ProjectRoot: root})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{ProjectRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +596,7 @@ func TestBridgeDiscoversProjectSources(t *testing.T) {
 
 func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +608,7 @@ func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
 func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +624,7 @@ func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T) {
 func TestBridgeForwardsOtherCommands(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +783,7 @@ func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
 		{Name: "src", Path: "src", Type: "dir", Count: 2},
 		{Name: "README.md", Path: "README.md", Type: "file", Size: 10},
 	}}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +802,7 @@ func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
 
 func TestBridgeCreateWorkspacesForwardsBatch(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +822,7 @@ func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.treeCount = dto.TreeCount{Files: 42, Dirs: 7}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +847,7 @@ func TestBridgeWorkspaceGitReposForwards(t *testing.T) {
 		},
 		Scanned: 12,
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +870,7 @@ func TestBridgeWorkspaceGitLogForwardsRepoAndLimit(t *testing.T) {
 	fake.gitLog = dto.GitLogResult{Commits: []dto.GitCommitNode{
 		{Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Parents: []string{"bbbb"}, Subject: "fix: git log"},
 	}}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +900,7 @@ func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T) {
 		Unstaged:  1,
 		Untracked: 1,
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +928,7 @@ func TestBridgeWorkspaceGitCommitDetailForwardsHash(t *testing.T) {
 		Total: 1,
 		Files: []dto.GitCommitFileEntry{{Path: "src/main.go", Kind: dto.ChangeModified, Status: "M", Letter: "M", Additions: 3, Deletions: 1}},
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,7 +949,7 @@ func TestBridgeWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.commitContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +970,7 @@ func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.fileContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +991,7 @@ func TestBridgeWorkspaceWriteFileForwardsPathAndContent(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.writeResult = dto.FileWriteResult{Path: "src/main.go", Size: 5, Limit: 64 << 20}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -927,7 +1083,7 @@ func TestEmbeddedGitCommitDrilldownWiring(t *testing.T) {
 func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +1152,7 @@ func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testin
 		Hits: []seelexctxsearch.Hit{{SegmentID: "compact-a", From: 0, To: 1, Score: 2.5,
 			Records: []seelexctxsearch.ChatRecord{{Role: "user", Content: "聊聊数据库索引"}}}},
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1017,7 +1173,9 @@ func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testin
 // （视图会话当前回合），Bridge 不得再用空 id 重试兜底。
 func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 	fake := &recordingCancelApplication{fakeApplication: newFakeApplication()}
-	bridge, err := NewBridge(fake, Options{})
+	deps := fake.fakeApplication.deps()
+	deps.Turn = fake
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1191,7 @@ func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 // application（门控在 application 层），Bridge 不重试、不伪造归档状态。
 func TestBridgeArchiveSessionForwardsOnce(t *testing.T) {
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1055,7 +1213,7 @@ func TestBridgeSessionReadAPIsForwardOnce(t *testing.T) {
 	fake.snapshotMu.Lock()
 	fake.snapshot.Sessions = []application.SessionInfo{{ID: "sess-a"}}
 	fake.snapshotMu.Unlock()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1074,7 +1232,7 @@ func TestBridgeSessionReadAPIsForwardOnce(t *testing.T) {
 	}
 }
 
-// serialResumeApp 记录 ResumeSession 进入顺序并可阻塞首个切换。
+// serialResumeApp 记录 Resume 进入顺序并可阻塞首个切换。
 type serialResumeApp struct {
 	*fakeApplication
 	mu      sync.Mutex
@@ -1082,7 +1240,7 @@ type serialResumeApp struct {
 	gate    chan struct{}
 }
 
-func (app *serialResumeApp) ResumeSession(sessionID string) error {
+func (app *serialResumeApp) Resume(sessionID string) error {
 	app.mu.Lock()
 	app.started = append(app.started, sessionID)
 	app.mu.Unlock()
@@ -1097,7 +1255,9 @@ func TestBridgeSwitchCommandsSerialize(t *testing.T) {
 		fakeApplication: newFakeApplication(),
 		gate:            make(chan struct{}),
 	}
-	bridge, err := NewBridge(fake, Options{})
+	deps := fake.fakeApplication.deps()
+	deps.Resume = fake
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,7 +1325,7 @@ func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T) {
 		t.Run(command.name, func(t *testing.T) {
 			fake := newFakeApplication()
 			fake.catalogGate = make(chan struct{})
-			bridge, err := NewBridge(fake, Options{})
+			bridge, err := NewBridge(fake.deps(), Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1195,13 +1355,14 @@ func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T) {
 
 type closeFakeApplication struct {
 	*fakeApplication
-	waitStarted   chan struct{}
-	idle          chan struct{}
-	mu            sync.Mutex
-	beginCalls    int
-	waitCalls     int
-	cancelCalls   int
-	waitStartOnce sync.Once
+	waitStarted    chan struct{}
+	idle           chan struct{}
+	mu             sync.Mutex
+	beginCalls     int
+	waitCalls      int
+	cancelCalls    int
+	cancelAllCalls int
+	waitStartOnce  sync.Once
 }
 
 func (fake *closeFakeApplication) CancelChat(requestID string) bool {
@@ -1216,6 +1377,17 @@ func (fake *closeFakeApplication) CancelChat(requestID string) bool {
 		close(fake.idle)
 	}
 	return true
+}
+
+func (fake *closeFakeApplication) CancelAllChats() {
+	fake.mu.Lock()
+	fake.cancelAllCalls++
+	fake.mu.Unlock()
+	select {
+	case <-fake.idle:
+	default:
+		close(fake.idle)
+	}
 }
 
 func newCloseFakeApplication(running bool) *closeFakeApplication {
@@ -1395,11 +1567,10 @@ func TestCloseCoordinatorCancelsStalledChatAndQuits(t *testing.T) {
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	// 旧宿主（无 AnyChatRunning/CancelAllChats）：超时回退到只取消视图会话，
-	// 随后等待取消收尾（第二次 WaitForIdle 立即返回）。
-	if fake.beginCalls != 1 || fake.waitCalls != 2 || fake.cancelCalls != 1 || fake.cancelled != "" {
-		t.Fatalf("stalled close calls = begin:%d wait:%d cancel:%d request:%q",
-			fake.beginCalls, fake.waitCalls, fake.cancelCalls, fake.cancelled)
+	// 超时后取消全部运行中会话，随后等待取消收尾（第二次 WaitForIdle 立即返回）。
+	if fake.beginCalls != 1 || fake.waitCalls != 2 || fake.cancelAllCalls != 1 || fake.cancelCalls != 0 {
+		t.Fatalf("stalled close calls = begin:%d wait:%d cancelAll:%d cancel:%d",
+			fake.beginCalls, fake.waitCalls, fake.cancelAllCalls, fake.cancelCalls)
 	}
 }
 
@@ -1438,7 +1609,7 @@ func TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout(t *testing.T) {
 func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1473,7 +1644,7 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1515,7 +1686,7 @@ func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2601,7 +2772,7 @@ func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent {
 
 func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
 	app := newFakeApplication()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2620,7 +2791,7 @@ func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
 
 func TestBridgeForwardsForkSession(t *testing.T) {
 	app := newFakeApplication()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2638,7 +2809,7 @@ func TestBridgeForwardsForkSession(t *testing.T) {
 func TestBridgeForwardsPermissionTier(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

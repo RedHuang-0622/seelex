@@ -1,8 +1,5 @@
 package assembly
 
-// 临时复现测试：会话运行中切换/新建会话是否死锁、消息入队是否安全。
-// 结论：测试仅供诊断；通过后由维护者决定保留为回归用例或删除。
-
 import (
 	"context"
 	"errors"
@@ -12,6 +9,9 @@ import (
 	"testing"
 	"time"
 )
+
+// 临时复现测试：会话运行中切换/新建会话是否死锁、消息入队是否安全。
+// 结论：测试仅供诊断；通过后由维护者决定保留为回归用例或删除。
 
 // dumpAllGoroutines 返回全量 goroutine 栈（死锁断点现场）。
 func dumpAllGoroutines() string {
@@ -38,7 +38,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -53,7 +53,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	engine.register(bID)
 	resumeDone := make(chan error, 1)
 	go func() {
-		resumeDone <- frontendOfTestService(service).ResumeSession(bID)
+		resumeDone <- service.components.sessionResume.Resume(bID)
 	}()
 	if err := waitOrDump(t, resumeDone, "ResumeSession(B) while A running"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
@@ -71,7 +71,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	}
 
 	// 向运行中的 A 发送消息 → 应进入 A 自己的队列（不污染活跃快照）。
-	if err := service.SubmitToSession(ctx, aID, "queued-to-A"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(ctx, aID, "queued-to-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	service.ViewMu.RLock()
@@ -86,7 +86,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 	history := engine.HistoryFor(aID)
@@ -107,7 +107,7 @@ func TestBeginNewSessionWhileChattingRepro(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "task A"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -119,14 +119,14 @@ func TestBeginNewSessionWhileChattingRepro(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- frontendOfTestService(service).BeginNewSession()
+		done <- service.components.sessionDraftEntry.Begin()
 	}()
 	if err := waitOrDump(t, done, "BeginNewSession while A running"); err != nil && !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("BeginNewSession = %v (want ErrChatRunning or nil, no deadlock)", err)
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }
@@ -137,7 +137,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -152,7 +152,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- frontendOfTestService(service).ResumeSession(bID)
+		done <- service.components.sessionResume.Resume(bID)
 	}()
 	if err := waitOrDump(t, done, "ResumeSession(B) race"); err != nil {
 		t.Fatalf("ResumeSession(B) = %v", err)
@@ -160,7 +160,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 
 	var enqueueErr error
 	for i := 0; i < 50; i++ {
-		if err := service.SubmitToSession(ctx, aID, "msg"); err != nil {
+		if err := service.components.submitApplication.SubmitToSession(ctx, aID, "msg"); err != nil {
 			enqueueErr = err
 			break
 		}
@@ -170,7 +170,7 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 	}
 	close(stop)
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	service := newTestService(t, engine)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -192,17 +192,17 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
 	bID := "sess-draft-target"
 	engine.register(bID)
 
 	// 新建草稿会话。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
+	if snap := service.components.frontendSnapshot.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
 		t.Fatalf("draft session = %+v", snap.Session)
 	}
 	hasDraftRow := func(snapshot model.Snapshot) bool {
@@ -213,30 +213,30 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 		}
 		return false
 	}
-	if !hasDraftRow(service.Snapshot()) {
+	if !hasDraftRow(service.components.frontendSnapshot.Snapshot()) {
 		t.Fatal("draft row missing from session list")
 	}
 
 	// 切换到 B：草稿槽位保留、列表仍可见。
-	if err := frontendOfTestService(service).ResumeSession(bID); err != nil {
+	if err := service.components.sessionResume.Resume(bID); err != nil {
 		t.Fatal(err)
 	}
-	if snap := service.Snapshot(); snap.Session.ID != bID || snap.Session.Draft {
+	if snap := service.components.frontendSnapshot.Snapshot(); snap.Session.ID != bID || snap.Session.Draft {
 		t.Fatalf("after switch session = %+v", snap.Session)
 	} else if !hasDraftRow(snap) {
 		t.Fatal("draft row disappeared after switching sessions")
 	}
 
 	// 再次新建：恢复同一草稿（含状态 draft）。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
+	if snap := service.components.frontendSnapshot.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
 		t.Fatalf("restored draft = %+v", snap.Session)
 	}
 
 	// 首次提交物化：消费草稿槽位，草稿行消失。
-	if err := service.Submit(ctx, "first question"); err != nil {
+	if err := service.components.submission.Submit(ctx, "first question"); err != nil {
 		t.Fatal(err)
 	}
 	newID := engine.SessionID()
@@ -246,10 +246,10 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 		t.Fatalf("materialized session did not start:\n%s", dumpAllGoroutines())
 	}
 	close(engine.release[newID])
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if hasDraftRow(service.Snapshot()) {
+	if hasDraftRow(service.components.frontendSnapshot.Snapshot()) {
 		t.Fatal("draft row must disappear after materialization")
 	}
 }
@@ -260,7 +260,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine)
 
-	if err := service.Submit(context.Background(), "task A"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "task A"); err != nil {
 		t.Fatal(err)
 	}
 	aID := engine.SessionID()
@@ -270,13 +270,13 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
 	}
 	service.ViewMu.RLock()
 	runningA := service.sessions.Unit(aID).ChatState().Running
 	service.ViewMu.RUnlock()
-	snapshot := service.Snapshot()
+	snapshot := service.components.frontendSnapshot.Snapshot()
 	if !runningA {
 		t.Fatal("session A stopped after entering draft")
 	}
@@ -285,7 +285,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 	}
 
 	close(engine.release[aID])
-	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }

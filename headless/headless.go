@@ -8,9 +8,9 @@ package headless
 // 定位与边界：
 //   - 默认关闭：只有显式设置 SEELEX_HEADLESS_PORT 才启动（开发/冒烟用，
 //     生产双击启动不受影响）；只监听回环地址，不对外网开放。
-//   - 能力面 = 本包声明的窄 `Application` 契约（由门面 `application.Service`
-//     结构满足），
-//     不新增业务状态机；真实工作仍全部经 application core 执行。
+//   - 能力面 = 本包 `dependencies.go` 声明的按 owner 切分的窄端口，由
+//     `wiring/bootstrap` 装配（不新增业务状态机）；真实工作仍全部经
+//     owner 用例执行，控制面只做参数解码与分派。
 //   - /events 订阅全局事件流（含所有会话），冒烟驱动据此记录事件到达
 //     时刻/速率，与 /rpc 的调用耗时共同构成“热力时间消耗”数据面。
 
@@ -27,7 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
@@ -39,64 +38,14 @@ const headlessEnvPort = "SEELEX_HEADLESS_PORT"
 // 会以 resync.required 全局事件兜底，驱动应按快照重拉处理）。
 const headlessEventBuffer = 4096
 
-// Application 是 headless 控制面消费的窄契约：只列它真正会调用的 17 个方法。
-// 接口归调用方所有（与 gui 的 Application 同款），因此本包不 import gui——
-// gui 反过来 import 本包启动进程内控制面，方向始终保持单向。
-type Application interface {
-	Snapshot() application.Snapshot
-	WaitForIdle(context.Context) error
-	Subscribe(int) application.Subscription
-	Submit(context.Context, string) error
-	BeginNewSession() error
-	ResumeSession(string) error
-	ForkSessionLatest(string) (string, error)
-	CancelChat(string) bool
-	ResolveInteraction(context.Context, string, string) error
-	LoadMoreHistory(int) error
-	LoadLatestHistory() error
-	WaitCatalogRefresh(context.Context) error
-	CreateWorkspace(name, rootPath, gitRemote string) error
-	BindWorkspace(workspaceID string) error
-	UnbindWorkspace()
-	SetPermissionTier(string) (string, error)
-	PerfStats() application.PerfStats
-}
-
-// sessionAwareApplication 是可选的会话级扩展面（显式 sessionID API）。
-// 未实现时对应 RPC 退回视图会话或显式报错。
-type sessionAwareApplication interface {
-	SubmitToSession(context.Context, string, string) error
-	ActivateSession(string) error
-	SnapshotOf(string) (application.SessionSnapshot, error)
-	ListSessions() []application.SessionInfo
-	GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error)
-	SubscribeSession(string, int) (application.Subscription, error)
-}
-
-// toolRecordBoardProvider 是可选的工具记录看板读/开关面。
-type toolRecordBoardProvider interface {
-	ToolRecordBoard() application.ToolRecordBoard
-	ToolRecordEnabled() bool
-	SetToolRecordEnabled(enabled bool) (bool, error)
-}
-
-var (
-	_ Application             = (*application.Frontend)(nil)
-	_ sessionAwareApplication = (*application.Frontend)(nil)
-	_ toolRecordBoardProvider = (*application.Frontend)(nil)
-	_ roleRPCApplication      = (*application.Frontend)(nil)
-	_ goalRPCApplication      = (*application.Frontend)(nil)
-	_ subagentRPCApplication  = (*application.Frontend)(nil)
-)
-
 // Server 是 headless 冒烟接口的 HTTP 服务（单进程内绑定）。
 type Server struct {
-	app Application
-	srv *http.Server
+	deps Dependencies
+	srv  *http.Server
 }
 
 // NewServer 构造一个尚未 Serve 的控制面（测试可直接在回环监听器上起它）。
-func NewServer(app Application) *Server { return &Server{app: app} }
+func NewServer(deps Dependencies) *Server { return &Server{deps: deps} }
 
 // Shutdown 关闭底层 HTTP 服务（未 Serve 时为空操作）。
 func (server *Server) Shutdown(ctx context.Context) error {
@@ -110,12 +59,12 @@ func (server *Server) Shutdown(ctx context.Context) error {
 // 与 GUI 进程内装配一致地启动回环 RPC + 事件流，但不依赖 WebView2/Wails。
 // 未设置 SEELEX_HEADLESS_PORT 时返回可读错误；启动后阻塞到进程收到中断或
 // 终止信号（外部驱动结束后 kill 进程即可）。
-func Run(app Application) error {
+func Run(deps Dependencies) error {
 	port := strings.TrimSpace(os.Getenv(headlessEnvPort))
 	if port == "" {
 		return fmt.Errorf("headless 调试入口需要 %s=<端口>（例如 SEELEX_HEADLESS_PORT=39123）", headlessEnvPort)
 	}
-	stop, err := StartIfRequested(app)
+	stop, err := StartIfRequested(deps)
 	if err != nil {
 		return err
 	}
@@ -128,7 +77,7 @@ func Run(app Application) error {
 
 // StartIfRequested 在设置 SEELEX_HEADLESS_PORT 时启动回环控制面；
 // 未设置时返回空操作（生产双击路径零成本）。
-func StartIfRequested(app Application) (func(), error) {
+func StartIfRequested(deps Dependencies) (func(), error) {
 	port := strings.TrimSpace(os.Getenv(headlessEnvPort))
 	if port == "" {
 		return func() {}, nil
@@ -140,7 +89,7 @@ func StartIfRequested(app Application) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("headless 接口监听失败: %w", err)
 	}
-	server := NewServer(app)
+	server := NewServer(deps)
 	go func() { _ = server.Serve(listener) }()
 	stop := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -197,8 +146,9 @@ func writeRPCError(writer http.ResponseWriter, message string) {
 	_ = json.NewEncoder(writer).Encode(Response{OK: false, Error: message})
 }
 
-// dispatch 把冒烟驱动的方法调用映射到 Application（含会话级扩展）契约。
-// 新增 GUI 命令时在这里补一行即可；命令本身仍走 application core。
+// dispatch 把冒烟驱动的方法调用映射到装配表交出的 owner 端口。
+// RPC 方法名是对外契约（保持不变）；右值一律使用 owner 的方法名。
+// 新增 GUI 命令时在这里补一行即可；命令本身仍走 owner 用例。
 func (server *Server) dispatch(method string, args []json.RawMessage) (any, error) {
 	if strings.HasPrefix(method, "goal.") {
 		return server.dispatchGoal(method, args)
@@ -245,64 +195,55 @@ func (server *Server) dispatch(method string, args []json.RawMessage) (any, erro
 
 	switch method {
 	case "Snapshot":
-		return server.app.Snapshot(), nil
+		return server.deps.Snapshot.Snapshot(), nil
 	case "PerfStats":
-		return server.app.PerfStats(), nil
+		return server.deps.Perf.PerfStats(), nil
 	case "ToolRecordBoard":
-		// 与 Bridge.ToolRecordBoard 同一口径：可选能力面（未装配 = 空看板，
-		// 而不是让整套 Application 契约为此长出一个成员）。
-		if provider, ok := server.app.(toolRecordBoardProvider); ok {
-			return provider.ToolRecordBoard(), nil
-		}
-		return application.ToolRecordBoard{}, nil
+		return server.deps.ToolRecords.Board(), nil
 	case "SetToolRecordEnabled":
 		enabled, err := boolArg(0, "enabled")
 		if err != nil {
 			return nil, err
 		}
-		provider, ok := server.app.(toolRecordBoardProvider)
-		if !ok {
-			return nil, fmt.Errorf("工具记录未装配（宿主不支持计数开关）")
-		}
-		applied, err := provider.SetToolRecordEnabled(enabled)
+		applied, err := server.deps.ToolRecords.SetEnabled(enabled)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"enabled": applied}, nil
 	case "BeginNewSession":
-		return nil, server.app.BeginNewSession()
+		return nil, server.deps.Draft.Begin()
 	case "Submit":
 		text, err := stringArg(0, "text")
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.Submit(context.Background(), text)
+		return nil, server.deps.Submission.Submit(context.Background(), text)
 	case "ResumeSession":
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.ResumeSession(sessionID)
+		return nil, server.deps.Resume.Resume(sessionID)
 	case "ForkSessionLatest":
 		parentID, err := stringArg(0, "parentID")
 		if err != nil {
 			return nil, err
 		}
-		return server.app.ForkSessionLatest(parentID)
+		return server.deps.Fork.ForkLatest(parentID)
 	case "CancelChat":
 		requestID, err := stringArg(0, "requestID")
 		if err != nil {
 			return nil, err
 		}
-		return server.app.CancelChat(requestID), nil
+		return server.deps.Turn.CancelChat(requestID), nil
 	case "LoadMoreHistory":
 		limit, err := intArg(0, "limit")
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.LoadMoreHistory(limit)
+		return nil, server.deps.History.LoadMoreHistory(limit)
 	case "LoadLatestHistory":
-		return nil, server.app.LoadLatestHistory()
+		return nil, server.deps.History.LoadLatestHistory()
 	case "CreateWorkspace":
 		name, err := stringArg(0, "name")
 		if err != nil {
@@ -316,15 +257,15 @@ func (server *Server) dispatch(method string, args []json.RawMessage) (any, erro
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.CreateWorkspace(name, rootPath, gitRemote)
+		return nil, server.deps.Workspace.CreateWorkspace(name, rootPath, gitRemote)
 	case "BindWorkspace":
 		workspaceID, err := stringArg(0, "workspaceID")
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.BindWorkspace(workspaceID)
+		return nil, server.deps.Workspace.BindWorkspace(workspaceID)
 	case "UnbindWorkspace":
-		server.app.UnbindWorkspace()
+		server.deps.Workspace.UnbindWorkspace()
 		return map[string]any{"ok": true}, nil
 	case "WaitIdle":
 		// 异步冒烟驱动在 Submit 后等待全部已接受 chat 收敛（0/缺参回退
@@ -335,7 +276,7 @@ func (server *Server) dispatch(method string, args []json.RawMessage) (any, erro
 		}
 		ctx, cancel := waitContext(timeoutSeconds, 5*time.Minute)
 		defer cancel()
-		if err := server.app.WaitForIdle(ctx); err != nil {
+		if err := server.deps.Turn.WaitForIdle(ctx); err != nil {
 			return nil, fmt.Errorf("%s 等待空闲失败: %w", method, err)
 		}
 		return map[string]any{"ok": true}, nil
@@ -348,7 +289,7 @@ func (server *Server) dispatch(method string, args []json.RawMessage) (any, erro
 		}
 		ctx, cancel := waitContext(timeoutSeconds, 15*time.Second)
 		defer cancel()
-		if err := server.app.WaitCatalogRefresh(ctx); err != nil {
+		if err := server.deps.Catalog.WaitCatalogRefresh(ctx); err != nil {
 			return nil, fmt.Errorf("%s 等待目录收敛失败: %w", method, err)
 		}
 		return map[string]any{"ok": true}, nil
@@ -361,64 +302,29 @@ func (server *Server) dispatch(method string, args []json.RawMessage) (any, erro
 		if err != nil {
 			return nil, err
 		}
-		return nil, server.app.ResolveInteraction(context.Background(), id, optionID)
+		return nil, server.deps.Interaction.Resolve(context.Background(), id, optionID)
 	case "SetPermissionTier":
 		tier, err := stringArg(0, "tier")
 		if err != nil {
 			return nil, err
 		}
-		return server.app.SetPermissionTier(tier)
-	}
-
-	switch method {
+		return server.deps.Policy.SetPermissionTier(tier)
 	case "ListSessions":
-		sessionAware, ok := server.app.(sessionAwareApplication)
-		if !ok {
-			return nil, fmt.Errorf("方法 %s 需要会话级宿主能力，当前不可用", method)
-		}
-		return sessionAware.ListSessions(), nil
+		return server.deps.Catalog.ListSessions(), nil
 	case "SnapshotOf":
-		sessionAware, ok := server.app.(sessionAwareApplication)
-		if !ok {
-			return nil, fmt.Errorf("方法 %s 需要会话级宿主能力，当前不可用", method)
-		}
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
 			return nil, err
 		}
-		return sessionAware.SnapshotOf(sessionID)
+		return server.deps.Catalog.SnapshotOf(sessionID)
 	case "ActivateSession":
-		sessionAware, ok := server.app.(sessionAwareApplication)
-		if !ok {
-			return nil, fmt.Errorf("方法 %s 需要会话级宿主能力，当前不可用", method)
-		}
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
 			return nil, err
 		}
-		return nil, sessionAware.ActivateSession(sessionID)
+		return nil, server.deps.Resume.Resume(sessionID)
 	}
 	return nil, fmt.Errorf("未知 headless 方法: %s", method)
-}
-
-// roleRPCApplication 是 Application 的 R2/R4 群聊角色扩展面（headless
-// 冒烟/巡检透传；真实排序/幂等/floor 仍由 store 执行）。
-// S27 收口：接口只用 contract/dto 纯 DTO，gui 不 import 存储包。
-type roleRPCApplication interface {
-	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
-	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error
-	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)
-	SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)
-	AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error
-	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)
-	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
-	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
-	SetLifecycleOrder(sessionID, policy string, roles []string) error
-	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error
-	ListRoleSessions(mainSessionID string) ([]string, error)
-	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
-	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
-	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
 }
 
 type roleCreateRequest struct {
@@ -475,120 +381,101 @@ func decodeHeadlessObject(method string, args []json.RawMessage, destination any
 }
 
 func (server *Server) dispatchRole(method string, args []json.RawMessage) (any, error) {
-	app, ok := server.app.(roleRPCApplication)
-	if !ok {
-		return nil, fmt.Errorf("%s: 当前 Application 未装配群聊角色扩展面", method)
-	}
+	roles := server.deps.Roles
 	switch method {
 	case "role.create":
 		var request roleCreateRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.CreateRoleSession(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID)
+		return roles.CreateRoleSession(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID)
 	case "role.append_draft":
 		var request roleDraftRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return nil, app.AppendRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
+		return nil, roles.AppendRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
 	case "role.read_draft":
 		var request roleDraftRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.ReadRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID)
+		return roles.ReadRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID)
 	case "role.sync_draft":
 		var request roleDraftRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.SyncRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Order)
+		return roles.SyncRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Order)
 	case "role.append_backup":
 		var request roleBackupRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return nil, app.AppendRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
+		return nil, roles.AppendRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
 	case "role.read_backup":
 		var request roleBackupRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.ReadRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID)
+		return roles.ReadRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID)
 	case "role.snapshot":
 		var request roleDraftRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.RoleSnapshot(request.MainSessionID, request.RoleName, request.RoleSessionID)
+		return roles.RoleSnapshot(request.MainSessionID, request.RoleName, request.RoleSessionID)
 	case "role.wire":
 		var request roleDraftRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.AssembleRoleWire(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Budget, request.K)
+		return roles.AssembleRoleWire(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Budget, request.K)
 	case "role.list":
 		var request roleCreateRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return app.ListRoleSessions(request.MainSessionID)
+		return roles.ListRoleSessions(request.MainSessionID)
 	case "role.set_order":
 		var request roleOrderRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return nil, app.SetLifecycleOrder(request.SessionID, request.OrderPolicy, request.OrderRoles)
+		return nil, roles.SetLifecycleOrder(request.SessionID, request.OrderPolicy, request.OrderRoles)
 	case "role.set_lifecycle":
 		var request roleLifecycleRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		return nil, app.SetRoleLifecycle(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID, request.CompactRef)
+		return nil, roles.SetRoleLifecycle(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID, request.CompactRef)
 	default:
 		return nil, fmt.Errorf("未知 role headless 方法: %s", method)
 	}
 }
 
 func (server *Server) dispatchSchedule(method string, args []json.RawMessage) (any, error) {
-	app, ok := server.app.(roleRPCApplication)
-	if !ok {
-		return nil, fmt.Errorf("%s: 当前 Application 未装配定时插话扩展面", method)
-	}
+	roles := server.deps.Roles
 	var request scheduleRPCRequest
 	if err := decodeHeadlessObject(method, args, &request); err != nil {
 		return nil, err
 	}
 	switch method {
 	case "schedule.register":
-		return nil, app.ScheduleRegister(request.SessionID, request.Payload)
+		return nil, roles.ScheduleRegister(request.SessionID, request.Payload)
 	case "schedule.cancel":
-		return nil, app.ScheduleCancel(request.SessionID, request.Payload)
+		return nil, roles.ScheduleCancel(request.SessionID, request.Payload)
 	case "schedule.fire":
-		return nil, app.ScheduleFire(request.SessionID, request.Payload)
+		return nil, roles.ScheduleFire(request.SessionID, request.Payload)
 	default:
 		return nil, fmt.Errorf("未知 schedule headless 方法: %s", method)
 	}
 }
 
-// goalRPCApplication 是 Application 的 goal 扩展面（P1 headless 透传：
-// goal.<method> → application goal 协调器，按当前视图会话路由）。
-type goalRPCApplication interface {
-	GoalBeginFor(context.Context, string, goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
-	GoalUpdateFor(context.Context, string, goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
-	GoalDoneFor(context.Context, string, goaldomain.FinishRequest, bool) (*goaldomain.GoalRecord, error)
-	GoalStatusFor(string) (goaldomain.StatusView, error)
-	GoalGovernanceViewFor(string) *dto.GoalGovernanceView
-}
-
-// dispatchGoal 把 goal.<method> 透传到 application（当前视图会话）。
+// dispatchGoal 把 goal.<method> 透传到 goal owner（当前视图会话）。
 func (server *Server) dispatchGoal(method string, args []json.RawMessage) (any, error) {
-	app, ok := server.app.(goalRPCApplication)
-	if !ok {
-		return nil, fmt.Errorf("%s: 当前 Application 未装配 goal 扩展面", method)
-	}
-	sessionID := server.app.Snapshot().Session.ID
+	goal := server.deps.Goal
+	sessionID := server.deps.Snapshot.Snapshot().Session.ID
 	ctx := context.Background()
 	decodeArg := func(destination any) error {
 		if len(args) == 0 {
@@ -602,21 +489,21 @@ func (server *Server) dispatchGoal(method string, args []json.RawMessage) (any, 
 		if err := decodeArg(&request); err != nil {
 			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
 		}
-		return app.GoalBeginFor(ctx, sessionID, request)
+		return goal.BeginFor(ctx, sessionID, request)
 	case "goal.update":
 		var request goaldomain.UpdateRequest
 		if err := decodeArg(&request); err != nil {
 			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
 		}
-		return app.GoalUpdateFor(ctx, sessionID, request)
+		return goal.UpdateFor(ctx, sessionID, request)
 	case "goal.done":
 		var request goaldomain.FinishRequest
 		if err := decodeArg(&request); err != nil {
 			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
 		}
-		return app.GoalDoneFor(ctx, sessionID, request, false)
+		return goal.DoneFor(ctx, sessionID, request, false)
 	case "goal.status":
-		return app.GoalStatusFor(sessionID)
+		return goal.StatusFor(sessionID)
 	case "goal.gov_snapshot":
 		// 只读观察面（A09，2026-10-15）：返回当前视图会话的 GoalGovernanceView 投影
 		// （活动栈 / 状态 / 里程碑步骤），**不推进轮次、不改任何事实**——它是诊断与
@@ -626,7 +513,7 @@ func (server *Server) dispatchGoal(method string, args []json.RawMessage) (any, 
 		// 席位轮转退场：两个方法名落到 default 分支，按"未知 goal headless 方法"
 		// 拒绝。保留被拒断言（headless_goal_test.go）作无回归 guard，待 headless
 		// API 版本治理时再统一处理。
-		return app.GoalGovernanceViewFor(sessionID), nil
+		return goal.GovernanceViewFor(sessionID), nil
 	default:
 		return nil, fmt.Errorf("未知 goal headless 方法: %s", method)
 	}
@@ -654,7 +541,7 @@ func (server *Server) serveEvents(writer http.ResponseWriter, request *http.Requ
 	// 立刻开始发事件；若订阅晚于首次 flush，这中间发布的事件会直接丢掉，
 	// 订阅方要等到下一次事件（或 15s 心跳）才知道——驱动侧表现为"读事件超时"
 	// （2026-09-11 偶发：TestHeadlessEventsStream 约 2% 概率卡满 5s 超时）。
-	subscription := server.app.Subscribe(headlessEventBuffer)
+	subscription := server.deps.Events.Subscribe(headlessEventBuffer)
 	defer subscription.Close()
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "no-cache")

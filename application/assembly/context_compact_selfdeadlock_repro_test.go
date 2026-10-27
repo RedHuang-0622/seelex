@@ -1,41 +1,41 @@
 package assembly
 
-// 复现（二）：**自锁**——同一条 goroutine 在持有 Core.ViewMu 写锁时，又在锁内取
-// 同一把锁的读锁。
-//
-// 链路（每一跳都是生产接线，不是假想）：
-//
-//	prepareExecutionContextFor                       （coordinator.go:664 起持写锁）
-//	  └─ c.ViewMu.Lock()                             ← 写锁落在执行这条压缩的 goroutine 上
-//	       └─ c.pushCompactionFrame                  （coordinator.go:721，仍在临界区内）
-//	            └─ CompactionIndexPort.PushCompactionFrame(context.Background(), …)
-//	                 （context_runtime/compaction_index.go:68 —— ctx 是 Background）
-//	                 └─ adapters.RuntimePort.PushCompactionFrame（只转发）
-//	                      └─ assemble.Runtime.PushCompactionFrame
-//	                           └─ CompressedTurnArchiver.StoreTurn(ctx, …)（归档原文）
-//	                                ├─ sessionIDFromContext(ctx) == ""   ← Background 不带会话
-//	                                └─ a.SessionIDProvider()             ← 兜底会话归属
-//	                                     └─ wiring/bootstrap 的 TurnArchiver.SessionIDProvider `app.Snapshot().Session.ID`
-//	                                          └─ view_state.Coordinator.SnapshotView
-//	                                               └─ ViewMu.RLock()  ← 同 goroutine 再取读锁
-//
-// sync.RWMutex 不可重入：持写锁者再取读锁 = 永久阻塞（不是排队、没有超时、外部
-// 取消也进不来）。于是从 replace 关（进度条 3/7）起整个交互面永久冻结：
-//
-//	/compact 的 RPC 永不返回 → GUI 的 `await invoke(...)` 不返回 → 输入框留着 `/compact`；
-//	Snapshot 永不返回 → 会话切不动、会话列表与右栏不再刷新；
-//	Submit 的第一步（ViewMu.RLock）永不返回 → 消息连队列都进不去。
-//
-// 触发条件是「压缩折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
-// —— 生产装配（wiring/bootstrap 的 CompressedTurnArchiver 接线 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
-// 进程里是**确定性**自锁，不是概率事件，与是否打开 context_compaction_summary 无关
-// （打开时只是在自锁之前多跑一次模型调用）。
-
 import (
 	"context"
-	types "github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/types"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	"github.com/RedHuang-0622/seelex/contract"
+
+	// 复现（二）：**自锁**——同一条 goroutine 在持有 Core.ViewMu 写锁时，又在锁内取
+	// 同一把锁的读锁。
+	//
+	// 链路（每一跳都是生产接线，不是假想）：
+	//
+	//	prepareExecutionContextFor                       （coordinator.go:664 起持写锁）
+	//	  └─ c.ViewMu.Lock()                             ← 写锁落在执行这条压缩的 goroutine 上
+	//	       └─ c.pushCompactionFrame                  （coordinator.go:721，仍在临界区内）
+	//	            └─ CompactionIndexPort.PushCompactionFrame(context.Background(), …)
+	//	                 （context_runtime/compaction_index.go:68 —— ctx 是 Background）
+	//	                 └─ adapters.RuntimePort.PushCompactionFrame（只转发）
+	//	                      └─ assemble.Runtime.PushCompactionFrame
+	//	                           └─ CompressedTurnArchiver.StoreTurn(ctx, …)（归档原文）
+	//	                                ├─ sessionIDFromContext(ctx) == ""   ← Background 不带会话
+	//	                                └─ a.SessionIDProvider()             ← 兜底会话归属
+	//	                                     └─ wiring/bootstrap 的 TurnArchiver.SessionIDProvider `app.Snapshot().Session.ID`
+	//	                                          └─ view_state.Coordinator.SnapshotView
+	//	                                               └─ ViewMu.RLock()  ← 同 goroutine 再取读锁
+	//
+	// sync.RWMutex 不可重入：持写锁者再取读锁 = 永久阻塞（不是排队、没有超时、外部
+	// 取消也进不来）。于是从 replace 关（进度条 3/7）起整个交互面永久冻结：
+	//
+	//	/compact 的 RPC 永不返回 → GUI 的 `await invoke(...)` 不返回 → 输入框留着 `/compact`；
+	//	Snapshot 永不返回 → 会话切不动、会话列表与右栏不再刷新；
+	//	Submit 的第一步（ViewMu.RLock）永不返回 → 消息连队列都进不去。
+	//
+	// 触发条件是「压缩折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
+	// —— 生产装配（wiring/bootstrap 的 CompressedTurnArchiver 接线 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
+	// 进程里是**确定性**自锁，不是概率事件，与是否打开 context_compaction_summary 无关
+	// （打开时只是在自锁之前多跑一次模型调用）。
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/store"
@@ -110,7 +110,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 		// 与 wiring/bootstrap 的 TurnArchiver.SessionIDProvider 同形：归档器的兜底会话归属读的是视图快照。
 		SessionIDProvider: func() string {
 			providerOnce.Do(func() { close(providerEntered) })
-			return serviceRef.Snapshot().Session.ID
+			return serviceRef.components.frontendSnapshot.Snapshot().Session.ID
 		},
 	}
 	runtime := &productionArchiveIndexRuntime{
@@ -119,7 +119,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 		},
 		archiver: archiver,
 	}
-	// 直接构造而不走 newTestService：后者的 t.Cleanup(frontendOfTestService(service).Shutdown) 也要取
+	// 直接构造而不走 newTestService：后者的 t.Cleanup(service.components.lifecycleApplication.Shutdown) 也要取
 	// ViewMu，一旦复现出自锁就会连清理一起挂死（测试进程永不退出）。被冻住的
 	// goroutine 只持有本用例私有 service 的锁，是本用例要留下的事实。
 	service := mustNew(t, contract.Dependencies{
@@ -135,9 +135,9 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	service.components.tasks.BeginTask("task-selflock", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-selflock")
-	sessionID := service.Snapshot().Session.ID
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	subscription, err := service.SubscribeSession(sessionID, 256)
+	subscription, err := service.components.view.SubscribeSession(sessionID, 256)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	// 用户按回车提交 `/compact`：与 GUI 同一条 RPC 链路。
 	commandReturned := make(chan struct{})
 	go func() {
-		_ = service.Submit(context.Background(), "/compact")
+		_ = service.components.submission.Submit(context.Background(), "/compact")
 		close(commandReturned)
 	}()
 
@@ -171,12 +171,12 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 			"/compact 提交 3s 未返回（GUI 因此不清空输入框）",
 			"归档 commit 数=" + strconv.Itoa(commits.commitCount()) + "（自锁发生在写盘之前）",
 		}
-		if returnsWithin(time.Second, func() { _ = service.Snapshot() }) {
+		if returnsWithin(time.Second, func() { _ = service.components.frontendSnapshot.Snapshot() }) {
 			evidence = append(evidence, "快照仍可读（与自锁结论矛盾，请复核）")
 		} else {
 			evidence = append(evidence, "Snapshot 1s 未返回（会话切换/列表刷新被冻）")
 		}
-		if returnsWithin(time.Second, func() { _ = service.Submit(context.Background(), "hello") }) {
+		if returnsWithin(time.Second, func() { _ = service.components.submission.Submit(context.Background(), "hello") }) {
 			evidence = append(evidence, "新消息仍可提交（与自锁结论矛盾，请复核）")
 		} else {
 			evidence = append(evidence, "新消息 1s 未进队列（Submit 第一步就取 ViewMu.RLock）")
@@ -185,10 +185,10 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	}
 
 	// 走到这里说明自锁已不存在：交互面必须保持可用，且归档必须真的落盘。
-	if !returnsWithin(3*time.Second, func() { _ = service.Snapshot() }) {
+	if !returnsWithin(3*time.Second, func() { _ = service.components.frontendSnapshot.Snapshot() }) {
 		t.Fatal("压缩期间快照被冻住（会话切不动）")
 	}
-	if !returnsWithin(3*time.Second, func() { _ = service.Submit(context.Background(), "hello") }) {
+	if !returnsWithin(3*time.Second, func() { _ = service.components.submission.Submit(context.Background(), "hello") }) {
 		t.Fatal("压缩期间新消息提交不返回")
 	}
 	if got := commits.commitCount(); got != 1 {

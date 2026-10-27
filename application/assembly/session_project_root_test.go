@@ -88,7 +88,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	if _, err := workspaces.Create("A", rootA, ""); err != nil {
 		t.Fatal(err)
@@ -98,39 +98,39 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 
 	// 会话 A：绑定项目 A 并跑一轮，成为已加载（后台可并行）会话。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-a"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "A 的第一轮"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "A 的第一轮"); err != nil {
 		t.Fatal(err)
 	}
 	waitSessionIdle(t, service)
-	sessionA := service.Snapshot().Session.ID
+	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 	if sessionA == "" {
 		t.Fatal("会话 A 未物化")
 	}
 
 	// 视图切到项目 B 的新会话：进程级工具根随之指向 B。
-	if err := frontendOfTestService(service).BeginNewSession(); err != nil {
+	if err := service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(service).BindWorkspace("project-b"); err != nil {
+	if err := service.components.workspace.BindWorkspace("project-b"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Submit(context.Background(), "B 的第一轮"); err != nil {
+	if err := service.components.submission.Submit(context.Background(), "B 的第一轮"); err != nil {
 		t.Fatal(err)
 	}
 	waitSessionIdle(t, service)
-	sessionB := service.Snapshot().Session.ID
+	sessionB := service.components.frontendSnapshot.Snapshot().Session.ID
 	if runtime.ProjectRoot() != rootB {
 		t.Fatalf("前置条件不成立：进程级工具根 = %q, want %q（视图会话 B 的项目）", runtime.ProjectRoot(), rootB)
 	}
 
 	// 后台为会话 A 续跑：工具根必须还是 A 自己的项目。
-	if err := service.SubmitToSession(context.Background(), sessionA, "A 的续跑"); err != nil {
+	if err := service.components.submitApplication.SubmitToSession(context.Background(), sessionA, "A 的续跑"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	waitSessionIdle(t, service)
@@ -148,7 +148,7 @@ func waitSessionIdle(t *testing.T, service *Service) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(ctx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(ctx); err != nil {
 		t.Fatalf("等待回合结束: %v", err)
 	}
 }

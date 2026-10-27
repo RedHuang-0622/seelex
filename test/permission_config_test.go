@@ -3,15 +3,14 @@ package test
 import (
 	"context"
 	"errors"
-	"github.com/RedHuang-0622/seelex/backend/limit/policy"
-	"testing"
-
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	"testing"
 )
 
 // permission_config_test.go — 权责系统的装配验收：默认配置 + config/seele.yaml 合并后，

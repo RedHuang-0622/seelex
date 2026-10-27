@@ -21,9 +21,10 @@ import (
 // 按执行面的词判，谁要是拿可见面的词去喂它，永远判否。
 //
 // 这一条用例把判据钉在**同格一个词**上：同一个在飞回合，可见面与存档面必须说同一个词。
+
 func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	defer frontendOfTestService(service).Shutdown()
+	defer service.components.lifecycleApplication.Shutdown()
 
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
@@ -35,7 +36,7 @@ func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T) {
 	// **不要**在持有 `ViewMu.RLock()` 时调 `Snapshot()`：`sync.RWMutex` 不可重入——目录刷新
 	// worker 在 `Coordinator.publishCatalogMirror` 里排队等写锁时，嵌套的 RLock 会永久阻塞
 	// （P20 现场：3 并发跑本包，第一轮就挂死在这个嵌套上）。
-	visible := service.Snapshot().Task
+	visible := service.components.frontendSnapshot.Snapshot().Task
 	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
 	service.ViewMu.RUnlock()

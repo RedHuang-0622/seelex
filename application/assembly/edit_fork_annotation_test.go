@@ -1,6 +1,8 @@
 package assembly
 
 import (
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,8 +11,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestEditForkAnnotationRulesAreCentralized(t *testing.T) {
@@ -19,10 +19,10 @@ func TestEditForkAnnotationRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 editForkAnnotation")
 	}
-	if field.Type != reflect.TypeOf((*editForkAnnotation)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationedit.AnnotationApplication)(nil)) {
 		t.Fatalf("editForkAnnotation 字段类型 = %s", field.Type)
 	}
-	annotationType := reflect.TypeOf((*editForkAnnotation)(nil))
+	annotationType := reflect.TypeOf((*applicationedit.AnnotationApplication)(nil))
 	if _, ok := annotationType.MethodByName("Annotate"); !ok {
 		t.Fatal("editForkAnnotation 缺少 Annotate")
 	}
@@ -56,18 +56,19 @@ func TestEditForkAnnotationRulesAreCentralized(t *testing.T) {
 }
 
 func TestEditForkAnnotationBackfillsSeqAndMarksEditable(t *testing.T) {
-	component := newEditForkAnnotation(editForkAnnotationDeps{
-		Input: func(sessionID string) editForkAnnotationInput {
+	component := applicationedit.NewAnnotation(applicationedit.AnnotationDeps{
+		Input: func(sessionID string) applicationedit.AnnotationInput {
 			if sessionID != "session-a" {
 				t.Fatalf("input session = %q", sessionID)
 			}
-			return editForkAnnotationInput{
+			return applicationedit.AnnotationInput{
 				Transcript: []model.TranscriptEvent{
 					{Role: "user", MessageID: "m1", Seq: 4},
 				},
 				Floor: 3, HasWindow: true,
 			}
 		},
+		IsUserText: func(message model.Message) bool { return message.Role == "user" },
 	})
 	messages := []model.Message{
 		{ID: "m1", Role: "user", Content: "editable"},
@@ -90,19 +91,20 @@ func TestEditForkAnnotationBackfillsSeqAndMarksEditable(t *testing.T) {
 func TestEditForkAnnotationExplainsDisabledReasons(t *testing.T) {
 	tests := []struct {
 		name    string
-		input   editForkAnnotationInput
+		input   applicationedit.AnnotationInput
 		running bool
 		text    string
 	}{
-		{name: "running", input: editForkAnnotationInput{HasWindow: true}, running: true, text: editForkRunning},
-		{name: "missing", input: editForkAnnotationInput{HasWindow: true}, text: editForkMissingSeq},
-		{name: "no-window", input: editForkAnnotationInput{Transcript: []model.TranscriptEvent{{Role: "user", MessageID: "m1", Seq: 4}}}, text: editForkNoWindow},
-		{name: "compressed", input: editForkAnnotationInput{Transcript: []model.TranscriptEvent{{Role: "user", MessageID: "m1", Seq: 4}}, Floor: 5, HasWindow: true}, text: editForkCompressed},
+		{name: "running", input: applicationedit.AnnotationInput{HasWindow: true}, running: true, text: editForkRunning},
+		{name: "missing", input: applicationedit.AnnotationInput{HasWindow: true}, text: editForkMissingSeq},
+		{name: "no-window", input: applicationedit.AnnotationInput{Transcript: []model.TranscriptEvent{{Role: "user", MessageID: "m1", Seq: 4}}}, text: editForkNoWindow},
+		{name: "compressed", input: applicationedit.AnnotationInput{Transcript: []model.TranscriptEvent{{Role: "user", MessageID: "m1", Seq: 4}}, Floor: 5, HasWindow: true}, text: editForkCompressed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			component := newEditForkAnnotation(editForkAnnotationDeps{
-				Input: func(string) editForkAnnotationInput { return test.input },
+			component := applicationedit.NewAnnotation(applicationedit.AnnotationDeps{
+				Input:      func(string) applicationedit.AnnotationInput { return test.input },
+				IsUserText: func(message model.Message) bool { return message.Role == "user" },
 			})
 			annotated := component.Annotate("session-a", []model.Message{{ID: "m1", Role: "user", Content: "input"}}, test.running)
 			if annotated[0].Editable || !strings.Contains(annotated[0].EditDisabledReason, test.text) {

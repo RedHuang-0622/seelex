@@ -1,33 +1,33 @@
 package assembly
 
-// S2 靶场：**切换项目**之后的跨项目工作表格污染（请求尾部打点块）。
-//
-// 症状（红灯复现，见 TestProjectSwitchDoesNotInjectForeignWorkTableRows）：
-// 会话 A 绑定项目 A 并在实时注册表里带着活动任务；用户切到项目 B 时，绑定路径
-// （workspace_usecase.go 的 bindWorkspaceInfo，startFreshSession 分支）新建并
-// 激活了一条独立会话，但**没有像 /new、热挂载、冷恢复、冷加载那样调用
-// SwitchSessionTasks**——于是注册表指针仍停在项目 A 的会话上。项目 B 新会话的
-// 首轮请求装配时，workTableTraceBlockFor(新会话) 走「视图会话 = 实时注册表」
-// 那一条读面，把项目 A 的活动任务行前置进 currentInput：项目 B 的上下文里出现
-// 别的项目的打点（跨项目上下文污染），而新会话自己的行（没有）当然也看不到。
-//
-// 与压缩时机的关系（两条装配路径都要复现，见 ...AcrossCompaction）：
-//   ① 未压缩装配：块直接前置进首轮请求（污染原样发给 provider）；
-//   ② 压缩时机：块的注入在压缩判据**之前**（coordinator.go 里先拼 currentInput
-//      再算 rawTokens / 压缩），所以污染同时进判据量、进压缩后的请求——压缩
-//      不会把它洗掉，下一轮装配照样重新拼一遍（污染按轮持续）。
-//
-// 边界（本靶场刻意钉住，避免"修成另一个 bug"）：
-//   - 工作表格本体是**项目/全局台账**，切项目不得让旧项目的行从表里消失
-//     （TestProjectSwitchKeepsForeignRowsInLedger）；
-//   - 打点块是**会话级实发面**，只含「正在组装这个请求的会话」自己的行。
-
 import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+
+	// S2 靶场：**切换项目**之后的跨项目工作表格污染（请求尾部打点块）。
+	//
+	// 症状（红灯复现，见 TestProjectSwitchDoesNotInjectForeignWorkTableRows）：
+	// 会话 A 绑定项目 A 并在实时注册表里带着活动任务；用户切到项目 B 时，绑定路径
+	// （workspace_usecase.go 的 bindWorkspaceInfo，startFreshSession 分支）新建并
+	// 激活了一条独立会话，但**没有像 /new、热挂载、冷恢复、冷加载那样调用
+	// SwitchSessionTasks**——于是注册表指针仍停在项目 A 的会话上。项目 B 新会话的
+	// 首轮请求装配时，workTableTraceBlockFor(新会话) 走「视图会话 = 实时注册表」
+	// 那一条读面，把项目 A 的活动任务行前置进 currentInput：项目 B 的上下文里出现
+	// 别的项目的打点（跨项目上下文污染），而新会话自己的行（没有）当然也看不到。
+	//
+	// 与压缩时机的关系（两条装配路径都要复现，见 ...AcrossCompaction）：
+	//   ① 未压缩装配：块直接前置进首轮请求（污染原样发给 provider）；
+	//   ② 压缩时机：块的注入在压缩判据**之前**（coordinator.go 里先拼 currentInput
+	//      再算 rawTokens / 压缩），所以污染同时进判据量、进压缩后的请求——压缩
+	//      不会把它洗掉，下一轮装配照样重新拼一遍（污染按轮持续）。
+	//
+	// 边界（本靶场刻意钉住，避免"修成另一个 bug"）：
+	//   - 工作表格本体是**项目/全局台账**，切项目不得让旧项目的行从表里消失
+	//     （TestProjectSwitchKeepsForeignRowsInLedger）；
+	//   - 打点块是**会话级实发面**，只含「正在组装这个请求的会话」自己的行。
 	"strings"
 	"testing"
 )
@@ -59,7 +59,7 @@ func newProjectSwitchHarness(t *testing.T) *projectSwitchHarness {
 		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
-	t.Cleanup(frontendOfTestService(service).Shutdown)
+	t.Cleanup(service.components.lifecycleApplication.Shutdown)
 	if _, err := workspaces.Create("A", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -73,17 +73,17 @@ func newProjectSwitchHarness(t *testing.T) *projectSwitchHarness {
 // 活动任务放进实时注册表——它就是"不该被带到项目 B"的那一行。
 func (harness *projectSwitchHarness) enterProjectA(t *testing.T) {
 	t.Helper()
-	if err := frontendOfTestService(harness.service).BeginNewSession(); err != nil {
+	if err := harness.service.components.sessionDraftEntry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := frontendOfTestService(harness.service).BindWorkspace("project-a"); err != nil {
+	if err := harness.service.components.workspace.BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := harness.service.Submit(context.Background(), "A 的第一轮"); err != nil {
+	if err := harness.service.components.submission.Submit(context.Background(), "A 的第一轮"); err != nil {
 		t.Fatal(err)
 	}
 	waitSessionIdle(t, harness.service)
-	harness.sessionA = harness.service.Snapshot().Session.ID
+	harness.sessionA = harness.service.components.frontendSnapshot.Snapshot().Session.ID
 	if harness.sessionA == "" {
 		t.Fatal("会话 A 未物化")
 	}
@@ -97,11 +97,11 @@ func (harness *projectSwitchHarness) enterProjectA(t *testing.T) {
 // switchToProjectB 触发项目切换（startFreshSession：新建独立会话）。
 func (harness *projectSwitchHarness) switchToProjectB(t *testing.T) {
 	t.Helper()
-	if err := frontendOfTestService(harness.service).BindWorkspace("project-b"); err != nil {
+	if err := harness.service.components.workspace.BindWorkspace("project-b"); err != nil {
 		t.Fatal(err)
 	}
 	waitSessionIdle(t, harness.service)
-	harness.sessionB = harness.service.Snapshot().Session.ID
+	harness.sessionB = harness.service.components.frontendSnapshot.Snapshot().Session.ID
 	if harness.sessionB == "" || harness.sessionB == harness.sessionA {
 		t.Fatalf("项目切换应新建独立会话（否则这条用例没有判别力）：A=%q B=%q",
 			harness.sessionA, harness.sessionB)
@@ -136,14 +136,14 @@ func TestProjectSwitchDoesNotInjectForeignWorkTableRows(t *testing.T) {
 	harness.enterProjectA(t)
 
 	// 前置：项目 A 自己的会话看得到自己的行（合法），否则"污染"无从谈起。
-	if block := harness.service.workTableTraceBlockFor(harness.sessionA); !strings.Contains(block, foreignTaskLabel) {
+	if block := harness.service.components.workTableRuntime.TraceBlockFor(harness.sessionA); !strings.Contains(block, foreignTaskLabel) {
 		t.Fatalf("前置不成立：项目 A 自己那一轮的打点块应含自建任务：%q", block)
 	}
 
 	harness.switchToProjectB(t)
 
 	// ①a 数据面：新会话（没有任何自己的条目）的打点块必须为空。
-	if block := harness.service.workTableTraceBlockFor(harness.sessionB); block != "" {
+	if block := harness.service.components.workTableRuntime.TraceBlockFor(harness.sessionB); block != "" {
 		t.Errorf("跨项目工作表格污染：项目 A 的活动任务进了项目 B 会话 %q 的打点块：\n%s",
 			harness.sessionB, block)
 	}
@@ -209,7 +209,7 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	if strings.Contains(next, foreignTaskLabel) {
 		t.Errorf("跨项目工作表格污染（压缩后）：压缩之后仍把项目 A 的行拼进项目 B 的请求输入：\n%s", next)
 	}
-	if block := harness.service.workTableTraceBlockFor(harness.sessionB); block != "" {
+	if block := harness.service.components.workTableRuntime.TraceBlockFor(harness.sessionB); block != "" {
 		t.Errorf("跨项目工作表格污染（压缩后数据面）：新会话打点块非空：\n%s", block)
 	}
 }
@@ -292,13 +292,13 @@ func TestProjectSwitchWithoutFreshSessionKeepsOwnRows(t *testing.T) {
 	harness := newProjectSwitchHarness(t)
 	harness.enterProjectA(t)
 
-	if err := frontendOfTestService(harness.service).BindWorkspace("project-a"); err != nil {
+	if err := harness.service.components.workspace.BindWorkspace("project-a"); err != nil {
 		t.Fatal(err)
 	}
-	if got := harness.service.Snapshot().Session.ID; got != harness.sessionA {
+	if got := harness.service.components.frontendSnapshot.Snapshot().Session.ID; got != harness.sessionA {
 		t.Fatalf("重复绑定同一项目不应新建会话：会话 = %q, want %q", got, harness.sessionA)
 	}
-	block := harness.service.workTableTraceBlockFor(harness.sessionA)
+	block := harness.service.components.workTableRuntime.TraceBlockFor(harness.sessionA)
 	if !strings.Contains(block, foreignTaskLabel) {
 		t.Fatalf("同会话自己的活动任务应留在打点块里：%q", block)
 	}

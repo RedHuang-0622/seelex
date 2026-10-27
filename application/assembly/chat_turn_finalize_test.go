@@ -3,6 +3,9 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,9 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
-	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestChatTurnFinalizeRulesAreCentralized(t *testing.T) {
@@ -21,10 +21,10 @@ func TestChatTurnFinalizeRulesAreCentralized(t *testing.T) {
 	if !ok {
 		t.Fatal("serviceComponents 未装配 conversationTurnFinalize")
 	}
-	if field.Type != reflect.TypeOf((*conversationTurnFinalize)(nil)) {
+	if field.Type != reflect.TypeOf((*applicationconversation.TurnFinalizeApplication)(nil)) {
 		t.Fatalf("conversationTurnFinalize 字段类型 = %s", field.Type)
 	}
-	finalizeType := reflect.TypeOf((*conversationTurnFinalize)(nil))
+	finalizeType := reflect.TypeOf((*applicationconversation.TurnFinalizeApplication)(nil))
 	if _, ok := finalizeType.MethodByName("Finalize"); !ok {
 		t.Fatal("conversationTurnFinalize 缺少 Finalize")
 	}
@@ -68,7 +68,7 @@ func TestConversationTurnFinalizeMapsCommitToPublication(t *testing.T) {
 	turnErr := errors.New("turn failed")
 	var gotLocation session_runtime.Location
 	var gotPublication chatTurnPublication
-	finalize := newConversationTurnFinalize(conversationTurnFinalizeDeps{
+	finalize := applicationconversation.NewTurnFinalize(applicationconversation.TurnFinalizeDeps{
 		TailComplete: func(got session_runtime.Location, publication chatTurnPublication, nextContext context.Context) {
 			gotLocation = got
 			gotPublication = publication
@@ -93,7 +93,7 @@ func TestConversationTurnFinalizeMapsCommitToPublication(t *testing.T) {
 }
 
 func TestConversationTurnFinalizeIgnoresStaleCommit(t *testing.T) {
-	finalize := newConversationTurnFinalize(conversationTurnFinalizeDeps{
+	finalize := applicationconversation.NewTurnFinalize(applicationconversation.TurnFinalizeDeps{
 		TailComplete: func(session_runtime.Location, chatTurnPublication, context.Context) {
 			t.Fatal("stale commit 不得发布或启动 tail")
 		},

@@ -10,6 +10,7 @@ import (
 
 // streamCallsFor 读引擎在某会话上的 ChatStreamFor 调用次数（加锁；ChatStreamFor
 // 在后台 goroutine 里写同一张表，直接读字段是数据竞争）。
+
 func (engine *multiSessionEngine) streamCallsFor(sessionID string) int {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
@@ -72,7 +73,7 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 	ctx := context.Background()
 
 	// ① A 运行中（引擎回合保持未释放）。
-	if err := service.Submit(ctx, "task in flight"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task in flight"); err != nil {
 		t.Fatalf("submit A: %v", err)
 	}
 	aID := engine.SessionID()
@@ -82,17 +83,17 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 	gated.armMu.Lock()
 	gated.armed = true
 	gated.armMu.Unlock()
-	if err := frontendOfTestService(service).ResumeSession("sess-cold"); err != nil {
+	if err := service.components.sessionResume.Resume("sess-cold"); err != nil {
 		t.Fatalf("ResumeSession(cold B): %v", err)
 	}
 	<-gated.entered
-	shell := service.Snapshot()
+	shell := service.components.frontendSnapshot.Snapshot()
 	if shell.Session.ID != "sess-cold" || shell.Session.Status != SessionStatusRestoring {
 		t.Fatalf("shell = %s/%s, want sess-cold/restoring", shell.Session.ID, shell.Session.Status)
 	}
 
 	// ③ restoring 窗口内提交：受理（延后），但装载完成前不得开回合。
-	if err := service.Submit(ctx, "typed while restoring"); err != nil {
+	if err := service.components.submission.Submit(ctx, "typed while restoring"); err != nil {
 		t.Fatalf("Submit during restoring = %v, want nil（延后受理，不丢输入）", err)
 	}
 	if calls := engine.streamCallsFor("sess-cold"); calls != 0 {
@@ -143,7 +144,7 @@ func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T) {
 	engine.releaseSession("sess-cold")
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }
@@ -159,7 +160,7 @@ func TestSubmitToSessionDefersUntilRestoreCompletes(t *testing.T) {
 	engine, gated, service := coldRestoreFixture(t)
 	ctx := context.Background()
 
-	if err := service.Submit(ctx, "task A"); err != nil {
+	if err := service.components.submission.Submit(ctx, "task A"); err != nil {
 		t.Fatalf("submit A: %v", err)
 	}
 	aID := engine.SessionID()
@@ -170,7 +171,7 @@ func TestSubmitToSessionDefersUntilRestoreCompletes(t *testing.T) {
 	gated.armMu.Unlock()
 
 	accepted := make(chan error, 1)
-	go func() { accepted <- service.SubmitToSession(ctx, "sess-cold", "task B") }()
+	go func() { accepted <- service.components.submitApplication.SubmitToSession(ctx, "sess-cold", "task B") }()
 	select {
 	case err := <-accepted:
 		if err != nil {
@@ -208,7 +209,7 @@ func TestSubmitToSessionDefersUntilRestoreCompletes(t *testing.T) {
 	engine.releaseSession(aID)
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := frontendOfTestService(service).WaitForIdle(waitCtx); err != nil {
+	if err := service.components.lifecycleApplication.WaitForIdle(waitCtx); err != nil {
 		t.Fatalf("wait idle: %v", err)
 	}
 }
