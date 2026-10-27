@@ -596,6 +596,16 @@ go build ./...   PASS
 go vet ./...   PASS
 ```
 
+M7 正式验收命令已于 2026-10-28 01:55 整体 PASS：
+
+```text
+go test ./store/... ./backend/engine/context/... ./backend/engine/assemble/... ./test/ -count=1
+```
+
+四条上下文所有权门禁、普通/tagged build 与全仓 vet 也均 PASS。按仓库外部变更
+协议，M7 仍保留“进行中”状态，待补齐跨 store consumer 批次的 manifest、脚本、
+dry-run/apply 与 rollback 证据后才能改为“已完成”。
+
 `CompactStackSnapshot` 的深拷贝由 `TestSessionContextStoreCompactStackSnapshotIsDeepCopy`
 钉住。Plan/Task 仍由 `GapCoverageDeps.Record` 提供给本地压缩摘要；该次要投影
 尚未收缩，不能把本切片误报为 M7 完成。

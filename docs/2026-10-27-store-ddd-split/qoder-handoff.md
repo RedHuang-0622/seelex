@@ -1,7 +1,11 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0–M6 已完成，M7 进行中；wire 纯装配状态机与压缩栈窄读面已下沉，
-当前工作树有尚未提交的 M7 wire/read-face 切片。
+状态快照：M0–M6 已完成，M7 进行中；wire 纯装配、压缩/prompt 窄投影与
+context fork 重写均已下沉并分片提交。
+
+截至 2026-10-28 01:55，M7 正式验收测试、四条 ownership gate、普通/tagged build
+与全仓 vet 均 PASS；但外部 consumer 批次的 manifest/script/dry-run 证据尚未补齐，
+因此进度台账仍将 M7 标为进行中。
 
 工作区：`G:\seelex-worktrees\store-ddd-M6`
 
