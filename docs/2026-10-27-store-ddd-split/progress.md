@@ -15,7 +15,7 @@
 | M2 | layout 内核 | 已完成 | 见 §2.6 |
 | M3 | Artifact | 已完成 | 见 §2.7 |
 | M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
-| M5 | Session 核心 | 未开始 | — |
+| M5 | Session 核心 | 进行中 | 首个分片/草稿尾切片已完成，见 §2.9 |
 | M6 | Session 状态机 | 未开始 | — |
 | M7 | Context | 未开始 | — |
 | M8 | Teamwork | 未开始 | — |
@@ -371,6 +371,46 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - ProviderHistory/State 继续不落盘；fork 后栈重建顺序保持在快照提交之后。
 - 没有引入跨通道原子事务；message 已发布后 compaction 失败仍保留 M0 语义。
 
+## 2.9 M5：Session 核心（进行中）
+
+### 2.9.1 已完成切片
+
+`store/session` 已承接：
+
+- message/event 分片文件名的唯一格式与解析；
+- `PendingTailReport` 的 wire/状态词表；
+- 草稿尾连续性与重复 seq 分类。
+
+根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名与分类只保留
+单层转发。M5 尚未完成：message/event head 发布、全文读写、draft tail 推进与
+`SessionGranularStore` 收缩仍待后续切片，因此本里程碑不标记完成。
+
+### 2.9.2 红测
+
+```text
+go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
+--- FAIL: store/session/session.go 尚未落位
+```
+
+通过后：
+
+```text
+go test ./store/session -count=1
+go test ./store -run 'Pending|Draft|Event|Message|Head' -count=1
+go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
+```
+
+### 2.9.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/pending_tail.go` 的 `PendingTailReport` 与状态常量 | `store/session.PendingTailReport` 与常量 |
+| `store/pending_tail.go` 的连续性/重复 seq 判据 | `store/session.ClassifyPendingTail` |
+| `store/message_rows.go` 的 message 分片名生成/解析 | `store/session.MessageShardName/ParseMessageShardName` |
+| `store/structural_events.go` 的 event 分片名生成/解析 | `store/session.EventShardName/ParseEventShardName` |
+
+数据路径与 JSON tag 零变化。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -493,5 +533,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M5：Session 核心，按 `milestones.md` §9 迁 message/event/head/draft-tail；
-根 Router/SessionGranularStore 仅保留迁移期转发，冷读和 M0 写序矩阵持续回归。
+继续 M5：把 message/event head 发布与 message 全文读写迁入 `store/session`，
+再将 draft-tail 推进编排下沉；根 Router/SessionGranularStore 仅保留迁移期转发。

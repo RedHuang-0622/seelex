@@ -32,6 +32,7 @@ import (
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // messageHead 是 metadata/message.json 的 payload：head/水位 + 分片索引。
@@ -161,7 +162,7 @@ func (store *storeEngine) messageDir(key Key) string {
 
 // shardPath 返回 message 分片文件路径（显式命名：from_to 含端点）。
 func (store *storeEngine) shardPath(key Key, fromSeq, toSeq uint64) string {
-	return filepath.Join(store.messageDir(key), fmt.Sprintf("message_%d_%d.jsonl", fromSeq, toSeq))
+	return filepath.Join(store.messageDir(key), storesession.MessageShardName(fromSeq, toSeq))
 }
 
 // emptyMessageHead 返回空会话 head。
@@ -535,11 +536,8 @@ func (store *storeEngine) reapUnpublishedLocked(key Key, head messageHead) error
 }
 
 func isMessageShardFile(name string) bool {
-	var fromSeq, toSeq uint64
-	if _, err := fmt.Sscanf(name, "message_%d_%d.jsonl", &fromSeq, &toSeq); err != nil {
-		return false
-	}
-	return fromSeq > 0 && toSeq >= fromSeq
+	_, _, ok := storesession.ParseMessageShardName(name)
+	return ok
 }
 
 // truncateMessageRowsAfter 截断 JSONL 文件，保留 seq <= head 的行（先跳过崩溃

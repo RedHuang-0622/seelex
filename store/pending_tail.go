@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // 草稿尾部（seq_draft）—— message 通道里「已 append、head 未发布」的那一段。
@@ -24,35 +26,18 @@ import (
 // seq == head.LastSeq+1，且逐行 +1。任一条件不成立 = 基座断裂：只报告、
 // 不发布、不隐式清理（把决策留给应用，清理走显式丢弃入口）。
 const (
-	// PendingTailClean 无草稿尾部（发布点即物理末行）。
-	PendingTailClean = "clean"
-	// PendingTailRecoverable 基座一致，可安全发布。
-	PendingTailRecoverable = "recoverable"
-	// PendingTailRecovered 本次调用已把草稿尾部发布（L2 恢复完成）。
-	PendingTailRecovered = "recovered"
-	// PendingTailGap 基座断裂：不发布（只能显式丢弃或人工介入）。
-	PendingTailGap = "gap"
-	// PendingTailDiscarded 本次调用已显式清理草稿尾部。
-	PendingTailDiscarded = "discarded"
+	PendingTailClean       = storesession.PendingTailClean
+	PendingTailRecoverable = storesession.PendingTailRecoverable
+	PendingTailRecovered   = storesession.PendingTailRecovered
+	PendingTailGap         = storesession.PendingTailGap
+	PendingTailDiscarded   = storesession.PendingTailDiscarded
 )
 
 // PendingTailReport 是一次草稿尾部探测/恢复的结果快照。
 //
 // Rows 是草稿行正文（按 seq 升序）；ExtraShards 是 head 未索引的分片文件
 // 名（整个文件都是草稿，典型来源：分片滚动后、head 发布前崩溃）。
-type PendingTailReport struct {
-	SessionID   string   `json:"session_id"`
-	Status      string   `json:"status"`
-	HeadSeq     uint64   `json:"head_seq"`
-	TailFrom    uint64   `json:"tail_from,omitempty"`
-	TailTo      uint64   `json:"tail_to,omitempty"`
-	Rows        []Event  `json:"rows,omitempty"`
-	ExtraShards []string `json:"extra_shards,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
-}
-
-// RowCount 返回草稿尾部行数（不含已发布行）。
-func (report PendingTailReport) RowCount() int { return len(report.Rows) }
+type PendingTailReport = storesession.PendingTailReport
 
 // ---------- 探测 ----------
 
@@ -78,8 +63,8 @@ func (store *storeEngine) messageShardFilesLocked(key Key) ([]string, error) {
 		if entry.IsDir() || !isMessageShardFile(entry.Name()) {
 			continue
 		}
-		var from, to uint64
-		if _, err := fmt.Sscanf(entry.Name(), "message_%d_%d.jsonl", &from, &to); err != nil {
+		from, _, ok := storesession.ParseMessageShardName(entry.Name())
+		if !ok {
 			continue
 		}
 		files = append(files, shardFile{name: entry.Name(), from: from})
@@ -145,22 +130,7 @@ func (store *storeEngine) pendingTailLocked(key Key, head messageHead) ([]Event,
 
 // classifyPendingTail 判定草稿尾部的可恢复性（基座校验）。
 func classifyPendingTail(head messageHead, rows []Event, duplicate bool) (string, string) {
-	if len(rows) == 0 {
-		return PendingTailClean, ""
-	}
-	if duplicate {
-		return PendingTailGap, "草稿尾部存在重复 seq（多个分片承载同一 seq）：不发布"
-	}
-	want := head.LastSeq + 1
-	for _, row := range rows {
-		if row.Seq != want {
-			return PendingTailGap, fmt.Sprintf(
-				"草稿尾部与发布点不连续：期望 seq %d，实际 %d（发布点已不被本段独占，只能在一致前缀处截断）",
-				want, row.Seq)
-		}
-		want++
-	}
-	return PendingTailRecoverable, ""
+	return storesession.ClassifyPendingTail(head.LastSeq, rows, duplicate)
 }
 
 // pendingTailReportLocked 是探测的锁内实现。

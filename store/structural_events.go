@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 	"io"
 	"io/fs"
 	"os"
@@ -98,7 +99,7 @@ func (store *storeEngine) structuralEventDir(key Key) string {
 }
 
 func (store *storeEngine) structuralEventShardPath(key Key, fromID, toID uint64) string {
-	return filepath.Join(store.structuralEventDir(key), fmt.Sprintf("event_%d_%d.jsonl", fromID, toID))
+	return filepath.Join(store.structuralEventDir(key), storesession.EventShardName(fromID, toID))
 }
 
 func emptyEventHead(key Key) eventHeadRecord {
@@ -262,11 +263,8 @@ func eventShardSize(path string) (int64, error) {
 }
 
 func isEventShardFile(name string) bool {
-	var fromID, toID uint64
-	if _, err := fmt.Sscanf(name, "event_%d_%d.jsonl", &fromID, &toID); err != nil {
-		return false
-	}
-	return fromID > 0 && toID >= fromID
+	_, _, ok := storesession.ParseEventShardName(name)
+	return ok
 }
 
 // truncateStructuralEventsAfter 截掉崩溃残尾与 event_id > headID 的行，返回
