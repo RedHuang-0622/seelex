@@ -80,3 +80,30 @@ func TestStoreDDDMPromptStackReadFaceGate(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreDDDMContextForkOwnershipGate pins context JSON rewriting in the
+// context domain; session fork may read/write the payload but must not own the
+// record transformation.
+func TestStoreDDDMContextForkOwnershipGate(t *testing.T) {
+	root := repoRoot()
+	owner, err := os.ReadFile(filepath.Join(root, "store", "context", "fork.go"))
+	if err != nil {
+		t.Fatalf("read context fork owner: %v", err)
+	}
+	for _, symbol := range []string{"func ForkState", "func RewriteForkCompactStack"} {
+		if !strings.Contains(string(owner), symbol) {
+			t.Errorf("store/context/fork.go missing %s", symbol)
+		}
+	}
+	consumer, err := os.ReadFile(filepath.Join(root, "kernel", "session", "fork.go"))
+	if err != nil {
+		t.Fatalf("read session fork consumer: %v", err)
+	}
+	text := string(consumer)
+	if !strings.Contains(text, "storecontext.ForkState") {
+		t.Error("kernel/session/fork.go does not call storecontext.ForkState")
+	}
+	if strings.Contains(text, "SessionContextRecord") {
+		t.Error("kernel/session/fork.go still owns SessionContextRecord rewriting")
+	}
+}

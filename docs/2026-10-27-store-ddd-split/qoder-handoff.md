@@ -28,7 +28,8 @@
   `CompactStackSnapshot() []CompactFrame`，不再通过万能 record 读压缩栈。
   Prompt 装配、local compaction、gap coverage 已改用
   `PromptStackSnapshot`；GoalStack/SystemPrompt/schema 等存储字段不再进入该
-  consumer 面。
+  consumer 面。session fork 的 context JSON 重写已迁入
+  `store/context.ForkState`，外部生产代码不再直接解码/改写真 record。
   接手前先检查 `git status --short --branch` 和 `git diff`；该 checkpoint 已提交为
   `cf119696`，随后 `PromptStackSnapshot` 内层投影提交为 `3c23ebf4`；每个后续
   里程碑都必须先全量门禁、再创建只含该里程碑的本地 commit（不 push）。

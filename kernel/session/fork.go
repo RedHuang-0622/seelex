@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // ForkContext 是 fork 落盘所需的子会话数据（深拷贝结果）：Record 是截断后
@@ -542,70 +543,16 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	}
 	payload, err := forkPort.LoadContextStateWorkspace(location.WorkspaceID, parentID)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			data, _ := json.Marshal(store.SessionContextRecord{
-				SchemaVersion: store.SessionContextSchemaVersion,
-				ForkedFrom:    append(json.RawMessage(nil), forkedFrom...),
-			})
-			return data, nil, nil
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
 		}
-		return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
+		payload = nil
 	}
-	var record store.SessionContextRecord
-	if err := json.Unmarshal(payload, &record); err != nil {
-		return nil, nil, fmt.Errorf("session fork: decode parent context: %w", err)
-	}
-	if record.SchemaVersion != store.SessionContextSchemaVersion {
-		return nil, nil, fmt.Errorf("session fork: parent context has unsupported schema version %d (want %d)", record.SchemaVersion, store.SessionContextSchemaVersion)
-	}
-	record.PlanStack = nil
-	record.TaskStack = nil
-	record.GoalStack = nil
-	record.GoalAudit = nil
-	record.ForkedFrom = append(json.RawMessage(nil), forkedFrom...)
-	record.SkillStack = forkContextSkillFrames(record.SkillStack, cutTime)
-	frames := rewriteForkCompactStack(record.CompactStack, cut, cutMessageID)
-	record.CompactStack = frames
-	data, err := json.Marshal(record)
+	data, frames, err := storecontext.ForkState(payload, storecontext.ForkOptions{
+		ForkedFrom: forkedFrom, CutEventSeq: cut, CutTime: cutTime, CutMessageID: cutMessageID,
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("session fork: encode child context: %w", err)
+		return nil, nil, fmt.Errorf("session fork: %w", err)
 	}
 	return data, frames, nil
-}
-
-func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame {
-	result := make([]store.SkillFrame, 0, len(frames))
-	for _, frame := range frames {
-		if frame.ActivatedAt.IsZero() || !frame.ActivatedAt.After(cutTime) {
-			result = append(result, frame)
-		}
-	}
-	return result
-}
-
-// rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
-// （EventTo/MessageTo 到切断点）。EventRevision 保留父修订（标识继承事件
-// 的来源提交，正是"切断点所属版本"）；完全晚于切断点的帧丢弃。
-func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame {
-	result := make([]store.CompactFrame, 0, len(frames))
-	for _, frame := range frames {
-		if frame.EventFrom == 0 && frame.EventTo == 0 {
-			// 旧帧无事件坐标：无可截断依据，保守保留。
-			result = append(result, frame)
-			continue
-		}
-		if frame.EventTo <= cut {
-			result = append(result, frame)
-			continue
-		}
-		if frame.EventFrom > cut {
-			continue
-		}
-		frame.EventTo = cut
-		if cutMessageID != "" {
-			frame.MessageTo = cutMessageID
-		}
-		result = append(result, frame)
-	}
-	return result
 }

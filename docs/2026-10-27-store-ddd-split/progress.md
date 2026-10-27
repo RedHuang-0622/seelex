@@ -499,6 +499,9 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 - `PromptStackSnapshot`：prompt 装配与本地压缩获得只含 Plan/Task/Skill/Compact
   四栈的内层投影；seelectx、kernel context 与装配侧 consumer 已直接切换，
   不再通过 `SessionContextRecord` 读取 prompt/storage 混合字段。
+- `store/context.ForkState`：父 context payload → 独立子会话 payload 的纯重写；
+  session fork 只负责读取、包装错误与写回，不再拥有 `SessionContextRecord`
+  JSON 变换、Skill 过滤或 compact 帧裁剪。
 
 根 `wire_assembler.go` 只把 `Event` 与 attempt cache 映射为 `store/context`
 输入，不再持有装配 switch；`context_state.go` 与 `checkpoint_store.go` 只保留
@@ -585,6 +588,14 @@ go vet ./...
 全量并发门禁中 `TestCommitNotBlockedByFullHistoryRead` 再次因 build/test 同时
 跑而超时；不调整阈值，串行单测与完整 `store/...` 重跑 PASS。
 
+session fork 所有权切片：
+
+```text
+go test ./store/context ./kernel/session ./e2e -run 'Fork|ContextForkOwnership' -count=1   PASS
+go build ./...   PASS
+go vet ./...   PASS
+```
+
 `CompactStackSnapshot` 的深拷贝由 `TestSessionContextStoreCompactStackSnapshotIsDeepCopy`
 钉住。Plan/Task 仍由 `GapCoverageDeps.Record` 提供给本地压缩摘要；该次要投影
 尚未收缩，不能把本切片误报为 M7 完成。
@@ -603,6 +614,9 @@ go vet ./...
 | `seelectx.Render*Blocks(record SessionContextRecord)` | `Render*Blocks(PromptStackSnapshot)` |
 | `CompactionInput.Record / GapCoverageOptions.Record / LocalCompactOptions.Record` | `PromptStackSnapshot` |
 | `GapCoverageDeps.Record func() SessionContextRecord` | `func() PromptStackSnapshot` |
+| `kernel/session.forkContextRecord` 解码/清栈/过滤 Skill/裁剪 Compact | `store/context.ForkState` |
+| `kernel/session.forkContextSkillFrames` | `store/context.forkSkillFrames`（私有） |
+| `kernel/session.rewriteForkCompactStack` | `store/context.RewriteForkCompactStack` |
 
 本切片没有新增 God receiver 方法：`Router`、`jsonRepository`、`storeEngine`、
 `SessionGranularStore` 方法集合均未增长。路径、JSON tag、head、watermark、

@@ -17,6 +17,7 @@
 
 - `context.go`：opaque context blob 的唯一路径与读写实现。
 - `wire.go`、`wire_engine.go`：provider wire 类型、预算与纯装配状态机。
+- `fork.go`：父 context payload 到独立子会话 payload 的纯重写。
 - `stacks.go`、`compact.go`、`operations.go`：栈词表、边界的唯一判据。
 - `context_test.go`、`wire_engine_test.go`：wire 身份、装配、修复与稳定性。
 
@@ -76,6 +77,18 @@ go test ./store -run 'Context|Checkpoint|Wire' -count=1
 - `func TestAppendCompactChain(t *testing.T)`
 - `func TestWireParamsAndResultWire(t *testing.T)`
 - `func TestContextOperationValidation(t *testing.T)`
+
+### fork.go
+
+- `func ForkState(payload []byte, opts ForkOptions) ([]byte, []CompactFrame, error)` — ForkState 把父 context payload 重写为独立子会话 payload，并返回重写后的
+- `func forkSkillFrames(frames []SkillFrame, cutTime time.Time) []SkillFrame`
+- `func RewriteForkCompactStack(frames []CompactFrame, cut uint64, cutMessageID string) []CompactFrame` — RewriteForkCompactStack 在分叉点裁剪继承的 compact frames：无事件坐标的旧帧
+
+### fork_test.go
+
+- `func TestForkStateCreatesEmptyChild(t *testing.T)`
+- `func TestForkStateFiltersSkillsAndRewritesCompactFrames(t *testing.T)`
+- `func TestForkStateRejectsCorruptOrUnsupportedParent(t *testing.T)`
 
 ### operations.go
 
