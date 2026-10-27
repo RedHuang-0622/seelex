@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "milestone": "M1",
+  "execution": {
+    "worktree_branch": "codex/store-ddd-M1",
+    "base_commit": "6c0545fdbb1e007bff4e914431ac7c7eb54fb716",
+    "checkpoint_commit": ""
+  },
+  "checkpoint": {
+    "commit": "",
+    "created_at": "2026-10-27T00:00:00Z"
+  },
+  "providers": [
+    {
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "symbols": ["Router", "ProjectBoardRow"],
+      "change": "consumer narrows to kernel/board reader port and contract DTO"
+    },
+    {
+      "package": "github.com/RedHuang-0622/seelex/store/board",
+      "symbols": ["Fold"],
+      "change": "test helper folds via board owner rather than root facade"
+    }
+  ],
+  "files": [
+    {
+      "path": "wiring/registry/registry.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/registry",
+      "side": "production",
+      "sha256": "5c83ab27662b4a9daf44663e9bec5b9027d08947c41808ab161f518ad940c55c",
+      "depends_on": [
+        {
+          "package": "github.com/RedHuang-0622/seelex/kernel/board",
+          "symbols": ["ProjectBoardReader", "ReadProjectBoard"]
+        },
+        {
+          "package": "github.com/RedHuang-0622/seelex/contract/dto",
+          "symbols": ["ProjectBoardRow"]
+        }
+      ],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "replace",
+          "from": "func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {",
+          "to": "func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st board.ProjectBoardReader, app *application.Service) {"
+        },
+        {
+          "kind": "replace",
+          "from": "func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface{} {",
+          "to": "func projectBoardReadRows(rows []dto.ProjectBoardRow) []map[string]interface{} {"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/registry"
+      ]
+    },
+    {
+      "path": "kernel/board/boardtest/store.go",
+      "package": "github.com/RedHuang-0622/seelex/kernel/board/boardtest",
+      "side": "production",
+      "sha256": "81dd7dde5869e10921e111d4975dfc987b65caf81690e9e87e3c0ef927749157",
+      "depends_on": [
+        {
+          "package": "github.com/RedHuang-0622/seelex/store",
+          "symbols": ["FoldProjectBoardRows"]
+        }
+      ],
+      "depended_on_by": [
+        {
+          "package": "github.com/RedHuang-0622/seelex/kernel/board",
+          "reason": "test helper provides in-memory store"
+        }
+      ],
+      "operations": [
+        {
+          "kind": "replace",
+          "from": "\"github.com/RedHuang-0622/seelex/store\"",
+          "to": "storeboard \"github.com/RedHuang-0622/seelex/store/board\""
+        },
+        {
+          "kind": "replace",
+          "from": "return store.FoldProjectBoardRows(st.Raw(projectRoot, sessionID, file), nil)",
+          "to": "return storeboard.Fold(st.Raw(projectRoot, sessionID, file), nil)"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/kernel/board"
+      ]
+    }
+  ],
+  "summary": {
+    "production_files": 2,
+    "test_files": 0,
+    "packages": 2,
+    "direct_edges": 2,
+    "reverse_edges": 1
+  }
+}

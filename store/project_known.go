@@ -34,10 +34,10 @@ package store
 import (
 	"bytes"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/store/internal/textsanitize"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -52,25 +52,6 @@ const ProjectBoardKnownFile = "project-known.md"
 // projectKnownHeader 是渲染件固定首行（无 record 依赖 ⇒ 字节稳定）。
 const projectKnownHeader = "# 项目摘要（Project Known）\n\n"
 
-// projectKnownWorkspaceToken 匹配机器本地的 `ws-<nano>` 工作区 ID。
-//
-// 为什么要在渲染层剔除（而不是指望来源干净）：`ProjectRecord` 的行内 scope 允许带
-// `ws-…`（它是不提交的本机派生物），但**渲染件是可能要提交的**——见契约 §3
-// "可提交件的三条硬纪律"。
-var projectKnownWorkspaceToken = regexp.MustCompile(`ws-[0-9]{6,}`)
-
-// projectKnownAbsolutePathToken 匹配 prose 里的绝对路径（兜底清洗）：Windows 盘符开头
-// **与 POSIX 根开头**都算。
-//
-// 为什么必须跨平台：渲染件要能提交，而同一个 `ProjectRecord` 在 Windows 上的 `Path` 是
-// `C:\…`、在 Linux 上是 `/tmp/…`。只认盘符的话，Linux 上的 prose 会带着本机绝对路径
-// 原样进产物（store/project_known_test.go 的 ② 在 Linux 上就是这么红的）。
-//
-// 前导分隔符（行首 / 空白 / 括号 / 引号）用捕获组保住，只替换路径本体——否则会把
-// 前面那个空格或左括号一起吞掉。POSIX 分支要求路径后至少跟一个字符，避免把正文里
-// 孤零零的一个 `/`（如 "a / b"）当成绝对路径。
-var projectKnownAbsolutePathToken = regexp.MustCompile(`(^|[\s（("'` + "`" + `])(?:[A-Za-z]:[\\/]|/)[^\s，。；、）)"'` + "`" + `]+`)
-
 // ProjectKnownMarkdown 把 `ProjectRecord` 渲染成人读 markdown。
 //
 // **纯函数**：不读盘、不取时间、不改入参（内部拷贝后排序），同一 record 两次渲染
@@ -82,25 +63,25 @@ func ProjectKnownMarkdown(record ProjectRecord) []byte {
 
 	var builder strings.Builder
 	builder.WriteString(projectKnownHeader)
-	if version := sanitizeKnownText(record.Version); version != "" {
+	if version := textsanitize.KnownText(record.Version); version != "" {
 		// Version 是来源 hash 的内容版本（确定性），不是抖动时间戳 ⇒ 可以写。
 		builder.WriteString("版本：`" + version + "`\n\n")
 	}
 	for _, module := range modules {
-		name := sanitizeKnownText(module.Name)
+		name := textsanitize.KnownText(module.Name)
 		if name == "" {
 			continue // 没有名字的模块渲染出来只是一层空标题，不产噪声
 		}
 		builder.WriteString("## " + name + "\n\n")
-		if summary := sanitizeKnownText(module.Summary); summary != "" {
+		if summary := textsanitize.KnownText(module.Summary); summary != "" {
 			builder.WriteString(summary + "\n\n")
 		}
-		if path, ok := repoRelativePath(module.Path); ok {
+		if path, ok := textsanitize.RepoRelativePath(module.Path); ok {
 			builder.WriteString("- 路径：`" + path + "`\n")
 		}
 		docs := make([]string, 0, len(module.Docs))
 		for _, doc := range module.Docs {
-			relative, ok := repoRelativePath(doc)
+			relative, ok := textsanitize.RepoRelativePath(doc)
 			if !ok {
 				continue // 绝对路径的 Docs 同样丢弃
 			}
@@ -116,52 +97,6 @@ func ProjectKnownMarkdown(record ProjectRecord) []byte {
 		builder.WriteString("\n")
 	}
 	return []byte(builder.String())
-}
-
-// sanitizeKnownText 清洗人读文本：剔除 `ws-<nano>` 与盘符绝对路径（渲染件要能提交）。
-func sanitizeKnownText(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	value = projectKnownWorkspaceToken.ReplaceAllString(value, "ws-<workspace>")
-	value = projectKnownAbsolutePathToken.ReplaceAllString(value, "$1<abs-path>")
-	return strings.TrimSpace(value)
-}
-
-// repoRelativePath 判定并归一化**仓库相对路径**；绝对路径一律丢弃（ok=false）。
-//
-// 之所以判得这么啰嗦：`ProjectKnowledgeBuilder` 的 `Path` / `Docs` 都是从绝对扫描根
-// 拼出来的（project_record.go 的 scanModules / scanDocDirModules），渲染层必须把它们
-// 挡在产物之外，否则渲染件带着本机用户名与盘符，永远提交不出去。
-func repoRelativePath(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", false
-	}
-	if projectKnownWorkspaceToken.MatchString(value) {
-		return "", false
-	}
-	normalized := strings.ReplaceAll(value, "\\", "/")
-	if strings.HasPrefix(normalized, "/") {
-		return "", false // 前导分隔符 = 绝对（POSIX）或 UNC 根
-	}
-	if filepath.IsAbs(value) {
-		return "", false
-	}
-	if len(normalized) >= 2 && normalized[1] == ':' {
-		return "", false // 盘符（跨平台判据，不依赖运行时 OS）
-	}
-	normalized = strings.TrimPrefix(normalized, "./")
-	if normalized == "" || normalized == "." {
-		return "", false
-	}
-	for _, segment := range strings.Split(normalized, "/") {
-		if segment == ".." {
-			return "", false // 相对路径不得向外逃逸
-		}
-	}
-	return normalized, true
 }
 
 // ---------------------------------------------------------------------------
