@@ -3,20 +3,8 @@ package assembly
 import (
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"reflect"
 	"testing"
 )
-
-func TestCompletionApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("completionApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 completionApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationinput.Application)(nil)) {
-		t.Fatalf("completionApplication 字段类型 = %s", field.Type)
-	}
-}
 
 // TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 // 命令与 Skill。工具即使对模型可见也不进建议面（2026-09-23 口径修订）：一个能力

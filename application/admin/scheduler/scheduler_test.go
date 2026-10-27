@@ -13,14 +13,14 @@ import (
 func TestSchedulerValidatesBeforeRuntime(t *testing.T) {
 	called := false
 	application := NewScheduler(SchedulerDeps{
-		ValidateWorkspace: func(string) error { return errors.New("workspace") },
-		ValidatePlugins:   func([]string) error { t.Fatal("plugins validated after workspace error"); return nil },
+		ResolveWorkspace: func(string) (*model.WorkspaceInfo, error) { return nil, errors.New("workspace") },
+		PluginCatalog:    func() []model.PluginInfo { t.Fatal("plugins validated after workspace error"); return nil },
 		ScheduleTask: func(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 			called = true
 			return nil, nil
 		},
 	})
-	if _, err := application.ScheduleTask(context.Background(), dto.ScheduledTaskSpec{}); err == nil {
+	if _, err := application.ScheduleTask(context.Background(), dto.ScheduledTaskSpec{WorkspaceID: "ws-missing"}); err == nil {
 		t.Fatal("ScheduleTask accepted invalid workspace")
 	}
 	if called {
@@ -47,10 +47,11 @@ func TestRunAssemblyAppliesSessionContextBeforePlugins(t *testing.T) {
 			return nil
 		},
 		ApplyStoredTier: func(string, string) { calls = append(calls, "tier") },
-		ApplyRunParams: func(string, dto.ScheduledTaskSpec) error {
+		SetLoopLimit: func(string, int) error {
 			calls = append(calls, "params")
 			return nil
 		},
+		BorrowReasoning: func(string, string) {},
 		WithPluginAssembly: func(ctx context.Context, plugins []string) (context.Context, error) {
 			calls = append(calls, "plugins")
 			return ctx, nil

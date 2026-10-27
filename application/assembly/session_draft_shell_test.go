@@ -48,7 +48,7 @@ func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T) {
 	}
 	seedPreviousSessionFacts(service)
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 
@@ -81,7 +81,8 @@ func TestColdRestoreFailureDraftShellKeepsWindowOnly(t *testing.T) {
 	defer service.components.lifecycleApplication.Shutdown()
 	seedPreviousSessionFacts(service)
 
-	service.components.sessionRestoreDraftReset.Reset()
+	draftReset := service.assembleSessionRestoreComponents().draftReset
+	draftReset.Reset()
 
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()

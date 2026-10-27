@@ -9,6 +9,8 @@
 ## 职责
 
 - 排队输入重排与召回；
+- 已受理输入入队、revision 投影、durable queue 镜像；
+- durable “已发送未确认”输入回填与非运行会话的队列合并；
 - 同一 ViewMu 内的队列投影、ChatState 镜像和 revision 收口；
 - 关闭/排空门禁。
 - assistant 推理步骤与可见消息的配对回填。
@@ -23,7 +25,8 @@
 
 ## 文件结构
 
-- `queue.go`：`QueueUnit`、`QueueDeps`、`QueueApplication`。
+- `queue.go`：`QueueUnit`、`QueueDeps`、`QueueApplication`；拥有 queue edit、
+  enqueue/durable mirror、recovery 回填和 recovered batch 合并。
 - `turn_state.go`：ChatState 转换规则。
 - `request.go`：不可变 ChatRequest 与批次合成。
 - `turn_input.go`：prompt/context 准备与输入归一。

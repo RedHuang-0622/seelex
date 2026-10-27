@@ -14,7 +14,8 @@ type RunDeps struct {
 	EnsureSessionUnit  func(sessionID string)
 	PersistTier        func(sessionID, tier string) error
 	ApplyStoredTier    func(sessionID, tier string)
-	ApplyRunParams     func(sessionID string, task dto.ScheduledTaskSpec) error
+	SetLoopLimit       func(sessionID string, limit int) error
+	BorrowReasoning    func(sessionID, effort string)
 	WithPluginAssembly func(context.Context, []string) (context.Context, error)
 }
 
@@ -48,9 +49,11 @@ func (application *RunApplication) AssembleScheduledRun(ctx context.Context, ses
 		return ctx, fmt.Errorf("定时任务装配权限档位失败: %w", err)
 	}
 	application.deps.ApplyStoredTier(sessionID, normalized)
-	if err := application.deps.ApplyRunParams(sessionID, task); err != nil {
+	effort, loopLimit := RunParams(task.ReasoningEffort, task.LoopLimit)
+	if err := application.deps.SetLoopLimit(sessionID, loopLimit); err != nil {
 		return ctx, err
 	}
+	application.deps.BorrowReasoning(sessionID, effort)
 	plugins, err := dto.NormalizePlugins(task.Plugins, 0)
 	if err != nil {
 		return ctx, err

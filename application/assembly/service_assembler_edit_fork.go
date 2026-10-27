@@ -10,10 +10,15 @@ import (
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func (service *Service) assembleEditForkComponents() {
-	service.components.editForkOperationRegistry = applicationedit.NewOperationRegistry(editForkOperationTTL, time.Now)
+type editForkComponents struct {
+	application *applicationedit.EditApplication
+	annotation  *applicationedit.AnnotationApplication
+}
 
-	service.components.editForkValidator = applicationedit.NewValidator(applicationedit.ValidatorDeps{
+func (service *Service) assembleEditForkComponents() {
+	registry := applicationedit.NewOperationRegistry(applicationedit.DefaultOperationTTL, time.Now)
+
+	validator := applicationedit.NewValidator(applicationedit.ValidatorDeps{
 		Snapshot: func(parentID string) applicationedit.ParentState {
 			service.ViewMu.RLock()
 			state := applicationedit.ParentState{CurrentSessionID: service.Core.Snapshot.Session.ID}
@@ -29,7 +34,7 @@ func (service *Service) assembleEditForkComponents() {
 		ChatRunningError: ErrChatRunning,
 	})
 
-	service.components.editForkTargetResolver = applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
+	resolver := applicationedit.NewTargetResolver(applicationedit.TargetResolverDeps{
 		LoadEvents: func(parentID string) ([]protocol.TranscriptEvent, bool, error) {
 			location := service.components.sessions.LocateSession(parentID)
 			port, ok := service.Deps.Sessions.(session_runtime.SessionForkPort)
@@ -44,31 +49,31 @@ func (service *Service) assembleEditForkComponents() {
 		},
 	})
 
-	service.components.editForkRollback = applicationedit.NewRollback(applicationedit.RollbackDeps{
+	rollback := applicationedit.NewRollback(applicationedit.RollbackDeps{
 		Delete: service.components.sessionDelete.Delete,
 		Resume: service.components.sessionResume.Resume,
 	})
 
-	service.components.editForkProcess = applicationedit.NewProcess(applicationedit.ProcessDeps{
+	process := applicationedit.NewProcess(applicationedit.ProcessDeps{
 		Resolve: func(parentID string, targetSeq uint64) (protocol.TranscriptEvent, uint64, uint64, error) {
-			return service.components.editForkTargetResolver.Resolve(parentID, targetSeq)
+			return resolver.Resolve(parentID, targetSeq)
 		},
-		Validate:         service.components.editForkValidator.Validate,
+		Validate:         validator.Validate,
 		TransitionForKey: service.transitionForKey,
 		Fork: func(parentID string, request model.ForkRequest) (string, error) {
 			return service.components.sessionForkRuntime.ForkSessionLocked(parentID, request)
 		},
 		Resume:   service.components.sessionResume.Resume,
 		Submit:   service.submitConversationFor,
-		Rollback: service.components.editForkRollback.Rollback,
+		Rollback: rollback.Rollback,
 	})
 
-	service.components.editForkApplication = applicationedit.NewEditApplication(applicationedit.EditApplicationDeps{
-		Registry: service.components.editForkOperationRegistry,
-		Run:      service.components.editForkProcess.Run,
+	application := applicationedit.NewEditApplication(applicationedit.EditApplicationDeps{
+		Registry: registry,
+		Run:      process.Run,
 	})
 
-	service.components.editForkAnnotation = applicationedit.NewAnnotation(applicationedit.AnnotationDeps{
+	annotation := applicationedit.NewAnnotation(applicationedit.AnnotationDeps{
 		Input: func(sessionID string) applicationedit.AnnotationInput {
 			floor, hasWindow := service.components.tasks.RetainedWindowFirstEventSeqFor(sessionID)
 			return applicationedit.AnnotationInput{
@@ -81,4 +86,8 @@ func (service *Service) assembleEditForkComponents() {
 			return inputIndexUserText(message) != ""
 		},
 	})
+	service.components.editFork = &editForkComponents{
+		application: application,
+		annotation:  annotation,
+	}
 }

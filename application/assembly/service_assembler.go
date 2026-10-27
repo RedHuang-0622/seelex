@@ -107,6 +107,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		return nil, fmt.Errorf("application prompts: %w", err)
 	}
 	assembler.applyInfrastructureDefaults()
+	historyWindowAssembler := assembler.ports.HistoryWindow
 
 	promptStack := prompt.NewPromptStack()
 	kernel := state.New(assembler.deps)
@@ -125,7 +126,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 	})
 	service.assembleExecutionApplication(assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
-	service.assembleAdminApplication()
+	service.assembleAdminApplication(assembler.ports.AccountWindow)
 	service.assembleSessionSSHApplication()
 	service.assembleRoleApplication()
 	service.assembleSchedulerApplications()
@@ -142,29 +143,26 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.assembleFaultGuardApplication()
 	service.assemblePerfStatsApplication()
 	service.assembleAsyncCompletionApplication()
-	service.assembleSessionReadApplications(assembler.ports.HistoryWindow)
-	service.components.historyWindowAssembler = assembler.ports.HistoryWindow
+	service.assembleSessionReadApplications(historyWindowAssembler)
 	service.components.residency = assembler.ports.Residency
 	service.components.conversationStreams = assembler.ports.ConversationStream
-	service.components.accountWindowPolicy = assembler.ports.AccountWindow
-	service.components.skillActivation = assembler.ports.SkillActivation
-	service.components.sessionRecords = assembler.ports.SessionRecords
-	service.assembleConversationSessionApplication()
+	service.assembleConversationSessionApplication(assembler.ports.SessionRecords)
 	service.components.errorPresentation = assembler.ports.ErrorPresentation
 	service.components.roleSessions = assembler.ports.RoleSessions(assembler.deps.Sessions)
 	service.components.conversationTurnState = newConversationTurnState()
 	service.assembleConversationQueueApplication()
-	service.assembleSessionUseCaseApplications()
+	sessionRestore := service.assembleSessionRestoreComponents()
+	service.assembleSessionUseCaseApplications(sessionRestore)
 	service.assembleInteractionApplication()
 	service.assembleForkApplication()
 	service.assembleSessionDraftComponents()
 	service.assembleSubmitApplication()
-	service.assembleSessionColdComponents()
+	sessionCold := service.assembleSessionColdComponents()
 	service.assembleEditForkComponents()
 	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 kernel/limit.Knobs（M5-R-limitb），
 	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
 	service.assembleKnobs()
-	service.assemblePolicySwitchApplication()
+	service.assemblePolicySwitchApplication(assembler.ports.SkillActivation)
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
 	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 Store。
 	service.components.projectBoard = &ProjectBoardSinkPort{}
@@ -342,13 +340,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.components.sessionReleaseApplication.Release(sessionID, applicationsession.ReleaseIdle)
 		},
 		RequestCatalogRefresh: func() { _ = service.components.sessions.RequestCatalogRefresh() },
-		ReloadContent:         service.reloadSessionContent,
+		ReloadContent: func(sessionID string) error {
+			return service.reloadSessionContent(sessionID, historyWindowAssembler)
+		},
 	})
 	service.assembleFrontendSnapshotApplication()
-	// TurnProcess captures the view coordinator method value, so it must be
-	// assembled after the coordinator exists. This is composition order, not a
-	// forwarding wrapper.
-	service.assembleConversationTurnCoreComponents()
 	// 工作区用例（plan §2.4）：创建/绑定/解绑与当前工作区读面归位
 	// application/workspace/switch；视图投影写面仍由本 Service 持有，经窄 Host 注入。
 	service.components.workspace = switchworkspace.New(switchworkspace.Deps{
@@ -384,17 +380,17 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Residency:           service.components.residencyRuntime,
 		Sessions:            service.components.sessions,
 		View:                service.components.view,
-		ColdRead:            service.components.sessionColdRead,
-		ColdHistory:         service.components.sessionColdHistory,
-		ColdRestore:         service.components.sessionColdRestore,
-		ColdWorkspace:       service.components.sessionColdWorkspace,
-		ColdActivation:      service.components.sessionColdActivation,
-		ColdTask:            service.components.sessionColdTask,
-		ColdView:            service.components.sessionColdView,
-		ColdPublish:         service.components.sessionColdPublish,
-		ColdCommit:          service.components.sessionColdCommit,
-		RestoreRecovery:     service.components.sessionRestoreRecovery,
-		RestoringShell:      service.components.sessionRestoringShell,
+		ColdRead:            sessionCold.read,
+		ColdHistory:         sessionCold.history,
+		ColdRestore:         sessionCold.restore,
+		ColdWorkspace:       sessionCold.workspace,
+		ColdActivation:      sessionCold.activation,
+		ColdTask:            sessionCold.task,
+		ColdView:            sessionCold.view,
+		ColdPublish:         sessionCold.publish,
+		ColdCommit:          sessionCold.commit,
+		RestoreRecovery:     sessionRestore.recovery,
+		RestoringShell:      sessionRestore.shell,
 		Closed:              func() bool { return service.closed },
 		SessionUnit:         service.sessionUnitLocked,
 		PublishEvent:        service.publishSessionEvent,
@@ -467,7 +463,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		ChatStream:          service.chatStream,
 		PublishSessionEvent: service.publishSessionEvent,
 	})
-	service.assembleConversationTurnRuntimeComponents()
+	service.assembleConversationTurnComponents()
 	service.components.subagent = subagentview.NewCoordinator(subagentview.Deps{
 		Core:   kernel,
 		View:   service.components.view,

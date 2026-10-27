@@ -85,7 +85,9 @@ func (service *Service) assembleSessionReadApplications(historyWindowAssembler a
 		ContentUnloaded: func(sessionID string) bool {
 			return service.components.residencyRuntime.ContentUnloaded(sessionID)
 		},
-		ReloadContent:   service.reloadSessionContent,
+		ReloadContent: func(sessionID string) error {
+			return service.reloadSessionContent(sessionID, historyWindowAssembler)
+		},
 		WindowAssembler: historyWindowAssembler,
 		VisibleWindowFirstRow: func(sessionID string, assembler applicationhistory.WindowAssembler) model.Message {
 			return service.components.sessionHistoryRuntime.VisibleWindowFirstRow(sessionID, assembler)

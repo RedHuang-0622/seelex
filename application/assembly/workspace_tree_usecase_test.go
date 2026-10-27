@@ -1,7 +1,6 @@
 package assembly
 
 import (
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store/workspace"
@@ -9,21 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestWorkspaceApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("workspaceApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 workspaceApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
-		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
-	}
-}
 
 // treeFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现
 // WorkspaceTreePort，供工作树用例测试。

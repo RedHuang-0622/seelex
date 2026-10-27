@@ -1,30 +1,14 @@
 package assembly
 
 import (
-	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 	"time"
 )
-
-func TestFaultGuardApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("faultGuardApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 faultGuardApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationlifecycle.FaultGuardApplication)(nil)) {
-		t.Fatalf("faultGuardApplication 字段类型 = %s", field.Type)
-	}
-	if _, exists := reflect.TypeOf(serviceState{}).FieldByName("degradeOnce"); exists {
-		t.Fatal("degradeOnce 应归 faultGuardApplication，不再属于 serviceState")
-	}
-}
 
 func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)

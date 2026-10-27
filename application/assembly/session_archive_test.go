@@ -179,7 +179,7 @@ func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
 	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "old session"}
 	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
 	service.ViewMu.Unlock()
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	sessions.mu.Lock()

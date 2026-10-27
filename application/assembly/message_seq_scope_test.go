@@ -38,7 +38,7 @@ func TestVisibleMessageSeqIsScopedPerSession(t *testing.T) {
 	}
 
 	// 新建会话 B：它的第一条消息必须从 1 起。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	submitAndIdle("B first")

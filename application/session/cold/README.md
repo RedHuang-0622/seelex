@@ -31,7 +31,8 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 - `view.go`：record/legacy 可见窗口构造与安装。
 - `commit.go`：锁内 pending-tail、ChatState、Plan、workspace 与 revision。
 - `publish.go`：锁外 context、Runtime、Snapshot 与 LRU 发布。
-- `cold_test.go`：读取短路与 workspace 绑定测试。
+- `*_external_test.go`：`package cold_test` 的 stage 行为、失败语义与顺序测试；
+  不读取 assembly 私有字段。
 
 ## 依赖方向
 
@@ -47,7 +48,7 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 
 ```text
 go test ./application/session/cold -count=1
-go test ./application/assembly -run 'SessionCold(Read|History|Restore|Workspace|Activation)' -count=1
+go test ./application/assembly -run 'SnapshotOfCold|ColdStartDraft' -count=1
 go test ./application/... -count=1
 ```
 

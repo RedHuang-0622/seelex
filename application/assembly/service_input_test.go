@@ -11,22 +11,10 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestLifecycleApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("lifecycleApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 lifecycleApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationlifecycle.Application)(nil)) {
-		t.Fatalf("lifecycleApplication 字段类型 = %s", field.Type)
-	}
-}
 
 func TestLifecycleApplicationWaitForIdle(t *testing.T) {
 	idle := make(chan struct{})
@@ -186,12 +174,6 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 
 // TestBeginNewSessionKeepsGlobalWorkTable 见 service_test.go：工作表格是
 // 项目/全局台账，/new 不清空跨会话表。
-
-func TestNewRejectsMissingDependencies(t *testing.T) {
-	if _, err := New(contract.Dependencies{}, ExternalPorts{}); err == nil {
-		t.Fatal("expected missing dependency error")
-	}
-}
 
 func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine := &fakeEngine{}

@@ -45,7 +45,7 @@ func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T) {
 	}
 	engine.loadedSessions[sessionA] = true
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	sessionB := service.components.frontendSnapshot.Snapshot().Session.ID

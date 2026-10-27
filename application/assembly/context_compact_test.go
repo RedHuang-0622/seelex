@@ -4,25 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestContextCompactionApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("contextCompactionApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 contextCompactionApplication")
-	}
-	if field.Type != reflect.TypeOf((*conversationcontext.Application)(nil)) {
-		t.Fatalf("contextCompactionApplication 字段类型 = %s", field.Type)
-	}
-}
 
 // compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 // （TaskExecutionState.RequestID），没有纪元就无从压缩。

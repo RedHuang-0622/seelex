@@ -45,7 +45,7 @@ func TestColdStartDraftSlotIsRetainedAcrossSwitch(t *testing.T) {
 	}
 
 	// 再新建：必须恢复同一份冷启动草稿（幂等复用槽位，不另开 ID）。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != draftID {

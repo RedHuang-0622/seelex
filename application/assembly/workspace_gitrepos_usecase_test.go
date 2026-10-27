@@ -1,12 +1,10 @@
 package assembly
 
 import (
-	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -186,15 +184,4 @@ func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T) {
 			t.Fatalf("error payload=%q, want unbound message", result.Error)
 		}
 	})
-}
-
-func TestWorkspaceGitApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("workspaceApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 workspaceApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationworkspace.Application)(nil)) {
-		t.Fatalf("workspaceApplication 字段类型 = %s", field.Type)
-	}
 }

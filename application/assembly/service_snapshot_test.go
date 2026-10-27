@@ -4,27 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	applicationevent "github.com/RedHuang-0622/seelex/application/event"
-	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestPerfStatsApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("perfStatsApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 perfStatsApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationobservability.PerfApplication)(nil)) {
-		t.Fatalf("perfStatsApplication 字段类型 = %s", field.Type)
-	}
-}
 
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})

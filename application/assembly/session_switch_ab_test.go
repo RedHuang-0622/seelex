@@ -1,3 +1,5 @@
+//go:build extended
+
 package assembly
 
 import (

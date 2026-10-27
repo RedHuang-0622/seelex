@@ -42,7 +42,7 @@ func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T) {
 		t.Fatal("前置条件不成立：会话 A 没有已读文件")
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draft := service.components.frontendSnapshot.Snapshot()

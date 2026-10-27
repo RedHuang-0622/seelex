@@ -194,9 +194,9 @@ func TestDurableQueueBackfillVisibleAndDrainedOnNextSubmit(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
 
-	service.reEnqueueRecoveredInputs(sessionID, []store.QueueItem{
+	service.components.conversationQueue.RecoverInputs(sessionID, []store.QueueItem{
 		{Seq: 1, Content: "重启恢复的输入", State: string("queued")},
-	})
+	}, service.promptStack.Layers())
 	snapshot := service.components.frontendSnapshot.Snapshot()
 	if snapshot.Chat.QueuedCount != 1 {
 		t.Fatalf("QueuedCount = %d, want 1（恢复输入必须可见）", snapshot.Chat.QueuedCount)

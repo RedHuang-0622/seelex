@@ -45,7 +45,7 @@ func (service *Service) registerBuiltinCommands() error {
 				return compactionRecordNote(result), nil
 			},
 			BeginNewSession: func() error {
-				return service.components.sessionDraftEntry.Begin()
+				return service.components.sessionDrafts.entry.Begin()
 			},
 			Capabilities: func() (bool, string) {
 				service.ViewMu.RLock()

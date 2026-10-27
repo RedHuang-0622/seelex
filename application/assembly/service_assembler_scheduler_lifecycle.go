@@ -8,14 +8,20 @@ import (
 	applicationlifecycle "github.com/RedHuang-0622/seelex/application/lifecycle"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func (service *Service) assembleSchedulerApplications() {
 	service.components.schedulerApplication = applicationscheduler.NewScheduler(applicationscheduler.SchedulerDeps{
-		ValidateWorkspace: service.validateScheduledWorkspace,
-		ValidatePlugins:   service.validateScheduledPlugins,
+		ResolveWorkspace: service.resolveScheduledWorkspace,
+		PluginCatalog: func() []model.PluginInfo {
+			if service.Deps.Plugins == nil {
+				return nil
+			}
+			return service.Deps.Plugins.All()
+		},
 		ScheduleTask: func(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
 			return service.Deps.Runtime.ScheduleTask(ctx, spec)
 		},
@@ -38,7 +44,17 @@ func (service *Service) assembleSchedulerApplications() {
 		},
 		PersistTier:     service.persistPermissionTier,
 		ApplyStoredTier: service.applyStoredPermissionTier,
-		ApplyRunParams:  service.applyScheduledRunParams,
+		SetLoopLimit: func(sessionID string, limit int) error {
+			pinner, ok := service.Deps.Engine.(contract.SessionLoopLimitPort)
+			if !ok {
+				return errors.New("宿主引擎不支持按会话设置循环上限（SetSessionMaxLoopsFor 未实现）")
+			}
+			pinner.SetSessionMaxLoopsFor(sessionID, limit)
+			return nil
+		},
+		BorrowReasoning: func(sessionID, effort string) {
+			service.knobs.BorrowSessionReasoningEffort(sessionID, effort)
+		},
 		WithPluginAssembly: func(ctx context.Context, plugins []string) (context.Context, error) {
 			carrier, ok := service.Deps.Runtime.(interface {
 				WithPluginAssembly(context.Context, []string) context.Context

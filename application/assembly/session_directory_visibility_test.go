@@ -32,7 +32,7 @@ func TestWorkspaceDraftShowsItsWorkspaceInDirectory(t *testing.T) {
 	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {
@@ -76,7 +76,7 @@ func TestTaskDraftStaysUnboundInDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 先在一个工作区会话里，再 /new 进「任务会话」：项目绑定必须被清掉。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.components.frontendSnapshot.Snapshot()
@@ -105,7 +105,7 @@ func TestRunningSessionVisibleInDirectory(t *testing.T) {
 	if err := service.components.workspace.CreateWorkspace("project", t.TempDir(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.workspace.BindWorkspace("project-1"); err != nil {

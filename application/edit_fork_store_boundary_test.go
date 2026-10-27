@@ -45,10 +45,10 @@ func TestEditForkProductionFilesUseProtocolEvents(t *testing.T) {
 }
 
 func TestQueueRecoveryCoreUsesContractDTO(t *testing.T) {
-	path := filepath.Join(sourceApplicationDir(t), "assembly", "session_queue_recover.go")
+	path := filepath.Join(sourceApplicationDir(t), "conversation", "queue.go")
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if err != nil {
-		t.Fatalf("parse core/session_queue_recover.go: %v", err)
+		t.Fatalf("parse conversation/queue.go: %v", err)
 	}
 	for _, imported := range file.Imports {
 		importPath, err := strconv.Unquote(imported.Path.Value)
@@ -57,7 +57,7 @@ func TestQueueRecoveryCoreUsesContractDTO(t *testing.T) {
 		}
 		if importPath == "github.com/RedHuang-0622/seelex/store" ||
 			strings.HasPrefix(importPath, "github.com/RedHuang-0622/seelex/store/") {
-			t.Errorf("core/session_queue_recover.go must use contract/dto, still imports %s", importPath)
+			t.Errorf("conversation/queue.go must use contract/dto, still imports %s", importPath)
 		}
 	}
 }

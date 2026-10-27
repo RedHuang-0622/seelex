@@ -3,62 +3,10 @@ package assembly
 import (
 	"errors"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
 )
-
-func TestSessionResumeRulesAreCentralized(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("sessionResume")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 sessionResume")
-	}
-	if field.Type != reflect.TypeOf((*applicationsession.ResumeApplication)(nil)) {
-		t.Fatalf("sessionResume 字段类型 = %s", field.Type)
-	}
-	componentType := reflect.TypeOf((*applicationsession.ResumeApplication)(nil))
-	if _, ok := componentType.MethodByName("Resume"); !ok {
-		t.Fatal("sessionResume 缺少 Resume")
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "session_history.go")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return
-	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name.Name != "resumeSession" {
-			continue
-		}
-		found = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("resumeSession 有 %d 条语句，want 一行 component 转发", len(function.Body.List))
-		}
-		if _, ok := function.Body.List[0].(*ast.ReturnStmt); !ok {
-			t.Fatal("resumeSession 不是单行 return 转发")
-		}
-	}
-	if found {
-		t.Fatal("core resumeSession forwarder must be removed")
-	}
-}
 
 func TestSessionResumeRequiresSessionID(t *testing.T) {
 	component := applicationsession.NewResume(applicationsession.ResumeDeps{})

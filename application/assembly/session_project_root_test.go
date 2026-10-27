@@ -98,7 +98,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 
 	// 会话 A：绑定项目 A 并跑一轮，成为已加载（后台可并行）会话。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.workspace.BindWorkspace("project-a"); err != nil {
@@ -114,7 +114,7 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 
 	// 视图切到项目 B 的新会话：进程级工具根随之指向 B。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.workspace.BindWorkspace("project-b"); err != nil {

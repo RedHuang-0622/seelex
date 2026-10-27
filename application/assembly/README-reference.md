@@ -23,6 +23,5 @@ read_tool_result / read_plan 引用工具
 
 ### reference_tools_test.go
 
-- `func TestReferenceApplicationIsAssembled(t *testing.T)`
 - `func TestReadToolResultResolvesNodeRef(t *testing.T)` — TestReadToolResultResolvesNodeRef 验证 P1 桥：read_tool_result 对
 - `func TestReadToolResultResolvesCallAlias(t *testing.T)` — TestReadToolResultResolvesCallAlias 验证 result:call_<callID> 别名映射：

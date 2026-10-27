@@ -29,7 +29,7 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("进程级默认全权不得被会话级选择改写（未选择会话的回退面）")
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -84,7 +84,7 @@ func TestFullAccessProjectionPerSession(t *testing.T) {
 	sessionA := service.components.frontendSnapshot.Snapshot().Session.ID
 	service.components.policyApplication.SetFullAccess(true)
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID

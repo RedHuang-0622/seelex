@@ -2,8 +2,6 @@ package assembly
 
 import applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 
-type conversationChatStateUnit = applicationconversation.ChatStateUnit
-
 // conversationTurnState embeds the extracted ChatState transitions and keeps
 // chatRequest factory methods local until the Conversation aggregate migrates.
 type conversationTurnState struct {

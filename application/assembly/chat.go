@@ -78,12 +78,12 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		// TOCTOU 收口：调用方（提交路径）在释放 ViewMu 后重新取锁的窗口里，
 		// 另一个回合可能刚好起跑。输入语义是"要么开跑、要么排队"——已受理的
 		// 提交不能因为晚了一步就被丢掉（deferred submit 只记日志）。
-		revision := service.enqueueChatLocked(sessionID, runtime, request, active)
+		revision := service.components.conversationQueue.EnqueueLocked(sessionID, runtime, request, active)
 		service.ViewMu.Unlock()
-		service.afterChatEnqueued(sessionID, revision, request)
+		service.components.conversationQueue.AfterEnqueue(sessionID, revision, request)
 		return nil
 	}
-	chatContext, requestID, userEvent := service.components.conversationTurnProcess.BeginLocked(
+	chatContext, requestID, userEvent := service.components.conversationTurn.process.BeginLocked(
 		parent, sessionID, runtime, request, chatTurnStartOptions{
 			MarkBusy: true, TaskProgressAfterMirror: active,
 		},
@@ -132,7 +132,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 会话列表状态机：chat 启动即发布 snapshot.changed，前端刷新左侧栏
 	// 显示"运行中"（完成路径 runChat 尾部已有对应发布，恢复到 idle）。
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
-	go service.components.conversationTurnRunner.Run(chatContext, sessionID, requestID, request)
+	go service.components.conversationTurn.runner.Run(chatContext, sessionID, requestID, request)
 	return nil
 }
 

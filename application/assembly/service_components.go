@@ -5,7 +5,6 @@ import (
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
-	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
@@ -21,7 +20,6 @@ import (
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	applicationsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
 	applicationsessionfork "github.com/RedHuang-0622/seelex/application/session/fork"
 	applicationsessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
@@ -62,13 +60,9 @@ type serviceComponents struct {
 	sessionQuery                 *applicationsessionquery.Application
 	conversationSession          *applicationconversation.UnifiedApplication
 	conversationHistoryQuery     *applicationhistory.Application
-	historyWindowAssembler       applicationhistory.WindowAssembler
 	residency                    applicationsession.ResidencyPort
 	residencyRuntime             *applicationsessionresidency.Runtime
 	conversationStreams          applicationconversation.StreamOutputPort
-	accountWindowPolicy          applicationadmin.AccountWindowPolicy
-	skillActivation              applicationpolicy.SkillActivationPort
-	sessionRecords               applicationconversation.SessionRecordsPort
 	errorPresentation            contract.ErrorPresentationPort
 	roleSessions                 contract.RoleSessionsPort
 	conversationQueue            *applicationconversation.QueueApplication
@@ -80,43 +74,10 @@ type serviceComponents struct {
 	submitApplication            *applicationsession.SubmitApplication
 	sessionArchive               *applicationsession.ArchiveApplication
 	sessionDelete                *applicationsession.DeleteApplication
-	sessionDraftSubmission       *applicationsession.DraftSubmissionApplication
-	sessionDraftMaterialization  *applicationsession.DraftMaterializationApplication
-	sessionDraftEntry            *applicationsession.DraftEntryApplication
+	sessionDrafts                *sessionDraftComponents
 	sessionResume                *applicationsession.ResumeApplication
-	editForkOperationRegistry    *applicationedit.OperationRegistry
-	editForkApplication          *applicationedit.EditApplication
-	editForkValidator            *applicationedit.Validator
-	editForkTargetResolver       *applicationedit.TargetResolver
-	editForkRollback             *applicationedit.RollbackApplication
-	editForkProcess              *applicationedit.ProcessApplication
-	editForkAnnotation           *applicationedit.AnnotationApplication
-	sessionForkLineage           *applicationsession.ForkLineageApplication
-	sessionRestoringShell        *applicationsession.RestoringShellApplication
-	sessionRestoreRecovery       *applicationsession.RestoreRecoveryApplication
-	sessionRestoreDraftReset     *applicationsession.RestoreDraftResetApplication
-	sessionColdRead              *applicationsessioncold.ReadApplication
-	sessionColdHistory           *applicationsessioncold.HistoryApplication
-	sessionColdRestore           *applicationsessioncold.RestoreApplication
-	sessionColdWorkspace         *applicationsessioncold.WorkspaceApplication
-	sessionColdActivation        *applicationsessioncold.ActivationApplication
-	sessionColdTask              *applicationsessioncold.TaskApplication
-	sessionColdView              *applicationsessioncold.ViewApplication
-	sessionColdPublish           *applicationsessioncold.PublishApplication
-	sessionColdCommit            *applicationsessioncold.CommitApplication
-	conversationTurnProcess      *applicationconversation.TurnProcessApplication
-	conversationTurnCompletion   *applicationconversation.TurnCompletionApplication
-	conversationTurnOutcome      *applicationconversation.TurnOutcomeApplication
-	conversationTurnPublisher    *applicationconversation.TurnPublisherApplication
-	conversationTurnTail         *applicationconversation.TurnTailApplication
-	conversationTurnInput        *applicationconversation.TurnInputApplication
-	conversationTurnResponse     *applicationconversation.TurnResponseApplication
-	conversationTurnRecovery     *applicationconversation.TurnRecoveryApplication
-	conversationTurnCleanup      *applicationconversation.TurnCleanupApplication
-	conversationTurnCommit       *applicationconversation.TurnCommitApplication
-	conversationTurnFinalize     *applicationconversation.TurnFinalizeApplication
-	conversationTurnExecution    *applicationconversation.TurnExecutionApplication
-	conversationTurnRunner       *applicationconversation.TurnRunnerApplication
+	editFork                     *editForkComponents
+	conversationTurn             *conversationTurnComponents
 	policyApplication            *applicationpolicy.SwitchApplication
 	adminApplication             *applicationadmin.AccountApplication
 	workspaceApplication         *applicationworkspace.Application
@@ -163,23 +124,7 @@ type serviceComponents struct {
 	workspace *switchworkspace.UseCase
 }
 
-// Temporary aliases keep the ChatTurn migration compatible while the
-// Conversation aggregate still consumes these values.
-type conversationTurnProcess = applicationconversation.TurnProcessApplication
-type conversationTurnCompletion = applicationconversation.TurnCompletionApplication
-type conversationTurnOutcome = applicationconversation.TurnOutcomeApplication
-type conversationTurnPublisher = applicationconversation.TurnPublisherApplication
-type conversationTurnTail = applicationconversation.TurnTailApplication
-type conversationTurnCommit = applicationconversation.TurnCommitApplication
-type conversationTurnFinalize = applicationconversation.TurnFinalizeApplication
-type conversationTurnExecution = applicationconversation.TurnExecutionApplication
-
 type chatTurnStartOptions = applicationconversation.StartOptions
-type chatTurnPromotion = applicationconversation.Promotion
-type chatTurnCommitResult = applicationconversation.CommitResult
-type chatTurnPublication = applicationconversation.Publication
-
-type editForkOperation = applicationedit.Operation
 
 // ProjectBoardSinkPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。

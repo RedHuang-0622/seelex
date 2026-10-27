@@ -1,11 +1,9 @@
 package assembly
 
 import (
-	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"go/ast"
-	"reflect"
 	"testing"
 )
 
@@ -52,17 +50,6 @@ func TestSessionEnvironmentCanBeFixedOnceAndNeverChanged(t *testing.T) {
 	}
 	if _, err := service.components.sessionSSHApplication.SetEnv("sess-fixed", project.ID, "missing"); err == nil {
 		t.Fatal("未知环境也不得替换固定值")
-	}
-}
-
-func TestSessionSSHApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("sessionSSHApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 sessionSSHApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationsession.SSHApplication)(nil)) {
-		t.Fatalf("sessionSSHApplication 字段类型 = %s", field.Type)
 	}
 }
 

@@ -39,7 +39,6 @@
 
 ### history_search_test.go
 
-- `func TestHistorySearchApplicationIsAssembled(t *testing.T)`
 - `func (runtime *searchRuntime) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error)`
 - `func TestSearchHistoryHandlerReturnsStructuredHits(t *testing.T)`
 - `func TestSearchHistoryHandlerRejectsEmptyQuery(t *testing.T)`

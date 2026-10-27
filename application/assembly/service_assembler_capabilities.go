@@ -26,7 +26,7 @@ func (service *Service) assembleRuntimeApplication() {
 	})
 }
 
-func (service *Service) assembleAdminApplication() {
+func (service *Service) assembleAdminApplication(accountWindowPolicy applicationadmin.AccountWindowPolicy) {
 	service.components.adminApplication = applicationadmin.NewAccountApplication(applicationadmin.AccountDeps{
 		Admin: func() contract.AccountAdminPort {
 			if service == nil {
@@ -46,7 +46,7 @@ func (service *Service) assembleAdminApplication() {
 		},
 		Window: func(name string, window int) (int, error) {
 			runtimePort, _ := service.Deps.Runtime.(contract.AccountWindowPort)
-			return service.components.accountWindowPolicy.Set(
+			return accountWindowPolicy.Set(
 				runtimePort,
 				service.Deps.AccountWindowStore,
 				name,

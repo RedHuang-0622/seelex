@@ -4,15 +4,21 @@ package conversation
 
 import (
 	"errors"
+	"strings"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
 // QueueUnit is the minimal SessionUnit surface used by queue edits.
 type QueueUnit interface {
+	Enqueue(sessioncase.QueuedRequest)
+	PendingRequests() []sessioncase.QueuedRequest
+	SetRequests([]sessioncase.QueuedRequest)
 	QueueProjection() ([]string, int)
 	RecallRequest(index int) (sessioncase.QueuedRequest, bool)
 	ReorderRequests(from, to int) bool
@@ -31,6 +37,12 @@ type QueueProjectionPort interface {
 	ProjectQueueLocked(QueueProjectionUnit) ([]string, int)
 }
 
+// QueueRequestPort restores and combines accepted request payloads.
+type QueueRequestPort interface {
+	QueuedRequests([]sessioncase.QueuedRequest) []Request
+	Combine([]Request) Request
+}
+
 // QueueDeps supplies view lock, lifecycle and publication callbacks.
 type QueueDeps struct {
 	ViewMu           *sync.RWMutex
@@ -41,7 +53,12 @@ type QueueDeps struct {
 	BumpRevision     func() uint64
 	PublishSnapshot  func(revision uint64, sessionID string)
 	PublishChatState func(sessionID string)
+	DurableEnqueue   func(sessionID, input string) error
+	Debug            func(format string, args ...any)
+	NewRequest       func(input string, layers []prompt.PromptLayer) Request
+	SessionUnit      func(sessionID string) QueueUnit
 	TurnState        QueueProjectionPort
+	Requests         QueueRequestPort
 	DrainingError    error
 }
 
@@ -100,6 +117,87 @@ func (application *QueueApplication) RecallQueuedInput(sessionID string, index i
 	}
 	application.applyEditLocked(resolvedID, unit)
 	return request.DisplayInput, nil
+}
+
+// EnqueueLocked projects one accepted request into the session queue. The
+// caller holds the view transition lock.
+func (application *QueueApplication) EnqueueLocked(sessionID string, unit QueueUnit, request Request, active bool) uint64 {
+	unit.Enqueue(sessioncase.QueuedRequest{DisplayInput: request.DisplayInput, Payload: request})
+	application.deps.TurnState.ProjectQueueLocked(unit)
+	application.deps.MirrorChatState(sessionID, unit.ChatState())
+	if !active {
+		return 0
+	}
+	return application.deps.BumpRevision()
+}
+
+// AfterEnqueue publishes the in-memory queue projection and mirrors it to the
+// durable crash-recovery queue. Durable failures never roll back the
+// authoritative in-memory queue.
+func (application *QueueApplication) AfterEnqueue(sessionID string, revision uint64, request Request) {
+	application.deps.PublishSnapshot(revision, sessionID)
+	application.deps.PublishChatState(sessionID)
+	if application.deps.DurableEnqueue == nil {
+		return
+	}
+	if err := application.deps.DurableEnqueue(sessionID, request.DisplayInput); err != nil && application.deps.Debug != nil {
+		application.deps.Debug("durable queue enqueue session=%s err=%v", sessionID, err)
+	}
+}
+
+// DrainLocked merges recovered pending rows with the current request. The
+// caller holds the view transition lock.
+func (application *QueueApplication) DrainLocked(unit QueueUnit, request Request) (Request, bool) {
+	pending := application.deps.Requests.QueuedRequests(unit.PendingRequests())
+	if len(pending) == 0 {
+		return request, false
+	}
+	unit.SetRequests(nil)
+	application.deps.TurnState.ProjectQueueLocked(unit)
+	return application.deps.Requests.Combine(append(pending, request)), true
+}
+
+// RecoverInputs projects durable "sent but unconfirmed" rows back into the
+// in-memory queue without starting a turn.
+func (application *QueueApplication) RecoverInputs(
+	sessionID string,
+	resent []dto.QueueItem,
+	layers []prompt.PromptLayer,
+) {
+	if len(resent) == 0 {
+		return
+	}
+	application.deps.ViewMu.Lock()
+	unit := application.deps.SessionUnit(sessionID)
+	if unit == nil {
+		application.deps.ViewMu.Unlock()
+		return
+	}
+	enqueued := 0
+	for _, item := range resent {
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			continue
+		}
+		unit.Enqueue(sessioncase.QueuedRequest{
+			DisplayInput: content,
+			Payload:      application.deps.NewRequest(content, layers),
+		})
+		enqueued++
+	}
+	if enqueued == 0 {
+		application.deps.ViewMu.Unlock()
+		return
+	}
+	application.deps.TurnState.ProjectQueueLocked(unit)
+	revision := uint64(0)
+	if application.deps.IsActive(sessionID) {
+		application.deps.MirrorChatState(sessionID, unit.ChatState())
+		revision = application.deps.BumpRevision()
+	}
+	application.deps.ViewMu.Unlock()
+	application.deps.PublishSnapshot(revision, sessionID)
+	application.deps.PublishChatState(sessionID)
 }
 
 func (application *QueueApplication) guardLocked() error {

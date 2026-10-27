@@ -21,7 +21,7 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 	})
 	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()

@@ -9,14 +9,15 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	effortpolicy "github.com/RedHuang-0622/seelex/kernel/limit/effort"
 )
 
 // SchedulerDeps supplies validation and Runtime scheduler callbacks.
 type SchedulerDeps struct {
-	ValidateWorkspace   func(workspaceID string) error
-	ValidatePlugins     func(plugins []string) error
+	ResolveWorkspace    func(workspaceID string) (*model.WorkspaceInfo, error)
+	PluginCatalog       func() []model.PluginInfo
 	ScheduleTask        func(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	UpdateScheduledTask func(context.Context, string, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	CancelScheduledTask func(id string) error
@@ -59,10 +60,10 @@ func (application *SchedulerApplication) ScheduleTask(ctx context.Context, spec 
 	if err := ValidateRunParams(spec); err != nil {
 		return nil, err
 	}
-	if err := application.deps.ValidateWorkspace(spec.WorkspaceID); err != nil {
+	if err := application.validateWorkspace(spec.WorkspaceID); err != nil {
 		return nil, err
 	}
-	if err := application.deps.ValidatePlugins(spec.Plugins); err != nil {
+	if err := application.validatePlugins(spec.Plugins); err != nil {
 		return nil, err
 	}
 	created, err := application.deps.ScheduleTask(ctx, spec)
@@ -83,10 +84,10 @@ func (application *SchedulerApplication) UpdateScheduledTask(ctx context.Context
 	if err := ValidateRunParams(spec); err != nil {
 		return nil, err
 	}
-	if err := application.deps.ValidateWorkspace(spec.WorkspaceID); err != nil {
+	if err := application.validateWorkspace(spec.WorkspaceID); err != nil {
 		return nil, err
 	}
-	if err := application.deps.ValidatePlugins(spec.Plugins); err != nil {
+	if err := application.validatePlugins(spec.Plugins); err != nil {
 		return nil, err
 	}
 	updated, err := application.deps.UpdateScheduledTask(ctx, id, spec)
@@ -106,5 +107,46 @@ func (application *SchedulerApplication) CancelScheduledTask(id string) error {
 		return err
 	}
 	application.deps.Refresh()
+	return nil
+}
+
+func (application *SchedulerApplication) validateWorkspace(workspaceID string) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		return nil
+	}
+	if application.deps.ResolveWorkspace == nil {
+		return errors.New("指定了工作区，但工作区能力未装配")
+	}
+	if _, err := application.deps.ResolveWorkspace(workspaceID); err != nil {
+		return fmt.Errorf("定时任务工作区 %q 不可用: %w", workspaceID, err)
+	}
+	return nil
+}
+
+func (application *SchedulerApplication) validatePlugins(plugins []string) error {
+	names, err := dto.NormalizePlugins(plugins, 0)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 || application.deps.PluginCatalog == nil {
+		return nil
+	}
+	known := make(map[string]struct{})
+	for _, info := range application.deps.PluginCatalog() {
+		known[strings.TrimSpace(info.Name)] = struct{}{}
+	}
+	if len(known) == 0 {
+		return nil
+	}
+	missing := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := known[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("定时任务装配的插件不存在：%s", strings.Join(missing, "、"))
+	}
 	return nil
 }

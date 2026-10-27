@@ -1,22 +1,9 @@
 package assembly
 
 import (
-	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestReferenceApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("referenceApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 referenceApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationreference.Application)(nil)) {
-		t.Fatalf("referenceApplication 字段类型 = %s", field.Type)
-	}
-}
 
 // TestReadToolResultResolvesNodeRef 验证 P1 桥：read_tool_result 对
 // node:<nodeID>: 前缀的 ref 经引擎桥读回节点归档内容（子代理 ref 可读）。

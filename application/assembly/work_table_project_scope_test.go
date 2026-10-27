@@ -73,7 +73,7 @@ func newProjectSwitchHarness(t *testing.T) *projectSwitchHarness {
 // 活动任务放进实时注册表——它就是"不该被带到项目 B"的那一行。
 func (harness *projectSwitchHarness) enterProjectA(t *testing.T) {
 	t.Helper()
-	if err := harness.service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := harness.service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := harness.service.components.workspace.BindWorkspace("project-a"); err != nil {

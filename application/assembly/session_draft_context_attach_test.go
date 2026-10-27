@@ -34,7 +34,7 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 	sessions := &contextAwareSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -50,7 +50,7 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 		t.Fatalf("离开空闲会话应解绑一次（既有防串台口径）：detached=%d，want 1", detachedAtDraft)
 	}
 
-	if err := service.components.sessionDraftSubmission.Materialize(draftID, "第一个问题"); err != nil {
+	if err := service.components.sessionDrafts.submission.Materialize(draftID, "第一个问题"); err != nil {
 		t.Fatalf("materializeDraftForSubmit: %v", err)
 	}
 	// 物化后活跃会话就是那个新会话（早分配 SID 复用）。
@@ -89,7 +89,7 @@ func TestBeginNewSessionKeepsRunningSessionContextStore(t *testing.T) {
 	service.sessionUnitLocked("session-a").SetChatState(model.ChatState{Running: true, RequestID: "req-a"}, nil)
 	service.ViewMu.Unlock()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	sessions.mu.Lock()
@@ -142,7 +142,7 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	if err := service.components.workspace.BindWorkspace("project-a"); err != nil {

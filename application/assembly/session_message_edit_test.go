@@ -3,6 +3,7 @@ package assembly
 import (
 	"context"
 	"errors"
+	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/store"
@@ -86,7 +87,7 @@ func TestEditUserMessageAndForkUsesPreviousParagraphAndSubmitsReplacement(t *tes
 	service, sessions, engine := editForkFixture(t)
 	parentBefore := append([]store.Event(nil), sessions.events...)
 
-	result, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq:   3,
 		NewText:          "edited question",
 		ExpectedRevision: service.components.frontendSnapshot.Snapshot().ConversationRevision,
@@ -136,7 +137,7 @@ func TestEditUserMessageAndForkUsesPreviousParagraphAndSubmitsReplacement(t *tes
 
 func TestEditUserMessageAndForkCanReplaceLatestUserMessage(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	result, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 5, NewText: "latest edited", ExpectedRevision: 6, OperationID: "latest-edit",
 	})
 	if err != nil {
@@ -158,7 +159,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 	editForkRetainedWindow(t, service, 2)
 	revision := service.components.frontendSnapshot.Snapshot().ConversationRevision
 
-	_, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 1, NewText: "cannot edit", ExpectedRevision: revision, OperationID: "compressed",
 	})
 	if err == nil || !strings.Contains(err.Error(), "压缩") {
@@ -175,7 +176,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 	}
 	unit.SetChatState(model.ChatState{Running: true, RequestID: "running-parent"}, nil)
 	service.ViewMu.Unlock()
-	_, err = service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err = service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "cannot edit", ExpectedRevision: revision, OperationID: "running",
 	})
 	if !errors.Is(err, ErrChatRunning) {
@@ -185,7 +186,7 @@ func TestEditUserMessageAndForkRejectsCompressedAndRunningParents(t *testing.T) 
 
 func TestEditUserMessageAndForkRejectsStaleParentRevision(t *testing.T) {
 	service, sessions, _ := editForkFixture(t)
-	_, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	_, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "stale", ExpectedRevision: 5, OperationID: "stale-revision",
 	})
 	if err == nil || !strings.Contains(err.Error(), "已推进") {
@@ -202,11 +203,11 @@ func TestEditUserMessageAndForkSameOperationIsIdempotent(t *testing.T) {
 	request := model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "only once", ExpectedRevision: revision, OperationID: "double-click",
 	}
-	first, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", request)
+	first, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", request)
+	second, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +223,7 @@ func TestEditUserMessageAndForkSameOperationIsIdempotent(t *testing.T) {
 
 func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	first, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	first, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "first branch", ExpectedRevision: 6, OperationID: "branch-a",
 	})
 	if err != nil {
@@ -233,7 +234,7 @@ func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testi
 	if err := service.components.sessionResume.Resume("parent"); err != nil {
 		t.Fatalf("resume parent: %v", err)
 	}
-	second, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	second, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "second branch", ExpectedRevision: 6, OperationID: "branch-b",
 	})
 	if err != nil {
@@ -248,7 +249,7 @@ func TestEditUserMessageAndForkSamePointWithNewOperationCreatesNewChild(t *testi
 
 func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing.T) {
 	service, _, engine := editForkFixture(t)
-	child, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	child, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "child only", ExpectedRevision: 6, OperationID: "isolation-child",
 	})
 	if err != nil {
@@ -278,7 +279,7 @@ func TestEditUserMessageAndForkKeepsChildIsolatedFromParentLaterTurns(t *testing
 
 func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 	service, sessions, engine := editForkFixture(t)
-	result, err := service.components.editForkApplication.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
+	result, err := service.components.editFork.application.EditUserMessageAndFork(context.Background(), "parent", model.EditUserMessageForkRequest{
 		TargetEventSeq: 3, NewText: "will rollback", ExpectedRevision: 6, OperationID: "rollback-child",
 	})
 	if err != nil {
@@ -286,7 +287,11 @@ func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 	}
 	engine.releaseSession(result.ChildSessionID)
 	waitSessionIdle(t, service)
-	if err := service.components.editForkRollback.Rollback("parent", result.ChildSessionID, errors.New("submit failed")); err == nil {
+	rollback := applicationedit.NewRollback(applicationedit.RollbackDeps{
+		Delete: service.components.sessionDelete.Delete,
+		Resume: service.components.sessionResume.Resume,
+	})
+	if err := rollback.Rollback("parent", result.ChildSessionID, errors.New("submit failed")); err == nil {
 		t.Fatal("rollback must preserve the original failure")
 	}
 	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != "parent" {
@@ -305,7 +310,7 @@ func TestEditForkRollbackDeletesChildAndRestoresParentView(t *testing.T) {
 
 func TestEditUserMessageAndForkExplainsMissingEventSeq(t *testing.T) {
 	service, _, _ := editForkFixture(t)
-	messages := service.components.editForkAnnotation.Annotate("parent", []model.Message{
+	messages := service.components.editFork.annotation.Annotate("parent", []model.Message{
 		{ID: "legacy-user", Role: "user", Content: "legacy input"},
 	}, false)
 	if len(messages) != 1 {
@@ -319,7 +324,7 @@ func TestEditUserMessageAndForkExplainsMissingEventSeq(t *testing.T) {
 func TestAnnotateConversationUsesRetainedWindowAndRunningState(t *testing.T) {
 	service, _, _ := editForkFixture(t)
 	editForkRetainedWindow(t, service, 2)
-	messages := service.components.editForkAnnotation.Annotate("parent", []model.Message{
+	messages := service.components.editFork.annotation.Annotate("parent", []model.Message{
 		{ID: "compressed", Role: "user", Content: "old", EventSeq: 1},
 		{ID: "retained", Role: "user", Content: "kept", EventSeq: 3},
 		{ID: "assistant", Role: "assistant", Content: "answer", EventSeq: 4},
@@ -333,7 +338,7 @@ func TestAnnotateConversationUsesRetainedWindowAndRunningState(t *testing.T) {
 	if messages[2].Editable || messages[2].EditDisabledReason != "" {
 		t.Fatalf("assistant annotation = %#v", messages[2])
 	}
-	running := service.components.editForkAnnotation.Annotate("parent", messages[1:2], true)
+	running := service.components.editFork.annotation.Annotate("parent", messages[1:2], true)
 	if running[0].Editable || !strings.Contains(running[0].EditDisabledReason, "运行") {
 		t.Fatalf("running annotation = %#v", running[0])
 	}

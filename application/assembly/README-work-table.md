@@ -120,7 +120,6 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### async_completion_trigger_test.go
 
-- `func TestAsyncCompletionApplicationIsAssembled(t *testing.T)`
 - `func TestAsyncCompletionFacadeIsRetiredFromService(t *testing.T)`
 - `func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
 - `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
@@ -140,7 +139,6 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### project_board_read_test.go
 
-- `func TestProjectBoardQueryIsAssembled(t *testing.T)`
 - `func TestProjectBoardReadFacadeUsesPorts(t *testing.T)`
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)`
 - `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
@@ -157,10 +155,6 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
 - `func heavyTestPlan(nodes int) *model.PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
-
-### work_table_application_test.go
-
-- `func TestServiceComponentsAssembleExecutionApplication(t *testing.T)`
 
 ### work_table_async_test.go
 

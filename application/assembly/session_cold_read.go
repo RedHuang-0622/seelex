@@ -10,10 +10,25 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 	"strings"
 )
+
+// newSessionForkLineage binds the stateless lineage decoder to the narrow
+// persistent read port at the call site. The decoder owns no runtime state, so
+// the cold pipeline and cold snapshot each control its lifetime directly.
+func (service *Service) newSessionForkLineage() *applicationsession.ForkLineageApplication {
+	var loadPayload func(session_runtime.Location, string) ([]byte, error)
+	if port, ok := service.Deps.Sessions.(session_runtime.SessionForkPort); ok {
+		loadPayload = func(location session_runtime.Location, sessionID string) ([]byte, error) {
+			return port.LoadContextStateWorkspace(location.WorkspaceID, sessionID)
+		}
+	}
+	return applicationsession.NewForkLineage(applicationsession.ForkLineageDeps{LoadPayload: loadPayload})
+}
 
 // snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档
 // 会话同样可读（record 保留），不存在的会话返回 ErrSessionSnapshotUnavailable。
@@ -35,7 +50,7 @@ func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot,
 	plan := task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
 	snapshot := model.SessionSnapshot{
 		ProtocolVersion: ProtocolVersion,
-		Session:         model.SessionState{ID: sessionID, Name: title, ForkedFrom: service.components.sessionForkLineage.Load(location, sessionID)},
+		Session:         model.SessionState{ID: sessionID, Name: title, ForkedFrom: service.newSessionForkLineage().Load(location, sessionID)},
 		Conversation:    conversation,
 		Chat:            model.ChatState{},
 		Runtime: model.SessionRuntime{

@@ -3,8 +3,10 @@
 ## 生态位
 
 `application/conversation/edit` 承载“编辑用户消息并 fork 出 child 会话”的组件层。
-顶层 `Service.EditUserMessageAndFork` 暂时负责参数校验与 operation waiter，组件负责
-admission、target 解析、child 原子编排、rollback 和消息可编辑性。
+`application/assembly` 只在组合根构造 Registry、Validator、TargetResolver、
+Rollback 与 Process，并把最终 `EditApplication` 作为
+`Components.Conversation.EditFork` 暴露给前端适配器。组件负责 admission、
+target 解析、child 原子编排、rollback 和消息可编辑性。
 
 ## 职责
 
@@ -34,6 +36,10 @@ admission、target 解析、child 原子编排、rollback 和消息可编辑性�
 
 ```text
 go test ./application/conversation/edit -count=1
-go test ./application/assembly -run 'EditFork|EditUserMessageAndFork' -count=1
+go test ./application/assembly -run 'EditUserMessageFork' -count=1
 go test ./application/... -count=1
 ```
+
+`owner_behavior_external_test.go` 使用 `package edit_test`，从外部验证 Registry、
+Validator、Resolver、Process、Rollback 和 Annotation；assembly 只保留跨组件编辑并
+fork 的集成用例。

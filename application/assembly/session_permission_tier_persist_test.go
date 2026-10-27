@@ -168,7 +168,7 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 		t.Fatal("前置：full 档应派生 full_access=true")
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -202,7 +202,7 @@ func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T) {
 func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	store := newTierMemSessions()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store))
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -223,7 +223,7 @@ func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一份槽位，档位必须从持久设置读回。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession(恢复槽位): %v", err)
 	}
 	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != draftID {

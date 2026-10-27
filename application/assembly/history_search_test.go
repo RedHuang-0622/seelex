@@ -4,22 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
-	"reflect"
 	"testing"
 )
-
-func TestHistorySearchApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("historySearchApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 historySearchApplication")
-	}
-	if field.Type != reflect.TypeOf((*conversationsearch.Application)(nil)) {
-		t.Fatalf("historySearchApplication 字段类型 = %s", field.Type)
-	}
-}
 
 // searchRuntime 是支持检索断言的 fakeRuntime 包装（记录查询参数）。
 type searchRuntime struct {

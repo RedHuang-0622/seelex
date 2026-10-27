@@ -25,10 +25,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### goal_application_test.go
-
-- `func TestServiceComponentsAssembleGoalApplication(t *testing.T)`
-
 ### goal_service.go
 
 - `func (service *Service) refreshGoalRuntimeProjection(sessionID string)` — refreshGoalRuntimeProjection 在 goal 状态迁移后刷新目标会话的 runtime

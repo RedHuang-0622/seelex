@@ -2,7 +2,6 @@ package assembly
 
 import (
 	"context"
-	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
@@ -11,23 +10,11 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestAsyncCompletionApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("asyncCompletionApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 asyncCompletionApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationexecution.CompletionApplication)(nil)) {
-		t.Fatalf("asyncCompletionApplication 字段类型 = %s", field.Type)
-	}
-}
 
 func TestAsyncCompletionFacadeIsRetiredFromService(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)

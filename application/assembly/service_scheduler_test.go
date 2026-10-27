@@ -2,66 +2,24 @@ package assembly
 
 import (
 	"context"
-	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestSchedulerApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("schedulerApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 schedulerApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationscheduler.SchedulerApplication)(nil)) {
-		t.Fatalf("schedulerApplication 字段类型 = %s", field.Type)
-	}
-}
-
-func TestRuntimeApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("runtimeApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 runtimeApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationadmin.RuntimeApplication)(nil)) {
-		t.Fatalf("runtimeApplication 字段类型 = %s", field.Type)
-	}
-}
-
-func TestScheduledRunApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("scheduledRunApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 scheduledRunApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationscheduler.RunApplication)(nil)) {
-		t.Fatalf("scheduledRunApplication 字段类型 = %s", field.Type)
-	}
-}
-
-func TestScheduledSessionApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("scheduledSessionApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 scheduledSessionApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationscheduler.SessionApplication)(nil)) {
-		t.Fatalf("scheduledSessionApplication 字段类型 = %s", field.Type)
-	}
-}
-
 func TestSchedulerApplicationCreateStopsOnValidationError(t *testing.T) {
 	application := applicationscheduler.NewScheduler(applicationscheduler.SchedulerDeps{
-		ValidateWorkspace: func(string) error {
+		ResolveWorkspace: func(string) (*model.WorkspaceInfo, error) {
 			t.Fatal("参数校验失败后不得校验工作区")
+			return nil, nil
+		},
+		PluginCatalog: func() []model.PluginInfo {
+			t.Fatal("参数校验失败后不得校验插件")
 			return nil
 		},
 		ScheduleTask: func(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {

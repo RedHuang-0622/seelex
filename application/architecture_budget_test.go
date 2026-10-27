@@ -24,6 +24,9 @@ type applicationBudget struct {
 	AssemblyInternalDependencyLimit     int      `json:"assembly_internal_dependency_limit"`
 	AssemblyProductionFileLimit         int      `json:"assembly_production_file_limit"`
 	AssemblyProductionLineLimit         int      `json:"assembly_production_line_limit"`
+	AssemblyComponentFieldLimit         int      `json:"assembly_component_field_limit"`
+	AssemblyTestFileLimit               int      `json:"assembly_test_file_limit"`
+	AssemblyTestLineLimit               int      `json:"assembly_test_line_limit"`
 	AllowedAssemblyInternalDependencies []string `json:"allowed_assembly_internal_dependencies"`
 }
 
@@ -67,6 +70,21 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 			productionLines, budget.AssemblyProductionLineLimit)
 	}
 
+	componentFields := serviceComponentFieldCount(t, filepath.Join(applicationDir, "assembly"))
+	if componentFields > budget.AssemblyComponentFieldLimit {
+		t.Fatalf("serviceComponents 字段 = %d，预算 = %d：组件图只能保持或收紧",
+			componentFields, budget.AssemblyComponentFieldLimit)
+	}
+
+	testFiles, testLines := testSize(t, filepath.Join(applicationDir, "assembly"))
+	if testFiles > budget.AssemblyTestFileLimit {
+		t.Fatalf("application/assembly 测试 Go 文件 = %d，预算 = %d：测试应合并或迁 owner 包",
+			testFiles, budget.AssemblyTestFileLimit)
+	}
+	if testLines > budget.AssemblyTestLineLimit {
+		t.Fatalf("application/assembly 测试代码 = %d 行，预算 = %d：测试规模只能保持或收紧",
+			testLines, budget.AssemblyTestLineLimit)
+	}
 }
 
 func sourceApplicationDir(t *testing.T) string {
@@ -183,6 +201,63 @@ func productionSize(t *testing.T, packageDir string) (files, lines int) {
 		lines += sourceLineCount(raw)
 	}
 	return files, lines
+}
+
+func testSize(t *testing.T, packageDir string) (files, lines int) {
+	t.Helper()
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		t.Fatalf("读取 %s: %v", packageDir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		files++
+		raw, err := os.ReadFile(filepath.Join(packageDir, name))
+		if err != nil {
+			t.Fatalf("读取 %s: %v", name, err)
+		}
+		lines += sourceLineCount(raw)
+	}
+	return files, lines
+}
+
+func serviceComponentFieldCount(t *testing.T, packageDir string) int {
+	t.Helper()
+	file, err := parser.ParseFile(
+		token.NewFileSet(),
+		filepath.Join(packageDir, "service_components.go"),
+		nil,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("解析 serviceComponents: %v", err)
+	}
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.TYPE {
+			continue
+		}
+		for _, specification := range general.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != "serviceComponents" {
+				continue
+			}
+			structure, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				t.Fatal("serviceComponents is not a struct")
+			}
+			count := 0
+			for _, field := range structure.Fields.List {
+				count += len(field.Names)
+			}
+			return count
+		}
+	}
+	t.Fatal("serviceComponents type not found")
+	return 0
 }
 
 func sourceLineCount(raw []byte) int {

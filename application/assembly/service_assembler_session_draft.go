@@ -9,22 +9,14 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-func (service *Service) assembleSessionDraftComponents() {
-	service.components.sessionDraftSubmission = applicationsession.NewDraftSubmission(applicationsession.DraftSubmissionDeps{
-		IsDraftTarget: service.isUnmaterializedDraftTarget,
-		Transition:    service.transitionView,
-		IsInView: func(sessionID string) bool {
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return service.draftTargetLocked().InView(sessionID)
-		},
-		Materialize: func(firstInput string) error {
-			return service.components.sessionDraftMaterialization.Materialize(firstInput)
-		},
-		NotInView: ErrDraftNotInView,
-	})
+type sessionDraftComponents struct {
+	submission      *applicationsession.DraftSubmissionApplication
+	materialization *applicationsession.DraftMaterializationApplication
+	entry           *applicationsession.DraftEntryApplication
+}
 
-	service.components.sessionDraftMaterialization = applicationsession.NewDraftMaterialization(applicationsession.DraftMaterializationDeps{
+func (service *Service) assembleSessionDraftComponents() {
+	materialization := applicationsession.NewDraftMaterialization(applicationsession.DraftMaterializationDeps{
 		Snapshot: func() applicationsession.DraftMaterializationSource {
 			service.ViewMu.RLock()
 			defer service.ViewMu.RUnlock()
@@ -89,7 +81,19 @@ func (service *Service) assembleSessionDraftComponents() {
 		},
 	})
 
-	service.components.sessionDraftEntry = applicationsession.NewDraftEntry(applicationsession.DraftEntryDeps{
+	submission := applicationsession.NewDraftSubmission(applicationsession.DraftSubmissionDeps{
+		IsDraftTarget: service.isUnmaterializedDraftTarget,
+		Transition:    service.transitionView,
+		IsInView: func(sessionID string) bool {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return service.draftTargetLocked().InView(sessionID)
+		},
+		Materialize: materialization.Materialize,
+		NotInView:   ErrDraftNotInView,
+	})
+
+	entry := applicationsession.NewDraftEntry(applicationsession.DraftEntryDeps{
 		Transition: service.transitionView,
 		Snapshot: func() applicationsession.DraftEntryState {
 			service.ViewMu.RLock()
@@ -179,4 +183,7 @@ func (service *Service) assembleSessionDraftComponents() {
 		},
 		DrainingError: ErrApplicationDraining,
 	})
+	service.components.sessionDrafts = &sessionDraftComponents{
+		submission: submission, materialization: materialization, entry: entry,
+	}
 }

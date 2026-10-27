@@ -59,7 +59,6 @@
 - `func TestSessionSSHUserSpacesOverrideDefaultAndFollowInheritance(t *testing.T)`
 - `func TestSetRolePermissionVectorRejectsMalformedEntries(t *testing.T)`
 - `func TestRestoreRolePermissionsConcurrentRoles(t *testing.T)` — TestRestoreRolePermissionsConcurrentRoles 让多个角色同时恢复：判据无共享可变
-- `func TestRoleApplicationIsAssembled(t *testing.T)`
 - `func TestRoleAccountApplicationSetAccountRollsBackRuntime(t *testing.T)`
 - `func TestRoleAccountApplicationRestoreSkipsExplicitlyMissingAccount(t *testing.T)`
 - `func (store *roleAccountApplicationFakeStore) RoleAccount(sessionID, role string) (string, bool, error)`

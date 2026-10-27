@@ -67,3 +67,44 @@ func TestFocusedComponentsDoNotHoldServiceFacade(t *testing.T) {
 		}
 	}
 }
+
+func TestComponentsForReturnsCompleteOwnerGraph(t *testing.T) {
+	service := newTestService(t, &fakeEngine{})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	assertNonNilOwnerGraph(t, reflect.ValueOf(ComponentsFor(service)), "Components")
+
+	stateType := reflect.TypeOf(serviceState{})
+	for _, retired := range []string{"editForkOps", "degradeOnce", "reviewSeq"} {
+		if _, exists := stateType.FieldByName(retired); exists {
+			t.Fatalf("serviceState 仍持有已归 owner 的字段 %s", retired)
+		}
+	}
+}
+
+func assertNonNilOwnerGraph(t *testing.T, value reflect.Value, path string) {
+	t.Helper()
+	if !value.IsValid() {
+		t.Fatalf("%s is invalid", path)
+	}
+	switch value.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			t.Fatalf("%s is nil", path)
+		}
+	case reflect.Struct:
+		valueType := value.Type()
+		for index := 0; index < value.NumField(); index++ {
+			field := valueType.Field(index)
+			if field.PkgPath != "" {
+				continue
+			}
+			if field.Type.Kind() == reflect.Func {
+				t.Fatalf("%s.%s is a function; Components must contain owners only", path, field.Name)
+			}
+			assertNonNilOwnerGraph(t, value.Field(index), path+"."+field.Name)
+		}
+	default:
+		t.Fatalf("%s has unsupported kind %s", path, value.Kind())
+	}
+}

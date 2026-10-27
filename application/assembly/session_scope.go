@@ -569,7 +569,7 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 		AsyncRuns:            asyncRuns,
 		Limits:               workTableBounds(),
 		AnnotateConversation: func(messages []model.Message, running bool) []model.Message {
-			return service.components.editForkAnnotation.Annotate(sessionID, messages, running)
+			return service.components.editFork.annotation.Annotate(sessionID, messages, running)
 		},
 	}), nil
 }

@@ -1,27 +1,14 @@
 package assembly
 
 import (
-	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 	"time"
 )
-
-func TestServiceComponentsAssembleConversationQueue(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("conversationQueue")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 conversationQueue")
-	}
-	if field.Type != reflect.TypeOf((*applicationconversation.QueueApplication)(nil)) {
-		t.Fatalf("conversationQueue 字段类型 = %s，want *conversationQueue", field.Type)
-	}
-}
 
 func TestConversationQueuePreservesPresentationEventOrder(t *testing.T) {
 	service, _ := startBlockingChat(t)

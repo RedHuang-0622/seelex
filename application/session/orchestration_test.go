@@ -6,29 +6,6 @@ import (
 	"testing"
 )
 
-func TestDraftSubmissionTrimsAfterViewCheck(t *testing.T) {
-	var mu sync.Mutex
-	var materialized string
-	notInView := errors.New("not in view")
-	application := NewDraftSubmission(DraftSubmissionDeps{
-		IsDraftTarget: func(string) bool { return true },
-		Transition:    func() sync.Locker { return &mu },
-		IsInView:      func(string) bool { return true },
-		Materialize:   func(input string) error { materialized = input; return nil },
-		NotInView:     notInView,
-	})
-	if err := application.Materialize("session-a", "  hello  "); err != nil {
-		t.Fatal(err)
-	}
-	if materialized != "hello" {
-		t.Fatalf("materialized = %q", materialized)
-	}
-	application.deps.IsInView = func(string) bool { return false }
-	if err := application.Materialize("session-a", "hello"); !errors.Is(err, notInView) {
-		t.Fatalf("error = %v", err)
-	}
-}
-
 func TestResumeApplicationBranches(t *testing.T) {
 	var transitionMu sync.Mutex
 	hotAttach := false

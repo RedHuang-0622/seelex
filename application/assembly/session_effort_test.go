@@ -20,7 +20,7 @@ func TestEffortOwnershipPerSession(t *testing.T) {
 		t.Fatalf("effortForSession(A) = %q, want high", got)
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -56,7 +56,7 @@ func TestSubagentPolicySlotSyncPerSession(t *testing.T) {
 		t.Fatalf("plan policy slot A = %+v ok=%v, want high/无并发上限", gotA, ok)
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID

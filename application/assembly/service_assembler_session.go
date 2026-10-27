@@ -6,7 +6,6 @@ import (
 	"time"
 
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
@@ -130,7 +129,7 @@ func (service *Service) assembleSessionReleaseApplication() {
 	})
 }
 
-func (service *Service) assembleSessionUseCaseApplications() {
+func (service *Service) assembleSessionUseCaseApplications(restore sessionRestoreComponents) {
 	service.components.sessionLifecycle = applicationsession.NewLifecycle(applicationsession.LifecycleDeps{
 		Transition: service.transitionForSession,
 		Gate: func(sessionID string) switching.UnloadGate {
@@ -290,43 +289,20 @@ func (service *Service) assembleSessionUseCaseApplications() {
 			return service.components.sessionHistoryRuntime.ResumeSessionCold(sessionID, epoch)
 		},
 		HandleFailure: func(sessionID, previousID string, epoch uint64, cause error) {
-			service.components.sessionRestoreRecovery.Handle(sessionID, previousID, epoch, cause)
+			restore.recovery.Handle(sessionID, previousID, epoch, cause)
 		},
 	})
 
-	service.components.sessionRestoringShell = applicationsession.NewRestoringShell(applicationsession.RestoringShellDeps{
-		Title:     func(sessionID string) string { return service.components.sessions.SessionTitleFor(sessionID).Value },
-		SetActive: service.sessions.SetActive,
-		SetSessionChat: func(sessionID string, chat model.ChatState) {
-			service.components.view.SetSessionChatLockedFor(sessionID, chat)
-		},
-		MirrorActiveView: func() {
-			service.components.view.MirrorActiveViewLocked()
-		},
-		BumpRevision: func() uint64 {
-			return service.components.view.BumpLocked()
-		},
-	})
+}
 
-	service.components.sessionRestoreRecovery = applicationsession.NewRestoreRecovery(applicationsession.RestoreRecoveryDeps{
-		Lock: func() sync.Locker { return &service.ViewMu },
-		ClearRestoringLocked: func(sessionID string) {
-			service.components.view.ClearRestoringLocked(sessionID)
-		},
-		SnapshotLocked: func(sessionID string, epoch uint64) applicationsession.RestoreRecoveryState {
-			return applicationsession.RestoreRecoveryState{
-				StillActive: service.Core.Snapshot.Session.ID == sessionID,
-				Latest:      service.components.view.SessionViewIntentLocked(sessionID) == epoch,
-			}
-		},
-		HotAttach: service.hotAttachSession,
-		ResetDraft: func() {
-			service.components.sessionRestoreDraftReset.Reset()
-		},
-		PublishViewSessionChanged: service.publishViewSessionChanged,
-	})
+type sessionRestoreComponents struct {
+	shell      *applicationsession.RestoringShellApplication
+	recovery   *applicationsession.RestoreRecoveryApplication
+	draftReset *applicationsession.RestoreDraftResetApplication
+}
 
-	service.components.sessionRestoreDraftReset = applicationsession.NewRestoreDraftReset(applicationsession.RestoreDraftResetDeps{
+func (service *Service) assembleSessionRestoreComponents() sessionRestoreComponents {
+	draftReset := applicationsession.NewRestoreDraftReset(applicationsession.RestoreDraftResetDeps{
 		Lock: func() sync.Locker { return &service.ViewMu },
 		EnsureSlotLocked: func() string {
 			slot := service.draft
@@ -354,13 +330,34 @@ func (service *Service) assembleSessionUseCaseApplications() {
 		},
 	})
 
-	var loadPayload func(session_runtime.Location, string) ([]byte, error)
-	if port, ok := service.Deps.Sessions.(session_runtime.SessionForkPort); ok {
-		loadPayload = func(location session_runtime.Location, sessionID string) ([]byte, error) {
-			return port.LoadContextStateWorkspace(location.WorkspaceID, sessionID)
-		}
-	}
-	service.components.sessionForkLineage = applicationsession.NewForkLineage(applicationsession.ForkLineageDeps{
-		LoadPayload: loadPayload,
+	recovery := applicationsession.NewRestoreRecovery(applicationsession.RestoreRecoveryDeps{
+		Lock: func() sync.Locker { return &service.ViewMu },
+		ClearRestoringLocked: func(sessionID string) {
+			service.components.view.ClearRestoringLocked(sessionID)
+		},
+		SnapshotLocked: func(sessionID string, epoch uint64) applicationsession.RestoreRecoveryState {
+			return applicationsession.RestoreRecoveryState{
+				StillActive: service.Core.Snapshot.Session.ID == sessionID,
+				Latest:      service.components.view.SessionViewIntentLocked(sessionID) == epoch,
+			}
+		},
+		HotAttach:                 service.hotAttachSession,
+		ResetDraft:                draftReset.Reset,
+		PublishViewSessionChanged: service.publishViewSessionChanged,
 	})
+
+	shell := applicationsession.NewRestoringShell(applicationsession.RestoringShellDeps{
+		Title:     func(sessionID string) string { return service.components.sessions.SessionTitleFor(sessionID).Value },
+		SetActive: service.sessions.SetActive,
+		SetSessionChat: func(sessionID string, chat model.ChatState) {
+			service.components.view.SetSessionChatLockedFor(sessionID, chat)
+		},
+		MirrorActiveView: func() {
+			service.components.view.MirrorActiveViewLocked()
+		},
+		BumpRevision: func() uint64 {
+			return service.components.view.BumpLocked()
+		},
+	})
+	return sessionRestoreComponents{shell: shell, recovery: recovery, draftReset: draftReset}
 }

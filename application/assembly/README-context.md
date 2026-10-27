@@ -295,7 +295,6 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact_test.go
 
-- `func TestContextCompactionApplicationIsAssembled(t *testing.T)`
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 - `func TestCompactContextHandlerCompactsTranscript(t *testing.T)` — TestCompactContextHandlerCompactsTranscript：compact_context 工具（= /compact
 - `func TestCompactManualCompactsBelowThreshold(t *testing.T)` — TestCompactManualCompactsBelowThreshold：显式压缩（/compact、compact_context）

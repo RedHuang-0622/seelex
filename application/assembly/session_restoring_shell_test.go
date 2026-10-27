@@ -5,24 +5,8 @@ import (
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"reflect"
 	"testing"
 )
-
-func TestSessionRestoringShellIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("sessionRestoringShell")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 sessionRestoringShell")
-	}
-	if field.Type != reflect.TypeOf((*applicationsession.RestoringShellApplication)(nil)) {
-		t.Fatalf("sessionRestoringShell 字段类型 = %s", field.Type)
-	}
-	shellType := reflect.TypeOf((*applicationsession.RestoringShellApplication)(nil))
-	if _, ok := shellType.MethodByName("PointLocked"); !ok {
-		t.Fatal("sessionRestoringShell 缺少 PointLocked")
-	}
-}
 
 func TestSessionRestoringShellClearsAllSessionFacts(t *testing.T) {
 	unit, err := sessioncase.NewSessionUnit("session-b")

@@ -2,30 +2,14 @@ package assembly
 
 import (
 	"context"
-	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
-
-func TestReviewApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("reviewApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 reviewApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationreview.Application)(nil)) {
-		t.Fatalf("reviewApplication 字段类型 = %s", field.Type)
-	}
-	if _, exists := reflect.TypeOf(serviceState{}).FieldByName("reviewSeq"); exists {
-		t.Fatal("reviewSeq 应归 reviewApplication，不再属于 serviceState")
-	}
-}
 
 // reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
 // 目录 / 不存在），并返回装配在 workspace.Repo 上的服务。

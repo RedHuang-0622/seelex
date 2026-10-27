@@ -8,7 +8,7 @@ import (
 )
 
 // reloadSessionContent reloads an evicted visible window from durable pages.
-func (service *Service) reloadSessionContent(sessionID string) error {
+func (service *Service) reloadSessionContent(sessionID string, historyWindowAssembler applicationhistory.WindowAssembler) error {
 	window := applicationpolicy.Get().HistoryWindow
 	if window <= 0 {
 		window = 1
@@ -23,6 +23,6 @@ func (service *Service) reloadSessionContent(sessionID string) error {
 		page,
 		window,
 		applicationhistory.InstallReplace,
-		service.components.historyWindowAssembler,
+		historyWindowAssembler,
 	)
 }

@@ -4,7 +4,7 @@
 
 聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）
 
-覆盖：`chat*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：`chat*.go`、`conversation_turn_*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## Queue application ownership（AP-007 首个切片）
 
@@ -180,107 +180,22 @@ Session 的遗留执行开关。
 
 - `func TestChatStateIsPublishedNotInferred(t *testing.T)`
 
-### chat_turn_cleanup_test.go
-
-- `func TestChatTurnCleanupRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnCleanupRunsFullSuccessfulPath(t *testing.T)`
-- `func TestConversationTurnCleanupCombinesErrorsAndKeepsRunning(t *testing.T)`
-- `func TestConversationTurnCleanupWrapsFlushAndRecoveryErrors(t *testing.T)`
-
-### chat_turn_commit_test.go
-
-- `func TestChatTurnCommitRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnCommitRunsPersistenceOutcomePromotion(t *testing.T)`
-- `func TestConversationTurnCommitStopsOnStaleRequest(t *testing.T)`
-
-### chat_turn_completion_test.go
-
-- `func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T)`
-- `func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *testing.T)`
-
-### chat_turn_execution_test.go
-
-- `func TestChatTurnExecutionRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnExecutionPreparesInOrder(t *testing.T)`
-
-### chat_turn_finalize_test.go
-
-- `func TestChatTurnFinalizeRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnFinalizeMapsCommitToPublication(t *testing.T)`
-- `func TestConversationTurnFinalizeIgnoresStaleCommit(t *testing.T)`
-
-### chat_turn_input_test.go
-
-- `func TestChatTurnInputRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnInputPreparesPromptAndContext(t *testing.T)`
-- `func TestConversationTurnInputStopsOnContextError(t *testing.T)`
-
-### chat_turn_outcome_test.go
-
-- `func TestChatTurnOutcomeRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnOutcomeAppliesCurrentResult(t *testing.T)`
-- `func TestConversationTurnOutcomeRecordsErrorAndProjection(t *testing.T)`
-- `func TestConversationTurnOutcomeRejectsSupersededRequest(t *testing.T)`
-- `func TestConversationTurnOutcomeMirrorsActiveSessionAndRevision(t *testing.T)`
-- `func TestConversationTurnOutcomeDoesNotMirrorBackgroundTask(t *testing.T)`
-
-### chat_turn_process_test.go
-
-- `func TestServiceComponentsAssembleConversationTurnProcess(t *testing.T)`
-- `func TestChatTurnStartRulesAreCentralized(t *testing.T)`
-- `func TestChatTurnPersistenceRulesAreCentralized(t *testing.T)`
-- `func TestChatTurnQueuePromotionRulesAreCentralized(t *testing.T)`
-- `func (unit *queuePromotionTestUnit) ChatState() model.ChatState`
-- `func (unit *queuePromotionTestUnit) SetChatState(chat model.ChatState, _ *sessioncase.View)`
-- `func (unit *queuePromotionTestUnit) UpdateChat(update func(*model.ChatState), _ *sessioncase.View)`
-- `func (unit *queuePromotionTestUnit) QueueProjection() ([]string, int)`
-- `func (unit *queuePromotionTestUnit) SetCancel(cancel context.CancelFunc)`
-- `func (unit *queuePromotionTestUnit) SetStream(sessioncase.VisibleOutputSink)`
-- `func (unit *queuePromotionTestUnit) PendingRequests() []sessioncase.QueuedRequest`
-- `func (unit *queuePromotionTestUnit) SetRequests(requests []sessioncase.QueuedRequest)`
-- `func TestConversationTurnProcessFinishesWhenQueueIsEmpty(t *testing.T)`
-- `func TestConversationTurnProcessKeepsProcessBusyWhenOtherChatRuns(t *testing.T)`
-
-### chat_turn_publication_test.go
-
-- `func TestChatTurnPublicationRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnPublisherPublishesSnapshotWithoutPromotion(t *testing.T)`
-- `func TestConversationTurnPublisherReportsErrorBeforePromotedBatch(t *testing.T)`
-
-### chat_turn_recovery_test.go
-
-- `func TestChatTurnRecoveryRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnRecoveryRetriesAfterRecovery(t *testing.T)`
-- `func TestConversationTurnRecoveryPropagatesRecoveryAndRetryErrors(t *testing.T)`
-- `func TestConversationTurnRecoveryStopsBeforeTaskOnBudgetError(t *testing.T)`
-
 ### chat_turn_request.go
 
 - `func chatRequestDisplays(requests []chatRequest) []string`
 - `func queuedInputRefs(queue []chatRequest) []string`
 - `func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer`
 
-### chat_turn_response_test.go
-
-- `func TestChatTurnResponseRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnResponseFinalizesSuccessfulReply(t *testing.T)`
-- `func TestConversationTurnResponseSkipsReasoningOnErrorAndEmptyFinal(t *testing.T)`
-
 ### chat_turn_state.go
 
 - `func newConversationTurnState() *conversationTurnState`
 
-### chat_turn_state_test.go
+### conversation_turn_boundary_test.go
 
-- `func TestServiceComponentsAssembleConversationTurnState(t *testing.T)`
-- `func TestChatStateWritesAreCentralized(t *testing.T)`
+- `func TestConversationTurnRuntimeHasNoAssemblyForwarder(t *testing.T)`
+- `func TestChatStateWritesUseTurnStateApplication(t *testing.T)`
 - `func TestChatTurnRequestConstructionIsCentralized(t *testing.T)`
-
-### chat_turn_tail_test.go
-
-- `func TestChatTurnTailRulesAreCentralized(t *testing.T)`
-- `func TestConversationTurnTailCompletesWithoutPromotion(t *testing.T)`
-- `func TestConversationTurnTailSettlesAndStartsPromotedBatch(t *testing.T)`
+- `func scanAssemblySources(t *testing.T, excluded string, visit func(string, *ast.File))`
 
 ### reasoning_visible_test.go
 

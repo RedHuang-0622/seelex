@@ -34,7 +34,7 @@ func TestPermissionTierOwnershipPerSession(t *testing.T) {
 		t.Fatal("auto 档不得被当成旧全权（fullAccessForSession 应为 false）")
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -60,7 +60,7 @@ func TestPermissionTierProjectionPerSession(t *testing.T) {
 	if _, err := service.components.policyApplication.SetPermissionTier(dto.PermissionTierEdit); err != nil {
 		t.Fatalf("SetPermissionTier(edit): %v", err)
 	}
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID

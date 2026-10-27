@@ -17,6 +17,24 @@ import (
 // testServiceOption 定制 newTestService 的依赖注入。
 type testServiceOption func(*contract.Dependencies)
 
+type recordingLocker struct {
+	mu     sync.Mutex
+	calls  []string
+	locked int
+}
+
+func (locker *recordingLocker) Lock() {
+	locker.mu.Lock()
+	locker.calls = append(locker.calls, "lock")
+	locker.locked++
+}
+
+func (locker *recordingLocker) Unlock() {
+	locker.calls = append(locker.calls, "unlock")
+	locker.locked--
+	locker.mu.Unlock()
+}
+
 func withSessionID(ctx context.Context, sessionID string) context.Context {
 	return task_context.WithSessionID(ctx, sessionID)
 }

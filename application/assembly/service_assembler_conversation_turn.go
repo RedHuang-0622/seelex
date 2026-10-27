@@ -15,12 +15,16 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-// assembleConversationTurnCoreComponents wires the turn stages that may run as
-// soon as the session domain and view coordinator exist. Keeping the phase in
-// the composition root preserves the existing initialization order while
-// avoiding one free constructor file per extracted stage.
-func (service *Service) assembleConversationTurnCoreComponents() {
-	service.components.conversationTurnProcess = applicationconversation.NewTurnProcess(applicationconversation.TurnProcessDeps{
+// assembleConversationTurnComponents builds the complete turn pipeline after
+// the view and context coordinators exist. Only Process and Runner outlive
+// composition; the remaining stages are builder-local values.
+type conversationTurnComponents struct {
+	process *applicationconversation.TurnProcessApplication
+	runner  *applicationconversation.TurnRunnerApplication
+}
+
+func (service *Service) assembleConversationTurnComponents() {
+	process := applicationconversation.NewTurnProcess(applicationconversation.TurnProcessDeps{
 		Tasks:          service.components.tasks,
 		TurnState:      service.components.conversationTurnState,
 		NextRequestID:  service.nextChatRequestIDLocked,
@@ -31,12 +35,11 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		AnyChatRunning: service.anyChatRunningLocked,
 		SetSessionChat: service.components.view.SetSessionChatLockedFor,
 	})
-
 	releaseWorkingHistory := func(string) {}
 	if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
 		releaseWorkingHistory = releaser.ReleaseWorkingHistoryFor
 	}
-	service.components.conversationTurnCompletion = applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
+	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
 		LocateSession:          service.components.sessions.LocateSession,
 		PersistSession:         service.components.sessions.PersistCurrentSession,
 		QueueFailConsumedInput: service.components.sessions.QueueFailConsumedInput,
@@ -44,7 +47,7 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		ReleaseWorkingHistory:  releaseWorkingHistory,
 	})
 
-	service.components.conversationTurnOutcome = applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
+	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{
 		ClearError: service.components.conversationTurnState.ClearErrorLocked,
 		SetError:   service.components.conversationTurnState.SetErrorLocked,
 		AppendErrorLine: func(sessionID, visibleError string) {
@@ -60,7 +63,7 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		BumpRevision: service.components.view.BumpLocked,
 	})
 
-	service.components.conversationTurnPublisher = applicationconversation.NewTurnPublisher(applicationconversation.TurnPublisherDeps{
+	publisher := applicationconversation.NewTurnPublisher(applicationconversation.TurnPublisherDeps{
 		PublishChatState: service.publishChatStateFor,
 		PublishEvent: func(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) {
 			service.publishSessionEvent(kind, revision, requestID, sessionID, payload)
@@ -69,12 +72,13 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		PublishRuntimeProjections: service.publishRuntimeProjections,
 	})
 
-	service.components.conversationTurnTail = applicationconversation.NewTurnTail(applicationconversation.TurnTailDeps{
+	var runner *applicationconversation.TurnRunnerApplication
+	tail := applicationconversation.NewTurnTail(applicationconversation.TurnTailDeps{
 		RebindWorkspaceWhenIdle: service.rebindViewWorkspaceWhenIdle,
 		MarkPromotedConsumed:    service.components.sessions.QueueMarkConsumedInput,
-		Publish:                 service.components.conversationTurnPublisher.Publish,
+		Publish:                 publisher.Publish,
 		StartNext: func(ctx context.Context, sessionID, requestID string, request applicationconversation.Request) {
-			go service.components.conversationTurnRunner.Run(ctx, sessionID, requestID, request)
+			go runner.Run(ctx, sessionID, requestID, request)
 		},
 		ReconcileSessionRelease: service.components.sessionReleaseApplication.Reconcile,
 		FlushToolRecord: func(sessionID string) {
@@ -83,18 +87,18 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		Debug: runChatDebug,
 	})
 
-	service.components.conversationTurnCommit = applicationconversation.NewTurnCommit(applicationconversation.TurnCommitDeps{
-		Persist:  service.components.conversationTurnCompletion.Persist,
+	commit := applicationconversation.NewTurnCommit(applicationconversation.TurnCommitDeps{
+		Persist:  completion.Persist,
 		Lock:     func() sync.Locker { return &service.ViewMu },
 		Unit:     service.sessionUnitLocked,
 		IsActive: service.isActiveSessionLocked,
 		ApplyOutcome: func(sessionID, requestID string, unit *sessioncase.SessionUnit, projection view_state.RuntimeStateProjection, turnErr error) (string, bool) {
-			return service.components.conversationTurnOutcome.ApplyLocked(
+			return outcome.ApplyLocked(
 				sessionID, requestID, unit, projection, turnErr,
 			)
 		},
 		Promote: func(sessionID string, unit *sessioncase.SessionUnit) applicationconversation.Promotion {
-			return service.components.conversationTurnProcess.PromoteLocked(sessionID, unit)
+			return process.PromoteLocked(sessionID, unit)
 		},
 		AppendNext: func(sessionID string, active bool, promotion applicationconversation.Promotion) (*model.Message, *model.Message) {
 			if !promotion.Promoted {
@@ -113,7 +117,7 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 				service.components.view.AppendMessageWithOriginLockedFor(sessionID, "assistant", "", nil, mainOrigin)
 		},
 		Mirror: func(sessionID string, unit *sessioncase.SessionUnit, active bool) uint64 {
-			return service.components.conversationTurnOutcome.MirrorLocked(sessionID, unit, active)
+			return outcome.MirrorLocked(sessionID, unit, active)
 		},
 		Stale: func(sessionID, requestID string, unit *sessioncase.SessionUnit) {
 			runChatDebug(
@@ -123,15 +127,11 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		},
 	})
 
-	service.components.conversationTurnFinalize = applicationconversation.NewTurnFinalize(applicationconversation.TurnFinalizeDeps{
-		TailComplete: service.components.conversationTurnTail.Complete,
+	finalize := applicationconversation.NewTurnFinalize(applicationconversation.TurnFinalizeDeps{
+		TailComplete: tail.Complete,
 	})
-}
 
-// assembleConversationTurnRuntimeComponents wires stages that depend on the
-// context coordinator and therefore must be built after it.
-func (service *Service) assembleConversationTurnRuntimeComponents() {
-	service.components.conversationTurnInput = applicationconversation.NewTurnInput(applicationconversation.TurnInputDeps{
+	input := applicationconversation.NewTurnInput(applicationconversation.TurnInputDeps{
 		ApplyPrompt: func(sessionID, requestID string) {
 			service.components.prompts.ApplyActiveTaskSystemPromptFor(sessionID, requestID)
 		},
@@ -141,14 +141,14 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		Normalize: context_runtime.NonEmptyProviderInput,
 	})
 
-	service.components.conversationTurnExecution = applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
+	execution := applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
 		BindProjectRoot:     service.bindSessionProjectRoot,
 		SyncSubagentPolicy:  service.syncSubagentPolicyFor,
 		SyncReasoningEffort: service.syncSessionReasoningEffortFor,
 		SyncFullAccess:      service.syncFullAccessFor,
 	})
 
-	service.components.conversationTurnResponse = applicationconversation.NewTurnResponse(applicationconversation.TurnResponseDeps{
+	response := applicationconversation.NewTurnResponse(applicationconversation.TurnResponseDeps{
 		AttachReasoning: service.components.conversationStreamRuntime.AttachLatestReasoning,
 		ObserveOutput: func(ctx context.Context, requestID, reply string, err error) error {
 			return service.components.tasks.ObserveModelOutput(ctx, task_context.ModelOutput{
@@ -164,7 +164,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		},
 	})
 
-	service.components.conversationTurnRecovery = applicationconversation.NewTurnRecovery(applicationconversation.TurnRecoveryDeps{
+	recovery := applicationconversation.NewTurnRecovery(applicationconversation.TurnRecoveryDeps{
 		TakeContextFailure: func(requestID string) error {
 			return service.components.context.TakeContextControlFailure(requestID)
 		},
@@ -179,7 +179,7 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		},
 	})
 
-	service.components.conversationTurnCleanup = applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
+	cleanup := applicationconversation.NewTurnCleanup(applicationconversation.TurnCleanupDeps{
 		StampRoute:     service.components.conversationStreamRuntime.StampServedRoute,
 		DiscardMailbox: service.discardPendingSubagentContextsFor,
 		CollectProjection: func(sessionID string) view_state.RuntimeStateProjection {
@@ -196,10 +196,10 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 		},
 	})
 
-	service.components.conversationTurnRunner = applicationconversation.NewTurnRunner(applicationconversation.TurnRunnerDeps{
+	runner = applicationconversation.NewTurnRunner(applicationconversation.TurnRunnerDeps{
 		WithSessionID:      task_context.WithSessionID,
 		StartDraftSnapshot: service.startDraftSnapshotLoop,
-		PrepareExecution:   service.components.conversationTurnExecution.Prepare,
+		PrepareExecution:   execution.Prepare,
 		ClearReActBudget:   service.components.tasks.ClearReActBudget,
 		Debug:              runChatDebug,
 		NewBatchedDeltaSink: func(requestID string) (applicationconversation.StreamBatcher, func(string)) {
@@ -207,11 +207,15 @@ func (service *Service) assembleConversationTurnRuntimeComponents() {
 			return batcher, onChunk
 		},
 		Stream:   service.chatStream,
-		Input:    service.components.conversationTurnInput,
-		Response: service.components.conversationTurnResponse,
-		Recovery: service.components.conversationTurnRecovery,
-		Cleanup:  service.components.conversationTurnCleanup,
-		Commit:   service.components.conversationTurnCommit,
-		Finalize: service.components.conversationTurnFinalize,
+		Input:    input,
+		Response: response,
+		Recovery: recovery,
+		Cleanup:  cleanup,
+		Commit:   commit,
+		Finalize: finalize,
 	})
+	service.components.conversationTurn = &conversationTurnComponents{
+		process: process,
+		runner:  runner,
+	}
 }

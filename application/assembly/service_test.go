@@ -128,10 +128,10 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	})
 	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	engine.mu.Lock()
@@ -185,7 +185,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	})
 	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -293,7 +293,7 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	})
 	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.submission.Submit(context.Background(), "/resume saved"); err != nil {
@@ -395,7 +395,7 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 	})
 	defer service.components.lifecycleApplication.Shutdown()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
@@ -673,7 +673,7 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	service.Core.Snapshot.Runtime.WorkTable = worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	service.ViewMu.Unlock()
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if got := runtime.TaskSnapshot(); len(got) != 1 {

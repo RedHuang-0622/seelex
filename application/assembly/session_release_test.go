@@ -2,7 +2,6 @@ package assembly
 
 import (
 	"context"
-	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 
@@ -19,23 +18,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestSessionReleaseApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("sessionReleaseApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 sessionReleaseApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationsession.ReleaseApplication)(nil)) {
-		t.Fatalf("sessionReleaseApplication 字段类型 = %s", field.Type)
-	}
-}
 
 func TestSessionReleaseFacadeOnlyDelegatesToApplication(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)

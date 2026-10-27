@@ -477,17 +477,6 @@ func TestRestoreRolePermissionsConcurrentRoles(t *testing.T) {
 	}
 }
 
-func TestRoleApplicationIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("roleApplication")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 roleApplication")
-	}
-	if field.Type != reflect.TypeOf((*applicationpolicy.RoleApplication)(nil)) {
-		t.Fatalf("roleApplication 字段类型 = %s", field.Type)
-	}
-}
-
 func TestRoleAccountApplicationSetAccountRollsBackRuntime(t *testing.T) {
 	storeErr := errors.New("store failed")
 	var calls []string

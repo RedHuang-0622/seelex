@@ -24,17 +24,6 @@ import (
 	"time"
 )
 
-func TestProjectBoardQueryIsAssembled(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("projectBoardQuery")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 projectBoardQuery")
-	}
-	if field.Type != reflect.TypeOf((*applicationexecution.ProjectBoardApplication)(nil)) {
-		t.Fatalf("projectBoardQuery 字段类型 = %s", field.Type)
-	}
-}
-
 func TestProjectBoardReadFacadeUsesPorts(t *testing.T) {
 	serviceType := reflect.TypeOf((*Service)(nil))
 	for _, name := range []string{"ProjectBoardTeamPlanFor", "ProjectBoardTeamStateFor"} {

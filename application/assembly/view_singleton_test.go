@@ -19,7 +19,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 	}
 
 	// 草稿：V 镜像同步为早分配的草稿 SID（draft）。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	draftID := service.components.frontendSnapshot.Snapshot().Session.ID
@@ -69,7 +69,7 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 func TestDraftMaterializeStreamsMirrorToSnapshot(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"hel", "lo"}}
 	service := newTestService(t, engine)
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {

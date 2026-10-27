@@ -119,7 +119,7 @@ func TestBeginNewSessionWhileChattingRepro(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- service.components.sessionDraftEntry.Begin()
+		done <- service.components.sessionDrafts.entry.Begin()
 	}()
 	if err := waitOrDump(t, done, "BeginNewSession while A running"); err != nil && !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("BeginNewSession = %v (want ErrChatRunning or nil, no deadlock)", err)
@@ -199,7 +199,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	engine.register(bID)
 
 	// 新建草稿会话。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if snap := service.components.frontendSnapshot.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
@@ -228,7 +228,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	}
 
 	// 再次新建：恢复同一草稿（含状态 draft）。
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if snap := service.components.frontendSnapshot.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
@@ -270,7 +270,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
 	}
 
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
 	}
 	service.ViewMu.RLock()

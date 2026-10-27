@@ -209,19 +209,28 @@ func (service *Service) assembleConversationQueueApplication() {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
 		PublishChatState: service.publishChatStateFor,
-		TurnState:        service.components.conversationTurnState,
-		DrainingError:    ErrApplicationDraining,
+		DurableEnqueue: func(sessionID, input string) error {
+			return service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, input)
+		},
+		Debug:      runChatDebug,
+		NewRequest: service.components.conversationTurnState.NewRequest,
+		SessionUnit: func(sessionID string) applicationconversation.QueueUnit {
+			return service.sessionUnitLocked(sessionID)
+		},
+		TurnState:     service.components.conversationTurnState,
+		Requests:      service.components.conversationTurnState,
+		DrainingError: ErrApplicationDraining,
 	})
 }
 
-func (service *Service) assembleConversationSessionApplication() {
+func (service *Service) assembleConversationSessionApplication(sessionRecords applicationconversation.SessionRecordsPort) {
 	var agents contract.AgentConversationPort
 	if service.Deps.Runtime != nil {
 		agents, _ = service.Deps.Runtime.(contract.AgentConversationPort)
 	}
 	service.components.conversationSession = applicationconversation.NewUnified(applicationconversation.UnifiedDeps{
 		SnapshotOf: service.components.sessionQuery.SnapshotOf,
-		Records:    service.components.sessionRecords,
+		Records:    sessionRecords,
 		Agents:     agents,
 		SubmitToSession: func(ctx context.Context, sessionID, text string) error {
 			return service.components.submitApplication.SubmitToSession(ctx, sessionID, text)
@@ -282,7 +291,7 @@ func (service *Service) assembleForkApplication() {
 
 func (service *Service) assembleSubmitApplication() {
 	service.components.submitApplication = applicationsession.NewSubmit(applicationsession.SubmitDeps{
-		Materialize: service.components.sessionDraftSubmission.Materialize,
+		Materialize: service.components.sessionDrafts.submission.Materialize,
 		Loaded: func(sessionID string) (bool, bool) {
 			service.ViewMu.RLock()
 			loaded := service.sessionLoaded(sessionID)
@@ -359,13 +368,13 @@ func (service *Service) assembleGoalApplication(hostSessionForToolCall func(cont
 	})
 }
 
-func (service *Service) assemblePolicySwitchApplication() {
+func (service *Service) assemblePolicySwitchApplication(skillActivation applicationpolicy.SkillActivationPort) {
 	service.components.policyApplication = applicationpolicy.NewSwitch(applicationpolicy.SwitchDeps{
 		ActivateSkill: func(name string) (model.SkillInfo, error) {
 			if service == nil {
 				return model.SkillInfo{}, errors.New("service is not initialized")
 			}
-			return service.components.skillActivation.Activate(
+			return skillActivation.Activate(
 				name,
 				service.Deps.Skills,
 				service.applySkill,
@@ -506,7 +515,7 @@ func (service *Service) assembleFrontendSnapshotApplication() {
 				Status:    SessionStatusDraft,
 			}
 		},
-		Annotate:            service.components.editForkAnnotation.Annotate,
+		Annotate:            service.components.editFork.annotation.Annotate,
 		LatestTranscriptSeq: service.components.tasks.LatestTranscriptSeqFor,
 		ProjectDraftWorkspace: func(snapshot *model.Snapshot) {
 			service.components.view.ProjectDraftWorkspaceLocked(snapshot)

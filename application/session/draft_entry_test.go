@@ -4,8 +4,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
 func TestDraftEntryOrdersIdleSessionCleanup(t *testing.T) {
@@ -82,43 +80,6 @@ func TestDraftEntrySkipsPersistenceForRunningSession(t *testing.T) {
 	}
 	if persisted {
 		t.Fatal("running session persisted")
-	}
-}
-
-func TestDraftMaterializationOrdersFirstInput(t *testing.T) {
-	var calls []string
-	application := NewDraftMaterialization(DraftMaterializationDeps{
-		Snapshot: func() DraftMaterializationSource {
-			return DraftMaterializationSource{
-				Draft: true, DraftID: "draft-a",
-				Workspace: &model.WorkspaceInfo{ID: "workspace-a", RootPath: "/repo"},
-			}
-		},
-		BindWorkspace: func(*model.WorkspaceInfo) error { calls = append(calls, "bind"); return nil },
-		OpenEngine: func(draftID string, _ *model.WorkspaceInfo) (string, error) {
-			calls = append(calls, "open:"+draftID)
-			return "session-a", nil
-		},
-		Title: func(input string) model.SessionTitle {
-			calls = append(calls, "title:"+input)
-			return model.SessionTitle{Value: input}
-		},
-		Commit: func(id string, title model.SessionTitle) uint64 {
-			calls = append(calls, "commit:"+id+":"+title.Value)
-			return 5
-		},
-		PublishRuntimeProjections: func() { calls = append(calls, "runtime") },
-		PublishSnapshot:           func(uint64, string) { calls = append(calls, "snapshot") },
-		RefreshCatalog:            func() { calls = append(calls, "catalog") },
-		FlushToolRecord:           func(string) { calls = append(calls, "flush") },
-		TouchResident:             func(string) { calls = append(calls, "resident") },
-	})
-	if err := application.Materialize("hello"); err != nil {
-		t.Fatal(err)
-	}
-	want := "bind,open:draft-a,title:hello,commit:session-a:hello,runtime,snapshot,catalog,flush,resident"
-	if got := joinCalls(calls); got != want {
-		t.Fatalf("calls = %s, want %s", got, want)
 	}
 }
 

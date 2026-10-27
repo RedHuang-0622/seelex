@@ -55,6 +55,7 @@ Middle 只提供纯切换、历史和驻留策略。
 - `operations_test.go`：删除顺序、记录错误短路和工作区投影测试。
 - `orchestration_test.go`：草稿提交锁、resume 分支与恢复回退测试。
 - `draft_entry_test.go`：草稿入口保存/清理与物化顺序测试。
+- `*_external_test.go`：草稿提交、物化与 fork-lineage 的 owner 外部测试。
 
 ## 核心实现
 

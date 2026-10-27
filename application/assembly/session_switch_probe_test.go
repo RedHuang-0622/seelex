@@ -233,7 +233,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	service.ViewMu.Unlock()
 
 	first := service.components.frontendSnapshot.Snapshot().Session.ID
-	if err := service.components.sessionDraftEntry.Begin(); err != nil {
+	if err := service.components.sessionDrafts.entry.Begin(); err != nil {
 		t.Fatal(err)
 	}
 	if got := service.components.frontendSnapshot.Snapshot().Session.ID; got != first || got != "draft-current" {

@@ -3,61 +3,9 @@ package assembly
 import (
 	"errors"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"reflect"
-	"runtime"
 	"sync"
 	"testing"
 )
-
-func TestSessionRestoreRecoveryRulesAreCentralized(t *testing.T) {
-	components := reflect.TypeOf(serviceComponents{})
-	field, ok := components.FieldByName("sessionRestoreRecovery")
-	if !ok {
-		t.Fatal("serviceComponents 未装配 sessionRestoreRecovery")
-	}
-	if field.Type != reflect.TypeOf((*applicationsession.RestoreRecoveryApplication)(nil)) {
-		t.Fatalf("sessionRestoreRecovery 字段类型 = %s", field.Type)
-	}
-	recoveryType := reflect.TypeOf((*applicationsession.RestoreRecoveryApplication)(nil))
-	if _, ok := recoveryType.MethodByName("Handle"); !ok {
-		t.Fatal("sessionRestoreRecovery 缺少 Handle")
-	}
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源码")
-	}
-	path := filepath.Join(filepath.Dir(file), "session_history.go")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return
-	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || function.Name.Name != "handleColdRestoreFailure" {
-			continue
-		}
-		found = true
-		if len(function.Body.List) != 1 {
-			t.Fatalf("handleColdRestoreFailure 有 %d 条语句，want 一行 component 转发", len(function.Body.List))
-		}
-		if _, ok := function.Body.List[0].(*ast.ExprStmt); !ok {
-			t.Fatal("handleColdRestoreFailure 不是单行调用转发")
-		}
-	}
-	if found {
-		t.Fatal("core handleColdRestoreFailure forwarder must be removed")
-	}
-}
 
 func TestSessionRestoreRecoveryClearsRestoringAndIgnoresStaleView(t *testing.T) {
 	var calls []string

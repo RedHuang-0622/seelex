@@ -13,7 +13,6 @@
 
 ### completion_test.go
 
-- `func TestCompletionApplicationIsAssembled(t *testing.T)`
 - `func TestSuggestionsExcludeModelSideTools(t *testing.T)` — TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 
 ### compressed_turn_test.go
@@ -31,7 +30,6 @@
 
 ### fault_guard_test.go
 
-- `func TestFaultGuardApplicationIsAssembled(t *testing.T)`
 - `func TestFaultGuardFacadeOnlyDelegatesToApplication(t *testing.T)`
 - `func TestDegradeAndRequestExitNotifiesHost(t *testing.T)` — TestDegradeAndRequestExitNotifiesHost：降级退出必须幂等、标记 closed/
 - `func TestLifecycleFaultPanicsAfterDegrade(t *testing.T)` — TestLifecycleFaultPanicsAfterDegrade：生命周期消费者中的故障不再被静默
@@ -97,7 +95,6 @@
 
 ### review_files_test.go
 
-- `func TestReviewApplicationIsAssembled(t *testing.T)`
 - `func reviewFixture(t *testing.T) (*Service, string)` — reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
 - `func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T)` — TestRequestFileReviewClassifiesByWorkspaceBoundary：一次批处理召唤的裁决口径——
 - `func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T)` — TestRequestFileReviewProjectsIntoSnapshotAndClears：落点是**会话作用域的可重放
@@ -171,7 +168,6 @@
 - `func TestWorkspaceGitCommitFileContentForwardsResolvedRepoRoot(t *testing.T)` — TestWorkspaceGitCommitFileContentForwardsResolvedRepoRoot 钉住提交内文件内容
 - `func TestWorkspaceGitReposForwardsWorkspaceRoot(t *testing.T)` — TestWorkspaceGitReposForwardsWorkspaceRoot 钉住仓库发现：root 只来自后端
 - `func TestWorkspaceGitReposDegradesWithoutPort(t *testing.T)` — TestWorkspaceGitReposDegradesWithoutPort 钉住两种"不可用"：后端没有仓库发现
-- `func TestWorkspaceGitApplicationIsAssembled(t *testing.T)`
 
 ### workspace_host.go
 
@@ -186,7 +182,6 @@
 
 ### workspace_tree_usecase_test.go
 
-- `func TestWorkspaceApplicationIsAssembled(t *testing.T)`
 - `func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error)`
 - `func (fake *treeFakeWorkspace) CountFiles(root string) (dto.TreeCount, error)`
 - `func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error)`

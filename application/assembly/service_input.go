@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
@@ -66,34 +65,6 @@ func (service *Service) clearEngineHistoryFor(sessionID string) {
 	service.Deps.Engine.ClearHistory()
 }
 
-// enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），
-// 返回发布用的 revision（非活跃会话不推进进程 revision，返回 0）。
-//
-// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）：展示的
-// 行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。三条入队路径
-// （视图提交、显式目标提交、起跑时发现回合已起的收口）共用这一份判据。
-func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64 {
-	runtime.Enqueue(session.QueuedRequest{DisplayInput: request.DisplayInput, Payload: request})
-	service.components.conversationTurnState.ProjectQueueLocked(runtime)
-	service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
-	if !active {
-		return 0
-	}
-	return service.components.view.BumpLocked()
-}
-
-// afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
-// durable queue 镜像（先队列后草稿）。排队项正文落盘，崩溃/重启后按「该轮是否已
-// 发布」的消费凭据恢复重发（store/queue_consume.go）。文件 IO 不占内核锁；
-// 落盘失败不回滚内存队列——权威是会话域队列，durable queue 只是崩溃兜底。
-func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest) {
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-	service.publishChatStateFor(sessionID)
-	if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.DisplayInput); enqueueErr != nil {
-		runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
-	}
-}
-
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	// fork 执行期**不再拒绝输入**（2026-10-05 退役 fork 门控）。fork_subagents 派发
 	// 即后台化之后，"父回合还在、子代理作业在跑"是常态，把用户挡在门外只是把
@@ -113,7 +84,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
-	if err := service.components.sessionDraftMaterialization.Materialize(request.DisplayInput); err != nil {
+	if err := service.components.sessionDrafts.materialization.Materialize(request.DisplayInput); err != nil {
 		return err
 	}
 	service.ViewMu.Lock()
@@ -139,9 +110,9 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	}
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
-		revision := service.enqueueChatLocked(sessionID, runtime, request, true)
+		revision := service.components.conversationQueue.EnqueueLocked(sessionID, runtime, request, true)
 		service.ViewMu.Unlock()
-		service.afterChatEnqueued(sessionID, revision, request)
+		service.components.conversationQueue.AfterEnqueue(sessionID, revision, request)
 		return nil
 	}
 	// 同会话压缩门（延后语义，判据与上面的 restoring 门同形）：一轮显式压缩可以
@@ -156,7 +127,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	}
 	// 非运行分支：队列里可能遗留待发项（如重启回填的「已发送未确认」输入），
 	// 与本次提交合并为同一轮，否则它们永远等不到排空点。
-	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
+	merged, drained := service.components.conversationQueue.DrainLocked(runtime, request)
 	if drained {
 		request = merged
 		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
@@ -202,9 +173,9 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
-		revision := service.enqueueChatLocked(sessionID, runtime, request, active)
+		revision := service.components.conversationQueue.EnqueueLocked(sessionID, runtime, request, active)
 		service.ViewMu.Unlock()
-		service.afterChatEnqueued(sessionID, revision, request)
+		service.components.conversationQueue.AfterEnqueue(sessionID, revision, request)
 		return nil
 	}
 	// 同会话压缩门：与 submitConversation 同一条判据（见那里的注释），后台提交
@@ -216,7 +187,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	}
 	// 非运行分支：与 submitConversation 同一条提升规则（队列遗留待发项并入
 	// 本轮），后台提交路径（SubmitToSession）也经此。
-	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
+	merged, drained := service.components.conversationQueue.DrainLocked(runtime, request)
 	if drained {
 		request = merged
 		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())

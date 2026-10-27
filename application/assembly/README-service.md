@@ -91,6 +91,11 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestTeamRecordingSessionsAccessorsAreRaceFree(t *testing.T)` — TestTeamRecordingSessionsAccessorsAreRaceFree 并发读写夹具：-race 下证明读写两侧
 - `func TestFixturesDoNotBypassLockedAccessors(t *testing.T)` — TestFixturesDoNotBypassLockedAccessors 是防复发的机械防线：AST 扫描本包测试源码，
 
+### public_api_test.go
+
+- `func TestPublicConstructorRejectsMissingDependencies(t *testing.T)`
+- `func TestComponentsForNilReturnsEmptyGraph(t *testing.T)`
+
 ### role_tool_activity_test.go
 
 - `func waitRoleToolEvent(t *testing.T, subscription event.Subscription, wantKind event.EventKind) event.Event` — waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。
@@ -136,10 +141,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (port serviceAdminProjectionPort) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
 - `func (port serviceAdminProjectionPort) AddNotice(message string)`
 
-### service_admin_application_test.go
-
-- `func TestServiceAdminComponentUsesDomainApplication(t *testing.T)`
-
 ### service_assembler.go
 
 - `func (p taskPromptPort) CurrentEffort() string`
@@ -160,7 +161,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) assembleProjectBoardQuery()`
 - `func (service *Service) assemblePerfStatsApplication()`
 - `func (service *Service) assembleConversationQueueApplication()`
-- `func (service *Service) assembleConversationSessionApplication()`
+- `func (service *Service) assembleConversationSessionApplication(sessionRecords applicationconversation.SessionRecordsPort)`
 - `func (service *Service) assembleSubmissionApplication()`
 - `func (service *Service) assembleInteractionApplication()`
 - `func (service *Service) assembleForkApplication()`
@@ -168,14 +169,14 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) assembleTerminalHandlerApplication()`
 - `func (service *Service) assembleFaultGuardApplication()`
 - `func (service *Service) assembleGoalApplication(hostSessionForToolCall func(context.Context) string)`
-- `func (service *Service) assemblePolicySwitchApplication()`
+- `func (service *Service) assemblePolicySwitchApplication(skillActivation applicationpolicy.SkillActivationPort)`
 - `func (service *Service) assembleFrontendSnapshotApplication()`
 - `func (service *Service) assembleSubagentApplication()`
 
 ### service_assembler_capabilities.go
 
 - `func (service *Service) assembleRuntimeApplication()`
-- `func (service *Service) assembleAdminApplication()`
+- `func (service *Service) assembleAdminApplication(accountWindowPolicy applicationadmin.AccountWindowPolicy)`
 - `func (service *Service) assembleWorkspaceApplication()`
 - `func (service *Service) assembleAsyncCompletionApplication()`
 - `func (service *Service) assembleCompletionApplication()`
@@ -184,8 +185,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_assembler_conversation_turn.go
 
-- `func (service *Service) assembleConversationTurnCoreComponents()` — assembleConversationTurnCoreComponents wires the turn stages that may run as
-- `func (service *Service) assembleConversationTurnRuntimeComponents()` — assembleConversationTurnRuntimeComponents wires stages that depend on the
+- `func (service *Service) assembleConversationTurnComponents()`
 
 ### service_assembler_edit_fork.go
 
@@ -205,11 +205,12 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) metaPort() sessionstate.SessionMetaPort`
 - `func (service *Service) wakeCatalogRefresh()`
 - `func (service *Service) assembleSessionReleaseApplication()`
-- `func (service *Service) assembleSessionUseCaseApplications()`
+- `func (service *Service) assembleSessionUseCaseApplications(restore sessionRestoreComponents)`
+- `func (service *Service) assembleSessionRestoreComponents() sessionRestoreComponents`
 
 ### service_assembler_session_cold.go
 
-- `func (service *Service) assembleSessionColdComponents()` — assembleSessionColdComponents owns the cold-restore dependency graph. The
+- `func (service *Service) assembleSessionColdComponents() sessionColdComponents` — assembleSessionColdComponents owns the cold-restore dependency graph. The
 
 ### service_assembler_session_draft.go
 
@@ -242,6 +243,8 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func TestNewAssemblesFocusedServiceComponents(t *testing.T)`
 - `func TestServiceFacadeContainsOnlyAssembly(t *testing.T)`
 - `func TestFocusedComponentsDoNotHoldServiceFacade(t *testing.T)`
+- `func TestComponentsForReturnsCompleteOwnerGraph(t *testing.T)`
+- `func assertNonNilOwnerGraph(t *testing.T, value reflect.Value, path string)`
 
 ### service_constructor_boundary_test.go
 
@@ -404,6 +407,8 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_helpers_test.go
 
+- `func (locker *recordingLocker) Lock()`
+- `func (locker *recordingLocker) Unlock()`
 - `func withSessionID(ctx context.Context, sessionID string) context.Context`
 - `func sessionIDFromContext(ctx context.Context) string`
 - `func ApplyLimits(limits applicationpolicy.Limits)`
@@ -431,8 +436,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 - `func (service *Service) clearEngineHistoryFor(sessionID string)` — clearEngineHistoryFor 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
-- `func (service *Service) enqueueChatLocked(sessionID string, runtime *session.SessionUnit, request chatRequest, active bool) uint64` — enqueueChatLocked 把一次**已受理**的输入放进会话队列（调用方持有 Core.ViewMu），
-- `func (service *Service) afterChatEnqueued(sessionID string, revision uint64, request chatRequest)` — afterChatEnqueued 是入队后的固定两步（调用方已释放 Core.ViewMu）：发布投影 +
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 
@@ -443,14 +446,12 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_input_test.go
 
-- `func TestLifecycleApplicationIsAssembled(t *testing.T)`
 - `func TestLifecycleApplicationWaitForIdle(t *testing.T)`
 - `func TestLifecycleApplicationShutdownRunsCleanupOnce(t *testing.T)`
 - `func trustedSkillInHistory(t *testing.T, history []contract.EngineMessage, name, text string) bool` — trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 - `func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T)`
 - `func TestWorkTableTraceBlock(t *testing.T)`
 - `func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T)`
-- `func TestNewRejectsMissingDependencies(t *testing.T)`
 - `func TestSuggestionsAndSkillRouting(t *testing.T)`
 - `func TestApprovalBrokerResolve(t *testing.T)`
 
@@ -512,23 +513,8 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 - `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
 
-### service_policy_application_test.go
-
-- `func TestPolicyApplicationIsAssembled(t *testing.T)`
-- `func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T)`
-- `func TestPolicyApplicationFullAccessError(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *testing.T)`
-- `func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T)`
-- `func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T)`
-- `func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.T)`
-- `func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T)`
-- `func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T)`
-- `func boolWord(value bool) string`
-
 ### service_queue_component_test.go
 
-- `func TestServiceComponentsAssembleConversationQueue(t *testing.T)`
 - `func TestConversationQueuePreservesPresentationEventOrder(t *testing.T)`
 - `func TestConversationQueueDoesNotOwnServiceOrDuplicateQueueState(t *testing.T)`
 
@@ -563,18 +549,10 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_scheduler.go
 
-- `func scheduledRunParams(effort string, loopLimit int) (string, int)`
-- `func (service *Service) applyScheduledRunParams(sessionID string, task dto.ScheduledTaskSpec) error`
-- `func (service *Service) validateScheduledWorkspace(workspaceID string) error`
 - `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)`
-- `func (service *Service) validateScheduledPlugins(plugins []string) error`
 
 ### service_scheduler_test.go
 
-- `func TestSchedulerApplicationIsAssembled(t *testing.T)`
-- `func TestRuntimeApplicationIsAssembled(t *testing.T)`
-- `func TestScheduledRunApplicationIsAssembled(t *testing.T)`
-- `func TestScheduledSessionApplicationIsAssembled(t *testing.T)`
 - `func TestSchedulerApplicationCreateStopsOnValidationError(t *testing.T)`
 - `func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T)` — TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
 - `func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T)` — TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound 钉住"工作区是
@@ -587,7 +565,6 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_snapshot_test.go
 
-- `func TestPerfStatsApplicationIsAssembled(t *testing.T)`
 - `func TestSnapshotNeverSerializesSystemPrompt(t *testing.T)`
 - `func TestEventHubOrdersAndResyncs(t *testing.T)`
 - `func TestMessageDeltaIncludesStableMessageID(t *testing.T)`

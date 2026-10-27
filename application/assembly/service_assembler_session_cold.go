@@ -12,11 +12,24 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
+type sessionColdComponents struct {
+	read       *applicationsessioncold.ReadApplication
+	history    *applicationsessioncold.HistoryApplication
+	restore    *applicationsessioncold.RestoreApplication
+	workspace  *applicationsessioncold.WorkspaceApplication
+	activation *applicationsessioncold.ActivationApplication
+	task       *applicationsessioncold.TaskApplication
+	view       *applicationsessioncold.ViewApplication
+	publish    *applicationsessioncold.PublishApplication
+	commit     *applicationsessioncold.CommitApplication
+}
+
 // assembleSessionColdComponents owns the cold-restore dependency graph. The
 // nine domain stages remain independently testable; only their core callback
 // wiring is centralized here in the composition root.
-func (service *Service) assembleSessionColdComponents() {
-	service.components.sessionColdRead = applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
+func (service *Service) assembleSessionColdComponents() sessionColdComponents {
+	lineage := service.newSessionForkLineage()
+	read := applicationsessioncold.NewRead(applicationsessioncold.ReadDeps{
 		RecoverTail: service.recoverPendingMessageTailAtLoad,
 		Locate: func(sessionID string) session_runtime.Location {
 			return service.components.sessions.LocateSession(sessionID)
@@ -32,7 +45,7 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdHistory = applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
+	history := applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
 		TailBudget: func() int { return applicationwindow.RetainedReadTailBudget(service.Deps.Runtime) },
 		MinRounds:  func() int { return applicationwindow.Current().MinRounds },
 		LatestUser: func(messages []model.Message) string {
@@ -58,7 +71,7 @@ func (service *Service) assembleSessionColdComponents() {
 		RecordResumeHistory: session_runtime.RecordResumeHistory,
 	})
 
-	service.components.sessionColdRestore = applicationsessioncold.NewRestore(applicationsessioncold.RestoreDeps{
+	restore := applicationsessioncold.NewRestore(applicationsessioncold.RestoreDeps{
 		SetWorkspace: service.Deps.Runtime.SetSessionWorkspace,
 		ResumeEngine: func(sessionID string, history []contract.EngineMessage) (bool, error) {
 			if enginePort, ok := service.Deps.Engine.(interface {
@@ -75,14 +88,18 @@ func (service *Service) assembleSessionColdComponents() {
 				return err
 			}
 			if lifecycleOK && len(resent) > 0 {
-				service.reEnqueueRecoveredInputs(sessionID, resent)
+				service.components.conversationQueue.RecoverInputs(
+					sessionID,
+					resent,
+					service.promptStack.Layers(),
+				)
 			}
 			return nil
 		},
 		WritePrompt: service.writeSessionSystemPrompt,
 	})
 
-	service.components.sessionColdWorkspace = applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
+	workspace := applicationsessioncold.NewWorkspace(applicationsessioncold.WorkspaceDeps{
 		WorkspaceAvailable:    func() bool { return service.Deps.Workspace != nil },
 		BindProjectRootIfSafe: service.bindProjectRootIfSafe,
 		SetWriteScope:         service.setWorkspaceWriteScope,
@@ -101,7 +118,7 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdActivation = applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
+	activation := applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
 		ClearRestoring: func(sessionID string) {
 			service.components.view.ClearRestoringLocked(sessionID)
 		},
@@ -119,7 +136,7 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdTask = applicationsessioncold.NewTask(applicationsessioncold.TaskDeps{
+	task := applicationsessioncold.NewTask(applicationsessioncold.TaskDeps{
 		LoadCompactions: func(location session_runtime.Location, sessionID string) ([]model.ContextCompaction, bool, error) {
 			return service.components.sessions.LoadSessionCompactionRecords(location, sessionID)
 		},
@@ -135,9 +152,9 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdView = applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
+	view := applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
 		LoadForkRef: func(location session_runtime.Location, sessionID string) *model.SessionForkRef {
-			return service.components.sessionForkLineage.Load(location, sessionID)
+			return lineage.Load(location, sessionID)
 		},
 		AdvanceSeq: func(sessionID string, messages []model.Message) {
 			service.components.view.AdvanceMessageSeqForLocked(sessionID, messages)
@@ -160,7 +177,7 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdPublish = applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
+	publish := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
 		SetGlobalPrompt: func(prompt string) {
 			if _, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); !ok {
 				service.Deps.Engine.SetSystemPrompt(prompt)
@@ -194,7 +211,7 @@ func (service *Service) assembleSessionColdComponents() {
 		},
 	})
 
-	service.components.sessionColdCommit = applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{
+	commit := applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{
 		AppendPendingTail: service.appendPendingTailNoticeLocked,
 		SetSessionChat: func(sessionID string, chat model.ChatState) {
 			service.components.view.SetSessionChatLockedFor(sessionID, chat)
@@ -212,4 +229,9 @@ func (service *Service) assembleSessionColdComponents() {
 			return service.components.view.BumpLocked()
 		},
 	})
+
+	return sessionColdComponents{
+		read: read, history: history, restore: restore, workspace: workspace,
+		activation: activation, task: task, view: view, publish: publish, commit: commit,
+	}
 }
