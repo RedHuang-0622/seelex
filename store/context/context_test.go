@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 func TestContextStateRoundTrip(t *testing.T) {
@@ -143,5 +144,26 @@ func TestAppendCompactChain(t *testing.T) {
 	}
 	if _, err := AppendCompact(stack, CompactFrame{SegmentID: "c3", From: 2, To: 1, PrevSegmentID: "c2"}); err == nil {
 		t.Fatal("invalid range must fail")
+	}
+}
+
+func TestWireParamsAndResultWire(t *testing.T) {
+	params := NormalizeWireParams(WireParams{})
+	if params.K != 3 || params.Budget != DefaultWireBudget || !params.Repair {
+		t.Fatalf("normalized=%+v", params)
+	}
+	budget := ApplyWireBudget(storeroot.DefaultSettings(), WireParams{Budget: 100_000})
+	if budget.Budget <= 0 || budget.Budget >= 100_000 {
+		t.Fatalf("soft budget=%d", budget.Budget)
+	}
+	result := WireResult{Messages: []WireMessage{{Role: WireRoleUser, Content: "hi"}}, TailStartSeq: 1}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"messages", "need_compact", "prefix_digest", "tail_start_seq"} {
+		if !strings.Contains(string(data), `"`+key+`"`) {
+			t.Fatalf("missing wire field %s: %s", key, data)
+		}
 	}
 }

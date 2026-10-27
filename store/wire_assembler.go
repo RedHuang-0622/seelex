@@ -15,62 +15,31 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"strings"
 )
 
 // wireRole 常量与 provider role 对齐（internal 材料以 user 形态进入 wire）。
 const (
-	wireRoleSystem    = "system"
-	wireRoleUser      = "user"
-	wireRoleAssistant = "assistant"
-	wireRoleTool      = "tool"
+	wireRoleSystem    = storecontext.WireRoleSystem
+	wireRoleUser      = storecontext.WireRoleUser
+	wireRoleAssistant = storecontext.WireRoleAssistant
+	wireRoleTool      = storecontext.WireRoleTool
 )
 
-// wireMessage 是 R2 输出的一条 wire 消息。
-type wireMessage struct {
-	Role             string          `json:"role"`
-	Content          string          `json:"content,omitempty"`
-	ReasoningContent string          `json:"reasoning_content,omitempty"`
-	ToolCalls        []EventToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string          `json:"tool_call_id,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	ResultRef        string          `json:"result_ref,omitempty"`
-	Seq              uint64          `json:"seq,omitempty"`
-	// Internal 标记内部 user 材料（wire_material=true 的 internal/context 行）。
-	Internal bool `json:"internal,omitempty"`
-	// Repair 标记修复占位（缺失 tool 结果）。
-	Repair bool `json:"repair,omitempty"`
-	// Attempt 标记尝试缓存拼接行（不参与持久前缀稳定性承诺）。
-	Attempt bool `json:"attempt,omitempty"`
-}
+type wireMessage = storecontext.WireMessage
 
 // defaultWireBudgetTokens 是 wire 装配的兜底预算（字符口径）：只在调用方既未
 // 显式给 Budget、又未按配置解析（applyWireBudget）时生效。
 // 生产装配路径（assembleWireWorkspace / assembleRoleWire）恒显式注入解析后的
 // 预算——不再各自硬编码。
-const defaultWireBudgetTokens = 200_000
+const defaultWireBudgetTokens = storecontext.DefaultWireBudget
 
-// wireParams 是 R2 请求参数（budget 为估算字符预算；K 默认 3；Repair 开关
-// 默认开）。
-type wireParams struct {
-	K int `json:"k,omitempty"`
-	// Budget 是装配阈值 ＝ §5.2 的**软阈值**（WireBudgetTokens × WireSoftRatio）：
-	// 达到即在最近完整协议单元边界停止扩窗并收口，置 need_compact 由压缩路径
-	// 压缩溢出。生产路径由 applyWireBudget 解析后注入。
-	Budget int  `json:"budget,omitempty"`
-	Repair bool `json:"repair,omitempty"`
-}
+type wireParams = storecontext.WireParams
 
-func (params wireParams) normalized() wireParams {
-	if params.K <= 0 {
-		params.K = 3
-	}
-	if params.Budget <= 0 {
-		params.Budget = defaultWireBudgetTokens
-	}
-	params.Repair = true
-	return params
+func normalizeWireParams(params wireParams) wireParams {
+	return storecontext.NormalizeWireParams(params)
 }
 
 // applyWireBudget 把 §5.2 的 wire 装配预算落到一次装配请求，返回装配实际使用的
@@ -89,36 +58,14 @@ func (params wireParams) normalized() wireParams {
 // Settings 时留在本包）：判据本身逐字未变，只是 `wireParams` 属本包的装配域，
 // 不随 `Settings` 进 `store/root`。
 func applyWireBudget(settings storeroot.Settings, base wireParams) wireParams {
-	budget, soft, _ := settings.WireBudget()
-	if base.Budget <= 0 {
-		base.Budget = soft
-		return base
-	}
-	if budget > 0 {
-		base.Budget = int(float64(base.Budget) * float64(soft) / float64(budget))
-	}
-	return base
+	return storecontext.ApplyWireBudget(settings, base)
 }
 
-// wireResult 是 R2 输出。
-type wireResult struct {
-	Messages []wireMessage `json:"messages"`
-	// NeedCompact 表示越过装配阈值（§5.2 软阈值）且已停在完整单元边界——
-	// 溢出由压缩路径处理。
-	NeedCompact bool `json:"need_compact"`
-	// PrefixDigest 是输出版本摘要（前缀稳定性比较用）。
-	PrefixDigest string `json:"prefix_digest"`
-	// TailStartSeq 是本轮实际装配的起始 seq（无 frame = 1）。
-	TailStartSeq uint64 `json:"tail_start_seq"`
-	// FrameApplied 表示是否存在 compact 摘要进入 wire。
-	FrameApplied bool `json:"frame_applied,omitempty"`
-	// Open 表示流尾存在未完成工具轮（open 单元 + 修复占位）。
-	Open bool `json:"open,omitempty"`
-}
+type wireResult = storecontext.WireResult
 
 // assembleWire 构造 wire 消息序列（R2 主入口）。
 func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wireParams) (wireResult, error) {
-	params = params.normalized()
+	params = normalizeWireParams(params)
 	compactHead, err := store.readCompactHead(key)
 	if err != nil {
 		return wireResult{}, err
@@ -139,7 +86,7 @@ func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wire
 // 产出 wire 序列（frame 摘要 + 尾窗 + 最近 K 条尝试 + 预算/修复语义）。
 // legacy JSON 会话经该纯函数复用同一装配逻辑（取代旧链路组装）。
 func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult {
-	params = params.normalized()
+	params = normalizeWireParams(params)
 	tailStart := uint64(1)
 	if frame != nil {
 		tailStart = frame.MessageToSeq + 1
