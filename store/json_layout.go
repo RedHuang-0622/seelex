@@ -62,52 +62,13 @@ func (repository *jsonRepository) active(key Key) bool {
 //     以 Events 为准）；
 //   - state 沿用原通道文件（同会话目录）。
 func (repository *jsonRepository) writeCommitLayout(key Key, commit Commit) error {
-	if !repository.layout.sessionExists(key) {
-		// 新会话先建 会话存储布局（空 head 发布，使目录可被枚举/读路径识别）。
-		if _, err := repository.layout.messageCommit(key, "", nil); err != nil {
-			return err
-		}
+	if err := writeArtifactPhase(repository, key, commit.ToolResults); err != nil {
+		return err
 	}
-	// 1) 结果文件先进 big_tool_result（事件行可见之前）。
-	refs, refsErr := repository.layout.readToolResultRefs(key)
-	if refsErr != nil && !errors.Is(refsErr, fs.ErrNotExist) {
-		return refsErr
+	if err := writeMessagePhase(repository, key, commit.Events); err != nil {
+		return err
 	}
-	if refs == nil {
-		refs = []string{}
-	}
-	refsChanged := false
-	for _, result := range commit.ToolResults {
-		if err := repository.writeToolResultLocked(key, result); err != nil {
-			return err
-		}
-		if !containsValue(refs, result.Ref) {
-			refs = append(refs, result.Ref)
-			refsChanged = true
-		}
-	}
-	if refsChanged {
-		if err := repository.layout.publishToolResultRefs(key, refs); err != nil {
-			return err
-		}
-	}
-	// 2) 事件行（发布点：行可见 ⇒ 结果文件与 refs 索引已存在）。
-	if len(commit.Events) > 0 {
-		if _, err := repository.layout.messageCommit(key, "", commit.Events); err != nil {
-			return err
-		}
-	}
-	// 3) 压缩记录通道（应用侧可见面的持久事实源，见 compaction_records.go）：
-	// 与 message 提交同一次落盘，但走自己的模块锁与自己的水位。失败即整次提交
-	// 失败——半写等于"上一次装配把前缀折出了窗口，而盘上查不到这件事"。
-	if len(commit.CompactionRecords) > 0 {
-		if _, _, err := repository.layout.commitCompactionRecords(key, commit.CompactionRecords); err != nil {
-			return err
-		}
-	}
-	// D9/S20：state.json 通道停写（SESSION 无独立文件；可见状态按 §2.5.4
-	// 从 message head.Meta + lifecycle 派生）。
-	return nil
+	return writeCompactionPhase(repository, key, commit.CompactionRecords)
 }
 
 // toolResultHead 是 metadata-index/toolresult.json payload（可重建派生索引，
