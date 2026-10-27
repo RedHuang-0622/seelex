@@ -495,10 +495,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func concurrentTranscriptText(events []model.TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
 - `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
 
-### session_content_reload.go
-
-- `func (service *Service) reloadSessionContent(sessionID string, historyWindowAssembler applicationhistory.WindowAssembler) error` — reloadSessionContent reloads an evicted visible window from durable pages.
-
 ### session_conversation_history_query_test.go
 
 - `func (store *blockingConversationRangeStore) LoadConversationRangeWorkspace( workspaceID, sessionID string, offset, limit int, ) ([]model.Message, int, error)`

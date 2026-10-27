@@ -237,6 +237,20 @@ func (service *Runtime) attachSessionContextFor(workspaceID, sessionID string) e
 	return nil
 }
 
+// reloadSessionContent reloads an evicted visible window from durable pages.
+func (service *Runtime) reloadSessionContent(sessionID string, assembler applicationhistory.WindowAssembler) error {
+	window := applicationpolicy.Get().HistoryWindow
+	if window <= 0 {
+		window = 1
+	}
+	workspaceID := service.components.sessions.LocateSession(sessionID).WorkspaceID
+	page, err := service.loadConversationTailPage(workspaceID, sessionID, window)
+	if err != nil {
+		return fmt.Errorf("reload session content %q: %w", sessionID, err)
+	}
+	return service.installVisibleHistory(sessionID, page, window, applicationhistory.InstallReplace, assembler)
+}
+
 // LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 // 「加载更早」按钮的应用边界）。
 //

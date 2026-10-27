@@ -341,7 +341,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		RequestCatalogRefresh: func() { _ = service.components.sessions.RequestCatalogRefresh() },
 		ReloadContent: func(sessionID string) error {
-			return service.reloadSessionContent(sessionID, historyWindowAssembler)
+			return service.components.sessionHistoryRuntime.ReloadContent(sessionID, historyWindowAssembler)
 		},
 	})
 	service.assembleFrontendSnapshotApplication()

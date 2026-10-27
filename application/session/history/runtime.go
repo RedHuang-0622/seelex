@@ -191,6 +191,11 @@ func (runtime *Runtime) InstallVisibleHistory(sessionID string, page application
 	return runtime.installVisibleHistory(sessionID, page, window, mode, assembler)
 }
 
+// ReloadContent replaces an evicted visible window with a fresh durable tail.
+func (runtime *Runtime) ReloadContent(sessionID string, assembler applicationhistory.WindowAssembler) error {
+	return runtime.reloadSessionContent(sessionID, assembler)
+}
+
 func (runtime *Runtime) VisibleWindowFirstRow(sessionID string, assembler applicationhistory.WindowAssembler) protocol.Message {
 	return runtime.visibleWindowFirstRow(sessionID, assembler)
 }

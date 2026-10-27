@@ -8,8 +8,8 @@
 | 指标 | 当前值 |
 |---|---:|
 | `serviceComponents` 字段 | 65 |
-| assembly 生产文件 | 52 |
-| assembly 生产代码 | 6,926 行 |
+| assembly 生产文件 | 51 |
+| assembly 生产代码 | 6,891 行 |
 | assembly 测试文件 | 192 |
 | assembly 测试代码 | 37,382 行 |
 | 旧 Application/Assembly 宽接口与前端端口集合 | 0 |

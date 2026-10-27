@@ -55,6 +55,9 @@
 - [x] queue enqueue / durable mirror / recovery 迁 `conversation.QueueApplication`
 - [x] 删除 `session_queue_recover.go`
 - [x] scheduled workspace/plugin/run-params 判据迁 `application/admin/scheduler`
+- [x] content reload 迁 `session/history.Runtime.ReloadContent`
+- [x] 删除 `session_content_reload.go`
+- [x] 删除测试专用 `asyncState*` 常量 alias
 
 ## T1：测试文件合并候选
 

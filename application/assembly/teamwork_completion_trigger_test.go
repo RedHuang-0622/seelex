@@ -48,7 +48,7 @@ func completedTeammateRecord(handle string, state dto.AsyncState) dto.TeamworkJo
 func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T) {
 	service, runtime := teamworkCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab7", asyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab7", dto.AsyncStateDone)}
 	runtime.teamworkEvents <- struct{}{}
 
 	body := waitForTriggeredTurn(t, service, "ab7")
@@ -70,7 +70,7 @@ func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T) {
 func TestTeamworkCompletionTriggersOnFailureToo(t *testing.T) {
 	service, runtime := teamworkCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	record := completedTeammateRecord("ab8", asyncStateFailed)
+	record := completedTeammateRecord("ab8", dto.AsyncStateFailed)
 	record.ExitCode = 1
 	record.Summary = "failed · exit=1 · 交作业时 rebase 冲突"
 	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{record}
@@ -113,7 +113,7 @@ func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T) {
 		t.Fatal("占位回合没有启动")
 	}
 
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab11", asyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab11", dto.AsyncStateDone)}
 	runtime.teamworkEvents <- struct{}{}
 	assertNoTurn(t, service, "ab11")
 
@@ -127,7 +127,7 @@ func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T) {
 func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T) {
 	service, runtime := teamworkCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab12", asyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab12", dto.AsyncStateDone)}
 	runtime.teamworkEvents <- struct{}{}
 	waitForTriggeredTurn(t, service, "ab12")
 	waitForChatCompletion(t, service)
@@ -161,8 +161,8 @@ func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("bt-7", asyncStateDone)}
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("bteam-7", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("bt-7", dto.AsyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("bteam-7", dto.AsyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
 	waitForTriggeredTurn(t, service, "bt-7")
 	waitForChatCompletion(t, service)
@@ -178,7 +178,7 @@ func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
 func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T) {
 	service, runtime := teamworkCompletionHarness(t, false, &fakeEngine{sessionID: "session-a"})
 
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab13", asyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("ab13", dto.AsyncStateDone)}
 	runtime.teamworkEvents <- struct{}{}
 
 	assertNoTurn(t, service, "ab13")
@@ -188,9 +188,9 @@ func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T) {
 // 终态触发绝不唤醒忙会话，忙的时候只剩这条路）。
 func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T) {
 	lines := worktable.TeamworkTraceLines([]dto.TeamworkJobCompletionRecord{
-		completedTeammateRecord("ab20", asyncStateDone),
+		completedTeammateRecord("ab20", dto.AsyncStateDone),
 		{Handle: "ab21", Kind: "worker", State: dto.AsyncStateRunning, SessionID: "session-a", Role: "verify", WorkItem: "wi-verify", Description: "复核渲染件"},
-		{Handle: "ab22", Kind: "worker", State: asyncStateDone, SessionID: "session-b", Role: "other", WorkItem: "wi-other"},
+		{Handle: "ab22", Kind: "worker", State: dto.AsyncStateDone, SessionID: "session-b", Role: "other", WorkItem: "wi-other"},
 	}, "session-a", workTableBounds())
 
 	if len(lines) != 2 {
