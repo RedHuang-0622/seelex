@@ -369,7 +369,7 @@ func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows
 			// 空 commit（EnsureIndexed/record-only 首写）：仍发布空 head，
 			// 使会话可被 List/枚举发现。
 			now := time.Now().UTC()
-			head.LastCommitID = commitID
+			head = storesession.ApplyCommittedMessageHead(head, nil, commitID, now)
 			if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
 				return messageHead{}, err
 			}
@@ -383,18 +383,7 @@ func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows
 		return messageHead{}, err
 	}
 	now := time.Now().UTC()
-	head.LastCommitID = commitID
-	tokens := 0
-	for _, row := range delta {
-		tokens += row.TokenCount
-	}
-	head.Meta.TokenCount += tokens
-	head.Meta.ShardCount = len(head.Shards)
-	head.Meta.UpdatedAt = now
-	if head.Meta.SessionID == "" {
-		head.Meta.SessionID = key.SessionID
-		head.Meta.CreatedAt = now
-	}
+	head = storesession.ApplyCommittedMessageHead(head, delta, commitID, now)
 	if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
 		return messageHead{}, err
 	}

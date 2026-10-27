@@ -216,6 +216,29 @@ func ApplyPendingTailHead(
 	return head
 }
 
+// ApplyCommittedMessageHead updates the published head after message rows were
+// appended; shard indexes are supplied by the physical writer.
+func ApplyCommittedMessageHead(
+	head MessageHead,
+	delta []protocol.TranscriptEvent,
+	commitID string,
+	now time.Time,
+) MessageHead {
+	head.LastCommitID = commitID
+	tokens := 0
+	for _, row := range delta {
+		tokens += row.TokenCount
+	}
+	head.Meta.TokenCount += tokens
+	head.Meta.ShardCount = len(head.Shards)
+	head.Meta.UpdatedAt = now
+	if head.Meta.SessionID == "" {
+		head.Meta.SessionID = head.SessionID
+		head.Meta.CreatedAt = now
+	}
+	return head
+}
+
 // PublishMessageHead publishes the typed message head through layout.
 func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error) {
 	return layout.Publish(scope, "message", commitID, head, updatedAt)

@@ -163,6 +163,11 @@ func TestApplyPendingTailHead(t *testing.T) {
 	if MessageRowsCommitID(rows) == "" {
 		t.Fatal("empty commit identity")
 	}
+	committed := ApplyCommittedMessageHead(MessageHead{SessionID: "s"}, rows, "commit-2", time.Unix(2, 0))
+	if committed.LastCommitID != "commit-2" || committed.Meta.TokenCount != 5 ||
+		committed.Meta.SessionID != "s" || committed.Meta.ShardCount != 0 {
+		t.Fatalf("committed head=%+v", committed)
+	}
 }
 
 func TestListAndDraftBaseSeq(t *testing.T) {
