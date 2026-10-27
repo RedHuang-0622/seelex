@@ -126,3 +126,22 @@ func TestStackWireAndVocabulary(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendCompactChain(t *testing.T) {
+	first := CompactFrame{SegmentID: "c1", From: 0, To: 1}
+	stack, err := AppendCompact(nil, first)
+	if err != nil || len(stack) != 1 {
+		t.Fatalf("first=%v err=%v", stack, err)
+	}
+	if _, err := AppendCompact(stack, CompactFrame{SegmentID: "c2"}); err == nil {
+		t.Fatal("non-first frame without prev must fail")
+	}
+	second := CompactFrame{SegmentID: "c2", From: 0, To: 2, PrevSegmentID: "c1"}
+	stack, err = AppendCompact(stack, second)
+	if err != nil || len(stack) != 2 {
+		t.Fatalf("second=%v err=%v", stack, err)
+	}
+	if _, err := AppendCompact(stack, CompactFrame{SegmentID: "c3", From: 2, To: 1, PrevSegmentID: "c2"}); err == nil {
+		t.Fatal("invalid range must fail")
+	}
+}

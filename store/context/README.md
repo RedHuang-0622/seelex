@@ -36,6 +36,10 @@ go test ./store/context ./store -run 'Context|Checkpoint' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### compact.go
+
+- `func AppendCompact(stack []CompactFrame, frame CompactFrame) ([]CompactFrame, error)` — AppendCompact validates and appends one compact frame without performing IO.
+
 ### context.go
 
 - `func New(layout *storelayout.Layout) *Store` — New constructs a context state store.
@@ -51,6 +55,7 @@ go test ./store/context ./store -run 'Context|Checkpoint' -count=1
 - `func TestSessionContextRecordWireIdentity(t *testing.T)`
 - `func TestContextPayloadWireIdentity(t *testing.T)`
 - `func TestStackWireAndVocabulary(t *testing.T)`
+- `func TestAppendCompactChain(t *testing.T)`
 
 ### stacks.go
 

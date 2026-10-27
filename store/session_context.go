@@ -597,53 +597,11 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 	s.bridgeMu.Lock()
 	defer s.bridgeMu.Unlock()
 	if err := s.mutate(func(record *SessionContextRecord) error {
-		if frame.SegmentID == "" {
-			return fmt.Errorf("session context: compact frame requires segment_id")
+		stack, err := storecontext.AppendCompact(record.CompactStack, frame)
+		if err != nil {
+			return err
 		}
-		// From/To 语义校验（审计 R6）：累计 ChatQueue 单元索引，合并帧
-		// From 恒为合并起点（0），To 单调递增 —— 负区间/倒置拒绝。
-		if frame.From < 0 || frame.To < frame.From {
-			return fmt.Errorf("session context: compact frame invalid range [%d,%d]", frame.From, frame.To)
-		}
-		// 正式定位范围校验（architecture.md §3.3）：RoundNo/EventSeq 范围
-		// 要么都为零（未启用），要么成对给出且 From <= To；半填充拒绝。
-		if (frame.RoundFrom == 0) != (frame.RoundTo == 0) || frame.RoundFrom > frame.RoundTo {
-			return fmt.Errorf("session context: compact frame invalid round range [%d,%d]", frame.RoundFrom, frame.RoundTo)
-		}
-		if (frame.EventFrom == 0) != (frame.EventTo == 0) || frame.EventFrom > frame.EventTo {
-			return fmt.Errorf("session context: compact frame invalid event range [%d,%d]", frame.EventFrom, frame.EventTo)
-		}
-		// 超上下文 request 索引（详设 §3.4）：同空或同非空；非空时按
-		// 字符串序非倒置（首尾覆盖语义）。
-		if (frame.RequestFrom == "") != (frame.RequestTo == "") {
-			return fmt.Errorf("session context: compact frame request range must be both empty or both set")
-		}
-		if frame.RequestFrom != "" && frame.RequestFrom > frame.RequestTo {
-			return fmt.Errorf("session context: compact frame invalid request range [%q,%q]",
-				frame.RequestFrom, frame.RequestTo)
-		}
-		// 链锚点（详设 §3.4）：PrevSegmentID == "" 当且仅当本帧为首帧；
-		// 非首帧必须给出且与栈内上一帧 SegmentID 一致。
-		if len(record.CompactStack) == 0 {
-			if frame.PrevSegmentID != "" {
-				return fmt.Errorf("session context: first compact frame must not carry prev_segment_id")
-			}
-			record.CompactStack = append(record.CompactStack, frame)
-			return nil
-		}
-		top := record.CompactStack[len(record.CompactStack)-1]
-		if frame.PrevSegmentID == "" {
-			return fmt.Errorf("session context: non-first compact frame requires prev_segment_id")
-		}
-		if frame.PrevSegmentID != top.SegmentID {
-			return fmt.Errorf("session context: prev_segment_id %q must match stack top %q",
-				frame.PrevSegmentID, top.SegmentID)
-		}
-		if frame.PrevRequestFrom != top.RequestFrom || frame.PrevRequestTo != top.RequestTo {
-			return fmt.Errorf("session context: prev request range [%q,%q] must match stack top [%q,%q]",
-				frame.PrevRequestFrom, frame.PrevRequestTo, top.RequestFrom, top.RequestTo)
-		}
-		record.CompactStack = append(record.CompactStack, frame)
+		record.CompactStack = stack
 		return nil
 	}); err != nil {
 		return err
