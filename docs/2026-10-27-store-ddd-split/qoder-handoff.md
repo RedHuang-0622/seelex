@@ -18,7 +18,8 @@
    `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
    `711bfc67`、`a162e565`、`c393c418`、`0fbb82d6`。M6 已完成
    queue/lifecycle、retention、compact、fork 的共享类型、状态转移与校验。
-  M7 首片已迁 `context.json` 与 checkpoint key。
+  M7 已迁 `context.json`、checkpoint key、Context/Stack wire 类型与
+  SystemPrompt/checkpoint payload；提交 `be49335d`、`12325efd`、`bd889120`。
   C: 盘空间不足时设置 `GOCACHE=G:\go-build-cache\seelex`、
   `GOTMPDIR=G:\go-build-tmp\seelex`；禁止清理缓存或用户数据。
 5. 首次验证：
