@@ -17,7 +17,7 @@
 | M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
 | M5 | Session 核心 | 已完成 | 见 §2.9 |
 | M6 | Session 状态机 | 已完成 | 见 §2.10 |
-| M7 | Context | 未开始 | — |
+| M7 | Context | 进行中 | context/checkpoint 存储机制首片完成，见 §2.11 |
 | M8 | Teamwork | 未开始 | — |
 | M9 | Role/WorkUnit | 未开始 | — |
 | M10 | Facade 清零 | 未开始 | — |
@@ -466,6 +466,35 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 
 两者以及完整 `store/e2e` 通过；路径、JSON tag、head、watermark 与锁粒度未变化。
 
+## 2.11 M7：Context（进行中）
+
+### 2.11.1 已完成切片
+
+`store/context` 已承接：
+
+- `<session>/context.json` 路径与 opaque payload 原子读写；
+- workplan checkpoint ID → `checkpoint-<hash>` 的安全键映射。
+
+根 `context_state.go` 与 `checkpoint_store.go` 只保留 repository lock、opaque
+序列化与 Router 适配。四类栈语义、SystemPrompt、compact bridge 和
+`wire_assembler` 归位仍待后续切片，因此 M7 保持进行中。
+
+### 2.11.2 红测与门禁
+
+```text
+go test ./e2e -run TestStoreDDDMContextOwnershipGate -count=1
+--- FAIL: store/context/context.go 尚未落位
+```
+
+通过后：
+
+```text
+go test ./store/context ./store -run 'Context|Checkpoint' -count=1
+go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestFacadeDependencyClosureRatchet' -count=1
+```
+
+路径、`context.json` 文件名、opaque 内容和 checkpoint key 均未变化。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -588,5 +617,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M7：Context，迁移 prompt、四类上下文栈、checkpoint 与 compact bridge；
-`wire_assembler` 归 engine context 读侧，SessionContextRecord 不再作为万能快照。
+继续 M7：迁移 SystemPrompt、Plan/Task/Skill/Compact 栈、compact bridge 与
+`wire_assembler`，把 `SessionContextRecord` 收缩为按消费方读取的投影。

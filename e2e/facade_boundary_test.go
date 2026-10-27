@@ -173,7 +173,8 @@ const (
 // layout/root/contract；按同一规则将上限抬到 118。
 // Store DDD M5 首片：`store/session` 承接分片命名与 pending-tail 分类；
 // 上限抬到 119。
-const facadeClosureAllowListMax = 119
+// Store DDD M7：`store/context` 承接 context/checkpoint 存储机制；上限抬到 120。
+const facadeClosureAllowListMax = 120
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -354,6 +355,7 @@ var facadeClosureAllowList = []string{
 	// 不可变 tool result/blob/media 与派生搜索索引的领域 owner。
 	"github.com/RedHuang-0622/seelex/store/artifact",
 	"github.com/RedHuang-0622/seelex/store/session",
+	"github.com/RedHuang-0622/seelex/store/context",
 	// M3-S2：会话存储的基座机制（数据根锁 / 进程存活 / 共享读 / 原子发布 / 残尾 /
 	// Settings）从 store 抽出。同一份代码换落点，属"新模块可 +1"，且自身
 	// 闭包是纯标准库（`go list -deps ./store/root` 除自身外无带点的包）。

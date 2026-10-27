@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // ErrCheckpointNotFound 表示 checkpoint 不存在。恢复方按“无续跑点”处理，
@@ -87,8 +87,5 @@ func (store *CheckpointStore) Load(id string) (*workplanTypes.Snapshot, error) {
 // checkpointStorageKey 把调用方 checkpoint ID 收敛为安全的会话状态键。
 // 相同 ID 恒映射到相同键；空 ID 保留字面量（调用方契约禁止空 ID）。
 func checkpointStorageKey(id string) string {
-	if id == "" {
-		return "checkpoint"
-	}
-	return "checkpoint-" + storeroot.Hash(id)
+	return storecontext.CheckpointStorageKey(id)
 }

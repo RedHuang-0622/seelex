@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
-	"os"
-	"path/filepath"
 )
 
 // contextStateFile 是 JSON 后端 context 模块的独立文件（session 根目录，
@@ -17,11 +14,7 @@ func (repository *jsonRepository) WriteContextState(_ context.Context, key Key, 
 	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	directory := repository.sessionDir(key)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	return storeroot.WriteAtomic(filepath.Join(directory, contextStateFile), state, 0o600)
+	return repository.layout.contexts.WriteState(layoutScope(key), state)
 }
 
 func (repository *jsonRepository) ReadContextState(_ context.Context, key Key) ([]byte, error) {
@@ -30,5 +23,5 @@ func (repository *jsonRepository) ReadContextState(_ context.Context, key Key) (
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	return os.ReadFile(filepath.Join(repository.sessionDir(key), contextStateFile))
+	return repository.layout.contexts.ReadState(layoutScope(key))
 }

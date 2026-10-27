@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
@@ -95,6 +96,7 @@ type storeEngine struct {
 	settings  storeroot.Settings
 	layout    *storelayout.Layout
 	artifacts *storeartifact.Store
+	contexts  *storecontext.Store
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
@@ -137,6 +139,7 @@ func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 		settings:  resolved,
 		layout:    sharedLayout,
 		artifacts: storeartifact.New(sharedLayout, resolved),
+		contexts:  storecontext.New(sharedLayout),
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
 		event:     &eventStats{},
