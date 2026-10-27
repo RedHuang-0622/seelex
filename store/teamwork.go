@@ -27,8 +27,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // teamworkEventFile 是审计流水文件名（追加、不重写）。
@@ -47,40 +47,40 @@ const teamworkJobSubdir = "jobs"
 // 这里重复一次常量而不是 import agentteam：存储层不该依赖上层角色装配，
 // 而这条约束必须在**计划可被 leader 改写**的第二道校验关口上仍然成立。
 const (
-	TeamworkRoleMain = dto.TeamworkRoleMain
-	TeamworkRoleUser = dto.TeamworkRoleUser
+	TeamworkRoleMain = storeteamwork.RoleMain
+	TeamworkRoleUser = storeteamwork.RoleUser
 )
 
 // 里程碑状态取值（空 = pending）。
 const (
-	TeamworkMilestonePending = dto.TeamworkMilestonePending
-	TeamworkMilestoneActive  = dto.TeamworkMilestoneActive
-	TeamworkMilestoneDone    = dto.TeamworkMilestoneDone
+	TeamworkMilestonePending = storeteamwork.MilestonePending
+	TeamworkMilestoneActive  = storeteamwork.MilestoneActive
+	TeamworkMilestoneDone    = storeteamwork.MilestoneDone
 )
 
 // 审计事件的 kind 取值。
 const (
-	TeamworkEventPlan      = "plan"
-	TeamworkEventDispatch  = "dispatch"
-	TeamworkEventJoin      = "join"
-	TeamworkEventMilestone = "milestone"
+	TeamworkEventPlan      = storeteamwork.EventPlan
+	TeamworkEventDispatch  = storeteamwork.EventDispatch
+	TeamworkEventJoin      = storeteamwork.EventJoin
+	TeamworkEventMilestone = storeteamwork.EventMilestone
 	// TeamworkEventRetire 是**旧口径**（team_retire，已整条删除）留在历史审计里的取值：
 	// 常量保留是为了老审计还能读回，**不再有新写入**（本轮结束只有 team_close 一个入口）。
-	TeamworkEventRetire = "retire"
+	TeamworkEventRetire = storeteamwork.EventRetire
 	// TeamworkEventClose 是**整队收口**（team_close）的审计行：与旧口径的 retire
 	// 分开记——收口是团队级动作，不是"最后一次退场"。
-	TeamworkEventClose = "close"
+	TeamworkEventClose = storeteamwork.EventClose
 	// TeamworkEventItem / Accept / Fail / Settle / Recover 是 **Work Item 生命周期**
 	// 的事实流水（排活 / 验收通过 / 判失败 / 尾插 / 中断恢复）。
-	TeamworkEventItem    = "item"
-	TeamworkEventAccept  = "accept"
-	TeamworkEventFail    = "fail"
-	TeamworkEventSettle  = "settle"
-	TeamworkEventRecover = "recover"
+	TeamworkEventItem    = storeteamwork.EventItem
+	TeamworkEventAccept  = storeteamwork.EventAccept
+	TeamworkEventFail    = storeteamwork.EventFail
+	TeamworkEventSettle  = storeteamwork.EventSettle
+	TeamworkEventRecover = storeteamwork.EventRecover
 	// TeamworkEventMessage 是**尾插**进 teammate 消息队列的一行。它落在审计流里而不是
 	// 另开一份存储：消息队列是"发生过的事实"的按人读法（过滤 role_session_id），
 	// 与审计同一条追加型事实流——两份存储只会让"看板看到的"与"审计记的"漂移。
-	TeamworkEventMessage = "message"
+	TeamworkEventMessage = storeteamwork.EventMessage
 )
 
 // 计划的运行态取值（空 = 未收口；与里程碑状态的"空 = pending"同口径）。
@@ -88,7 +88,7 @@ const (
 // **闭板事实双写：域内权威在 plan.State**（U3 裁决）——看板存档（moduleBoardTeam）
 // 只作历史/恢复，读侧不得据存档反推域内是否已收口。
 // TeamworkStateClosed 是整队已收口（team_close）的兼容常量。
-const TeamworkStateClosed = dto.TeamworkStateClosed
+const TeamworkStateClosed = storeteamwork.StateClosed
 
 // TeamworkPlan 是 leader 的硬编排计划（moduleTeamwork head 的 payload）。
 //
@@ -97,38 +97,24 @@ const TeamworkStateClosed = dto.TeamworkStateClosed
 // 阶段制时代留下的旧计划时，`stages` 这个未知字段被 JSON 解码直接忽略——旧计划
 // 因此照常读得出来，只是它的"顺序"不再被任何读侧认作事实。
 // TeamworkPlan 是 contract/dto.TeamworkPlan 的持久化兼容 alias。
-type TeamworkPlan = dto.TeamworkPlan
+type TeamworkPlan = storeteamwork.Plan
 
 // TeamworkMember 是 contract/dto.TeamworkMember 的持久化兼容 alias。
-type TeamworkMember = dto.TeamworkMember
+type TeamworkMember = storeteamwork.Member
 
 // TeamworkMilestone 是 contract/dto.TeamworkMilestone 的持久化兼容 alias。
-type TeamworkMilestone = dto.TeamworkMilestone
+type TeamworkMilestone = storeteamwork.Milestone
 
 // TeamworkState 是 contract/dto.TeamworkState 的持久化兼容 alias。
-type TeamworkState = dto.TeamworkState
+type TeamworkState = storeteamwork.State
 
 // TeamworkPlanIsEmpty 是 contract/dto.TeamworkPlanIsEmpty 的兼容自由函数。
 func TeamworkPlanIsEmpty(plan TeamworkPlan) bool {
-	return dto.TeamworkPlanIsEmpty(plan)
+	return storeteamwork.PlanIsEmpty(plan)
 }
 
 // TeamworkEvent 是审计流水的一行：只追加，不重写。
-type TeamworkEvent struct {
-	At        time.Time `json:"at"`
-	Kind      string    `json:"kind"`
-	TeamID    string    `json:"team_id,omitempty"`
-	Role      string    `json:"role,omitempty"`
-	Handle    string    `json:"handle,omitempty"`
-	Node      string    `json:"node,omitempty"`
-	Milestone string    `json:"milestone,omitempty"`
-	// WorkItem 是 Work Item 口径的归属（甘特节点 id）。
-	WorkItem string `json:"work_item,omitempty"`
-	// RoleSessionID 是**尾插落点**的键（teammate 的消息队列按它读）。只有 message
-	// 一类事件带它；其余行留空——不是所有事实都属于某个会话。
-	RoleSessionID string `json:"role_session_id,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-}
+type TeamworkEvent = storeteamwork.Event
 
 // TeamworkRepository 是 teamwork 模块的读 / 写面。
 //
@@ -196,95 +182,7 @@ func (store *storeEngine) teamworkJobDir(key Key) string {
 //
 // maxTeammates <= 0 表示调用方不掌握人数上限（只做结构性校验）。
 func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
-	if strings.TrimSpace(plan.TeamID) == "" {
-		return errors.New("teamwork: plan.team_id is required")
-	}
-	if plan.Version < 1 {
-		return fmt.Errorf("teamwork: plan.version must be >= 1, got %d", plan.Version)
-	}
-	if len(plan.Members) == 0 {
-		return errors.New("teamwork: plan.members must not be empty")
-	}
-	if maxTeammates > 0 && len(plan.Members) > maxTeammates {
-		return fmt.Errorf(
-			"teamwork: 在编 teammate %d 人超过 limits.team.max_teammates=%d（显式拒绝，不静默排队）",
-			len(plan.Members), maxTeammates)
-	}
-
-	roles := make(map[string]struct{}, len(plan.Members))
-	sessions := make(map[string]struct{}, len(plan.Members))
-	for index, member := range plan.Members {
-		role := strings.TrimSpace(member.Role)
-		if role == "" {
-			return fmt.Errorf("teamwork: plan.members[%d].role is required", index)
-		}
-		if role == TeamworkRoleMain || role == TeamworkRoleUser {
-			return fmt.Errorf("teamwork: 角色 %q 是复用主会话的内置角色，不得作为 teammate 派发", role)
-		}
-		if _, duplicate := roles[role]; duplicate {
-			return fmt.Errorf("teamwork: 一个 teammate = 一个角色，角色 %q 重复（D8 禁止重复角色）", role)
-		}
-		roles[role] = struct{}{}
-		sessionID := strings.TrimSpace(member.RoleSessionID)
-		if sessionID == "" {
-			return fmt.Errorf("teamwork: plan.members[%d].role_session_id is required（由 (team_id, role) 派生）", index)
-		}
-		if _, duplicate := sessions[sessionID]; duplicate {
-			return fmt.Errorf("teamwork: role_session_id %q 重复（一人一会话）", sessionID)
-		}
-		sessions[sessionID] = struct{}{}
-		// 插件装配（能力轴）在这一层只做**结构**校验：去首尾空白、去重（重复 = 显式
-		// 拒绝）、单项非空。名字是否存在于插件目录**不在这里判**——那是插件域的事实，
-		// 存储层看不到也不该 import 插件域（语义校验在编排入口 team_plan）。每会话数量
-		// 上限由配置面（limits.plugins.per_teammate）在编排入口拦，这里不重复声明一个
-		// 数字。
-		//
-		// 这条"重复显式拒绝"与 dto.NormalizePlugins（写入侧/编排侧的语法规整）**同一
-		// 口径**：修前上游静默去重，于是这里这条拒绝不可达，两条路给出相反的答案
-		// （2026-10-05 对抗复核 D）。现在两处都是"显式拒绝"，本层是**落盘前的最后一道**
-		// ——leader 改写、并发路径、以及任何绕过编排入口的写入都还要在这里被挡一次。
-		seenPlugins := make(map[string]struct{}, len(member.Plugins))
-		for pluginIndex, raw := range member.Plugins {
-			name := strings.TrimSpace(raw)
-			if name == "" {
-				return fmt.Errorf("teamwork: plan.members[%d].plugins[%d] 为空项（插件名不得为空）", index, pluginIndex)
-			}
-			if _, duplicate := seenPlugins[name]; duplicate {
-				return fmt.Errorf("teamwork: plan.members[%d].plugins 里插件 %q 重复（显式拒绝，不静默去重）", index, name)
-			}
-			seenPlugins[name] = struct{}{}
-		}
-	}
-
-	// 顺序事实只有一样：里程碑（阶段口径已退场，2026-10-04）。没有里程碑 = 这份
-	// 计划没有任何可读的顺序，拒绝落盘。
-	if len(plan.Milestones) == 0 {
-		return errors.New("teamwork: plan.milestones 至少要有一份（顺序必须有唯一事实）")
-	}
-
-	milestoneIDs := make(map[string]struct{}, len(plan.Milestones))
-	for index, milestone := range plan.Milestones {
-		id := strings.TrimSpace(milestone.ID)
-		if id == "" {
-			return fmt.Errorf("teamwork: plan.milestones[%d].id is required", index)
-		}
-		if _, duplicate := milestoneIDs[id]; duplicate {
-			return fmt.Errorf("teamwork: 里程碑 id %q 重复", id)
-		}
-		milestoneIDs[id] = struct{}{}
-		for _, role := range milestone.Required {
-			if _, exists := roles[role]; !exists {
-				return fmt.Errorf("teamwork: 里程碑 %q 的 required 指向不在编的角色 %q", id, role)
-			}
-		}
-		switch milestone.Status {
-		case "", TeamworkMilestonePending, TeamworkMilestoneActive, TeamworkMilestoneDone:
-		default:
-			return fmt.Errorf("teamwork: 里程碑 %q 的状态 %q 非法（pending|active|done）", id, milestone.Status)
-		}
-	}
-	// 第二道：里程碑图（屏障 DAG）与工作项（里程碑内的甘特节点）。
-	return validateTeamworkWorkItems(plan, roles)
+	return storeteamwork.ValidatePlan(plan, maxTeammates)
 }
 
 // WriteTeamworkPlan 写入（整份替换）一份计划。maxTeammates <= 0 = 只做结构性校验。

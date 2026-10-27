@@ -27,7 +27,7 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 | M5 | Session 核心 | 已完成 | 见 §2.9 |
 | M6 | Session 状态机 | 已完成 | 见 §2.10 |
 | M7 | Context | 已完成 | 见 §2.11，含外部批次重放与回滚演练 |
-| M8 | Teamwork | 未开始 | — |
+| M8 | Teamwork | 进行中 | 纯模型/校验/折叠已下沉，见 §2.12 |
 | M9 | Role/WorkUnit | 未开始 | — |
 | M10 | Facade 清零 | 未开始 | — |
 | M11 | 全仓验收 | 未开始 | — |
@@ -653,6 +653,54 @@ e2e/store_ddd_context_gate_test.go
 
 这是外部依赖批次。专用 branch/worktree 已满足；checkpoint、manifest、脚本
 dry-run/apply 仍待用户授权本地 commit 后补做，当前不能宣告该批次完成。
+
+## 2.12 M8：Teamwork（进行中）
+
+### 2.12.1 已完成切片
+
+- 新建 `store/teamwork`，唯一拥有 Plan/Member/Milestone/WorkItem、Event、
+  Binding 的稳定形状与词表。
+- Plan/Work Item 校验、里程碑与工作项 DAG 环检测、binding 最后一行折叠
+  已下沉；根 `store` 改为同身份 alias 与单层纯函数转发。
+- JSON 文件路径、plan head 发布、events/worktrees JSONL 读写仍在根 Store，
+  留待下一片迁移。
+
+### 2.12.2 红测与门禁
+
+首次：
+
+```text
+go test ./e2e -run '^TestStoreDDDMTeamworkModelOwnershipGate$' -count=1
+FAIL: store/teamwork/model.go 尚未落位
+```
+
+通过后：
+
+```text
+go test ./store/teamwork ./store ./backend/multiagent/teamwork ./e2e -run 'Teamwork|WorkItem|Binding|Plan' -count=1
+go build ./...
+```
+
+以上 PASS。God 类型方法面未增长；路径与 JSON tag 零变化。
+
+### 2.12.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/teamwork.go` Event 类型与 kind 常量 | `store/teamwork.Event` 与常量 |
+| `store/teamwork.go` plan 校验实现 | `store/teamwork.ValidatePlan` |
+| `store/teamwork_items.go` WorkItem/Binding 类型 | `store/teamwork.WorkItem/Binding` |
+| `store/teamwork_items.go` DAG 校验 | `store/teamwork/validation.go` |
+| `store/teamwork_items.go` `TeamworkBindings` 折叠 | `store/teamwork.Bindings` |
+
+### 2.12.4 下一步
+
+迁移 plan head + events/bindings JSONL I/O 到 `store/teamwork`，保持文件名和
+残尾语义；随后迁移 team registry。M8 完成门禁为：
+
+```text
+go test ./store/... ./store/teamwork/... ./backend/multiagent/teamwork/... ./test/ -count=1
+```
 
 ## 3. 未决风险
 
