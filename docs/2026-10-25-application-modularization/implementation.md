@@ -5962,7 +5962,21 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
   内部去具体依赖项，不在本批复制实现；
 - 回退方式：把根包移回 `backend/engine/context` 并恢复调用点。
 
-## EP-089：Engine Session Coordinator 归入 Kernel
+## EP-089：Engine Task Coordinator 归入 Kernel
+
+- 把 `backend/engine/task` 根包的 12 个生产文件、行为测试与 README 物理迁入
+  `kernel/task`；task execution、transcript、plan projection、ledger 与 token budget
+  保持唯一实现；
+- Application Execution/Conversation/Session/Core、Kernel Context 与 Backend assemble
+  直接引用 `kernel/task`；
+- 红测：Application 全局依赖预算收紧到 1；迁移后预算、Kernel Task、
+  Application TaskContext/Conversation/Core、Backend assemble、
+  E2E `Facade|Layout|Task|Subagent` 与 `go build ./...` 通过；
+- Application 具体依赖由 2 降至 1；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；task/plan/transcript 行为不变；
+- 回退方式：把根包移回 `backend/engine/task` 并恢复调用点。
+
+## EP-090：Engine Session Coordinator 归入 Kernel
 
 - 把 `backend/engine/session` 根包的 12 个生产文件、行为测试与 README 物理迁入
   `kernel/session`；archive/history/fork/transition/pending-tail/queue-wire 等
