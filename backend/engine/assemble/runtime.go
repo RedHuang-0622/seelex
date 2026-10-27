@@ -1001,11 +1001,11 @@ type runtimeCompactStacks struct {
 	memory  seelexctx.CompactStackStore
 }
 
-func (s runtimeCompactStacks) Snapshot() store.SessionContextRecord {
+func (s runtimeCompactStacks) CompactStackSnapshot() []store.CompactFrame {
 	if st := s.runtime.sessionContextStore(); st != nil {
-		return st.Snapshot()
+		return st.CompactStackSnapshot()
 	}
-	return s.memory.Snapshot()
+	return s.memory.CompactStackSnapshot()
 }
 func (s runtimeCompactStacks) PushCompact(frame store.CompactFrame) error {
 	if st := s.runtime.sessionContextStore(); st != nil {

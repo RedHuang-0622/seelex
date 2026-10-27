@@ -286,6 +286,17 @@ func (s *SessionContextStore) Snapshot() SessionContextRecord {
 	return cloneSessionContextRecord(s.record)
 }
 
+// CompactStackSnapshot 只返回压缩栈的深拷贝。压缩检索、重复压缩基准与相关记忆
+// 选取不得为了读取该栈而依赖完整上下文记录。
+func (s *SessionContextStore) CompactStackSnapshot() []CompactFrame {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneCompactFrames(s.record.CompactStack)
+}
+
 // ── 栈操作（plan/task/goal 走 §2.4 栈通道，非 context blob）──────────────
 
 // writeStack 把一次栈变更写进通道并回读该 kind 的 active 投影。
@@ -614,10 +625,22 @@ func cloneSessionContextRecord(record SessionContextRecord) SessionContextRecord
 	clone.PlanStack = append([]PlanFrame(nil), record.PlanStack...)
 	clone.TaskStack = append([]TaskFrame(nil), record.TaskStack...)
 	clone.SkillStack = append([]SkillFrame(nil), record.SkillStack...)
-	clone.CompactStack = append([]CompactFrame(nil), record.CompactStack...)
+	clone.CompactStack = cloneCompactFrames(record.CompactStack)
 	clone.GoalStack = cloneGoalFrames(record.GoalStack)
 	clone.GoalAudit = cloneGoalAudit(record.GoalAudit)
 	return clone
+}
+
+func cloneCompactFrames(frames []CompactFrame) []CompactFrame {
+	if len(frames) == 0 {
+		return nil
+	}
+	out := make([]CompactFrame, len(frames))
+	for index := range frames {
+		out[index] = frames[index]
+		out[index].Evidence = append([]EvidenceRef(nil), frames[index].Evidence...)
+	}
+	return out
 }
 
 func cloneGoalFrames(frames []GoalFrame) []GoalFrame {

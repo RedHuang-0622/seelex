@@ -83,10 +83,10 @@ func (o *Options) applyDefaults() {
 	}
 }
 
-// StackSource 是压缩栈（语义索引）读取源。
+// StackSource 是压缩栈（语义索引）的窄读取源。
 // store.SessionContextStore / seelexctx.CompactStackStore 均满足。
 type StackSource interface {
-	Snapshot() store.SessionContextRecord
+	CompactStackSnapshot() []store.CompactFrame
 }
 
 // EventSource 是会话事件流读取源（append-only 真相源，按 Seq 升序）。
@@ -152,15 +152,15 @@ func (s *Searcher) Search(ctx context.Context, query string, opts Options) (Resu
 		result.Note = "会话暂无事件记录（历史检索不可用）"
 		return result, nil
 	}
-	var record store.SessionContextRecord
+	var frames []store.CompactFrame
 	if s.stack != nil {
-		record = s.stack.Snapshot()
+		frames = s.stack.CompactStackSnapshot()
 	}
-	if len(record.CompactStack) > 0 {
+	if len(frames) > 0 {
 		// 索引路径：压缩栈全部帧作为候选，memory.Select 选相关帧。
-		result.IndexedFrames = len(record.CompactStack)
-		candidates := make([]memory.Candidate, 0, len(record.CompactStack))
-		for _, frame := range record.CompactStack {
+		result.IndexedFrames = len(frames)
+		candidates := make([]memory.Candidate, 0, len(frames))
+		for _, frame := range frames {
 			candidates = append(candidates, memory.Candidate{
 				SegmentID: frame.SegmentID, Summary: frame.Summary,
 				Evidence: frame.Evidence, From: frame.From, To: frame.To,

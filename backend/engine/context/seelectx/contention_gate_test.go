@@ -182,7 +182,7 @@ func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 			return fmt.Errorf("dag.Execute: %w", err)
 		}
 		// 共享栈读写：压缩路径写帧、真空区覆盖/报表读。
-		_ = shared.Snapshot()
+		_ = shared.CompactStackSnapshot()
 	}
 	return nil
 }

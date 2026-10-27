@@ -88,6 +88,33 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 	}
 }
 
+func TestSessionContextStoreCompactStackSnapshotIsDeepCopy(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionContextStore(router, "session-compact-read-face")
+	if err := store.mutate(func(record *SessionContextRecord) error {
+		record.CompactStack = []CompactFrame{{
+			SegmentID: "compact-1",
+			Summary:   "summary",
+			Evidence:  []EvidenceRef{{Ref: "result:1", Summary: "evidence"}},
+		}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first := store.CompactStackSnapshot()
+	if len(first) != 1 || first[0].SegmentID != "compact-1" {
+		t.Fatalf("compact snapshot=%+v", first)
+	}
+	first[0].Summary = "mutated"
+	first[0].Evidence[0].Ref = "mutated"
+
+	second := store.CompactStackSnapshot()
+	if len(second) != 1 || second[0].Summary != "summary" || second[0].Evidence[0].Ref != "result:1" {
+		t.Fatalf("compact snapshot exposed internal state: %+v", second)
+	}
+}
+
 func TestSessionContextStorePersistsAcrossInstances(t *testing.T) {
 	router := newTestRouter(t)
 	first := NewSessionContextStore(router, "session-persist")

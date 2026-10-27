@@ -49,11 +49,11 @@ func TestCoverHistoryGapCoversUncompactedRegion(t *testing.T) {
 	if result.Frame.To != 6 || result.Frame.From != 0 {
 		t.Fatalf("frame range must be [0..6], got [%d..%d]", result.Frame.From, result.Frame.To)
 	}
-	snapshot := stack.Snapshot()
-	if len(snapshot.CompactStack) != 1 {
-		t.Fatalf("want 1 pushed frame, got %d", len(snapshot.CompactStack))
+	snapshot := stack.CompactStackSnapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("want 1 pushed frame, got %d", len(snapshot))
 	}
-	pushed := snapshot.CompactStack[0]
+	pushed := snapshot[0]
 	if pushed.SegmentID != result.Frame.SegmentID {
 		t.Fatalf("segment mismatch: %s vs %s", pushed.SegmentID, result.Frame.SegmentID)
 	}
@@ -124,7 +124,7 @@ func TestCoverHistoryGapRepeatedCoverageIsIdempotent(t *testing.T) {
 	if err != nil || !first.Covered {
 		t.Fatalf("first coverage: covered=%v err=%v", first.Covered, err)
 	}
-	opts.Record = stack.Snapshot()
+	opts.Record = store.SessionContextRecord{CompactStack: stack.CompactStackSnapshot()}
 	second, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("second coverage: %v", err)
@@ -132,7 +132,7 @@ func TestCoverHistoryGapRepeatedCoverageIsIdempotent(t *testing.T) {
 	if second.Covered {
 		t.Fatalf("second coverage must be idempotent no-op, got %+v", second)
 	}
-	if got := len(stack.Snapshot().CompactStack); got != 1 {
+	if got := len(stack.CompactStackSnapshot()); got != 1 {
 		t.Fatalf("want 1 frame after idempotent coverage, got %d", got)
 	}
 }
@@ -157,12 +157,13 @@ func TestCoverHistoryGapRestoresCoverageContiguity(t *testing.T) {
 		t.Fatalf("want 5 uncovered units ending at 8, got %+v", result)
 	}
 	// 不变量：栈顶覆盖终点 == 尾窗起点 - 1。
-	top := stack.Snapshot().CompactStack[len(stack.Snapshot().CompactStack)-1]
+	frames := stack.CompactStackSnapshot()
+	top := frames[len(frames)-1]
 	if top.To != opts.TailStartUnit-1 {
 		t.Fatalf("coverage must abut the window: top.To=%d, want %d", top.To, opts.TailStartUnit-1)
 	}
 	// 尾窗再前移（下一轮 Load 装载更多）：新的未覆盖区间只有 9..10。
-	opts.Record = stack.Snapshot()
+	opts.Record = store.SessionContextRecord{CompactStack: stack.CompactStackSnapshot()}
 	opts.TailStartUnit = 11
 	again, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil {
@@ -171,8 +172,8 @@ func TestCoverHistoryGapRestoresCoverageContiguity(t *testing.T) {
 	if !again.Covered || again.UncoveredUnits != 2 {
 		t.Fatalf("want 2 newly uncovered units, got %+v", again)
 	}
-	snapshot := stack.Snapshot()
-	finalTop := snapshot.CompactStack[len(snapshot.CompactStack)-1]
+	snapshot := stack.CompactStackSnapshot()
+	finalTop := snapshot[len(snapshot)-1]
 	if finalTop.To != 10 || finalTop.From != 0 {
 		t.Fatalf("final top frame must be [0..10], got [%d..%d]", finalTop.From, finalTop.To)
 	}
@@ -213,7 +214,7 @@ func TestCoverHistoryGapRejectsInputsOutsideUnitSpace(t *testing.T) {
 			if result.Covered {
 				t.Fatalf("out-of-space inputs must not cover anything: %+v", result)
 			}
-			if pushed := stack.Snapshot().CompactStack; len(pushed) != 0 {
+			if pushed := stack.CompactStackSnapshot(); len(pushed) != 0 {
 				t.Fatalf("no frame may be pushed on contract violation, got %+v", pushed)
 			}
 		})
@@ -292,7 +293,7 @@ func TestCoverHistoryGapEvidenceAndTurns(t *testing.T) {
 	if !result.Covered {
 		t.Fatal("gap expected")
 	}
-	pushed := stack.Snapshot().CompactStack[0]
+	pushed := stack.CompactStackSnapshot()[0]
 	if len(pushed.Evidence) == 0 || pushed.Evidence[0].Ref != "result:abc" {
 		t.Fatalf("evidence must carry result:abc, got %+v", pushed.Evidence)
 	}

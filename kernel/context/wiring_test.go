@@ -89,7 +89,9 @@ type stubCompactStacks struct {
 	pushed []store.CompactFrame
 }
 
-func (s *stubCompactStacks) Snapshot() store.SessionContextRecord { return s.record }
+func (s *stubCompactStacks) CompactStackSnapshot() []store.CompactFrame {
+	return s.record.CompactStack
+}
 
 func (s *stubCompactStacks) PushCompact(frame store.CompactFrame) error {
 	s.pushed = append(s.pushed, frame)
@@ -127,19 +129,19 @@ func TestCoverHistoryGapSkipsWithoutBaseline(t *testing.T) {
 // TestRelatedMemoryBlocksSelection 钉住选取判据：无记录/空查询/无命中都不注入
 // （请求内容不变），命中时渲染出一块。
 func TestRelatedMemoryBlocksSelection(t *testing.T) {
-	if got := RelatedMemoryBlocks(store.SessionContextRecord{}, "渲染件的契约"); got != nil {
+	if got := RelatedMemoryBlocks(nil, "渲染件的契约"); got != nil {
 		t.Fatalf("空记录不该注入块：%+v", got)
 	}
 	record := store.SessionContextRecord{CompactStack: []store.CompactFrame{{
 		SegmentID: "seg-1", Summary: "讨论了渲染件的契约与测试", From: 0, To: 3,
 	}}}
-	if got := RelatedMemoryBlocks(record, "   "); got != nil {
+	if got := RelatedMemoryBlocks(record.CompactStack, "   "); got != nil {
 		t.Fatalf("空查询不该注入块：%+v", got)
 	}
-	if got := RelatedMemoryBlocks(record, "与历史完全无关的词组"); got != nil {
+	if got := RelatedMemoryBlocks(record.CompactStack, "与历史完全无关的词组"); got != nil {
 		t.Fatalf("无命中不该注入块：%+v", got)
 	}
-	blocks := RelatedMemoryBlocks(record, "渲染件 契约")
+	blocks := RelatedMemoryBlocks(record.CompactStack, "渲染件 契约")
 	if len(blocks) != 1 || blocks[0].Name != "memory" {
 		t.Fatalf("命中时应渲染一块：%+v", blocks)
 	}

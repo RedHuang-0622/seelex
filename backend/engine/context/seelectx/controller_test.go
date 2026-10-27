@@ -89,19 +89,17 @@ func newController(stacks CompactStackStore) *seelexContextController {
 	return &seelexContextController{opts: ControllerOptions{Stacks: stacks}}
 }
 
-// recordStack 是测试用 CompactStackStore：Snapshot 返回预置的完整会话
-// 记录（含任务/计划栈帧），PushCompact 追加压缩帧。
+// recordStack 是测试用 CompactStackStore：CompactStackSnapshot 返回预置的
+// 压缩帧，PushCompact 追加压缩帧。
 type recordStack struct {
 	mu     sync.Mutex
 	record store.SessionContextRecord
 }
 
-func (s *recordStack) Snapshot() store.SessionContextRecord {
+func (s *recordStack) CompactStackSnapshot() []store.CompactFrame {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record := s.record
-	record.CompactStack = append([]store.CompactFrame(nil), s.record.CompactStack...)
-	return record
+	return append([]store.CompactFrame(nil), s.record.CompactStack...)
 }
 
 func (s *recordStack) PushCompact(frame store.CompactFrame) error {

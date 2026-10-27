@@ -4,7 +4,11 @@
 方案事实源仍是 [`plan.md`](plan.md) 与 [`milestones.md`](milestones.md)；
 本文件只记录**已跑出来的证据**，不重复设计论证。
 
-快照时间：2026-10-27（M0 完成）。
+提交纪律：从 2026-10-28 起，每个里程碑完成门禁后创建一个只含该里程碑的本地
+commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当前 checkpoint
+先落库，后续里程碑继续遵循“测试 → commit”。
+
+快照时间：2026-10-28（M7 进行中）。
 
 ## 1. 状态总览
 
@@ -482,10 +486,17 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 - Compact 栈的范围校验、request 索引与前驱链校验；
 - wire message/result 形状、兜底预算、软阈值缩放与参数归一化；
 - Plan/Task/Goal 入栈输入、Goal 栈顶校验、Skill 压/弹栈纯状态操作；
+- provider wire 的纯装配状态机：compact frame、尾行过滤、孤儿工具行、
+  open/修复占位、软预算边界、retry attempt 锚点、digest 与前缀比较。
+- 压缩栈窄读面：`SessionContextStore.CompactStackSnapshot` 只返回
+  `CompactFrame` 深拷贝；seelectx controller/search、相关记忆选取与装配侧
+  不再通过万能 `SessionContextRecord` 读取压缩栈。
 
-根 `context_state.go` 与 `checkpoint_store.go` 只保留 repository lock、opaque
-序列化与 Router 适配。四类栈语义、SystemPrompt、compact bridge 和
-`wire_assembler` 归位仍待后续切片，因此 M7 保持进行中。
+根 `wire_assembler.go` 只把 `Event` 与 attempt cache 映射为 `store/context`
+输入，不再持有装配 switch；`context_state.go` 与 `checkpoint_store.go` 只保留
+repository lock、opaque 序列化与 Router 适配。四类栈消费方投影、
+`SessionContextRecord` 收缩与 compact bridge 归位仍待后续切片，因此 M7
+保持进行中。
 
 ### 2.11.2 红测与门禁
 
@@ -502,6 +513,88 @@ go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestFacadeDependencyClosur
 ```
 
 路径、`context.json` 文件名、opaque 内容和 checkpoint key 均未变化。
+
+provider wire 纯装配切片首次为红灯：
+
+```text
+go test ./store -run 'Wire|Lifecycle|Queue|Retention|Compact|Fork' -count=1
+FAIL store/wire_assembler.go: imported and not used: crypto/sha256, encoding/hex,
+encoding/json, strings
+```
+
+修正后：
+
+```text
+go test ./store/context -count=1
+go test ./store -run 'Wire|Lifecycle|Queue|Retention|Compact|Fork' -count=1
+go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestFacadeDependencyClosureRatchet' -count=1
+go test ./store/... -count=1
+go test ./backend/engine/context/... ./backend/engine/assemble/... ./test/ -count=1
+go build ./...
+go build -tags "gui,desktop,production" ./...
+go vet ./...
+```
+
+以上均 PASS。`go test ./store/...` 首次运行时 `TestCommitNotBlockedByFullHistoryRead`
+在并发负载下超时 125.7ms；该用例单独重跑 PASS，未改测试或锁实现，记为
+环境负载型波动；随后单独串行重跑完整 `go test ./store/... -count=1` PASS。
+
+压缩栈窄读面门禁首次为红灯：
+
+```text
+go test ./e2e -run '^TestStoreDDDMCompactStackReadFaceGate$' -count=1
+FAIL: CompactStackSnapshot missing in store/session_context.go,
+seelectx/controller.go, seelectx/search.go and assemble/runtime.go;
+controller/search/runtime still expose Snapshot() store.SessionContextRecord
+```
+
+切换后：
+
+```text
+go test ./e2e -run '^TestStoreDDDMCompactStackReadFaceGate$' -count=1   PASS
+go test ./store/... -count=1   PASS
+go test ./backend/engine/context/... ./kernel/context ./backend/engine/assemble -count=1   PASS
+go test ./test/ -count=1   PASS
+go build ./...   PASS
+go build -tags "gui,desktop,production" ./...   PASS
+go vet ./...   PASS
+```
+
+`CompactStackSnapshot` 的深拷贝由 `TestSessionContextStoreCompactStackSnapshotIsDeepCopy`
+钉住。Plan/Task 仍由 `GapCoverageDeps.Record` 提供给本地压缩摘要；该次要投影
+尚未收缩，不能把本切片误报为 M7 完成。
+
+### 2.11.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/wire_assembler.go` 的 `assembleWireRows` 纯装配核心 | `store/context.AssembleWireRows` |
+| `store/wire_assembler.go` 的 `wireState`、行分类、预算、open/孤儿修复 | `store/context/wire_engine.go` 私有状态机 |
+| `store/wire_assembler.go` 的 `wireDigest` / `wirePrefixEqual` | `store/context.WireDigest` / `WirePrefixEqual` |
+| `store/wire_assembler.go` 直接消费 `Event` / `attemptCache` | 根包 `contextWireRows` / `rootWireAttemptProvider` 单层映射 |
+| `seelectx.CompactStackStore.Snapshot() SessionContextRecord` | `CompactStackSnapshot() []store.CompactFrame` |
+| search `StackSource.Snapshot() SessionContextRecord` | `CompactStackSnapshot() []store.CompactFrame` |
+| `RelatedMemoryBlocks(record, query)` | `RelatedMemoryBlocks(frames, query)` |
+
+本切片没有新增 God receiver 方法：`Router`、`jsonRepository`、`storeEngine`、
+`SessionGranularStore` 方法集合均未增长。路径、JSON tag、head、watermark、
+attempt cache 与 provider wire wire 字节均零变化；未读写或迁移用户数据。
+
+压缩窄读切片的直接改点（未提交）：
+
+```text
+store/session_context.go
+store/session_context_test.go
+backend/engine/context/seelectx/{controller.go,controller_test.go,
+controller_loop_contract_test.go,contention_gate_test.go,gap_test.go}
+backend/engine/context/seelectx/search/{search.go,search_test.go}
+backend/engine/assemble/{runtime.go,runtime_context.go}
+kernel/context/{wiring.go,wiring_test.go}
+e2e/store_ddd_context_gate_test.go
+```
+
+这是外部依赖批次。专用 branch/worktree 已满足；checkpoint、manifest、脚本
+dry-run/apply 仍待用户授权本地 commit 后补做，当前不能宣告该批次完成。
 
 ## 3. 未决风险
 
@@ -524,6 +617,10 @@ go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestFacadeDependencyClosur
 6. **计划中的 `middle/view/board` 已不是当前物理路径**。实际看板消费方在
    `kernel/board`，其生产端口已经使用 `contract/dto`；M1 按实际依赖面验证。
    M10 前需统一 plan/milestones 的历史路径措辞，但不能为路径名再复制一套消费方。
+7. **M7 外部调用点批次尚缺 checkpoint 与脚本证据**。本批已改
+   seelectx/assemble/kernel context 的窄读签名；仓库规范禁止未获用户明确授权时
+   自动 commit，因此 `external-change-protocol.md` 所需的 checkpoint、manifest
+   和 dry-run/apply 尚未完成。代码测试已绿，但结构证据不足以宣告批次完成。
 
 ## 4. 附录：直接 import 根 `store` 的生产文件（86）
 
@@ -625,5 +722,7 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-继续 M7：迁移 SystemPrompt、Plan/Task/Skill/Compact 栈、compact bridge 与
-`wire_assembler`，把 `SessionContextRecord` 收缩为按消费方读取的投影。
+继续 M7：把本地压缩摘要所需的 Plan/Task 读面改成独立投影，随后拆分
+SystemPrompt/Skill/GoalAudit 消费方投影并迁移 compact bridge。外部批次需先取得
+用户 commit 授权，再按 `external-change-protocol.md` 补 checkpoint、
+manifest、script、dry-run 与回滚证据。

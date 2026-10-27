@@ -46,7 +46,7 @@ func TestControllerLoopNeverCompactsConversation(t *testing.T) {
 	assertNoCompaction("after_assistant", seelectx.ContextEvent{
 		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: query, History: history,
 	})
-	if frames := stacks.Snapshot().CompactStack; len(frames) != 0 {
+	if frames := stacks.CompactStackSnapshot(); len(frames) != 0 {
 		t.Fatalf("循环内不得推压缩帧，实际 %d 条", len(frames))
 	}
 }

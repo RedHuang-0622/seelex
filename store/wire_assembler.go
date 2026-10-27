@@ -12,12 +12,8 @@
 package store
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
-	"strings"
 )
 
 // wireRole 常量与 provider role 对齐（internal 材料以 user 形态进入 wire）。
@@ -85,301 +81,43 @@ func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wire
 // assembleWireRows 是 wire 装配的纯函数核心：给定最新帧（可空）与尾行，
 // 产出 wire 序列（frame 摘要 + 尾窗 + 最近 K 条尝试 + 预算/修复语义）。
 // legacy JSON 会话经该纯函数复用同一装配逻辑（取代旧链路组装）。
-func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult {
-	params = normalizeWireParams(params)
-	tailStart := uint64(1)
-	if frame != nil {
-		tailStart = frame.MessageToSeq + 1
+type rootWireAttemptProvider struct{ cache *attemptCache }
+
+func (provider rootWireAttemptProvider) RecentForAnchor(anchorSeq uint64, k int) []storecontext.WireAttempt {
+	items := provider.cache.recentForAllAnchors(anchorSeq, k)
+	out := make([]storecontext.WireAttempt, 0, len(items))
+	for _, item := range items {
+		out = append(out, storecontext.WireAttempt{Role: item.Role, Content: item.Content})
 	}
-	state := wireState{
-		params:   params,
-		declared: make(map[string]bool),
-		pending:  make(map[string]bool),
-	}
-	if frame != nil {
-		state.summary = frame.Summary
-		if frame.Summary != "" {
-			state.wire = append(state.wire, wireMessage{
-				Role:    wireRoleAssistant,
-				Content: frame.Summary,
-			})
-			state.costs += len(frame.Summary) / 4
-		}
-	}
-	// 逐行装配（只依赖 message/compact；EVENT 不参与）。
+	return out
+}
+
+func contextWireRows(rows []Event) []storecontext.WireRow {
+	out := make([]storecontext.WireRow, 0, len(rows))
 	for _, row := range rows {
-		state.consumeRow(row)
+		out = append(out, storecontext.WireRow{
+			Seq: row.Seq, Kind: EventKindOf(row), Role: row.Role,
+			ReasoningContent: row.ReasoningContent, Content: row.Content,
+			ProviderContent: row.ProviderContent, ToolCallID: row.ToolCallID,
+			Name: row.Name, ToolCalls: row.ToolCalls, ResultRef: row.ResultRef,
+			TokenCount: row.TokenCount, WireMaterial: row.WireMaterial,
+		})
 	}
-	state.closeTail()
-	state.attachAttempts(cache)
-	wire := state.wire
-	if state.needCompact {
-		return wireResult{
-			Messages:     wire,
-			NeedCompact:  true,
-			PrefixDigest: wireDigest(wire),
-			TailStartSeq: tailStart,
-			FrameApplied: frame != nil,
-			Open:         state.open,
-		}
-	}
-	return wireResult{
-		Messages:     wire,
-		PrefixDigest: wireDigest(wire),
-		TailStartSeq: tailStart,
-		FrameApplied: frame != nil,
-		Open:         state.open,
-	}
+	return out
 }
 
-// wireState 是 wire 装配的增量状态（纯函数内部结构）。
-type wireState struct {
-	params  wireParams
-	summary string
-	wire    []wireMessage
-	// declared 是扫描窗口内全部宣告过的 tool_call_id（孤儿判定）。
-	declared map[string]bool
-	// pending 是等待结果、尚未关闭的 tool_call_id。
-	pending map[string]bool
-	// costs 是已装配估算字符。
-	costs int
-	// stopped 表示预算截断已发生（后续行不再装配）。
-	stopped     bool
-	needCompact bool
-	open        bool
-	// unitOpen 表示当前装配位置处于未完成工具轮。
-	unitOpen bool
+func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult {
+	var wireFrame *storecontext.WireFrame
+	if frame != nil {
+		wireFrame = &storecontext.WireFrame{Summary: frame.Summary, MessageToSeq: frame.MessageToSeq}
+	}
+	return storecontext.AssembleWireRows(wireFrame, contextWireRows(rows), rootWireAttemptProvider{cache: cache}, params)
 }
 
-func (state *wireState) emit(message wireMessage, cost int) {
-	if state.stopped {
-		return
-	}
-	state.wire = append(state.wire, message)
-	state.costs += cost
-}
+func wireDigest(messages []wireMessage) string { return storecontext.WireDigest(messages) }
 
-// unitCost 估算一条 wire 消息的字符成本（TokenCount 缺失时 len/4 近似）。
-func unitCost(row Event) int {
-	if row.TokenCount > 0 {
-		return row.TokenCount
-	}
-	cost := len(row.Content)/4 + len(row.ReasoningContent)/4
-	for _, call := range row.ToolCalls {
-		cost += len(call.Name) + len(call.Arguments)/4
-	}
-	if cost == 0 {
-		cost = 1
-	}
-	return cost
-}
-
-func (state *wireState) consumeRow(row Event) {
-	if state.stopped {
-		return
-	}
-	kind := EventKindOf(row)
-	role := row.Role
-	switch kind {
-	case EventKindUserInput:
-		state.closePendingBeforeUser()
-		cost := unitCost(row)
-		if state.budgetWouldExceed(cost, true) {
-			state.needCompact = true
-			state.stopped = true
-			return
-		}
-		state.emit(wireMessage{Role: wireRoleUser, Content: row.Content, Seq: row.Seq}, cost)
-		state.unitOpen = false
-	case EventKindLLM, EventKindToolCall:
-		message := wireMessage{
-			Role:             wireRoleAssistant,
-			Content:          row.Content,
-			ReasoningContent: row.ReasoningContent,
-			ToolCalls:        row.ToolCalls,
-			Seq:              row.Seq,
-		}
-		cost := unitCost(row)
-		if state.budgetWouldExceed(cost, len(state.pending) == 0) {
-			state.needCompact = true
-			state.stopped = true
-			return
-		}
-		state.emit(message, cost)
-		if len(row.ToolCalls) > 0 {
-			state.unitOpen = true
-			for _, call := range row.ToolCalls {
-				state.declared[call.ID] = true
-				state.pending[call.ID] = true
-			}
-		} else {
-			state.unitOpen = false
-		}
-	case EventKindToolOutput:
-		if row.ToolCallID != "" && !state.declared[row.ToolCallID] {
-			return // 孤儿 tool 行：扫描窗口无匹配宣告，跳过（R2-ORPHAN-1）
-		}
-		cost := unitCost(row)
-		if state.budgetWouldExceed(cost, len(state.pending) == 0) {
-			state.needCompact = true
-			state.stopped = true
-			return
-		}
-		state.emit(wireMessage{
-			Role:       wireRoleTool,
-			Content:    providerContentOrContent(row),
-			ToolCallID: row.ToolCallID,
-			Name:       row.Name,
-			ResultRef:  row.ResultRef,
-			Seq:        row.Seq,
-		}, cost)
-		delete(state.pending, row.ToolCallID)
-		if len(state.pending) == 0 {
-			state.unitOpen = false
-		}
-	default:
-		// internal_user/context：仅 wire_material=true 进 wire（内部 user 材料），
-		// 其余跳过（只服务前端/历史，R2-FILTER-1）。
-		if row.WireMaterial && (role == "internal_user" || role == "context" || kind == EventKindInternal) {
-			cost := unitCost(row)
-			if state.budgetWouldExceed(cost, len(state.pending) == 0) {
-				state.needCompact = true
-				state.stopped = true
-				return
-			}
-			wireRole := wireRoleSystem
-			if strings.Contains(row.Content, "<!-- seelex:active-skill:") {
-				wireRole = wireRoleUser
-			}
-			state.emit(wireMessage{Role: wireRole, Content: row.Content, Seq: row.Seq, Internal: true}, cost)
-		}
-	}
-}
-
-// budgetWouldExceed 判断添加 cost 是否会超软预算；boundaryComplete 表示
-// 当前处于完整单元边界（可安全截断）。
-func (state *wireState) budgetWouldExceed(cost int, boundaryComplete bool) bool {
-	if state.costs+cost <= state.params.Budget {
-		return false
-	}
-	if !boundaryComplete {
-		// 残缺工具轮内：允许完成当前单元（open 修复占位），截断标记交给
-		// closeTail。
-		state.needCompact = true
-		return false
-	}
-	return true
-}
-
-// closePendingBeforeUser 在 user 边界修复仍未完成的工具轮（不跳后续 user）。
-func (state *wireState) closePendingBeforeUser() {
-	for callID := range state.pending {
-		state.emit(wireMessage{
-			Role:       wireRoleTool,
-			ToolCallID: callID,
-			Content:    "【缺失工具结果 · 修复占位】该工具调用未在流中完成，装配层已按安全修复补齐。",
-			Repair:     true,
-		}, 8)
-		delete(state.pending, callID)
-	}
-	state.unitOpen = false
-}
-
-// closeTail 处理流尾：未完成工具轮保留 open + 修复占位。
-func (state *wireState) closeTail() {
-	if len(state.pending) > 0 {
-		state.open = true
-		for callID := range state.pending {
-			state.emit(wireMessage{
-				Role:       wireRoleTool,
-				ToolCallID: callID,
-				Content:    "【缺失工具结果 · 修复占位】工具轮在流尾保持 open，结果缺失。",
-				Repair:     true,
-			}, 8)
-			delete(state.pending, callID)
-		}
-		state.unitOpen = false
-	}
-}
-
-// attachAttempts 在尝试缓存锚点行后拼接最近 K 条尝试（锚点行必须在 wire 中）。
-func (state *wireState) attachAttempts(cache *attemptCache) {
-	if cache == nil {
-		return
-	}
-	anchors := make(map[uint64]bool)
-	for _, message := range state.wire {
-		if message.Seq != 0 {
-			anchors[message.Seq] = true
-		}
-	}
-	if len(anchors) == 0 {
-		return
-	}
-	out := make([]wireMessage, 0, len(state.wire)+8)
-	for _, message := range state.wire {
-		out = append(out, message)
-		if !anchors[message.Seq] {
-			continue
-		}
-		for _, attempt := range cache.recentForAllAnchors(message.Seq, state.params.K) {
-			out = append(out, wireMessage{
-				Role:    roleForAttempt(attempt.Role),
-				Content: attempt.Content,
-				Seq:     message.Seq,
-				Attempt: true,
-			})
-		}
-	}
-	state.wire = out
-}
-
-func roleForAttempt(role string) string {
-	if role == "" {
-		return wireRoleAssistant
-	}
-	if role == wireRoleTool || role == wireRoleUser || role == wireRoleAssistant {
-		return role
-	}
-	return wireRoleAssistant
-}
-
-// wireDigest 计算 wire 序列版本摘要（前缀稳定性比较基础）。
-func wireDigest(messages []wireMessage) string {
-	sum := sha256.New()
-	for _, message := range messages {
-		data, _ := json.Marshal(message)
-		sum.Write(data)
-		sum.Write([]byte{'\n'})
-	}
-	return hex.EncodeToString(sum.Sum(nil))
-}
-
-// wirePrefixEqual 判断两次 wire 输出的持久前缀逐字节一致：比较去掉
-// Attempt 行后的完整序列。
 func wirePrefixEqual(left, right []wireMessage) bool {
-	strip := func(messages []wireMessage) []wireMessage {
-		out := make([]wireMessage, 0, len(messages))
-		for _, message := range messages {
-			if !message.Attempt {
-				out = append(out, message)
-			}
-		}
-		return out
-	}
-	left = strip(left)
-	right = strip(right)
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		lm, _ := json.Marshal(left[index])
-		rm, _ := json.Marshal(right[index])
-		if string(lm) != string(rm) {
-			return false
-		}
-	}
-	return true
+	return storecontext.WirePrefixEqual(left, right)
 }
 
 // recentForAllAnchors 归并 AttemptCache.RecentFor 的辅助（按 op 归组取最近

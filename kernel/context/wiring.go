@@ -100,8 +100,10 @@ type GapCoverageDeps struct {
 	AllEvents []store.Event
 	// TailStartUnit 是尾窗第一个单元在单元空间里的下标（由存储层选窗时回报）。
 	TailStartUnit int
-	// Stacks 是压缩栈（读快照 + 推帧）。nil = 没有栈可读，直接无事返回。
+	// Stacks 是压缩栈（读帧 + 推帧）。nil = 没有栈可读，直接无事返回。
 	Stacks seelexctx.CompactStackStore
+	// Record 提供本地压缩 Chapter 2 所需的 plan/task 投影；nil → 只使用压栈帧。
+	Record func() store.SessionContextRecord
 	// Turns 是真空区轮次原文归档（nil = 不归档）。
 	Turns seelexctx.TurnArchiver
 	// SessionID 是帧 SegmentID 的溯源前缀（可空）。
@@ -125,9 +127,14 @@ func CoverHistoryGap(ctx context.Context, deps GapCoverageDeps) error {
 	if len(deps.AllEvents) == 0 || deps.Stacks == nil {
 		return nil
 	}
-	record := deps.Stacks.Snapshot()
-	if len(record.CompactStack) == 0 {
+	frames := deps.Stacks.CompactStackSnapshot()
+	if len(frames) == 0 {
 		return nil
+	}
+	record := store.SessionContextRecord{CompactStack: frames}
+	if deps.Record != nil {
+		record = deps.Record()
+		record.CompactStack = frames
 	}
 	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
 		AllEvents:        deps.AllEvents,
@@ -144,12 +151,12 @@ func CoverHistoryGap(ctx context.Context, deps GapCoverageDeps) error {
 // RelatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
 // （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
 // 空记录 / 空查询 / 无命中 → 不注入（请求内容不变）。
-func RelatedMemoryBlocks(record store.SessionContextRecord, query string) []seelectx.PromptBlock {
-	if len(record.CompactStack) == 0 {
+func RelatedMemoryBlocks(frames []store.CompactFrame, query string) []seelectx.PromptBlock {
+	if len(frames) == 0 {
 		return nil
 	}
-	candidates := make([]memory.Candidate, 0, len(record.CompactStack))
-	for _, frame := range record.CompactStack {
+	candidates := make([]memory.Candidate, 0, len(frames))
+	for _, frame := range frames {
 		candidates = append(candidates, memory.Candidate{
 			SegmentID: frame.SegmentID, Summary: frame.Summary,
 			Evidence: frame.Evidence, From: frame.From, To: frame.To,

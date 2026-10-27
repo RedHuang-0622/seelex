@@ -50,14 +50,18 @@ func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
 func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, tailStartUnit int) error {
 	// 判据（"没有压缩基线就不补"）在域包 context_runtime.CoverHistoryGap；本层只把
 	// "当前会话的压缩栈 / 轮次归档器 / 会话号 / 传递上限"接成那一跳的读数。
-	return contextruntime.CoverHistoryGap(ctx, contextruntime.GapCoverageDeps{
+	deps := contextruntime.GapCoverageDeps{
 		AllEvents:        allEvents,
 		TailStartUnit:    tailStartUnit,
 		Stacks:           runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
 		Turns:            r.getTurnArchiver(),
 		SessionID:        r.MainSessionID(),
 		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
-	})
+	}
+	if st := r.sessionContextStore(); st != nil {
+		deps.Record = st.Snapshot
+	}
+	return contextruntime.CoverHistoryGap(ctx, deps)
 }
 
 // mainContextComponents 构造主会话的 ContextComponents（plan.md §3.1 步骤 4）。
@@ -116,7 +120,7 @@ func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelect
 		return nil
 	}
 	// 选取与渲染的判据在域包（候选 → 词法选取 → 渲染；无命中就不注入）。
-	return contextruntime.RelatedMemoryBlocks(st.Snapshot(), query)
+	return contextruntime.RelatedMemoryBlocks(st.CompactStackSnapshot(), query)
 }
 
 // resolvePlaceholder 解析 {{name}} 占位符（当前无内置变量，未知占位符

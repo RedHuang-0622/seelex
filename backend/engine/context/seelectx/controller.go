@@ -145,10 +145,10 @@ type BudgetProvider interface {
 	MaxOutputTokens() int
 }
 
-// CompactStackStore 会话级压缩栈读写（store.SessionContextStore 满足；
-// nil → 控制器内存态，活跃会话内仍可审计）。
+// CompactStackStore 是会话级压缩栈的窄读写面（store.SessionContextStore
+// 满足；nil → 控制器内存态，活跃会话内仍可审计）。
 type CompactStackStore interface {
-	Snapshot() store.SessionContextRecord
+	CompactStackSnapshot() []store.CompactFrame
 	PushCompact(frame store.CompactFrame) error
 }
 
@@ -158,13 +158,11 @@ type memoryCompactStack struct {
 	frames []store.CompactFrame
 }
 
-// Snapshot 实现 CompactStackStore。
-func (m *memoryCompactStack) Snapshot() store.SessionContextRecord {
+// CompactStackSnapshot implements the narrow compact-stack read face.
+func (m *memoryCompactStack) CompactStackSnapshot() []store.CompactFrame {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return store.SessionContextRecord{
-		CompactStack: append([]store.CompactFrame(nil), m.frames...),
-	}
+	return append([]store.CompactFrame(nil), m.frames...)
 }
 
 // PushCompact 实现 CompactStackStore。
@@ -416,11 +414,11 @@ func (c *seelexContextController) compactedUnitBase() int {
 	if c.opts.Stacks == nil {
 		return 0
 	}
-	record := c.opts.Stacks.Snapshot()
-	if len(record.CompactStack) == 0 {
+	frames := c.opts.Stacks.CompactStackSnapshot()
+	if len(frames) == 0 {
 		return 0
 	}
-	return record.CompactStack[len(record.CompactStack)-1].To + 1
+	return frames[len(frames)-1].To + 1
 }
 
 // userMessageUnit 用户轮：user + 直到下一个 user 或 assistant 文本收尾；

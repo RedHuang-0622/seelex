@@ -16,7 +16,9 @@ type fakeStack struct {
 	record store.SessionContextRecord
 }
 
-func (s *fakeStack) Snapshot() store.SessionContextRecord { return s.record }
+func (s *fakeStack) CompactStackSnapshot() []store.CompactFrame {
+	return s.record.CompactStack
+}
 
 // fakeEvents 是 EventSource 测试替身：返回固定事件流。
 type fakeEvents struct{ events []store.Event }
