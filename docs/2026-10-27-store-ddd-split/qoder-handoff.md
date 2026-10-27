@@ -1,11 +1,11 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0–M6 已完成，M7 进行中；wire 纯装配、压缩/prompt 窄投影与
-context fork 重写均已下沉并分片提交。
+状态快照：M0–M7 已完成；wire 纯装配、压缩/prompt 窄投影与 context fork
+重写均已下沉并分片提交。
 
 截至 2026-10-28 01:55，M7 正式验收测试、四条 ownership gate、普通/tagged build
-与全仓 vet 均 PASS；但外部 consumer 批次的 manifest/script/dry-run 证据尚未补齐，
-因此进度台账仍将 M7 标为进行中。
+与全仓 vet 均 PASS。外部 consumer 批次已从 `8fbae4e8` 完成 dry-run、apply、
+replay 测试、tree parity 和 rollback 演练，M7 已闭环。
 
 工作区：`G:\seelex-worktrees\store-ddd-M6`
 
@@ -18,7 +18,7 @@ context fork 重写均已下沉并分片提交。
    `progress.md` 和 `impact/M1-external-deps.md`。
 3. 运行 `git status --short --branch` 与 `git worktree list`，以 `progress.md`
    和最新提交为事实源。
-4. 继续 M7 Context：M5/M6 已迁 message/event 分片、head、draft 与状态机；
+4. M7 Context 已完成：M5/M6 已迁 message/event 分片、head、draft 与状态机；
    head JSON、seq 分配、EVENT identity 与 JSONL 读写/残尾修复；提交
    `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
    `711bfc67`、`a162e565`、`c393c418`、`0fbb82d6`。M6 已完成
@@ -51,13 +51,12 @@ go test ./store/... ./backend/engine/context/... ./backend/engine/assemble/... .
 `go test ./store/...` 曾有一次 `TestCommitNotBlockedByFullHistoryRead`
 环境负载型超时，单测重跑通过；不要通过改阈值掩盖，最终完整重跑后再判定。
 
-压缩窄读面涉及 seelectx、assemble、kernel context 等外部调用点，属于
-`external-change-protocol.md` 批次。专用 branch/worktree 已满足，但 checkpoint
-与脚本证据尚未完成；用户现已授权本地 commit（不 push）。接手方应先把当前
-已测试改动落成 checkpoint，再继续 M7；以后每个里程碑完成测试后都必须提交。
+外部批次证据见 `impact/M7-external-deps.{json,md}`、
+`impact/M7-*.patch` 与 `scripts/store-ddd/M7-external-migrate.py`。以后每个
+里程碑完成测试后都必须创建本地 commit（不 push）。
 
 严禁 `git reset --hard`、`git clean`、`make clean/release`、目录删除或用户数据清理；
 外部依赖批次必须先在隔离 worktree 生成 manifest 和 checkpoint。
 
-若在 2026-10-28 02:00 前已到 M6，则停止截止交接；否则 Qoder 从本 worktree 最新状态
-继续。Qoder 100 积分只能在界面实际显示领取入口且点击成功后记为已领取。
+M6 截止条件已满足，不触发开发交接。下一步从 M8 Teamwork 开始；Qoder 100
+积分只能在界面实际显示领取入口且点击成功后记为已领取。

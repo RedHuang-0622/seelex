@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "milestone": "M7",
+  "execution": {
+    "worktree_branch": "codex/store-ddd-M7-g",
+    "base_commit": "8fbae4e8776b48ef2d8fb70dbd050b20f28876f4",
+    "checkpoint_commit": "8fbae4e8776b48ef2d8fb70dbd050b20f28876f4",
+    "batch_commits": [
+      "9e8b4bb7aff2bbcc01eae2384267cfeba17da7e2",
+      "b50612eae92e43bf38ae98bfa21d59d385d6390b"
+    ]
+  },
+  "providers": [
+    {
+      "package": "github.com/RedHuang-0622/seelex/store/context",
+      "symbols": ["PromptStackSnapshot", "ForkState", "RewriteForkCompactStack"],
+      "change": "narrow prompt reads and own context fork rewrite"
+    }
+  ],
+  "batches": [
+    {
+      "checkpoint": "8fbae4e8776b48ef2d8fb70dbd050b20f28876f4",
+      "batch_commit": "9e8b4bb7aff2bbcc01eae2384267cfeba17da7e2",
+      "patch": "docs/2026-10-27-store-ddd-split/impact/M7-prompt-consumers.patch",
+      "patch_sha256": "8755d9beadc49b0ec0acffc59bc9a62f64e4feb4657ae89bf8968698384ca137"
+    },
+    {
+      "checkpoint": "9e8b4bb7aff2bbcc01eae2384267cfeba17da7e2",
+      "batch_commit": "b50612eae92e43bf38ae98bfa21d59d385d6390b",
+      "patch": "docs/2026-10-27-store-ddd-split/impact/M7-context-fork.patch",
+      "patch_sha256": "883cd00c5381956d02958c65e66cb5d05d4cf053f0eff8967aa982c40ef09bb0"
+    }
+  ],
+  "files": [
+    {"path": "application/assembly/context_cache_divergence_probe_test.go", "side": "test"},
+    {"path": "application/assembly/context_strategy_ab_probe_test.go", "side": "test"},
+    {"path": "backend/engine/assemble/runtime_context.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/README.md", "side": "doc"},
+    {"path": "backend/engine/context/seelectx/assembler.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/assembler_test.go", "side": "test"},
+    {"path": "backend/engine/context/seelectx/controller.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/controller_test.go", "side": "test"},
+    {"path": "backend/engine/context/seelectx/dag.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/dag_test.go", "side": "test"},
+    {"path": "backend/engine/context/seelectx/frame.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/frame_test.go", "side": "test"},
+    {"path": "backend/engine/context/seelectx/gap.go", "side": "consumer"},
+    {"path": "backend/engine/context/seelectx/gap_test.go", "side": "test"},
+    {"path": "backend/engine/context/seelectx/goal_stack_boundary_test.go", "side": "test"},
+    {"path": "e2e/store_ddd_context_gate_test.go", "side": "test"},
+    {"path": "kernel/context/README.md", "side": "doc"},
+    {"path": "kernel/context/compaction_stack.go", "side": "consumer"},
+    {"path": "kernel/context/wiring.go", "side": "consumer"},
+    {"path": "kernel/session/fork.go", "side": "consumer"},
+    {"path": "store/context/README.md", "side": "doc"},
+    {"path": "store/context/fork.go", "side": "provider"},
+    {"path": "store/context/fork_test.go", "side": "test"}
+  ],
+  "verify_packages": [
+    "github.com/RedHuang-0622/seelex/store/context",
+    "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx",
+    "github.com/RedHuang-0622/seelex/kernel/context",
+    "github.com/RedHuang-0622/seelex/kernel/session",
+    "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+    "github.com/RedHuang-0622/seelex/application/assembly",
+    "github.com/RedHuang-0622/seelex/e2e"
+  ],
+  "summary": {
+    "production_files": 8,
+    "test_files": 10,
+    "documentation_files": 3,
+    "batches": 2,
+    "patch_bytes": 43469
+  }
+}

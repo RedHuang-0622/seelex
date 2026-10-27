@@ -13,7 +13,7 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 - `cf119696`：M7 provider wire 与压缩栈窄读面。
 - `3c23ebf4`：`PromptStackSnapshot` 内层投影。
 
-快照时间：2026-10-28（M7 进行中）。
+快照时间：2026-10-28（M7 完成）。
 
 ## 1. 状态总览
 
@@ -26,7 +26,7 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 | M4 | Commit/Turn UoW | 已完成 | 见 §2.8 |
 | M5 | Session 核心 | 已完成 | 见 §2.9 |
 | M6 | Session 状态机 | 已完成 | 见 §2.10 |
-| M7 | Context | 进行中 | context/checkpoint 存储机制首片完成，见 §2.11 |
+| M7 | Context | 已完成 | 见 §2.11，含外部批次重放与回滚演练 |
 | M8 | Teamwork | 未开始 | — |
 | M9 | Role/WorkUnit | 未开始 | — |
 | M10 | Facade 清零 | 未开始 | — |
@@ -475,7 +475,7 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 
 两者以及完整 `store/e2e` 通过；路径、JSON tag、head、watermark 与锁粒度未变化。
 
-## 2.11 M7：Context（进行中）
+## 2.11 M7：Context（已完成）
 
 ### 2.11.1 已完成切片
 
@@ -602,9 +602,15 @@ M7 正式验收命令已于 2026-10-28 01:55 整体 PASS：
 go test ./store/... ./backend/engine/context/... ./backend/engine/assemble/... ./test/ -count=1
 ```
 
-四条上下文所有权门禁、普通/tagged build 与全仓 vet 也均 PASS。按仓库外部变更
-协议，M7 仍保留“进行中”状态，待补齐跨 store consumer 批次的 manifest、脚本、
-dry-run/apply 与 rollback 证据后才能改为“已完成”。
+四条上下文所有权门禁、普通/tagged build 与全仓 vet 也均 PASS。外部 consumer
+批次已从 checkpoint `8fbae4e8` 在隔离 replay worktree 完成 dry-run、apply、
+领域测试、tree 比对和 rollback 演练：
+
+- track 代码应用后与 `b50612ea` 完全一致；
+- 新建的 `store/context/fork.go`、`fork_test.go` 与主工作树 SHA-256 一致；
+- rollback 后代码 diff 为 0，随后重新 apply 成功；
+- manifest、可重放 patch 与脚本分别位于 `impact/M7-external-deps.{json,md}`、
+  `impact/M7-*.patch` 与 `scripts/store-ddd/M7-external-migrate.py`。
 
 `CompactStackSnapshot` 的深拷贝由 `TestSessionContextStoreCompactStackSnapshotIsDeepCopy`
 钉住。Plan/Task 仍由 `GapCoverageDeps.Record` 提供给本地压缩摘要；该次要投影
@@ -669,10 +675,9 @@ dry-run/apply 仍待用户授权本地 commit 后补做，当前不能宣告该�
 6. **计划中的 `middle/view/board` 已不是当前物理路径**。实际看板消费方在
    `kernel/board`，其生产端口已经使用 `contract/dto`；M1 按实际依赖面验证。
    M10 前需统一 plan/milestones 的历史路径措辞，但不能为路径名再复制一套消费方。
-7. **M7 外部调用点批次尚缺 checkpoint 与脚本证据**。本批已改
-   seelectx/assemble/kernel context 的窄读签名；仓库规范禁止未获用户明确授权时
-   自动 commit，因此 `external-change-protocol.md` 所需的 checkpoint、manifest
-   和 dry-run/apply 尚未完成。代码测试已绿，但结构证据不足以宣告批次完成。
+7. **M7 外部批次已闭环**。checkpoint `8fbae4e8`、两个 patch、manifest、
+   replay dry-run/apply、测试、tree parity 与 rollback 均有证据；后续批次继续
+   沿用相同流程。
 
 ## 4. 附录：直接 import 根 `store` 的生产文件（86）
 
@@ -774,7 +779,6 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-继续 M7：把本地压缩摘要所需的 Plan/Task 读面改成独立投影，随后拆分
-SystemPrompt/Skill/GoalAudit 消费方投影并迁移 compact bridge。外部批次需先取得
-用户 commit 授权，再按 `external-change-protocol.md` 补 checkpoint、
-manifest、script、dry-run 与回滚证据。
+进入 M8 Teamwork：先做领域归属、当前 teamwork 契约迁移落定检查、事件/绑定/
+team registry 的读写矩阵，再写红灯所有权门禁。每个里程碑完成后执行全仓门禁
+并创建本地 commit，不 push。

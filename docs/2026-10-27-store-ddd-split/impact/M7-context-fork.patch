@@ -1,0 +1,339 @@
+diff --git a/e2e/store_ddd_context_gate_test.go b/e2e/store_ddd_context_gate_test.go
+index cb42e695..8b14edc8 100644
+--- a/e2e/store_ddd_context_gate_test.go
++++ b/e2e/store_ddd_context_gate_test.go
+@@ -80,3 +80,30 @@ func TestStoreDDDMPromptStackReadFaceGate(t *testing.T) {
+ 		}
+ 	}
+ }
++
++// TestStoreDDDMContextForkOwnershipGate pins context JSON rewriting in the
++// context domain; session fork may read/write the payload but must not own the
++// record transformation.
++func TestStoreDDDMContextForkOwnershipGate(t *testing.T) {
++	root := repoRoot()
++	owner, err := os.ReadFile(filepath.Join(root, "store", "context", "fork.go"))
++	if err != nil {
++		t.Fatalf("read context fork owner: %v", err)
++	}
++	for _, symbol := range []string{"func ForkState", "func RewriteForkCompactStack"} {
++		if !strings.Contains(string(owner), symbol) {
++			t.Errorf("store/context/fork.go missing %s", symbol)
++		}
++	}
++	consumer, err := os.ReadFile(filepath.Join(root, "kernel", "session", "fork.go"))
++	if err != nil {
++		t.Fatalf("read session fork consumer: %v", err)
++	}
++	text := string(consumer)
++	if !strings.Contains(text, "storecontext.ForkState") {
++		t.Error("kernel/session/fork.go does not call storecontext.ForkState")
++	}
++	if strings.Contains(text, "SessionContextRecord") {
++		t.Error("kernel/session/fork.go still owns SessionContextRecord rewriting")
++	}
++}
+diff --git a/kernel/session/fork.go b/kernel/session/fork.go
+index 891a58e4..69bb0b16 100644
+--- a/kernel/session/fork.go
++++ b/kernel/session/fork.go
+@@ -25,6 +25,7 @@ import (
+ 	"github.com/RedHuang-0622/seelex/contract/dto"
+ 	"github.com/RedHuang-0622/seelex/contract/protocol"
+ 	"github.com/RedHuang-0622/seelex/store"
++	storecontext "github.com/RedHuang-0622/seelex/store/context"
+ )
+ 
+ // ForkContext 是 fork 落盘所需的子会话数据（深拷贝结果）：Record 是截断后
+@@ -542,70 +543,16 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut
+ 	}
+ 	payload, err := forkPort.LoadContextStateWorkspace(location.WorkspaceID, parentID)
+ 	if err != nil {
+-		if errors.Is(err, fs.ErrNotExist) {
+-			data, _ := json.Marshal(store.SessionContextRecord{
+-				SchemaVersion: store.SessionContextSchemaVersion,
+-				ForkedFrom:    append(json.RawMessage(nil), forkedFrom...),
+-			})
+-			return data, nil, nil
+-		}
+-		return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
+-	}
+-	var record store.SessionContextRecord
+-	if err := json.Unmarshal(payload, &record); err != nil {
+-		return nil, nil, fmt.Errorf("session fork: decode parent context: %w", err)
+-	}
+-	if record.SchemaVersion != store.SessionContextSchemaVersion {
+-		return nil, nil, fmt.Errorf("session fork: parent context has unsupported schema version %d (want %d)", record.SchemaVersion, store.SessionContextSchemaVersion)
+-	}
+-	record.PlanStack = nil
+-	record.TaskStack = nil
+-	record.GoalStack = nil
+-	record.GoalAudit = nil
+-	record.ForkedFrom = append(json.RawMessage(nil), forkedFrom...)
+-	record.SkillStack = forkContextSkillFrames(record.SkillStack, cutTime)
+-	frames := rewriteForkCompactStack(record.CompactStack, cut, cutMessageID)
+-	record.CompactStack = frames
+-	data, err := json.Marshal(record)
+-	if err != nil {
+-		return nil, nil, fmt.Errorf("session fork: encode child context: %w", err)
+-	}
+-	return data, frames, nil
+-}
+-
+-func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame {
+-	result := make([]store.SkillFrame, 0, len(frames))
+-	for _, frame := range frames {
+-		if frame.ActivatedAt.IsZero() || !frame.ActivatedAt.After(cutTime) {
+-			result = append(result, frame)
++		if !errors.Is(err, fs.ErrNotExist) {
++			return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
+ 		}
++		payload = nil
+ 	}
+-	return result
+-}
+-
+-// rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
+-// （EventTo/MessageTo 到切断点）。EventRevision 保留父修订（标识继承事件
+-// 的来源提交，正是"切断点所属版本"）；完全晚于切断点的帧丢弃。
+-func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame {
+-	result := make([]store.CompactFrame, 0, len(frames))
+-	for _, frame := range frames {
+-		if frame.EventFrom == 0 && frame.EventTo == 0 {
+-			// 旧帧无事件坐标：无可截断依据，保守保留。
+-			result = append(result, frame)
+-			continue
+-		}
+-		if frame.EventTo <= cut {
+-			result = append(result, frame)
+-			continue
+-		}
+-		if frame.EventFrom > cut {
+-			continue
+-		}
+-		frame.EventTo = cut
+-		if cutMessageID != "" {
+-			frame.MessageTo = cutMessageID
+-		}
+-		result = append(result, frame)
++	data, frames, err := storecontext.ForkState(payload, storecontext.ForkOptions{
++		ForkedFrom: forkedFrom, CutEventSeq: cut, CutTime: cutTime, CutMessageID: cutMessageID,
++	})
++	if err != nil {
++		return nil, nil, fmt.Errorf("session fork: %w", err)
+ 	}
+-	return result
++	return data, frames, nil
+ }
+diff --git a/store/context/README.md b/store/context/README.md
+index 3ef7920c..4152274a 100644
+--- a/store/context/README.md
++++ b/store/context/README.md
+@@ -17,6 +17,7 @@
+ 
+ - `context.go`：opaque context blob 的唯一路径与读写实现。
+ - `wire.go`、`wire_engine.go`：provider wire 类型、预算与纯装配状态机。
++- `fork.go`：父 context payload 到独立子会话 payload 的纯重写。
+ - `stacks.go`、`compact.go`、`operations.go`：栈词表、边界的唯一判据。
+ - `context_test.go`、`wire_engine_test.go`：wire 身份、装配、修复与稳定性。
+ 
+@@ -77,6 +78,18 @@ go test ./store -run 'Context|Checkpoint|Wire' -count=1
+ - `func TestWireParamsAndResultWire(t *testing.T)`
+ - `func TestContextOperationValidation(t *testing.T)`
+ 
++### fork.go
++
++- `func ForkState(payload []byte, opts ForkOptions) ([]byte, []CompactFrame, error)` — ForkState 把父 context payload 重写为独立子会话 payload，并返回重写后的
++- `func forkSkillFrames(frames []SkillFrame, cutTime time.Time) []SkillFrame`
++- `func RewriteForkCompactStack(frames []CompactFrame, cut uint64, cutMessageID string) []CompactFrame` — RewriteForkCompactStack 在分叉点裁剪继承的 compact frames：无事件坐标的旧帧
++
++### fork_test.go
++
++- `func TestForkStateCreatesEmptyChild(t *testing.T)`
++- `func TestForkStateFiltersSkillsAndRewritesCompactFrames(t *testing.T)`
++- `func TestForkStateRejectsCorruptOrUnsupportedParent(t *testing.T)`
++
+ ### operations.go
+ 
+ - `func newStackInput( itemID string, kind StackKind, status string, payload any, enteredAt time.Time, now time.Time, roleName string, roleSessionID string, ) (StackItemInput, error)`
+diff --git a/store/context/fork.go b/store/context/fork.go
+new file mode 100644
+index 00000000..51b947b4
+--- /dev/null
++++ b/store/context/fork.go
+@@ -0,0 +1,81 @@
++package context
++
++import (
++	"encoding/json"
++	"fmt"
++	"time"
++)
++
++// ForkOptions 描述子会话从父 context 分叉时的裁剪输入。
++type ForkOptions struct {
++	ForkedFrom   json.RawMessage
++	CutEventSeq  uint64
++	CutTime      time.Time
++	CutMessageID string
++}
++
++// ForkState 把父 context payload 重写为独立子会话 payload，并返回重写后的
++// compact frames。函数无 I/O：父 payload 读取和子 payload 写入由调用方负责。
++func ForkState(payload []byte, opts ForkOptions) ([]byte, []CompactFrame, error) {
++	record := SessionContextRecord{SchemaVersion: SessionContextSchemaVersion}
++	if len(payload) > 0 {
++		if err := json.Unmarshal(payload, &record); err != nil {
++			return nil, nil, fmt.Errorf("decode parent context: %w", err)
++		}
++		if record.SchemaVersion != SessionContextSchemaVersion {
++			return nil, nil, fmt.Errorf(
++				"parent context has unsupported schema version %d (want %d)",
++				record.SchemaVersion, SessionContextSchemaVersion,
++			)
++		}
++	}
++	record.PlanStack = nil
++	record.TaskStack = nil
++	record.GoalStack = nil
++	record.GoalAudit = nil
++	record.ForkedFrom = append(json.RawMessage(nil), opts.ForkedFrom...)
++	record.SkillStack = forkSkillFrames(record.SkillStack, opts.CutTime)
++	frames := RewriteForkCompactStack(record.CompactStack, opts.CutEventSeq, opts.CutMessageID)
++	record.CompactStack = frames
++	data, err := json.Marshal(record)
++	if err != nil {
++		return nil, nil, fmt.Errorf("encode child context: %w", err)
++	}
++	return data, frames, nil
++}
++
++func forkSkillFrames(frames []SkillFrame, cutTime time.Time) []SkillFrame {
++	result := make([]SkillFrame, 0, len(frames))
++	for _, frame := range frames {
++		if frame.ActivatedAt.IsZero() || !frame.ActivatedAt.After(cutTime) {
++			result = append(result, frame)
++		}
++	}
++	return result
++}
++
++// RewriteForkCompactStack 在分叉点裁剪继承的 compact frames：无事件坐标的旧帧
++// 保守保留；完全在切点前的帧原样保留；完全在切点后的帧丢弃；跨切点帧把事件
++// 与消息终点截到切点身份。
++func RewriteForkCompactStack(frames []CompactFrame, cut uint64, cutMessageID string) []CompactFrame {
++	result := make([]CompactFrame, 0, len(frames))
++	for _, frame := range frames {
++		if frame.EventFrom == 0 && frame.EventTo == 0 {
++			result = append(result, frame)
++			continue
++		}
++		if frame.EventTo <= cut {
++			result = append(result, frame)
++			continue
++		}
++		if frame.EventFrom > cut {
++			continue
++		}
++		frame.EventTo = cut
++		if cutMessageID != "" {
++			frame.MessageTo = cutMessageID
++		}
++		result = append(result, frame)
++	}
++	return result
++}
+diff --git a/store/context/fork_test.go b/store/context/fork_test.go
+new file mode 100644
+index 00000000..5e557b5b
+--- /dev/null
++++ b/store/context/fork_test.go
+@@ -0,0 +1,88 @@
++package context
++
++import (
++	"encoding/json"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestForkStateCreatesEmptyChild(t *testing.T) {
++	forkedFrom := json.RawMessage(`{"parent":"p1","cut":7}`)
++	payload, frames, err := ForkState(nil, ForkOptions{ForkedFrom: forkedFrom})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(frames) != 0 {
++		t.Fatalf("empty child frames=%+v", frames)
++	}
++	var record SessionContextRecord
++	if err := json.Unmarshal(payload, &record); err != nil {
++		t.Fatal(err)
++	}
++	if record.SchemaVersion != SessionContextSchemaVersion || string(record.ForkedFrom) != string(forkedFrom) {
++		t.Fatalf("child record=%+v", record)
++	}
++}
++
++func TestForkStateFiltersSkillsAndRewritesCompactFrames(t *testing.T) {
++	cutTime := time.Unix(100, 0)
++	parent := SessionContextRecord{
++		SchemaVersion: SessionContextSchemaVersion,
++		PlanStack:     []PlanFrame{{PlanID: "plan"}},
++		TaskStack:     []TaskFrame{{TaskID: "task"}},
++		GoalStack:     []GoalFrame{{GoalID: "goal"}},
++		GoalAudit:     []GoalAuditEntry{{GoalID: "goal", Kind: "goal.begin"}},
++		SkillStack: []SkillFrame{
++			{SkillID: "before", ActivatedAt: cutTime},
++			{SkillID: "after", ActivatedAt: cutTime.Add(time.Second)},
++		},
++		CompactStack: []CompactFrame{
++			{SegmentID: "legacy"},
++			{SegmentID: "before", EventFrom: 1, EventTo: 4},
++			{SegmentID: "cross", EventFrom: 3, EventTo: 9, MessageTo: "old"},
++			{SegmentID: "after", EventFrom: 8, EventTo: 12},
++		},
++	}
++	parentPayload, err := json.Marshal(parent)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	childPayload, frames, err := ForkState(parentPayload, ForkOptions{
++		ForkedFrom:   json.RawMessage(`{"parent":"p1"}`),
++		CutEventSeq:  7,
++		CutTime:      cutTime,
++		CutMessageID: "cut-message",
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(frames) != 3 || frames[2].SegmentID != "cross" ||
++		frames[2].EventTo != 7 || frames[2].MessageTo != "cut-message" {
++		t.Fatalf("frames=%+v", frames)
++	}
++	var child SessionContextRecord
++	if err := json.Unmarshal(childPayload, &child); err != nil {
++		t.Fatal(err)
++	}
++	if len(child.PlanStack) != 0 || len(child.TaskStack) != 0 ||
++		len(child.GoalStack) != 0 || len(child.GoalAudit) != 0 {
++		t.Fatalf("non-inherited stacks=%+v", child)
++	}
++	if len(child.SkillStack) != 1 || child.SkillStack[0].SkillID != "before" {
++		t.Fatalf("skills=%+v", child.SkillStack)
++	}
++}
++
++func TestForkStateRejectsCorruptOrUnsupportedParent(t *testing.T) {
++	if _, _, err := ForkState([]byte("not-json"), ForkOptions{}); err == nil ||
++		!strings.Contains(err.Error(), "decode parent context") {
++		t.Fatalf("corrupt error=%v", err)
++	}
++	payload := []byte(`{"schema_version":99}`)
++	if _, _, err := ForkState(payload, ForkOptions{}); err == nil ||
++		!strings.Contains(err.Error(), "unsupported schema version 99") {
++		t.Fatalf("schema error=%v", err)
++	}
++}
