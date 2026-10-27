@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,5 +38,44 @@ func TestCheckpointStorageKey(t *testing.T) {
 	}
 	if CheckpointStorageKey("a") == CheckpointStorageKey("b") {
 		t.Fatal("different checkpoint IDs collided")
+	}
+}
+
+func TestSessionContextRecordWireIdentity(t *testing.T) {
+	record := SessionContextRecord{
+		SchemaVersion: SessionContextSchemaVersion,
+		SystemPrompt:  "system",
+		PlanStack:     []PlanFrame{{PlanID: "p1", Status: "active"}},
+		TaskStack:     []TaskFrame{{TaskID: "t1", Status: "active"}},
+		SkillStack:    []SkillFrame{{SkillID: "s1", Name: "skill"}},
+		CompactStack: []CompactFrame{{
+			SegmentID: "c1", From: 1, To: 2, Summary: "sum",
+		}},
+		GoalStack: []GoalFrame{{GoalID: "g1", Status: "active"}},
+		GoalAudit: []GoalAuditEntry{{Seq: 1, Kind: "goal.begin", GoalID: "g1"}},
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"schema_version", "system_prompt", "plan_stack", "task_stack",
+		"skill_stack", "compact_stack", "goal_stack", "goal_audit",
+	} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("missing context field %s: %s", key, data)
+		}
+	}
+	var decoded SessionContextRecord
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.PlanStack[0].PlanID != "p1" || decoded.CompactStack[0].SegmentID != "c1" ||
+		decoded.GoalAudit[0].GoalID != "g1" {
+		t.Fatalf("decoded=%+v", decoded)
 	}
 }

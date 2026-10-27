@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // SessionContextSchemaVersion 是会话上下文记录（context blob）的版本号。
@@ -17,191 +19,20 @@ import (
 // 独占；context 只剩尚未按设计稿分文件的字段（system_prompt / skill 记录 /
 // compact 栈 / goal 审计），这几项分别在 S2/S4 收口。
 // v2 及更早（栈内联在 blob 里）不再兼容读取。
-const SessionContextSchemaVersion = 3
+const SessionContextSchemaVersion = storecontext.SessionContextSchemaVersion
 
-// EvidenceRef 是证据引用：指向不可变工具结果/事件库条目。
-type EvidenceRef struct {
-	Ref     string `json:"ref"`
-	Summary string `json:"summary,omitempty"`
-}
-
-// PlanFrame 是 PlanStack 的一帧（now using plan = 栈顶）。
-type PlanFrame struct {
-	PlanID    string        `json:"plan_id"`
-	Title     string        `json:"title"`
-	Status    string        `json:"status"` // active | closed
-	Nodes     []NodeSummary `json:"nodes,omitempty"`
-	EnteredAt time.Time     `json:"entered_at"`
-	ClosedAt  *time.Time    `json:"closed_at,omitempty"`
-}
-
-// NodeSummary 是 PlanFrame 内的节点摘要。
-type NodeSummary struct {
-	ID     string `json:"id"`
-	Label  string `json:"label,omitempty"`
-	Status string `json:"status,omitempty"`
-}
-
-// TaskFrame 是 TaskStack 的一帧（now using task = 栈顶）。
-type TaskFrame struct {
-	TaskID    string        `json:"task_id"`
-	Objective string        `json:"objective"`
-	Status    string        `json:"status"` // active | completed | failed | needs_user_decision
-	Evidence  []EvidenceRef `json:"evidence,omitempty"`
-	// EnteredAt 是任务进入使用栈的时间（fork 四栈按 fork 时刻过滤用；
-	// 旧记录缺失时视为 fork 点之前，保守保留）。
-	EnteredAt time.Time `json:"entered_at,omitempty"`
-}
-
-// GoalBudget 是 GoalFrame 内嵌的预算护栏（与 goal 域 Budget 同形，纯 DTO）。
-type GoalBudget struct {
-	MaxLoops  int `json:"max_loops,omitempty"`
-	MaxTokens int `json:"max_tokens,omitempty"`
-}
-
-// GoalProgress 是 GoalFrame 内的一条进度/发现（与 goal 域 Progress 同形）。
-type GoalProgress struct {
-	At      int64  `json:"at"`
-	Kind    string `json:"kind"`
-	Content string `json:"content"`
-}
-
-// GoalFrame 是 GoalStack 的一帧（goal 域第五栈，now governing goal = 栈顶）。
-// 只承载 goal 治理/恢复所需的记录投影：goal 域 Controller 的栈变更经
-// ReplaceGoalStack 全量写回。
-//
-// GoalStack 是**活栈投影**（不是 plan/task 那种关闭帧原地保留的累积栈）：
-// begin 压栈即写入，finish/abort 弹栈即**同步删除**该帧；栈存储初始与终态
-// 都为空（治理结束后不留任何 goal 帧）。终态帧的会话内审计只存在进程内
-// goal.Controller.History，不落 GoalStack。
-//
-// 本帧**不参与 seelexctx 栈块渲染、记忆前缀匹配与压缩摘要提取**（该边界由
-// seelexctx 渲染器保证：仅消费 Plan/Task/Skill/Compact 四栈）。
-type GoalFrame struct {
-	GoalID     string            `json:"goal_id"`
-	Title      string            `json:"title"`
-	Statement  string            `json:"statement,omitempty"`
-	Acceptance []string          `json:"acceptance,omitempty"`
-	OutOfScope []string          `json:"out_of_scope,omitempty"`
-	Budget     GoalBudget        `json:"budget"`
-	Status     string            `json:"status"` // active | paused | completed | aborted | ...
-	Progress   []GoalProgress    `json:"progress,omitempty"`
-	Directives []string          `json:"tl_directives,omitempty"`
-	Meta       map[string]string `json:"meta,omitempty"`
-	CreatedAt  int64             `json:"created_at,omitempty"`
-	UpdatedAt  int64             `json:"updated_at,omitempty"`
-	FinishedAt int64             `json:"finished_at,omitempty"`
-	// EnteredAt 是 goal 进入使用栈的时间（fork 第五栈按 fork 时刻过滤用；
-	// 旧/缺省记录视为 fork 点之前，与 plan/task 帧同一保守语义）。
-	EnteredAt time.Time `json:"entered_at,omitempty"`
-	// RoleName / RoleSessionID 是 goal 治理里 techleader 的群聊角色归属
-	// （R2：goal stack 条目记录 role_name + role_session_id 锚）。
-	RoleName      string `json:"role_name,omitempty"`
-	RoleSessionID string `json:"role_session_id,omitempty"`
-}
-
-// GoalAuditEntry 是 goal 生命周期审计条目（append-only，按会话隔离）。
-// 记录 goal 的 begin/update/finish/abort/restore 等状态迁移；Seq 由本会话
-// 存储单调递增（只追加、不回改既有条目）。账本不跨会话共享：goal 从发起到
-// 收口都在其所属会话的账本内；若用户在**其它会话**完成了该 goal，装配方可
-// 在收口条目上携带 SourceSession 出处（证明/追溯"完成于其它会话"），条目
-// 仍留在原会话账本，不写入其它会话。
-type GoalAuditEntry struct {
-	Seq uint64 `json:"seq"`
-	// Kind 与 goal 域 EventKind 对齐：goal.begin|goal.update|goal.finish|
-	// goal.abort|goal.restore。
-	Kind   string `json:"kind"`
-	GoalID string `json:"goal_id"`
-	Title  string `json:"title,omitempty"`
-	Status string `json:"status,omitempty"`
-	At     int64  `json:"at,omitempty"`
-	// SourceSession 非空表示本条目记录的状态迁移发生在/被证实于其它会话
-	// （如用户在其它会话完成了该 goal，收口时由装配层携带出处）。
-	SourceSession string `json:"source_session,omitempty"`
-	Reason        string `json:"reason,omitempty"`
-	Result        string `json:"result,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-}
-
-// SkillFrame 是 SkillStack 的一帧（now using skill = 栈顶）。
-type SkillFrame struct {
-	SkillID string `json:"skill_id"`
-	Name    string `json:"name"`
-	// ActivatedAt 是 skill 激活进入使用栈的时间（fork 四栈按 fork 时刻
-	// 过滤用；旧记录缺失时视为 fork 点之前，保守保留）。
-	ActivatedAt time.Time `json:"activated_at,omitempty"`
-}
-
-// Revision 标识一次提交版本（CommitID + 单调序号）；root manifest 发布后
-// 才可作为恢复引用（模块化方案 interfaces.md §基础类型）。
-type Revision struct {
-	CommitID string `json:"commit_id,omitempty"`
-	Number   uint64 `json:"number"`
-}
-
-// CompactFrame 是 CompactStack 的一帧（now using compact context = 栈顶）。
-// From/To 保留 ChatQueue（ProviderHistory）中被压缩轮次的单元索引（兼容
-// 审计不变量 plan.md §3.7.4）；RoundFrom/RoundTo、EventFrom/EventTo、
-// MessageFrom/MessageTo 与 EventRevision/ConversationRevision 是模块化方案
-// 的正式恢复定位（architecture.md §3.3），随机 segment_id 不得承担截断语义。
-type CompactFrame struct {
-	SegmentID string `json:"segment_id"`
-	From      int    `json:"from"`
-	To        int    `json:"to"`
-	// RoundFrom/RoundTo 是会话轮次范围（RoundNo 体系启用前为 0）。
-	RoundFrom uint64 `json:"round_from,omitempty"`
-	RoundTo   uint64 `json:"round_to,omitempty"`
-	// EventFrom/EventTo 是 Transcript EventSeq 范围（含端点）。
-	EventFrom uint64 `json:"event_from,omitempty"`
-	EventTo   uint64 `json:"event_to,omitempty"`
-	// MessageFrom/MessageTo 是 UI 消息定位键范围。
-	MessageFrom string `json:"message_from,omitempty"`
-	MessageTo   string `json:"message_to,omitempty"`
-	// EventRevision/ConversationRevision 标识该范围所属的提交版本。
-	EventRevision        Revision      `json:"event_revision"`
-	ConversationRevision Revision      `json:"conversation_revision"`
-	Summary              string        `json:"summary"`
-	Evidence             []EvidenceRef `json:"evidence,omitempty"`
-	CompressedAt         time.Time     `json:"compressed_at"`
-
-	// 超上下文索引（2026-09-06 压缩 DAG 详设 §3.1）：本帧覆盖的首尾
-	// requestID。只作元数据与检索定位，不进模型可见正文；旧记录缺省
-	// 为空（向后兼容）。
-	RequestFrom string `json:"request_from,omitempty"`
-	RequestTo   string `json:"request_to,omitempty"`
-
-	// 链锚点（详设 §3.1，二阶导）：只指向前驱帧，不复制前驱全文。
-	// 栈序正确性靠 PrevSegmentID 存在性 + request 首尾接续校验。
-	PrevSegmentID      string `json:"prev_segment_id,omitempty"`
-	PrevRequestFrom    string `json:"prev_request_from,omitempty"`
-	PrevRequestTo      string `json:"prev_request_to,omitempty"`
-	PrevSummaryOneLine string `json:"prev_summary_one_line,omitempty"`
-
-	// SummarySource/AnchorSource 是兜底质量标记（详设 §4.5）：
-	//   SummarySource: replay（前缀重放厚摘要）| local（确定性本地压缩）
-	//   AnchorSource:  ok（锚点完整）| degraded（一句话摘要降级为空）
-	// 空值 = 旧记录未声明。
-	SummarySource string `json:"summary_source,omitempty"`
-	AnchorSource  string `json:"anchor_source,omitempty"`
-}
-
-// SessionContextRecord 是会话级上下文状态（state blob）：
-// SystemPrompt（永不压缩）+ Plan/Task/Skill/Compact 四个使用栈 + GoalStack
-// （goal 域第五栈，活栈投影，只服务治理/恢复，不渲染进模型上下文）
-// + GoalAudit（goal 生命周期审计，append-only，只追加不回改）。
-type SessionContextRecord struct {
-	SchemaVersion int    `json:"schema_version"`
-	SystemPrompt  string `json:"system_prompt,omitempty"`
-	// ForkedFrom 保存会话血缘的不透明 JSON；存储层不解释其结构，应用层负责
-	// 编码/解码 model.SessionForkRef。nil = 非 fork 会话或旧记录。
-	ForkedFrom   json.RawMessage  `json:"forked_from,omitempty"`
-	PlanStack    []PlanFrame      `json:"plan_stack"`
-	TaskStack    []TaskFrame      `json:"task_stack"`
-	SkillStack   []SkillFrame     `json:"skill_stack"`
-	CompactStack []CompactFrame   `json:"compact_stack"`
-	GoalStack    []GoalFrame      `json:"goal_stack"`
-	GoalAudit    []GoalAuditEntry `json:"goal_audit"`
-}
+type EvidenceRef = storecontext.EvidenceRef
+type PlanFrame = storecontext.PlanFrame
+type NodeSummary = storecontext.NodeSummary
+type TaskFrame = storecontext.TaskFrame
+type GoalBudget = storecontext.GoalBudget
+type GoalProgress = storecontext.GoalProgress
+type GoalFrame = storecontext.GoalFrame
+type GoalAuditEntry = storecontext.GoalAuditEntry
+type SkillFrame = storecontext.SkillFrame
+type Revision = storecontext.Revision
+type CompactFrame = storecontext.CompactFrame
+type SessionContextRecord = storecontext.SessionContextRecord
 
 // SessionContextStore 读写 Router 的独立 context 通道（WriteContextState/
 // ReadContextState，与 SessionRecord 的 state blob 物理隔离），带内存缓存：
