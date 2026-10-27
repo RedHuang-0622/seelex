@@ -4,9 +4,9 @@ package core
 // 目标：后台会话收尾/视图切换不得读全局活跃槽；A/B 域不相交。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"strings"
 	"testing"
 	"time"

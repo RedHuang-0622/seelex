@@ -4,7 +4,7 @@
 
 `application/session/runtime` 是 Engine Session 的 Application-facing identity facade。
 它服务 core 的 session catalog/record/binding/cold/fork/history 路径；真实 durable
-session 状态与恢复策略仍在 [`backend/engine/session`](../../../backend/engine/session/README.md)。
+session 状态与恢复策略仍在 [`kernel/session`](../../../kernel/session/README.md)。
 
 ## 职责与非职责
 
@@ -29,7 +29,7 @@ session records/binding/transcript facts。
 
 ## 依赖方向
 
-允许依赖 `backend/engine/session`、`contract` 与 `contract/protocol`。禁止依赖
+允许依赖 `kernel/session`、`contract` 与 `contract/protocol`。禁止依赖
 `application/core`、GUI/TUI 或具体 store。
 
 ## 并发与错误语义
@@ -52,7 +52,7 @@ session records/binding/transcript facts。
 
 ```text
 go test ./application/session/runtime -count=1
-go test ./backend/engine/session -count=1
+go test ./kernel/session -count=1
 go test ./application/core -run 'Session|Cold|Fork|History|Reference|Chat' -count=1
 ```
 

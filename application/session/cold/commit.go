@@ -3,8 +3,8 @@ package cold
 import (
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	task_context "github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // CommitResult is the locked cold-load commit result.

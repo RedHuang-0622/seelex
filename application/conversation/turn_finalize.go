@@ -3,7 +3,7 @@ package conversation
 import (
 	"context"
 
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 // TurnFinalizeDeps supplies the tail completion callback.

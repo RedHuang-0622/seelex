@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestChatTurnTailRulesAreCentralized(t *testing.T) {

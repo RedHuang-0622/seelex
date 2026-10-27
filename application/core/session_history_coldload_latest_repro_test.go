@@ -41,8 +41,8 @@ package core
 
 import (
 	"fmt"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
 	"testing"
 	"time"
 )

@@ -7,11 +7,11 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	contextruntime "github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

@@ -24,9 +24,9 @@ package core
 
 import (
 	"context"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
+	"github.com/RedHuang-0622/seelex/kernel/context"
 	"sync"
 	"testing"
 	"time"

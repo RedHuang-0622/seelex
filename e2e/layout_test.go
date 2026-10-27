@@ -15,10 +15,10 @@ import (
 var repositoryModules = []string{
 	".", ".claude", ".github", "application", "contract",
 	"application/core", "kernel/react", "kernel/contextcontrol",
-	"backend/engine/context", "backend/engine/input",
+	"kernel/context", "backend/engine/input",
 	"kernel/state",
-	"kernel/prompt", "kernel/prompt/assets", "backend/engine/session",
-	"application/execution/subagentview", "backend/engine/task",
+	"kernel/prompt", "kernel/prompt/assets", "kernel/session",
+	"application/execution/subagentview", "kernel/task",
 	"application/session/state", "application/session/residency", "application/session/history",
 	"application/session/fork",
 	"application/workspace/switch",

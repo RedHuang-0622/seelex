@@ -3,8 +3,8 @@ package cold
 import (
 	"fmt"
 
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 // RestoreDeps supplies engine and queue restoration.

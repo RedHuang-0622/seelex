@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	taskcontext "github.com/RedHuang-0622/seelex/backend/engine/task"
+	taskcontext "github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 func TestTaskContextTypesAreBackendIdentity(t *testing.T) {

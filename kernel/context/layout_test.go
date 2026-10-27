@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // layoutTestCounter 是四区切分的确定性计数：system 段 3、每条历史 10、当轮输入

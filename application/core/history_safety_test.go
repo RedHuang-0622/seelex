@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	appcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
 	"strings"
 	"testing"
 )

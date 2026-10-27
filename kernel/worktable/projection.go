@@ -379,7 +379,7 @@ func MergeWorkDependencies(recorded []string, derived []string) []string {
 // 筛选轴才不会把它们的行判成"无主"。
 //
 // **身份判据由宿主注入**（M5-R5b 的依赖倒置，AGENTS §8.3）：判据的唯一实现在
-// `backend/engine/task.LedgerIdentity`（台账注册表读面也用它），本层不复制一份
+// `kernel/task.LedgerIdentity`（台账注册表读面也用它），本层不复制一份
 // ——中间层不能 import 后端域包，故走参数（与 R6-input-index 的
 // `BuildInputIndex(..., userText)` 同一招）。注入函数返回空串 = 该行没有身份，
 // 不进合并（宿主判据不会返回空串，这里是防御性分支）。

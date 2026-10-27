@@ -24,7 +24,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
-	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
@@ -32,7 +31,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
@@ -49,7 +47,9 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	context_runtime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/store"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )
@@ -294,7 +294,7 @@ type Runtime struct {
 	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
 
 	// taskLedger 是 task **台账域**（跨会话工作表格读面 + 会话 scope 分区 +
-	// 会话级批次）：状态与判据都在 backend/engine/task.Ledger，宿主是下面的
+	// 会话级批次）：状态与判据都在 kernel/task.Ledger，宿主是下面的
 	// tasks 注册表——注册表结构上满足 LedgerHost，构造时注入（R11-task）。
 	taskLedger *task_context.Ledger
 	// compactionStack 是**装配层压缩推帧接收侧**（`backend/engine/context` 的

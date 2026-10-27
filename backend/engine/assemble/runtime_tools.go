@@ -193,7 +193,7 @@ func (r *Runtime) ReleaseSessionAsync(sessionID string) int {
 }
 
 // AsyncPendingFor 报告某会话还在跑的后台命令数。core 的"无进展预算"用它把
-// "有在途执行被查询"算作进展——见 backend/engine/task/coordinator.go。
+// "有在途执行被查询"算作进展——见 kernel/task/coordinator.go。
 func (r *Runtime) AsyncPendingFor(sessionID string) int {
 	if r == nil || r.scopedTools == nil {
 		return 0

@@ -3,9 +3,9 @@
 package session_runtime
 
 import (
-	sessionruntime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	sessionruntime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 type (

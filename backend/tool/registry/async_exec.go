@@ -363,7 +363,7 @@ func (g *asyncRegistry) countRunningLocked() int {
 
 // countRunningFor 报告某会话此刻还在跑的后台执行数。
 //
-// 它是「无进展预算」的判据输入（见 backend/engine/task）：一条安静的长命令
+// 它是「无进展预算」的判据输入（见 kernel/task）：一条安静的长命令
 // 连续被取回时载荷逐字节相同（载荷必须确定性，否则每轮白烧缓存），进展计数就不推进；
 // 但"有在途执行被查询"本身就是进展——命令只是还没完，不是模型在原地打转。
 func (g *asyncRegistry) countRunningFor(sessionID string) int {

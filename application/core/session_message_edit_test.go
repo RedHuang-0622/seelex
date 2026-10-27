@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	task_context "github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

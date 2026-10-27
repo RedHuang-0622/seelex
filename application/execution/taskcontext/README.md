@@ -5,7 +5,7 @@
 `application/execution/taskcontext` 是 Engine Task Context 的 Application-facing
 identity facade 与终态工具编排。它服务 core 的 Task execution、transcript tail、plan/tool observation
 与 session context 装配；真实状态、ledger 和裁剪判据仍在
-[`backend/engine/task`](../../../backend/engine/task/README.md)。
+[`kernel/task`](../../../kernel/task/README.md)。
 
 ## 职责与非职责
 
@@ -35,7 +35,7 @@ Runtime terminal tool → `TerminalHandlerApplication.Handler` → core Plan/Tas
 
 ## 依赖方向
 
-允许依赖 `backend/engine/task`、`contract`、`contract/dto`、`contract/protocol` 与标准库。
+允许依赖 `kernel/task`、`contract`、`contract/dto`、`contract/protocol` 与标准库。
 禁止依赖 `application/core`、GUI/TUI 或 store 实现。
 
 ## 并发与错误语义
@@ -58,7 +58,7 @@ Engine Task 持有。
 
 ```text
 go test ./application/execution/taskcontext -count=1
-go test ./backend/engine/task -count=1
+go test ./kernel/task -count=1
 go test ./application/core -run 'Task|Plan|Tool|History|Session' -count=1
 ```
 

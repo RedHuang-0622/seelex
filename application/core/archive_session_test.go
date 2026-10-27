@@ -3,9 +3,9 @@ package core
 import (
 	"context"
 	"errors"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/session"
 	"io/fs"
 	"strings"
 	"sync"

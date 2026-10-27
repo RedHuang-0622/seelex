@@ -11,8 +11,8 @@ package core
 // 把模型还看得见的轮次悄悄丢掉（那正是"保留了失败痕、同时把上下文截断"）。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
 	"os"
 	"strings"
 	"testing"

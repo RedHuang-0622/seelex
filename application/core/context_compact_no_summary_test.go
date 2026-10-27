@@ -2,9 +2,9 @@ package core
 
 import (
 	"context"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 	"strings"
 	"testing"
 )

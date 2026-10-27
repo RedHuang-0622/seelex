@@ -1,7 +1,7 @@
 package session_runtime
 
 import (
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // durable queue（lifecycle 队列）在会话域的窄端口面。
@@ -23,7 +23,7 @@ type SessionQueuePort interface {
 	// QueueFailConsumedWorkspace 该轮未发布 → 消费项内容回草稿。
 	QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error
 	// QueueRecoverItemsWorkspace 重启恢复（条目级结果）。
-	QueueRecoverItemsWorkspace(projectID, sessionID string) (store.QueueRecoveryReport, bool, error)
+	QueueRecoverItemsWorkspace(projectID, sessionID string) (dto.QueueRecoveryReport, bool, error)
 }
 
 // queuePort 解析存储侧队列能力（未装配时 ok=false）。
@@ -77,7 +77,7 @@ func (c *Coordinator) QueueFailConsumedInput(location Location, sessionID, turnI
 
 // QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
 // 输入正文（顺序保持队列顺序）。ok=false = 存储未装配/非 v8（正常空操作）。
-func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]store.QueueItem, bool, error) {
+func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]dto.QueueItem, bool, error) {
 	port, ok := c.queuePort()
 	if !ok {
 		return nil, false, nil

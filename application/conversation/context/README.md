@@ -4,7 +4,7 @@
 
 `application/conversation/context` 承载显式上下文压缩（`/compact` 与
 `compact_context`）的应用编排和回执。压缩算法、持久化与门禁判据仍在
-`backend/engine/context`。
+`kernel/context`。
 
 ## 职责与非职责
 

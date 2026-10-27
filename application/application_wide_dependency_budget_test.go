@@ -25,7 +25,8 @@ func TestApplicationWideConcreteDependencyBudget(t *testing.T) {
 	got := concreteDependenciesUnder(t, applicationDir)
 	want := append([]string(nil), budget.AllowedConcreteDependencies...)
 	sort.Strings(want)
-	if !reflect.DeepEqual(got, want) {
+	bothEmpty := len(got) == 0 && len(want) == 0
+	if !bothEmpty && !reflect.DeepEqual(got, want) {
 		t.Fatalf("application concrete dependency set drifted:\n got=%v\nwant=%v", got, want)
 	}
 	if len(got) != budget.ConcreteDependencyLimit {

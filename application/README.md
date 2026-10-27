@@ -574,7 +574,7 @@ chat 主循环与 Session release 本身仍未迁入。
 
 `SearchHistory` 的公开返回类型改为 `contract/dto.SearchResult`，省略 limit 时把 0
 交给 Backend 的唯一默认/clamp 规则。`application/core` 不再直接 import
-`backend/engine/context/seelectx/search`，直接内部依赖预算由 39 收紧到 38。
+`kernel/context/seelectx/search`，直接内部依赖预算由 39 收紧到 38。
 
 ### History Search Application（AP-076）
 
@@ -754,16 +754,16 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`../backend/multiagent/team/`](../backend/multiagent/team/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）；原 `core/agentteam/`，M5-R8b 归位多代理板块（包名 `team`）。 |
 | [`../kernel/react/`](../kernel/react/README.md) | 聊天流式输出叶子域：`StreamBatcher` 与 `VisibleOutputStream`（M5-R7 迁出 `core/chat/`，包名不变）。 |
 | [`../kernel/contextcontrol/`](../kernel/contextcontrol/README.md) | `seele.yaml` window 配置段与窗口策略类型装载（M5-R7 迁出 `core/context_control/`，包名不变）。 |
-| [`../backend/engine/context/`](../backend/engine/context/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化（M5-R7 迁出 `core/context_runtime/`，包名不变）。 |
+| [`../kernel/context/`](../kernel/context/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化（M5-R7 迁出 `core/context_runtime/`，包名不变）。 |
 | [`kernel/goal/`](../kernel/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化（M5-R8a 从 `application/core/goal/` 归位）。 |
 <!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [`../backend/engine/input/`](../backend/engine/input/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表（M5-R7 迁出 `core/input_router/`，包名不变）。 |
 | [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
 | [`../kernel/prompt/`](../kernel/prompt/README.md) | system prompt 层组装、资源与引擎同步（前缀缓存友好）。 |
 | [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
-| [`../backend/engine/session/`](../backend/engine/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
+| [`../kernel/session/`](../kernel/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
 | [`execution/subagentview/`](execution/subagentview/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（EP-073 迁入 Application）。 |
-| [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
+| [`../kernel/task/`](../kernel/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
 | [`session/state/`](session/state/README.md) | SessionUnit、Domain actor、Chat/Queue/View 与 DeepCopy 的唯一状态所有者。 |
 | [`session/viewstate/`](session/viewstate/README.md) | 用户可见 Snapshot 读写、revision 与事件发布。 |
 | [`../kernel/worktable/`](../kernel/worktable/README.md) | 工作表格纯投影与增量事件中枢（CSP 汇聚、latest-wins、有界背压）（EP-074 中立 owner）。 |
@@ -810,7 +810,7 @@ flowchart TB
 
     subgraph CORE["application/core"]
         SVC["Service 用例门面"]
-        DOM["域协调器<br/>backend/engine/session"]
+        DOM["域协调器<br/>kernel/session"]
         LEAF["叶子包<br/>goal · agentteam · resume"]
         MIDV["middle/view<br/>state · subagent · worktable（M5-R4 迁出）"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
@@ -926,7 +926,7 @@ sequenceDiagram
 flowchart LR
     ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["用例<br/>core.Service"]
     USE --> TX["跨域事务编排"]
-    TX --> DOM["域协调器<br/>backend/engine/session"]
+    TX --> DOM["域协调器<br/>kernel/session"]
     DOM --> PORT["Ports<br/>Engine / Runtime / Store / Workspace"]
     PORT --> RESULT["副作用结果"]
     RESULT --> SNAP["权威 Snapshot 更新"]

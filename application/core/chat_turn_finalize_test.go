@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"testing"
 
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestChatTurnFinalizeRulesAreCentralized(t *testing.T) {

@@ -143,7 +143,7 @@ ViewMu。
 ## 测试
 
 ```text
-go test ./backend/engine/session -count=1
+go test ./kernel/session -count=1
 ```
 
 根包 `service_test.go` session 组与 `session_archive_test.go` 覆盖跨域集成。

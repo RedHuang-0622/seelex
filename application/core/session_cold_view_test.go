@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	sessioncase "github.com/RedHuang-0622/seelex/application/session/state"
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionColdViewRulesAreExtracted(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"context"
 	"errors"
 
-	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
+	context_runtime "github.com/RedHuang-0622/seelex/kernel/context"
 )
 
 // errCompactionStackUnassembled 是未装配压缩栈时的错误（文案与原实现逐字一致：

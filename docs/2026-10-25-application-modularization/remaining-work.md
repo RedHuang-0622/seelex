@@ -5,8 +5,8 @@
 状态：**执行中。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-087；`newService*` 构造适配审计与 `Service` 公开业务方法退场均已完成，
-下一步处理会话主循环与剩余 Application 具体依赖。**
+EP-001～EP-089；`newService*` 构造适配审计、`Service` 公开业务方法退场与
+Application 具体依赖归零均已完成。**
 
 本文件只记录“尚未完成且下一步会实际开发”的工作包。当前代码与测试是实现状态的最终事实
 来源；本文件不把规划写成已实现能力。
@@ -17,7 +17,7 @@ EP-001～EP-087；`newService*` 构造适配审计与 `Service` 公开业务方�
 |---|---:|
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle 依赖包 | 3，Store 为 0 |
+| `application/**` 具体 Backend/Middle 依赖包 | 0，Store 为 0 |
 | `application/core` 生产文件 | 55 |
 | `application/core` 生产代码 | 7,178 行 |
 
@@ -62,9 +62,13 @@ EP-001～EP-087；`newService*` 构造适配审计与 `Service` 公开业务方�
 - Compat Subagent 事件入口已直接使用 Contract DTO，退出 Backend subagent alias。
 - RoleSessions 组合门面已从 Backend team 物理迁入 `kernel/rolesessions`。
 - Goal Controller 已从 `backend/multiagent/goal` 物理迁入 `kernel/goal`。
+- Context Coordinator 根包已从 `backend/engine/context` 物理迁入
+  `kernel/context`。
+- Session Coordinator 根包已从 `backend/engine/session` 物理迁入
+  `kernel/session`；Application 具体依赖归零。
 - 全局具体依赖预算见
   [`application/testdata/application_wide_dependency_budget.json`](../../application/testdata/application_wide_dependency_budget.json)，
-  当前 22 个唯一 Backend/Middle 包，只许下降，最终为 0；具体 Store 包已归零。
+  当前 0 个唯一 Backend/Middle 包；具体 Store 包亦为 0。
 
 已迁出的领域包：
 

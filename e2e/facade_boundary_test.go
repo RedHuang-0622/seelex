@@ -218,12 +218,12 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession",
 	"github.com/RedHuang-0622/seelex/kernel/react",
 	"github.com/RedHuang-0622/seelex/kernel/contextcontrol",
-	"github.com/RedHuang-0622/seelex/backend/engine/context",
+	"github.com/RedHuang-0622/seelex/kernel/context",
 	"github.com/RedHuang-0622/seelex/kernel/goal",
 	"github.com/RedHuang-0622/seelex/kernel/state",
 	"github.com/RedHuang-0622/seelex/kernel/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
-	"github.com/RedHuang-0622/seelex/backend/engine/session",
+	"github.com/RedHuang-0622/seelex/kernel/session",
 	"github.com/RedHuang-0622/seelex/application/execution/subagentview",
 	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
@@ -238,7 +238,7 @@ var facadeClosureAllowList = []string{
 	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/kernel/limit/tier",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
-	"github.com/RedHuang-0622/seelex/backend/engine/task",
+	"github.com/RedHuang-0622/seelex/kernel/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	"github.com/RedHuang-0622/seelex/kernel/worktable",
 	// EP-070：Event Hub 唯一实现归入中立 kernel；Middle 路径仅为兼容 facade。

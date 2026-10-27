@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	session_runtime "github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	session_runtime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 // ReadResult is one cold-load persistence read.

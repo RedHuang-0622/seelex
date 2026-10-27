@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	contextruntime "github.com/RedHuang-0622/seelex/backend/engine/context"
+	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
 )
 
 func TestEngineFacadeTypesAreBackendIdentity(t *testing.T) {

@@ -1,8 +1,4 @@
 {
-  "concrete_dependency_limit": 3,
-  "allowed_concrete_dependencies": [
-    "github.com/RedHuang-0622/seelex/backend/engine/context",
-    "github.com/RedHuang-0622/seelex/backend/engine/session",
-    "github.com/RedHuang-0622/seelex/backend/engine/task"
-  ]
+  "concrete_dependency_limit": 0,
+  "allowed_concrete_dependencies": []
 }

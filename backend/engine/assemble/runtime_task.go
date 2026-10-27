@@ -1,19 +1,19 @@
 package assemble
 
 // 这是 task 台账域的**薄转发面**（R11-S5，契约 §2.3）：判据与状态都在
-// [`backend/engine/task`](../../engine/task/README.md) 的 `Ledger`（跨会话台账合并、会话 scope 分区、
+// [`kernel/task`](../../engine/task/README.md) 的 `Ledger`（跨会话台账合并、会话 scope 分区、
 // 会话级批次、清单面）；nil 接收者与"未装配"的判据由域内**一处**给出，
 // 本层不写第二份。内容从 `ports.go` 原样搬来。
 
 import (
-	task_context "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	task_context "github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // ── task 台账域端口（薄转发）────────────────────────────────────────
 //
-// 判据与状态都在 backend/engine/task.Ledger：跨会话台账合并（Snapshot）、
+// 判据与状态都在 kernel/task.Ledger：跨会话台账合并（Snapshot）、
 // 会话 scope 分区读写、会话级批次、清单面。本层只把 Runtime 的公开面接到域
 // 实现上——nil 接收者与"注册表/清单未装配"的判据由域内**一处**给出，这里不
 // 写第二份。

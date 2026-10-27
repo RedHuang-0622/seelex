@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/kernel/prompt/assets"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // TaskContextView 是 prompt 域对 task 域的窄只读面。

@@ -1,8 +1,8 @@
 package context
 
 import (
-	contextruntime "github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
+	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 )
 

@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // 本文件把《上下文前缀链路 · 压缩四区模型》的四区显式化，并把与压缩有关的决策

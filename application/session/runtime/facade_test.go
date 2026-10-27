@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	sessionruntime "github.com/RedHuang-0622/seelex/backend/engine/session"
+	sessionruntime "github.com/RedHuang-0622/seelex/kernel/session"
 )
 
 func TestSessionRuntimeTypesAreBackendIdentity(t *testing.T) {

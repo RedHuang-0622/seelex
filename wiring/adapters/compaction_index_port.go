@@ -4,7 +4,7 @@ import (
 	"context"
 
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/kernel/context"
 )
 
 // PushCompactionFrame 实现 context_runtime.CompactionIndexPort：把装配层压缩产出的

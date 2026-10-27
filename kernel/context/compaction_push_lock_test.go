@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 )
 
 // 推帧的窄串行（compactionPushLock）：压缩栈是链式结构，PushCompact 校验

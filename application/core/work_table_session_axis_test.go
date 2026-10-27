@@ -2,9 +2,9 @@ package core
 
 import (
 	"encoding/json"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 	worktable "github.com/RedHuang-0622/seelex/kernel/worktable"
 	"testing"
 	"time"

@@ -5947,6 +5947,36 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - Store adapter 仍暂时依赖 Store 具体载荷，登记为 Store 拆分后的清理项；
 - 回退方式：把 `kernel/goal` 移回 `backend/multiagent/goal` 并恢复调用点。
 
+## EP-088：Context Coordinator 归入 Kernel
+
+- 把 `backend/engine/context` 根包的 12 个生产文件、测试与 README 物理迁入
+  `kernel/context`；seelectx 子包仍保留在 Backend，作为后续独立迁移面；
+- Application Conversation Context/Core 测试、Backend assemble、Wiring 与 E2E
+  直接引用 `kernel/context`；
+- 红测：Application 全局依赖预算收紧到 2；迁移后预算、Kernel Context、
+  Conversation Context、Core、Backend assemble、Wiring、E2E
+  `Facade|Layout|Context` 与 `go build ./...` 通过；
+- Application 具体依赖由 3 降至 2；`Service` 保持 0，core 生产文件 55、
+  生产代码 7,178 行；压缩门禁、历史替换、预算与恢复语义不变；
+- `kernel/context` 仍 import Backend seelectx 与 Store 载荷，登记为后续 Kernel
+  内部去具体依赖项，不在本批复制实现；
+- 回退方式：把根包移回 `backend/engine/context` 并恢复调用点。
+
+## EP-089：Engine Session Coordinator 归入 Kernel
+
+- 把 `backend/engine/session` 根包的 12 个生产文件、行为测试与 README 物理迁入
+  `kernel/session`；archive/history/fork/transition/pending-tail/queue-wire 等
+  Session 运行时仍只有一份实现；
+- Application Session/Conversation/Core、Kernel Context/Task、Backend assemble 与
+  Wiring 直接引用 `kernel/session`；
+- 红测：Application 全局依赖预算先收紧到 0；迁移后 Application/Contract/Wiring、
+  Session/Conversation/Core、Backend assemble、E2E `Facade|Layout|Session|Subagent`
+  与 `go build ./...` 通过；
+- **Application 具体 Backend/Middle/Store 依赖正式归零**；`Service` 为 0，
+  core 直接内部依赖为 0，core 生产文件 55、生产代码 7,178 行；
+- `kernel/session` 仍暂时依赖 Store 载荷，登记为 Store 拆分阶段的清理项；
+- 回退方式：把根包移回 `backend/engine/session` 并恢复调用点。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |

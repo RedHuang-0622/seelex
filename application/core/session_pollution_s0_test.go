@@ -12,8 +12,8 @@ package core
 //   - A 的 scope 实时一致（TaskSnapshotFor(A) 能看到 A 后台新增的任务）。
 
 import (
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
 	"strings"
 	"testing"
 )

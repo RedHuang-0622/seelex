@@ -22,16 +22,16 @@
 - 有状态域协调器：`goal/`（Goal 状态机 +
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）。（`session_runtime/`
   （会话持久化/目录/项目绑定）已于 2026-10-16 随 M5-R7 归位
-  [`backend/engine/session`](../../backend/engine/session/README.md)，包名不变。）
+  [`kernel/session`](../../kernel/session/README.md)，包名不变。）
   （`context_runtime/`
   （provider 上下文装配/压缩/历史安全）已于 2026-10-16 随 M5-R7 归位
-  [`backend/engine/context`](../../backend/engine/context/README.md)，包名不变。）
+  [`kernel/context`](../../kernel/context/README.md)，包名不变。）
   （`agentteam/`（AgentTeam/角色会话
   通用装配：`TeamSpec` 工厂 + 团队库读面）的纯基座部分已于 2026-10-16 随 M5-R8b 归位
   [`backend/multiagent/team`](../../backend/multiagent/team/README.md)，包名 `team`。）
   （`task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）已于
   2026-10-16 随 M5-R7 归位
-  [`backend/engine/task`](../../backend/engine/task/README.md)，包名不变。）
+  [`kernel/task`](../../kernel/task/README.md)，包名不变。）
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
   进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`kernel/limit`](../../kernel/limit/README.md)。
@@ -57,9 +57,9 @@ flowchart TB
     SVC --> COMP
 
     subgraph DOMAIN["域协调器（有状态）"]
-        SR["backend/engine/session<br/>session_runtime：持久化/目录/项目绑定"]
-        TC["backend/engine/task<br/>task_context：打点/终态/checkpoint/token 审计"]
-        CR["backend/engine/context<br/>context_runtime：上下文装配/压缩/历史安全"]
+        SR["kernel/session<br/>session_runtime：持久化/目录/项目绑定"]
+        TC["kernel/task<br/>task_context：打点/终态/checkpoint/token 审计"]
+        CR["kernel/context<br/>context_runtime：上下文装配/压缩/历史安全"]
         VS["application/session/viewstate<br/>Snapshot 读写 + 事件发布"]
         SV["application/execution/subagentview<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
@@ -517,9 +517,9 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 | [../../kernel/worktable/](../../kernel/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
 | [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
 | [../../kernel/contextcontrol/](../../kernel/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
-| [../../backend/engine/session/](../../backend/engine/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |
-| [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
-| [../../backend/engine/context/](../../backend/engine/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |
+| [../../kernel/session/](../../kernel/session/README.md) | 会话持久化/目录/项目绑定协调器（M5-R7 归位，包名 `session_runtime`） |
+| [../../kernel/task/](../../kernel/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
+| [../../kernel/context/](../../kernel/context/README.md) | provider 上下文装配/压缩/历史安全协调器（M5-R7 归位，包名 `context_runtime`） |
 | [../../kernel/prompt/](../../kernel/prompt/README.md) | system prompt 组装、资源与引擎同步（M5-R7 归位） |
 | [../session/viewstate/](../session/viewstate/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../execution/subagentview/](../execution/subagentview/README.md) | 子代理详情/live/树投影 |
