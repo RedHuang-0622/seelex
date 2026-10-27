@@ -125,3 +125,15 @@ type SessionContextRecord struct {
 	GoalStack     []GoalFrame      `json:"goal_stack"`
 	GoalAudit     []GoalAuditEntry `json:"goal_audit"`
 }
+
+type CheckpointContent struct {
+	SessionID string `json:"session_id"`
+	Payload   []byte `json:"payload"`
+}
+
+type SystemPromptSnapshot struct {
+	SessionID string    `json:"session_id"`
+	Prompt    string    `json:"prompt"`
+	Version   string    `json:"version,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

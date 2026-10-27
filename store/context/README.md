@@ -49,4 +49,5 @@ go test ./store/context ./store -run 'Context|Checkpoint' -count=1
 - `func TestContextStateRoundTrip(t *testing.T)`
 - `func TestCheckpointStorageKey(t *testing.T)`
 - `func TestSessionContextRecordWireIdentity(t *testing.T)`
+- `func TestContextPayloadWireIdentity(t *testing.T)`
 

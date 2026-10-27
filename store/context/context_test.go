@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
@@ -77,5 +78,18 @@ func TestSessionContextRecordWireIdentity(t *testing.T) {
 	if decoded.PlanStack[0].PlanID != "p1" || decoded.CompactStack[0].SegmentID != "c1" ||
 		decoded.GoalAudit[0].GoalID != "g1" {
 		t.Fatalf("decoded=%+v", decoded)
+	}
+}
+
+func TestContextPayloadWireIdentity(t *testing.T) {
+	checkpoint, err := json.Marshal(CheckpointContent{SessionID: "s", Payload: []byte("x")})
+	if err != nil || !strings.Contains(string(checkpoint), `"session_id":"s"`) ||
+		!strings.Contains(string(checkpoint), `"payload":"eA=="`) {
+		t.Fatalf("checkpoint=%s err=%v", checkpoint, err)
+	}
+	system, err := json.Marshal(SystemPromptSnapshot{SessionID: "s", Prompt: "p", Version: "v"})
+	if err != nil || !strings.Contains(string(system), `"prompt":"p"`) ||
+		!strings.Contains(string(system), `"version":"v"`) {
+		t.Fatalf("system=%s err=%v", system, err)
 	}
 }

@@ -476,6 +476,7 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 - workplan checkpoint ID → `checkpoint-<hash>` 的安全键映射。
 - `SessionContextRecord`、Plan/Task/Goal/Skill/Compact 帧、Evidence、Revision
   与 GoalAudit 的稳定 JSON wire；根包改为同身份 alias。
+- checkpoint payload 与 SystemPrompt snapshot 的稳定 JSON wire。
 
 根 `context_state.go` 与 `checkpoint_store.go` 只保留 repository lock、opaque
 序列化与 Router 适配。四类栈语义、SystemPrompt、compact bridge 和

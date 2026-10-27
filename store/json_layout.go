@@ -23,6 +23,7 @@ import (
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/types"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
@@ -113,19 +114,11 @@ func (store *storeEngine) readToolResultRefs(key Key) ([]string, error) {
 
 // checkpointContent 是 metadata/checkpoint.json 的 payload（§2.5.5/S24：
 // 引擎续跑快照整份替换，latest-wins）。
-type checkpointContent struct {
-	SessionID string `json:"session_id"`
-	Payload   []byte `json:"payload"`
-}
+type checkpointContent = storecontext.CheckpointContent
 
 // systemPromptSnapshot 是 metadata/system.json 的 payload（§2.1/S19：会话
 // 初始化时写入当次生效 prompt + 来源版本，之后只读；fork 子会话自包含）。
-type systemPromptSnapshot struct {
-	SessionID string    `json:"session_id"`
-	Prompt    string    `json:"prompt"`
-	Version   string    `json:"version,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+type systemPromptSnapshot = storecontext.SystemPromptSnapshot
 
 func (repository *jsonRepository) writeCheckpointLayout(key Key, payload []byte) error {
 	return repository.layout.commitContentModule(key, moduleCheckpoint,
