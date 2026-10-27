@@ -3,7 +3,7 @@ package switching
 // pendingtail.go — 草稿尾部（seq_draft）恢复的**应用侧决策表**（A4）。
 //
 // 落点沿革：2026-10-16 随 M5-R6-pending-tail **接收者转移**从
-// `application/core/session_pending_tail.go` 归位（plan §2.4 的 `session_pending_tail.go` → `middle/switch/`）。
+// `application/assembly/session_pending_tail.go` 归位（plan §2.4 的 `session_pending_tail.go` → `middle/switch/`）。
 //
 // 存储层早就提供「探测 → 恢复 / 丢弃」的显式入口（`store/pending_tail.go` → Router →
 // `wiring/adapters.SessionPort`），但**应用侧此前没有任何调用方**：草稿尾恢复只是"端口能力"，

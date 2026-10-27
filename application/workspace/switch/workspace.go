@@ -2,7 +2,7 @@
 //
 // 生态位（plan §2.4）：工作区存储与 Git/文件能力在 store/workspace，工作区
 // 用例（创建 / 绑定 / 解绑 / 当前工作区读面）的唯一编排点在这里；应用视图
-// （application/core 的 Snapshot）仍是工作区投影的 owner，本包只产出
+// （application/assembly 的 Snapshot）仍是工作区投影的 owner，本包只产出
 // Projection 并通过 ViewPort 交给宿主写入。
 //
 // 依赖方向：contract + middle/protocol/model + 标准库。禁止 import
@@ -37,7 +37,7 @@ type ViewState struct {
 	CurrentWorkspaceRoot string
 }
 
-// ViewPort 是应用视图的窄投影写面（实现：application/core 的 workspaceHost）。
+// ViewPort 是应用视图的窄投影写面（实现：application/assembly 的 workspaceHost）。
 //
 // 每个 Apply* 都在宿主的视图锁内完成写入并返回推进后的 revision；
 // PublishSnapshotChanged / RequestCatalogRefresh / ClearReviewRequest 由宿主
@@ -119,7 +119,7 @@ type Deps struct {
 	RefreshWorkTable func()
 	// WorkspaceIDForSession 解析会话当前所在项目（切项目前保存旧项目会话用）。
 	WorkspaceIDForSession func(sessionID string) string
-	// ChatRunningError 是宿主的「会话在跑」错误值（application/core.ErrChatRunning），
+	// ChatRunningError 是宿主的「会话在跑」错误值（application/assembly.ErrChatRunning），
 	// 注入而不是另定义一份，保证 errors.Is 身份不变。
 	ChatRunningError error
 }

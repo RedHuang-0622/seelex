@@ -4,7 +4,7 @@
 
 `application/admin` 是 Seelex Application 层中的账号管理与 Runtime 投影应用包；
 定时任务应用位于子包 [`scheduler/`](scheduler/README.md)。当前真实调用方是
-`application/core.Service` 的兼容入口；GUI/TUI 仍通过原 Application API 调用。
+`application/assembly.Service` 的兼容入口；GUI/TUI 仍通过原 Application API 调用。
 
 ## 职责与非职责
 
@@ -60,7 +60,7 @@ Middle Setter 仍唯一实现判据，Wiring adapter 只转发。
 
 允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
 `application/session/viewstate.SubagentContextMarker` 这一只读标记。禁止导入
-`application/core`、持有完整 `Service`、调用 GUI/TUI，或反向依赖
+`application/assembly`、持有完整 `Service`、调用 GUI/TUI，或反向依赖
 `backend/**`、`middle/view` 的具体实现。
 
 ## 并发与错误语义
@@ -80,7 +80,7 @@ Scheduler、Runtime 或 Session 生命周期塞入本包。兼容入口只能保
 - 解锁前是否没有调用事件发布或用户通知；
 - 父目标是否跳过空正文与子代理产出标记，且截断仍为 200 rune；
 - 是否出现第二份账号校验、余额探测或窗口落盘判据；
-- 新包是否 import `application/core` 或持有完整 `Service`。
+- 新包是否 import `application/assembly` 或持有完整 `Service`。
 
 ## 测试与验证
 

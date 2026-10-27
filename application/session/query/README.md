@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/session/query` 承载 Session 的只读目录、元数据、快照、transcript 与
-输入索引查询。当前真实调用方是 `application/core.Service` 的兼容查询入口与
+输入索引查询。当前真实调用方是 `application/assembly.Service` 的兼容查询入口与
 项目看板装配。
 
 ## 职责与非职责
@@ -24,7 +24,7 @@
 
 - 不拥有 Session、Catalog、Snapshot 或持久化存储；
 - 不启动、恢复、切换或释放会话；
-- 不导入 `application/core`，不持有完整 `Service`。
+- 不导入 `application/assembly`，不持有完整 `Service`。
 
 ## 文件结构
 
@@ -51,7 +51,7 @@
 ## 依赖方向
 
 允许依赖 `contract`、`contract/protocol` 与 `middle/switch` 的只读元数据
-契约。禁止依赖 `application/core`、backend 具体实现、GUI/TUI 或写入用例。
+契约。禁止依赖 `application/assembly`、backend 具体实现、GUI/TUI 或写入用例。
 
 ## 并发与错误
 
@@ -75,13 +75,13 @@
 - 项目根是否只来自 session binding，不回退到当前视图；
 - 是否出现第二份 transcript/input-index 判据；
 - input index 是否仍由本包唯一拥有，core 是否退化为仅装配回调；
-- 是否 import `application/core` 或持有完整 `Service`。
+- 是否 import `application/assembly` 或持有完整 `Service`。
 
 ## 测试与验证
 
 ```text
 go test ./application/session/query -count=1
-go test ./application/core -run 'SessionQuery|ListSessions|SnapshotOf|Transcript|InputIndex' -count=1
+go test ./application/assembly -run 'SessionQuery|ListSessions|SnapshotOf|Transcript|InputIndex' -count=1
 go test ./application/... -count=1
 ```
 

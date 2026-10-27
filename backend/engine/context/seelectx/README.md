@@ -63,7 +63,7 @@ flowchart LR
 | `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装；工具定义经 `AssembledRequest.Tools` 透传（引擎 API schema 通道，不渲染为消息文本）。 |
 | `processor.go` | `ToolResultProcessor`：超大工具结果 → result_ref/省略警告。 |
 | `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
-| `controller.go` | `ContextController`：**回合内只剩超大工具结果的兜底归档**（归档器按调用 ID 幂等，不改变历史）；不再折帧——压缩整条归装配层（`application/core/context_runtime`）。 |
+| `controller.go` | `ContextController`：**回合内只剩超大工具结果的兜底归档**（归档器按调用 ID 幂等，不改变历史）；不再折帧——压缩整条归装配层（`application/assembly/context_runtime`）。 |
 | `window.go` | 滑动窗口轮数策略（配置 + provider 推导）；`RetainFloorTokens` 兼容转发 Contract 的零依赖数学契约。 |
 | `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。边界取自存储层选窗时回报的**尾窗起始单元下标**（与压缩栈顶 `To` 同一计数空间），不做跨列表减法，因此无需保守 clamp 与事后去重。下标必须落在单元空间内：尾窗起点超出 `[0, 单元数]` 或栈顶 `To < -1` 时报错返回、不落帧（不做越界切片）。 |
 | `frame.go` | CompactFrame 两章节 Summary 纯函数（Chapter 1 链锚点 + Chapter 2 厚内容）、渲染截取、一句话摘要与 request 覆盖标签。 |
@@ -78,7 +78,7 @@ flowchart LR
 本包**不持有任何魔法数字**：压缩与归档的比例、上限全部来自
 `config/seelex.yaml` 的 `limits` / `window` 段，由 `seelebridge` 在装配 Runtime 时
 注入。2026-09-30 起这些比例的**消费方是装配层**
-（`application/core/context_runtime`）；本包的 `ContextWindowPolicy` 仍是同一份公式的
+（`application/assembly/context_runtime`）；本包的 `ContextWindowPolicy` 仍是同一份公式的
 导出面（`Budget` / `SoftThreshold` / `HardThreshold` / `TargetAfterCompaction`），
 由装配层与冷恢复探针按同一份 limits 构造。
 
@@ -127,7 +127,7 @@ merge_frame → PushCompact（装配层推帧走 `seelebridge.PushCompactionFram
 - token 估算：事前用 `tokens` 脚本感知估算，事后由 application 侧以 provider usage 校准（`calibratedTokenCounter`）。
 
 **孪生实现必须同步改**：provider 的 tool 配对协议在两处各有一份实现——应用侧
-`application/core/context_runtime/history.go:RepairInterruptedToolChains`（请求前，缺结果一律补占位）
+`application/assembly/context_runtime/history.go:RepairInterruptedToolChains`（请求前，缺结果一律补占位）
 与本包 `history_safety.go:repairToolPairing`（wire 出口，`SanitizeProviderToolProtocol` 保守不补占位，
 但**重复宣告**一类照补：那不是"可能正在执行"的调用，而是已经拿到过回执的调用的重发）。包依赖方向
 不允许共用一份代码，因此改动必须成对；两侧出口不变量由

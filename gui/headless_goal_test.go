@@ -13,7 +13,7 @@ import (
 
 // goalRPCFakeApp 复刻 headless goal 链路的 Application 扩展面：记录调用
 // 路由到的会话并把 begin/update/done 映射为治理视图状态迁移，
-// 供 headless 分发表复刻验收（真实 Service 侧行为由 application/core 测试
+// 供 headless 分发表复刻验收（真实 Service 侧行为由 application/assembly 测试
 // 覆盖；本测试钉住 gui → goal.<method> 接线）。
 type goalRPCFakeApp struct {
 	*fakeApplication

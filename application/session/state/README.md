@@ -3,11 +3,11 @@
 ## 生态位
 
 `application/session/state/` 是 Seelex 的**会话聚合状态**：会话资源（身份、可见投影、
-聊天运行态、队列、生命周期状态）的唯一所有者。执行内核（`application/core`）经本包
+聊天运行态、队列、生命周期状态）的唯一所有者。执行内核（`application/assembly`）经本包
 暴露的 `Domain` / `SessionUnit` 读写会话；会话之间零共享，继承只走深拷贝。
 
 Go 包名是 `sessionstate`。原 `middle/switch/sessionusecase` 已物理迁出并删除；
-主要调用方是 `application/core`、`application/conversation`、`application/session`
+主要调用方是 `application/assembly`、`application/conversation`、`application/session`
 的用例组件与 Wiring adapter。
 
 **本包不 import store / Seele / application**：存储形状已下沉 `contract/dto`
@@ -29,6 +29,7 @@ Go 包名是 `sessionstate`。原 `middle/switch/sessionusecase` 已物理迁出
 | `ports.go` | `SessionUnit` / `InputQueue` / 可选会话端口（meta/setting） |
 | `runtime_slot.go` | 会话级运行时投影槽 |
 | `deepcopy.go` | 会话上下文四栈与记录前缀的深拷贝 |
+| `application_runtime.go` | 进程级会话 ID 序号、权限默认值与草稿槽的唯一状态 owner |
 
 ## 核心实现
 
@@ -41,9 +42,9 @@ Go 包名是 `sessionstate`。原 `middle/switch/sessionusecase` 已物理迁出
 
 ## 数据流
 
-`application/core` 的 `setSessionChatLockedFor` / `sessionUnitLocked` →
+`application/assembly` 的 `setSessionChatLockedFor` / `sessionUnitLocked` →
 `SessionUnit.UpdateChat`（单元状态）→ active 视图由 `kernel/state` 镜像；
-后台会话变化由 `application/core` 发进程级 `sessions.changed` 通知显示面。
+后台会话变化由 `application/assembly` 发进程级 `sessions.changed` 通知显示面。
 
 ## 依赖方向
 
@@ -71,5 +72,15 @@ Go 包名是 `sessionstate`。原 `middle/switch/sessionusecase` 已物理迁出
 
 ```text
 go test ./application/session/state/ -count=1
-go test ./application/core/ -run Session -count=1
+go test ./application/assembly/ -run Session -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### `application_runtime.go`
+
+- `type ApplicationRuntimeState struct` — 保存跨命令生命周期仍需与会话域保持一致的进程级会话 ID 序号和默认档位。
+- `type DraftSlot struct` — 保存首次提交前已分配真实 SessionID 的草稿槽位。

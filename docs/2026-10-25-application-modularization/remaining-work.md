@@ -5,8 +5,9 @@
 状态：**Application 模块化收口完成。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-091；`newService*` 构造适配审计、`Service` 公开业务方法退场、
-Application 具体依赖归零与 core context-retention 退场均已完成。**
+EP-001～EP-091、M9 core 删除；`newService*` 构造适配审计、`Service` 公开业务
+方法退场、Application 具体依赖归零、core context-retention 退场与
+`application/core` 物理目录删除均已完成。**
 
 Application 工作包已收口。后续 Store/Backend/Middle 迁移不再借用本文件的 Application
 里程碑；当前代码与测试是实现状态的最终事实来源。
@@ -16,10 +17,11 @@ Application 工作包已收口。后续 Store/Backend/Middle 迁移不再借用�
 | 指标 | 当前 |
 |---|---:|
 | `Service` 公开方法 | 0 |
-| `application/core` 直接内部依赖 | 0 |
+| `application/core` 生产文件 / 代码 | 0 / 0 行 |
+| `application/assembly` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle 依赖包 | 0，Store 为 0 |
-| `application/core` 生产文件 | 54 |
-| `application/core` 生产代码 | 7,120 行 |
+| `application/assembly` 生产文件 | 54 |
+| `application/assembly` 生产代码 | 7,092 行 |
 
 本轮包提取起点为 126 个文件、18,723 行；当前净减 59 个文件和 8,770 行。
 
@@ -783,11 +785,11 @@ core 只保留 `FrontendPorts` 装配快照。删除
 - 纯 host/assembly 转发、订阅、Prompt、ProviderHistory 与 ProjectBoardSink
   已全部退场；`Service` 只剩仍在共享状态临界区内的工作：
 
-| 能力 | core 方法 | 暂留原因 |
+| 能力 | assembly 方法 | 暂留原因 |
 |---|---|---|
 | 无 | — | 公开业务入口均已迁到 capability package 或 compat facade |
 
-ToolRecord 公开入口已由 EP-046D 移到 `application/compat.Frontend`，core 只保留
+ToolRecord 公开入口已由 EP-046D 移到 `application/compat.Frontend`，assembly 只保留
 草稿可写判据、主代理 outcome 和 shutdown 全量 flush 三个内部 host adapter。
 
 ## 15. 跨会话阻塞项
@@ -817,9 +819,9 @@ ToolRecord 公开入口已由 EP-046D 移到 `application/compat.Frontend`，cor
 
 ## 17. 最终退出条件
 
-- 原 171 个兼容方法完成调用方迁移并清零（当前剩余 34）；
-- core 直接内部依赖接近零；
-- core 生产代码完成删除；
+- 原 171 个兼容方法完成调用方迁移并清零（当前 0）；
+- assembly 直接内部依赖保持 0；
+- `application/core` 目录、生产代码与全部 import 已完成删除；
 - GUI/TUI/headless 只消费稳定由 Application/contract 提供的窄 API；
 - 全量、race、E2E、前端、README 和 diff 门禁全部通过；
 - 不再存在第二份状态机、第二份判据或无人使用的未来接口。

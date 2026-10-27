@@ -240,7 +240,7 @@ type PermissionGate struct {
 	// 规则表"——一份判据、一份表。
 	sessionTier map[string]string
 	// RolePermissionVector 是 (会话, 角色) → **生效权限向量**的读面，由组合根注入
-	// （实现方是 application/core 的 RolePermissionVector：登记优先、缺失按四级链路
+	// （实现方是 application/assembly 的 RolePermissionVector：登记优先、缺失按四级链路
 	// 解析）。nil = 没接上读面，员工侧按 ctx 身份自带的格子/档位派生（不落共享表）。
 	//
 	// 它取代了旧的"运行时把派生授权写回 cfg.Subjects 并重建 checker"那条路：
@@ -345,7 +345,7 @@ func (state *PermissionGate) EmployeePermissions() []EmployeePermission {
 }
 
 // SetRolePermissionVectorResolver 注入 (会话, 角色) → **生效权限向量**的读面
-// （application/core 的 RolePermissionVector：登记优先、缺失按四级链路解析）。
+// （application/assembly 的 RolePermissionVector：登记优先、缺失按四级链路解析）。
 //
 // 注入后，员工角色会话里的工具调用按这个向量判定（见 Enforce 的四条判据）；
 // 传 nil 关闭读面，员工侧只按 ctx 身份自带的格子/档位派生。

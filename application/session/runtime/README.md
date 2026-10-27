@@ -30,7 +30,7 @@ session records/binding/transcript facts。
 ## 依赖方向
 
 允许依赖 `kernel/session`、`contract` 与 `contract/protocol`。禁止依赖
-`application/core`、GUI/TUI 或具体 store。
+`application/assembly`、GUI/TUI 或具体 store。
 
 ## 并发与错误语义
 
@@ -53,7 +53,7 @@ session records/binding/transcript facts。
 ```text
 go test ./application/session/runtime -count=1
 go test ./kernel/session -count=1
-go test ./application/core -run 'Session|Cold|Fork|History|Reference|Chat' -count=1
+go test ./application/assembly -run 'Session|Cold|Fork|History|Reference|Chat' -count=1
 ```
 
 ## 文件与函数索引

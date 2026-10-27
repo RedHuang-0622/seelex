@@ -185,7 +185,7 @@ type TeamMember struct {
 // TeamView 是供前端「状态 → Agent Team」子页与角色管理设置消费的装配视图。
 //
 // legacy（A06，2026-10-15）：装配面（`AgentTeamView` / `assembleView` / 面板）已随
-// J-1a 退场，本类型**没有生产者**——`application/core` 的
+// J-1a 退场，本类型**没有生产者**——`application/assembly` 的
 // `Service.sessionAgentTeamViewJ1A` 恒返回零值（见 A13）。保留是为了旧 wire 形状与
 // 只读兼容；成员表/floor/DesignNotice 都不再由产品写入。
 type TeamView struct {
@@ -357,7 +357,7 @@ type TeamLibrary struct {
 // EmployeeLibrary 是全局「员工库」：可复用员工的全局名册（RoleSpec 池）。
 //
 // legacy（A06）：员工库（全局 "母本"）读写面已随 J-1a 退场，无生产者；Test-only 夹具
-// （`application/core/agentteam_fixture_test.go` 的 librarySessions）仍实现它的端口形状。
+// （`application/assembly/agentteam_fixture_test.go` 的 librarySessions）仍实现它的端口形状。
 // 它是"母本"，会话的在编员工表（TeamRegistry）是它的深拷贝副本。
 type EmployeeLibrary struct {
 	Employees  []RoleSpec `json:"employees"`

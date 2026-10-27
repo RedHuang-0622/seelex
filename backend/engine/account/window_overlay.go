@@ -16,7 +16,7 @@ package account
 //
 // 状态与判据随类型走：本类型持有互斥量与表，装配层只持一个句柄并转发（`Runtime.SetAccountWindow`
 // / `AccountWindows` / `ContextWindowFor`），界面侧（`backend/limit/accountwindow.Setter`）与
-// 应用层（`application/core/service_account_window.go`）都只校验 + 落盘 + 读生效值，不各判一次。
+// 应用层（`application/assembly/service_account_window.go`）都只校验 + 落盘 + 读生效值，不各判一次。
 
 import (
 	"strings"

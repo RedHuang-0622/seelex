@@ -27,7 +27,7 @@ func TestSessionAggregateLivesInApplicationSession(t *testing.T) {
 	for _, dir := range []string{"../middle"} {
 		assertTreeDoesNotImport(t, filepath.Join(root, dir), "middle/view/state")
 	}
-	assertTreeDoesNotImport(t, filepath.Join(root, "core"), "middle/switch/sessionusecase")
+	assertTreeDoesNotImport(t, filepath.Join(root, "assembly"), "middle/switch/sessionusecase")
 }
 
 func assertDirectoryHasNoGoFiles(t *testing.T, dir string) {

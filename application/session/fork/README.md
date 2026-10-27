@@ -17,7 +17,7 @@
 - 不拥有 Engine Session/Store 的事务实现；
 - 不复制 fork 可达集合、段落边界或深拷贝算法；
 - 不执行子代理 fork/WorkItem 编排；
-- 不 import `application/core`。
+- 不 import `application/assembly`。
 
 ## 文件结构
 
@@ -33,7 +33,7 @@ PrepareFork/DeepCopy → snapshot/context write → binding/catalog → child ID
 ## 依赖方向
 
 允许依赖 Session runtime/state、Task context、protocol 与 kernel state；禁止依赖
-`application/core`、具体 Store、GUI/TUI。
+`application/assembly`、具体 Store、GUI/TUI。
 
 ## 并发与错误
 
@@ -49,6 +49,6 @@ draining 使用原错误身份；写失败不回滚已创建的空引擎，由�
 
 ```text
 go test ./application/session/fork -count=1
-go test ./application/core -run Fork -count=1
+go test ./application/assembly -run Fork -count=1
 go test ./application/... -count=1
 ```

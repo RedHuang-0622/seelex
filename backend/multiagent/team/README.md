@@ -1,6 +1,6 @@
 # multiagent/team（原 core/agentteam）
 
-> **落点（M5-R8b，2026-10-16）**：本包原在 `application/core/agentteam/`（包名 `agentteam`），
+> **落点（M5-R8b，2026-10-16）**：本包原在 `application/assembly/agentteam/`（包名 `agentteam`），
 > 按 plan §2.7 整体归位 `backend/multiagent/team/`，**包名改为 `team`**；被搬代码零字节改动
 > （`git diff -M --numstat` 全 `0 0`），只改包名与取用侧 import。
 > 保留的一处**有意不改**：`spec.go` 里错误文案的前缀仍是 `agentteam: …`（用户可见文案，
@@ -11,8 +11,8 @@
 <!-- readme-refs: history -->
 > | 日期 | 条目 | 退场内容 |
 > |---|---|---|
-> | 2026-10-12 | J-1a | Agent Team 装配适配（`factory.go` / `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` / 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤；`application/core/agentteam_service.go`、`agentteam_runtime.go` 的装配读面、`agentteam_role_index.go` 一并删除 |
-> | 2026-10-15 | A03 | `application/core/agentteam_runtime.go` 整文件的环接线（`teamRuntimeStore` / `teamRuntimeBySession` / `noteTeamWorkPrefix` / `releaseTeamRuntime`）与 goal 侧 `TeamRuntimeFor` 依赖 |
+> | 2026-10-12 | J-1a | Agent Team 装配适配（`factory.go` / `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` / 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤；`application/assembly/agentteam_service.go`、`agentteam_runtime.go` 的装配读面、`agentteam_role_index.go` 一并删除 |
+> | 2026-10-15 | A03 | `application/assembly/agentteam_runtime.go` 整文件的环接线（`teamRuntimeStore` / `teamRuntimeBySession` / `noteTeamWorkPrefix` / `releaseTeamRuntime`）与 goal 侧 `TeamRuntimeFor` 依赖 |
 > | 2026-10-15 | A04 | 本包的 `runtime.go`（`Runtime`：环成员同步、逃生记账、`Next`/`Advance` 推进、team work 前缀投影）与 `scheduler.go`（`TurnScheduler` + 链表 + `TurnRequest`）及其四个用例文件 |
 >
 > 依据 [`docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../../../docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)（A03/A04）。
@@ -25,7 +25,7 @@
 本包现在只剩 `spec.go`，且没有用户可见面：
 
 1. **`RoleSessionID(mainSessionID, teamID, roleName)`** —— 角色会话号派生（重复装配幂等的键）。
-   原调用方 `application/core/goal_team_recorder.go`（已删除）已随 TL/ADVISOR 删除（2026-10-17），
+   原调用方 `application/assembly/goal_team_recorder.go`（已删除）已随 TL/ADVISOR 删除（2026-10-17），
    现在只剩一致性用例在钉它的历史身份公式；生产角色会话号走 `teamwork.DefaultRoleSessionID`。
    `teamwork.DefaultRoleSessionID` 与它同形但不同语义（空 team ID / 空白裁剪 / 默认身份不同），
    两者**不合并**（见 A12：合并会改变空值兼容并制造新的角色会话键）。
@@ -61,7 +61,7 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `role_turn_test.go` | 身份往返与两种"不成立"、活动 ID 的两帧同值/同名不同参不合/不同轮次不合/错误帧不改变 ID 与形状、最小角色框架的关键约束 |
 | `plugin_reject_test.go` | 已装插件不问（判据一次都不被调）、未装名字带来源被拒、语法非法成员跳过、没有判决面时空操作、判据给 nil 时放行 |
 | `plugin_assembly_test.go` | 三层口径与读侧规整、四条显式拒绝（含"没有目录面时只做语法与数量校验"）、装配面裁决三形态（读数面与运行面同源、失灵不静默放宽） |
-| `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core` 归位，现由 `contract.RoleSessionsPort` 提供窄契约。 |
+| `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/assembly` 归位，现由 `contract.RoleSessionsPort` 提供窄契约。 |
 | `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
 
 已删除（勿再按名字找，均已删除）：`factory.go`、`registry.go`、`library.go`、`global.go`、`runtime.go`、
@@ -108,7 +108,7 @@ gofmt -l .
 go build ./...
 go build -tags "gui,desktop,production" ./...
 go vet ./...
-go test ./application/core/... ./store/... -count=1
+go test ./application/assembly/... ./store/... -count=1
 ```
 
 本包当前只有一条用例：`spec_plugins_test.go`（`NormalizeRole` 的插件装配写入侧口径）。
@@ -129,7 +129,7 @@ go test ./application/core/... ./store/... -count=1
 [`2026-10-01-m4-deadcode-inventory.md`](../../../docs/devlog/2026-10-01-m4-deadcode-inventory.md)。
 
 > **2026-10-03（阶段三 W3）口径更新**：goal 的**席位轮转整条退场（已删除）**——
-> `application/core/govern`（整包，已删除）、`goal/adapter.go`（已删除）、座位作业面
+> `application/assembly/govern`（整包，已删除）、`goal/adapter.go`（已删除）、座位作业面
 > （`jobs.KindSeat` / `SeatExecutor` / `SetSeatRoundRunner` / `RunSeat`，已删除）、座位派生
 > （`newGovernor` / `seatsFor` / `seatPlan` / `RoleSeat`，已移除）与 headless `goal_gov_*`
 > 均已删除。团队角色只服务 leader 派发的 worker 作业，顺序的唯一事实是 team plan
@@ -138,12 +138,12 @@ go test ./application/core/... ./store/... -count=1
 ## 退场前：生态位
 
 A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 +
-成员表」抽成可复用装配，供 `application/core` 的 Service 门面与 headless `team.*`
+成员表」抽成可复用装配，供 `application/assembly` 的 Service 门面与 headless `team.*`
 接口消费。长期边界见 [`docs/arch/a2a-agent-team-factory.md`](../../../docs/arch/a2a-agent-team-factory.md)；
 本次落地的工厂/注册表口径见
 [`docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md`](../../../docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md)。
 
-主要调用方：`application/core/agentteam_service.go`（窄转发 + 端口适配）、
+主要调用方：`application/assembly/agentteam_service.go`（窄转发 + 端口适配）、
 `gui/headless_team.go`（`team.*` RPC）。
 
 **没有内置团队形态目录**（2026-10-01，用户口径）：本包不再提供任何"预置团队"
@@ -151,7 +151,7 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 一支团队 = 调用方给的一份 `TeamSpec`，或**团队库**里的一个条目——有谁、什么顺序
 由数据说，不由代码里的模板说。配套删除的还有：`Preset`/`Presets` API、
 `AgentTeamPresets` 服务方法、`goal` 上线时的自动装配（它会整份替换掉会话已有的
-团队，是事故而不是自动化——见 `application/core/goal_service.go` 的 `GoalBeginFor`）、
+团队，是事故而不是自动化——见 `application/assembly/goal_service.go` 的 `GoalBeginFor`）、
 `@` 召唤的内置形态分支、输入建议面的形态候选。
 
 装配入口只有一条：**显式装配**——`team.materialize`（一份 `TeamSpec`）/ GUI 面板的
@@ -224,7 +224,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     participant U as 用户 / GUI
-    participant S as core.Service
+    participant S as assembly.Service
     participant A as agentteam.Factory
     participant R as Registry
     participant L as lifecycle 顺序策略
@@ -251,21 +251,21 @@ sequenceDiagram
 
 | 能力 | 现状 | 证据 |
 |---|---|---|
-| 角色会话 + 顺序策略 + 注册表 | **已接线（显式装配）**：面板「装配」/ `@<团队>` / `team.materialize` 装配一份 TeamSpec，顺序落 `lifecycle`。goal 上线**不再**自动装配（那会整份替换掉会话已有的团队） | `application/core/agentteam_service.go`（`MaterializeAgentTeam`）、`application/core/goal_service.go`（`GoalBeginFor` 的说明）、`application/core/goal_team_wiring_test.go`（`TestGoalBeginLeavesSessionTeamAlone`） |
+| 角色会话 + 顺序策略 + 注册表 | **已接线（显式装配）**：面板「装配」/ `@<团队>` / `team.materialize` 装配一份 TeamSpec，顺序落 `lifecycle`。goal 上线**不再**自动装配（那会整份替换掉会话已有的团队） | `application/assembly/agentteam_service.go`（`MaterializeAgentTeam`）、`application/assembly/goal_service.go`（`GoalBeginFor` 的说明）、`application/assembly/goal_team_wiring_test.go`（`TestGoalBeginLeavesSessionTeamAlone`） |
 | 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**（2026-10-03 起没有任何"运行时轮次驱动"了）。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 现在只是**发言顺序与成员表的展示事实**（`seatPlan` 那套"按它长座位"的读面已随席位轮转退场）。新事实 = team plan 的 `milestones[].depends_on`（屏障）+ `items[].depends_on`（里程碑内 DAG，leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `store/role_session.go`（`sortRoleDraftRows`）、退场记录见 `docs/devlog/2026-10-03-seat-rotation-retired.md` |
 | 运行时轮次驱动 | **没有这一层了（2026-10-03 阶段三 W3）**：goal 的治理座位循环（`exec-a` / `advisor-b`、`newGovernor`、`NewTurnGovernorForDSA2A`、`goal/adapter.go`，均已删除）整条退场，回合尾不再推任何座位。goal 由**提示词驱动的 leader 派活**推进（`plugins/default/goal/SKILL.md`），角色干活走 `team_dispatch` 的 worker 作业，顺序的唯一事实是 team plan 的 `milestones[].depends_on`（屏障）与 `items[].depends_on`（里程碑内 DAG） | `docs/devlog/2026-10-03-seat-rotation-retired.md`、`plugins/default/goal/SKILL.md` |
-| EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`backend/multiagent/goal/techleader.go`（`flushWorkProgressLocked`） |
-| EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
+| EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/assembly/goal_work_summary.go`、`backend/multiagent/goal/techleader.go`（`flushWorkProgressLocked`） |
+| EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/assembly/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
 | `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `store/team_registry.go`（`ReadMessageFloorWorkspace`）、`wiring/adapters/agentteam_ports.go`（`ReadFloorRole`） |
-| 团队库（可复用团队模板） | **已接线**：**全局** `<root>/team/library.json`（整份替换型），条目 = 角色配置集 + 顺序策略；装配 = 条目 → `TeamSpec` → 既有工厂（建角色会话 + 写会话 registry + 写 lifecycle 顺序） | `store/team_global.go`、本包 `library.go`（均已删除，见顶部退场时间线）、`application/core/agentteam_service.go`（`AgentTeamSaveTeam`/`AgentTeamMaterializeTeam`） |
-| 全局母本（员工库 + 默认顺序） | **已接线**：`<root>/team/employees.json`（员工名册）与 `<root>/team/order.json`（默认顺序）是全局母本；会话在编员工表 + lifecycle 顺序是它的**深拷贝副本**，会话内入职/改序只改副本；只有「确认·普及搭配到全局」把副本回写母本 | `store/team_global.go`、本包 `global.go`（均已删除，见顶部退场时间线）、`application/core/agentteam_service.go`（`AgentTeamGlobalConfig`/`AgentTeamPublishToGlobal`） |
+| 团队库（可复用团队模板） | **已接线**：**全局** `<root>/team/library.json`（整份替换型），条目 = 角色配置集 + 顺序策略；装配 = 条目 → `TeamSpec` → 既有工厂（建角色会话 + 写会话 registry + 写 lifecycle 顺序） | `store/team_global.go`、本包 `library.go`（均已删除，见顶部退场时间线）、`application/assembly/agentteam_service.go`（`AgentTeamSaveTeam`/`AgentTeamMaterializeTeam`） |
+| 全局母本（员工库 + 默认顺序） | **已接线**：`<root>/team/employees.json`（员工名册）与 `<root>/team/order.json`（默认顺序）是全局母本；会话在编员工表 + lifecycle 顺序是它的**深拷贝副本**，会话内入职/改序只改副本；只有「确认·普及搭配到全局」把副本回写母本 | `store/team_global.go`、本包 `global.go`（均已删除，见顶部退场时间线）、`application/assembly/agentteam_service.go`（`AgentTeamGlobalConfig`/`AgentTeamPublishToGlobal`） |
 | 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `backend/engine/assemble/runtime_role_prompt.go`（`SetRolePromptProvider`）、`backend/engine/assemble/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
 | 员工权限（`RoleSpec.ToolsPolicy`） | **登记 + 写入侧枚举校验 + 运行时承载体已就位**：值随角色注册表落盘、在员工栏与编辑面板可见；写入侧经 `NormalizeRole` 只接受 `readonly`/`readwrite`/`full`/空（枚举外的拼写错误会被**显式拒绝**——运行时把未识别值映射成 root 全权，静默接受等于把拼写错误升级为最高权限）。真正的工具拦截在 `backend/tool/registry` 的 `PermissionGate`；**按角色拦截的承载体 = 角色回合执行体**（`backend/engine/assemble` 的 `runRoleRound`：开角色会话时分配 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx，工具面据此收窄；员工干活由 leader 派发的 worker 作业驱动，`RunRoleTurn` 那条座位适配层已于 2026-10-01 退场）| `backend/multiagent/team/spec.go`（`ValidToolPolicy`）、`contract/dto/agentteam.go`（`ToolPolicy*`）、`backend/limit/policy/policy.go`（`ClassForToolsPolicy`）、`backend/engine/assemble/runtime_role_turn.go`（`runRoleRound`）、`backend/tool/registry/registry_state.go`（`PermissionGate`） |
-| 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `backend/engine/assemble/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/core/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
-| `TurnScheduler`（链表轮转 / team work 前缀载体） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（顺序投影）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Advance()`（经 `Runtime.Next`）没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）——它们是**环自己的兜底**，与 goal 治理不再同源（goal 没有"轮次"了） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Runtime.Next` → `Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（`NoteTurn` 逃生记账） |
-| `@` 召唤的"开工"判据 | **已接线（2026-09-17，2026-10-03 换驱动）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），随后由**主代理（leader）按 team_plan 阶段派活**推进；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
-| 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(主会话, team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`store/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
+| 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `backend/engine/assemble/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/assembly/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
+| `TurnScheduler`（链表轮转 / team work 前缀载体） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（顺序投影）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Advance()`（经 `Runtime.Next`）没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）——它们是**环自己的兜底**，与 goal 治理不再同源（goal 没有"轮次"了） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Runtime.Next` → `Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/assembly/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（`NoteTurn` 逃生记账） |
+| `@` 召唤的"开工"判据 | **已接线（2026-09-17，2026-10-03 换驱动）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），随后由**主代理（leader）按 team_plan 阶段派活**推进；不带附言仍只装配（待命） | `application/assembly/input_team.go`（`beginGoalForSummon`）、用例 `application/assembly/input_team_work_test.go` |
+| 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(主会话, team_id, role_name)` 不变，再次召唤复用同一棵） | `application/assembly/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`store/team_registry.go`（`removeTeamRegistry`）、`application/assembly/agentteam_service.go`（`DismissAgentTeam`）、`application/assembly/goal_service.go`（`dismissTeamWhenGoalClosed`） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有自动回合**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`AutomaticTurnRoles` / `rolesWithoutAutomaticTurn`） |
 
 结论口径（2026-10-03 复核）：`TurnScheduler` 的链表顺序与 `SetPrefix` 有生产消费者：
@@ -312,7 +312,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 ## 退场前：核心实现
 
 - `Port` 是唯一外部依赖面：`EnsureRoleSession`、`ReadLifecycleOrder`、
-  `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/core` 的
+  `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/assembly` 的
   `agentTeamAdapter`（把 `wiring/adapters.SessionPort` 的 DTO 形态转成工厂输入）。
 - `FloorPort`（可选）是运行态读面：`ReadFloorRole` 读主会话 `message head.floor`。
   未实现的宿主（旧端口/测试桩）不填充 `TeamView.FloorRole`，也不报错——可选而不是
@@ -400,8 +400,8 @@ go test -race ./backend/multiagent/team -count=1
 `team_view_test.go`（floor 读面：可选端口/读失败/降级；无自动回合提示）、
 `scheduler_wiring_test.go`（`TurnScheduler` 接线状态与 README 声明一致）、
 `store/team_registry_test.go`（注册表落盘、角色会话幂等、`message head.floor` 读面）、
-`application/core/goal_team_wiring_test.go`（goal → 自动装配）与
-`application/core/goal_work_summary_test.go`（EXEC 工作正文进 ADVISOR 输入）、
+`application/assembly/goal_team_wiring_test.go`（goal → 自动装配）与
+`application/assembly/goal_work_summary_test.go`（EXEC 工作正文进 ADVISOR 输入）、
 `gui/headless_team_test.go`（`team.*` 契约）、
 `gui/team_live_probe_test.go`（真实 API + pprof 冒烟，env 门控）。
 

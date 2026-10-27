@@ -26,8 +26,8 @@ func TestConversationHistoryApplicationIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/history package name = %q, want history", file.Name.Name)
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "session_conversation_history_query.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "session_conversation_history_query.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return

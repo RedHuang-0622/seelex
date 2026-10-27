@@ -29,13 +29,13 @@ package e2e
 //     `wiring/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
 //   - 计划节点状态（queued|running|completed|failed|skipped|canceled|aborted|panicked）来自
 //     框架 workplan 的 `NodeBase.Status`，**不是我们这一格的词**——所以
-//     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
+//     `application/assembly/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
 //     计划批次那一格的清单**；它读批次结果的那三个分支改成引契约常量，由编译器钉住；
 //   - 统一事件摘要状态（failed|completed）是 Seele 框架 `SummaryEvent.Status` 的词；
 //   - `backend/tool/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
 //     结果里的框架节点状态词**（框架 workplan 的 `NodeBase.Status`，与 `plan/tool_provider.go`
 //     那条边界同源），不在"后台作业状态"这一格的取值面里——门禁按取值面判，不越界判它；
-//   - todo 三态（`application/core/work_table.go`）与"回执状态"（finished|already_finished）。
+//   - todo 三态（`application/assembly/work_table.go`）与"回执状态"（finished|already_finished）。
 
 import (
 	"fmt"
@@ -92,17 +92,17 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "后台作业状态",
 		files: map[string]string{
-			"backend/tool/fork/tool.go":             "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
-			"backend/tool/registry/async_exec.go":   "写：登记表的状态词表（本层常量）与状态迁移",
-			"backend/tool/registry/async_probe.go":  "读：探针把状态折进工作表格/观察行",
-			"backend/tool/registry/async_run.go":    "写：执行体落终态",
-			"backend/tool/registry/job_contract.go": "读：作业面把执行域状态映射成契约状态",
-			"backend/tool/registry/job_run.go":      "写：作业面执行体落终态",
-			"backend/tool/registry/job_subagent.go": "读：子代理作业的终态判定",
-			"backend/tool/registry/job_tools.go":    "读：bg_manage 的回答里带状态",
-			"application/core/async_completion.go":  "读：终态触发对话（done/failed 触发，killed 不触发）",
-			"kernel/worktable/async.go":             "读：折成工作表格的权威状态（killed 归 failed）",
-			"tui/goalteam.go":                       "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
+			"backend/tool/fork/tool.go":                "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
+			"backend/tool/registry/async_exec.go":      "写：登记表的状态词表（本层常量）与状态迁移",
+			"backend/tool/registry/async_probe.go":     "读：探针把状态折进工作表格/观察行",
+			"backend/tool/registry/async_run.go":       "写：执行体落终态",
+			"backend/tool/registry/job_contract.go":    "读：作业面把执行域状态映射成契约状态",
+			"backend/tool/registry/job_run.go":         "写：作业面执行体落终态",
+			"backend/tool/registry/job_subagent.go":    "读：子代理作业的终态判定",
+			"backend/tool/registry/job_tools.go":       "读：bg_manage 的回答里带状态",
+			"application/assembly/async_completion.go": "读：终态触发对话（done/failed 触发，killed 不触发）",
+			"kernel/worktable/async.go":                "读：折成工作表格的权威状态（killed 归 failed）",
+			"tui/goalteam.go":                          "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
 		},
 		// 这一格的取值面 = dto.AsyncState*（AsyncRunRecord.State 的注释写死的四个词）。
 		words: map[string]bool{"running": true, "done": true, "failed": true, "killed": true},
@@ -112,7 +112,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		files: map[string]string{
 			"backend/multiagent/subagent/tool_events.go":        "写：工具调用事件的三种状态（发布/落态）",
 			"backend/engine/assemble/runtime_role_turn.go":      "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
-			"application/core/tool_hooks.go":                    "写：工具完成钩子把结果折成成功/失败",
+			"application/assembly/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
 			"application/execution/subagentview/coordinator.go": "读：详情投影判「在跑」",
 			"application/execution/role_activity.go":            "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
 			"tui/state.go":                                      "读：TUI 判「在跑」（转调契约枚举的对外词）",
@@ -124,8 +124,8 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		name: "工具调用视图词",
 		files: map[string]string{
 			"contract/protocol/state.go":                        "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
-			"application/core/tool_hooks.go":                    "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
-			"application/core/chat.go":                          "写：引擎历史回灌的可见工具行",
+			"application/assembly/tool_hooks.go":                "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
+			"application/assembly/chat.go":                      "写：引擎历史回灌的可见工具行",
 			"application/session/history/history_runtime.go":    "写：引擎消息折成可见消息时的工具行",
 			"kernel/session/archive.go":                         "写：存档投影里的工具行",
 			"application/execution/subagentview/coordinator.go": "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
@@ -157,10 +157,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"kernel/task/session_context_maintenance.go":   "写：会话上下文维护身份（没有在飞回合）",
 			"kernel/task/task_context_state.go":            "写：快照面 + 中断/续接 + 存档面",
 			"kernel/task/turn_status_record.go":            "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
-			"application/core/chat.go":                     "写：请求开始时的在飞回合",
+			"application/assembly/chat.go":                 "写：请求开始时的在飞回合",
 			"application/conversation/context/recovery.go": "写：provider 失败回收（回合中断）",
-			"application/core/session_cold_read.go":        "写：冷读面的 idle（这个会话没有在飞回合）",
-			"application/core/input.go":                    "读：终态边界（收尾过的回合）",
+			"application/assembly/session_cold_read.go":    "写：冷读面的 idle（这个会话没有在飞回合）",
+			"application/assembly/input.go":                "读：终态边界（收尾过的回合）",
 			"kernel/context/coordinator.go":                "读：显式压缩的来源判定（是否在飞回合）",
 		},
 		// 这一格的取值面 = dto.Turn*（Snapshot.Task.Status 与 TaskContextProjection.Status 同格）。
@@ -174,9 +174,9 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		files: map[string]string{
 			"application/session/viewstate/session_runtime.go": "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
 			"application/session/history/history_runtime.go":   "写：冷加载的 restoring 空壳",
-			"application/core/session_draft.go":                "写：草稿会话行",
-			"application/core/session_lifecycle.go":            "写：草稿会话行",
-			"application/core/archive_session.go":              "读：归档门（运行中的会话不许归档）",
+			"application/assembly/session_draft.go":            "写：草稿会话行",
+			"application/assembly/session_lifecycle.go":        "写：草稿会话行",
+			"application/assembly/archive_session.go":          "读：归档门（运行中的会话不许归档）",
 			"application/session/residency/runtime.go":         "读：草稿行不参与驱逐",
 			"kernel/session/archive.go":                        "读+写：落盘记录的归档态",
 			"kernel/session/scope.go":                          "读：归档会话不进分发范围",
@@ -194,10 +194,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "计划状态",
 		files: map[string]string{
-			"kernel/task/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
-			"kernel/task/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
-			"kernel/task/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
-			"application/core/plan_tools.go": "写：plan_run 结果与事件折成计划状态",
+			"kernel/task/plan_projection.go":     "写：从节点事件推进计划状态（词折一次再判）",
+			"kernel/task/plan_transcript.go":     "写：ActivePlanProjection.Status（对外词）",
+			"kernel/task/task_service.go":        "读：计划投影判「已装载但未执行」与终态",
+			"application/assembly/plan_tools.go": "写：plan_run 结果与事件折成计划状态",
 		},
 		// 这一格的取值面 = dto.Plan*（PlanState.Status / SubagentEvent.PlanStatus）。
 		// 与 plan_run **批次结果**（dto.PlanRunStatus，只有终态词）是两格，见各自文件头。
@@ -211,7 +211,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"kernel/task/plan_projection.go":                    "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
 			"kernel/task/plan_transcript.go":                    "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
 			"kernel/task/task_service.go":                       "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
-			"application/core/plan_tools.go":                    "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
+			"application/assembly/plan_tools.go":                "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
 			"application/execution/table/runtime.go":            "读：节点打点合成工作表格 trace",
 			"application/execution/subagentview/coordinator.go": "读：详情页状态（记录状态/任务状态 → 节点状态）",
 			"tui/plan.go":                     "读：节点状态上色（参数是枚举，不再比字面量）",

@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/goal` 承载 Goal 用例路由、会话级 Coordinator 缓存与会话治理视图。真实调用方是
-`application/core.Service` 的 Goal 兼容入口；Goal 状态机仍在
+`application/assembly.Service` 的 Goal 兼容入口；Goal 状态机仍在
 `kernel/goal`。
 
 ## 职责与非职责
@@ -20,7 +20,7 @@
 
 - 不拥有 Goal 记录、栈或状态迁移；
 - 不实现 Goal 记录、栈或状态迁移，也不直接读取 Runtime 投影源；
-- 不导入 `application/core`、`store` 或具体存储包。
+- 不导入 `application/assembly`、`store` 或具体存储包。
 
 ## 文件结构
 
@@ -47,7 +47,7 @@
 ## 依赖方向
 
 允许依赖 `kernel/goal` 的 Goal 领域接口与 `contract/dto`。禁止依赖
-`store`、`application/core`、GUI/TUI；Store 适配只在 `wiring/adapters` 装配。
+`store`、`application/assembly`、GUI/TUI；Store 适配只在 `wiring/adapters` 装配。
 
 ## 并发与错误
 
@@ -66,13 +66,13 @@ Coordinator 用独立 mutex 保护每会话 bundle 缓存，bundle 内 Controlle
 - 本包生产文件是否仍不 import `store`；
 - 变更成功后才刷新 projection；
 - session ID 是否 trim/required；
-- 是否 import `application/core`。
+- 是否 import `application/assembly`。
 
 ## 测试与验证
 
 ```text
 go test ./application/goal -count=1
-go test ./application/core -run 'Goal' -count=1
+go test ./application/assembly -run 'Goal' -count=1
 go test ./application/... -count=1
 ```
 

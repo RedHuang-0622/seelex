@@ -10,7 +10,7 @@ import (
 
 // view_lock_nesting_gate_test.go 是 P20 的**机械门禁**：禁止"持 `Core.ViewMu` 再取同一把锁"。
 //
-// 现场（2026-10-17）：3 个 `go test ./application/core/` 并发跑，第一轮就挂死两个——
+// 现场（2026-10-17）：3 个 `go test ./application/assembly/` 并发跑，第一轮就挂死两个——
 // `TestTurnStatusSpeaksOneWordOnSnapshotAndArchive` 先 `ViewMu.RLock()` 再调 `Snapshot()`
 // （内部又 `RLock()`），而目录刷新 worker 正排在 `Coordinator.publishCatalogMirror` 的
 // `ViewMu.Lock()` 后面；`sync.RWMutex` 有写者排队时**新读者一律阻塞**，于是那条嵌套读锁

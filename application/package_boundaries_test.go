@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const applicationCoreImportPath = "github.com/RedHuang-0622/seelex/application/core"
+const applicationAssemblyImportPath = "github.com/RedHuang-0622/seelex/application/assembly"
 
 // TestExtractedApplicationPackagesDoNotImportCore 是全领域包的共同反向依赖
 // 门禁。单个包提取测试负责“实现确实已迁出”，这里负责它们不能为了复用兼容层
@@ -66,8 +66,8 @@ func TestExtractedApplicationPackagesDoNotImportCore(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse import %s in %s: %v", imported.Path.Value, path, err)
 				}
-				if importPath == applicationCoreImportPath {
-					t.Errorf("application/%s imports application/core; use consumer-defined deps/ports", relative)
+				if importPath == applicationAssemblyImportPath {
+					t.Errorf("application/%s imports application/assembly; use consumer-defined deps/ports", relative)
 				}
 			}
 			ast.Inspect(file, func(node ast.Node) bool {

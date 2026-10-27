@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/review` 承载「请 GUI 打开待审阅文件」的应用适配。真实调用方是
-`application/core.Service` 的审阅兼容入口；逐文件 containment、敏感、二进制和
+`application/assembly.Service` 的审阅兼容入口；逐文件 containment、敏感、二进制和
 去重裁决仍由 `backend/tool/review` 唯一拥有。
 
 ## 职责与非职责
@@ -19,7 +19,7 @@
 
 - 不重新实现文件沙盒或敏感文件判据；
 - 不直接写 Snapshot、EventHub 或工作区文件；
-- 不导入 `application/core`，不持完整 `Service`。
+- 不导入 `application/assembly`，不持完整 `Service`。
 
 ## 文件结构
 
@@ -39,7 +39,7 @@
 ## 依赖方向
 
 允许依赖 `backend/tool/review` 的纯应用落点、`contract` 与 `contract/dto`。禁止依赖
-`application/core`、GUI/TUI 或直接存储实现。
+`application/assembly`、GUI/TUI 或直接存储实现。
 
 ## 并发与错误
 
@@ -57,13 +57,13 @@ request ID 序号使用原子计数；视图锁和 Snapshot 写入由宿主注�
 - request ID 是否避免同 tick 碰撞；
 - ctx 会话优先、视图会话兜底的顺序是否保持；
 - 发布是否在视图锁外；
-- 是否 import `application/core`。
+- 是否 import `application/assembly`。
 
 ## 测试与验证
 
 ```text
 go test ./application/review -count=1
-go test ./application/core -run 'Review|FileReview' -count=1
+go test ./application/assembly -run 'Review|FileReview' -count=1
 go test ./application/... -count=1
 ```
 

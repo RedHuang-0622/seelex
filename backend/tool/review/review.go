@@ -1,7 +1,7 @@
 // Package review 是「请 GUI 在侧边资源管理器打开待审阅文件」这一能力的**落点**：
 // 逐份过 workspace 域裁决 → 记为会话作用域的可重放请求 → 回契约收据。
 //
-// 落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/core/review_files.go`
+// 落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/assembly/review_files.go`
 // 归位（plan §2.6）；工具注册那一半（名字/参数/返回值形状）仍在
 // `backend/engine/assemble`，因为它的签名绑在 `*assemble.Runtime` 上——那一半随 R11
 // （Runtime 按域下沉）一起搬，见本包 README 的"落点现状"。

@@ -10,13 +10,13 @@ import (
 	"testing"
 )
 
-// 窄可选端口的**闸门**：application/core 用类型断言探测的每一项能力，本包的
+// 窄可选端口的**闸门**：application/assembly 用类型断言探测的每一项能力，本包的
 // RuntimePort 都必须真的转发（否则断言静默 false，功能整块消失且无任何信号）。
 //
 // 为什么要扫源码而不是只写 `var _` 断言：`var _` 只保证"我列出来的还在"，挡不住
 // "core 里新加了一个断言、adapter 没跟上"——而那正是 2026-10-02 这两处漏接的成因
 // （TeamworkBoardSnapshot / SessionContextStoreFor）。本用例把**探测点**当事实源：
-// application/core 里每出现一个新的窄端口断言，这里就红，并要求补转发 + 补断言。
+// application/assembly 里每出现一个新的窄端口断言，这里就红，并要求补转发 + 补断言。
 
 // narrowPortForwarded 是**已接线**的窄可选端口清单：探测点标识 → 该方法集里的方法名。
 //
@@ -25,10 +25,10 @@ import (
 // TestRuntimePortForwardsEveryNarrowPort -v` 会逐个打印）。新增窄端口时两件事必须
 // 同时做：runtime_narrow_ports.go 补转发方法 + 这里补一行。
 var narrowPortForwarded = map[string]string{
-	// contract.TeamworkBoardProjection（application/core/teamwork_service.go）。
+	// contract.TeamworkBoardProjection（application/assembly/teamwork_service.go）。
 	// **本轮补**：漏了它 = 团队看板投影恒 nil = 面板整块退场。
 	"contract.TeamworkBoardProjection": "TeamworkBoardSnapshot",
-	// contract.TeammateSessionProjection（application/core/teamwork_service.go）。
+	// contract.TeammateSessionProjection（application/assembly/teamwork_service.go）。
 	// **本轮补**：漏了它 = "查看这件事的会话"只能读会话库，而 teammate 的一轮活是
 	// 进程内执行面、正文不落盘 → 读出来是主会话的历史（用户报"全是历史会话"）。
 	"contract.TeammateSessionProjection": "TeammateSessionLive",
@@ -61,7 +61,7 @@ var narrowPortForwarded = map[string]string{
 	// contract.AccountRoleSelectionPort（role_permissions.go，角色默认账号）。
 	// 漏了它 = 设置落盘后运行时仍按旧账号池路由。
 	"contract.AccountRoleSelectionPort": "SetRoleAccount",
-	// 统一会话 / WorkItem 执行 / teammate inspection：application/core 通过类型
+	// 统一会话 / WorkItem 执行 / teammate inspection：application/assembly 通过类型
 	// 断言选择适配器；漏接会让 teammate、subagent 与详情页整块不可用。
 	"contract.AgentConversationPort":  "ViewAgentConversation",
 	"contract.WorkItemExecutionPort":  "WorkItemExecution",
@@ -78,8 +78,8 @@ var (
 	namedPortTypeRe = regexp.MustCompile(`\b((?:contract|context_runtime|seelebridge|seelexctx)\.[A-Z]\w*)\b`)
 )
 
-// scanRoot 是探测点来源（core 及其子协调器都在 application/core 下）。
-const scanRoot = "../../application/core"
+// scanRoot 是探测点来源（core 及其子协调器都在 application/assembly 下）。
+const scanRoot = "../../application/assembly"
 
 // TestRuntimePortForwardsEveryNarrowPort 是本闸门的实现。
 func TestRuntimePortForwardsEveryNarrowPort(t *testing.T) {
@@ -98,7 +98,7 @@ func TestRuntimePortForwardsEveryNarrowPort(t *testing.T) {
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		t.Fatalf("application/core 里出现未接线的窄可选端口探测点（断言在 RuntimePort 上恒 false，功能会整块消失）：\n  %s\n\n"+
+		t.Fatalf("application/assembly 里出现未接线的窄可选端口探测点（断言在 RuntimePort 上恒 false，功能会整块消失）：\n  %s\n\n"+
 			"修法：wiring/adapters/runtime_narrow_ports.go 补转发方法 + var _ 断言，并把标识加进本文件的 narrowPortForwarded。",
 			strings.Join(unknown, "\n  "))
 	}
@@ -126,7 +126,7 @@ func (site assertionSite) String() string {
 	return site.file + ":" + itoa(site.line) + " → " + site.key
 }
 
-// scanRuntimePortAssertions 扫 application/core 的非测试源码，收集窄端口探测点并
+// scanRuntimePortAssertions 扫 application/assembly 的非测试源码，收集窄端口探测点并
 // 归一出"这个探测点要的是哪一项能力"。
 //
 // 归一顺序（先命名类型、后方法名）：命名接口（contract.X / context_runtime.Y /

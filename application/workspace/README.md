@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/workspace` 承载项目环境表、工作区内 Git 查询和批量项目登记后的
-Application 投影编排。当前真实调用方是 `application/core.Service` 的 Workspace
+Application 投影编排。当前真实调用方是 `application/assembly.Service` 的 Workspace
 兼容入口；GUI/TUI 仍经 Application 门面消费，不直接依赖本包。
 
 ## 职责与非职责
@@ -48,7 +48,7 @@ workspace root，再把受控相对路径解析为仓库根，随后分派到
 
 允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
 Switch Workspace 用例的唯一源码。禁止导入
-`application/core`、持有完整 `Service`、执行 Git 命令或读写真凭证。
+`application/assembly`、持有完整 `Service`、执行 Git 命令或读写真凭证。
 
 ## 并发与错误语义
 
@@ -68,7 +68,7 @@ revision，事件发布在解锁后。未绑定工作区、缺少能力端口和
 - Git 相对路径是否经过词法 containment 与软链真实路径双重检查；
 - 查询是否误取共享写锁；
 - 批量登记失败后是否完全不触碰 projection/revision/event；
-- 新包是否 import `application/core` 或持完整 `Service`。
+- 新包是否 import `application/assembly` 或持完整 `Service`。
 
 ## 测试与验证
 

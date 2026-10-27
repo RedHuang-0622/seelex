@@ -8,7 +8,7 @@ package switching
 // `middle/view/worktable`（`worktable.PromptKind` 尚未提交）；等它落地后再搬，避免制造第二份词表。
 //
 // 落点沿革：2026-10-17 随 **M5-R6-async-completion** 接收者转移从
-// `application/core/async_completion.go` 归位（plan §2.4 的 `async_completion.go` → `middle/switch/`）；
+// `application/assembly/async_completion.go` 归位（plan §2.4 的 `async_completion.go` → `middle/switch/`）；
 // 驱动链（全量扫描登记表、会话空闲判定、起回合）仍留在宿主——它要读会话域与视图锁。
 //
 // 用户口径（2026-10-01，随判据一起搬走）：后台作业（bash_bg / read_batch / subagent）落到**终态**时，

@@ -24,7 +24,7 @@ import (
 // 但下次整顿时应当把清单一起收短（不然清单会变成"历史包袱登记表"）。
 //
 // 为什么 I1 只对"Seelex 包"做 ratchet：门面的传递闭包今天还包含 ~220 个第三方叶子包
-// （Seele / viper / grpc / otel …），它们全部经由 application/core 与 seelebridge 进来。
+// （Seele / viper / grpc / otel …），它们全部经由 application/assembly 与 seelebridge 进来。
 // 把这些叶子逐条写进清单只会淹没信号；本里程碑要钉的是**层边界**（门面还能不能碰到
 // seelebridge / store / seelexctx），所以清单只收 Seelex 前缀的包。
 // 契约层（contract）不同：那里的判据是"闭包 = stdlib"，所以连 Seele 与 otel 都必须
@@ -40,7 +40,7 @@ const (
 // 只许收缩：M4 解散 seelebridge、M5 收窄门面后，这张表应当大幅变短。
 //
 // 关于清单规模：plan 点名的搬迁会让同一个包换名字进闭包（例如
-// `application/core/internal/limits` → `kernel/limit`，M2-A）——这类是**一条出、
+// `application/assembly/internal/limits` → `kernel/limit`，M2-A）——这类是**一条出、
 // 一条进**的等量替换，清单规模不变。plan 点名的**新模块**（例如 M2-B 的
 // `kernel/limit/loop`：从 prompt/adapters/fork 抽出来的判据层）会让闭包真的多一个包，
 // 这是允许的，但必须同时满足两条并记进里程碑记录：
@@ -70,41 +70,41 @@ const (
 // 下游包（只用已在清单内的 `store` / `backend/tool/computer` / `imageattach` /
 // `internal/{model,telemetry}`），所以闭包只多它自己一格，上限抬到 73。
 // M5-R5：`middle/view/board` 同口径——项目看板的行投影 + 触发表 + 同步器从
-// `application/core/project_board.go` 抽成中间层模块（自身直接依赖 = 标准库 +
+// `application/assembly/project_board.go` 抽成中间层模块（自身直接依赖 = 标准库 +
 // `store` + `middle/protocol/model` + `contract/dto` + `middle/view/worktable` +
-// `kernel/limit`，全在清单内）。此前它是 `application/core` 内部的一个文件、
+// `kernel/limit`，全在清单内）。此前它是 `application/assembly` 内部的一个文件、
 // 不是独立包，因此这是**一条进**的新模块，上限抬到 74。
 // 同片还抽走了 `middle/view/board/boardtest`（测试夹具包）：它只被两处用例 import，
 // 不在门面闭包里（`go list -deps ./application` 不含测试依赖），故不登记。
 // M5-R5c：`middle/view`（视图读数面：诊断文本 / 性能指标 / 运行时投影）同口径——
-// 从 `application/core` 的三个根文件抽出中间层视图根包（plan §2.4）。此前它们是
-// `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，上限抬到 75。
+// 从 `application/assembly` 的三个根文件抽出中间层视图根包（plan §2.4）。此前它们是
+// `application/assembly` 内部的文件、不是独立包，因此这是**一条进**的新模块，上限抬到 75。
 // 同片还消掉一条越层边：投影形状本来取自身为适配层的 `backend/engine/assemble`，
 // 现在直接用契约层 `contract/dto`（闭包规模不变，只是来源改正）。
-// M5-R5d：`middle/view/errors`（错误呈现域）同口径——从 `application/core` 的两个根文件
+// M5-R5d：`middle/view/errors`（错误呈现域）同口径——从 `application/assembly` 的两个根文件
 // （`error_codes.go` + `error_presentation.go`）抽出中间层视图子包（plan §2.4）。
-// 此前它们是 `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，
+// 此前它们是 `application/assembly` 内部的文件、不是独立包，因此这是**一条进**的新模块，
 // 上限抬到 76。同一片还把跨层判据（错误码 / provider 失败分类 / ReAct 预算哨兵）
 // 下沉到 `contract`：它本来就在清单里，闭包规模不变。
-// M5-R-limitc：`kernel/limit/tier`（权限档位域）同口径——把 `application/core` 的三处散落
+// M5-R-limitc：`kernel/limit/tier`（权限档位域）同口径——把 `application/assembly` 的三处散落
 // 实现抽成独立模块（plan §2.8），因此是**一条进**的新模块，上限抬到 77。
-// M5-R-tool-review：`backend/tool/review`（show_files 落点）同口径——从 `application/core`
+// M5-R-tool-review：`backend/tool/review`（show_files 落点）同口径——从 `application/assembly`
 // 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 78。
 // M5-R-tool-reference：`backend/tool/reference`（工具结果引用与分页判据）同口径——从
-// `application/core` 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 79。
+// `application/assembly` 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 79。
 // M5-R6-residency-preview：`middle/residency`（快照预算的截断判据）同口径——从
-// `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 80。
+// `application/assembly` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 80。
 // M5-R6-history-page：`middle/switch/history`（历史分页的窗口装配判据）同口径——从
-// `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 81。
+// `application/assembly` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 81。
 // M5-R6-session-meta：`middle/switch`（会话展示元数据判据 + 后续切换家族）同口径——从
-// `application/core` 抽成中间层模块（plan §2.4），因此是**一条进**的新模块，上限抬到 82。
+// `application/assembly` 抽成中间层模块（plan §2.4），因此是**一条进**的新模块，上限抬到 82。
 // P21-10（2026-10-17）：`backend/tool/jobs`（异步作业域：作业事件流 + 执行表投影）是**新建**的
 // 域包（plan §2.6 的目标落点），装配层（本就在闭包内，见下条 `backend/engine/assemble` 的登记理由）
 // 现在 import 它，因此闭包多这一条，上限抬到 83。它与既有登记项不同的一点是：它不是从
-// `application/core` 抽出来的，而是从**装配层**抽出来的——闭包里的装配层本来就在，抽出来的域包
+// `application/assembly` 抽出来的，而是从**装配层**抽出来的——闭包里的装配层本来就在，抽出来的域包
 // 自然跟着进闭包。域包自身只依赖 Seele 的 `event`/`jobs`、`backend/tool/registry` 与 `contract/dto`。
 // M5-R6-workspace（2026-10-17）：`middle/switch/workspace`（工作区用例）从
-// `application/core/workspace_usecase.go` 抽成中间层叶子模块（plan §2.4）。
+// `application/assembly/workspace_usecase.go` 抽成中间层叶子模块（plan §2.4）。
 // 这是一条"从 core 抽出的落点新建"，装配层现在 import 它；新包只依赖
 // `contract`/`contract/dto`/`middle/protocol/model` 与窄端口，没有第三方或反向依赖。
 // 因此上限抬到 85。
@@ -133,10 +133,10 @@ const (
 // 无状态应用适配，不反向依赖 application，上限按 93、94 递进。
 // AP-091/092 包提取：`application/lifecycle` 承接 drain/cancel/shutdown/fault guard，
 // `application/policy` 承接角色账号与权限策略。两者均只依赖窄 deps/contract/model，
-// 不反向依赖 application/core，按新领域落点规则将上限抬到 96。
+// 不反向依赖 application/assembly，按新领域落点规则将上限抬到 96。
 // AP-094 `application/admin` 承接账号管理适配，只依赖 contract、protocol/model 与
 // view/state 的只读投影形状；AP-095 `application/workspace` 承接项目环境、
-// Git 查询与批量登记投影。两者都不反向依赖 application/core；上限抬到 98。
+// Git 查询与批量登记投影。两者都不反向依赖 application/assembly；上限抬到 98。
 // AP-096 `application/session/query` 承接只读会话目录与 durable 查询；AP-097
 // `application/history` 承接历史分页类型与窗口决策；AP-098
 // `application/execution` 承接项目看板查询；AP-101 `application/review` 承接
@@ -212,7 +212,7 @@ var facadeClosureAllowList = []string{
 	// EP-020：Context Window Policy 身份门面；配置与校验仍只有 Engine 一份。
 	"github.com/RedHuang-0622/seelex/application/window",
 	"github.com/RedHuang-0622/seelex/application/workspace",
-	"github.com/RedHuang-0622/seelex/application/core",
+	"github.com/RedHuang-0622/seelex/application/assembly",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team",
 	"github.com/RedHuang-0622/seelex/kernel/rolesessions",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession",
@@ -226,18 +226,18 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/kernel/session",
 	"github.com/RedHuang-0622/seelex/application/execution/subagentview",
 	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess",
-	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
+	// M5-R5：项目看板的行投影与同步器（从 application/assembly/project_board.go 抽出）。
 	"github.com/RedHuang-0622/seelex/kernel/board",
-	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）归位
+	// M5-R5d：错误呈现域（原 application/assembly/{error_codes,error_presentation}.go）归位
 	// 中间层视图子包（plan §2.4）。**新增登记的理由**：这是一次"换落点 + 落点新建"，
-	// 门面闭包里 `application/core` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，
+	// 门面闭包里 `application/assembly` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，
 	// 闭包因此多了这一个包；同一片没有引入任何新的第三方/反向依赖（只依赖 contract 与 Seele/errors）。
 	"github.com/RedHuang-0622/seelex/application/errorpresentation",
 	// M5-R-limitc：权限档位域归位 limit 板块（plan §2.8）。**新增登记的理由**：这是
-	// "把 application/core 三处散落实现抽成独立模块"的一次换落点 + 落点新建，门面闭包里
-	// `application/core` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
+	// "把 application/assembly 三处散落实现抽成独立模块"的一次换落点 + 落点新建，门面闭包里
+	// `application/assembly` 仍在；新包只依赖 `contract`（词表）与标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/kernel/limit/tier",
-	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
+	// M5-R5c：视图读数面（从 application/assembly/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/kernel/task",
 	"github.com/RedHuang-0622/seelex/application/session/viewstate",
 	"github.com/RedHuang-0622/seelex/kernel/worktable",
@@ -381,7 +381,7 @@ var contractClosureAllowList = []string{
 // frontendDirectImportAllowList 是四个前端入口的**直接** import 允许清单（只许收缩）。
 //
 // 为什么用"直接"而不是"传递闭包"：前端 import 门面，门面今天仍传递依赖
-// application/core → seelebridge/store/seelexctx，所以"前端传递闭包 ⊆ 门面"
+// application/assembly → seelebridge/store/seelexctx，所以"前端传递闭包 ⊆ 门面"
 // 在 M5 门面收窄之前**物理上不可能成立**。plan §1.2 对前端写的是"明确禁止：直接
 // import store/engine/tool/limit"，本用例按直接依赖钉这条边界；传递闭包要等 M5。
 var frontendDirectImportAllowList = map[string][]string{

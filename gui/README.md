@@ -238,7 +238,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
 负责建角色会话并回报执行者绑定），「删除员工」走 `AgentTeamDeleteRole`，顺序编辑走
 `AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
-（`application/core/agentteam/runtime.go`，**已删除**：2026-10-15 A04/A15 随发言环退场）：发言环成员（= `order_roles` − `user`）
+（`application/assembly/agentteam/runtime.go`，**已删除**：2026-10-15 A04/A15 随发言环退场）：发言环成员（= `order_roles` − `user`）
 → 下一个该发言的角色、轮次/上限与逃生状态
 （`round_limit`/`no_progress`/`no_automatic_turn`/`empty_ring`/`external_break`）。
 `user` 不在环里（它的发言机会是回合尾消息队列被整批提升为下一轮），所以面板的
@@ -302,7 +302,7 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 下发（`RuntimeState.permission_tiers`），前端只按序渲染；档位列表与 composer 芯片的
 纯解析口径抽在 `frontend/dist/permission-tier.js`（`node --test` 用例
 `frontend/dist/permission-tier.test.mjs`），app.js 只负责 DOM 写入。档位的**归属与落盘**
-不在 GUI：它由 `application/core` 按会话写入会话级设置并跨重启读回（见
+不在 GUI：它由 `application/assembly` 按会话写入会话级设置并跨重启读回（见
 `store/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
 headless RPC）。
 

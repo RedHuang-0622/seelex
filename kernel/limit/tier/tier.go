@@ -2,7 +2,7 @@
 // 执行门 / 审批面 / 视图快照的同步口径。
 //
 // 落点沿革：判据与编排本体于 2026-10-16 随 M5-R-limitc 从
-// `application/core/{session_permission_tier.go,session_scope.go,service_interaction.go}`
+// `application/assembly/{session_permission_tier.go,session_scope.go,service_interaction.go}`
 // **接收者转移**到此处（plan §2.8）；门面只留宿主适配与一行转发。
 //
 // 依赖全是契约与窄端口（结构满足即可）：本包不 import `application/*`、不 import `session`，

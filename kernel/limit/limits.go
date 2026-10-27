@@ -66,7 +66,7 @@ type Limits struct {
 	MaxReplansPerPlanChain int `yaml:"max_replans_per_plan_chain"`   // 单计划链 replan 次数
 	// SessionReleaseWindow 是**会话释放窗口**（yaml: session_release_window，默认 1）：
 	// 受保护集（当前视图 / 待审批 / 运行·排队·在飞 / 正在恢复）之外的会话，最多
-	// 保留几个「已加载」的会话。语义与释放动作见 application/core/session_release.go：
+	// 保留几个「已加载」的会话。语义与释放动作见 application/assembly/session_release.go：
 	//   1 = 只保留上一个（切走一个、再切走一个才释放最旧的）——出厂口径；
 	//   0/缺失 = 未配置 → 默认 1（本轮窗口不会因为没人配就退化成"全都留着"）；
 	//   N = 再保留 N 个（越大越顺滑，代价是常驻内存越多）。
@@ -238,11 +238,11 @@ type ProjectBoardLimits struct {
 	// 一次判断都不做、零文件、读取面也不注册（无静默降级）。
 	Enabled bool `yaml:"enabled"`
 	// Hook 是触发面：off | todo_list（缺省）| task_complete | tool_complete | all。
-	// 取值校验在装配期完成（唯一判据是 application/core 的 ProjectBoardHookModes，
+	// 取值校验在装配期完成（唯一判据是 application/assembly 的 ProjectBoardHookModes，
 	// 这里不抄一份词表）：拼错的名字**显式启动失败**，不静默降级成"从不触发"。
 	Hook string `yaml:"hook"`
 	// FlushIdleMS 是落盘去抖窗（毫秒）：窗内多次触发只落一次盘。
-	// 0 = 未配置 → 同步器的缺省（2s，唯一一处定义在 application/core）。
+	// 0 = 未配置 → 同步器的缺省（2s，唯一一处定义在 application/assembly）。
 	FlushIdleMS int `yaml:"flush_idle_ms"`
 }
 

@@ -8,9 +8,9 @@ import (
 
 func TestCompactionGateLivesInConversationContext(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	legacy := filepath.Join(applicationDir, "core", "context_compact_gate.go")
+	legacy := filepath.Join(applicationDir, "assembly", "context_compact_gate.go")
 	if _, err := os.Stat(legacy); err == nil {
-		t.Error("application/core/context_compact_gate.go 仍存在；Compaction gate 必须归 conversation/context")
+		t.Error("application/assembly/context_compact_gate.go 仍存在；Compaction gate 必须归 conversation/context")
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}

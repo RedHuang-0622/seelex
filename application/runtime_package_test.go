@@ -22,8 +22,8 @@ func TestRuntimeApplicationIsExtractedFromCore(t *testing.T) {
 	if file.Name.Name != "admin" {
 		t.Fatalf("application/admin/runtime.go package = %q", file.Name.Name)
 	}
-	coreFile := filepath.Join(applicationDir, "core", "runtime_projection.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "runtime_projection.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/runtime_projection.go: %v", err)
 	}

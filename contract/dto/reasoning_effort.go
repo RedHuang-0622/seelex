@@ -63,7 +63,7 @@ func WireReasoningEffortVocabulary() []string {
 // 的 wire 强度"的**唯一**一份判据（composer 拉条与定时任务声明的强度都走它）。
 //
 // 空串 = 合法，归一为空串：**"没声明"**由调用方按各自口径补默认（定时任务补默认档位
-// 的读数；拉条没有"跟随档位"这一格，自己另判空——见 application/core 的
+// 的读数；拉条没有"跟随档位"这一格，自己另判空——见 application/assembly 的
 // SetReasoningEffort）。"session" 在这里不合法：那是账号配置侧"跟随会话"的意思，
 // 不是一条拉条能停的位置。
 func NormalizeWireReasoningEffort(raw string) (string, error) {

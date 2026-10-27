@@ -12,7 +12,7 @@ import (
 
 // ── 现场复现（第二跳：验收）────────────────────────────────────────────
 //
-// 第一跳（application/core 的 TestCompactionMaterialMustCarryConversationBody）
+// 第一跳（application/assembly 的 TestCompactionMaterialMustCarryConversationBody）
 // 钉住的是「素材里没有对话正文」。本用例钉住的是**为什么这件事没人发现**：
 // 素材里没有正文时，压缩链上没有任何一道闸问过「模型到底有没有被给到要压的内容」，
 // 于是模型回一句元回答（「本次请求未附带任何待压缩的对话正文」）就被当成一次

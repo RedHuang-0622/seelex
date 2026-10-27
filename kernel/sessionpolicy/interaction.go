@@ -1,7 +1,7 @@
 // interaction.go —— 交互（interaction）的**词表与选项装配**归位（plan §2.4 的
 // `service_interaction.go` → `middle/switch/`）。
 //
-// 落点沿革：2026-10-17 随 **M5-R6-interaction** 接收者转移从 `application/core/service_interaction.go`
+// 落点沿革：2026-10-17 随 **M5-R6-interaction** 接收者转移从 `application/assembly/service_interaction.go`
 // 归位。本文件只装"交互长什么样、用户选项叫什么名、点了之后该说哪句话"这三类判据；
 // **怎么处置**（审批结案、恢复会话、切账号、重跑工作流）仍是宿主的编排，留在宿主。
 package switching

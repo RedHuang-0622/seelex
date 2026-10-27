@@ -15,7 +15,7 @@ func TestChatTurnRunnerIsExtractedFromCore(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("application/conversation/turn_runner.go is required: %v", err)
 	}
-	chatPath := filepath.Join(applicationDir, "core", "chat.go")
+	chatPath := filepath.Join(applicationDir, "assembly", "chat.go")
 	file, err := parser.ParseFile(token.NewFileSet(), chatPath, nil, 0)
 	if err != nil {
 		t.Fatalf("解析 core chat.go: %v", err)

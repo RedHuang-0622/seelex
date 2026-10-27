@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/session/history` 拥有 Session resume、冷恢复顶层流程、可见历史窗口
-安装和恢复后页面接管。主要调用方是 `application/core` 的 Session assembly 与
+安装和恢复后页面接管。主要调用方是 `application/assembly` 的 Session assembly 与
 `application/history` 查询适配。
 
 ## 职责
@@ -18,7 +18,7 @@
 - 不拥有 SessionUnit、View、Engine 或 Store；
 - 不复制 Middle history window 算法；
 - 不执行压缩、对话主循环或持久化事务；
-- 不 import `application/core`。
+- 不 import `application/assembly`。
 
 ## 文件结构
 
@@ -35,7 +35,7 @@ Resume 请求 → 过渡锁与视图意图 → hot/restoring/cold 分支 → col
 
 允许依赖 `application/session`、`session/{cold,residency,runtime,state,viewstate}`、
 `conversation`、`workspace`、`history`、`contract`、kernel state 与 Middle 纯策略。
-禁止依赖 `application/core`、GUI/TUI 或具体 Store。
+禁止依赖 `application/assembly`、GUI/TUI 或具体 Store。
 
 ## 并发与错误
 
@@ -51,6 +51,6 @@ epoch 是否仍按会话复判、可见/未过滤行数是否混用、恢复失�
 
 ```text
 go test ./application/session/history -count=1
-go test ./application/core -run 'Session|History|Cold|Resume|Restore|Fork' -count=1
+go test ./application/assembly -run 'Session|History|Cold|Resume|Restore|Fork' -count=1
 go test ./application/... -count=1
 ```

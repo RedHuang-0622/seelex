@@ -6,7 +6,7 @@
 → `middle/switch/history/`）。当前落进来的是**窗口装配判据**：一页读回的历史怎么装进可见窗口——
 按**行身份**（接缝）拼接、窗口边界与起点推算。
 
-主要调用方：`application/core`（`installVisibleHistory` 在"回到最新 / 冷回读 / 加载更早"三条路径上
+主要调用方：`application/assembly`（`installVisibleHistory` 在"回到最新 / 冷回读 / 加载更早"三条路径上
 调用 `ReplaceTail` / `Prepend`）。
 
 落点沿革：2026-10-16 随 M5-R6-history-page **接收者转移**从 `application/session/history/history_runtime.go`
@@ -83,7 +83,7 @@
 
 ```text
 go test ./middle/switch/history/ -count=1
-go test ./application/core/ -run 'History|Pagination|ColdRestore|LoadMore' -count=1   # 宿主级端到端（冷回读/分页/坐标口径）
+go test ./application/assembly/ -run 'History|Pagination|ColdRestore|LoadMore' -count=1   # 宿主级端到端（冷回读/分页/坐标口径）
 ```
 
 ## 文件与函数索引

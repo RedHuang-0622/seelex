@@ -12,8 +12,8 @@ import (
 
 func TestCoreDoesNotImportSessionAccessView(t *testing.T) {
 	root := conversationRepositoryRoot(t)
-	coreDir := filepath.Join(root, "application", "core")
-	entries, err := os.ReadDir(coreDir)
+	assemblyDir := filepath.Join(root, "application", "assembly")
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestCoreDoesNotImportSessionAccessView(t *testing.T) {
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, parser.ImportsOnly)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -39,6 +39,6 @@ func TestCoreDoesNotImportSessionAccessView(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("application/core still imports sessionaccess: %v", violations)
+		t.Fatalf("application/assembly still imports sessionaccess: %v", violations)
 	}
 }

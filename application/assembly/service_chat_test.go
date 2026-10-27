@@ -1,0 +1,334 @@
+package assembly
+
+import (
+	"context"
+	"errors"
+	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	selexsession "github.com/RedHuang-0622/seelex/application/session/state"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/task"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
+	service := newTestService(t, &fakeEngine{})
+	defer frontendOfTestService(service).Shutdown()
+	service.ViewMu.Lock()
+	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
+	service.ViewMu.Unlock()
+
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	hooks := bridge.Hooks()
+	hooks.OnToolStart(context.Background(), session.ToolCallInfo{Turn: 0, Name: "write_file", Arguments: `{"path":"report.md","content":"done"}`})
+	if !hooks.OnIterationComplete(context.Background(), 0) {
+		t.Fatal("first delivery tool should remain within budget")
+	}
+	hooks.OnToolStart(context.Background(), session.ToolCallInfo{Turn: 1, Name: "read_file", Arguments: `{"path":"report.md"}`})
+	if hooks.OnIterationComplete(context.Background(), 1) {
+		t.Fatal("tool-call budget should stop the next ReAct iteration")
+	}
+	if err := service.components.tasks.ReActBudgetError("budget-request"); !errors.Is(err, contract.ErrReActBudgetExceeded) {
+		t.Fatalf("budget error = %v, want contract.ErrReActBudgetExceeded", err)
+	}
+}
+
+func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
+	rawResult := strings.Repeat("oversized-result", task_context.DefaultToolResultLimit())
+	engine := &fakeEngine{history: []contract.EngineMessage{
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-large", Name: "bash"}}},
+		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
+	}}
+	service := newTestService(t, engine)
+	defer frontendOfTestService(service).Shutdown()
+	service.ViewMu.Lock()
+	service.components.tasks.StartReActBudgetLocked("budget-request", prompt.ReActBudget{MaxToolRounds: 1})
+	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "budget-request"}
+	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, model.TaskCheckpoint{})
+	stored := service.components.tasks.StoreToolResultLocked("bash", rawResult)
+	service.components.tasks.SetResultRefByCallIDLocked("call-large", stored.Ref)
+	service.ViewMu.Unlock()
+
+	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	chatCalls := len(engine.chatInputs)
+	engine.mu.Unlock()
+	if chatCalls != 1 {
+		t.Fatalf("预算收尾必须是一次且仅一次调用，实际 %d", chatCalls)
+	}
+	for _, message := range engine.History() {
+		if message.Content == reactBudgetFinalizationInput {
+			t.Fatal("internal budget-finalization input leaked into history")
+		}
+	}
+	engine.mu.Lock()
+	prepared := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	for _, message := range prepared {
+		if strings.Contains(message.Content, "oversized-result") {
+			t.Fatal("reserved final delivery turn received raw oversized tool output")
+		}
+	}
+}
+
+// TestReActBudgetFinalizationPromptSummarizesBudgetWork 钉住用户裁决的 P2 语义：
+// 预算耗尽后的 +1 次调用只做"总结预算内已完成的工作/未完成的部分/证据"，不再调工具。
+func TestReActBudgetFinalizationPromptSummarizesBudgetWork(t *testing.T) {
+	if !strings.HasPrefix(reactBudgetFinalizationInput, contract.ReactBudgetFinalizationMarker) {
+		t.Fatal("收尾输入必须带契约层的唯一标记（判定侧靠它过滤）")
+	}
+	for _, want := range []string{
+		"Do not call any tools again",
+		"summarize what was actually completed within the budget",
+		"what remains unfinished",
+		"Do not claim work that was not done",
+	} {
+		if !strings.Contains(reactBudgetFinalizationInput, want) {
+			t.Fatalf("收尾提示缺少语义 %q：%s", want, reactBudgetFinalizationInput)
+		}
+	}
+}
+
+func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: fakeSessions{},
+	})
+	defer frontendOfTestService(service).Shutdown()
+
+	service.discardPendingSubagentContexts()
+	history := engine.History()
+	for _, message := range history {
+		if strings.Contains(message.Content, "child conclusion") {
+			t.Fatalf("mailbox content was injected into Engine history: %#v", history)
+		}
+	}
+	snapshot := service.Snapshot()
+	for _, message := range snapshot.Conversation {
+		if strings.Contains(message.Content, "child conclusion") {
+			t.Fatalf("mailbox content leaked into visible conversation: %#v", snapshot.Conversation)
+		}
+	}
+	for _, event := range service.components.tasks.TranscriptFor(snapshot.Session.ID) {
+		if strings.Contains(event.Content, "child conclusion") {
+			t.Fatalf("mailbox content leaked into transcript: %#v", event)
+		}
+	}
+	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
+		t.Fatalf("runtime mailbox was not drained: %#v", pending)
+	}
+}
+
+// sessionBackedEngine 模拟生产 session-backed 引擎（OnIterationComplete 在
+// Session 锁内执行，不可重入历史操作）。
+
+func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
+	service := newTestService(t, &sessionBackedEngine{fakeEngine: &fakeEngine{}})
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	hooks := bridge.Hooks()
+	ctx := context.Background()
+
+	// 队列为空 → 继续。
+	if !hooks.OnIterationComplete(ctx, 1) {
+		t.Fatal("empty input queue must not interrupt the loop")
+	}
+
+	// 运行中入队一条 → 本轮结束中断（一轮一消费，队列随后清空提升）。
+	service.ViewMu.Lock()
+	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
+	runtime.Enqueue(selexsession.QueuedRequest{
+		DisplayInput: "临时补充需求",
+		Payload:      chatRequest{DisplayInput: "临时补充需求", ModelInput: "临时补充需求"},
+	})
+	service.ViewMu.Unlock()
+	if hooks.OnIterationComplete(ctx, 2) {
+		t.Fatal("queued input must interrupt the loop at the round boundary")
+	}
+
+	// 中断后队列保留在会话域 runtime（不在此处消费），由 runChat 结尾 drain。
+	service.ViewMu.RLock()
+	queued := len(service.sessions.Unit(service.Core.Snapshot.Session.ID).PendingRequests())
+	service.ViewMu.RUnlock()
+	if queued != 1 {
+		t.Fatalf("after interrupt: inputQueue=%d, want 1", queued)
+	}
+}
+
+// TestSystemPromptStableAcrossPlanNodeChanges 缓存前缀稳定性回归：
+// system prompt 不得嵌入随节点变化的 current_node（节点状态由请求尾部的
+// plan 上下文消息/read_plan 提供），否则每次节点推进都会使整段前缀缓存
+// 失效（对照 codex-cli 的 ~99.8% 命中率）。
+
+func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
+	engine := &fakeEngine{chunks: []string{"an", "swer"}}
+	service := newTestService(t, engine)
+	defer frontendOfTestService(service).Shutdown()
+	if err := service.Submit(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := service.Snapshot()
+		if !snapshot.Chat.Running {
+			if len(snapshot.Conversation) < 2 || snapshot.Conversation[len(snapshot.Conversation)-1].Content != "answer" {
+				t.Fatalf("unexpected conversation: %#v", snapshot.Conversation)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("chat did not complete")
+}
+
+func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
+	engine := newGracefulShutdownEngine()
+	service := newTestService(t, engine)
+
+	if err := service.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first chat did not start")
+	}
+	if err := service.Submit(context.Background(), "queued"); err != nil {
+		t.Fatal(err)
+	}
+	frontendOfTestService(service).BeginGracefulShutdown()
+	if err := service.Submit(context.Background(), "rejected"); !errors.Is(err, ErrApplicationDraining) {
+		t.Fatalf("Submit after graceful shutdown = %v, want ErrApplicationDraining", err)
+	}
+
+	idle := make(chan error, 1)
+	go func() { idle <- frontendOfTestService(service).WaitForIdle(context.Background()) }()
+	close(engine.releaseFirst)
+	select {
+	case <-engine.secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("queued chat did not start")
+	}
+	select {
+	case err := <-idle:
+		t.Fatalf("WaitForIdle returned before queued chat completed: %v", err)
+	default:
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("queued chat left an observable idle gap")
+	}
+	close(engine.releaseSecond)
+	select {
+	case err := <-idle:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitForIdle did not return after queued chat completed")
+	}
+}
+
+func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
+	engine := &sessionBackedBlockingEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	sessions := &blockingSaveSessions{entered: make(chan struct{}), release: make(chan struct{})}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.started:
+	case <-time.After(time.Second):
+		t.Fatal("first chat did not start")
+	}
+	if err := service.Submit(context.Background(), "queued"); err != nil {
+		t.Fatal(err)
+	}
+	close(engine.release)
+	select {
+	case <-sessions.entered:
+	case <-time.After(time.Second):
+		t.Fatal("current turn did not reach persistence")
+	}
+	if got := service.Snapshot().Chat.QueuedCount; got != 1 {
+		t.Fatalf("queued count while persistence is draining = %d, want 1", got)
+	}
+	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（"供无锁调用点"），外层
+	// 不能再包 service.ViewMu.RLock——Go RWMutex 不可重入，目录刷新 worker 在
+	// 两次 RLock 之间排队写锁时会造成永久死锁（-race + 并发加载下偶发）。
+	resume := service.components.tasks.CurrentTaskResumeRecord()
+	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued" {
+		t.Fatalf("persistence resume refs = %#v, want queued input", resume.QueuedRefs)
+	}
+	close(sessions.release)
+	if err := frontendOfTestService(service).WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
+	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
+	if err := service.Submit(context.Background(), "interrupt me"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+		time.Sleep(time.Millisecond)
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("chat did not start")
+	}
+	if !frontendOfTestService(service).CancelChat("") {
+		t.Fatal("CancelChat returned false for the active request")
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
+		t.Fatal(err)
+	}
+	if task := service.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
+		t.Fatalf("cancelled task = %#v, want interrupted", task)
+	}
+}
+
+// TestCancelChatWithStaleRequestID 验证取消语义归属：request_id 只是参考，动作
+// 对象是本会话当前运行中的回合（渲染层可能持有一拍前的 id）。此前该兜底由桌面
+// Bridge 用空 id 重试实现，属于业务判断，现收在本服务内。
+func TestCancelChatWithStaleRequestID(t *testing.T) {
+	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
+	if err := service.Submit(context.Background(), "stop the spinner"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+		time.Sleep(time.Millisecond)
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("chat did not start")
+	}
+	if !frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
+		t.Fatal("CancelChat with a stale request id returned false, want the current turn cancelled")
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := frontendOfTestService(service).WaitForIdle(waitContext); err != nil {
+		t.Fatal(err)
+	}
+	// 空闲后不得"顺手取消"任何东西。
+	if frontendOfTestService(service).CancelChat("request-from-a-previous-turn") {
+		t.Fatal("CancelChat succeeded while idle")
+	}
+}

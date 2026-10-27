@@ -3,7 +3,7 @@
 ## 生态位
 
 本包提供与界面无关的审批生命周期（limit 板块里的"审批"这一格：工具链上的第 4 段判定
-要有地方等用户点头）。`core.Service` 把高风险动作转换为 `ApprovalRequest`，
+要有地方等用户点头）。`assembly.Service` 把高风险动作转换为 `ApprovalRequest`，
 TUI/GUI 只展示 `model.Interaction` 并提交决议。
 
 **端口形状与哨兵错误的事实源在 [`contract/approval.go`](../../../contract/approval.go)**：
@@ -11,7 +11,7 @@ TUI/GUI 只展示 `model.Interaction` 并提交决议。
 `ErrInteractionResolved` 定义在契约层，本包只用本地别名引用它们（同一类型身份）。
 理由：契约层是最底层的依赖倒置边界，不得反过来依赖 backend 实现包。
 
-主要调用方：`application/core` 经 `contract.ApprovalBroker` 发起与决议，Wiring adapter
+主要调用方：`application/assembly` 经 `contract.ApprovalBroker` 发起与决议，Wiring adapter
 负责缺省构造；`backend/tool/registry`（权限门把 `ask` 判定交给它）、
 `gui`/`tui`（只渲染 `model.Interaction`）。
 
@@ -24,7 +24,7 @@ TUI/GUI 只展示 `model.Interaction` 并提交决议。
 ```mermaid
 flowchart LR
     GATE["backend/tool/registry<br/>PermissionGate 判定 ask"] -->|ApprovalRequest| BROKER["approval.Broker"]
-    SVC["application/core.Service"] -->|Request| BROKER
+    SVC["application/assembly.Service"] -->|Request| BROKER
     BROKER -->|SetObserver 投影| SNAP["Snapshot.Interaction"]
     SNAP --> FE["GUI / TUI 渲染"]
     FE -->|Resolve optionID| BROKER
@@ -93,11 +93,11 @@ stateDiagram-v2
 
 ## 测试
 
-审批行为由 `broker_test.go`、`application/core/service_test.go` 和 `race_test.go` 覆盖：
+审批行为由 `broker_test.go`、`application/assembly/service_test.go` 和 `race_test.go` 覆盖：
 
 ```text
 go test ./backend/limit/approval -count=10
-go test ./application/core -run Approval -count=1
+go test ./application/assembly -run Approval -count=1
 ```
 
 ## 测试要点

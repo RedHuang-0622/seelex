@@ -7,7 +7,7 @@ package assemble
 // `TeamworkPlanFor`；这里只留**两格宿主读数**的接线——teamwork 后端句柄（`r.teamworkBackend`，
 // 装配期注入、可能未装配）与它的 `KeyFor` / `Store.ReadPlan`。
 //
-// 生态位：application/core 的看板投影需要"某会话的 teamwork 计划"，但它不该认识 Runtime 的接口
+// 生态位：application/assembly 的看板投影需要"某会话的 teamwork 计划"，但它不该认识 Runtime 的接口
 // 形状——所以那一侧只声明窄接口（`board.TeamworkPlanSource`），本文件让 Runtime 满足它。
 
 import (

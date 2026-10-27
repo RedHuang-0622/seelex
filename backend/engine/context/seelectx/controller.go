@@ -5,7 +5,7 @@
 //     按调用 ID 幂等、与 processor 共用同一份实现；归档不改变历史，只把原文
 //     外置成引用，因此不需要 ReplaceHistory，也不返回任何决策。
 //   - 不再折帧（2026-09-30 起）：压缩整条归装配层
-//     （application/core/context_runtime 的 prepareExecutionContextFor）——那里
+//     （application/assembly/context_runtime 的 prepareExecutionContextFor）——那里
 //     握着上一次真实请求的 system / 历史 / 工具三样原件，能接着发起前缀重放
 //     摘要调用；回合内控制器只拿得到装配前的引擎工作历史，折出来的帧没有
 //     正文、请求前缀还会整段失效。窗口越线由装配层在下一轮开始前处理。
@@ -188,7 +188,7 @@ func NewMemoryCompactStack() CompactStackStore {
 //
 // 压缩编排（窗口推导 / 压缩帧 / ReplaceHistory）已于 2026-09-30 整体移出控制器：
 // 压缩是上下文压缩流程里**产出元数据**的一步，折完必须由模型按章节写出读后感，
-// 只有装配层（application/core/context_runtime，下一轮开始前那次）做得到。
+// 只有装配层（application/assembly/context_runtime，下一轮开始前那次）做得到。
 // 控制器因此只剩一件事——超大工具结果的兜底归档，依赖也就是归档器与它的字符预算；
 // 原先的 Policy/Window/Tokens/Budget/Stacks/Turns/SessionIDProvider/Compaction/
 // FrameCarryTokens 九个注入项随压缩编排一并摘除，不留"留着但没人读"的配置面。
@@ -232,7 +232,7 @@ func NewContextController(opts ControllerOptions) seelectx.ContextController {
 // 引擎工作历史（system/项目/记忆/前缀栈/工具面都还没进去），叫不动模型写读后感，
 // 折出来只能是"没有正文的薄记录"：模型看不到被折内容、要 search_history 回读，
 // 而且请求开头被改写，provider 的前缀缓存整段作废。窗口越线交给装配层在
-// 下一轮开始前处理（application/core/context_runtime）。
+// 下一轮开始前处理（application/assembly/context_runtime）。
 //
 // 这里保留的动作只有一个：超大工具结果的兜底归档（processor 路径之外的保险；
 // 归档器按调用 ID 幂等）。归档不改变历史，只把原文外置成引用。

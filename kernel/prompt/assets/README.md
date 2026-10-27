@@ -118,6 +118,6 @@ not claim more than that implementation enforces.
 `PlanActHarnessCases` 是确定性的提示词回归 harness。它覆盖“验证完成后交付”“导出 Markdown 后再答复”和“拒绝未计划的第二轮验证”等正反场景；它检查渲染后的 system + effort 指令仍包含这些收束契约，不以真实模型输出冒充确定性测试。
 
 ```text
-go test ./kernel/prompt/assets ./application/prompt ./application/core -count=1
+go test ./kernel/prompt/assets ./application/prompt ./application/assembly -count=1
 go build ./...
 ```

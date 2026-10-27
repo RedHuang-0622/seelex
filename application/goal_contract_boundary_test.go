@@ -12,8 +12,8 @@ import (
 )
 
 func TestCoreDoesNotImportGoalDomain(t *testing.T) {
-	coreDir := filepath.Join(sourceApplicationDir(t), "core")
-	entries, err := os.ReadDir(coreDir)
+	assemblyDir := filepath.Join(sourceApplicationDir(t), "assembly")
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestCoreDoesNotImportGoalDomain(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, parser.ImportsOnly)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -39,7 +39,7 @@ func TestCoreDoesNotImportGoalDomain(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("application/core still imports goal domain: %v", violations)
+		t.Fatalf("application/assembly still imports goal domain: %v", violations)
 	}
 }
 

@@ -1,12 +1,12 @@
-// Package application is the stable facade for the Seelex application core.
+// Package application is the stable facade for the Seelex application assembly.
 //
 // Implementation is grouped into focused subpackages; consumers should keep
 // importing this package so their contracts remain stable as internals evolve.
 package application
 
 import (
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
-	"github.com/RedHuang-0622/seelex/application/core"
 	applicationinput "github.com/RedHuang-0622/seelex/application/input"
 	applicationobservability "github.com/RedHuang-0622/seelex/application/observability"
 	"github.com/RedHuang-0622/seelex/application/prompt"
@@ -17,11 +17,11 @@ import (
 )
 
 type (
-	Service                    = core.Service
+	Service                    = assembly.Service
 	Frontend                   = applicationcompat.Frontend
-	ToolHookBridge             = core.ToolHookBridge
-	ToolHookDiagnosticEvent    = core.ToolHookDiagnosticEvent
-	ToolHookDiagnosticObserver = core.ToolHookDiagnosticObserver
+	ToolHookBridge             = assembly.ToolHookBridge
+	ToolHookDiagnosticEvent    = assembly.ToolHookDiagnosticEvent
+	ToolHookDiagnosticObserver = assembly.ToolHookDiagnosticObserver
 	Suggestion                 = applicationinput.Suggestion
 	Command                    = contract.Command
 	CommandResult              = contract.CommandResult
@@ -176,8 +176,8 @@ const (
 )
 
 var (
-	ErrChatRunning         = core.ErrChatRunning
-	ErrApplicationDraining = core.ErrApplicationDraining
+	ErrChatRunning         = assembly.ErrChatRunning
+	ErrApplicationDraining = assembly.ErrApplicationDraining
 	ErrInteractionNotFound = contract.ErrInteractionNotFound
 	ErrInteractionResolved = contract.ErrInteractionResolved
 )

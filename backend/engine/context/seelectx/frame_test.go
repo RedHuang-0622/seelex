@@ -137,7 +137,7 @@ func TestOneLineSummaryAndAnchorSource(t *testing.T) {
 // 这条污染是**静默**的——每帧看起来都"有锚点"（非空 → anchor_source=ok），
 // 不会触发 degraded 标记，因此不会有任何报警，而下一帧的 Chapter 1 里已经躺着
 // 一段花括号。回读帧正文的 JSON 元数据块正是以 `{` 开头（见
-// application/core/context_runtime/compaction_frame.go 的规范形状）。
+// application/assembly/context_runtime/compaction_frame.go 的规范形状）。
 func TestOneLineSummarySkipsStructuredData(t *testing.T) {
 	polluted := store.CompactFrame{Summary: "## " + CompactChapter2Title + "\n" +
 		"{\n  \"schema\": \"seelex.context-compaction-frame/v2\",\n  \"version\": 7\n}\n" +

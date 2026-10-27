@@ -3,7 +3,7 @@
 // 热/冷判定由 HasSession 驱动，本包不重造 COLD/PREPARED/LIVE 状态机
 // （thin-wrapper-session-design.md §3.2、mbd-models.md §2）。会话粒度存储
 // 契约不再经本包暴露（StorePort 已删除：适配职责由 wiring/adapters 承担，
-// 消费端口定义在 application/core/session_runtime/ports.go）。
+// 消费端口定义在 application/assembly/session_runtime/ports.go）。
 package sessionstate
 
 import (

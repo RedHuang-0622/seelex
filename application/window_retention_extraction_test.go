@@ -8,8 +8,8 @@ import (
 
 func TestContextRetentionPolicyLivesInWindowPackage(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	if _, err := os.Stat(filepath.Join(applicationDir, "core", "window.go")); err == nil {
-		t.Error("application/core/window.go 仍存在；context retention policy 必须归 application/window")
+	if _, err := os.Stat(filepath.Join(applicationDir, "assembly", "window.go")); err == nil {
+		t.Error("application/assembly/window.go 仍存在；context retention policy 必须归 application/window")
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}

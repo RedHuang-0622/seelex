@@ -65,9 +65,9 @@
 - 有删除里程碑和回退方式；
 - wire、revision/seq 与持久化格式保持不变。
 
-当前 `application/core` 直接内部依赖为 0；SessionState/ViewState 已迁入
+当前 `application/assembly` 直接内部依赖为 0；SessionState/ViewState 已迁入
 `application/session`。
-整个 Application 的具体依赖包预算另行统计，不能再用 core 数字替代全局结论。
+整个 Application 的具体依赖包预算另行统计，不能再用 assembly 数字替代全局结论。
 
 ## 4. Session 聚合归属
 
@@ -151,7 +151,7 @@ AP-003 分开两条指标：
 2. 内部实现依赖：单独统计整个 `application/**` 的具体 Backend/Middle/Store
    import；迁移期预算只许下降，最终为 0。
 
-不能再用“`application/core` 依赖为零”替代“整个 Application 依赖为零”。
+不能再用“`application/assembly` 依赖为零”替代“整个 Application 依赖为零”。
 
 ## 7. 下游影响
 
@@ -167,7 +167,7 @@ AP-003 分开两条指标：
 
 | 迁移项 | 删除条件 |
 |---|---|
-| `application/core -> sessionusecase` | 已完成：SessionState/ViewState 已迁入 `application/session` |
+| `application/assembly -> sessionusecase` | 已完成：SessionState/ViewState 已迁入 `application/session` |
 | Application identity facade | 业务消费方改用 Contract 类型，预算归零 |
 | `execution.TeamworkPlan` alias | 已完成：EP-044 完整 DTO 化并删除迁移 alias |
 | `backend -> middle` 6 条 | BM-005 runtime 装配迁移完成 |

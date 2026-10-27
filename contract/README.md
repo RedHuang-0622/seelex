@@ -9,7 +9,7 @@
 M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包名、导出面与 JSON 形状均未变化，
 调用方只改 import 路径。
 
-主要调用方：`application/core`（只依赖端口）、`wiring/adapters`、`backend/engine/assemble/`、
+主要调用方：`application/assembly`（只依赖端口）、`wiring/adapters`、`backend/engine/assemble/`、
 `backend/engine/plugin/`、`backend/engine/skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
 
 子包边界：
@@ -33,7 +33,7 @@ session 均以同身份 alias 复用，不复制 wire 字段或段落判据。
 ```mermaid
 flowchart TB
     subgraph CONSUMER["消费方（只认接口）"]
-        CORE["application/core"]
+        CORE["application/assembly"]
         TEST["e2e/scenario · fake ports"]
     end
 
@@ -65,7 +65,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    CORE(("application/core"))
+    CORE(("application/assembly"))
     HOST(("组合根 main.go"))
 
     UC1(["ChatEngine 流式聊天与历史替换"])
@@ -109,7 +109,7 @@ flowchart LR
 | `CommandRegistryPort` / `InputDispatcher` | 命令注册与规范化输入分派 | `wiring/adapters` 转发 `backend/engine/input` |
 | `RoleSessionsPort` | 角色会话、draft、wire 与定时插话 | `wiring/adapters` 转发 `backend/multiagent/team` |
 
-`Dependencies` 是 `core.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
+`Dependencies` 是 `assembly.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
 
 ### 可选扩展端口（按类型断言发现）
 
@@ -119,7 +119,7 @@ flowchart LR
 | `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
 | `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `backend/engine/assemble` 的 `Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
 
-这些端口是**可选能力**：`application/core` 用类型断言在 `Deps.Sessions` 上发现前两者，
+这些端口是**可选能力**：`application/assembly` 用类型断言在 `Deps.Sessions` 上发现前两者，
 `RoleTurnPort` 经 `Dependencies` 显式注入，
 未装配时显式返回“不可用”，不静默退化、不新增旁路。签名只用
 `contract/dto` 的纯 DTO（`dto.RoleRow` / `dto.RoleDraftRow` /

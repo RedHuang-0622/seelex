@@ -4,7 +4,7 @@ package worktable
 // 工具事件载荷三处共用）。
 //
 // 为什么落在这里：它原本作为未导出的 `truncateWorkEvidence` 住在
-// `application/core/work_table.go`，与工作表格行投影同文件。M5-R5 把项目看板的
+// `application/assembly/work_table.go`，与工作表格行投影同文件。M5-R5 把项目看板的
 // 行投影下沉到 `middle/view/board` 之后，看板侧也需要同一份截断判据——而同一条
 // 判据（含 `…` 省略号、按 rune 计数、`limit <= 0` 视为不限）出现在两处就会漂移，
 // 因此把它提成工作表格投影模块（本包）的导出函数：`core` 与 `board` 都调这一份。

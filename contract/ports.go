@@ -174,7 +174,7 @@ type RuntimePort interface {
 	// 进展不会推进，但有在途执行被查询本身就是进展。
 	AsyncPendingFor(sessionID string) int
 	// AsyncRunsSnapshot 返回后台命令执行表的**只读投影**（按派发顺序）。消费点是
-	// 工作表格与请求尾部打点块（application/core/work_table_async.go）。
+	// 工作表格与请求尾部打点块（application/assembly/work_table_async.go）。
 	// 它刻意不是 task 注册表条目：句柄表在内存，进注册表就会随会话落盘并在重启后
 	// 复活成一条永远 running 的假行（不变量 I-21）。
 	AsyncRunsSnapshot() []dto.AsyncRunRecord
@@ -308,7 +308,7 @@ type TeammateSessionProjection interface {
 // AgentConversationPort is the optional execution-side adapter used by the
 // unified ConversationSession facade for subagent and teammate windows.
 //
-// Main-session View/Chat/Recover stays in application/core; this port only
+// Main-session View/Chat/Recover stays in application/assembly; this port only
 // exposes the two agent-owned windows. Implementations must use WorkItem
 // Session for teammate chat and must not call SettleWorkItem/accept/merge for a
 // dialogue-only turn.
@@ -400,7 +400,7 @@ type SessionPort interface {
 // 只用 contract/dto 纯 DTO，不出现存储类型）。
 //
 // 装配口径：会话端口实现（wiring/adapters.SessionPort）在实现 SessionPort 的
-// 同时实现本接口；`application/core` 用类型断言发现它，未装配时显式返回“不可用”，
+// 同时实现本接口；`application/assembly` 用类型断言发现它，未装配时显式返回“不可用”，
 // 不静默退化、不新增旁路。真正的排序、幂等、同步即删与 message head 发布仍由
 // 存储侧 sequencer 入口执行，本端口只做窄转发。
 type RoleSessionPort interface {
@@ -473,7 +473,7 @@ type ApprovalBroker interface {
 //
 // 状态（A08，2026-10-15）：**保留，标为 legacy 读面**。它唯一的产生方是员工入职
 // 面板，而该入口已随 2026-10-12 J-1a 退场；静态全仓索引里 `RolePromptPort` /
-// `OptimizeRolePrompt` 只剩本文件（契约）、`application/core/aliases.go`（别名）、
+// `OptimizeRolePrompt` 只剩本文件（契约）、`application/assembly/aliases.go`（别名）、
 // `backend/engine/assemble/runtime_role_prompt.go`（实现）与测试，没有应用层生产调用者；
 // `Dependencies.RolePrompt` 在组合根**不再注入**（见 `wiring/bootstrap` 的 J-1a 说明）。
 // 保留的理由：它是**对外可选能力契约**（宿主/第三方可自行装配实现），删除等于

@@ -1,0 +1,37 @@
+# assembly/skill（根包分卷）
+
+## 生态位
+
+Skill 指令信封编解码
+
+覆盖：`skill*.go`；未归属文件由覆盖自检拦下。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### skill_activate_test.go
+
+- `func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T)` — TestActivateSkillPushesLayerAndNextSubmissionTrustsIt：模型侧激活（ActivateSkill）
+- `func TestActivateSkillIdempotent(t *testing.T)` — TestActivateSkillIdempotent：同名重复激活不产生重复层（Push 同名覆盖）。
+- `func TestActivateSkillRejectsBadNames(t *testing.T)` — TestActivateSkillRejectsBadNames：空名/未知技能/goal 均拒绝且不改状态。
+- `func TestActivateSkillCoexistsWithUserSlashSkill(t *testing.T)` — TestActivateSkillCoexistsWithUserSlashSkill：模型激活与用户 Skill 前缀路径
+
+### skill_context.go
+
+- `func formatSkillUserInput(layers []prompt.PromptLayer, input string) string`
+- `func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer)`
+- `func wrapModelInput(displayInput, body string) string`
+- `func displayUserInput(modelInput string) string`
+- `func parseModelEnvelope(input string) (string, int, bool)`
+- `func inputIndexUserText(message model.Message) string` — inputIndexUserText returns the display text for a user input row. Non-user
+
+### skill_context_test.go
+
+- `func TestFormatSkillUserInputKeepsPlainInputUnchanged(t *testing.T)`
+- `func TestSkillSelectionKeepsUserInputPlainAndFreezesTrustedLayers(t *testing.T)`
+- `func TestDisplayUserInputRejectsInvalidEnvelope(t *testing.T)`
+- `func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T)`
+- `func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T)`
+- `func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T)`

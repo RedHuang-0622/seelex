@@ -9,13 +9,13 @@ import (
 )
 
 // TestSessionResidencyRuntimeLivesInSessionPackage keeps both LRU orders and
-// release-guard orchestration out of application/core.
+// release-guard orchestration out of application/assembly.
 func TestSessionResidencyRuntimeLivesInSessionPackage(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
 	for _, name := range []string{"resident_lru.go", "content_lru.go", "session_release.go"} {
-		path := filepath.Join(applicationDir, "core", name)
+		path := filepath.Join(applicationDir, "assembly", name)
 		if _, err := os.Stat(path); err == nil {
-			t.Errorf("application/core/%s 仍存在；Session residency runtime 必须由 application/session/residency 拥有", name)
+			t.Errorf("application/assembly/%s 仍存在；Session residency runtime 必须由 application/session/residency 拥有", name)
 		} else if !os.IsNotExist(err) {
 			t.Fatalf("检查 %s: %v", path, err)
 		}

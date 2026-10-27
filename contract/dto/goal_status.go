@@ -6,7 +6,7 @@ package dto
 // 两个面：
 //   - 可见面：`GoalRecord.Status`（goal_status 视图 / 事件投影）；
 //   - 存档面：`store.GoalFrame.Status`（第五栈帧的落盘 wire，store 在契约之下）
-//     ——读回由 `application/core/goal` 的 `goalStatusOfRecord` 折算（认不得的词说认不得）。
+//     ——读回由 `application/assembly/goal` 的 `goalStatusOfRecord` 折算（认不得的词说认不得）。
 type GoalStatus uint8
 
 const (

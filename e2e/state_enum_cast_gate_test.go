@@ -200,7 +200,7 @@ var stateFieldCastWhitelist = []struct {
 //
 // 为什么这样划界：`string(x.Status)` 在 x 是普通字符串字段时是无害的 no-op，在 x 是枚举字段时
 // 才是控制字符陷阱——没有类型信息就分不清。所以这一条**不是类型系统**，它是"在最可能出事的
-// 文件里查这一种形态"（本波踩到的正是 application/core/work_table.go 里的 `string(record.Status)`）。
+// 文件里查这一种形态"（本波踩到的正是 application/assembly/work_table.go 里的 `string(record.Status)`）。
 // 真正的兜底顺序：字段类型（编译器）→ 用例 → 这条启发式。
 func stateFieldStringCasts(relative string, source []byte) []string {
 	fset := token.NewFileSet()

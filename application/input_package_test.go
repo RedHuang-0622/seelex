@@ -61,13 +61,13 @@ func TestInputApplicationIsExtractedFromCore(t *testing.T) {
 		}
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "completion.go")
-	if _, err := os.Stat(coreFile); os.IsNotExist(err) {
+	assemblyFile := filepath.Join(applicationDir, "assembly", "completion.go")
+	if _, err := os.Stat(assemblyFile); os.IsNotExist(err) {
 		return
 	} else if err != nil {
 		t.Fatalf("stat core/completion.go: %v", err)
 	}
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/completion.go: %v", err)
 	}

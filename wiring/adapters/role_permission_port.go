@@ -1,7 +1,7 @@
 package adapters
 
 // role_permission_port.go 是「角色设置」在装配侧的落地：把**会话端口**补上
-// application/core 用类型断言发现的两个可选能力——
+// application/assembly 用类型断言发现的两个可选能力——
 //
 //	rolePermissionPort      —— 会话级角色权限登记（键 (sessionID, role)，落盘在 store）
 //	rolePermissionLayerPort —— 五层向量来源（user_allow > agent_dispatch >
@@ -73,7 +73,7 @@ func (port SessionPort) rolePermissionProject(sessionID string) string {
 	return port.granular().ResolveProjectForSession(sessionID)
 }
 
-// RoleDefaultVectors 实现 application/core 的 roleDefaultPort：该数据根下所有显式
+// RoleDefaultVectors 实现 application/assembly 的 roleDefaultPort：该数据根下所有显式
 // 定过的角色默认向量（权限面板一次读回全部角色）。
 //
 // 归属项目的解析与会话级登记同一条（ResolveProjectForSession）：默认按项目存一份，
@@ -173,7 +173,7 @@ func (port SessionPort) SetRoleSessionSSHUserSpaces(sessionID, role string, path
 	)
 }
 
-// RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
+// RolePermissionVectors 实现 application/assembly 的 rolePermissionPort：返回该会话下
 // **所有显式登记过**的角色 → 权限向量（会话加载点一次读回全部角色）。
 func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error) {
 	storage := port.rolePermissionStore()
@@ -196,7 +196,7 @@ func (port SessionPort) RolePermissionVector(sessionID, role string) ([]string, 
 // SetRolePermissionVector 实现 rolePermissionPort：写入一个角色的权限向量
 // （空集合法 = 显式不给任何能力；"删除登记"是另一件事，由 store 的 Drop 负责）。
 //
-// 规整（大小写/`!` 前缀/非法项报错）在调用方（application/core 走 dto.NormalizePermissionVector）
+// 规整（大小写/`!` 前缀/非法项报错）在调用方（application/assembly 走 dto.NormalizePermissionVector）
 // 做完才下来；本端口不再做第二遍判据。
 func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector []string) error {
 	storage := port.rolePermissionStore()
@@ -207,7 +207,7 @@ func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector [
 	return err
 }
 
-// RolePermissionLayers 实现 application/core 的 rolePermissionLayerPort：给出该角色
+// RolePermissionLayers 实现 application/assembly 的 rolePermissionLayerPort：给出该角色
 // 在五层来源上的取值（层序由 dto.RoleSettingsLayers.Ordered 定死，本文件不重排）。
 //
 // 五层今天的事实来源（缺一个来源就是那层留空，**不编默认值**）：

@@ -2,7 +2,7 @@ package switching
 
 // fork.go — `ForkSession` / `ForkSessionLatest`（会话分叉）的**门控与纯助手**。
 //
-// 落点沿革：2026-10-17 随 **M5-R6-fork** 接收者转移从 `application/core/session_fork.go`
+// 落点沿革：2026-10-17 随 **M5-R6-fork** 接收者转移从 `application/assembly/session_fork.go`
 // 归位（plan §2.4 的 `session_fork.go` → `middle/switch/`）。
 //
 // 口径声明（迁移前注释逐字保留其含义）：这是 **ForkSession（会话分叉）**——产出独立项目级会话；

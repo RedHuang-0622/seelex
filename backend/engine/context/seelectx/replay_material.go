@@ -3,7 +3,7 @@
 // 为什么需要：前缀重放的素材是「最近一次真实请求的历史字节原样重放」，但素材的
 // 来源快照**早于**请求出口的协议修复，两处都取不到修复后的字节：
 //
-//   - 装配层压缩：装配开始时读一次引擎历史（application/core/context_runtime
+//   - 装配层压缩：装配开始时读一次引擎历史（application/assembly/context_runtime
 //     coordinator.go 的 `existing := c.sessionHistory(sessionID)`），而残缺工具链的
 //     补齐（PrepareProviderHistoryFor → RepairInterruptedToolChains）发生在同一
 //     条装配路径的**替换之后**——被中断的回合（assistant 宣告了工具调用、结果

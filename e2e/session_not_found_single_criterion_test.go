@@ -16,7 +16,7 @@ import (
 //
 //	store/durable_history.go                  func isSessionNotFound （只看 fs.ErrNotExist）
 //	seelexctx/search/search.go                func isSessionNotFound （fs + sql.ErrNoRows）
-//	application/core/session_runtime/archive.go              内联 （fs + sql.ErrNoRows）
+//	application/assembly/session_runtime/archive.go              内联 （fs + sql.ErrNoRows）
 //	wiring/adapters/session_workspace_ports.go               4 处内联（fs + sql.ErrNoRows）
 //
 // 收口方向：判据归「未找到」错误的**编码者** store——唯一实现是

@@ -56,12 +56,12 @@
 
 - `Service` 公开业务方法已归零；新增必须显式更新预算，能力入口只能由
   capability package 与 `compat.Frontend` 承载；
-- 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
+- 冻结 `application/assembly` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 54 个、生产代码 7,120 行；
+- 冻结 `application/assembly` 非测试生产文件 54 个、生产代码 7,092 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
-  当前 22 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
+  当前 0 个唯一包，预算只允许保持为零。Application
   生产代码已不再直接 import `store`。迁移期 identity facade 与 host adapter
   必须在兼容层台账登记，不得成为第二份状态机；
 - 校验
@@ -85,7 +85,7 @@
 - `ProjectBoardTeamPlanFor/StateFor` 只服务项目看板装配，已从入站 `ViewFace` /
   `TeamworkQueryAPI` 移除，仍保留在 `Service` 装配面。
 
-此批 JSON 字段与前端 wire 形状不变；当时 `application/core` 内部依赖预算为 39，
+此批 JSON 字段与前端 wire 形状不变；当时 `application/assembly` 内部依赖预算为 39，
 后续内部实现迁移、外部端口与 Contract/Middle 归位已把当前事实基线降到 16。
 该数字由内部实现迁移单独治理，
 不与入站 API 纯度混算。
@@ -93,7 +93,7 @@
 ### 按能力拆分的入站 API（AP-002，已实现）
 
 [`faces_api.go`](faces_api.go) 同时定义四组兼容接口和 AP-002 能力型入站面，
-接口事实源不再寄居 `application/core`。每个接口不超过
+接口事实源不再寄居 `application/assembly`。每个接口不超过
 20 个方法，调用方可以直接声明所需能力：
 
 | 接口 | 方法数 | 用途 |
@@ -132,29 +132,32 @@
 - `SessionRuntimeOf`：从 RuntimeState 只提取会话字段，并深拷贝 Plan、Goal 历史与
   WorkTable。
 - `ReadSnapshot`：在 `application/session/query` 选择冷读、驻留和内容 LRU 回退；
-  core 的 `readSnapshotOf` 只注入状态采样和两个 Snapshot builder。
+  assembly 的 `readSnapshotOf` 只注入状态采样和两个 Snapshot builder。
 - `BuildResidentSnapshot`：统一驻留 Snapshot 的字段克隆、Task/Plan 深拷贝和
-  WorkTable enrichment；core 的 `snapshotOfResident` 只提供锁内读面。
+  WorkTable enrichment；assembly 的 `snapshotOfResident` 只提供锁内读面。
 
 `LoadMoreHistory` / `LoadLatestHistory` 已由 `Frontend` 直接调用历史查询组件；
 历史窗口算法仍只有
 [`middle/switch/history`](../middle/switch/history/README.md) 一份实现；
-`application/core` 通过 `application/history.WindowAssembler` 消费该唯一实现；
-Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
+`application/assembly` 通过 `application/history.WindowAssembler` 消费该唯一实现；
+Wiring 注入 Middle `Assembler`，assembly 不再 import `middle/switch/history`。
 直接内部依赖已降到 33；新增 Application 包仍必须逐批登记门面闭包。
 
-### 领域包提取（AP-085 起，执行中）
+### 领域包提取（AP-085 起，已完成）
 
-包提取阶段把已经收拢为窄组件的应用编排从 `application/core` 物理迁出。
-当前实测基线：
+包提取阶段已把应用编排从旧的 `application/core` 物理迁出，并完成 M9：
+`application/core` 目录与 import 路径均不存在。剩余跨领域协调代码作为唯一
+组合根归 `application/assembly`，其进程级会话运行元数据归
+`application/session/state`。当前实测基线：
 
 | 指标 | 当前 |
 |---|---:|
 | `Service` 公开方法 | 0 |
-| `application/core` 直接内部依赖 | 0 |
-| `application/**` 具体 Backend/Middle/Store 依赖包 | 22 |
-| `application/core` 生产文件 | 54 |
-| `application/core` 生产代码 | 7,120 行 |
+| `application/core` 生产文件 / 代码 | 0 / 0 行 |
+| `application/assembly` 直接内部依赖 | 0 |
+| `application/**` 具体 Backend/Middle/Store 依赖包 | 0 |
+| `application/assembly` 生产文件 | 54 |
+| `application/assembly` 生产代码 | 7,092 行 |
 
 已落地领域包：
 
@@ -191,8 +194,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | [`conversation/edit/`](conversation/edit/README.md) | 编辑用户消息与 fork 组件 |
 | [`compat/`](compat/README.md) | 迁移期前端兼容适配器；已承接全部非共享状态的旧入口 |
 
-退出条件不是“文件存在”，而是对应旧 `Service` 入口只保留一行转发、core
-不再定义第二份实现、生产行数净下降，并且 facade 闭包只登记真实依赖。
+退出条件不是“文件存在”：旧 `Service` 入口必须只保留一行转发、assembly
+不得定义第二份领域实现、生产行数只能收紧，并且 facade 闭包只登记真实依赖。
 `Service` 不再暴露业务方法。组件 getter、输入
 facade、订阅、ProviderHistory、PromptLayers、ProjectBoardSink 与 ToolRecord
 公开入口已经退场；
@@ -217,7 +220,7 @@ AP-007 的完整聚合边界、不变量、状态恢复来源和 AP-003 验收�
 
 ### Conversation ChatState 单一写入点（AP-008 首个切片，已实现）
 
-`application/core/chat_turn_state.go` 的 `conversationTurnState` 集中管理
+`application/assembly/chat_turn_state.go` 的 `conversationTurnState` 集中管理
 ChatState 的开始、队列投影、错误、收尾和重置。`SessionUnit.Chat` 仍是唯一
 存储位置；生产代码不得在组件外直接调用 `SetChatState/UpdateChat`。
 
@@ -451,7 +454,7 @@ assistant 推理步骤提取、工具调用 ID/正文配对、legacy last-reason
 `message.delta` 生成迁入
 [`application/conversation/reasoning.go`](conversation/reasoning.go)；
 `runChat` 的 application 组件链编排也迁入 `conversation/turn_runner.go`；
-core 只保留一行兼容 wrapper。Engine ReAct 循环本身仍由 Seele 拥有。
+assembly 只保留一行兼容 wrapper。Engine ReAct 循环本身仍由 Seele 拥有。
 
 ### Policy Application 首批（AP-054 首个切片，已实现）
 
@@ -573,7 +576,7 @@ chat 主循环与 Session release 本身仍未迁入。
 ### History Search 契约化（AP-075）
 
 `SearchHistory` 的公开返回类型改为 `contract/dto.SearchResult`，省略 limit 时把 0
-交给 Backend 的唯一默认/clamp 规则。`application/core` 不再直接 import
+交给 Backend 的唯一默认/clamp 规则。`application/assembly` 不再直接 import
 `kernel/context/seelectx/search`，直接内部依赖预算由 39 收紧到 38。
 
 ### History Search Application（AP-076）
@@ -592,7 +595,7 @@ skill → plugin 的稳定排序。命令、Skill、Plugin 目录仍由各自端
 
 read_tool_result/read_plan 的应用用例从 AP-085 起位于
 [`reference/`](reference/README.md)。该包集中引用别名解析、归档分页、节点结果读取、
-Plan 节点筛选和 JSON 工具适配；Engine、Task、SessionStore 仍通过 core 注入的窄回调
+Plan 节点筛选和 JSON 工具适配；Engine、Task、SessionStore 仍通过 assembly 注入的窄回调
 访问，`Service` 三个兼容入口只保留一行转发。
 
 ### Session Metadata（AP-079）
@@ -652,30 +655,30 @@ Service 对应方法只保留一行转发。
 
 `ToolHookBridge` 的 Seele loop-hook 适配、并发工具稳定 ID、start/complete FIFO
 配对和 metadata-only 诊断迁入
-[`application/execution/toolhooks`](execution/toolhooks/README.md)。core 的
+[`application/execution/toolhooks`](execution/toolhooks/README.md)。assembly 的
 `ToolHookBridge` 只保留 `Bind`/`Hooks` 宿主适配与既有工具投影；
-`application/core/tool_hooks.go` 不再定义第二套 bridge 状态机。
+`application/assembly/tool_hooks.go` 不再定义第二套 bridge 状态机。
 
 ### Tool Record 适配包（AP-115B，已实现）
 
 工具记录的成功/失败累计、失败原因词表、执行单元 stage、`lastSeq` 幂等、
 批量 flush、懒加载、看板错误与 dropped diagnostics 迁入
-[`application/execution/toolrecord`](execution/toolrecord/README.md)。core 的
+[`application/execution/toolrecord`](execution/toolrecord/README.md)。assembly 的
 ToolRecord host adapter 与 subagent/teammate 终态收口位于
-`execution/toolrecord/host.go`；core 只保留 draft 可写与 view session 装配回调。
+`execution/toolrecord/host.go`；assembly 只保留 draft 可写与 view session 装配回调。
 `Accumulator` 与叶子 `Stage` 已归 ToolRecord 包，
 `store/record` 已退场；存储只消费整份快照端口。
 
 ### WorkTable Publisher 包（AP-115C1，已实现）
 
 `worktable.changed` 的 latest-wins 发布器、子代理树 payload 签名去重与关闭尾态
-迁入 [`application/execution/table`](execution/table/README.md)。core 只保留
+迁入 [`application/execution/table`](execution/table/README.md)。assembly 只保留
 过滤后的树快照、session ID 和 EventHub 回调；WorkItem 行/批次/打点判据仍在
 `kernel/worktable`。
 
 该包的输入投影切片进一步承接请求尾部 TraceBlock 的会话过滤、稳定排序、行预算和
-async/teamwork 读法提示；core 只采集不可变输入并调用 `BuildTraceBlock`。
-async/teamwork 生命周期 consumer 也已迁入该包，core 只注入信号通道、refresh、
+async/teamwork 读法提示；assembly 只采集不可变输入并调用 `BuildTraceBlock`。
+async/teamwork 生命周期 consumer 也已迁入该包，assembly 只注入信号通道、refresh、
 completion trigger、safe-call 和 stop 控制。
 subagent/task consumer 与三路 start-once 生命周期同样由该包编排。
 WorkItem 行、批次和 task-change 依赖补齐也已统一委托 `BuildRows` /
@@ -685,7 +688,7 @@ WorkItem 行、批次和 task-change 依赖补齐也已统一委托 `BuildRows` 
 
 help、clear、model、history、trace、sessions、diag、exit 以及
 compact/new/resume/fork/plugin/effort/permission 的注册与参数适配迁入
-[`application/input/command`](input/command/README.md)。core 只保留 mutation 命令
+[`application/input/command`](input/command/README.md)。assembly 只保留 mutation 命令
 的 host callbacks；命令 Router 仍由 `backend/engine/input` 持有。
 
 ### Session Unload 应用编排（AP-010 首个切片，已实现）
@@ -737,38 +740,38 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 | [`observability/`](observability/README.md) | 性能指标输入装配。 |
 | [`conversation/search/`](conversation/search/README.md) | 历史检索工具适配。 |
 | [`console/`](../console/README.md) | backend 诊断前端共享的控制台输出与命令解析（已顶层化为 `console/`，与 gui/tui 平级）。 |
-| [`core/`](core/README.md) | Service 用例、聊天状态机、命令、session/project 作用域和工具事件。 |
+| [`assembly/`](assembly/README.md) | Service 用例、聊天状态机、命令、session/project 作用域和工具事件。 |
 
 契约层已于 2026-10-16 按
 [`docs/2026-10-15-architecture-reshape`](../docs/2026-10-15-architecture-reshape/plan.md) §2.3 的 M1-A
 物理归位到**顶层** [`contract/`](../contract/README.md) 与 [`contract/dto/`](../contract/dto/README.md)：
 它不再是本目录的子包，本门面改为单向依赖它。
 
-### `core` 叶子包
+### `assembly` 叶子包
 
-`core` 根包按文件前缀分卷（见 [`core/README.md`](core/README.md) 的「分卷 README」导航），
+`assembly` 根包按文件前缀分卷（见 [`assembly/README.md`](assembly/README.md) 的「分卷 README」导航），
 跨域共享与可独立测试的能力下沉为叶子包：
 
 | 目录 | 职责 |
 |---|---|
-| [`../backend/multiagent/team/`](../backend/multiagent/team/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）；原 `core/agentteam/`，M5-R8b 归位多代理板块（包名 `team`）。 |
-| [`../kernel/react/`](../kernel/react/README.md) | 聊天流式输出叶子域：`StreamBatcher` 与 `VisibleOutputStream`（M5-R7 迁出 `core/chat/`，包名不变）。 |
-| [`../kernel/contextcontrol/`](../kernel/contextcontrol/README.md) | `seele.yaml` window 配置段与窗口策略类型装载（M5-R7 迁出 `core/context_control/`，包名不变）。 |
-| [`../kernel/context/`](../kernel/context/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化（M5-R7 迁出 `core/context_runtime/`，包名不变）。 |
-| [`kernel/goal/`](../kernel/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化（M5-R8a 从 `application/core/goal/` 归位）。 |
-<!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
-| [`../backend/engine/input/`](../backend/engine/input/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表（M5-R7 迁出 `core/input_router/`，包名不变）。 |
-| [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
+| [`../backend/multiagent/team/`](../backend/multiagent/team/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）；原 `assembly/agentteam/`，M5-R8b 归位多代理板块（包名 `team`）。 |
+| [`../kernel/react/`](../kernel/react/README.md) | 聊天流式输出叶子域：`StreamBatcher` 与 `VisibleOutputStream`（M5-R7 迁出 `assembly/chat/`，包名不变）。 |
+| [`../kernel/contextcontrol/`](../kernel/contextcontrol/README.md) | `seele.yaml` window 配置段与窗口策略类型装载（M5-R7 迁出 `assembly/context_control/`，包名不变）。 |
+| [`../kernel/context/`](../kernel/context/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化（M5-R7 迁出 `assembly/context_runtime/`，包名不变）。 |
+| [`kernel/goal/`](../kernel/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化（M5-R8a 从 `application/assembly/goal/` 归位）。 |
+<!-- assembly/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
+| [`../backend/engine/input/`](../backend/engine/input/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表（M5-R7 迁出 `assembly/input_router/`，包名不变）。 |
+| [`../kernel/state/`](../kernel/state/README.md) | assembly 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/assembly/internal/state/`）。 |
 | [`../kernel/prompt/`](../kernel/prompt/README.md) | system prompt 层组装、资源与引擎同步（前缀缓存友好）。 |
-| [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
-| [`../kernel/session/`](../kernel/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
+| [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `assembly/resume/`，M5-R8b 归位多代理板块。 |
+| [`../kernel/session/`](../kernel/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `assembly/session_runtime/`，包名不变）。 |
 | [`execution/subagentview/`](execution/subagentview/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（EP-073 迁入 Application）。 |
-| [`../kernel/task/`](../kernel/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
+| [`../kernel/task/`](../kernel/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `assembly/task_context/`，包名不变）。 |
 | [`session/state/`](session/state/README.md) | SessionUnit、Domain actor、Chat/Queue/View 与 DeepCopy 的唯一状态所有者。 |
 | [`session/viewstate/`](session/viewstate/README.md) | 用户可见 Snapshot 读写、revision 与事件发布。 |
 | [`../kernel/worktable/`](../kernel/worktable/README.md) | 工作表格纯投影与增量事件中枢（CSP 汇聚、latest-wins、有界背压）（EP-074 中立 owner）。 |
 
-`core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
+`assembly/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
 [`kernel/limit/`](../kernel/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
 同一处）；
 `application/search` 已于 2026-08-22 迁至 `backend/tool/search/`（后端能力归位）；
@@ -808,7 +811,7 @@ flowchart TB
     ROOT["main.go 组合根"]
     FAC["application 门面<br/>application.go 别名 + 薄转发"]
 
-    subgraph CORE["application/core"]
+    subgraph CORE["application/assembly"]
         SVC["Service 用例门面"]
         DOM["域协调器<br/>kernel/session"]
         LEAF["叶子包<br/>goal · agentteam · resume"]
@@ -897,13 +900,13 @@ sequenceDiagram
     participant H as 组合根 / 测试 harness
     participant A as wiring.New
     participant F as GUI / TUI
-    participant S as core.Service
+    participant S as assembly.Service
     participant P as 端口实现
     participant E as kernel/event.Hub
 
     H->>A: New(Dependencies)
     A->>A: 校验必需端口 + 嵌入 prompt assets
-    A-->>H: *core.Service 或 error
+    A-->>H: *assembly.Service 或 error
 
     F->>S: Snapshot()
     S-->>F: 权威 Snapshot
@@ -924,7 +927,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["用例<br/>core.Service"]
+    ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["用例<br/>assembly.Service"]
     USE --> TX["跨域事务编排"]
     TX --> DOM["域协调器<br/>kernel/session"]
     DOM --> PORT["Ports<br/>Engine / Runtime / Store / Workspace"]
@@ -939,7 +942,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     FE["TUI / GUI / root adapters"] --> FAC["application facade"]
-    FAC --> CORE["application/core"]
+    FAC --> CORE["application/assembly"]
     CORE --> SIDE["contract + model + event + approval + prompt"]
     IMPL["root adapters / seelebridge / store"] -.->|实现端口| SIDE
 ```
@@ -948,7 +951,7 @@ flowchart LR
 
 ## 核心运行流
 
-1. 组合根调用 `wiring.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*core.Service, error)`；构造失败不会终止进程。
+1. 组合根调用 `wiring.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*assembly.Service, error)`；构造失败不会终止进程。
 2. 前端调用 `Submit`、`ResolveInteraction`、`BindWorkspace` 等用例。
 3. Service 更新权威 Snapshot，并通过 EventHub 发布增量事件。
 4. TUI/GUI 先读取 Snapshot，再应用连续 Event；出现序列缺口时重新同步 Snapshot。
@@ -970,4 +973,4 @@ go test ./application/... -race -count=1   # 需要 CGO/C toolchain
 go test ./e2e/ -run 'Facade' -count=1      # 五组窄接口的 4 条机械断言（M5-R10a）
 ```
 
-集成入口主要位于 `core/service_test.go`、`core/command_registry_test.go` 和 `wiring/adapters/adapters_test.go`。
+集成入口主要位于 `assembly/service_test.go`、`assembly/command_registry_test.go` 和 `wiring/adapters/adapters_test.go`。

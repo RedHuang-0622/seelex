@@ -2,8 +2,8 @@
 // contains 过滤 → offset/limit 分页 → UTF-8 边界对齐，以及模型面 JSON 编码。
 //
 // 落点沿革：2026-10-16 随 M5-R-tool-reference **接收者转移**从
-// `application/core/reference_tools.go` 归位（plan §2.6 的 `reference_tools.go` → `backend/tool/reference/`）。
-// 门面（`application/core`）仍持有 handler 接线与"从哪读"的编排：
+// `application/assembly/reference_tools.go` 归位（plan §2.6 的 `reference_tools.go` → `backend/tool/reference/`）。
+// 门面（`application/assembly`）仍持有 handler 接线与"从哪读"的编排：
 // pending（内存态）→ 会话落盘存储 → 引擎桥的节点归档；本包只管**解析与分页判据**。
 //
 // 一条口径：GUI 的 `ToolResultContent` 与模型面 `read_tool_result` 共用 `BuildPage`，

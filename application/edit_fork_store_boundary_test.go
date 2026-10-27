@@ -45,7 +45,7 @@ func TestEditForkProductionFilesUseProtocolEvents(t *testing.T) {
 }
 
 func TestQueueRecoveryCoreUsesContractDTO(t *testing.T) {
-	path := filepath.Join(sourceApplicationDir(t), "core", "session_queue_recover.go")
+	path := filepath.Join(sourceApplicationDir(t), "assembly", "session_queue_recover.go")
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if err != nil {
 		t.Fatalf("parse core/session_queue_recover.go: %v", err)

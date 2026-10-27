@@ -8,7 +8,7 @@
 本脚本只写**已定案树**（搬迁中/收口中的树由各自切片负责，见契约 §3.1）：
 
 * 单 README 包（`## 生态位` + 索引）：`SETTLED_TREES` 下按目录自动发现；
-* 分卷包（根/大包，文件数 > 15，按文件前缀分卷）：`application/core`、`test/`、`store/`；
+* 分卷包（根/大包，文件数 > 15，按文件前缀分卷）：`application/assembly`、`test/`、`store/`；
 * 树外已登记包：`kernel/state`、`middle/protocol/{model,event}`、`middle/view{,/board,/boardtest}`。
 
 脚本名保持不变：仓库既有 README 的「刷新方式」行都指向
@@ -72,7 +72,7 @@ EXTRA_PACKAGES = (
 )
 
 # 「搬迁中/收口中」的延后树在 2026-10-17 已全部清空：M5 的搬迁与收口片入库后工作树静默，
-# 原先登记的 52 个延后包（`application/core`、`backend/{engine,tool}`、`middle`）由本脚本
+# 原先登记的 52 个延后包（`application/assembly`、`backend/{engine,tool}`、`middle`）由本脚本
 # 一次性刷新完毕（见 `docs/2026-10-15-architecture-reshape/m5-record.md` §29 的收尾记录）。
 # 判据与实现仍是同一份：全仓包一律按 `--check` 逐字比对，没有再需要跳过的树。
 DEFERRED_TREES = ()
@@ -187,7 +187,7 @@ STORE_VOLUMES = (
 )
 
 VOLUME_PACKAGES = (
-    VolumePackage("application/core", "# core/{name}（根包分卷）", ROOT_GROUPS, "strip-index", keep_prose=True, table="ROOT_GROUPS"),
+    VolumePackage("application/assembly", "# assembly/{name}（根包分卷）", ROOT_GROUPS, "strip-index", keep_prose=True, table="ROOT_GROUPS"),
     VolumePackage("test", "# test/{name}（集成用例分卷）", TEST_VOLUMES, "navigation", table="TEST_VOLUMES"),
     VolumePackage("store", "# store/{name}（根包分卷）", STORE_VOLUMES, "untouched", fallback_volume="misc", table="STORE_VOLUMES"),
 )

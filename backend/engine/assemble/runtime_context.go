@@ -160,7 +160,7 @@ func (r *Runtime) seelexCompressor() seelectx.Compressor {
 
 // seelexController 构造控制器：回合内不压缩对话，只做超大工具结果的兜底归档。
 //
-// 2026-09-30 起压缩整条归装配层（application/core/context_runtime，见
+// 2026-09-30 起压缩整条归装配层（application/assembly/context_runtime，见
 // MainCompactionDAG）：压缩是上下文压缩流程里产出元数据的一步，折完必须由模型按
 // 章节写出读后感；装配层在压缩那一刻手里握着上一次真实请求的三样原件（coordinator
 // 的 systemPrompt/existing/tools），而控制器只拿得到**装配前**的引擎工作历史
@@ -210,7 +210,7 @@ func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummariz
 	return contextruntime.NewCompactionSummarizer(r.completer, r.limits.ContextCompactionSummary.Enabled)
 }
 
-// MainCompactionDAG 返回**装配层压缩**（application/core/context_runtime，回合
+// MainCompactionDAG 返回**装配层压缩**（application/assembly/context_runtime，回合
 // 开始前那条路径）用的压缩 DAG 执行器。
 //
 // 与 seelexController 里那份的差别只有一处、但很关键：这份**注入 Summarizer**。

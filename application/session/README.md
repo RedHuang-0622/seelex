@@ -6,7 +6,7 @@
 Conversation/Backend，但会话持有的 ChatState、Queue、Approval 引用、View 指针和
 revision 由本包的 `state` / `viewstate` 子包唯一拥有。
 
-主要调用方：`application/core`、`application/conversation` 与 Wiring 装配；
+主要调用方：`application/assembly`、`application/conversation` 与 Wiring 装配；
 Middle 只提供纯切换、历史和驻留策略。
 
 ## 职责
@@ -14,13 +14,13 @@ Middle 只提供纯切换、历史和驻留策略。
 - 提供 Session 聚合状态、Snapshot 投影以及 Meta、SSH、Lifecycle、Archive、
   Delete、Draft、Resume、Fork、Interaction 与 Release。
 - 保持 Application 入站行为与 DTO 身份稳定。
-- 隔离 Session 用例，避免继续扩大 `application/core`。
+- 隔离 Session 用例，避免继续扩大 `application/assembly`。
 
 ## 非职责
 
 - 不执行 Agent loop、工具、引擎流或持久化事务。
 - 不实现存储、权限、工作区或 Runtime 规则。
-- 不反向导入 `application/core`。
+- 不反向导入 `application/assembly`。
 
 ## 文件结构
 
@@ -80,7 +80,7 @@ session 的 admission 顺序，队列和 Chat 执行仍由 Conversation/Session 
 
 ## 数据流
 
-`application/core` / `Frontend` → `application/session` 用例 →
+`application/assembly` / `Frontend` → `application/session` 用例 →
 `LifecycleApplication` / `ArchiveApplication` / `DeleteApplication` /
 `ReleaseApplication` → 注入的窄端口 → metadata、Session、Workspace、Engine、
 Runtime 或存储的既有唯一实现。
@@ -92,7 +92,7 @@ Runtime 或存储的既有唯一实现。
 residency 判据经 `ResidencyPort` 注入，由 `wiring/adapters.NewResidencyPort`
 提供 Middle 实现；本包不 import `middle/residency`。
 Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 import `store`。
-禁止依赖 `application/core`、backend 具体实现或 Middle 可变会话状态。
+禁止依赖 `application/assembly`、backend 具体实现或 Middle 可变会话状态。
 
 ## 并发与错误
 
@@ -101,7 +101,7 @@ Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 imp
 - 写入后的目录刷新由注入的 `switch.MetaDeps.Wake` 负责。
 - SSH 写入失败不得留下部分环境集合；固定环境不得被后续调用改写。
 - Release 在任何具体回收动作前重新检查受保护集，确认不过时原样返回 `nil`。
-- Release 的慢 flush 与引擎卸载不持有 `application/core` 的共享锁；锁只由注入
+- Release 的慢 flush 与引擎卸载不持有 `application/assembly` 的共享锁；锁只由注入
   回调在各自的短临界区内获取。
 
 ## 扩展方式
@@ -121,7 +121,7 @@ Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 imp
 
 ```text
 go test ./application/session/... -count=1
-go test ./application/core -run 'SessionMeta|SessionSSH|Release' -count=1
+go test ./application/assembly -run 'SessionMeta|SessionSSH|Release' -count=1
 go test ./application/... -count=1
 go test -race ./application/... -count=1
 ```

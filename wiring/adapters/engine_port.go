@@ -89,7 +89,7 @@ type EnginePort struct {
 	nodeStageLogs func(nodeID string) []dto.NodeStageLog
 	// releaseSessionBundle 是桥侧会话本体释放面（assemble.Runtime.ReleaseSession）：
 	// 会话释放面把框架 Session + 会话上下文存储 + 主历史一起放掉（见
-	// application/core/session_release.go）。nil = 未装配（legacy 引擎/测试）。
+	// application/assembly/session_release.go）。nil = 未装配（legacy 引擎/测试）。
 	releaseSessionBundle func(sessionID string) bool
 }
 
@@ -239,7 +239,7 @@ func (port *EnginePort) runHandoff(handoff historyHandoff) {
 // 每台引擎自带 ReAct 循环，因此"新会话 = 新循环"而不是"旧循环换一个逻辑 ID"。
 type ReactorEngineFactory func(sessionID string) ReactorEngine
 
-// 编译期断言：application/core 用类型断言探测的每一个窄可选端口，引擎端口都必须
+// 编译期断言：application/assembly 用类型断言探测的每一个窄可选端口，引擎端口都必须
 // 满足。少一个方法这里就编译不过——不留"运行时静默 false"（定时任务声明了循环
 // 次数却静默按进程默认值跑，正是那种最难查的读数与行为相反）。
 var _ contract.SessionLoopLimitPort = (*EnginePort)(nil)
@@ -429,7 +429,7 @@ func (port *EnginePort) HasSession(sessionID string) bool {
 }
 
 // ReleaseSessionBundle 释放指定会话的**桥侧会话本体**（框架 Session + 会话上下文
-// 存储 + 主历史；见 application/core/session_release.go 的释放清单）。
+// 存储 + 主历史；见 application/assembly/session_release.go 的释放清单）。
 //
 // 为什么端口已经 UnloadSession 了还要它：UnloadSession 只丢本端口的引擎引用，
 // 桥的 bundles 注册表是另一个持有者（只增不删）——不叫它，"驱逐"在内存上等于

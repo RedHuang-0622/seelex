@@ -3,9 +3,9 @@
 ## 生态位
 
 `application/execution/toolhooks` 把 Seele loop hook 适配成 Application 的工具投影回调。
-主要调用方是 [`application/core`](../../core/README-tool.md) 的
+主要调用方是 [`application/assembly`](../../assembly/README-tool.md) 的
 `ToolHookBridge` 宿主适配；具体工具消息、Task transcript、历史修复和 Runtime 发布仍由
-core Host adapter 提供。
+assembly Host adapter 提供。
 
 ## 职责
 
@@ -21,7 +21,7 @@ core Host adapter 提供。
 - 不拥有 Engine/Task/Runtime；
 - 不判断工具权限、不执行工具、不生成用户可见消息；
 - 不包含工具结果截断、worktable 同步或事件发布；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -62,7 +62,7 @@ type Deps struct {
 
 - 允许依赖 `github.com/RedHuang-0622/Seele/session` 的 hook DTO；
 - 只通过 `Deps` 回调依赖 Application 宿主；
-- 禁止依赖 `application/core`、具体 Engine、Task、Store 或 frontend。
+- 禁止依赖 `application/assembly`、具体 Engine、Task、Store 或 frontend。
 
 ## 并发与错误语义
 
@@ -82,5 +82,5 @@ type Deps struct {
 
 ```text
 go test ./application/execution/toolhooks -count=1
-go test ./application/core -run 'ToolHook|HandleTool|IterationComplete' -count=1
+go test ./application/assembly -run 'ToolHook|HandleTool|IterationComplete' -count=1
 ```

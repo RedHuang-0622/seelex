@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/policy` 承载角色账号、权限向量、继承规则、SSH 路径白名单以及
-permission/effort/plugin 切换用例。主要调用方是 `application/core` 的兼容
+permission/effort/plugin 切换用例。主要调用方是 `application/assembly` 的兼容
 Service、GUI Bridge 和会话装配路径。
 
 本包不拥有配置事实：会话级登记、项目级角色默认、Runtime 账号路由和五层权限
@@ -24,7 +24,7 @@ Service、GUI Bridge 和会话装配路径。
 - 不缓存第二份权限向量或角色账号。
 - 不解析五层优先级；该判据只属于 `contract/dto`。
 - 不直接访问 SessionStore、Runtime、配置文件或 GUI。
-- 不导入 `application/core`，也不持有完整 `Service`。
+- 不导入 `application/assembly`，也不持有完整 `Service`。
 
 ## 文件结构
 
@@ -64,7 +64,7 @@ Service compat -> application/policy.RoleApplication -> injected ports
 ## 依赖方向
 
 允许依赖 `contract`、`contract/dto`、`contract/protocol` 与
-`application/session/viewstate` 的只读投影形状。禁止依赖 `application/core`、具体
+`application/session/viewstate` 的只读投影形状。禁止依赖 `application/assembly`、具体
 `backend/**` 实现、`gui/**` 或 `tui/**`。
 
 ## 并发与错误
@@ -90,7 +90,7 @@ Service compat -> application/policy.RoleApplication -> injected ports
 
 ```text
 go test ./application/policy/... -count=1
-go test ./application/core -run Role -count=1
+go test ./application/assembly -run Role -count=1
 go test ./application/... -count=1
 go test -race ./application/... -count=1
 ```

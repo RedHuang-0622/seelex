@@ -1,8 +1,8 @@
-// Package history 是中间层"历史分页"的落点（plan §2.4：`application/core/session_history.go`
+// Package history 是中间层"历史分页"的落点（plan §2.4：`application/assembly/session_history.go`
 // → `middle/switch/history/`）。当前落进来的是**窗口装配判据**：一页读回的历史怎么装进可见窗口
 // ——按**行身份**（接缝）拼接、窗口边界与起点推算。
 //
-// 落点沿革：2026-10-16 随 M5-R6-history-page **接收者转移**从 `application/core/session_history.go`
+// 落点沿革：2026-10-16 随 M5-R6-history-page **接收者转移**从 `application/assembly/session_history.go`
 // 归位；"从哪读"（冷读面 / 分页读回 / 会话存储端口）与写快照仍由宿主负责。
 //
 // 依赖纪律：本包只依赖 `middle/protocol/model`（消息形状）与 `contract/protocol`

@@ -10,20 +10,20 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 
 | 调用方 | 用法 |
 |---|---|
-| `application/core` 经 `application/policy` 的 identity facade | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` / Knobs 一行转发（本包是唯一实现处） |
+| `application/assembly` 经 `application/policy` 的 identity facade | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` / Knobs 一行转发（本包是唯一实现处） |
 | `seelebridge`（装配 Runtime、`internal/config`） | 启动期 `LoadLimits` 读数 + `Apply` 注入；运行期按构造参数注入生效值 |
 | `seelexctx`（`ContextWindowPolicy` / `ToolResultProcessor`） | 按**构造参数**消费生效值，不自己持有第二份 |
 | `main.go`、[overlay/](../../backend/limit/overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`，已移除） |
 
 落点沿革：`limits.go` 与 `active.go` 于 2026-10-16 随架构重排 M2-A 从
-原 `seelexctx/limits.go`、`application/core/internal/limits/`（两处旧文件已移除）**物理归位**到此处，
+原 `seelexctx/limits.go`、`application/assembly/internal/limits/`（两处旧文件已移除）**物理归位**到此处，
 行为零变化；迁移口径见
 [plan.md](../../docs/2026-10-15-architecture-reshape/plan.md) §2.8。
 
-`knobs.go` 于 2026-10-16 随 M5-R-limitb **接收者转移**从 `application/core/service_knobs.go`
+`knobs.go` 于 2026-10-16 随 M5-R-limitb **接收者转移**从 `application/assembly/service_knobs.go`
 归位：两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）
 都在这里，宿主能力经 `KnobsHost` 注入（门面只留一行转发 + 适配，见
-[`application/core/service_knobs.go`](../../application/core/service_knobs.go)）。
+[`application/assembly/service_knobs.go`](../../application/assembly/service_knobs.go)）。
 
 ## 职责与非职责
 
@@ -67,7 +67,7 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
 形状层，前端与 limit 都消费它；把它搬进 `kernel/limit/tier` 会让契约层与前端反向依赖 backend
 包，违反 plan §1.2 的依赖方向，**这条前提至今成立**。
 
-2026-10-16 M5-R-limitc 按 plan §2.8 收口了当时**有意延后**的那部分：`application/core` 里
+2026-10-16 M5-R-limitc 按 plan §2.8 收口了当时**有意延后**的那部分：`application/assembly` 里
 "生效档位解析 + 会话级持久化的读写/落地 + 视图快照重算"的**口径**（原
 `session_permission_tier.go`、`session_scope.go`、`service_interaction.go` 的三处散落实现）现在
 归位 `tier/`，宿主面（会话槽、视图锁、执行门、审批面、进程默认档位）经 `Deps` 的窄端口注入；
@@ -87,7 +87,7 @@ M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；
 | `tier/` | 「主会话权限档位」的落点：生效档位解析 + 会话级持久化编排 + 执行门/审批面/视图快照的落地口径（宿主面经 `Deps` 注入，见 [`tier/README.md`](tier/README.md)）。 |
 | `limits.go` | `limits` 段类型（`Limits` / `SessionStorageLimits` / `AsyncExecLimits` / `ProjectBoardLimits` / `CompactionSummaryLimits` / `TeamLimits` / `RuntimeLimits` / `PluginLimits`）、出厂默认、`LoadLimits` 与启动期校验、窗口判据。 |
 | `active.go` | 进程级生效快照：`active atomic.Pointer[Limits]` + `Apply` / `Get` / `SetSessionReleaseWindow`。 |
-| `knobs.go` | 两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）；宿主能力经 `KnobsHost` 注入（M5-R-limitb 从 `application/core` 接收者转移而来）。 |
+| `knobs.go` | 两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）；宿主能力经 `KnobsHost` 注入（M5-R-limitb 从 `application/assembly` 接收者转移而来）。 |
 | `knobs_test.go` | 上述组件的**宿主端口契约**用例（守卫返回视图会话 ID、拉条读数的档位回退、改上限在宿主锁内一次写完、下发即发布、无端口 no-op、租约一次性）。 |
 | `limits_test.go` | 默认档、部分覆盖、负值/比例越界/`soft >= hard` 拒绝、厚摘要"缺省即开"、`search_timeout` 别名。 |
 | `limits_runtime_test.go` | `limits.runtime.allow_multi_process` 两臂 + 出厂档单实例。 |
@@ -121,7 +121,7 @@ flowchart LR
     DEF --> APPLY["limit.Apply<br/>整份原子发布"]
     APPLY --> PTR["atomic.Pointer 快照"]
     PTR --> GET["limit.Get<br/>读到某个完整版本"]
-    GET --> FACE["application/core 门面"]
+    GET --> FACE["application/assembly 门面"]
     GET --> BRIDGE["seelebridge 装配"]
     GET --> CTX["seelexctx 构造参数"]
     PTR -.->|禁止改成普通包级变量| RACE["-race 数据竞争"]

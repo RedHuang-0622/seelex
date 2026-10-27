@@ -225,7 +225,7 @@ func (state *PermissionGate) employeeVector(sessionID string, identity employeeI
 		}
 	}
 	// 2) (会话, 角色) 的生效向量：登记优先、缺失按四级链路解析（判据在
-	// application/core + contract/dto；本包只消费结论）。
+	// application/assembly + contract/dto；本包只消费结论）。
 	state.mu.RLock()
 	resolver := state.RolePermissionVector
 	state.mu.RUnlock()

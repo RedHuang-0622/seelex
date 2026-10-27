@@ -140,7 +140,7 @@ func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
 // Bridge 只以 Snapshot().Session.ID 订阅一次；会话切换（Resume/Activate/
 // Fork/New）成功且视图变化后重建订阅（切换即重订阅）。中继只做透传，
 // 投递序号由 Hub 赋值。路由正确性见
-// application/core/subscribe_session_test.go。
+// application/assembly/subscribe_session_test.go。
 func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
 	app.snapshotMu.Lock()

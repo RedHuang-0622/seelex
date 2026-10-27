@@ -22,8 +22,8 @@ func TestContextCompactionApplicationIsExtractedFromCore(t *testing.T) {
 	if file.Name.Name != "context" {
 		t.Fatalf("application/conversation/context package = %q", file.Name.Name)
 	}
-	coreFile := filepath.Join(applicationDir, "core", "context_compact.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "context_compact.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/context_compact.go: %v", err)
 	}

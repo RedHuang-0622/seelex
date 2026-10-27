@@ -5,7 +5,7 @@ package residency
 // 名下的后台命令 → 按项目范围刷新目录。
 //
 // 落点沿革：2026-10-16 随 **M5-R6-archive** 接收者转移从
-// `application/core/archive_session.go` 归位（plan §2.4 的 `archive_session.go` → `middle/residency/`）；
+// `application/assembly/archive_session.go` 归位（plan §2.4 的 `archive_session.go` → `middle/residency/`）；
 // 门面只剩"把宿主读数与落点装成端口"的装配缝 + 一行转发。
 //
 // 依赖纪律：本包只吃 `middle/protocol/model` 与标准库——会话单元驻留标记、引擎实例、
@@ -23,7 +23,7 @@ import (
 
 // ErrArchiveNotFound 表示目标会话不存在或 record 缺失/版本不兼容。
 //
-// 宿主以 `application/core.ErrSessionNotFoundArchive` 这个别名对外保留迁移前的名字
+// 宿主以 `application/assembly.ErrSessionNotFoundArchive` 这个别名对外保留迁移前的名字
 // （同一个错误值，`errors.Is` 两个名字都成立）。
 var ErrArchiveNotFound = contract.ErrSessionNotFoundArchive
 

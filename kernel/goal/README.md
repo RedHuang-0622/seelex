@@ -4,7 +4,7 @@
 
 `kernel/goal/` 是**目标栈与收口审计**的领域实现：一个会话可以压入多层
 目标（嵌套目标压栈、下层转 paused），主代理用 `goal_begin/goal_update/goal_done`
-推进与收口。主要调用方：`application/core` 的 goal 协调器（按会话持有一份
+推进与收口。主要调用方：`application/assembly` 的 goal 协调器（按会话持有一份
 `Controller`）、`wiring/registry`（goal 工具注册）与 TUI/GUI 的目标看板。
 
 **TL/ADVISOR 评审环已删除（2026-10-17 用户裁决）**：不再有 b 回合、终态 gate、
@@ -38,7 +38,7 @@ TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamw
 
 ## 数据流
 
-工具/门面 → `application/core` goal 协调器 → `Controller`（内存栈 + 审计）→
+工具/门面 → `application/assembly` goal 协调器 → `Controller`（内存栈 + 审计）→
 `ContextStateStore`（会话第五栈）→ 看板存档 → 运行时投影（`GoalGovernanceView`）。
 
 ## 依赖方向
@@ -66,7 +66,7 @@ TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamw
 
 ```text
 go test ./kernel/goal/ -count=1
-go test ./application/core/ -run Goal -count=1
+go test ./application/assembly/ -run Goal -count=1
 ```
 
 ## 文件与函数索引

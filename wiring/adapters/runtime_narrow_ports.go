@@ -4,7 +4,7 @@ package adapters
 //
 // 为什么需要这个文件（2026-10-02 现场）：
 //
-// application/core 对"不是每个后端都有的能力"一律用**类型断言**探测
+// application/assembly 对"不是每个后端都有的能力"一律用**类型断言**探测
 // （见 contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 的
 // 注释："有就有、没有就是没装配"）。这些断言的接收者是 `Deps.Runtime`，而组合根
 // （wiring/bootstrap）注入的**不是** *assemble.Runtime，而是本包的 RuntimePort：
@@ -29,9 +29,9 @@ package adapters
 // board_team.json（团队侧经 wiring/bootstrap 的 SetTeamworkBackend 直接走 Runtime，不经过
 // 本包装，所以那条链路是通的），却**没有** board_goal.json。
 //
-// 纪律（把清单变成编译期事实）：application/core 里新增一个窄可选端口断言时，
+// 纪律（把清单变成编译期事实）：application/assembly 里新增一个窄可选端口断言时，
 // 必须在本文件补一行转发 + 一行 `var _` 断言。TestRuntimePortForwardsEveryNarrowPort
-// 是一次性闸门：application/core 里出现新的 `Deps.Runtime.(` 断言而本文件没同步时
+// 是一次性闸门：application/assembly 里出现新的 `Deps.Runtime.(` 断言而本文件没同步时
 // 它会红，并指名道姓要求补转发。
 
 import (
@@ -56,7 +56,7 @@ func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoa
 	return port.Runtime.TeamworkBoardSnapshot(sessionID)
 }
 
-// SessionContextStoreFor 实现 application/core 的会话上下文存储取用面：goal 第五栈
+// SessionContextStoreFor 实现 application/assembly 的会话上下文存储取用面：goal 第五栈
 // （以及绑定它的两块看板存档面）经它按会话注入。未实例化/未绑定 → nil，goal 域退回
 // 内存态（不报错、不阻断）——那是能力缺失的降级，不是错误。
 func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore {
@@ -137,7 +137,7 @@ func accountBalanceDTO(name string, balance account.Balance, fetchedAt time.Time
 	return result
 }
 
-// contract.AccountBalancePort（application/core/service_account.go 的 AccountBalance）：
+// contract.AccountBalancePort（application/assembly/service_account.go 的 AccountBalance）：
 // 逐账号查余额的转发面。
 var _ contract.AccountBalancePort = RuntimePort{}
 var _ contract.AccountRoleSelectionPort = RuntimePort{}
@@ -164,7 +164,7 @@ func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit 
 }
 
 // ViewAgentConversation / ChatAgentConversation / RecoverAgentConversation 实现
-// contract.AgentConversationPort。application/core 通过类型断言选择 subagent /
+// contract.AgentConversationPort。application/assembly 通过类型断言选择 subagent /
 // teammate 的统一会话适配器；漏接时这两类窗口会报"adapter not configured"。
 func (port RuntimePort) ViewAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
 	if port.Runtime == nil {
@@ -224,7 +224,7 @@ func (port RuntimePort) TeamworkJobEvents() <-chan struct{} {
 	return port.Runtime.TeamworkJobEvents()
 }
 
-// WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
+// WithPluginAssembly 实现 application/assembly 的「按轮插件装配」探测点（定时任务：
 // 任务声明的插件集合带进这一轮执行 ctx）。漏了它**不会报错**：core 侧的断言失败
 // ⇒ 定时任务的插件装配整块消失（任务照跑，但用的是宿主全局激活的那个插件），
 // 而且面板上还显示着"装配了 cad"——读数与行为相反，比不装配更难查。
@@ -248,7 +248,7 @@ func (port RuntimePort) SetSessionReasoningEffort(effort string) int {
 	return port.Runtime.SetSessionReasoningEffort(effort)
 }
 
-// TeamworkPlanFor 实现 application/core 的 `TeamworkPlanSource` 窄可选端口
+// TeamworkPlanFor 实现 application/assembly 的 `TeamworkPlanSource` 窄可选端口
 // （project_board.go 的类型断言）：按会话取 teamwork 计划，未装配 / 该会话没有
 // 计划 ⇒ false。
 //
@@ -263,7 +263,7 @@ func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, b
 	return port.Runtime.TeamworkPlanFor(sessionID)
 }
 
-// 编译期断言：application/core / view_state 用类型断言探测的每一个窄可选端口，
+// 编译期断言：application/assembly / view_state 用类型断言探测的每一个窄可选端口，
 // 生产包装都必须满足。少一个方法，这里就编译不过——不留"运行时静默 false"。
 var (
 	_ contract.TeamworkBoardProjection    = RuntimePort{}
@@ -273,7 +273,7 @@ var (
 	_ contract.TeammateInspectionPort     = RuntimePort{}
 	_ contract.TeamworkJobCompletion      = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
-	// contract.ReasoningEffortPort（application/core/session_scope.go 的
+	// contract.ReasoningEffortPort（application/assembly/session_scope.go 的
 	// syncSessionReasoningEffort）：effort 档位 → wire 思考强度的下发口。
 	_ contract.ReasoningEffortPort = RuntimePort{}
 	// compactionReadbackProbe（context_runtime/compaction_index.go，包内命名接口）：

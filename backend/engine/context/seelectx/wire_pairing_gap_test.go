@@ -25,7 +25,7 @@ import (
 //  2. 声明里带空 ID / 行内重复 ID 的调用。旧口径判"空 ID 无法配对，链保持原样"，
 //     而 provider 是按宣告条数数回执的，这类调用永远配不上。
 //
-// 应用侧孪生实现同步修（application/core/context_runtime
+// 应用侧孪生实现同步修（application/assembly/context_runtime
 // RepairInterruptedToolChains + history_pairing_gap_test.go）。
 
 // TestPrepareReplaceHistoryPairsRepeatedDeclarationOccurrence：ReplaceHistory

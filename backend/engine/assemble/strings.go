@@ -8,7 +8,7 @@ package assemble
 // 域文件时又被连带删掉。
 //
 // 与仓库里别处同名助手的**不并**说明（AGENTS §8.2：判据相同才并）：本仓另有四处
-// `truncateRunes`（`backend/tool/registry`、`kernel/task`、`application/core`、
+// `truncateRunes`（`backend/tool/registry`、`kernel/task`、`application/assembly`、
 // `backend/engine/context/seelectx`）与两处 `stringPtr`（`backend/tool/node`、
 // `backend/engine/context/seelectx` 测试），判据**并不相同**——有没有省略号、要不要
 // TrimSpace、`<= 0` 是返回空串还是原样返回，各处都不一样。它们是"长得像"而不是

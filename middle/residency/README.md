@@ -21,15 +21,15 @@
 `session_cold_read` / `session_input_index` / `window` 随 R6 续做搬入；两层的**受保护集读数**
 （要读会话单元状态与引擎桥）留在宿主，只把判据送进来。
 
-主要调用方：`application/core`（`snapshot_budget.go` 的 `boundToolResultForSnapshot` 与
+主要调用方：`application/assembly`（`snapshot_budget.go` 的 `boundToolResultForSnapshot` 与
 `handleToolCompleteObserved` / 会话恢复路径）。
 
-外部端口：`application/core` 已不再 import 本包，而是依赖
+外部端口：`application/assembly` 已不再 import 本包，而是依赖
 `application/session.ResidencyPort`；唯一 adapter 在 `wiring/adapters`。
 本包仍是 preview、Order/Budget、input index、eviction 与 archive 判据的唯一实现。
 
 落点沿革：2026-10-16 随 M5-R6-residency-preview **接收者转移**从
-`application/core/snapshot_budget.go` 归位（plan §2.4 的 `snapshot_budget.go` → `middle/residency/`），
+`application/assembly/snapshot_budget.go` 归位（plan §2.4 的 `snapshot_budget.go` → `middle/residency/`），
 是本包的建包片。
 
 ## 职责与非职责
@@ -121,7 +121,7 @@
 - `Preview` / `Order` / `Budget` / `WaitCatalogRefresh` 是无状态纯计算：可并发调用，同样输入必得同样输出；
   不读盘、不写盘。
 - `Archive` 是**次序判据**：本身不持锁、不读盘，全部副作用发生在宿主端口上，因此"并发安全"取决于宿主
-  （宿主在视图锁内取读数、在会话过渡锁内跑整条链，见 `application/core/archive_session.go`）。
+  （宿主在视图锁内取读数、在会话过渡锁内跑整条链，见 `application/assembly/archive_session.go`）。
 - 错误语义：`Archive` 只包装与转发宿主错误（`archive load %q` / `archive flush %q` / `archive unload %q` /
   `archive %q` 与"应用已关闭 / 排空 / 忙"三轴文案逐字保留迁移前的实现），另有两条本包自己的错误：
   `ErrArchiveNotFound`（record 缺失或归属不符）与 `ErrArchiveGateUnassembled`（门控装配缺陷）。
@@ -150,9 +150,9 @@
 
 ```text
 go test ./middle/residency/ -count=1
-go test ./application/core/ -run 'SnapshotBudget|ToolResult|Truncation' -count=1   # 宿主级：归档 + 预算注入 + 分页读回
-go test ./application/core/ -run 'Archive' -count=1                                # 宿主适配：门控 / 落点 / 引擎断言仍在同一条链上
-go test ./application/core/ -run 'Content|LRU|Resident|Release|Evict' -count=1      # 宿主适配：两个 LRU 的收敛仍在同一条链上
+go test ./application/assembly/ -run 'SnapshotBudget|ToolResult|Truncation' -count=1   # 宿主级：归档 + 预算注入 + 分页读回
+go test ./application/assembly/ -run 'Archive' -count=1                                # 宿主适配：门控 / 落点 / 引擎断言仍在同一条链上
+go test ./application/assembly/ -run 'Content|LRU|Resident|Release|Evict' -count=1      # 宿主适配：两个 LRU 的收敛仍在同一条链上
 ```
 
 ## 文件与函数索引

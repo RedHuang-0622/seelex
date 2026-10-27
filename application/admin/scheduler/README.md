@@ -16,7 +16,7 @@
 
 - 不实现定时定义持久化或触发调度；
 - 不拥有 Session、Engine、Runtime 或 workspace；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -33,7 +33,7 @@ port。任务定义仍是 Runtime 单一事实源。
 ## 依赖方向
 
 允许依赖 `contract/dto`、`kernel/limit`、`kernel/limit/effort` 与
-`application/workspace/switch.Projection`。禁止依赖 `application/core`、GUI/TUI。
+`application/workspace/switch.Projection`。禁止依赖 `application/assembly`、GUI/TUI。
 
 ## 并发与错误
 
@@ -44,6 +44,6 @@ workspace projection 在锁外采集，锁内应用并 bump；发布在解锁后
 
 ```text
 go test ./application/admin/scheduler -count=1
-go test ./application/core -run 'Scheduler|Scheduled' -count=1
+go test ./application/assembly -run 'Scheduler|Scheduled' -count=1
 go test ./application/... -count=1
 ```

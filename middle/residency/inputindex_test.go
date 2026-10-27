@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
-// 本文件原在 `application/core/session_input_index_test.go`，随判据（M5-R6-input-index）一起归位；
+// 本文件原在 `application/assembly/session_input_index_test.go`，随判据（M5-R6-input-index）一起归位；
 // 留在 core 的是 Service 级用例（全量覆盖未加载轮次、空会话、缺 ID、record 回退、内部行过滤）。
 
 func TestSummarizeInputText(t *testing.T) {

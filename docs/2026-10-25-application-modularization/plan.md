@@ -2,8 +2,9 @@
 
 日期：2026-10-25
 
-状态：**方案，尚未开始实施**。本文记录 Application 层的目标边界、DDD 聚合、
-契约驱动迁移方式、兼容层退场规则和分阶段实施周期；当前代码仍是事实来源。
+状态：**已完成（2026-10-27）**。本文保留原始目标、边界、迁移顺序与验收口径；
+实施结果记录在 [`implementation.md`](implementation.md)。`application/core`
+目录和 import 路径已删除，当前代码与测试仍是能力状态的最终事实源。
 
 ## 1. 背景与基线
 
@@ -203,7 +204,7 @@ Application 层只保留少量流程管理器：
 | M6 Goal / Team / Subagent 用例 | 2026-12-28 至 2027-01-08 | 迁出目标、团队、子代理读模型与事件适配 | Application 不再直接识别具体 backend 实现 |
 | M7 Policy / Workspace / Admin 收尾 | 2027-01-11 至 2027-01-22 | 收尾账号、权限、工作区、调度和装配入口 | `application/core` 生产规模显著下降 |
 | M8 兼容退场 | 2027-01-25 至 2027-02-05 | 删除旧接口、旧 DTO、旧 active-session 路径 | 零生产调用；旧兼容测试删除；门面只剩窄 API |
-| M9 终验与 `core` 删除 | 2027-02-08 至 2027-02-19 | 删除 `application/core`，验证目标依赖图 | 构建、race、E2E、前端门禁全部通过 |
+| M9 终验与 `core` 删除（已完成） | 2027-02-08 至 2027-02-19 | 删除 `application/core`，验证目标依赖图 | 构建、race、E2E、前端门禁全部通过 |
 
 ## 8. 分阶段任务看板
 
@@ -372,6 +373,8 @@ Application 层只保留少量流程管理器：
 
 ### M9：终验与 `core` 删除
 
+状态：**已完成（2026-10-27）**。
+
 范围：
 
 - 删除 `application/core` 目录；
@@ -385,6 +388,14 @@ Application 层只保留少量流程管理器：
 - `application/core` 不存在；
 - 没有新增上帝包；
 - 全仓测试、race 目标包、构建、vet、前端测试通过。
+
+落地结果：
+
+- `application/core` 物理目录已删除，仓库内没有旧 import；
+- 剩余跨领域协调代码归唯一组合根 `application/assembly`；
+- 进程级草稿、请求序号与权限默认值归 `application/session/state`；
+- `TestApplicationCoreDirectoryIsRetired` 冻结最终目录退出条件；
+- 行为、JSON、事件 revision/seq、持久化格式和 GUI/TUI wire 未改。
 
 ## 9. 并行车道
 
@@ -476,7 +487,8 @@ git diff --check
 1. `Conversation` 是 Application 状态聚合，还是下沉到独立会话运行域。
 2. `SessionDescriptor` 是否拥有 workspace binding，还是只保存 binding reference。
 3. 旧 Wails Bridge 方法的冻结期和删除里程碑。
-4. `application/core` 删除后，根 `application` 是否只保留 facade 和 API 别名。
+4. `application/core` 删除后，根 `application` 只保留 facade 和 API 别名；
+   跨领域流程与组合图归 `application/assembly`，领域状态不得回流该包。
 5. 查询模型是否采用独立 Query service，还是在各用例包内提供只读接口。
 
 这些决策应在 M0 冻结；M0 后不得在迁移批次中静默改变。

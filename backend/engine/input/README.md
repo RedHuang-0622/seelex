@@ -7,7 +7,7 @@
 
 `Command` / `CommandResult` 的事实源已移到 `contract/command.go`；本包以
 同身份 alias 复用，Application 根门面不再直接依赖本实现包。
-`application/core` 通过 `contract.CommandRegistryPort` / `contract.InputDispatcher`
+`application/assembly` 通过 `contract.CommandRegistryPort` / `contract.InputDispatcher`
 消费本包，Wiring factories 负责构造；具体注册表与前缀路由仍只在本包实现。
 
 ## 职责与非职责

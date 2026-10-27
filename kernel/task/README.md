@@ -14,7 +14,7 @@
 
 主要调用方：`backend/engine/assemble`（组合根，构造 `Ledger` 并注入宿主，
 `Runtime` 只保留薄转发）；执行域的权威状态经 `session_runtime`/
-`context_runtime` 端口被其它域消费。`application/core` 经
+`context_runtime` 端口被其它域消费。`application/assembly` 经
 [`application/execution/taskcontext`](../../application/execution/taskcontext/README.md)
 的 identity facade 消费 Task Coordinator/helper。
 

@@ -6,7 +6,7 @@ package rolesessions
 // 同步即删与 head 发布仍由存储侧 sequencer 入口执行。
 //
 // 落点沿革：本文件于 2026-10-16 随 M5-R8d **接收者转移**从
-// `application/core/role_session.go` 归位（plan §2.11.1 的 `role_session.go` → `backend/multiagent/team/`）。
+// `application/assembly/role_session.go` 归位（plan §2.11.1 的 `role_session.go` → `backend/multiagent/team/`）。
 // 端口与 DTO 全部来自 `contract`：本包不出现存储类型（`store.*`），GUI/headless 也随之
 // 只消费应用层 DTO。门面侧只负责把 `Deps.Sessions` 上的两个可选能力**类型断言**出来再交进来。
 //

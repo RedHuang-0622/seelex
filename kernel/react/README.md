@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`application/core/chat` 是聊天流式输出侧的叶子域：流式批次管道
+`application/assembly/chat` 是聊天流式输出侧的叶子域：流式批次管道
 （`StreamBatcher`）与模型推理块剥离（`VisibleOutputStream`）。它是
 `core` 根包聊天编排（`chat.go`）的底层工具，不持有任何应用状态。
 
@@ -52,7 +52,7 @@ flowchart LR
 ## 测试
 
 ```text
-go test ./application/core/chat -count=1
+go test ./application/assembly/chat -count=1
 ```
 
 `stream_batcher_test.go` 覆盖节流、并发、背压与幂等关闭；`visible_output_test.go`

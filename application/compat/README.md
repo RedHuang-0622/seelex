@@ -3,7 +3,7 @@
 ## 生态位
 
 迁移期前端兼容适配器。GUI、TUI、headless 和 wiring 暂时继续消费旧前端方法名，
-但这些方法不再堆在 `application/core`。真正状态、锁和生命周期仍由 core 持有。
+但这些方法不再堆在 `application/assembly`。真正状态、锁和生命周期仍由 core 持有。
 
 ## 职责与非职责
 
@@ -24,12 +24,12 @@
 
 ## 核心实现
 
-`Frontend` 暂时内嵌 `*core.Frontend` 以承接尚未退场的 core 方法，同时持有一份
-`core.FrontendPorts`。已迁移方法只调用领域组件，不在本包保存第二份状态。
+`Frontend` 暂时内嵌 `*assembly.Frontend` 以承接尚未退场的 core 方法，同时持有一份
+`assembly.FrontendPorts`。已迁移方法只调用领域组件，不在本包保存第二份状态。
 
 EP-046 进一步把 `SubscribeSession`、`SubscribeSessionWithReplay`、
 `PrepareProviderHistory`、`PromptLayers` 和 `SetProjectBoardSink` 从
-`core.Service` 收到本包。订阅直接调用
+`assembly.Service` 收到本包。订阅直接调用
 `application/session/viewstate.Coordinator`；其余入口使用已有领域组件。
 ToolRecord 的启用、快照端口、flush、看板与命令退出码入口也直连
 `application/execution/toolrecord.Application`，不再经过 core 的兼容方法。
@@ -41,7 +41,7 @@ ToolRecord 的启用、快照端口、flush、看板与命令退出码入口也�
 
 ## 依赖方向
 
-允许依赖 `application/core` 与已提取的 Application 领域包。禁止被这些领域包反向
+允许依赖 `application/assembly` 与已提取的 Application 领域包。禁止被这些领域包反向
 依赖；core 不依赖本包。
 
 ## 并发语义
@@ -64,5 +64,5 @@ ToolRecord 的启用、快照端口、flush、看板与命令退出码入口也�
 
 ```text
 go test ./application/compat -count=1
-go test ./application/core ./gui ./tui ./wiring/... -count=1
+go test ./application/assembly ./gui ./tui ./wiring/... -count=1
 ```

@@ -8,7 +8,7 @@ import (
 )
 
 // TestHasConversationBodyTable 钉住"素材里有没有可压的对话正文"这组形状。
-// 规则与装配层 application/core/context_runtime 的 hasConversationBody 是**同一条**：
+// 规则与装配层 application/assembly/context_runtime 的 hasConversationBody 是**同一条**：
 // 两侧各有这份表（消息类型不同：types.Message ↔ contract.EngineMessage），
 // 规则本身不允许分叉。
 func TestHasConversationBodyTable(t *testing.T) {

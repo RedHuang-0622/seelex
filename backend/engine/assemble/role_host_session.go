@@ -11,9 +11,9 @@ import (
 //
 // 为什么需要它：员工角色回合的 ctx 上只有 telemetry 会话（角色会话）与
 // roleWorkScope，**没有** application 侧工具 handler 读的那把 task_context 会话键
-// （见 application/core/session_ctx.go）。于是「看 leader 的看板」这类需要宿主会话的
+// （见 application/assembly/session_ctx.go）。于是「看 leader 的看板」这类需要宿主会话的
 // 只读工具，在员工回合里只会拿到空串而直接失败（例如 goal_status 报
-// "goal: session ID is required"，见 application/core/goal_service.go 的
+// "goal: session ID is required"，见 application/assembly/goal_service.go 的
 // goalCoordinatorFor）。
 //
 // 取法是**按构造**的：roleWorkScope 是本轮开工时写进 ctx 的（不依赖任何反查），

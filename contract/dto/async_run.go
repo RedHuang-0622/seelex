@@ -5,7 +5,7 @@ import "time"
 // AsyncRunRecord 是一次**作业**（bash_bg / read_batch / subagent）的**只读投影记录**。
 //
 // 生态位：seelebridge 的后台执行登记表是唯一事实源，core 只把它投影成工作表格行与
-// 请求尾部打点块（见 application/core/work_table_async.go）。它**不是** task 注册表
+// 请求尾部打点块（见 application/assembly/work_table_async.go）。它**不是** task 注册表
 // 条目：注册表随会话落盘（record.Tasks），而句柄表在内存——真进注册表就会在重启后
 // 留下一条永远 running 的假行。所以这里的行随状态出现、随终态/驱逐消失，永不落盘
 // （不变量 I-21）。

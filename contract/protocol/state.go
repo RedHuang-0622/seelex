@@ -574,7 +574,7 @@ type PlanNodeEventInfo struct {
 // （会话记录 / 上下文 / 功能打点），因此删除了只服务已删标签的字段：
 // Output（最终输出标签）、Stages（第一视角标签）、Timeline（事件时间线
 // 标签）。Worktree 保留：它是 P2a 恢复入口契约，仍被
-// application/core/subagent_detail_test.go 断言。
+// application/assembly/subagent_detail_test.go 断言。
 type SubagentDetail struct {
 	Conversation []Message           `json:"conversation,omitempty"`
 	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`

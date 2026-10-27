@@ -10,7 +10,7 @@
 //   - 其余符号/空白/emoji：2 字符 ≈ 1 token（标点常与词合并，个别独立成 token）
 //
 // 该估算用于事前决策（窗口/压缩预算）；真实计数由 provider usage 在事后
-// 记入 TokenAudit，并可反馈校准（见 application/core/token_counter.go）。
+// 记入 TokenAudit，并可反馈校准（见 application/assembly/token_counter.go）。
 package tokens
 
 import (

@@ -55,7 +55,7 @@
 
 Conversation 定义 `StreamOutputPort` 与 `SessionRecordsPort`；Wiring 分别注入
 `kernel/react` 的可见输出/batcher 实现和
-`middle/view/sessionaccess.PaginateRecords`。`application/core` 不再 import
+`middle/view/sessionaccess.PaginateRecords`。`application/assembly` 不再 import
 engine/react 或 sessionaccess。
 
 `UnifiedApplication` 只接收 Session Snapshot 查询、Record 分页、
@@ -71,6 +71,6 @@ revision，再解锁发布。关闭/排空错误保持原语义。
 
 ```text
 go test ./application/conversation -count=1
-go test ./application/core -run 'Queue|QueueComponent|ReorderQueuedInput|RecallQueuedInput' -count=1
+go test ./application/assembly -run 'Queue|QueueComponent|ReorderQueuedInput|RecallQueuedInput' -count=1
 go test ./application/... -count=1
 ```

@@ -8,9 +8,9 @@ import (
 
 func TestEnvironmentContextLivesInPromptPackage(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	legacy := filepath.Join(applicationDir, "core", "environment_context.go")
+	legacy := filepath.Join(applicationDir, "assembly", "environment_context.go")
 	if _, err := os.Stat(legacy); err == nil {
-		t.Error("application/core/environment_context.go 仍存在；环境尾部渲染必须归 application/prompt")
+		t.Error("application/assembly/environment_context.go 仍存在；环境尾部渲染必须归 application/prompt")
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}

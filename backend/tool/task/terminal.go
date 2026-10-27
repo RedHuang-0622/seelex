@@ -11,7 +11,7 @@ import (
 // task_check_node / task_failed / task_needs_user_decision 工具注册为
 // tools.Registry 产品工具。handler 由 application 侧提供
 // （TaskService.TerminalHandler 产物，内部完成"投影同步 flush → 校验 →
-// 应用状态"，见 application/core/task_service.go），本包只负责工具定义与注册。
+// 应用状态"，见 application/assembly/task_service.go），本包只负责工具定义与注册。
 // task_check_node 是非终态的在途打点（tasklist 模式下逐节点完成 → 前端打勾），
 // 其余三个是终态工具。
 

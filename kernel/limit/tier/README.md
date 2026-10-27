@@ -7,10 +7,10 @@
 
 主要调用方：
 
-- `application/core`（门面：`SetPermissionTier` / `SetFullAccess` 用例，以及切换路径）——
+- `application/assembly`（门面：`SetPermissionTier` / `SetFullAccess` 用例，以及切换路径）——
   经 `application/policy.TierDeps/TierGate` identity alias 装配宿主面后调用本包；
   门面侧只留一行转发与宿主适配；
-- 迁移前这些判据散在 `application/core/{session_permission_tier.go,session_scope.go,service_interaction.go}`，
+- 迁移前这些判据散在 `application/assembly/{session_permission_tier.go,session_scope.go,service_interaction.go}`，
   2026-10-16 随 M5-R-limitc **接收者转移**到此处（plan §2.8）。
 
 ## 职责与非职责
@@ -83,7 +83,7 @@
 
 ```text
 go test ./kernel/limit/tier/ -count=1
-go test ./application/core/ -run 'PermissionTier|Permission' -count=1   # 门面级集成（切档、切会话镜像、脏值）
+go test ./application/assembly/ -run 'PermissionTier|Permission' -count=1   # 门面级集成（切档、切会话镜像、脏值）
 go test ./backend/limit/approval/ -count=1                              # 审批面按会话归属
 ```
 

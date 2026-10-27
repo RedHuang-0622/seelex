@@ -1,6 +1,6 @@
 // history_safety.go — ReplaceHistory 前的历史安全规则 + provider 的 tool 配对
-// 协议（迁移自 application/core/history_safety.go 与
-// application/core/context_runtime/history.go 的合法配对规则，语义保持一致）：
+// 协议（迁移自 application/assembly/history_safety.go 与
+// application/assembly/context_runtime/history.go 的合法配对规则，语义保持一致）：
 //
 //  1. checkpoint/压缩帧标记清理：应用侧控制块（任务检查点、旧压缩帧）
 //     不进入替换后的历史；

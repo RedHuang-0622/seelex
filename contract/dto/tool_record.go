@@ -59,7 +59,7 @@ type ToolRecordReason struct {
 // ToolRecordSnapshot 是**落盘**的那一份读数（一行一批：每一行都是"到目前为止的整份累计"）。
 //
 // 为什么是整份快照而不是增量行：落盘点是**批次**的（会话粒度 + 真相源提交时统一更新，
-// 见 application/core 的 flushToolRecord），增量行只会让文件越来越长、读侧还要全量折叠；
+// 见 application/assembly 的 flushToolRecord），增量行只会让文件越来越长、读侧还要全量折叠；
 // 整份快照"取最后一行"就是当前读数，行数 = 批次数。
 //
 // 不含开关与台账告警：那两格是运行期状态（`ToolRecordBoard` 才带），不是持久事实。

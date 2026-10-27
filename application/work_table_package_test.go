@@ -18,17 +18,17 @@ func TestWorkTablePublisherIsExtractedFromCore(t *testing.T) {
 		}
 	}
 
-	statePath := filepath.Join(applicationDir, "core", "service_state.go")
+	statePath := filepath.Join(applicationDir, "assembly", "service_state.go")
 	stateFile, err := parser.ParseFile(token.NewFileSet(), statePath, nil, 0)
 	if err != nil {
 		t.Fatalf("解析 core service_state: %v", err)
 	}
 	for _, field := range []string{"workTablePublisher", "lastPublishedSubagentTreeSig"} {
 		if structHasField(stateFile, field) {
-			t.Errorf("work-table publisher state %s remains in application/core", field)
+			t.Errorf("work-table publisher state %s remains in application/assembly", field)
 		}
 	}
-	workTablePath := filepath.Join(applicationDir, "core", "work_table.go")
+	workTablePath := filepath.Join(applicationDir, "assembly", "work_table.go")
 	if _, err := os.Stat(workTablePath); os.IsNotExist(err) {
 		return
 	} else if err != nil {

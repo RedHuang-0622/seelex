@@ -62,7 +62,7 @@ flowchart LR
 
     ADAPTERS --> PORTS
     MAIN["wiring/bootstrap 组合根"] --> ADAPTERS
-    CORE["application/core"] --> CONTRACT
+    CORE["application/assembly"] --> CONTRACT
     PORTS --> EXT["引擎 / Runtime / plugin.Manager / skill.Registry / session.Manager / workspace.Repo"]
 ```
 
@@ -153,7 +153,7 @@ go test ./wiring/adapters -count=1
 上；每条都同时断言"压缩当场返回"与"别的会话照样开回合"）、
 `engine_port_handoff_test.go`（宿主 `PrepareHistory` 在锁外被调：宿主回读端口不再自锁；
 序号闸丢过期交接；三条安装路径各兑现一次交接；反向护栏防止把宿主动作搬丢）。
-`e2e/scenario` 与 `application/core` 的压缩用例覆盖应用侧口径。
+`e2e/scenario` 与 `application/assembly` 的压缩用例覆盖应用侧口径。
 
 ## 文件与函数索引
 
@@ -486,7 +486,7 @@ go test ./wiring/adapters -count=1
 - `func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore` — rolePermissionStoreFor 取该数据根的登记存储（首次调用建实例，其后复用）。
 - `func (port SessionPort) rolePermissionStore() *store.RolePermissionStore` — rolePermissionStore 返回本端口的登记存储（存储未装配时 nil）。
 - `func (port SessionPort) rolePermissionProject(sessionID string) string` — rolePermissionProject 解析会话归属的项目（登记的键是 (项目, 会话, 角色)）。
-- `func (port SessionPort) RoleDefaultVectors(sessionID string) (map[string][]string, error)` — RoleDefaultVectors 实现 application/core 的 roleDefaultPort：该数据根下所有显式
+- `func (port SessionPort) RoleDefaultVectors(sessionID string) (map[string][]string, error)` — RoleDefaultVectors 实现 application/assembly 的 roleDefaultPort：该数据根下所有显式
 - `func (port SessionPort) RoleDefault(sessionID, role string) ([]string, bool, error)` — RoleDefault 实现 roleDefaultPort：读单个角色的默认；第二个返回值报告"是否定过"。
 - `func (port SessionPort) SetRoleDefault(sessionID, role string, vector []string) error` — SetRoleDefault 实现 roleDefaultPort：写一个角色的默认向量。
 - `func (port SessionPort) RoleAccount(sessionID, role string) (string, bool, error)`
@@ -497,10 +497,10 @@ go test ./wiring/adapters -count=1
 - `func (port SessionPort) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)`
 - `func (port SessionPort) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error`
 - `func (port SessionPort) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error`
-- `func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error)` — RolePermissionVectors 实现 application/core 的 rolePermissionPort：返回该会话下
+- `func (port SessionPort) RolePermissionVectors(sessionID string) (map[string][]string, error)` — RolePermissionVectors 实现 application/assembly 的 rolePermissionPort：返回该会话下
 - `func (port SessionPort) RolePermissionVector(sessionID, role string) ([]string, bool, error)` — RolePermissionVector 实现 rolePermissionPort：读单个角色；第二个返回值报告
 - `func (port SessionPort) SetRolePermissionVector(sessionID, role string, vector []string) error` — SetRolePermissionVector 实现 rolePermissionPort：写入一个角色的权限向量
-- `func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers` — RolePermissionLayers 实现 application/core 的 rolePermissionLayerPort：给出该角色
+- `func (port SessionPort) RolePermissionLayers(sessionID, role string) dto.RoleSettingsLayers` — RolePermissionLayers 实现 application/assembly 的 rolePermissionLayerPort：给出该角色
 - `func (port SessionPort) employeePermission(role string) (toolreg.EmployeePermission, bool)` — employeePermission 取该角色在权责表上的装配期分配（未分配 → ok=false）。
 - `func grantBits(grant toolspermission.SubjectGrant) map[string]uint8` — grantBits 把框架授权条目投影成"路由组 → 位值"（只取位，资源限定留给权限门）。
 - `func permissionVectorTags(bits map[string]uint8) []string` — permissionVectorTags 把"路由组 → 位值"投影成权限向量标签（规范组序，位 0 → `!tag`）。
@@ -527,7 +527,7 @@ go test ./wiring/adapters -count=1
 ### runtime_narrow_ports.go
 
 - `func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
-- `func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore` — SessionContextStoreFor 实现 application/core 的会话上下文存储取用面：goal 第五栈
+- `func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore` — SessionContextStoreFor 实现 application/assembly 的会话上下文存储取用面：goal 第五栈
 - `func (port RuntimePort) SetAccountWindow(name string, window int)` — SetAccountWindow 实现 contract.AccountWindowPort：界面「设置 → 账号」设的窗口经这里
 - `func (port RuntimePort) SetRoleAccount(role, account string) error` — SetRoleAccount 把角色默认账号推到运行时账号管理器。
 - `func (port RuntimePort) AccountWindowFor(name string) int` — AccountWindowFor 返回该账号**生效**的窗口（token；账号级 > 全局 > 账号档）。
@@ -542,16 +542,16 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)` — TeammateInspection 实现 contract.TeammateInspectionPort。
 - `func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
 - `func (port RuntimePort) TeamworkJobEvents() <-chan struct`
-- `func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
+- `func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 实现 application/assembly 的「按轮插件装配」探测点（定时任务：
 - `func (port RuntimePort) SetSessionReasoningEffort(effort string) int` — SetSessionReasoningEffort 实现 contract.ReasoningEffortPort：把会话档位对应的 wire
-- `func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)` — TeamworkPlanFor 实现 application/core 的 `TeamworkPlanSource` 窄可选端口
+- `func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)` — TeamworkPlanFor 实现 application/assembly 的 `TeamworkPlanSource` 窄可选端口
 
 ### runtime_narrow_ports_test.go
 
 - `func TestRuntimePortForwardsEveryNarrowPort(t *testing.T)` — TestRuntimePortForwardsEveryNarrowPort 是本闸门的实现。
 - `func TestNarrowPortForwardingListIsReal(t *testing.T)` — TestNarrowPortForwardingListIsReal 钉住清单本身不是凭想象写的：清单里每个方法
 - `func (site assertionSite) String() string`
-- `func scanRuntimePortAssertions(t *testing.T) []assertionSite` — scanRuntimePortAssertions 扫 application/core 的非测试源码，收集窄端口探测点并
+- `func scanRuntimePortAssertions(t *testing.T) []assertionSite` — scanRuntimePortAssertions 扫 application/assembly 的非测试源码，收集窄端口探测点并
 - `func narrowPortKey(window string) string` — narrowPortKey 把断言窗口归一成一个标识。
 - `func itoa(value int) string`
 
@@ -670,7 +670,7 @@ go test ./wiring/adapters -count=1
 - `func (bridge *sessionSSHBridge) state(projectID, sessionID string) (model.SessionSSHInfo, error)` — state 读会话状态：缓存优先，miss 才回放 JSONL 并回填。
 - `func (bridge *sessionSSHBridge) put(projectID string, state model.SessionSSHInfo) error` — put 写会话状态：先落盘（权限状态必须持久），成功后再更新缓存。
 - `func (port SessionPort) sessionSSHBridge() *sessionSSHBridge` — sessionSSHBridge 取本端口的共享体（存储未装配时 nil）。
-- `func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)` — SessionSSHState 实现 application/core 的 sessionSSHPort：读会话 SSH 状态。
+- `func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error)` — SessionSSHState 实现 application/assembly 的 sessionSSHPort：读会话 SSH 状态。
 - `func (port SessionPort) SetSessionSSHState(sessionID string, state model.SessionSSHInfo) error` — SetSessionSSHState 实现 sessionSSHPort：写会话 SSH 状态（整份写入，后写覆盖先写）。
 - `func SessionSSHEnvResolver(router *store.Router) func(sessionID, projectID string) string` — SessionSSHEnvResolver 给执行面用的**缺省环境**读面：返回该会话当前限定的环境名
 

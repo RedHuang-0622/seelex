@@ -6,7 +6,7 @@ package residency
 //	窗口的早期轮次。索引只带**有界摘要**，不带正文，因此可以整份下发。
 //
 // 落点沿革：2026-10-16 随 **M5-R6-input-index** 接收者转移从
-// `application/core/session_input_index.go` 归位（plan §2.4 的 `session_input_index.go` → `middle/residency/`）；
+// `application/assembly/session_input_index.go` 归位（plan §2.4 的 `session_input_index.go` → `middle/residency/`）；
 // "从哪读"（会话存储的 conversation 区间读 / record 回退）与三条"算不算用户输入"的宿主谓词
 // （会话恢复前缀、provider-only 内部行、展示正文还原）仍留在宿主（它们是后端域的判据）。
 

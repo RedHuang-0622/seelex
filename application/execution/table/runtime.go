@@ -36,7 +36,7 @@ type RuntimeDeps struct {
 }
 
 // Runtime owns the in-memory WorkTable projection state and lifecycle
-// consumers. It is intentionally independent from application/core.
+// consumers. It is intentionally independent from application/assembly.
 type Runtime struct {
 	deps          RuntimeDeps
 	publisher     *Application

@@ -56,7 +56,7 @@ func TestEditForkApplicationsAreExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/conversation/edit/%s package = %q", name, parsed.Name.Name)
 		}
 	}
-	coreFiles := []string{
+	assemblyFiles := []string{
 		"edit_fork_operation_registry.go",
 		"edit_fork_validator.go",
 		"edit_fork_target_resolver.go",
@@ -65,8 +65,8 @@ func TestEditForkApplicationsAreExtractedFromCore(t *testing.T) {
 		"edit_fork_annotation.go",
 		"session_message_edit.go",
 	}
-	for _, name := range coreFiles {
-		path := filepath.Join(applicationDir, "core", name)
+	for _, name := range assemblyFiles {
+		path := filepath.Join(applicationDir, "assembly", name)
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {

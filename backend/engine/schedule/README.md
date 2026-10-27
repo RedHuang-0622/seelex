@@ -96,7 +96,7 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
 ### 触发装配（权限 / 插件 / 执行参数）
 
 任务定义里还带几格**装配**，触发时落到那次会话/那一轮（实现见
-`application/core/service_scheduler.go` 的 `AssembleScheduledRun`）：
+`application/assembly/service_scheduler.go` 的 `AssembleScheduledRun`）：
 
 | 字段 | 口径 |
 |---|---|

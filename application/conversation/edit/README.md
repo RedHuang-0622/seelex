@@ -18,7 +18,7 @@ admission、target 解析、child 原子编排、rollback 和消息可编辑性�
 
 - 不拥有 Session/Fork 存储、Engine 或 View；
 - 不修改 wire 字段；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -34,6 +34,6 @@ admission、target 解析、child 原子编排、rollback 和消息可编辑性�
 
 ```text
 go test ./application/conversation/edit -count=1
-go test ./application/core -run 'EditFork|EditUserMessageAndFork' -count=1
+go test ./application/assembly -run 'EditFork|EditUserMessageAndFork' -count=1
 go test ./application/... -count=1
 ```

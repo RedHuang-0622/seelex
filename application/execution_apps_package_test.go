@@ -39,12 +39,12 @@ func TestExecutionApplicationsAreExtractedFromCore(t *testing.T) {
 		}
 	}
 
-	coreFiles := []string{
-		filepath.Join(applicationDir, "core", "work_table_application.go"),
-		filepath.Join(applicationDir, "core", "subagent_application.go"),
-		filepath.Join(applicationDir, "core", "async_completion.go"),
+	assemblyFiles := []string{
+		filepath.Join(applicationDir, "assembly", "work_table_application.go"),
+		filepath.Join(applicationDir, "assembly", "subagent_application.go"),
+		filepath.Join(applicationDir, "assembly", "async_completion.go"),
 	}
-	for _, path := range coreFiles {
+	for _, path := range assemblyFiles {
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {

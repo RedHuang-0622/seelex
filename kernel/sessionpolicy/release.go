@@ -6,7 +6,7 @@ package switching
 // 为什么搬到这里：这两条判据的消费方横跨引擎驻留层（`resident_lru`）、正文层（`content_lru`）与
 // 释放面本身——放在中间层可以让它们共享同一份实现，且不依赖任何宿主状态（宿主把读数装配成值传进来）。
 //
-// 落点沿革：2026-10-16 随 M5-R6-release-surface **接收者转移**从 `application/core/{resident_lru,session_release}.go`
+// 落点沿革：2026-10-16 随 M5-R6-release-surface **接收者转移**从 `application/assembly/{resident_lru,session_release}.go`
 // 归位；"从哪个会话单元读这四个数"仍是宿主的事（装配缝）。
 
 // BusyState 是"会话是否正忙"需要的四个读数（由宿主从会话单元读出）。

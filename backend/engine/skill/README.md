@@ -4,7 +4,7 @@
 
 `skill` 加载目录化 Skill、解析 `SKILL.md`、限制资源路径，并根据当前 Plugin 计算可见 Skill 集合。
 
-主要调用方：`application/core`（任务激活时注入 skill 栈）、`backend/engine/plugin`（激活/停用时的可见集切换）、
+主要调用方：`application/assembly`（任务激活时注入 skill 栈）、`backend/engine/plugin`（激活/停用时的可见集切换）、
 `backend/engine/assemble`（装配与调用 Skill 指令）。
 
 `skill_activate` 判据经 `application/policy.SkillActivationPort` 消费；
@@ -43,7 +43,7 @@ flowchart TB
 - `skill.go`：`Skill` 模型、`ResourcePath` 安全解析和线程安全 Registry。
 - `activate.go`：`Activator`——"模型侧激活技能"（`skill_activate` 工具后端）的**判据落点**：
   名字校验 / 可激活性（`goal` 不可激活）/ 命中查询；命中后交给宿主注入的落地动作（压 skill 层 + 会话通知）。
-  2026-10-16 随 M5-R-skill **接收者转移**从 `application/core/skill_activate.go` 归位（plan §2.5）。
+  2026-10-16 随 M5-R-skill **接收者转移**从 `application/assembly/skill_activate.go` 归位（plan §2.5）。
 - `activate_test.go`：激活判据用例（空名 / 不可激活 / 未知技能 / 名字归一 / 未装配技能表）。
 
 ## 加载与优先级
@@ -93,7 +93,7 @@ flowchart LR
 ```text
 go test ./backend/engine/skill/ -count=1
 go test ./backend/engine/plugin/ -count=1
-go test ./application/core/ -run ActivateSkill -count=1   # 门面级集成（压层 + 下一次提交确信它）
+go test ./application/assembly/ -run ActivateSkill -count=1   # 门面级集成（压层 + 下一次提交确信它）
 ```
 
 ## 文件与函数索引

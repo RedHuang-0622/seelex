@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/input/command` 承接内置命令注册中不依赖具体会话状态机的只读/基础面。
-主要调用方是 `application/core.Service.registerBuiltinCommands`；命令注册表本身仍由
+主要调用方是 `application/assembly.Service.registerBuiltinCommands`；命令注册表本身仍由
 `backend/engine/input` 提供，路由行为不变。
 
 ## 职责
@@ -18,7 +18,7 @@
 - 不拥有 command registry 实现、Router 或输入 token 拆分；
 - mutation 命令只做参数解析和 Application/Session callback 调用，不复制状态机；
 - 不执行普通对话、工具或 Skill；
-- 不 import `application/core`。
+- 不 import `application/assembly`。
 
 ## 核心契约
 
@@ -50,7 +50,7 @@ type MutationDeps struct {
 
 ## 依赖方向
 
-只依赖 `contract` 与 `contract/protocol` 的 DTO；禁止依赖 `application/core`、
+只依赖 `contract` 与 `contract/protocol` 的 DTO；禁止依赖 `application/assembly`、
 backend Router 或 GUI/TUI。新增命令必须由真实入口使用，不得制造未来接口。
 
 ## 并发与错误
@@ -74,5 +74,5 @@ backend Router 或 GUI/TUI。新增命令必须由真实入口使用，不得制
 
 ```text
 go test ./application/input/command -count=1
-go test ./application/core -run 'Command|Suggestions' -count=1
+go test ./application/assembly -run 'Command|Suggestions' -count=1
 ```

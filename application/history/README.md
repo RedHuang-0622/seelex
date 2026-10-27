@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/history` 承载可见对话历史窗口的前置/回到最新分页决策。真实调用方是
-`application/core.Service` 的 `LoadMoreHistory` / `LoadLatestHistory` 兼容入口。
+`application/assembly.Service` 的 `LoadMoreHistory` / `LoadLatestHistory` 兼容入口。
 
 ## 职责与非职责
 
@@ -18,7 +18,7 @@
 
 - 不直接读存储、不执行 Git/Runtime I/O；
 - 不拥有可见窗口、Snapshot 或内容 LRU；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -44,7 +44,7 @@
 ## 依赖方向
 
 只依赖 `contract/protocol`、自身端口和标准库；禁止依赖
-`application/core`、`store`、`backend` 或 GUI/TUI。
+`application/assembly`、`store`、`backend` 或 GUI/TUI。
 
 ## 并发与错误
 
@@ -62,13 +62,13 @@
 - 内容卸载后是否先回读再取 offset；
 - 历史贴尾时是否跳过不必要的冷读；
 - `Page` 的未过滤与可见坐标是否仍分开；
-- 是否 import `application/core`。
+- 是否 import `application/assembly`。
 
 ## 测试与验证
 
 ```text
 go test ./application/history -count=1
-go test ./application/core -run 'LoadMoreHistory|LoadLatestHistory|History' -count=1
+go test ./application/assembly -run 'LoadMoreHistory|LoadLatestHistory|History' -count=1
 go test ./application/... -count=1
 ```
 

@@ -18,10 +18,10 @@ import (
 // 压缩处厚摘要开关（limits.context_compaction_summary）的两臂钉子。
 //
 // 审查报告 docs/2026-09-29-context-compaction-fold-review.md 的 P1-B 记的是"打开也不
-// 生效"；推帧接线（application/core/context_runtime 的 pushCompactionFrame →
+// 生效"；推帧接线（application/assembly/context_runtime 的 pushCompactionFrame →
 // backend/engine/assemble/runtime_compaction_index.go 的 PushCompactionFrame → MainCompactionDAG）
 // 之后它变成"开就生效"，但**全仓没有一条测试构造 Enabled: true**：DAG 单测只用 fake
-// Summarizer，application/core/context_compact_index_test.go 那三条用的是"返回固定回执"
+// Summarizer，application/assembly/context_compact_index_test.go 那三条用的是"返回固定回执"
 // 的索引面桩。于是这条链
 //
 //	开关 → compactionSummarizer() 非 nil → 推帧产出的栈帧 summary_source=replay

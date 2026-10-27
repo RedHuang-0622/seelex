@@ -1,6 +1,6 @@
 // draft.go —— 草稿会话的**身份判据**归位（plan §2.4 的 `session_draft.go` → `middle/switch/`）。
 //
-// 落点沿革：2026-10-17 随 **M5-R6-draft** 接收者转移从 `application/core/session_draft.go` 归位。
+// 落点沿革：2026-10-17 随 **M5-R6-draft** 接收者转移从 `application/assembly/session_draft.go` 归位。
 // 本文件只装"谁是草稿、草稿 SID 长什么样"这两条判据；草稿的**状态机**（进入草稿要清哪些字段、
 // 物化时绑哪个工作区、发哪些事件）仍留在宿主——那是视图过渡锁下的编排，不是判据。
 package switching

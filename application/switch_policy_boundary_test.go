@@ -17,8 +17,8 @@ func TestApplicationDoesNotImportMiddleSwitchPolicy(t *testing.T) {
 	if _, err := os.Stat(ownerPath); err != nil {
 		t.Fatalf("switch policy owner missing: %v", err)
 	}
-	coreDir := filepath.Join(applicationDir, "core")
-	entries, err := os.ReadDir(coreDir)
+	assemblyDir := filepath.Join(applicationDir, "assembly")
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestApplicationDoesNotImportMiddleSwitchPolicy(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, parser.ImportsOnly)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -44,7 +44,7 @@ func TestApplicationDoesNotImportMiddleSwitchPolicy(t *testing.T) {
 		}
 	}
 	if len(violations) > 0 {
-		t.Fatalf("application/core still imports Middle switch policy: %v", violations)
+		t.Fatalf("application/assembly still imports Middle switch policy: %v", violations)
 	}
 	err = filepath.WalkDir(applicationDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

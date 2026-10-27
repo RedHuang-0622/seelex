@@ -11,10 +11,10 @@ import (
 
 func TestCompressedTurnArchiverLivesInReferenceApplication(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreFile := filepath.Join(applicationDir, "core", "compressed_turn.go")
+	assemblyFile := filepath.Join(applicationDir, "assembly", "compressed_turn.go")
 	referenceFile := filepath.Join(applicationDir, "reference", "archiver.go")
 
-	if _, err := os.Stat(coreFile); err == nil {
+	if _, err := os.Stat(assemblyFile); err == nil {
 		t.Fatal("core still owns compressed_turn.go")
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("stat core compressed turn: %v", err)
@@ -22,7 +22,7 @@ func TestCompressedTurnArchiverLivesInReferenceApplication(t *testing.T) {
 	if _, err := os.Stat(referenceFile); err != nil {
 		t.Fatalf("application/reference must own the compressed-turn archiver: %v", err)
 	}
-	entries, err := os.ReadDir(filepath.Join(applicationDir, "core"))
+	entries, err := os.ReadDir(filepath.Join(applicationDir, "assembly"))
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestCompressedTurnArchiverLivesInReferenceApplication(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "core", name), nil, 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "assembly", name), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}

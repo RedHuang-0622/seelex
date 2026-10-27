@@ -1,0 +1,242 @@
+package assembly
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/RedHuang-0622/Seele/types"
+	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
+	"strings"
+	"testing"
+)
+
+// testStringPtr 返回字符串指针（测试消息正文）。
+func testStringPtr(value string) *string { return &value }
+
+// fakeCommitSession 实现 sessionCommitPort：记录 SaveCommitWorkspace 调用
+// （含目标会话 ID 与项目作用域 —— 压缩原文必须按显式键落盘：G0a 断言按
+// ctx/兜底路由到正确会话，作用域断言不跟着视图活跃项目漂移）。
+type fakeCommitSession struct {
+	commits          []store.Commit
+	commitSessionIDs []string
+	commitProjectIDs []string
+	providerCalls    int
+}
+
+func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error {
+	f.commits = append(f.commits, commit)
+	f.commitProjectIDs = append(f.commitProjectIDs, projectID)
+	f.commitSessionIDs = append(f.commitSessionIDs, sessionID)
+	return nil
+}
+
+// TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
+// 会话自己的绑定解析（数据实际所在），未绑定才退回视图工作区 —— 与读面
+// LoadToolResultWorkspace(workspaceID, sessionID, ref) 同源，保证压缩原文既写得
+// 进去也读得回来。
+func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
+	st := &fakeCommitSession{}
+	bound := &applicationreference.CompressedTurnArchiver{
+		Store:               adapters.NewCompressedTurnStore(st),
+		SessionIDProvider:   func() string { return "session-bound" },
+		ProjectIDProvider:   func(sessionID string) string { return "proj-" + sessionID },
+		WorkspaceIDProvider: func() string { return "proj-view" },
+	}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("按会话绑定落盘")}}
+	if _, err := bound.StoreTurn(context.Background(), "seg-bound", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.commitProjectIDs) != 1 || st.commitProjectIDs[0] != "proj-session-bound" {
+		t.Fatalf("project IDs = %+v, want [proj-session-bound]（会话绑定优先）", st.commitProjectIDs)
+	}
+	unbound := &applicationreference.CompressedTurnArchiver{
+		Store:               adapters.NewCompressedTurnStore(st),
+		SessionIDProvider:   func() string { return "session-unbound" },
+		ProjectIDProvider:   func(string) string { return "" },
+		WorkspaceIDProvider: func() string { return "proj-view" },
+	}
+	if _, err := unbound.StoreTurn(context.Background(), "seg-unbound", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.commitProjectIDs) != 2 || st.commitProjectIDs[1] != "proj-view" {
+		t.Fatalf("project IDs = %+v, want 第二个 = proj-view（视图工作区兜底）", st.commitProjectIDs)
+	}
+	if st.commitSessionIDs[1] != "session-unbound" {
+		t.Fatalf("session IDs = %+v, want 归属仍是 ctx/provider 的会话", st.commitSessionIDs)
+	}
+}
+
+// fakeTranscriptSession 实现 sessionTranscriptPort 读侧（LoadToolResultWorkspace）。
+type fakeTranscriptSession struct {
+	fakeSessions
+	results map[string]model.StoredToolResult
+}
+
+func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error) {
+	return nil, nil
+}
+
+func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model.StoredToolResult, error) {
+	if result, ok := f.results[ref]; ok {
+		return result, nil
+	}
+	return model.StoredToolResult{}, errors.New("stored tool result not found")
+}
+
+// TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
+// 经 SaveCommitWorkspace 持久化（ToolResults 通道，ref = compressed:<segment_id>）。
+func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
+	st := &fakeCommitSession{}
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store:             adapters.NewCompressedTurnStore(st),
+		SessionIDProvider: func() string { return "session-1" },
+	}
+	messages := []types.Message{
+		{Role: "user", Content: testStringPtr("审计上下文压缩")},
+		{Role: "assistant", Content: testStringPtr("已读取 controller.go")},
+	}
+	ref, err := archiver.StoreTurn(context.Background(), "compact-sess-123", messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != "compressed:compact-sess-123" {
+		t.Fatalf("ref = %q, want compressed:compact-sess-123", ref)
+	}
+	if len(st.commits) != 1 || len(st.commits[0].ToolResults) != 1 {
+		t.Fatalf("commits = %+v, want 1 commit with 1 tool result", st.commits)
+	}
+	result := st.commits[0].ToolResults[0]
+	if result.Ref != ref || result.Tool != "compact_frame" {
+		t.Fatalf("tool result = %+v, want ref %q tool compact_frame", result, ref)
+	}
+	var decoded []types.Message
+	if err := json.Unmarshal([]byte(result.Content), &decoded); err != nil {
+		t.Fatalf("decode stored content: %v", err)
+	}
+	if len(decoded) != 2 || *decoded[0].Content != "审计上下文压缩" {
+		t.Fatalf("decoded messages = %+v", decoded)
+	}
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-1" {
+		t.Fatalf("commit session IDs = %+v, want [session-1] (provider fallback)", st.commitSessionIDs)
+	}
+}
+
+// TestCompressedTurnArchiverRoutesByContextSessionID 写侧归属（G0a 回归）：
+// 后台会话压缩出的轮次原文必须按 ctx 携带的会话 ID 落盘，绝不落入 provider
+// 返回的视图会话 —— provider 只允许在 ctx 未注入时兜底。
+func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
+	st := &fakeCommitSession{}
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store: adapters.NewCompressedTurnStore(st),
+		SessionIDProvider: func() string {
+			st.providerCalls++
+			return "session-view"
+		},
+	}
+	ctx := withSessionID(context.Background(), "session-background")
+	messages := []types.Message{{Role: "user", Content: testStringPtr("后台会话压缩原文")}}
+	ref, err := archiver.StoreTurn(ctx, "seg-bg-1", messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != "compressed:seg-bg-1" {
+		t.Fatalf("ref = %q, want compressed:seg-bg-1", ref)
+	}
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-background" {
+		t.Fatalf("commit session IDs = %+v, want [session-background] (ctx 优先)", st.commitSessionIDs)
+	}
+	if st.providerCalls != 0 {
+		t.Fatalf("provider consulted %d time(s) though ctx carried the session ID", st.providerCalls)
+	}
+}
+
+// TestCompressedTurnArchiverFallsBackToProviderWithoutContext 无 ctx 注入时
+// （装配期预热、非回合路径）provider 兜底仍可用。
+func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
+	st := &fakeCommitSession{}
+	archiver := &applicationreference.CompressedTurnArchiver{
+		Store: adapters.NewCompressedTurnStore(st),
+		SessionIDProvider: func() string {
+			st.providerCalls++
+			return "session-view"
+		},
+	}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("装配期预热压缩")}}
+	if _, err := archiver.StoreTurn(context.Background(), "seg-warm", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.commitSessionIDs) != 1 || st.commitSessionIDs[0] != "session-view" {
+		t.Fatalf("commit session IDs = %+v, want [session-view] (provider 兜底)", st.commitSessionIDs)
+	}
+	if st.providerCalls != 1 {
+		t.Fatalf("provider calls = %d, want 1", st.providerCalls)
+	}
+}
+
+// TestCompressedTurnArchiverRejectsWithoutSessionID ctx 与 provider 都拿不到
+// 会话 ID 时压缩不得落盘（宁可失败也不猜归属）。
+func TestCompressedTurnArchiverRejectsWithoutSessionID(t *testing.T) {
+	st := &fakeCommitSession{}
+	archiver := &applicationreference.CompressedTurnArchiver{Store: adapters.NewCompressedTurnStore(st)}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("无归属压缩")}}
+	if _, err := archiver.StoreTurn(context.Background(), "seg-orphan", messages); err == nil {
+		t.Fatal("compression without a routable session ID must fail")
+	}
+	if len(st.commits) != 0 {
+		t.Fatalf("commits = %+v, want none when session ID is unavailable", st.commits)
+	}
+}
+
+// TestReadCompressedTurnHandlerReadsOriginal 读侧：read_compressed_turn
+// 从持久化原文读回，分页/过滤生效。
+func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
+	original := []types.Message{
+		{Role: "user", Content: testStringPtr("轮0：审计窗口外压缩路径")},
+		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "c1", Function: types.ToolCallFunction{Name: "read_file"}}}},
+		{Role: "tool", ToolCallID: "c1", Name: "read_file", Content: testStringPtr("controller.go:365 overflow 选取")},
+		{Role: "user", Content: testStringPtr("轮1：验证 CompactFrame 边界")},
+		{Role: "assistant", Content: testStringPtr("已断言 From/To 与窗口一致")},
+	}
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &fakeTranscriptSession{results: map[string]model.StoredToolResult{
+		"compressed:compact-sess-9": {ToolResultRef: model.ToolResultRef{Ref: "compressed:compact-sess-9"}, Content: string(encoded)},
+	}}
+	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(st))
+
+	args, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9"})
+	page, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[user] 轮0：审计窗口外压缩路径", "[tool read_file] controller.go:365 overflow 选取", "[user] 轮1：验证 CompactFrame 边界"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("page missing %q:\n%s", want, page)
+		}
+	}
+
+	// 过滤：contains 只返回匹配行。
+	filterArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9", "contains": "轮1"})
+	filtered, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(filterArgs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(filtered, "轮0") || !strings.Contains(filtered, "轮1") {
+		t.Fatalf("filtered page = %q, want only 轮1 line", filtered)
+	}
+
+	// 未知 segment：报错。
+	missingArgs, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-missing"})
+	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), string(missingArgs)); err == nil {
+		t.Fatal("missing segment must fail")
+	}
+	// 缺 segment_id：报错。
+	if _, err := frontendOfTestService(service).ReadCompressedTurnHandler(context.Background(), `{}`); err == nil {
+		t.Fatal("missing segment_id must fail")
+	}
+}

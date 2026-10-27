@@ -18,7 +18,7 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 
 - 不拥有 SessionStore、Engine、Runtime 或 View；
 - 不实现冷恢复顶层切换与失败回退；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -36,7 +36,7 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 ## 依赖方向
 
 允许依赖 backend engine 的 Session/Task 类型、`contract`、`contract/protocol`、
-`application/session/state`。禁止依赖 `application/core`、GUI/TUI 或存储实现。
+`application/session/state`。禁止依赖 `application/assembly`、GUI/TUI 或存储实现。
 
 ## 并发与错误
 
@@ -47,7 +47,7 @@ Engine/queue 恢复、workspace 绑定与锁内激活。主要调用方是 core 
 
 ```text
 go test ./application/session/cold -count=1
-go test ./application/core -run 'SessionCold(Read|History|Restore|Workspace|Activation)' -count=1
+go test ./application/assembly -run 'SessionCold(Read|History|Restore|Workspace|Activation)' -count=1
 go test ./application/... -count=1
 ```
 

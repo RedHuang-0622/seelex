@@ -66,7 +66,7 @@ func TestSessionColdRestoreComponentsAreExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/session/cold/%s package = %q", name, parsed.Name.Name)
 		}
 	}
-	coreFiles := []string{
+	assemblyFiles := []string{
 		"session_cold_load_reader.go",
 		"session_cold_history.go",
 		"session_cold_restore.go",
@@ -77,8 +77,8 @@ func TestSessionColdRestoreComponentsAreExtractedFromCore(t *testing.T) {
 		"session_cold_commit.go",
 		"session_cold_publish.go",
 	}
-	for _, name := range coreFiles {
-		path := filepath.Join(applicationDir, "core", name)
+	for _, name := range assemblyFiles {
+		path := filepath.Join(applicationDir, "assembly", name)
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {

@@ -5,11 +5,11 @@
 `backend/tool/reference` 是**工具结果引用与分页**的判据落点：`node:` 前缀解析、contains 过滤 →
 offset/limit 分页 → UTF-8 边界对齐，以及模型面 JSON 编码。
 
-主要调用方：`application/core`（`ReadToolResultHandler` / `ToolResultContent` 两个工具面入口，
+主要调用方：`application/assembly`（`ReadToolResultHandler` / `ToolResultContent` 两个工具面入口，
 以及 `reference_tools.go` 里"从哪读"的编排：pending 内存态 → 会话落盘 → 引擎桥节点归档）。
 
 落点沿革：2026-10-16 随 M5-R-tool-reference **接收者转移**从
-`application/core/reference_tools.go` 归位（plan §2.6）。
+`application/assembly/reference_tools.go` 归位（plan §2.6）。
 
 ## 职责与非职责
 
@@ -74,7 +74,7 @@ offset/limit 分页 → UTF-8 边界对齐，以及模型面 JSON 编码。
 
 ```text
 go test ./backend/tool/reference/ -count=1
-go test ./application/core/ -run 'ToolResult' -count=1   # 门面级集成（node 桥 / result:call_ 别名）
+go test ./application/assembly/ -run 'ToolResult' -count=1   # 门面级集成（node 桥 / result:call_ 别名）
 ```
 
 ## 文件与函数索引

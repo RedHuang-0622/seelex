@@ -2,7 +2,7 @@ package switching
 
 // queue.go — 「回合运行中排队输入」的**编辑面判据**（调换顺序 / 撤回到输入框）。
 //
-// 落点沿革：2026-10-17 随 **M5-R6-queue-edit** 接收者转移从 `application/core/service_queue.go`
+// 落点沿革：2026-10-17 随 **M5-R6-queue-edit** 接收者转移从 `application/assembly/service_queue.go`
 // 归位（plan §2.4 的 `service_queue.go` → `middle/switch/`）；锁、队列投影与事件发布仍在宿主。
 //
 // 口径（迁移前注释逐字保留其含义）：队列只承载「回合运行中」接受的输入（回合收尾时整批提升为下一轮）。

@@ -5,7 +5,7 @@ import "context"
 // catalog.go 是"等一轮覆盖本次请求的会话目录刷新"的判据落点。
 //
 // 落点沿革：2026-10-16 随 **M5-R6-session-catalog** 接收者转移从
-// `application/core/session_catalog.go` 归位（plan §2.4 的 `session_catalog.go` → `middle/residency/`）。
+// `application/assembly/session_catalog.go` 归位（plan §2.4 的 `session_catalog.go` → `middle/residency/`）。
 
 // CatalogRefresher 是"请求一次目录刷新"的窄口（结构满足会话协调器的同名方法：
 // 返回一个在本轮刷新完成时关闭的通道）。**必须非 nil**——迁移前语义即"直接调用宿主"，

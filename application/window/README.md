@@ -6,7 +6,7 @@
 解析与 provider 轮数推导仍在
 [`kernel/contextcontrol`](../../kernel/contextcontrol/README.md)
 和 Engine context policy；本包只保留同身份 alias 与一行转发。主要调用方是
-`application/core` 与 Wiring 启动期 window helper。
+`application/assembly` 与 Wiring 启动期 window helper。
 
 ## 职责与非职责
 
@@ -33,7 +33,7 @@ alias 上保持可用；转发函数不增加判据。
 
 ## 依赖方向
 
-允许依赖 `kernel/contextcontrol`。禁止依赖 `application/core`、GUI/TUI、
+允许依赖 `kernel/contextcontrol`。禁止依赖 `application/assembly`、GUI/TUI、
 `store` 或重新实现窗口默认表。
 
 ## 并发与错误语义
@@ -57,7 +57,7 @@ alias 上保持可用；转发函数不增加判据。
 ```text
 go test ./application/window -count=1
 go test ./kernel/contextcontrol -count=1
-go test ./application/core -run 'Window|Retain' -count=1
+go test ./application/assembly -run 'Window|Retain' -count=1
 ```
 
 ## 文件与函数索引

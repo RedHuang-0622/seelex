@@ -10,7 +10,7 @@ import (
 
 func TestConversationStreamRuntimeLivesInConversation(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreChat, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "core", "chat.go"), nil, 0)
+	coreChat, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "assembly", "chat.go"), nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestConversationStreamRuntimeLivesInConversation(t *testing.T) {
 		switch function.Name.Name {
 		case "appendDelta", "appendVisibleDelta", "appendVisibleDeltaBackground",
 			"attachLatestReasoning", "stampServedRoute", "streamedAssistantTextLocked":
-			t.Errorf("application/core/chat.go still owns stream method %s", function.Name.Name)
+			t.Errorf("application/assembly/chat.go still owns stream method %s", function.Name.Name)
 		}
 	}
 	if _, err := parser.ParseFile(token.NewFileSet(), filepath.Join(applicationDir, "conversation", "stream_runtime.go"), nil, 0); err != nil {

@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -125,8 +125,8 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
-		on.frontend.WorkTableRowsFor, core.NewFrontendPorts(on.app).ProjectBoard.ProjectBoardTeamPlanFor,
-		core.NewFrontendPorts(on.app).ProjectBoard.ProjectBoardTeamStateFor, on.frontend.ProjectRootFor,
+		on.frontend.WorkTableRowsFor, assembly.NewFrontendPorts(on.app).ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.NewFrontendPorts(on.app).ProjectBoard.ProjectBoardTeamStateFor, on.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -165,8 +165,8 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.frontend.WorkTableRowsFor, core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamPlanFor,
-		core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
+		harness.frontend.WorkTableRowsFor, assembly.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {

@@ -1217,7 +1217,7 @@ func (c *Coordinator) jobRunning(handle string) bool {
 //
 // 为什么不放在尾插完成那一刻：那时作业**还在跑**（executor.go 的 settle 先于
 // sink.Complete），销项必然失败；而且终态行正是两条下游链读的证据——"作业做完自动返回"
-// 的触发与看板事件投影（application/core 的 teamwork 完成触发；backend/engine/assemble/jobs_events.go
+// 的触发与看板事件投影（application/assembly 的 teamwork 完成触发；backend/engine/assemble/jobs_events.go
 // 的快照扫描）都靠它在册才看得见那次终态，提前销掉会把证据一起删掉。验收才是"这件事结清"
 // 的时刻：计划销项 + 作业行销项一起完成，leader 不必记得再调一次 `jobs_manage(op=done)`。
 func (c *Coordinator) retireSettledJob(ctx context.Context, handle string) {

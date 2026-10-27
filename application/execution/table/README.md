@@ -4,7 +4,7 @@
 
 `application/execution/table` 拥有 WorkTable runtime：Plan/子代理源同步、task
 注册表投影、`worktable.changed` latest-wins 发布、生命周期消费者、Todo 刷新和请求
-尾部 TraceBlock。主要调用方是 `application/core` 的装配与回合链路；行投影判据仍由
+尾部 TraceBlock。主要调用方是 `application/assembly` 的装配与回合链路；行投影判据仍由
 `kernel/worktable` 唯一拥有。
 
 ## 职责
@@ -30,7 +30,7 @@
 - 不拥有 Agent 执行、持久化或 SessionUnit；Runtime、Engine、Task 与视图锁由窄
   `RuntimeDeps` 提供；
 - 不拥有事件 Hub、revision 或 session ID，只经注入回调发布；
-- 不 import `application/core`，不持完整 `Service`。
+- 不 import `application/assembly`，不持完整 `Service`。
 
 ## 核心契约
 
@@ -108,5 +108,5 @@ publisher 内部是单 goroutine；`lastTreeSig` 只在该 goroutine 读写，�
 
 ```text
 go test ./application/execution/table -count=1
-go test ./application/core -run 'WorkTable|RefreshWorkTable|Todo|Shutdown|Fault' -count=1
+go test ./application/assembly -run 'WorkTable|RefreshWorkTable|Todo|Shutdown|Fault' -count=1
 ```

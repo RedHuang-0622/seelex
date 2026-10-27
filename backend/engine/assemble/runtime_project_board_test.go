@@ -2,8 +2,8 @@ package assemble
 
 // runtime_project_board_test.go — 项目看板的窄可选端口（`TeamworkPlanFor`）的口径钉住。
 //
-// 这个口是 application/core 的 `TeamworkPlanSource` 在桥这一侧的唯一实现：看板投影取
-// teamwork 计划时走它（application/core/project_board.go 的 ProjectBoardTeamPlanFor 从
+// 这个口是 application/assembly 的 `TeamworkPlanSource` 在桥这一侧的唯一实现：看板投影取
+// teamwork 计划时走它（application/assembly/project_board.go 的 ProjectBoardTeamPlanFor 从
 // Deps.Runtime 上做类型断言后调它）。只钉四件事，多钉一件都是第二份判定：
 //   - 没装 teamwork backend / 会话号解析不出作用域 / 该会话没有计划 / 读失败 ⇒
 //     `(零值, false)`，不 panic、不上抛（派生投影取数口"I1：可删可重建"的必然要求）；

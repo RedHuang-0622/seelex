@@ -11,7 +11,7 @@ import (
 func TestSessionQueueRecoveryDoesNotImportStore(t *testing.T) {
 	file, err := parser.ParseFile(
 		token.NewFileSet(),
-		filepath.Join(sourceApplicationDir(t), "core", "session_queue_recover.go"),
+		filepath.Join(sourceApplicationDir(t), "assembly", "session_queue_recover.go"),
 		nil,
 		parser.ImportsOnly,
 	)

@@ -15,7 +15,7 @@
 - 拥有未知命令提示、sigil 迁移提示和命令近似匹配；core 不再保留第二份
   输入发现判据。
 - 提供 `HasSigilPrefix` / `SigilOf`；根 `application` 门面直接再导出这两个
-  词法函数，`application/core` 不再保留同义包装。
+  词法函数，`application/assembly` 不再保留同义包装。
 - 参数区或未知前缀返回空建议。
 
 ## 非职责
@@ -23,7 +23,7 @@
 - 不执行命令、Skill 或 Plugin。
 - 不读取命令、Skill、Plugin 目录。
 - 不解析普通对话，也不拥有 chat 状态。
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -51,7 +51,7 @@
 
 ## 依赖方向
 
-只依赖标准库。禁止依赖 `application/core`、backend、middle 或 UI。
+只依赖标准库。禁止依赖 `application/assembly`、backend、middle 或 UI。
 
 ## 并发与错误
 
@@ -73,6 +73,6 @@
 ## 测试与验证
 
 ```text
-go test ./application/input ./application/core -run 'Suggestions|Sigil' -count=1
+go test ./application/input ./application/assembly -run 'Suggestions|Sigil' -count=1
 go test ./application/... -count=1
 ```

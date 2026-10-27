@@ -29,11 +29,11 @@ import (
 // 挡（前端置灰只是体验）。
 //
 // 落点说明（M5-R-limitb）：本文件是判据与状态本体，宿主能力全部经 `KnobsHost` 注入；
-// 状态（两条拉条读数 + 按会话说强度租约）随本类型一起从 `application/core` 归位。
+// 状态（两条拉条读数 + 按会话说强度租约）随本类型一起从 `application/assembly` 归位。
 
 // KnobsHost 是两条拉条需要的**宿主能力面**（视图锁、快照写面、引擎与档位读数）。
 //
-// 加锁次序（原 `application/core/service_state.go` 的注释逐字保留）：固定为 ViewMu → 组件锁
+// 加锁次序（原 `application/assembly/service_state.go` 的注释逐字保留）：固定为 ViewMu → 组件锁
 // （只单向）。因此"改读数"必须走 `MutateRuntime` / `PublishRuntime`：宿主在自己的视图锁内
 // 调用 mutate，组件在 mutate 里取自己的锁，次序不会倒。
 type KnobsHost interface {

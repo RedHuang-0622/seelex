@@ -2,10 +2,10 @@ package application
 
 // faces_api.go 是门面**五组窄接口**与 AP-002 能力面的事实源
 // （plan §1.3 的 ③ 用例方法面收窄；M5-R10a）。EP-046C 后接口定义不再寄居
-// `application/core`，根 Application 直接拥有入站契约。
+// `application/assembly`，根 Application 直接拥有入站契约。
 //
 // 为什么要有这一层：前端只该依赖“它能用的那几件事”，而不是整个 `Service`。四个接口的
-// 方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/core` 的
+// 方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/assembly` 的
 // `func (service *Service) …`），不新增、不删除、不改名、不改签名——它们就是 gui/tui 今天
 // 消费的那份契约（I5：前端零改动）。
 //

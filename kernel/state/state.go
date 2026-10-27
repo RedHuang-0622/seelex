@@ -1,4 +1,4 @@
-// Package state is the shared state kernel of application/core.
+// Package state is the shared state kernel of application/assembly.
 // 锁、权威 Snapshot、外部端口依赖与事件/审批通道在此集中；core 根门面与
 // 各域子包（session_runtime/task_context/...）都以嵌入/注入方式共享它，
 // 避免域之间直接持有彼此实现，形成循环依赖。

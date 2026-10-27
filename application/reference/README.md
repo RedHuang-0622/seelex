@@ -4,7 +4,7 @@
 
 `application/reference` 承载 `read_tool_result`、`read_plan` 与
 `read_compressed_turn` 的只读应用用例。
-主要调用方是 `application/core` 的兼容 `Service` 入口、模型工具注册和 GUI 工具结果
+主要调用方是 `application/assembly` 的兼容 `Service` 入口、模型工具注册和 GUI 工具结果
 详情。归档、Engine 节点结果、Task Plan 栈和 Session 持久化仍由各自既有模块拥有。
 
 ## 职责
@@ -19,7 +19,7 @@
 
 - 不保存工具结果或 Plan。
 - 不拥有 Engine、Task、Session 状态。
-- 不导入 `application/core`，不持有完整 `Service`。
+- 不导入 `application/assembly`，不持有完整 `Service`。
 
 ## 文件结构
 
@@ -46,13 +46,13 @@ I/O 写入。
 ## 依赖方向
 
 允许依赖 `backend/tool/reference` 的纯分页判据和 `contract/protocol`。
-禁止依赖 `application/core`、UI、装配根或具体存储实现。
+禁止依赖 `application/assembly`、UI、装配根或具体存储实现。
 
 ## 并发与错误
 
 - 组件自身无状态锁；调用方负责让注入回调保持原锁边界。
 - 参数错误、未知节点/引用、归档存储错误和损坏 Plan 均显式返回。
-- 查询路径不获取 `application/core` 的共享写锁。
+- 查询路径不获取 `application/assembly` 的共享写锁。
 
 ## 扩展方式
 
@@ -70,6 +70,6 @@ I/O 写入。
 ## 测试与验证
 
 ```text
-go test ./application/reference ./application/core -run 'Reference|CompressedTurn|Assistant|Plan' -count=1
+go test ./application/reference ./application/assembly -run 'Reference|CompressedTurn|Assistant|Plan' -count=1
 go test ./application/... -count=1
 ```

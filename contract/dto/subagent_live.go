@@ -60,7 +60,7 @@ type NodeStageLog struct {
 
 // ToolEventStatus 是子代理工具调用事件的状态（工具链活动面的同一格）。
 //
-// 枚举（int + iota）：写方在 backend/multiagent/subagent/tool_events.go 与 application/core/tool_hooks.go，
+// 枚举（int + iota）：写方在 backend/multiagent/subagent/tool_events.go 与 application/assembly/tool_hooks.go，
 // 读方在 middle/view/subagent 与 tui——全都只认这一组常量，比较写错词是编译错误。
 type ToolEventStatus uint8
 

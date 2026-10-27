@@ -22,8 +22,8 @@ func TestPolicySwitchApplicationIsExtractedFromCore(t *testing.T) {
 	if file.Name.Name != "policy" {
 		t.Fatalf("application/policy/switch.go package = %q", file.Name.Name)
 	}
-	coreFile := filepath.Join(applicationDir, "core", "service_policy_application.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "service_policy_application.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return

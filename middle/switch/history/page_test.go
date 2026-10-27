@@ -7,7 +7,7 @@ import (
 )
 
 // 本文件钉窗口装配判据：接缝（行身份）对位、窗口边界与起点推算、空页/无锚的保守行为。
-// 门面级端到端用例（冷回读 / 分页读回 / 与磁盘读面的坐标口径）仍在 application/core。
+// 门面级端到端用例（冷回读 / 分页读回 / 与磁盘读面的坐标口径）仍在 application/assembly。
 
 func row(id, role, content string) model.Message {
 	return model.Message{ID: id, Role: role, Content: content}

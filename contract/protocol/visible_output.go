@@ -11,7 +11,7 @@ type VisibleOutputStream struct {
 	pending   string
 	// text 累积本请求截至当前的可见正文（think 块已剥离）。回看历史（可见窗口
 	// 未贴尾）时流式增量按设计不进窗口，工具轮说明正文的按迭代归位只能从这里读
-	// （见 application/core/chat.go 的 streamedAssistantTextLocked）。
+	// （见 application/assembly/chat.go 的 streamedAssistantTextLocked）。
 	text strings.Builder
 }
 

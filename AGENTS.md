@@ -61,7 +61,7 @@ README 描述当前代码，不把规划写成既成事实。未来能力必须�
 
 - 以 `## 生态位` 开头说明定位与主要调用方，同一语义不混用“模块定位/生态位”标题。
 - 追加自动生成的「文件与函数索引」：逐文件列出每个函数的签名 + 首行摘要，
-  摘要事实源为源码 doc 注释（`application/core` 由
+  摘要事实源为源码 doc 注释（`application/assembly` 由
   `scripts/gen_core_readme_index.py` 生成，其余包复用同款提取逻辑）。
 - 根包/大包按文件前缀分卷（`README-<卷名>.md` + 主 README 导航）；叶子包
   维持单 README。
@@ -156,7 +156,7 @@ Linux CI 另外运行 `-race -covermode=atomic -coverpkg=./...`。Windows 本地
 红测 → 迁移实现 → 删除重复路径。**
 
 1. **先做领域归属**：说明这件事属于哪个领域、哪个聚合根或应用用例，聚合内必须维持哪些不变式；
-   同时列出它刻意不属于哪些模块。无法说清归属时停止实现，不得以"先放 `application/core`、
+   同时列出它刻意不属于哪些模块。无法说清归属时停止实现，不得以"先放 `application/assembly`、
    `backend/engine/assemble` 或顶层 `contract` 再说"作为过渡方案。
 2. **先定契约与结构**：在实现前明确列出要新增/修改的 DTO、port、interface、关键 struct 及所有权。
    稳定跨层值放 `contract/dto` / `contract/protocol`；可替换边界由消费方定义端口；
@@ -256,7 +256,7 @@ Agent 可以按用户要求把工作交给子代理，但必须保持**扁平、
    目标、必须阅读的文件、领域不变式、独占文件、禁止触碰文件、验证命令和交付格式。
    不要继承完整聊天历史；只有任务无法用最小包表达时才允许继承，并在任务中说明原因。
 3. **文件单车道**：同一文件同一时刻只能有一个子代理修改。
-   `application/core` 的 `service*.go`、`faces.go`、`service_components.go`、
+   `application/assembly` 的 `service*.go`、`faces.go`、`service_components.go`、
    Store 的 `Router`/`SessionGranularStore` 等 God 文件默认单车道。
 4. **每批可解释**：一个子代理只做一个能力面或一个里程碑，生产改动建议 <600 行、
    公开接口建议 <=20 个；超出时先在批次报告里拆分，不继续扩张。

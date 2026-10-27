@@ -22,8 +22,8 @@ func TestGoalApplicationIsExtractedFromCore(t *testing.T) {
 	if file.Name.Name != "goal" {
 		t.Fatalf("application/goal package = %q", file.Name.Name)
 	}
-	coreFile := filepath.Join(applicationDir, "core", "goal_application.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "goal_application.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return

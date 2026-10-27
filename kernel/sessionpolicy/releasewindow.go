@@ -3,7 +3,7 @@ package switching
 // releasewindow.go — 「会话驻留窗口」可调面的**判据与次序**（前端 设置 → 会话驻留）。
 //
 // 落点沿革：2026-10-17 随 **M5-R6-release-window** 接收者转移从
-// `application/core/service_release_window.go` 归位（plan §2.4 的 `service_release_window.go` → `middle/switch/`）；
+// `application/assembly/service_release_window.go` 归位（plan §2.4 的 `service_release_window.go` → `middle/switch/`）；
 // 窗口值住进程级 limits、判据层与存储口都由宿主注入（中间层不读配置、不持 store）。
 //
 // 口径（迁移前注释逐字保留其含义）：窗口值住在**进程级 limits**，由宿主原子快照持有；释放面每次决策现读它，

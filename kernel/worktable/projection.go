@@ -3,7 +3,7 @@ package worktable
 // projection.go — 工作表格**投影判据**：把权威状态（task 注册表快照、plan 邻接面、
 // 子代理树、后台执行登记表）投影成目录行 / 批次头 / 行内打点。
 //
-// 为什么判据在这里而不是宿主（`application/core`）：行怎么排、状态怎么映射、证据怎么
+// 为什么判据在这里而不是宿主（`application/assembly`）：行怎么排、状态怎么映射、证据怎么
 // 截断，都是"从权威快照派生"的纯计算；宿主只负责在它自己的锁下取数。判据留在宿主会
 // 让同一份派生规则随用例膨胀，也让中间层无法独立复用投影。
 //
@@ -24,7 +24,7 @@ import (
 // （中间层不反向依赖它，见 plan §1.2 与 R5c 的偏差登记）。
 //
 // 为什么是三格而不是整份 `limit.Limits`：投影只用得到这三格，收窄参数面让"投影依赖了
-// 哪些上限"一眼可读；宿主侧的唯一转换点在 `application/core/limits.go`。
+// 哪些上限"一眼可读；宿主侧的唯一转换点在 `application/assembly/limits.go`。
 type Limits struct {
 	// WorkTableRows 是表格行数上限（0 = 不限）。
 	WorkTableRows int

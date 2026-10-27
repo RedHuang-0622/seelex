@@ -11,7 +11,7 @@ import (
 func TestCoreAssemblerDoesNotResolveGoalStoreDirectly(t *testing.T) {
 	file, err := parser.ParseFile(
 		token.NewFileSet(),
-		filepath.Join(sourceApplicationDir(t), "core", "service_assembler.go"),
+		filepath.Join(sourceApplicationDir(t), "assembly", "service_assembler.go"),
 		nil,
 		parser.ImportsOnly,
 	)

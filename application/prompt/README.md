@@ -2,9 +2,9 @@
 
 ## 生态位
 
-本包管理 system prompt 的分层组合和 Effort 行为策略，为 `core.Service` 提供线程安全、可解释的 prompt 状态。
+本包管理 system prompt 的分层组合和 Effort 行为策略，为 `assembly.Service` 提供线程安全、可解释的 prompt 状态。
 
-主要调用方：`application/core`（经本包的 Coordinator alias 组装与引擎同步）、
+主要调用方：`application/assembly`（经本包的 Coordinator alias 组装与引擎同步）、
 `gui`/`tui`（Effort 切换与展示）。
 具体提示词文本不在本包，而在 [`kernel/prompt/assets`](../../kernel/prompt/assets/README.md)。
 
@@ -75,7 +75,7 @@ effort、instructions；Skill 请求内容不永久写入 system prompt，而随
 
 `lite`、`medium`、`high`、`max` 映射到行为提示、Engine MaxLoops、SubagentPolicy 和请求级 ReAct budget。`Apply` 同时更新 PromptStack 与 Engine；`Cycle` 为前端提供顺序切换。
 
-每个 budget 都限制工具轮数和工具调用数，并在 `core.Service` 接管底层 Engine 未主动执行 `MaxLoops` 时作为最终的收束边界。预算按提交时的 effort 快照保存；它不会禁止 Markdown 导出等交付工具，只会阻止预算耗尽后的下一次 ReAct 迭代。长编码任务不设 wall-clock 超时，仍可由用户显式取消。
+每个 budget 都限制工具轮数和工具调用数，并在 `assembly.Service` 接管底层 Engine 未主动执行 `MaxLoops` 时作为最终的收束边界。预算按提交时的 effort 快照保存；它不会禁止 Markdown 导出等交付工具，只会阻止预算耗尽后的下一次 ReAct 迭代。长编码任务不设 wall-clock 超时，仍可由用户显式取消。
 
 具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和子代理章程位于 [`kernel/prompt/assets`](../../kernel/prompt/assets/README.md)：默认以内嵌资源随二进制走，启动期可被 `config/prompt/` 里的同名文件逐份覆盖（外部覆盖层，见该包 README）。这里只保留层组合与 `EffortManager` 的应用动作；**档位策略表**（reasoning 强度 / 子代理约束 / 默认档位）已归位 [`kernel/limit/effort`](../../kernel/limit/effort/README.md)，四个档位共用同一份 effort 行为指令，档位差异只由策略读数表达。
 
@@ -94,7 +94,7 @@ a mandatory planning preflight.
 `coordinator.go` 以同身份 alias 暴露 `kernel/prompt.Coordinator`，并用
 `NewCoordinator` 只转换装配参数形状。system 层组装、前缀缓存、活跃任务同步与
 `SetSystemPrompt` 仍由 Engine prompt 唯一实现；`ValidateAssets` 也只转发资产校验。
-这样 `application/core` 不再直接 import Engine prompt 子包。
+这样 `application/assembly` 不再直接 import Engine prompt 子包。
 
 ## Environment Trace
 
@@ -115,5 +115,5 @@ system 前缀、历史或压缩。
 
 ```text
 go test ./application/prompt -count=1
-go test ./application/core -run 'Effort|Skill' -count=1
+go test ./application/assembly -run 'Effort|Skill' -count=1
 ```

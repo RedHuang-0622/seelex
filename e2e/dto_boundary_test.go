@@ -29,7 +29,7 @@ func TestRoleSessionPortsDoNotLeakStorageTypes(t *testing.T) {
 		filepath.Join("contract", "ports.go"),
 		filepath.Join("contract", "dto", "rolesession.go"),
 		filepath.Join("contract", "role_sessions.go"),
-		// 原表里还有 application/core/agentteam_service.go 与 gui/headless_team.go——
+		// 原表里还有 application/assembly/agentteam_service.go 与 gui/headless_team.go——
 		// Agent Team 面已整体退场（bab08c2f "Agent Team 面退场与 @ 手动召唤删除"），
 		// 两个文件都不存在了，它们的 S27 面由 role_session.go / headless/ 承载；
 		// 列表里留着不存在的路径会让本用例死在"parse 失败"上，而不是死在真正想钉的

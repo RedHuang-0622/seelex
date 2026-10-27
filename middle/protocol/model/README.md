@@ -7,14 +7,14 @@ clone 实现位于 [`contract/protocol`](../../../contract/protocol/README.md)�
 本包通过类型 alias 与一行转发保持源码和 JSON 身份不变，不持有第二份 DTO。
 
 主要调用方是尚未迁移的 `gui`、`tui`、`middle/protocol/event` 与 `e2e/scenario`。
-`application/core` 和 backend 生产代码已直接依赖 `contract/protocol`；新增消费者
+`application/assembly` 和 backend 生产代码已直接依赖 `contract/protocol`；新增消费者
 不得再走本兼容路径。
 
 ## 架构图
 
 ```mermaid
 flowchart TB
-    subgraph CORE["application/core（生产者）"]
+    subgraph CORE["application/assembly（生产者）"]
         VS["view_state：Snapshot 读写 + 事件发布"]
         RT["session_runtime · task_context · context_runtime"]
         GOAL["goal · agentteam · subagent_view · worktable"]
@@ -56,7 +56,7 @@ flowchart LR
     BUMP --> DELTA["Event（连续增量）"]
     SNAP -->|启动或 resync| FE["GUI / TUI"]
     DELTA -->|正常路径| FE
-    FE -->|Action| USE["application/core 用例"]
+    FE -->|Action| USE["application/assembly 用例"]
     USE --> DOMAIN
 ```
 
@@ -66,7 +66,7 @@ flowchart LR
 - `TaskState`：最近一次请求的可观察结果，只能是 `progressing`、`completed`、`needs_user_decision`、`blocked`、`interrupted` 或 `failed`；不承载模型推理、系统提示词或原始工具日志。
 - `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。可见 `Status` 含 `draft | idle | running | queued | restoring | awaiting_approval | archived`；`restoring` 是运行中切换到未驻留会话时“后台冷加载中”的权威状态（视图已切到目标空壳，内容基线由装载完成事件发布）。`SessionState.ForkedFrom` 是子会话的权威血缘，nil = 非 fork 会话。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
-- `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/core/README-service.md` 的 `appendMessageWithOriginLocked`）。`EventSeq`、`Editable`、`EditDisabledReason` 是消息编辑的权威后端投影；`Snapshot.ConversationRevision` 是编辑 CAS 令牌，与进程级 `Revision` 分离。
+- `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/assembly/README-service.md` 的 `appendMessageWithOriginLocked`）。`EventSeq`、`Editable`、`EditDisabledReason` 是消息编辑的权威后端投影；`Snapshot.ConversationRevision` 是编辑 CAS 令牌，与进程级 `Revision` 分离。
 - `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、权威**权限档位**（`permission_tier` 生效档 + `permission_tiers` 目录）、工具和 Plan DAG 的投影；嵌套 `PlanNode` 包含有界生命周期 `events` 和子代理 `tool_events`。`full_access` 保留为派生位（`full` 档 ⇒ true），不再是有独立语义的开关。
 - `SubagentEvent`/`SubagentToolEvent`：前端增量协议；前者携带完整节点及 Plan 进度，后者携带单次子代理工具 started/completed 状态。
 - `WorkTableEvent`：`worktable.changed` 增量载荷（`items` + 可选 `batches` + 可选 `subagent_tree`）；树只在内容变化时携带，空数组表示已清空，缺失/`null` 表示保留既有树——前端据此把工作表格行解析成详情弹窗节点。
@@ -110,7 +110,7 @@ DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的
 ## 测试
 
 ```text
-go test ./application/core ./gui -count=1
+go test ./application/assembly ./gui -count=1
 node --test gui/frontend/dist/protocol.test.mjs gui/frontend/dist/client-state.test.mjs
 ```
 

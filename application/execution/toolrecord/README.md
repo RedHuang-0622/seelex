@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/execution/toolrecord` 拥有工具记录的应用侧台账：成功/失败累计、失败原因、
-执行单元暂存、会话批次落盘与看板投影。主要调用方是 `application/core` 装配后的
+执行单元暂存、会话批次落盘与看板投影。主要调用方是 `application/assembly` 装配后的
 ToolRecord 组件；具体工具执行与持久化仍分别归工具层和 Session Store 的
 `tool-record.jsonl` 端口。
 
@@ -23,7 +23,7 @@ ToolRecord 组件；具体工具执行与持久化仍分别归工具层和 Sessi
 - 不执行工具、不判断工具权限、不生成工具消息；
 - 不直接读写存储文件；持久化只通过 `contract.ToolRecordSnapshotStore`；
 - 不决定会话是否已物化；该宿主判据由 `Deps.WritableSession` 注入；
-- 不持有完整 `Service`，也不 import `application/core`。
+- 不持有完整 `Service`，也不 import `application/assembly`。
 
 ## 核心契约
 
@@ -77,5 +77,5 @@ type Deps struct {
 
 ```text
 go test ./application/execution/toolrecord -count=1
-go test ./application/core -run 'ToolRecord|ToolCommand|RoleTool|SubagentTool' -count=1
+go test ./application/assembly -run 'ToolRecord|ToolCommand|RoleTool|SubagentTool' -count=1
 ```

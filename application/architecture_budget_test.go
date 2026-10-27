@@ -20,13 +20,13 @@ import (
 // applicationBudget 是 Application 结构的可审计预算。预算只允许下调；
 // 方法集与直接依赖白名单分开保存，避免“删一个、加一个”的净零漂移。
 type applicationBudget struct {
-	ServiceMethodCount                 int      `json:"service_method_count"`
-	CoreInternalDependencyLimit        int      `json:"core_internal_dependency_limit"`
-	CoreProductionFileLimit            int      `json:"core_production_file_limit"`
-	CoreProductionLineLimit            int      `json:"core_production_line_limit"`
-	AllowedCoreInternalDependencies    []string `json:"allowed_core_internal_dependencies"`
-	CompatibilityLedger                string   `json:"compatibility_ledger"`
-	CompatibilityLedgerRequiredHeading string   `json:"compatibility_ledger_required_heading"`
+	ServiceMethodCount                  int      `json:"service_method_count"`
+	AssemblyInternalDependencyLimit     int      `json:"assembly_internal_dependency_limit"`
+	AssemblyProductionFileLimit         int      `json:"assembly_production_file_limit"`
+	AssemblyProductionLineLimit         int      `json:"assembly_production_line_limit"`
+	AllowedAssemblyInternalDependencies []string `json:"allowed_assembly_internal_dependencies"`
+	CompatibilityLedger                 string   `json:"compatibility_ledger"`
+	CompatibilityLedgerRequiredHeading  string   `json:"compatibility_ledger_required_heading"`
 }
 
 func TestApplicationArchitectureBudget(t *testing.T) {
@@ -44,29 +44,29 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 		t.Fatalf("Service 方法预算 = %d，实际 = %d", budget.ServiceMethodCount, len(gotMethods))
 	}
 
-	gotDeps := directInternalDependencies(t, filepath.Join(applicationDir, "core"))
-	if len(gotDeps) > budget.CoreInternalDependencyLimit {
-		t.Fatalf("application/core 直接内部依赖 = %d，预算 = %d:\n%s",
-			len(gotDeps), budget.CoreInternalDependencyLimit, strings.Join(gotDeps, "\n"))
+	gotDeps := directInternalDependencies(t, filepath.Join(applicationDir, "assembly"))
+	if len(gotDeps) > budget.AssemblyInternalDependencyLimit {
+		t.Fatalf("application/assembly 直接内部依赖 = %d，预算 = %d:\n%s",
+			len(gotDeps), budget.AssemblyInternalDependencyLimit, strings.Join(gotDeps, "\n"))
 	}
-	allowed := make(map[string]bool, len(budget.AllowedCoreInternalDependencies))
-	for _, dependency := range budget.AllowedCoreInternalDependencies {
+	allowed := make(map[string]bool, len(budget.AllowedAssemblyInternalDependencies))
+	for _, dependency := range budget.AllowedAssemblyInternalDependencies {
 		allowed[dependency] = true
 	}
 	for _, dependency := range gotDeps {
 		if !allowed[dependency] {
-			t.Fatalf("application/core 新增未登记的直接内部依赖：%s", dependency)
+			t.Fatalf("application/assembly 新增未登记的直接内部依赖：%s", dependency)
 		}
 	}
 
-	productionFiles, productionLines := coreProductionSize(t, filepath.Join(applicationDir, "core"))
-	if productionFiles > budget.CoreProductionFileLimit {
-		t.Fatalf("application/core 生产 Go 文件 = %d，预算 = %d：包提取必须减少或显式收紧预算",
-			productionFiles, budget.CoreProductionFileLimit)
+	productionFiles, productionLines := productionSize(t, filepath.Join(applicationDir, "assembly"))
+	if productionFiles > budget.AssemblyProductionFileLimit {
+		t.Fatalf("application/assembly 生产 Go 文件 = %d，预算 = %d：包提取必须减少或显式收紧预算",
+			productionFiles, budget.AssemblyProductionFileLimit)
 	}
-	if productionLines > budget.CoreProductionLineLimit {
-		t.Fatalf("application/core 生产代码 = %d 行，预算 = %d：包提取必须让 core 净下降或显式更新预算",
-			productionLines, budget.CoreProductionLineLimit)
+	if productionLines > budget.AssemblyProductionLineLimit {
+		t.Fatalf("application/assembly 生产代码 = %d 行，预算 = %d：装配层规模只能保持或收紧",
+			productionLines, budget.AssemblyProductionLineLimit)
 	}
 
 	ledgerPath := filepath.Join(applicationDir, "..", budget.CompatibilityLedger)
@@ -174,7 +174,7 @@ func isApplicationInternalDependency(path string) bool {
 		strings.HasPrefix(relative, "middle/")
 }
 
-func coreProductionSize(t *testing.T, packageDir string) (files, lines int) {
+func productionSize(t *testing.T, packageDir string) (files, lines int) {
 	t.Helper()
 	entries, err := os.ReadDir(packageDir)
 	if err != nil {

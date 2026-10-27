@@ -16,14 +16,14 @@ func TestToolHookBridgeIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/execution/toolhooks/bridge.go is required: %v", err)
 	}
 
-	corePath := filepath.Join(applicationDir, "core", "tool_hooks.go")
+	corePath := filepath.Join(applicationDir, "assembly", "tool_hooks.go")
 	file, err := parser.ParseFile(token.NewFileSet(), corePath, nil, 0)
 	if err != nil {
 		t.Fatalf("解析 core tool hooks: %v", err)
 	}
 	for _, name := range []string{"beginTool", "completeTool", "nextToolIDLocked", "toolHookKey", "observeDiagnostic"} {
 		if fileHasFunc(file, name) {
-			t.Errorf("duplicate tool-hook state machine %s remains in application/core/tool_hooks.go; "+
+			t.Errorf("duplicate tool-hook state machine %s remains in application/assembly/tool_hooks.go; "+
 				"move it to application/execution/toolhooks", name)
 		}
 	}

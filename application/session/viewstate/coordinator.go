@@ -45,7 +45,7 @@ type Deps struct {
 	// 假读数——会话化那一步（代码注释里的"刀 4"）没做之前，"每会话一份"只能是
 	// 界面上写得出来、后端做不到。
 	// 这两个回调存在的原因：runtime 投影每次整份重建 Runtime，读数必须由
-	// application/core 反哺进投影，否则投影一跑（每个回合尾、每次工具边界）拉条
+	// application/assembly 反哺进投影，否则投影一跑（每个回合尾、每次工具边界）拉条
 	// 就被清零。
 	CurrentReasoningEffort func() string
 	CurrentLoopLimit       func() int

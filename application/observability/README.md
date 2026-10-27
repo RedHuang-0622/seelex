@@ -14,7 +14,7 @@
 
 - 不拥有 Snapshot、限额或前端缓存；只计算传入快照的派生指标。
 - 不读取操作内容、不执行 I/O、不缓存采样历史。
-- 不导入 `application/core`，不持有完整 `Service`。
+- 不导入 `application/assembly`，不持有完整 `Service`。
 
 ## 文件结构
 
@@ -31,13 +31,13 @@
 
 ## 数据流
 
-`application/core` → `PerfApplication` → `observability.PerfStats`；
+`application/assembly` → `PerfApplication` → `observability.PerfStats`；
 `application.RenderDiag` / `/diag` → `observability.RenderDiag`。
 
 ## 依赖方向
 
 允许依赖 `contract/protocol` 与 `contract/dto`。禁止依赖
-`application/core`、backend 具体实现或前端包。
+`application/assembly`、backend 具体实现或前端包。
 
 ## 并发与错误
 

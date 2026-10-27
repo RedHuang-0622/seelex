@@ -13,8 +13,8 @@ import (
 // moved out of core: every remaining Service method owns state or lifecycle.
 func TestServiceHasNoCompatibilityForwarders(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreDir := filepath.Join(applicationDir, "core")
-	entries, err := os.ReadDir(coreDir)
+	assemblyDir := filepath.Join(applicationDir, "assembly")
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestServiceHasNoCompatibilityForwarders(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -47,7 +47,7 @@ func TestServiceHasNoCompatibilityForwarders(t *testing.T) {
 // adapters are deliberately excluded until their owning capability moves.
 func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreDir := filepath.Join(applicationDir, "core")
+	assemblyDir := filepath.Join(applicationDir, "assembly")
 	forwarders := map[string]string{
 		"NewDefaultWindowPolicy": "application/window",
 		"DefaultWindowConfig":    "application/window",
@@ -73,7 +73,7 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		"ApplyLimits":            "application/policy",
 		"Limits":                 "application/policy",
 	}
-	entries, err := os.ReadDir(coreDir)
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -109,12 +109,12 @@ func TestCoreHasNoPackageFunctionForwarders(t *testing.T) {
 // input package extraction.
 func TestCoreDoesNotOwnInputFacade(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreDir := filepath.Join(applicationDir, "core")
+	assemblyDir := filepath.Join(applicationDir, "assembly")
 	forbidden := map[string]bool{
 		"HasSigilPrefix": true,
 		"SigilOf":        true,
 	}
-	entries, err := os.ReadDir(coreDir)
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestCoreDoesNotOwnInputFacade(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
@@ -142,7 +142,7 @@ func TestCoreDoesNotOwnInputFacade(t *testing.T) {
 // apparent owner even though every definition is only an alias.
 func TestCoreDoesNotOwnInputVocabulary(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreDir := filepath.Join(applicationDir, "core")
+	assemblyDir := filepath.Join(applicationDir, "assembly")
 	forbidden := map[string]bool{
 		"SigilCommand":          true,
 		"SigilPlugin":           true,
@@ -152,7 +152,7 @@ func TestCoreDoesNotOwnInputVocabulary(t *testing.T) {
 		"SuggestionKindPlugin":  true,
 		"Suggestion":            true,
 	}
-	entries, err := os.ReadDir(coreDir)
+	entries, err := os.ReadDir(assemblyDir)
 	if err != nil {
 		t.Fatalf("read core: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestCoreDoesNotOwnInputVocabulary(t *testing.T) {
 		if entry.IsDir() || !isGoFile(name) || isTestGoFile(name) {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(coreDir, name), nil, 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(assemblyDir, name), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}

@@ -26,8 +26,8 @@ func TestProjectBoardQueryIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/execution package name = %q, want execution", file.Name.Name)
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "project_board_read.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "project_board_read.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/project_board_read.go: %v", err)
 	}

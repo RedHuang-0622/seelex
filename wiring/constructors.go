@@ -9,8 +9,8 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
-	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
@@ -21,11 +21,11 @@ import (
 
 // New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。
 //
-// 唯一实现是 core.New：这里只提供组合根侧的调用点，前端不得自造引擎
-// （plan §1.3 ④）。返回值 *core.Service 与门面别名 application.Service 是同一
+// 唯一实现是 assembly.New：这里只提供组合根侧的调用点，前端不得自造引擎
+// （plan §1.3 ④）。返回值 *assembly.Service 与门面别名 application.Service 是同一
 // 类型身份（别名不是新类型）。
-func New(deps contract.Dependencies) (*core.Service, error) {
-	return core.New(deps, core.ExternalPorts{
+func New(deps contract.Dependencies) (*assembly.Service, error) {
+	return assembly.New(deps, assembly.ExternalPorts{
 		HistoryWindow:          adapters.NewHistoryWindowAssembler(),
 		Residency:              adapters.NewResidencyPort(),
 		ConversationStream:     adapters.NewConversationStreamPort(),
@@ -45,7 +45,7 @@ func New(deps contract.Dependencies) (*core.Service, error) {
 }
 
 // NewFrontend constructs the frontend compatibility adapter.
-func NewFrontend(app *core.Service) *application.Frontend {
+func NewFrontend(app *assembly.Service) *application.Frontend {
 	return applicationcompat.New(app)
 }
 
@@ -61,7 +61,7 @@ func NewApprovalBroker(events *event.EventHub) *limitapproval.ApprovalBroker {
 }
 
 // NewToolHookBridge 构造工具钩子桥（工具调用前后的诊断与观测挂点）。
-func NewToolHookBridge() *core.ToolHookBridge { return core.NewToolHookBridge() }
+func NewToolHookBridge() *assembly.ToolHookBridge { return assembly.NewToolHookBridge() }
 
 // NewPromptStack 构造空的 prompt 栈。
 func NewPromptStack() *prompt.PromptStack { return prompt.NewPromptStack() }

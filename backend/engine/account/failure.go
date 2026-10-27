@@ -20,7 +20,7 @@ import (
 // 判据是错误文本里的 provider 语义：seelebridge 的错误链路
 // （`internal/stream` 与 api 层）保留了上游的状态码与措辞
 // （如 `seelex: stream with account "goalplan-1": ChatClient stream: HTTP 402 …`），
-// 因此字符串匹配在这里是可定位、可测试的（与 application/core 的
+// 因此字符串匹配在这里是可定位、可测试的（与 application/assembly 的
 // `classifyProviderFailure` 同一口径）。
 type FailureKind string
 

@@ -8,7 +8,7 @@ import (
 )
 
 // fakeSubagentApplication 在 headless RPC 单测里复刻 A 流的 subagent.* 扩展面；
-// 语义（七步模板、幂等收敛）由 application/core/resume 与 seelebridge 测试
+// 语义（七步模板、幂等收敛）由 application/assembly/resume 与 seelebridge 测试
 // 覆盖，这里只验证 headless 的参数解码与窄转发。
 type fakeSubagentApplication struct {
 	*fakeApplication

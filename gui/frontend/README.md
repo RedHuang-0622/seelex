@@ -165,7 +165,7 @@ flowchart TB
   - **拓扑只传一次**：git log 只下发 `commits`（含 parents），不再同时下发 `lines`（同一份数据发两遍）；Plan/子代理树的树轨是布尔标记而不是每节点一个引导字符串。
   - 度量看顶部性能徽标（`perf-hooks.js` 采集 DOM 节点数等无内容指标，点击展开）。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
-- 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。每行带可见状态徽标（`session.status`：运行中/排队/草稿/恢复中），保留的「新建会话」草稿槽位以草稿行常驻列表（点击恢复，物化后消失）。草稿行**从新建那一刻就在自己的工作区组里**：草稿的绑定是视图级事实，后端把它补进 `session_workspaces`（存储绑定要等物化才写），前端只照着分组。运行中但还没落盘的会话（首轮、定时任务新建的后台会话）由后端补成 `running` 行，左侧栏立刻可见，不等到这一轮跑完（判据见 `application/core` 的 `withLiveSessionRowsLocked`）。`restoring` 表示运行中切换到未驻留会话时后台冷加载中：视图已切到目标空壳，输入区禁用，装载完成后由 `snapshot.changed` 发布内容基线并回到就绪。
+- 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。每行带可见状态徽标（`session.status`：运行中/排队/草稿/恢复中），保留的「新建会话」草稿槽位以草稿行常驻列表（点击恢复，物化后消失）。草稿行**从新建那一刻就在自己的工作区组里**：草稿的绑定是视图级事实，后端把它补进 `session_workspaces`（存储绑定要等物化才写），前端只照着分组。运行中但还没落盘的会话（首轮、定时任务新建的后台会话）由后端补成 `running` 行，左侧栏立刻可见，不等到这一轮跑完（判据见 `application/assembly` 的 `withLiveSessionRowsLocked`）。`restoring` 表示运行中切换到未驻留会话时后台冷加载中：视图已切到目标空壳，输入区禁用，装载完成后由 `snapshot.changed` 发布内容基线并回到就绪。
 - 目录形状（G6）：后端目录缓存按 projectID 分格枚举（`SessionsOf` 是唯一
   持久枚举源头），`sessions[]`/`session_workspaces` 是落到快照的**联合镜像**
   （跨项目按会话 ID 去重）+ 一格内存态补行（活着但尚未落盘的 running/queued/
@@ -525,7 +525,7 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 一级导航切到「定时任务」后，第二列展示计划票据（含「新建定时任务」按钮）：
 数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经
 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见
-`backend/engine/schedule/` 与 `application/core/service_scheduler.go`）。每条
+`backend/engine/schedule/` 与 `application/assembly/service_scheduler.go`）。每条
 计划固定一行（节奏 / 名称 / 状态 / 取消），提示词、工作区、权限、插件和执行参数
 只在点击后进入的中栏编辑器显示；取消按钮以
 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
@@ -845,7 +845,7 @@ containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测�
 （改/删/增/重命名/二进制/敏感过滤、根提交、合并提交按首父、子目录剥前缀、limit
 截断），以及对象库读取（工作区已改而提交内仍是旧内容、已删除文件在历史提交里可读、
 大文件截断早停、目录/敏感/越界路径拒绝），
-`application/core/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
+`application/assembly/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
 后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发与提交记录下钻
 的前端接线。
 

@@ -1,6 +1,6 @@
 package teamwork
 
-// board.go — 团队看板读面的**转发 + 空视图口径**（原 `application/core/teamwork_service.go`，
+// board.go — 团队看板读面的**转发 + 空视图口径**（原 `application/assembly/teamwork_service.go`，
 // M5-R8c 按 plan §2.7 归位多代理板块）。
 //
 // 事实不在这里：计划与审计落 store 的 moduleTeamwork，作业行活在 jobs.Manager 的内存

@@ -24,7 +24,7 @@ import (
 //     见 projectHistory 注释"审计 R3"），投影后孤儿可能落在**历史最前面**；
 //  2. 乱序结果（assistant(tool_calls c1) → user → tool(c1)）此前无人搬运。
 //
-// 应用侧孪生实现（application/core/context_runtime RepairInterruptedToolChains）
+// 应用侧孪生实现（application/assembly/context_runtime RepairInterruptedToolChains）
 // 早已按该协议剔除孤儿/搬回乱序行；框架侧（本包）只补缺失占位——两侧漂移，
 // 于是这类历史在框架侧一路发到 provider。本文件把出口不变量钉死：
 // AfterRepair 的历史与装配器产出的 wire 都必须是 provider 合法的。

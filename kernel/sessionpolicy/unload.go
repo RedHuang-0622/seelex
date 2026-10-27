@@ -3,7 +3,7 @@ package switching
 // unload.go — `UnloadSession` 用例的**判据与次序**（卸载会话：先持久化（非活跃时），再释放内存态，
 // 最后收口视图单例；运行中/恢复中的会话一律拒绝）。
 //
-// 落点沿革：2026-10-17 随 **M5-R6-unload** 接收者转移从 `application/core/session_lifecycle.go`
+// 落点沿革：2026-10-17 随 **M5-R6-unload** 接收者转移从 `application/assembly/session_lifecycle.go`
 // 归位（plan §2.4 的 `session_lifecycle.go` → `middle/switch/`）；本片只搬 `UnloadSession`，
 // 同文件的 `hotAttachSession`（热挂载，端口面更大）留待下一片（已登记）。
 //

@@ -6,11 +6,11 @@
 
 1. **行投影判据**（`projection.go` / `async.go`）：plan 节点、task 台账行、子代理节点、
    后台执行（含 teammate 完成行）如何拼成 `WorkItem` 行与打点行——M5-R5b 接收者转移从
-   `application/core/{work_table,work_table_async}.go` 原样搬来（判据、次序、文案逐字未改）；
+   `application/assembly/{work_table,work_table_async}.go` 原样搬来（判据、次序、文案逐字未改）；
 2. **增量事件投递**（`worktable_publisher.go`）：`WorkTablePublisher` 以 CSP 汇聚
    （latest-wins、有界背压、关闭排空尾态）发布 `worktable.changed` 所需的最新表格快照。
 
-主要调用方：`application/core`、`application/execution/table`、
+主要调用方：`application/assembly`、`application/execution/table`、
 `application/execution`、`application/session/query` 与它的测试。
 
 ## 职责与非职责
@@ -72,10 +72,10 @@ go test ./application/execution/worktable -count=1
 
 `worktable_publisher_test.go` 覆盖突发汇聚、关闭尾态与关闭后 Send 安全性；
 `projection_test.go` 覆盖身份判据由宿主注入（本包不留第二份）、无身份行不进合并、
-secondary 为空早返回。宿主级（真实装配）用例仍在 `application/core`：
+secondary 为空早返回。宿主级（真实装配）用例仍在 `application/assembly`：
 
 ```text
-go test ./application/core/ -run 'WorkTable|WorkItem|MergeTaskRecords|Teamwork' -count=1
+go test ./application/assembly/ -run 'WorkTable|WorkItem|MergeTaskRecords|Teamwork' -count=1
 ```
 
 ## 文件与函数索引

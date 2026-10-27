@@ -689,7 +689,7 @@ func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) 
 // PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
 // 探测；调用方据此决定 L2 恢复策略）。
 //
-// 返回纯 DTO：应用层（application/core）不得依赖 store 类型，映射职责
+// 返回纯 DTO：应用层（application/assembly）不得依赖 store 类型，映射职责
 // 收敛在本适配器（与 S27 的 role/schedule 端口收口同口径）。
 func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {

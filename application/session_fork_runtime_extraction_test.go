@@ -8,8 +8,8 @@ import (
 
 func TestSessionForkRuntimeLivesInSessionForkPackage(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	if _, err := os.Stat(filepath.Join(applicationDir, "core", "session_fork.go")); err == nil {
-		t.Error("application/core/session_fork.go 仍存在；Session fork runtime 必须归 application/session/fork")
+	if _, err := os.Stat(filepath.Join(applicationDir, "assembly", "session_fork.go")); err == nil {
+		t.Error("application/assembly/session_fork.go 仍存在；Session fork runtime 必须归 application/session/fork")
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-// 本文件原在 `application/core/reference_tools_test.go`，随判据（M5-R-tool-reference）一起归位；
+// 本文件原在 `application/assembly/reference_tools_test.go`，随判据（M5-R-tool-reference）一起归位；
 // 留在 core 的是 Service 级集成用例（引擎桥取节点归档、result:call_ 别名映射）。
 
 func TestNodeResultRefParser(t *testing.T) {
@@ -89,7 +89,7 @@ func TestBuildPageContainsFiltersLines(t *testing.T) {
 
 // TestEncodePageMakesProgressAcrossUTF8Boundaries：模型面一次只取 1 字节时，
 // 必须给出一个完整 rune 并让 next_offset 前进（否则模型会卡在半个汉字上）。
-// 原在 `application/core/session_archive_test.go`，随判据一起归位。
+// 原在 `application/assembly/session_archive_test.go`，随判据一起归位。
 func TestEncodePageMakesProgressAcrossUTF8Boundaries(t *testing.T) {
 	result := model.StoredToolResult{
 		ToolResultRef: model.ToolResultRef{Ref: "tr-unicode", Tool: "read"},

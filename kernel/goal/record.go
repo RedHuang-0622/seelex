@@ -2,7 +2,7 @@
 // （LIFO，默认深度 1 = 会话单例）、状态机、事件订阅与前端投影。
 //
 // 设计来源：docs/2026-09-07-goal-domain-techleader/{architecture,design,prototype}.md
-// 本包自持全部可变状态（Controller.mu），不依赖 application/core 其它子包，
+// 本包自持全部可变状态（Controller.mu），不依赖 application/assembly 其它子包，
 // 便于在既有运行链路外先行验证 goal 语义，再按 design.md §2 落位
 // task_context/store/gui/seelebridge 的接线。
 package goal
@@ -168,7 +168,7 @@ type UpdateRequest = dto.UpdateGoalRequest
 // 非目标范围。只追加 progress 的更新**不算**改定义——那是执行侧在汇报进展，不是重写目标。
 //
 // 权限口径（2026-09-29）：定义类变更只有 TL 裁决侧能发起；agent 工具面只允许追加进度
-// （见 application/core 的 authorizeAgentGoalMutation）。
+// （见 application/assembly 的 authorizeAgentGoalMutation）。
 func GoalUpdateChangesDefinition(r UpdateRequest) bool {
 	return r.Title != nil || r.Statement != nil || r.Acceptance != nil || r.OutOfScope != nil
 }

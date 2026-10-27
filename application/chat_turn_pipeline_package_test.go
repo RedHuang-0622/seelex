@@ -78,7 +78,7 @@ func TestChatTurnPipelineComponentsAreExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/conversation/%s package = %q", name, parsed.Name.Name)
 		}
 	}
-	coreFiles := []string{
+	assemblyFiles := []string{
 		"chat_turn_input.go",
 		"chat_turn_response.go",
 		"chat_turn_recovery.go",
@@ -92,8 +92,8 @@ func TestChatTurnPipelineComponentsAreExtractedFromCore(t *testing.T) {
 		"chat_turn_tail.go",
 		"chat_turn_execution.go",
 	}
-	for _, name := range coreFiles {
-		path := filepath.Join(applicationDir, "core", name)
+	for _, name := range assemblyFiles {
+		path := filepath.Join(applicationDir, "assembly", name)
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {

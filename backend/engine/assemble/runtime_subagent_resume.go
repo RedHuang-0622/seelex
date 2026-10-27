@@ -22,7 +22,7 @@ import (
 //
 //	残留记录（active 且无结论）→ 重建现场 → system 注入恢复说明 → 同键重跑
 //
-// 七步模板本体在 application/core/resume（领域无关）；本文件只提供 subagent
+// 七步模板本体在 application/assembly/resume（领域无关）；本文件只提供 subagent
 // 适配器与现场/注入/重跑/收敛的具体实现。
 //
 // 设计依据：docs/arch/a2a-agent-team-factory.md §5/§5.1，AT7/AT10。

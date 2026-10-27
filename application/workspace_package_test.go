@@ -40,7 +40,7 @@ func TestWorkspaceApplicationIsExtractedFromCore(t *testing.T) {
 		"workspace_gitrepos.go",
 		"workspace_usecase.go",
 	} {
-		source := filepath.Join(applicationDir, "core", name)
+		source := filepath.Join(applicationDir, "assembly", name)
 		if _, err := os.Stat(source); os.IsNotExist(err) {
 			continue
 		} else if err != nil {

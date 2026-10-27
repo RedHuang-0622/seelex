@@ -107,7 +107,7 @@ func InitApplication(
 	// 权限向量接管：把 (会话, 角色) → 生效权限向量的读面接进执行门。
 	//
 	// 这是"判定的输入只有一条"的接线口：读面自己实现"登记优先、缺失按四级链路
-	// 解析"（application/core 的 RolePermissionVector），执行门只消费结论并按
+	// 解析"（application/assembly 的 RolePermissionVector），执行门只消费结论并按
 	// policy 的格位表判定。decided=false（没登记、也没有任何一层表态）留给执行门
 	// 按 ctx 身份派生——绝不在执行门里再造一份解析。
 	if runtime != nil {

@@ -8,10 +8,10 @@ import (
 
 func TestInputCompletionPolicyLivesOutsideCore(t *testing.T) {
 	applicationDir := sourceApplicationDir(t)
-	coreFile := filepath.Join(applicationDir, "core", "completion.go")
-	if _, err := os.Stat(coreFile); err == nil {
-		t.Fatalf("input completion policy still lives in %s", coreFile)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "completion.go")
+	if _, err := os.Stat(assemblyFile); err == nil {
+		t.Fatalf("input completion policy still lives in %s", assemblyFile)
 	} else if !os.IsNotExist(err) {
-		t.Fatalf("stat %s: %v", coreFile, err)
+		t.Fatalf("stat %s: %v", assemblyFile, err)
 	}
 }

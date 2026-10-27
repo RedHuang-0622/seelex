@@ -19,7 +19,7 @@ type Route interface {
 // Router 是组合式输入路由器：按 command → plugin → skill → conversation
 // 的策略顺序分派已规范化输入。
 //
-// 前缀与用例一一对应（sigil 契约见 application/core/completion.go 与
+// 前缀与用例一一对应（sigil 契约见 application/assembly/completion.go 与
 // docs/gui/modules/shell-and-interactions.md）：
 //
 //	/  可执行入口：命令 + Skill（工具不在此列，只有模型能调用；要显式调用先注册成命令）

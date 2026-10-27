@@ -14,7 +14,7 @@ package test
 
 import (
 	"context"
-	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -41,8 +41,8 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
-		harness.frontend.WorkTableRowsFor, core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamPlanFor,
-		core.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
+		harness.frontend.WorkTableRowsFor, assembly.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.NewFrontendPorts(harness.app).ProjectBoard.ProjectBoardTeamStateFor, harness.frontend.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {

@@ -17,7 +17,7 @@
 
 - 不读取历史存储、不选择压缩栈、不实现相关性排序。
 - 不重写默认 limit 或 token 预算。
-- 不导入 `application/core`，不持有完整 `Service`。
+- 不导入 `application/assembly`，不持有完整 `Service`。
 
 ## 文件结构
 
@@ -31,12 +31,12 @@
 
 ## 数据流
 
-`application/core` 一行兼容转发 → `Application.SearchHistory` → Runtime search →
+`application/assembly` 一行兼容转发 → `Application.SearchHistory` → Runtime search →
 权威 `dto.SearchResult`。
 
 ## 依赖方向
 
-允许依赖 `contract/dto` 与标准库。禁止依赖 `application/core`、具体 backend/middle
+允许依赖 `contract/dto` 与标准库。禁止依赖 `application/assembly`、具体 backend/middle
 实现或前端包。
 
 ## 并发与错误

@@ -213,7 +213,7 @@ type roleSettingsApplication interface {
 // **读者**：
 //
 //   - RoleSnapshot：某个角色会话的只读观察面（`dto.RoleSnapshot`，角色 draft 的
-//     投影；B1 保留面，全仓唯一实现在 application/core/role_session.go）；
+//     投影；B1 保留面，全仓唯一实现在 application/assembly/role_session.go）；
 //   - TeammateSessionLiveFor / TeammateSessionLivePageFor：当前 teammate 会话的实时
 //     投影（团队看板的「这件事的会话此刻在说什么」）。
 //
@@ -1099,7 +1099,7 @@ func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 // sessionSelfRole 是"会话自持角色"的规范名：权限向量按 (sessionID, role) 落键。
 // 主代理在账号角色词表里是 agent（界面显示 mainagent）；root 只是它的执行主体类。
 //
-// 同一个名字也用在 application/core/service_assembler.go 的会话加载处（恢复该角色的
+// 同一个名字也用在 application/assembly/service_assembler.go 的会话加载处（恢复该角色的
 // 权限），两处必须一致——那里只能写字面量（core 不能反向 import gui），改名要一起改。
 const sessionSelfRole = string(dto.RoleAgent)
 

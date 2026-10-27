@@ -27,7 +27,7 @@ func Apply(l Limits) {
 //
 // 为什么不必通知任何消费方：窗口是**现读**的（消费方在每次释放决策时调
 // Limits.ReleaseWindow()），替换之后下一次释放就用新值——不必重启，也不必
-// 碰任何 LRU 调用点。写入方（application/core 的门面）负责先校验取值。
+// 碰任何 LRU 调用点。写入方（application/assembly 的门面）负责先校验取值。
 //
 // 不用 Apply 是因为 Apply 会重跑 WithDefaults：这里要的是"只动这一格"，其余格原样
 // 保留（快照本来就是补过默认的完整版本）。

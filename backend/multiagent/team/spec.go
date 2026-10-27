@@ -1,11 +1,11 @@
-// Package team（原 `application/core/agentteam`，M5-R8b 随 plan §2.7 归位
+// Package team（原 `application/assembly/agentteam`，M5-R8b 随 plan §2.7 归位
 // `backend/multiagent/team/`）现在只剩「角色身份 + 写入侧规整」两件事。
 //
 // 状态（2026-10-15，A03/A04）：**装配面与发言环都已退场**——`Factory` / `Registry` /
 // 团队库 / 员工库 / 全局母本 / 员工入职 / `@` 召唤（J-1a，2026-10-12）与发言环
 // `Runtime` / `TurnScheduler`（A04，2026-10-15）均已删除。剩下的只有：
 //   - `RoleSessionID`：角色会话号的派生（重复装配幂等的键；生产调用方是
-//     `application/core/goal_team_recorder.go`）；
+//     `application/assembly/goal_team_recorder.go`）；
 //   - `Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`：角色与
 //     TeamSpec 的写入侧白名单（当前没有生产调用方，保留为**唯一一份**判据；
 //     `RoleSpec` 的权限/插件字段仍是 teammate 执行链的活动配置，见 A07）。

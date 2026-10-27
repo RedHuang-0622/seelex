@@ -6025,3 +6025,36 @@ AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 Policy、Session Lifecycle/Draft/Cold、Context Compaction 与 Conversation Queue/ChatState
 与 Tool Hook / Tool Record / WorkTable publisher+consumer 迁出 core；尚未完成调用方迁移的
 Service 入口继续保留一行兼容转发。
+
+## M9：Application Core 最终退出（2026-10-27）
+
+- **红测先行**：新增 `TestApplicationCoreDirectoryIsRetired`，在迁移前因
+  `application/core` 仍存在而失败；目录删除后转绿。
+- **最终 owner**：剩余跨领域协调、装配器与宿主回调物理归
+  `application/assembly`；它是唯一组合根，不拥有 Session、Conversation 或
+  Execution 的领域状态机。`Service` 公开业务方法保持 0，直接内部依赖保持 0。
+- **状态归位**：`DraftSlot`、聊天/草稿 ID 序号、`SessionIDSeq`、全权默认与权限
+  档位默认从装配层移到 `application/session/state.ApplicationRuntimeState`；
+  assembly 只持有组合图和短生命周期流程状态。
+- **唯一实现**：没有保留 `application/core` alias、shim 或双份实现；唯一生产
+  import 改为 `application/assembly`，旧路径在仓库 Go 源码中归零。
+- **兼容性**：`application.Service` 类型身份、`wiring.New` 返回类型、GUI/TUI
+  方法面、JSON、事件 revision/seq、snapshot 与持久化格式均未改变。
+- **结构门禁**：
+  - `TestApplicationCoreDirectoryIsRetired`
+  - `TestApplicationArchitectureBudget`
+  - `TestAssemblyInternalDependencyAllowListHasNoStaleEntries`
+  - `TestExtractedApplicationPackagesDoNotImportCore`
+  - E2E `Facade|Document|Layout`
+- **README/索引**：更新 Application、Assembly、Wiring、Architecture 与根入口路径；
+  assembly 分卷索引和 session state 索引已通过生成器刷新。
+
+最终指标：
+
+| 指标 | 结果 |
+|---|---:|
+| `Service` 公开方法 | 0 |
+| `application/core` 生产文件 / 代码 | 0 / 0 |
+| `application/assembly` 生产文件 / 代码 | 54 / 7,092 |
+| `application/assembly` 直接 Backend/Middle/Store 依赖 | 0 |
+| `application/**` 具体 Backend/Middle/Store 依赖 | 0 |

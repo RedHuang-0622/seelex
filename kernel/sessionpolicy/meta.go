@@ -4,7 +4,7 @@
 // 生命周期/切换/队列/驻留调度器家族随 R6 续做搬入（`history/` 已是本包的子域）。
 //
 // 落点沿革：2026-10-16 随 M5-R6-session-meta **接收者转移**从
-// `application/core/session_meta.go` 归位（plan §2.4 的 `session_meta.go` → `middle/switch/`）。
+// `application/assembly/session_meta.go` 归位（plan §2.4 的 `session_meta.go` → `middle/switch/`）。
 package switching
 
 import (

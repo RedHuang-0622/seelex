@@ -43,10 +43,10 @@
 
 | 本包函数 | 唯一实现 |
 |---|---|
-| `New` | `application/core.New` |
+| `New` | `application/assembly.New` |
 | `NewEventHub` | `middle/protocol/event.NewEventHub` |
 | `NewApprovalBroker` | `backend/limit/approval.NewApprovalBroker`（端口形状在 `contract/approval.go`） |
-| `NewToolHookBridge` | `application/core.NewToolHookBridge` |
+| `NewToolHookBridge` | `application/assembly.NewToolHookBridge` |
 | `NewPromptStack` | `application/prompt.NewPromptStack` |
 | `NewEffortManager` | `application/prompt.NewEffortManager` |
 | `WebSearch` | `backend/tool/search.WebSearch`（M4 迁 `backend/tool/websearch`） |
@@ -65,7 +65,7 @@ main.go / 测试基座
   store / seelebridge.Runtime 等实现就绪
     │  wiring.New(contract.Dependencies{...})
     ▼
-*core.Service（门面 application.Service 的同一类型身份）
+*assembly.Service（门面 application.Service 的同一类型身份）
     ▼
 前端只消费 Snapshot / Event / 用例方法面
 ```
@@ -95,7 +95,7 @@ main.go / 测试基座
 - 构造函数本身不启 goroutine、不加锁；并发语义由被构造对象决定（如 `EventHub` 的
   订阅表、`ApprovalBroker` 的待批表）。
 - `New` 返回的错误是装配期错误：缺必需端口或 prompt assets 嵌入失败时返回
-  `(*core.Service, error)`，调用方（组合根）决定是否终止进程。
+  `(*assembly.Service, error)`，调用方（组合根）决定是否终止进程。
 
 ## 扩展方式
 
@@ -128,10 +128,10 @@ go test ./... -count=1 -timeout=900s
 
 ### constructors.go
 
-- `func New(deps contract.Dependencies) (*core.Service, error)` — New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。
+- `func New(deps contract.Dependencies) (*assembly.Service, error)` — New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。
 - `func NewEventHub() *event.EventHub` — NewEventHub 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。
 - `func NewApprovalBroker(events *event.EventHub) *limitapproval.ApprovalBroker` — NewApprovalBroker 构造异步审批 broker；events 为 nil 表示不发布审批事件。
-- `func NewToolHookBridge() *core.ToolHookBridge` — NewToolHookBridge 构造工具钩子桥（工具调用前后的诊断与观测挂点）。
+- `func NewToolHookBridge() *assembly.ToolHookBridge` — NewToolHookBridge 构造工具钩子桥（工具调用前后的诊断与观测挂点）。
 - `func NewPromptStack() *prompt.PromptStack` — NewPromptStack 构造空的 prompt 栈。
 - `func NewEffortManager(stack *prompt.PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *prompt.EffortManager` — NewEffortManager 构造 effort 管理器（推理档位与 ReAct 循环预算）。
 - `func WebSearch(ctx context.Context, config search.WebSearchConfig, query string, maxResults int) (string, error)` — WebSearch 执行一次 Web 搜索。

@@ -20,7 +20,7 @@
 
 - 不实现摘要、预算、替换历史或持久化；
 - 不拥有 Task、Engine、View 或 EventHub；
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 
 ## 文件结构
 
@@ -35,7 +35,7 @@
 ## 依赖方向
 
 允许依赖 backend engine context 的 identity alias/转发面、`contract/protocol` 与
-标准库。禁止依赖 `application/core`、GUI/TUI 或存储实现。
+标准库。禁止依赖 `application/assembly`、GUI/TUI 或存储实现。
 
 ## 并发与错误
 
@@ -47,6 +47,6 @@ compacting 集合与广播信号，所有读写都由共享 `Core.ViewMu` 保护
 
 ```text
 go test ./application/conversation/context -count=1
-go test ./application/core -run 'CompactContext' -count=1
+go test ./application/assembly -run 'CompactContext' -count=1
 go test ./application/... -count=1
 ```

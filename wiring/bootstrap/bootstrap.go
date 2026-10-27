@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
@@ -286,7 +286,7 @@ func Run(opts Options) (*App, error) {
 		frontendApp.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
 	}
 	registry.RegisterTaskTerminalTools(runtime, app)
-	registry.RegisterGoalTools(runtime, core.NewFrontendPorts(app).Goal)
+	registry.RegisterGoalTools(runtime, assembly.NewFrontendPorts(app).Goal)
 	// **J-1a 之后这里不再注入两条"角色自带"读面**（2026-10-12，Agent Team 用户面
 	// 退场）：
 	//
@@ -305,7 +305,7 @@ func Run(opts Options) (*App, error) {
 	// **权限门的"员工权责反查"接线也随本条目退场**（2026-10-12）：`SetRoleSessionPolicyResolver`
 	// （角色会话 → ToolsPolicy）与 `SetRoleSessionOwnerResolver`（角色会话 → 宿主主会话）
 	// 的对象 `app.RoleSessionToolsPolicy` / `app.RoleSessionOwner` 只有一个事实来源——
-	// `application/core/agentteam_role_index.go` 的反向索引，而它的**唯一登记点**是
+	// `application/assembly/agentteam_role_index.go` 的反向索引，而它的**唯一登记点**是
 	// 团队注册表的读面（`agentTeamRawView`）。注册表随 Agent Team 用户面删除 ⇒ 索引
 	// 恒空 ⇒ 两条 resolver 退场前后的返回值**逐字相同**（恒 `("", false)`，权限门按
 	// "不是角色会话"回退）。因此这里不再接线，而不是留一个恒 false 的闭包。
@@ -334,8 +334,8 @@ func Run(opts Options) (*App, error) {
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := registry.ProjectBoardSinkFor(
 		runtimeLimits.ProjectBoard, st,
-		frontendApp.WorkTableRowsFor, core.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamPlanFor,
-		core.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
+		frontendApp.WorkTableRowsFor, assembly.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamPlanFor,
+		assembly.NewFrontendPorts(app).ProjectBoard.ProjectBoardTeamStateFor, frontendApp.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
@@ -344,7 +344,7 @@ func Run(opts Options) (*App, error) {
 	frontendApp.SetProjectBoardSink(projectBoardSink)
 	boot.addCleanup(closeProjectBoard)
 	// 工具记录（成功/失败计数 + 失败原因）：读数**按会话**存在会话自己的存储里，落盘是
-	// **批次**（真相源提交时刻统一更新一次，见 core.FlushToolRecord）——不做"每次工具调用
+	// **批次**（真相源提交时刻统一更新一次，见 assembly.FlushToolRecord）——不做"每次工具调用
 	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
 	frontendApp.SetToolRecordSnapshotStore(sessionToolRecordStore{
 		router:     st,

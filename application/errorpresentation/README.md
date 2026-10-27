@@ -7,7 +7,7 @@
 
 主要调用方：
 
-- `application/core` 通过 `contract.ErrorPresentationPort` 消费工具错误与结构化包装；
+- `application/assembly` 通过 `contract.ErrorPresentationPort` 消费工具错误与结构化包装；
   Wiring adapter 只转发本包，不复制分类或文案；
 - 未来收口后的 `backend/engine/*`（同款注入面）。
 
@@ -37,7 +37,7 @@ Application、Middle 与 Backend 都只能依赖契约层的错误判据，
 |---|---|
 | `codes.go` | 结构化信封的挂载/读取（`Wrap` / `StructuredCode` / `ClassifyStructured`）与各分类的呈现文本构造器 |
 | `presentation.go` | `Presented` 类型、分类主入口 `Classify`、`IsUnclassified`、工具出口 `PresentToolError` |
-| `presentation_test.go` | 分类与"不泄露 provider 细节"的用例（从 `application/core` 随迁） |
+| `presentation_test.go` | 分类与"不泄露 provider 细节"的用例（从 `application/assembly` 随迁） |
 
 ## 核心实现
 
@@ -89,7 +89,7 @@ Application、Middle 与 Backend 都只能依赖契约层的错误判据，
 
 ```text
 go test ./application/errorpresentation -count=1
-go test ./application/core/ -run 'ChatErrorSurface|RawUnclassified|PersistenceFailure' -count=1
+go test ./application/assembly/ -run 'ChatErrorSurface|RawUnclassified|PersistenceFailure' -count=1
 go test ./e2e/ -count=1
 ```
 

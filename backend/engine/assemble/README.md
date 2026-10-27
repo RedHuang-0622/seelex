@@ -9,7 +9,7 @@
 `workplan`（codec 导入 + 事件投影）、`event`/`telemetry` 能力包装成 Seelex
 可装配、可限制和可测试的 Runtime，同时隔离上游 API 变化。
 
-主要调用方：根目录组合根（`main.go`）、`application/core` 经
+主要调用方：根目录组合根（`main.go`）、`application/assembly` 经
 `contract` 端口消费、`gui`/`tui` 只经 Application 间接使用。
 
 ## 迁移状态：这是 **staging**（未收敛）
@@ -92,7 +92,7 @@
 ```mermaid
 flowchart TB
     ROOT["main.go 组合根"] --> RT["seelebridge.Runtime"]
-    APP["application/core（经 contract 端口）"] --> RT
+    APP["application/assembly（经 contract 端口）"] --> RT
 
     subgraph ASSEMBLY["装配面（按域物理拆分）"]
         R1["runtime.go：拓扑序装配链 + Shutdown 逆序关停"]
@@ -319,7 +319,7 @@ Windows GUI 构建还会以 `SysProcAttr.HideWindow` 启动 scoped shell，避�
   merge-back、PromptBlocks 与 Tracer 的闭包注入。
 
 `contract/ports.go` 只保留 `SetSubagentPolicy` / `SetSubagentPolicyFor`；
-历史 Plan 的只读投影仍在 `application/core/plan_tools.go`，但不再有执行入口。
+历史 Plan 的只读投影仍在 `application/assembly/plan_tools.go`，但不再有执行入口。
 
 ### `fork_subagents` 的派发边界
 

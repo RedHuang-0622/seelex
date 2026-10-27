@@ -16,7 +16,7 @@ func TestSessionScopeRuntimeProjectionIsExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/session/query/%s is required: %v", name, err)
 		}
 	}
-	scopePath := filepath.Join(applicationDir, "core", "session_scope.go")
+	scopePath := filepath.Join(applicationDir, "assembly", "session_scope.go")
 	file, err := parser.ParseFile(token.NewFileSet(), scopePath, nil, 0)
 	if err != nil {
 		t.Fatalf("解析 core session_scope: %v", err)

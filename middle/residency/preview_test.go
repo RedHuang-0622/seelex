@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// 本用例原在 `application/core/snapshot_budget_test.go`，随判据（M5-R6-residency-preview）
+// 本用例原在 `application/assembly/snapshot_budget_test.go`，随判据（M5-R6-residency-preview）
 // 一起归位；留在 core 的是宿主级用例（归档 + 预算注入 + 分页读回）。
 
 func TestPreviewTruncates(t *testing.T) {

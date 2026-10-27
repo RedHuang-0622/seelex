@@ -5,7 +5,7 @@
 `backend/tool/review` 是「请 GUI 在侧边资源管理器打开待审阅文件」（`show_files`）的**落点**：
 逐份过 workspace 域裁决 → 记为会话作用域的可重放请求 → 回契约收据。
 
-主要调用方：`application/core`（门面实现 `ShowFilesPort`，把 workspace 读面、召唤 ID、会话归属
+主要调用方：`application/assembly`（门面实现 `ShowFilesPort`，把 workspace 读面、召唤 ID、会话归属
 与视图写面经 `Host` 装配进来）与 `wiring/registry`（直接调用本包唯一注册 helper
 `RegisterShowFilesTool`）。旧 `backend/engine/assemble.RegisterReviewFilesTool` 仅保留 D1 一行转发。
 
@@ -84,7 +84,7 @@
 
 ```text
 go test ./backend/tool/review/ -count=1
-go test ./application/core/ -run Review -count=1     # 门面级集成（裁决通道 / 快照投影 / 工作区切换清理）
+go test ./application/assembly/ -run Review -count=1     # 门面级集成（裁决通道 / 快照投影 / 工作区切换清理）
 go test ./backend/engine/assemble/ -run Review -count=1   # 工具注册面（形状与收据）
 ```
 

@@ -36,7 +36,7 @@ Runtime terminal tool → `TerminalHandlerApplication.Handler` → core Plan/Tas
 ## 依赖方向
 
 允许依赖 `kernel/task`、`contract`、`contract/dto`、`contract/protocol` 与标准库。
-禁止依赖 `application/core`、GUI/TUI 或 store 实现。
+禁止依赖 `application/assembly`、GUI/TUI 或 store 实现。
 
 ## 并发与错误语义
 
@@ -59,7 +59,7 @@ Engine Task 持有。
 ```text
 go test ./application/execution/taskcontext -count=1
 go test ./kernel/task -count=1
-go test ./application/core -run 'Task|Plan|Tool|History|Session' -count=1
+go test ./application/assembly -run 'Task|Plan|Tool|History|Session' -count=1
 ```
 
 ## 文件与函数索引

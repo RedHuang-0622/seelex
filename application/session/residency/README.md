@@ -3,7 +3,7 @@
 ## 生态位
 
 `application/session/residency` 拥有两层进程内驻留状态：引擎 bundle 的驻留顺序
-和可见正文的加载顺序。主要调用方是 `application/core` 的 Session 生命周期、
+和可见正文的加载顺序。主要调用方是 `application/assembly` 的 Session 生命周期、
 冷恢复和查询装配；纯窗口/驱逐判据仍来自 `middle/residency`。
 
 ## 职责
@@ -19,7 +19,7 @@
 - 不拥有 `SessionUnit`、Snapshot 或 View；
 - 不实现 Middle 的窗口、排序和预算算法；
 - 不打开 Store、Engine 或历史文件句柄；
-- 不 import `application/core`，不持有完整 `Service`。
+- 不 import `application/assembly`，不持有完整 `Service`。
 
 ## 文件结构
 
@@ -40,7 +40,7 @@ Session 生命周期 → `TouchResident/TouchContent` → 锁内 LRU 更新 → 
 ## 依赖方向
 
 允许依赖 `application/session` 纯值、`session/state`、`session/viewstate`、
-`contract`、`kernel/state` 与 `middle/residency`。禁止依赖 `application/core`、
+`contract`、`kernel/state` 与 `middle/residency`。禁止依赖 `application/assembly`、
 `store`、具体 Backend 实现或 GUI/TUI。
 
 ## 并发与错误
@@ -57,7 +57,7 @@ Review 重点：锁外 I/O、顺序快照别名、受保护集漂移和回读失
 
 ```text
 go test ./application/session/residency -count=1
-go test ./application/core -run 'Resident|Content|Release|Cold|Session' -count=1
+go test ./application/assembly -run 'Resident|Content|Release|Cold|Session' -count=1
 go test ./application/... -count=1
 ```
 

@@ -22,7 +22,7 @@ Role Tool Activity 的 Application 用例。真实调用方是
 
 - 不执行任务、不写 Task/Goal/Teamwork 状态；
 - 不扫描或写入项目看板文件；
-- 不导入 `application/core`，不持完整 `Service`。
+- 不导入 `application/assembly`，不持完整 `Service`。
 
 ## 文件结构
 
@@ -63,7 +63,7 @@ Runtime teammate tool activity → `RoleActivityApplication` → EvidenceChars
 
 允许依赖 `contract/dto`、`contract/protocol` 与 `kernel/worktable`。
 TeamworkPlan 直接使用 `contract/dto`，本包不再保留类型 alias，也不依赖 `store` 类型。
-禁止依赖 `application/core`、backend 实现、GUI/TUI 或写入路径。
+禁止依赖 `application/assembly`、backend 实现、GUI/TUI 或写入路径。
 
 ## 并发与错误
 
@@ -81,13 +81,13 @@ WorkItem/teammate 等执行查询优先扩展本包的真实端口；不得把 R
 - project root 是否只来自绑定事实；
 - Team state 是否只从 Plan.State 提取且不复用指针；
 - 查询是否不获取共享写锁；
-- 是否 import `application/core`。
+- 是否 import `application/assembly`。
 
 ## 测试与验证
 
 ```text
 go test ./application/execution -count=1
-go test ./application/core -run 'ProjectBoard|WorkTableRowsFor|ProjectRootFor' -count=1
+go test ./application/assembly -run 'ProjectBoard|WorkTableRowsFor|ProjectRootFor' -count=1
 go test ./application/... -count=1
 ```
 

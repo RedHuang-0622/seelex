@@ -62,8 +62,8 @@ func TestReferenceApplicationIsExtractedFromCore(t *testing.T) {
 		}
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "reference_tools.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "reference_tools.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/reference_tools.go: %v", err)
 	}
@@ -92,8 +92,8 @@ func TestCompressedTurnApplicationIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/reference/compressed_turn.go is required: %v", err)
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "compressed_turn_application.go")
-	if _, err := os.Stat(coreFile); !os.IsNotExist(err) {
+	assemblyFile := filepath.Join(applicationDir, "assembly", "compressed_turn_application.go")
+	if _, err := os.Stat(assemblyFile); !os.IsNotExist(err) {
 		t.Fatalf("core/compressed_turn_application.go must be deleted after extraction: %v", err)
 	}
 }

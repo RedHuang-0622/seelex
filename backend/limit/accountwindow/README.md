@@ -16,13 +16,13 @@
 | 账号档自报值 | 账号池（遗留兜底） |
 
 优先级（账号级 > 全局 > 账号档）由运行时的 `ContextWindowFor` 一处判定；
-`application/core` 的 `SetAccountWindow` 只做"校验 → 写盘 → 改内存 → 报回生效值"。
+`application/assembly` 的 `SetAccountWindow` 只做"校验 → 写盘 → 改内存 → 报回生效值"。
 
 主要调用方：`application/compat`（旧账号窗口入口）和
 `application/admin`（窗口应用编排）、
 门面 `application.AccountWindowPresets()`（把挡位表下发给前端）。
 
-外部端口化后，`application/core` 通过 `application/admin.AccountWindowPolicy`
+外部端口化后，`application/assembly` 通过 `application/admin.AccountWindowPolicy`
 消费本包；Wiring adapter 只转发本包 `Setter`，校验、写盘顺序和生效值仍只有一份。
 
 挡位值的事实源在 `contract/dto/account_window.go`；本包 `Presets()` 仅保留
@@ -43,7 +43,7 @@
 | 文件 | 职责 |
 |---|---|
 | [`accountwindow.go`](accountwindow.go) | `MaxWindow`、`Presets()`、`Validate()` |
-| [`setter.go`](setter.go) | `Setter`：可调面的判据本体（校验 → 先写盘再改内存 → 报回生效值），M5-R-limita 随接收者转移从 `application/core` 归位 |
+| [`setter.go`](setter.go) | `Setter`：可调面的判据本体（校验 → 先写盘再改内存 → 报回生效值），M5-R-limita 随接收者转移从 `application/assembly` 归位 |
 | [`setter_test.go`](setter_test.go) | 上述判据的行为用例（原 core 侧用例已删除，随判据迁入） |
 
 ## 核心实现
@@ -60,7 +60,7 @@ Validate(window) → error                                   // 正数 + <= MaxW
 真实窗口大，请求会被 provider 拒。
 
 **判据本体的落点**：`Setter.Set()` 是"设置 → 校验 → 先写盘再改内存 → 报回生效值"的唯一实现；
-门面（`application/core.SetAccountWindow`）只解析宿主端口并转发（+ nil 守卫）。
+门面（`application/assembly.SetAccountWindow`）只解析宿主端口并转发（+ nil 守卫）。
 依赖是契约端口，**结构满足即可**：`Runtime`（`contract.AccountWindowPort`，nil = 宿主未实现）
 与 `Store`（`contract.AccountWindowStore`，nil = 不落盘）。
 
@@ -97,7 +97,7 @@ GUI 提交 → 门面 SetAccountWindow（解析宿主端口 + 转发）→ 本�
 
 ## Review 指南
 
-- 挡位表有没有在前端或见 `application/core` 里又抄一份（必须只有这里一份）？
+- 挡位表有没有在前端或见 `application/assembly` 里又抄一份（必须只有这里一份）？
 - `Validate` 有没有被改成"静默兜底"（应当原样报错）？
 - 有没有人把 0 当成合法窗口传进来（0 是"清除覆盖"，语义不同）？
 
@@ -105,7 +105,7 @@ GUI 提交 → 门面 SetAccountWindow（解析宿主端口 + 转发）→ 本�
 
 ```text
 go test ./backend/limit/accountwindow/... -count=1     # 判据本体的行为用例：校验次序 / 先写盘 / 生效值 / 无端口
-go test ./application/core -run AccountWindow -count=1 # 门面侧：nil 守卫 + 宿主端口断言
+go test ./application/assembly -run AccountWindow -count=1 # 门面侧：nil 守卫 + 宿主端口断言
 node --test gui/frontend/dist/account-window.test.mjs  # 两端同源
 ```
 

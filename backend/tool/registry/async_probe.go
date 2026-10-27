@@ -11,7 +11,7 @@ import (
 )
 
 // 后台命令的轮询型执行域·实时探针：把登记表里的一次执行采样成"能看懂的一眼"，
-// 供工作表格投影（application/core/work_table_async.go）消费。
+// 供工作表格投影（application/assembly/work_table_async.go）消费。
 //
 // 探针和取回（bg_manage(op=fetch)）是两回事，别混：
 //   - fetch 推进游标、把**新增字节**交给模型，一次一问一答，花一轮往返；

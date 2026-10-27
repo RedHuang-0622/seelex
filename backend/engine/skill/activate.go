@@ -2,7 +2,7 @@ package skill
 
 // activate.go 是"模型侧激活技能"（`skill_activate` 工具的后端）的落点。
 //
-// 落点沿革：2026-10-16 随 M5-R-skill **接收者转移**从 `application/core/skill_activate.go`
+// 落点沿革：2026-10-16 随 M5-R-skill **接收者转移**从 `application/assembly/skill_activate.go`
 // 归位（plan §2.5）。判据（名字校验 / 可激活性 / 命中查询）与错误文案只此一份；门面只留
 // 宿主面装配（技能表端口 + 落地动作）与一行转发。
 //

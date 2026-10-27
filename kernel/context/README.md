@@ -9,7 +9,7 @@
 `content` / `reasoning_content` / `tool_calls` 原样保留，空正文与空工具结果
 都不补占位（补写即让该点之后的 prefix cache 失效）。
 
-`application/core` 现经
+`application/assembly` 现经
 [`application/conversation/context`](../../application/conversation/context/README.md)
 的 Engine alias/forwarder 消费本包，不再直接 import context_runtime。
 
@@ -217,7 +217,7 @@ B 段（锁外），不得回填进 A/C；跨段只传值拷贝。推帧新增�
 ## 测试
 
 ```text
-go test ./application/core/context_runtime -count=1
+go test ./application/assembly/context_runtime -count=1
 ```
 
 根包 `context_controller_test.go`/`history_safety_test.go` 覆盖跨域集成；

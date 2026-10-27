@@ -38,8 +38,8 @@ func TestSchedulerApplicationsAreExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/admin/scheduler/%s package = %q", name, parsed.Name.Name)
 		}
 	}
-	coreFile := filepath.Join(applicationDir, "core", "service_scheduler.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "service_scheduler.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		t.Fatalf("parse core/service_scheduler.go: %v", err)
 	}

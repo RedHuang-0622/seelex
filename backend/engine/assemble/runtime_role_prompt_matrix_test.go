@@ -37,7 +37,7 @@ import (
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 )
 
-// promptMatrixCatalogHeader 是目录段标题（口径来自 application/core/prompt_layer/
+// promptMatrixCatalogHeader 是目录段标题（口径来自 application/assembly/prompt_layer/
 // skill_catalog.go 的 skillCatalogHeader，同值；本文件只把它当**检测串**用）。
 const promptMatrixCatalogHeader = "## Available Skills"
 

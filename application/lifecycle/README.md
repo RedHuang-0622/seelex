@@ -5,7 +5,7 @@
 `application/lifecycle` 承载 graceful drain、取消、幂等 Shutdown 和 fatal lifecycle
 fault guard。它不拥有 SessionUnit、Engine、Runtime 或 EventHub。
 
-主要调用方：`application/core` 的兼容 Service 与 wiring/headless 关闭路径。
+主要调用方：`application/assembly` 的兼容 Service 与 wiring/headless 关闭路径。
 
 ## 职责
 
@@ -16,7 +16,7 @@ fault guard。它不拥有 SessionUnit、Engine、Runtime 或 EventHub。
 ## 非职责
 
 - 不实现 SessionUnit cancel、目录 worker、Session 域关闭或 EventHub。
-- 不导入 `application/core`。
+- 不导入 `application/assembly`。
 - 不改变 frontend wire。
 
 ## 文件结构
@@ -37,7 +37,7 @@ Service 兼容入口 → lifecycle Application → 宿主锁/取消/清理函数
 
 ## 依赖方向
 
-仅依赖标准库。禁止依赖 `application/core`、backend 或 middle 具体实现。
+仅依赖标准库。禁止依赖 `application/assembly`、backend 或 middle 具体实现。
 
 ## 并发与错误
 

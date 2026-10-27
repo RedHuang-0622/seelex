@@ -83,7 +83,7 @@ type CompactionInput struct {
 	// PrecomputedSummary 是调用方在**压缩之前**已经拿到的模型读后感（前缀重放
 	// 厚摘要）。非空 → chapter2 直接用它，不再调用模型：同一次压缩只该有一次模型
 	// 调用，而调用方必须先知道"这次到底有没有读后感"才决定要不要折上下文
-	// （见 application/core/context_runtime 的 compactionReadbackProbe）。
+	// （见 application/assembly/context_runtime 的 compactionReadbackProbe）。
 	//
 	// 语义是 **Chapter 2 正文**，不是整份两章节摘要：读数闸回执天然带整份摘要，
 	// 传进来之前要经 Chapter2Body 归一化（本字段的第二个消费者就栽在这里）。

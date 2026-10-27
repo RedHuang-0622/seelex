@@ -5,7 +5,7 @@
 `contract/dto` 是 Seelex 跨层共享的**纯数据契约**包：放数据形状（结构体、枚举字面量、常量）
 与不绑定类型的自由函数判据，不把行为方法捆进 DTO，也不 import 存储、框架或 UI 包。
 
-主要调用方：`contract`（端口签名）、`application/core` 及其域包、`middle/protocol/model`、
+主要调用方：`contract`（端口签名）、`application/assembly` 及其域包、`middle/protocol/model`、
 `gui/`、`tui/`，以及 `seelebridge/`（以类型 alias 复用同一定义，保证单源）。
 
 ## 职责与非职责
@@ -52,14 +52,14 @@
 ```mermaid
 flowchart LR
     CONTRACT["contract（端口签名）"] --> DTO["contract/dto"]
-    CORE["application/core + 域包"] --> DTO
+    CORE["application/assembly + 域包"] --> DTO
     MODEL["middle/protocol/model"] --> DTO
     FE["gui/ · tui/"] --> DTO
     BRIDGE["seelebridge/（alias 复用，单源）"] --> DTO
     DTO -.->|禁止| STORE["store/ · plugin/ · Seele 内部类型"]
 ```
 
-本包**不得**反向依赖 `application/core`、`store`、`gui`、`tui` 或 Seele 内部类型；
+本包**不得**反向依赖 `application/assembly`、`store`、`gui`、`tui` 或 Seele 内部类型；
 `seelebridge` 只以 alias 复用定义，不新增平行类型。
 
 ## 核心实现
@@ -87,7 +87,7 @@ flowchart LR
 ```
 
 存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `wiring/adapters`
-里出现，由适配器做 DTO ↔ 存储映射；`application/core` 与前端只认本包类型。
+里出现，由适配器做 DTO ↔ 存储映射；`application/assembly` 与前端只认本包类型。
 
 ## 并发、存储与错误语义
 

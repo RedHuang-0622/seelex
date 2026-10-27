@@ -23,8 +23,8 @@ func TestReviewApplicationIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/review package name = %q, want review", file.Name.Name)
 	}
 
-	coreFile := filepath.Join(applicationDir, "core", "review_files.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "review_files.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return

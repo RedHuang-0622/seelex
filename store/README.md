@@ -59,7 +59,7 @@ or the next one.
 外部只有 `wiring/bootstrap` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
 这些机制（同一判据只许有一处实现）。
 
-主要调用方：`application/core/session_runtime`（持久化与会话三读）、`session`
+主要调用方：`application/assembly/session_runtime`（持久化与会话三读）、`session`
 （fork 的显式项目作用域读写）、`wiring/adapters`（DTO ↔ 存储映射）与
 `gui`/`headless`（目录与元数据读面）。
 
@@ -87,7 +87,7 @@ or the next one.
 
 ```mermaid
 flowchart TB
-    CALLER["调用方<br/>application/core · session · wiring/adapters"] --> ROUTER["store.Router"]
+    CALLER["调用方<br/>application/assembly · session · wiring/adapters"] --> ROUTER["store.Router"]
 
     subgraph LAYOUT["JSON v8 分区布局"]
         P["先按 project_id 分区"]
@@ -117,7 +117,7 @@ flowchart LR
     WRITE --> PUBLISH["模块 head 原子发布（新数据完整写入后）"]
     PUBLISH --> READ["LoadSessionRecord / LoadHistoryTailWindow"]
     READ --> DERIVE["派生：record 与 conversation 由 head.Meta<br/>+ 事件行 + lifecycle.archived_at 生成"]
-    DERIVE --> CALLER["application/core"]
+    DERIVE --> CALLER["application/assembly"]
     FAIL["中途失败 / 未发布行"] -.->|不会被当作当前会话事实| READ
     LOCK["数据根单写者锁 lock.owner<br/>进程消失 + 心跳超龄才可接管"] -.-> WRITE
 ```
@@ -197,7 +197,7 @@ head 文件的"缺失"要按**业务状态**读，而不是当 IO 错误上抛�
 上层给、本层不认识字段），读侧取**最后一行**；残尾（没换行收尾）与坏行跳过、回退到上一
 行完整快照（快照是整份的，回退不丢上一批之前的读数）。为什么不做"每次工具调用 append
 一行"：工具调用是回合内高频事件，逐次落盘会让磁盘一直忙（2026-10-15 用户口径）——
-批次点由应用层给（真相源提交时刻，见 `application/core` 的 `FlushToolRecord`）。
+批次点由应用层给（真相源提交时刻，见 `application/assembly` 的 `FlushToolRecord`）。
 接口：`Router.ToolRecordFor()` → `AppendToolRecordSnapshot` / `ReadToolRecordSnapshot`
 （与 `TeamworkFor()` 同一手法：有就有、没有就是没装配）。
 
@@ -287,7 +287,7 @@ Router 用 RWMutex 把 active repository 与 project ID 绑定为原子视图。
   按 `ExcludeSession` 跳过、按 `MaxSessions`（缺省 `ProjectBoardReadMaxSessions=32`）限目录数、
   按 `MaxRows` 限行数，触顶以 bool 显式标注截断。
 - **不做**：不判定、不重算状态（判据在 `buildWorkTable` 与 teamwork 事实里，本文件只做字段映射）；
-  不进模型上下文（读面另见 `application/core` 与 `project_board_read` 工具）；不承诺跨进程一致性
+  不进模型上下文（读面另见 `application/assembly` 与 `project_board_read` 工具）；不承诺跨进程一致性
   （数据根的 `lock.owner` 不覆盖项目目录，见契约 §9.3 R-3）。
 
 Review 风险：新调用方是否绕开 `ProjectBoardDir` / `ProjectBoardSessionDir` 自造目录与文件名；
@@ -383,7 +383,7 @@ markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级�
   默认档位）。它是用户选择而非执行事实，但同样不能进 `SessionRecord`：现行 v8 布局
   （S20）下 record 通道已退役——`SaveRecordRaw` 只写穿 `status`/`title`，
   `LoadRecordRaw` 交回按 message head/行派生的最小 record，新增字段写不进也读不回。
-  跨重启记忆的回归在 `application/core`（`TestPermissionTierSurvivesSessionReload`）。
+  跨重启记忆的回归在 `application/assembly`（`TestPermissionTierSurvivesSessionReload`）。
 
 **已知缺口**：`Delete(session)` 不清理该会话的元数据条目（置顶/别名早已如此，档位
 沿用同一现状）。条目按会话 ID 建键，删除后的 ID 不会复用，因此只是遗留垃圾而非串写。
@@ -730,7 +730,7 @@ go test ./store -run 'ProjectRecord|ProjectRefresh|ProjectKnowledge' -count=1
 
 `ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. The JSON v8 layout publishes the committed result-reference set through the module head.
 
-Message events carry two distinct text facts for tool results: `content` is what the view/trace renders (e.g. the application's classified tool-error text or the `tr-<digest>` oversized warning), while the provider-only `provider_content` is the bytes **actually sent on the wire** (the framework's `{"error": %q}` JSON for failed tools; the processor's `result_ref=result:<callID>` warning for oversized results). Provider projections must prefer `provider_content` when set: mixing them rewrites already-sent bytes on the next turn and invalidates provider prefix caching from that point. Tool-call assistant output text is different: it is real model output and must be replayed verbatim together with reasoning and tool calls (see `application/core/README-context.md` §跨轮前缀与模型输出边界). Guards: `store/provider_content_test.go`, `store/provider_wire_output_boundary_test.go`, `prefix_invariant_fullchain_test.go`.
+Message events carry two distinct text facts for tool results: `content` is what the view/trace renders (e.g. the application's classified tool-error text or the `tr-<digest>` oversized warning), while the provider-only `provider_content` is the bytes **actually sent on the wire** (the framework's `{"error": %q}` JSON for failed tools; the processor's `result_ref=result:<callID>` warning for oversized results). Provider projections must prefer `provider_content` when set: mixing them rewrites already-sent bytes on the next turn and invalidates provider prefix caching from that point. Tool-call assistant output text is different: it is real model output and must be replayed verbatim together with reasoning and tool calls (see `application/assembly/README-context.md` §跨轮前缀与模型输出边界). Guards: `store/provider_content_test.go`, `store/provider_wire_output_boundary_test.go`, `prefix_invariant_fullchain_test.go`.
 
 测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役，以及显式 workspace
 read 不污染 active scope。
@@ -769,7 +769,7 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
   （`framework-events.json`）归属父会话执行，不复制到子会话。
 
 血缘 meta（`forked_from`/ForkPoint）与截断重写属于 application 层
-（`middle/protocol/model` + `application/core/session_runtime`），存储层只负责
+（`middle/protocol/model` + `application/assembly/session_runtime`），存储层只负责
 通道与原子提交，不解释内容。
 
 ## 会话媒体分区（`meta/`）
@@ -818,7 +818,7 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 > `writeBlob` **目前没有生产调用方**（只有包内单测），所以"软限截断 / 硬限报错 /
 > 会话配额"今天不影响运行中的会话；生产里"超大工具结果"走的是
 > `limits.max_tool_result_chars`（字符数）→ `result_ref` + 省略警告
-> （`application/core/context_runtime` 的 `OversizedToolResultWarning`），模型用
+> （`application/assembly/context_runtime` 的 `OversizedToolResultWarning`），模型用
 > `read_tool_result` 分页回读。软限**不调 LLM 做总结**；"软限→LLM 总结 / 硬限→
 > 要求重试"这套语义**尚未实现**。两族数别混：`limits.*` 是 token 预算口径，
 > 本表是字符/字节口径。

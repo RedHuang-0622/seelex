@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`application/core` 的共享状态内核（叶子包）：唯一共享锁 `Mu`、权威前端
+`application/assembly` 的共享状态内核（叶子包）：唯一共享锁 `Mu`、权威前端
 快照 `Snapshot`、外部端口依赖 `Deps`、事件 `Events` 与审批 `Approval`。
 core 根门面与各域协调器嵌入 `*state.Core`，避免域间直接持有彼此实现。
 

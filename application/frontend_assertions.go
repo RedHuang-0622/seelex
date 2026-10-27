@@ -2,7 +2,7 @@ package application
 
 // Compile-time assertions keep the root frontend adapter structurally
 // compatible with both legacy and capability-oriented inbound faces while the
-// compatibility methods move out of application/core.
+// compatibility methods move out of application/assembly.
 var (
 	_ ViewFace                 = (*Frontend)(nil)
 	_ CommandFace              = (*Frontend)(nil)

@@ -11,7 +11,7 @@
 
 主要调用方：`backend/engine/assemble` 的 `SetTeamworkBackend`（装事件流并登记停机顺序）与
 `Runtime.AsyncRunsSnapshot` / `Runtime.AsyncRunEvents`（薄转发）；经 `wiring/adapters` 与
-`application/core` 到工作表格与请求尾部打点块。
+`application/assembly` 到工作表格与请求尾部打点块。
 
 物理位置：2026-10-17 按 [plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.6
 （`seelebridge` 的 runtime_async / jobs_events 两个文件 → `backend/tool/jobs/`）从

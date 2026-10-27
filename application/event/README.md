@@ -5,7 +5,7 @@
 `application/event` 是共享事件协议的 Application 入口。所有类型与 kind 常量都是
 [`kernel/event`](../../kernel/event/README.md) 的 identity alias；
 投递、过滤、revision/seq 与重放实现仍只有 kernel 一份。主要调用方是
-`application/core`。
+`application/assembly`。
 
 ## 职责与非职责
 
@@ -30,7 +30,7 @@ GUI/TUI Subscription。没有额外包装层或第二份事件结构。
 
 ## 依赖方向
 
-允许依赖 `kernel/event`。禁止依赖 `application/core`、backend/middle 具体实现或
+允许依赖 `kernel/event`。禁止依赖 `application/assembly`、backend/middle 具体实现或
 前端包。
 
 ## 并发与错误语义
@@ -55,7 +55,7 @@ identity alias；不得在 Application 写第二份字符串表。
 go test ./application/event -count=1
 go test ./kernel/event -count=1
 go test ./middle/protocol/event -count=1
-go test ./application/core -run 'Event|Subscribe|Snapshot' -count=1
+go test ./application/assembly -run 'Event|Subscribe|Snapshot' -count=1
 ```
 
 ## 文件与函数索引

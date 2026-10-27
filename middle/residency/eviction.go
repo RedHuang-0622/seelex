@@ -26,7 +26,7 @@ package residency
 //   - 没有候选时**容忍超限**（受保护集会挡住收敛，不做任何事）；
 //   - 卸载失败**立即停**（正文留在内存、数据不丢），由宿主记一次日志，下一轮 touch 再试；
 //   - 每次挑选与执行之间状态可能已变（并发激活/卸载），挑选**不做**二次确认——
-//     那是宿主在执行动作内部的事（见 `application/core/content_lru.go` 的 `evictLoadedContent`）。
+//     那是宿主在执行动作内部的事（见 `application/assembly/content_lru.go` 的 `evictLoadedContent`）。
 
 // EvictionSnapshot 是**一次**超限收敛的读数（宿主在同一临界区内取齐：挑选与执行之间
 // 状态会变，但同一次挑选必须看到自洽的一组读数）。

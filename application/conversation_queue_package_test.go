@@ -22,8 +22,8 @@ func TestConversationQueueApplicationIsExtractedFromCore(t *testing.T) {
 	if file.Name.Name != "conversation" {
 		t.Fatalf("application/conversation/queue.go package = %q", file.Name.Name)
 	}
-	coreFile := filepath.Join(applicationDir, "core", "chat_queue.go")
-	core, err := parser.ParseFile(token.NewFileSet(), coreFile, nil, 0)
+	assemblyFile := filepath.Join(applicationDir, "assembly", "chat_queue.go")
+	core, err := parser.ParseFile(token.NewFileSet(), assemblyFile, nil, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return

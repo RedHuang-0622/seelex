@@ -14,15 +14,15 @@ func TestToolRecordApplicationIsExtractedFromCore(t *testing.T) {
 		t.Fatalf("application/execution/toolrecord/application.go is required: %v", err)
 	}
 
-	coreFiles := []string{"tool_record.go", "tool_record_stage.go"}
-	for _, name := range coreFiles {
-		path := filepath.Join(applicationDir, "core", name)
+	assemblyFiles := []string{"tool_record.go", "tool_record_stage.go"}
+	for _, name := range assemblyFiles {
+		path := filepath.Join(applicationDir, "assembly", name)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
 		} else if err != nil {
 			t.Fatalf("检查 core %s: %v", name, err)
 		}
-		t.Errorf("application/core/%s must be removed; ToolRecord host adapters live in toolrecord", name)
+		t.Errorf("application/assembly/%s must be removed; ToolRecord host adapters live in toolrecord", name)
 	}
 }
 

@@ -1,8 +1,8 @@
 // Package session 是 Seelex 的会话域：会话资源（身份、可见投影、聊天运行态）
-// 的唯一所有者。执行内核（application/core）经本包暴露的端口读写会话；
+// 的唯一所有者。执行内核（application/assembly）经本包暴露的端口读写会话；
 // 会话之间零共享，继承只走深拷贝；热/冷判定由引擎 HasSession 驱动。
 //
-// 本包禁止 import application/core 的实现包（chat 流类型经接口收纳，队列载荷
+// 本包禁止 import application/assembly 的实现包（chat 流类型经接口收纳，队列载荷
 // 不透明化），确保依赖方向单向：core → session → store/workspace。
 //
 // 9.5 清理：自造 Unit/ChatRuntime 平行容器已删除，聊天运行态（Chat 状态/
@@ -56,7 +56,7 @@ type View struct {
 	// 冷加载/重启后为空（与 ContentUnloaded 那条"正文可丢、事实不许丢"的
 	// 取舍刻意相反——这里丢的恰恰是请求，不是记录）。
 	ReviewRequest *dto.ReviewRequest
-	// ContentUnloaded 标记本会话的**可见正文已从内存卸载**（application/core
+	// ContentUnloaded 标记本会话的**可见正文已从内存卸载**（application/assembly
 	// 的内容 LRU：视图未切换到的、且不在运行中的会话，其 Conversation 窗口
 	// 按上限做 LRU 释放）。置位时 Conversation 必为空，而 TotalMessages /
 	// HistoryOffset / HasMoreHistory / ConversationWindow / Chat / ReadFiles 等

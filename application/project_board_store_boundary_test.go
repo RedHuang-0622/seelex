@@ -11,7 +11,7 @@ import (
 func TestCoreProjectBoardDoesNotImportStore(t *testing.T) {
 	file, err := parser.ParseFile(
 		token.NewFileSet(),
-		filepath.Join(sourceApplicationDir(t), "core", "project_board_read.go"),
+		filepath.Join(sourceApplicationDir(t), "assembly", "project_board_read.go"),
 		nil,
 		parser.ImportsOnly,
 	)

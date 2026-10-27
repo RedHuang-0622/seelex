@@ -7,11 +7,11 @@ import (
 
 	applicationadmin "github.com/RedHuang-0622/seelex/application/admin"
 	applicationscheduler "github.com/RedHuang-0622/seelex/application/admin/scheduler"
+	"github.com/RedHuang-0622/seelex/application/assembly"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	conversationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	applicationedit "github.com/RedHuang-0622/seelex/application/conversation/edit"
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
-	"github.com/RedHuang-0622/seelex/application/core"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
 	applicationtaskcontext "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
@@ -39,17 +39,17 @@ import (
 )
 
 // Frontend keeps the existing frontend method surface while the consumers
-// migrate to narrow capability interfaces. State and lifecycle stay in core.
+// migrate to narrow capability interfaces. State and lifecycle stay in assembly.
 type Frontend struct {
-	*core.Frontend
-	ports core.FrontendPorts
+	*assembly.Frontend
+	ports assembly.FrontendPorts
 }
 
 // New builds the compatibility adapter from an assembled core service.
-func New(service *core.Service) *Frontend {
-	frontend := &Frontend{Frontend: &core.Frontend{Service: service}}
+func New(service *assembly.Service) *Frontend {
+	frontend := &Frontend{Frontend: &assembly.Frontend{Service: service}}
 	if service != nil {
-		frontend.ports = core.NewFrontendPorts(service)
+		frontend.ports = assembly.NewFrontendPorts(service)
 	}
 	return frontend
 }

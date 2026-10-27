@@ -4,7 +4,7 @@
 
 `kernel/limit/effort/` 是 **effort 档位策略的唯一判据处**：每个档位对应哪条
 reasoning 强度、哪组循环读数、哪份 plan 约束，以及"未声明执行参数时用哪一档"。
-主要调用方：`application/prompt`（宿主侧 `EffortManager`）、`application/core`
+主要调用方：`application/prompt`（宿主侧 `EffortManager`）、`application/assembly`
 （定时任务执行参数默认值）与 wiring 的档位装配。
 
 ## 职责与非职责

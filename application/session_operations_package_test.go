@@ -73,20 +73,20 @@ func TestSessionLifecycleOperationsAreExtractedFromCore(t *testing.T) {
 			t.Fatalf("application/session/%s package = %q", name, parsed.Name.Name)
 		}
 	}
-	coreFiles := []string{
-		filepath.Join(applicationDir, "core", "session_lifecycle_use_case.go"),
-		filepath.Join(applicationDir, "core", "session_archive_use_case.go"),
-		filepath.Join(applicationDir, "core", "session_delete_use_case.go"),
-		filepath.Join(applicationDir, "core", "session_draft_submission.go"),
-		filepath.Join(applicationDir, "core", "session_draft_entry.go"),
-		filepath.Join(applicationDir, "core", "session_draft_materialization.go"),
-		filepath.Join(applicationDir, "core", "session_resume.go"),
-		filepath.Join(applicationDir, "core", "session_restore_recovery.go"),
-		filepath.Join(applicationDir, "core", "session_restore_draft_reset.go"),
-		filepath.Join(applicationDir, "core", "session_fork_lineage.go"),
-		filepath.Join(applicationDir, "core", "session_restoring_shell.go"),
+	assemblyFiles := []string{
+		filepath.Join(applicationDir, "assembly", "session_lifecycle_use_case.go"),
+		filepath.Join(applicationDir, "assembly", "session_archive_use_case.go"),
+		filepath.Join(applicationDir, "assembly", "session_delete_use_case.go"),
+		filepath.Join(applicationDir, "assembly", "session_draft_submission.go"),
+		filepath.Join(applicationDir, "assembly", "session_draft_entry.go"),
+		filepath.Join(applicationDir, "assembly", "session_draft_materialization.go"),
+		filepath.Join(applicationDir, "assembly", "session_resume.go"),
+		filepath.Join(applicationDir, "assembly", "session_restore_recovery.go"),
+		filepath.Join(applicationDir, "assembly", "session_restore_draft_reset.go"),
+		filepath.Join(applicationDir, "assembly", "session_fork_lineage.go"),
+		filepath.Join(applicationDir, "assembly", "session_restoring_shell.go"),
 	}
-	for _, path := range coreFiles {
+	for _, path := range assemblyFiles {
 		core, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			if os.IsNotExist(err) {

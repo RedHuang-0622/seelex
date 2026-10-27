@@ -6,7 +6,7 @@ package assemble
 // 2026-10-14 之前**只增不删**（每次驱逐只丢 application 侧端口引用，本体仍在；
 // 见 docs/2026-10-14-memory-cpu-accumulation/verdict.md §3 A1/A2）。
 //
-// 调用方是 application/core 的释放面（session_release.go）：LRU 驱逐（releaseIdle）、
+// 调用方是 application/assembly 的释放面（session_release.go）：LRU 驱逐（releaseIdle）、
 // 卸载 / 归档 / 删除（releaseFull）都会叫它。释放后重开走冷加载——`newMainSession`
 // （bundleFor + attachContextStore）按磁盘事实重建会话与上下文存储；
 // `SessionContextStoreFor` 在重建前返回 nil，这是既有契约（"未实例化/未绑定 → nil"）。

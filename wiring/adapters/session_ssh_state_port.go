@@ -111,7 +111,7 @@ func (port SessionPort) sessionSSHBridge() *sessionSSHBridge {
 	return sessionSSHBridgeFor(port.Manager.Router())
 }
 
-// SessionSSHState 实现 application/core 的 sessionSSHPort：读会话 SSH 状态。
+// SessionSSHState 实现 application/assembly 的 sessionSSHPort：读会话 SSH 状态。
 func (port SessionPort) SessionSSHState(sessionID string) (model.SessionSSHInfo, error) {
 	bridge := port.sessionSSHBridge()
 	if bridge == nil {

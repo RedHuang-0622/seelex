@@ -4,7 +4,7 @@
 
 `middle/view/board/boardtest` 是项目看板测试的**共享夹具包**：内存版存储面
 （`Store` + 注入一次写失败的 `FlakyStore`）与行读取助手。两侧一起用它——
-`middle/view/board` 的用例（映射 / 同步器语义）与 `application/core` 的用例
+`middle/view/board` 的用例（映射 / 同步器语义）与 `application/assembly` 的用例
 （Service 取数口 / 钩子接线），因此夹具只有一份。
 
 ## 职责与非职责

@@ -14,7 +14,7 @@ import (
 
 var repositoryModules = []string{
 	".", ".claude", ".github", "application", "contract",
-	"application/core", "kernel/react", "kernel/contextcontrol",
+	"application/assembly", "kernel/react", "kernel/contextcontrol",
 	"kernel/context", "backend/engine/input",
 	"kernel/state",
 	"kernel/prompt", "kernel/prompt/assets", "kernel/session",
@@ -23,24 +23,24 @@ var repositoryModules = []string{
 	"application/session/fork",
 	"application/workspace/switch",
 	"application/session/viewstate", "kernel/worktable",
-	// M5-R5：项目看板的行投影与同步器从 application/core/project_board.go 归位；
+	// M5-R5：项目看板的行投影与同步器从 application/assembly/project_board.go 归位；
 	// boardtest 是两侧共用的测试夹具包（无生产调用方）。
 	"kernel/board", "kernel/board/boardtest",
-	// M5-R5c：视图读数面（诊断文本 / 性能指标 / 运行时投影）从 application/core
+	// M5-R5c：视图读数面（诊断文本 / 性能指标 / 运行时投影）从 application/assembly
 	// 的三个根文件归位到中间层视图根包（plan §2.4）。
-	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）
+	// M5-R5d：错误呈现域（原 application/assembly/{error_codes,error_presentation}.go）
 	// 归位中间层视图子包（plan §2.4）；跨层共享的错误判据（码/provider 失败分类/
 	// ReAct 预算哨兵）下沉 contract，中间层与后端都只依赖契约。
 	"application/errorpresentation",
-	// M5-R6-residency-preview：快照预算的截断判据（原 application/core/snapshot_budget.go）
+	// M5-R6-residency-preview：快照预算的截断判据（原 application/assembly/snapshot_budget.go）
 	// 归位中间层常驻/预算落点（plan §2.4 的 middle/residency，本片建包）。
 	"middle/residency",
-	// M5-R6-history-page：历史分页的窗口装配判据（原 application/core/session_history.go）
+	// M5-R6-history-page：历史分页的窗口装配判据（原 application/assembly/session_history.go）
 	// 归位中间层切换域的 history 子域（plan §2.4，本片建包）。
 	"middle/switch/history",
-	// M5-R6-session-meta：会话展示元数据的读写判据（原 application/core/session_meta.go）
+	// M5-R6-session-meta：会话展示元数据的读写判据（原 application/assembly/session_meta.go）
 	"kernel/sessionpolicy",
-	// M5-R8a：goal 域（原 application/core/goal，35 文件）归位多代理板块
+	// M5-R8a：goal 域（原 application/assembly/goal，35 文件）归位多代理板块
 	// （plan §2.7）。同一份代码换落点，包名与判据不变。
 	"kernel/goal",
 	// M5-R8b：agentteam（角色身份 + 写入侧规整，包名 `agentteam` → `team`）与
@@ -50,7 +50,7 @@ var repositoryModules = []string{
 	"console", "backend/limit/accountwindow", "backend/limit/approval",
 	"kernel/limit", "kernel/limit/effort", "kernel/limit/loop",
 	"kernel/rolesessions",
-	// M5-R-limitc：权限档位域（原 application/core/{session_permission_tier,session_scope,
+	// M5-R-limitc：权限档位域（原 application/assembly/{session_permission_tier,session_scope,
 	// service_interaction}.go 的三处散落实现）归位 limit 板块（plan §2.8）。
 	"kernel/limit/tier",
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
@@ -66,10 +66,10 @@ var repositoryModules = []string{
 	"internal/model", "internal/stream",
 	"internal/telemetry",
 	"backend/tool/search", "backend/limit/gate", "backend/tool/task", "backend/tool/websearch", "backend/engine/context/seelectx", "backend/engine/context/seelectx/compactor",
-	// M5-R-tool-review：`show_files` 的落点（原 application/core/review_files.go）归位 tool 板块
+	// M5-R-tool-review：`show_files` 的落点（原 application/assembly/review_files.go）归位 tool 板块
 	// （plan §2.6；工具注册那一半仍在 backend/engine/assemble，等 R11）。
 	"backend/tool/review",
-	// M5-R-tool-reference：工具结果引用与分页判据（原 application/core/reference_tools.go）
+	// M5-R-tool-reference：工具结果引用与分页判据（原 application/assembly/reference_tools.go）
 	// 归位 tool 板块（plan §2.6）。
 	"backend/tool/reference",
 	"backend/engine/context/seelectx/merger", "backend/engine/context/seelectx/provider", "backend/engine/context/seelectx/search", "backend/engine/context/seelectx/snapshot",

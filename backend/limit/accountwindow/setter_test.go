@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 「每账号上下文窗口」可调面的用例（setter.go）。原在 `application/core/service_account_window_test.go`，
+// 「每账号上下文窗口」可调面的用例（setter.go）。原在 `application/assembly/service_account_window_test.go`，
 // 随判据（M5-R-limita 的接收者转移）一起归位到判据所在包。
 //
 // 这里钉五件事：

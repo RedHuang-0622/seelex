@@ -54,7 +54,7 @@
 
 ## 依赖方向
 
-允许：标准库、`application`（含 `application/core`、`core/task_context`）、
+允许：标准库、`application`（含 `application/assembly`、`assembly/task_context`）、
 `backend/engine/assemble`（Runtime 类型）、`kernel/limit`、`backend/tool/{registry,websearch}`、
 `backend/engine/context/seelectx/search`（原 `seelexctx/search`，M5-R7 归位）、`contract/dto`、`wiring/adapters`、`internal/bootseed`、
 `mcpstack/config`、`plugin`、`skill`、`store`、`wiring/config`。

@@ -9,7 +9,7 @@ import (
 //
 // 边界：这些都是**数据形状**，不带行为方法、不 import 存储包。store 的
 // `Event`/`RoleDraftRow`/`RoleSnapshot` 等类型只在 `wiring/adapters` 里出现，
-// 由适配器做 DTO ↔ 存储映射；`application/core` 与 `gui`/`tui` 只认这里的类型。
+// 由适配器做 DTO ↔ 存储映射；`application/assembly` 与 `gui`/`tui` 只认这里的类型。
 //
 // 语义仍以 docs/arch/a2a-agent-team-factory.md 与 my_design §8.3 为准：
 // role_name 只是 metadata，provider role 仍只有标准集；subagent 不属于任何

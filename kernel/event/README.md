@@ -7,14 +7,14 @@ Application、Middle、TUI、GUI Bridge 和测试观察者。Snapshot 是完整�
 Event 是连续增量；Event 不能成为唯一持久状态。
 
 主要调用方：`application/event`（identity facade）、`middle/protocol/event`
-（兼容 facade）、`application/core`（使用 `PublishSession` 打会话路由键）、
+（兼容 facade）、`application/assembly`（使用 `PublishSession` 打会话路由键）、
 `gui/bridge.go`（订阅 + 重放 + 确认水位）、`tui`（订阅）与 `e2e/scenario`（观察者）。
 
 ## 架构图
 
 ```mermaid
 flowchart TB
-    PROD["application/core<br/>PublishSession / Publish"] --> HUB["EventHub"]
+    PROD["application/assembly<br/>PublishSession / Publish"] --> HUB["EventHub"]
     HUB --> V["ValidateSessionRouting<br/>发布端白名单（kind × sessionID）"]
     V --> SEQ["全局 seq 递增 + 复制订阅列表后释放 registry 锁"]
     SEQ --> SUB["每个 subscriber 局部锁 + channel"]
@@ -34,7 +34,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    participant CORE as application/core
+    participant CORE as application/assembly
     participant HUB as EventHub
     participant CL as gui.Bridge
     participant FE as 前端 reducer
@@ -88,7 +88,7 @@ stateDiagram-v2
   `running`/`done`/`failed`（三态之外没有第四种）；`phase` 为空表示"该关刚刚收口"，
   `begin` 是起手帧（判据估算还没出结果：`index=0`、`version=0` 表示"未定"，判据关收口时才补正）；
   `gate`/`index`/`total` 说明走到哪一关，顺序的唯一事实在
-  `application/core/context_runtime.CompactionGates`；`elapsed_ms` 是**刚刚过去那一段**的墙钟
+  `application/assembly/context_runtime.CompactionGates`；`elapsed_ms` 是**刚刚过去那一段**的墙钟
   （毫秒），不是从开轮算起的累计值。会话/请求归属在事件信封里（`Event.SessionID` /
   `Event.RequestID`），载荷不重复一份同事实；`gate` 只带枚举 id，文案在前端。
 - `Event`：包含 `ProtocolVersion`、全局 `Seq`、订阅内 `DeliverySeq`、Snapshot `Revision`、request ID、会话路由键 `SessionID` 和 JSON payload。
@@ -101,7 +101,7 @@ stateDiagram-v2
 |------|----------|
 | `Subscribe(buffer)` | 全部事件（全局观察、测试） |
 | `SubscribeSession(sessionID, buffer)` | 该会话 + 进程类全局（`SessionID == ""`，resync/exit）事件 |
-| `SubscribeFiltered(filter, buffer)` | 谓词筛选；`application/core` 用它实现显式 sid 订阅与（过渡口径）空 sid 跟随视图 |
+| `SubscribeFiltered(filter, buffer)` | 谓词筛选；`application/assembly` 用它实现显式 sid 订阅与（过渡口径）空 sid 跟随视图 |
 | `SubscribeWithReplay(filter, buffer, window)` | 同上，另保留最近 `window` 条可增量补取（桌面 Bridge 用） |
 
 发布端严格白名单（G2，波 2 开启）：`PublishSession` 在发布前按
@@ -120,7 +120,7 @@ stateDiagram-v2
   过滤条件吞掉，客户端从此静默地看旧数据），由消费者重新获取 Snapshot。排空
   必须用非阻塞接收：`deliver` 持有 subscriber 局部锁，若阻塞在接收上与并发
   消费者抢元素，就会和等同一把锁的 `Close` 互相死锁（2026-09-12 CI
-  `application/core` 偶发挂死即此根因）。
+  `application/assembly` 偶发挂死即此根因）。
 - **带重放窗口**（`SubscribeWithReplay`）：**不丢弃载荷、也不排空缓冲** —— 每个通过
   过滤的事件都先进入按 `DeliverySeq` 有序的窗口，再尽力写入 channel。落后消费者用
   `ReplaySince(sinceSeq)` 增量补取，`DeliveryWatermark()` 用来区分"确实没有新事件"和
@@ -164,7 +164,7 @@ stateDiagram-v2
 
 ```text
 go test ./kernel/event ./middle/protocol/event -count=1
-go test ./application/core -run SubscribeSession -count=1
+go test ./application/assembly -run SubscribeSession -count=1
 node --test gui/frontend/dist/client-state.test.mjs
 node --test gui/frontend/dist/event-chain.test.mjs
 ```

@@ -10,7 +10,7 @@ import (
 )
 
 // 本文件钉**判据本身**（分类表 / 去重键）与**宿主契约**（全被跳过不写宿主、无会话不发布）。
-// 门面级集成用例（裁决通道、快照投影、工作区切换清理、超限文案）仍在 `application/core`，
+// 门面级集成用例（裁决通道、快照投影、工作区切换清理、超限文案）仍在 `application/assembly`，
 // 打的是 Service → 快照这条端到端路径，不重复这里的判据。
 
 func TestClassifyReadError(t *testing.T) {

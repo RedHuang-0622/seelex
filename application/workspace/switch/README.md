@@ -4,7 +4,7 @@
 
 `application/workspace/switch/` 是 Seelex **工作区用例**的唯一编排点：创建工作区、
 把工作区绑定/解绑到当前视图会话或草稿、解析当前工作区根，以及为应用视图收集
-工作区投影。主要调用方是 `application/core`、Session、Scheduler 与 Frontend；
+工作区投影。主要调用方是 `application/assembly`、Session、Scheduler 与 Frontend；
 工作区存储与 Git/文件能力仍由 [`store/workspace`](../../../store/workspace/README.md)
 提供，经 `contract.WorkspacePort` 及其 optional 端口注入。
 
@@ -34,7 +34,7 @@
 - 不做持久化、路径 containment、敏感文件过滤、Git argv 与超时（在 store 层）；
 - 不持视图锁、不直接改 Snapshot、不发事件（经 `ViewPort` 交给应用视图）；
 - 不承担会话删除/释放（`DeleteSession` / `releaseSessionAsync` 留在
-  `application/core` 的会话域）；
+  `application/assembly` 的会话域）；
 - 不改工作区绑定键、持久化格式或用户可见文案。
 
 ## 目录与文件结构
@@ -122,13 +122,13 @@ go list -deps ./application/workspace/switch/ | select-string 'seelex/(store|wir
   缺文件端口 `worktree: workspace backend does not support file preview`、
   缺写端口 `worktree: workspace backend does not support file editing`、
   换项目保存失败 `save current session before switching project: %w`。
-- 运行中拒绝返回宿主注入的 `ChatRunningError`（生产为 `application/core.ErrChatRunning`），
+- 运行中拒绝返回宿主注入的 `ChatRunningError`（生产为 `application/assembly.ErrChatRunning`），
   保证 `errors.Is` 身份不变。
 
 ## 扩展方式
 
 - 新增工作区读面：先在 `contract` 增加 optional 端口，再在本包加方法复用
-  `workspaceRootPort`，最后在 `application/core` 加一行转发；不要另写 root 解析。
+  `workspaceRootPort`，最后在 `application/assembly` 加一行转发；不要另写 root 解析。
 - 新增绑定分支：改 `bindInfo` 的真值表并在 `ViewPort` 增加窄方法；不要在应用层
   再写一份绑定编排。
 - 新增投影字段：在 `Projection` 加字段，由 `applyWorkspaceProjectionLocked`
@@ -137,7 +137,7 @@ go list -deps ./application/workspace/switch/ | select-string 'seelex/(store|wir
 ## Review 指南
 
 - 本包是否重新 import 了 `application/*`、`store`、`wiring` 或 `backend/*`？
-- root 解析、投影收集、绑定编排是否仍只有这一份（`application/core` 内不得有第二份）？
+- root 解析、投影收集、绑定编排是否仍只有这一份（`application/assembly` 内不得有第二份）？
 - 草稿分支是否仍未提前写 `BindSession`？普通会话换项目是否仍完整走
   `SaveCurrent → 新会话 → context 挂接 → task 账 → 工作表格`？
 - 运行中/保存失败/缺端口三条路径是否仍在改视图之前返回？
@@ -147,7 +147,7 @@ go list -deps ./application/workspace/switch/ | select-string 'seelex/(store|wir
 
 ```text
 go test ./application/workspace/switch/ -count=1
-go test ./application/core/ -run 'Workspace|BindWorkspace|Review' -count=1
+go test ./application/assembly/ -run 'Workspace|BindWorkspace|Review' -count=1
 go test ./middle/switch/... ./store/workspace/ -count=1
 ```
 

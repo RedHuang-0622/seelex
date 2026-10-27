@@ -12,7 +12,7 @@
   （`draft.go` 家族：草稿 SID 口径 + 草稿归属/物化闸门）；
 - 历史分页窗口判据仍在 [`middle/switch/history`](../../middle/switch/history/README.md)。
 - 工作区用例已迁入 [`application/workspace/switch`](../../application/workspace/switch/README.md)：**工作区用例**（创建/绑定/解绑、当前工作区
-  读面、工作区投影收集）；视图投影的 owner 仍是 `application/core`，本子域只产出
+  读面、工作区投影收集）；视图投影的 owner 仍是 `application/assembly`，本子域只产出
   `Projection` 并经窄 `ViewPort` 写入。
 
 生命周期 / 切换 / 队列 / 驻留调度器家族（`session_{lifecycle,release,fork,ctx,pending_tail,queue_recover}`、
@@ -126,9 +126,9 @@ Application/Middle identity facade。
 
 ```text
 go test ./kernel/sessionpolicy -count=1
-go test ./application/core/ -run 'SessionMeta|Meta' -count=1   # 门面级：断言端口 + 转发
+go test ./application/assembly/ -run 'SessionMeta|Meta' -count=1   # 门面级：断言端口 + 转发
 go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实现
-go test ./application/workspace/switch ./application/core -run 'Workspace|BindWorkspace' -count=1
+go test ./application/workspace/switch ./application/assembly -run 'Workspace|BindWorkspace' -count=1
 ```
 
 ## 文件与函数索引
