@@ -164,7 +164,10 @@ const (
 // EP-070：Event Hub 从 Middle 归位 kernel；同时删除 7 个已不在闭包中的 stale
 // allowlist 项。EP-071：durable Session fork 归位 application/session/fork，
 // 门面闭包按“新模块可 +1”登记到 115。
-const facadeClosureAllowListMax = 114
+// Store DDD M1：`store/board` 成为看板投影的领域 owner；`store/internal/textsanitize`
+// 是项目摘要与看板 Markdown 共用的纯标准库清洗叶子。两者都是 plan 已确认的
+// store 下行落位，不反向依赖 application；按“新模块可 +1”规则把上限抬到 116。
+const facadeClosureAllowListMax = 116
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -347,6 +350,11 @@ var facadeClosureAllowList = []string{
 	// 闭包是纯标准库（`go list -deps ./store/root` 除自身外无带点的包）。
 	"github.com/RedHuang-0622/seelex/store/root",
 	"github.com/RedHuang-0622/seelex/store/schedule",
+	// M1：项目看板追加/折叠/压实/路径锁/Markdown 的领域 owner。自身只依赖
+	// contract/dto、store/root、textsanitize 与标准库。
+	"github.com/RedHuang-0622/seelex/store/board",
+	// 项目摘要与看板 Markdown 共用的清洗叶子，只有标准库依赖。
+	"github.com/RedHuang-0622/seelex/store/internal/textsanitize",
 	// M-SSH：远端执行面的连接基座（Dial / 认证 / 主机指纹 / 探针 / 远端作业）。
 	// **新增登记的理由**：它不是一个新能力层，而是"内置工具族的第二个执行面"——
 	// 门面闭包里的 `backend/tool/registry` 与 `backend/engine/assemble` 都要 import 它

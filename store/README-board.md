@@ -2,9 +2,14 @@
 
 ## 生态位
 
-项目看板投影：行文件、会话分目录、项目知识记录与渲染件
+项目看板投影、会话看板元数据、项目知识与项目记录的根包分卷。M1 起，追加、折叠、
+压实、路径校验、按路径锁和 `BOARD.md` 渲染的唯一实现位于
+[`board/README.md`](board/README.md)；根包 `project_board_compat.go` 只保留同身份
+alias 与单层 Router 转发。
 
-覆盖：`board*.go`、`project_board*.go`、`project_known*.go`、`project_record*.go`；未归属文件由覆盖自检拦下。
+覆盖：`board*.go`、`project_board_compat*.go`、`project_known*.go`、
+`project_record*.go`；`project_board.go` / `project_board_markdown.go` 已在 M1
+迁出根包。
 
 ## 文件与函数索引
 
@@ -45,88 +50,30 @@
 - `func TestBoardClosedKeepsClosedFacts(t *testing.T)` — TestBoardClosedKeepsClosedFacts：close 之后存档保留（§9 第 3 条），
 - `func TestBoardsNotInRepositoryMainInterface(t *testing.T)` — TestBoardsNotInRepositoryMainInterface：看板存档是**可选能力面**（与 teamwork 同一形态），
 
-### project_board.go
+### project_board_compat.go
 
-- `func ProjectBoardKinds() []string` — ProjectBoardKinds 返回本契约承认的 kind 全集（有序，便于测试与文档同步）。
-- `func isProjectBoardKind(kind string) bool` — isProjectBoardKind 报告 kind 是否在本契约的 kind 全集内。
-- `func projectBoardSessionFile(file string) (string, error)` — projectBoardSessionFile 校验并归一化**会话目录内**的投影文件名（只允许两份 jsonl，
-- `func sessionBoardSegment(sessionID string) (string, error)` — sessionBoardSegment 把会话 ID 校验并归一化成**目录名**（落点是按会话分目录的）。
-- `func validateProjectRoot(projectRoot string) error` — validateProjectRoot 校验项目根（落点的唯一输入）。
-- `func FoldProjectBoardRows(rows []ProjectBoardRow, logf func(string, ...any)) []ProjectBoardRow` — FoldProjectBoardRows 是投影行**唯一的读法**（折叠读）：把追加日志折成当前视图。
-- `func projectBoardRowLess(left, right ProjectBoardRow) bool` — projectBoardRowLess 是投影行的**唯一排序口径**：(Kind, Key, Session)。
-- `func ProjectBoardDir(projectRoot string) string` — ProjectBoardDir 返回某项目根的看板目录：`<项目根>/.seelex/board`。
-- `func ProjectBoardSessionDir(projectRoot, sessionID string) string` — ProjectBoardSessionDir 返回某会话在看板里的**自己的目录**：
-- `func projectBoardSessionPath(projectRoot, sessionID, file string) (string, error)` — projectBoardSessionPath 返回某会话某投影文件的物理路径（唯一带校验的派生口）。
-- `func projectBoardMarkdownPath(projectRoot string) string` — projectBoardMarkdownPath 返回人读件的路径（看板根下，**不分会话**：它是全项目汇总）。
-- `func projectBoardLock(path string) *sync.Mutex` — projectBoardLock 返回某投影文件路径的独立锁（按路径分片，互不阻塞）。
-- `func readProjectBoardFile(path string) ([]ProjectBoardRow, error)` — readProjectBoardFile 读回投影文件的**原始行**（未折叠）：跳过空行与崩溃残尾
-- `func decodeProjectBoardRows(data []byte) []ProjectBoardRow` — decodeProjectBoardRows 解析 JSONL 投影行（残尾 / 空行 / 坏行跳过）。
-- `func encodeProjectBoardRows(rows []ProjectBoardRow) ([]byte, error)` — encodeProjectBoardRows 把行集编码成 JSONL 字节（每行一条、换行收尾）。
-- `func projectBoardBatchAlreadyAppended(existing, rows []ProjectBoardRow) bool` — projectBoardBatchAlreadyAppended 报告这一批是否**已经落过**：文件里已有同一个 Seq 的行。
-- `func projectBoardStampSession(sessionID string, rows []ProjectBoardRow) error` — projectBoardStampSession 给整批行盖会话归属，并挡下"把别的会话的行写进这个会话的目录"。
-- `func projectBoardWatermark(rows []ProjectBoardRow) uint64` — projectBoardWatermark 返回投影文件的水位（= 最大 Seq）。
-- `func projectBoardMaxSeq(rows []ProjectBoardRow) uint64` — projectBoardMaxSeq 返回一批行的 Seq 最大值。
-- `func readProjectBoardRowsForAppend(path string) ([]ProjectBoardRow, error)` — readProjectBoardRowsForAppend 读回投影文件的**完整行**：先截崩溃残尾（复用
-- `func compactProjectBoardFile(path string, existing []ProjectBoardRow) ([]ProjectBoardRow, error)` — compactProjectBoardFile 把追加流**压实**成"每个 (会话, Key) 的最新一行"并原子重写。
-- `func appendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error)` — appendProjectBoardRows 是投影追加的**唯一实现**：
-- `func reclaimProjectBoard(projectRoot, sessionID string) error` — reclaimProjectBoard 回收某会话自己的投影目录（删除会话时同批调用）。
-- `func readProjectBoardFoldedRows(projectRoot string) ([]ProjectBoardRow, error)` — readProjectBoardFoldedRows 读回**本项目的全部折叠行**（逐会话目录合并两份投影）。
-- `func projectBoardSessionDirs(projectRoot string) []string` — projectBoardSessionDirs 列出看板根下**按会话分出来的子目录名**（有序；不存在 ⇒ 空）。
-- `func refreshProjectBoardMarkdown(projectRoot string)` — refreshProjectBoardMarkdown 按当前投影重建人读件；没有行 ⇒ 删掉它（I6：空则退场）。
-- `func (router *Router) SetProjectBoardRootFor(resolve func(sessionID string) string)` — SetProjectBoardRootFor 注入「会话 → 项目根」的解析器（装配期一次；nil = 未装配）。
-- `func (router *Router) projectBoardRootOf(sessionID string) string` — projectBoardRootOf 读当前解析器并解析会话的项目根（未装配 / 未绑定 ⇒ ""）。
-- `func (router *Router) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error)` — AppendProjectBoardRows 追加一批投影行，返回追加后的水位（= 文件内最大 Seq）。
-- `func (router *Router) ReadProjectBoardRows(projectRoot, sessionID, file string) ([]ProjectBoardRow, error)` — ReadProjectBoardRows 读回**某会话某投影文件**的折叠读（唯一读法）。
-- `func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)` — ProjectBoardWatermark 返回某会话某投影文件的水位（= 文件内最大 Seq）。
-- `func (router *Router) ReadProjectBoard(projectRoot string, opts ProjectBoardReadOptions) ([]ProjectBoardRow, bool, error)` — ReadProjectBoard 读回一个项目**跨会话**的全部折叠行（白名单文件之一），有界、只读。
-- `func (router *Router) ReclaimProjectBoard(_ /*projectID*/, sessionID string) error` — ReclaimProjectBoard 回收某会话自己的投影目录（幂等：目录不在不算错）。
-- `func (router *Router) ReadProjectBoardMarkdown(projectRoot string) ([]byte, error)` — ReadProjectBoardMarkdown 读回人读件（不存在 ⇒ `fs.ErrNotExist`）。
+- `const ProjectBoardSchema` / `ProjectBoardMaxRows` / `ProjectBoardWorkFile` / `ProjectBoardTeamworkFile` / `ProjectBoardMarkdownFile` — 同身份常量 alias，事实源在 `contract/dto`。
+- `type ProjectBoardScope` / `ProjectBoardRow` / `ProjectBoardReadOptions` — 同身份 DTO alias。
+- `func ProjectBoardKinds() []string` — 转发 `store/board.Kinds`。
+- `func FoldProjectBoardRows(rows []ProjectBoardRow, logf func(string, ...any)) []ProjectBoardRow` — 转发 `store/board.Fold`。
+- `func ProjectBoardDir(projectRoot string) string` / `ProjectBoardSessionDir(projectRoot, sessionID string) string` — 转发看板路径派生。
+- `func ProjectBoardMarkdown(rows []ProjectBoardRow) []byte` — 转发 `store/board.Markdown`。
+- `func (router *Router) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error)` — 单层转发 `store/board.Append`。
+- `func (router *Router) ReadProjectBoardRows(projectRoot, sessionID, file string) ([]ProjectBoardRow, error)` — 单层转发 `store/board.ReadRows`。
+- `func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)` — 单层转发 `store/board.Watermark`。
+- `func (router *Router) ReadProjectBoard(projectRoot string, opts ProjectBoardReadOptions) ([]ProjectBoardRow, bool, error)` — 单层转发 `store/board.Read`。
+- `func (router *Router) ReclaimProjectBoard(_ /*projectID*/, sessionID string) error` — 解析注入的项目根后转发 `store/board.Reclaim`。
+- `func (router *Router) ReadProjectBoardMarkdown(projectRoot string) ([]byte, error)` — 单层转发 `store/board.ReadMarkdown`。
 
-### project_board_landing_test.go
+### project_board_compat_test.go
 
-- `func TestProjectBoardMustNotLandUnderDataRoot(t *testing.T)` — TestProjectBoardMustNotLandUnderDataRoot：投影不得再出现在数据根下。
-- `func TestProjectBoardLandsInProjectBoardDir(t *testing.T)` — TestProjectBoardLandsInProjectBoardDir：正面判据——会话的投影出现在它自己的目录下，
-
-### project_board_markdown.go
-
-- `func ProjectBoardMarkdown(rows []ProjectBoardRow) []byte` — ProjectBoardMarkdown 把**折叠后的投影行**渲染成人读看板。
-- `func newBoardFacts(write func(string) (int, error)) func(key, value string)` — newBoardFacts 返回一个"写一条 - key：value"的小写入器（空值不写，保持确定性）。
-- `func boardText(payload map[string]any, key string) string` — boardText 取载荷里的文本字段并清洗（非字符串 / 空 ⇒ 空串）。
-- `func boardTextList(payload map[string]any, key string) []string` — boardTextList 取载荷里的字符串数组字段并清洗（保持原顺序，空项剔除）。
-- `func boardCell(value string) string` — boardCell 把一段文本规整成 markdown 表格单元格（换行折成空格、竖线转义）。
-
-### project_board_test.go
-
-- `func projectBoardRow(kind, key string, seq uint64, removed bool) ProjectBoardRow` — projectBoardRow 造一条投影行。
-- `func projectBoardFixture(t *testing.T) (*Router, string)` — projectBoardFixture 提供一个 router（存储面宿主）与一个临时项目根。
-- `func projectBoardLineCount(t *testing.T, path string) int` — projectBoardLineCount 数投影文件里的非空行数（-1 表示文件不存在）。
-- `func projectBoardTestPath(t *testing.T, projectRoot, sessionID, file string) string` — projectBoardTestPath 取某会话某投影文件的路径（走存储面**唯一**的带校验派生口；
-- `func TestProjectBoardAppendIdempotent(t *testing.T)` — TestProjectBoardAppendIdempotent 对应 T1.1：同一批行重复追加是幂等空操作。
-- `func TestFoldProjectBoardRowsLatestWins(t *testing.T)` — TestFoldProjectBoardRowsLatestWins 对应 T1.2：同一 (会话, Key) 取 Seq 最大的行。
-- `func TestFoldProjectBoardRowsKeepsCrossSessionKeys(t *testing.T)` — TestFoldProjectBoardRowsKeepsCrossSessionKeys 是本轮新增的口径：落点是**项目级
-- `func withBoardSession(row ProjectBoardRow, sessionID string) ProjectBoardRow` — withBoardSession 给一行盖会话章（测试用）。
-- `func TestFoldProjectBoardRowsRemovedDropped(t *testing.T)` — TestFoldProjectBoardRowsRemovedDropped 对应 tombstone：最新行 removed=true ⇒ 该 Key 消失。
-- `func TestFoldProjectBoardRowsUnknownSkipped(t *testing.T)` — TestFoldProjectBoardRowsUnknownSkipped 对应 T1.3：未知 schema / kind 跳过且记一行日志。
-- `func TestProjectBoardCrashTailSelfHeals(t *testing.T)` — TestProjectBoardCrashTailSelfHeals 对应 T1.4：残尾行丢弃、追加从完整行边界续写。
-- `func TestProjectBoardPathFollowsProjectRoot(t *testing.T)` — TestProjectBoardPathFollowsProjectRoot 对应 T1.5：路径钉在**项目目录 + 会话目录**之下
-- `func TestProjectBoardPathNoWorkspaceIDNoAbsolute(t *testing.T)` — TestProjectBoardPathNoWorkspaceIDNoAbsolute 对应 T1.6：**行内**不出现工作区 ID
-- `func TestProjectBoardLocksDistinct(t *testing.T)` — TestProjectBoardLocksDistinct 对应 T1.7：投影用独立锁（不新增模块枚举、不与
-- `func TestProjectBoardRowsBounded(t *testing.T)` — TestProjectBoardRowsBounded 对应 T1.8：行数越界显式报错（不静默截断）。
-- `func TestProjectBoardEmptyNoFile(t *testing.T)` — TestProjectBoardEmptyNoFile 对应 T1.9：空批不建文件（空则退场）。
-- `func TestProjectBoardDeleteBindsSession(t *testing.T)` — TestProjectBoardDeleteBindsSession 对应 T1.10：删除会话同批回收它**自己那个目录**
-- `func TestProjectBoardReadProjectBoardAggregates(t *testing.T)` — TestProjectBoardReadProjectBoardAggregates 覆盖聚合读：逐会话目录读、按行数/会话数
-- `func TestProjectBoardMarkdownRenderedAndDeterministic(t *testing.T)` — TestProjectBoardMarkdownRenderedAndDeterministic 是新落点的**人读件**判据：
-- `func TestProjectBoardSessionsOwnTheirFiles(t *testing.T)` — TestProjectBoardSessionsOwnTheirFiles 钉住"按会话分目录"要换来的三件事：
-- `func TestProjectBoardRejectsForeignSessionRows(t *testing.T)` — TestProjectBoardRejectsForeignSessionRows：**串写防线**——一批行盖着别的会话的章，
-- `func TestProjectBoardSessionSegmentGuards(t *testing.T)` — TestProjectBoardSessionSegmentGuards：会话 ID 当目录名前的**唯一一道闸**。
-- `func workRow(kind, key string, payload map[string]any) ProjectBoardRow` — workRow 造一条带完整载荷的投影行（渲染用例用）。
-- `func TestProjectBoardKeepsUpdatingAfterBoundReached(t *testing.T)` — TestProjectBoardKeepsUpdatingAfterBoundReached 是 R-1 的红灯用例：同一个项目文件在
+- `func TestProjectBoardRouterCompatibilityForwardsToBoardOwner(t *testing.T)` — 验证根 Router 薄转发仍能写读投影与人读件。
+- `func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *testing.T)` — 验证回收注入根且看板锁不与任何模块锁别名。
 
 ### project_known.go
 
 - `func ProjectKnownMarkdown(record ProjectRecord) []byte` — ProjectKnownMarkdown 把 `ProjectRecord` 渲染成人读 markdown。
-- `func sanitizeKnownText(value string) string` — sanitizeKnownText 清洗人读文本：剔除 `ws-<nano>` 与盘符绝对路径（渲染件要能提交）。
-- `func repoRelativePath(value string) (string, bool)` — repoRelativePath 判定并归一化**仓库相对路径**；绝对路径一律丢弃（ok=false）。
+- 文本清洗已迁到 `store/internal/textsanitize`（`KnownText` / `RepoRelativePath`），本文件不再保留第二份正则或路径判据。
 - `func projectKnownPath(projectRoot string) string` — projectKnownPath 返回项目摘要渲染件的物理路径：
 - `func writeProjectKnown(projectRoot string, data []byte) error` — writeProjectKnown 落一份渲染件（空内容不落盘；同路径独立锁 + 原子发布）。
 - `func readProjectKnown(projectRoot string) ([]byte, error)` — readProjectKnown 读回渲染件（不存在 → `fs.ErrNotExist`；空文件 → 显式报错）。

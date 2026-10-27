@@ -29,3 +29,13 @@
 ```text
 go test ./store/... -run 'ProjectKnown|ProjectBoard' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### sanitize.go
+
+- `func KnownText(value string) string` — 剔除机器本地工作区 ID 与绝对路径，供可提交派生文本复用。
+- `func RepoRelativePath(value string) (string, bool)` — 校验并归一化仓库相对路径，拒绝绝对路径、工作区 ID 与 `..` 逃逸。

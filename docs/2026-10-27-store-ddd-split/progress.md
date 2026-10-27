@@ -11,7 +11,7 @@
 | 里程碑 | 能力面 | 状态 | 门禁证据 |
 |---|---|---|---|
 | M0 | 基线门禁 | 已完成 | 见 §2 |
-| M1 | Board 试点 | 未开始 | — |
+| M1 | Board 试点 | 已完成 | 见 §2.5 |
 | M2 | layout 内核 | 未开始 | — |
 | M3 | Artifact | 未开始 | — |
 | M4 | Commit/Turn UoW | 未开始 | — |
@@ -124,6 +124,84 @@ git diff --check
 
 格式检查 `gofmt -l` 对本里程碑新增测试无输出；`git diff --check` 通过。
 
+## 2.5 M1：Board 垂直试点（已完成）
+
+### 2.5.1 领域归属与契约
+
+项目看板追加、折叠、压实、路径校验、按物理路径分片锁、聚合读、会话回收与
+`BOARD.md` 渲染统一归 `store/board`。`contract/dto` 继续拥有行、作用域与读选项的
+跨层身份；根 `store` 只保留同身份 alias 和 Router 单层转发。看板仍是派生投影，
+不是 task/teamwork 的事实源。
+
+### 2.5.2 红测与 checkpoint
+
+首次失败：
+
+```text
+go test ./e2e -run TestStoreDDDMBoardOwnershipGate -count=1
+--- FAIL: TestStoreDDDMBoardOwnershipGate
+    store/board 尚未成为看板 owner: The system cannot find the file specified.
+```
+
+隔离 worktree：`C:\Users\redre\.codex\worktrees\store-ddd-m1\seelex`
+
+- branch：`codex/store-ddd-M1`
+- base：`6c0545fdbb1e007bff4e914431ac7c7eb54fb716`
+- checkpoint：`22b608804c574d949c43f4d68557bdc957663033`
+- 外部影响清单：`impact/M1-external-deps.{json,md}`
+- 脚本 dry-run 与 apply：通过；journal：`%TEMP%\seelex-store-ddd-M1-40456.json`
+
+### 2.5.3 删除/合并清单
+
+| 原位置 | 新唯一位置 | 处理 |
+|---|---|---|
+| `store/project_board.go`：路径、锁、追加、压实、聚合读、回收 | `store/board/board.go` | 删除根实现，根 Router 改单层转发 |
+| `store/project_board_markdown.go`：Markdown 渲染 | `store/board/markdown.go` | 删除根实现 |
+| `store/project_board_test.go` / `store/project_board_landing_test.go` | `store/board/board_test.go` + `store/project_board_compat_test.go` | 领域行为随 owner；根测试只测兼容与跨模块锁身份 |
+| `store/project_board.go` 的 `sanitizeKnownText` 调用 | `store/internal/textsanitize/sanitize.go` | 项目摘要与看板共用唯一清洗判据 |
+| `wiring/registry` 的具体 `*store.Router` Board 参数 | `kernel/board.ProjectBoardReader` + `dto.ProjectBoardRow` | 消费方窄端口 |
+| `kernel/board/boardtest` 的根 `store.FoldProjectBoardRows` | `store/board.Fold` | 测试替身复用领域唯一折叠实现 |
+
+根 `project_board_compat.go` 不含 JSON 解码、文件打开、排序、锁表或残尾修复实现；
+`e2e/store_ddd_board_gate_test.go` 机械禁止这些实现重新回流。
+
+### 2.5.4 门禁结果
+
+```text
+go test ./store/... ./e2e/... -count=1   PASS
+go test ./kernel/board ./wiring/registry -count=1   PASS
+go test ./test -run ProjectBoard -count=1   PASS
+go test ./test/ -count=1   PASS
+go build ./...   PASS
+go build -tags "gui,desktop,production" ./...   PASS
+go vet ./...   PASS
+git diff --check   PASS
+```
+
+`./store/...` 的 I6 枚举自动纳入 `store/board` 与
+`store/internal/textsanitize`，两者没有根 `store` 或上层反向依赖。
+
+### 2.5.5 结构指标
+
+| 类型 | M0 | M1 |
+|---|---:|---:|
+| `Router` | 130 | 130 |
+| `jsonRepository` | 90 | 90 |
+| `storeEngine` | 183 | 183 |
+| `SessionGranularStore` | 46 | 46 |
+
+M1 按计划保留根兼容方法，God 方法面没有增长。直接 import 根 `store` 的生产文件
+从 86 降到 85；测试文件仍为 146。`wiring/registry` 仍因其它工具 import 根
+`store`，但项目看板读取面已不接收具体 Router。
+
+### 2.5.6 数据兼容与回滚
+
+- 路径、JSON tag、schema、head、watermark：零变化。
+- 用户数据：未读取、未迁移、未清理；M1 测试只写 `t.TempDir()`。
+- Board fixture 继续验证残尾、幂等、tombstone、压实、会话串写拒绝、Markdown 字节稳定。
+- 回滚面：反向补丁恢复两个根实现、删除 `store/board` 装配并恢复消费方类型；
+  磁盘上的 `worktable.jsonl`、`teamwork.jsonl`、`BOARD.md` 格式不变，无需数据回滚。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -142,6 +220,9 @@ git diff --check
    统计时一律排除。
 5. **并发会话正在改同一批目录**。`application/*`、`backend/engine/context/seelectx/*`、
    `store/README-session.md` 等有另一会话的未提交改动，本里程碑不触碰这些文件。
+6. **计划中的 `middle/view/board` 已不是当前物理路径**。实际看板消费方在
+   `kernel/board`，其生产端口已经使用 `contract/dto`；M1 按实际依赖面验证。
+   M10 前需统一 plan/milestones 的历史路径措辞，但不能为路径名再复制一套消费方。
 
 ## 4. 附录：直接 import 根 `store` 的生产文件（86）
 
@@ -243,9 +324,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M1：Board 垂直试点，按 `milestones.md` §5 的范围搬
-`store/project_board.go`、`store/project_board_markdown.go` 与其测试，
-打通「`contract/dto` Board 形状 → 消费方窄端口 → `store/board` → 根包单层转发 →
-删除旧实现」这条路径。M1 的第一件事是先写红灯：把
-`store/testdata/god_type_methods.json` 里 Board 相关方法从 `Router` 集合中删掉
-（期望 ratchet 变红），并把 `store/board` 加进 I6 的必现包清单。
+M2：Layout 内核，按 `milestones.md` §6 提取会话路径、guide、module head 信封与
+按模块锁；先写结构红测，再迁 `module_heads.go` 的机制层实现。

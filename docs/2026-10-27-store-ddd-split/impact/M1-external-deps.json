@@ -4,10 +4,10 @@
   "execution": {
     "worktree_branch": "codex/store-ddd-M1",
     "base_commit": "6c0545fdbb1e007bff4e914431ac7c7eb54fb716",
-    "checkpoint_commit": ""
+    "checkpoint_commit": "22b608804c574d949c43f4d68557bdc957663033"
   },
   "checkpoint": {
-    "commit": "",
+    "commit": "22b608804c574d949c43f4d68557bdc957663033",
     "created_at": "2026-10-27T00:00:00Z"
   },
   "providers": [

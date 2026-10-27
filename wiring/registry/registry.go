@@ -129,7 +129,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 //
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
-func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
+func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st board.ProjectBoardReader, app *application.Service) {
 	components := appassembly.ComponentsFor(app)
 	schema := map[string]interface{}{
 		"type": "object",
@@ -1042,7 +1042,7 @@ func RegisterSkillActivateTool(runtime *assemble.Runtime, skills *skill.Registry
 // projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
 // 不带任何本机路径（落点只有 kind/key/at/scope/payload —— 契约 §4.1 的行信封本身
 // 就不含绝对路径）。
-func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface{} {
+func projectBoardReadRows(rows []dto.ProjectBoardRow) []map[string]interface{} {
 	views := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
 		views = append(views, map[string]interface{}{

@@ -15,6 +15,8 @@
 
 - 分支：`codex/store-ddd-M1`
 - 基线：`6c0545fdbb1e007bff4e914431ac7c7eb54fb716`
+- checkpoint：`22b608804c574d949c43f4d68557bdc957663033`
 - 脚本：`scripts/store-ddd/M1-external-migrate.py`
 - 只在隔离 worktree 运行；支持 dry-run、apply、rollback。
+- dry-run：通过；apply：通过，journal = `%TEMP%\seelex-store-ddd-M1-40456.json`。
 - 不触碰 `.seelex`、`config`、`dist` 或任何用户数据。

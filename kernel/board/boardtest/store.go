@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 const (
@@ -110,7 +110,7 @@ func (st *Store) Raw(projectRoot, sessionID, file string) []dto.ProjectBoardRow 
 
 // folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
 func (st *Store) Folded(projectRoot, sessionID, file string) []dto.ProjectBoardRow {
-	return store.FoldProjectBoardRows(st.Raw(projectRoot, sessionID, file), nil)
+	return storeboard.Fold(st.Raw(projectRoot, sessionID, file), nil)
 }
 
 func (st *Store) DropFile(projectRoot, sessionID, file string) {
