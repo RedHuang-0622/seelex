@@ -47,6 +47,8 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func EmptyMessageHead(sessionID string) MessageHead` — EmptyMessageHead returns the canonical zero head for a session.
 - `func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error)` — AssignRowSeqs is the single event seq allocator. Explicit seq <= base is
 - `func StructuralEventsCommitID(events []StructuralEvent) string` — StructuralEventsCommitID derives the deterministic EVENT commit identity.
+- `func MessageRowsCommitID(rows []protocol.TranscriptEvent) string` — MessageRowsCommitID derives the deterministic transcript commit identity.
+- `func ApplyPendingTailHead( head MessageHead, rows []protocol.TranscriptEvent, shards []ShardInfo, total uint64, commitID string, now time.Time, ) MessageHead` — ApplyPendingTailHead builds the head that publishes a validated draft tail.
 - `func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error)` — PublishMessageHead publishes the typed message head through layout.
 - `func PublishEventHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head EventHead, updatedAt time.Time) (string, error)` — PublishEventHead publishes the typed event head through layout.
 - `func ClassifyPendingTail(headSeq uint64, rows []protocol.TranscriptEvent, duplicate bool) (string, string)` — ClassifyPendingTail preserves the single draft-tail recoverability rule.
@@ -64,6 +66,7 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func TestStructuralEventIdentity(t *testing.T)`
 - `func TestMessageShardReadAppendRepairsTail(t *testing.T)`
 - `func TestTypedHeadPublish(t *testing.T)`
+- `func TestApplyPendingTailHead(t *testing.T)`
 
 ### storage.go
 

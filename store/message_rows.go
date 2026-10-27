@@ -406,12 +406,7 @@ func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows
 
 // messageRowsCommitID 由事件行身份字段确定性推导一次提交的凭据。
 func messageRowsCommitID(rows []Event) string {
-	identity := make([]string, 0, len(rows))
-	for _, row := range rows {
-		identity = append(identity, string(row.Kind)+"|"+row.Role+"|"+row.MessageID+"|"+
-			row.ToolCallID+"|"+row.Name+"|"+row.Content+"|"+row.ResultRef)
-	}
-	return "msg-" + storeroot.Hash(strings.Join(identity, "\n"))
+	return storesession.MessageRowsCommitID(rows)
 }
 
 // messageAnchorPoint 是 message 通道最近一次发布的坐标（内存锚）。

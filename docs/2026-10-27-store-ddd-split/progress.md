@@ -388,6 +388,8 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
   下沉 layout；根只提供 payload 重建回调；
 - message/EVENT typed head 的发布入口下沉 `store/session`，根生产写路径不再
   直接调用通用 `publishModuleHead`；
+- message commit identity、pending-tail head 推进计算与草稿发布后的 head 字段
+  更新下沉 Session；根只负责文件枚举、锁和缓存协同；
 
 根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
 head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
@@ -424,6 +426,8 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 | `store/message_rows.go` / `structural_events.go` 的 JSONL 读写与残尾修复 | `store/session/storage.go` |
 | `store/module_heads.go` 的 head 自愈重试/锁顺序 | `store/internal/layout.Layout.ReadWithHeal` |
 | message/EVENT production head 发布调用 | `store/session.PublishMessageHead/PublishEventHead` |
+| `store/message_rows.go` message commit identity | `store/session.MessageRowsCommitID` |
+| `store/pending_tail.go` 发布 head 字段计算 | `store/session.ApplyPendingTailHead` |
 
 数据路径与 JSON tag 零变化。
 

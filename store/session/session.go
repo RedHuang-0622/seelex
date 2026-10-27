@@ -164,6 +164,58 @@ func StructuralEventsCommitID(events []StructuralEvent) string {
 	return "ev-" + storeroot.Hash(strings.Join(identity, "\n"))
 }
 
+// MessageRowsCommitID derives the deterministic transcript commit identity.
+func MessageRowsCommitID(rows []protocol.TranscriptEvent) string {
+	identity := make([]string, 0, len(rows))
+	for _, row := range rows {
+		identity = append(identity, row.Kind+"|"+row.Role+"|"+row.MessageID+"|"+
+			row.ToolCallID+"|"+row.Name+"|"+row.Content+"|"+row.ResultRef)
+	}
+	return "msg-" + storeroot.Hash(strings.Join(identity, "\n"))
+}
+
+// ApplyPendingTailHead builds the head that publishes a validated draft tail.
+func ApplyPendingTailHead(
+	head MessageHead,
+	rows []protocol.TranscriptEvent,
+	shards []ShardInfo,
+	total uint64,
+	commitID string,
+	now time.Time,
+) MessageHead {
+	tokens := 0
+	lastMessageID := ""
+	for _, row := range rows {
+		tokens += row.TokenCount
+		if row.MessageID != "" {
+			lastMessageID = row.MessageID
+		}
+		if row.CommitID != "" {
+			commitID = row.CommitID
+		}
+	}
+	if commitID == "" {
+		commitID = MessageRowsCommitID(rows)
+	}
+	head.Shards = shards
+	if len(rows) > 0 {
+		head.LastSeq = rows[len(rows)-1].Seq
+	}
+	head.LastMessageID = lastMessageID
+	head.TotalRows = total
+	head.LastCommitID = commitID
+	head.Meta.TokenCount += tokens
+	head.Meta.ShardCount = len(shards)
+	head.Meta.UpdatedAt = now
+	if head.Meta.SessionID == "" {
+		head.Meta.SessionID = head.SessionID
+	}
+	if head.Meta.CreatedAt.IsZero() {
+		head.Meta.CreatedAt = now
+	}
+	return head
+}
+
 // PublishMessageHead publishes the typed message head through layout.
 func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error) {
 	return layout.Publish(scope, "message", commitID, head, updatedAt)

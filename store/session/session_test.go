@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 )
@@ -144,5 +145,22 @@ func TestTypedHeadPublish(t *testing.T) {
 	eventHead, err := layout.ReadHead(scope, "event")
 	if err != nil || eventHead.CommitID != "c-event" {
 		t.Fatalf("event head=%+v err=%v", eventHead, err)
+	}
+}
+
+func TestApplyPendingTailHead(t *testing.T) {
+	head := MessageHead{SessionID: "s", LastSeq: 2, Meta: frameworkStorage.SessionMeta{SessionID: "s"}}
+	rows := []protocol.TranscriptEvent{
+		{Seq: 3, MessageID: "m3", TokenCount: 2, CommitID: "commit"},
+		{Seq: 4, MessageID: "m4", TokenCount: 3, CommitID: "commit"},
+	}
+	shards := []ShardInfo{{Path: "message_1_4.jsonl", FromSeq: 1, ToSeq: 4, Count: 4}}
+	next := ApplyPendingTailHead(head, rows, shards, 4, "", time.Unix(1, 0))
+	if next.LastSeq != 4 || next.LastMessageID != "m4" || next.LastCommitID != "commit" ||
+		next.Meta.TokenCount != 5 || next.Meta.ShardCount != 1 {
+		t.Fatalf("head=%+v", next)
+	}
+	if MessageRowsCommitID(rows) == "" {
+		t.Fatal("empty commit identity")
 	}
 }

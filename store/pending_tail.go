@@ -324,36 +324,9 @@ func (store *storeEngine) publishPendingTailLocked(key Key, head messageHead, ro
 		total += uint64(len(fileRows))
 	}
 	now := time.Now().UTC()
-	tokens := 0
-	lastMessageID := ""
 	commitID := ""
-	for _, row := range rows {
-		tokens += row.TokenCount
-		if row.MessageID != "" {
-			lastMessageID = row.MessageID
-		}
-		if row.CommitID != "" {
-			commitID = row.CommitID
-		}
-	}
-	if commitID == "" {
-		commitID = messageRowsCommitID(rows)
-	}
-	head.Shards = shards
-	head.LastSeq = rows[len(rows)-1].Seq
-	head.LastMessageID = lastMessageID
-	head.TotalRows = total
-	head.LastCommitID = commitID
-	head.Meta.TokenCount += tokens
-	head.Meta.ShardCount = len(shards)
-	head.Meta.UpdatedAt = now
-	if head.Meta.SessionID == "" {
-		head.Meta.SessionID = key.SessionID
-	}
-	if head.Meta.CreatedAt.IsZero() {
-		head.Meta.CreatedAt = now
-	}
-	if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
+	head = storesession.ApplyPendingTailHead(head, rows, shards, total, commitID, now)
+	if _, err := publishMessageHead(store, key, head.LastCommitID, head, now); err != nil {
 		return err
 	}
 	store.locks(key).draftTail.Store(nil)
