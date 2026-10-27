@@ -11,6 +11,7 @@ import (
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
@@ -161,6 +162,16 @@ func StructuralEventsCommitID(events []StructuralEvent) string {
 			"|"+event.FrameID+"|"+string(event.Payload))
 	}
 	return "ev-" + storeroot.Hash(strings.Join(identity, "\n"))
+}
+
+// PublishMessageHead publishes the typed message head through layout.
+func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error) {
+	return layout.Publish(scope, "message", commitID, head, updatedAt)
+}
+
+// PublishEventHead publishes the typed event head through layout.
+func PublishEventHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head EventHead, updatedAt time.Time) (string, error) {
+	return layout.Publish(scope, "event", commitID, head, updatedAt)
 }
 
 // ClassifyPendingTail preserves the single draft-tail recoverability rule.

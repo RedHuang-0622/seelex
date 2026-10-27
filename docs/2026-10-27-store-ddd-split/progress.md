@@ -386,6 +386,8 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - message/EVENT JSONL 的共享读、崩溃残尾截断、追加、sync 与解码纯存储原语；
 - head 有界自愈序列（严格读 → 重读 → 可选模块锁 → 领域 repair → 再读）
   下沉 layout；根只提供 payload 重建回调；
+- message/EVENT typed head 的发布入口下沉 `store/session`，根生产写路径不再
+  直接调用通用 `publishModuleHead`；
 
 根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
 head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
@@ -421,6 +423,7 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 | `store/structural_events.go` 的 commit identity 推导 | `store/session.StructuralEventsCommitID` |
 | `store/message_rows.go` / `structural_events.go` 的 JSONL 读写与残尾修复 | `store/session/storage.go` |
 | `store/module_heads.go` 的 head 自愈重试/锁顺序 | `store/internal/layout.Layout.ReadWithHeal` |
+| message/EVENT production head 发布调用 | `store/session.PublishMessageHead/PublishEventHead` |
 
 数据路径与 JSON tag 零变化。
 

@@ -59,6 +59,10 @@ type eventStats struct {
 	shardReads atomic.Uint64
 }
 
+func publishEventHead(store *storeEngine, key Key, commitID string, head eventHeadRecord, updatedAt time.Time) (string, error) {
+	return storesession.PublishEventHead(store.layout, layoutScope(key), commitID, head, updatedAt)
+}
+
 func (store *storeEngine) structuralEventDir(key Key) string {
 	return filepath.Join(store.sessionRoot(key), "event")
 }
@@ -104,7 +108,7 @@ func (store *storeEngine) structuralEventCommit(key Key, commitID string, events
 		}
 		// 崩溃恢复修了分片索引：把修补后的 head 发布出去，使下一次提交
 		// 不必再走重读恢复路径。
-		if _, err := store.publishModuleHead(key, moduleEvent, commitID, head, time.Now().UTC()); err != nil {
+		if _, err := publishEventHead(store, key, commitID, head, time.Now().UTC()); err != nil {
 			return eventHeadRecord{}, err
 		}
 		return head, nil
@@ -113,7 +117,7 @@ func (store *storeEngine) structuralEventCommit(key Key, commitID string, events
 		return eventHeadRecord{}, err
 	}
 	head.LastCommitID = commitID
-	if _, err := store.publishModuleHead(key, moduleEvent, commitID, head, time.Now().UTC()); err != nil {
+	if _, err := publishEventHead(store, key, commitID, head, time.Now().UTC()); err != nil {
 		return eventHeadRecord{}, err
 	}
 	return head, nil

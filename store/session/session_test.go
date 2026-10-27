@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 )
 
 func TestPendingTailClassification(t *testing.T) {
@@ -121,5 +123,26 @@ func TestMessageShardReadAppendRepairsTail(t *testing.T) {
 	}
 	if strings.Contains(string(data), "torn") {
 		t.Fatalf("crash tail was not repaired: %s", data)
+	}
+}
+
+func TestTypedHeadPublish(t *testing.T) {
+	layout := storelayout.New(t.TempDir())
+	scope := storelayout.Scope{ProjectID: "p", SessionID: "s"}
+	message := MessageHead{SessionID: "s", LastSeq: 3}
+	if commit, err := PublishMessageHead(layout, scope, "c-message", message, time.Unix(1, 0)); err != nil || commit != "c-message" {
+		t.Fatalf("message publish=(%q,%v)", commit, err)
+	}
+	event := EventHead{SessionID: "s", LastID: 2, Total: 2}
+	if commit, err := PublishEventHead(layout, scope, "c-event", event, time.Unix(2, 0)); err != nil || commit != "c-event" {
+		t.Fatalf("event publish=(%q,%v)", commit, err)
+	}
+	messageHead, err := layout.ReadHead(scope, "message")
+	if err != nil || messageHead.CommitID != "c-message" {
+		t.Fatalf("message head=%+v err=%v", messageHead, err)
+	}
+	eventHead, err := layout.ReadHead(scope, "event")
+	if err != nil || eventHead.CommitID != "c-event" {
+		t.Fatalf("event head=%+v err=%v", eventHead, err)
 	}
 }

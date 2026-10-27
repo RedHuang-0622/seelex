@@ -38,6 +38,10 @@ type messageHead = storesession.MessageHead
 type Floor = storesession.Floor
 type shardInfo = storesession.ShardInfo
 
+func publishMessageHead(store *storeEngine, key Key, commitID string, head messageHead, updatedAt time.Time) (string, error) {
+	return storesession.PublishMessageHead(store.layout, layoutScope(key), commitID, head, updatedAt)
+}
+
 // fileSize 返回文件字节数（不存在/出错返回 0）。
 func fileSize(path string) int64 {
 	if path == "" {
@@ -165,7 +169,7 @@ func (store *storeEngine) setMessageTitleStored(key Key, title string) error {
 	if head.Meta.CreatedAt.IsZero() {
 		head.Meta.CreatedAt = now
 	}
-	if _, err := store.publishModuleHead(key, moduleMessage, head.LastCommitID, head, now); err != nil {
+	if _, err := publishMessageHead(store, key, head.LastCommitID, head, now); err != nil {
 		return err
 	}
 	store.rememberMessageAnchor(key, head)
@@ -366,7 +370,7 @@ func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows
 			// 使会话可被 List/枚举发现。
 			now := time.Now().UTC()
 			head.LastCommitID = commitID
-			if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
+			if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
 				return messageHead{}, err
 			}
 			store.rememberMessageAnchor(key, head)
@@ -391,7 +395,7 @@ func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows
 		head.Meta.SessionID = key.SessionID
 		head.Meta.CreatedAt = now
 	}
-	if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
+	if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
 		return messageHead{}, err
 	}
 	// 发布锚坐标：栈通道取锚因此不必打开 metadata/message.json（跨模块

@@ -47,6 +47,8 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func EmptyMessageHead(sessionID string) MessageHead` — EmptyMessageHead returns the canonical zero head for a session.
 - `func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error)` — AssignRowSeqs is the single event seq allocator. Explicit seq <= base is
 - `func StructuralEventsCommitID(events []StructuralEvent) string` — StructuralEventsCommitID derives the deterministic EVENT commit identity.
+- `func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error)` — PublishMessageHead publishes the typed message head through layout.
+- `func PublishEventHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head EventHead, updatedAt time.Time) (string, error)` — PublishEventHead publishes the typed event head through layout.
 - `func ClassifyPendingTail(headSeq uint64, rows []protocol.TranscriptEvent, duplicate bool) (string, string)` — ClassifyPendingTail preserves the single draft-tail recoverability rule.
 - `func MessageShardName(fromSeq, toSeq uint64) string` — MessageShardName returns the stable sorted-shard filename.
 - `func ParseMessageShardName(name string) (uint64, uint64, bool)` — ParseMessageShardName validates and parses a message shard name.
@@ -61,6 +63,7 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func TestMessageShardRouteOnHead(t *testing.T)`
 - `func TestStructuralEventIdentity(t *testing.T)`
 - `func TestMessageShardReadAppendRepairsTail(t *testing.T)`
+- `func TestTypedHeadPublish(t *testing.T)`
 
 ### storage.go
 

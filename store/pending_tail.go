@@ -353,7 +353,7 @@ func (store *storeEngine) publishPendingTailLocked(key Key, head messageHead, ro
 	if head.Meta.CreatedAt.IsZero() {
 		head.Meta.CreatedAt = now
 	}
-	if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
+	if _, err := publishMessageHead(store, key, commitID, head, now); err != nil {
 		return err
 	}
 	store.locks(key).draftTail.Store(nil)

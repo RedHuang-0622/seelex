@@ -152,7 +152,7 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	if len(newHead.Shards) == 0 {
 		newHead.Shards = nil
 	}
-	if _, err := store.publishModuleHead(key, moduleMessage, modulePayloadCommitID(moduleMessage, newHead), newHead, time.Now().UTC()); err != nil {
+	if _, err := publishMessageHead(store, key, modulePayloadCommitID(moduleMessage, newHead), newHead, time.Now().UTC()); err != nil {
 		for _, path := range newFiles {
 			_ = os.Remove(path)
 		}
