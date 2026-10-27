@@ -26,8 +26,9 @@
   `store/context/wire_engine.go`，根 `store/wire_assembler.go` 只映射
   `Event`/attempt cache；压缩检索、相关记忆与装配控制器改用
   `CompactStackSnapshot() []CompactFrame`，不再通过万能 record 读压缩栈。
-  相关改动尚未提交，接手前先检查
-  `git status --short --branch` 和 `git diff`。
+  接手前先检查 `git status --short --branch` 和 `git diff`；该 checkpoint 已提交为
+  `cf119696`，随后 `PromptStackSnapshot` 内层投影提交为 `3c23ebf4`；每个后续
+  里程碑都必须先全量门禁、再创建只含该里程碑的本地 commit（不 push）。
   C: 盘空间不足时设置 `GOCACHE=G:\go-build-cache\seelex`、
   `GOTMPDIR=G:\go-build-tmp\seelex`；禁止清理缓存或用户数据。
 5. 首次验证：

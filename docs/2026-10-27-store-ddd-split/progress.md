@@ -8,6 +8,11 @@
 commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当前 checkpoint
 先落库，后续里程碑继续遵循“测试 → commit”。
 
+当前已落库 checkpoint：
+
+- `cf119696`：M7 provider wire 与压缩栈窄读面。
+- `3c23ebf4`：`PromptStackSnapshot` 内层投影。
+
 快照时间：2026-10-28（M7 进行中）。
 
 ## 1. 状态总览
@@ -491,6 +496,8 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
 - 压缩栈窄读面：`SessionContextStore.CompactStackSnapshot` 只返回
   `CompactFrame` 深拷贝；seelectx controller/search、相关记忆选取与装配侧
   不再通过万能 `SessionContextRecord` 读取压缩栈。
+- `PromptStackSnapshot`：prompt 装配与本地压缩获得只含 Plan/Task/Skill/Compact
+  四栈的内层投影；外部 consumer 切换作为独立受控批次继续。
 
 根 `wire_assembler.go` 只把 `Event` 与 attempt cache 映射为 `store/context`
 输入，不再持有装配 switch；`context_state.go` 与 `checkpoint_store.go` 只保留
