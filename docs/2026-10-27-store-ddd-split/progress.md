@@ -481,6 +481,7 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
   wire 与终态词表；根栈通道改为 alias/纯函数转发。
 - Compact 栈的范围校验、request 索引与前驱链校验；
 - wire message/result 形状、兜底预算、软阈值缩放与参数归一化；
+- Plan/Task/Goal 入栈输入、Goal 栈顶校验、Skill 压/弹栈纯状态操作；
 
 根 `context_state.go` 与 `checkpoint_store.go` 只保留 repository lock、opaque
 序列化与 Router 适配。四类栈语义、SystemPrompt、compact bridge 和

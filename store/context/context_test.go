@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
@@ -165,5 +166,35 @@ func TestWireParamsAndResultWire(t *testing.T) {
 		if !strings.Contains(string(data), `"`+key+`"`) {
 			t.Fatalf("missing wire field %s: %s", key, data)
 		}
+	}
+}
+
+func TestContextOperationValidation(t *testing.T) {
+	now := time.Unix(1, 0)
+	if _, err := NewPlanStackInput(PlanFrame{}, now); err == nil {
+		t.Fatal("empty plan id must fail")
+	}
+	plan, err := NewPlanStackInput(PlanFrame{PlanID: "p1"}, now)
+	if err != nil || plan.Status != "active" || plan.EnteredAt.IsZero() {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	task, err := NewTaskStackInput(TaskFrame{TaskID: "t1", Status: "queued"}, now)
+	if err != nil || task.Status != "queued" {
+		t.Fatalf("task=%+v err=%v", task, err)
+	}
+	goal, err := NewGoalStackInput(GoalFrame{GoalID: "g1", RoleName: "tl"}, now)
+	if err != nil || goal.RoleName != "tl" {
+		t.Fatalf("goal=%+v err=%v", goal, err)
+	}
+	if err := RequireTopGoal([]GoalFrame{{GoalID: "g0"}, {GoalID: "g1"}}, "g0"); err == nil {
+		t.Fatal("non-top goal must fail")
+	}
+	skills, err := PushSkillFrame(nil, SkillFrame{SkillID: "s1"}, now)
+	if err != nil || len(skills) != 1 || skills[0].ActivatedAt.IsZero() {
+		t.Fatalf("skills=%+v err=%v", skills, err)
+	}
+	skills, err = PopSkillFrame(skills, "s1")
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("pop skills=%+v err=%v", skills, err)
 	}
 }

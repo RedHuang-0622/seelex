@@ -57,6 +57,17 @@ go test ./store/context ./store -run 'Context|Checkpoint' -count=1
 - `func TestStackWireAndVocabulary(t *testing.T)`
 - `func TestAppendCompactChain(t *testing.T)`
 - `func TestWireParamsAndResultWire(t *testing.T)`
+- `func TestContextOperationValidation(t *testing.T)`
+
+### operations.go
+
+- `func newStackInput( itemID string, kind StackKind, status string, payload any, enteredAt time.Time, now time.Time, roleName string, roleSessionID string, ) (StackItemInput, error)`
+- `func NewPlanStackInput(frame PlanFrame, now time.Time) (StackItemInput, error)`
+- `func NewTaskStackInput(frame TaskFrame, now time.Time) (StackItemInput, error)`
+- `func NewGoalStackInput(frame GoalFrame, now time.Time) (StackItemInput, error)`
+- `func RequireTopGoal(frames []GoalFrame, goalID string) error`
+- `func PushSkillFrame(frames []SkillFrame, frame SkillFrame, now time.Time) ([]SkillFrame, error)`
+- `func PopSkillFrame(frames []SkillFrame, skillID string) ([]SkillFrame, error)`
 
 ### stacks.go
 

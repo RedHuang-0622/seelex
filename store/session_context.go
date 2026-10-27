@@ -352,21 +352,12 @@ func stackPayload(frame any) json.RawMessage {
 
 // PushPlan 在 plan_load/plan_run 进入时压栈（一个计划 = 一个批次）。
 func (s *SessionContextStore) PushPlan(frame PlanFrame) error {
-	if frame.PlanID == "" {
-		return fmt.Errorf("session context: plan frame requires plan_id")
-	}
-	if frame.EnteredAt.IsZero() {
-		frame.EnteredAt = time.Now()
-	}
-	status := frame.Status
-	if status == "" {
-		status = "active"
+	item, err := storecontext.NewPlanStackInput(frame, time.Now())
+	if err != nil {
+		return err
 	}
 	return s.writeStack(StackKindPlan, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindPlan, "plan:"+frame.PlanID, []StackItemInput{{
-			ItemID: frame.PlanID, Kind: StackKindPlan, Status: status,
-			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
-		}})
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindPlan, "plan:"+frame.PlanID, []StackItemInput{item})
 		return err
 	})
 }
@@ -384,21 +375,12 @@ func (s *SessionContextStore) CloseTopPlan(planID string) error {
 
 // PushTask 在任务开始时压栈（一个任务 = 一个批次）。
 func (s *SessionContextStore) PushTask(frame TaskFrame) error {
-	if frame.TaskID == "" {
-		return fmt.Errorf("session context: task frame requires task_id")
-	}
-	if frame.EnteredAt.IsZero() {
-		frame.EnteredAt = time.Now()
-	}
-	status := frame.Status
-	if status == "" {
-		status = "active"
+	item, err := storecontext.NewTaskStackInput(frame, time.Now())
+	if err != nil {
+		return err
 	}
 	return s.writeStack(StackKindTask, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindTask, "task:"+frame.TaskID, []StackItemInput{{
-			ItemID: frame.TaskID, Kind: StackKindTask, Status: status,
-			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
-		}})
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindTask, "task:"+frame.TaskID, []StackItemInput{item})
 		return err
 	})
 }
@@ -449,22 +431,12 @@ func (s *SessionContextStore) ensureStackItem(kind StackKind, itemID, label stri
 // PushGoal 在 goal_begin 压栈时追加一帧（goal 治理活栈，单条目批次 LIFO）。
 // goal 栈不入模型上下文，只服务恢复与治理。
 func (s *SessionContextStore) PushGoal(frame GoalFrame) error {
-	if frame.GoalID == "" {
-		return fmt.Errorf("session context: goal frame requires goal_id")
-	}
-	if frame.EnteredAt.IsZero() {
-		frame.EnteredAt = time.Now()
-	}
-	status := frame.Status
-	if status == "" {
-		status = "active"
+	item, err := storecontext.NewGoalStackInput(frame, time.Now())
+	if err != nil {
+		return err
 	}
 	return s.writeStack(StackKindGoal, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{{
-			ItemID: frame.GoalID, Kind: StackKindGoal, Status: status,
-			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
-			RoleName: frame.RoleName, RoleSessionID: frame.RoleSessionID,
-		}})
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{item})
 		return err
 	})
 }
@@ -473,17 +445,10 @@ func (s *SessionContextStore) PushGoal(frame GoalFrame) error {
 // 下层恢复 active 属 goal 域状态机）。
 func (s *SessionContextStore) CloseTopGoal(goalID string) error {
 	s.mu.RLock()
-	empty := len(s.record.GoalStack) == 0
-	var top string
-	if !empty {
-		top = s.record.GoalStack[len(s.record.GoalStack)-1].GoalID
-	}
+	stack := append([]GoalFrame(nil), s.record.GoalStack...)
 	s.mu.RUnlock()
-	if empty {
-		return fmt.Errorf("session context: goal %q is not on the goal stack (empty)", goalID)
-	}
-	if top != goalID {
-		return fmt.Errorf("session context: goal %q is not the stack top (top=%q)", goalID, top)
+	if err := storecontext.RequireTopGoal(stack, goalID); err != nil {
+		return err
 	}
 	return s.writeStack(StackKindGoal, func() error {
 		_, err := s.router.StackPopTop(s.workspace(), s.sessionID, StackKindGoal, goalID, "closed")
@@ -562,13 +527,11 @@ func (s *SessionContextStore) GoalAuditSnapshot() []GoalAuditEntry {
 // PushSkill 在 skill 激活时压栈。
 func (s *SessionContextStore) PushSkill(frame SkillFrame) error {
 	return s.update(func(record *SessionContextRecord) error {
-		if frame.SkillID == "" {
-			return fmt.Errorf("session context: skill frame requires skill_id")
+		stack, err := storecontext.PushSkillFrame(record.SkillStack, frame, time.Now())
+		if err != nil {
+			return err
 		}
-		if frame.ActivatedAt.IsZero() {
-			frame.ActivatedAt = time.Now()
-		}
-		record.SkillStack = append(record.SkillStack, frame)
+		record.SkillStack = stack
 		return nil
 	})
 }
@@ -576,14 +539,12 @@ func (s *SessionContextStore) PushSkill(frame SkillFrame) error {
 // PopSkill 在 skill 退出时弹栈（匹配最近一帧）。
 func (s *SessionContextStore) PopSkill(skillID string) error {
 	return s.update(func(record *SessionContextRecord) error {
-		stack := record.SkillStack
-		for index := len(stack) - 1; index >= 0; index-- {
-			if stack[index].SkillID == skillID {
-				record.SkillStack = append(stack[:index], stack[index+1:]...)
-				return nil
-			}
+		stack, err := storecontext.PopSkillFrame(record.SkillStack, skillID)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("session context: skill %q is not on the skill stack", skillID)
+		record.SkillStack = stack
+		return nil
 	})
 }
 
