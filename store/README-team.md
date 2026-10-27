@@ -130,17 +130,10 @@
 
 ### team_registry.go
 
-- `func teamRegistryLock(path string) *sync.Mutex`
-- `func (store *storeEngine) teamRegistryPath(key Key) string`
-- `func normalizeTeamRoleSpec(spec TeamRoleSpec) TeamRoleSpec` — normalizeTeamRoleSpec 把角色条目规整为可比较形态：role_name 去空白、kind 兜底
-- `func normalizeStringSet(values []string) []string`
-- `func normalizeTeamRegistry(registry TeamRegistry) (TeamRegistry, error)` — normalizeTeamRegistry 校验并规整注册表；空 RoleName 或缺 role_name 的重复条目
-- `func (store *storeEngine) readTeamRegistry(key Key) (TeamRegistry, error)` — readTeamRegistry 读注册表。文件不存在返回 Configured=false 的空注册表（未配置
-- `func (store *storeEngine) writeTeamRegistry(key Key, registry TeamRegistry) error` — writeTeamRegistry 整份原子替换注册表；替换成功即发布。
-- `func (store *storeEngine) removeTeamRegistry(key Key) error` — removeTeamRegistry 删除角色注册表（团队离场）。文件不存在 = 已经离场（幂等，
 - `func (router *Router) ReadTeamRegistryWorkspace(projectID, sessionID string) (TeamRegistry, error)` — ReadTeamRegistryWorkspace 读主会话的角色注册表（项目作用域显式传入，禁止回退
 - `func (router *Router) WriteTeamRegistryWorkspace(projectID, sessionID string, registry TeamRegistry) error` — WriteTeamRegistryWorkspace 整份写入主会话的角色注册表。
 - `func (router *Router) RemoveTeamRegistryWorkspace(projectID, sessionID string) error` — RemoveTeamRegistryWorkspace 删除主会话的角色注册表（团队离场；幂等）。
+- `func registryScope(projectID, sessionID string) storelayout.Scope` — registryScope 构造注册表的会话作用域（与 `layoutScope` 同一口径：sessionID 去空白）。
 - `func (router *Router) EnsureRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error)` — EnsureRoleSessionWorkspace 幂等创建角色会话：已存在返回 created=false（不报错），
 - `func (router *Router) ReadMessageFloorWorkspace(projectID, sessionID string) (*Floor, error)` — ReadMessageFloorWorkspace 读主会话 message head 的 floor：当前轮到这里发言的
 - `func (router *Router) ReadLifecycleOrderWorkspace(projectID, sessionID string) (string, []string, error)` — ReadLifecycleOrderWorkspace 读群聊顺序策略（lifecycle head 是运行时权威）。
@@ -159,9 +152,6 @@
 - `func TeamworkPlanIsEmpty(plan TeamworkPlan) bool` — 报告"这份计划还没声明过团队"（team_plan 一次都没写过）；唯一实现位于 `contract/dto`。
 - `func Teamwork(repository Repository) (TeamworkRepository, bool)` — Teamwork 把 Repository 收窄到 teamwork 面。JSON 后端实现它；其他后端返回 false。
 - `func (router *Router) TeamworkFor() (TeamworkRepository, bool)` — TeamworkFor 返回**当前活跃后端**的 teamwork 读/写面（JSON 后端实现它；其他后端
-- `func (store *storeEngine) teamworkDir(key Key) string` — teamworkDir 返回 teamwork 模块的数据目录。
-- `func (store *storeEngine) teamworkEventsPath(key Key) string`
-- `func (store *storeEngine) teamworkJobDir(key Key) string` — teamworkJobDir 返回 teammate 作业输出文件所在目录（产品自有；见 teamworkJobSubdir）。
 - `func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error` — ValidateTeamworkPlan 校验一份计划（M2 的第二道关口）。
 - `func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, plan TeamworkPlan, maxTeammates int) error` — WriteTeamworkPlan 写入（整份替换）一份计划。maxTeammates <= 0 = 只做结构性校验。
 - `func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error)` — ReadTeamworkPlan 读回计划。**缺失 = 空计划（还没 team_plan 声明过团队），不是错误**。
@@ -178,10 +168,6 @@
 - `func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string` — 把空状态读成 pending；唯一实现位于 `contract/dto`。
 - `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool` — 报告工作项是否已经有 done/failed 结论；唯一实现位于 `contract/dto`。
 - `func TeamworkBindings(rows []TeamworkBinding) map[string]TeamworkBinding` — TeamworkBindings 把绑定流水折成"每个 Work Item 当前的绑定"。
-- `func validateTeamworkWorkItems(plan TeamworkPlan, roles map[string]struct{}) error` — ValidateTeamworkPlan 之外的**第二道校验**：里程碑图与 Work Item。
-- `func validateMilestoneGraphAcyclic(milestones []TeamworkMilestone) error` — validateMilestoneGraphAcyclic 用 Kahn 拓扑消元检出里程碑依赖环。
-- `func validateItemGraphAcyclic(milestone TeamworkMilestone) error` — validateItemGraphAcyclic 用 Kahn 拓扑消元检出**同里程碑内**工作项依赖环。
-- `func (store *storeEngine) teamworkBindingsPath(key Key) string` — teamworkBindingsPath 返回绑定账本路径。
 - `func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error` — AppendTeamworkBinding 追加一行绑定事实（只追加、不重写；崩溃残尾由读侧跳过）。
 - `func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error)` — ReadTeamworkBindings 读回全部绑定事实（按文件顺序 = 发生顺序）。
 

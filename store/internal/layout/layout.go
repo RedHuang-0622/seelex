@@ -177,6 +177,30 @@ func Checksum(head Head) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// PayloadCommitID derives a deterministic commit id from a module head payload.
+// Storage never invents random ids or reuses constants (S17/D13).
+func PayloadCommitID(module ModuleID, payload any) string {
+	raw, _ := json.Marshal(payload)
+	return "head-" + string(module) + "-" + storeroot.Hash(string(raw))
+}
+
+// Commit is the whole-replacement write of one module head: ensure the guide,
+// derive the commit id when the caller has none, then publish under the
+// session/module lock. Domain stores own their payload; layout owns the order.
+func (l *Layout) Commit(scope Scope, module ModuleID, commitID string, payload any, updatedAt time.Time) error {
+	if _, err := l.EnsureGuide(scope); err != nil {
+		return err
+	}
+	if commitID == "" {
+		commitID = PayloadCommitID(module, payload)
+	}
+	lock := l.Lock(scope, module)
+	lock.Lock()
+	defer lock.Unlock()
+	_, err := l.Publish(scope, module, commitID, payload, updatedAt)
+	return err
+}
+
 // Publish atomically writes a module head.
 func (l *Layout) Publish(scope Scope, module ModuleID, commitID string, payload any, updatedAt time.Time) (string, error) {
 	raw, err := json.Marshal(payload)

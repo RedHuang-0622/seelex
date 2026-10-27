@@ -2,30 +2,38 @@ package store
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestTeamRegistryRoundTripAndIsolation：角色注册表整份替换落到
+// TestTeamRegistryOwnerRoundTripAndIsolation：角色注册表整份替换落到
 // `session/team/roles.json`，读回保持角色配置；与 message 物理隔离，不写 message。
+//
+// M8：落盘实现已迁入 `store/role`（owner），本用例经根 storeEngine 持有的
+// owner 实例验证**路径与语义零变化**（路径逐字断言，JSON 由 owner 定义）。
 //
 // 状态（A06，2026-10-15）：被测的读写面已是 **legacy 只读兼容面**（装配用户面随 J-1a
 // 退场、当前无生产调用方）。本用例钉的是"旧格式仍能被正确读回"，保留原样继续当兼容护栏。
-func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
-	store, key := roleSessionFixture(t)
-	path := store.teamRegistryPath(key)
+func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T) {
+	engine, key := roleSessionFixture(t)
+	scope := layoutScope(key)
+	path := engine.roles.Path(scope)
+	if want := filepath.Join(engine.sessionRoot(key), "team", "roles.json"); path != want {
+		t.Fatalf("roles.json 路径漂移：got %q want %q", path, want)
+	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("registry file must not exist before first write: %v", err)
 	}
-	registry, err := store.readTeamRegistry(key)
+	registry, err := engine.roles.Read(scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registry.Configured || len(registry.Roles) != 0 {
+	if registry.Configured || len(registry.Roles) != 0 || registry.SchemaVersion != TeamRegistrySchemaVersion {
 		t.Fatalf("unconfigured registry = %+v", registry)
 	}
 
-	err = store.writeTeamRegistry(key, TeamRegistry{
+	err = engine.roles.Write(scope, TeamRegistry{
 		TeamID:      "review-team",
 		TeamKind:    "review-team",
 		OrderPolicy: "user_main_decided",
@@ -39,7 +47,7 @@ func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
 		t.Fatal("duplicate role_name must be rejected")
 	}
 
-	if err := store.writeTeamRegistry(key, TeamRegistry{
+	if err := engine.roles.Write(scope, TeamRegistry{
 		TeamID:      "review-team",
 		TeamKind:    "review-team",
 		OrderPolicy: "user_main_decided",
@@ -54,7 +62,7 @@ func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("registry file missing after write: %v", err)
 	}
-	stored, err := store.readTeamRegistry(key)
+	stored, err := engine.roles.Read(scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +75,19 @@ func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
 	if stored.Roles[0].RoleName != "reviewer" || stored.Roles[0].ToolsPolicy != "readonly" {
 		t.Fatalf("first role = %+v", stored.Roles[0])
 	}
+	// 幂等删除：删两次都不报错，删后读回 = 未配置。
+	if err := engine.roles.Remove(scope); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.roles.Remove(scope); err != nil {
+		t.Fatalf("remove must be idempotent: %v", err)
+	}
+	removed, err := engine.roles.Read(scope)
+	if err != nil || removed.Configured {
+		t.Fatalf("removed registry = %+v err=%v", removed, err)
+	}
 
-	rows, err := store.readAllRows(key)
+	rows, err := engine.readAllRows(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +98,8 @@ func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
 
 // TestTeamRegistryRejectsUnknownSchema：schema 版本不认识时显式报错，不静默降级。
 func TestTeamRegistryRejectsUnknownSchema(t *testing.T) {
-	store, key := roleSessionFixture(t)
-	if err := store.writeTeamRegistry(key, TeamRegistry{SchemaVersion: 99}); err == nil {
+	engine, key := roleSessionFixture(t)
+	if err := engine.roles.Write(layoutScope(key), TeamRegistry{SchemaVersion: 99}); err == nil {
 		t.Fatal("unsupported schema must be rejected")
 	}
 }

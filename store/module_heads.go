@@ -18,7 +18,9 @@ import (
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -61,7 +63,10 @@ const (
 	// docs/arch/teamwork-leader-worker-architecture.md §4.6）：head 即 plan.json
 	// （整份替换型内容，谁、什么顺序）；同模块的数据文件 teamwork/events.jsonl
 	// 是派发 / 里程碑 / retire 的**追加审计面**（只追加、不重写）。
-	moduleTeamwork storageModule = "teamwork"
+	//
+	// 模块身份由 owner 定义（store/teamwork.ModuleID）：根包只做同身份 alias，
+	// 不保留第二份字符串常量。
+	moduleTeamwork storageModule = storeteamwork.ModuleID
 	// moduleBoardGoal / moduleBoardTeam 是两块看板的**会话粒度元数据 + 快照**
 	// （docs/arch/session-board-metadata-lifecycle.md）：board_goal.json /
 	// board_team.json。它们**不是领域事实源**——不进任何判定，只服务"重启后快照
@@ -97,6 +102,10 @@ type storeEngine struct {
 	layout    *storelayout.Layout
 	artifacts *storeartifact.Store
 	contexts  *storecontext.Store
+	// teamwork / roles 是共享同一个 layout 的领域持久化面：组合根只装配它们，
+	// 具体读写与判据留在各自领域包（M8 起根包不再持有这两份实现）。
+	teamwork *storeteamwork.Store
+	roles    *storerole.Store
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
@@ -140,6 +149,8 @@ func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 		layout:    sharedLayout,
 		artifacts: storeartifact.New(sharedLayout, resolved),
 		contexts:  storecontext.New(sharedLayout),
+		teamwork:  storeteamwork.New(sharedLayout),
+		roles:     storerole.New(sharedLayout),
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
 		event:     &eventStats{},
@@ -609,17 +620,7 @@ func decodeHeadPayload[T any](head moduleHeadFile) (T, error) {
 // 调用方传入对应模块锁（stack/lifecycle/retention/subagent 等无独立数据
 // 文件的模块 head 也用此入口）。
 func (store *storeEngine) commitModuleHead(key Key, mod storageModule, commitID string, payload any) error {
-	if _, err := store.ensureLayoutGuide(key); err != nil {
-		return err
-	}
-	if commitID == "" {
-		commitID = modulePayloadCommitID(mod, payload)
-	}
-	moduleLock := store.mu(key, mod)
-	moduleLock.Lock()
-	defer moduleLock.Unlock()
-	_, err := store.publishModuleHead(key, mod, commitID, payload, time.Now().UTC())
-	return err
+	return store.layout.Commit(layoutScope(key), mod, commitID, payload, time.Now().UTC())
 }
 
 // commitContentModule 整份替换型内容模块（system/checkpoint）写入：模块 head
@@ -631,8 +632,7 @@ func (store *storeEngine) commitContentModule(key Key, mod storageModule, payloa
 // modulePayloadCommitID 按模块 head payload 内容确定性推导凭据（S17/D13：
 // 存储层不现造随机号，也不使用常量）。
 func modulePayloadCommitID(mod storageModule, payload any) string {
-	raw, _ := json.Marshal(payload)
-	return "head-" + string(mod) + "-" + storeroot.Hash(string(raw))
+	return storelayout.PayloadCommitID(mod, payload)
 }
 
 // readModuleHeadPayload 读取通用模块 head 并解码 payload；缺失时返回

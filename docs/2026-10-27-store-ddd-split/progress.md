@@ -654,52 +654,176 @@ e2e/store_ddd_context_gate_test.go
 这是外部依赖批次。专用 branch/worktree 已满足；checkpoint、manifest、脚本
 dry-run/apply 仍待用户授权本地 commit 后补做，当前不能宣告该批次完成。
 
-## 2.12 M8：Teamwork（进行中）
+## 2.12 M8：Teamwork（完成）
 
-### 2.12.1 已完成切片
+### 2.12.1 切片一：纯模型 / 校验 / folding（`af2bbaab`）
 
 - 新建 `store/teamwork`，唯一拥有 Plan/Member/Milestone/WorkItem、Event、
   Binding 的稳定形状与词表。
 - Plan/Work Item 校验、里程碑与工作项 DAG 环检测、binding 最后一行折叠
   已下沉；根 `store` 改为同身份 alias 与单层纯函数转发。
-- JSON 文件路径、plan head 发布、events/worktrees JSONL 读写仍在根 Store，
-  留待下一片迁移。
 
-### 2.12.2 红测与门禁
+### 2.12.2 切片二：I/O owner（本轮）
 
-首次：
+`store/teamwork/store.go` 成为 teamwork 落盘的**唯一**实现：
+
+- plan = 模块 head `<sessionRoot>/metadata/teamwork.json`，`ValidatePlan` →
+  `layout.Commit` 整份替换；
+- 审计 = `<sessionRoot>/teamwork/events.jsonl`，`O_APPEND` 单次写一行；
+- 绑定 = `<sessionRoot>/teamwork/worktrees.jsonl`，同上（KV 折叠仍在
+  `model.go` 的 `Bindings`）；
+- 两条流水共用 `readRows` 读取：缺失 = 空切片，**只**跳过最后一行的解析失败；
+- 作业输出目录 `<sessionRoot>/teamwork/jobs` 由 `JobOutputDir` 确保存在。
+
+同时把 head 整份替换的**写序**下沉到机制层：`store/internal/layout` 新增
+`Commit`（ensure guide → 推导 commit id → 模块锁 → publish）与
+`PayloadCommitID`；`storeEngine.commitModuleHead`、`modulePayloadCommitID`
+改为单层转调，不再各自维护一份写序。组合根 `storeEngine` 装配
+`teamwork` / `roles` 两个领域面（共享同一个 `layout`），`moduleTeamwork`
+改为 `storeteamwork.ModuleID` 的同身份 alias。
+
+### 2.12.3 切片三：team registry → `store/role`（本轮）
+
+先给领域归属证据，再落代码：
+
+1. **内容是角色身份与策略**：`RoleSpec` 描述"这批会话有哪些角色、各自的
+   system prompt / 模型策略 / 工具范围 / 顺序优先级"，不是 teamwork 的
+   "谁、什么顺序"硬编排，也不属于会话消息或生命周期。
+2. **物理子树就是角色域**：`<sessionRoot>/team/roles.json` 与 M9 的 role
+   draft、角色会话子树、permission、floor/message lifecycle 同处
+   `<sessionRoot>/team`；交给 teamwork 会把角色身份拆到两个限界上下文。
+3. **读写语义独立**：整份原子替换、无 head 水位、不写 message、不碰
+   sequencer——与 teamwork 的"head + 两条追加流水"是三套机制。
+
+`store/role/registry.go` 因此持有 `SchemaVersion`、`RoleSpec` / `Registry`、
+`Normalize` 与 `Store{Path,Read,Write,Remove}`。根 `team_registry.go` 只剩三个
+`*Workspace` 单层转发 + `registryScope`；角色会话、floor、lifecycle 转发
+留着，等 M9 迁走。
+
+### 2.12.4 红测与门禁
+
+先写所有权门禁 `e2e/store_ddd_teamwork_io_ownership_gate_test.go`：要求
+`store/teamwork/store.go` 持有 `os.OpenFile` / `O_APPEND` /
+`storeroot.ReadSharedFile` / `layout.Commit` / `ModuleID` 且不 import 根
+`store`；根 `teamwork.go`、`teamwork_items.go`、`team_registry.go` 不含
+`json.Marshal` / `json.Unmarshal` / `os.OpenFile` / `os.MkdirAll` /
+`os.ReadFile` / `storeroot.ReadSharedFile` / `storeroot.WriteAtomic` /
+`sync.Map` / `sort.SliceStable` / `normalizeTeamRegistry`；`store/role/registry.go`
+持有整份原子替换与规范化。
+
+红（实现落位前的首次运行在 `store/teamwork/store.go` 与
+`store/role/registry.go` 的读取处直接失败；实现完成后剩下的最后一条红灯）：
 
 ```text
-go test ./e2e -run '^TestStoreDDDMTeamworkModelOwnershipGate$' -count=1
-FAIL: store/teamwork/model.go 尚未落位
+go test ./e2e -run '^TestStoreDDDMTeamworkIOOwnershipGate$' -count=1
+FAIL: store/role 缺少模块 README：GetFileAttributesEx …store\role\README.md: The system cannot find the file specified.
 ```
 
-通过后：
+补齐 `store/role` / `store/teamwork` 模块 README 后转绿：
 
 ```text
-go test ./store/teamwork ./store ./backend/multiagent/teamwork ./e2e -run 'Teamwork|WorkItem|Binding|Plan' -count=1
-go build ./...
+go test ./e2e -run '^TestStoreDDDMTeamworkIOOwnershipGate$' -count=1
+ok  github.com/RedHuang-0622/seelex/e2e 2.986s
 ```
 
-以上 PASS。God 类型方法面未增长；路径与 JSON tag 零变化。
-
-### 2.12.3 删除/合并清单
+### 2.12.5 删除/合并清单
 
 | 原位置 | 新唯一位置 |
 |---|---|
 | `store/teamwork.go` Event 类型与 kind 常量 | `store/teamwork.Event` 与常量 |
 | `store/teamwork.go` plan 校验实现 | `store/teamwork.ValidatePlan` |
+| `store/teamwork.go` `teamworkDir` / `teamworkEventsPath` / `teamworkJobDir` | `store/teamwork.Store.Dir` / `EventPath` / `JobsDir` |
+| `store/teamwork.go` `WriteTeamworkPlan` / `ReadTeamworkPlan` 的 head 发布与读 | `store/teamwork.Store.WritePlan` / `ReadPlan` |
+| `store/teamwork.go` `AppendTeamworkEvent` / `ReadTeamworkEvents` 的 JSONL 追加与残尾读 | `store/teamwork.Store.AppendEvent` / `ReadEvents` |
+| `store/teamwork.go` `TeamworkJobOutputDir` | `store/teamwork.Store.JobOutputDir` |
 | `store/teamwork_items.go` WorkItem/Binding 类型 | `store/teamwork.WorkItem/Binding` |
 | `store/teamwork_items.go` DAG 校验 | `store/teamwork/validation.go` |
 | `store/teamwork_items.go` `TeamworkBindings` 折叠 | `store/teamwork.Bindings` |
+| `store/teamwork_items.go` `teamworkBindingsPath` + `AppendTeamworkBinding` / `ReadTeamworkBindings` 的 I/O | `store/teamwork.Store.BindingPath` / `AppendBinding` / `ReadBindings` |
+| `store/team_registry.go` `teamRegistryLock` / `teamRegistryPath` / `readTeamRegistry` / `writeTeamRegistry` / `removeTeamRegistry` | `store/role.Store.Path` / `Read` / `Write` / `Remove` |
+| `store/team_registry.go` `normalizeTeamRoleSpec` / `normalizeStringSet` / `normalizeTeamRegistry` | `store/role.Normalize` |
+| `store/module_heads.go` `commitModuleHead` 内联 ensure → commit id → 锁 → publish | `store/internal/layout.Layout.Commit` |
+| `store/module_heads.go` `modulePayloadCommitID` 的 JSON + hash | `store/internal/layout.PayloadCommitID` |
+| `store/module_heads.go` `moduleTeamwork storageModule = "teamwork"` 字面量 | `store/teamwork.ModuleID`（同身份 alias） |
 
-### 2.12.4 下一步
+### 2.12.6 God 方法数与 import 边
 
-迁移 plan head + events/bindings JSONL I/O 到 `store/teamwork`，保持文件名和
-残尾语义；随后迁移 team registry。M8 完成门禁为：
+- `storeEngine` 180 → 172（删 8 个：`readTeamRegistry`、`writeTeamRegistry`、
+  `removeTeamRegistry`、`teamRegistryPath`、`teamworkDir`、`teamworkEventsPath`、
+  `teamworkJobDir`、`teamworkBindingsPath`）；`Router`、`jsonRepository`、
+  `SessionGranularStore` 方法集合不变。`layout.Commit` / `PayloadCommitID` 是
+  机制层新增，不是 God receiver 方法。
+- import 边：`store/teamwork` → `contract/dto`、`store/root`、
+  `store/internal/layout`；`store/role` → `store/root`、`store/internal/layout`；
+  根 `store` → 两个领域包（组合根装配 + 单层转发）。领域包对根 `store` 的
+  反向边为零，由所有权门禁钉住。
+
+### 2.12.7 数据兼容
+
+- 路径零迁移：`metadata/teamwork.json`、`teamwork/events.jsonl`、
+  `teamwork/worktrees.jsonl`、`teamwork/jobs`、`team/roles.json` 逐字不变。
+- JSON tag 零变化；commit id 推导算法逐字搬到 `layout.PayloadCommitID`
+  （`head-<module>-<hash>`），旧 head 的水位语义不变。
+- 未读写、未迁移用户数据；未触碰 `.seelex`、config、dist。
+
+### 2.12.8 测试
+
+新增 `store/teamwork/store_test.go`（13 例）：`TestStorePhysicalPathsAreUnchanged`、
+`TestWritePlanReplacesWholePayload`、`TestReadPlanMissingIsEmpty`、
+`TestWritePlanValidatesBeforeWriting`、`TestReadPlanColdStart`、
+`TestEventsAreAppendOnlyAndOrdered`、`TestAppendEventRequiresKind`、
+`TestReadEventsMissingIsEmpty`、`TestReadBindingsMissingIsEmpty`、
+`TestCrashTailIsSkipped`、`TestBindingsFoldLastRowAfterColdRead`、
+`TestConcurrentAppendsKeepWholeLines`、`TestJobOutputDirIsSessionScoped`。
+
+新增 `store/role/registry_test.go`（11 例）：路径身份、缺失即未配置、
+规范化幂等与非法输入、整份替换、非法输入不落盘、幂等删除、损坏文件显式报错、
+旧 schema 冷读、并发写整份性。
+
+### 2.12.9 门禁结果
 
 ```text
 go test ./store/... ./store/teamwork/... ./backend/multiagent/teamwork/... ./test/ -count=1
+go build ./...
+go vet ./...
+```
+
+实测（`GOCACHE=G:\go-build-cache\seelex`、`GOTMPDIR=G:\go-build-tmp\seelex`）：
+
+```text
+go test ./store/... ./store/teamwork/... ./backend/multiagent/teamwork/... ./test/ -count=1
+  exit 0；13 个包 ok，0 条 FAIL
+go test ./e2e -run 'TestStoreDDD' -count=1
+  ok github.com/RedHuang-0622/seelex/e2e 5.338s
+go build ./...   exit 0（空输出）
+go vet ./...     exit 0（空输出）
+gofmt -l store e2e  空输出
+```
+
+**路径拼写注意事项**：首轮用正斜杠 `GOTMPDIR='G:/go-build-tmp/seelex'` 跑出 3 个红，
+全部是同一种假象——测试把 `filepath.Join` 产生的反斜杠路径与正斜杠拼写的临时根做
+`strings.HasPrefix` 比较：
+
+```text
+store/TestProjectKnownPathFollowsProjectRoot
+backend/multiagent/teamwork/TestOutputStoreSanitizesRoleName
+backend/multiagent/teamwork/TestOutputStoreAllocatesDistinctPathsPerDispatch
+test/TestProjectBoardWriteEndToEndFromTodoTool
+```
+
+用 `GOTMPDIR='G:\go-build-tmp\seelex'`（与 `filepath.Join` 输出同拼写）重跑即全绿，
+单测 `-run TestProjectKnownPathFollowsProjectRoot` 亦 ok。这不是 M8 回归，测试未被修改。
+
+M8 里程碑本地单提交，不 push。
+
+### 2.12.10 下一步
+
+进入 M9：`store/role` 继续承接 role draft / 角色会话子树 / permission /
+floor-message lifecycle，新建 `store/workunit`；sequencer 仍是主会话 message 的
+唯一写者。
+
+```text
+go test ./store/... ./store/role/... ./store/workunit/... ./backend/multiagent/... ./test/ -count=1
 ```
 
 ## 3. 未决风险

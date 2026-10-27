@@ -341,7 +341,6 @@
     "readRowsLocked",
     "readSubagents",
     "readTailRowsForSelection",
-    "readTeamRegistry",
     "readToolResultRefs",
     "reapEventUnpublishedLocked",
     "reapUnpublishedLocked",
@@ -354,7 +353,6 @@
     "recoverPendingTail",
     "registerSubagent",
     "rememberMessageAnchor",
-    "removeTeamRegistry",
     "repairModuleHeadFromData",
     "repairModuleHeadLocked",
     "replaceCompactionRecordsLocked",
@@ -388,11 +386,6 @@
     "structuralEventShardPath",
     "subagentRoot",
     "syncRoleDraft",
-    "teamRegistryPath",
-    "teamworkBindingsPath",
-    "teamworkDir",
-    "teamworkEventsPath",
-    "teamworkJobDir",
     "toolRecordPath",
     "trustedTailFor",
     "updateLifecycleHeadLocked",
@@ -402,8 +395,7 @@
     "withPublishedHead",
     "writeBlob",
     "writeMediaLocked",
-    "writeShardRowsLocked",
-    "writeTeamRegistry"
+    "writeShardRowsLocked"
   ],
   "SessionGranularStore": [
     "Bind",

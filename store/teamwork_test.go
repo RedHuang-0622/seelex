@@ -226,7 +226,7 @@ func TestTeamworkAuditSkipsCrashTail(t *testing.T) {
 	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventPlan}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
-	path := repository.layout.teamworkEventsPath(key)
+	path := repository.layout.teamwork.EventPath(layoutScope(key))
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatalf("open audit log: %v", err)
@@ -258,7 +258,7 @@ func TestTeamworkStorageKeepsPlanAndAuditSeparate(t *testing.T) {
 	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventPlan}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(repository.layout.teamworkDir(key), teamworkEventFile)); err != nil {
+	if _, err := os.Stat(repository.layout.teamwork.EventPath(layoutScope(key))); err != nil {
 		t.Fatalf("audit log missing: %v", err)
 	}
 }
@@ -369,8 +369,8 @@ func TestTeamworkPlanColdReadsLegacyStagesPayload(t *testing.T) {
 func TestTeamworkAuditColdReadsLegacyRetireRow(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
-	path := repository.layout.teamworkEventsPath(key)
-	if err := os.MkdirAll(repository.layout.teamworkDir(key), 0o700); err != nil {
+	path := repository.layout.teamwork.EventPath(layoutScope(key))
+	if err := os.MkdirAll(repository.layout.teamwork.Dir(layoutScope(key)), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	// 手写一行旧版本追加的审计（schema 与今天同形：多出的未知字段也会被忽略）。

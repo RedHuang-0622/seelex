@@ -674,11 +674,13 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 `Read/WriteEmployeeLibraryGlobal`、`Read/WriteDefaultOrderGlobal` **都已删除**。
 `store` 只剩角色注册表文件本身：
 
-- `session/team/roles.json`（`team_registry.go`）：**某个会话**当前在编的员工表
-  （`RoleSpec` 清单 + `team_kind` + 顺序策略），整份原子替换、替换成功即发布；
-  `order_policy`/`order_roles` 的运行时权威曾是 `metadata/lifecycle.json`（现在是
-  read-compat 历史字段，见 A05），本文件只做角色配置的持久事实。
-  **读能力保留、当前没有生产调用方**（静态判据与口径见 `team_registry.go` 文件头）。
+- `session/team/roles.json`：**某个会话**当前在编的员工表（`RoleSpec` 清单 +
+  `team_kind` + 顺序策略），整份原子替换、替换成功即发布。**落盘 owner 是
+  [`store/role`](role/README.md) 的 `registry.go`**（M8 迁入）；根
+  `team_registry.go` 只保留 `Read/Write/RemoveTeamRegistryWorkspace` 单层转发与
+  角色会话 / floor / lifecycle 转发。`order_policy`/`order_roles` 的运行时
+  权威曾是 `metadata/lifecycle.json`（现在是 read-compat 历史字段，见 A05），
+  本文件只做角色配置的持久事实。**读能力保留、当前没有生产调用方**。
 
 #### 旧 Agent Team 数据（legacy）的兼容政策
 
@@ -897,4 +899,6 @@ go test ./store/ -run TestMedia -count=1
 `teamwork/worktrees.jsonl` 按追加型 KV 记录 WorkItem 到 Session/worktree 的绑定。
 每行带 `workspace_mode`：`worktree` 是正常隔离；`main` 只表示用户在 worktree
 创建失败后逐次批准、显式重试的主工作区模式。释放行通过 `released=true` 结束绑定，
-不删除历史行；读取方必须按 `TeamworkBindings` 折叠最后一行。
+不删除历史行；读取方必须按 `TeamworkBindings` 折叠最后一行。追加与残尾读取的
+唯一实现在 [`store/teamwork`](teamwork/README.md) 的 `Store.AppendBinding` /
+`ReadBindings`，折叠判据在同包的 `Bindings`；根包只做单层转发。

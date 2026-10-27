@@ -1,47 +1,29 @@
 package store
 
-// teamwork.go — teamwork 硬编排计划的存储面（moduleTeamwork）。
+// teamwork.go — teamwork 面在根包的**兼容出口**（M8 起）。
 //
-// 口径（docs/arch/teamwork-leader-worker-architecture.md §4.6 / D3 / D4）：
+// 口径（docs/arch/teamwork-leader-worker-architecture.md §4.6 / D3 / D4）不变：
 //
 //   - **顺序的唯一事实**是 plan.milestones[].depends_on（里程碑屏障）+ 里程碑内
-//     plan.milestones[].items[].depends_on（DAG），取代旧的 lifecycle.order_policy /
-//     order_roles 与阶段制时代的 plan.stages[]（2026-10-04 阶段口径整条退场：阶段与
-//     里程碑的语义耦合一处也不留）；
+//     plan.milestones[].items[].depends_on（DAG）；
 //   - 存储分两件：**计划**（谁、什么顺序）落 moduleTeamwork 的 head，等价于
 //     plan.json——整份替换型内容，原子发布 + 校验和自愈；**审计**落同模块的
-//     数据文件 teamwork/events.jsonl——只追加、不重写，是派发 / 里程碑 /
-//     retire 的事实流水；
+//     数据文件 teamwork/events.jsonl——只追加、不重写；
 //   - **不存内容**：作业句柄只在内存（jobs I-4）、worktree 路径与差异是 git 的
 //     事（D9），这里只留 worktree 的**指派名**，重派时重建。
 //
-// 模块锁：走 store.mu(key, moduleTeamwork)（独立锁，不与 message 共用）。
+// M8 的所有权裁决：上述物理实现（head 整份替换、两条追加流水、崩溃残尾读取、
+// 作业输出目录）已整体迁入 `store/teamwork`（`store/teamwork/store.go`）。本文件
+// 只保留**同身份 alias + 单层转发**：根包不再持有 plan/event/binding 的 JSON 编解码、
+// 打开文件、建目录或锁实现，也不做第二份判据。删除条件：上层调用方直接持有
+// `store/teamwork.Store`（M10 Facade 清零）后，本文件的转发面随之退场。
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
-
-// teamworkEventFile 是审计流水文件名（追加、不重写）。
-const teamworkEventFile = "events.jsonl"
-
-// teamworkJobSubdir 是 teammate 作业**输出文件**所在子目录（产品自有，见 §4.7 输出归属）。
-//
-// 为什么把输出文件放在会话目录里而不是框架的临时目录：框架缺省自建
-// `<outputDir>/<handle>.log` 并在**销项 / 驱逐 / Close** 三处删掉它，于是"阶段收尾读一次
-// 产出"就把正文带走了——而 leader 的收口（team_close）之前，那些正文正是看板与
-// team_context 的证据。把文件交给产品（jobs.Spec.OutputPath 非空时框架只按偏移读、
-// 永不删），正文就活到**产品自己决定的那一刻**（整队收口），并且跟着会话一起被清理。
-const teamworkJobSubdir = "jobs"
 
 // 内置角色复用主会话（team.needsRoleSession），不得作为 teammate 派发。
 // 这里重复一次常量而不是 import agentteam：存储层不该依赖上层角色装配，
@@ -77,9 +59,8 @@ const (
 	TeamworkEventFail    = storeteamwork.EventFail
 	TeamworkEventSettle  = storeteamwork.EventSettle
 	TeamworkEventRecover = storeteamwork.EventRecover
-	// TeamworkEventMessage 是**尾插**进 teammate 消息队列的一行。它落在审计流里而不是
-	// 另开一份存储：消息队列是"发生过的事实"的按人读法（过滤 role_session_id），
-	// 与审计同一条追加型事实流——两份存储只会让"看板看到的"与"审计记的"漂移。
+	// TeamworkEventMessage 是**尾插**进 teammate 消息队列的一行：与审计同一条追加型
+	// 事实流，避免"看板看到的"与"审计记的"漂移。
 	TeamworkEventMessage = storeteamwork.EventMessage
 )
 
@@ -91,24 +72,19 @@ const (
 const TeamworkStateClosed = storeteamwork.StateClosed
 
 // TeamworkPlan 是 leader 的硬编排计划（moduleTeamwork head 的 payload）。
-//
-// **没有 stages**（2026-10-04）：阶段口径整条退场，顺序的唯一事实是里程碑屏障
-// （Milestones[].DependsOn）+ 里程碑内的工作项 DAG（Items[].DependsOn）。读一份
-// 阶段制时代留下的旧计划时，`stages` 这个未知字段被 JSON 解码直接忽略——旧计划
-// 因此照常读得出来，只是它的"顺序"不再被任何读侧认作事实。
-// TeamworkPlan 是 contract/dto.TeamworkPlan 的持久化兼容 alias。
+// 同身份 alias：字段与 JSON tag 由 owner 定义，根包不复制。
 type TeamworkPlan = storeteamwork.Plan
 
-// TeamworkMember 是 contract/dto.TeamworkMember 的持久化兼容 alias。
+// TeamworkMember 是计划成员的同身份 alias。
 type TeamworkMember = storeteamwork.Member
 
-// TeamworkMilestone 是 contract/dto.TeamworkMilestone 的持久化兼容 alias。
+// TeamworkMilestone 是计划里程碑的同身份 alias。
 type TeamworkMilestone = storeteamwork.Milestone
 
-// TeamworkState 是 contract/dto.TeamworkState 的持久化兼容 alias。
+// TeamworkState 是计划运行态的同身份 alias。
 type TeamworkState = storeteamwork.State
 
-// TeamworkPlanIsEmpty 是 contract/dto.TeamworkPlanIsEmpty 的兼容自由函数。
+// TeamworkPlanIsEmpty 是计划的空判定转发。
 func TeamworkPlanIsEmpty(plan TeamworkPlan) bool {
 	return storeteamwork.PlanIsEmpty(plan)
 }
@@ -160,20 +136,6 @@ func (router *Router) TeamworkFor() (TeamworkRepository, bool) {
 	return repository, ok
 }
 
-// teamworkDir 返回 teamwork 模块的数据目录。
-func (store *storeEngine) teamworkDir(key Key) string {
-	return filepath.Join(store.sessionRoot(key), "teamwork")
-}
-
-func (store *storeEngine) teamworkEventsPath(key Key) string {
-	return filepath.Join(store.teamworkDir(key), teamworkEventFile)
-}
-
-// teamworkJobDir 返回 teammate 作业输出文件所在目录（产品自有；见 teamworkJobSubdir）。
-func (store *storeEngine) teamworkJobDir(key Key) string {
-	return filepath.Join(store.teamworkDir(key), teamworkJobSubdir)
-}
-
 // ValidateTeamworkPlan 校验一份计划（M2 的第二道关口）。
 //
 // 为什么存储边界也要校验一次：计划**可被 leader 改写**，装配侧的
@@ -190,23 +152,16 @@ func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, 
 	if err := key.Validate(); err != nil {
 		return err
 	}
-	if err := ValidateTeamworkPlan(plan, maxTeammates); err != nil {
-		return err
-	}
 	if repository.layout == nil {
 		return errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	return repository.layout.commitModuleHead(key, moduleTeamwork, "", plan)
+	return repository.layout.teamwork.WritePlan(layoutScope(key), plan, maxTeammates)
 }
 
 // ReadTeamworkPlan 读回计划。**缺失 = 空计划（还没 team_plan 声明过团队），不是错误**。
 //
-// 为什么宽容（2026-10-15）：此前缺失会原样上抛文件系统错误，模型看到的是
-// `open …\metadata\teamwork.json: The system cannot find the path specified.`——
-// 一条内部路径噪声，读面（team_items / team_context）也因此报"错误"而不是"还没有团队"。
 // 读面宽容、写面显式：需要计划的写面自己用 `TeamworkPlan.IsEmpty` 判空并给领域文案
 // （见 backend/multiagent/teamwork 的 requireTeam）——判据在那一处，不在这里复制。
-// 同文件 ReadTeamworkEvents 的"缺失即空"是同一口径。
 func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error) {
 	if err := key.Validate(); err != nil {
 		return TeamworkPlan{}, err
@@ -214,17 +169,10 @@ func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (
 	if repository.layout == nil {
 		return TeamworkPlan{}, errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	plan, err := readModuleHeadPayload[TeamworkPlan](repository.layout, key, moduleTeamwork)
-	if err != nil && errors.Is(err, os.ErrNotExist) {
-		return TeamworkPlan{}, nil
-	}
-	return plan, err
+	return repository.layout.teamwork.ReadPlan(layoutScope(key))
 }
 
 // AppendTeamworkEvent 追加一条审计事件（只追加、不重写）。
-//
-// 追加是**有界且原子**的：一行 JSON + '\n'，单次 write 落在 O_APPEND 上；
-// 崩溃只会留下半行残尾，读侧跳过（与 compact.jsonl / message 分片同一口径）。
 func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error {
 	if err := key.Validate(); err != nil {
 		return err
@@ -232,42 +180,10 @@ func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key
 	if repository.layout == nil {
 		return errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	if strings.TrimSpace(event.Kind) == "" {
-		return errors.New("teamwork: event.kind is required")
-	}
-	if event.At.IsZero() {
-		event.At = time.Now().UTC()
-	}
-	line, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("teamwork: encode event: %w", err)
-	}
-	store := repository.layout
-	if _, err := store.ensureLayoutGuide(key); err != nil {
-		return err
-	}
-	dir := store.teamworkDir(key)
-	lock := store.mu(key, moduleTeamwork)
-	lock.Lock()
-	defer lock.Unlock()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(filepath.Join(dir, teamworkEventFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("teamwork: open audit log: %w", err)
-	}
-	defer file.Close()
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("teamwork: append audit log: %w", err)
-	}
-	return nil
+	return repository.layout.teamwork.AppendEvent(layoutScope(key), event)
 }
 
 // ReadTeamworkEvents 读回全部审计事件（按文件顺序 = 发生顺序）。
-//
-// 崩溃残尾（最后一行不是完整 JSON）跳过而不是报错：审计面永远比"能读出一行
-// 半成品的 JSON"更值得。
 func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error) {
 	if err := key.Validate(); err != nil {
 		return nil, err
@@ -275,37 +191,10 @@ func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key)
 	if repository.layout == nil {
 		return nil, errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	file, err := storeroot.ReadSharedFile(repository.layout.teamworkEventsPath(key))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []TeamworkEvent{}, nil
-		}
-		return nil, err
-	}
-	lines := strings.Split(string(file), "\n")
-	events := make([]TeamworkEvent, 0, len(lines))
-	for index, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		var event TeamworkEvent
-		if err := json.Unmarshal([]byte(trimmed), &event); err != nil {
-			if index == len(lines)-1 {
-				continue // 崩溃残尾
-			}
-			return nil, fmt.Errorf("teamwork: decode audit row %d: %w", index, err)
-		}
-		events = append(events, event)
-	}
-	return events, nil
+	return repository.layout.teamwork.ReadEvents(layoutScope(key))
 }
 
 // TeamworkJobOutputDir 返回（并确保存在）teammate 作业输出文件所在的产品自有目录。
-//
-// 目录在**会话目录内**（`<sessionRoot>/teamwork/jobs`）：它跟着会话走，会话被清理时一并
-// 消失，不需要第二套回收机制。这里只负责"把目录交出去"，文件名与生命周期归调用方
-// （派发时分配、整队收口时清）——存储层不替产品决定"哪一轮的输出该留着"。
 func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error) {
 	if err := key.Validate(); err != nil {
 		return "", err
@@ -313,9 +202,5 @@ func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Ke
 	if repository.layout == nil {
 		return "", errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	dir := repository.layout.teamworkJobDir(key)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("teamwork: create job output dir: %w", err)
-	}
-	return dir, nil
+	return repository.layout.teamwork.JobOutputDir(layoutScope(key))
 }
