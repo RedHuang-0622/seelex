@@ -2,9 +2,9 @@
 
 状态快照：M0–M5 已完成，M6 进行中。
 
-工作区：`C:\Users\redre\.codex\worktrees\store-ddd-m1\seelex`
+工作区：`G:\seelex-worktrees\store-ddd-M6`
 
-分支：`codex/store-ddd-M6`
+分支：`codex/store-ddd-M6-g`
 
 接手顺序：
 
@@ -16,7 +16,7 @@
 4. 继续 M6 Session 状态机：M5 已迁 message/event 分片命名、pending-tail、
    head JSON、seq 分配、EVENT identity 与 JSONL 读写/残尾修复；提交
    `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
-   `711bfc67`、`a162e565`、`c393c418`。M6 已迁 queue/lifecycle head、
+   `711bfc67`、`a162e565`、`c393c418`、`0fbb82d6`。M6 已迁 queue/lifecycle head、
    retention、compact 与 fork 的共享类型/校验；下一步迁队列迁移、retention
    前缀、compact 链和 fork 深拷贝状态转移。
    C: 盘空间不足时设置 `GOTMPDIR=G:\go-build-tmp\seelex`，禁止清理缓存或用户数据。

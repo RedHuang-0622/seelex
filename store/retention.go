@@ -11,7 +11,6 @@ package store
 
 import (
 	"encoding/json"
-	"errors"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
@@ -102,8 +101,8 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 			remaining = append(remaining, row)
 		}
 	}
-	if len(remaining) > 0 && remaining[0].Seq > upToSeq+1 && remaining[0].Seq <= messageHead.LastSeq {
-		return retentionHead{}, errors.New("session storage: LRU delete range is not a continuous prefix")
+	if err := storesession.ValidateRetentionPrefix(remaining, upToSeq, messageHead.LastSeq); err != nil {
+		return retentionHead{}, err
 	}
 	oldShards := append([]shardInfo(nil), messageHead.Shards...)
 	newHead := messageHead

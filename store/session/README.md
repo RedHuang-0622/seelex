@@ -53,6 +53,7 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func QueueHeadState(items []QueueItem) QueueState` — QueueHeadState returns the current queue head state.
 - `func ValidateCompactFrame(frame CompactFrameRecord, publishedSeq uint64) error` — ValidateCompactFrame rejects frames beyond the published message head.
 - `func ValidateForkStart( parentProject, parentSession, childProject, childSession string, watermark, fromSeq uint64, childExists bool, ) error` — ValidateForkStart enforces distinct child, watermark and non-overwrite rules.
+- `func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, lastSeq uint64) error` — ValidateRetentionPrefix rejects deleting a non-contiguous published prefix.
 - `func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error)` — PublishMessageHead publishes the typed message head through layout.
 - `func PublishEventHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head EventHead, updatedAt time.Time) (string, error)` — PublishEventHead publishes the typed event head through layout.
 - `func ClassifyPendingTail(headSeq uint64, rows []protocol.TranscriptEvent, duplicate bool) (string, string)` — ClassifyPendingTail preserves the single draft-tail recoverability rule.

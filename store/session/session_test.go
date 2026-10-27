@@ -212,4 +212,11 @@ func TestSessionStateValidators(t *testing.T) {
 	if err := ValidateForkStart("p", "s", "p", "child", 0, 1, true); err == nil {
 		t.Fatal("existing child must fail")
 	}
+	remaining := []protocol.TranscriptEvent{{Seq: 5}}
+	if err := ValidateRetentionPrefix(remaining, 2, 6); err == nil {
+		t.Fatal("retention gap must fail")
+	}
+	if err := ValidateRetentionPrefix(remaining, 4, 6); err != nil {
+		t.Fatal(err)
+	}
 }

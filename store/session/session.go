@@ -381,6 +381,14 @@ func ValidateForkStart(
 	return nil
 }
 
+// ValidateRetentionPrefix rejects deleting a non-contiguous published prefix.
+func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, lastSeq uint64) error {
+	if len(remaining) > 0 && remaining[0].Seq > upToSeq+1 && remaining[0].Seq <= lastSeq {
+		return errors.New("session storage: LRU delete range is not a continuous prefix")
+	}
+	return nil
+}
+
 // PublishMessageHead publishes the typed message head through layout.
 func PublishMessageHead(layout *storelayout.Layout, scope storelayout.Scope, commitID string, head MessageHead, updatedAt time.Time) (string, error) {
 	return layout.Publish(scope, "message", commitID, head, updatedAt)

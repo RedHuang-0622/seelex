@@ -450,6 +450,7 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 - retention head、manual 确认错误与 watermark 错误；
 - compact frame/head、边界词表与“不得越过已发布 message head”校验；
 - fork 的 watermark、子会话身份与已存在冲突校验。
+- retention 连续前缀校验；
 
 根 lifecycle/retention/compact/fork 文件保留 alias、I/O 与锁协调。队列 FIFO、
 失败回草稿、compaction 链与 fork 深拷贝的跨文件事务仍待后续 M6 切片，因此本里程碑
