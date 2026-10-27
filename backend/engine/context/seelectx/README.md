@@ -8,6 +8,11 @@
 的装配/压缩/控制决策实现为 `seelectx` 的原子策略（Assembler/Processor/
 Compressor/Controller），供 `session.ContextComponents` 注入。
 
+M7 起，prompt 装配、local compaction 与 gap coverage 只接收
+`store/context.PromptStackSnapshot`，不再通过 store 的万能
+`SessionContextRecord` 读取存储字段。投影只含 Plan/Task/Skill/Compact 四栈；
+GoalStack、SystemPrompt、schema 与 fork origin 不属于该读面。
+
 ## 架构图
 
 ```mermaid

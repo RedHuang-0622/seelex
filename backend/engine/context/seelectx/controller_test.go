@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // heavyTokenCounter 放大 token 估算（len×100），让测试用小历史即可跨过
@@ -93,7 +94,7 @@ func newController(stacks CompactStackStore) *seelexContextController {
 // 压缩帧，PushCompact 追加压缩帧。
 type recordStack struct {
 	mu     sync.Mutex
-	record store.SessionContextRecord
+	record storecontext.PromptStackSnapshot
 }
 
 func (s *recordStack) CompactStackSnapshot() []store.CompactFrame {

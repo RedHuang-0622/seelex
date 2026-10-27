@@ -17,6 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // ── 章节标题（帧摘要固定两章节）────────────────────────────────────
@@ -171,7 +172,7 @@ type LocalCompactOptions struct {
 	// 0 → DefaultFrameCarryTokens）。
 	CarryLimitTokens int
 	// Record 会话记录快照（任务/计划栈用于目标、概念与约束小节）。
-	Record store.SessionContextRecord
+	Record storecontext.PromptStackSnapshot
 }
 
 // LocalChapter2 生成 Chapter 2 正文（不含外层 "## 压缩内容" 标题）：
@@ -215,14 +216,14 @@ func sectionBody(body string) string {
 	return body
 }
 
-func localGoal(record store.SessionContextRecord) string {
+func localGoal(record storecontext.PromptStackSnapshot) string {
 	if len(record.TaskStack) == 0 {
 		return ""
 	}
 	return strings.TrimSpace(record.TaskStack[len(record.TaskStack)-1].Objective)
 }
 
-func localKeyConcepts(record store.SessionContextRecord) string {
+func localKeyConcepts(record storecontext.PromptStackSnapshot) string {
 	if len(record.PlanStack) == 0 {
 		return ""
 	}
@@ -307,7 +308,7 @@ func localCurrentWork(opts LocalCompactOptions) (string, CarryDiagnostics) {
 	return strings.TrimSpace(builder.String()), carry
 }
 
-func localConstraints(record store.SessionContextRecord) string {
+func localConstraints(record storecontext.PromptStackSnapshot) string {
 	var parts []string
 	if len(record.PlanStack) > 0 {
 		top := record.PlanStack[len(record.PlanStack)-1]

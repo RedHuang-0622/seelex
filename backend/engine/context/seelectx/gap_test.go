@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // gapEvents 构造 N 个完整协议单元的事件流（user → assistant 文本轮）。
@@ -21,9 +22,9 @@ func gapEvents(units int) []store.Event {
 	return events
 }
 
-func gapStackRecord(t *testing.T, frames ...store.CompactFrame) store.SessionContextRecord {
+func gapStackRecord(t *testing.T, frames ...store.CompactFrame) storecontext.PromptStackSnapshot {
 	t.Helper()
-	return store.SessionContextRecord{CompactStack: frames}
+	return storecontext.PromptStackSnapshot{CompactStack: frames}
 }
 
 func TestCoverHistoryGapCoversUncompactedRegion(t *testing.T) {
@@ -72,7 +73,7 @@ func TestCoverHistoryGapNoStackCoversHead(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(6), TailStartUnit: 4,
-		Record: store.SessionContextRecord{}, Stacks: stack,
+		Record: storecontext.PromptStackSnapshot{}, Stacks: stack,
 	})
 	if err != nil {
 		t.Fatalf("cover gap: %v", err)
@@ -102,7 +103,7 @@ func TestCoverHistoryGapNoGapWhenEverythingLoaded(t *testing.T) {
 	// 尾窗从单元 0 开始（装载了全部单元）→ gapEnd < 0，无真空区。
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(4), TailStartUnit: 0,
-		Record: store.SessionContextRecord{}, Stacks: NewMemoryCompactStack(),
+		Record: storecontext.PromptStackSnapshot{}, Stacks: NewMemoryCompactStack(),
 	})
 	if err != nil {
 		t.Fatalf("cover gap: %v", err)
@@ -118,13 +119,13 @@ func TestCoverHistoryGapRepeatedCoverageIsIdempotent(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	opts := GapCoverageOptions{
 		AllEvents: gapEvents(10), TailStartUnit: 7,
-		Record: store.SessionContextRecord{}, Stacks: stack,
+		Record: storecontext.PromptStackSnapshot{}, Stacks: stack,
 	}
 	first, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil || !first.Covered {
 		t.Fatalf("first coverage: covered=%v err=%v", first.Covered, err)
 	}
-	opts.Record = store.SessionContextRecord{CompactStack: stack.CompactStackSnapshot()}
+	opts.Record = storecontext.PromptStackSnapshot{CompactStack: stack.CompactStackSnapshot()}
 	second, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("second coverage: %v", err)
@@ -163,7 +164,7 @@ func TestCoverHistoryGapRestoresCoverageContiguity(t *testing.T) {
 		t.Fatalf("coverage must abut the window: top.To=%d, want %d", top.To, opts.TailStartUnit-1)
 	}
 	// 尾窗再前移（下一轮 Load 装载更多）：新的未覆盖区间只有 9..10。
-	opts.Record = store.SessionContextRecord{CompactStack: stack.CompactStackSnapshot()}
+	opts.Record = storecontext.PromptStackSnapshot{CompactStack: stack.CompactStackSnapshot()}
 	opts.TailStartUnit = 11
 	again, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil {
@@ -252,14 +253,14 @@ func TestCoverHistoryGapRejectsInputsOutsideUnitSpace(t *testing.T) {
 func TestCoverHistoryGapEmptyInputs(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	if result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
-		AllEvents: nil, TailStartUnit: 0, Record: store.SessionContextRecord{}, Stacks: stack,
+		AllEvents: nil, TailStartUnit: 0, Record: storecontext.PromptStackSnapshot{}, Stacks: stack,
 	}); err != nil || result.Covered {
 		t.Fatalf("empty events must not cover: %+v %v", result, err)
 	}
 	// 有事件但尾窗为空（startUnit == 单元总数）→ 全部单元都是真空区。
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(3), TailStartUnit: 3,
-		Record: store.SessionContextRecord{}, Stacks: stack,
+		Record: storecontext.PromptStackSnapshot{}, Stacks: stack,
 	})
 	if err != nil || !result.Covered || result.Frame.To != 2 {
 		t.Fatalf("empty tail must cover everything: %+v %v", result, err)
@@ -284,7 +285,7 @@ func TestCoverHistoryGapEvidenceAndTurns(t *testing.T) {
 
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: events, TailStartUnit: 2,
-		Record: store.SessionContextRecord{}, Stacks: stack,
+		Record: storecontext.PromptStackSnapshot{}, Stacks: stack,
 		SessionID: "sess-2", Turns: archiver,
 	})
 	if err != nil {

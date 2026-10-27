@@ -29,6 +29,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // CompactContextMarker 标记压缩帧块（窗口外压缩产物，进入 working history；
@@ -319,7 +320,7 @@ func renderUnitLine(unit []types.Message) string {
 }
 
 // overflowEvidence 从溢出轮次中的工具结果与任务栈证据提取证据引用。
-func overflowEvidence(overflow []historyUnit, record store.SessionContextRecord) []store.EvidenceRef {
+func overflowEvidence(overflow []historyUnit, record storecontext.PromptStackSnapshot) []store.EvidenceRef {
 	var evidence []store.EvidenceRef
 	for _, unit := range overflow {
 		for _, message := range unit.messages {

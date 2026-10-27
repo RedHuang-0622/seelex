@@ -26,6 +26,9 @@
   `store/context/wire_engine.go`，根 `store/wire_assembler.go` 只映射
   `Event`/attempt cache；压缩检索、相关记忆与装配控制器改用
   `CompactStackSnapshot() []CompactFrame`，不再通过万能 record 读压缩栈。
+  Prompt 装配、local compaction、gap coverage 已改用
+  `PromptStackSnapshot`；GoalStack/SystemPrompt/schema 等存储字段不再进入该
+  consumer 面。
   接手前先检查 `git status --short --branch` 和 `git diff`；该 checkpoint 已提交为
   `cf119696`，随后 `PromptStackSnapshot` 内层投影提交为 `3c23ebf4`；每个后续
   里程碑都必须先全量门禁、再创建只含该里程碑的本地 commit（不 push）。
@@ -36,7 +39,7 @@
 ```text
 go test ./store/context -count=1
 go test ./store -run 'Context|Checkpoint|Wire' -count=1
-go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestStoreDDDMCompactStackReadFaceGate|TestFacadeDependencyClosureRatchet' -count=1
+go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestStoreDDDMCompactStackReadFaceGate|TestStoreDDDMPromptStackReadFaceGate|TestFacadeDependencyClosureRatchet' -count=1
 go test ./store/... ./backend/engine/context/... ./backend/engine/assemble/... ./test/ -count=1
 ```
 

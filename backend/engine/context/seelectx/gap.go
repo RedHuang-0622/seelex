@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // GapCoverageOptions 是真空区覆盖的全部输入。
@@ -36,7 +37,7 @@ type GapCoverageOptions struct {
 	TailStartUnit int
 
 	// Record 当前压缩栈记录（Snapshot）。
-	Record store.SessionContextRecord
+	Record storecontext.PromptStackSnapshot
 
 	// Stacks 压缩栈写入目标（nil → 只计算不推送）。
 	Stacks CompactStackStore

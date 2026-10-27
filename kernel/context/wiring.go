@@ -24,6 +24,7 @@ import (
 	seelexctx "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // ReplayInputTokens 返回分片重放的片预算（模型输入侧）：取账号上下文窗口减去
@@ -103,7 +104,7 @@ type GapCoverageDeps struct {
 	// Stacks 是压缩栈（读帧 + 推帧）。nil = 没有栈可读，直接无事返回。
 	Stacks seelexctx.CompactStackStore
 	// Record 提供本地压缩 Chapter 2 所需的 plan/task 投影；nil → 只使用压栈帧。
-	Record func() store.SessionContextRecord
+	Record func() storecontext.PromptStackSnapshot
 	// Turns 是真空区轮次原文归档（nil = 不归档）。
 	Turns seelexctx.TurnArchiver
 	// SessionID 是帧 SegmentID 的溯源前缀（可空）。
@@ -131,7 +132,7 @@ func CoverHistoryGap(ctx context.Context, deps GapCoverageDeps) error {
 	if len(frames) == 0 {
 		return nil
 	}
-	record := store.SessionContextRecord{CompactStack: frames}
+	record := storecontext.PromptStackSnapshot{CompactStack: frames}
 	if deps.Record != nil {
 		record = deps.Record()
 		record.CompactStack = frames

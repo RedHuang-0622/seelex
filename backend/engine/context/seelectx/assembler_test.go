@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 func TestAssemblerProjectionOrder(t *testing.T) {
@@ -20,7 +21,7 @@ func TestAssemblerProjectionOrder(t *testing.T) {
 	if project == nil {
 		t.Fatal("project block must render for non-empty record")
 	}
-	stacks := store.SessionContextRecord{
+	stacks := storecontext.PromptStackSnapshot{
 		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
 		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
 		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
@@ -194,7 +195,7 @@ func TestAssemblerMemoriesSkipControlBlocksAndNil(t *testing.T) {
 }
 
 func TestRenderStackBlocksTopOnly(t *testing.T) {
-	record := store.SessionContextRecord{
+	record := storecontext.PromptStackSnapshot{
 		PlanStack: []store.PlanFrame{
 			{PlanID: "plan-old", Title: "旧计划", Status: "closed"},
 			{PlanID: "plan-new", Title: "新计划", Status: "active"},
@@ -213,7 +214,7 @@ func TestRenderStackBlocksTopOnly(t *testing.T) {
 }
 
 func TestRenderStackBlocksSplitPrefixAndTail(t *testing.T) {
-	record := store.SessionContextRecord{
+	record := storecontext.PromptStackSnapshot{
 		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
 		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
 		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
@@ -234,7 +235,7 @@ func TestRenderStackBlocksSplitPrefixAndTail(t *testing.T) {
 }
 
 func TestRenderTailBlocksPlanFrameStaysCompact(t *testing.T) {
-	record := store.SessionContextRecord{
+	record := storecontext.PromptStackSnapshot{
 		PlanStack: []store.PlanFrame{{
 			PlanID: "plan-1", Title: "重构", Status: "active",
 			Nodes: []store.NodeSummary{

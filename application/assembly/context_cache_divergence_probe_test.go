@@ -44,6 +44,7 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/react"
 	"github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	"strings"
 	"testing"
 )
@@ -554,7 +555,7 @@ func TestContextCacheDivergenceProbe_MemoryBlockPosition(t *testing.T) {
 	queryOne := "第 1 轮：provider cache hit rate versus tool result size。"
 	queryTwo := "第 2 轮：memory select lexical score with CJK bigram and worktable position。"
 
-	record := store.SessionContextRecord{
+	record := storecontext.PromptStackSnapshot{
 		SkillStack: []store.SkillFrame{{SkillID: "skill-review", Name: "review"}},
 		CompactStack: []store.CompactFrame{{
 			SegmentID: "compact-s-4", From: 23, To: 30, Summary: candidates[3].Summary,

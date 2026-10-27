@@ -50,3 +50,33 @@ func TestStoreDDDMCompactStackReadFaceGate(t *testing.T) {
 		}
 	}
 }
+
+// TestStoreDDDMPromptStackReadFaceGate pins the prompt/local-compaction
+// projection: these consumers receive only PromptStackSnapshot and cannot read
+// storage-only context fields through SessionContextRecord.
+func TestStoreDDDMPromptStackReadFaceGate(t *testing.T) {
+	root := repoRoot()
+	files := []string{
+		"store/session_context.go",
+		"backend/engine/context/seelectx/assembler.go",
+		"backend/engine/context/seelectx/frame.go",
+		"backend/engine/context/seelectx/gap.go",
+		"backend/engine/context/seelectx/dag.go",
+		"backend/engine/context/seelectx/controller.go",
+		"backend/engine/assemble/runtime_context.go",
+		"kernel/context/wiring.go",
+	}
+	for _, name := range files {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(body)
+		if !strings.Contains(text, "PromptStackSnapshot") {
+			t.Errorf("%s does not use the prompt-stack read face", name)
+		}
+		if name != files[0] && strings.Contains(text, "SessionContextRecord") {
+			t.Errorf("%s still exposes SessionContextRecord to prompt consumers", name)
+		}
+	}
+}

@@ -497,7 +497,8 @@ go test ./store -run 'Lifecycle|Queue|Retention|Compact|Fork' -count=1
   `CompactFrame` 深拷贝；seelectx controller/search、相关记忆选取与装配侧
   不再通过万能 `SessionContextRecord` 读取压缩栈。
 - `PromptStackSnapshot`：prompt 装配与本地压缩获得只含 Plan/Task/Skill/Compact
-  四栈的内层投影；外部 consumer 切换作为独立受控批次继续。
+  四栈的内层投影；seelectx、kernel context 与装配侧 consumer 已直接切换，
+  不再通过 `SessionContextRecord` 读取 prompt/storage 混合字段。
 
 根 `wire_assembler.go` 只把 `Event` 与 attempt cache 映射为 `store/context`
 输入，不再持有装配 switch；`context_state.go` 与 `checkpoint_store.go` 只保留
@@ -567,6 +568,23 @@ go build -tags "gui,desktop,production" ./...   PASS
 go vet ./...   PASS
 ```
 
+Prompt 窄投影切换首次编译为红灯：seelectx frame/gap/dag、kernel context
+compaction 与 application probe 仍把 `SessionContextRecord` 传给
+`PromptStackSnapshot` 参数。切换后以下门禁 PASS：
+
+```text
+go test ./backend/engine/context/... ./kernel/context ./backend/engine/assemble -count=1
+go test ./application/assembly -run 'Context|Strategy|Cache|Goal|Stack' -count=1
+go test ./e2e -run 'TestStoreDDDMPromptStackReadFaceGate|TestStoreDDDMCompactStackReadFaceGate|TestFacadeDependencyClosureRatchet' -count=1
+go test ./store/... -count=1
+go build ./...
+go build -tags "gui,desktop,production" ./...
+go vet ./...
+```
+
+全量并发门禁中 `TestCommitNotBlockedByFullHistoryRead` 再次因 build/test 同时
+跑而超时；不调整阈值，串行单测与完整 `store/...` 重跑 PASS。
+
 `CompactStackSnapshot` 的深拷贝由 `TestSessionContextStoreCompactStackSnapshotIsDeepCopy`
 钉住。Plan/Task 仍由 `GapCoverageDeps.Record` 提供给本地压缩摘要；该次要投影
 尚未收缩，不能把本切片误报为 M7 完成。
@@ -582,6 +600,9 @@ go vet ./...   PASS
 | `seelectx.CompactStackStore.Snapshot() SessionContextRecord` | `CompactStackSnapshot() []store.CompactFrame` |
 | search `StackSource.Snapshot() SessionContextRecord` | `CompactStackSnapshot() []store.CompactFrame` |
 | `RelatedMemoryBlocks(record, query)` | `RelatedMemoryBlocks(frames, query)` |
+| `seelectx.Render*Blocks(record SessionContextRecord)` | `Render*Blocks(PromptStackSnapshot)` |
+| `CompactionInput.Record / GapCoverageOptions.Record / LocalCompactOptions.Record` | `PromptStackSnapshot` |
+| `GapCoverageDeps.Record func() SessionContextRecord` | `func() PromptStackSnapshot` |
 
 本切片没有新增 God receiver 方法：`Router`、`jsonRepository`、`storeEngine`、
 `SessionGranularStore` 方法集合均未增长。路径、JSON tag、head、watermark、

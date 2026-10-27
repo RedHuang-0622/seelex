@@ -6,18 +6,14 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
-// TestGoalStackNotRenderedIntoContext 固化 goal 第五栈的语义边界：GoalStack
-// 随会话聊天记录同域持久化（store context 通道），但**不进模型上下文**
-// ——不渲染为前缀/尾部栈块，也不做记忆前缀与匹配。空四栈 + 非空 GoalStack 时
-// 渲染结果必须为零块；有 plan/task/skill/compact 时块集合不变。
+// TestGoalStackNotRenderedIntoContext 固化 goal 第五栈的语义边界：
+// PromptStackSnapshot 的类型里没有 GoalStack，因此 goal 无法进入模型上下文。
+// 空四栈必须渲染为零块；有 plan/task/skill/compact 时块集合不变。
 func TestGoalStackNotRenderedIntoContext(t *testing.T) {
-	goalOnly := store.SessionContextRecord{
-		GoalStack: []store.GoalFrame{{
-			GoalID: "goal-1", Title: "审查 goal 域（不入上下文）", Status: "active",
-		}},
-	}
+	goalOnly := storecontext.PromptStackSnapshot{}
 	if blocks := RenderStackBlocks(goalOnly); len(blocks) != 0 {
 		t.Fatalf("goal-only record must render zero context blocks, got %d: %+v", len(blocks), blocks)
 	}
@@ -28,14 +24,11 @@ func TestGoalStackNotRenderedIntoContext(t *testing.T) {
 		t.Fatalf("goal-only record must render zero tail blocks, got %d", len(blocks))
 	}
 
-	withStacks := store.SessionContextRecord{
+	withStacks := storecontext.PromptStackSnapshot{
 		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
 		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
 		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
 		CompactStack: []store.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
-		GoalStack: []store.GoalFrame{{
-			GoalID: "goal-1", Title: "审查 goal 域（不入上下文）", Status: "active",
-		}},
 	}
 	if got := blockNames(RenderStackBlocks(withStacks)); !reflect.DeepEqual(got, []string{"skill", "compact", "plan", "task"}) {
 		t.Fatalf("stack blocks must stay [skill compact plan task], got %v", got)
@@ -45,10 +38,6 @@ func TestGoalStackNotRenderedIntoContext(t *testing.T) {
 		if block.Name == "goal" {
 			t.Fatalf("goal stack must not render a context block, got %+v", block)
 		}
-		if block.Messages != nil && len(block.Messages) > 0 && block.Messages[0].Content != nil &&
-			strings.Contains(*block.Messages[0].Content, "审查 goal 域（不入上下文）") {
-			t.Fatalf("goal stack title leaked into context block %q", block.Name)
-		}
 	}
 }
 
@@ -56,16 +45,9 @@ func TestGoalStackNotRenderedIntoContext(t *testing.T) {
 // 压缩摘要的“目标 (Goal)”素材（该小节仍由 TaskStack 顶承担）；聊天记录里的
 // #goal 文本作为普通转录内容经溢出单元（Overflow）照常被压缩。
 func TestGoalStackNotUsedForCompactionSummary(t *testing.T) {
-	record := store.SessionContextRecord{
-		GoalStack: []store.GoalFrame{{
-			GoalID: "goal-1", Title: "这是栈内目标，不得冒充压缩目标", Status: "active",
-		}},
-	}
+	record := storecontext.PromptStackSnapshot{}
 	body := LocalChapter2(LocalCompactOptions{Record: record})
 	section := sectionBodyBetween(body, Chapter2SectionGoal)
-	if section != "" && strings.Contains(section, "这是栈内目标") {
-		t.Fatalf("goal stack must not feed compaction summary Goal section:\n%s", body)
-	}
 	if !strings.Contains(section, compactEmptySection) && section == "" {
 		t.Fatalf("empty task stack Goal section should stay (none):\n%s", body)
 	}

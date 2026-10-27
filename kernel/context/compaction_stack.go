@@ -156,7 +156,7 @@ func (stack *CompactionStack) Readback(
 		return CompactionFrameReceipt{}, errors.New("compaction index: 会话上下文存储未绑定（压缩栈不可用）")
 	}
 	frame, err := stack.deps.DAG().Execute(ctx, seelexctx.CompactionInput{
-		Record:             st.Snapshot(),
+		Record:             st.PromptStackSnapshot(),
 		Messages:           request.Overflow,
 		UnitCount:          request.UnitCount,
 		History:            request.ReplayHistory,
@@ -205,7 +205,7 @@ func (stack *CompactionStack) Push(
 		return CompactionFrameReceipt{}, errors.New("compaction index: 会话上下文存储未绑定（压缩栈不可用）")
 	}
 	frame, err := stack.deps.DAG().Execute(ctx, seelexctx.CompactionInput{
-		Record:    st.Snapshot(),
+		Record:    st.PromptStackSnapshot(),
 		Messages:  request.Overflow,
 		UnitCount: request.UnitCount,
 		History:   request.ReplayHistory,

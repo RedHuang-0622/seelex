@@ -7,6 +7,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // TestLocalChapter2SkeletonKeepsSections 详设 §3.2：空章节写 (none)，
@@ -38,7 +39,7 @@ func TestLocalChapter2OverflowCompact(t *testing.T) {
 			{Role: "tool", ToolCallID: "c1", Name: "read_file", Content: stringPtr("内容")},
 		}},
 	}
-	record := store.SessionContextRecord{
+	record := storecontext.PromptStackSnapshot{
 		TaskStack: []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文控制", Status: "active"}},
 		PlanStack: []store.PlanFrame{{PlanID: "plan-1", Title: "重构计划", Status: "active"}},
 	}

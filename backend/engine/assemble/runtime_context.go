@@ -59,7 +59,7 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, 
 		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
 	}
 	if st := r.sessionContextStore(); st != nil {
-		deps.Record = st.Snapshot
+		deps.Record = st.PromptStackSnapshot
 	}
 	return contextruntime.CoverHistoryGap(ctx, deps)
 }
@@ -266,7 +266,7 @@ func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
 	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderStackBlocks(st.Snapshot())
+	return seelexctx.RenderStackBlocks(st.PromptStackSnapshot())
 }
 
 // prefixStacks 渲染稳定前缀栈块（skill/compact，now using = 栈顶；未绑定
@@ -276,7 +276,7 @@ func (r *Runtime) prefixStacks() []seelectx.PromptBlock {
 	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderStablePrefixBlocks(st.Snapshot())
+	return seelexctx.RenderStablePrefixBlocks(st.PromptStackSnapshot())
 }
 
 // tailStacks 渲染动态尾部栈块（plan/task，now using = 栈顶；未绑定存储 →
@@ -286,7 +286,7 @@ func (r *Runtime) tailStacks() []seelectx.PromptBlock {
 	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderTailBlocks(st.Snapshot())
+	return seelexctx.RenderTailBlocks(st.PromptStackSnapshot())
 }
 
 // windowPolicy 返回当前窗口策略（NewRuntime 时按配置构造）。

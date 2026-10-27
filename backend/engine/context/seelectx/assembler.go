@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // AssemblerOptions 装配器依赖（全部可省略；nil 的提供者被跳过）。
@@ -182,18 +183,18 @@ func LastUserQuery(history []types.Message) string {
 
 // ── 栈块渲染（now using = 栈顶，plan.md §3.7.2）────────────────────────
 
-// RenderStackBlocks 把 SessionContextRecord 渲染为 PromptBlock 列表（新链路
+// RenderStackBlocks 把 PromptStackSnapshot 渲染为 PromptBlock 列表（新链路
 // 顺序：稳定前缀 skill/compact + 动态尾部 plan/task）。各栈只渲染栈顶一帧
 // （当前使用中的模块），空栈不渲染。帧内容结构化（JSON），供模型与 UI
 // 读取当前上下文。
-func RenderStackBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
+func RenderStackBlocks(record storecontext.PromptStackSnapshot) []seelectx.PromptBlock {
 	return append(RenderStablePrefixBlocks(record), RenderTailBlocks(record)...)
 }
 
 // RenderStablePrefixBlocks 渲染稳定前缀栈块（skill/compact，now using =
 // 栈顶）：放在记忆块之后、累积 context 之前（前缀缓存稳定段；skill 先于
 // compact，保持 compact 紧邻 context）。
-func RenderStablePrefixBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
+func RenderStablePrefixBlocks(record storecontext.PromptStackSnapshot) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 2)
 	if len(record.SkillStack) > 0 {
 		top := record.SkillStack[len(record.SkillStack)-1]
@@ -219,7 +220,7 @@ func RenderStablePrefixBlocks(record store.SessionContextRecord) []seelectx.Prom
 // （注意力焦点）。plan 帧只携带克制信息（plan_id/title/status），节点详情
 // 由 coordinator 的 plan 尾部消息（plan_ref + 当前节点 slice）与 read_plan
 // 提供，整计划全量不入尾部。
-func RenderTailBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
+func RenderTailBlocks(record storecontext.PromptStackSnapshot) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 2)
 	if len(record.PlanStack) > 0 {
 		top := record.PlanStack[len(record.PlanStack)-1]

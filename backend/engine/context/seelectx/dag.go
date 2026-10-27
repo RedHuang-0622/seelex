@@ -33,6 +33,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/runtime/runner"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // compactionNodeInput 是 codec 文档节点的产品输入（仅 purpose，节点语义由
@@ -71,7 +72,7 @@ var compactionNodeOrder = []string{
 type CompactionInput struct {
 	// Record 是会话记录快照（Task/Plan 栈 + 既有 CompactStack；prev top
 	// 由执行器从栈顶推导）。
-	Record store.SessionContextRecord
+	Record storecontext.PromptStackSnapshot
 	// Messages 是本次新覆盖的完整协议单元原文（扁平消息序，保留原样；
 	// select_range 会重新切分单元）。
 	Messages []frameworktypes.Message
@@ -162,7 +163,7 @@ const LocalCompactReplayFailedCode = "replay-failed"
 // compactionDAGState 是单次运行的共享状态（节点闭包写入，runner 只调度）。
 type compactionDAGState struct {
 	input         CompactionInput
-	record        store.SessionContextRecord
+	record        storecontext.PromptStackSnapshot
 	prevTop       *store.CompactFrame
 	overflow      []historyUnit
 	unitCount     int

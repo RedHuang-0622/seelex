@@ -9,6 +9,10 @@
 `content` / `reasoning_content` / `tool_calls` 原样保留，空正文与空工具结果
 都不补占位（补写即让该点之后的 prefix cache 失效）。
 
+压缩栈的读面分为两个窄投影：检索/记忆只读
+`CompactStackSnapshot() []CompactFrame`；本地压缩摘要读
+`PromptStackSnapshot`。不再通过 `SessionContextRecord` 把存储字段带入该域。
+
 `application/assembly` 现经
 [`application/conversation/context`](../../application/conversation/context/README.md)
 的 Engine alias/forwarder 消费本包，不再直接 import context_runtime。
