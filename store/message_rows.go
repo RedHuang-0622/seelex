@@ -542,46 +542,13 @@ func truncateMessageRowsAfter(path string, headSeq uint64, info shardInfo) error
 
 // readMessageRowsFile 读取已打开 JSONL 文件中的全部事件行（跳过空行与崩溃残尾）。
 func readMessageRowsFile(file *os.File) ([]Event, error) {
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if stat.Size() == 0 {
-		return []Event{}, nil
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-	return decodeMessageRows(data), nil
+	return storesession.ReadMessageRowsFile(file, shardDecodeHook)
 }
 
 // decodeMessageRows 解析 JSONL 事件行（崩溃残尾跳过；坏行显式失败由调用方
 // 处理前先经 verify；这里返回可解析行）。
 func decodeMessageRows(data []byte) []Event {
-	if hook := shardDecodeHook; hook != nil {
-		hook()
-	}
-	segments := bytes.Split(data, []byte{'\n'})
-	rows := make([]Event, 0, len(segments))
-	for index, segment := range segments {
-		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
-			continue // 崩溃残尾（未换行收尾）
-		}
-		segment = bytes.TrimSpace(segment)
-		if len(segment) == 0 {
-			continue
-		}
-		var row Event
-		if json.Unmarshal(segment, &row) != nil {
-			continue
-		}
-		rows = append(rows, row)
-	}
-	return rows
+	return storesession.DecodeMessageRows(data, shardDecodeHook)
 }
 
 // deltaRowsLocked 计算应 append 的行（提交路径）：基准 = 发布点。调用方已先
@@ -742,40 +709,12 @@ func readMessageRowsFileAt(path string) ([]Event, error) {
 // 调用方必须给出完整行边界（head.Bytes 是发布时记录的整片字节数）。偏移
 // 等于文件尾时直接返回空集，不触碰前缀内容。
 func readMessageRowsFileAtOffset(path string, offset int64) ([]Event, error) {
-	// 只读 + FILE_SHARE_DELETE：读者不再挡淘汰删除（LRU/reap/压缩重写），自己也不
-	// 会在删除窗口里 open 失败；O_RDWR 是历史形状，本函数只读。
-	file, err := storeroot.OpenSharedRead(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return []Event{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	if offset > 0 {
-		stat, err := file.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if offset >= stat.Size() {
-			return []Event{}, nil
-		}
-		if _, err := file.Seek(offset, io.SeekStart); err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(file)
-		if err != nil {
-			return nil, err
-		}
-		return decodeMessageRows(data), nil
-	}
-	return readMessageRowsFile(file)
+	return storesession.ReadMessageRowsAt(path, offset, shardDecodeHook)
 }
 
 // appendMessageRowsFile 追加完整 JSONL 行（先截崩溃残尾；再 sync）。
 func appendMessageRowsFile(path string, rows []Event) error {
-	_, _, _, err := appendMessageRowsFileEx(path, rows)
-	return err
+	return storesession.AppendMessageRows(path, rows)
 }
 
 // appendMessageRowsFileEx 是 appendMessageRowsFile 的"带细节"版本：除追加外还
@@ -783,46 +722,7 @@ func appendMessageRowsFile(path string, rows []Event) error {
 // 文件字节数）。truncated 为真表示文件带崩溃残尾被截过——此时"写入前的原始
 // 字节"已经不是文件当前内容，增量摘要的基底失效，调用方必须整片重算。
 func appendMessageRowsFileEx(path string, rows []Event) (appended []byte, preSize int64, truncated bool, err error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	before, err := file.Seek(0, io.SeekEnd)
-	if err != nil {
-		file.Close()
-		return nil, 0, false, err
-	}
-	if err := storeroot.TruncateCrashTail(file); err != nil {
-		file.Close()
-		return nil, 0, false, err
-	}
-	after, err := file.Seek(0, io.SeekEnd)
-	if err != nil {
-		file.Close()
-		return nil, 0, false, err
-	}
-	buffer := make([]byte, 0, 4096)
-	for _, row := range rows {
-		data, err := json.Marshal(row)
-		if err != nil {
-			file.Close()
-			return nil, 0, false, fmt.Errorf("session storage: encode message row: %w", err)
-		}
-		buffer = append(buffer, data...)
-		buffer = append(buffer, '\n')
-	}
-	if _, err := file.Write(buffer); err != nil {
-		file.Close()
-		return nil, 0, false, err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return nil, 0, false, err
-	}
-	if err := file.Close(); err != nil {
-		return nil, 0, false, err
-	}
-	return buffer, after, after != before, nil
+	return storesession.AppendMessageRowsEx(path, rows)
 }
 
 // appendRowsAndDigest 追加 rows 到分片并返回追加后**整文件**的 sha256（head

@@ -16,12 +16,10 @@ package store
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storesession "github.com/RedHuang-0622/seelex/store/session"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -277,41 +275,11 @@ func truncateStructuralEventsAfter(path string, headID uint64) ([]structuralEven
 }
 
 func readStructuralEventsFile(file *os.File) ([]structuralEvent, error) {
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if stat.Size() == 0 {
-		return []structuralEvent{}, nil
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-	return decodeStructuralEvents(data), nil
+	return storesession.ReadStructuralEventsFile(file)
 }
 
 func decodeStructuralEvents(data []byte) []structuralEvent {
-	segments := bytes.Split(data, []byte{'\n'})
-	rows := make([]structuralEvent, 0, len(segments))
-	for index, segment := range segments {
-		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
-			continue
-		}
-		segment = bytes.TrimSpace(segment)
-		if len(segment) == 0 {
-			continue
-		}
-		var row structuralEvent
-		if json.Unmarshal(segment, &row) != nil {
-			continue
-		}
-		rows = append(rows, row)
-	}
-	return rows
+	return storesession.DecodeStructuralEvents(data)
 }
 
 // structuralEventDelta 按 A.2 水位式幂等计算待追加行：同 commit 重复持久化 =
@@ -391,60 +359,13 @@ func (store *storeEngine) appendEventsLocked(key Key, head *eventHeadRecord, del
 }
 
 func readStructuralEventsAt(path string) ([]structuralEvent, error) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
-	if errors.Is(err, fs.ErrNotExist) {
-		return []structuralEvent{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	return readStructuralEventsFile(file)
+	return storesession.ReadStructuralEventsAt(path)
 }
 
 // appendStructuralEvents 追加完整 JSONL 行（先截崩溃残尾；再 sync），返回
 // 追加后的文件字节数（供 head 记录，写路径据此免重读）。
 func appendStructuralEvents(path string, rows []structuralEvent) (int64, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return 0, err
-	}
-	if err := storeroot.TruncateCrashTail(file); err != nil {
-		file.Close()
-		return 0, err
-	}
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		file.Close()
-		return 0, err
-	}
-	buffer := make([]byte, 0, 4096)
-	for _, row := range rows {
-		data, err := json.Marshal(row)
-		if err != nil {
-			file.Close()
-			return 0, err
-		}
-		buffer = append(buffer, data...)
-		buffer = append(buffer, '\n')
-	}
-	if _, err := file.Write(buffer); err != nil {
-		file.Close()
-		return 0, err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return 0, err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return 0, err
-	}
-	size := info.Size()
-	if err := file.Close(); err != nil {
-		return 0, err
-	}
-	return size, nil
+	return storesession.AppendStructuralEvents(path, rows)
 }
 
 // readEvents 读取 EVENT（[from, to] 含端点；0 = 全量）。

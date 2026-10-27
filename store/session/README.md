@@ -60,4 +60,17 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func TestAssignRowSeqs(t *testing.T)`
 - `func TestMessageShardRouteOnHead(t *testing.T)`
 - `func TestStructuralEventIdentity(t *testing.T)`
+- `func TestMessageShardReadAppendRepairsTail(t *testing.T)`
+
+### storage.go
+
+- `func DecodeMessageRows(data []byte, onDecode func()) []protocol.TranscriptEvent` — DecodeMessageRows parses JSONL transcript rows, skipping empty rows and an
+- `func ReadMessageRowsFile(file *os.File, onDecode func()) ([]protocol.TranscriptEvent, error)` — ReadMessageRowsFile reads all rows from an already-open shard.
+- `func ReadMessageRowsAt(path string, offset int64, onDecode func()) ([]protocol.TranscriptEvent, error)` — ReadMessageRowsAt reads a shard from an optional committed-byte boundary.
+- `func AppendMessageRows(path string, rows []protocol.TranscriptEvent) error` — AppendMessageRows writes complete JSONL rows after repairing a crash tail.
+- `func AppendMessageRowsEx(path string, rows []protocol.TranscriptEvent) (appended []byte, preSize int64, truncated bool, err error)` — AppendMessageRowsEx returns appended bytes, post-truncate pre-size and whether
+- `func DecodeStructuralEvents(data []byte) []StructuralEvent` — DecodeStructuralEvents parses EVENT JSONL rows.
+- `func ReadStructuralEventsFile(file *os.File) ([]StructuralEvent, error)` — ReadStructuralEventsFile reads all EVENT rows from an open shard.
+- `func ReadStructuralEventsAt(path string) ([]StructuralEvent, error)` — ReadStructuralEventsAt reads an EVENT shard, treating absence as empty.
+- `func AppendStructuralEvents(path string, rows []StructuralEvent) (int64, error)` — AppendStructuralEvents writes EVENT rows and returns the resulting byte size.
 

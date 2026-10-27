@@ -383,6 +383,7 @@ go test ./e2e -run TestStoreDDDMCommitOwnershipGate -count=1
 - `MessageHead` / `ShardInfo` / `Floor` 的 JSON 身份与空 head 构造；
 - 唯一 seq 分配器 `AssignRowSeqs`（显式 Seq 幂等窗口与严格递增校验）。
 - EVENT 行、kind 词表、event head/shard JSON 与确定性 commit identity；
+- message/EVENT JSONL 的共享读、崩溃残尾截断、追加、sync 与解码纯存储原语；
 
 根 `message_rows.go`、`structural_events.go`、`pending_tail.go` 对文件名、分类、
 head 类型与 seq 分配只保留 alias/单层转发。M5 尚未完成：message/event head 发布、
@@ -416,6 +417,7 @@ go test ./e2e -run TestStoreDDDMSessionOwnershipGate -count=1
 | `store/message_rows.go` 的 `assignRowSeqs` | `store/session.AssignRowSeqs` |
 | `store/structural_events.go` 的 EVENT kind/row/head/shard 类型 | `store/session.StructuralEventKind/StructuralEvent/EventHead/EventShardInfo` |
 | `store/structural_events.go` 的 commit identity 推导 | `store/session.StructuralEventsCommitID` |
+| `store/message_rows.go` / `structural_events.go` 的 JSONL 读写与残尾修复 | `store/session/storage.go` |
 
 数据路径与 JSON tag 零变化。
 

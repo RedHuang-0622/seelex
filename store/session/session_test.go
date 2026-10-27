@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,5 +88,38 @@ func TestStructuralEventIdentity(t *testing.T) {
 	events[0].AnchorMessageID = "m2"
 	if next := StructuralEventsCommitID(events); next == first {
 		t.Fatal("event identity ignored anchor change")
+	}
+}
+
+func TestMessageShardReadAppendRepairsTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "message_1_1.jsonl")
+	rows := []protocol.TranscriptEvent{{Seq: 1, MessageID: "m1", Content: "one"}}
+	if err := AppendMessageRows(path, rows); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(`{"seq":2,"message_id":"torn`); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	read, err := ReadMessageRowsAt(path, 0, nil)
+	if err != nil || len(read) != 1 || read[0].MessageID != "m1" {
+		t.Fatalf("read=%+v err=%v", read, err)
+	}
+	if err := AppendMessageRows(path, []protocol.TranscriptEvent{{Seq: 2, MessageID: "m2"}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "torn") {
+		t.Fatalf("crash tail was not repaired: %s", data)
 	}
 }
