@@ -6,16 +6,19 @@
 解析与 provider 轮数推导仍在
 [`kernel/contextcontrol`](../../kernel/contextcontrol/README.md)
 和 Engine context policy；本包只保留同身份 alias 与一行转发。主要调用方是
-`application/core` 的启动期 window helper。
+`application/core` 与 Wiring 启动期 window helper。
 
 ## 职责与非职责
 
 - 做：暴露 `WindowConfig` / `DefaultWindowPolicy`，转发 Apply/Current/Load/Default/New。
+- 做：计算 retained-read tail budget、保护区 floor，并执行启动期
+  `ValidateRetainWindow` 组合校验。
 - 不做：不定义 window 默认值、不解析 YAML、不复制轮数推导或保留窗口校验。
 
 ## 文件结构
 
 - `policy.go`：类型 alias 与六个转发入口。
+- `retention.go`：读尾预算、保护区 floor 与 window/limits 组合校验。
 - `policy_test.go`：类型身份与默认值 parity。
 
 ## 核心实现

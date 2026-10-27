@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	appwindow "github.com/RedHuang-0622/seelex/application/window"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	cc "github.com/RedHuang-0622/seelex/kernel/contextcontrol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
@@ -11,6 +12,10 @@ import (
 	"strings"
 	"testing"
 )
+
+func ValidateRetainWindow(config appwindow.WindowConfig, limits limit.Limits, windowTokens int) error {
+	return appwindow.ValidateRetainWindow(config, limits, windowTokens)
+}
 
 // applyTestLimits 在测试内改一项 limits 配置并在结束恢复（进程内生效配置）。
 func applyTestLimits(t *testing.T, mutate func(*limit.Limits)) {

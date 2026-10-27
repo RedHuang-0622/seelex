@@ -13,6 +13,10 @@ import (
 	"testing"
 )
 
+func RetainedReadTailBudget(runtime any) int {
+	return cc.RetainedReadTailBudget(runtime)
+}
+
 // 上下文压缩的保留窗口规则（seele.yaml window 段）：
 //
 //	软压缩：保留前缀 token 预算 = min(token1, token2)

@@ -158,6 +158,7 @@
 | EP-068 | 已完成 | 可见流式投影、reasoning 与 served-route stamping 迁入 conversation | 结构门禁、stream/core 回归 |
 | EP-069 | 已完成 | Session resume/cold restore/history window 迁入 session/history | 结构门禁、history/core 回归 |
 | EP-071 | 已完成 | durable Session fork runtime 迁入 session/fork | 结构门禁、fork/core 回归 |
+| EP-091 | 已完成 | context retention budget/validation 迁入 application/window | 结构门禁、window/core 回归 |
 | AP-115D1 | 已完成 | 基础内置命令注册迁入 `application/input/command` | 包内命令 parity、core 行数净减 |
 | AP-115D2 | 已完成 | compact/session/plugin/effort/permission 命令编排迁出 core | mutation parity、core 行数净减 |
 | AP-108B1 | 已完成 | Session Runtime 只读投影迁入 `application/session/query` | 字段归属/深拷贝测试、core 行数净减 |
@@ -5991,6 +5992,22 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 - `kernel/session` 仍暂时依赖 Store 载荷，登记为 Store 拆分阶段的清理项；
 - 回退方式：把根包移回 `backend/engine/session` 并恢复调用点。
 
+## EP-091：Context Retention Policy 归属迁移
+
+- `RetainedReadTailBudget`、`RetainFloorTokens`、`ValidateRetainWindow` 与
+  retain-window 最小预算 provider 从 `application/core/window.go` 迁入
+  `application/window/retention.go`；
+- core 的 cold restore/transcript tail callback、Wiring 启动期校验直接调用
+  window owner；core 集成测试只保留同签名 `_test.go` alias；
+- 红测：`TestContextRetentionPolicyLivesInWindowPackage` 点名 legacy core 文件与
+  缺失 owner；
+- 绿测：`go test ./application/window ./application/core -run
+  'Retention|Window|Retain' -count=1`；
+- core 生产文件 55 → 54，生产代码 7,178 → 7,120 行；`Service` 公开方法保持 0，
+  core 直接内部依赖保持 0；
+- retain_tokens/ratio/floor 口径、startup error、tail token 预算与 wire 均不变；
+- 回退方式：恢复 `application/core/window.go`，把 Wiring/core callbacks 切回。
+
 ## 本轮收口指标
 
 | 指标 | 本轮起点 | 当前 |
@@ -5998,10 +6015,10 @@ Queue、审批、驻留、Runtime、窗口锁与 Domain actor；直接端口化�
 | `Service` 公开方法 | 171 | 0 |
 | core 直接内部依赖 | 37 | 0 |
 | Application 具体 Backend/Middle/Store 依赖包 | 38 | 0 |
-| core 生产文件 | 126 | 55 |
-| core 生产代码 | 18,723 行 | 7,178 行 |
+| core 生产文件 | 126 | 54 |
+| core 生产代码 | 18,723 行 | 7,120 行 |
 
-core 生产代码净减 11,545 行，直接内部依赖从 37 降到 0；
+core 生产代码净减 11,603 行，直接内部依赖从 37 降到 0；
 AP-116A/B/C/D/E/F1/F2a/F2b/F2c/F2d/F2e/F2f/F2g 共收回或迁出 148 个 `Service` 公开入口。
 AP-093～AP-115D2、AP-108B1/B2a/B2b、AP-113D1/D2
 已把 Reference、Admin、Workspace、Queries、Execution、Review、Goal、Scheduler、

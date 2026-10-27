@@ -58,7 +58,7 @@
   capability package 与 `compat.Frontend` 承载；
 - 冻结 `application/core` 当前直接导入的 backend/middle/store 包白名单；
   当前事实基线为 0，预算只允许保持为零；
-- 冻结 `application/core` 非测试生产文件 55 个、生产代码 7,178 行；
+- 冻结 `application/core` 非测试生产文件 54 个、生产代码 7,120 行；
   领域包提取必须让规模净下降，任何例外都必须显式更新预算并说明原因；
 - 冻结整个 `application/**` 的具体 Backend/Middle/Store import 集合：
   当前 22 个唯一包，只许下降；目标的具体 Backend/Middle 包为 0。Application
@@ -153,8 +153,8 @@ Wiring 注入 Middle `Assembler`，core 不再 import `middle/switch/history`。
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 22 |
-| `application/core` 生产文件 | 55 |
-| `application/core` 生产代码 | 7,178 行 |
+| `application/core` 生产文件 | 54 |
+| `application/core` 生产代码 | 7,120 行 |
 
 已落地领域包：
 

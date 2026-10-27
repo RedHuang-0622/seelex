@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/session/runtime"
 	session "github.com/RedHuang-0622/seelex/application/session/state"
 	"github.com/RedHuang-0622/seelex/application/session/viewstate"
+	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -259,7 +260,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Closed: func() bool {
 			return service.closed
 		},
-		TranscriptTailBudget: RetainedReadTailBudget,
+		TranscriptTailBudget: applicationwindow.RetainedReadTailBudget,
 		IsInternalContent: func(content string) bool {
 			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
 		},

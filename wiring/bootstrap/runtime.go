@@ -11,7 +11,6 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/core"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	applicationwindow "github.com/RedHuang-0622/seelex/application/window"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
@@ -84,7 +83,7 @@ func initRuntime(storePath string) (*assemble.Runtime, error) {
 	// 高于保留上限 window.retain_tokens 是非法组合，必须在这里拒绝启动 ——
 	// 静默取小会把它吞成"配置看起来生效"，直到保护区被压到失忆才以"模型忘了"
 	// 的形式显现。预算口径与压缩判据同源（task_context.ContextBudgetFor）。
-	if err := core.ValidateRetainWindow(windowConfig, limits, runtime.ContextWindow()); err != nil {
+	if err := applicationwindow.ValidateRetainWindow(windowConfig, limits, runtime.ContextWindow()); err != nil {
 		runtime.Shutdown()
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
 	}

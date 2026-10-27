@@ -5,8 +5,8 @@
 状态：**Application 模块化收口完成。已完成 AP-001～AP-107、AP-108A、AP-109～AP-111、AP-112、
 AP-113A～AP-113C、AP-114A/114B、AP-115A/115B/115C1/115C2a/115C2b1/115C2b2/115C2c、
 AP-115D1/115D2、AP-108B1/B2a/B2b、AP-113D1/D2、AP-116A～AP-116F2g、
-EP-001～EP-090；`newService*` 构造适配审计、`Service` 公开业务方法退场与
-Application 具体依赖归零均已完成。**
+EP-001～EP-091；`newService*` 构造适配审计、`Service` 公开业务方法退场、
+Application 具体依赖归零与 core context-retention 退场均已完成。**
 
 Application 工作包已收口。后续 Store/Backend/Middle 迁移不再借用本文件的 Application
 里程碑；当前代码与测试是实现状态的最终事实来源。
@@ -18,8 +18,8 @@ Application 工作包已收口。后续 Store/Backend/Middle 迁移不再借用�
 | `Service` 公开方法 | 0 |
 | `application/core` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle 依赖包 | 0，Store 为 0 |
-| `application/core` 生产文件 | 55 |
-| `application/core` 生产代码 | 7,178 行 |
+| `application/core` 生产文件 | 54 |
+| `application/core` 生产代码 | 7,120 行 |
 
 本轮包提取起点为 126 个文件、18,723 行；当前净减 59 个文件和 8,770 行。
 

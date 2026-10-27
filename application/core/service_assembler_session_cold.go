@@ -33,7 +33,7 @@ func (service *Service) assembleSessionColdComponents() {
 	})
 
 	service.components.sessionColdHistory = applicationsessioncold.NewHistory(applicationsessioncold.HistoryDeps{
-		TailBudget: func() int { return RetainedReadTailBudget(service.Deps.Runtime) },
+		TailBudget: func() int { return applicationwindow.RetainedReadTailBudget(service.Deps.Runtime) },
 		MinRounds:  func() int { return applicationwindow.Current().MinRounds },
 		LatestUser: func(messages []model.Message) string {
 			return service.components.sessions.LatestUserContent(messages)

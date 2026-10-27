@@ -145,14 +145,6 @@
 - `func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T)` — turn_status_single_word_test.go — 「一次回合（请求）现在处在哪一步」这件事，
 - `func TestTurnStatusOfRecordKeepsLegacyRunningAndNeverFoldsToTerminal(t *testing.T)` — 落盘面读回：合并前的存档里"进行中"写的是 "running"，合并后写 "progressing"。
 
-### window.go
-
-- `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
-- `func RetainFloorTokens(budget task_context.ContextBudget) int` — RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
-- `func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
-- `func (r retainWindowLimits) ContextWindow() int`
-- `func (r retainWindowLimits) MaxOutputTokens() int`
-
 ### workspace_file_usecase_test.go
 
 - `func (fake *fileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
