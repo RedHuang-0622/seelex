@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,5 +189,27 @@ func TestListAndDraftBaseSeq(t *testing.T) {
 	seq, err := DraftBaseSeq(dir, 3)
 	if err != nil || seq != 6 {
 		t.Fatalf("draft base=(%d,%v)", seq, err)
+	}
+}
+
+func TestSessionStateValidators(t *testing.T) {
+	items := []QueueItem{{State: QueueQueued}, {State: QueueSending}}
+	if QueueHeadState(items) != QueueQueued || QueueHeadState(nil) != "" {
+		t.Fatal("queue head state mismatch")
+	}
+	if err := ValidateCompactFrame(CompactFrameRecord{MessageToSeq: 4}, 3); err == nil {
+		t.Fatal("compact beyond message head must fail")
+	}
+	if err := ValidateCompactFrame(CompactFrameRecord{MessageToSeq: 3}, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateForkStart("p", "s", "p", "child", 5, 4, false); !errors.Is(err, ErrForkBeforeWatermark) {
+		t.Fatalf("watermark err=%v", err)
+	}
+	if err := ValidateForkStart("p", "s", "p", "s", 0, 1, false); err == nil {
+		t.Fatal("same fork identity must fail")
+	}
+	if err := ValidateForkStart("p", "s", "p", "child", 0, 1, true); err == nil {
+		t.Fatal("existing child must fail")
 	}
 }

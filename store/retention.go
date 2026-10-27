@@ -17,27 +17,17 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
-// retentionHead 是 metadata/retention.json payload。
-type retentionHead struct {
-	SessionID string `json:"session_id"`
-	Mode      string `json:"mode"`
-	DryRun    bool   `json:"dry_run"`
-	// WatermarkSeq/MessageID 与 message head 一致（已淘汰水位）。
-	WatermarkSeq       uint64    `json:"watermark_seq,omitempty"`
-	WatermarkMessageID string    `json:"watermark_message_id,omitempty"`
-	DeletedRows        uint64    `json:"deleted_rows,omitempty"`
-	CompactThreshold   int       `json:"compact_frame_threshold,omitempty"`
-	RawBytesAlert      uint64    `json:"raw_bytes_alert,omitempty"`
-	UpdatedAt          time.Time `json:"updated_at"`
-}
+type retentionHead = storesession.RetentionHead
 
 // ErrRetentionRequiresConfirm 表示 manual 模式自动淘汰被拒绝。
-var ErrRetentionRequiresConfirm = errors.New("session storage: LRU deletion requires user confirmation (mode=manual)")
+var ErrRetentionRequiresConfirm = storesession.ErrRetentionRequiresConfirm
 
 // ErrForkBeforeWatermark 表示 fork 起点早于 LRU watermark（I7）。
-var ErrForkBeforeWatermark = errors.New("session storage: fork start must be >= LRU watermark")
+var ErrForkBeforeWatermark = storesession.ErrForkBeforeWatermark
 
 // retentionThresholds 返回 §11 的压缩帧数阈值与原始字节告警线。
 func (store *storeEngine) retentionThresholds() (int, uint64) {

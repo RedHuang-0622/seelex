@@ -5,6 +5,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -237,6 +238,147 @@ func ApplyCommittedMessageHead(
 		head.Meta.CreatedAt = now
 	}
 	return head
+}
+
+// QueueState is the durable draft/queue item state.
+type QueueState string
+
+const (
+	QueueQueued  QueueState = "queued"
+	QueueSending QueueState = "sending"
+	QueueSent    QueueState = "sent"
+	QueueFailed  QueueState = "failed"
+)
+
+// DraftItem is the single durable input draft.
+type DraftItem struct {
+	SessionID string    `json:"session_id"`
+	Content   string    `json:"content"`
+	State     string    `json:"state,omitempty"`
+	SavedAt   time.Time `json:"saved_at"`
+}
+
+// QueueItem is one at-least-once request in the durable queue.
+type QueueItem struct {
+	Seq        uint64         `json:"seq"`
+	ItemID     string         `json:"item_id"`
+	RequestID  string         `json:"request_id,omitempty"`
+	Content    string         `json:"content"`
+	State      QueueState     `json:"state"`
+	CreatedAt  time.Time      `json:"created_at"`
+	SendCount  int            `json:"send_count,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
+	ConsumedBy string         `json:"consumed_by,omitempty"`
+}
+
+// LifecycleState is the file-authoritative draft/queue projection.
+type LifecycleState struct {
+	Draft *DraftItem
+	Queue []QueueItem
+}
+
+// LifecycleHead is metadata/lifecycle.json payload.
+type LifecycleHead struct {
+	SessionID     string      `json:"session_id"`
+	DraftRevision uint64      `json:"draft_revision"`
+	QueueCount    int         `json:"queue_count"`
+	QueueHeadSeq  uint64      `json:"queue_head_seq"`
+	HeadState     QueueState  `json:"head_state,omitempty"`
+	SendingItemID string      `json:"sending_item_id,omitempty"`
+	CommitID      string      `json:"commit_id,omitempty"`
+	ArchivedAt    time.Time   `json:"archived_at,omitempty"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	OrderPolicy   string      `json:"order_policy,omitempty"`
+	OrderRoles    []string    `json:"order_roles,omitempty"`
+	JoinSeqID     uint64      `json:"join_seq_id,omitempty"`
+	CompactRef    *CompactRef `json:"compact_ref,omitempty"`
+}
+
+// CompactRef points a role session at its compact frame.
+type CompactRef struct {
+	FrameID    string `json:"frame_id"`
+	AppliedSeq uint64 `json:"applied_seq"`
+}
+
+// QueueHeadState returns the current queue head state.
+func QueueHeadState(items []QueueItem) QueueState {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0].State
+}
+
+// RetentionHead is metadata/retention.json payload.
+type RetentionHead struct {
+	SessionID          string    `json:"session_id"`
+	Mode               string    `json:"mode"`
+	DryRun             bool      `json:"dry_run"`
+	WatermarkSeq       uint64    `json:"watermark_seq,omitempty"`
+	WatermarkMessageID string    `json:"watermark_message_id,omitempty"`
+	DeletedRows        uint64    `json:"deleted_rows,omitempty"`
+	CompactThreshold   int       `json:"compact_frame_threshold,omitempty"`
+	RawBytesAlert      uint64    `json:"raw_bytes_alert,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+var (
+	ErrRetentionRequiresConfirm = errors.New("session storage: LRU deletion requires user confirmation (mode=manual)")
+	ErrForkBeforeWatermark      = errors.New("session storage: fork start must be >= LRU watermark")
+)
+
+const (
+	CompactBoundaryComplete = "complete"
+	CompactBoundaryOpen     = "open"
+)
+
+// CompactFrameRecord is one compact summary frame.
+type CompactFrameRecord struct {
+	FrameID        string    `json:"frame_id"`
+	PrevID         string    `json:"prev_id,omitempty"`
+	MessageFrom    string    `json:"message_from"`
+	MessageTo      string    `json:"message_to"`
+	MessageFromSeq uint64    `json:"message_from_seq"`
+	MessageToSeq   uint64    `json:"message_to_seq"`
+	Summary        string    `json:"summary"`
+	BoundaryStatus string    `json:"boundary_status"`
+	CommitID       string    `json:"commit_id"`
+	CompressedAt   time.Time `json:"compressed_at"`
+}
+
+// CompactHead is metadata/compact.json payload.
+type CompactHead struct {
+	SessionID     string              `json:"session_id"`
+	LastFrameID   string              `json:"last_frame_id,omitempty"`
+	LastMessageTo string              `json:"last_message_to,omitempty"`
+	LastSeq       uint64              `json:"last_message_to_seq"`
+	FrameCount    int                 `json:"frame_count"`
+	LatestFrame   *CompactFrameRecord `json:"latest_frame,omitempty"`
+}
+
+// ValidateCompactFrame rejects frames beyond the published message head.
+func ValidateCompactFrame(frame CompactFrameRecord, publishedSeq uint64) error {
+	if frame.MessageToSeq > publishedSeq {
+		return fmt.Errorf("session storage: compact frame message_to=%d beyond message head %d", frame.MessageToSeq, publishedSeq)
+	}
+	return nil
+}
+
+// ValidateForkStart enforces distinct child, watermark and non-overwrite rules.
+func ValidateForkStart(
+	parentProject, parentSession, childProject, childSession string,
+	watermark, fromSeq uint64,
+	childExists bool,
+) error {
+	if fromSeq < watermark {
+		return ErrForkBeforeWatermark
+	}
+	if childSession == parentSession && childProject == parentProject {
+		return errors.New("session storage: fork child must differ from parent")
+	}
+	if childExists {
+		return errors.New("session storage: fork child already exists")
+	}
+	return nil
 }
 
 // PublishMessageHead publishes the typed message head through layout.

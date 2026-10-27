@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // subagentInfo 是 subagent 栈条目的 payload（S18：条目落
@@ -106,14 +108,15 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 	if err != nil {
 		return err
 	}
-	if fromSeq < retention.WatermarkSeq {
-		return ErrForkBeforeWatermark
+	childExists := false
+	if _, err := store.readMessageHead(childKey); err == nil {
+		childExists = store.sessionExists(childKey)
 	}
-	if childKey.SessionID == parentKey.SessionID && childKey.ProjectID == parentKey.ProjectID {
-		return errors.New("session storage: fork child must differ from parent")
-	}
-	if _, err := store.readMessageHead(childKey); err == nil && store.sessionExists(childKey) {
-		return errors.New("session storage: fork child already exists")
+	if err := storesession.ValidateForkStart(
+		parentKey.ProjectID, parentKey.SessionID, childKey.ProjectID, childKey.SessionID,
+		retention.WatermarkSeq, fromSeq, childExists,
+	); err != nil {
+		return err
 	}
 	rows, err := store.readRows(parentKey, 1, fromSeq)
 	if err != nil {

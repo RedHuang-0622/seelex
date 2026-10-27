@@ -26,76 +26,24 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
-// queueState 是队列条目状态机。
-type queueState string
+type queueState = storesession.QueueState
 
 const (
-	queueQueued  queueState = "queued"
-	queueSending queueState = "sending"
-	queueSent    queueState = "sent"
-	queueFailed  queueState = "failed"
+	queueQueued  = storesession.QueueQueued
+	queueSending = storesession.QueueSending
+	queueSent    = storesession.QueueSent
+	queueFailed  = storesession.QueueFailed
 )
 
-// draftItem 是输入草稿（ER DRAFT 一行；state = 未发送/队列中/发送失败退回）。
-type draftItem struct {
-	SessionID string    `json:"session_id"`
-	Content   string    `json:"content"`
-	State     string    `json:"state,omitempty"`
-	SavedAt   time.Time `json:"saved_at"`
-}
-
-// queueItem 是引擎待发送请求（ER QUEUE.items 的一行）。
-type queueItem struct {
-	Seq       uint64         `json:"seq"`
-	ItemID    string         `json:"item_id"`
-	RequestID string         `json:"request_id,omitempty"`
-	Content   string         `json:"content"`
-	State     queueState     `json:"state"`
-	CreatedAt time.Time      `json:"created_at"`
-	SendCount int            `json:"send_count,omitempty"`
-	Payload   map[string]any `json:"payload,omitempty"`
-	// ConsumedBy 是消费该项的那一轮 requestID（= 该轮 message 行的 TaskID）。
-	// 应用侧把队列中所有待发项**合并成一条**提升为下一轮（N 项 → 1 轮），
-	// 所以该项身份与轮身份不是一对一：确认/失败/恢复都必须以"这一轮是否已
-	// 发布"为凭据，而不是以项自己的 request_id。见 queue_consume.go。
-	ConsumedBy string `json:"consumed_by,omitempty"`
-}
-
-// lifecycleState 是 draft/queue 的权威投影（来自数据文件，不是 head）。
-type lifecycleState struct {
-	Draft *draftItem
-	Queue []queueItem
-}
-
-// lifecycleHead 是 metadata/lifecycle.json payload：只有水位与队首状态。
-type lifecycleHead struct {
-	SessionID     string     `json:"session_id"`
-	DraftRevision uint64     `json:"draft_revision"`
-	QueueCount    int        `json:"queue_count"`
-	QueueHeadSeq  uint64     `json:"queue_head_seq"`
-	HeadState     queueState `json:"head_state,omitempty"`
-	SendingItemID string     `json:"sending_item_id,omitempty"`
-	CommitID      string     `json:"commit_id,omitempty"`
-	// ArchivedAt 是 §2.5.4 的已归档判据（列表过滤不看 EVENT）。
-	ArchivedAt time.Time `json:"archived_at,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	// OrderPolicy / OrderRoles 是 §8.3 群聊顺序策略（goal_loop 默认，或
-	// user_main_decided）；只更新这两个字段，不另开 metadata 文件。
-	OrderPolicy string   `json:"order_policy,omitempty"`
-	OrderRoles  []string `json:"order_roles,omitempty"`
-	// JoinSeqID 是角色加入群聊时的 main message seq；CompactRef 是角色对
-	// main compact 帧的引用（frame_id + applied_seq）。角色会话用它冷恢复。
-	JoinSeqID  uint64      `json:"join_seq_id,omitempty"`
-	CompactRef *CompactRef `json:"compact_ref,omitempty"`
-}
-
-// CompactRef 是角色会话对 main compact 帧的引用；角色不得生成第二份帧。
-type CompactRef struct {
-	FrameID    string `json:"frame_id"`
-	AppliedSeq uint64 `json:"applied_seq"`
-}
+type draftItem = storesession.DraftItem
+type queueItem = storesession.QueueItem
+type lifecycleState = storesession.LifecycleState
+type lifecycleHead = storesession.LifecycleHead
+type CompactRef = storesession.CompactRef
 
 func (store *storeEngine) lifecycleInputDir(key Key) string {
 	return filepath.Join(store.sessionRoot(key), "input")
@@ -193,10 +141,7 @@ func queueMaxSeq(items []queueItem) uint64 {
 }
 
 func queueHeadState(items []queueItem) queueState {
-	if len(items) == 0 {
-		return ""
-	}
-	return items[0].State
+	return storesession.QueueHeadState(items)
 }
 
 // publishLifecycleLocked 提交一次 lifecycle 变更：先落权威数据（原子替换），

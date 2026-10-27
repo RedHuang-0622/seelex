@@ -11,12 +11,13 @@ package store
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
+
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // compact frame 的 BoundaryStatus 取值面（这一帧的边界是否已闭合）。这两个词写在
@@ -25,37 +26,12 @@ import (
 //	complete —— 边界已闭合（压缩边界落在轮次起点上）
 //	open     —— 边界尚未闭合（残缺/在途，轮次被切开）
 const (
-	CompactBoundaryComplete = "complete"
-	CompactBoundaryOpen     = "open"
+	CompactBoundaryComplete = storesession.CompactBoundaryComplete
+	CompactBoundaryOpen     = storesession.CompactBoundaryOpen
 )
 
-// compactFrameRecord 是一行摘要帧。
-type compactFrameRecord struct {
-	FrameID string `json:"frame_id"`
-	PrevID  string `json:"prev_id,omitempty"`
-	// MessageFrom/MessageTo 是 message 坐标（含端点）；Seq 同坐标的序号
-	// 形式，R2 tail 从 MessageToSeq+1 开始。
-	MessageFrom    string    `json:"message_from"`
-	MessageTo      string    `json:"message_to"`
-	MessageFromSeq uint64    `json:"message_from_seq"`
-	MessageToSeq   uint64    `json:"message_to_seq"`
-	Summary        string    `json:"summary"`
-	BoundaryStatus string    `json:"boundary_status"` // CompactBoundaryComplete | CompactBoundaryOpen
-	CommitID       string    `json:"commit_id"`
-	CompressedAt   time.Time `json:"compressed_at"`
-}
-
-// compactHeadRecord 是 metadata/compact.json payload：最新帧水位。
-type compactHeadRecord struct {
-	SessionID     string `json:"session_id"`
-	LastFrameID   string `json:"last_frame_id,omitempty"`
-	LastMessageTo string `json:"last_message_to,omitempty"`
-	LastSeq       uint64 `json:"last_message_to_seq"`
-	FrameCount    int    `json:"frame_count"`
-	// LatestFrame 是最近一帧的完整副本（head 冗余便于 R2 单读；append-only
-	// 原文仍在 compact.jsonl）。
-	LatestFrame *compactFrameRecord `json:"latest_frame,omitempty"`
-}
+type compactFrameRecord = storesession.CompactFrameRecord
+type compactHeadRecord = storesession.CompactHead
 
 func (store *storeEngine) compactFilePath(key Key) string {
 	return filepath.Join(store.sessionRoot(key), "compact.jsonl")
@@ -91,8 +67,8 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 	if err != nil {
 		return compactHeadRecord{}, err
 	}
-	if frame.MessageToSeq > messageHead.LastSeq {
-		return compactHeadRecord{}, fmt.Errorf("session storage: compact frame message_to=%d beyond message head %d", frame.MessageToSeq, messageHead.LastSeq)
+	if err := storesession.ValidateCompactFrame(frame, messageHead.LastSeq); err != nil {
+		return compactHeadRecord{}, err
 	}
 	frameCount := 1
 	if current.FrameCount > 0 {
