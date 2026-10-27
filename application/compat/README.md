@@ -25,7 +25,7 @@
 ## 核心实现
 
 `Frontend` 暂时内嵌 `*assembly.Frontend` 以承接尚未退场的 core 方法，同时持有一份
-`assembly.FrontendPorts`。已迁移方法只调用领域组件，不在本包保存第二份状态。
+`assembly.Components` 分组只读快照。已迁移方法只调用领域组件，不在本包保存第二份状态。
 
 EP-046 进一步把 `SubscribeSession`、`SubscribeSessionWithReplay`、
 `PrepareProviderHistory`、`PromptLayers` 和 `SetProjectBoardSink` 从

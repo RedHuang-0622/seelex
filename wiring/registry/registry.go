@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	applicationcompat "github.com/RedHuang-0622/seelex/application/compat"
+	appassembly "github.com/RedHuang-0622/seelex/application/assembly"
 	applicationpolicy "github.com/RedHuang-0622/seelex/application/policy"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
@@ -42,8 +42,15 @@ type pluginPromptEngine interface {
 	SetSystemPrompt(string)
 }
 
+// argsOnly 把 owner 的 handler 提升到注册面要求的 func(context.Context, string) 形状。
+// 读面 owner 不消费调用上下文（旧兼容门面同样丢弃 ctx），因此形状适配留在组合根，
+// 不给 owner 加一个无人读取的参数。
+func argsOnly(handler func(argsJSON string) (string, error)) func(context.Context, string) (string, error) {
+	return func(_ context.Context, argsJSON string) (string, error) { return handler(argsJSON) }
+}
+
 func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service) {
-	frontend := applicationcompat.New(app)
+	components := appassembly.ComponentsFor(app)
 	readResultSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -61,8 +68,8 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 			"node_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 		},
 	}
-	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, frontend.ReadToolResultHandler)
-	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, frontend.ReadPlanHandler)
+	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, argsOnly(components.Conversation.Reference.ReadToolResultHandler))
+	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, argsOnly(components.Conversation.Reference.ReadPlanHandler))
 	readCompressedTurnSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -73,7 +80,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		},
 		"required": []string{"segment_id"},
 	}
-	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, frontend.ReadCompressedTurnHandler)
+	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, argsOnly(components.Conversation.Reference.ReadCompressedTurnHandler))
 	// search_history：压缩栈帧是语义索引，检索在其范围内查真实聊天记录
 	// （seelexctx/search：memory.Select 选相关帧 → 帧 [From..To] 单元范围
 	// 从事件库读回记录 → token 预算内内联返回）。
@@ -85,7 +92,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 		},
 		"required": []string{"query"},
 	}
-	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, frontend.SearchHistoryHandler)
+	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, argsOnly(components.Conversation.HistorySearch.SearchHistoryHandler))
 	// compact_context：把 /compact 这条手动压缩入口同样交给模型——它可以在
 	// 上下文逼近上限、或开始一段长任务前主动收拢上下文。落点与引擎自动压缩、
 	// 命令 /compact 完全同一条（context_runtime.CompactContextNow），原始轮次
@@ -96,7 +103,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 			"reason": map[string]interface{}{"type": "string", "description": "为什么现在压缩（写入压缩记录，供审计与回看）"},
 		},
 	}
-	runtime.RegisterTool("compact_context", "Compact this session's context now: fold the variable transcript into a bounded checkpoint frame (stable prefix + task evidence summary + plan + current request) while every original turn stays readable by reference. Call it before a long multi-step task or when the context is close to the provider limit; it is not a substitute for finishing the current step.", compactContextSchema, frontend.CompactContextHandler)
+	runtime.RegisterTool("compact_context", "Compact this session's context now: fold the variable transcript into a bounded checkpoint frame (stable prefix + task evidence summary + plan + current request) while every original turn stays readable by reference. Call it before a long multi-step task or when the context is close to the provider limit; it is not a substitute for finishing the current step.", compactContextSchema, components.Conversation.Compaction.CompactContextHandler)
 }
 
 // RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
@@ -123,7 +130,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
 func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
-	frontend := applicationcompat.New(app)
+	components := appassembly.ComponentsFor(app)
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -158,9 +165,9 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 		// ctx 里没有才退到当前视图会话。
 		sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
 		if sessionID == "" {
-			sessionID = frontend.Snapshot().Session.ID
+			sessionID = components.Session.Snapshot.Snapshot().Session.ID
 		}
-		result, err := board.ReadProjectBoard(st, request, frontend.ProjectRootFor(sessionID), sessionID)
+		result, err := board.ReadProjectBoard(st, request, components.Execution.ProjectBoard.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
@@ -192,7 +199,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 }
 
 func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
-	frontend := applicationcompat.New(app)
+	components := appassembly.ComponentsFor(app)
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -235,9 +242,9 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			// （与看板落点同源）；未绑定时退回本次扫描根（显式给了 project_root 的用法）。
 			sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
 			if sessionID == "" {
-				sessionID = frontend.Snapshot().Session.ID
+				sessionID = components.Session.Snapshot.Snapshot().Session.ID
 			}
-			renderRoot := frontend.ProjectRootFor(sessionID)
+			renderRoot := components.Execution.ProjectBoard.ProjectRootFor(sessionID)
 			if renderRoot == "" {
 				renderRoot = builder.Root()
 			}
@@ -280,22 +287,22 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 // 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
 // 冒烟测的才是产品的那条链。
 func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor {
-	frontend := applicationcompat.New(app)
+	components := appassembly.ComponentsFor(app)
 	return func(ctx context.Context, task assemble.ScheduledTaskSpec) (assemble.ScheduledPromptOutcome, error) {
 		if bound := strings.TrimSpace(task.SessionID); bound != "" {
 			// 显式绑定会话：装配同样落到那个会话（任务声明什么，就用什么跑）。
-			assembled, err := frontend.AssembleScheduledRun(ctx, bound, task)
+			assembled, err := components.Runtime.ScheduledRun.AssembleScheduledRun(ctx, bound, task)
 			if err != nil {
 				return assemble.ScheduledPromptOutcome{}, err
 			}
-			if err := frontend.SubmitToSession(assembled, bound, task.Prompt); err != nil {
+			if err := components.Session.Submit.SubmitToSession(assembled, bound, task.Prompt); err != nil {
 				return assemble.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
 			}
 			return assemble.ScheduledPromptOutcome{
 				Message: fmt.Sprintf("已提交到绑定会话 %s（异步输出见会话记录）", bound), SessionID: bound,
 			}, nil
 		}
-		newSessionID, err := frontend.StartScheduledSession(ctx, task)
+		newSessionID, err := components.Runtime.ScheduledSession.StartScheduledSession(ctx, task)
 		if err != nil {
 			return assemble.ScheduledPromptOutcome{SessionID: newSessionID}, err
 		}
@@ -330,7 +337,7 @@ func RegisterScheduledTaskCapability(runtime *assemble.Runtime) {
 // 注册进 tools.Registry（taskTerminalProvider，见 backend/tool/task/terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
 func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service) {
-	runtime.RegisterTaskTerminalTools(applicationcompat.New(app).TaskTerminalHandler)
+	runtime.RegisterTaskTerminalTools(appassembly.ComponentsFor(app).Execution.TerminalHandler.Handler)
 }
 
 func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval application.ApprovalBroker, skills *skill.Registry) {
@@ -399,7 +406,7 @@ func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service
 	if runtime == nil || app == nil {
 		return
 	}
-	review.RegisterShowFilesTool(runtime, applicationcompat.New(app))
+	review.RegisterShowFilesTool(runtime, appassembly.ComponentsFor(app).Admin.Review)
 }
 
 // RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime

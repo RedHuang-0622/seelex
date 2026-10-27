@@ -21,7 +21,6 @@ Skill 指令信封编解码
 ### skill_context.go
 
 - `func formatSkillUserInput(layers []prompt.PromptLayer, input string) string`
-- `func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer)`
 - `func wrapModelInput(displayInput, body string) string`
 - `func displayUserInput(modelInput string) string`
 - `func parseModelEnvelope(input string) (string, int, bool)`
@@ -32,6 +31,6 @@ Skill 指令信封编解码
 - `func TestFormatSkillUserInputKeepsPlainInputUnchanged(t *testing.T)`
 - `func TestSkillSelectionKeepsUserInputPlainAndFreezesTrustedLayers(t *testing.T)`
 - `func TestDisplayUserInputRejectsInvalidEnvelope(t *testing.T)`
-- `func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T)`
-- `func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T)`
+- `func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T)` — TestAdaptEngineMessageRestoresOriginalUserInput 走会话历史的唯一判据
+- `func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T)` — TestDisplayUserInputHidesPrivateRecoveryEnvelopes 钉住「显示归一化」与「历史可见性」
 - `func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T)`

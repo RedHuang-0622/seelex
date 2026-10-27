@@ -163,7 +163,7 @@ func TestPointViewAtRestoringShellKeepsTargetUnitContent(t *testing.T) {
 		view.Conversation = []model.Message{{Role: "assistant", Content: "loaded"}}
 	})
 
-	service.pointViewAtRestoringShell("sess-target")
+	service.components.sessionHistoryRuntime.PointViewAtRestoringShell("sess-target")
 
 	snapshot := service.Snapshot()
 	if snapshot.Session.ID != "sess-target" {
@@ -191,7 +191,7 @@ func TestPointViewAtRestoringShellIgnoresSettledTarget(t *testing.T) {
 		t.Fatalf("resume sess-view: %v", err)
 	}
 
-	service.pointViewAtRestoringShell("sess-settled")
+	service.components.sessionHistoryRuntime.PointViewAtRestoringShell("sess-settled")
 
 	if snapshot := service.Snapshot(); snapshot.Session.ID != "sess-view" {
 		t.Fatalf("视图被改成 %q，want sess-view（restoring 已清，不该动视图）", snapshot.Session.ID)

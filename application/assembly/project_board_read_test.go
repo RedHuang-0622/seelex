@@ -39,13 +39,18 @@ func TestProjectBoardReadFacadeUsesPorts(t *testing.T) {
 	serviceType := reflect.TypeOf((*Service)(nil))
 	for _, name := range []string{"ProjectBoardTeamPlanFor", "ProjectBoardTeamStateFor"} {
 		if _, ok := serviceType.MethodByName(name); ok {
-			t.Fatalf("Service.%s must use FrontendPorts instead", name)
+			t.Fatalf("Service.%s must use Components instead", name)
 		}
 	}
-	ports := reflect.TypeOf(FrontendPorts{})
-	field, ok := ports.FieldByName("ProjectBoard")
+	// Components 是**分组**只读快照：读面 owner 挂在执行组里，快照必须先暴露这一组，
+	// 再在这一组里带出看板应用指针（两条都钉住，才等于迁移前那条断言的强度）。
+	group, ok := reflect.TypeOf(Components{}).FieldByName("Execution")
+	if !ok || group.Type != reflect.TypeOf(ExecutionComponents{}) {
+		t.Fatalf("Components.Execution = %v，希望执行组分片", group.Type)
+	}
+	field, ok := reflect.TypeOf(ExecutionComponents{}).FieldByName("ProjectBoard")
 	if !ok || field.Type != reflect.TypeOf((*applicationexecution.ProjectBoardApplication)(nil)) {
-		t.Fatalf("FrontendPorts.ProjectBoard = %v", field.Type)
+		t.Fatalf("Components.Execution.ProjectBoard = %v", field.Type)
 	}
 }
 
@@ -209,11 +214,11 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	}
 
 	// 运行态取的就是计划载荷里那一格（TeamworkPlan.State 就是 TeamworkState）。
-	plan := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamPlanFor(session)
+	plan := ComponentsFor(service).Execution.ProjectBoard.ProjectBoardTeamPlanFor(session)
 	if plan == nil || plan.TeamID != "team-1" {
 		t.Fatalf("装配后计划 = %+v，希望 team-1", plan)
 	}
-	state := NewFrontendPorts(service).ProjectBoard.ProjectBoardTeamStateFor(session)
+	state := ComponentsFor(service).Execution.ProjectBoard.ProjectBoardTeamStateFor(session)
 	if state == nil || state.State != store.TeamworkStateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
@@ -224,10 +229,10 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	// 未装配端口（Runtime 不实现 board.TeamworkPlanSource）⇒ 计划与运行态都是 nil：
 	// "没有就是没有"，而不是让 RuntimePort 长出恒返回零值的成员。
 	plain := newTestService(t, &fakeEngine{})
-	if plan := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamPlanFor(plain.Snapshot().Session.ID); plan != nil {
+	if plan := ComponentsFor(plain).Execution.ProjectBoard.ProjectBoardTeamPlanFor(plain.Snapshot().Session.ID); plan != nil {
 		t.Fatalf("未装配时计划 = %+v，希望 nil", plan)
 	}
-	if state := NewFrontendPorts(plain).ProjectBoard.ProjectBoardTeamStateFor(plain.Snapshot().Session.ID); state != nil {
+	if state := ComponentsFor(plain).Execution.ProjectBoard.ProjectBoardTeamStateFor(plain.Snapshot().Session.ID); state != nil {
 		t.Fatalf("未装配时运行态 = %+v，希望 nil", state)
 	}
 	if _, ok := plain.Deps.Runtime.(board.TeamworkPlanSource); ok {
@@ -312,7 +317,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	})
 	defer syncer.Close()
 	recorder := &recordingBoardSink{next: syncer}
-	service.SetProjectBoardSink(recorder)
+	service.components.projectBoard.Store(recorder)
 
 	workFile := store.ProjectBoardWorkFile
 	complete := func(ctx context.Context, name, id string, toolErr error) {
@@ -370,7 +375,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 
 	// ⑤ 订阅口为 nil（能力缺席 / 装配根没挂）：完成段判空后什么都不做——不 panic、
 	// 不再转交、不落盘。这就是核心侧"关就是关"的那一半（另一半是装配门，见 wi-m3-switch）。
-	service.SetProjectBoardSink(nil)
+	service.components.projectBoard.Store(nil)
 	complete(withSessionID(context.Background(), session), "todo_add", "tool-5", nil)
 	boardtest.Settle(idle)
 	if got := len(recorder.snapshot()); got != 4 {

@@ -20,20 +20,8 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// subagentRPCApplication 是 headless 需要的子代理恢复面（Application 的
-// 窄子集；未装配时显式报错，不静默降级）。
-type subagentRPCApplication interface {
-	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
-	ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)
-	ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)
-	ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)
-}
-
 func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (any, error) {
-	app, ok := server.app.(subagentRPCApplication)
-	if !ok {
-		return nil, fmt.Errorf("%s: 当前 Application 未装配子代理恢复面", method)
-	}
+	sub := server.deps.Subagents
 	stringArg := func(index int, name string) (string, error) {
 		if index >= len(args) {
 			return "", fmt.Errorf("%s 缺少参数 %s", method, name)
@@ -50,7 +38,7 @@ func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (a
 		if err != nil {
 			return nil, err
 		}
-		return app.ListSubagentRecovery(sessionID)
+		return sub.ListRecovery(sessionID)
 	case "subagent.fork":
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
@@ -63,13 +51,13 @@ func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (a
 		if err := json.Unmarshal(args[1], &specs); err != nil {
 			return nil, fmt.Errorf("%s 参数 subagents 解码失败: %w", method, err)
 		}
-		return app.ForkSubagents(context.Background(), sessionID, specs)
+		return sub.Fork(context.Background(), sessionID, specs)
 	case "subagent.recover":
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
 			return nil, err
 		}
-		return app.ResumeInterruptedSubagents(context.Background(), sessionID)
+		return sub.ResumeInterrupted(context.Background(), sessionID)
 	case "subagent.resume":
 		sessionID, err := stringArg(0, "sessionID")
 		if err != nil {
@@ -79,7 +67,7 @@ func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (a
 		if err != nil {
 			return nil, err
 		}
-		return app.ResumeSubagent(context.Background(), sessionID, nodeID)
+		return sub.Resume(context.Background(), sessionID, nodeID)
 	default:
 		return nil, fmt.Errorf("未知 subagent headless 方法: %s", method)
 	}

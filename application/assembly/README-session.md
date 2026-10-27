@@ -894,13 +894,6 @@ draft 文件 I/O；流式 chunk、工具步骤等高频动作只更新内存 tra
 - `func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T)` — TestAppendWhileBrowsingHistoryKeepsWindow 红灯 4：正在翻更早历史时新到达的
 - `func TestColdLoadRecordDoesNotReadProviderHistory(t *testing.T)` — TestColdLoadRecordDoesNotReadProviderHistory 钉住 v8 冷加载的重复读边界：
 
-### session_history_test_aliases_test.go
-
-- `func (service *Service) pointViewAtRestoringShell(sessionID string) bool`
-- `func adaptEngineMessage(msg contract.EngineMessage, stripThoughtBlocks func(string) string) protocol.Message`
-- `func messageFromEngineHistory(msg contract.EngineMessage, stripThoughtBlocks func(string) string) protocol.Message`
-- `func isVisibleHistoryMessage(message contract.EngineMessage) bool`
-
 ### session_input_index_test.go
 
 - `func inputIndexService(t *testing.T, store *pagedSessionStore) *Service` — inputIndexService 用「durable 消息 + record + conversation 窗口读」的仿真

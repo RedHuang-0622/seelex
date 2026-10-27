@@ -166,8 +166,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.assembleKnobs()
 	service.assemblePolicySwitchApplication()
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
-	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
-	service.components.projectBoard = &projectBoardPort{}
+	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 Store。
+	service.components.projectBoard = &ProjectBoardSinkPort{}
 	// Tool-record state and its optional ports are one extracted application
 	// object. Host callbacks keep draft/view policy inside core assembly.
 	service.toolRecords = applicationtoolrecord.New(applicationtoolrecord.Deps{
@@ -474,15 +474,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: func() dto.ViewLimits { return applicationpolicy.Get().ViewLimits() },
 		// 工具记录走 toolrecord 唯一判据并先进入执行单元暂存；core 只注入单元键折算与主侧合并。
 		RecordToolOutcome: func(ownerSessionID string, event dto.SubagentToolEvent) {
-			if service.toolRecords != nil {
-				service.toolRecords.StageSubagentEvent(ownerSessionID, event)
-			}
+			service.toolRecords.StageSubagentEvent(ownerSessionID, event)
 		},
 		// 节点收口（终态）：把暂存一次性提交给主会话累计（同步、返回即入账）。
 		CommitToolRecord: func(ownerSessionID, nodeID string) {
-			if service.toolRecords != nil {
-				service.toolRecords.CloseSubagentUnit(ownerSessionID, nodeID)
-			}
+			service.toolRecords.CloseSubagentUnit(ownerSessionID, nodeID)
 		},
 	})
 	service.assembleSubagentApplication()
@@ -506,9 +502,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits:                workTableBounds,
 		TaskRecordsForSession: service.taskRecordsForSession,
 		CloseTerminalSubagentToolRecords: func(nodes []dto.SubAgentTreeNode) {
-			if service.toolRecords != nil {
-				service.toolRecords.CloseTerminalSubagents(nodes)
-			}
+			service.toolRecords.CloseTerminalSubagents(nodes)
 		},
 		SubAgentTree: func() []dto.SubAgentTreeNode {
 			service.ViewMu.RLock()

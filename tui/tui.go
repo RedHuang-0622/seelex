@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -14,45 +13,10 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 )
 
-type AppController interface {
-	Snapshot() application.Snapshot
-	Subscribe(buffer int) application.Subscription
-	// SubscribeSession 订阅指定会话的事件；sessionID 为空表示跟随当前视图
-	// 会话（含草稿物化后的新会话），归属由 application 在投递端过滤。
-	SubscribeSession(sessionID string, buffer int) (application.Subscription, error)
-	Submit(context.Context, string) error
-	CancelChat(requestID string) bool
-	Suggestions(input string) []application.Suggestion
-	ResolveInteraction(context.Context, string, string) error
-	SelectAccount(context.Context, string) error
-	SwitchPlugin(context.Context, string) error
-	SwitchEffort(context.Context, string) error
-	// LoadMoreHistory 加载更早的消息到 Conversation（limit<=0 = 一整窗）。
-	LoadMoreHistory(limit int) error
-	// LoadLatestHistory 把可见窗口拉回最新一页（回看历史后的出口）。
-	LoadLatestHistory() error
-}
-
-// queueController 是 AppController 的可选排队输入编辑面（调换顺序 / 撤回
-// 到输入框）。只在回合运行期间生效（队列只承载运行中接受的输入）；未实现时
-// 队列编辑按键给出明确提示，不静默改本地顺序。
-type queueController interface {
-	// ReorderQueuedInput 把排队输入从 from 位置移动到 to 位置（空 sessionID
-	// = 当前视图会话）。
-	ReorderQueuedInput(sessionID string, from, to int) error
-	// RecallQueuedInput 撤回一条排队输入并返回其展示原文。
-	RecallQueuedInput(sessionID string, index int) (string, error)
-}
-
-var (
-	_ AppController   = (*application.Frontend)(nil)
-	_ queueController = (*application.Frontend)(nil)
-)
-
 const maxPasteChars = 200 // 超过此字符数视为粘贴
 
 type Model struct {
-	app            AppController
+	deps           Dependencies
 	snapshot       application.Snapshot
 	subscription   application.Subscription
 	textarea       textarea.Model
@@ -83,7 +47,7 @@ type Model struct {
 	panel string
 }
 
-func NewModel(app AppController) Model {
+func NewModel(deps Dependencies) Model {
 	input := textarea.New()
 	input.Placeholder = "输入消息…  /help 查看命令"
 	input.CharLimit = 0
@@ -93,11 +57,11 @@ func NewModel(app AppController) Model {
 	input.ShowLineNumbers = false
 	// "" = 跟随当前视图会话：草稿物化成真实会话后事件自动可达，TUI 与 GUI
 	// 因此共用 application 投递端这一套会话归属判定，不再各自过滤。
-	subscription, err := app.SubscribeSession("", 256)
+	subscription, err := deps.Events.SubscribeSession("", 256)
 	if err != nil {
-		subscription = app.Subscribe(256)
+		subscription = deps.Events.Subscribe(256)
 	}
-	return Model{app: app, snapshot: app.Snapshot(), subscription: subscription, textarea: input, histIdx: -1, showLogo: true, textareaHeight: 1}
+	return Model{deps: deps, snapshot: deps.Snapshot.Snapshot(), subscription: subscription, textarea: input, histIdx: -1, showLogo: true, textareaHeight: 1}
 }
 
 func (model Model) Init() tea.Cmd { return waitApplicationEvent(model.subscription) }
@@ -124,7 +88,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return newModel, cmd
 	case applicationEventMsg:
-		model.snapshot = model.app.Snapshot()
+		model.snapshot = model.deps.Snapshot.Snapshot()
 		model.uiError = ""
 		model.syncInteractionSelection()
 		model.syncView()
@@ -142,7 +106,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.queueFocus = false
 		return model, waitApplicationEvent(model.subscription)
 	case tickMsg:
-		model.snapshot = model.app.Snapshot()
+		model.snapshot = model.deps.Snapshot.Snapshot()
 		model.syncView()
 		if model.snapshot.Chat.Running {
 			return model, tickEvery(3 * time.Second)
@@ -199,11 +163,11 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch message.String() {
 		case "ctrl+c":
-			model.app.CancelChat(model.snapshot.Chat.RequestID)
+			model.deps.Lifecycle.CancelChat(model.snapshot.Chat.RequestID)
 			return model, nil
 		case "alt+e":
 			return model, func() tea.Msg {
-				return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
+				return submitResultMsg{err: model.deps.Effort.SwitchEffort("cycle")}
 			}
 		case "alt+q":
 			if len(model.snapshot.Chat.InputQueue) == 0 {
@@ -223,7 +187,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return model, nil
 			}
 			model.textarea.Reset()
-			return model, submitInput(model.app, input)
+			return model, submitInput(model.deps.Submission, input)
 		default:
 			var cmd tea.Cmd
 			model.textarea, cmd = model.textarea.Update(message)
@@ -241,7 +205,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, copyLastResponse(model)
 	case "up":
 		if model.suggMode {
-			suggestions := model.app.Suggestions(model.textarea.Value())
+			suggestions := model.deps.Completion.Suggestions(model.textarea.Value())
 			if len(suggestions) > 0 {
 				model.suggIdx = (model.suggIdx - 1 + len(suggestions)) % len(suggestions)
 				if model.suggIdx < model.suggOffset {
@@ -261,7 +225,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case "down":
 		if model.suggMode {
-			suggestions := model.app.Suggestions(model.textarea.Value())
+			suggestions := model.deps.Completion.Suggestions(model.textarea.Value())
 			if len(suggestions) > 0 {
 				model.suggIdx = (model.suggIdx + 1) % len(suggestions)
 				if model.suggIdx >= model.suggOffset+suggWindowSize {
@@ -282,7 +246,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case "tab":
 		if model.suggMode {
-			suggestions := model.app.Suggestions(model.textarea.Value())
+			suggestions := model.deps.Completion.Suggestions(model.textarea.Value())
 			if len(suggestions) > 0 && model.suggIdx < len(suggestions) {
 				model = model.acceptSuggestion(suggestions[model.suggIdx])
 			}
@@ -292,7 +256,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if model.ready {
 			model.viewport.HalfPageUp()
 			if model.viewport.AtTop() && model.snapshot.HasMoreHistory {
-				return model, loadMoreHistory(model.app, 0)
+				return model, loadMoreHistory(model.deps.History, 0)
 			}
 		}
 		return model, nil
@@ -305,7 +269,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if model.ready {
 			model.viewport.GotoTop()
 			if model.snapshot.HasMoreHistory {
-				return model, loadMoreHistory(model.app, 0)
+				return model, loadMoreHistory(model.deps.History, 0)
 			}
 		}
 		return model, nil
@@ -315,13 +279,13 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// 窗口已锚定在更早历史（回看中）时，end 还要求「回到最新」：分页
 			// 不再把窗口拽回尾部，回看期间的新内容只能由这条出口带回。
 			if model.windowed() {
-				return model, loadLatestHistory(model.app)
+				return model, loadLatestHistory(model.deps.History)
 			}
 		}
 		return model, nil
 	case "alt+e":
 		return model, func() tea.Msg {
-			return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
+			return submitResultMsg{err: model.deps.Effort.SwitchEffort("cycle")}
 		}
 	default:
 		model.lastKeyTime = time.Now()
@@ -366,6 +330,16 @@ func (model Model) handleQueueKey(message tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	return false, model, nil
 }
 
+// useQueueEditor 是「队列编辑面在不在」的唯一判据：未装配时给出退场提示，
+// 不静默改本地顺序（顺序事实源在后端会话队列）。
+func (model *Model) useQueueEditor() (QueueEditor, bool) {
+	if model.deps.Queue == nil {
+		model.uiError = "当前前端不支持队列编辑"
+		return nil, false
+	}
+	return model.deps.Queue, true
+}
+
 // reorderQueued 调换排队顺序（from → to）：顺序事实源在后端会话队列，TUI 不
 // 本地重排；成功后选中行跟随被移动的那条。
 func (model Model) reorderQueued(from, to int) (Model, tea.Cmd) {
@@ -373,12 +347,11 @@ func (model Model) reorderQueued(from, to int) (Model, tea.Cmd) {
 	if from < 0 || from >= length || to < 0 || to >= length || from == to {
 		return model, nil
 	}
-	controller, ok := model.app.(queueController)
+	queue, ok := model.useQueueEditor()
 	if !ok {
-		model.uiError = "当前前端不支持队列编辑"
 		return model, nil
 	}
-	if err := controller.ReorderQueuedInput(model.snapshot.Session.ID, from, to); err != nil {
+	if err := queue.ReorderQueuedInput(model.snapshot.Session.ID, from, to); err != nil {
 		model.uiError = err.Error()
 		return model, nil
 	}
@@ -390,12 +363,11 @@ func (model Model) reorderQueued(from, to int) (Model, tea.Cmd) {
 // recallQueued 撤回排队输入到输入框（原文追加在当前草稿之后，不覆盖），并
 // 退出队列焦点交回文本输入。
 func (model Model) recallQueued(index int) (Model, tea.Cmd) {
-	controller, ok := model.app.(queueController)
+	queue, ok := model.useQueueEditor()
 	if !ok {
-		model.uiError = "当前前端不支持队列编辑"
 		return model, nil
 	}
-	text, err := controller.RecallQueuedInput(model.snapshot.Session.ID, index)
+	text, err := queue.RecallQueuedInput(model.snapshot.Session.ID, index)
 	if err != nil {
 		model.uiError = err.Error()
 		return model, nil
@@ -478,7 +450,7 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	model.histIdx = -1
 	model.textarea.Reset()
-	return model, submitInput(model.app, input)
+	return model, submitInput(model.deps.Submission, input)
 }
 
 // checkPaste 检测 textarea 是否包含多行粘贴内容，是则折叠为占位符。

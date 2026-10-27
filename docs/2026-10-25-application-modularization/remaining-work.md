@@ -1,3 +1,5 @@
+> 历史记录，不描述当前实现：本文是 2026-10-25 Application 模块化工作包的收尾计划，正文里出现的兼容门面包名与旧前端门面类型名都是“当时”的事实；该门面已由退场程序（`docs/2026-10-27-application-compat-removal/`）整条删除，这些包名与类型名在当前实现中已不存在。里程碑台账按当时状态原样保留，改写或删除会伪造批次证据；现行口径以代码、测试与 [`application/README.md`](../../application/README.md) 为准。
+
 # Application 未完成项开发计划
 
 日期：2026-10-27
@@ -96,7 +98,13 @@ Application 工作包已收口。后续 Store/Backend/Middle 迁移不再借用�
 - core 生产文件/行数 ratchet；
 - 已提取领域包禁止 import `application/core`、禁止持有完整 `Service`；
 - 已迁移的兼容 Service 入口必须保持单行转发；
-- facade 依赖闭包只能登记真实使用的新领域包。
+- facade 依赖闭包只能登记真实使用的新领域包；
+- 兼容门面退场面（[`application/compat_retirement_test.go`](../../application/compat_retirement_test.go)）：
+  禁止 `application/compat` 包与 import、禁止 assembly 重新定义旧前端类型、禁止 `application`
+  重新持有宽前端契约；仓库 `*.md` 引用旧门面拼写只允许被「开头横幅区的历史记录过期标记」
+  豁免，且带标记的文档必须登记在历史记录清单里（标记不是自签豁免）；
+- 测试专用转发夹具：`assembly/*_test.go` 里任何以 `*Frontend` 为返回值的转发构造器
+  （自由函数与方法都算）都必须登记旧面/新面 owner/删除里程碑/归零命令，未登记即红。
 
 ## 2. 每个批次都必须满足
 

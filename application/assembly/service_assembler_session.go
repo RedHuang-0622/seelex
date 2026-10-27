@@ -82,9 +82,7 @@ func (service *Service) assembleSessionReleaseApplication() {
 			return service.components.sessions.PersistCurrentSession(location, sessionID)
 		},
 		FlushToolRecord: func(sessionID string) {
-			if service.toolRecords != nil {
-				service.toolRecords.Flush(sessionID)
-			}
+			service.toolRecords.Flush(sessionID)
 		},
 		UnloadEngine: func(sessionID string) error {
 			if engine, ok := service.Deps.Engine.(residentEngine); ok {
@@ -118,9 +116,7 @@ func (service *Service) assembleSessionReleaseApplication() {
 			service.ViewMu.Unlock()
 		},
 		ReleaseToolRecord: func(sessionID string) {
-			if service.toolRecords != nil {
-				service.toolRecords.ReleaseSession(sessionID)
-			}
+			service.toolRecords.ReleaseSession(sessionID)
 		},
 		RequestRefresh: func() {
 			service.components.sessions.RequestCatalogRefresh()

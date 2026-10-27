@@ -159,9 +159,7 @@ func (service *Service) assembleLifecycleApplication() {
 			return true
 		},
 		FlushToolRecords: func() {
-			if service.toolRecords != nil {
-				service.toolRecords.FlushAll()
-			}
+			service.toolRecords.FlushAll()
 		},
 		StopCatalogRefresh: func() {
 			service.components.sessions.StopCatalogRefresh()

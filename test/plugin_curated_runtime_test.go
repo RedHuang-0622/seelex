@@ -210,8 +210,8 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 	if !strings.Contains(text, "pluginStartup.RootReading") {
 		t.Fatal("装配段没有把根读数带出 InitPluginSystem（它进不了 UI 面，就只能是终端日志）")
 	}
-	if !strings.Contains(text, `app.AddNotice("插件: " + pluginStartup.RootReading)`) {
-		t.Fatal("根读数必须进 UI 面（app.AddNotice）——只写 log.Printf 的话，GUI 里根本看不到")
+	if !strings.Contains(text, `components.Session.View.AddNotice("插件: " + pluginStartup.RootReading)`) {
+		t.Fatal("根读数必须进 UI 面（通知 owner view_state.Coordinator 的 AddNotice）——只写 log.Printf 的话，GUI 里根本看不到")
 	}
 	// 根读数只有一处生成：`config.PluginRootReport` 的唯一调用点在
 	// wiring/config/plugins.go 的 LogPluginRoots 里，装配面拿到的就是它返回的那份字节。

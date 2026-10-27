@@ -67,3 +67,12 @@ func (service *Service) publishRuntimeProjections() {
 	service.Deps.Runtime.SetRuntimeVisibilityProjection(projection)
 	service.Deps.Runtime.SetParentEvidenceProjection(evidence)
 }
+
+// PublishInitialRuntimeProjections 是组合根触发**首次**运行时投影发布的唯一入口。
+//
+// 它刻意不进组件快照、也不挂到任何前端方法面：这件事要读 ViewMu 下的核心快照再写
+// Runtime 投影，是 assembly 自己的内部协调，只在"装配完成、Deps.Runtime 已就位"
+// 之后按一次。作为字段暴露出去，会让调用方以为它能像刷新读数那样随时重放。
+func PublishInitialRuntimeProjections(service *Service) {
+	service.publishRuntimeProjections()
+}

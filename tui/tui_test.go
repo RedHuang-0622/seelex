@@ -40,13 +40,11 @@ func (app *fakeApp) CancelChat(id string) bool { app.cancelled = id; return true
 func (*fakeApp) Suggestions(string) []application.Suggestion {
 	return []application.Suggestion{{Text: "help", Kind: "command"}}
 }
-func (app *fakeApp) ResolveInteraction(_ context.Context, id, option string) error {
+func (app *fakeApp) Resolve(_ context.Context, id, option string) error {
 	app.resolved = id + ":" + option
 	return nil
 }
-func (*fakeApp) SelectAccount(context.Context, string) error { return nil }
-func (*fakeApp) SwitchPlugin(context.Context, string) error  { return nil }
-func (*fakeApp) SwitchEffort(context.Context, string) error  { return nil }
+func (*fakeApp) SwitchEffort(string) error { return nil }
 func (app *fakeApp) LoadMoreHistory(limit int) error {
 	app.loadLimit = limit
 	return nil
@@ -54,6 +52,21 @@ func (app *fakeApp) LoadMoreHistory(limit int) error {
 func (app *fakeApp) LoadLatestHistory() error {
 	app.loadedLatest = true
 	return nil
+}
+
+// deps 装配本假实现真正提供的端口。队列编辑与工具记录读面刻意留 nil：
+// 假实现没有这两条能力，与迁移前「类型断言失败即退场」的形状一致。
+func (app *fakeApp) deps() Dependencies {
+	return Dependencies{
+		Snapshot:    app,
+		Events:      app,
+		Submission:  app,
+		Completion:  app,
+		Interaction: app,
+		Lifecycle:   app,
+		Effort:      app,
+		History:     app,
+	}
 }
 
 // TestStatusBarShowsCrossSessionPendingApprovalCount E：TUI 最小承载面 =
@@ -64,7 +77,7 @@ func TestStatusBarShowsCrossSessionPendingApprovalCount(t *testing.T) {
 		{ID: "sess-awaiting-long-1", Status: application.SessionStatusAwaitingApproval, ApprovalCount: 2},
 		{ID: "sess-idle", Status: application.SessionStatusIdle},
 	}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 
 	bar := model.renderStatusBar()
@@ -91,7 +104,7 @@ func TestStatusBarShowsCrossSessionPendingApprovalCount(t *testing.T) {
 
 func TestEnterSubmitsRawInput(t *testing.T) {
 	app := newFakeApp()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	model.textarea.SetValue("hello")
 	updated, command := model.handleEnter()
@@ -112,7 +125,7 @@ func TestEnterSubmitsRawInput(t *testing.T) {
 func TestInteractionKeyResolvesThroughApplication(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot.Interaction = &application.Interaction{ID: "account-1", Options: []application.InteractionOption{{ID: "primary", Label: "Primary"}}}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.snapshot = app.snapshot
 	_, command := model.handleInteractionKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if command == nil {
@@ -127,7 +140,7 @@ func TestInteractionKeyResolvesThroughApplication(t *testing.T) {
 func TestCtrlCCancelsActiveChat(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot.Chat = application.ChatState{Running: true, RequestID: "chat-1"}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.snapshot = app.snapshot
 	model.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if app.cancelled != "chat-1" {
@@ -149,7 +162,7 @@ func TestPlanNodeLifecycleIconsAreDefined(t *testing.T) {
 
 func TestFoldedPasteSubmitsOriginalContent(t *testing.T) {
 	app := newFakeApp()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	model.showLogo = false
 	original := "first\nsecond\nthird"
 	model.foldPaste("", original)
@@ -170,7 +183,7 @@ func TestFoldedPasteSubmitsOriginalContent(t *testing.T) {
 }
 
 func TestCheckPasteFoldsLongSingleLine(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	model.textarea.SetValue(strings.Repeat("x", maxPasteChars))
 	if !model.checkPaste() {
 		t.Fatal("expected long input to be folded")
@@ -181,7 +194,7 @@ func TestCheckPasteFoldsLongSingleLine(t *testing.T) {
 }
 
 func TestEditingPastePlaceholderClearsHiddenBuffer(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	model.pasteBuffer = "secret pasted content"
 	model.textarea.SetValue("edited")
 	model.afterInput()
@@ -191,7 +204,7 @@ func TestEditingPastePlaceholderClearsHiddenBuffer(t *testing.T) {
 }
 
 func TestInputHistoryRestoresDraft(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	model.inputHist = []string{"one", "two"}
 	model.textarea.SetValue("draft")
 
@@ -215,7 +228,7 @@ func TestInputHistoryRestoresDraft(t *testing.T) {
 }
 
 func TestSuggestionNavigationAndAcceptance(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	model.textarea.SetValue("/")
 	model.afterInput()
 	if !model.suggMode {
@@ -235,7 +248,7 @@ func TestSigilPrefixesDriveSuggestionMode(t *testing.T) {
 	// 2026-10-12（J-1a）：`@` 手动召唤团队已退场，因此它不再是前缀（事实源在 application/assembly/completion.go）。
 	// 打 `@` 现在是普通文本，不再进建议面——本用例把它钉成"不再是前缀"。
 	for _, sigil := range []string{"/", "#", "$"} {
-		model := NewModel(newFakeApp())
+		model := NewModel(newFakeApp().deps())
 		model.textarea.SetValue(sigil)
 		model.afterInput()
 		if !model.suggMode {
@@ -249,7 +262,7 @@ func TestSigilPrefixesDriveSuggestionMode(t *testing.T) {
 		}
 	}
 	// 进入参数区（含空白）不再弹建议——与后端 Suggestions 的空结果同口径。
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	model.textarea.SetValue("#code prompt")
 	model.afterInput()
 	if model.suggMode {
@@ -259,7 +272,7 @@ func TestSigilPrefixesDriveSuggestionMode(t *testing.T) {
 
 func TestApplicationEventRefreshesSnapshot(t *testing.T) {
 	app := newFakeApp()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	app.snapshot.Runtime.Model = "updated"
 	updated, command := model.Update(applicationEventMsg{event: application.Event{Kind: application.EventRuntimeChanged}})
 	model = updated.(Model)
@@ -269,7 +282,7 @@ func TestApplicationEventRefreshesSnapshot(t *testing.T) {
 }
 
 func TestExitEventQuits(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	updated, command := model.Update(applicationEventMsg{event: application.Event{Kind: application.EventExitRequested}})
 	if !updated.(Model).quitting || command == nil {
 		t.Fatal("exit event did not request quit")
@@ -277,7 +290,7 @@ func TestExitEventQuits(t *testing.T) {
 }
 
 func TestSubmitErrorBecomesUIError(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	updated, _ := model.Update(submitResultMsg{err: errors.New("submit failed")})
 	if got := updated.(Model).uiError; got != "submit failed" {
 		t.Fatalf("ui error = %q", got)
@@ -285,7 +298,7 @@ func TestSubmitErrorBecomesUIError(t *testing.T) {
 }
 
 func TestWindowSizeInitializesViewport(t *testing.T) {
-	model := NewModel(newFakeApp())
+	model := NewModel(newFakeApp().deps())
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	model = updated.(Model)
 	if !model.ready || model.width != 100 || model.height != 30 || model.textarea.Width() < 1 {
@@ -304,7 +317,7 @@ func TestLoadMoreHistoryCommandUsesRequestedLimit(t *testing.T) {
 func TestTickRefreshesRunningSnapshot(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot.Chat = application.ChatState{Running: true}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	updated, command := model.Update(tickMsg(time.Now()))
 	if !updated.(Model).snapshot.Chat.Running || command == nil {
 		t.Fatal("running tick did not schedule next refresh")
@@ -322,7 +335,7 @@ func TestEndKeyReturnsToLatestWhileBrowsingEarlierHistory(t *testing.T) {
 		HistoryOffset:  5,
 		HasMoreHistory: true,
 	}
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	ready, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	_, cmd := ready.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("end")})
 	if cmd == nil {
@@ -343,7 +356,7 @@ func TestEndKeyReturnsToLatestWhileBrowsingEarlierHistory(t *testing.T) {
 		HistoryOffset:  0,
 		HasMoreHistory: true,
 	}
-	tailReady, _ := NewModel(app).Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tailReady, _ := NewModel(app.deps()).Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	tailReady.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("end")})
 	if app.loadedLatest {
 		t.Fatal("贴尾时不应调用 LoadLatestHistory")

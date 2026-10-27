@@ -14,7 +14,8 @@
 ## 职责与非职责
 
 **做**：把工具/能力登记进 `assemble.Runtime`（工具名、描述、JSON Schema、handler）、
-把 handler 路由到 `application.Service` 与 `assemble.Runtime` 的既有方法面、生成启动期
+把 handler 路由到 `appassembly.ComponentsFor(app)` 快照里的领域 owner 与 `assemble.Runtime`
+的既有方法面、生成启动期
 可复用的执行器（`ScheduledPromptExecutor`）、把看板写盘的 sink 与关闭钩子交给调用方。
 
 **不做**：不装配 Runtime/Application（见 `wiring/bootstrap`）；不解析配置与路径（见
@@ -26,18 +27,21 @@
 
 | 文件 | 职责 |
 |---|---|
-| `registry.go` | 全部注册函数（21 个）：`RegisterContextReadTools` / `RegisterProjectBoardReadTool` / `RegisterProjectRefreshTool` / `ScheduledPromptExecutor` / `RegisterScheduledTaskCapability` / `RegisterTaskTerminalTools` / `RegisterProductTools` / `RegisterReviewFilesTool` / `RegisterMCPServers` / `RegisterMCPLoadTool` / `RegisterTimeTool` / `RegisterPluginSwitchTools` / `RegisterPluginSelfTools` / `ApplyPluginPrompt` / `RegisterAskApprove` / `ProjectBoardSinkFor` / `PluginByName` / `RegisterGoalTools` / `RegisterSkillActivateTool`，以及三个私有 helper（`projectBoardReadRows` / `projectBoardHookMode` / `pluginPromptEngine`）。 |
+| `registry.go` | 全部注册入口（19 个）：`RegisterContextReadTools` / `RegisterProjectBoardReadTool` / `RegisterProjectRefreshTool` / `ScheduledPromptExecutor` / `RegisterScheduledTaskCapability` / `RegisterTaskTerminalTools` / `RegisterProductTools` / `RegisterReviewFilesTool` / `RegisterMCPServers` / `RegisterMCPLoadTool` / `RegisterTimeTool` / `RegisterPluginSwitchTools` / `RegisterPluginSelfTools` / `ApplyPluginPrompt` / `RegisterAskApprove` / `ProjectBoardSinkFor` / `PluginByName` / `RegisterGoalTools` / `RegisterSkillActivateTool`；四个私有 helper（`argsOnly` 把 owner handler 提升到注册面形状 / `safePluginCapabilities` / `projectBoardReadRows` / `projectBoardHookMode`）；`pluginPromptEngine` 是本包定义的消费方接口。 |
 
 ## 核心实现
 
 - **登记顺序即行为**：`RegisterProductTools` 是工具面的总装配表（MCP → MCP 加载 →
   时间 → 插件切换 → 插件自省 → 审批 → 审阅文件 → 自省注册），顺序与该表在组合根里
   逐字一致；改动顺序属于行为变更。
-- **handler 只做路由**：每个 handler 都调用 `compat.Frontend` 或 capability
-  component（`frontend.TaskTerminalHandler`、`app.WorkTableRowsFor`、`app.ProjectRootFor`、…），
-  本包不复制业务判定。
+- **handler 只做路由**：每个 handler 都从 `appassembly.ComponentsFor(app)` 这份分组
+  只读快照里取 owner 指针（`components.Conversation.Reference.*`、
+  `components.Conversation.HistorySearch.SearchHistoryHandler`、
+  `components.Conversation.Compaction.CompactContextHandler`、
+  `components.Execution.ProjectBoard.*`、`components.Admin.Review`、…），
+  本包不复制业务判定，也不再经 `application.Service` 门面方法。
 - **能力面与工具面分开**：`RegisterTaskTerminalTools` 只转发
-  `compat.Frontend.TaskTerminalHandler`；goal 工具族的可视性由
+  `components.Execution.TerminalHandler.Handler`；goal 工具族的可视性由
   `backend/tool/registry` 的 `isGoalTool` + `GoalActive` 门控。
 - **看板 sink 的开关是装配期的**：`ProjectBoardSinkFor` 在关时返回 nil sink 与空
   close，工具完成段判空后一个字节都不写（关就是关，不是"注册了但报错"）。
@@ -49,7 +53,7 @@
 ## 数据流
 
 组合根（或 `wiring/bootstrap`）→ `Registry*` 一次调用 → `assemble.Runtime.RegisterTool` /
-`RegisterCapability` → 运行期模型调用工具 → handler → `application.Service`。
+`RegisterCapability` → 运行期模型调用工具 → handler → `ComponentsFor(app)` 里的 owner 组件。
 本包是**单向漏斗**：没有从 Runtime 回到本包的读路径，也不订阅事件。
 
 ## 依赖方向
@@ -105,13 +109,15 @@ go test ./test/ -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
 
 ### registry.go
 
+- `func argsOnly(handler func(argsJSON string) (string, error)) func(context.Context, string) (string, error)` — argsOnly 把 owner 的 handler 提升到注册面要求的 func(context.Context, string) 形状。
 - `func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service)`
 - `func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service)` — RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
 - `func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service)`
 - `func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor` — ScheduledPromptExecutor 是定时提示词任务的执行器。落点与装配都从任务定义读
 - `func RegisterScheduledTaskCapability(runtime *assemble.Runtime)` — RegisterScheduledTaskCapability 装配定时周期任务白名单命令：
 - `func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service)` — RegisterTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
-- `func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry)`
+- `func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval application.ApprovalBroker, skills *skill.Registry)`
+- `func safePluginCapabilities(plugins *plugin.Manager, names []string) []dto.PluginCapabilityView`
 - `func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service)` — RegisterReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
 - `func RegisterMCPServers(runtime *assemble.Runtime, mcpPath string)` — RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
 - `func RegisterMCPLoadTool(runtime *assemble.Runtime)` — RegisterMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
@@ -119,10 +125,10 @@ go test ./test/ -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
 - `func RegisterPluginSwitchTools( runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, )`
 - `func RegisterPluginSelfTools(runtime *assemble.Runtime, plugins *plugin.Manager)` — RegisterPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
 - `func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager)`
-- `func RegisterAskApprove(runtime *assemble.Runtime, approval *application.ApprovalBroker)`
+- `func RegisterAskApprove(runtime *assemble.Runtime, approval application.ApprovalBroker)`
 - `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st board.ProjectBoardStore, workTableRows func(sessionID string) []model.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, evidenceChars func() int, ) (board.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
 - `func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error)`
-- `func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service)`
+- `func RegisterGoalTools(runtime *assemble.Runtime, handlers goalToolHandlers)`
 - `func RegisterSkillActivateTool(runtime *assemble.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error))` — RegisterSkillActivateTool 注册模型侧的技能激活工具（Codex 式 "调用 skill"
 - `func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface` — projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
 - `func projectBoardHookMode(hook string) (string, error)` — projectBoardHookMode 归一化并校验项目看板的触发面取值。

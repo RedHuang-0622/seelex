@@ -14,7 +14,7 @@ import (
 // capability lives in an application subpackage, core must not grow a Service
 // method whose only job is to expose that component to another file or test.
 // Package-internal callers can read service.components directly; external
-// callers use the owning capability package or the registered FrontendPorts.
+// callers use the owning capability package or the registered Components.
 func TestCoreDoesNotExposeComponentGetters(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

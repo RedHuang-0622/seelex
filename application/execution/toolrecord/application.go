@@ -271,6 +271,17 @@ func (application *Application) CloseUnit(sessionID, unitID string) {
 	application.CommitUnit(sessionID, unitID, seq, stats)
 }
 
+// CloseRoleUnit 收口一个角色回合：主会话是记账归属，角色会话决定单元键。
+//
+// "角色单元键 = RoleUnitID(角色会话, \"\")" 这条判据只写在这里：装配根与兼容门面都
+// 不再各自拼一次，否则角色键一改就会漏改一处。
+func (application *Application) CloseRoleUnit(mainSessionID, roleSessionID string) {
+	if application == nil {
+		return
+	}
+	application.CloseUnit(mainSessionID, RoleUnitID(roleSessionID, ""))
+}
+
 // ReleaseSession reclaims all in-memory ledger state for a released session.
 func (application *Application) ReleaseSession(sessionID string) {
 	sessionID = strings.TrimSpace(sessionID)

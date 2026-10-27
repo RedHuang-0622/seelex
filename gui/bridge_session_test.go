@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -79,6 +80,21 @@ func (fake *sessionAwareFakeApplication) SubscribeSession(sessionID string, buff
 	return fake.hub.SubscribeSession(sessionID, buffer), nil
 }
 
+// SubscribeSessionWithReplay 刻意返回错误：本替身模拟"只有无窗口会话订阅"的宿主，
+// 桥面的运行期错误回退链因此落到 SubscribeSession（订阅键序列被记录下来）。
+func (fake *sessionAwareFakeApplication) SubscribeSessionWithReplay(string, int, int) (application.Subscription, error) {
+	return application.Subscription{}, errors.New("view events: replay window is not supported")
+}
+
+// deps 把变体自己绑进它驱动的端口：宽门面字段走变体本身（尚未迁移的片仍旧路），
+// 视图事件端口也走变体，覆盖的订阅方法因此真的会被桥面调用到（与
+// dependencies_test.go 的逐端口口径一致）。
+func (fake *sessionAwareFakeApplication) deps() Dependencies {
+	deps := fake.depsFor(fake)
+	deps.ViewEvents = fake
+	return deps
+}
+
 // subscriptionKeys 返回订阅键的快照：中继 goroutine 会并发追加
 // subscribeIDs，测试读取必须走这里（-race 下裸读会报数据竞争）。
 func (fake *sessionAwareFakeApplication) subscriptionKeys() []string {
@@ -89,7 +105,7 @@ func (fake *sessionAwareFakeApplication) subscriptionKeys() []string {
 
 func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -118,7 +134,7 @@ func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 }
 
 func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -131,8 +147,10 @@ func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
 	if _, err := bridge.SnapshotOf("s1"); err == nil {
 		t.Fatal("SnapshotOf on unsupported app should error")
 	}
-	if _, err := bridge.SubscribeSession("s1", 8); err == nil {
-		t.Fatal("SubscribeSession on unsupported app should error")
+	// 会话订阅不是可选能力：它由装配表的 ViewEvents 端口承担，端口齐备即直达
+	// owner，桥面不再有"宿主没实现就报不支持"的分支。
+	if _, err := bridge.SubscribeSession("s1", 8); err != nil {
+		t.Fatalf("SubscribeSession through the required port: %v", err)
 	}
 }
 
@@ -146,7 +164,7 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	app.snapshotMu.Lock()
 	app.snapshot.Session = application.SessionState{ID: "session-b"}
 	app.snapshotMu.Unlock()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -227,7 +245,7 @@ func TestBridgeRelaysCompactionProgressToRenderer(t *testing.T) {
 	app.snapshotMu.Lock()
 	app.snapshot.Session = application.SessionState{ID: "session-progress"}
 	app.snapshotMu.Unlock()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}

@@ -101,7 +101,7 @@ func (bridge *Bridge) emitTerminalEvent(event terminal.Event) {
 // terminalDir 给出新终端的工作目录：当前会话绑定的工作区根优先，未绑定时回退
 // 启动时的项目根（与资源管理器/文件预览同一份 workspace 事实）。
 func (bridge *Bridge) terminalDir() string {
-	snapshot := bridge.app.Snapshot()
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
 	if snapshot.CurrentWorkspace != nil {
 		if root := strings.TrimSpace(snapshot.CurrentWorkspace.RootPath); root != "" {
 			return root

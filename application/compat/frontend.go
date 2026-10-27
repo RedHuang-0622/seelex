@@ -42,14 +42,14 @@ import (
 // migrate to narrow capability interfaces. State and lifecycle stay in assembly.
 type Frontend struct {
 	*assembly.Frontend
-	ports assembly.FrontendPorts
+	ports assembly.Components
 }
 
 // New builds the compatibility adapter from an assembled core service.
 func New(service *assembly.Service) *Frontend {
 	frontend := &Frontend{Frontend: &assembly.Frontend{Service: service}}
 	if service != nil {
-		frontend.ports = assembly.NewFrontendPorts(service)
+		frontend.ports = assembly.ComponentsFor(service)
 	}
 	return frontend
 }
@@ -58,35 +58,35 @@ func (frontend *Frontend) admin() *applicationadmin.AccountApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Admin
+	return frontend.ports.Admin.Account
 }
 
 func (frontend *Frontend) completion() *applicationinput.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Completion
+	return frontend.ports.Conversation.Completion
 }
 
 func (frontend *Frontend) contextCompaction() *conversationcontext.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ContextCompaction
+	return frontend.ports.Conversation.Compaction
 }
 
 func (frontend *Frontend) conversationQueue() *applicationconversation.QueueApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ConversationQueue
+	return frontend.ports.Conversation.Queue
 }
 
 func (frontend *Frontend) conversationSession() *applicationconversation.UnifiedApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ConversationSession
+	return frontend.ports.Conversation.Unified
 }
 
 func (frontend *Frontend) ConversationView(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error) {
@@ -105,21 +105,21 @@ func (frontend *Frontend) history() *applicationhistory.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.History
+	return frontend.ports.Conversation.History
 }
 
 func (frontend *Frontend) execution() *applicationexecution.WorkItemApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Execution
+	return frontend.ports.Execution.WorkItem
 }
 
 func (frontend *Frontend) roleActivity() *applicationexecution.RoleActivityApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.RoleActivity
+	return frontend.ports.Execution.RoleActivity
 }
 
 func (frontend *Frontend) HandleRoleToolActivity(activity dto.RoleToolActivity) {
@@ -130,28 +130,28 @@ func (frontend *Frontend) historySearch() *conversationsearch.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.HistorySearch
+	return frontend.ports.Conversation.HistorySearch
 }
 
 func (frontend *Frontend) interaction() *applicationsession.InteractionApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Interaction
+	return frontend.ports.Session.Interaction
 }
 
 func (frontend *Frontend) fork() *applicationsession.ForkApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Fork
+	return frontend.ports.Session.Fork
 }
 
 func (frontend *Frontend) sessionSubmit() *applicationsession.SubmitApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Submit
+	return frontend.ports.Session.Submit
 }
 
 func (frontend *Frontend) SubmitToSession(ctx context.Context, sessionID, text string) error {
@@ -174,7 +174,7 @@ func (frontend *Frontend) submission() *applicationinput.SubmissionApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Submission
+	return frontend.ports.Conversation.Submission
 }
 
 func (frontend *Frontend) Submit(ctx context.Context, text string) error {
@@ -185,91 +185,91 @@ func (frontend *Frontend) goal() *applicationgoal.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Goal
+	return frontend.ports.Admin.Goal
 }
 
 func (frontend *Frontend) lifecycle() *applicationlifecycle.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Lifecycle
+	return frontend.ports.Runtime.Lifecycle
 }
 
 func (frontend *Frontend) perf() *applicationobservability.PerfApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Perf
+	return frontend.ports.Admin.Perf
 }
 
 func (frontend *Frontend) policy() *applicationpolicy.SwitchApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Policy
+	return frontend.ports.Policy.Switch
 }
 
 func (frontend *Frontend) projectBoard() *applicationexecution.ProjectBoardApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ProjectBoard
+	return frontend.ports.Execution.ProjectBoard
 }
 
 func (frontend *Frontend) reference() *applicationreference.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Reference
+	return frontend.ports.Conversation.Reference
 }
 
 func (frontend *Frontend) review() *applicationreview.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Review
+	return frontend.ports.Admin.Review
 }
 
 func (frontend *Frontend) scheduler() *applicationscheduler.SchedulerApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Scheduler
+	return frontend.ports.Runtime.Scheduler
 }
 
 func (frontend *Frontend) scheduledRun() *applicationscheduler.RunApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ScheduledRun
+	return frontend.ports.Runtime.ScheduledRun
 }
 
 func (frontend *Frontend) scheduledSession() *applicationscheduler.SessionApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.ScheduledSession
+	return frontend.ports.Runtime.ScheduledSession
 }
 
 func (frontend *Frontend) runtime() *applicationadmin.RuntimeApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Runtime
+	return frontend.ports.Runtime.Runtime
 }
 
 func (frontend *Frontend) tasks() *task_context.Coordinator {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Tasks
+	return frontend.ports.Execution.Tasks
 }
 
 func (frontend *Frontend) terminalHandler() *applicationtaskcontext.TerminalHandlerApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.TerminalHandler
+	return frontend.ports.Execution.TerminalHandler
 }
 
 func (frontend *Frontend) TaskTerminalHandler(kind string) func(context.Context, string) (string, error) {
@@ -280,14 +280,14 @@ func (frontend *Frontend) view() *view_state.Coordinator {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.View
+	return frontend.ports.Session.View
 }
 
 func (frontend *Frontend) frontendSnapshot() *view_state.SnapshotApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.FrontendSnapshot
+	return frontend.ports.Session.Snapshot
 }
 
 func (frontend *Frontend) Snapshot() model.Snapshot {
@@ -298,105 +298,105 @@ func (frontend *Frontend) subagentView() *subagentview.Coordinator {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SubagentView
+	return frontend.ports.Execution.SubagentView
 }
 
 func (frontend *Frontend) role() *applicationpolicy.RoleApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Role
+	return frontend.ports.Policy.Role
 }
 
 func (frontend *Frontend) roleSessions() contract.RoleSessionsPort {
 	if frontend == nil {
 		return rolesessions.RoleSessions{}
 	}
-	return frontend.ports.RoleSessions
+	return frontend.ports.Policy.RoleSessions
 }
 
 func (frontend *Frontend) workspace() *applicationworkspace.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Workspace
+	return frontend.ports.Workspace.Projects
 }
 
 func (frontend *Frontend) workspaceUseCase() *switchworkspace.UseCase {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.WorkspaceUseCase
+	return frontend.ports.Workspace.Switch
 }
 
 func (frontend *Frontend) sessionDelete() *applicationsession.DeleteApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionDelete
+	return frontend.ports.Session.Delete
 }
 
 func (frontend *Frontend) sessionArchive() *applicationsession.ArchiveApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionArchive
+	return frontend.ports.Session.Archive
 }
 
 func (frontend *Frontend) sessionDraftEntry() *applicationsession.DraftEntryApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionDraftEntry
+	return frontend.ports.Session.DraftEntry
 }
 
 func (frontend *Frontend) sessionLifecycle() *applicationsession.LifecycleApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionLifecycle
+	return frontend.ports.Session.Lifecycle
 }
 
 func (frontend *Frontend) sessionResume() *applicationsession.ResumeApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionResume
+	return frontend.ports.Session.Resume
 }
 
 func (frontend *Frontend) sessionSSH() *applicationsession.SSHApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionSSH
+	return frontend.ports.Session.SSH
 }
 
 func (frontend *Frontend) editFork() *applicationedit.EditApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.EditFork
+	return frontend.ports.Conversation.EditFork
 }
 
 func (frontend *Frontend) subagent() *applicationexecution.SubagentApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.Subagent
+	return frontend.ports.Execution.Subagent
 }
 
 func (frontend *Frontend) sessionMeta() *applicationsession.MetaApplication {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionMeta
+	return frontend.ports.Session.Meta
 }
 
 func (frontend *Frontend) sessionQuery() *applicationsessionquery.Application {
 	if frontend == nil {
 		return nil
 	}
-	return frontend.ports.SessionQuery
+	return frontend.ports.Session.Query
 }
 
 // ListSessions returns the durable session catalog.
@@ -733,52 +733,52 @@ func (frontend *Frontend) SubscribeSessionWithReplay(sessionID string, buffer, r
 
 // PrepareProviderHistory repairs missing provider tool pairs for one session.
 func (frontend *Frontend) PrepareProviderHistory(sessionID string) error {
-	return frontend.ports.ContextHistory.PrepareProviderHistoryFor(sessionID)
+	return frontend.ports.Conversation.ContextHistory.PrepareProviderHistoryFor(sessionID)
 }
 
 // PromptLayers returns the current prompt prefix layers.
 func (frontend *Frontend) PromptLayers() []applicationprompt.PromptLayer {
-	return frontend.ports.PromptStack.Layers()
+	return frontend.ports.Conversation.PromptStack.Layers()
 }
 
 // SetProjectBoardSink installs the optional project-board write projection.
 func (frontend *Frontend) SetProjectBoardSink(sink board.ProjectBoardSink) {
-	frontend.ports.SetProjectBoardSink(sink)
+	frontend.ports.Execution.ProjectBoardSink.Store(sink)
 }
 
 // SetToolRecordEnabled switches the ledger after persisting the setting.
 func (frontend *Frontend) SetToolRecordEnabled(enabled bool) (bool, error) {
-	return frontend.ports.ToolRecords.SetEnabled(enabled)
+	return frontend.ports.Execution.ToolRecords.SetEnabled(enabled)
 }
 
 // ApplyToolRecordEnabled installs the startup value without rewriting storage.
 func (frontend *Frontend) ApplyToolRecordEnabled(enabled bool) {
-	frontend.ports.ToolRecords.ApplyEnabled(enabled)
+	frontend.ports.Execution.ToolRecords.ApplyEnabled(enabled)
 }
 
 // ToolRecordEnabled reports the live ledger switch.
 func (frontend *Frontend) ToolRecordEnabled() bool {
-	return frontend.ports.ToolRecords.Enabled()
+	return frontend.ports.Execution.ToolRecords.Enabled()
 }
 
 // FlushToolRecord writes one dirty session after draining leaf stages.
 func (frontend *Frontend) FlushToolRecord(sessionID string) {
-	frontend.ports.ToolRecords.Flush(sessionID)
+	frontend.ports.Execution.ToolRecords.Flush(sessionID)
 }
 
 // SetToolRecordSnapshotStore injects the per-session snapshot port.
 func (frontend *Frontend) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore) {
-	frontend.ports.ToolRecords.SetSnapshotStore(store)
+	frontend.ports.Execution.ToolRecords.SetSnapshotStore(store)
 }
 
 // ToolRecordBoard returns the current-view session projection.
 func (frontend *Frontend) ToolRecordBoard() dto.ToolRecordBoard {
-	return frontend.ports.ToolRecords.Board()
+	return frontend.ports.Execution.ToolRecords.Board()
 }
 
 // RecordToolCommandOutcome records the command-exit-code success criterion.
 func (frontend *Frontend) RecordToolCommandOutcome(sessionID, tool string, exitCode int) {
-	frontend.ports.ToolRecords.RecordCommandOutcome(sessionID, tool, exitCode)
+	frontend.ports.Execution.ToolRecords.RecordCommandOutcome(sessionID, tool, exitCode)
 }
 
 // GoalSkillActive reports whether the latest goal has active skill state.
@@ -793,22 +793,15 @@ func (frontend *Frontend) HandleSubagentToolEventFor(ownerSessionID string, tool
 
 // AddNotice appends one user-visible system notice.
 func (frontend *Frontend) AddNotice(notice string) {
-	if frontend != nil && frontend.ports.AddNotice != nil {
-		frontend.ports.AddNotice(notice)
-	}
-}
-
-// PublishRuntimeProjections refreshes runtime projections.
-func (frontend *Frontend) PublishRuntimeProjections() {
-	if frontend != nil && frontend.ports.PublishRuntime != nil {
-		frontend.ports.PublishRuntime()
+	if frontend != nil {
+		frontend.view().AddNotice(notice)
 	}
 }
 
 // CloseRoleToolRecordUnit closes one role tool record unit.
 func (frontend *Frontend) CloseRoleToolRecordUnit(mainSessionID, roleSessionID string) {
-	if frontend != nil && frontend.ports.CloseRoleToolRecord != nil {
-		frontend.ports.CloseRoleToolRecord(mainSessionID, roleSessionID)
+	if frontend != nil {
+		frontend.ports.Execution.ToolRecords.CloseRoleUnit(mainSessionID, roleSessionID)
 	}
 }
 

@@ -27,7 +27,7 @@ func TestBridgeSelfHealsSubscriptionAfterAsyncViewRollback(t *testing.T) {
 	app.snapshot.Session = application.SessionState{ID: "failed-target-b"} // async restore 刚激活的空壳
 	app.snapshotMu.Unlock()
 
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestBridgeSameSessionRetryAfterRollbackHealsSubscription(t *testing.T) {
 	app.snapshot.Session = application.SessionState{ID: "session-a"}
 	app.snapshotMu.Unlock()
 
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)
 	}

@@ -78,9 +78,7 @@ func (service *Service) assembleConversationTurnCoreComponents() {
 		},
 		ReconcileSessionRelease: service.components.sessionReleaseApplication.Reconcile,
 		FlushToolRecord: func(sessionID string) {
-			if service.toolRecords != nil {
-				service.toolRecords.Flush(sessionID)
-			}
+			service.toolRecords.Flush(sessionID)
 		},
 		Debug: runChatDebug,
 	})

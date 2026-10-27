@@ -169,19 +169,19 @@ func (fake *fakeApplication) SelectAccount(_ context.Context, name string) error
 	fake.selectedAccount = name
 	return nil
 }
-func (fake *fakeApplication) SwitchEffort(_ context.Context, level string) error {
+func (fake *fakeApplication) SwitchEffort(level string) error {
 	fake.selectedEffort = level
 	return nil
 }
-func (fake *fakeApplication) SetReasoningEffort(_ context.Context, effort string) error {
+func (fake *fakeApplication) SetReasoningEffort(effort string) error {
 	fake.selectedReasoningEffort = effort
 	return nil
 }
-func (fake *fakeApplication) SetLoopLimit(_ context.Context, limit int) error {
+func (fake *fakeApplication) SetLoopLimit(limit int) error {
 	fake.selectedLoopLimit = limit
 	return nil
 }
-func (fake *fakeApplication) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
+func (fake *fakeApplication) SetSessionReleaseWindow(window int) (int, error) {
 	fake.selectedReleaseWindow = window
 	if fake.releaseWindowErr != nil {
 		return 0, fake.releaseWindowErr
@@ -417,7 +417,7 @@ func (fake *fakeApplication) PromptLayers() []application.PromptLayer {
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()
-	if _, err := NewBridge(nil, Options{}); err == nil {
+	if _, err := NewBridge(Dependencies{}, Options{}); err == nil {
 		t.Fatal("NewBridge accepted a nil application")
 	}
 }
@@ -428,7 +428,7 @@ func TestBridgeDiscoversProjectSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("project"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bridge, err := NewBridge(newFakeApplication(), Options{ProjectRoot: root})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{ProjectRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func TestBridgeDiscoversProjectSources(t *testing.T) {
 
 func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
 func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +468,7 @@ func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T) {
 func TestBridgeForwardsOtherCommands(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,7 @@ func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
 		{Name: "src", Path: "src", Type: "dir", Count: 2},
 		{Name: "README.md", Path: "README.md", Type: "file", Size: 10},
 	}}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +646,7 @@ func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
 
 func TestBridgeCreateWorkspacesForwardsBatch(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +666,7 @@ func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.treeCount = dto.TreeCount{Files: 42, Dirs: 7}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestBridgeWorkspaceGitReposForwards(t *testing.T) {
 		},
 		Scanned: 12,
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +714,7 @@ func TestBridgeWorkspaceGitLogForwardsRepoAndLimit(t *testing.T) {
 	fake.gitLog = dto.GitLogResult{Commits: []dto.GitCommitNode{
 		{Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Parents: []string{"bbbb"}, Subject: "fix: git log"},
 	}}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +744,7 @@ func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T) {
 		Unstaged:  1,
 		Untracked: 1,
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +772,7 @@ func TestBridgeWorkspaceGitCommitDetailForwardsHash(t *testing.T) {
 		Total: 1,
 		Files: []dto.GitCommitFileEntry{{Path: "src/main.go", Kind: dto.ChangeModified, Status: "M", Letter: "M", Additions: 3, Deletions: 1}},
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,7 +793,7 @@ func TestBridgeWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.commitContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +814,7 @@ func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.fileContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +835,7 @@ func TestBridgeWorkspaceWriteFileForwardsPathAndContent(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	fake.writeResult = dto.FileWriteResult{Path: "src/main.go", Size: 5, Limit: 64 << 20}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -927,7 +927,7 @@ func TestEmbeddedGitCommitDrilldownWiring(t *testing.T) {
 func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +996,7 @@ func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testin
 		Hits: []seelexctxsearch.Hit{{SegmentID: "compact-a", From: 0, To: 1, Score: 2.5,
 			Records: []seelexctxsearch.ChatRecord{{Role: "user", Content: "聊聊数据库索引"}}}},
 	}
-	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	bridge, err := NewBridge(fake.deps(), Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1017,7 +1017,7 @@ func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testin
 // （视图会话当前回合），Bridge 不得再用空 id 重试兜底。
 func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 	fake := &recordingCancelApplication{fakeApplication: newFakeApplication()}
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.depsFor(fake), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1033,7 @@ func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 // application（门控在 application 层），Bridge 不重试、不伪造归档状态。
 func TestBridgeArchiveSessionForwardsOnce(t *testing.T) {
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1055,7 +1055,7 @@ func TestBridgeSessionReadAPIsForwardOnce(t *testing.T) {
 	fake.snapshotMu.Lock()
 	fake.snapshot.Sessions = []application.SessionInfo{{ID: "sess-a"}}
 	fake.snapshotMu.Unlock()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.depsFor(fake), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1097,7 +1097,7 @@ func TestBridgeSwitchCommandsSerialize(t *testing.T) {
 		fakeApplication: newFakeApplication(),
 		gate:            make(chan struct{}),
 	}
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.depsFor(fake), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,7 +1165,7 @@ func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T) {
 		t.Run(command.name, func(t *testing.T) {
 			fake := newFakeApplication()
 			fake.catalogGate = make(chan struct{})
-			bridge, err := NewBridge(fake, Options{})
+			bridge, err := NewBridge(fake.deps(), Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1438,7 +1438,7 @@ func TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout(t *testing.T) {
 func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1473,7 +1473,7 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1515,7 +1515,7 @@ func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2601,7 +2601,7 @@ func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent {
 
 func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
 	app := newFakeApplication()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2620,7 +2620,7 @@ func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
 
 func TestBridgeForwardsForkSession(t *testing.T) {
 	app := newFakeApplication()
-	bridge, err := NewBridge(app, Options{})
+	bridge, err := NewBridge(app.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2638,7 +2638,7 @@ func TestBridgeForwardsForkSession(t *testing.T) {
 func TestBridgeForwardsPermissionTier(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	bridge, err := NewBridge(fake, Options{})
+	bridge, err := NewBridge(fake.deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

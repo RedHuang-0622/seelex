@@ -120,6 +120,7 @@
 - `func (port serviceRuntimeProjectionPort) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
 - `func (port serviceRuntimeProjectionPort) PublishTaskDeltas()`
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections copies application-owned state under the view lock
+- `func PublishInitialRuntimeProjections(service *Service)` — PublishInitialRuntimeProjections 是组合根触发**首次**运行时投影发布的唯一入口。
 
 ### served_route_test.go
 

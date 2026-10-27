@@ -6,16 +6,11 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/kernel/board"
 )
 
 // These shims keep existing core integration fixtures source-compatible after
 // their public facade moved to application/compat. They exist only in the test
 // build and call the same extracted owners as the frontend adapter.
-func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink) {
-	service.components.projectBoard.store(sink)
-}
-
 func (service *Service) PromptLayers() []prompt.PromptLayer {
 	if service == nil || service.promptStack == nil {
 		return nil

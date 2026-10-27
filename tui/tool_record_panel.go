@@ -10,31 +10,24 @@ import (
 
 // tool_record_panel.go — **工具记录**的 TUI 只读面（2026-10-15）。
 //
-// 生态位：与 GUI「状态 → 工具记录」**同源**——两边读的都是
-// `Application.ToolRecordBoard()`（当前视图会话的会话级读数，落该会话自己的
-// `tool-record.jsonl`），
-// 终端里不再折一遍统计（那是第二份事实）。面板不新增只对终端生效的业务事实，
-// 也不做任何写动作（开关是 GUI 设置的事：TUI 面板是只读面，见 tui/README.md 的边界）。
+// 生态位：与 GUI「状态 → 工具记录」**同源**——两边读的都是同一个 owner
+// （`Execution.ToolRecords`）给出的当前视图会话读数，落该会话自己的
+// `tool-record.jsonl`，终端里不再折一遍统计（那是第二份事实）。面板不新增只对
+// 终端生效的业务事实，也不做任何写动作（开关是 GUI 设置的事：TUI 面板是只读面，
+// 见 tui/README.md 的边界）。
 //
-// 为什么走**可选读面 + 类型断言**（与 queueController 同一手法）：`AppController`
-// 是 TUI 的最小契约，假实现不必为了一个只读面板长出空方法；未实现时整块退场
-// （不留空壳），而不是显示一行"未装配"。
-
-// toolRecordReader 是 AppController 的**可选**工具记录读面。
-type toolRecordReader interface {
-	ToolRecordBoard() application.ToolRecordBoard
-}
+// 退场判据：读面由装配决定（`Dependencies.ToolRecord == nil`），不再用运行时类型
+// 断言探测具体实现。未装配时整块退场（不留空壳），而不是显示一行“未装配”。
 
 // toolRecordLines 渲染工具记录：一行表头（开关 + 合计成功/失败）+ 每工具一行
 // 成功/失败/占比 + 失败最多的原因（饼图在 GUI 里有，终端里给最要紧的那一格）。
 //
 // 空读数（没记过）→ nil：不追加空壳。行数上限与其它面板一致（panelLineLimit）。
 func (model Model) toolRecordLines() []string {
-	reader, ok := model.app.(toolRecordReader)
-	if !ok {
+	if model.deps.ToolRecord == nil {
 		return nil
 	}
-	board := reader.ToolRecordBoard()
+	board := model.deps.ToolRecord.Board()
 	if !board.Enabled || board.Total == 0 || len(board.Tools) == 0 {
 		return nil
 	}

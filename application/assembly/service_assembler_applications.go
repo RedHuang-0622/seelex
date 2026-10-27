@@ -50,17 +50,13 @@ func (service *Service) assembleRoleActivityApplication() {
 		EvidenceChars: func() int { return applicationpolicy.Get().EvidenceChars },
 		Truncate:      worktable.TruncateWorkEvidence,
 		Stage: func(ownerSessionID, unitID, name, status, errorText string) {
-			if service.toolRecords != nil {
-				service.toolRecords.StageStatus(ownerSessionID, unitID, name, status, errorText)
-			}
+			service.toolRecords.StageStatus(ownerSessionID, unitID, name, status, errorText)
 		},
 		Publish: func(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) {
 			service.publishSessionEvent(kind, revision, requestID, sessionID, payload)
 		},
 		NoteDropped: func(reason string) {
-			if service.toolRecords != nil {
-				service.toolRecords.NoteDropped(reason)
-			}
+			service.toolRecords.NoteDropped(reason)
 		},
 		StartedKind:   EventTeammateToolStarted,
 		CompletedKind: EventTeammateToolCompleted,

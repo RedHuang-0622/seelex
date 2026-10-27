@@ -34,37 +34,6 @@ type Application interface {
 	ForkSessionLatest(string) (string, error)
 	CancelChat(string) bool
 	ResolveInteraction(context.Context, string, string) error
-	SelectAccount(context.Context, string) error
-	SwitchEffort(context.Context, string) error
-	// SetReasoningEffort / SetLoopLimit 是 composer 底部两条**独立**拉条的落点
-	// （思考强度 / 循环次数各自独立；档位切换 = 同时设置两条拉条的预设）。
-	SetReasoningEffort(context.Context, string) error
-	SetLoopLimit(context.Context, int) error
-	// SetSessionReleaseWindow / SessionReleaseWindow 是「会话驻留窗口」的可调面
-	// （设置弹窗 → 会话驻留）：写路径返回**真正生效**的值（前端采纳它，而不是假定
-	// 请求值生效），读路径供弹窗打开时读一次。
-	SetSessionReleaseWindow(context.Context, int) (int, error)
-	SessionReleaseWindow() int
-	// SetAccountWindow 是「每账号上下文窗口」的可调面（设置 → 账号的挡位/自定义值）：
-	// 先落盘（宿主自己的覆盖层）再改运行时，返回**真正生效**的窗口；window <= 0 =
-	// 清掉该账号的覆盖（回落 config/seelex.yaml 的 limits.context_window）。
-	SetAccountWindow(context.Context, string, int) (int, error)
-	// AddAccount 是角色卡下「添加账户」的写面：写账号档 + 热注册，
-	// 返回生效的账号名。校验/落盘失败时什么都没变；已落盘但热注册失败时错误里会写明
-	// "重启后生效"。
-	AddAccount(context.Context, application.AccountDraft) (application.AccountAddResult, error)
-	AccountDetails(string) (application.AccountDetails, error)
-	UpdateAccount(application.AccountUpdate) (application.AccountDetails, error)
-	DeleteAccount(string) (application.AccountDetails, error)
-	// AccountBalance 是「查一个账号此刻的余额」的读面（角色卡账户行）。
-	// 余额是快照：点一次查一次，不进快照缓存。
-	AccountBalance(context.Context, string) (application.AccountBalance, error)
-	SwitchPlugin(context.Context, string) error
-	LoadMoreHistory(int) error
-	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
-	// 分页只移动窗口，数据不动）。
-	LoadLatestHistory() error
-	Suggestions(string) []application.Suggestion
 	DeleteSession(string) error
 	// ArchiveSession 把指定会话置为 archived（record 级状态；运行中/待批
 	// 拒绝）。归档会话从常规目录隐藏，数据五片保留可按 ID 重开。
@@ -78,10 +47,6 @@ type Application interface {
 	CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
-	SetFullAccess(bool) bool
-	// SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回
-	// 真正生效的档位；未识别的档位 id 报错。会话级归属（G4）。
-	SetPermissionTier(string) (string, error)
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 	ClearSubagentTree() error
 	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
@@ -138,73 +103,6 @@ type Application interface {
 	PromptLayers() []application.PromptLayer
 }
 
-// sessionAwareApplication 是 Application 的可选会话级扩展（M1 显式
-// sessionID API；旧方法继续委托活跃会话，桌面宿主可按能力渐进接入）。
-type sessionAwareApplication interface {
-	SubmitToSession(context.Context, string, string) error
-	ActivateSession(string) error
-	SnapshotOf(string) (application.SessionSnapshot, error)
-	// ListSessions 返回权威会话目录（headless/控制台枚举；与快照目录同源，
-	// 不要求会话驻留）。
-	ListSessions() []application.SessionInfo
-	// GetSessionTranscript 按 Seq 区间读取会话事件日志（冷读可用，不要求
-	// 目标会话驻留；(0,0) = 全量）。
-	GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error)
-	SubscribeSession(string, int) (application.Subscription, error)
-}
-
-// replayAwareApplication 是 sessionAwareApplication 的再一层可选扩展：宿主能
-// 给出带重放窗口的订阅（缓冲写满不丢事件，可按 delivery_seq 增量补取），
-// Bridge 才会启用回执重推（C4）。未实现时退回无窗口订阅，溢出仍由 hub 的
-// resync.required 兜底。
-type replayAwareApplication interface {
-	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (application.Subscription, error)
-}
-
-// messageEditForkApplication 是「编辑用户消息并自动 fork」的原子能力面。
-// 它刻意是可选窄接口：未装配的宿主明确报错，不能由 Bridge 拆成
-// ForkSession + Submit 两条请求。
-type messageEditForkApplication interface {
-	EditUserMessageAndFork(context.Context, string, model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)
-}
-
-// queueAwareApplication 是 Application 的可选排队输入编辑面：调换排队顺序 +
-// 撤回到输入框。只作用于「排队中」的输入（回合运行期间的队列），不触碰正在
-// 运行的回合；未装配时 Bridge 方法返回可展示错误，不静默退化。
-type queueAwareApplication interface {
-	// ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
-	//（空 sessionID = 当前视图会话）。
-	ReorderQueuedInput(sessionID string, from, to int) error
-	// RecallQueuedInput 撤回目标会话的一条排队输入并返回其展示原文（引擎侧
-	// 载荷随条目丢弃）。
-	RecallQueuedInput(sessionID string, index int) (string, error)
-}
-
-// roleSettingsApplication 是 Application 的**可选**角色设置写面（设置 → 角色设置）。
-//
-// 为什么窄可选而不是并进 Application：面里只有真机应用层有这两条（会话级角色权限
-// 登记），还没装配的宿主（GUI 的假应用、headless 假面）不该被逼着写空实现——缺了就
-// 在桥面显式报"未装配"，不静默退化成"空权限"（与 queueAwareApplication 同一条口径）。
-type roleSettingsApplication interface {
-	// RolePermissionVector 读某角色在某会话的生效权限向量（登记优先，缺失按五级链路）。
-	RolePermissionVector(sessionID, role string) ([]string, error)
-	// SetRolePermissionVector 写入某角色的权限向量（空集 = 显式不给任何能力）。
-	SetRolePermissionVector(sessionID, role string, vector []string) error
-	// RoleDefaultVector / SetRoleDefaultVector 是**角色级默认**（跨会话）：权限面板
-	// 给每个角色定的那一份默认向量，落在角色默认层，会话登记仍压在它之上。
-	RoleDefaultVector(sessionID, role string) ([]string, bool, error)
-	SetRoleDefaultVector(sessionID, role string, vector []string) error
-	// 角色默认账号（项目作用域）。空 account = 未设置，由账号池按角色选择。
-	RoleAccount(sessionID, role string) (string, bool, error)
-	SetRoleAccount(sessionID, role, account string) error
-	RoleInheritMainAgent(sessionID, role string) (bool, error)
-	SetRoleInheritMainAgent(sessionID, role string, inherit bool) error
-	RoleSSHUserSpaces(sessionID, role string) ([]string, error)
-	RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)
-	SetRoleSSHUserSpaces(sessionID, role string, paths []string) error
-	SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error
-}
-
 // roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
 // 成员行「查看会话」与「员工会话」入口）。
 //
@@ -248,13 +146,8 @@ type roleSessionApplication interface {
 var (
 	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
 	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
-	_ Application                = (*application.Frontend)(nil)
-	_ sessionAwareApplication    = (*application.Frontend)(nil)
-	_ replayAwareApplication     = (*application.Frontend)(nil)
-	_ roleSessionApplication     = (*application.Frontend)(nil)
-	_ queueAwareApplication      = (*application.Frontend)(nil)
-	_ roleSettingsApplication    = (*application.Frontend)(nil)
-	_ messageEditForkApplication = (*application.Frontend)(nil)
+	_ Application            = (*application.Frontend)(nil)
+	_ roleSessionApplication = (*application.Frontend)(nil)
 )
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -298,7 +191,9 @@ type ProjectSource struct {
 
 // Bridge adapts the headless application service to desktop-safe methods.
 type Bridge struct {
-	app  Application
+	// deps 是装配表交出的应用面：已迁移的组走各自 owner 端口，尚未迁移的组仍走
+	// deps.App（宽门面，只减不增，S7 删除）。
+	deps Dependencies
 	info AppInfo
 	mu   sync.Mutex
 	// switchMu 串行化“视图会话切换类”命令（BeginNewSession/ResumeSession/
@@ -350,15 +245,20 @@ const (
 	eventResendMaxTries = 3
 )
 
-func NewBridge(app Application, options Options) (*Bridge, error) {
-	if app == nil {
-		return nil, errors.New("gui: application is required")
+// NewBridge 按装配表构造桥面。
+//
+// 空装配表（零值 Dependencies）在构造期就被拒绝：那是组合根漏填整张表，不是
+// 某个前端能力缺失。单个端口漏填由装配表的编译期结构断言与端口调用点兜住——
+// 桥面不再探测"宿主支持哪几件事"。
+func NewBridge(deps Dependencies, options Options) (*Bridge, error) {
+	if deps == (Dependencies{}) {
+		return nil, errors.New("gui: dependencies are required")
 	}
 	title := strings.TrimSpace(options.Title)
 	if title == "" {
 		title = "Seelex"
 	}
-	return &Bridge{app: app, info: AppInfo{Title: title, Version: options.Version, Project: discoverProject(options.ProjectRoot)}, appearancePath: strings.TrimSpace(options.AppearancePath)}, nil
+	return &Bridge{deps: deps, info: AppInfo{Title: title, Version: options.Version, Project: discoverProject(options.ProjectRoot)}, appearancePath: strings.TrimSpace(options.AppearancePath)}, nil
 }
 
 func discoverProject(root string) ProjectInfo {
@@ -428,7 +328,7 @@ func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter,
 	go func() {
 		defer bridge.wg.Done()
 		if emit != nil {
-			emit(loopContext, "seelex:ready", bridge.app.Snapshot())
+			emit(loopContext, "seelex:ready", bridge.deps.ViewSnapshot.Snapshot())
 		}
 		for {
 			select {
@@ -475,23 +375,20 @@ func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter,
 // 指针"判定）。草稿期 sid 为空时保留跟随视图过渡口径（G4 早分配 SID 后
 // 彻底消失）；调用方必须持有 bridge.mu。
 //
-// 优先申请带重放窗口的订阅：缓冲写满时事件不丢，落后的渲染层可以按
-// delivery_seq 增量补取而不是整份重拉快照（C4）。宿主不支持窗口时退回
-// 全局/无窗口订阅（此时溢出仍由 hub 的 resync.required 兜底）。
+// 先申请带重放窗口的会话级订阅：缓冲写满时事件不丢，落后的渲染层可以按
+// delivery_seq 增量补取而不是整份重拉快照（C4）。后两档是**运行期错误**回退
+// （owner 拒绝会话级订阅 / 拒绝重放窗口时），不是能力探测：有没有这些能力只由
+// 装配表说话，缺 owner 是装配错误（见 dependencies.go 的 ViewEvents）。
 func (bridge *Bridge) subscribeViewLocked() application.Subscription {
-	sessionID := bridge.app.Snapshot().Session.ID
+	sessionID := bridge.deps.ViewSnapshot.Snapshot().Session.ID
 	bridge.subscribedSessionID = sessionID
-	if app, ok := bridge.app.(replayAwareApplication); ok {
-		if subscription, err := app.SubscribeSessionWithReplay(sessionID, eventSubscriptionBuffer, eventReplayWindow); err == nil {
-			return subscription
-		}
+	if subscription, err := bridge.deps.ViewEvents.SubscribeSessionWithReplay(sessionID, eventSubscriptionBuffer, eventReplayWindow); err == nil {
+		return subscription
 	}
-	if app, ok := bridge.app.(sessionAwareApplication); ok {
-		if subscription, err := app.SubscribeSession(sessionID, eventSubscriptionBuffer); err == nil {
-			return subscription
-		}
+	if subscription, err := bridge.deps.ViewEvents.SubscribeSession(sessionID, eventSubscriptionBuffer); err == nil {
+		return subscription
 	}
-	return bridge.app.Subscribe(eventSubscriptionBuffer)
+	return bridge.deps.ViewEvents.Subscribe(eventSubscriptionBuffer)
 }
 
 // subscribedIDLocked 返回当前订阅的会话键（无订阅时为空串）。
@@ -540,7 +437,7 @@ func (bridge *Bridge) syncSubscriptionToView() {
 	}
 	subscribed := bridge.subscribedSessionID
 	bridge.mu.Unlock()
-	if subscribed == bridge.app.Snapshot().Session.ID {
+	if subscribed == bridge.deps.ViewSnapshot.Snapshot().Session.ID {
 		return
 	}
 	bridge.resubscribe()
@@ -693,26 +590,26 @@ const sessionCatalogSettleTimeout = 2 * time.Second
 func (bridge *Bridge) settleCatalog() {
 	ctx, cancel := context.WithTimeout(bridge.requestContext(), sessionCatalogSettleTimeout)
 	defer cancel()
-	_ = bridge.app.WaitCatalogRefresh(ctx)
+	_ = bridge.deps.SessionCatalog.WaitCatalogRefresh(ctx)
 }
 
-func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapshot() }
+func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.deps.ViewSnapshot.Snapshot() }
 
 // SubagentSessionDetail 返回子代理节点详情（会话记录 + 上下文快照 +
 // 功能打点；条目详情弹窗唯一的数据面）。
 func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error) {
-	return bridge.app.SubagentSessionDetail(nodeID)
+	return bridge.deps.App.SubagentSessionDetail(nodeID)
 }
 
 // ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。
 func (bridge *Bridge) ClearSubagentTree() error {
-	return bridge.app.ClearSubagentTree()
+	return bridge.deps.App.ClearSubagentTree()
 }
 
 // UpdateWorkItemStatus 更新工作表格任务状态（参数透传；业务校验在
 // application 层，Bridge 不维护状态）。
 func (bridge *Bridge) UpdateWorkItemStatus(id, status string) error {
-	return bridge.app.UpdateWorkItemStatus(id, status)
+	return bridge.deps.App.UpdateWorkItemStatus(id, status)
 }
 
 func (bridge *Bridge) Submit(text string) error {
@@ -720,13 +617,13 @@ func (bridge *Bridge) Submit(text string) error {
 	// 订阅键可能仍钉在失败目标上（会话级事件流已沉默），若用户此刻成功发
 	// 出消息，运行结果将永远不回显。
 	bridge.syncSubscriptionToView()
-	return bridge.app.Submit(bridge.requestContext(), text)
+	return bridge.deps.Submission.Submit(bridge.requestContext(), text)
 }
 
 func (bridge *Bridge) BeginNewSession() error {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	if err := bridge.app.BeginNewSession(); err != nil {
+	if err := bridge.deps.Draft.Begin(); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
@@ -739,7 +636,7 @@ func (bridge *Bridge) BeginNewSession() error {
 func (bridge *Bridge) ResumeSession(sessionID string) error {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	if err := bridge.app.ResumeSession(sessionID); err != nil {
+	if err := bridge.deps.Resume.Resume(sessionID); err != nil {
 		return err
 	}
 	bridge.syncSubscriptionToView()
@@ -751,7 +648,7 @@ func (bridge *Bridge) ResumeSession(sessionID string) error {
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	childID, err := bridge.app.ForkSessionLatest(sessionID)
+	childID, err := bridge.deps.Fork.ForkLatest(sessionID)
 	if err != nil {
 		return "", err
 	}
@@ -763,13 +660,9 @@ func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
 // EditUserMessageAndFork 是最小 GUI 写面：一次 RPC 内完成编辑源消息的分叉与
 // 修改后输入提交。请求里的 operation_id 由前端稳定生成，后端负责双击幂等。
 func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error) {
-	app, ok := bridge.app.(messageEditForkApplication)
-	if !ok {
-		return model.EditUserMessageForkResult{}, errors.New("当前 Application 未装配消息编辑分叉面")
-	}
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	result, err := app.EditUserMessageAndFork(bridge.requestContext(), parentSessionID, request)
+	result, err := bridge.deps.MessageEdit.EditUserMessageAndFork(bridge.requestContext(), parentSessionID, request)
 	if err != nil {
 		return model.EditUserMessageForkResult{}, err
 	}
@@ -781,129 +674,77 @@ func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request mod
 // CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，
 // 归属判断（停掉本会话当前回合）在 application 层，Bridge 只做转发。
 func (bridge *Bridge) CancelChat(requestID string) bool {
-	return bridge.app.CancelChat(requestID)
+	return bridge.deps.Turn.CancelChat(requestID)
 }
 
-// SubmitToSession 向指定会话提交输入（会话级保护 API；应用不支持时返回
-// 明确错误，不影响既有 Submit 路径）。
+// SubmitToSession 向指定会话提交输入（会话级保护 API；与视图会话无关）。
+// 会话作用域的解析与保护在 owner 里，桥面只补 request context。
 func (bridge *Bridge) SubmitToSession(sessionID, text string) error {
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return errors.New("session-scoped API is not supported by the application")
-	}
-	return app.SubmitToSession(bridge.requestContext(), sessionID, text)
+	return bridge.deps.SessionSubmit.SubmitToSession(bridge.requestContext(), sessionID, text)
 }
 
 // ReorderQueuedInput 调换目标会话排队输入的顺序（队列条目的 ↑/↓ 操作）。
 // 只作用于排队中的输入；越界/非运行态/会话不存在由 application 层给出明确
 // 错误，Bridge 只做透传（空 sessionID = 当前视图会话）。
 func (bridge *Bridge) ReorderQueuedInput(sessionID string, from, to int) error {
-	app, ok := bridge.app.(queueAwareApplication)
-	if !ok {
-		return errors.New("queued input editing is not supported by the application")
-	}
-	return app.ReorderQueuedInput(sessionID, from, to)
+	return bridge.deps.Queue.ReorderQueuedInput(sessionID, from, to)
 }
 
 // RecallQueuedInput 撤回目标会话的一条排队输入，返回其展示原文（渲染层把
 // 原文写回 composer 重新编辑）。只作用于排队中的输入；越界/非运行态/会话
 // 不存在由 application 层给出明确错误，Bridge 只做透传。
 func (bridge *Bridge) RecallQueuedInput(sessionID string, index int) (string, error) {
-	app, ok := bridge.app.(queueAwareApplication)
-	if !ok {
-		return "", errors.New("queued input editing is not supported by the application")
-	}
-	return app.RecallQueuedInput(sessionID, index)
+	return bridge.deps.Queue.RecallQueuedInput(sessionID, index)
 }
 
 // ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。
+//
+// 它是 ResumeSession 的显式会话别名：两条 RPC 名（前端各自照名调用）落到同一个
+// owner 方法，语义不在桥面分叉。
 func (bridge *Bridge) ActivateSession(sessionID string) error {
-	bridge.switchMu.Lock()
-	defer bridge.switchMu.Unlock()
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return errors.New("session-scoped API is not supported by the application")
-	}
-	if err := app.ActivateSession(sessionID); err != nil {
-		return err
-	}
-	bridge.syncSubscriptionToView()
-	return nil
+	return bridge.ResumeSession(sessionID)
 }
 
 // SnapshotOf 返回指定会话的权威会话快照（G3：SessionSnapshot，进程级目录
 // 与能力清单不在其中；经 capabilities.session_snapshot 声明）。
 func (bridge *Bridge) SnapshotOf(sessionID string) (application.SessionSnapshot, error) {
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return application.SessionSnapshot{}, errors.New("session-scoped API is not supported by the application")
-	}
-	return app.SnapshotOf(sessionID)
+	return bridge.deps.SessionCatalog.SnapshotOf(sessionID)
 }
 
 // ListSessions 返回权威会话目录（C1 冷读宿主面；与会话树同一数据源）。
 func (bridge *Bridge) ListSessions() []application.SessionInfo {
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return nil
-	}
-	return app.ListSessions()
+	return bridge.deps.SessionCatalog.ListSessions()
 }
-
-// sessionInputIndexApplication 是 Application 的「全量用户输入索引」可选扩展面
-// （对话区右侧索引数据源）。未装配时 Bridge 方法返回可展示错误，不静默退化
-// 成「空索引」（否则右侧轨道看起来能点、其实什么都没索引到）。
-type sessionInputIndexApplication interface {
-	// SessionInputIndex 返回目标会话的**全量**用户输入索引（seq/round 序号、
-	// 有界摘要、是否在当前已加载窗口）；未驻留会话同样可用。
-	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
-}
-
-// 编译期断言：生产 Application（application.Service = *core.Service）必须满足
-// 本可选面；用假实现顶替会让真机在类型断言处退化成"未装配"。
-var _ sessionInputIndexApplication = (*application.Frontend)(nil)
 
 // SessionInputIndex 返回指定会话的全量用户输入索引（对话区右侧索引数据源：
 // 只索引用户输入，覆盖整会话含尚未加载到前端的早期轮次；只带摘要不带正文）。
-// Bridge 只做透传，索引语义由 application 层给出。
+// 索引语义由 owner 给出（未驻留会话同样可用），桥面只做透传。
 func (bridge *Bridge) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
-	app, ok := bridge.app.(sessionInputIndexApplication)
-	if !ok {
-		return model.SessionInputIndex{}, errors.New("session input index is not supported by the application")
-	}
-	return app.SessionInputIndex(sessionID)
+	return bridge.deps.SessionCatalog.SessionInputIndex(sessionID)
 }
 
 // GetSessionTranscript 按 Seq 区间读取会话事件日志（C1；未驻留会话同样
 // 可用，(0,0) = 全量）。
 func (bridge *Bridge) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]application.TranscriptEvent, error) {
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return nil, errors.New("session-scoped API is not supported by the application")
-	}
-	return app.GetSessionTranscript(sessionID, fromSeq, toSeq)
+	return bridge.deps.SessionCatalog.GetSessionTranscript(sessionID, fromSeq, toSeq)
 }
 
 // SubscribeSession 返回按会话过滤的事件订阅（M1：chat 生命周期事件携带
-// session_id 路由键）。
+// session_id 路由键）。过滤判据与订阅键都在 owner 里，桥面只转发。
 func (bridge *Bridge) SubscribeSession(sessionID string, buffer int) (application.Subscription, error) {
-	app, ok := bridge.app.(sessionAwareApplication)
-	if !ok {
-		return application.Subscription{}, errors.New("session-scoped API is not supported by the application")
-	}
-	return app.SubscribeSession(sessionID, buffer)
+	return bridge.deps.ViewEvents.SubscribeSession(sessionID, buffer)
 }
 
 func (bridge *Bridge) ResolveInteraction(id, optionID string) error {
-	return bridge.app.ResolveInteraction(bridge.requestContext(), id, optionID)
+	return bridge.deps.Interaction.Resolve(bridge.requestContext(), id, optionID)
 }
 
 func (bridge *Bridge) SelectAccount(name string) error {
-	return bridge.app.SelectAccount(bridge.requestContext(), name)
+	return bridge.deps.Accounts.SelectAccount(bridge.requestContext(), name)
 }
 
 func (bridge *Bridge) SwitchEffort(level string) error {
-	return bridge.app.SwitchEffort(bridge.requestContext(), level)
+	return bridge.deps.Switches.SwitchEffort(level)
 }
 
 // SetReasoningEffort 下发"想多深"（composer 底部「推理强度」拉条）。
@@ -912,12 +753,12 @@ func (bridge *Bridge) SwitchEffort(level string) error {
 // 预算，界面上已没有它的滑杆，只经 `/effort` 命令），这两个入口各改一项。两者共用
 // 同一条运行守卫（视图会话 running 时拒绝）。
 func (bridge *Bridge) SetReasoningEffort(effort string) error {
-	return bridge.app.SetReasoningEffort(bridge.requestContext(), effort)
+	return bridge.deps.Switches.SetReasoningEffort(effort)
 }
 
 // SetLoopLimit 下发"跑多少轮"（composer 底部「循环次数」拉条）。
 func (bridge *Bridge) SetLoopLimit(limit int) error {
-	return bridge.app.SetLoopLimit(bridge.requestContext(), limit)
+	return bridge.deps.Switches.SetLoopLimit(limit)
 }
 
 // SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」（设置弹窗 →
@@ -928,13 +769,13 @@ func (bridge *Bridge) SetLoopLimit(limit int) error {
 // 装配时只本次运行有效）；写盘失败时后端整步不改内存，返回值因此只是错误，前端把
 // 控件回滚到最后一份权威值是诚实的。
 func (bridge *Bridge) SetSessionReleaseWindow(window int) (int, error) {
-	return bridge.app.SetSessionReleaseWindow(bridge.requestContext(), window)
+	return bridge.deps.Switches.SetSessionReleaseWindow(window)
 }
 
 // SessionReleaseWindow 读当前生效的会话驻留窗口（弹窗打开时读一次；与
 // SetSessionReleaseWindow 同一份权威，前端不另存一份"我以为的值"）。
 func (bridge *Bridge) SessionReleaseWindow() int {
-	return bridge.app.SessionReleaseWindow()
+	return bridge.deps.Switches.SessionReleaseWindow()
 }
 
 // SetAccountWindow 改一个账号的上下文窗口（设置 → 账号）。window <= 0 = 清掉该账号
@@ -943,7 +784,7 @@ func (bridge *Bridge) SessionReleaseWindow() int {
 // 返回值是**真正生效**的窗口：前端采纳它，不假定请求值生效（与 SetSessionReleaseWindow
 // 同一条口径——后端可能归一化/拒绝，界面显示的必须是生效的那个）。
 func (bridge *Bridge) SetAccountWindow(name string, window int) (int, error) {
-	return bridge.app.SetAccountWindow(bridge.requestContext(), name, window)
+	return bridge.deps.Accounts.SetAccountWindow(bridge.requestContext(), name, window)
 }
 
 // AccountWindowPresets 返回界面挡位（token，升序）——**后端下发**，前端不自己写死
@@ -968,22 +809,22 @@ func (bridge *Bridge) AccountRoles() []string {
 // 错误语义：校验或落盘失败 ⇒ 什么都没变；已落盘但热注册失败 ⇒ 错误里会写明
 // "重启后生效"，此时账号档确实改了（界面不要报成"添加失败"让用户重复加）。
 func (bridge *Bridge) AddAccount(draft application.AccountDraft) (application.AccountAddResult, error) {
-	return bridge.app.AddAccount(bridge.requestContext(), draft)
+	return bridge.deps.Accounts.AddAccount(bridge.requestContext(), draft)
 }
 
 // AccountDetails 读取编辑账户窗口需要的非秘密字段（密钥永不回传）。
 func (bridge *Bridge) AccountDetails(name string) (application.AccountDetails, error) {
-	return bridge.app.AccountDetails(strings.TrimSpace(name))
+	return bridge.deps.Accounts.AccountDetails(strings.TrimSpace(name))
 }
 
 // UpdateAccount 原位更新账户；api_key 留空保留原密钥。
 func (bridge *Bridge) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error) {
-	return bridge.app.UpdateAccount(update)
+	return bridge.deps.Accounts.UpdateAccount(update)
 }
 
 // DeleteAccount 删除账户并返回被删条目的非秘密回执。
 func (bridge *Bridge) DeleteAccount(name string) (application.AccountDetails, error) {
-	return bridge.app.DeleteAccount(strings.TrimSpace(name))
+	return bridge.deps.Accounts.DeleteAccount(strings.TrimSpace(name))
 }
 
 // AccountBalance 查一个账号此刻的余额（角色卡账户行）。
@@ -992,19 +833,19 @@ func (bridge *Bridge) DeleteAccount(name string) (application.AccountDetails, er
 // 当下真实值）。供应商没有余额接口时返回一句可展示的原话（ErrBalanceUnsupported
 // 的措辞），而不是猜一个 URL。
 func (bridge *Bridge) AccountBalance(name string) (application.AccountBalance, error) {
-	return bridge.app.AccountBalance(bridge.requestContext(), name)
+	return bridge.deps.Accounts.AccountBalance(bridge.requestContext(), name)
 }
 
 func (bridge *Bridge) SwitchPlugin(name string) error {
-	return bridge.app.SwitchPlugin(bridge.requestContext(), name)
+	return bridge.deps.Switches.SwitchPlugin(bridge.requestContext(), name)
 }
 
 func (bridge *Bridge) LoadMoreHistory(limit int) error {
-	return bridge.app.LoadMoreHistory(limit)
+	return bridge.deps.History.LoadMoreHistory(limit)
 }
 
 func (bridge *Bridge) LoadLatestHistory() error {
-	return bridge.app.LoadLatestHistory()
+	return bridge.deps.History.LoadLatestHistory()
 }
 
 // SetWindowAppearance 落盘"当前皮肤 + 由它派生的窗口材质"。前端在换肤回流时调用
@@ -1021,11 +862,11 @@ func (bridge *Bridge) SetWindowAppearance(skin, treatment string) error {
 }
 
 func (bridge *Bridge) Suggestions(input string) []application.Suggestion {
-	return bridge.app.Suggestions(input)
+	return bridge.deps.Completion.Suggestions(input)
 }
 
 func (bridge *Bridge) DeleteSession(sessionID string) error {
-	if err := bridge.app.DeleteSession(sessionID); err != nil {
+	if err := bridge.deps.Delete.Delete(sessionID); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
@@ -1035,7 +876,7 @@ func (bridge *Bridge) DeleteSession(sessionID string) error {
 // ArchiveSession 归档指定会话（C2）：转发 application 门控，成功后等目录
 // 收敛再返回，使 renderer 重拉的快照已过滤归档行。
 func (bridge *Bridge) ArchiveSession(sessionID string) error {
-	if err := bridge.app.ArchiveSession(sessionID); err != nil {
+	if err := bridge.deps.Archive.Archive(sessionID); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
@@ -1046,7 +887,7 @@ func (bridge *Bridge) ArchiveSession(sessionID string) error {
 // 调用；写成功后由 application 唤醒目录刷新，并在返回前等一轮收敛，使前端
 // 重拉的快照已按新排序与别名呈现。
 func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string, sortOrder int) error {
-	if err := bridge.app.SetSessionMeta(sessionID, application.SessionMeta{
+	if err := bridge.deps.Meta.SetSessionMeta(sessionID, application.SessionMeta{
 		Pinned: pinned, Alias: alias, SortOrder: sortOrder,
 	}); err != nil {
 		return err
@@ -1056,33 +897,33 @@ func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string
 }
 
 func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {
-	return bridge.app.CreateWorkspace(name, rootPath, gitRemote)
+	return bridge.deps.App.CreateWorkspace(name, rootPath, gitRemote)
 }
 
 // CreateWorkspaces 批量登记项目（不绑定当前会话）；前端在确认 temp list 后一次提交。
 func (bridge *Bridge) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error) {
-	return bridge.app.CreateWorkspaces(requests)
+	return bridge.deps.App.CreateWorkspaces(requests)
 }
 
 func (bridge *Bridge) BindWorkspace(workspaceID string) error {
-	return bridge.app.BindWorkspace(workspaceID)
+	return bridge.deps.App.BindWorkspace(workspaceID)
 }
 
 func (bridge *Bridge) UnbindWorkspace() {
-	bridge.app.UnbindWorkspace()
+	bridge.deps.App.UnbindWorkspace()
 }
 
 // SetFullAccess 切换全权模式并返回**真正生效的值**：前端据此渲染开关，
 // 不再取反本地旧状态（旧状态滞后时取反会把"开启"点成"关闭"）。
 func (bridge *Bridge) SetFullAccess(on bool) bool {
-	return bridge.app.SetFullAccess(on)
+	return bridge.deps.Switches.SetFullAccess(on)
 }
 
 // SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回**真正
 // 生效的档位**：前端据此渲染当前档，不再猜方向。未识别的档位 id 报错（前端展示
 // 后端错误，不静默改档）。会话级归属（G4）：只影响当前视图会话。
 func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
-	return bridge.app.SetPermissionTier(tier)
+	return bridge.deps.Switches.SetPermissionTier(tier)
 }
 
 // ── 设置 → 角色设置（权限向量 / 默认 plugin）─────────────────────────────
@@ -1103,18 +944,6 @@ func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
 // 权限），两处必须一致——那里只能写字面量（core 不能反向 import gui），改名要一起改。
 const sessionSelfRole = string(dto.RoleAgent)
 
-// roleSettings 取角色设置写面（未装配显式报错，不静默退化）。
-func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {
-	if bridge == nil || bridge.app == nil {
-		return nil, errors.New("bridge is not assembled")
-	}
-	app, ok := bridge.app.(roleSettingsApplication)
-	if !ok {
-		return nil, errors.New("当前 Application 未装配角色设置面（RolePermissionVector / SetRolePermissionVector）")
-	}
-	return app, nil
-}
-
 // ── 会话 SSH（项目环境表 + 会话状态）─────────────────────────────────────────
 //
 // 两块分开，口径不混（2026-10-25 用户定调）：
@@ -1122,7 +951,7 @@ func (bridge *Bridge) roleSettings() (roleSettingsApplication, error) {
 //     项目操作直接收项目 ID，与会话是否已经建立持久 binding 无关；
 //   · 会话只持有首次固定、之后不可切换的环境名。
 //
-// 桥面照抄 roleSettings 的做法：窄接口 + 类型断言，不往 Application 那条约面上
+// 桥面照抄角色设置面的做法（端口在 dependencies.go 里由装配表绑定），不往那条面上
 // 加方法（那条面是所有 fake 都要满足的最小集）。
 
 // sessionSSHApplication 是会话 SSH 要用到的应用层方法（窄接口，由本包声明）。
@@ -1137,10 +966,10 @@ type sessionSSHApplication interface {
 }
 
 func (bridge *Bridge) sessionSSH() (sessionSSHApplication, error) {
-	if bridge == nil || bridge.app == nil {
+	if bridge == nil || bridge.deps.App == nil {
 		return nil, errors.New("bridge is not assembled")
 	}
-	app, ok := bridge.app.(sessionSSHApplication)
+	app, ok := bridge.deps.App.(sessionSSHApplication)
 	if !ok {
 		return nil, errors.New("当前 Application 未装配会话 SSH 面（WorkspaceEnvironments / SessionSSHState）")
 	}
@@ -1189,7 +1018,7 @@ func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error) {
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
-	return app.SessionSSHState(bridge.app.Snapshot().Session.ID)
+	return app.SessionSSHState(bridge.deps.ViewSnapshot.Snapshot().Session.ID)
 }
 
 // SetSessionSSHEnv 首次固定当前视图会话的工作环境。绑定后不可修改或清空；
@@ -1199,7 +1028,7 @@ func (bridge *Bridge) SetSessionSSHEnv(projectID, env string) (model.SessionSSHI
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
-	return app.SetSessionSSHEnv(bridge.app.Snapshot().Session.ID, strings.TrimSpace(projectID), env)
+	return app.SetSessionSSHEnv(bridge.deps.ViewSnapshot.Snapshot().Session.ID, strings.TrimSpace(projectID), env)
 }
 
 // SetSessionSSHAllowed 是旧会话放权状态的兼容写面；新流程以固定环境为准。
@@ -1208,7 +1037,7 @@ func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo,
 	if err != nil {
 		return model.SessionSSHInfo{}, err
 	}
-	return app.SetSessionSSHAllowed(bridge.app.Snapshot().Session.ID, envs)
+	return app.SetSessionSSHAllowed(bridge.deps.ViewSnapshot.Snapshot().Session.ID, envs)
 }
 
 // PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按五级
@@ -1218,12 +1047,8 @@ func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo,
 // 不是"当前能力"。错误如实返回（未装配登记能力 = 显式错误，前端因此标"未生效"而
 // 不是把空向量画成"什么都没开"）。
 func (bridge *Bridge) PermissionVector() ([]string, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return nil, err
-	}
-	sessionID := bridge.app.Snapshot().Session.ID
-	return app.RolePermissionVector(sessionID, sessionSelfRole)
+	sessionID := bridge.deps.ViewSnapshot.Snapshot().Session.ID
+	return bridge.deps.RoleSettings.RolePermissionVector(sessionID, sessionSelfRole)
 }
 
 // PermissionRoles 列出权限面板的「按角色」行：角色名 + 名下账号 + 该角色的默认向量。
@@ -1235,15 +1060,11 @@ func (bridge *Bridge) PermissionVector() ([]string, error) {
 // 一次调用读回全部角色（面板打开时只要一次往返），每行的向量都带 explicit：
 // explicit=false 表示这个角色没定过默认，此时 Vector 是链路解析结果（只读预览）。
 func (bridge *Bridge) PermissionRoles() ([]dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return nil, err
-	}
-	snapshot := bridge.app.Snapshot()
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
 	order, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
 	out := make([]dto.PermissionRoleInfo, 0, len(order))
 	for _, role := range order {
-		info, err := permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+		info, err := permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 		if err != nil {
 			return nil, err
 		}
@@ -1254,17 +1075,13 @@ func (bridge *Bridge) PermissionRoles() ([]dto.PermissionRoleInfo, error) {
 
 // RoleDefaultVector 读一个角色的默认向量（explicit=false 时 Vector 是链路解析结果）。
 func (bridge *Bridge) RoleDefaultVector(role string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
 	if role == "" {
 		return dto.PermissionRoleInfo{}, errors.New("permission roles: role must not be empty")
 	}
-	snapshot := bridge.app.Snapshot()
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // SetRoleDefaultVector 写一个角色的默认向量，并返回**落盘后读回**的那一行。
@@ -1272,35 +1089,27 @@ func (bridge *Bridge) RoleDefaultVector(role string) (dto.PermissionRoleInfo, er
 // 与 SetPermissionVector 同一条口径：前端采纳返回值，不假定请求值生效——写进去的
 // 是"默认"，而生效值还要和三态规整（`!tag`、重复项）对一遍。
 func (bridge *Bridge) SetRoleDefaultVector(role string, tags []string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
 	if role == "" {
 		return dto.PermissionRoleInfo{}, errors.New("permission roles: role must not be empty")
 	}
-	sessionID := bridge.app.Snapshot().Session.ID
-	if err := app.SetRoleDefaultVector(sessionID, role, tags); err != nil {
+	sessionID := bridge.deps.ViewSnapshot.Snapshot().Session.ID
+	if err := bridge.deps.RoleSettings.SetRoleDefaultVector(sessionID, role, tags); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	snapshot := bridge.app.Snapshot()
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, sessionID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, sessionID, role, groups[role])
 }
 
 // SetRoleAccount 设置某个角色优先使用的账号，并返回落盘后读回的整行。
 // 账号必须来自同名角色组；跨角色账号会让下一次回合使用错误凭据。
 func (bridge *Bridge) SetRoleAccount(role, account string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role, account = strings.TrimSpace(role), strings.TrimSpace(account)
 	if role == "" || account == "" {
 		return dto.PermissionRoleInfo{}, errors.New("permission roles: role and account are required")
 	}
-	snapshot := bridge.app.Snapshot()
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
 	valid := false
 	for _, candidate := range groups[role] {
@@ -1312,71 +1121,55 @@ func (bridge *Bridge) SetRoleAccount(role, account string) (dto.PermissionRoleIn
 	if !valid {
 		return dto.PermissionRoleInfo{}, fmt.Errorf("permission roles: account %q does not belong to role %q", account, role)
 	}
-	if err := app.SetRoleAccount(snapshot.Session.ID, role, account); err != nil {
+	if err := bridge.deps.RoleSettings.SetRoleAccount(snapshot.Session.ID, role, account); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // SetRoleInheritance 切换 subagent / teammate 是否继承 mainagent 的默认权限。
 func (bridge *Bridge) SetRoleInheritance(role string, inherit bool) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
-	snapshot := bridge.app.Snapshot()
-	if err := app.SetRoleInheritMainAgent(snapshot.Session.ID, role, inherit); err != nil {
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
+	if err := bridge.deps.RoleSettings.SetRoleInheritMainAgent(snapshot.Session.ID, role, inherit); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // SetRoleSSHUserSpaces 写角色在远端项目根之外的路径允许范围。
 func (bridge *Bridge) SetRoleSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
-	snapshot := bridge.app.Snapshot()
-	if err := app.SetRoleSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
+	if err := bridge.deps.RoleSettings.SetRoleSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // SetRoleSessionSSHUserSpaces 写当前会话中单个 agent role 的 SSH 路径覆盖。
 func (bridge *Bridge) SetRoleSessionSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
-	snapshot := bridge.app.Snapshot()
-	if err := app.SetRoleSessionSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
+	if err := bridge.deps.RoleSettings.SetRoleSessionSSHUserSpaces(snapshot.Session.ID, role, paths); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // SetRoleSessionPermission 写本会话里某个 agent role 的显式权限覆盖。
 // 它只影响当前会话，不改变角色的跨会话默认。
 func (bridge *Bridge) SetRoleSessionPermission(role string, tags []string) (dto.PermissionRoleInfo, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
-		return dto.PermissionRoleInfo{}, err
-	}
 	role = strings.TrimSpace(role)
-	snapshot := bridge.app.Snapshot()
-	if err := app.SetRolePermissionVector(snapshot.Session.ID, role, tags); err != nil {
+	snapshot := bridge.deps.ViewSnapshot.Snapshot()
+	if err := bridge.deps.RoleSettings.SetRolePermissionVector(snapshot.Session.ID, role, tags); err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
 	_, groups := permissionRoleGroups(snapshot.Runtime.Accounts)
-	return permissionRoleInfoFor(app, snapshot.Session.ID, role, groups[role])
+	return permissionRoleInfoFor(bridge.deps.RoleSettings, snapshot.Session.ID, role, groups[role])
 }
 
 // permissionRoleGroups 把账号列表按角色归并：返回角色顺序（按账号出现顺序，稳定）
@@ -1408,7 +1201,7 @@ func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]
 
 // permissionRoleInfoFor 组装权限面板的一行：账号名 + 展示用供应商/模型 + 生效默认向量。
 // 供应商/模型取第一个未禁用账号（只做展示，任何判定都不看它）。
-func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, accounts []model.AccountInfo) (dto.PermissionRoleInfo, error) {
+func permissionRoleInfoFor(settings RoleSettings, sessionID, role string, accounts []model.AccountInfo) (dto.PermissionRoleInfo, error) {
 	info := dto.PermissionRoleInfo{Role: role}
 	for _, account := range accounts {
 		info.Accounts = append(info.Accounts, account.Name)
@@ -1416,11 +1209,11 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 			info.Provider, info.Model = account.Provider, account.Model
 		}
 	}
-	defaultVector, explicit, err := app.RoleDefaultVector(sessionID, role)
+	defaultVector, explicit, err := settings.RoleDefaultVector(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	effectiveVector, err := app.RolePermissionVector(sessionID, role)
+	effectiveVector, err := settings.RolePermissionVector(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
@@ -1431,20 +1224,20 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 		info.DefaultVector = []string{}
 	}
 	info.Explicit = explicit
-	info.InheritMainAgent, err = app.RoleInheritMainAgent(sessionID, role)
+	info.InheritMainAgent, err = settings.RoleInheritMainAgent(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	info.SSHUserSpaces, err = app.RoleSSHUserSpaces(sessionID, role)
+	info.SSHUserSpaces, err = settings.RoleSSHUserSpaces(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
-	info.DefaultSSHUserSpaces, err = app.RoleDefaultSSHUserSpaces(sessionID, role)
+	info.DefaultSSHUserSpaces, err = settings.RoleDefaultSSHUserSpaces(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
 	info.SessionSSHUserSpaces = append([]string{}, info.SSHUserSpaces...)
-	account, _, err := app.RoleAccount(sessionID, role)
+	account, _, err := settings.RoleAccount(sessionID, role)
 	if err != nil {
 		return dto.PermissionRoleInfo{}, err
 	}
@@ -1463,15 +1256,11 @@ func permissionRoleInfoFor(app roleSettingsApplication, sessionID, role string, 
 // 返回值是**真正生效**的那个（规整后的），前端采纳它而不是假定请求值生效——与
 // SetPermissionTier / SetSessionReleaseWindow 同一条口径。
 func (bridge *Bridge) SetPermissionVector(tags []string) ([]string, error) {
-	app, err := bridge.roleSettings()
-	if err != nil {
+	sessionID := bridge.deps.ViewSnapshot.Snapshot().Session.ID
+	if err := bridge.deps.RoleSettings.SetRolePermissionVector(sessionID, sessionSelfRole, tags); err != nil {
 		return nil, err
 	}
-	sessionID := bridge.app.Snapshot().Session.ID
-	if err := app.SetRolePermissionVector(sessionID, sessionSelfRole, tags); err != nil {
-		return nil, err
-	}
-	return app.RolePermissionVector(sessionID, sessionSelfRole)
+	return bridge.deps.RoleSettings.RolePermissionVector(sessionID, sessionSelfRole)
 }
 
 // SetDefaultPlugin 设"这个会话默认装载的 plugin"。
@@ -1490,18 +1279,18 @@ func (bridge *Bridge) SetDefaultPlugin(name string) error {
 }
 
 func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
-	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
+	return bridge.deps.App.ScheduleTask(bridge.requestContext(), spec)
 }
 
 // UpdateScheduledTask 编辑既有定时/周期任务（同一份 spec 形状；任务 ID 是操作键，
 // 名称只做展示）。
 func (bridge *Bridge) UpdateScheduledTask(id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error) {
-	return bridge.app.UpdateScheduledTask(bridge.requestContext(), id, spec)
+	return bridge.deps.App.UpdateScheduledTask(bridge.requestContext(), id, spec)
 }
 
 // CancelScheduledTask 取消并移除定时/周期任务。
 func (bridge *Bridge) CancelScheduledTask(id string) error {
-	return bridge.app.CancelScheduledTask(id)
+	return bridge.deps.App.CancelScheduledTask(id)
 }
 
 // ── 角色会话读面（团队看板用）────────────────────────────────────────
@@ -1514,7 +1303,7 @@ func (bridge *Bridge) CancelScheduledTask(id string) error {
 // 这些方法只做参数归一与窄转发，语义在 application 与存储侧。
 
 func (bridge *Bridge) roleSessionApp() (roleSessionApplication, error) {
-	app, ok := bridge.app.(roleSessionApplication)
+	app, ok := bridge.deps.App.(roleSessionApplication)
 	if !ok {
 		return nil, errors.New("当前 Application 未装配角色会话读面")
 	}
@@ -1526,7 +1315,7 @@ func (bridge *Bridge) roleSessionTarget(sessionID string) string {
 	if trimmed := strings.TrimSpace(sessionID); trimmed != "" {
 		return trimmed
 	}
-	return bridge.app.Snapshot().Session.ID
+	return bridge.deps.ViewSnapshot.Snapshot().Session.ID
 }
 
 // AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」/ 团队看板
@@ -1651,76 +1440,76 @@ func (bridge *Bridge) RecoverConversation(ref dto.ConversationSessionRef) (dto.S
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 // Wails 前端历史检索面板数据源，返回门面再导出的 `application.SearchResult`）。
 func (bridge *Bridge) SearchHistory(query string, limit int) (application.SearchResult, error) {
-	return bridge.app.SearchHistory(bridge.requestContext(), query, limit)
+	return bridge.deps.App.SearchHistory(bridge.requestContext(), query, limit)
 }
 
 // WorkspaceTree 转发工作树目录列表（参数与业务校验在 application 层）。
 func (bridge *Bridge) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error) {
-	return bridge.app.WorkspaceTree(relPath, depth)
+	return bridge.deps.App.WorkspaceTree(relPath, depth)
 }
 
 // WorkspaceFileCount 转发工作区文件统计。
 func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
-	return bridge.app.WorkspaceFileCount()
+	return bridge.deps.App.WorkspaceFileCount()
 }
 
 // WorkspaceGitRepos 转发「工作区内 git 仓库发现」（仓库标签栏数据源；扫描边界、
 // 剪枝与预算在 workspace 域内保证，应用层只做端口断言与文案回落）。
 func (bridge *Bridge) WorkspaceGitRepos() (dto.GitReposResult, error) {
-	return bridge.app.WorkspaceGitRepos()
+	return bridge.deps.App.WorkspaceGitRepos()
 }
 
 // WorkspaceGitLog 转发指定仓库的 git 提交记录（repo 相对工作区根，"." = 工作
 // 区根；最近 limit 条提交 + 父提交拓扑；只读元数据，不含 diff/文件内容；
 // 非 git 仓库返回 Result.Error）。
 func (bridge *Bridge) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error) {
-	return bridge.app.WorkspaceGitLog(repo, limit)
+	return bridge.deps.App.WorkspaceGitLog(repo, limit)
 }
 
 // WorkspaceChanges 转发指定仓库的未提交改动（repo 口径同 WorkspaceGitLog；暂存/
 // 未暂存/未跟踪/冲突；只读元数据——路径与状态字符，不含 diff/文件内容；
 // 非 git 仓库返回 Result.Error 供面板显示错误态）。
 func (bridge *Bridge) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error) {
-	return bridge.app.WorkspaceChanges(repo, limit)
+	return bridge.deps.App.WorkspaceChanges(repo, limit)
 }
 
 // WorkspaceGitCommitDetail 转发指定仓库某个提交的改动文件清单（提交记录「点开
 // 某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含 diff 或文件
 // 内容；非 git 仓库返回 Result.Error 供面板显示错误态）。
 func (bridge *Bridge) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error) {
-	return bridge.app.WorkspaceGitCommitDetail(repo, hash, limit)
+	return bridge.deps.App.WorkspaceGitCommitDetail(repo, hash, limit)
 }
 
 // WorkspaceGitCommitFileContent 转发指定仓库"某文件在某个提交时的内容"读取
 // （提交记录「点开某个文件」数据源；字节来自 git 对象库，可见性边界与工作树
 // 预览同一条；只读受控字节，不进快照，也不写回工作区）。
 func (bridge *Bridge) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error) {
-	return bridge.app.WorkspaceGitCommitFileContent(repo, hash, relPath, limit)
+	return bridge.deps.App.WorkspaceGitCommitFileContent(repo, hash, relPath, limit)
 }
 
 // WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限
 // 在 application + workspace 层保证；只读受控字节，不进快照）。
 func (bridge *Bridge) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
-	return bridge.app.WorkspaceFileContent(relPath, limit)
+	return bridge.deps.App.WorkspaceFileContent(relPath, limit)
 }
 
 // WorkspaceWriteFile 转发工作树文件写入（「文件详情」面板的编辑保存）：用户
 // 自己按下的保存，是用户动作而不是主代理动作——不经过权限档位与执行选择页面；
 // 可见性边界、二进制拒绝与原子发布在 application + workspace 层保证。
 func (bridge *Bridge) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error) {
-	return bridge.app.WorkspaceWriteFile(relPath, content)
+	return bridge.deps.App.WorkspaceWriteFile(relPath, content)
 }
 
 // ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
 // 工具输出，"加载完整输出"数据源；参数透传，业务校验在 application 层）。
 func (bridge *Bridge) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error) {
-	return bridge.app.ToolResultContent(bridge.requestContext(), resultRef, offset, limit)
+	return bridge.deps.App.ToolResultContent(bridge.requestContext(), resultRef, offset, limit)
 }
 
 // PerfStats 返回性能追踪钩子的后端数据面（无内容指标：快照载荷体积/
 // 会话规模/归档体积，供前端渲染进程对照）。
 func (bridge *Bridge) PerfStats() application.PerfStats {
-	return bridge.app.PerfStats()
+	return bridge.deps.Perf.PerfStats()
 }
 
 // toolFailureBoardProvider 是 Application 的**窄可选**能力面：工具失败分布看板
@@ -1742,7 +1531,7 @@ type toolRecordBoardProvider interface {
 // 走"按需拉取"而不是快照：快照是**会话作用域**的可重放状态，把进程级计数塞进去会
 // 让"重放一份会话快照"听起来像"重放这台机器的计数"（与 PerfStats 同一条理由）。
 func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard {
-	if provider, ok := bridge.app.(toolRecordBoardProvider); ok {
+	if provider, ok := bridge.deps.App.(toolRecordBoardProvider); ok {
 		return provider.ToolRecordBoard()
 	}
 	return application.ToolRecordBoard{}
@@ -1753,7 +1542,7 @@ func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard {
 // 未装配记录面的宿主显式报错（而不是静默返回 false）：用户按了开关却什么都没发生，
 // 比"这个宿主不支持"更坏。
 func (bridge *Bridge) SetToolRecordEnabled(enabled bool) (bool, error) {
-	provider, ok := bridge.app.(toolRecordBoardProvider)
+	provider, ok := bridge.deps.App.(toolRecordBoardProvider)
 	if !ok {
 		return false, fmt.Errorf("工具记录未装配（宿主不支持计数开关）")
 	}
@@ -1762,8 +1551,8 @@ func (bridge *Bridge) SetToolRecordEnabled(enabled bool) (bool, error) {
 
 // PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图数据源）。
 func (bridge *Bridge) PromptLayers() []application.PromptLayer {
-	if bridge == nil || bridge.app == nil {
+	if bridge == nil || bridge.deps.App == nil {
 		return nil
 	}
-	return bridge.app.PromptLayers()
+	return bridge.deps.Prompts.Layers()
 }

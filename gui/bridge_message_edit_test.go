@@ -27,7 +27,7 @@ func TestBridgeForwardsEditUserMessageAndFork(t *testing.T) {
 		fakeApplication: newFakeApplication(),
 		result:          model.EditUserMessageForkResult{ChildSessionID: "child-1", ForkPoint: 8},
 	}
-	bridge, err := NewBridge(stub, Options{})
+	bridge, err := NewBridge(stub.depsFor(stub), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestBridgeForwardsEditUserMessageAndFork(t *testing.T) {
 }
 
 func TestBridgeEditUserMessageAndForkUnavailableIsExplicit(t *testing.T) {
-	bridge, err := NewBridge(newFakeApplication(), Options{})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

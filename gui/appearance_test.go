@@ -74,7 +74,7 @@ func TestWindowAppearanceRoundTripsTranslucency(t *testing.T) {
 func TestBridgeSetWindowAppearanceNormalizesTreatment(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "gui-appearance.json")
-	bridge, err := NewBridge(newFakeApplication(), Options{Title: "Seelex Test", AppearancePath: path})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{Title: "Seelex Test", AppearancePath: path})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestBridgeSetWindowAppearanceNormalizesTreatment(t *testing.T) {
 // 宿主没给落盘路径（浏览器预览 / 未接线）：写是 no-op，读回不透明，都不报错。
 func TestBridgeSetWindowAppearanceWithoutPathIsNoop(t *testing.T) {
 	t.Parallel()
-	bridge, err := NewBridge(newFakeApplication(), Options{Title: "Seelex Test"})
+	bridge, err := NewBridge(newFakeApplication().deps(), Options{Title: "Seelex Test"})
 	if err != nil {
 		t.Fatal(err)
 	}

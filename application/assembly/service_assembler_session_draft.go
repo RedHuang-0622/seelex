@@ -82,9 +82,7 @@ func (service *Service) assembleSessionDraftComponents() {
 			service.components.sessions.RequestCatalogRefresh()
 		},
 		FlushToolRecord: func(sessionID string) {
-			if service.toolRecords != nil {
-				service.toolRecords.Flush(sessionID)
-			}
+			service.toolRecords.Flush(sessionID)
 		},
 		TouchResident: func(sessionID string) {
 			service.components.residencyRuntime.TouchResident(sessionID)

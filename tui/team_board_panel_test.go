@@ -43,8 +43,7 @@ func boardSnapshot() application.Snapshot {
 func TestTeamPanelShowsTeamBoardProjection(t *testing.T) {
 	base := newFakeApp()
 	base.snapshot = boardSnapshot()
-	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
-	model := NewModel(app)
+	model := NewModel(base.deps())
 	model.showLogo = false
 	model.width, model.height = 120, 60
 
@@ -76,8 +75,7 @@ func TestTeamPanelShowsTeamBoardProjection(t *testing.T) {
 func TestTeamPanelOmitsTeamBoardWithoutPlan(t *testing.T) {
 	base := newFakeApp()
 	base.snapshot = goalSnapshot() // 没有 TeamworkBoard
-	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
-	model := NewModel(app)
+	model := NewModel(base.deps())
 	model.showLogo = false
 	model.width, model.height = 120, 60
 
@@ -97,7 +95,7 @@ func TestTeamPanelOmitsTeamBoardWithoutPlan(t *testing.T) {
 func TestTeamBoardLinesReturnNilWithoutPlan(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot = goalSnapshot()
-	model := NewModel(app)
+	model := NewModel(app.deps())
 	if lines := model.teamBoardLines(); lines != nil {
 		t.Fatalf("无计划时必须返回 nil（调用方不追加任何行），得到 %#v", lines)
 	}

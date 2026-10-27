@@ -2,7 +2,6 @@ package assembly
 
 import (
 	"encoding/base64"
-	"fmt"
 	"strings"
 
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
@@ -19,15 +18,6 @@ const (
 func formatSkillUserInput(layers []prompt.PromptLayer, input string) string {
 	_ = layers
 	return input
-}
-
-func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer) {
-	fmt.Fprintf(builder, "- name: %s\n  instructions: |\n", skill.Name)
-	for _, line := range strings.Split(strings.TrimSpace(skill.Text), "\n") {
-		builder.WriteString("    ")
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-	}
 }
 
 func wrapModelInput(displayInput, body string) string {

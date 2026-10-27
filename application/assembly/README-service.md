@@ -38,8 +38,9 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 
 ## Frontend 兼容适配器（AP-116E/F1）
 
-前端兼容适配器已迁到 `application/compat`。本包只通过 `NewFrontendPorts`
-提供一份窄组件快照，不再保存账号、角色、Workspace 与输入查询的公开转发方法。
+前端兼容适配器已迁到 `application/compat`。本包只通过 `ComponentsFor(service)`
+提供一份**分组**只读快照（`Components` 只有字段，持 concrete owner 指针），
+不再保存账号、角色、Workspace 与输入查询的公开转发方法。
 当前 compat 承接旧入口；Service 只保留 8 个仍依赖共享会话状态/生命周期的方法。
 compat 中的代表性入口包括：
 
@@ -94,6 +95,11 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func isComponentsForwardCall(body *ast.BlockStmt) bool`
 - `func startsWithServiceComponents(expression ast.Expr) bool`
 - `func hasServiceReceiver(function *ast.FuncDecl) bool`
+
+### components.go
+
+- `func (service *Service) roleSessions() contract.RoleSessionsPort`
+- `func ComponentsFor(service *Service) Components` — ComponentsFor returns a read-only snapshot of assembled component owners.
 
 ### fixture_concurrency_test.go
 
@@ -231,15 +237,9 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 - `func (frontend *Frontend) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)`
 - `func (frontend *Frontend) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)`
 
-### frontend_ports.go
-
-- `func (service *Service) roleSessions() contract.RoleSessionsPort`
-- `func NewFrontendPorts(service *Service) FrontendPorts` — NewFrontendPorts returns a read-only snapshot of components needed by the
-
 ### frontend_shell_legacy_test.go
 
-- `func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink)` — These shims keep existing core integration fixtures source-compatible after
-- `func (service *Service) PromptLayers() []prompt.PromptLayer`
+- `func (service *Service) PromptLayers() []prompt.PromptLayer` — These shims keep existing core integration fixtures source-compatible after
 - `func (service *Service) PrepareProviderHistory(sessionID string) error`
 - `func (service *Service) SetToolRecordEnabled(enabled bool) (bool, error)`
 - `func (service *Service) ApplyToolRecordEnabled(enabled bool)`
@@ -401,8 +401,8 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_components.go
 
-- `func (port *projectBoardPort) store(sink board.ProjectBoardSink)`
-- `func (port *projectBoardPort) load() board.ProjectBoardSink`
+- `func (port *ProjectBoardSinkPort) Store(sink board.ProjectBoardSink)`
+- `func (port *ProjectBoardSinkPort) load() board.ProjectBoardSink`
 
 ### service_components_test.go
 
@@ -748,9 +748,7 @@ AP-069 把 `RefreshRuntimeSnapshot` 的 projection 锁边界与发布顺序移�
 
 ### service_scheduler.go
 
-- `func withScheduledRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec`
 - `func scheduledRunParams(effort string, loopLimit int) (string, int)`
-- `func (service *Service) validateScheduledRunParams(spec dto.ScheduledTaskSpec) error`
 - `func (service *Service) applyScheduledRunParams(sessionID string, task dto.ScheduledTaskSpec) error`
 - `func (service *Service) validateScheduledWorkspace(workspaceID string) error`
 - `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error)`

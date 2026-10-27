@@ -8,8 +8,6 @@ type residentEngine interface {
 	UnloadSession(sessionID string) error
 }
 
-type sessionReleaseMode = applicationsession.ReleaseMode
-
 const (
 	releaseIdle = applicationsession.ReleaseIdle
 	releaseFull = applicationsession.ReleaseFull

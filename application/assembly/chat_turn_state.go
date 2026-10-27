@@ -2,7 +2,6 @@ package assembly
 
 import applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 
-type conversationQueueProjectionUnit = applicationconversation.QueueProjectionUnit
 type conversationChatStateUnit = applicationconversation.ChatStateUnit
 
 // conversationTurnState embeds the extracted ChatState transitions and keeps

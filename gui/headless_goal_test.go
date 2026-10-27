@@ -7,23 +7,24 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/headless"
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
-// goalRPCFakeApp 复刻 headless goal 链路的 Application 扩展面：记录调用
-// 路由到的会话并把 begin/update/done 映射为治理视图状态迁移，
-// 供 headless 分发表复刻验收（真实 Service 侧行为由 application/assembly 测试
-// 覆盖；本测试钉住 gui → goal.<method> 接线）。
-type goalRPCFakeApp struct {
-	*fakeApplication
+// fakeGoal 满足 headless 的 GoalController 端口（owner：application/goal，按显式
+// 会话路由）。方法名逐字等于 owner 的方法名；它把 begin/update/done 映射为治理视图
+// 的状态迁移，供 headless 分发表复刻验收（真实 Service 侧行为由 application/goal
+// 自己的用例覆盖；本用例钉住 gui → goal.<method> 接线与路由会话）。
+type fakeGoal struct {
 	mu      sync.Mutex
 	active  *goaldomain.GoalRecord
 	view    *dto.GoalGovernanceView
 	lastSID string
 }
 
-func (fake *goalRPCFakeApp) GoalBeginFor(_ context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
+func (fake *fakeGoal) BeginFor(_ context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
@@ -34,7 +35,7 @@ func (fake *goalRPCFakeApp) GoalBeginFor(_ context.Context, sessionID string, re
 	return fake.active, nil
 }
 
-func (fake *goalRPCFakeApp) GoalUpdateFor(_ context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
+func (fake *fakeGoal) UpdateFor(_ context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
@@ -44,7 +45,7 @@ func (fake *goalRPCFakeApp) GoalUpdateFor(_ context.Context, sessionID string, r
 	return fake.active, nil
 }
 
-func (fake *goalRPCFakeApp) GoalDoneFor(_ context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+func (fake *fakeGoal) DoneFor(_ context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
@@ -59,7 +60,7 @@ func (fake *goalRPCFakeApp) GoalDoneFor(_ context.Context, sessionID string, req
 	return fake.active, nil
 }
 
-func (fake *goalRPCFakeApp) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
+func (fake *fakeGoal) StatusFor(sessionID string) (goaldomain.StatusView, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
@@ -71,7 +72,7 @@ func (fake *goalRPCFakeApp) GoalStatusFor(sessionID string) (goaldomain.StatusVi
 	return view, nil
 }
 
-func (fake *goalRPCFakeApp) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
+func (fake *fakeGoal) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.lastSID = sessionID
@@ -87,10 +88,10 @@ func (fake *goalRPCFakeApp) GoalGovernanceViewFor(sessionID string) *dto.GoalGov
 // 路由一致；goal.done 收口后视图复位；gov_next / gov_break 已随
 // 席位轮转退场（与未知方法一样被拒，见文件末尾那条用例）。
 func TestHeadlessGoalChainReplication(t *testing.T) {
-	base := newFakeApplication()
-	base.snapshot.Session.ID = "session-gui-headless"
-	fake := &goalRPCFakeApp{fakeApplication: base}
-	serverBase := newHeadlessTestServer(t, fake)
+	fake := &fakeGoal{}
+	view := &fakeSnapshot{snap: application.Snapshot{}}
+	view.snap.Session.ID = "session-gui-headless"
+	serverBase := newHeadlessTestServer(t, headless.Dependencies{Goal: fake, Snapshot: view})
 
 	result := headlessRPC(t, serverBase, "goal.begin", map[string]any{"title": "审查 goal 域"})
 	if !result.OK {
@@ -111,12 +112,12 @@ func TestHeadlessGoalChainReplication(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("goal.gov_snapshot failed: %s", result.Error)
 	}
-	var view dto.GoalGovernanceView
-	if err := remarshal(result.Result, &view); err != nil {
+	var govView dto.GoalGovernanceView
+	if err := remarshal(result.Result, &govView); err != nil {
 		t.Fatalf("decode gov_snapshot: %v", err)
 	}
-	if !view.Active || view.GoalID != "g-1" || view.Status != goaldomain.StatusActive {
-		t.Fatalf("gov_snapshot = %+v", view)
+	if !govView.Active || govView.GoalID != "g-1" || govView.Status != goaldomain.StatusActive {
+		t.Fatalf("gov_snapshot = %+v", govView)
 	}
 
 	result = headlessRPC(t, serverBase, "goal.status")
@@ -147,12 +148,12 @@ func TestHeadlessGoalChainReplication(t *testing.T) {
 	}
 	var record2 goaldomain.GoalRecord
 	if err := remarshal(result.Result, &record2); err != nil {
-		t.Fatalf("decode goal.done: %v", err)
+		t.Fatalf("decode goal.done result: %v", err)
 	}
 	if record2.Status != goaldomain.StatusCompleted {
 		t.Fatalf("goal.done = %+v", record2)
 	}
-	viewAfter := fake.GoalGovernanceViewFor("session-gui-headless")
+	viewAfter := fake.GovernanceViewFor("session-gui-headless")
 	if viewAfter.Active {
 		t.Fatalf("收口后治理视图应复位: %+v", viewAfter)
 	}

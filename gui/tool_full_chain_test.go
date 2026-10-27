@@ -239,7 +239,9 @@ func (*guiChainSessions) LoadHistoryRange(string, int, int) ([]application.Engin
 func (*guiChainSessions) SetWorkspace(string) {}
 func (*guiChainSessions) Workspace() string   { return "" }
 
-func newGUIChainApplication(t *testing.T) (*application.Frontend, application.ApprovalBroker) {
+// newGUIChainApplication 返回一条真实流水线的门面、按同一份 owner 绑好的 GUI 依赖表
+// 与审批端口。
+func newGUIChainApplication(t *testing.T) (*application.Frontend, Dependencies, application.ApprovalBroker) {
 	t.Helper()
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
@@ -255,12 +257,12 @@ func newGUIChainApplication(t *testing.T) (*application.Frontend, application.Ap
 	hooks.Bind(app)
 	frontend := wiring.NewFrontend(app)
 	t.Cleanup(frontend.Shutdown)
-	return frontend, approval
+	return frontend, frontendDependencies(app, frontend), approval
 }
 
 func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
-	app, _ := newGUIChainApplication(t)
-	bridge, err := NewBridge(app, Options{})
+	app, deps, _ := newGUIChainApplication(t)
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +319,8 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 }
 
 func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
-	app, approval := newGUIChainApplication(t)
-	bridge, err := NewBridge(app, Options{})
+	app, deps, approval := newGUIChainApplication(t)
+	bridge, err := NewBridge(deps, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

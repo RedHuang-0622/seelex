@@ -18,9 +18,6 @@ import (
 // recoverPendingMessageTailAtLoad 在会话冷加载路径上探测/恢复草稿尾，返回要补进可见会话的
 // system 提示（"" = 静默）。
 func (service *Service) recoverPendingMessageTailAtLoad(sessionID string) string {
-	if service == nil || service.components.sessions == nil {
-		return ""
-	}
 	return switching.RecoverPendingTail(service.pendingTailDeps(), sessionID)
 }
 
