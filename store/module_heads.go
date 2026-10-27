@@ -12,11 +12,10 @@ package store
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
 	"os"
@@ -30,13 +29,13 @@ import (
 // 会话存储布局版本常量（guide/schema 演进时递增；旧版本文件只读兼容由
 // jsonRepository 布局分派承担，见 json_layout.go）。
 const (
-	layoutVersion = 1
-	schemaVersion = 1
+	layoutVersion = storelayout.LayoutVersion
+	schemaVersion = storelayout.SchemaVersion
 )
 
 // module 是 metadata 模块 ID（模块文件路径一律由枚举名推导，
 // guide 不再登记模块地址，§2.0 规则 3 / D9 / S14）。
-type storageModule string
+type storageModule = storelayout.ModuleID
 
 const (
 	moduleMessage storageModule = "message"
@@ -55,6 +54,7 @@ const (
 	// §2.5.5/S24：引擎续跑快照（整份替换型内容，E.2 白名单）。
 	moduleCheckpoint storageModule = "checkpoint"
 	moduleMedia      storageModule = "media"
+	moduleToolRefs   storageModule = "toolrefs"
 	// moduleTeamwork 是 teamwork 的硬编排计划（leader + 异步 worker，
 	// docs/arch/teamwork-leader-worker-architecture.md §4.6）：head 即 plan.json
 	// （整份替换型内容，谁、什么顺序）；同模块的数据文件 teamwork/events.jsonl
@@ -77,25 +77,11 @@ const (
 
 // guide 是会话读索引/路由（不持有模块数据，I9）。模块清单变更（首写某
 // 模块文件）时低频更新。
-type layoutGuide struct {
-	LayoutVersion int       `json:"layout_version"`
-	SchemaVersion int       `json:"schema_version"`
-	SessionID     string    `json:"session_id"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
+type layoutGuide = storelayout.Guide
 
 // moduleHeadFile 是 metadata/<module>.json 的统一信封：payload 是各模块
 // 自有结构；checksum 由 writer 在发布时计算，reader 校验失败重读一次。
-type moduleHeadFile struct {
-	SchemaVersion int             `json:"schema_version"`
-	SessionID     string          `json:"session_id"`
-	ModuleID      storageModule   `json:"module_id"`
-	CommitID      string          `json:"commit_id,omitempty"`
-	Checksum      string          `json:"checksum"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	Payload       json.RawMessage `json:"payload"`
-}
+type moduleHeadFile = storelayout.Head
 
 // storeEngine 是 会话存储布局 JSON 引擎。root 与 jsonRepository.root 同语义
 // （sessions-json 根目录）；settings 为零值时补 §11 默认值。
@@ -106,6 +92,7 @@ type moduleHeadFile struct {
 type storeEngine struct {
 	root     string
 	settings storeroot.Settings
+	layout   *storelayout.Layout
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
@@ -125,39 +112,6 @@ type storeEngine struct {
 //   - stackViews 是栈通道提交时发布的不可变读投影（actor 出口），读者既不
 //     取锁也不打开文件句柄。
 type sessionModuleLocks struct {
-	messageMu    sync.Mutex
-	eventMu      sync.Mutex
-	compactMu    sync.Mutex
-	stackPlanMu  sync.Mutex
-	stackTaskMu  sync.Mutex
-	stackGoalMu  sync.Mutex
-	lifecycleMu  sync.Mutex
-	retentionMu  sync.Mutex
-	subagentMu   sync.Mutex
-	toolRefsMu   sync.Mutex
-	systemMu     sync.Mutex
-	checkpointMu sync.Mutex
-	// mediaMu 是媒体的**独立**锁：媒体的读写与 message 提交是两件事，media 曾因
-	// mutexFor 缺 case 落到 default 而被静默别名成 messageMu（两把语义不同的锁
-	// 物理上是一把），后果是 ① 截图/媒体读与消息提交互相串行、② 任何"在 message
-	// 临界区内读写媒体"的调用都会变成不可重入自锁（2026-09-29 锁面审计 §2.10）。
-	mediaMu sync.Mutex
-	// teamworkMu 是 teamwork 的独立锁：leader 改写计划（整份替换）与 teammate
-	// 审计追加不能与 message 提交互相串行，也必须避免"message 临界区内写
-	// teamwork 审计"变成不可重入自锁（与 mediaMu 同一条教训）。
-	teamworkMu sync.Mutex
-	// boardGoalMu / boardTeamMu 是两块看板存档的独立锁：goal 看板的存档由 goal 域
-	// 的迁移写、团队看板的存档由 teamwork 侧写，两者互不阻塞，也不与各自的领域
-	// 模块共用一把（共用就会把"写看板存档"与"写领域事实"串成一个串行点）。
-	boardGoalMu sync.Mutex
-	boardTeamMu sync.Mutex
-	// compactionMu 是压缩记录通道的独立锁：它由回合收尾的会话落盘写（应用侧），
-	// 既不与 message 提交共用（共用会把"落压缩记录"与"落消息"串成一个串行点），
-	// 也不与 compact 帧通道共用（帧由 seelebridge 推，记录由 application/core 写，
-	// 两个写者共用一把锁就是给它们造一个共享串行点）。
-	compactionMu sync.Mutex
-	guideMu      sync.Mutex
-
 	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
 	// metadata/message.json）。
@@ -178,6 +132,7 @@ func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 	return &storeEngine{
 		root:      filepath.Clean(root),
 		settings:  resolved,
+		layout:    storelayout.New(root),
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
 		event:     &eventStats{},
@@ -186,7 +141,7 @@ func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 
 // locks 返回（必要时创建）该会话的模块锁与短临界区状态集合。
 func (store *storeEngine) locks(key Key) *sessionModuleLocks {
-	id := store.sessionRoot(key)
+	id := store.layout.SessionRoot(layoutScope(key))
 	store.registryMu.RLock()
 	locks := store.sessionMu[id]
 	store.registryMu.RUnlock()
@@ -205,7 +160,10 @@ func (store *storeEngine) locks(key Key) *sessionModuleLocks {
 
 // mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
 func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex {
-	return store.locks(key).mutexFor(mod)
+	if !validStorageModule(mod) {
+		panic(fmt.Sprintf("store: 未映射的存储模块 %q（新增模块必须登记 validStorageModule，禁止静默别名）", mod))
+	}
+	return store.layout.Lock(layoutScope(key), mod)
 }
 
 // moduleForStackKind 返回栈 kind 的模块 head 枚举（S16：head 按 kind 分文件）。
@@ -222,159 +180,63 @@ func moduleForStackKind(kind StackKind) storageModule {
 	}
 }
 
-func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
+func validStorageModule(mod storageModule) bool {
 	switch mod {
-	case moduleMessage:
-		return &locks.messageMu
-	case moduleEvent:
-		return &locks.eventMu
-	case moduleCompact:
-		return &locks.compactMu
-	case moduleStackPlan:
-		return &locks.stackPlanMu
-	case moduleStackTask:
-		return &locks.stackTaskMu
-	case moduleStackGoal:
-		return &locks.stackGoalMu
-	case moduleLifecycle:
-		return &locks.lifecycleMu
-	case moduleRetention:
-		return &locks.retentionMu
-	case moduleSubagent:
-		return &locks.subagentMu
-	case moduleSystem:
-		return &locks.systemMu
-	case moduleCheckpoint:
-		return &locks.checkpointMu
-	case moduleMedia:
-		// 媒体是独立模块（自己的目录、自己的 head、自己的锁）。曾因缺这个 case
-		// 落到 default 被静默别名成 messageMu：媒体读（ReadMedia/ListMedia）与
-		// messageCommit 互相串行，且任何"message 临界区内读写媒体"即不可重入自锁。
-		return &locks.mediaMu
-	case moduleTeamwork:
-		return &locks.teamworkMu
-	case moduleBoardGoal:
-		return &locks.boardGoalMu
-	case moduleBoardTeam:
-		return &locks.boardTeamMu
-	case moduleCompaction:
-		return &locks.compactionMu
+	case moduleMessage, moduleEvent, moduleCompact,
+		moduleStackPlan, moduleStackTask, moduleStackGoal,
+		moduleLifecycle, moduleRetention, moduleSubagent,
+		moduleSystem, moduleCheckpoint, moduleMedia,
+		moduleToolRefs, moduleTeamwork, moduleBoardGoal, moduleBoardTeam, moduleCompaction:
+		return true
 	default:
-		// 禁止静默别名：枚举是包内编译期常量，未映射只可能是"加了 storageModule
-		// 忘了加 case"。猜一个锁（旧行为）等于把两把语义不同的锁合成一把——那正是
-		// media 的成因，且它把缺陷藏到"某个临界区恰好嵌套"的那一天才炸。
-		// TestModuleLocksAreDistinct 遍历枚举钉住这条不变式。
-		panic(fmt.Sprintf("store: 未映射的存储模块 %q（补 mutexFor 的 case，禁止 default 别名）", mod))
+		return false
 	}
 }
 
 // layout 判定：目录内存在 metadata/guide.json = 新布局。
 func isLayoutSessionDir(sessionRoot string) bool {
-	_, err := os.Stat(filepath.Join(sessionRoot, "metadata", "guide.json"))
-	return err == nil
+	return storelayout.IsSessionDir(sessionRoot)
 }
 
 // sessionRoot 返回会话 会话存储布局的物理根（与旧 manifest 布局同会话目录，
 // 便于 List/Delete 同时枚举新旧会话）。
 func (store *storeEngine) sessionRoot(key Key) string {
-	return filepath.Join(store.root, "project-"+storeroot.Hash(key.ProjectID), "session-"+storeroot.Hash(key.SessionID))
+	return store.layout.SessionRoot(layoutScope(key))
 }
 
 func (store *storeEngine) metadataDir(key Key) string {
-	return filepath.Join(store.sessionRoot(key), "metadata")
+	return store.layout.MetadataDir(layoutScope(key))
 }
 
 func (store *storeEngine) modulePath(key Key, module storageModule) string {
-	return filepath.Join(store.metadataDir(key), string(module)+".json")
+	return store.layout.ModulePath(layoutScope(key), module)
 }
 
 func (store *storeEngine) guidePath(key Key) string {
-	return filepath.Join(store.metadataDir(key), "guide.json")
+	return store.layout.GuidePath(layoutScope(key))
+}
+
+func layoutScope(key Key) storelayout.Scope {
+	return storelayout.Scope{ProjectID: key.ProjectID, SessionID: key.SessionID}
 }
 
 // ensureLayoutGuide 创建会话 会话存储布局目录并写入 guide.json（幂等：已存在直接
 // 读取返回）。guide 是唯一由本方法创建的模块注册点。
 func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error) {
-	locks := store.locks(key)
-	locks.guideMu.Lock()
-	defer locks.guideMu.Unlock()
-	path := store.guidePath(key)
-	if data, err := os.ReadFile(path); err == nil {
-		var guide layoutGuide
-		if json.Unmarshal(data, &guide) == nil && guide.SessionID == key.SessionID {
-			return guide, nil
-		}
-	}
-	if err := os.MkdirAll(store.metadataDir(key), 0o700); err != nil {
-		return layoutGuide{}, err
-	}
-	now := time.Now().UTC()
-	guide := layoutGuide{
-		LayoutVersion: layoutVersion,
-		SchemaVersion: schemaVersion,
-		SessionID:     key.SessionID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
-	data, err := json.MarshalIndent(guide, "", "  ")
-	if err != nil {
-		return layoutGuide{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return layoutGuide{}, err
-	}
-	if err := storeroot.WriteAtomic(path, data, 0o600); err != nil {
-		return layoutGuide{}, err
-	}
-	return guide, nil
+	return store.layout.EnsureGuide(layoutScope(key))
 }
 
 // headChecksum 计算模块 head 的校验指纹：对信封（不含 checksum 字段）
 // 的稳定序列化取 sha256。reader 用解析后的信封重算比较，不依赖文件原始
 // 字节序。
 func headChecksum(head moduleHeadFile) (string, error) {
-	copy := head
-	copy.Checksum = ""
-	data, err := json.Marshal(copy)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	return storelayout.Checksum(head)
 }
 
 // publishModuleHead 原子发布模块 head（调用方持对应模块锁）。返回发布后
 // 的 commit_id 与 checksum。
 func (store *storeEngine) publishModuleHead(key Key, mod storageModule, commitID string, payload any, updatedAt time.Time) (string, error) {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("session storage: encode %s head payload: %w", mod, err)
-	}
-	head := moduleHeadFile{
-		SchemaVersion: schemaVersion,
-		SessionID:     key.SessionID,
-		ModuleID:      mod,
-		CommitID:      commitID,
-		UpdatedAt:     updatedAt,
-		Payload:       raw,
-	}
-	checksum, err := headChecksum(head)
-	if err != nil {
-		return "", err
-	}
-	head.Checksum = checksum
-	data, err := json.MarshalIndent(head, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	path := store.modulePath(key, mod)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	if err := storeroot.WriteAtomic(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("session storage: publish %s head: %w", mod, err)
-	}
-	return commitID, nil
+	return store.layout.Publish(layoutScope(key), mod, commitID, payload, updatedAt)
 }
 
 // readModuleHeadFile 读模块 head（缺失返回 fs.ErrNotExist）——自愈读的
@@ -454,51 +316,13 @@ func (store *storeEngine) retryHeadAfterLock(key Key, module storageModule) (mod
 // readModuleHeadFileRaw 读一次模块 head 并校验 schema/session/module/checksum。
 // 严格只读：不自愈、不取锁、不发布。
 func (store *storeEngine) readModuleHeadFileRaw(key Key, module storageModule) (moduleHeadFile, error) {
-	path := store.modulePath(key, module)
-	// 只读打开带 FILE_SHARE_DELETE：head 由 rename 原子替换，读者若用 Go 默认共享位
-	// （缺 DELETE）会在替换窗口里 open 失败（ERROR_SHARING_VIOLATION）。
-	data, err := storeroot.ReadSharedFile(path)
-	if err != nil {
-		return moduleHeadFile{}, err
-	}
-	var head moduleHeadFile
-	if err := json.Unmarshal(data, &head); err != nil {
-		return moduleHeadFile{}, fmt.Errorf("session storage: decode %s head %q: %w", module, path, err)
-	}
-	if head.SchemaVersion != schemaVersion {
-		return moduleHeadFile{}, fmt.Errorf("session storage: %s head schema=%d want %d", module, head.SchemaVersion, schemaVersion)
-	}
-	if head.SessionID != key.SessionID {
-		return moduleHeadFile{}, fmt.Errorf("session storage: %s head session %q != %q", module, head.SessionID, key.SessionID)
-	}
-	if head.ModuleID != module {
-		return moduleHeadFile{}, fmt.Errorf("session storage: head module %q != %q", head.ModuleID, module)
-	}
-	want, err := headChecksum(head)
-	if err != nil {
-		return moduleHeadFile{}, err
-	}
-	if head.Checksum != "" && want != head.Checksum {
-		return moduleHeadFile{}, fmt.Errorf("session storage: %s head checksum mismatch", module)
-	}
-	return head, nil
+	return store.layout.ReadHead(layoutScope(key), module)
 }
 
 // readHeadEnvelopeLenient 宽容读 head 信封（自愈重建的字段取回通道）：只要求
 // JSON 可解、模块/会话对得上；不校验 checksum、不触发自愈（否则自愈会递归）。
 func (store *storeEngine) readHeadEnvelopeLenient(key Key, module storageModule) (moduleHeadFile, bool) {
-	data, err := storeroot.ReadSharedFile(store.modulePath(key, module))
-	if err != nil {
-		return moduleHeadFile{}, false
-	}
-	var envelope moduleHeadFile
-	if json.Unmarshal(data, &envelope) != nil {
-		return moduleHeadFile{}, false
-	}
-	if envelope.ModuleID != module || envelope.SessionID != key.SessionID {
-		return moduleHeadFile{}, false
-	}
-	return envelope, true
+	return store.layout.ReadLenientHead(layoutScope(key), module)
 }
 
 // carryModuleHeadCommitID 从（可能已损坏的）旧 head 信封原样取回提交凭据。

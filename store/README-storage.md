@@ -6,6 +6,11 @@
 
 覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`router_storage*.go`；未归属文件由覆盖自检拦下。
 
+M2 起，会话路径、guide、module head 信封/checksum 与按会话模块锁身份的唯一实现位于
+[`internal/layout/README.md`](internal/layout/README.md)。本卷的 `module_heads.go`
+只保留 head 领域重建策略与根 `storeEngine` 适配；README 下方旧索引中若仍列出已删除的
+路径/lock helper，以 `internal/layout` 索引为准。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -66,44 +71,22 @@
 
 ### module_heads.go
 
-- `func newStoreEngine(root string, settings storeroot.Settings) *storeEngine` — newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
-- `func (store *storeEngine) locks(key Key) *sessionModuleLocks` — locks 返回（必要时创建）该会话的模块锁与短临界区状态集合。
-- `func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex` — mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
-- `func moduleForStackKind(kind StackKind) storageModule` — moduleForStackKind 返回栈 kind 的模块 head 枚举（S16：head 按 kind 分文件）。
-- `func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex`
-- `func isLayoutSessionDir(sessionRoot string) bool` — layout 判定：目录内存在 metadata/guide.json = 新布局。
-- `func (store *storeEngine) sessionRoot(key Key) string` — sessionRoot 返回会话 会话存储布局的物理根（与旧 manifest 布局同会话目录，
-- `func (store *storeEngine) metadataDir(key Key) string`
-- `func (store *storeEngine) modulePath(key Key, module storageModule) string`
-- `func (store *storeEngine) guidePath(key Key) string`
-- `func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error)` — ensureLayoutGuide 创建会话 会话存储布局目录并写入 guide.json（幂等：已存在直接
-- `func headChecksum(head moduleHeadFile) (string, error)` — headChecksum 计算模块 head 的校验指纹：对信封（不含 checksum 字段）
-- `func (store *storeEngine) publishModuleHead(key Key, mod storageModule, commitID string, payload any, updatedAt time.Time) (string, error)` — publishModuleHead 原子发布模块 head（调用方持对应模块锁）。返回发布后
-- `func (store *storeEngine) readModuleHeadFile(key Key, module storageModule) (moduleHeadFile, error)` — readModuleHeadFile 读模块 head（缺失返回 fs.ErrNotExist）——自愈读的
-- `func (store *storeEngine) readModuleHeadFileLocked(key Key, module storageModule) (moduleHeadFile, error)` — readModuleHeadFileLocked 是自愈读的**持锁入口**：调用方必须已持该模块锁
-- `func (store *storeEngine) readModuleHeadFileHeal(key Key, module storageModule, lockHeld bool) (moduleHeadFile, error)` — readModuleHeadFileHeal 是两条自愈读入口的共享实现；lockHeld 表示调用方已持
-- `func (store *storeEngine) retryRawHeadOrCause(key Key, module storageModule, cause error) (moduleHeadFile, error)` — retryRawHeadOrCause 在模块锁不可得时重读一次：成功即返回，仍失败上报原始
-- `func (store *storeEngine) retryHeadAfterLock(key Key, module storageModule) (moduleHeadFile, bool)` — retryHeadAfterLock 在拿到/持有模块锁后重读一次：writer 可能刚发布了合法
-- `func (store *storeEngine) readModuleHeadFileRaw(key Key, module storageModule) (moduleHeadFile, error)` — readModuleHeadFileRaw 读一次模块 head 并校验 schema/session/module/checksum。
-- `func (store *storeEngine) readHeadEnvelopeLenient(key Key, module storageModule) (moduleHeadFile, bool)` — readHeadEnvelopeLenient 宽容读 head 信封（自愈重建的字段取回通道）：只要求
-- `func (store *storeEngine) carryModuleHeadCommitID(key Key, module storageModule) string` — carryModuleHeadCommitID 从（可能已损坏的）旧 head 信封原样取回提交凭据。
-- `func (store *storeEngine) repairModuleHeadLocked(key Key, module storageModule, cause error) (moduleHeadFile, error)` — repairModuleHeadLocked 按数据文件重建模块 head 并原子发布（§2.0 规则 3 /
-- `func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule) error` — repairModuleHeadFromData 按数据文件重建模块 head 并原子发布（S15）。
-- `func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, error)` — rebuildMessageHeadFromData 从 message/*.jsonl 分片重建 message head。
-- `func (store *storeEngine) rebuildEventHeadFromData(key Key) (eventHeadRecord, error)` — rebuildEventHeadFromData 从 event/*.jsonl 分片重建 event head。
-- `func (store *storeEngine) rebuildCompactHeadFromData(key Key) (compactHeadRecord, error)` — rebuildCompactHeadFromData 从 session/compact.jsonl 重建 compact head。
-- `func moduleStackKindOf(module storageModule) StackKind` — moduleStackKindOf 反查栈模块对应的 kind。
-- `func (store *storeEngine) rebuildStackKindHeadFromData(key Key, kind StackKind) (stackModuleHead, error)` — rebuildStackKindHeadFromData 从该 kind 的 active/history.jsonl 重建栈
-- `func readCompactFrameRows(path string) ([]compactFrameRecord, error)` — readCompactFrameRows 读取 compact.jsonl 的完整帧行（崩溃残尾跳过）。
-- `func decodeHeadPayload[T any](head moduleHeadFile) (T, error)` — decodeHeadPayload 把模块 head 的 payload 解码到 target。
-- `func (store *storeEngine) commitModuleHead(key Key, mod storageModule, commitID string, payload any) error` — commitModuleHead 是通用模块提交：先确保布局，再原子发布模块 head。
-- `func (store *storeEngine) commitContentModule(key Key, mod storageModule, payload any) error` — commitContentModule 整份替换型内容模块（system/checkpoint）写入：模块 head
-- `func modulePayloadCommitID(mod storageModule, payload any) string` — modulePayloadCommitID 按模块 head payload 内容确定性推导凭据（S17/D13：
-- `func readModuleHeadPayload[T any](store *storeEngine, key Key, module storageModule) (T, error)` — readModuleHeadPayload 读取通用模块 head 并解码 payload；缺失时返回
-- `func readOptionalModuleHead[T any](store *storeEngine, key Key, module storageModule) (T, error)` — readOptionalModuleHead 读一个**可选**模块 head：head 还没写过 = 这个模块还没有任何
-- `func readModuleHeadPayloadLocked[T any](store *storeEngine, key Key, module storageModule) (T, error)` — readModuleHeadPayloadLocked 是 readModuleHeadPayload 的持锁版本：调用方必须
-- `func (store *storeEngine) deleteModule(key Key, module storageModule) error` — deleteModule 删除模块 head 与对应数据目录（短窗口崩溃/审计模拟用；
-
+- `func newStoreEngine(root string, settings storeroot.Settings) *storeEngine` — 构造 JSON 会话引擎并持有 layout 机制实例。
+- `func (store *storeEngine) locks(key Key) *sessionModuleLocks` — 返回会话短临界区缓存；模块锁已下沉 layout。
+- `func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex` — 校验模块登记并委托 layout 的稳定锁身份。
+- `func moduleForStackKind(kind StackKind) storageModule` / `moduleStackKindOf(module storageModule) StackKind` — 栈 kind 与 module ID 的唯一映射。
+- `func validStorageModule(mod storageModule) bool` — 显式拒绝未登记模块，禁止静默锁别名。
+- `func isLayoutSessionDir(sessionRoot string) bool` — 委托 layout 判定 JSON v8 guide。
+- `func (store *storeEngine) sessionRoot/metadataDir/modulePath/guidePath(key Key) string` — 根适配器；物理派生唯一实现位于 `store/internal/layout`。
+- `func layoutScope(key Key) storelayout.Scope` — 把根 Key 映射为无业务布局 Scope。
+- `func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error)` — 委托 layout 幂等发布 guide。
+- `func headChecksum(head moduleHeadFile) (string, error)` / `publishModuleHead` / `readModuleHeadFile*` — 根测试与兼容入口委托 layout head 原语。
+- `func (store *storeEngine) repairModuleHead*` — 根领域层按 message/event/compact/stack 数据文件重建 head；layout 不解释 payload。
+- `func (store *storeEngine) rebuildMessageHeadFromData/rebuildEventHeadFromData/rebuildCompactHeadFromData/rebuildStackKindHeadFromData` — 各领域 head 重建策略。
+- `func decodeHeadPayload[T any](head moduleHeadFile) (T, error)` — 通用 payload 解码。
+- `func (store *storeEngine) commitModuleHead/commitContentModule/deleteModule` — 根模块生命周期适配入口。
+- `func modulePayloadCommitID(mod storageModule, payload any) string` — 按 payload 内容派生确定性提交凭据。
+- `func readModuleHeadPayload/readOptionalModuleHead/readModuleHeadPayloadLocked` — 通用 head payload 读面。
 ### router_storage.go
 
 - `func NewRouterStorage(router *Router, sessionID string) *RouterStorage` — NewRouterStorage 构造 Router 冷存储适配器（绑定会话）。

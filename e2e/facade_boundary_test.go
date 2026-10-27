@@ -167,7 +167,9 @@ const (
 // Store DDD M1：`store/board` 成为看板投影的领域 owner；`store/internal/textsanitize`
 // 是项目摘要与看板 Markdown 共用的纯标准库清洗叶子。两者都是 plan 已确认的
 // store 下行落位，不反向依赖 application；按“新模块可 +1”规则把上限抬到 116。
-const facadeClosureAllowListMax = 116
+// Store DDD M2：`store/internal/layout` 承接路径、guide、head 信封与模块锁身份，
+// 只依赖 store/root 与标准库；按同一规则将上限抬到 117。
+const facadeClosureAllowListMax = 117
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -355,6 +357,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/store/board",
 	// 项目摘要与看板 Markdown 共用的清洗叶子，只有标准库依赖。
 	"github.com/RedHuang-0622/seelex/store/internal/textsanitize",
+	// 会话路径、guide、head 信封/checksum 与模块锁身份的唯一机制实现。
+	"github.com/RedHuang-0622/seelex/store/internal/layout",
 	// M-SSH：远端执行面的连接基座（Dial / 认证 / 主机指纹 / 探针 / 远端作业）。
 	// **新增登记的理由**：它不是一个新能力层，而是"内置工具族的第二个执行面"——
 	// 门面闭包里的 `backend/tool/registry` 与 `backend/engine/assemble` 都要 import 它

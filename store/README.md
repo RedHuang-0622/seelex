@@ -54,6 +54,9 @@ or the next one.
 基座机制（数据根独占锁、进程存活探测、无锁共享读、原子发布 `WriteAtomic`、JSONL 残尾
 `TruncateCrashTail`、存储运行参数 `Settings`）已在 M3-S2 抽成独立的 `store/root` 包
 （依赖闭包 = 纯标准库，见 [`root/README.md`](root/README.md)）。
+JSON v8 会话路径、guide、module head 信封/checksum 与模块锁身份由
+[`internal/layout/README.md`](internal/layout/README.md) 统一实现；根 `storeEngine`
+只保留各领域的数据文件重建策略。
 本包以 import 别名 `storeroot` 使用它（`Settings` / 哨兵错误 / 数据根锁读函数一律写限定名）。
 2026-10-17（P8 §5.2）删掉了过渡期的 `root_aliases.go`（已删除）：那批保形别名只为"搬迁期不动调用点"存在，
 外部只有 `wiring/bootstrap` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
@@ -84,7 +87,8 @@ or the next one.
 | [README-misc.md](README-misc.md) | 兜底卷：无前缀归属的测试文件 | 跨卷用例与基础回归 |
 
 领域包入口：[`board/README.md`](board/README.md) 是看板追加、折叠、压实、路径锁与
-`BOARD.md` 渲染的唯一 owner；`store/internal/textsanitize` 统一派生文本清洗。
+`BOARD.md` 渲染的唯一 owner；[`internal/layout/README.md`](internal/layout/README.md)
+是会话布局/head/模块锁 owner；`store/internal/textsanitize` 统一派生文本清洗。
 
 ## 架构图
 

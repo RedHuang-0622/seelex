@@ -121,8 +121,9 @@ type toolResultHead struct {
 // publishToolResultRefs 在全部结果文件写完后原子发布 refs 索引（S13：不再
 // 写 metadata/toolresult.json 模块 head，也不再使用随机 commit_id）。
 func (store *storeEngine) publishToolResultRefs(key Key, refs []string) error {
-	store.locks(key).toolRefsMu.Lock()
-	defer store.locks(key).toolRefsMu.Unlock()
+	toolRefsLock := store.layout.Lock(layoutScope(key), moduleToolRefs)
+	toolRefsLock.Lock()
+	defer toolRefsLock.Unlock()
 	head := toolResultHead{SessionID: key.SessionID, Refs: refs}
 	data, err := json.MarshalIndent(head, "", "  ")
 	if err != nil {

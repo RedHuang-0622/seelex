@@ -12,7 +12,7 @@
 |---|---|---|---|
 | M0 | 基线门禁 | 已完成 | 见 §2 |
 | M1 | Board 试点 | 已完成 | 见 §2.5 |
-| M2 | layout 内核 | 未开始 | — |
+| M2 | layout 内核 | 已完成 | 见 §2.6 |
 | M3 | Artifact | 未开始 | — |
 | M4 | Commit/Turn UoW | 未开始 | — |
 | M5 | Session 核心 | 未开始 | — |
@@ -202,6 +202,60 @@ M1 按计划保留根兼容方法，God 方法面没有增长。直接 import �
 - 回滚面：反向补丁恢复两个根实现、删除 `store/board` 装配并恢复消费方类型；
   磁盘上的 `worktable.jsonl`、`teamwork.jsonl`、`BOARD.md` 格式不变，无需数据回滚。
 
+## 2.6 M2：Layout 内核（已完成）
+
+### 2.6.1 领域归属
+
+`store/internal/layout` 成为 JSON v8 布局机制 owner：
+
+- `project-<hash>/session-<hash>/metadata/<module>.json` 路径派生；
+- guide 幂等创建与固定字段；
+- module head 信封、checksum、原子发布、严格/宽容读；
+- 按 `(Scope, ModuleID)` 一模块一锁的动态身份表。
+
+message/event/compact/stack 等 head 的**领域重建**仍留在根 `storeEngine`；layout
+不知道 payload 类型，也不按模块写 switch。
+
+### 2.6.2 红测
+
+首次失败：
+
+```text
+go test ./e2e -run TestStoreDDDMLayoutOwnershipGate -count=1
+--- FAIL: store/internal/layout 尚未成为布局机制 owner:
+The system cannot find the file specified.
+```
+
+通过后的定向门禁：
+
+```text
+go test ./store/internal/layout -count=1   PASS
+go test ./store -run 'Head|Lock|Atomic|Pending|Guide' -count=1   PASS
+go test ./e2e -run TestStoreDDDMLayoutOwnershipGate -count=1   PASS
+```
+
+### 2.6.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/module_heads.go` sessionRoot/metadataDir/modulePath/guidePath | `store/internal/layout.Layout.{SessionRoot,MetadataDir,ModulePath,GuidePath}` |
+| `store/module_heads.go` `ensureLayoutGuide` | `store/internal/layout.Layout.EnsureGuide` |
+| `store/module_heads.go` `headChecksum` / `publishModuleHead` | `store/internal/layout.{Checksum,Layout.Publish}` |
+| `store/module_heads.go` strict/lenient head 读取 | `store/internal/layout.Layout.{ReadHead,ReadLenientHead}` |
+| `sessionModuleLocks` 的 18 个模块锁字段 + `mutexFor` switch | `store/internal/layout.Layout.Lock` 的动态 `(session, module)` 锁表 |
+| `json_layout.go` 的 `toolRefsMu` 字段使用 | layout 的 `moduleToolRefs` 锁身份 |
+
+根 `validStorageModule` 仍显式拒绝未登记模块；新增模块不再修改锁字段集合。
+
+### 2.6.4 结构指标与数据兼容
+
+- God 方法面：`Router 130` / `jsonRepository 90` / `storeEngine 183` /
+  `SessionGranularStore 46`，均未增长。
+- 根 `store` 生产 importer：85，未增长。
+- 路径、metadata 文件名、guide/head JSON 字段、checksum 算法、锁粒度和原子 rename：
+  零变化。
+- `store/internal/layout` 只依赖标准库与 `store/root`，自动受 I6 覆盖。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -324,5 +378,5 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-M2：Layout 内核，按 `milestones.md` §6 提取会话路径、guide、module head 信封与
-按模块锁；先写结构红测，再迁 `module_heads.go` 的机制层实现。
+M3：Artifact，按 `milestones.md` §7 迁移 tool result、blob、media、search index；
+先定义 artifact 引用契约与消费方窄端口，再迁唯一实现并删除根重复判据。
