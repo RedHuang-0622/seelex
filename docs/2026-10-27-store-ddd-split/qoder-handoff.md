@@ -1,15 +1,19 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0–M7 已完成；wire 纯装配、压缩/prompt 窄投影与 context fork
-重写均已下沉并分片提交。
+状态快照：M0–M7 已完成，M8 纯模型/校验/folding checkpoint 已提交为
+`af2bbaab`。本 worktree 从该 checkpoint 开始，下一步继续 M8 I/O 与 team registry。
+
+权威 Qoder 顺序提示词见
+[`qoder-remaining-work.md`](qoder-remaining-work.md)。M8→M11 必须在这个
+worktree 顺序执行，不得从同一 commit 并行开四个分支。
 
 截至 2026-10-28 01:55，M7 正式验收测试、四条 ownership gate、普通/tagged build
 与全仓 vet 均 PASS。外部 consumer 批次已从 `8fbae4e8` 完成 dry-run、apply、
 replay 测试、tree parity 和 rollback 演练，M7 已闭环。
 
-工作区：`G:\seelex-worktrees\store-ddd-M6`
+工作区：`G:\seelex-worktrees\store-ddd-M8-to-M11`
 
-分支：`codex/store-ddd-M7-g`
+分支：`codex/store-ddd-M8-to-M11`
 
 接手顺序：
 
