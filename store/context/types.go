@@ -126,6 +126,15 @@ type SessionContextRecord struct {
 	GoalAudit     []GoalAuditEntry `json:"goal_audit"`
 }
 
+// PromptStackSnapshot 是 prompt 装配与本地压缩读取的栈投影；刻意排除 schema、
+// fork origin、SystemPrompt 与 GoalAudit 等存储或其它领域字段。
+type PromptStackSnapshot struct {
+	PlanStack    []PlanFrame    `json:"plan_stack"`
+	TaskStack    []TaskFrame    `json:"task_stack"`
+	SkillStack   []SkillFrame   `json:"skill_stack"`
+	CompactStack []CompactFrame `json:"compact_stack"`
+}
+
 type CheckpointContent struct {
 	SessionID string `json:"session_id"`
 	Payload   []byte `json:"payload"`

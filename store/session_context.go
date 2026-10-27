@@ -297,6 +297,22 @@ func (s *SessionContextStore) CompactStackSnapshot() []CompactFrame {
 	return cloneCompactFrames(s.record.CompactStack)
 }
 
+// PromptStackSnapshot 返回 prompt 装配与本地压缩所需的栈投影，不暴露
+// context blob、schema、fork origin、system prompt 或 goal audit。
+func (s *SessionContextStore) PromptStackSnapshot() storecontext.PromptStackSnapshot {
+	if s == nil {
+		return storecontext.PromptStackSnapshot{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return storecontext.PromptStackSnapshot{
+		PlanStack:    append([]PlanFrame(nil), s.record.PlanStack...),
+		TaskStack:    append([]TaskFrame(nil), s.record.TaskStack...),
+		SkillStack:   append([]SkillFrame(nil), s.record.SkillStack...),
+		CompactStack: cloneCompactFrames(s.record.CompactStack),
+	}
+}
+
 // ── 栈操作（plan/task/goal 走 §2.4 栈通道，非 context blob）──────────────
 
 // writeStack 把一次栈变更写进通道并回读该 kind 的 active 投影。

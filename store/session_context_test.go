@@ -115,6 +115,36 @@ func TestSessionContextStoreCompactStackSnapshotIsDeepCopy(t *testing.T) {
 	}
 }
 
+func TestSessionContextStorePromptStackSnapshotProjection(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionContextStore(router, "session-prompt-read-face")
+	if err := store.mutate(func(record *SessionContextRecord) error {
+		record.SchemaVersion = 99
+		record.SystemPrompt = "storage only"
+		record.ForkedFrom = json.RawMessage(`{"parent":"p"}`)
+		record.GoalAudit = []GoalAuditEntry{{GoalID: "g", Kind: "goal.begin"}}
+		record.PlanStack = []PlanFrame{{PlanID: "plan"}}
+		record.TaskStack = []TaskFrame{{TaskID: "task"}}
+		record.SkillStack = []SkillFrame{{SkillID: "skill"}}
+		record.CompactStack = []CompactFrame{{SegmentID: "compact"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := store.PromptStackSnapshot()
+	if len(snapshot.PlanStack) != 1 || len(snapshot.TaskStack) != 1 ||
+		len(snapshot.SkillStack) != 1 || len(snapshot.CompactStack) != 1 {
+		t.Fatalf("prompt stack snapshot=%+v", snapshot)
+	}
+	snapshot.PlanStack[0].PlanID = "mutated"
+	snapshot.CompactStack[0].SegmentID = "mutated"
+	again := store.PromptStackSnapshot()
+	if again.PlanStack[0].PlanID != "plan" || again.CompactStack[0].SegmentID != "compact" {
+		t.Fatalf("prompt stack snapshot exposed internal state: %+v", again)
+	}
+}
+
 func TestSessionContextStorePersistsAcrossInstances(t *testing.T) {
 	router := newTestRouter(t)
 	first := NewSessionContextStore(router, "session-persist")

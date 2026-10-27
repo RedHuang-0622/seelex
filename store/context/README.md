@@ -38,6 +38,10 @@
 再依赖 `SessionContextRecord`。Plan/Task 的 prompt 投影与上下文 blob 投影仍待
 M7 后续切片继续收缩。
 
+`SessionContextStore.PromptStackSnapshot` 是 prompt 装配与本地压缩的下一层目标
+投影：只含 Plan/Task/Skill/Compact 四栈，显式排除 schema、fork origin、
+SystemPrompt 与 GoalAudit。
+
 ## 测试
 
 ```text

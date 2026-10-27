@@ -127,6 +127,7 @@
 - `func (s *SessionContextStore) SystemPrompt() string` — SystemPrompt 返回当前会话级基础提示。
 - `func (s *SessionContextStore) Snapshot() SessionContextRecord` — Snapshot 返回记录的内存拷贝（供 Assembler 渲染，不暴露内部状态）。
 - `func (s *SessionContextStore) CompactStackSnapshot() []CompactFrame` — CompactStackSnapshot 只返回压缩栈的深拷贝。
+- `func (s *SessionContextStore) PromptStackSnapshot() storecontext.PromptStackSnapshot` — PromptStackSnapshot 返回 prompt 装配与本地压缩所需的栈投影，不暴露 context blob、schema、fork origin、system prompt 或 goal audit。
 - `func (s *SessionContextStore) writeStack(kind StackKind, mutate func() error) error` — writeStack 把一次栈变更写进通道并回读该 kind 的 active 投影。
 - `func (s *SessionContextStore) refreshStack(kind StackKind) error` — refreshStack 从栈通道回读指定 kind 的 active 条目覆盖内存投影。
 - `func stackPayload(frame any) json.RawMessage` — stackPayload 编码栈帧为通道 payload。
