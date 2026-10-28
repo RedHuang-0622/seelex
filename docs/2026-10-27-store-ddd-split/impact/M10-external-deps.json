@@ -1,0 +1,935 @@
+{
+  "schema_version": 1,
+  "milestone": "M10",
+  "execution": {
+    "worktree_branch": "codex/store-ddd-M8-to-M11",
+    "base_commit": "d192dab79aac926750f683c03c8fda4eb6e7d17c",
+    "checkpoint_commit": "PENDING_CHECKPOINT"
+  },
+  "checkpoint": {
+    "commit": "PENDING_CHECKPOINT",
+    "created_at": ""
+  },
+  "providers": [
+    {
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "symbols": [
+        "BoardsFor",
+        "BoardsForSession",
+        "TeamworkFor",
+        "ToolRecordFor",
+        "MediaStoreOf"
+      ],
+      "change": "removed runtime capability discovery; typed Stores bundle injected by composition root"
+    }
+  ],
+  "files": [
+    {
+      "path": "application/goal/board_archive_read_test.go",
+      "package": "github.com/RedHuang-0622/seelex/application/goal",
+      "side": "test",
+      "sha256": "9be6bc034f3b9e3c9befda4f0ca7d8e8c9527054d4f480f8a3c41263cab2bfcf",
+      "pre_sha256": "9be6bc034f3b9e3c9befda4f0ca7d8e8c9527054d4f480f8a3c41263cab2bfcf",
+      "post_sha256": "a7bafe3efe6c1a3595d5419255be4cec1ef3f39689312611a21005e88237c619",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/application/goal"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "production",
+      "sha256": "4d6ade2d6d5ac58ab923520c3d8b4edeb39bf2642c3c72da9e82a6d2f8af09b0",
+      "pre_sha256": "4d6ade2d6d5ac58ab923520c3d8b4edeb39bf2642c3c72da9e82a6d2f8af09b0",
+      "post_sha256": "df554d096b1069783b291b40e7b270e57c3d70ac23ac0c9001a39974e20329f2",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime_context.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "production",
+      "sha256": "2b572f91d6e8151288275b49783e67b2db68740364570c07a165e5d387327e82",
+      "pre_sha256": "2b572f91d6e8151288275b49783e67b2db68740364570c07a165e5d387327e82",
+      "post_sha256": "4ff64d415bef4cfb89162f75a5d1fc5c5a4cea19c95f443313abf8e548722965",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime_session.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "production",
+      "sha256": "1ca54e5fc0d767ac76a79feafc405694d8cda27d486ea95788668fd62015a6b0",
+      "pre_sha256": "1ca54e5fc0d767ac76a79feafc405694d8cda27d486ea95788668fd62015a6b0",
+      "post_sha256": "0f1088e47c61a3d0d78288495b7f922f99cd92752754399675a403ef4e269095",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime_teamwork.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "production",
+      "sha256": "21fcb934bba40815d812ee489c969f7ecaa7880f786a25fbc0968d5d68994ea9",
+      "pre_sha256": "21fcb934bba40815d812ee489c969f7ecaa7880f786a25fbc0968d5d68994ea9",
+      "post_sha256": "322161821c71416548a41b2cfe21fe51032590f8ea72627b326cb08558390397",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime_teamwork_board_archive_test.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "test",
+      "sha256": "c7c44d970350f599325e721a3853629c8245a98806b2e2f05cedc6c05dbfafdc",
+      "pre_sha256": "c7c44d970350f599325e721a3853629c8245a98806b2e2f05cedc6c05dbfafdc",
+      "post_sha256": "eea815a25f9b7b5e61550d923f886d082c4fe26a1d633473e25ae8430f2bc35a",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/engine/assemble/runtime_teamwork_output_test.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/engine/assemble",
+      "side": "test",
+      "sha256": "b7844b1d26a946d16f97f27877028cc2443be3301543783447a5d320f47e9a58",
+      "pre_sha256": "b7844b1d26a946d16f97f27877028cc2443be3301543783447a5d320f47e9a58",
+      "post_sha256": "28a8bbc00ff4a9fd91297f07d4d1b866ea72d6f938724556827d963f7edcbb50",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+      ]
+    },
+    {
+      "path": "backend/multiagent/team/plugin_assembly.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/team",
+      "side": "production",
+      "sha256": "faf88d71d94101886d2171d99f7fa3589b09d3f81daed18d9648caa8dc4f7e8f",
+      "pre_sha256": "faf88d71d94101886d2171d99f7fa3589b09d3f81daed18d9648caa8dc4f7e8f",
+      "post_sha256": "04240fa5f2efe26902379f55821df2ddfd3fc15a3b6683f960429ff0e979cb3a",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/team"
+      ]
+    },
+    {
+      "path": "backend/multiagent/team/plugin_reject.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/team",
+      "side": "production",
+      "sha256": "1e25a9d2cca6cc9db0b82d1404ba46fcb68d756ae368d0eec472058300b9bdaa",
+      "pre_sha256": "1e25a9d2cca6cc9db0b82d1404ba46fcb68d756ae368d0eec472058300b9bdaa",
+      "post_sha256": "abefb7c57c3d58d42697a6b6f9da49773879eb8520eaf2f1ec0770f42aaf647f",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/team"
+      ]
+    },
+    {
+      "path": "backend/multiagent/teamwork/board_archive.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
+      "side": "production",
+      "sha256": "8e9812939e705b295a7ddb046ae2dda7c0d66ca5a7587ecec89989461e1b8b8b",
+      "pre_sha256": "8e9812939e705b295a7ddb046ae2dda7c0d66ca5a7587ecec89989461e1b8b8b",
+      "post_sha256": "c678fe5159da390dfdf4f02198db5d95b6b453338ce18a0b57f7a058f2828ba7",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+      ]
+    },
+    {
+      "path": "backend/multiagent/teamwork/output_store.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
+      "side": "production",
+      "sha256": "abaf8864c01703e43684fbb4cc9e7eed9cdbb69141a0cf4979a74ca6f5ea6941",
+      "pre_sha256": "abaf8864c01703e43684fbb4cc9e7eed9cdbb69141a0cf4979a74ca6f5ea6941",
+      "post_sha256": "649342687dbe4163306e3c09bcd8884a23679815aa5dbd6ff4c8d76967b1d106",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+      ]
+    },
+    {
+      "path": "backend/multiagent/teamwork/output_store_test.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
+      "side": "test",
+      "sha256": "8d9053feb6f299ccc59fa2dc683e10da9b45f2c1b9b7c4a0a44b9394430917c9",
+      "pre_sha256": "8d9053feb6f299ccc59fa2dc683e10da9b45f2c1b9b7c4a0a44b9394430917c9",
+      "post_sha256": "7e34f3dc561a5d9cfe46d6244cdd76360eefe54deac8a5d9149bbd26762707b4",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+      ]
+    },
+    {
+      "path": "backend/multiagent/teamwork/store.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork",
+      "side": "production",
+      "sha256": "8d7c3924ee25037eff6f720fdd4d74efc3b61f9641ccec04dd9e077b5e8fa869",
+      "pre_sha256": "8d7c3924ee25037eff6f720fdd4d74efc3b61f9641ccec04dd9e077b5e8fa869",
+      "post_sha256": "766e3e76e472cc5a663fe2213dae05b2b9582e887db1726cd08ce9ed70969808",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+      ]
+    },
+    {
+      "path": "backend/tool/io/multimodal/content.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/tool/io/multimodal",
+      "side": "production",
+      "sha256": "96f3ff15fe9dd0de780e21da26333b9d0822a4a03bb2a31e70558d18ff70e403",
+      "pre_sha256": "96f3ff15fe9dd0de780e21da26333b9d0822a4a03bb2a31e70558d18ff70e403",
+      "post_sha256": "5fd8c7f5b1508c847cd1d9876746a4e17c2a6e572d96df083e3997a2af5abde6",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/tool/io/multimodal"
+      ]
+    },
+    {
+      "path": "backend/tool/io/multimodal/live_smoke_test.go",
+      "package": "github.com/RedHuang-0622/seelex/backend/tool/io/multimodal",
+      "side": "test",
+      "sha256": "e1bd78f1f39053bfe98735722bd89ce7e79b556d3b1c37733eb9e35c966ddc57",
+      "pre_sha256": "e1bd78f1f39053bfe98735722bd89ce7e79b556d3b1c37733eb9e35c966ddc57",
+      "post_sha256": "3bb559a728eab7ef1f336e22cdf82e97d4e4e9b6b6dc2149e22209b5c1ae99cf",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/backend/tool/io/multimodal"
+      ]
+    },
+    {
+      "path": "contract/dto/session_board.go",
+      "package": "github.com/RedHuang-0622/seelex/contract/dto",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "f6f62e147cc4422199c5a6941e00ded4048b3d85a2fa533596240c30c8d5c146",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/contract/dto"
+      ]
+    },
+    {
+      "path": "docs/2026-10-27-store-ddd-split/impact/M10-external-deps.md",
+      "package": "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split/impact",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "e201c089102b4431b5dc04f17b4e3297ae97e9399e538ce735cd2e0f1f11defb",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split/impact"
+      ]
+    },
+    {
+      "path": "kernel/goal/board_archive.go",
+      "package": "github.com/RedHuang-0622/seelex/kernel/goal",
+      "side": "production",
+      "sha256": "f6ac255dca5437fbfad8fdc7969149e7099767579ad9aa35cd5f8b0999fd7598",
+      "pre_sha256": "f6ac255dca5437fbfad8fdc7969149e7099767579ad9aa35cd5f8b0999fd7598",
+      "post_sha256": "3806dbcee5e74dffd31af2b3eedb22a4d2287b9d7076f145305b25adfbba5f6e",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/kernel/goal"
+      ]
+    },
+    {
+      "path": "kernel/goal/board_archive_test.go",
+      "package": "github.com/RedHuang-0622/seelex/kernel/goal",
+      "side": "test",
+      "sha256": "e800546ad70c5924275c20701cdd4af98b159c6b039d2276ade835458efa30df",
+      "pre_sha256": "e800546ad70c5924275c20701cdd4af98b159c6b039d2276ade835458efa30df",
+      "post_sha256": "d94a8f0c1cd2add5575f9f5f0c43c32b79cc6b451b6d41cd03fd48c6a18f51bd",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/kernel/goal"
+      ]
+    },
+    {
+      "path": "store/absent_state_reads_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "test",
+      "sha256": "d1fd50158fa149c6381d2377c8000dc461f4f1f6490ee067459d886c1aa5111b",
+      "pre_sha256": "d1fd50158fa149c6381d2377c8000dc461f4f1f6490ee067459d886c1aa5111b",
+      "post_sha256": "4b0e5f300e3f6611ba23b6b37e0f8d8f9cbdd12822912ba355de03a9915505f6",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/board.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "de7aae01bfa74afece5c754cd3d4af3bfb2d9ba351f7a1fdf313c8e69ab3fcb5",
+      "pre_sha256": "de7aae01bfa74afece5c754cd3d4af3bfb2d9ba351f7a1fdf313c8e69ab3fcb5",
+      "post_sha256": "e93771f25399d401f5463883b4b5d631ebbf3bbc7a4a88b5e04f2f442f8b0ad4",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/board/session.go",
+      "package": "github.com/RedHuang-0622/seelex/store/board",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "fbf9df9c5069dedec3a7565e6ce1919914d5771c1054c38ab3d00bc98d90087f",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/board"
+      ]
+    },
+    {
+      "path": "store/board_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "test",
+      "sha256": "c7d07cdfdbde2767b0f420329ae18dcdaaedad4f9b05a94b37cab34c2b1bd6ad",
+      "pre_sha256": "c7d07cdfdbde2767b0f420329ae18dcdaaedad4f9b05a94b37cab34c2b1bd6ad",
+      "post_sha256": "209ce4678e9018beb1d31d08dca430cb0f21990bdaa359b63bdc1bf610c25619",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/m10_test_compat_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "test",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "b6c50ced50d3b886d5ff133cae5dea10ab03ee826db4e297febfbc3a2a16a436",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/media.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "44cdce7a015c5871d412394db836d676f0e7817a9428fac76d4672ae9217a7f5",
+      "pre_sha256": "44cdce7a015c5871d412394db836d676f0e7817a9428fac76d4672ae9217a7f5",
+      "post_sha256": "4c51c98b6d73ef30011bd03b0e3195d4da288d369b9c75eade7309101f288bd3",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/module_heads.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "bbe8064f011e8217dc36640d12da7578bd3d0b1bfd66d389d1468101facaa124",
+      "pre_sha256": "bbe8064f011e8217dc36640d12da7578bd3d0b1bfd66d389d1468101facaa124",
+      "post_sha256": "bdeb9d4c7cf369843664664396f784a0509774a696164120be753b3677cb0251",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/record/README.md",
+      "package": "github.com/RedHuang-0622/seelex/store/record",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "4dc875b819bb845191424a1e752f2b254f79fc29bdee9d84b218c98234650029",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/record"
+      ]
+    },
+    {
+      "path": "store/record/store.go",
+      "package": "github.com/RedHuang-0622/seelex/store/record",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "4da647d85b9bfc81969a7ba539b33cc556e361b9ed74070513dc0b818562cd3f",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/record"
+      ]
+    },
+    {
+      "path": "store/sessionstore.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "e06999dc2fe785a2791094c22baff541c283faff92cbe3ab7f677b30c42229e6",
+      "pre_sha256": "e06999dc2fe785a2791094c22baff541c283faff92cbe3ab7f677b30c42229e6",
+      "post_sha256": "4cb985c7172338fa9363dc73e590726f23838dc46b723f65e86f8f19183e1218",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/stores.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "8743da0d073ead41b9968b1bda369747f04307d5b27511fbc2db89f64946e307",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/teamwork.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "7644102f7669eb7d6cec9d521d7f926cd82e05b61b22e0d2c5f551cba4d74c39",
+      "pre_sha256": "7644102f7669eb7d6cec9d521d7f926cd82e05b61b22e0d2c5f551cba4d74c39",
+      "post_sha256": "dd5eea180645b4e6e0806adc3ec7317332fc98903da3104e2e013eb6c9c3898c",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/teamwork/store.go",
+      "package": "github.com/RedHuang-0622/seelex/store/teamwork",
+      "side": "production",
+      "sha256": "7abdb065e1c11ebdd305c2d4ca7d76a17327f2a51274e34a9ebe4be55d20bab7",
+      "pre_sha256": "7abdb065e1c11ebdd305c2d4ca7d76a17327f2a51274e34a9ebe4be55d20bab7",
+      "post_sha256": "3a15710c85ebdd69badb9cbab8916af5ff7d4edde1441d44961db093045dfab9",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/teamwork"
+      ]
+    },
+    {
+      "path": "store/teamwork/store_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store/teamwork",
+      "side": "test",
+      "sha256": "1c12bf0bf09f39cb8be36a255f4b53a24acefb94b7867f78c3e3234985664ad0",
+      "pre_sha256": "1c12bf0bf09f39cb8be36a255f4b53a24acefb94b7867f78c3e3234985664ad0",
+      "post_sha256": "bbb4f81b91a21294c6e2022a310b7ba379788ad2b02e686a2ec22ee8578c11e8",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/teamwork"
+      ]
+    },
+    {
+      "path": "store/teamwork_items.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "7a0500ac60f551031001424d98e97a6fc86e8d647dcc1c240760f6eacd8757d6",
+      "pre_sha256": "7a0500ac60f551031001424d98e97a6fc86e8d647dcc1c240760f6eacd8757d6",
+      "post_sha256": null,
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/teamwork_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "test",
+      "sha256": "3a61838350ae7e24afe6a44d8469c8f51d54f2408b39a0433968222312579bb1",
+      "pre_sha256": "3a61838350ae7e24afe6a44d8469c8f51d54f2408b39a0433968222312579bb1",
+      "post_sha256": "0185e66d4e5358848c8c0ccd3eac2ff7287c9f9a44ea33f5e6ea884984171057",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/testdata/god_type_methods.json",
+      "package": "github.com/RedHuang-0622/seelex/store/testdata",
+      "side": "production",
+      "sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
+      "pre_sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
+      "post_sha256": "5209d2dcb0eda930c9300e56f8b44b85f0b96fbe8c635b5f400742c57c27938c",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/testdata"
+      ]
+    },
+    {
+      "path": "store/tool_record.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "a0db59661f5188ebedaf6c7588c6a87faa355bf2dc860b501bd6c31368e4b135",
+      "pre_sha256": "a0db59661f5188ebedaf6c7588c6a87faa355bf2dc860b501bd6c31368e4b135",
+      "post_sha256": "2c7f948ece0cb0aa2bc31a3ec05991ca12d07a71b8191f669f605a2901c0ca37",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/tool_record_test.go",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "test",
+      "sha256": "43c74e4bd8e7807930720ca5cf4bc4ee4cbbe4d4bf008a5f8e513f3134962fe1",
+      "pre_sha256": "43c74e4bd8e7807930720ca5cf4bc4ee4cbbe4d4bf008a5f8e513f3134962fe1",
+      "post_sha256": "5d02ba6de920c20cc12733226279083c71c36f3daee17c9e3520c4f488b6a606",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "test/repro_hot_attach_background_tool_order_test.go",
+      "package": "github.com/RedHuang-0622/seelex/test",
+      "side": "test",
+      "sha256": "186973eeba0b7c0c4fc0c57d2a6b713f713856f5b72e694eb944aff99285873b",
+      "pre_sha256": "186973eeba0b7c0c4fc0c57d2a6b713f713856f5b72e694eb944aff99285873b",
+      "post_sha256": "37271b598dee57def3ae56e4aea38aea53ac9822eb4bdb78fceab14076531a5c",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/test"
+      ]
+    },
+    {
+      "path": "test/repro_session_background_test.go",
+      "package": "github.com/RedHuang-0622/seelex/test",
+      "side": "test",
+      "sha256": "220d695d600826e50dac9b071594b8738c589990493cf160d298e103cc96d279",
+      "pre_sha256": "220d695d600826e50dac9b071594b8738c589990493cf160d298e103cc96d279",
+      "post_sha256": "26bf7f2b02b746a3014f4e5209220b8401021cbd776cd67746ecf7615fc9c429",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/test"
+      ]
+    },
+    {
+      "path": "test/repro_session_workspace_test.go",
+      "package": "github.com/RedHuang-0622/seelex/test",
+      "side": "test",
+      "sha256": "5b2cba43429288ba1429ef2f75ab4f430b1512046040b5bcfe4a30455384d40d",
+      "pre_sha256": "5b2cba43429288ba1429ef2f75ab4f430b1512046040b5bcfe4a30455384d40d",
+      "post_sha256": "95dcd6da407b95cfd5eb77e347678424614071b6e35bd804ef700cc3766b301b",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/test"
+      ]
+    },
+    {
+      "path": "test/teamwork_headless_smoke_test.go",
+      "package": "github.com/RedHuang-0622/seelex/test",
+      "side": "test",
+      "sha256": "6fe74294069536be213168aec532a2826ef7b410a1fba027f931fc2599053a74",
+      "pre_sha256": "6fe74294069536be213168aec532a2826ef7b410a1fba027f931fc2599053a74",
+      "post_sha256": "86d849faa475e9e9130b73ad3254992e96b4e910520d43eed0b42646c2480b8a",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/test"
+      ]
+    },
+    {
+      "path": "test/tool_full_chain_test.go",
+      "package": "github.com/RedHuang-0622/seelex/test",
+      "side": "test",
+      "sha256": "4745758f072bebee3463282e3e0075e02edceddc731703157cf257f212b226b0",
+      "pre_sha256": "4745758f072bebee3463282e3e0075e02edceddc731703157cf257f212b226b0",
+      "post_sha256": "4be24abb08de0303d73df8368bc097d7c8fe303832faaec12b69626f3ae5d776",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/test"
+      ]
+    },
+    {
+      "path": "wiring/adapters/goal_coordinator.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/adapters",
+      "side": "production",
+      "sha256": "e4ad40bf6682b71ed8e1decadb2a7ecba85dc26d1bdd2b6135522339eac300e1",
+      "pre_sha256": "e4ad40bf6682b71ed8e1decadb2a7ecba85dc26d1bdd2b6135522339eac300e1",
+      "post_sha256": "d631b95b9626e6e63a3b54f5a7b0b9bf9ef7c0357328e69e2f58c82ad88f2167",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/adapters"
+      ]
+    },
+    {
+      "path": "wiring/adapters/goal_coordinator_test.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/adapters",
+      "side": "test",
+      "sha256": "7d52ef9c7e05a2d9b58476678522f40b69b2d8df5e710f14b06cf7057b5904df",
+      "pre_sha256": "7d52ef9c7e05a2d9b58476678522f40b69b2d8df5e710f14b06cf7057b5904df",
+      "post_sha256": "edacdc6e46d748737a8f439da92f0f315b82b79a5037cdbd58f59bf3e6789971",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/adapters"
+      ]
+    },
+    {
+      "path": "wiring/adapters/runtime_narrow_ports.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/adapters",
+      "side": "production",
+      "sha256": "15d7869e2be3fcef8332d94c0fd169b55d5a98e6c10b15960169ff4d459a06ed",
+      "pre_sha256": "15d7869e2be3fcef8332d94c0fd169b55d5a98e6c10b15960169ff4d459a06ed",
+      "post_sha256": "a297927dd7de3b0fed8df1d01fd3386b9714a3873d1349fc7a64633293d83cf7",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/adapters"
+      ]
+    },
+    {
+      "path": "wiring/adapters/session_workspace_ports.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/adapters",
+      "side": "production",
+      "sha256": "f486a2721c7d7f423dc85eca0102478160e8496aaf1de136801e45a362ce41e8",
+      "pre_sha256": "f486a2721c7d7f423dc85eca0102478160e8496aaf1de136801e45a362ce41e8",
+      "post_sha256": "76a999b1588188337f64fa0f59634caa0741d568af39886fb80e11252926feb0",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/adapters"
+      ]
+    },
+    {
+      "path": "wiring/bootstrap/application.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/bootstrap",
+      "side": "production",
+      "sha256": "025f18cbb4b4e5488801cc264feab4217794ca49112d91ab4c4241fcd138c5f6",
+      "pre_sha256": "025f18cbb4b4e5488801cc264feab4217794ca49112d91ab4c4241fcd138c5f6",
+      "post_sha256": "3b5e84035f86b8e24c1355b6c5410f5125ece84c0cf202776b3d445ef494f4dd",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/bootstrap"
+      ]
+    },
+    {
+      "path": "wiring/bootstrap/bootstrap.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/bootstrap",
+      "side": "production",
+      "sha256": "412deb07bbdaae0e033d01b7a5277c152f629635763f60a35aab1520f3835340",
+      "pre_sha256": "412deb07bbdaae0e033d01b7a5277c152f629635763f60a35aab1520f3835340",
+      "post_sha256": "d8a9e702f22ea314994d45225d993326184cd69b8eceb7da9d392572a1235de1",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/bootstrap"
+      ]
+    },
+    {
+      "path": "wiring/bootstrap/runtime.go",
+      "package": "github.com/RedHuang-0622/seelex/wiring/bootstrap",
+      "side": "production",
+      "sha256": "083124028f9a93e8627459959f209e5a5e67169c56bc00dbe777cf2245f6730e",
+      "pre_sha256": "083124028f9a93e8627459959f209e5a5e67169c56bc00dbe777cf2245f6730e",
+      "post_sha256": "b726bd6a803883b8316b6802e2d4d2134cd5f94ca756df65e6d1647123d57f18",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/wiring/bootstrap"
+      ]
+    }
+  ],
+  "summary": {
+    "production_files": 32,
+    "test_files": 18,
+    "packages": 16,
+    "direct_edges": 0,
+    "reverse_edges": 0
+  }
+}
