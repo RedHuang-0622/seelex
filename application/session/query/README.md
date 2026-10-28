@@ -46,7 +46,9 @@
 
 `Service` 兼容入口 → `query.Application` / `InputIndexApplication` → 注入的
 目录/元数据/Workspace/存储读与锁内窗口端口。快照、transcript 与 input index
-的慢读发生在共享写锁之外。
+的慢读发生在共享写锁之外。Input index 的每一行同时携带用户问题摘要与该轮
+下一条用户输入之前最后一条非空 assistant 回复的有界开头；回复组装仍由
+`middle/residency.BuildInputIndex` 唯一拥有。
 
 ## 依赖方向
 

@@ -20,6 +20,10 @@ import (
 // （"零正文全量读"：整份索引只有摘要，摘要长度有界）。
 const InputIndexSummaryLimit = 60
 
+// InputIndexReplySummaryLimit 是刻度第二层「该轮最后 LLM 开头」的字符上限。
+// 它比用户问题更短：摘要卡先回答“这是哪一问”，回复只用于帮助辨认这一轮。
+const InputIndexReplySummaryLimit = 36
+
 // SummarizeInputText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
 // 返回摘要与原文 rune 数（`Chars > len([]rune(Summary))` 即已截断）。
 func SummarizeInputText(text string, limit int) (string, int) {
@@ -63,16 +67,32 @@ func AlignLoadedInputTexts(texts, loaded []string) (int, int) {
 //   - 只保留 `userText` 判定为"用户输入"的行（宿主谓词：非 user 行、内部标记、会话恢复摘要、
 //     空白行都不算；skill 包装输入按"用户看到的正文"还原）；
 //   - loaded 是当前已加载窗口内的用户输入正文（顺序一致），命中段标 Loaded；
-//   - 摘要按 limit 截断（rune），Chars 保留原文长度。
+//   - 摘要按 limit 截断（rune），Chars 保留原文长度；
+//   - ReplySummary 取下一条有效用户输入之前最后一条非空 assistant 回复，
+//     使用独立短上限，空 assistant 不覆盖已有回复。
 func BuildInputIndex(conversation []model.Message, loaded []string, limit int, userText func(model.Message) string) []model.SessionInputIndexRow {
 	if limit <= 0 {
 		limit = InputIndexSummaryLimit
 	}
 	rows := make([]model.SessionInputIndexRow, 0, len(conversation))
 	texts := make([]string, 0, len(conversation))
+	activeRow := -1
 	for offset, message := range conversation {
 		text := userText(message)
 		if text == "" {
+			if activeRow < 0 || message.Role != "assistant" {
+				continue
+			}
+			replyLimit := InputIndexReplySummaryLimit
+			if limit < replyLimit {
+				replyLimit = limit
+			}
+			reply, chars := SummarizeInputText(message.Content, replyLimit)
+			if reply == "" {
+				continue
+			}
+			rows[activeRow].ReplySummary = reply
+			rows[activeRow].ReplyChars = chars
 			continue
 		}
 		summary, chars := SummarizeInputText(text, limit)
@@ -88,6 +108,7 @@ func BuildInputIndex(conversation []model.Message, loaded []string, limit int, u
 			Summary:       summary,
 			Chars:         chars,
 		})
+		activeRow = len(rows) - 1
 		texts = append(texts, text)
 	}
 	if start, length := AlignLoadedInputTexts(texts, loaded); length > 0 {

@@ -4905,30 +4905,23 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   overflow-wrap: anywhere;
 }
 
-/* ---------- 对话导航轮轴（右侧问答刻度） ----------
-   F-1（2026-10-12）：从"隐形的线"升级为可发现的导航件 —— 常态即可见
-   （默认 opacity ≥ .8，不再只靠悬停整个对话外壳才点亮）；轨道是可点/可悬停的
-   刻度件（--r-md + --surface/--border，命中区仍留 34px 宽），可见要素比原 3px
-   短线放大——这才是"发现不了"的真正修点。
-   一条刻度 = 一条用户输入（口径不变，D5 已拍板）；悬停即出带轮次号的摘要浮窗，
-   点击即定位；当前刻度与定位高亮走与左栏 .session-row.is-active 同族的信号
-   token（--tick-hot / --border-running），不引入第三条色路。
-   几何算法（offsetTop 比例 / planInputLocate）与 .is-empty 的视觉隐藏策略不动。 */
+/* ---------- 对话导航刻度轨（右侧问答索引） ----------
+   一条刻度 = 一条用户输入。轨道只在内容侧保留短刻线，指针靠近时按距离形成
+   连续波浪，刻度通过 transform 伸长/回缩，不改变位置和布局。
+   摘要卡分两层：用户问题用主文本色，该轮最后 LLM 回复开头用弱文本色。 */
 .conversation-shell .conversation-wheel {
   position: absolute;
-  top: 34px;
-  bottom: 46px;
-  right: max(10px, calc((100% - 860px) / 2 - 74px));
+  top: 30px;
+  bottom: 52px;
+  right: max(10px, calc((100% - 860px) / 2 - 84px));
   z-index: 6;
-  width: 34px;
-  opacity: .92;
+  width: 48px;
+  opacity: .84;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-/* 悬停/聚焦只是"再提亮一档"：默认档（上行）已经可见，不再靠这里才被看见。 */
 .conversation-shell .conversation-wheel:hover,
 .conversation-shell .conversation-wheel:focus-within { opacity: 1; }
 .conversation-shell .conversation-wheel.is-empty { opacity: 0; pointer-events: none; }
-/* 空态只做视觉隐藏：display:none 会让轨道高度量成 0，轮轴再也出不来 */
 .wheel-track {
   position: relative;
   width: 100%;
@@ -4938,70 +4931,95 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   touch-action: none;
   user-select: none;
   outline: none;
-  transition: background-color var(--dur-fast) var(--ease-out);
 }
-.wheel-track:hover { background: var(--surface); }
 .wheel-track::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 2px;
-  width: 2px;
-  border-radius: var(--r-md);
-  background: linear-gradient(to bottom, transparent 0%, var(--tick) 6%, var(--tick) 94%, transparent 100%);
+  right: 5px;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent 0%, var(--border-strong) 7%, var(--border-strong) 93%, transparent 100%);
+  opacity: .7;
 }
-.wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-sm); }
-/* 刻度 = 可点/可悬停的短条（--r-md + --surface/--border）。 */
+.wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-md); }
+/* 刻度是贴着基线向左伸出的细线；波浪只通过 transform 改变长度与横向位移。 */
 .wheel-dash {
   position: absolute;
-  right: 2px;
-  height: 5px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface);
+  right: 5px;
   width: 20px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: var(--tick);
+  opacity: var(--wheel-wave-opacity, .62);
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  transform-origin: 100% 50%;
+  transform: translateX(var(--wheel-wave-shift, 0px)) scaleX(var(--wheel-wave-scale, 1));
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+  will-change: transform;
 }
-/* 5px 的条仍细：伪元素把命中区撑到 ~15px 高（34px 宽维持不变） */
-.wheel-dash::after { content: ""; position: absolute; inset: -5px -4px; }
-.wheel-dash:hover { width: 26px; background: var(--text-soft); border-color: var(--border-strong); }
-/* 当前刻度：与左栏 .session-row.is-active 同族信号（--tick-hot 填色 +
-   --border-running 外框），不引入第三条色路。 */
+.wheel-dash::after { content: ""; position: absolute; inset: -7px -10px; }
+.wheel-dash.is-pending { opacity: .35; }
+.wheel-dash:hover { background: var(--text-soft); opacity: 1; }
 .wheel-dash.is-active {
-  width: 30px;
+  width: 28px;
   background: var(--tick-hot);
-  border-color: var(--border-running);
-  box-shadow: 0 0 0 1px var(--border-running);
+  opacity: 1;
 }
-.wheel-dash.is-system { background: var(--status-done); }
 .wheel-tip {
   position: absolute;
-  right: 100%;
-  max-width: 260px;
-  margin-right: 8px;
-  text-align: right;
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--r-sm);
+  right: calc(100% + 10px);
+  width: 288px;
+  max-width: min(288px, calc(100vw - 150px));
+  padding: 12px 14px 11px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
   background: var(--panel);
-  color: var(--text-soft);
-  font: 11px var(--font-ui);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  box-shadow: var(--shadow-sm);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transform: translate(5px, -50%) scale(.985);
+  transform-origin: 100% 50%;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
-.wheel-tip.is-visible { opacity: 1; }
-.wheel-tip[data-wheel-kind="tools"] { border-left-color: var(--border-strong); }
-.wheel-tip[data-wheel-kind="think"] { border-left-color: var(--status-info); }
-.wheel-tip[data-wheel-kind="system"] { border-left-color: var(--status-done); }
+.wheel-tip.is-visible { opacity: 1; transform: translate(0, -50%) scale(1); }
+.wheel-tip-meta {
+  color: var(--faint);
+  font: 700 9px/1.2 var(--font-mono);
+  letter-spacing: .08em;
+}
+.wheel-tip-question {
+  min-width: 0;
+  color: var(--text);
+  font: 650 12.5px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.wheel-tip-reply {
+  min-width: 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font: 11px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.wheel-tip-reply.is-empty { color: var(--faint); }
 .conversation .is-wheel-target { box-shadow: 0 0 0 2px var(--accent); }
 
 /* ============================================================
@@ -6473,6 +6491,14 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   .tool-run.is-running > .tool-call-summary .tool-call-name::after {
     animation: none;
     display: none;
+  }
+  .wheel-dash {
+    transform: none;
+    transition: none;
+  }
+  .wheel-tip {
+    transform: translate(0, -50%);
+    transition: none;
   }
 }
 

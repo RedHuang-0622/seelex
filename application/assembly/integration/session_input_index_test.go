@@ -70,6 +70,10 @@ func TestSessionInputIndexCoversUnloadedEarlyRounds(t *testing.T) {
 	if index.Items[0].Summary != "durable-0" {
 		t.Fatalf("first summary = %q, want durable-0", index.Items[0].Summary)
 	}
+	if index.Items[0].ReplySummary != "durable-1" || index.Items[5].ReplySummary != "durable-11" {
+		t.Fatalf("reply summaries = %q/%q, want durable-1/durable-11",
+			index.Items[0].ReplySummary, index.Items[5].ReplySummary)
+	}
 	wantLoaded := []bool{false, false, false, false, true, true}
 	for position, want := range wantLoaded {
 		if index.Items[position].Loaded != want {
@@ -203,6 +207,13 @@ func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T) {
 		if row.Offset != []int{0, 8, 9}[position] {
 			t.Fatalf("items[%d].offset = %d, want %d（分页偏移空间）", position, row.Offset, []int{0, 8, 9}[position])
 		}
+	}
+	if index.Items[0].ReplySummary != "回答" {
+		t.Fatalf("first reply summary = %q, want 回答", index.Items[0].ReplySummary)
+	}
+	if index.Items[1].ReplySummary != "" || index.Items[2].ReplySummary != "" {
+		t.Fatalf("reply summaries without an assistant = %q/%q, want empty",
+			index.Items[1].ReplySummary, index.Items[2].ReplySummary)
 	}
 	if index.Total != len(store.messages) {
 		t.Fatalf("total = %d, want %d", index.Total, len(store.messages))

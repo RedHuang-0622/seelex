@@ -171,9 +171,10 @@ node 第一视角实时回放的**分页**读法同形落在
 名称、工具、技能、MCP 名称/transport 与来源，不含 command/env/URL、绝对路径或 Prompt 正文。
 
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
-用户输入索引（seq/round 序号 + 有界摘要 + 是否在当前已加载窗口），轻量零正文
-（不依赖已加载视图，未驻留会话也可用）；前端右侧轨道据此铺满整个会话，点击未
-加载的刻度先经 `LoadMoreHistory` 回读那一页再定位。
+用户输入索引（seq/round 序号 + 有界问题摘要 + 该轮最后一条非空 assistant 回复
+开头 + 是否在当前已加载窗口），轻量零正文（不依赖已加载视图，未驻留会话也可用）；
+前端右侧波浪刻度轨据此铺满整个会话，点击未加载的刻度先经 `LoadMoreHistory`
+回读那一页再定位。
 
 relay 只订阅一次 `SubscribeSession("")`（跟随当前视图会话）：会话归属由
 application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副本，渲染层收不到

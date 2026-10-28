@@ -66,8 +66,8 @@
 | `catalog_test.go` | 回执到达即返回、恰好请求一次、ctx 超时返回 `ctx.Err()` 且之后仍可等待 |
 | `archive.go` | `ArchiveGate` / `ArchiveStore` / `ArchiveEngine` / `ArchiveDeps` + `Archive`：会话归档的唯一判据 |
 | `archive_test.go` | 门控四轴次序与装配缺陷、空 ID 与 trim、record 缺失/归属不符、已归档幂等、驻留次序、跳过引擎、三条失败即停 |
-| `inputindex.go` | `InputIndexSummaryLimit` + `SummarizeInputText` / `AlignLoadedInputTexts` / `BuildInputIndex`：用户输入索引的装配判据 |
-| `inputindex_test.go` | 摘要截断（rune / 折空白 / 默认上限）、对齐算法（尾窗 / 整段 / 退让 / 不对齐）、命中段标 Loaded 与序号偏移 |
+| `inputindex.go` | `InputIndexSummaryLimit` / `InputIndexReplySummaryLimit` + `SummarizeInputText` / `AlignLoadedInputTexts` / `BuildInputIndex`：用户输入索引与每轮最终 LLM 开头的装配判据 |
+| `inputindex_test.go` | 摘要截断（rune / 折空白 / 默认上限）、最终 assistant 回复覆盖与空回复、对齐算法（尾窗 / 整段 / 退让 / 不对齐）、命中段标 Loaded 与序号偏移 |
 | `eviction.go` | `EvictionSnapshot` / `EvictionDeps` + `EvictUntilWithinLimit`：正文层与引擎层**共用**的超限收敛判据（宿主只提供"一次读数"与"卸载一个"两个动作） |
 | `eviction_test.go` | 统一窗口与分层额度、受保护集不计数不挑选、不占本层/空 ID 跳过、最旧端先走、失败即停、无候选容忍超限、缺装配不 panic |
 

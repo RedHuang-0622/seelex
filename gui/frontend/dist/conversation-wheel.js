@@ -31,6 +31,8 @@ const PAGE_JUMP = 5;
 const MAX_READ_BACK_PAGES = 40;
 // HIGHLIGHT_MS 是定位后高亮的持续时间（与 .is-wheel-target 动画时长一致）。
 const HIGHLIGHT_MS = 1400;
+// WAVE_RADIUS 是鼠标波浪的影响半径：刻度越接近指针，向内容侧伸得越长。
+const WAVE_RADIUS = 78;
 // KEY_PREFIX 与 components.js 的 data-conversation-key 约定同源。
 const KEY_PREFIX = "message:";
 
@@ -59,6 +61,8 @@ export function normalizeInputIndex(payload) {
       seq: toNumber(raw.seq, 0),
       summary: clampSummary(raw.summary),
       chars: toNumber(raw.chars, 0),
+      replySummary: clampSummary(raw.reply_summary, 80),
+      replyChars: toNumber(raw.reply_chars, 0),
       loaded: Boolean(raw.loaded)
     });
   }
@@ -174,6 +178,7 @@ export function inputDashes(inputs, rows, geometry = {}) {
       key: row ? row.key : "",
       messageID: input.messageID,
       summary: input.summary || (row && row.label) || `第 ${input.round} 条输入`,
+      replySummary: input.replySummary || "",
       offset: input.offset,
       top: round2(clamp(tops[index], 0, available)),
       height: round2(dash),
@@ -331,16 +336,25 @@ export function scrollTopForFraction(fraction, geometry = {}) {
   return value * maxScroll;
 }
 
+// wheelWaveStrength 把指针与刻度的距离映射成 0..1 的连续波峰：指针正下方为 1，
+// 到影响半径处平滑回到 0。前端只用它驱动 transform，不读取布局、不改刻度位置。
+export function wheelWaveStrength(distance, radius = WAVE_RADIUS) {
+  const span = Math.max(Number(radius) || 0, 0);
+  if (span <= 0) return 0;
+  const ratio = clamp01(Math.abs(Number(distance) || 0) / span);
+  return round2(0.5 + 0.5 * Math.cos(ratio * Math.PI));
+}
+
 // wheelSignature 是刻度表的几何指纹：内容没变就不重建 DOM（避免滚动/流式
 // 期间反复 reflow）。
 export function wheelSignature(rounds) {
   const list = Array.isArray(rounds) ? rounds : [];
-  return list.map(round => `${round.round}:${round.top}:${round.loaded ? 1 : 0}:${round.summary}`).join("|");
+  return list.map(round => `${round.round}:${round.top}:${round.loaded ? 1 : 0}:${round.summary}:${round.replySummary || ""}`).join("|");
 }
 
-function clampSummary(value) {
+function clampSummary(value, limit = 160) {
   const flat = String(value ?? "").replace(/\s+/g, " ").trim();
-  return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+  return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
 }
 
 function clamp01(value) {
@@ -391,6 +405,13 @@ export function createConversationWheel(container, options = {}) {
   const tip = document.createElement("div");
   tip.className = "wheel-tip";
   tip.setAttribute("aria-hidden", "true");
+  const tipMeta = document.createElement("span");
+  tipMeta.className = "wheel-tip-meta";
+  const tipQuestion = document.createElement("strong");
+  tipQuestion.className = "wheel-tip-question";
+  const tipReply = document.createElement("span");
+  tipReply.className = "wheel-tip-reply";
+  tip.append(tipMeta, tipQuestion, tipReply);
   track.appendChild(tip);
   rail.appendChild(track);
   parent.appendChild(rail);
@@ -402,6 +423,8 @@ export function createConversationWheel(container, options = {}) {
   let dragging = null;
   let moved = false;
   let locating = false;
+  let waveY = Number.NaN;
+  let waveFrame = 0;
   // indexReady = 已拿到后端全量索引（即使为空，也以后端为准）；未就绪时用
   // 窗口内的用户行临时成表（保证"只索引用户输入"在接线前也成立）。
   let indexReady = false;
@@ -487,12 +510,11 @@ export function createConversationWheel(container, options = {}) {
       }
       node.className = round.loaded ? "wheel-dash is-user" : "wheel-dash is-user is-pending";
       node.style.top = `${round.top}px`;
-      // 未加载刻度压暗：样式表没有该态（不改样式表），用内联不透明度表达。
-      node.style.opacity = round.loaded ? "" : "0.5";
       node.title = round.summary;
+      const replyLabel = round.replySummary ? `；最后回复开头：${round.replySummary}` : "";
       node.setAttribute("aria-label", round.loaded
-        ? `第 ${round.round} 条输入：${round.summary}`
-        : `第 ${round.round} 条输入（未加载，点击回读）：${round.summary}`);
+        ? `第 ${round.round} 条输入：${round.summary}${replyLabel}`
+        : `第 ${round.round} 条输入（未加载，点击回读）：${round.summary}${replyLabel}`);
     }
     for (const [id, node] of [...dashNodes]) {
       if (desired.has(id)) continue;
@@ -505,6 +527,40 @@ export function createConversationWheel(container, options = {}) {
     }
     // tip 始终在最后，避免被刻度覆盖。
     track.appendChild(tip);
+  }
+
+  // paintWave 只写 transform 相关自定义属性：靠近指针的刻度伸长，离开后回落。
+  function paintWave(y) {
+    const activeWave = Number.isFinite(y);
+    track.classList.toggle("is-waving", activeWave);
+    for (const round of rounds) {
+      const node = dashNodes.get(`input:${round.round}`);
+      if (!node) continue;
+      if (!activeWave) {
+        node.style.removeProperty("--wheel-wave-scale");
+        node.style.removeProperty("--wheel-wave-shift");
+        node.style.removeProperty("--wheel-wave-opacity");
+        continue;
+      }
+      const center = round.top + round.height / 2;
+      const strength = wheelWaveStrength(center - y, WAVE_RADIUS);
+      node.style.setProperty("--wheel-wave-scale", String(round2(1 + strength * 1.35)));
+      node.style.setProperty("--wheel-wave-shift", `${round2(-strength * 4)}px`);
+      node.style.setProperty("--wheel-wave-opacity", String(round2(0.58 + strength * 0.42)));
+    }
+  }
+
+  function setWave(y) {
+    waveY = Number.isFinite(y) ? y : Number.NaN;
+    if (typeof globalThis.requestAnimationFrame !== "function") {
+      paintWave(waveY);
+      return;
+    }
+    if (waveFrame) return;
+    waveFrame = globalThis.requestAnimationFrame(() => {
+      waveFrame = 0;
+      paintWave(waveY);
+    });
   }
 
   // updateViewport 只更新「当前输入」高亮：滚动路径（每帧触发）不重建刻度。
@@ -538,6 +594,7 @@ export function createConversationWheel(container, options = {}) {
     active = -1;
     rail.classList.toggle("is-empty", result.empty);
     renderRounds(rounds);
+    paintWave(waveY);
     updateViewport();
     return result;
   }
@@ -619,9 +676,13 @@ export function createConversationWheel(container, options = {}) {
       tip.classList.remove("is-visible");
       return;
     }
-    tip.textContent = `#${round.round} ${round.summary}`;
-    tip.dataset.wheelKind = "user";
-    tip.style.top = `${Math.max(0, Math.min(track.getBoundingClientRect().height - 18, y))}px`;
+    tipMeta.textContent = `任务 ${round.round}`;
+    tipQuestion.textContent = round.summary || `第 ${round.round} 条输入`;
+    tipReply.textContent = round.replySummary || "这一轮还没有 LLM 回复";
+    tipReply.classList.toggle("is-empty", !round.replySummary);
+    const trackHeight = track.getBoundingClientRect().height;
+    const halfTip = Math.max(tip.offsetHeight, 0) / 2;
+    tip.style.top = `${Math.max(halfTip + 6, Math.min(trackHeight - halfTip - 6, y))}px`;
     tip.classList.add("is-visible");
   }
 
@@ -644,6 +705,7 @@ export function createConversationWheel(container, options = {}) {
     }
     const box = geometry();
     const y = localY(event);
+    setWave(y);
     moved = false;
     dragging = { id: event.pointerId, y, scrollTop: box.scrollTop };
     if (typeof track.setPointerCapture === "function") {
@@ -660,6 +722,7 @@ export function createConversationWheel(container, options = {}) {
 
   track.addEventListener("pointermove", event => {
     const y = localY(event);
+    setWave(y);
     if (!dragging) {
       showTip(inputAtOffset(rounds, y), y);
       return;
@@ -688,9 +751,13 @@ export function createConversationWheel(container, options = {}) {
   track.addEventListener("pointerup", endDrag);
   track.addEventListener("pointercancel", event => {
     dragging = null;
+    setWave(Number.NaN);
     if (event) showTip(null, 0);
   });
-  track.addEventListener("pointerleave", () => showTip(null, 0));
+  track.addEventListener("pointerleave", () => {
+    setWave(Number.NaN);
+    showTip(null, 0);
+  });
   track.addEventListener("wheel", event => {
     // 轨道上的滚轮直接滚动对话（不改变缩放），手感与普通滚动条一致。
     container.scrollTop += event.deltaY;

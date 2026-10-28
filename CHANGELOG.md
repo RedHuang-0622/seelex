@@ -31,6 +31,14 @@ and will take its own version when it lands.
 
 ### Changed
 
+- **会话右侧索引改为波浪刻度轨，并显示每轮最终 LLM 开头**（2026-10-29）：原用户输入
+  索引的短条和窄提示升级为贴内容基线的细刻度轨；指针靠近时，邻近刻度按距离通过
+  `transform` 伸长/回缩成连续波浪，离开后平滑复位。摘要卡以主文本色显示用户问题，
+  以下一用户输入前最后一条非空 assistant 回复的短摘要作为低对比第二层。
+  `SessionInputIndexRow` 增量新增 `reply_summary` / `reply_chars`；问题摘要、轮次、
+  定位键、未加载回读和键盘导航语义不变。回归覆盖 Go 纯函数、Application 全量索引与
+  前端 `conversation-wheel.test.mjs`。
+
 - **用户消息气泡：无边框、极淡半透明底**（2026-07 用户口径定稿）：`.message.user
   .message-body` 不画 `border`（用户要求"两侧不要那两条竖线"）、不铺实色，改用
   `color-mix(in srgb, var(--surface) 45%, transparent)`；深色皮肤下比背景亮一档、

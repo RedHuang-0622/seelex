@@ -92,3 +92,39 @@ func TestBuildInputIndexMarksLoadedSection(t *testing.T) {
 		t.Fatalf("rounds = %d/%d, want 1/3（序号按保留行计）", rows[0].Round, rows[2].Round)
 	}
 }
+
+// TestBuildInputIndexUsesLastAssistantReplyPerInput 每个用户刻度只记录下一条
+// 用户输入之前的最后一条非空 assistant 回复；空回复不覆盖已有摘要。
+func TestBuildInputIndexUsesLastAssistantReplyPerInput(t *testing.T) {
+	conversation := []model.Message{
+		{ID: "m1", Role: "user", Content: "第一问"},
+		{ID: "m2", Role: "assistant", Content: "第一版回答"},
+		{ID: "m3", Role: "assistant", Content: "最终回答"},
+		{ID: "m4", Role: "user", Content: "第二问"},
+		{ID: "m5", Role: "assistant", Content: "  \n "},
+		{ID: "m6", Role: "tool", Content: "工具结果"},
+		{ID: "m7", Role: "user", Content: "第三问"},
+		{ID: "m8", Role: "assistant", Content: strings.Repeat("答", InputIndexReplySummaryLimit+5)},
+	}
+	userText := func(message model.Message) string {
+		if message.Role != "user" {
+			return ""
+		}
+		return strings.TrimSpace(message.Content)
+	}
+	rows := BuildInputIndex(conversation, nil, InputIndexSummaryLimit, userText)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %+v, want 3", rows)
+	}
+	if rows[0].ReplySummary != "最终回答" {
+		t.Fatalf("first reply summary = %q, want 最终回答", rows[0].ReplySummary)
+	}
+	if rows[1].ReplySummary != "" || rows[1].ReplyChars != 0 {
+		t.Fatalf("second reply = %q/%d, want empty（空 assistant 不得伪造回复）", rows[1].ReplySummary, rows[1].ReplyChars)
+	}
+	if got := []rune(rows[2].ReplySummary); len(got) != InputIndexReplySummaryLimit+1 ||
+		got[len(got)-1] != '…' || rows[2].ReplyChars != InputIndexReplySummaryLimit+5 {
+		t.Fatalf("third reply = %q/%d, want %d runes + ellipsis / %d chars",
+			rows[2].ReplySummary, rows[2].ReplyChars, InputIndexReplySummaryLimit, InputIndexReplySummaryLimit+5)
+	}
+}

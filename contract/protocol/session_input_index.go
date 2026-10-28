@@ -7,7 +7,8 @@ import "time"
 //   - 只索引**用户输入**：助手步骤/思考/工具/系统行都不产生刻度；
 //   - 覆盖**整会话**：包含尚未加载到前端窗口的早期轮次（索引来自持久事实源，
 //     不依赖已加载的可见窗口）；
-//   - 只携带有界摘要（Summary），不携带正文——整份索引可以安全下发。
+//   - 只携带有界摘要（用户问题 Summary + 该轮最后 LLM 回复 ReplySummary），
+//     不携带正文——整份索引可以安全下发。
 //
 // 前端据此把整条轨道铺成整个会话：已加载轮次用真实几何定位，未加载轮次按
 // 确定性比例布点；点击未加载轮次时先按 Window/Offset 回读那一页再定位。
@@ -59,6 +60,11 @@ type SessionInputIndexRow struct {
 	Summary string `json:"summary"`
 	// Chars 是原文的字符数（> len(Summary) 即摘要被截断）。
 	Chars int `json:"chars"`
+	// ReplySummary 是该用户输入到下一用户输入之前最后一条非空 assistant
+	// 回复的有界开头，供刻度摘要的第二层显示；没有回复时为空。
+	ReplySummary string `json:"reply_summary,omitempty"`
+	// ReplyChars 是最后一条非空 assistant 回复的原始字符数。
+	ReplyChars int `json:"reply_chars,omitempty"`
 	// Loaded 表示该输入是否落在当前已加载窗口内。
 	Loaded bool `json:"loaded"`
 }

@@ -41,7 +41,8 @@ func TestBridgeSessionInputIndexForwards(t *testing.T) {
 			Window:     model.SessionInputWindow{Offset: 8, Count: 4, Total: 12, HasMore: true, WindowSize: 4},
 			Items: []model.SessionInputIndexRow{
 				{Round: 1, MessageID: "message-1", Offset: 0, Summary: "第一问", Loaded: false},
-				{Round: 6, MessageID: "message-11", Offset: 10, Summary: "latest", Loaded: true},
+				{Round: 6, MessageID: "message-11", Offset: 10, Summary: "latest",
+					ReplySummary: "最新回答", ReplyChars: 4, Loaded: true},
 			},
 		},
 	}
@@ -56,7 +57,8 @@ func TestBridgeSessionInputIndexForwards(t *testing.T) {
 	if stub.sessionID != "sess-a" {
 		t.Fatalf("forwarded sessionID = %q, want sess-a", stub.sessionID)
 	}
-	if index.InputCount != 6 || len(index.Items) != 2 || index.Items[1].Summary != "latest" {
+	if index.InputCount != 6 || len(index.Items) != 2 || index.Items[1].Summary != "latest" ||
+		index.Items[1].ReplySummary != "最新回答" || index.Items[1].ReplyChars != 4 {
 		t.Fatalf("relayed index = %+v", index)
 	}
 	if index.Window.WindowSize != 4 || !index.Window.HasMore {

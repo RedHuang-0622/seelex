@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   activeInputIndex,
   inputAtOffset,
@@ -12,6 +13,7 @@ import {
   normalizeInputIndex,
   planInputLocate,
   scrollTopForFraction,
+  wheelWaveStrength,
   wheelSignature
 } from "./conversation-wheel.js";
 
@@ -36,6 +38,7 @@ function indexItems(rounds, options = {}) {
       seq: round * 3,
       created_at: "2026-09-11T10:00:00Z",
       summary: `问题 ${round}`,
+      reply_summary: `回答 ${round}`,
       chars: 40,
       loaded: false
     }))
@@ -96,6 +99,7 @@ test("wheel index: the full index yields one dash per user input, early rounds i
   assert.equal(result.loaded, 2);
   assert.equal(result.rounds[3].loaded, true);
   assert.equal(result.rounds[3].key, "message:m4");
+  assert.equal(result.rounds[3].replySummary, "回答 4");
   // 已加载刻度 = 真实几何：100/1000 与 900/1000 的内容比例 × 497 可用高度。
   assert.equal(result.rounds[3].top, 49.7);
   assert.equal(result.rounds[4].top, 447.3);
@@ -289,13 +293,14 @@ test("wheel index: rail fractions map onto the scroll range", () => {
 
 test("wheel index: signature changes only when the dash geometry changes", () => {
   const base = [
-    { round: 1, top: 0, loaded: true, summary: "第一问" },
-    { round: 2, top: 120, loaded: false, summary: "第二问" }
+    { round: 1, top: 0, loaded: true, summary: "第一问", replySummary: "第一答" },
+    { round: 2, top: 120, loaded: false, summary: "第二问", replySummary: "" }
   ];
   assert.equal(wheelSignature(base), wheelSignature([...base.map(round => ({ ...round }))]));
   assert.notEqual(wheelSignature(base), wheelSignature([base[0], { ...base[1], top: 130 }]));
   assert.notEqual(wheelSignature(base), wheelSignature([base[0], { ...base[1], loaded: true }]));
   assert.notEqual(wheelSignature(base), wheelSignature([base[0], { ...base[1], summary: "改了摘要" }]));
+  assert.notEqual(wheelSignature(base), wheelSignature([{ ...base[0], replySummary: "换了回答" }, base[1]]));
   assert.notEqual(wheelSignature(base), wheelSignature([base[0]]));
   assert.equal(wheelSignature(undefined), "");
 });
@@ -304,7 +309,11 @@ test("wheel index: payload normalization tolerates the bridge JSON shape", () =>
   const { items, window } = normalizeInputIndex({
     session_id: "s", total: 9, input_count: 2, window: { offset: 3, count: 3, total: 9, has_more: true, window_size: 6 },
     items: [
-      { round: 2, message_id: null, offset: "5", summary: " 多   空白\n摘要 ", chars: 12, loaded: 1 },
+      {
+        round: 2, message_id: null, offset: "5",
+        summary: " 多   空白\n摘要 ", reply_summary: " 最后   回答\n开头 ", reply_chars: 9,
+        chars: 12, loaded: 1
+      },
       { round: 1, message_id: "m1", offset: 2, summary: "第一问", loaded: false },
       null
     ]
@@ -314,8 +323,27 @@ test("wheel index: payload normalization tolerates the bridge JSON shape", () =>
   assert.equal(items[1].messageID, "");
   assert.equal(items[1].offset, 5);
   assert.equal(items[1].summary, "多 空白 摘要");
+  assert.equal(items[1].replySummary, "最后 回答 开头");
+  assert.equal(items[1].replyChars, 9);
   assert.equal(items[1].loaded, true);
   assert.equal(window.hasMore, true);
   assert.equal(window.windowSize, 6);
   assert.deepEqual(normalizeInputIndex(null), { items: [], window: null });
+});
+
+test("wheel index: pointer wave peaks under the cursor and fades to zero", () => {
+  assert.equal(wheelWaveStrength(0, 80), 1);
+  assert.equal(wheelWaveStrength(40, 80), 0.5);
+  assert.equal(wheelWaveStrength(80, 80), 0);
+  assert.equal(wheelWaveStrength(120, 80), 0);
+  assert.equal(wheelWaveStrength(-40, 80), 0.5);
+  assert.equal(wheelWaveStrength(10, 0), 0);
+});
+
+test("wheel guide: question and final LLM summary have distinct contrast layers", async () => {
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.wheel-tip-question\s*\{[^}]*color:\s*var\(--text\)/s);
+  assert.match(css, /\.wheel-tip-reply\s*\{[^}]*color:\s*var\(--muted\)/s);
+  assert.match(css, /\.wheel-dash\s*\{[^}]*transform:\s*translateX\(var\(--wheel-wave-shift[^}]*scaleX\(var\(--wheel-wave-scale/s);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.wheel-dash\s*\{[^}]*transform:\s*none/s);
 });
