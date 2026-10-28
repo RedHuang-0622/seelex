@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "1cdfca7216fe86964dd7e86e84a5f22b557d13ea",
+    "base_commit": "1ca61d8c00ad0cabdd3481a77b3338fb5640f0f1",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -426,7 +426,7 @@
       "side": "test",
       "sha256": null,
       "pre_sha256": null,
-      "post_sha256": "b6c50ced50d3b886d5ff133cae5dea10ab03ee826db4e297febfbc3a2a16a436",
+      "post_sha256": "e8d0b22f5e7bce0f47129eb658e11e149d67710948541db4d5b196f06443fc1f",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
@@ -570,7 +570,7 @@
       "side": "production",
       "sha256": "7abdb065e1c11ebdd305c2d4ca7d76a17327f2a51274e34a9ebe4be55d20bab7",
       "pre_sha256": "7abdb065e1c11ebdd305c2d4ca7d76a17327f2a51274e34a9ebe4be55d20bab7",
-      "post_sha256": "3a15710c85ebdd69badb9cbab8916af5ff7d4edde1441d44961db093045dfab9",
+      "post_sha256": "b06b2000ded7092111315e71c3dc8515ce591da188c107e5392430d892afdf5d",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
@@ -643,6 +643,24 @@
       "sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
       "pre_sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
       "post_sha256": "af6b7ff5e34dfd73d96f5f06d9ee9199ea40621613335b194fdac5a6c83c6e26",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store/testdata"
+      ]
+    },
+    {
+      "path": "store/testdata/m10_root_store_import_allowlist.json",
+      "package": "github.com/RedHuang-0622/seelex/store/testdata",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "51619e06346aadcf20343c699748ab5bee816a16b3a124b58e0138e7746dd5a0",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
@@ -908,7 +926,7 @@
     }
   ],
   "summary": {
-    "production_files": 31,
+    "production_files": 32,
     "test_files": 18,
     "packages": 15,
     "direct_edges": 0,
