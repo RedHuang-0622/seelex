@@ -106,17 +106,22 @@ func TestSubagentSessionsToolResultArchiverLazyAndReuse(t *testing.T) {
 		t.Fatal("different nodes must get different archivers")
 	}
 
-	if _, err := arch.Store(context.Background(), "call-1", "bash", "raw-output"); err != nil {
+	ref, err := arch.Store(context.Background(), "call-1", "bash", "raw-output")
+	if err != nil {
 		t.Fatalf("Store: %v", err)
 	}
-	raw, ok := store.ToolResult("n1", "node:n1:call-1")
+	if ref != "result:call-1" {
+		t.Fatalf("Store ref = %q, want the canonical wire result ref", ref)
+	}
+	nodeRef := "node:n1:" + ref
+	raw, ok := store.ToolResult("n1", nodeRef)
 	if !ok || raw != "raw-output" {
 		t.Fatalf("ToolResult = %q, %v; want raw-output, true", raw, ok)
 	}
-	if _, ok := store.ToolResult("n1", "node:n1:missing"); ok {
+	if _, ok := store.ToolResult("n1", "node:n1:result:missing"); ok {
 		t.Fatal("missing ref must not be readable")
 	}
-	if _, ok := store.ToolResult("other", "node:n1:call-1"); ok {
+	if _, ok := store.ToolResult("other", nodeRef); ok {
 		t.Fatal("other node must not read this archiver")
 	}
 }

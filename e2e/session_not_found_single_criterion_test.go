@@ -152,8 +152,9 @@ func repoGoSourceFiles(t *testing.T) []string {
 	t.Helper()
 	root := repoRoot()
 	skip := map[string]bool{
-		".git": true, "vendor": true, "node_modules": true, "dist": true,
-		"tmp": true, "_scratch": true, "_logs": true,
+		".git": true, ".gocache": true, ".seelex": true, ".tmp": true,
+		".venv": true, "vendor": true, "node_modules": true, "dist": true,
+		"tmp": true, "_tmp": true, "_scratch": true, "_logs": true, "local": true,
 	}
 	var files []string
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {

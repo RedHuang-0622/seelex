@@ -85,7 +85,16 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 	// 源码看见"，跨包常量同样看得见。
 	constsByPackage := map[string]map[string]string{}
 	collectConsts := func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() {
+		if walkErr != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			if path == root {
+				return nil
+			}
+			if strings.HasPrefix(entry.Name(), ".") || scanSkipDirs[entry.Name()] {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -170,9 +179,9 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 // scanSkipDirs 是扫描时跳过的目录：第三方（vendor）与仓库里不参与装配的副本
 // （构建产物、临时目录、打包检查留下的目录树）。
 var scanSkipDirs = map[string]bool{
-	"vendor": true, "dist": true, "_tmp": true, "tmp": true, "bin": true,
+	"vendor": true, "dist": true, "_tmp": true, ".tmp": true, "tmp": true, "bin": true,
 	"node_modules": true, "workspace": true, "local": true, "coverage": true,
-	"gui-pkg-check": true, "gui-verify": true,
+	"gui-pkg-check": true, "gui-verify": true, "_scratch": true,
 }
 
 // constStringsOf 收集文件里的包级字符串常量（`Name = "value"`），供解析

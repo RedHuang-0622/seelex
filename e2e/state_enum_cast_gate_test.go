@@ -129,7 +129,7 @@ func stateEnumStringCasts(relative string, source []byte) []string {
 // 判据说"仓库里任何地方"，所以不维护目录清单，避免"清单漏了新板块 / 老目录一改名就报错"。
 func scanModuleForStateEnumCasts(root string) ([]string, error) {
 	skip := map[string]bool{
-		".git": true, ".gocache": true, ".venv": true, "vendor": true,
+		".git": true, ".gocache": true, ".tmp": true, ".venv": true, "vendor": true,
 		"node_modules": true, "dist": true, "build": true, "stage": true,
 		"tmp": true, "_tmp": true, "_scratch": true, "_logs": true, "local": true,
 	}

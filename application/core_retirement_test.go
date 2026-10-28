@@ -30,7 +30,7 @@ func TestNoGoPackageImportsRetiredApplicationCore(t *testing.T) {
 	repoRoot := filepath.Dir(appDir)
 	legacyImport := "github.com/RedHuang-0622/seelex/application/core"
 	skipped := map[string]bool{
-		".git": true, "dist": true, "vendor": true, "_tmp": true,
+		".git": true, ".tmp": true, "dist": true, "vendor": true, "_tmp": true,
 		"tmp": true, "node_modules": true, ".gocache": true, ".venv": true,
 		"_scratch": true, "local": true,
 	}

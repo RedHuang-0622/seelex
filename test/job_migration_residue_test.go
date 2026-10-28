@@ -25,7 +25,7 @@ func TestRetiredJobToolNamesLeaveNoResidue(t *testing.T) {
 	retired := []string{"async_output", "async_kill", "job_manage"}
 	markers := []string{"已下线", "下线", "已作废", "旧名", "旧入参", "旧 ", "旧`", "替代", "迁移", "残留", "retired"}
 	skipDirs := map[string]bool{
-		".git": true, "vendor": true, "dist": true, "node_modules": true,
+		".git": true, ".tmp": true, "vendor": true, "dist": true, "node_modules": true,
 		"_tmp": true, "_logs": true, "tmp": true, "local": true, ".seelex": true,
 		".venv": true, "bin": true, "docs": true, ".claude": true, ".qoder": true,
 		".gocache": true, ".githooks": true, ".github": true,
