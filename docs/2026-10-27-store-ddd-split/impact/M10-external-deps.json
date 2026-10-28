@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "a6f7d5ad89b31cdda20c1c3284c544f2e6ad3eee",
+    "base_commit": "703b75d6d24e9d0c0d4cbd576be7dcd783012a40",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -336,7 +336,25 @@
       "side": "production",
       "sha256": null,
       "pre_sha256": null,
-      "post_sha256": "c4171d0a451a63c7519b3578927017bc55737d56b8dd347a3e74b57bccc95524",
+      "post_sha256": "d0135641123b1188cb9ad4a0d196c3a41193038e7ef2d78715a028ffbb83dc15",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split"
+      ]
+    },
+    {
+      "path": "docs/2026-10-27-store-ddd-split/progress.md",
+      "package": "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split",
+      "side": "production",
+      "sha256": "abb47a322b181b91d1cbbef8cd95137d2ec7dde17ebd8d76fade49ca207fe0f7",
+      "pre_sha256": "abb47a322b181b91d1cbbef8cd95137d2ec7dde17ebd8d76fade49ca207fe0f7",
+      "post_sha256": "22822244a0fa341b2d3c4894aa9e36ce518436f99520c8130856610a45169805",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
@@ -1106,7 +1124,7 @@
     }
   ],
   "summary": {
-    "production_files": 39,
+    "production_files": 40,
     "test_files": 21,
     "packages": 19,
     "direct_edges": 0,
