@@ -1,6 +1,7 @@
 import { createConversationWheel } from "./conversation-wheel.js";
 import { createEmbedFrameBuffer } from "./embed-buffering.js";
-import { markEntering } from "./motion.js";
+import { markEntering, prefersReducedMotion } from "./motion.js";
+import { animateSpring } from "./spring-motion.js";
 
 const BOTTOM_THRESHOLD = 72;
 
@@ -15,6 +16,51 @@ export function shouldAutoLoadOlder(state) {
   return Boolean(state.sentinelArmed);
 }
 
+// conversationRenderProbe 区分“后端没给内容”和“前端拿到却没显示”。它只生成
+// 诊断读数，不参与布局或状态：F12 里看 window.__SEELEX_CONVERSATION_PROBE__，
+// 或直接看 #conversation[data-conversation-probe]。
+export function conversationRenderProbe({
+  targetSessionID = "",
+  viewSessionID = "",
+  snapshotCount = 0,
+  renderedCount = 0,
+  visibleCount = 0,
+  maxRowHeight = 0,
+  containerHeight = 0,
+  maxRowKind = "",
+  maxGap = 0,
+  gapAfterKind = "",
+  hiddenRowCount = 0,
+  loading = false
+} = {}) {
+  const targetMatched = !targetSessionID || targetSessionID === viewSessionID;
+  let verdict = "ok";
+  if (loading) verdict = "loading";
+  else if (!targetMatched) verdict = "target-not-loaded";
+  else if (snapshotCount <= 0) verdict = "snapshot-empty";
+  else if (renderedCount <= 0) verdict = "frontend-dropped";
+  else if (visibleCount <= 0) verdict = "layout-hidden";
+  else if (hiddenRowCount > 0) verdict = "rows-transparent";
+  else if (maxGap > Math.max(containerHeight * 0.4, 300)) verdict = "layout-gap";
+  else if (maxRowHeight > Math.max(containerHeight * 1.6, 1000)) verdict = "tall-row";
+  return {
+    at: Date.now(),
+    verdict,
+    targetSessionID,
+    viewSessionID,
+    targetMatched,
+    snapshotCount,
+    renderedCount,
+    visibleCount,
+    maxRowHeight: Math.max(Number(maxRowHeight) || 0, 0),
+    containerHeight: Math.max(Number(containerHeight) || 0, 0),
+    maxRowKind: String(maxRowKind || ""),
+    maxGap: Math.max(Number(maxGap) || 0, 0),
+    gapAfterKind: String(gapAfterKind || ""),
+    hiddenRowCount: Math.max(Math.trunc(Number(hiddenRowCount)) || 0, 0)
+  };
+}
+
 export function createConversationView(container, options = {}) {
   const htmlByKey = new Map();
   let payloads = new Map();
@@ -23,6 +69,9 @@ export function createConversationView(container, options = {}) {
   let loadingOlder = false;
   let sentinelArmed = true;
   let currentRevision = 0;
+  let activeSessionID = "";
+  let activeHadContent = false;
+  let previousStreaming = false;
   let editor = null;
   const sentinel = document.createElement("div");
   sentinel.className = "conversation-sentinel";
@@ -215,7 +264,33 @@ export function createConversationView(container, options = {}) {
       payloads = model.payloads;
       currentRevision = Number(options.revision || 0);
       canLoadMore = Boolean(options.hasMoreHistory);
+      const sessionID = String(container.dataset?.sessionId || "");
+      const hasContent = model.items.length > 0;
+      const repaintBoundary = shouldRepaintConversationBoundary({
+        previousSessionID: activeSessionID,
+        nextSessionID: sessionID,
+        hadContent: activeHadContent,
+        hasContent
+      });
+      const sessionChanged = activeSessionID !== "" && sessionID !== "" && sessionID !== activeSessionID;
+      if (sessionChanged) {
+        // message IDs are only unique inside one session. Reusing keyed rows across
+        // sessions can preserve the previous conversation's DOM, payloads and
+        // expanded states under colliding IDs. A session boundary is therefore a
+        // full row rebuild, never a keyed patch.
+        htmlByKey.clear();
+        for (const node of container.querySelectorAll?.("[data-conversation-key]") || []) {
+          embedBuffer.release(node);
+          node.remove();
+        }
+      }
       const streamPhase = String(options.streamPhase || (options.streaming ? "receiving" : "idle"));
+      const existingKeys = new Set(
+        [...container.querySelectorAll?.("[data-conversation-key]") || []]
+          .map(node => String(node.dataset?.conversationKey || ""))
+          .filter(Boolean)
+      );
+      const newItemCount = model.items.filter(item => !existingKeys.has(item.key)).length;
       // 流式标记：会话还在跑的时候一帧都不许新建（见 embed-buffering.js 的
       // shouldDeferMount）。chat-view.js 传的是 chat.running。
       embedBuffer.setStreaming(Boolean(options.streaming));
@@ -224,9 +299,59 @@ export function createConversationView(container, options = {}) {
       reconcile(container, model.items, htmlByKey, payloads, {
         streaming: Boolean(options.streaming),
         streamPhase,
-        embedBuffer
+        embedBuffer,
+        animateEnter: !repaintBoundary && existingKeys.size > 0 && newItemCount > 0 && newItemCount <= 2
       });
+      const renderedRows = [...container.querySelectorAll?.("[data-conversation-key]") || []];
+      const rowMetrics = renderedRows.map(node => {
+        const rect = node.getBoundingClientRect?.();
+        const style = globalThis.getComputedStyle?.(node);
+        return {
+          node,
+          key: String(node.dataset?.conversationKey || ""),
+          kind: String(node.dataset?.wheelKind || node.className || "row"),
+          top: Number(rect?.top) || 0,
+          bottom: Number(rect?.bottom) || 0,
+          height: Number(rect?.height) || 0,
+          painted: !style || (Number(style.opacity || 1) > 0.01 && style.visibility !== "hidden")
+        };
+      });
+      const tallestRow = rowMetrics.reduce((max, row) => row.height > max.height ? row : max, { height: 0, kind: "", key: "" });
+      let largestGap = { gap: 0, afterKind: "", afterKey: "" };
+      for (let index = 1; index < rowMetrics.length; index += 1) {
+        const previous = rowMetrics[index - 1];
+        const gap = rowMetrics[index].top - previous.bottom;
+        if (gap > largestGap.gap) {
+          largestGap = { gap, afterKind: previous.kind, afterKey: previous.key };
+        }
+      }
+      const probe = conversationRenderProbe({
+        targetSessionID: String(container.dataset?.targetSessionId || ""),
+        viewSessionID: sessionID,
+        snapshotCount: Number(options.conversationCount || 0),
+        renderedCount: renderedRows.length,
+        visibleCount: rowMetrics.filter(row => row.height > 0 && row.painted).length,
+        maxRowHeight: tallestRow.height,
+        containerHeight: Number(container.clientHeight) || 0,
+        maxRowKind: tallestRow.kind,
+        maxGap: largestGap.gap,
+        gapAfterKind: largestGap.afterKind,
+        hiddenRowCount: rowMetrics.filter(row => row.height > 0 && !row.painted).length,
+        loading: Boolean(options.loading)
+      });
+      probe.maxRowKey = tallestRow.key;
+      probe.gapAfterKey = largestGap.afterKey;
+      const previousProbe = globalThis.__SEELEX_CONVERSATION_PROBE__;
+      globalThis.__SEELEX_CONVERSATION_PROBE__ = {
+        current: probe,
+        history: [...(previousProbe?.history || []), probe].slice(-20)
+      };
+      container.dataset.conversationProbe = `${probe.verdict}:${probe.snapshotCount}/${probe.renderedCount}/${probe.visibleCount}`;
+      if (previousStreaming && !options.streaming && !repaintBoundary) settleCompletedTurn(container);
+      previousStreaming = Boolean(options.streaming) && !repaintBoundary;
       restoreScroll(container, before, options.scrollMode || "auto", anchor);
+      activeSessionID = sessionID;
+      activeHadContent = hasContent;
       if (editor) {
         const article = container.querySelector(`[data-conversation-key="${CSS.escape(editor.key)}"]`);
         if (article) mountMessageEditor(article);
@@ -235,6 +360,19 @@ export function createConversationView(container, options = {}) {
       // 几何来自 DOM：加载更早历史/增量新消息/换行后线表自动重建。
       wheel.refresh();
       followsTail = isNearBottom(container);
+      if (repaintBoundary && shouldFollowTail(options.scrollMode || "auto", before.followsTail)) {
+        const settleTail = () => settleConversationTailAtSessionBoundary(container, true);
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(settleTail));
+        } else {
+          settleTail();
+        }
+      }
+      return {
+        repaintBoundary,
+        followTail: shouldFollowTail(options.scrollMode || "auto", before.followsTail),
+        probe
+      };
     },
     payload(key) { return payloads.get(key) || ""; },
     // inputIndex 写入全量用户输入索引（后端 SessionInputIndex 载荷；null =
@@ -344,6 +482,7 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
   for (const item of items) {
     desired.add(item.key);
     let node = existing.get(item.key);
+    const hadNode = Boolean(node);
     let fresh = false;
     if (!node || htmlByKey.get(item.key) !== item.html) {
       const replacement = elementFromHTML(item.html);
@@ -364,10 +503,16 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
       } else {
         // 新出现的条目（新消息 / 一次新的工具过程）入场一次：keyed reconcile
         // 只在**首次插入**时挂类，后续流式替换不重播（否则工具面板会一直闪）。
-        markEntering(replacement, "is-entering-row");
+        if (buffers.animateEnter !== false && item.meta?.kind !== "loading") {
+          markEntering(replacement, "is-entering-row");
+        }
         embedBuffer?.adopt(null, replacement, { streaming });
       }
       if (!patched) node = replacement;
+      if (hadNode && !patched) {
+        if (item.meta?.motion === "tool-update") animateToolDomainUpdate(replacement);
+        if (item.meta?.kind === "message" && item.meta.hasReasoning) animateThinkingUpdate(replacement);
+      }
       fresh = true;
       htmlByKey.set(item.key, item.html);
     }
@@ -385,6 +530,39 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
     cursor = next;
   }
   for (const key of [...htmlByKey.keys()]) if (!desired.has(key)) htmlByKey.delete(key);
+}
+
+function animateToolDomainUpdate(node) {
+  if (!node || prefersReducedMotion()) return;
+  const target = node.querySelector?.(".tool-call-summary") || node;
+  const animation = animateSpring(target, "settle", [
+    { opacity: .72, transform: "translateY(10px)" },
+    { opacity: 1, transform: "translateY(0)" }
+  ], { fill: "none" });
+  animation?.finished?.then(() => animation.cancel()).catch(() => {});
+}
+
+function animateThinkingUpdate(node) {
+  if (!node || prefersReducedMotion()) return;
+  const target = node.querySelector?.(".reasoning-summary");
+  if (!target) return;
+  const animation = animateSpring(target, "settle", [
+    { opacity: .78, transform: "translateY(6px)" },
+    { opacity: 1, transform: "translateY(0)" }
+  ], { fill: "none" });
+  animation?.finished?.then(() => animation.cancel()).catch(() => {});
+}
+
+function settleCompletedTurn(container) {
+  if (!container || prefersReducedMotion()) return;
+  const assistant = [...container.querySelectorAll(".message.assistant")].at(-1);
+  if (!assistant) return;
+  const body = assistant.querySelector(".message-body") || assistant;
+  animateSpring(body, "settle", [
+    { opacity: .86, transform: "translateY(4px)" },
+    { opacity: 1, transform: "translateY(0)" }
+  ], { fill: "none" });
+  animateThinkingUpdate(assistant);
 }
 
 function messageBodyBounds(html) {
@@ -511,6 +689,24 @@ function restoreScroll(container, before, mode, anchor) {
   if (shouldFollowTail(mode, before.followsTail)) {
     setScrollInstantly(container, container.scrollHeight);
   }
+}
+
+// settleConversationTailAtSessionBoundary runs after the rebuilt session has
+// completed layout, so it uses the new scrollHeight rather than the previous
+// session's height or an intermediate markdown/embed measurement.
+export function settleConversationTailAtSessionBoundary(container, followTail) {
+  if (!container) return;
+  setScrollInstantly(container, followTail ? container.scrollHeight : container.scrollTop);
+}
+
+export function shouldRepaintConversationBoundary({
+  previousSessionID = "",
+  nextSessionID = "",
+  hadContent = false,
+  hasContent = false
+} = {}) {
+  const sessionChanged = previousSessionID !== "" && nextSessionID !== "" && previousSessionID !== nextSessionID;
+  return sessionChanged || (!hadContent && hasContent);
 }
 
 function isNearBottom(container) {

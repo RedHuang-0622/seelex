@@ -1,4 +1,4 @@
-import { renderConversationModel, renderMessageQueue } from "./components.js";
+import { renderConversationLoading, renderConversationModel, renderMessageQueue } from "./components.js";
 import { conversationCompactionAnchor } from "./compaction-format.js";
 import { historyWindowed } from "./protocol.js";
 
@@ -19,11 +19,30 @@ export function createChatView(elements, conversationView) {
     const draftText = String(draft ?? "");
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(
-      renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions), streamPhase),
-      { scrollMode, hasMoreHistory, streaming: Boolean(chat.running), streamPhase, revision }
+    elements["empty-state"].hidden = active;
+    if (elements["empty-state"].style) elements["empty-state"].style.display = active ? "none" : "";
+    const model = renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions), streamPhase);
+    if (restoring || switching) {
+      model.items = [{
+        key: "chat:session-loading",
+        html: renderConversationLoading(restoring ? "restoring" : "switching"),
+        meta: { kind: "loading" }
+      }];
+    }
+    const renderResult = conversationView.render(
+      model,
+      {
+        scrollMode,
+        hasMoreHistory,
+        streaming: Boolean(chat.running),
+        streamPhase,
+        revision,
+        conversationCount: messages.length,
+        loading: restoring || switching
+      }
     );
     renderMessageQueueHost(chat);
+    return renderResult;
   }
 
   // renderMessageQueueHost 把排队条画到输入框正上方的 #message-queue（见
@@ -85,7 +104,8 @@ export function createChatView(elements, conversationView) {
 
   return {
     render(snapshot, scrollMode, switching = false, draft = "", streamPhase = "receiving") {
-      renderConversation(
+      if (elements.conversation) elements.conversation.dataset.sessionId = snapshot.session?.id || "";
+      const rendered = renderConversation(
         snapshot.conversation || [],
         snapshot.chat || {},
         scrollMode,
@@ -98,6 +118,10 @@ export function createChatView(elements, conversationView) {
         streamPhase
       );
       renderControls(snapshot, switching);
+      return rendered;
+    },
+    renderSessionLoading(mode = "switching") {
+      return renderConversation([], {}, "bottom", false, mode === "restoring", mode === "switching", "", [], 0, "receiving");
     },
     renderConversation,
     renderControls

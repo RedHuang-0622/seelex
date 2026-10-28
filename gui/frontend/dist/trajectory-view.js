@@ -11,6 +11,7 @@
 // 本地 UI 状态（当前过滤、展开、滚动、轴分页）只存在前端，不进入 Snapshot。
 import {
   AXIS_PAGE_SIZE_DEFAULT,
+  axisRangeForDrag,
   buildTrajectory,
   filterTrajectory,
   trajectoryStats,
@@ -24,9 +25,11 @@ import {
   compactionMarks,
   resolveAxisPage,
   stepAxisPageSize,
+  trajectoryRecordsInRange,
   axisWheelStep
 } from "./trajectory.js";
 import { MOTION_SLOW_MS, prefersReducedMotion } from "./motion.js";
+import { animateSpring } from "./spring-motion.js";
 
 export function createTrajectoryView(container, options = {}) {
   const htmlByKey = new Map();
@@ -66,6 +69,14 @@ export function createTrajectoryView(container, options = {}) {
   let axisLoadPending = false;
   let axisLoadCooldownUntil = 0;
   let windowInfo = null;
+  let currentAxisWindow = null;
+  // Network 式范围查看：axisRange 是本页序号上的闭区间，只过滤下方记录表，
+  // 不改变 Snapshot、轴分页或 kind 过滤；拖拽中的预览单独放在 axisDrag。
+  let axisRange = null;
+  let axisDrag = null;
+  let suppressAxisClickUntil = 0;
+  const openIODrawers = new Set();
+  const closedIODrawers = new Set();
 
   // 骨架：上下文轴（记录轨 + 前缀注入/压缩元数据轨）/ 轴详情 / 过滤条 /
   // 摘要 / 表格区（各自独立更新；轴详情只在点击元数据块时展开）。
@@ -73,6 +84,7 @@ export function createTrajectoryView(container, options = {}) {
     '<div class="trajectory-window" data-trajectory-window></div>',
     '<div class="trajectory-axis" data-trajectory-axis></div>',
     '<div class="trajectory-axis-detail" data-axis-detail hidden></div>',
+    '<div class="trajectory-splitter is-axis" data-trajectory-resize-axis role="separator" aria-orientation="horizontal" aria-label="调整上下文轴高度" tabindex="0"></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
     '<div class="trajectory-main">',
@@ -80,6 +92,7 @@ export function createTrajectoryView(container, options = {}) {
     '    <div data-trajectory-head></div>',
     '    <div class="trajectory-list" data-trajectory-list role="listbox" aria-label="轨迹请求与响应"></div>',
     '  </section>',
+    '  <div class="trajectory-splitter is-main" data-trajectory-resize-main role="separator" aria-orientation="vertical" aria-label="调整记录表与详情宽度" tabindex="0"></div>',
     '  <aside class="trajectory-inspector" data-trajectory-inspector aria-live="polite" aria-label="轨迹详情"></aside>',
     '</div>'
   ].join("");
@@ -91,8 +104,108 @@ export function createTrajectoryView(container, options = {}) {
   const headEl = container.querySelector("[data-trajectory-head]");
   const listEl = container.querySelector("[data-trajectory-list]");
   const inspectorEl = container.querySelector("[data-trajectory-inspector]");
+  const axisSplitter = container.querySelector("[data-trajectory-resize-axis]");
+  const mainSplitter = container.querySelector("[data-trajectory-resize-main]");
+  const mainEl = container.querySelector(".trajectory-main");
+  const AXIS_HEIGHT_KEY = "seelex.trajectory.axis-height.v1";
+  const RESULTS_WIDTH_KEY = "seelex.trajectory.results-width.v1";
+  applyTrajectoryLayout();
+  bindTrajectorySplitters();
 
-  container.addEventListener("click", event => handleAction(event, () => payloads, options));
+  function storedLayoutNumber(key) {
+    try {
+      const value = Number(localStorage.getItem(key));
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function storeLayoutNumber(key, value) {
+    try { localStorage.setItem(key, String(Math.round(value))); } catch { /* local view preference */ }
+  }
+
+  function applyTrajectoryLayout() {
+    const axisHeight = storedLayoutNumber(AXIS_HEIGHT_KEY);
+    const resultsWidth = storedLayoutNumber(RESULTS_WIDTH_KEY);
+    if (axisHeight) container.style.setProperty("--trajectory-axis-height", `${axisHeight}px`);
+    if (resultsWidth) container.style.setProperty("--trajectory-results-width", `${resultsWidth}px`);
+  }
+
+  function bindTrajectorySplitters() {
+    if (!axisSplitter || !mainSplitter || !mainEl) return;
+    const bindPointer = (handle, onMove, onEnd) => {
+      handle.addEventListener("pointerdown", event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const pointerId = event.pointerId;
+        try { handle.setPointerCapture(pointerId); } catch { /* synthetic pointer */ }
+        const move = next => {
+          if (next.pointerId !== pointerId) return;
+          next.preventDefault();
+          onMove(next);
+        };
+        const end = next => {
+          if (next.pointerId !== pointerId) return;
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", end);
+          handle.removeEventListener("pointercancel", end);
+          try { handle.releasePointerCapture(pointerId); } catch { /* already released */ }
+          onEnd();
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", end);
+        handle.addEventListener("pointercancel", end);
+      });
+    };
+
+    let axisStartY = 0;
+    let axisStartHeight = 0;
+    axisSplitter.addEventListener("pointerdown", event => {
+      axisStartY = event.clientY;
+      axisStartHeight = axisEl.getBoundingClientRect().height;
+    }, { capture: true });
+    bindPointer(axisSplitter, event => {
+      const max = Math.max(80, Math.min(360, container.clientHeight * .42));
+      const height = Math.min(max, Math.max(64, axisStartHeight + event.clientY - axisStartY));
+      container.style.setProperty("--trajectory-axis-height", `${Math.round(height)}px`);
+    }, () => {
+      storeLayoutNumber(AXIS_HEIGHT_KEY, axisEl.getBoundingClientRect().height);
+    });
+    axisSplitter.addEventListener("keydown", event => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      const current = axisEl.getBoundingClientRect().height;
+      const next = Math.min(360, Math.max(64, current + (event.key === "ArrowDown" ? 16 : -16)));
+      container.style.setProperty("--trajectory-axis-height", `${Math.round(next)}px`);
+      storeLayoutNumber(AXIS_HEIGHT_KEY, next);
+    });
+
+    let mainStartX = 0;
+    let resultsStartWidth = 0;
+    mainSplitter.addEventListener("pointerdown", event => {
+      mainStartX = event.clientX;
+      resultsStartWidth = container.querySelector(".trajectory-results")?.getBoundingClientRect().width || 0;
+    }, { capture: true });
+    bindPointer(mainSplitter, event => {
+      const total = mainEl.clientWidth;
+      const width = Math.min(total - 226, Math.max(220, resultsStartWidth + event.clientX - mainStartX));
+      container.style.setProperty("--trajectory-results-width", `${Math.round(width)}px`);
+    }, () => {
+      storeLayoutNumber(RESULTS_WIDTH_KEY, container.querySelector(".trajectory-results")?.getBoundingClientRect().width || 0);
+    });
+    mainSplitter.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const total = mainEl.clientWidth;
+      const current = container.querySelector(".trajectory-results")?.getBoundingClientRect().width || 0;
+      const next = Math.min(total - 226, Math.max(220, current + (event.key === "ArrowRight" ? 16 : -16)));
+      container.style.setProperty("--trajectory-results-width", `${Math.round(next)}px`);
+      storeLayoutNumber(RESULTS_WIDTH_KEY, next);
+    });
+  }
+
+  container.addEventListener("click", event => handleAction(event, () => payloads, { ...options, openIODrawers, closedIODrawers }));
   container.addEventListener("click", event => {
     const row = event.target.closest("[data-trajectory-select]");
     if (!row) return;
@@ -125,8 +238,19 @@ export function createTrajectoryView(container, options = {}) {
   // 上下文轴点击：元数据块（前缀层/压缩刻度）开/关轴详情；普通轨迹块先切
   // 回全量过滤保证行存在，再滚动定位并短暂高亮。
   axisEl.addEventListener("click", event => {
+    if (event.target.closest("[data-axis-range-clear]")) {
+      clearAxisRange("已清除框选，恢复全部轨迹行");
+      return;
+    }
+    if (Date.now() < suppressAxisClickUntil) {
+      event.preventDefault();
+      return;
+    }
     const segment = event.target.closest(".axis-segment");
-    if (!segment) return;
+    if (!segment) {
+      if (axisRange) clearAxisRange("已清除框选，恢复全部轨迹行");
+      return;
+    }
     const prefixIndex = segment.dataset.prefixLayer;
     if (prefixIndex !== undefined) {
       const layer = axisPrefixSegments[Number(prefixIndex)];
@@ -161,6 +285,51 @@ export function createTrajectoryView(container, options = {}) {
     requestAnimationFrame(() => focusRow(key));
   });
 
+  // Network 式框选：从轴内的任意位置按下并横向拖拽，选出闭区间记录；点击
+  // 空白处或「清除选区」恢复全部行。短按不越过阈值时仍按普通块点击处理。
+  axisEl.addEventListener("pointerdown", event => {
+    if (event.button !== 0 || event.target.closest("[data-axis-range-clear]")) return;
+    const track = event.target.closest(".context-axis-track");
+    const bar = track?.querySelector(".context-axis-lane.is-input .axis-lane-bar");
+    if (!track || !bar || !currentAxisWindow || currentAxisWindow.end <= currentAxisWindow.start) return;
+    const bounds = bar.getBoundingClientRect();
+    if (bounds.width <= 0) return;
+    axisDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      bounds,
+      track,
+      moved: false,
+      range: null
+    };
+    try { track.setPointerCapture(event.pointerId); } catch { /* synthetic pointer */ }
+  });
+  axisEl.addEventListener("pointermove", event => {
+    if (!axisDrag || axisDrag.pointerId !== event.pointerId) return;
+    if (!axisDrag.moved && Math.abs(event.clientX - axisDrag.startX) < 3) return;
+    axisDrag.moved = true;
+    event.preventDefault();
+    axisDrag.range = axisRangeForDrag(axisDrag.startX, event.clientX, axisDrag.bounds, currentAxisWindow);
+    paintAxisRangePreview(axisDrag.range);
+  });
+  const finishAxisDrag = event => {
+    if (!axisDrag || axisDrag.pointerId !== event.pointerId) return;
+    const drag = axisDrag;
+    axisDrag = null;
+    try { drag.track.releasePointerCapture?.(event.pointerId); } catch { /* already released */ }
+    if (!drag.moved || !drag.range) {
+      if (drag.track.querySelector(".axis-range-selection")) drag.track.querySelector(".axis-range-selection")?.remove();
+      return;
+    }
+    axisRange = drag.range;
+    suppressAxisClickUntil = Date.now() + 250;
+    renderAxis();
+    renderSelection();
+    setAxisNotice(`已框选第 ${axisRange.start + 1}–${axisRange.end + 1} 条，下方只显示该范围`);
+  };
+  axisEl.addEventListener("pointerup", finishAxisDrag);
+  axisEl.addEventListener("pointercancel", finishAxisDrag);
+
   // 上下文轴滚轮（只在轴区域内响应，使用 passive:false + preventDefault，
   // 与对话区滚轮互不抢占）：
   //   滚轮        = 翻页（向上=更早一页，向下=更新一页；只有一页且没有更早的
@@ -177,6 +346,7 @@ export function createTrajectoryView(container, options = {}) {
     if (!delta) return;
     event.preventDefault();
     if (event.shiftKey) {
+      clearAxisRange("");
       const stepped = stepAxisPageSize(axisPageSize, delta > 0 ? 1 : -1);
       if (!stepped.changed) {
         setAxisNotice(`页大小已是${stepped.atMin ? "最小" : "最大"} ${stepped.size} 条`);
@@ -206,6 +376,7 @@ export function createTrajectoryView(container, options = {}) {
       setAxisNotice("已到最早一页（已加载窗口内没有更早的记录）");
       return;
     }
+    clearAxisRange("");
     if (target > current.pageCount - 1) {
       setAxisNotice("已到最新一页");
       return;
@@ -226,6 +397,37 @@ export function createTrajectoryView(container, options = {}) {
   // axisRangeLabel 本页区间文案（空页不写成"第 1–0 条"，与轴头口径一致）。
   function axisRangeLabel(view) {
     return view.end > view.start ? `第 ${view.start + 1}–${view.end} 条` : "为空";
+  }
+
+  function clearAxisRange(notice = "") {
+    if (!axisRange) {
+      if (notice) setAxisNotice(notice);
+      return;
+    }
+    axisRange = null;
+    if (renderAxis && currentAxisWindow) {
+      renderAxis();
+      renderSelection();
+    }
+    if (notice) setAxisNotice(notice);
+  }
+
+  function paintAxisRangePreview(range) {
+    if (!range || !axisDrag || !currentAxisWindow) return;
+    const capacity = Math.max(Number(currentAxisWindow.capacity) || 0, 1);
+    const left = Math.max(0, range.start - currentAxisWindow.start) / capacity;
+    const width = Math.max(1, range.end - range.start + 1) / capacity;
+    let preview = axisDrag.track.querySelector(".axis-range-selection");
+    if (!preview) {
+      preview = document.createElement("div");
+      preview.className = "axis-range-selection";
+      preview.innerHTML = "<span></span>";
+      axisDrag.track.appendChild(preview);
+    }
+    preview.style.setProperty("--range-left", String(left));
+    preview.style.setProperty("--range-width", String(width));
+    const label = preview.querySelector("span");
+    if (label) label.textContent = `第 ${range.start + 1}–${range.end + 1} 条`;
   }
 
   // requestEarlierContent 请求加载更早内容（复用既有 app.js loadMore 接线）：
@@ -271,6 +473,7 @@ export function createTrajectoryView(container, options = {}) {
   // reconcile 重建都走这里，因此页号与页大小在这些操作后保持一致。
   function renderAxis() {
     const view = resolveAxisPage(records, { pageSize: axisPageSize, page: axisPage, anchorKey: axisAnchorKey, tail: axisTail });
+    currentAxisWindow = view;
     axisPrefixSegments = prefixLayerSegments(prefixLayers);
     axisCompactionMarks = compactionMarks(records, compactions, { page: view.page, pageSize: view.pageSize });
     axisEl.innerHTML = renderContextAxis(records, {
@@ -279,7 +482,8 @@ export function createTrajectoryView(container, options = {}) {
       page: view.page,
       pageSize: view.pageSize,
       notice: axisNotice,
-      hasMore: axisHasMore
+      hasMore: axisHasMore,
+      range: axisRange
     });
     applyAxisPage(records, view);
     axisPageable = view.pageCount > 1 || axisHasMore;
@@ -441,18 +645,24 @@ export function createTrajectoryView(container, options = {}) {
   }
 
   function renderSelection() {
-    const model = renderTrajectoryTable(filterTrajectory(records, filter), selectedKey);
+    const ranged = trajectoryRecordsInRange(records, axisRange);
+    const model = renderTrajectoryTable(filterTrajectory(ranged, filter), selectedKey);
     selectedKey = model.selectedKey;
     payloads = model.payloads;
     headEl.innerHTML = model.headHtml;
     reconcile(listEl, model.items, htmlByKey, payloads);
     inspectorEl.innerHTML = model.detailHtml;
+    restoreIODrawers(inspectorEl, openIODrawers, closedIODrawers);
   }
 
   return {
     render,
     setFilter,
-    select(key) { focusRow(String(key || "")); },
+    select(key) {
+      if (axisRange) clearAxisRange("");
+      if (filter !== "all") setFilter("all");
+      focusRow(String(key || ""));
+    },
     currentFilter: () => filter,
     current: () => records,
     payload(key) { return payloads.get(key) || ""; }
@@ -527,6 +737,22 @@ function restoreUIState(node, state, payloads) {
 // handleAction 处理轨迹行内的复制 / 展开 / result_ref 分页读回
 // （与 conversation-view 同一交互契约）。
 async function handleAction(event, getPayloads, options) {
+  const closeDrawerButton = event.target.closest("[data-io-drawer-close]");
+  if (closeDrawerButton) {
+    const panel = closeDrawerButton.closest(".io-panel");
+    const toggle = panel?.querySelector("[data-io-drawer]");
+    const content = panel?.querySelector(".io-drawer-content");
+    if (toggle && content && !content.hidden) {
+      toggleIODrawer(toggle, options);
+      toggle.focus?.();
+    }
+    return;
+  }
+  const drawerButton = event.target.closest("[data-io-drawer]");
+  if (drawerButton) {
+    toggleIODrawer(drawerButton, options);
+    return;
+  }
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) {
     const value = getPayloads().get(copyButton.dataset.copy) || "";
@@ -597,6 +823,71 @@ async function handleAction(event, getPayloads, options) {
       panel.classList.remove("loading-full");
       loadButton.disabled = false;
     }
+  }
+}
+
+function toggleIODrawer(button, options) {
+  const panel = button.closest(".io-panel");
+  const content = panel?.querySelector(".io-drawer-content");
+  if (!panel || !content) return;
+  const key = button.dataset.ioDrawer || "";
+  const opening = content.hidden;
+  button.setAttribute("aria-expanded", String(opening));
+  panel.classList.toggle("is-drawer-open", opening);
+  const store = options.openIODrawers;
+  const closed = options.closedIODrawers;
+  if (opening) {
+    store?.add(key);
+    closed?.delete(key);
+  } else {
+    store?.delete(key);
+    closed?.add(key);
+  }
+  panel._drawerAnimation?.cancel?.();
+  if (prefersReducedMotion()) {
+    content.hidden = !opening;
+    return;
+  }
+  if (opening) {
+    content.hidden = false;
+    panel._drawerAnimation = animateSpring(content, "enter", [
+      { opacity: 0, transform: "translateY(-8px)" },
+      { opacity: 1, transform: "translateY(0)" }
+    ], { fill: "none" });
+    return;
+  }
+  const animation = animateSpring(content, "exit", [
+    { opacity: 1, transform: "translateY(0)" },
+    { opacity: 0, transform: "translateY(-6px)" }
+  ], { fill: "none" });
+  panel._drawerAnimation = animation;
+  const finish = () => {
+    if (panel._drawerAnimation !== animation) return;
+    animation?.cancel?.();
+    content.hidden = true;
+    panel._drawerAnimation = null;
+  };
+  animation?.finished?.then(finish).catch(() => {});
+  if (!animation) finish();
+}
+
+function restoreIODrawers(root, openIODrawers, closedIODrawers = new Set()) {
+  if (!root) return;
+  for (const button of root.querySelectorAll("[data-io-drawer]")) {
+    const key = button.dataset.ioDrawer || "";
+    const panel = button.closest(".io-panel");
+    const content = panel?.querySelector(".io-drawer-content");
+    if (!panel || !content) continue;
+    if (closedIODrawers.has(key)) {
+      content.hidden = true;
+      panel.classList.remove("is-drawer-open");
+      button.setAttribute("aria-expanded", "false");
+      continue;
+    }
+    if (!openIODrawers.has(key)) continue;
+    content.hidden = false;
+    panel.classList.add("is-drawer-open");
+    button.setAttribute("aria-expanded", "true");
   }
 }
 

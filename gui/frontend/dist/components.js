@@ -158,7 +158,7 @@ function renderCompactionFrontierRow(anchor) {
 // / other（压缩分界行、草稿行、运行时活动带——它们自成一段，不参与融合）。
 function conversationBlockFamily(item) {
   if (item?.kind === "message") return "llm";
-  if (item?.kind === "axis") return "tools";
+  if (item?.kind === "tool" || item?.kind === "tools" || item?.kind === "axis") return "tools";
   return "other";
 }
 
@@ -205,13 +205,13 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
     // F-6：邻接在渲染期算（只有这里同时看得见上一条与下一条的 kind + 归属）。
     const joinedAbove = index > 0 && blocksFuse(grouped[index - 1], item);
     const joinedBelow = index < grouped.length - 1 && blocksFuse(item, grouped[index + 1]);
-    const html = item.kind === "axis"
-      ? renderToolAxis(item, key, joinedAbove, joinedBelow)
-      : item.kind === "frontier"
-        ? item.html
-        : item.kind === "tool"
-          ? renderToolCall(item, key, joinedAbove, joinedBelow)
-          : renderMessage(item.message, key, joinedAbove, joinedBelow, payloads);
+    const html = item.kind === "frontier"
+      ? item.html
+      : item.kind === "tools"
+        ? renderToolCall(item.current, item.current.key, joinedAbove, joinedBelow, payloads, item.members.length, item.key, item.members)
+      : item.kind === "tool"
+        ? renderToolCall(item, key, joinedAbove, joinedBelow, payloads)
+        : renderMessage(item.message, key, joinedAbove, joinedBelow, payloads);
     const meta = item.kind === "message"
       ? {
         kind: "message",
@@ -219,7 +219,9 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
         hasReasoning: Boolean(String(item.message?.reasoning_content || "").trim()),
         hasContent: Boolean(String(item.message?.content || "").trim())
       }
-      : { kind: item.kind };
+      : item.kind === "tool" || item.kind === "tools"
+        ? { kind: "tool", toolCount: item.kind === "tools" ? item.members.length : 1, motion: item.kind === "tools" ? "tool-update" : "" }
+        : { kind: item.kind };
     return { key, html, meta };
   });
   // 页面 context = 既定 message + 本页未发送的草稿：草稿排在既有消息之后、
@@ -229,7 +231,7 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
   if (draftText.trim() !== "") {
     rendered.push({ key: DRAFT_ROW_KEY, html: renderDraftMessage(draftText, DRAFT_ROW_KEY), meta: { kind: "draft" } });
   }
-  const hasRunningTool = grouped.some(item => item.kind === "axis"
+  const hasRunningTool = grouped.some(item => item.kind === "tools"
     ? item.members.some(member => isToolRunningStatus(member.status))
     : item.kind === "tool" && isToolRunningStatus(item.status));
   const activity = renderChatActivity(chat, streamPhase, { hasRunningTool });
@@ -253,6 +255,23 @@ export function renderChatActivity(chat = {}, streamPhase = "receiving", options
   return `<section class="runtime-activity" role="status" aria-live="polite" aria-busy="true" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${receiving ? "receiving" : "waiting"}">
     <strong class="runtime-activity-copy">${label}</strong>
     ${receiving ? '<span class="runtime-activity-line" aria-hidden="true"></span>' : ""}
+  </section>`;
+}
+
+// renderConversationLoading 渲染会话切换/冷恢复时的局部结构占位。对话区已经
+// 知道消息行的大致结构，因此使用 4 条与真实消息同宽的骨架，而不是通用 spinner
+// 或整块空白；标题文字为无障碍与低动效环境提供确定的当前状态。
+export function renderConversationLoading(mode = "switching") {
+  const restoring = mode === "restoring";
+  const label = restoring ? "正在恢复会话…" : "正在切换会话…";
+  const rows = [
+    "is-assistant is-long",
+    "is-user is-short",
+    "is-assistant is-medium",
+    "is-assistant is-short"
+  ].map((className, index) => `<div class="conversation-loading-row ${className}" style="--loading-index:${index}"><span></span><span></span></div>`).join("");
+  return `<section class="conversation-switch-loading" data-session-loading="${restoring ? "restoring" : "switching"}" role="status" aria-label="${label}" aria-live="polite" aria-busy="true">
+    <div class="conversation-loading-stack" aria-hidden="true">${rows}</div>
   </section>`;
 }
 
@@ -401,35 +420,42 @@ export function buildConversationItems(messages = []) {
 
 function hasVisibleAssistantOutput(message) {
   if (!message || message.role !== "assistant") return false;
-  return String(message.content || "").trim().length > 0 ||
-    String(message.reasoning_content || "").trim().length > 0;
+  return String(message.content || "").trim().length > 0;
 }
 
-// 泛化“滚动轴”：对话区把 tool-calling 与思考各自收进可展开/收起的滚动轴，
-// LLM 正文不进滚动轴（保持内联）。空 assistant 占位（无 content/reasoning）
-// 不渲染为独立消息；它只是流式正文的落点。轨迹视图保持全量不变。
+// 连续工具调用组成一个“工具域”：对话区只露出该域最新的那一条，历史工具仍在
+// 轨迹页完整可查。消息、压缩分界与空 assistant 占位都会切断工具域。
 function groupConversationItems(items) {
   const grouped = [];
-  const pendingTools = [];
+  let pendingTools = [];
   const flushTools = () => {
-    if (pendingTools.length === 0) return;
-    const members = pendingTools.slice();
-    const key = `roll:${members[0].key}`;
-    // 只登记成员、不在这里拼 html：工具过程块的邻接圆角要等上下邻居都定了才算得出
-    // 来（见 renderToolAxis / blocksFuse）。
-    grouped.push({ kind: "axis", key, members });
-    pendingTools.length = 0;
+    if (!pendingTools.length) return;
+    if (pendingTools.length === 1) {
+      grouped.push(pendingTools[0]);
+    } else {
+      const latest = pendingTools.at(-1);
+      grouped.push({
+        kind: "tools",
+        key: `tools:${pendingTools[0].key}`,
+        members: pendingTools.slice(),
+        current: latest
+      });
+    }
+    pendingTools = [];
   };
   for (const item of items) {
     if (item.kind === "frontier") {
-      // 分界行自成一组：它不是工具行（不能并进"工具过程"折叠组），也不属于任何
-      // 消息——先收掉挂起的工具行，再原样放行。
       flushTools();
       grouped.push(item);
       continue;
     }
-    if (item.kind !== "message") {
+    if (item.kind === "tool") {
       pendingTools.push(item);
+      continue;
+    }
+    if (item.kind !== "message") {
+      flushTools();
+      grouped.push(item);
       continue;
     }
     const message = item.message;
@@ -484,22 +510,9 @@ function renderMessageBody(message, role, key = "") {
 function renderMessage(message, key, above = false, below = false, payloads = new Map()) {
   const role = message.role || "assistant";
   const joined = joinedAttrs(above, below);
-  const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = roleIdentity(message, role);
-  const routeMeta = renderMessageRouteMeta(message);
   const reasoning = String(message.reasoning_content || "").trim();
   const roundID = Number(message.round_id || 0);
-  const roundChip = roundID > 0 ? `<span class="message-round" title="群聊轮次（一条 user 输入开启一轮）">R${roundID}</span>` : "";
-  const thinking = role === "assistant" && reasoning
-    ? `<details class="reasoning-block is-thinking-axis" open data-trajectory-key="${escapeHtml(key)}">
-        <summary>
-          <span class="reasoning-chevron" aria-hidden="true"></span>
-          <span>思考</span>
-          <span class="reasoning-state">${formatChars(reasoning.length)}</span>
-        </summary>
-        <div class="reasoning-content is-plain">${escapeHtml(reasoning)}</div>
-      </details>`
-    : "";
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
   const actions = renderUserMessageActions(message, key, payloads);
@@ -508,9 +521,6 @@ function renderMessage(message, key, above = false, below = false, payloads = ne
     ? `<div class="message-user-cluster">${body}${actions}</div>`
     : `${body}${actions}`;
   return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}"${joined.dataAttrs}>
-    <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
-    ${routeMeta}
-    ${thinking}
     ${content}
   </article>`;
 }
@@ -532,25 +542,6 @@ function renderUserMessageActions(message, key, payloads) {
     <button type="button" class="message-action" data-copy="${escapeHtml(copyKey)}" title="复制原文" aria-label="复制这条用户消息">${icon("copy", 14)}<span>复制</span></button>
     <button type="button" class="message-action" data-edit-message="${escapeHtml(key)}" data-event-seq="${eventSeq}" data-edit-disabled="${editable ? "false" : "true"}" title="${escapeHtml(editTitle)}" aria-label="${editable ? "编辑这条用户消息并分叉" : escapeHtml(`不能编辑：${editTitle}`)}" aria-disabled="${editable ? "false" : "true"}">${icon("edit", 14)}<span>${editable ? "编辑" : "不可编辑"}</span></button>
   </div>`;
-}
-
-// renderMessageRouteMeta 渲染 message 块的第二行元数据：message id + 实际
-// 承接路由（config role / config model，含厂商类型）。数据长在消息本体上
-// （真相源字段，响应落地时由请求解析中间件回填），不是瞬态事件——历史回放
-// 的旧块没有路由段，只显示 id。顶行是角色身份（EXEC/SYSTEM/YOU…），这行
-// 回答「这条回应是谁用哪个模型发的」。
-function renderMessageRouteMeta(message) {
-  const id = String(message?.id || "").trim();
-  const configRole = String(message?.config_role || "").trim();
-  const model = String(message?.config_model || "").trim();
-  const provider = String(message?.config_provider || "").trim();
-  const segments = [
-    id ? `<code class="item-id">${escapeHtml(id)}</code>` : "",
-    configRole ? `<span class="route-meta-role" title="config role：承接账号所属的配置角色">${escapeHtml(configRole)}</span>` : "",
-    model ? `<span class="route-meta-model" title="config model：实际承接的模型">${escapeHtml(provider ? `${provider}/${model}` : model)}</span>` : ""
-  ].filter(Boolean);
-  if (!segments.length) return "";
-  return `<div class="message-route-meta">${segments.join('<span class="route-meta-sep" aria-hidden="true">·</span>')}</div>`;
 }
 
 // messageRoleClass 给群聊归属加一层视觉分区（CSS class 后缀）：同一轮对话里
@@ -579,46 +570,145 @@ export function roleIdentity(message, role = message?.role || "assistant") {
   return role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
 }
 
-// renderToolAxis 渲染「工具过程」折叠轴：一组成员（一步或多步工具调用）收进同一张
-// 可展开卡片。**这张卡片就是对话列里的"工具过程块"**——邻接圆角挂在它身上（F-6），
-// 而不是挂在卡内的 chip 上：卡内 `.tool-run` 早已被抹平圆角与边框
-// （styles.css 的 `.tools-axis-scroll .tool-run`），chip 不是块。
-function renderToolAxis(item, key, above = false, below = false) {
-  const members = Array.isArray(item.members) ? item.members : [];
-  const count = new Set(members.map(member => member.key)).size;
-  const names = [...new Set(members.map(member => member.name))].join(" / ");
-  const chips = members.map(member => renderToolCall(member, member.key)).join("");
-  const wheelLabel = `工具过程 · ${count} 次 · ${names}`;
-  const joined = joinedAttrs(above, below);
-  return `<details class="conversation-axis is-tools${joined.className}" data-conversation-key="${escapeHtml(key)}" data-wheel-kind="tools" data-wheel-label="${escapeHtml(wheelLabel)}"${joined.dataAttrs}>
-      <summary>
-        <span class="axis-caret" aria-hidden="true"></span>
-        <span class="axis-label">工具过程</span>
-        <span class="axis-meta">${count} 次 · ${escapeHtml(names)}</span>
-        <span class="axis-hint">展开 / 收起</span>
-      </summary>
-      <div class="axis-scroll tools-axis-scroll">${chips}</div>
-    </details>`;
-}
-
-function renderToolCall(tool, key, above = false, below = false) {
+// renderToolCall 渲染一条工具调用：summary 是与左栏会话行同族的单行摘要，
+// details 展开后才是入参/出参抽屉。摘要与抽屉共用一个 key，展开态由浏览器原生
+// <details> 保存，增量重绘时由 conversation-view 的 UI state 原样恢复。
+function renderToolCall(tool, key, above = false, below = false, payloads = new Map(), toolCount = 1, nodeKey = key, domainMembers = null) {
   const status = statusMeta(tool.status, tool.error);
   const joined = joinedAttrs(above, below);
   const running = status.phase === "running";
   const invocation = toolInvocationSummary(tool);
-  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-tool-id="${escapeHtml(tool.id || key)}" aria-busy="${running ? "true" : "false"}"${joined.dataAttrs}>
-    <div class="tool-run-line">
-      <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图" aria-label="${running ? `正在运行 ${escapeHtml(tool.name)}` : `${escapeHtml(tool.name)} ${escapeHtml(status.label)}`}">
-        <span class="tool-symbol">${icon("terminal", 13)}</span>
-        <span class="tool-main">
-          <strong class="chat-chip-name" data-tool-label="${escapeHtml(tool.name)}" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${running ? "running" : status.phase}">${escapeHtml(tool.name)}</strong>
-          ${invocation ? `<span class="tool-command">${escapeHtml(invocation)}</span>` : ""}
-        </span>
-        <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
-        <span class="tool-meta">${escapeHtml([formatDuration(tool.duration), chatChipSize(tool)].filter(Boolean).join(" · "))}</span>
-      </button>
+  const inputKey = `${key}-in`;
+  const outputKey = `${key}-out`;
+  const groupLabel = toolCount > 1 ? ` · 最近 1/${toolCount}` : "";
+  const wheelLabel = `${tool.name} · ${status.label}${invocation ? ` · ${invocation}` : ""}${groupLabel}`;
+  const metrics = [formatDuration(tool.duration), chatChipSize(tool)].filter(Boolean).join(" · ");
+  const isDomain = Array.isArray(domainMembers) && domainMembers.length > 1;
+  const drawer = isDomain
+    ? `<div class="tool-domain-list">
+        ${domainMembers.map(member => renderToolCall(member, member.key, false, false, payloads)).join("")}
+      </div>`
+    : renderToolIODetail({
+      input: tool.input,
+      output: tool.output,
+      inputKey,
+      outputKey,
+      record: tool,
+      statusClass: status.className,
+      payloads
+    });
+  return `<details class="tool-run ${status.className} tool-call-row${isDomain ? " tool-domain" : ""}${joined.className}" data-conversation-key="${escapeHtml(nodeKey)}" data-trajectory-key="${escapeHtml(key)}" data-tool-id="${escapeHtml(tool.id || key)}" data-tool-count="${toolCount}"${isDomain ? ' data-tool-domain="true"' : ""} data-wheel-kind="tools" data-wheel-label="${escapeHtml(wheelLabel)}" aria-busy="${running ? "true" : "false"}"${joined.dataAttrs}>
+    <summary class="tool-call-summary" title="${running ? `正在运行 ${escapeHtml(tool.name)}` : `${escapeHtml(tool.name)} ${escapeHtml(status.label)}`}${toolCount > 1 ? `；最近 1/${toolCount} 次工具调用` : ""}；展开查看入参和出参">
+      <span class="tool-call-caret" aria-hidden="true"></span>
+      <span class="tool-symbol">${icon("terminal", 13)}</span>
+      <span class="tool-name-cluster"><strong class="chat-chip-name tool-call-name" data-tool-label="${escapeHtml(tool.name)}" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${running ? "running" : status.phase}">${escapeHtml(tool.name)}</strong>${toolCount > 1 ? `<span class="tool-group-count" title="这一工具域共 ${toolCount} 次调用；此处只显示最新一次">${toolCount}</span>` : ""}</span>
+      ${invocation ? `<span class="tool-command">${escapeHtml(invocation)}</span>` : '<span class="tool-command"></span>'}
+      <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
+      <span class="tool-meta">${escapeHtml(metrics)}</span>
+    </summary>
+    <div class="tool-call-drawer${isDomain ? " tool-domain-drawer" : ""}">
+      <header class="tool-call-drawer-head">
+        <span>${isDomain ? `本段 ${toolCount} 次工具调用` : "工具调用"}</span>
+        <code>${escapeHtml(isDomain ? "先选条目，再展开入参/出参" : (tool.id || key))}</code>
+        <button type="button" class="tool-call-trajectory" data-tool-trajectory="${escapeHtml(key)}" title="在轨迹页查看并定位这条工具调用">${icon("source", 12)}<span>在轨迹中查看</span></button>
+      </header>
+      ${drawer}
     </div>
-  </article>`;
+  </details>`;
+}
+
+// renderToolIODetail 是对话工具抽屉与轨迹 inspector 共用的唯一 IN/OUT 渲染件：
+// 可解析 JSON 时格式化，超长输出走 result_ref 分页读回；复制与展开只改展示，
+// 完整 payload 写入调用方提供的 Map。
+export function renderToolIODetail({
+  input,
+  output,
+  inputKey,
+  outputKey,
+  record = {},
+  statusClass = "",
+  payloads = new Map(),
+  mode = "inline",
+  defaultOpen = false
+} = {}) {
+  const inputText = toolPrettyValue(input);
+  const outputText = toolPrettyValue(output);
+  payloads.set(inputKey, inputText);
+  payloads.set(outputKey, outputText);
+  const think = String(record.reasoning || "").trim();
+  if (think) payloads.set(`${outputKey}-think`, think);
+
+  const inputView = toolLimitText(inputText, 1400, 28);
+  const outputView = toolLimitText(outputText, 4000, 40);
+  const ref = record.resultRef || "";
+  const note = record.truncated && ref
+    ? `<span class="io-note">预览 ${outputView.total} 字符 · 全文 ${record.totalChars} 字符（默认折叠，点击加载）</span>`
+    : outputView.truncated
+      ? `<span class="io-note">预览 ${outputView.total} 字符</span>`
+      : "";
+  const fullButton = ref && record.truncated
+    ? `<button class="io-expand" type="button" data-load-ref="${escapeHtml(ref)}" title="加载完整输出（按需拉取，默认折叠）">${icon("expand", 12)} <span>加载完整输出</span></button>`
+    : outputView.truncated
+      ? `<button class="io-expand" type="button" data-expand="${escapeHtml(outputKey)}" title="展开完整内容">${icon("expand", 12)} <span>+${outputView.hidden} chars</span></button>`
+      : "";
+  // 抽屉打开即展示有界预览；超长全文由下面的 data-expand / data-load-ref
+  // 再拉取，不再多嵌一层“查看输出”折叠，避免点开工具行后仍只看到空壳。
+  const outBody = `<pre class="trajectory-json-value">${escapeHtml(outputView.preview || "（无出参）")}</pre>`;
+  const drawer = mode === "drawer";
+  const drawerOpen = drawer && defaultOpen === true;
+  const closeButton = (key, title) => drawer
+    ? `<button class="icon-button subtle io-drawer-close" type="button" data-io-drawer-close="${escapeHtml(key)}" title="关闭${escapeHtml(title)}" aria-label="关闭${escapeHtml(title)}">${icon("close", 13)}</button>`
+    : "";
+  const panelHeader = (label, key, total, title, open = drawerOpen) => drawer
+    ? `<header>
+        <button class="io-drawer-toggle" type="button" data-io-drawer="${escapeHtml(key)}" aria-expanded="${open}" title="${open ? "收起" : "展开"}${escapeHtml(title)}">
+          <span class="io-drawer-chevron" aria-hidden="true"></span>
+          <span class="io-label">${escapeHtml(label)}</span>
+          <span class="io-meta">${total} chars</span>
+        </button>
+        <button class="icon-button subtle" type="button" data-copy="${escapeHtml(key)}" title="复制${escapeHtml(title)}" aria-label="复制${escapeHtml(title)}">${icon("copy", 13)}</button>
+        ${closeButton(key, title)}
+      </header>`
+    : `<header><span class="io-label">${escapeHtml(label)}</span><span class="io-meta">${total} chars</span><button class="icon-button subtle" type="button" data-copy="${escapeHtml(key)}" title="复制${escapeHtml(title)}" aria-label="复制${escapeHtml(title)}">${icon("copy", 13)}</button></header>`;
+  const panelBody = (body, key, open = drawerOpen) => drawer
+    ? `<div class="io-drawer-content" data-io-drawer-content="${escapeHtml(key)}"${open ? "" : " hidden"}>${body}</div>`
+    : body;
+  const thinkPanel = think
+    ? `<section class="io-panel trajectory-think" data-payload="${escapeHtml(`${outputKey}-think`)}">
+        ${panelHeader("THINK", `${outputKey}-think`, toolLimitText(think, 4000, 40).total, "思考内容", false)}
+        ${panelBody(`<pre>${escapeHtml(toolLimitText(think, 4000, 40).preview)}</pre>`, `${outputKey}-think`, false)}
+      </section>`
+    : "";
+
+  return `${thinkPanel}<div class="trajectory-io-grid">
+    <section class="io-panel${drawerOpen ? " is-drawer-open" : ""}" data-payload="${escapeHtml(inputKey)}" data-json-kind="input" aria-label="入参 JSON">
+      ${panelHeader("入参 JSON", inputKey, inputView.total, "入参")}
+      ${panelBody(`<pre class="trajectory-json-value">${escapeHtml(inputView.preview || "（无入参）")}</pre>`, inputKey)}
+    </section>
+    <section class="io-panel ${statusClass === "is-error" ? "io-error" : ""}${drawerOpen ? " is-drawer-open" : ""}" data-payload="${escapeHtml(outputKey)}" data-json-kind="output" aria-label="出参 JSON">
+      ${panelHeader("出参 JSON", outputKey, outputView.total, "出参")}
+      ${panelBody(`${outBody}${note}${fullButton}`, outputKey)}
+    </section>
+  </div>`;
+}
+
+function toolPrettyValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+function toolLimitText(value, maxChars, maxLines) {
+  const text = String(value || "");
+  const lines = text.split("\n");
+  let preview = lines.slice(0, maxLines).join("\n");
+  if (preview.length > maxChars) preview = preview.slice(0, maxChars);
+  const truncated = preview.length < text.length;
+  return { preview, truncated, hidden: Math.max(text.length - preview.length, 0), total: text.length };
 }
 
 function toolInvocationSummary(tool) {
@@ -643,11 +733,6 @@ function chatChipSize(tool) {
   const chars = Number(tool.totalChars) || String(tool.output || "").length;
   if (chars <= 0) return "";
   return chars < 1024 ? `${chars} B` : `${(chars / 1024).toFixed(chars < 10240 ? 1 : 0)} KB`;
-}
-
-function formatChars(length) {
-  if (length < 1024) return `${length} 字符`;
-  return `${(length / 1024).toFixed(length < 10240 ? 1 : 0)} KB`;
 }
 
 function statusMeta(status, error) {

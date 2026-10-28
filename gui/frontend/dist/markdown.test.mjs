@@ -85,6 +85,45 @@ fmt.Println("ok")
   assert.match(html, /<code class="language-go">fmt\.Println\(&quot;ok&quot;\)<\/code>/);
 });
 
+test("highlights fenced code through the shared highlight.js entry point", () => {
+  const previous = globalThis.hljs;
+  globalThis.hljs = {
+    getLanguage(language) {
+      return language === "go" ? { name: "Go" } : undefined;
+    },
+    highlight(source, options) {
+      assert.equal(options.language, "go");
+      assert.equal(options.ignoreIllegals, true);
+      return {
+        value: source
+          .replace("func", '<span class="hljs-keyword">func</span>')
+          .replace('"ok"', '"<span class="hljs-string">ok</span>"')
+      };
+    }
+  };
+  try {
+    const html = renderMarkdown(['```go', 'func main() { print("ok") }', '```'].join("\n"));
+    assert.match(html, /<code class="language-go hljs">/);
+    assert.match(html, /<span class="hljs-keyword">func<\/span>/);
+    assert.match(html, /<span class="hljs-string">ok<\/span>/);
+  } finally {
+    if (previous === undefined) delete globalThis.hljs;
+    else globalThis.hljs = previous;
+  }
+});
+
+test("keeps fenced code escaped when highlight.js is unavailable", () => {
+  const previous = globalThis.hljs;
+  delete globalThis.hljs;
+  try {
+    const html = renderMarkdown(['```html', '<script>alert(1)</script>', '```'].join("\n"));
+    assert.match(html, /<code class="language-html">&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/code>/);
+    assert.doesNotMatch(html, /<script>/);
+  } finally {
+    if (previous !== undefined) globalThis.hljs = previous;
+  }
+});
+
 test("renders tables and preserves alignment", () => {
   const html = renderMarkdown(`| Name | State |
 | :--- | ---: |

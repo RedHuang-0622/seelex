@@ -12,7 +12,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationLoading, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
@@ -26,10 +26,10 @@ test("assigns each message the identity of the agent that owns the round", () =>
     [{ id: "m-1", role: "assistant", role_name: "tl", round_id: 3, content: "verdict: done" }],
     { running: false }
   );
-  assert.match(rendered.html, /<strong>ADVISOR<\/strong>/);
-  assert.match(rendered.html, />R3</);
   assert.match(rendered.html, /data-role-name="tl"/);
-  assert.doesNotMatch(rendered.html, /<strong>AGENT<\/strong>/);
+  assert.match(rendered.html, /data-round-id="3"/);
+  assert.match(rendered.html, /data-wheel-label="ADVISOR · verdict: done"/);
+  assert.doesNotMatch(rendered.html, /message-head|message-route-meta|>ADVISOR<|>R3</);
 });
 
 test("user messages expose copy and edit only when the backend marks them editable", () => {
@@ -106,6 +106,22 @@ test("renders runtime activity only from active chat state", () => {
   assert.match(html, /aria-busy="true"/);
 });
 
+test("会话切换使用局部骨架而不是空白或通用 spinner", () => {
+  const html = renderConversationLoading("switching");
+  assert.match(html, /class="conversation-switch-loading"/);
+  assert.match(html, /正在切换会话/);
+  assert.match(html, /aria-busy="true"/);
+  assert.equal((html.match(/class="conversation-loading-row/g) || []).length, 4);
+  assert.doesNotMatch(html, /spinner/i);
+  assert.doesNotMatch(html, /conversation-loading-head/, "加载态不显示左上角说明文字");
+});
+
+test("会话切换骨架使用整行 Shimmer 流光", async () => {
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.conversation-loading-row::after\s*\{[^}]*transform:\s*translateX\(-100%\)[^}]*animation:\s*conversation-skeleton-sheen/s);
+  assert.match(css, /@keyframes conversation-skeleton-sheen\s*\{[\s\S]*?translateX\(-100%\)[\s\S]*?translateX\(100%\)/);
+});
+
 test("renders queued inputs as one-line rows", () => {
   const html = renderMessageQueue({
     running: true,
@@ -149,16 +165,16 @@ test("uses stable message and tool keys for incremental rendering", () => {
     { id: "tool-end", role: "tool_result", tool: { id: "call-1", name: "read", result: "done" } }
   ], { running: true });
 
-  assert.deepEqual(model.items.map(item => item.key), ["message:assistant-1", "roll:tool:call-1", "chat:activity"]);
-  // 轴卡是"工具过程块"，F-6 会给它挂邻接中介类（这里紧跟 llm 块 ⇒ is-joined-above），
-  // 所以只钉 is-tools 本身，不钉 class 属性的结尾。
-  assert.match(model.items[1].html, /class="conversation-axis is-tools/);
+  assert.deepEqual(model.items.map(item => item.key), ["message:assistant-1", "tool:call-1", "chat:activity"]);
+  assert.equal(model.items[1].meta.kind, "tool");
+  assert.match(model.items[1].html, /<details class="tool-run is-success tool-call-row/);
   assert.match(model.items[1].html, /data-conversation-key="tool:call-1"/);
   assert.match(model.items[1].html, /data-trajectory-key="tool:call-1"/);
-  assert.match(model.items[1].html, /工具过程/);
+  assert.match(model.items[1].html, /class="tool-call-summary"/);
+  assert.doesNotMatch(model.items[1].html, /conversation-axis/);
 });
 
-test("renders compact Codex-style tool calls without IN/OUT panels", () => {
+test("renders one-line tool calls with an expandable IN/OUT drawer and trajectory jump", () => {
   const model = renderConversationModel([
     { id: "tool-start", role: "tool", tool: { id: "call-big", name: "bash", arguments: "{}" } },
     { id: "tool-end", role: "tool_result", tool: {
@@ -169,26 +185,35 @@ test("renders compact Codex-style tool calls without IN/OUT panels", () => {
 
   const item = model.items.find(entry => entry.html.includes('data-conversation-key="tool:call-big"'));
   assert.ok(item, "tool item must be present");
-  assert.match(item.html, /class="chat-chip is-tool"/);
+  assert.match(item.html, /<details class="tool-run is-success tool-call-row/);
+  assert.match(item.html, /class="tool-call-summary"/);
+  assert.match(item.html, /class="tool-call-drawer"/);
   assert.match(item.html, /data-trajectory-key="tool:call-big"/);
+  assert.match(item.html, /data-tool-trajectory="tool:call-big"/);
   assert.match(item.html, /8\.8 KB/);
-  assert.doesNotMatch(item.html, /data-load-ref/);
-  assert.doesNotMatch(item.html, /io-collapse/);
-  assert.doesNotMatch(item.html, /io-panel/);
+  assert.match(item.html, /data-load-ref="tr-abc123"/);
+  assert.match(item.html, /io-panel/);
+  assert.match(item.html, /入参 JSON/);
+  assert.match(item.html, /出参 JSON/);
+  assert.match(item.html, /class="trajectory-json-value">preview<\/pre>/);
+  assert.doesNotMatch(item.html, /class="io-collapse"/);
   assert.match(item.html, /data-tool-id="call-big"/);
   assert.match(item.html, /class="tool-command"/);
+  assert.equal(model.payloads.get("tool:call-big-in"), "{}");
+  assert.equal(model.payloads.get("tool:call-big-out"), "preview");
 });
 
-test("keeps chat tool rows to a single line with status", () => {
+test("keeps the closed tool summary to a single line with status", () => {
   const model = renderConversationModel([
     { id: "tool-start", role: "tool", tool: { id: "call-small", name: "read_file", arguments: "{}" } },
     { id: "tool-end", role: "tool_result", tool: { id: "call-small", name: "read_file", result: "small" } }
   ]);
   const item = model.items.find(entry => entry.html.includes('data-conversation-key="tool:call-small"'));
   assert.ok(item);
+  assert.match(item.html, /class="tool-call-summary"/);
   assert.match(item.html, /class="tool-state">.*已完成/);
-  assert.doesNotMatch(item.html, /data-copy/);
-  assert.doesNotMatch(item.html, /io-collapse/);
+  assert.match(item.html, /class="tool-call-drawer"/);
+  assert.match(item.html, /data-copy/);
 });
 
 test("keeps restored tool steps in message order instead of piling tools then replies", () => {
@@ -202,30 +227,65 @@ test("keeps restored tool steps in message order instead of piling tools then re
     { id: "message-4", role: "assistant", content: "结论" }
   ]);
 
-  // 顺序 = 问题 → 助手步骤（含思考）→ 这一步的工具过程 → 正文。
-  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "message", "axis", "message"]);
-  assert.match(model.items[1].html, /先读文件/);
-  assert.match(model.items[2].html, /工具过程/);
-  assert.match(model.items[2].html, /call-1/);
-  assert.match(model.items[3].html, /结论/);
-  // 工具过程夹在步骤与正文之间，而不是被堆到整段对话末尾。
+  // 顺序 = 问题 → 工具最新状态 → 正文；只有思考的 assistant 步骤不再单独出行。
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "tool", "message"]);
+  assert.doesNotMatch(model.items.map(item => item.html).join(""), /先读文件/);
+  assert.match(model.items[1].html, /tool-call-row/);
+  assert.match(model.items[1].html, /read/);
+  assert.match(model.items[2].html, /结论/);
+  // 工具调用夹在旧思考步骤与正文之间，而不是被堆到整段对话末尾。
   const html = model.items.map(item => item.html).join("");
-  assert.ok(html.indexOf("先读文件") < html.indexOf("工具过程"));
-  assert.ok(html.indexOf("工具过程") < html.indexOf("结论"));
+  assert.ok(html.indexOf("tool-call-row") < html.indexOf("结论"));
 });
 
-test("renders thinking in its own scroll axis and keeps the reply content inline", () => {
+test("hides thinking from the conversation and keeps it in the trajectory", () => {
   const model = renderConversationModel([
     { id: "a1", role: "assistant", content: "reply", reasoning_content: "thinking steps" }
   ]);
   const item = model.items[0];
   assert.ok(item);
-  assert.match(item.html, /class="reasoning-block is-thinking-axis"/);
   assert.match(item.html, /data-trajectory-key="message:a1"/);
-  assert.match(item.html, /thinking steps/);
-  assert.match(item.html, /class="item-id">a1</);
+  assert.doesNotMatch(item.html, /reasoning-block|thinking steps|item-id/);
+  assert.equal(item.meta.hasReasoning, true, "轨迹页仍知道这段消息有思考");
   assert.match(item.html, />reply<\/p>/);
-  assert.match(item.html, /思考/);
+});
+
+test("consecutive tools expose the latest summary, then all calls, then each call's IN/OUT", () => {
+  const model = renderConversationModel([
+    { id: "tool-1", role: "tool", tool: { id: "call-1", name: "read_file", arguments: "{\"path\":\"a\"}", status: "success", result: "a" } },
+    { id: "tool-2", role: "tool", tool: { id: "call-2", name: "grep", arguments: "{\"pattern\":\"x\"}", status: "success", result: "x" } },
+    { id: "tool-3", role: "tool", tool: { id: "call-3", name: "bash", arguments: "{\"command\":\"pwd\"}", status: "success", result: "/repo" } }
+  ]);
+  const tools = model.items.filter(item => item.meta?.kind === "tool");
+  assert.equal(tools.length, 1, "连续工具调用只保留一条可见摘要");
+  assert.equal(tools[0].meta.toolCount, 3);
+  assert.match(tools[0].html, /data-tool-domain="true"/);
+  assert.match(tools[0].html, /data-tool-count="3"/);
+  assert.match(tools[0].html, /data-conversation-key="tools:tool:call-1"/);
+  assert.match(tools[0].html, /data-trajectory-key="tool:call-3"/);
+  assert.match(tools[0].html, /class="tool-group-count"[^>]*>3<\/span>/);
+  assert.match(tools[0].html, /pwd/);
+  assert.match(tools[0].html, /class="tool-domain-list"/);
+  assert.match(tools[0].html, /本段 3 次工具调用/);
+  for (const id of ["call-1", "call-2", "call-3"]) {
+    assert.match(tools[0].html, new RegExp(`data-tool-id="${id}"`));
+  }
+  assert.equal((tools[0].html.match(/class="tool-call-drawer(?:\s|")/g) || []).length, 4, "外层抽屉 + 三条各自抽屉");
+
+  const two = renderConversationModel([
+    { id: "tool-1", role: "tool", tool: { id: "call-1", name: "read_file", arguments: "{}", status: "success" } },
+    { id: "tool-2", role: "tool", tool: { id: "call-2", name: "grep", arguments: "{}", status: "success" } }
+  ]);
+  assert.equal(two.items.find(item => item.meta?.kind === "tool")?.key, tools[0].key, "工具域 key 必须稳定，才能做滚动更新而不是重建");
+});
+
+test("正文使用无外框 article", async () => {
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(
+    css,
+    /\.message\s*\{[^}]*border:\s*0[^}]*background:\s*transparent[^}]*box-shadow:\s*none/s,
+    "Pico 给 article 的外框、底色和阴影必须在 .message 上归零",
+  );
 });
 
 // 草稿行的 helper：只关心模型层（页面 context 的第二半），渲染细节交给上面的
@@ -331,82 +391,103 @@ test("分界行 escape 说明文字与 ref", () => {
   assert.match(html, /data-compact-frame-ref="tr-&quot;1&quot;"/);
 });
 
-test("message 块第二行元数据：id + config role + config model（真相源字段）", () => {
+test("关闭的工具抽屉不让详情参与布局，展开后才提供细滚动条", async () => {
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(
+    css,
+    /\.tool-run:not\(\[open\]\)\s*>\s*\.tool-call-drawer\s*\{\s*display:\s*none/s,
+    "关闭的工具抽屉必须显式移出布局；隐藏行仍参与 scrollHeight 会把会话滚进空白区",
+  );
+  assert.match(css, /\.tool-call-drawer pre\s*\{[^}]*overflow:\s*auto/s);
+  assert.match(css, /\.tool-call-drawer:hover\s+pre\s*\{[^}]*scrollbar-color:/s);
+  assert.match(css, /\.tool-call-drawer\s*\{[^}]*border-radius:\s*var\(--r-md\)[^}]*background:\s*var\(--surface-2\)/s);
+  assert.match(css, /\.tool-domain-list \.tool-run\s*\{[^}]*border-radius:\s*var\(--r-md\)/s);
+  assert.match(
+    css,
+    /\.trajectory-io-grid\s*\{[^}]*grid-template-columns:\s*1fr[^}]*border:\s*1px solid var\(--border\)[^}]*border-radius:\s*var\(--r-md\)/s,
+    "入参/出参必须共用一个圆角容器，上下两个区域各自滚动",
+  );
+  assert.match(
+    css,
+    /\.tool-call-summary \.tool-state,\s*\.tool-call-summary \.tool-meta\s*\{[^}]*grid-column:\s*auto/s,
+    "摘要的 status/meta 必须留在同一行，不能被旧 tool-meta 网格占位挤到第二行",
+  );
+});
+
+test("message 不渲染 EXEC/轮次/时间或 agent/model 路由角标", () => {
   const rendered = renderConversationComponent([
     {
       id: "message-836", role: "assistant", content: "回答",
       config_role: "agent", config_model: "glm-5.3-flash", config_provider: "openai"
     }
   ], { running: false });
-  assert.match(rendered.html, /class="message-route-meta"/);
-  assert.match(rendered.html, /class="item-id">message-836</);
-  assert.match(rendered.html, /route-meta-role"[^>]*>agent</);
-  assert.match(rendered.html, /route-meta-model"[^>]*>openai\/glm-5\.3-flash</);
-  // 顶行仍是角色身份（EXEC/AGENT/…），元数据行不抢角色行。
-  assert.match(rendered.html, /class="message-head"/);
+  assert.doesNotMatch(rendered.html, /class="message-head"|class="message-route-meta"/);
+  assert.doesNotMatch(rendered.html, /<code class="item-id">|>message-836</);
+  assert.doesNotMatch(rendered.html, />EXEC<|>AGENT<|>R\d+</);
+  assert.doesNotMatch(rendered.html, />agent<|openai\/glm-5\.3-flash/);
 });
 
-test("message blocks without route metadata render the id-only meta row", () => {
+test("message blocks without route metadata stay visually clean", () => {
   const rendered = renderConversationComponent([
     { id: "a-1", role: "assistant", content: "历史回放的旧块" }
   ], { running: false });
-  // 旧块没有路由段：元数据行只有 message id（与旧 message-debug 同信息量）。
-  assert.match(rendered.html, /class="message-route-meta"/);
-  assert.match(rendered.html, /class="item-id">a-1</);
+  // 旧块没有路由段：不再显示 message id / seq id 调试角标。
+  assert.doesNotMatch(rendered.html, /class="message-head"|class="message-route-meta"/);
+  assert.doesNotMatch(rendered.html, /<code class="item-id">|>a-1</);
   assert.doesNotMatch(rendered.html, /route-meta-role/);
   assert.doesNotMatch(rendered.html, /route-meta-model/);
   // 没有 id 的消息（罕见形状）不渲染空元数据行。
   const anonymous = renderConversationComponent([
     { role: "assistant", content: "无 id" }
   ], { running: false });
-  assert.doesNotMatch(anonymous.html, /message-route-meta/);
+  assert.doesNotMatch(anonymous.html, /message-head|message-route-meta/);
 });
 
 // ── F-6 邻接圆角：融合 vs 分割 ────────────────────────────────────
-// 判据在 components.js 的 blocksFuse：不同类（llm 正文块 ↔ 工具过程块）**始终融合**；
+// 判据在 components.js 的 blocksFuse：不同类（llm 正文块 ↔ 工具调用行）**始终融合**；
 // 同类**默认不分割**，换轮次（round_id）或换角色归属（role_name）＝分割。中介类同
 // 时写 data-*（三枚类只出一枚），因此断言既有类也有数据。
 
-test("llm 块紧邻工具过程块：交界两侧圆角置零（融合）", () => {
+test("llm 块紧邻工具调用行：交界两侧圆角置零（融合）", () => {
   const model = renderConversationModel([
     { id: "m-1", role: "assistant", round_id: 4, role_name: "main", content: "先看一眼" },
     { id: "t-1", role: "tool", tool: { id: "call-1", name: "read", arguments: "{}", status: "success" } },
     { id: "t-2", role: "tool_result", content: "done", tool: { id: "call-1", name: "read", result: "done", status: "success" } }
   ]);
-  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "axis"]);
-  const [message, axis] = model.items;
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "tool"]);
+  const [message, tool] = model.items;
 
   // 上块（llm）只接住下一条：外侧（上）角保留圆角 ⇒ 只有 is-joined-below。
   assert.match(message.html, /class="message assistant is-exec is-joined-below"/);
   assert.match(message.html, /data-joined-below="true"/);
   assert.match(message.html, /data-joined-above="false"/);
-  // 下块（工具过程轴卡）只接住上一条。
-  assert.match(axis.html, /class="conversation-axis is-tools is-joined-above"/);
-  assert.match(axis.html, /data-joined-above="true"/);
-  assert.match(axis.html, /data-joined-below="false"/);
-  // 融合只加中介类：轴卡的 key 与轮轴数据一字不动。
-  assert.equal(axis.key, "roll:tool:call-1");
-  assert.match(axis.html, /data-conversation-key="roll:tool:call-1"/);
-  assert.match(axis.html, /data-wheel-kind="tools"/);
+  // 下块（工具调用行）只接住上一条。
+  assert.match(tool.html, /class="tool-run is-success tool-call-row is-joined-above"/);
+  assert.match(tool.html, /data-joined-above="true"/);
+  assert.match(tool.html, /data-joined-below="false"/);
+  // 融合只加中介类：工具 key 与轮轴数据一字不动。
+  assert.equal(tool.key, "tool:call-1");
+  assert.match(tool.html, /data-conversation-key="tool:call-1"/);
+  assert.match(tool.html, /data-wheel-kind="tools"/);
 });
 
-test("工具过程夹在两枚同归属 llm 块之间：中段出 is-joined-both", () => {
+test("工具调用夹在两枚同归属 llm 块之间：中段出 is-joined-both", () => {
   const model = renderConversationModel([
     { id: "m-1", role: "assistant", round_id: 2, role_name: "tl", content: "第一段" },
     { id: "t-1", role: "tool", tool: { id: "call-9", name: "bash", arguments: "{}", status: "success" } },
     { id: "t-2", role: "tool_result", content: "ok", tool: { id: "call-9", name: "bash", result: "ok", status: "success" } },
     { id: "m-2", role: "assistant", round_id: 2, role_name: "tl", content: "第二段" }
   ]);
-  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "axis", "message"]);
-  const [first, axis, last] = model.items;
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "tool", "message"]);
+  const [first, tool, last] = model.items;
 
   assert.match(first.html, /data-joined-above="false"/);
   assert.match(first.html, /data-joined-below="true"/);
   assert.doesNotMatch(first.html, /is-joined-above|is-joined-both/);
   // 中段：上下都融合。交界两侧都置 0，中段块自己的外侧被邻居的圆角接手。
-  assert.match(axis.html, /class="conversation-axis is-tools is-joined-both"/);
-  assert.match(axis.html, /data-joined-above="true"/);
-  assert.match(axis.html, /data-joined-below="true"/);
+  assert.match(tool.html, /class="tool-run is-success tool-call-row is-joined-both"/);
+  assert.match(tool.html, /data-joined-above="true"/);
+  assert.match(tool.html, /data-joined-below="true"/);
   // 末块只接住上面一条 ⇒ 融合组的下外侧角仍是圆角。
   assert.match(last.html, /class="message assistant is-advisor is-joined-above"/);
   assert.match(last.html, /data-joined-above="true"/);
@@ -477,7 +558,7 @@ test("styles.css 消费邻接中介类：交界圆角与间距归零，外侧角
     new RegExp(property).test(rule.body));
 
   // 交界侧：上块的底圆角 / 下块的顶圆角置 0，且间距归零（融合成一块）。
-  for (const block of [".message", ".conversation-axis", ".tool-run"]) {
+  for (const block of [".message", ".tool-run"]) {
     assert.ok(declares(`${block}.is-joined-below`, "margin-bottom:\\s*0"), `${block} 融合下侧要归零间距`);
     assert.ok(declares(`${block}.is-joined-below`, "border-bottom-left-radius:\\s*0"), `${block} 下圆角要置 0`);
     assert.ok(declares(`${block}.is-joined-below`, "border-bottom-right-radius:\\s*0"), `${block} 下圆角要置 0`);
@@ -495,4 +576,24 @@ test("styles.css 消费邻接中介类：交界圆角与间距归零，外侧角
     assert.doesNotMatch(rule.body, /border-radius:\s*[0-9.]+px/, `邻接规则不得写死像素半径：${rule.selector}`);
     assert.doesNotMatch(rule.body, /border-(top|bottom)-(left|right)-radius:\s*var\(/, `外侧角不许被改写：${rule.selector}`);
   }
+});
+
+test("收束态工具行只显示工具类型，不带行框、命令、状态和元数据", async () => {
+  const rules = cssRules(await readFile(new URL("./styles.css", import.meta.url), "utf8"));
+  const summaryRule = rules.find(rule =>
+    rule.selector.split(",").map(part => part.trim()).includes(".tool-call-row:not([open]) > .tool-call-summary")
+  );
+  assert.ok(summaryRule, "收束态摘要必须有单独的布局规则");
+  assert.match(summaryRule.body, /grid-template-columns:\s*8px\s+14px\s+minmax\(0,\s*1fr\)/);
+  assert.match(summaryRule.body, /border-color:\s*transparent/);
+  assert.match(summaryRule.body, /background:\s*transparent/);
+
+  const hiddenRule = rules.find(rule =>
+    rule.selector.includes(".tool-call-row:not([open])") &&
+    rule.selector.includes(".tool-command") &&
+    rule.selector.includes(".tool-state") &&
+    rule.selector.includes(".tool-meta")
+  );
+  assert.ok(hiddenRule, "收束态必须统一隐藏工具名之后的内容");
+  assert.match(hiddenRule.body, /display:\s*none/);
 });

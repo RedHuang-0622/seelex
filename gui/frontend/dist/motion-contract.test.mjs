@@ -9,7 +9,9 @@ import {
   MOTION_FEEDBACK_MS,
   MOTION_ONE_SHOT_MS,
   MOTION_SLOW_MS,
-  MOTION_STATE_MS
+  MOTION_STATE_MS,
+  markEntering,
+  viewVisibilityIntent
 } from "./motion.js";
 
 const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
@@ -55,6 +57,28 @@ test("motion token：宪法时长、缓动、stagger 只由 :root 单一供源",
   }
 });
 
+test("入场动画的兜底超时必须 cancel，不能留下 opacity:0 的 fill 帧", async () => {
+  let cancelled = 0;
+  const classes = new Set();
+  const element = {
+    classList: {
+      add: name => classes.add(name),
+      remove: name => classes.delete(name)
+    },
+    addEventListener() {},
+    animate() {
+      return {
+        finished: new Promise(() => {}),
+        cancel() { cancelled += 1; }
+      };
+    }
+  };
+  assert.equal(markEntering(element, "is-entering-row", 0), true);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(classes.has("is-entering-row"), false);
+  assert.equal(cancelled, 1);
+});
+
 test("motion token：旧 --dur-* 只作为新 token 的 alias", () => {
   const root = rootBlock();
   const aliases = {
@@ -98,19 +122,19 @@ test("motion contract：所有 transition/animation 使用 token，不写任意�
   }
 });
 
-test("motion contract：工具文字 shimmer 是唯一 1.8s、linear、transform 的局部循环", () => {
-  const shimmer = css.match(/@keyframes\s+tool-running-text-shimmer\s*\{([\s\S]*?)\n\}/);
-  assert.ok(shimmer, "必须存在唯一工具文字 shimmer");
+test("motion contract：工具整行 shimmer 是唯一 1.8s、linear、transform 的局部循环", () => {
+  const shimmer = css.match(/@keyframes\s+tool-row-shimmer\s*\{([\s\S]*?)\n\}/);
+  assert.ok(shimmer, "必须存在唯一工具行 shimmer");
   assert.match(shimmer[1], /transform\s*:\s*translateX\(/);
   assert.doesNotMatch(shimmer[1], /\b(top|left|width|height|background-position)\s*:/);
-  assert.match(css, /animation:\s*tool-running-text-shimmer\s+var\(--duration-shimmer\)\s+var\(--ease-linear\)/);
-  assert.equal((css.match(/@keyframes\s+tool-running-text-shimmer/g) || []).length, 1);
+  assert.match(css, /animation:\s*tool-row-shimmer\s+var\(--duration-shimmer\)\s+var\(--ease-linear\)/);
+  assert.equal((css.match(/@keyframes\s+tool-row-shimmer/g) || []).length, 1);
   assert.doesNotMatch(css, /\.tool-run-activity/);
 });
 
 test("motion contract：reduced-motion 保留静态活动线与焦点终态", () => {
   const reduced = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g)?.join("\n") || "";
-  assert.match(reduced, /\.chat-chip-name\[data-tool-label\]::after/);
+  assert.match(reduced, /\.tool-run\.is-running > \.tool-call-summary::after/);
   assert.match(reduced, /animation:\s*none/);
   assert.match(css, /:focus-visible/);
   assert.doesNotMatch(reduced, /outline:\s*none/, "reduced-motion 不得移除焦点可见性");
@@ -175,6 +199,37 @@ test("motion contract：JS 兜底时长与 CSS token 同名同值，交互节奏
   assert.match(app, /animateSpring\(card, "exit"/);
   assert.match(app, /animateSpring\(panel, "enter"/);
   assert.match(app, /animateSpring\(panel, "exit"/);
+});
+
+test("视图弹簧结束后释放 fill 层，避免 WebView2 缓存旧空白帧", async () => {
+  const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  const start = app.indexOf("function setAnimatedViewVisibility");
+  const end = app.indexOf("function syncSessionChrome", start);
+  assert.ok(start >= 0 && end > start, "必须找到视图可见性状态机");
+  const section = app.slice(start, end);
+  assert.match(
+    section,
+    /animateSpring\(panel,\s*"enter",[\s\S]*?\{\s*fill:\s*"none"\s*\}/,
+    "进入动画结束后必须回到元素自身的终态，不能留下 fill:both 合成层",
+  );
+  assert.match(
+    section,
+    /animation\?\.cancel\?\.\(\)/,
+    "退出动画落 hidden 前必须取消 fill，避免旧帧继续占据合成层",
+  );
+});
+
+test("视图动效只作用于真正进入或退出的区域", async () => {
+  assert.equal(viewVisibilityIntent({ visible: true, hidden: true, exiting: false }), "enter");
+  assert.equal(viewVisibilityIntent({ visible: true, hidden: false, exiting: true }), "enter");
+  assert.equal(viewVisibilityIntent({ visible: true, hidden: false, exiting: false }), "settle");
+  assert.equal(viewVisibilityIntent({ visible: false, hidden: false, exiting: false }), "exit");
+  assert.equal(viewVisibilityIntent({ visible: false, hidden: true, exiting: false }), "settle");
+
+  const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  assert.match(app, /const intent = viewVisibilityIntent\(/);
+  assert.match(app, /if \(intent !== "enter"\)/);
+  assert.match(app, /if \(intent !== "exit"\)/);
 });
 
 test("reduced-motion 判据只在 motion.js 保留一份", async () => {

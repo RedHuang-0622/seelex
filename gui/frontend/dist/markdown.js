@@ -106,8 +106,42 @@ function renderFence(lines, index, options) {
   if (isMermaidLanguage(language)) {
     return { html: mermaidBlockHTML(body.join("\n")), next: cursor };
   }
-  const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
-  return { html: `<pre><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };
+  const highlighted = highlightCodeHTML(body.join("\n"), language);
+  const classes = [
+    language ? `language-${escapeAttribute(language)}` : "",
+    highlighted.highlighted ? "hljs" : ""
+  ].filter(Boolean).join(" ");
+  const languageClass = classes ? ` class="${classes}"` : "";
+  return { html: `<pre><code${languageClass}>${highlighted.html}</code></pre>`, next: cursor };
+}
+
+// highlightCodeHTML 是正文围栏与文件预览共用的唯一高亮入口。highlight.js 的
+// 返回值只包含它自己生成的 span，原始文本已由库完成转义；库缺席、语言解析失败
+// 或运行异常时退回本模块的 escapeHtml，安全边界不变。
+export function highlightCodeHTML(source, language = "") {
+  const text = String(source ?? "");
+  const hljs = globalThis.hljs;
+  if (!hljs || !text) return { html: escapeHtml(text), highlighted: false };
+  const requested = String(language || "").trim();
+  let result = null;
+  if (requested && hljs.getLanguage?.(requested)) {
+    try {
+      result = hljs.highlight(text, { language: requested, ignoreIllegals: true });
+    } catch {
+      result = null;
+    }
+  }
+  if (!result && typeof hljs.highlightAuto === "function") {
+    try {
+      result = hljs.highlightAuto(text);
+    } catch {
+      result = null;
+    }
+  }
+  const html = typeof result?.value === "string" ? result.value : "";
+  return html
+    ? { html, highlighted: true }
+    : { html: escapeHtml(text), highlighted: false };
 }
 
 // nextEmbedKey 给本次渲染里的第 n 个 seelex-html 围栏一个稳定身份 `<行 key>#<n>`。

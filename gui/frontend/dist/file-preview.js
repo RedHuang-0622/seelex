@@ -23,7 +23,7 @@
 
 import { escapeHtml, icon } from "./components.js";
 import { ensureVendorScript } from "./vendor-loader.js";
-import { rewriteMermaidFences } from "./markdown.js";
+import { highlightCodeHTML, rewriteMermaidFences } from "./markdown.js";
 import { hydrateMermaid } from "./mermaid-diagram.js";
 import { renderSandboxFrame } from "./html-embed.js";
 
@@ -1116,19 +1116,11 @@ export function renderMarkdown(panel, bytes, truncated) {
 }
 
 function highlightElement(codeElement, explicitLanguage) {
-  const hljs = window.hljs;
-  if (!hljs || !codeElement) return;
+  if (!codeElement) return;
   const language = explicitLanguage || parseCodeLanguage(codeElement);
-  const source = codeElement.textContent;
-  let result = null;
-  if (language && hljs.getLanguage && hljs.getLanguage(language)) {
-    try { result = hljs.highlight(source, { language, ignoreIllegals: true }); } catch { result = null; }
-  }
-  if (!result) {
-    try { result = hljs.highlightAuto(source); } catch { result = null; }
-  }
-  if (result && result.value) {
-    codeElement.innerHTML = result.value;
+  const result = highlightCodeHTML(codeElement.textContent, language);
+  if (result.highlighted) {
+    codeElement.innerHTML = result.html;
     codeElement.classList.add("hljs");
   }
 }

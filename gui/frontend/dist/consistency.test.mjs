@@ -30,11 +30,11 @@ function findConversationToolEntry(model, toolKey) {
   return model.items.find((entry) => entry.html.includes(`data-conversation-key="${toolKey}"`));
 }
 
-test("T3.7 chat chip and trajectory row share status/duration/size and key", () => {
+test("T3.7 conversation tool row and trajectory row share status/duration/size and key", () => {
   const messages = toolPair("call-1", "read_file");
   const model = renderConversationModel(messages);
   const chipEntry = findConversationToolEntry(model, "tool:call-1");
-  assert.ok(chipEntry, "tool chip must exist inside its conversation axis");
+  assert.ok(chipEntry, "tool summary row must exist in the conversation");
   const chip = chipEntry.html;
 
   const records = buildTrajectory(messages);
@@ -42,13 +42,13 @@ test("T3.7 chat chip and trajectory row share status/duration/size and key", () 
   assert.ok(tool, "tool trajectory record must exist");
   const row = renderTrajectoryRow(tool, tool.key, new Map());
 
-  // 同一 key：chip ↔ 轨迹行跳转命中。
+  // 同一 key：工具行 ↔ 轨迹行跳转命中。
   assert.match(chip, /data-trajectory-key="tool:call-1"/);
   assert.match(row, /data-trajectory-key="tool:call-1"/);
 
   // 同一 tool 在两视图 status/duration/size 一致（同一分类函数派生）。
   assert.match(chip, /class="tool-state">.*已完成/);
-  assert.match(row, /trajectory-status is-success">OK/);
+  assert.match(row, /trajectory-status is-neutral">OK/);
   assert.match(chip, /1\.2s/);
   assert.match(row, /1\.2s/);
   assert.match(chip, /8\.8 KB/);
@@ -77,18 +77,26 @@ test("T3.8 empty conversation renders without tool rows", () => {
   assert.equal(model.items.some((entry) => entry.html.includes('data-trajectory-key="tool:')), false);
 });
 
-test("T3.8 many tool calls stay one-line chips without IO panels", () => {
+test("T3.8 many consecutive tool calls collapse to one summary with all entries inside", () => {
   const messages = [];
   for (let index = 0; index < 40; index++) {
     messages.push(...toolPair(`call-${index}`, "read_file", "success", 1_000_000_000, 2048));
   }
   const model = renderConversationModel(messages);
-  const axis = model.items.find((entry) => entry.key.startsWith("roll:"));
-  assert.ok(axis, "all consecutive tools collapse into one axis");
-  const occurrences = (axis.html.match(/class="chat-chip is-tool"/g) || []).length;
-  assert.equal(occurrences, 40);
-  for (let index = 0; index < 40; index++) {
-    assert.match(axis.html, new RegExp(`data-conversation-key="tool:call-${index}"`));
-  }
-  assert.doesNotMatch(axis.html, /io-panel|io-collapse|data-load-ref/);
+  const tools = model.items.filter(entry => entry.meta?.kind === "tool");
+  assert.equal(tools.length, 1, "一个连续工具域只显示最新一条");
+  assert.equal(tools[0].meta.toolCount, 40);
+  const html = tools.map(entry => entry.html).join("");
+  assert.equal((html.match(/class="tool-run is-success tool-call-row/g) || []).length, 41);
+  assert.equal((html.match(/class="tool-call-summary"/g) || []).length, 41);
+  assert.doesNotMatch(html, /conversation-axis/);
+  assert.match(html, /data-conversation-key="tools:tool:call-0"/);
+  assert.match(html, /data-trajectory-key="tool:call-39"/);
+  assert.match(html, /data-tool-count="40"/);
+  assert.match(html, /class="tool-domain-list"/);
+  assert.match(html, /data-conversation-key="tool:call-0"/);
+  assert.match(html, /data-conversation-key="tool:call-39"/);
+  assert.equal((html.match(/data-tool-id="call-\d+"/g) || []).length, 41, "外层最新摘要 + 40 条域内条目");
+  assert.match(html, /io-panel/);
+  assert.match(html, /tool-call-drawer/);
 });

@@ -78,3 +78,24 @@ test("start/stop 幂等：不叠定时器，stop 清句柄", () => {
     globalThis.clearInterval = previousClear;
   }
 });
+
+test("会话渲染探针进入顶栏诊断读数，便于区分前后端", () => {
+  withFakeDocument((dom) => {
+    const perf = createPerfHooks({});
+    dom.nodes = 120;
+    perf.record({ renderMs: 1 });
+    perf.setConversationProbe({
+      verdict: "frontend-dropped",
+      snapshotCount: 12,
+      renderedCount: 0,
+      visibleCount: 0,
+      maxRowHeight: 486,
+      containerHeight: 640,
+      maxRowKind: "agent",
+      maxGap: 24,
+      gapAfterKind: "user",
+      hiddenRowCount: 0
+    });
+    assert.match(perf.badge.textContent, /^对话 12\/0\/0 隐0 · frontend-dropped · 隙 user 24px · 峰 agent 486px/);
+  });
+});

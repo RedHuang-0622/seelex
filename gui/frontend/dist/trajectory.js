@@ -17,6 +17,7 @@ import {
   compactionRangeText,
   compactionReasonLabel
 } from "./compaction-format.js";
+import { renderToolIODetail } from "./components.js";
 
 // 既有调用方从本模块取区间渲染（口径的唯一实现在 compaction-format.js）。
 export { compactionRangeText };
@@ -386,6 +387,34 @@ export function axisWheelStep(accumulated, deltaY, threshold = AXIS_WHEEL_THRESH
   return { accumulated: 0, step: Math.sign(next) };
 }
 
+// axisRangeForDrag 把上下文轴上的像素拖拽映射为当前页内的闭区间记录序号。
+// 起止方向不限；越界钳到当前页首尾；轴没有可映射槽位时返回 null。
+export function axisRangeForDrag(startX, endX, bounds, view = {}) {
+  const left = Number(bounds?.left);
+  const width = Number(bounds?.width);
+  const start = Math.max(0, Math.trunc(Number(view.start) || 0));
+  const end = Math.max(start, Math.min(Math.trunc(Number(view.end) || start), start + Math.trunc(Number(view.capacity) || 0)));
+  const capacity = end - start;
+  if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0 || capacity <= 0) return null;
+  const slotAt = x => {
+    const ratio = Math.min(1, Math.max(0, (Number(x) - left) / width));
+    return Math.min(capacity - 1, Math.floor(ratio * capacity));
+  };
+  const first = start + slotAt(startX);
+  const last = start + slotAt(endX);
+  return { start: Math.min(first, last), end: Math.max(first, last) };
+}
+
+// trajectoryRecordsInRange 取闭区间内的记录；range 为空时原样返回输入数组，
+// 让调用方继续使用既有 kind 过滤与 keyed reconciliation。
+export function trajectoryRecordsInRange(records = [], range) {
+  const list = Array.isArray(records) ? records : [];
+  if (!range || !Number.isFinite(Number(range.start)) || !Number.isFinite(Number(range.end))) return list;
+  const start = Math.max(0, Math.trunc(Number(range.start)));
+  const end = Math.max(start, Math.trunc(Number(range.end)));
+  return list.filter((unused, index) => index >= start && index <= end);
+}
+
 // axisBlocks 计算当前页的块落点（纯函数）：轨 = 响应类型，位置 = 页内序号槽位
 // （见【规则 3】）。turn 是块所在的轮次（第 N 轮，第一个输入块之前记 0 = 开场），
 // 只用于 tooltip，不参与几何。
@@ -654,6 +683,15 @@ function renderCompactionFrameSection(mark, frame) {
 
 function normalizeAxisExtras(extras) {
   const options = extras && typeof extras === "object" ? extras : {};
+  const rawRange = options.range && typeof options.range === "object" ? options.range : null;
+  const rangeStart = Number(rawRange?.start);
+  const rangeEnd = Number(rawRange?.end);
+  const range = Number.isFinite(rangeStart) && Number.isFinite(rangeEnd)
+    ? {
+      start: Math.min(Math.max(Math.trunc(rangeStart), 0), Math.max(Math.trunc(rangeEnd), 0)),
+      end: Math.max(Math.max(Math.trunc(rangeStart), 0), Math.max(Math.trunc(rangeEnd), 0))
+    }
+    : null;
   return {
     prefixLayers: Array.isArray(options.prefixLayers) ? options.prefixLayers : [],
     compactions: Array.isArray(options.compactions) ? options.compactions : [],
@@ -664,7 +702,8 @@ function normalizeAxisExtras(extras) {
     notice: options.notice ? String(options.notice) : "",
     // hasMore：可见窗口之前是否还有未加载的回合（app.js 的 window 边界的同源
     // 信号）；用于在最早一页上明确写出"更早的回合尚未加载"。
-    hasMore: Boolean(options.hasMore)
+    hasMore: Boolean(options.hasMore),
+    range
   };
 }
 
@@ -770,12 +809,12 @@ function renderAxisBlock(block, window) {
   const record = block.record;
   const kind = record.kind || "notice";
   const label = kind === "tool" ? (record.toolName || record.name) : trajectoryKindLabel(kind);
-  const statusClass = statusClassName(record.status);
+  const statusClass = statusClassName(record.status) === "is-error" ? " is-error" : "";
   const wide = block.width >= AXIS_WIDE_MIN_SLOT_PERCENT ? " is-wide" : "";
   const slot = block.index - window.start + 1;
   const turn = block.turn > 0 ? `第 ${block.turn} 轮` : "轮次开场";
   const title = `${trajectoryKindLabel(kind)}轨 · ${label} · ${trajectorySize(record)} · 体量 ${contextAxisWeight(record)} 字符（不参与位置） · ${turn} · 本页第 ${slot} 槽 / 共 ${window.capacity} 槽 · 全局第 ${block.index + 1} 条 · 点击定位轨迹行`;
-  return `<button type="button" class="axis-segment is-${escapeHtml(kind)} ${statusClass}${wide}" style="--x:${block.x.toFixed(3)}%;--w:${block.width.toFixed(3)}%" data-trajectory-key="${escapeHtml(record.key)}" data-axis-index="${block.index}" data-axis-slot="${slot}" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+  return `<button type="button" class="axis-segment is-${escapeHtml(kind)}${statusClass}${wide}" style="--x:${block.x.toFixed(3)}%;--w:${block.width.toFixed(3)}%;--slot:${slot}" data-trajectory-key="${escapeHtml(record.key)}" data-axis-index="${block.index}" data-axis-slot="${slot}" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
 }
 
 // renderAxisLane 渲染一条记录轨：轨标签（title 带"这一轨是什么"的一句话）+
@@ -786,7 +825,7 @@ function renderAxisLane(lane, window) {
   const hint = `${lane.label}：${lane.why}${lane.empty ? "（本页无块）" : ""}`;
   return `<div class="context-axis-lane is-${escapeHtml(lane.kind)}${lane.empty ? " is-empty" : ""}" aria-label="${escapeHtml(lane.label)}${lane.empty ? "（本页无块）" : ""}">
     <span class="axis-lane-label" title="${escapeHtml(hint)}">${trajectoryKindIcon(lane.kind, 10)}<span>${escapeHtml(lane.label)}</span></span>
-    <div class="axis-lane-bar">${blocks}</div>
+    <div class="axis-lane-bar" style="--axis-slots:${window.capacity}">${blocks}</div>
   </div>`;
 }
 
@@ -813,9 +852,27 @@ export function renderContextAxis(records = [], extras) {
   if (prefixSegments.length) hints.push("前缀注入=层文本占比");
   if (marks.length) hints.push(`压缩 ×${marks.length}（刻度+虚线可点击，虚线以上已被压缩）`);
   hints.push("点击块定位轨迹行 · 滚轮翻页 · Shift+滚轮调页大小");
+  const intersectStart = options.range ? Math.max(options.range.start, view.window.start) : 0;
+  const intersectEnd = options.range ? Math.min(options.range.end, Math.max(view.window.start, view.window.end - 1)) : -1;
+  const hasRange = options.range && intersectEnd >= intersectStart;
+  const rangeLeft = hasRange && view.window.capacity > 0
+    ? (intersectStart - view.window.start) / view.window.capacity
+    : 0;
+  const rangeWidth = hasRange && view.window.capacity > 0
+    ? (intersectEnd - intersectStart + 1) / view.window.capacity
+    : 0;
+  const rangeLabel = hasRange
+    ? `已框选第 ${intersectStart + 1}–${intersectEnd + 1} 条 · ${intersectEnd - intersectStart + 1} 条记录`
+    : "";
+  const rangeSummary = hasRange
+    ? `<span class="context-axis-range">${escapeHtml(rangeLabel)}</span><button type="button" class="context-axis-range-clear" data-axis-range-clear title="清除框选，恢复全部轨迹行">清除选区</button>`
+    : "";
   return `<div class="context-axis" role="group" aria-label="上下文轴：按响应类型分轨，横轴为页内记录序号（非时间轴、非体量轴）">
-    <div class="context-axis-head"><strong>上下文轴</strong>${renderAxisPageInfo(view.window, options)}<span class="context-axis-note" data-axis-note>${escapeHtml(options.notice)}</span><span class="context-axis-hint">${escapeHtml(hints.join(" · "))}</span></div>
-    <div class="context-axis-track">${prefixSegments.length ? renderPrefixLane(prefixSegments) : ""}${lanes}${marks.length ? renderCompressionLane(marks) : ""}${marks.length ? renderCompressionCutRow(marks) : ""}</div>
+    <div class="context-axis-head"><strong>上下文轴</strong>${renderAxisPageInfo(view.window, options)}${rangeSummary}<span class="context-axis-note" data-axis-note>${escapeHtml(options.notice)}</span><span class="context-axis-hint">${escapeHtml(hints.join(" · "))}</span></div>
+    <div class="context-axis-track" data-axis-start="${view.window.start}" data-axis-end="${view.window.end}" data-axis-capacity="${view.window.capacity}">
+      ${hasRange ? `<div class="axis-range-selection" style="--range-left:${rangeLeft.toFixed(6)};--range-width:${rangeWidth.toFixed(6)}"><span>${escapeHtml(rangeLabel.replace("已框选", ""))}</span></div>` : ""}
+      ${prefixSegments.length ? renderPrefixLane(prefixSegments) : ""}${lanes}${marks.length ? renderCompressionLane(marks) : ""}${marks.length ? renderCompressionCutRow(marks) : ""}
+    </div>
   </div>`;
 }
 
@@ -863,7 +920,7 @@ export function renderTrajectoryTable(records, selectedKey = "") {
 // renderTrajectoryRow 渲染一条可选择的轨迹记录行（时间/类型/名称/状态/耗时/
 // 大小）。详情在右侧 inspector，不在行内展开。
 export function renderTrajectoryRow(record, key, payloads, selected = false) {
-  const statusClass = statusClassName(record.status);
+  const statusClass = statusClassName(record.status) === "is-error" ? "is-error" : "is-neutral";
   const statusLabel = statusLabelOf(record.status);
   const duration = record.duration ? formatDuration(record.duration) : (record.status === "running" ? "运行中" : "");
   const size = trajectorySize(record);
@@ -899,6 +956,9 @@ export function renderTrajectoryInspector(record, key, payloads = new Map()) {
   }
   const statusClass = statusClassName(record.status);
   const statusLabel = statusLabelOf(record.status);
+  const kindLabel = trajectoryKindLabel(record.kind);
+  const recordName = String(record.name || "").trim();
+  const showName = recordName && recordName.toLocaleLowerCase() !== kindLabel.toLocaleLowerCase();
   const duration = record.duration ? formatDuration(record.duration) : (record.status === "running" ? "运行中" : "—");
   const input = prettyValue(record.input);
   const output = prettyValue(record.output);
@@ -908,12 +968,12 @@ export function renderTrajectoryInspector(record, key, payloads = new Map()) {
   payloads.set(outputKey, output);
   if (record.reasoning) payloads.set(`${outputKey}-think`, String(record.reasoning));
   const detail = record.kind === "tool"
-    ? renderTrajectoryDetail({ input, output, inputKey, outputKey, record, statusClass })
-    : renderTrajectoryTextDetail({ output, outputKey, record });
+    ? renderToolIODetail({ input, output, inputKey, outputKey, record, statusClass, payloads, mode: "drawer", defaultOpen: true })
+    : renderTrajectoryTextDetail({ output, outputKey, record, mode: "drawer" });
   return `<section class="trajectory-inspector-shell" data-trajectory-detail="${escapeHtml(key)}" aria-label="${escapeHtml(`${record.name} 详情`)}">
     <header class="trajectory-inspector-head">
-      <span class="trajectory-kind is-${escapeHtml(record.kind)}">${trajectoryKindIcon(record.kind)}${escapeHtml(trajectoryKindLabel(record.kind))}</span>
-      <strong>${escapeHtml(record.name)}</strong>
+      <span class="trajectory-kind is-${escapeHtml(record.kind)}">${trajectoryKindIcon(record.kind)}${escapeHtml(kindLabel)}</span>
+      ${showName ? `<strong>${escapeHtml(recordName)}</strong>` : ""}
       <span class="trajectory-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       <span class="trajectory-inspector-meta">${escapeHtml(formatTime(record.startedAt))} · ${escapeHtml(duration)} · ${escapeHtml(trajectorySize(record))}</span>
     </header>
@@ -921,73 +981,51 @@ export function renderTrajectoryInspector(record, key, payloads = new Map()) {
   </section>`;
 }
 
-// renderTrajectoryDetail 工具记录详情：IN/OUT 双栏（复用 io-panel 类名，
-// 与对话工具卡片同一套复制/展开/result_ref 交互契约）。
-function renderTrajectoryDetail({ input, output, inputKey, outputKey, record, statusClass }) {
-  const inputView = limitText(input, 1400, 28);
-  const outputView = limitText(output, 4000, 40);
-  const ref = record.resultRef || "";
-  const note = record.truncated && ref
-    ? `<span class="io-note">预览 ${outputView.total} 字符 · 全文 ${record.totalChars} 字符（默认折叠，点击加载）</span>`
-    : outputView.truncated
-      ? `<span class="io-note">预览 ${outputView.total} 字符</span>`
-      : "";
-  const fullButton = ref && record.truncated
-    ? `<button class="io-expand" type="button" data-load-ref="${escapeHtml(ref)}" title="加载完整输出（按需拉取，默认折叠）">${svgExpand()} <span>加载完整输出</span></button>`
-    : outputView.truncated
-      ? `<button class="io-expand" type="button" data-expand="${outputKey}" title="展开完整内容">${svgExpand()} <span>+${outputView.hidden} chars</span></button>`
-      : "";
-  const outBody = outputView.truncated
-    ? `<details class="io-collapse"><summary><span>查看输出</span><span class="io-collapse-meta">${escapeHtml(String(outputView.total))} chars</span></summary><pre class="trajectory-json-value">${escapeHtml(outputView.preview)}</pre></details>`
-    : `<pre class="trajectory-json-value">${escapeHtml(outputView.preview || "（无出参）")}</pre>`;
-  return `${renderThinkPanel(record, outputKey)}<div class="trajectory-io-grid">
-    <section class="io-panel" data-payload="${inputKey}" data-json-kind="input" aria-label="入参 JSON">
-      <header><span class="io-label">入参 JSON</span><span class="io-meta">${inputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${inputKey}" title="复制输入" aria-label="复制输入">${svgCopy()}</button></header>
-      <pre class="trajectory-json-value">${escapeHtml(inputView.preview || "（无入参）")}</pre>
-    </section>
-    <section class="io-panel ${statusClass === "is-error" ? "io-error" : ""}" data-payload="${outputKey}" data-json-kind="output" aria-label="出参 JSON">
-      <header><span class="io-label">出参 JSON</span><span class="io-meta">${outputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${outputKey}" title="复制输出" aria-label="复制输出">${svgCopy()}</button></header>
-      ${outBody}
-      ${note}
-      ${fullButton}
-    </section>
-  </div>`;
-}
-
 // renderTrajectoryTextDetail 非工具记录（input/llm/error/notice）详情：
 // renderThinkPanel 渲染 THINK 面板（模型推理内容）。工具步骤与文本记录共用：
 // 持久化里"这一步在想什么"挂在发起工具调用的那条消息上，两条路径都必须显示，
 // 否则轨迹上只有工具痕迹、看不到推理。
-function renderThinkPanel(record, outputKey) {
+function renderThinkPanel(record, outputKey, mode = "inline") {
   const think = String(record?.reasoning || "").trim();
   if (!think) return "";
   const thinkKey = `${outputKey}-think`;
   const thinkView = limitText(think, 4000, 40);
+  const header = mode === "drawer"
+    ? `<header>
+        <button class="io-drawer-toggle" type="button" data-io-drawer="${escapeHtml(thinkKey)}" aria-expanded="false" title="展开思考内容"><span class="io-drawer-chevron" aria-hidden="true"></span><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span></button>
+        <button class="icon-button subtle" type="button" data-copy="${escapeHtml(thinkKey)}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button>
+      </header>`
+    : `<header><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${escapeHtml(thinkKey)}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button></header>`;
+  const body = `<pre>${escapeHtml(thinkView.preview)}</pre>${thinkView.truncated ? `<button class="io-expand" type="button" data-expand="${escapeHtml(thinkKey)}" title="展开完整内容">${svgExpand()} <span>+${thinkView.hidden} chars</span></button>` : ""}`;
   return `<section class="io-panel trajectory-think" data-payload="${thinkKey}">
-        <header><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${thinkKey}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button></header>
-        <pre>${escapeHtml(thinkView.preview)}</pre>
-        ${thinkView.truncated ? `<button class="io-expand" type="button" data-expand="${thinkKey}" title="展开完整内容">${svgExpand()} <span>+${thinkView.hidden} chars</span></button>` : ""}
+        ${header}
+        ${mode === "drawer" ? `<div class="io-drawer-content" data-io-drawer-content="${escapeHtml(thinkKey)}" hidden>${body}</div>` : body}
       </section>`;
 }
 
 // 单栏全文（同样走 payload Map + 压缩预览）。
-function renderTrajectoryTextDetail({ output, outputKey, record }) {
+function renderTrajectoryTextDetail({ output, outputKey, record, mode = "inline" }) {
   const view = limitText(output, 4000, 40);
   const note = view.truncated ? `<span class="io-note">预览 ${view.total} 字符</span>` : "";
   const fullButton = view.truncated
     ? `<button class="io-expand" type="button" data-expand="${outputKey}" title="展开完整内容">${svgExpand()} <span>+${view.hidden} chars</span></button>`
     : "";
-  const thinkPanel = renderThinkPanel(record, outputKey);
+  const thinkPanel = renderThinkPanel(record, outputKey, mode);
   const body = view.truncated
     ? `<details class="io-collapse"><summary><span>查看内容</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre class="trajectory-json-value">${escapeHtml(view.preview)}</pre></details>`
     : `<pre class="trajectory-json-value">${escapeHtml(view.preview || "（无内容）")}</pre>`;
+  const header = mode === "drawer"
+    ? `<header>
+        <button class="io-drawer-toggle" type="button" data-io-drawer="${escapeHtml(outputKey)}" aria-expanded="false" title="展开内容"><span class="io-drawer-chevron" aria-hidden="true"></span><span class="io-label">BODY</span><span class="io-meta">${view.total} chars</span></button>
+        <button class="icon-button subtle" type="button" data-copy="${escapeHtml(outputKey)}" title="复制内容" aria-label="复制内容">${svgCopy()}</button>
+      </header>`
+    : `<header><span class="io-label">BODY</span><span class="io-meta">${view.total} chars</span><button class="icon-button subtle" type="button" data-copy="${escapeHtml(outputKey)}" title="复制内容" aria-label="复制内容">${svgCopy()}</button></header>`;
+  const bodyWithActions = `${body}${note}${fullButton}`;
   return `<div class="trajectory-text-panel">
     ${thinkPanel}
     <section class="io-panel ${record.status === "error" ? "io-error" : ""}" data-payload="${outputKey}">
-      <header><span class="io-label">BODY</span><span class="io-meta">${view.total} chars</span><button class="icon-button subtle" type="button" data-copy="${outputKey}" title="复制内容" aria-label="复制内容">${svgCopy()}</button></header>
-      ${body}
-      ${note}
-      ${fullButton}
+      ${header}
+      ${mode === "drawer" ? `<div class="io-drawer-content" data-io-drawer-content="${escapeHtml(outputKey)}" hidden>${bodyWithActions}</div>` : bodyWithActions}
     </section>
   </div>`;
 }

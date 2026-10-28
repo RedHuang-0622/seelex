@@ -311,9 +311,9 @@ test("styles.css: hljs token 配色存在，一份口径两处共用且跟随皮
     "缺 .hljs-keyword 配色：token span 会全继承父色，等于没高亮"
   );
 
-  // ② --code-* 就地声明在 .file-preview-content 段（不动 :root；:root 只供中性基座）。
-  const block = /\.file-preview-content \{([\s\S]*?)\}/.exec(css);
-  assert.ok(block, "应有 .file-preview-content 声明块");
+  // ② --code-* 就地声明在文件预览与对话正文共用的代码容器上（不动 :root）。
+  const block = /\.file-preview-content,(?:\s*)\.message-body \{([\s\S]*?)\}/.exec(css);
+  assert.ok(block, "应有文件预览 / 对话正文共用的代码 token 声明块");
   const tokens = ["--code-keyword", "--code-string", "--code-number", "--code-comment",
     "--code-function", "--code-type", "--code-variable", "--code-meta", "--code-symbol", "--code-deletion"];
   for (const token of tokens) {
@@ -323,8 +323,7 @@ test("styles.css: hljs token 配色存在，一份口径两处共用且跟随皮
   // 所以六套皮肤（glass/graphite/paper/qoder/silver/verdigris）× 深浅两轴自动成立。
   assert.match(block[1], /--code-keyword:\s*var\(--accent-strong\)/, "关键字色必须由皮肤主信号派生");
 
-  // ③ 共用一份：配色规则挂在 `.file-preview-content code.hljs` 上，同时覆盖
-  //    .file-preview-code（文件预览代码块）与 .file-preview-content.is-markdown（markdown 代码块）。
+  // ③ 共用一份：同一条规则同时覆盖文件预览与对话正文，不允许第二套 token 色表。
   const colored = [...css.matchAll(/([^{}]*code\.hljs[^{}]*)\{([^{}]*)\}/g)]
     .filter(match => /color:\s*var\(--code-/.test(match[2]));
   assert.ok(colored.length >= 6, `token 配色规则太少：${colored.length} 条`);

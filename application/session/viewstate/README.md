@@ -21,6 +21,9 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
   只接受空 SessionID 的进程级事件。
 - 做：会话目录活体行补种、状态/待批/驻留富化、restoring 状态与唤醒信号、
   每会话视图意图、读文件引用和工具后 assistant 占位。
+- 做：前端 Snapshot 的 wire 形状兜底。消息编辑注解会通过 typed-nil 复制空会话，
+  组合边界必须把注解后的空 `conversation` 收敛回 `[]`，否则 Wails 发送 `null`，
+  新建会话和 restoring 空壳都会被前端契约判为缺少 `conversation`。
 - 窗口锚点（2026-09-11）：可见窗口是 `[HistoryOffset, HistoryOffset + 窗口条数)`
   的连续区间。**贴尾**（`viewWindowTailAligned`：窗口末尾即 durable 末尾）时新
   消息照常追加并保持贴尾；**回看历史**（用户翻到更早位置）时窗口锚定不动，

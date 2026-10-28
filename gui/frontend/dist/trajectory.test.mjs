@@ -9,6 +9,7 @@ import {
   AXIS_WIDE_MIN_SLOT_PERCENT,
   TRAJECTORY_KINDS,
   axisBlocks,
+  axisRangeForDrag,
   axisPageForIndex,
   axisPageWindow,
   axisWheelStep,
@@ -29,6 +30,7 @@ import {
   compactionMarks,
   resolveAxisPage,
   stepAxisPageSize,
+  trajectoryRecordsInRange,
   escapeHtml,
   compactionRangeText
 } from "./trajectory.js";
@@ -114,6 +116,29 @@ test("renders THINK panel with full reasoning in trajectory detail", () => {
   assert.match(html, /trajectory-think/);
   assert.match(html, /class="io-label">THINK/);
   assert.equal(payloads.get("message:a1-out-think"), "step one\nstep two");
+});
+
+test("轨迹 inspector 的类别与名称相同时只显示一次标题", () => {
+  const records = buildTrajectory([
+    userMessage("u1", "你好"),
+    llmMessage("a1", "收到")
+  ]);
+  const input = renderTrajectoryInspector(records[0], records[0].key, new Map());
+  const llm = renderTrajectoryInspector(records[1], records[1].key, new Map());
+  assert.equal((input.match(/>输入<\/span>/g) || []).length, 1);
+  assert.equal((input.match(/>输入<\/strong>/g) || []).length, 0);
+  assert.equal((llm.match(/>LLM<\/span>/g) || []).length, 1);
+  assert.equal((llm.match(/>LLM<\/strong>/g) || []).length, 0);
+});
+
+test("轨迹 inspector 在工具类别与名称不同时保留名称", () => {
+  const records = buildTrajectory([
+    toolStart("call-1", "bash", "{}"),
+    toolEnd("call-1", "bash", "done")
+  ]);
+  const html = renderTrajectoryInspector(records[0], records[0].key, new Map());
+  assert.match(html, />工具<\/span>/);
+  assert.match(html, /<strong>bash<\/strong>/);
 });
 
 test("merges tool_result by tool id and marks error status", () => {
@@ -233,6 +258,41 @@ test("Network 主从布局：左表选条目，右侧展示入参/出参 JSON", 
   assert.match(inspector, /aria-label="出参 JSON"/);
   assert.equal(inspectorPayloads.get("tool:call-1-in"), '{\n  "command": "git status",\n  "cwd": "/work"\n}');
   assert.equal(inspectorPayloads.get("tool:call-1-out"), '{\n  "stdout": "clean",\n  "exit_code": 0\n}');
+});
+
+test("轨迹 inspector 的入参/出参默认展开并可用叉号关闭，THINK 保持按需展开", async () => {
+  const records = buildTrajectory([
+    {
+      id: "tool-1",
+      role: "assistant",
+      reasoning_content: "先检查文件",
+      tool: {
+        id: "call-1",
+        name: "read_file",
+        arguments: "{\"path\":\"a.go\"}",
+        result: "package a",
+        status: "success"
+      }
+    }
+  ]);
+  const html = renderTrajectoryInspector(records[0], records[0].key, new Map());
+  assert.match(html, /data-io-drawer="[^"]+-in"/);
+  assert.match(html, /data-io-drawer="[^"]+-out"/);
+  assert.match(html, /data-io-drawer="[^"]+-out-think"/);
+  assert.match(html, /data-io-drawer-close="[^"]+-in"/);
+  assert.match(html, /data-io-drawer-close="[^"]+-out"/);
+  assert.match(html, /data-io-drawer="[^"]+-in"[^>]*aria-expanded="true"/);
+  assert.match(html, /data-io-drawer="[^"]+-out"[^>]*aria-expanded="true"/);
+  assert.match(html, /data-io-drawer="[^"]+-out-think"[^>]*aria-expanded="false"/);
+  assert.match(html, /data-io-drawer-content="[^"]+-in">/);
+  assert.match(html, /data-io-drawer-content="[^"]+-out">/);
+  assert.match(html, /data-io-drawer-content="[^"]+-out-think" hidden/);
+
+  const source = await readFile(new URL("./trajectory-view.js", import.meta.url), "utf8");
+  assert.match(source, /toggleIODrawer/);
+  assert.match(source, /data-io-drawer-close/);
+  assert.match(source, /animateSpring\(content, "enter"/);
+  assert.match(source, /content\.hidden = !opening/);
 });
 
 test("escapes untrusted text in trajectory rows", () => {
@@ -525,6 +585,8 @@ test("renders context axis as per-kind lanes with shared axis positions", () => 
   assert.match(html, /axis-segment is-tool/);
   assert.match(html, /style="--x:/);
   assert.match(html, /--w:/);
+  assert.match(html, /axis-lane-bar" style="--axis-slots:/);
+  assert.match(html, /--slot:\d+/);
 });
 
 test("axis lane order is fixed, derived from the response-type table, and self-explaining", () => {
@@ -617,6 +679,72 @@ test("axis block tooltip explains why the block sits there in one sentence", () 
   assert.match(html, /第 1 轮/);
   assert.match(html, /本页第 1 槽 \/ 共 2 槽/);
   assert.match(html, /全局第 1 条/);
+});
+
+test("context axis is a compact neutral waterfall; only errors carry status color", async () => {
+  const records = buildTrajectory([
+    userMessage("u1", "run"),
+    toolStart("call-1", "bash", "{}"),
+    toolEnd("call-1", "bash", "done"),
+    errorMessage("e1", "boom")
+  ]);
+  const html = renderContextAxis(records);
+  const successTool = html.match(/<button[^>]*data-axis-index="1"[^>]*>/)?.[0] || "";
+  const error = html.match(/<button[^>]*data-axis-index="2"[^>]*>/)?.[0] || "";
+  assert.doesNotMatch(successTool, /is-success|is-running/);
+  assert.match(error, /is-error/);
+
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.context-axis-lane\s*\{[^}]*min-height:\s*9px/s);
+  assert.match(css, /\.axis-lane-bar\s*\{[^}]*height:\s*4px/s);
+  assert.match(css, /\.axis-segment\s*\{[^}]*background:\s*var\(--axis-bar-neutral\)/s);
+  assert.match(css, /\.axis-lane-bar:not\(\.is-meta\)\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--axis-slots,[^)]*\)/s);
+  assert.match(css, /\.axis-lane-bar:not\(\.is-meta\) \.axis-segment\s*\{[^}]*grid-column:\s*var\(--slot\)/s);
+  assert.match(css, /\.axis-lane-bar:not\(\.is-meta\) \.axis-segment\s*\{[^}]*position:\s*relative/s);
+  assert.match(css, /\.axis-lane-bar:not\(\.is-meta\) \.axis-segment\s*\{[^}]*width:\s*auto/s);
+  assert.match(css, /\.axis-segment\s*\{[^}]*box-shadow:\s*none/s);
+  assert.doesNotMatch(css, /--axis-bar-neutral:\s*color-mix\([^;]+34%/s, "细条不能淡到只剩点");
+  assert.doesNotMatch(css, /\.axis-segment\.is-tool\.is-success\s*\{\s*background:\s*var\(--tint-done\)/s);
+});
+
+test("axis drag selection maps pixels to an inclusive record range", () => {
+  const view = { start: 32, end: 40, capacity: 8 };
+  const bounds = { left: 100, width: 400 };
+  assert.deepEqual(
+    axisRangeForDrag(150, 250, bounds, view),
+    { start: 33, end: 35 },
+  );
+  assert.deepEqual(
+    axisRangeForDrag(250, 150, bounds, view),
+    { start: 33, end: 35 },
+    "反向拖拽与正向拖拽得到同一范围",
+  );
+  assert.deepEqual(
+    axisRangeForDrag(0, 999, bounds, view),
+    { start: 32, end: 39 },
+    "超出边界钳到当前页首尾",
+  );
+  assert.equal(axisRangeForDrag(0, 10, { left: 0, width: 0 }, view), null);
+
+  const records = Array.from({ length: 10 }, (unused, index) => ({ key: `k${index}` }));
+  assert.deepEqual(
+    trajectoryRecordsInRange(records, { start: 2, end: 4 }).map(record => record.key),
+    ["k2", "k3", "k4"],
+  );
+  assert.equal(trajectoryRecordsInRange(records, null), records);
+});
+
+test("selected axis range is visible and reports its record span", () => {
+  const records = buildTrajectory(Array.from({ length: 12 }, (unused, index) => userMessage(`u${index}`, `第 ${index} 条`)));
+  const html = renderContextAxis(records, {
+    pageSize: 16,
+    range: { start: 3, end: 7 },
+  });
+  assert.match(html, /class="axis-range-selection"/);
+  assert.match(html, /--range-left:/);
+  assert.match(html, /--range-width:/);
+  assert.match(html, /已框选第 4–8 条 · 5 条记录/);
+  assert.match(html, /data-axis-range-clear/);
 });
 
 test("axis page window splits records into fixed-size pages with honest last page", () => {
@@ -814,6 +942,24 @@ test("row rendering keeps duration and size columns", () => {
   assert.doesNotMatch(html, /trajectory-detail/);
 });
 
+test("trajectory rows stay neutral except for real errors", async () => {
+  const records = buildTrajectory([
+    userMessage("u1", "run"),
+    toolStart("call-1", "bash", "{}"),
+    toolEnd("call-1", "bash", "done"),
+    errorMessage("e1", "boom")
+  ]);
+  const success = renderTrajectoryRow(records[1], records[1].key, new Map());
+  const error = renderTrajectoryRow(records.at(-1), records.at(-1).key, new Map());
+  assert.doesNotMatch(success, /is-success/);
+  assert.match(error, /is-error/);
+
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.trajectory-row\.is-error\s*\{[^}]*border-left-color:\s*var\(--status-failed\)/s);
+  assert.doesNotMatch(css, /\.trajectory-row\.is-success\s*\{\s*border-left-color:\s*var\(--status-done\)/s);
+  assert.doesNotMatch(css, /\.trajectory-kind\.is-llm\s*\{\s*color:\s*var\(--status-done\)/s);
+});
+
 test("kind labels and html escaping helpers are stable", () => {
   assert.equal(trajectoryKindLabel("tool"), "工具");
   assert.equal(trajectoryKindLabel("llm"), "LLM");
@@ -831,5 +977,13 @@ test("轨迹视图接线：左侧 listbox 选择驱动右侧 inspector", async (
   assert.match(source, /event\.target\.closest\("\[data-trajectory-select\]"\)/);
   assert.match(source, /headEl\.innerHTML = model\.headHtml/);
   assert.match(source, /inspectorEl\.innerHTML = model\.detailHtml/);
-  assert.match(source, /select\(key\)\s*\{\s*focusRow/);
+  assert.match(source, /select\(key\)\s*\{[\s\S]*?focusRow\(String\(key \|\| ""\)\)/);
+  assert.match(source, /addEventListener\("pointerdown"/);
+  assert.match(source, /addEventListener\("pointermove"/);
+  assert.match(source, /addEventListener\("pointerup"/);
+  assert.match(source, /data-axis-range-clear/);
+  assert.match(source, /data-trajectory-resize-axis/);
+  assert.match(source, /data-trajectory-resize-main/);
+  assert.match(source, /--trajectory-axis-height/);
+  assert.match(source, /--trajectory-results-width/);
 });

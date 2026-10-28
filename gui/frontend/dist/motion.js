@@ -30,6 +30,14 @@ export function prefersReducedMotion() {
   }
 }
 
+// viewVisibilityIntent 把“目标可见性 + 当前容器状态”收敛为唯一动作：
+// 只有 hidden/exiting 与目标不一致时才 enter/exit；反复声明同一可见性只 settle。
+// dock 与左栏页签共用这一判据，任何无关区域刷新都不会重播当前视图入场。
+export function viewVisibilityIntent({ visible = false, hidden = false, exiting = false } = {}) {
+  if (visible) return hidden || exiting ? "enter" : "settle";
+  return hidden || exiting ? "settle" : "exit";
+}
+
 // countParts 把一段文本拆成「前缀 + 恰好一个整数 + 后缀」：只有恰好一个整数
 // 段时才可做数字滚动（`12 项`、`3 未读`、`7` 都行；`1 / 2 页 · 12 项` 有三个
 // 整数段，退回直接赋值——页信息变化本来就少，不值得为它猜哪个数字在变）。
@@ -152,13 +160,19 @@ export function wheelScrollDelta(element, deltaY) {
 // （或兜底超时 / 减少动效偏好）后摘类。
 export function markEntering(element, className = "is-entering", timeoutMs = MOTION_ONE_SHOT_MS) {
   if (!element?.classList || prefersReducedMotion()) return false;
+  let animation = null;
+  const clear = () => {
+    // 页面隐藏、主线程繁忙或 WebView 丢帧时，WAAPI 可能永远不触发 finished；
+    // 只摘 class 会留下 fill:both 的首帧 opacity:0。兜底必须同时 cancel。
+    animation?.cancel?.();
+    element.classList.remove(className);
+  };
   element.classList.add(className);
-  const clear = () => element.classList.remove(className);
-  const animation = animateSpring(element, "settle", [
+  animation = animateSpring(element, "settle", [
     { opacity: 0, transform: "translateY(6px)" },
     { opacity: 1, transform: "translateY(0)" }
   ]);
-  animation?.finished?.then(() => animation.cancel()).catch(() => {});
+  animation?.finished?.then(clear).catch(clear);
   element.addEventListener?.("animationend", clear, { once: true });
   if (typeof setTimeout === "function") setTimeout(clear, timeoutMs);
   return true;

@@ -76,6 +76,12 @@ func (application *SnapshotApplication) Snapshot() protocol.Snapshot {
 			snapshot.Conversation,
 			snapshot.Chat.Running,
 		)
+		// Annotation is allowed to build its result from typed nils. Keep the
+		// frontend wire contract at this composition boundary: an empty session
+		// (draft, new, or restoring shell) must serialize as [] rather than null.
+		if snapshot.Conversation == nil {
+			snapshot.Conversation = []protocol.Message{}
+		}
 	}
 	if application.deps.LatestTranscriptSeq != nil {
 		snapshot.ConversationRevision = application.deps.LatestTranscriptSeq(snapshot.Session.ID)

@@ -1,6 +1,7 @@
 package view_state
 
 import (
+	"encoding/json"
 	"testing"
 
 	session "github.com/RedHuang-0622/seelex/application/session/state"
@@ -8,6 +9,37 @@ import (
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 )
+
+func TestFrontendSnapshotEmptyConversationMarshalsAsArray(t *testing.T) {
+	units := session.NewDomain()
+	defer units.Close()
+	core := state.New(contract.Dependencies{})
+	core.Snapshot = protocol.Snapshot{
+		ProtocolVersion: protocol.ProtocolVersion,
+		Session:         protocol.SessionState{ID: "draft", Draft: true},
+	}
+	coordinator := NewCoordinator(Deps{Core: core, Units: units})
+	snapshot := NewSnapshotApplication(coordinator, SnapshotDeps{
+		// Production annotation copies through append([]Message(nil), ...), which
+		// collapses an already-empty slice back to nil. The frontend snapshot must
+		// restore the required wire shape after every enrichment stage.
+		Annotate: func(_ string, messages []protocol.Message, _ bool) []protocol.Message {
+			return append([]protocol.Message(nil), messages...)
+		},
+	}).Snapshot()
+
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal frontend snapshot: %v", err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatalf("decode frontend snapshot: %v", err)
+	}
+	if got := string(wire["conversation"]); got != "[]" {
+		t.Fatalf("empty conversation wire = %s, want [] (GUI snapshot contract requires an array)", got)
+	}
+}
 
 func TestFrontendSnapshotProjectsDraftRowsAndHostEnrichment(t *testing.T) {
 	units := session.NewDomain()

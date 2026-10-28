@@ -67,7 +67,8 @@ import {
   MOTION_EXIT_MS,
   prefersReducedMotion,
   rollNumber,
-  syncAllScrollShadows
+  syncAllScrollShadows,
+  viewVisibilityIntent
 } from "./motion.js";
 import { createStreamCadence } from "./stream-cadence.js";
 import { SPRING_PRESETS, animateSpring } from "./spring-motion.js";
@@ -313,6 +314,14 @@ function renderTabBars() {
 // 退出用过阻尼弹簧收敛后落 hidden。业务状态、焦点归属和 DTO 不变。
 function setAnimatedViewVisibility(panel, visible) {
   if (!panel?.classList) return;
+  const intent = viewVisibilityIntent({
+    visible,
+    hidden: panel.classList.contains("hidden"),
+    exiting: panel.classList.contains("is-view-exiting")
+  });
+  // 同一区域的重复渲染只更新内容。入场/退场只属于可见性真正翻转的容器，
+  // 因此左栏选会话、右栏刷新或另一栏换页都不会重播当前视图动效。
+  if (intent === "settle") return;
   const timer = panel._motionExitTimer;
   if (timer) {
     window.clearTimeout(timer);
@@ -323,43 +332,53 @@ function setAnimatedViewVisibility(panel, visible) {
   panel.classList.remove("is-view-exiting");
   panel.dataset.motionPurpose = "continuity";
   panel.dataset.motionTrigger = "route-change";
-  if (visible) {
+  if (intent !== "enter") {
+    if (intent !== "exit") return;
+    panel.dataset.motionPhase = "exiting";
+    panel.classList.add("is-view-exiting");
+    let settled = false;
+    let animation = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      const current = panel._motionExitTimer;
+      if (current) window.clearTimeout(current);
+      panel._motionExitTimer = 0;
+      animation?.cancel?.();
+      if (panel._motionSpring === animation) panel._motionSpring = null;
+      panel.classList.remove("is-view-exiting");
+      panel.classList.add("hidden");
+      panel.dataset.motionPhase = "idle";
+    };
+    animation = animateSpring(panel, "exit", [
+      { opacity: 1, transform: "translateY(0)" },
+      { opacity: 0, transform: "translateY(-6px)" }
+    ]);
+    panel._motionSpring = animation;
+    animation?.finished?.then(finish).catch(() => {});
+    panel._motionExitTimer = window.setTimeout(finish, MOTION_EXIT_MS);
+    return;
+  }
+  {
     panel.classList.remove("hidden");
     panel.dataset.motionPhase = "entering";
     if (!prefersReducedMotion()) {
-      panel._motionSpring = animateSpring(panel, "enter", [
+      const animation = animateSpring(panel, "enter", [
         { opacity: 0, transform: "translateY(8px)" },
         { opacity: 1, transform: "translateY(0)" }
-      ]);
-      panel._motionSpring?.finished?.then(() => {
+      ], { fill: "none" });
+      panel._motionSpring = animation;
+      animation?.finished?.then(() => {
+        if (panel._motionSpring !== animation) return;
+        animation.cancel?.();
+        panel._motionSpring = null;
         panel.dataset.motionPhase = "idle";
       }).catch(() => {});
+    } else {
+      panel.dataset.motionPhase = "idle";
     }
     return;
   }
-  if (panel.classList.contains("hidden")) return;
-  if (prefersReducedMotion()) {
-    panel.classList.add("hidden");
-    panel.dataset.motionPhase = "idle";
-    return;
-  }
-  panel.dataset.motionPhase = "exiting";
-  panel.classList.add("is-view-exiting");
-  const finish = () => {
-    const current = panel._motionExitTimer;
-    if (current) window.clearTimeout(current);
-    panel._motionExitTimer = 0;
-    panel.classList.remove("is-view-exiting");
-    panel.classList.add("hidden");
-    panel.dataset.motionPhase = "idle";
-  };
-  const animation = animateSpring(panel, "exit", [
-    { opacity: 1, transform: "translateY(0)" },
-    { opacity: 0, transform: "translateY(-6px)" }
-  ]);
-  panel._motionSpring = animation;
-  animation?.finished?.then(finish).catch(() => {});
-  panel._motionExitTimer = window.setTimeout(finish, MOTION_EXIT_MS);
 }
 
 // syncSessionChrome 强制“会话类页面不可见时不显示会话专属悬浮件”，
@@ -385,7 +404,7 @@ function runViewActivation(view) {
   const snapshot = client.current();
   if (view === "conversation") {
     if (!snapshot) return;
-    chatView.renderConversation(
+    const rendered = chatView.renderConversation(
       snapshot.conversation || [],
       snapshot.chat || {},
       "preserve",
@@ -397,6 +416,7 @@ function runViewActivation(view) {
       snapshot.conversation_revision || 0,
       streamCadence.phase()
     );
+    publishConversationProbe(rendered);
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
   }
@@ -985,7 +1005,8 @@ function render(snapshot, options = {}) {
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
-  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot), streamCadence.phase());
+  const conversationRender = chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot), streamCadence.phase());
+  publishConversationProbe(conversationRender);
   refreshInputIndex(snapshot);
   renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
@@ -1010,7 +1031,7 @@ function renderIncremental(snapshot, kind, payload, options = {}) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(
+    const conversationRender = chatView.renderConversation(
       snapshot.conversation || [],
       snapshot.chat || {},
       "auto",
@@ -1022,6 +1043,7 @@ function renderIncremental(snapshot, kind, payload, options = {}) {
       snapshot.conversation_revision || 0,
       options.streamPhase || streamCadence.phase()
     );
+    publishConversationProbe(conversationRender);
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
@@ -1161,7 +1183,7 @@ function renderStreamPhase(phase, meta = {}) {
   if (meta.reason === "terminal" || meta.reason === "reset") return;
   const snapshot = client.current();
   if (!snapshot) return;
-  chatView.renderConversation(
+  const conversationRender = chatView.renderConversation(
     snapshot.conversation || [],
     snapshot.chat || {},
     "preserve",
@@ -1173,6 +1195,17 @@ function renderStreamPhase(phase, meta = {}) {
     snapshot.conversation_revision || 0,
     phase
   );
+  publishConversationProbe(conversationRender);
+}
+
+function publishConversationProbe(rendered) {
+  const probe = rendered?.probe || null;
+  perfHooks.setConversationProbe(probe);
+  // 临时开发构建把探针同步到窗口标题，便于不打开 DevTools 也能判定前后端。
+  // 正式版本（version 不以 frontend-fix 开头）不会改标题。
+  if (probe && String(elements["app-version"]?.textContent || "").startsWith("frontend-fix")) {
+    document.title = `Seelex · ${probe.verdict} ${probe.snapshotCount}/${probe.renderedCount}/${probe.visibleCount}`;
+  }
 }
 
 const streamCadence = createStreamCadence({
@@ -1334,8 +1367,19 @@ function recallQueuedInput(text) {  const recalled = String(text ?? "");
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
 
-// 聊天区「一行带过」的思考/工具 chip 点击 → 切到轨迹子页并定位对应记录。
+// 工具抽屉里的显式入口 → 切到轨迹子页并定位对应记录。先处理这个按钮，
+// 避免它冒泡成工具行自身的展开/收起动作。
 elements.conversation.addEventListener("click", event => {
+  const trajectoryAction = event.target.closest("[data-tool-trajectory]");
+  if (trajectoryAction) {
+    event.preventDefault();
+    event.stopPropagation();
+    const key = trajectoryAction.dataset.toolTrajectory;
+    if (!key) return;
+    revealView("trajectory");
+    trajectoryView.select(key);
+    return;
+  }
   const chip = event.target.closest(".chat-chip[data-trajectory-key]");
   const key = chip?.dataset.trajectoryKey;
   if (!key) return;
@@ -2206,6 +2250,8 @@ async function resumeSessionFromList(sessionID) {
   // 输入区锁（切换在途）：后端视图指针已随 ResumeSession 移动，而渲染层要等
   // 权威快照才渲染到 restoring 空壳——这个窗口里提交会落到看不见/没装载完的
   // 会话。显式重渲一次 composer，让锁在置位那一刻生效（不是等下一次快照）。
+  if (elements.conversation) elements.conversation.dataset.targetSessionId = sessionID;
+  publishConversationProbe(chatView.renderSessionLoading("switching"));
   chatView.renderControls(client.current(), true);
   rerenderSessions();
   let failureMessage = "";
@@ -2227,6 +2273,10 @@ async function resumeSessionFromList(sessionID) {
         latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces,
         latest.workspaces || workspaces
       );
+      // 清位后必须按最终快照重绘一次正文：切换期间渲染的是骨架，若这里只
+      // 重算 composer，目标会话的 conversation 会一直停在骨架/空白，直到下一次
+      // 无关事件碰巧触发刷新。
+      publishConversationProbe(chatView.render(latest, "bottom", false, composerDraftPageText(latest), streamCadence.phase()));
       // 解锁输入区：以最新快照重算（若后端仍在 restoring，renderControls 会
       // 继续锁着——锁是「切换在途 ∨ 目标 restoring」的单调 OR）。
       chatView.renderControls(latest);
@@ -2235,6 +2285,7 @@ async function resumeSessionFromList(sessionID) {
     } else {
       rerenderSessions();
     }
+    if (elements.conversation) elements.conversation.dataset.targetSessionId = "";
   }
 }
 

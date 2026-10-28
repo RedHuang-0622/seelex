@@ -17,6 +17,8 @@ const POLL_INTERVAL_MS = 10000;
 
 export function createPerfHooks({ getStats, onError } = {}) {
   const samples = [];
+  let latestSample = null;
+  let conversationProbe = null;
   // 10s 轮询定时器句柄：stop() 要能清掉，start() 重复调用也不叠表。
   let timer = null;
   const badge = document.createElement("span");
@@ -56,6 +58,7 @@ export function createPerfHooks({ getStats, onError } = {}) {
     };
     samples.push(sample);
     if (samples.length > SAMPLE_LIMIT) samples.shift();
+    latestSample = sample;
     renderBadge(sample);
     return sample;
   }
@@ -64,7 +67,10 @@ export function createPerfHooks({ getStats, onError } = {}) {
     const heapMB = sample.jsHeap ? (sample.jsHeap / 1048576).toFixed(1) : "?";
     const snapshotKB = sample.snapshotBytes ? (sample.snapshotBytes / 1024).toFixed(0) : "?";
     const truncated = sample.truncated ? ` · 截断 ${sample.truncated}` : "";
-    badge.textContent = `渲染 ${sample.domNodes} 节点 · JS ${heapMB}MB · 快照 ${snapshotKB}KB${truncated}`;
+    const conversation = conversationProbe
+      ? `对话 ${conversationProbe.snapshotCount}/${conversationProbe.renderedCount}/${conversationProbe.visibleCount} 隐${conversationProbe.hiddenRowCount || 0} · ${conversationProbe.verdict} · 隙 ${conversationProbe.gapAfterKind || "—"} ${Math.round(conversationProbe.maxGap)}px · 峰 ${conversationProbe.maxRowKind || "—"} ${Math.round(conversationProbe.maxRowHeight)}px · `
+      : "";
+    badge.textContent = `${conversation}渲染 ${sample.domNodes} 节点 · JS ${heapMB}MB · 快照 ${snapshotKB}KB${truncated}`;
   }
 
   async function poll() {
@@ -122,6 +128,7 @@ export function createPerfHooks({ getStats, onError } = {}) {
   }
 
   badge.addEventListener("click", () => {
+    if (conversationProbe) console.debug("[conversation-probe]", conversationProbe);
     console.table(samples.map((s, i) => ({
       i,
       t: new Date(s.t).toLocaleTimeString(),
@@ -137,5 +144,10 @@ export function createPerfHooks({ getStats, onError } = {}) {
     })));
   });
 
-  return { samples, badge, record, markRender, poll, reset, start, stop };
+  function setConversationProbe(probe) {
+    conversationProbe = probe || null;
+    if (latestSample) renderBadge(latestSample);
+  }
+
+  return { samples, badge, record, markRender, poll, reset, start, stop, setConversationProbe };
 }

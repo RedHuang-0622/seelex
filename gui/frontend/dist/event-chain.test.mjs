@@ -78,9 +78,10 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
   assert.equal(loads, 1, "main tool events must not fall back to Snapshot reloads");
   assert.deepEqual(incrementals, ["tool.started", "tool.completed", "runtime.changed"]);
   assert.equal(current.runtime.full_access, true, "authoritative full-access state must reach the frontend");
-  assert.ok(tool, "completed tool card must remain inside the conversation axis");
-  assert.match(tool.html, /class="chat-chip is-tool"/);
+  assert.ok(tool, "completed tool row must remain in the conversation");
+  assert.match(tool.html, /class="tool-call-summary"/);
   assert.match(tool.html, /data-trajectory-key="tool:tool-1"/);
+  assert.match(tool.html, /data-tool-trajectory="tool:tool-1"/);
   assert.match(tool.html, /tool-run is-success/);
   assert.doesNotMatch(tool.html, /Waiting for output/);
 });

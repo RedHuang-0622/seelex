@@ -16,7 +16,7 @@ function dataURL(source) {
 }
 
 const chatSource = (await readFile(new URL("./chat-view.js", import.meta.url), "utf8"))
-  .replace('"./components.js"', `"${dataURL("export function renderConversationModel(messages, chat, draft) { return { messages, chat, draft }; } export function renderMessageQueue() { return ''; }")}"`)
+  .replace('"./components.js"', `"${dataURL("export function renderConversationModel(messages, chat, draft) { return { messages, chat, draft, items: [] }; } export function renderConversationLoading(mode) { return '<section data-session-loading=\"' + mode + '\"></section>'; } export function renderMessageQueue() { return ''; }")}"`)
   // 压缩分界（会话单例的那条虚线）不参与输入区锁：这里只钉住导入解析，返回"无分界"。
   .replace('"./compaction-format.js"', `"${dataURL("export function conversationCompactionAnchor() { return null; }")}"`)
   .replace('"./protocol.js"', `"${dataURL("export function historyWindowed() { return false; }")}"`);
@@ -97,6 +97,14 @@ test("switching 只锁输入，不锁停止 / 历史栏", () => {
   assert.equal(elements["history-bar"].classList.contains("hidden"), false);
 });
 
+test("切换会话立即在消息区显示局部骨架", () => {
+  const { view, renders } = makeView();
+  view.renderSessionLoading("switching");
+  assert.equal(renders.length, 1);
+  assert.deepEqual(renders[0].model.items.map(item => item.key), ["chat:session-loading"]);
+  assert.match(renders[0].model.items[0].html, /data-session-loading="switching"/);
+});
+
 test("switching 结束（快照已到位）后恢复可发送与运行态文案", () => {
   const { view, elements } = makeView();
   view.renderControls(snapshot({ status: "running", running: true }), true);
@@ -162,6 +170,16 @@ test("app.js：切换在途标志贯穿 composer 的每个渲染落点与生命�
   assert.ok(
     calls.some(call => call === "chatView.renderControls(client.current(), true)"),
     "置位 switching 后必须显式重渲 composer（不等下一次快照）"
+  );
+  assert.match(
+    appSource,
+    /state\.resumingSessionID = sessionID;[\s\S]*?publishConversationProbe\(chatView\.renderSessionLoading\("switching"\)\);[\s\S]*?chatView\.renderControls\(client\.current\(\), true\)/,
+    "置位 switching 后必须立刻把消息区切到局部骨架，再锁 composer"
+  );
+  assert.match(
+    appSource,
+    /state\.resumingSessionID = "";[\s\S]*?publishConversationProbe\(chatView\.render\(latest, "bottom", false,/,
+    "切换结束清位后必须按最终快照完整重绘正文，不能只重算 composer"
   );
   assert.ok(
     calls.some(call => call === "chatView.renderControls(latest)"),
