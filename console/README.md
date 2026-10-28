@@ -6,7 +6,7 @@
 阶段日志。它是 `-frontend backend` 的入口，只消费本包声明的 consumer-owned 窄端口
 （`Dependencies`），不依赖具体 UI，也不经由任何 application 级宽门面取能力。
 
-主要调用方：组合根 `wiring/bootstrap`（`-frontend backend` 分支）——它既装配
+主要调用方：组合根 `boot`（`-frontend backend` 分支）——它既装配
 `console.Dependencies`，也用 `NewEventLogger` / `LogStageIf` 打印启动阶段轨迹。
 
 ## 职责与非职责
@@ -38,12 +38,12 @@
 
 ## 数据流
 
-`wiring/bootstrap` 装配 `Dependencies` → `Start` → `observeBackendEvents`（订阅事件流）
+`boot` 装配 `Dependencies` → `Start` → `observeBackendEvents`（订阅事件流）
 → `Submit(prompt)` →（单轮时）`WaitForIdle` → `EventLogger` 脱敏阶段日志 → stdout / 文件。
 
 ## 依赖方向
 
-`console → application（仅 DTO / Event 类型）+ contract/dto`。owner 由 `wiring/bootstrap`
+`console → application（仅 DTO / Event 类型）+ contract/dto`。owner 由 `boot`
 注入；禁止 import `gui`、`tui`、`application/assembly` 或 `store`。
 
 ## 并发与安全
@@ -55,7 +55,7 @@
 ## 扩展方式
 
 新增能力：在 `dependencies.go` 声明端口（按 owner 切，方法名等于 owner 方法名）+
-在 `wiring/bootstrap/frontend_ports.go` 的 `consoleDependencies` 补一行装配。
+在 `boot/frontend_ports.go` 的 `consoleDependencies` 补一行装配。
 没有调用点需要的能力不要提前声明端口。
 
 ## Review 指南
@@ -121,4 +121,3 @@ go test ./console -count=1
 - `func TestBackendEventLoggerLogsBashStagesWithoutCommandContent(t *testing.T)`
 - `func TestBackendEventLoggerLogsToolHookStagesWithoutPayloadContent(t *testing.T)`
 - `func TestBindBackendProjectUsesExistingWorkspaceOrCreatesOne(t *testing.T)`
-

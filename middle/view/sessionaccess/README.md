@@ -49,3 +49,25 @@
 ```text
 go test ./middle/view/sessionaccess -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### session.go
+
+- `func NewRegistry() *Registry` — NewRegistry creates an empty adapter registry.
+- `func (registry *Registry) Register(kind dto.ConversationKind, adapter ConversationSession)` — Register installs one adapter. Nil adapters remove the kind.
+- `func (registry *Registry) Session(ref dto.ConversationSessionRef) (ConversationSession, error)` — Session resolves and validates one fixed conversation window.
+- `func PaginateRecords(sessionID string, records []dto.ConversationRecord, request dto.ConversationViewRequest) dto.SessionRecordPage` — PaginateRecords is the single record filtering, clipping, and pagination
+- `func clipRunes(text string, limit int) (string, bool)`
+
+### session_test.go
+
+- `func (s stubAdapter) View(context.Context, dto.ConversationSessionRef, dto.ConversationViewRequest) (dto.SessionRecordPage, error)`
+- `func (s stubAdapter) Chat(context.Context, dto.ConversationSessionRef, dto.ConversationChatRequest) (dto.ChatReceipt, error)`
+- `func (s stubAdapter) Recover(context.Context, dto.ConversationSessionRef) (dto.SessionRecovery, error)`
+- `func TestRegistryRequiresWorkItemForTeammateWindow(t *testing.T)`
+- `func TestSessionRecordsUseOnePaginationAndUTF8ClipRule(t *testing.T)`
+- `func TestRecoveryStateVocabularyIsStable(t *testing.T)`

@@ -62,8 +62,25 @@ go test ./application/assembly -run 'Window|Retain' -count=1
 
 ## 文件与函数索引
 
-### `policy.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type WindowConfig = contextcontrol.WindowConfig` — 上下文窗口配置的同身份 alias。
-- `type DefaultWindowPolicy = contextcontrol.DefaultWindowPolicy` — 默认窗口策略的同身份 alias。
-- `func NewDefaultWindowPolicy/DefaultWindowConfig/LoadWindowConfig/Apply/Current(...)` — 逐项转发 Engine 唯一实现。
+### policy.go
+
+- `func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy`
+- `func DefaultWindowConfig() WindowConfig`
+- `func LoadWindowConfig(path string) (WindowConfig, error)`
+- `func Apply(config WindowConfig)`
+- `func Current() WindowConfig`
+
+### policy_test.go
+
+- `func TestPolicyTypesAreEngineIdentity(t *testing.T)`
+
+### retention.go
+
+- `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget returns the retained-prefix token budget used when
+- `func RetainFloorTokens(budget taskcontext.ContextBudget) int` — RetainFloorTokens returns the configured retained-floor token count.
+- `func ValidateRetainWindow(config WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow validates the window/limits relation at startup.
+- `func (r retainWindowLimits) ContextWindow() int`
+- `func (r retainWindowLimits) MaxOutputTokens() int`

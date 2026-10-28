@@ -41,6 +41,11 @@ flowchart LR
 - `func ValidReasoningEffort(value string) bool` — ValidReasoningEffort 见 dto.ValidReasoningEffort。
 - `func ReasoningEffortVocabulary() []string` — ReasoningEffortVocabulary 见 dto.ReasoningEffortVocabulary。
 - `func FallbackRoles(role AccountRole) []AccountRole` — FallbackRoles 返回 role 的回退角色（未配置时回退主 agent 角色，
-- `func AccountRoleFromName(name string) AccountRole` — AccountRoleFromName 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
-- `func ResolveAccountSpec(specs []AccountSpec, role AccountRole) (AccountSpec, error)` — ResolveAccountSpec picks an account spec from the loaded config for the
+- `func AccountRoleFromName(name string) AccountRole` — AccountRoleFromName 从账号 ID 推断角色。唯一实现已下沉到 contract/dto，
+- `func ResolveAccountSpec(specs []AccountSpec, role AccountRole) (AccountSpec, error)` — ResolveAccountSpec picks an account spec from the loaded config for the given
 
+### account_test.go
+
+- `func TestResolveAccountSpecDoesNotCrossRoleForCredential(t *testing.T)`
+- `func TestResolveAccountSpecFallsBackOnlyWhenRoleBlockIsAbsent(t *testing.T)`
+- `func TestResolveAccountSpecDoesNotUseUnrelatedRole(t *testing.T)`

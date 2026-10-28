@@ -177,8 +177,8 @@ config/README.md 的配置链说明）；路径由 composition root 经 bootseed
 解析后传入，本包不参与路径决策。
 策略密钥三级落点（只在一处定义，`ApplyKeyFallback`）：`api_key`（含 `apikey`
 别名，显式优先）→ `api_key_env` 指向的环境变量 → **厂商兜底回调**。第三级由
-组合根注入（`wiring/registry`）：`deepseek` 取账号池里同一把 DeepSeek key
-（`wiring/config.DeepSeekSearchKey()`），因为 DeepSeek Search 与模型 API 共用一把
+组合根注入（`boot`）：`deepseek` 取账号池里同一把 DeepSeek key
+（`internal/startup.DeepSeekSearchKey()`），因为 DeepSeek Search 与模型 API 共用一把
 key，搜索配置不必再抄一份。标准协议策略（`type` 空 / `standard`，自建网关）没有
 "厂商"可言，不参与兜底。三级都空才报「密钥未配置」。
 `include_answer` 仅在显式配置时覆盖。
@@ -277,86 +277,139 @@ go test ./seelexctx/... -count=1
 
 ## 文件与函数索引
 
-### strategy.go
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-```go
-type SearchItem struct { Title, URL, Content string; Score float64 }
-type SearchResponse struct { Answer string; Items []SearchItem }
-type Strategy interface { Name() string; Search(ctx context.Context, query string, maxResults int) (SearchResponse, error) }
-const DefaultMaxResults = 10
-func Assemble(cfg WebSearchConfig) (Strategy, error)                 // 装配器：选择并构建代理策略
-func legacyStrategy(cfg WebSearchConfig) (StrategyConfig, bool)      // 旧字段翻译（tavily / 内置厂商名）
-func strategyNames(strategies []StrategyConfig) string               // 返回可用策略名列表
-func limitResults(defaultMax, requested int) int                     // 归一化请求结果数
-func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResults int) (string, error) // 保留的兼容入口
-```
+### builtin.go
+
+- `func registerBuiltin(vendor string, factory BuiltinFactory)` — registerBuiltin 注册一个内置厂商适配器（供各适配器文件 init 调用；
+- `func isBuiltinVendor(name string) bool` — isBuiltinVendor 报告 name 是否为已注册的内置厂商名（旧 provider 兼容用）。
+- `func builtinNames() []string` — builtinNames 返回已注册厂商名（字典序，用于装配错误提示）。
+- `func assembleStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)` — assembleStrategy 按 strategies[].type 分发策略构建：
+
+### builtin_bocha.go
+
+- `func init()`
+- `func newBochaStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)` — newBochaStrategy 构建博查适配器；未声明密钥报错，端点缺省用官方端点。
+- `func (p *bochaStrategy) Name() string` — Name 返回策略名称。
+- `func (p *bochaStrategy) Search(ctx context.Context, query string, maxResults int) (SearchResponse, error)` — Search 按博查协议请求并归一化为统一 SearchResponse；context 取消能中断请求。
+
+### builtin_deepseek.go
+
+- `func init()`
+- `func newDeepSeekStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)` — newDeepSeekStrategy 构建适配器；未声明密钥报错，端点缺省用官方端点。
+- `func (p *deepSeekStrategy) Name() string` — Name 返回策略名称。
+- `func (p *deepSeekStrategy) Search(ctx context.Context, query string, maxResults int) (SearchResponse, error)` — Search 按 DeepSeek Search 协议请求并归一化为统一 SearchResponse。
+- `func clampDeepSeekCount(count int) int` — clampDeepSeekCount 把结果数收敛到协议允许的 1..50（count 只影响每页条数，
+- `func firstNonEmpty(values ...string) string` — firstNonEmpty 返回第一个非空白字符串（TrimSpace 后的值）。
+- `func deepSeekErrorText(body []byte) string` — deepSeekErrorText 取可展示的错误文案：优先 OpenAI 兼容的 error.message，
+
+### builtin_deepseek_test.go
+
+- `func newDeepSeekTestStrategy(t *testing.T, endpoint string, opts WebSearchConfig) *deepSeekStrategy` — newDeepSeekTestStrategy 用 httptest 端点构建适配器（跳过缺省官方端点）。
+- `func TestDeepSeekStrategy_Search(t *testing.T)`
+- `func TestDeepSeekStrategy_EmptyResultsIsNotAnError(t *testing.T)`
+- `func TestDeepSeekStrategy_SurfacesErrorEnvelope(t *testing.T)`
+- `func TestDeepSeekStrategy_MissingAPIKey(t *testing.T)`
+- `func TestDeepSeekStrategy_DefaultEndpointAndCountClamp(t *testing.T)`
+- `func TestAssemble_DeepSeekByProviderShortcut(t *testing.T)`
+
+### builtin_searxng.go
+
+- `func init()` — init 注册 "searxng" 内置厂商：SearXNG 自建/公共实例的 JSON API 适配器。
+- `func newSearxngStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)` — newSearxngStrategy 构建 SearXNG 适配器；endpoint 必填（自建实例地址），
+- `func (p *searxngStrategy) Name() string` — Name 返回策略名称。
+- `func (p *searxngStrategy) Search(ctx context.Context, query string, maxResults int) (SearchResponse, error)` — Search 调用 SearXNG JSON API 并归一化为统一 SearchResponse。
+
+### builtin_tavily.go
+
+- `func init()` — init 注册 "tavily" 内置厂商：Tavily 原生 API 请求体与响应就是标准
 
 ### config.go
 
-```go
-type WebSearchConfig struct { /* provider/api_key/endpoint/max_results/include_answer/search_depth/timeout/active/strategies */ }
-type StrategyConfig struct { Name, Type, Endpoint, APIKey, APIKeyAlias string }  // Type 空/standard=标准协议，否则内置厂商名
-func DefaultConfig() WebSearchConfig                                 // 返回 websearch 的默认配置
-func Load(configPath string) WebSearchConfig                    // 从 search_engine.yaml 的根级字段加载
-func mergeConfig(dst *WebSearchConfig, src WebSearchConfig)          // 用加载值覆盖非零字段
-```
+- `func DefaultConfig() WebSearchConfig` — DefaultConfig 返回 websearch 的默认配置：引擎无关（Provider 为空，
+- `func Load(path string) WebSearchConfig` — Load 从独立的 search_engine.yaml 加载配置；文件缺失或解析失败时返回默认配置。
+- `func mergeConfig(dst *WebSearchConfig, src WebSearchConfig)` — mergeConfig 用加载值覆盖非零字段，保留默认值；兼容 apikey 别名。
 
-### strategy_standard.go
+### config_test.go
 
-```go
-const defaultTavilyEndpoint = "https://api.tavily.com/search"
-var DefaultTimeout = 15 * time.Second
-func ApplyLimits(searchTimeoutSec int)                               // 注入 seele.yaml limits 中 search 相关配置
-func providerTimeout(timeoutSeconds int) time.Duration               // 返回策略超时
-type standardStrategy struct { name, endpoint, apiKey string; opts WebSearchConfig; client *http.Client }
-func newStandardStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error) // 构建标准协议策略
-func (p *standardStrategy) Name() string                             // 返回策略名称
-func (p *standardStrategy) Search(ctx context.Context, query string, maxResults int) (SearchResponse, error) // 按标准协议调用搜索端点并归一化
-type tavilyResponse struct { Answer string; Results []tavilyResult }
-type tavilyResult struct { Title, URL, Content string; Score float64 }
-```
-
-### builtin.go / builtin_tavily.go / builtin_bocha.go / builtin_searxng.go
-
-```go
-type BuiltinFactory func(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error) // 厂商工厂：专有协议 → 统一 Strategy
-var builtinVendors map[string]BuiltinFactory                                       // 内置厂商注册表（type/provider 名 → 工厂）
-func registerBuiltin(vendor string, factory BuiltinFactory)                        // 注册厂商（各适配器 init 调用）
-func isBuiltinVendor(name string) bool                                             // provider 兼容判定
-func builtinNames() []string                                                       // 可用厂商名（字典序，报错提示用）
-func assembleStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)  // 按 strategies[].type 分发
-const defaultBochaEndpoint = "https://api.bochaai.com/v1/web-search"               // 博查默认端点
-type bochaStrategy struct{ name, endpoint, apiKey string; opts WebSearchConfig; client *http.Client }
-type bochaResponse struct{ Code, Msg, Data{Summary, WebPages{Value[]}} }           // 博查最小契约
-type searxngStrategy struct{ name, endpoint string; opts WebSearchConfig; client *http.Client }
-type searxngResponse struct{ Answers []string; Results []struct{...} }             // SearXNG 最小契约
-```
+- `func writeSearchEngine(t *testing.T, content string) string` — 夹具写的是**根级字段**：search_engine.yaml 不再套 `websearch:` 段
+- `func TestLoad_Defaults(t *testing.T)`
+- `func TestLoad_InvalidYAML(t *testing.T)`
+- `func TestLoad_PartialOverride(t *testing.T)`
+- `func TestLoad_FullOverride(t *testing.T)`
+- `func TestLoad_EmptyAPIKeyKeepsDefault(t *testing.T)`
+- `func TestLoad_ZeroMaxResultsKeepsDefault(t *testing.T)`
+- `func TestLoad_Strategies(t *testing.T)`
+- `func TestLoad_StrategiesApikeyAlias(t *testing.T)`
+- `func TestLoad_StrategiesType(t *testing.T)`
 
 ### format.go
 
-```go
-func FormatResponse(resp SearchResponse) string                     // 规范结果格式化为 Markdown
-```
+- `func FormatResponse(resp SearchResponse) string` — FormatResponse 把规范搜索结果格式化为模型可直接消费的 Markdown：
 
-### 测试文件
+### keyfallback.go
 
-```go
-strategy_test.go:        TestAssemble_NoStrategies / TestAssemble_LegacyTavilyWithoutKey /
-                         TestAssemble_LegacyTavilyOnlyAPIKey / TestAssemble_MinimalStrategy /
-                         TestAssemble_ActiveSelection / TestAssemble_ActiveNotFound /
-                         TestAssemble_MissingEndpoint / TestLimitResults / TestWebSearch_NoStrategy
-strategy_builtin_test.go: TestAssemble_BuiltinTavilyByType / TestBochaStrategy_Search /
-                         TestBochaStrategy_IncludeAnswerFalseOmitsSummary / TestBochaStrategy_DefaultEndpoint /
-                         TestBochaStrategy_BusinessCodeError / TestSearxngStrategy_Search /
-                         TestSearxngStrategy_MissingEndpoint / TestAssemble_UnknownBuiltinType /
-                         TestAssemble_LegacyProviderBocha / TestAssemble_UnknownProviderListsBuiltins
-config_test.go:          TestLoad_Defaults / TestLoad_InvalidYAML /
-                         TestLoad_PartialOverride / TestLoad_FullOverride /
-                         TestLoad_EmptyAPIKeyKeepsDefault / TestLoad_ZeroMaxResultsKeepsDefault /
-                         TestLoad_Strategies / TestLoad_StrategiesApikeyAlias /
-                         TestLoad_StrategiesType
-strategy_standard_test.go: TestStandardStrategy_Search / TestStandardStrategy_MaxResultsBounds /
-                         TestStandardStrategy_APIError / TestStandardStrategy_ContextCancelled /
-                         TestFormatResponse_WithAnswer / TestFormatResponse_NoAnswer /
-                         TestFormatResponse_EmptyResults / TestFormatResponse_ResultsWithoutContent
-```
+- `func ApplyKeyFallback(cfg WebSearchConfig, fallback KeyFallback) WebSearchConfig` — ApplyKeyFallback 用 fallback 填掉**显式没配密钥**的厂商策略。
+- `func builtinVendorOf(cfg StrategyConfig) string` — builtinVendorOf 返回一条策略的内置厂商名（标准协议策略返回空）。
+
+### keyfallback_test.go
+
+- `func TestApplyKeyFallbackFillsMissingBuiltinKey(t *testing.T)`
+- `func TestApplyKeyFallbackNeverOverridesExplicitKey(t *testing.T)`
+- `func TestApplyKeyFallbackSkipsStandardStrategies(t *testing.T)`
+- `func TestApplyKeyFallbackLegacyProviderShorthand(t *testing.T)`
+- `func TestApplyKeyFallbackNilIsIdentity(t *testing.T)`
+
+### strategy.go
+
+- `func Assemble(cfg WebSearchConfig) (Strategy, error)` — Assemble 是 websearch 的装配器（Assembler）：根据配置选择并构建代理策略。
+- `func legacyStrategy(cfg WebSearchConfig) (StrategyConfig, bool)` — legacyStrategy 把旧字段（provider/api_key）翻译为单条策略配置，保证旧账号池
+- `func strategyNames(strategies []StrategyConfig) string` — strategyNames 返回可用策略名列表，用于装配错误提示。
+- `func limitResults(defaultMax, requested int) int` — limitResults 归一化请求结果数：小于等于 0 或超过 DefaultMaxResults 时
+- `func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResults int) (string, error)` — WebSearch 是保留的兼容入口：按 cfg 装配代理策略并返回格式化 Markdown。
+
+### strategy_builtin_test.go
+
+- `func TestAssemble_BuiltinTavilyByType(t *testing.T)`
+- `func TestBochaStrategy_Search(t *testing.T)`
+- `func TestBochaStrategy_IncludeAnswerFalseOmitsSummary(t *testing.T)`
+- `func TestBochaStrategy_DefaultEndpoint(t *testing.T)`
+- `func TestBochaStrategy_BusinessCodeError(t *testing.T)`
+- `func TestSearxngStrategy_Search(t *testing.T)`
+- `func TestSearxngStrategy_MissingEndpoint(t *testing.T)`
+- `func TestAssemble_UnknownBuiltinType(t *testing.T)`
+- `func TestAssemble_LegacyProviderBocha(t *testing.T)`
+- `func TestAssemble_UnknownProviderListsBuiltins(t *testing.T)`
+
+### strategy_standard.go
+
+- `func ApplyLimits(searchTimeoutSec int)` — ApplyLimits 注入 seele.yaml limits 段中 search 相关的配置。
+- `func providerTimeout(timeoutSeconds int) time.Duration` — providerTimeout 返回策略超时：配置为 0 时使用全局 DefaultTimeout。
+- `func newStandardStrategy(cfg StrategyConfig, opts WebSearchConfig) (Strategy, error)` — newStandardStrategy 构建标准协议策略；未配置 API Key 或 endpoint 时报错。
+- `func (p *standardStrategy) Name() string` — Name 返回策略名称。
+- `func (p *standardStrategy) Search(ctx context.Context, query string, maxResults int) (SearchResponse, error)` — Search 按标准协议调用搜索端点并归一化响应；继承 caller context，
+
+### strategy_standard_test.go
+
+- `func contains(text, substring string) bool`
+- `func TestStandardStrategy_Search(t *testing.T)`
+- `func TestStandardStrategy_MaxResultsBounds(t *testing.T)`
+- `func TestStandardStrategy_APIError(t *testing.T)`
+- `func TestStandardStrategy_ContextCancelled(t *testing.T)`
+- `func TestFormatResponse_WithAnswer(t *testing.T)`
+- `func TestFormatResponse_NoAnswer(t *testing.T)`
+- `func TestFormatResponse_EmptyResults(t *testing.T)`
+- `func TestFormatResponse_ResultsWithoutContent(t *testing.T)`
+
+### strategy_test.go
+
+- `func TestAssemble_NoStrategies(t *testing.T)`
+- `func TestAssemble_LegacyTavilyWithoutKey(t *testing.T)`
+- `func TestAssemble_LegacyTavilyOnlyAPIKey(t *testing.T)`
+- `func TestAssemble_MinimalStrategy(t *testing.T)`
+- `func TestAssemble_ActiveSelection(t *testing.T)`
+- `func TestAssemble_ActiveNotFound(t *testing.T)`
+- `func TestAssemble_MissingEndpoint(t *testing.T)`
+- `func TestLimitResults(t *testing.T)`
+- `func TestWebSearch_NoStrategy(t *testing.T)`

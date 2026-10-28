@@ -142,64 +142,87 @@ go test ./gui/terminal/ -count=1 -timeout=180s
 
 ## 文件与函数索引
 
-- `terminal.go`
-  - `type EventKind string`：终端事件类别（`output` / `exit`）。
-  - `type Event struct`：外投事件（`id` / `kind` / base64 `data` / `exit_code`）。
-  - `type Options struct`：开终端请求（shell / args / dir / cols / rows / env）。
-  - `type Info struct`：终端元数据（ID、标题、shell、cwd、尺寸、运行态、退出码）。
-  - `type EventHandler func(Event)`：事件回调（并发安全由实现方保证）。
-  - `type Manager struct`：终端会话注册表（进程级，由 GUI 宿主持有）。
-  - `func New(handler EventHandler) *Manager`：创建管理器；handler 为 nil 时 Open 失败。
-  - `func (m *Manager) Open(options Options) (Info, error)`：启动一个新终端并返回其元数据。
-  - `func (m *Manager) Write(id string, data []byte) error`：把用户输入（原始字节）写入终端。
-  - `func (m *Manager) Resize(id string, cols, rows int) error`：调整终端尺寸（前端 fit 后回传）。
-  - `func (m *Manager) Close(id string) error`：结束终端：先杀子进程再关 PTY，读泵收敛后回收会话。
-  - `func (m *Manager) CloseAll()`：关闭全部终端（宿主退出路径）。
-  - `func (m *Manager) List() []Info`：按创建序返回全部终端元数据。
-  - `func (m *Manager) Get(id string) (Info, bool)`：返回单个终端元数据。
-  - `func (m *Manager) lookup(id string) (*session, error)`：按 ID 取会话（内部）。
-  - `func (m *Manager) emit(event Event)`：把事件交给注入的 handler（内部）。
-  - `func (s *session) snapshot() Info`：加锁拷贝元数据。
-  - `func (s *session) pump(manager *Manager)`：终端的唯一收敛点（等子进程 → 关句柄 → 排空输出 → 外投 exit）。
-  - `func (s *session) reap() int`：等待子进程结束并把终态写回元数据。
-  - `func (s *session) shutdown()`：杀子进程并释放终端句柄（幂等）。
-  - `func exitCodeFromWait(err error) int`：把 Wait 的返回值折算成退出码。
-  - `func normalizeSize(cols, rows int) (int, int)`：把请求尺寸钳到可用区间。
-  - `func clamp(value, min, max int) int`：整数钳制。
-  - `func usableDir(dir string) string`：只在目录真实存在时返回它。
-  - `func mergeEnv(base, extra []string) []string`：合并继承环境与附加项（后者覆盖同名键）。
-  - `func titleFor(shell string, seq int) string`：给出标签默认标题（shell 基名去扩展名）。
-  - `func shellBase(shell string) string`：跨平台取 shell 基名并去扩展名（`\` 与 `/` 同等对待）。
-  - `func sequenceOf(id string) int`：从 `term-<n>` 取创建序号。
-- `pty.go`
-  - `type ptyProcess struct`：`process` 接口的 PTY 实现（`Close` 幂等）。
-  - `func (p *ptyProcess) Read(buffer []byte) (int, error)`：读终端输出。
-  - `func (p *ptyProcess) Write(data []byte) (int, error)`：写用户输入。
-  - `func (p *ptyProcess) Resize(cols, rows int) error`：设置 PTY 尺寸。
-  - `func (p *ptyProcess) Kill() error`：请求结束子进程。
-  - `func (p *ptyProcess) Wait() error`：等待子进程结束。
-  - `func (p *ptyProcess) Close() error`：释放 PTY 句柄（`sync.Once`，重复调用安全）。
-  - `func ptyLauncher(request launchRequest) (process, error)`：默认启动器（真 PTY + 真子进程）。
-- `shell.go`
-  - `const ShellEnvName`：覆盖默认 shell 的环境变量名（`SEELEX_TERMINAL_SHELL`）。
-  - `func ShellFor(explicit string, args []string) (string, []string, error)`：解析本平台要拉起的 shell。
-- `shell_windows.go`
-  - `func shellCandidates() []string`：Windows 默认 shell 优先级（pwsh → powershell → COMSPEC → cmd）。
-  - `func defaultShellArgs(shell string) []string`：给 PowerShell 关掉版权横幅。
-- `shell_other.go`
-  - `func shellCandidates() []string`：非 Windows 默认 shell 优先级（`$SHELL` → bash → sh）。
-  - `func defaultShellArgs(string) []string`：不带参数（登录 shell 会改 cwd）。
-- `terminal_test.go`
-  - `func TestManagerEmitsBase64OutputThenExit(t *testing.T)`：输出按 base64 外投、退出事件与回收语义。
-  - `func TestManagerKeepsCreationOrderAndRejectsUnknownSession(t *testing.T)`：创建序与未知会话拒绝。
-  - `func TestManagerWritesInputAndKillsOnClose(t *testing.T)`：输入透传与关闭时的杀进程。
-  - `func TestManagerRejectsOpenWithoutHandlerAndOverLimit(t *testing.T)`：无 handler / 超上限拒绝。
-  - `func TestManagerShellFailureIsReported(t *testing.T)`：shell 解析失败与启动失败都不留半成品。
-  - `func TestNormalizeSize(t *testing.T)`：尺寸钳制。
-  - `func TestMergeEnvOverridesInPlace(t *testing.T)`：环境合并覆盖语义。
-  - `func TestUsableDirRequiresRealDirectory(t *testing.T)`：cwd 目录校验。
-  - `func TestTitleForStripsExtension(t *testing.T)`：标签标题派生。
-  - `func TestShellForRejectsUnknownExplicitShell(t *testing.T)`：显式 shell 不存在时报错。
-  - `func TestShellForHonoursEnvOverride(t *testing.T)`：`SEELEX_TERMINAL_SHELL` 生效。
-  - `func TestShellForDefaultResolutionOnHost(t *testing.T)`：默认解析在本机可用。
-  - `func TestManagerRealShellRoundTrip(t *testing.T)`：真机 PTY 往返（提示符 → 回显 → exit 0）。
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### pty.go
+
+- `func (p *ptyProcess) Read(buffer []byte) (int, error)`
+- `func (p *ptyProcess) Write(data []byte) (int, error)`
+- `func (p *ptyProcess) Resize(cols, rows int) error`
+- `func (p *ptyProcess) Kill() error`
+- `func (p *ptyProcess) Wait() error`
+- `func (p *ptyProcess) Close() error`
+- `func ptyLauncher(request launchRequest) (process, error)` — ptyLauncher 是默认启动器：真 PTY + 真子进程。找不到 shell、PTY 不可用
+
+### shell.go
+
+- `func ShellFor(explicit string, args []string) (string, []string, error)` — ShellFor 解析本平台要拉起的 shell：显式指定 > 环境变量 > 平台候选清单
+
+### shell_other.go
+
+- `func shellCandidates() []string` — shellCandidates 是非 Windows 的默认 shell 优先级：用户登录 shell（$SHELL）
+- `func defaultShellArgs(string) []string` — defaultShellArgs 不传参：登录 shell（-l）会把工作目录切到 $HOME，与"终端开在
+
+### shell_windows.go
+
+- `func shellCandidates() []string` — shellCandidates 是 Windows 的默认 shell 优先级：PowerShell 7 → Windows
+- `func defaultShellArgs(shell string) []string` — defaultShellArgs 给 PowerShell 关掉版权横幅（-NoLogo）；cmd.exe 不需要参数。
+
+### terminal.go
+
+- `func New(handler EventHandler) *Manager` — New 创建终端管理器；handler 为 nil 时 Open 会失败（不静默丢输出）。
+- `func (m *Manager) Open(options Options) (Info, error)` — Open 启动一个新终端并返回其元数据（内含分配的终端 ID）。
+- `func (m *Manager) Write(id string, data []byte) error` — Write 把用户输入（原始字节）写入终端。
+- `func (m *Manager) Resize(id string, cols, rows int) error` — Resize 调整终端尺寸（前端 fit 后回传）。
+- `func (m *Manager) Close(id string) error` — Close 结束终端：先杀子进程再关 PTY，读泵收敛后回收会话。已退出的会话重复
+- `func (m *Manager) CloseAll()` — CloseAll 关闭全部终端（宿主退出路径；不等待读泵，避免退出被慢进程拖住）。
+- `func (m *Manager) List() []Info` — List 返回当前存活（含已退出但尚未回收）终端元数据，按创建顺序。
+- `func (m *Manager) Get(id string) (Info, bool)` — Get 返回单个终端元数据。
+- `func (m *Manager) lookup(id string) (*session, error)`
+- `func (m *Manager) emit(event Event)`
+- `func (s *session) snapshot() Info`
+- `func (s *session) pump(manager *Manager)` — pump 是终端的唯一收敛点，也是 session.done 的唯一关闭者。
+- `func (s *session) reap() int` — reap 等待子进程结束并把终态写回元数据（Wait 只允许调用一次，调用点唯一）。
+- `func (s *session) shutdown()` — shutdown 杀子进程并释放终端句柄（幂等）；读泵随句柄关闭收敛。
+- `func exitCodeFromWait(err error) int` — exitCodeFromWait 把 Wait 的返回值折算成退出码：*exec.ExitError 取真实码，
+- `func normalizeSize(cols, rows int) (int, int)` — normalizeSize 把请求尺寸钳到可用区间（0 值走默认）。
+- `func clamp(value, min, max int) int`
+- `func usableDir(dir string) string` — usableDir 只在目录真实存在时返回它（工作区未绑定时回退进程 cwd，而不是把
+- `func mergeEnv(base, extra []string) []string` — mergeEnv 合并继承环境与附加项（后者覆盖同名键，Windows 下键大小写不敏感）。
+- `func titleFor(shell string, seq int) string` — titleFor 给出标签默认标题：shell 基名去扩展名（"C:\...\powershell.exe" →
+- `func shellBase(shell string) string` — shellBase 取 shell 路径的基名并去掉扩展名。刻意不走 filepath：filepath 按宿主机
+- `func sequenceOf(id string) int` — sequenceOf 从 "term-<n>" 取创建序号（解析失败排最前，不 panic）。
+
+### terminal_test.go
+
+- `func newFakeProcess(chunks ...string) *fakeProcess`
+- `func (f *fakeProcess) Read(buffer []byte) (int, error)`
+- `func (f *fakeProcess) Write(data []byte) (int, error)`
+- `func (f *fakeProcess) Resize(cols, rows int) error`
+- `func (f *fakeProcess) Kill() error`
+- `func (f *fakeProcess) Wait() error`
+- `func (f *fakeProcess) Close() error`
+- `func (f *fakeProcess) finish(waitErr error)` — finish 模拟「shell 自己退出」：写入退出状态并结束读端。
+- `func (f *fakeProcess) writtenText() string`
+- `func newEventRecorder() *eventRecorder`
+- `func (r *eventRecorder) handle(event Event)`
+- `func (r *eventRecorder) snapshot() []Event`
+- `func (r *eventRecorder) waitFor(t *testing.T, what string, match func([]Event) bool) []Event` — waitFor 等待满足条件的事件出现（超时即失败）。
+- `func fixedShellLauncher(handle *fakeProcess) launcher` — fixedShellLauncher 返回一个使用指定假进程的 launcher（不启动真实 shell）。
+- `func newTestManager(recorder *eventRecorder, process *fakeProcess) *Manager`
+- `func TestManagerEmitsBase64OutputThenExit(t *testing.T)`
+- `func TestManagerKeepsCreationOrderAndRejectsUnknownSession(t *testing.T)`
+- `func TestManagerWritesInputAndKillsOnClose(t *testing.T)`
+- `func TestManagerRejectsOpenWithoutHandlerAndOverLimit(t *testing.T)`
+- `func TestManagerShellFailureIsReported(t *testing.T)`
+- `func TestNormalizeSize(t *testing.T)`
+- `func TestMergeEnvOverridesInPlace(t *testing.T)`
+- `func TestUsableDirRequiresRealDirectory(t *testing.T)`
+- `func TestTitleForStripsExtension(t *testing.T)`
+- `func TestShellForRejectsUnknownExplicitShell(t *testing.T)`
+- `func TestShellForHonoursEnvOverride(t *testing.T)`
+- `func TestShellForDefaultResolutionOnHost(t *testing.T)`
+- `func hostShellName() string` — hostShellName 返回本机可用的 shell 名（找不到时跳过集成用例）。
+- `func TestManagerRealShellRoundTrip(t *testing.T)` — TestManagerRealShellRoundTrip 是唯一一条真机用例：真 PTY + 真 shell，验证
+- `func outputText(events []Event) string`

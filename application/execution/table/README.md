@@ -110,3 +110,90 @@ publisher 内部是单 goroutine；`lastTreeSig` 只在该 goroutine 读写，�
 go test ./application/execution/table -count=1
 go test ./application/assembly -run 'WorkTable|RefreshWorkTable|Todo|Shutdown|Fault' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs the WorkTable publishing application.
+- `func (application *Application) Send(update worktable.WorkTableUpdate)` — Send submits one table update to the latest-wins coalescer.
+- `func (application *Application) Close()` — Close publishes the latest tail and stops the publisher goroutine.
+- `func (application *Application) publish(update worktable.WorkTableUpdate)`
+
+### application_test.go
+
+- `func TestApplicationCoalescesAndOnlyResendsChangedTree(t *testing.T)`
+- `func TestApplicationCloseDrainsTailAndSendAfterCloseIsSafe(t *testing.T)`
+- `func receivePayload(t *testing.T, published <-chan model.WorkTableEvent) model.WorkTableEvent`
+
+### consumer.go
+
+- `func NewAsyncConsumer(deps AsyncConsumerDeps) *AsyncConsumer` — NewAsyncConsumer constructs one lifecycle consumer.
+- `func (consumer *AsyncConsumer) Run()` — Run blocks until both signal sources are absent or Stop closes.
+
+### consumer_test.go
+
+- `func TestAsyncConsumerDispatchesSignalsAndStops(t *testing.T)`
+- `func TestAsyncConsumerRetriesPendingCompletions(t *testing.T)`
+- `func TestAsyncConsumerWithoutSignalsReturns(t *testing.T)`
+
+### lifecycle.go
+
+- `func NewLifecycle(deps LifecycleDeps) *Lifecycle` — NewLifecycle constructs the WorkTable lifecycle consumers.
+- `func (lifecycle *Lifecycle) Start()` — Start launches each configured consumer once.
+- `func (lifecycle *Lifecycle) consumeSubagentLifecycle()`
+- `func (lifecycle *Lifecycle) consumeTaskChanges()`
+- `func (lifecycle *Lifecycle) safeCall(call func())`
+
+### lifecycle_test.go
+
+- `func TestLifecycleDispatchesSubagentAndTaskSignals(t *testing.T)`
+- `func TestLifecycleWithoutSignalsDoesNotStartWorkers(t *testing.T)`
+
+### projection.go
+
+- `func BuildRows(input RowInputs) ([]model.WorkItem, []model.WorkTableBatch)` — BuildRows delegates to the unique row/batch projection implementation.
+- `func WorkItemForRecord(record dto.TaskRecord, plan *model.PlanState, limits worktable.Limits) model.WorkItem` — WorkItemForRecord adds Plan adjacency dependencies to one task-change row.
+
+### projection_test.go
+
+- `func TestBuildRowsDelegatesRowAndBatchProjection(t *testing.T)`
+- `func TestWorkItemForRecordWithoutPlanLeavesDependencies(t *testing.T)`
+
+### runtime.go
+
+- `func NewRuntime(deps RuntimeDeps) *Runtime` — NewRuntime constructs the WorkTable runtime.
+- `func (runtime *Runtime) Close()` — Close stops the latest-wins publisher after flushing its final update.
+- `func (runtime *Runtime) RefreshLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — RefreshLocked rebuilds the WorkTable projection while the caller holds the
+- `func (runtime *Runtime) Publish(revision uint64, requestID string, items []protocol.WorkItem, batches []protocol.WorkTableBatch)` — Publish sends one immutable table snapshot to the latest-wins publisher.
+- `func (runtime *Runtime) PublishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — PublishTaskChanged publishes one task.changed increment.
+- `func (runtime *Runtime) PublishTaskDeltas()` — PublishTaskDeltas samples runtime facts outside the lock, rebuilds the
+- `func (runtime *Runtime) SyncFromSources()` — SyncFromSources synchronizes the active session's Plan and subagent tree.
+- `func (runtime *Runtime) SyncFromSourcesFor(sessionID string)` — SyncFromSourcesFor projects one session's Plan and owned subagent nodes into
+- `func (runtime *Runtime) SessionActivePlanLocked(sessionID string) *protocol.PlanState` — SessionActivePlanLocked returns the active or background session's Plan
+- `func (runtime *Runtime) syncPlanNodeTask(sessionID string, node protocol.PlanNode, parentID string)`
+- `func (runtime *Runtime) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
+- `func (runtime *Runtime) WorkItemForRecord(record dto.TaskRecord, sessionID string) protocol.WorkItem` — WorkItemForRecord maps one task record and fills Plan adjacency dependencies.
+- `func (runtime *Runtime) TraceBlock() string` — TraceBlock returns the active session's provider-only WorkTable trace block.
+- `func (runtime *Runtime) TraceBlockFor(sessionID string) string` — TraceBlockFor returns one session's unfinished task and async execution
+- `func (runtime *Runtime) RefreshSubagents()` — RefreshSubagents updates the tree snapshot and synchronizes terminal tool
+- `func (runtime *Runtime) RefreshFromSources()` — RefreshFromSources synchronizes Plan/subagent sources and publishes the
+- `func (runtime *Runtime) StartLifecycleConsumers()` — StartLifecycleConsumers starts the WorkTable signal consumers once.
+- `func (runtime *Runtime) StopLifecycleConsumers()` — StopLifecycleConsumers closes the lifecycle signals once.
+- `func (runtime *Runtime) SafeLifecycleCall(call func())` — SafeLifecycleCall routes consumer panics to the lifecycle fault guard.
+- `func (runtime *Runtime) RefreshAfterTodoChange()` — RefreshAfterTodoChange reruns the runtime projection and publishes runtime,
+- `func (runtime *Runtime) AsyncRuns() []dto.AsyncRunRecord` — AsyncRuns returns the host async execution projection.
+- `func (runtime *Runtime) limits() worktable.Limits`
+- `func (runtime *Runtime) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event`
+
+### trace.go
+
+- `func BuildTraceBlock(input TraceInputs) string` — BuildTraceBlock renders the session-scoped request-tail work table.
+
+### trace_test.go
+
+- `func TestBuildTraceBlockFiltersAndBounds(t *testing.T)`
+- `func TestBuildTraceBlockEmpty(t *testing.T)`

@@ -166,3 +166,211 @@ go test ./backend/workunit/ ./backend/engine/assemble/ -count=1
 | **登记来源：两个来源指向同一现场、缺栏不降级** | `worktree_registration_sources_test.go`、`worktree_scene_claim_test.go` |
 | **登记缺栏（弱登记先到）时 M2 不许静默失效** | `worktree_weak_registration_merge_test.go`（缺栏 → 显式失败 + 一个空 ref 都不发给 git + 现场/分支/产出原样；反证对照：只有 `Adopt` 先到时两栏由 git 现算、收尾照常合回 main） |
 | 现场被对端收走 | `worktree_vanished_scene_repro_test.go`（不许被幂等口径抹掉） |
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### worktree_dirty_judgment_test.go
+
+- `func TestDirtyJudgmentIsSingleAcrossEntries(t *testing.T)`
+
+### worktree_failure_smoke_test.go
+
+- `func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T)` — TestWorktreeScenePreservedOnAllFinishFailures 表驱动冒烟：所有 worktree
+- `func TestWorktreeScenePreservedOnMergeConflict(t *testing.T)` — TestWorktreeScenePreservedOnMergeConflict B4: 主工作区 merge 冲突。
+- `func TestWorktreeSceneReleasedOnSuccess(t *testing.T)` — TestWorktreeSceneReleasedOnSuccess 对照：成功路径 Finish 只清理 worktree
+- `func TestWorktreeSceneSurvivesRelease(t *testing.T)` — TestWorktreeSceneSurvivesRelease 验证 Release 只由成功路径调用：
+
+### worktree_judgment_bench_test.go
+
+- `func BenchmarkJudgmentPathDirtyWith(b *testing.B)`
+- `func BenchmarkJudgmentWorktreePathEqual(b *testing.B)`
+- `func BenchmarkJudgmentParseWorktreeList(b *testing.B)`
+- `func BenchmarkJudgmentCleanupWorktreeWith(b *testing.B)`
+
+### worktree_manager.go
+
+- `func (e *WorktreeCreateError) Error() string`
+- `func (e *WorktreeCreateError) Unwrap() error`
+- `func strictWorktreeError(nodeID string, code WorktreeErrorCode, err error) *WorktreeCreateError`
+- `func IsUncommittedChanges(err error) bool` — IsUncommittedChanges 判定 err 是否属于「未提交改动」类收尾失败。
+- `func IsMergeBlockedByMain(err error) bool` — IsMergeBlockedByMain 判定 err 是否属于「被主工作区挡住」类收尾失败（转调契约那份判据）。
+- `func (e *missingSceneFactsError) Error() string`
+- `func (e *missingSceneFactsError) Unwrap() error`
+- `func classifySceneMergeTarget(mainBranch string) (sceneMergeTargetKind, string)` — classifySceneMergeTarget 判定一条现场记录的合并目标归属（全包唯一一处）。
+- `func missingMergeTarget(nodeID string, wt *NodeWorktree) error` — missingMergeTarget / missingBaseline 造「缺栏」诊断：说清缺的是哪一栏、这一栏收尾拿它干什么
+- `func missingBaseline(nodeID string, wt *NodeWorktree) error`
+- `func (e *mergeBlockedError) Error() string`
+- `func (e *mergeBlockedError) Unwrap() error`
+- `func isMergeBlockedEvidence(stderr string, callErr error) bool` — isMergeBlockedEvidence 判定一次失败的 git 调用是否属于「主工作区挡路」。
+- `func NewWorktreeManager(deps WorktreeManagerDeps) *WorktreeManager`
+- `func (w *WorktreeManager) handleFinish(command finishCommand)` — handleFinish 是 finishActor 的唯一消费者：串行执行一次收尾并把结果回给投递方。
+- `func (w *WorktreeManager) submitFinish(ctx context.Context, nodeID string, wt *NodeWorktree) error` — submitFinish 把一次收尾投给单写者并等结果。
+- `func (w *WorktreeManager) Close()` — Close 幂等关闭：停收尾单写者（处理完当前命令即退出）并等它收工。
+- `func (w *WorktreeManager) worktreeFor(nodeID string) *NodeWorktree` — worktreeFor 返回节点的 worktree（无 → nil）。
+- `func (w *WorktreeManager) RegisteredCount() int` — RegisteredCount 返回当前注册的 worktree 数（测试/诊断读取面）。
+- `func (w *WorktreeManager) Begin(scope dto.SceneScope, nodeID string) *NodeWorktree` — Begin 为节点创建 worktree（降级返回 nil）：
+- `func (w *WorktreeManager) BeginNamed(nodeID string) *NodeWorktree` — BeginNamed 为非子代理的**编排节点**创建 worktree：teammate 的每一个 Work Item 都是
+- `func (w *WorktreeManager) BeginNamedStrict(nodeID string) (*NodeWorktree, error)` — BeginNamedStrict 是 teammate / Work Item 的严格创建入口：任何失败都返回 typed
+- `func (w *WorktreeManager) WorktreeForNode(nodeID string) *NodeWorktree` — WorktreeForNode 返回在册现场（无 → nil）。合并/释放按 id 取现场时用。
+- `func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree` — beginNamed 为 nodeID 开一个现场（幂等）。四种情况**分清楚**，任何一条路径都
+- `func (w *WorktreeManager) beginNamedStrict(nodeID string) (*NodeWorktree, error)`
+- `func (w *WorktreeManager) Adopt(nodeID string) *NodeWorktree` — Adopt 认领一个**既有的**现场（按 nodeID）：把磁盘上已经建好、且确实是本 repo 的
+- `func sceneDirName(repoBase, nodeID string) string` — sceneDirName 拼一个 nodeID 的现场目录名。
+- `func sceneDirPrefix(repoBase string) string` — sceneDirPrefix 是"由本管理器命名的现场"目录名前缀（isManagedPath 的判据）。
+- `func (w *WorktreeManager) scenePath(root, nodeID string) string` — scenePath 返回 nodeID 的现场路径（与 beginNamed 同一条命名）。
+- `func (w *WorktreeManager) register(nodeID string, wt *NodeWorktree) *NodeWorktree` — register 把一份现场登记进注册表并返回它。
+- `func (w *WorktreeManager) worktreeEntryAt(root, path string) (worktreeEntry, bool)` — worktreeEntryAt 返回某路径在 `git worktree list` 里的登记（目录不在或不在册 → false）。
+- `func (w *WorktreeManager) branchExists(root, branch string) bool` — branchExists 报告本地分支是否已存在。判据取"rev-parse 拿到了一个非空输出"：
+- `func (w *WorktreeManager) baselineFor(branch, mainBranch string) string` — baselineFor 返回分支与主分支的分叉点，作为合并判定基线（BaseCommit）。
+- `func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWorktree) error` — Finish 执行**一次**收尾：由单写者 actor 串行执行 变基兜底 → 提交判定 → merge →
+- `func (w *WorktreeManager) finishOnce(ctx context.Context, nodeID string, wt *NodeWorktree) error` — finishOnce 是单次收尾的实际实现：只由 finishActor 串行调用（同一时刻只有一个
+- `func (w *WorktreeManager) phase(ctx context.Context, nodeID, status string)` — phase 在注入机械阶段观察者时转发。生产装配不注入（生命周期阶段归 workunit.Host），
+- `func (w *WorktreeManager) alignMergeTarget(root, nodeID string, wt *NodeWorktree) error` — alignMergeTarget 把主工作区切到**现场记录的那条收尾分支**（`wt.MainBranch`，建现场
+- `func firstEvidenceLine(stderr string, callErr error) string` — firstEvidenceLine 从 git 证据里取一行摘要（原文可能多行；诊断取首行）。
+- `func (w *WorktreeManager) Release(nodeID string)` — Release 在节点结束时从注册表移除（成功路径已清理；失败路径保留现场但解除注册，
+- `func (w *WorktreeManager) Restore(records []store.NodeSessionRecord)` — Restore 从持久化记录重建 worktree 注册表（重启/恢复锚点）：
+- `func (w *WorktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool)` — Info 返回节点 worktree 现场信息（无现场 → false）。
+- `func (w *WorktreeManager) sceneRegistered(path string) bool` — sceneRegistered 报告某个 worktree 路径是否是本管理器**在册**的现场
+- `func (w *WorktreeManager) Prune() (PruneResult, error)` — Prune 回收**孤儿 worktree**：磁盘上仍是本仓库的 worktree（路径符合本管理器的
+- `func (w *WorktreeManager) listWorktrees(root string) ([]worktreeEntry, error)` — listWorktrees 列出本仓库的全部 worktree（main + 各现场）。
+- `func parseWorktreeList(out string) []worktreeEntry` — parseWorktreeList 解析 `git worktree list --porcelain` 的读数——**worktree 清单
+- `func (w *WorktreeManager) isManagedPath(root, path string) bool` — isManagedPath 判定一个 worktree 路径是否由本管理器命名（`<repoBase>-seelex-<nodeID>`，
+- `func (w *WorktreeManager) pathDirty(path string) (bool, error)` — pathDirty 报告某个 worktree 是否有未提交改动。判据只有一份，见 pathDirtyWith。
+- `func PathDirty(path string) (bool, error)` — PathDirty 报告某个工作区是否有未提交改动（包级入口：编排面用它）。
+- `func pathDirtyWith(git gitFn, path string) (bool, error)` — pathDirtyWith 是**脏判定的唯一实现**：`git status --porcelain` 非空即脏。
+- `func (w *WorktreeManager) isGitRepository(root string) bool`
+- `func (w *WorktreeManager) branchBehindBase(nodeID string, wt *NodeWorktree) (bool, error)`
+- `func (w *WorktreeManager) commitCountSince(nodeID string, wt *NodeWorktree) (int, error)`
+- `func (w *WorktreeManager) worktreeDirty(wt *NodeWorktree) (bool, error)` — worktreeDirty 报告某个现场是否有未提交改动：转调唯一实现（键 = wt.Path）。
+- `func (w *WorktreeManager) conflictFilesIn(dir string) ([]string, error)`
+- `func (w *WorktreeManager) cleanup(root string, wt *NodeWorktree) error` — cleanup 是收尾自动释放的入口（Finish 的两条成功路径）。释放判据只有一份，见
+- `func GitRunner(root string, args ...string) (string, error)` — gitRunner 执行 git 命令（worktree 测试可用真实 git；命令经 ConfigureHiddenCommand
+- `func CleanupWorktree(root string, wt *NodeWorktree) error` — CleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
+- `func cleanupWorktreeWith(git gitFn, root string, wt *NodeWorktree) error` — cleanupWorktreeWith 是**现场释放的唯一实现**：判据 = 「git 登记不在（或 remove 成功）
+- `func worktreeRemoveError(path, stderr string, err error) error` — worktreeRemoveError 把 git 的原文留在报错里：注入的 runner 的第一个返回值就是这条
+- `func deleteWorktreeBranchWith(git gitFn, root, branch string)` — deleteWorktreeBranchWith 删除本地分支，忽略"分支不存在"（释放幂等的另一半：分支可能
+- `func gitWorktreeRegistered(root, path string) bool` — gitWorktreeRegistered 报告某个路径是否仍在 `git worktree list` 的清单里
+- `func worktreeRegisteredWith(git gitFn, root, path string) bool` — worktreeRegisteredWith 用注入的 git 判定"这条路径还在不在册"：清单按 porcelain 解析
+- `func worktreePathEqual(a, b string) bool` — worktreePathEqual 比较两个路径是否是同一个 worktree。
+- `func sameFileIdentity(a, b string) bool` — sameFileIdentity 报告两个路径是否指向同一个文件系统对象（任一不存在 → false，
+- `func ConflictFilesIn(dir string) ([]string, error)` — ConflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
+
+### worktree_manager_test.go
+
+- `func newFakeGit() *fakeGit`
+- `func (f *fakeGit) run(root string, args ...string) (string, error)`
+- `func (f *fakeGit) snapshot() []string`
+- `func newTestWorktreeManager(root string) (*WorktreeManager, *fakeGit)`
+- `func TestWorktreeManagerBeginDegradesOutsideGit(t *testing.T)`
+- `func (*gitTestErr) Error() string`
+- `func TestWorktreeManagerBeginRegistersAndInfo(t *testing.T)`
+- `func TestWorktreeManagerFinishDirtyUncommittedPreservesScene(t *testing.T)`
+- `func TestWorktreeManagerFinishCleanNoChangesCleansUp(t *testing.T)`
+- `func TestWorktreeManagerFinishMergeApproved(t *testing.T)`
+- `func TestWorktreeManagerReleaseRemovesRegistration(t *testing.T)`
+- `func TestWorktreeManagerConcurrentRace(t *testing.T)`
+- `func containsCall(calls []string, want string) bool`
+
+### worktree_merge_kickback_test.go
+
+- `func mergeKickbackManager(t *testing.T, root string) *WorktreeManager` — mergeKickbackManager 造一个绑定到 root 的收尾管理器（真实 git + 总是批准的审批门）。
+- `func commitProduced(t *testing.T, dir, name, content, message string) string` — commitProduced 在 dir 里落一份产出并提交，返回这次提交的 sha。
+- `func checkoutIn(t *testing.T, root, branch string)` — checkoutIn 在主工作区切分支（模拟"主工作区的当前分支漂走"）。
+- `func refSha(root, ref string) string` — refSha 读一个 ref 的 sha（不存在 → 空串）。
+- `func isAncestor(root, ancestor, descendant string) bool` — isAncestor 报告 ancestor 是否还在 descendant 的历史里（判"产出有没有被踢走"）。
+- `func fileInRoot(root, name string) string` — fileInRoot 读主工作区里某个文件（不存在 → 空串）。
+- `func TestFinishSecondUnitKeepsFirstMerge(t *testing.T)` — TestFinishSecondUnitKeepsFirstMerge 钉住"两个单元先后收尾"的三条判据：
+
+### worktree_merge_serial_test.go
+
+- `func newScriptedGit() *scriptedGit`
+- `func (g *scriptedGit) run(_ string, args ...string) (string, error)`
+- `func (g *scriptedGit) snapshot() []string`
+- `func (l *phaseLog) record(_ context.Context, nodeID, status string)`
+- `func (l *phaseLog) has(status string) bool`
+- `func newScriptedManager(t *testing.T, git *scriptedGit) (*WorktreeManager, *phaseLog)` — newScriptedManager 组装一个注入脚本化 git 的管理器（预算压到几十毫秒，测试可
+- `func TestFinishSerializesConcurrentMergesIntoMain(t *testing.T)` — TestFinishSerializesConcurrentMergesIntoMain（2026-10-05 核心红线）：fork 的一批
+- `func TestFinishWithoutActorOverlapsMerges(t *testing.T)` — TestFinishWithoutActorOverlapsMerges 是上一条的**反证对照**：把单写者摘掉
+- `func (scenePortForTest) BeginScene(context.Context, workunit.Ownership, string, string) (workunit.Scene, error)`
+- `func (p scenePortForTest) MergeScene(ctx context.Context, _ workunit.Ownership, nodeID, _ string) error`
+- `func (p scenePortForTest) ReleaseScene(nodeID string)`
+- `func (scenePortForTest) AdoptScenes(context.Context, string) error`
+- `func (p scenePortForTest) SceneRegistered(nodeID string) bool`
+- `func (zeroUnits) Owned(context.Context, string, workunit.Ownership) bool`
+- `func (zeroUnits) Settled(context.Context, string, string) (bool, error)`
+- `func (zeroUnits) SettleUnit(context.Context, string, workunit.Ownership, error, error) (workunit.Outcome, error)`
+- `func (zeroUnits) ReclaimUnit(context.Context, string, string) error`
+- `func (zeroUnits) RecoverUnits(context.Context, string) (workunit.Resume, error)`
+- `func (zeroRecords) Status(context.Context, workunit.Ownership, string, string) (string, bool, error)`
+- `func (zeroRecords) Readout(context.Context, workunit.Ownership, string, string) (workunit.Resume, error)`
+- `func (zeroRecords) SaveRecord(context.Context, workunit.Ownership, string, string, string, string, string)`
+- `func (zeroRecords) SettleRecord(context.Context, workunit.Ownership, string, string, workunit.Outcome)`
+- `func (zeroRecords) Clear(context.Context, workunit.Ownership, string, string) error`
+- `func (sceneUnit) Kind() workunit.Kind`
+- `func (u sceneUnit) ID() string`
+- `func (sceneUnit) SessionPath() string`
+- `func (sceneUnit) Policy() workunit.FinishPolicy`
+- `func (sceneUnit) Owns() workunit.Ownership`
+- `func TestHostRetriesWorktreeBlockedMergeWithinBudget(t *testing.T)` — TestHostRetriesWorktreeBlockedMergeWithinBudget："主工作区脏、正好压在本次合并
+- `func TestFinishReportsBlockedByMainAsOneAttempt(t *testing.T)` — TestFinishReportsBlockedByMainAsOneAttempt：现场适配器只跑一次 merge，挡路以
+- `func TestFinishMergeConflictIsDefinitive(t *testing.T)` — TestFinishMergeConflictIsDefinitive：真冲突（主工作区真的被改成了冲突态）**不是**
+- `func TestFinishBlockedByMainReleasesActorForOtherNodes(t *testing.T)` — TestFinishBlockedByMainReleasesActorForOtherNodes：挡路事实交回后单写者立刻释放，
+- `func TestBeginNamedReusedByTeammateAndSubagent(t *testing.T)` — TestBeginNamedReusedByTeammateAndSubagent 钉住两条链的**现场命名同源**：teammate 的
+
+### worktree_prune_test.go
+
+- `func TestPruneRemovesOrphanWorktreesAndKeepsDirtyOnes(t *testing.T)` — TestPruneRemovesOrphanWorktreesAndKeepsDirtyOnes 钉住「残留兜底清理器」的两条判据：
+- `func TestPruneRunsGitWorktreePrune(t *testing.T)` — TestPruneRunsGitWorktreePrune 钉住「顺手清掉 prunable 元数据」：手工删目录会在
+- `func TestRestoreSkipsWorktreesThatNoLongerExist(t *testing.T)` — TestRestoreSkipsWorktreesThatNoLongerExist 钉住「幽灵条目」修复：锚点还在、目录
+
+### worktree_registration_bench_test.go
+
+- `func sceneRecordsForBench(b *testing.B, dir string) []store.NodeSessionRecord` — sceneRecordsForBench 造 32 条"记录投影来源"的记录，每条都有真实存在的现场目录
+- `func BenchmarkSceneRegistrationRestore(b *testing.B)`
+
+### worktree_registration_sources_test.go
+
+- `func sceneRecordFor(nodeID string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord` — sceneRecordFor 造一条**记录投影来源**的会话记录（形态与 teammate 落盘一致）。
+- `func TestSceneRegistrationSourcesAgreeInBothOrders(t *testing.T)` — TestSceneRegistrationSourcesAgreeInBothOrders —— ① 两个来源、两种顺序，只有一条登记。
+- `func TestRestoreDoesNotDowngradeLiveRegistration(t *testing.T)` — TestRestoreDoesNotDowngradeLiveRegistration —— ② 记录里缺的栏位不许把活登记降级。
+- `func TestRestoreStillRebuildsRegistrationAfterRestart(t *testing.T)` — TestRestoreStillRebuildsRegistrationAfterRestart —— ③ 首判复用不许弄丢"重启恢复"本身。
+
+### worktree_release_judgment_test.go
+
+- `func TestSceneReleaseJudgmentIsSingleAcrossEntries(t *testing.T)` — TestSceneReleaseJudgmentIsSingleAcrossEntries 对五种现场形状各跑两条入口：
+
+### worktree_scene_claim_test.go
+
+- `func sceneManager(root string) *WorktreeManager` — sceneManager 造一个绑定到 root 的 worktree 管理器（真实 git）。每次调用 = 一个新进程
+- `func TestAdoptClaimsExistingSceneAndPruneKeepsIt(t *testing.T)` — TestAdoptClaimsExistingSceneAndPruneKeepsIt —— F4 ①：认领既有现场 + Prune 不删它。
+- `func TestBeginNamedAfterRestartKeepsUncommittedScene(t *testing.T)` — TestBeginNamedAfterRestartKeepsUncommittedScene —— F5 ②：重派同一 nodeID 不丢未提交产出。
+- `func TestBeginNamedRebuildsSceneFromExistingBranch(t *testing.T)` — TestBeginNamedRebuildsSceneFromExistingBranch —— F5 ③：分支已在、目录不在。
+
+### worktree_scene_naming_test.go
+
+- `func TestSceneNamingHasSingleSpelling(t *testing.T)`
+- `func TestSceneRegistrationAgreesAcrossPathSpellings(t *testing.T)`
+
+### worktree_strict_test.go
+
+- `func TestBeginNamedStrictReturnsTypedNonGitError(t *testing.T)`
+- `func TestBeginNamedLegacyWrapperKeepsFallbackSemantics(t *testing.T)`
+
+### worktree_vanished_scene_repro_test.go
+
+- `func TestWorktreeFinishReportsVanishedScene(t *testing.T)` — TestWorktreeFinishReportsVanishedScene 复现"现场被对端收走"的报错形状。
+- `func isVanishedCwdError(err error) bool` — isVanishedCwdError 报告这条 git 报错是不是"子进程的工作目录不存在"那一类。
+- `func reproGitRepo(t *testing.T) string` — reproGitRepo 建一个**真实** git 仓库。
+
+### worktree_weak_registration_merge_test.go
+
+- `func (l *gitCallLog) wrap(real gitFn) gitFn` — wrap 把真实 git 执行器包一层（记录后转调）。
+- `func (l *gitCallLog) snapshot() []string`
+- `func emptyRefArgs(lines []string) []string` — emptyRefArgs 找出「被拼空的 ref」（`HEAD..` / `..HEAD` 这一类：`..` 的左边或右边是空的）。
+- `func weakSceneRecord(nodeID, path, branch string) store.NodeSessionRecord` — weakSceneRecord 造一条**teammate 落盘形态**的记录：现场栏只有 Path/Branch，
+- `func weakSceneFixture(t *testing.T, nodeID string) (string, *WorktreeManager, *gitCallLog, *NodeWorktree, string, string)` — weakSceneFixture 搭出「旧进程建现场 + 现场里一条已提交产出 + 主工作区自己也在前进」的现场：
+- `func TestWeakSceneRegistrationRefusesToMergeBack(t *testing.T)` — TestWeakSceneRegistrationRefusesToMergeBack —— ① 缺栏登记的收尾必须**显式**拒绝：
+- `func TestAdoptFirstFillsSceneColumnsSoFinishMergesBack(t *testing.T)` — TestAdoptFirstFillsSceneColumnsSoFinishMergesBack —— ② 反证对照。

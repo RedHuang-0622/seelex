@@ -53,4 +53,3 @@ go test ./internal/frontmatter -count=1
 
 - `func TestParseWithAndWithoutFrontmatter(t *testing.T)`
 - `func TestParseRejectsInvalidFrontmatter(t *testing.T)`
-

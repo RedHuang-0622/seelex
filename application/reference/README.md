@@ -77,3 +77,50 @@ I/O 写入。
 go test ./application/reference ./application/assembly -run 'Reference|CompressedTurn|Assistant|Plan' -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs the reference application from its consumer-defined ports.
+- `func (application *Application) ReadToolResultHandler(argsJSON string) (string, error)` — ReadToolResultHandler handles the read_tool_result model tool request.
+- `func (application *Application) ToolResultContent(resultRef string, offset, limit int) (model.ToolResultPage, error)` — ToolResultContent reads a bounded page for the GUI full-output viewer.
+- `func (application *Application) toolResultContent(resultRef string, offset, limit int, contains string) (model.ToolResultPage, error)`
+- `func (application *Application) ReadPlanHandler(argsJSON string) (string, error)` — ReadPlanHandler returns the selected canonical Plan nodes and state.
+
+### application_test.go
+
+- `func TestReadToolResultUsesDefaultLimitAndClamp(t *testing.T)`
+- `func TestReadToolResultResolvesWireRefThroughCallIDAlias(t *testing.T)`
+- `func TestReadToolResultSkipsAliasForNonWireRef(t *testing.T)` — 只有 wire 形状（"result:<callID>"）才查别名；归档引用与 node 引用一律原样交给存储。
+- `func TestReadToolResultSkipsAliasForEmptyCallID(t *testing.T)` — "result:" 去掉前缀后是空 callID —— 那不是可解析的 wire 引用，同样不查别名。
+- `func TestReadToolResultKeepsWireRefOnAliasMiss(t *testing.T)` — 别名未命中时 wire 引用原样下传，由存储面报告"不可用"，不在装配层改写形状。
+- `func TestReadPlanFiltersCanonicalNodes(t *testing.T)`
+
+### archiver.go
+
+- `func (a *CompressedTurnArchiver) resolveProjectID(sessionID string) string` — resolveProjectID 解析落盘的项目作用域：先按会话自己的绑定（数据实际所在），
+- `func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error)` — StoreTurn 实现 seelexctx.TurnArchiver。会话归属优先取 ctx（runChat 注入
+
+### archiver_test.go
+
+- `func (store *recordingCompressedTurnStore) SaveCompressedTurn(projectID, sessionID, ref, content string) error`
+- `func TestCompressedTurnArchiverUsesContextSessionBeforeProvider(t *testing.T)`
+- `func TestCompressedTurnArchiverFallsBackToProviderAndRejectsNoOwner(t *testing.T)`
+
+### compressed_turn.go
+
+- `func (application *Application) ReadCompressedTurnHandler(argsJSON string) (string, error)` — ReadCompressedTurnHandler handles the read_compressed_turn model tool. The
+- `func renderCompressedTurns(messages []types.Message) string` — renderCompressedTurns renders archived turns as role-tagged text. Assistant
+- `func pageCompressedTurns(rendered string, offset, limit int, contains string) (string, error)` — pageCompressedTurns filters rendered lines and returns one rune-bounded page.
+
+### compressed_turn_test.go
+
+- `func TestReadCompressedTurnHandlerLoadsScopedArchiveAndFilters(t *testing.T)`
+- `func TestReadCompressedTurnHandlerRejectsInvalidRequestBeforeLoad(t *testing.T)`
+- `func TestReadCompressedTurnHandlerClampsLimitAndMarksTruncation(t *testing.T)`
+- `func TestRenderCompressedTurnsPreservesRoleTags(t *testing.T)`
+- `func compressedString(value string) *string`

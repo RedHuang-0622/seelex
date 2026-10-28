@@ -94,3 +94,23 @@ go test ./backend/tool/websearch -count=1
 ```
 
 关键测试文件：`websearch_test.go`（占位工具、自定义策略端到端、空 query、schema）。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### websearch.go
+
+- `func Register(registrar ToolRegistrar, configPath string)` — Register 是 web_search 的装配点（Assembler）：配置从独立的
+- `func RegisterWithOptions(registrar ToolRegistrar, configPath string, opts Options)` — RegisterWithOptions 是带可选兜底密钥的装配点（行为与 Register 完全一致）。
+- `func toolSchema() map[string]interface` — toolSchema 返回 web_search 工具的 JSON Schema（参数校验由运行时负责）。
+
+### websearch_test.go
+
+- `func (f *fakeRegistrar) RegisterTool(name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error))`
+- `func writeSearchEngine(t *testing.T, content string) string`
+- `func TestRegister_NoConfigRegistersPlaceholder(t *testing.T)`
+- `func TestRegister_MinimalStrategyEndToEnd(t *testing.T)`
+- `func TestRegister_EmptyQueryRejected(t *testing.T)`
+- `func TestToolSchema(t *testing.T)`

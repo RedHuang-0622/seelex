@@ -356,13 +356,18 @@ func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
 
 func TestRepositoryModuleReadmeLinks(t *testing.T) {
 	pattern := regexp.MustCompile(`\]\(([^)]+)\)`)
+	fencedCode := regexp.MustCompile("(?s)```.*?```")
+	inlineCode := regexp.MustCompile("`[^`\\n]*`")
 	for _, module := range repositoryModules {
 		path := repositoryModuleDocumentationPath(module)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, match := range pattern.FindAllStringSubmatch(string(data), -1) {
+		// 生成的文件索引会把 Go 泛型签名（如 `Blocks[T any](items []T)`）写进行内代码。
+		// 链接扫描必须先移除代码区，否则会把签名里的 `](...)` 误判成 Markdown 链接。
+		markdown := inlineCode.ReplaceAllString(fencedCode.ReplaceAllString(string(data), ""), "")
+		for _, match := range pattern.FindAllStringSubmatch(markdown, -1) {
 			target := strings.Trim(match[1], "<>")
 			target, _, _ = strings.Cut(target, "#")
 			if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {

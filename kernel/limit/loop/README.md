@@ -9,7 +9,7 @@
 主要调用方：
 
 - `application/prompt`（effort 档位表取这里的读数，`MaxLoops` / `ReActBudgetFor` 转发到此处）；
-- `wiring/adapters`（会话级引擎端口解析"这次用多少轮"）；
+- `internal/host`（会话级引擎端口解析"这次用多少轮"）；
 - `backend/tool/fork`（`fork_subagents` 的子代理 `max_loops` 入口校验）。
 
 ## 职责与非职责
@@ -66,7 +66,7 @@ config/seelex.yaml limits.input_loop_limit ─┐
                                             │
 application/prompt 的档位表 ──→ loop.For(level) ──→ MaxLoops / Budget
                                             │
-wiring/adapters（会话钉住值）──→ loop.Effective(pin, 进程默认) ──→ engine.SetMaxLoops
+internal/host（会话钉住值）──→ loop.Effective(pin, 进程默认) ──→ engine.SetMaxLoops
                                             │
 backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(…, ceiling)
 ```
@@ -104,7 +104,7 @@ backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(�
 ```text
 go test ./kernel/limit/loop/... -count=1
 go test ./application/prompt/... -count=1      # 跨入口一致性用例在这里
-go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
+go test ./internal/host/... ./backend/tool/fork/... -count=1
 ```
 
 关键用例：`TestTierTableExactValues`（唯一数字表）、`TestEffectiveResolution`、
@@ -146,4 +146,3 @@ go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
 - `func TestEffectiveResolution(t *testing.T)` — TestEffectiveResolution 钉住"这次用多少轮"的解析：会话钉住值优先，否则进程默认值；
 - `func TestValidateSubagentMaxLoopsUsesProcessCeiling(t *testing.T)` — TestValidateSubagentMaxLoopsUsesProcessCeiling：循环声明的判据只有**进程级天花板**。
 - `func TestValidateSubagentMaxLoopsMessagesUnchanged(t *testing.T)` — TestValidateSubagentMaxLoopsMessagesUnchanged：错误文案是用户可见面的既有事实，
-

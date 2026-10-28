@@ -4,17 +4,7 @@
 
 会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API
 
-覆盖：`sessionstore*.go`、`session_granular*.go`、`session_context*.go`、`session_meta*.go`、`durable_history*.go`、`runtime_api*.go`、`conversation*.go`、`history_resume_readers*.go`；未归属文件由覆盖自检拦下。
-
-## 消息 EventSeq 与会话血缘（2026-10-25）
-
-`ConversationMessage.EventSeq` 由 message 事件行派生，只有落在
-`CompleteEventUnits` 完整单元内的事件才携带该值。它供应用层生成用户消息的编辑
-判据与 fork 源定位；不是 UI 序列号，也不按窗口位置推算。
-
-`SessionContextRecord.ForkedFrom` 以 `json.RawMessage` 保存不透明会话血缘，
-避免 store 反向依赖 protocol/model。写入由 session fork 通道负责，恢复时由应用层
-解码为 `SessionForkRef`。旧记录缺这两个字段时分别按“不可定位/无血缘”处理。
+覆盖：`sessionstore*.go`、`session_granular*.go`、`session_context*.go`、`session_meta*.go`、`session_ssh*.go`、`durable_history*.go`、`runtime_api*.go`、`conversation*.go`、`history_resume_readers*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -126,8 +116,8 @@
 - `func (s *SessionContextStore) SetSystemPrompt(prompt string) error` — SetSystemPrompt 设置会话级基础提示。
 - `func (s *SessionContextStore) SystemPrompt() string` — SystemPrompt 返回当前会话级基础提示。
 - `func (s *SessionContextStore) Snapshot() SessionContextRecord` — Snapshot 返回记录的内存拷贝（供 Assembler 渲染，不暴露内部状态）。
-- `func (s *SessionContextStore) CompactStackSnapshot() []CompactFrame` — CompactStackSnapshot 只返回压缩栈的深拷贝。
-- `func (s *SessionContextStore) PromptStackSnapshot() storecontext.PromptStackSnapshot` — PromptStackSnapshot 返回 prompt 装配与本地压缩所需的栈投影，不暴露 context blob、schema、fork origin、system prompt 或 goal audit。
+- `func (s *SessionContextStore) CompactStackSnapshot() []CompactFrame` — CompactStackSnapshot 只返回压缩栈的深拷贝。压缩检索、重复压缩基准与相关记忆
+- `func (s *SessionContextStore) PromptStackSnapshot() storecontext.PromptStackSnapshot` — PromptStackSnapshot 返回 prompt 装配与本地压缩所需的栈投影，不暴露
 - `func (s *SessionContextStore) writeStack(kind StackKind, mutate func() error) error` — writeStack 把一次栈变更写进通道并回读该 kind 的 active 投影。
 - `func (s *SessionContextStore) refreshStack(kind StackKind) error` — refreshStack 从栈通道回读指定 kind 的 active 条目覆盖内存投影。
 - `func stackPayload(frame any) json.RawMessage` — stackPayload 编码栈帧为通道 payload。
@@ -149,6 +139,7 @@
 - `func (s *SessionContextStore) mutate(apply func(*SessionContextRecord) error) error` — mutate 在 s.mu 内执行栈操作，**不落盘**：锁内只允许改内存（§2.8——落盘
 - `func (s *SessionContextStore) update(apply func(*SessionContextRecord) error) error` — update 在加锁下执行栈操作并持久化 state blob。
 - `func cloneSessionContextRecord(record SessionContextRecord) SessionContextRecord`
+- `func cloneCompactFrames(frames []CompactFrame) []CompactFrame`
 - `func cloneGoalFrames(frames []GoalFrame) []GoalFrame`
 - `func cloneGoalAudit(entries []GoalAuditEntry) []GoalAuditEntry`
 
@@ -164,6 +155,8 @@
 ### session_context_test.go
 
 - `func TestSessionContextStoreStackLifecycle(t *testing.T)`
+- `func TestSessionContextStoreCompactStackSnapshotIsDeepCopy(t *testing.T)`
+- `func TestSessionContextStorePromptStackSnapshotProjection(t *testing.T)`
 - `func TestSessionContextStorePersistsAcrossInstances(t *testing.T)`
 - `func TestSessionContextStoreRejectsUnsupportedSchemaVersion(t *testing.T)`
 - `func TestSessionContextStoreRejectsCorruptState(t *testing.T)`
@@ -182,9 +175,9 @@
 ### session_granular.go
 
 - `func NewSessionGranularStore(router *Router) *SessionGranularStore` — NewSessionGranularStore 构造会话粒度存储；router 为 nil 时所有方法
-- `func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
+- `func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（boot 装配点：从
 - `func (store *SessionGranularStore) resolver() func(string) string` — resolver 返回注入的会话绑定解析器（可能为 nil）。回调在锁外调用。
-- `func (store *SessionGranularStore) SetProjectSource(source func() []string)` — SetProjectSource 注入应用已知项目列表（wiring/bootstrap 装配点：workspace.Repo.List），
+- `func (store *SessionGranularStore) SetProjectSource(source func() []string)` — SetProjectSource 注入应用已知项目列表（boot 装配点：workspace.Repo.List），
 - `func (store *SessionGranularStore) projectList() func() []string` — projectList 返回注入的项目来源（可能为 nil）。回调在锁外调用。
 - `func (store *SessionGranularStore) projectID(projectID string) string`
 - `func (store *SessionGranularStore) SaveSession(projectID string, record Record) error` — SaveSession 原子写会话记录（幂等：同键重写不漂移；B6）。
@@ -242,7 +235,7 @@
 
 ### session_granular_test.go
 
-- `func newSessionGranularRouter(t *testing.T, _ Backend) *Router` — newSessionGranularRouter 构造 JSON v8 Router（R1 后仅保留该实现）。
+- `func newSessionGranularRouter(t *testing.T) *Router` — newSessionGranularRouter 构造唯一形态的 Router（jsonl + json v8）。
 - `func TestSessionGranularityPersistence(t *testing.T)` — TestSessionGranularityPersistence（T2.6）：session:<id> 五片原子读写、
 - `func TestPersistenceIdempotent(t *testing.T)` — TestPersistenceIdempotent（B6）：会话粒度重复写/恢复幂等，键不漂移。
 - `func TestSessionsOfToleratesProductionRecordSchema(t *testing.T)` — TestSessionsOfToleratesProductionRecordSchema（左侧栏历史会话回归）：
@@ -267,15 +260,30 @@
 - `func TestSessionMetaStoreConcurrentSets(t *testing.T)` — TestSessionMetaStoreConcurrentSets 并发写同项目不同会话（-race）：读改写必须
 - `func TestSessionMetaStorePermissionTierIsolation(t *testing.T)` — TestSessionMetaStorePermissionTierIsolation：会话级权限档位与展示元数据共用一份
 
+### session_ssh_state.go
+
+- `func NewSessionSSHStateStore(router *Router) *SessionSSHStateStore` — NewSessionSSHStateStore 构造会话 SSH 状态存储（router 为 nil 时读返回空状态、
+- `func (store *SessionSSHStateStore) State(projectID, sessionID string) (SessionSSHState, error)` — State 读一个会话的 SSH 状态（没有记录 → 零值状态 + 空环境，即"用不了 SSH"）。
+- `func (store *SessionSSHStateStore) Put(projectID string, state SessionSSHState) error` — Put 追加一条状态变更（整份状态写一行：调用方给出"改完之后是什么样"）。
+- `func (store *SessionSSHStateStore) replay(projectID string) (map[string]SessionSSHState, error)` — replay 回放整份文件，按会话取**最后一行**（后写覆盖先写）。
+- `func normalizeEnvNames(names []string) []string` — normalizeEnvNames 归一环境名集合：去空白、丢空项、保序去重，永不返回 nil。
+
+### session_ssh_state_test.go
+
+- `func openSessionSSHRouter(t *testing.T) *Router`
+- `func sessionSSHFileOnDisk(t *testing.T, router *Router) string`
+- `func TestSessionSSHStateDefaultsToNothingGranted(t *testing.T)`
+- `func TestSessionSSHStateAppendsAndLastWins(t *testing.T)`
+- `func TestSessionSSHStateSkipsBrokenLines(t *testing.T)`
+- `func TestSessionSSHStateConcurrentWrites(t *testing.T)`
+- `func splitLines(text string) []string` — splitLines 是测试用的小工具（不引 strings.Split 以避免与生产路径混淆）。
+
 ### sessionstore.go
 
-- `func (config Config) Normalize(defaultPath string) (Config, error)` — 补默认落点并解析/校验参数覆盖链；
-  唯一形态是 jsonl + json，没有后端/策略选择字段可归一。
-- `func (key Key) Complete() bool` — Complete 报告这个键是否把会话身份的两个分量都写全了：项目与会话在 trim 后都必须非空。
-- `func EventKindOf(event Event) string` — EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
-- `func (key Key) validate() error`
+- `func (config Config) Normalize(defaultPath string) (Config, error)` — Normalize 补齐默认落点并解析/校验参数覆盖链（默认值 ← limits ← 本配置）。
+- `func EventKindOf(event Event) string` — EventKindOf 转发到 store/session（唯一实现在那里；根包只留旧面）。
 - `func validateProjectID(projectID string) error` — validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
-- `func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*Router, error)`
+- `func NewRouter(defaultPath string, limits ...storeroot.Settings) (*Router, error)`
 - `func (router *Router) SetWorkspace(projectID string)`
 - `func (router *Router) Workspace() string`
 - `func (router *Router) Save(sessionID string, messages []types.Message) error`
@@ -290,6 +298,7 @@
 - `func (router *Router) LoadEventTailWorkspace(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error)`
 - `func (router *Router) LoadConversationRangeWorkspace(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error)` — LoadConversationRangeWorkspace 读取会话 conversation 模块的指定窗口
 - `func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error)` — LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
+- `func (router *Router) AppendMessageDraftWorkspace(projectID, sessionID string, rows []Event) ([]Event, bool, error)` — AppendMessageDraftWorkspace 把尚未快照的 transcript 后缀写入 message
 - `func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error)`
 - `func (router *Router) LoadToolResultWorkspace(projectID, sessionID, resultRef string) (ToolResult, error)`
 - `func (router *Router) ListToolResultsWorkspace(projectID, sessionID string) ([]ToolResult, error)` — ListToolResultsWorkspace 读取会话 tool-results 通道全部结果（显式项目
@@ -318,6 +327,7 @@
 - `func (router *Router) SaveSessionDisplayMetaWorkspace(projectID string, payload []byte) error` — SaveSessionDisplayMetaWorkspace / LoadSessionDisplayMetaWorkspace：项目级
 - `func (router *Router) LoadSessionDisplayMetaWorkspace(projectID string) ([]byte, error)`
 - `func (router *Router) DerivedRecordWorkspace(projectID, sessionID string) ([]byte, bool, error)` — DerivedRecordWorkspace 返回派生 SessionRecord JSON（S20：record 通道退役后
+- `func (router *Router) DerivedResumeRecordWorkspace(projectID, sessionID string) (payload []byte, total int, handled bool, err error)` — DerivedResumeRecordWorkspace 返回冷加载可见后缀的派生 record，并以最新
 - `func (router *Router) AppendGoalAuditEvent(projectID, sessionID string, entry GoalAuditEntry) (bool, error)` — AppendGoalAuditEvent 把 goal 审计条目写进 EVENT 通道（S19：GoalAudit 的
 - `func (router *Router) GoalAuditEvents(projectID, sessionID string) ([]GoalAuditEntry, bool, error)` — GoalAuditEvents 读取 EVENT 通道里的 goal 审计条目（按事件序，Seq 顺序编号）。
 - `func (router *Router) SaveProjectRecord(projectID string, record ProjectRecord) error` — SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
@@ -331,9 +341,6 @@
 - `func (router *Router) Delete(sessionID string) error`
 - `func (router *Router) DeleteWorkspace(projectID, sessionID string) error` — DeleteWorkspace deletes a session from an explicit project scope without
 - `func (router *Router) MessageCount(sessionID string) (int, error)`
-- `func (router *Router) Config() Config`
-- `func (router *Router) Test(ctx context.Context, config Config) error`
-- `func (router *Router) Configure(ctx context.Context, config Config) error`
 - `func (router *Router) Close() error`
 - `func (router *Router) withRepository(fn func(Repository, string) error) error`
 - `func (router *Router) withRepositoryAt(projectID string, fn func(Repository, string) error) error`
@@ -342,7 +349,7 @@
 - `func (router *Router) releaseRepository()`
 - `func (router *Router) ensureOpsCond()`
 - `func (router *Router) waitOpsIdleLocked()` — waitOpsIdleLocked 等待在途操作归零（调用方持 router.mu）。
-- `func Open(ctx context.Context, config Config) (Repository, error)`
+- `func Open(_ context.Context, config Config) (Repository, error)`
 - `func newJSONRepository(root string, settings storeroot.Settings) (*jsonRepository, error)`
 - `func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error`
 - `func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit Commit) error`
@@ -382,13 +389,9 @@
 - `func eventTokenCount(events []Event) int`
 - `func selectEventTailWindow(events []Event, tokenBudget, maxUnits int) (tail []Event, startUnit int)` — selectEventTailWindow 选取尾窗，并回报尾窗的起始单元下标。
 - `func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event`
-- `func CompleteEventUnits(events []Event) [][]Event` — CompleteEventUnits 把事件流切分为可见协议轮次单元（轮）：user 轮、
-- `func userEventUnit(events []Event, start int) ([]Event, int)`
-- `func toolEventUnit(events []Event, start int) ([]Event, int, bool)`
+- `func CompleteEventUnits(events []Event) [][]Event` — CompleteEventUnits is the store compatibility entry backed by the single
 - `func appendUnique(values []string, value string) []string`
 - `func containsValue(values []string, value string) bool`
-- `func loadConfig(path string) (Config, error)`
-- `func saveConfig(path string, config Config) error`
 
 ### sessionstore_key_test.go
 
@@ -397,8 +400,8 @@
 ### sessionstore_test.go
 
 - `func messages(count int, marker string) []types.Message`
-- `func TestRouterPersistsConfiguredBackend(t *testing.T)`
-- `func TestRetiredBackendsReturnExplicitError(t *testing.T)`
+- `func TestRouterPersistsSingleStorageForm(t *testing.T)` — TestRouterPersistsSingleStorageForm：装配只有一条路径（jsonl + json v8）；
+- `func TestConfigNormalizeFillsDefaultPath(t *testing.T)` — TestConfigNormalizeFillsDefaultPath：零值 Config 补默认落点，参数覆盖链自洽
 - `func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T)`
 - `func TestJSONRepositoryReadRangeWindowed(t *testing.T)` — TestJSONRepositoryReadRangeWindowed 验证窗口读优化：manifest shard 计数
 - `func firstContent(messages []types.Message) string`

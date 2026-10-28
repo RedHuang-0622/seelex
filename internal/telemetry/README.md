@@ -142,4 +142,3 @@ go test ./internal/telemetry -count=1
 
 - `func NewTracer() *telemetry.MemoryTracer` — NewTracer 返回内存遥测追踪器（telemetry.NewMemoryTracer）。
 - `func NewLifecycleHook(tracer *telemetry.MemoryTracer) (telemetry.Hook, error)` — NewLifecycleHook 为内存追踪器创建生命周期钩子
-

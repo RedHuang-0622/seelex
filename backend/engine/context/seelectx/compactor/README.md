@@ -38,3 +38,36 @@ flowchart LR
 ```text
 go test ./seelexctx/compactor -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### compactor.go
+
+- `func NewCompactor() *Compactor`
+- `func (c *Compactor) Compact(snap *snapshot.ContextSnapshot, budget int) (*snapshot.ContextSnapshot, error)` — Compact 压缩快照到目标 token 预算内。返回新快照，不修改原始快照。
+- `func (c *Compactor) fullSnapshot(snap *snapshot.ContextSnapshot) *snapshot.ContextSnapshot`
+- `func (c *Compactor) summarySnapshot(snap *snapshot.ContextSnapshot) *snapshot.ContextSnapshot`
+- `func (c *Compactor) minimalSnapshot(snap *snapshot.ContextSnapshot) *snapshot.ContextSnapshot`
+- `func minimumSnapshot(snap *snapshot.ContextSnapshot) *snapshot.ContextSnapshot`
+- `func fitMinimalSnapshot(snap *snapshot.ContextSnapshot, budget int) *snapshot.ContextSnapshot`
+- `func fitSnapshotFields(cp, snap *snapshot.ContextSnapshot, budget int) *snapshot.ContextSnapshot`
+- `func estimateTokens(snap *snapshot.ContextSnapshot) int`
+- `func truncateForToken(s string, maxTokens int) string`
+- `func cloneSnapshot(snap *snapshot.ContextSnapshot) *snapshot.ContextSnapshot`
+
+### compactor_test.go
+
+- `func largeSnap() *snapshot.ContextSnapshot`
+- `func TestCompact_Nil(t *testing.T)`
+- `func TestCompact_FullBudget(t *testing.T)`
+- `func TestCompact_Summary(t *testing.T)`
+- `func TestCompact_Minimal(t *testing.T)`
+- `func TestCompact_NegativeBudget(t *testing.T)`
+- `func TestEstimateTokens(t *testing.T)`
+- `func TestTruncateForToken(t *testing.T)`
+- `func TestTruncateForTokenKeepsUTF8AndBudget(t *testing.T)`
+- `func TestCompactNeverExceedsBudget(t *testing.T)`
+- `func TestCompact_SummaryToolCalls(t *testing.T)`

@@ -135,4 +135,3 @@ go test ./backend/limit/... -count=1
 - `func TestPathSitsInDataRoot(t *testing.T)` — TestPathSitsInDataRoot：`Path(dataRoot)` = dataRoot/FileName。
 - `func TestRuntimeLimitsStoreFileWritesOverlay(t *testing.T)`
 - `func TestAccountWindowsOverlayRoundTripKeepsOtherKeys(t *testing.T)` — TestAccountWindowsOverlayRoundTripKeepsOtherKeys 钉住「每账号上下文窗口」（设置 →
-

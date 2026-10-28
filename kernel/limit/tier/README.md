@@ -119,4 +119,3 @@ go test ./backend/limit/approval/ -count=1                              # 审批
 - `func TestApplyStoredKeepsSlotCleanButMirrorsView(t *testing.T)` — TestApplyStoredKeepsSlotCleanButMirrorsView：脏值不落槽，但视图快照仍要重算；
 - `func TestSyncViewLockedOnlyForViewSession(t *testing.T)` — TestSyncViewLockedOnlyForViewSession：只有当前视图会话会被写；空 ID 不写。
 - `func TestPersistAndReadDegradeWithoutSettings(t *testing.T)` — TestPersistAndReadDegradeWithoutSettings：未装配端口 = 内存态降级（不报错、读回空）。
-

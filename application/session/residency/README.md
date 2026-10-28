@@ -64,13 +64,63 @@ go test ./application/... -count=1
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### runtime.go
 
-- `func NewRuntime(deps RuntimeDeps) *Runtime` — NewRuntime 构造 Session residency runtime。
-- `func (runtime *Runtime) TouchResident(sessionID string)` — 记录引擎驻留使用并收敛。
-- `func (runtime *Runtime) ReconcileResident()` — 按受保护集和窗口驱逐引擎。
-- `func (runtime *Runtime) TouchContent(sessionID string)` — 记录正文使用并收敛。
-- `func (runtime *Runtime) ReconcileContent(protect string)` — 按受保护集和窗口卸载正文。
-- `func (runtime *Runtime) EnsureContent(sessionID string) error` — 自动卸载后回读正文。
-- `func (runtime *Runtime) ProtectedSessionLocked(sessionID string) bool` — 唯一释放保护判据。
+- `func NewRuntime(deps RuntimeDeps) *Runtime` — NewRuntime constructs the Session residency runtime.
+- `func (runtime *Runtime) TouchResident(sessionID string)` — TouchResident records resident use and reconciles the resident layer.
+- `func (runtime *Runtime) MarkResidentRecentLocked(sessionID string, resident bool)` — MarkResidentRecentLocked moves a resident session to the MRU end.
+- `func (runtime *Runtime) ReconcileResident()` — ReconcileResident evicts resident engines until the configured window is met.
+- `func (runtime *Runtime) ResidentSnapshotLocked() applicationsession.EvictionSnapshot` — ResidentSnapshotLocked returns one coherent resident eviction reading.
+- `func (runtime *Runtime) SessionBusy(unit *sessionstate.SessionUnit) bool` — SessionBusy reports whether a session must not be released.
+- `func sessionBusyState(unit *sessionstate.SessionUnit) switching.BusyState`
+- `func (runtime *Runtime) TouchContent(sessionID string)` — TouchContent records visible-content use and reconciles the content layer.
+- `func (runtime *Runtime) MarkContentRecentLocked(sessionID string)` — MarkContentRecentLocked moves a session to the content MRU end.
+- `func (runtime *Runtime) ForgetContentLocked(sessionID string)` — ForgetContentLocked removes a session from the content order.
+- `func (runtime *Runtime) PruneContentOrderLocked() int` — PruneContentOrderLocked reconciles the content order with loaded units.
+- `func (runtime *Runtime) ReconcileContent(protect string)` — ReconcileContent evicts loaded content until the configured window is met.
+- `func (runtime *Runtime) ContentSnapshotLocked(protect string) applicationsession.EvictionSnapshot` — ContentSnapshotLocked returns one coherent loaded-content eviction reading.
+- `func (runtime *Runtime) EvictLoadedContent(sessionID string) error` — EvictLoadedContent flushes and drops one idle session's visible content.
+- `func (runtime *Runtime) ContentLoadedLocked(sessionID string) bool` — ContentLoadedLocked reports whether a session currently owns visible content.
+- `func (runtime *Runtime) ContentUnloaded(sessionID string) bool` — ContentUnloaded reports whether content must be reloaded from durable state.
+- `func (runtime *Runtime) EnsureContent(sessionID string) error` — EnsureContent reloads content after an automatic eviction.
+- `func (runtime *Runtime) ProtectedSessionLocked(sessionID string) bool` — ProtectedSessionLocked reports the single release-protected-set predicate.
+- `func (runtime *Runtime) ReleaseContentMemory(sessionID string)` — ReleaseContentMemory drops only visible content after a release decision.
+- `func (runtime *Runtime) ForgetResidentLocked(sessionID string)` — ForgetResidentLocked removes a session from the resident order.
+- `func (runtime *Runtime) ResidentOrderLen() int` — ResidentOrderLen returns the resident order length for tests and metrics.
+- `func (runtime *Runtime) ContentOrderLen() int` — ContentOrderLen returns the content order length for tests and metrics.
+
+### snapshot_test.go
+
+- `func (engine snapshotEngine) HasSession(sessionID string) bool`
+- `func (snapshotEngine) UnloadSession(string) error`
+- `func (snapshotEngine) SessionID() string`
+- `func (snapshotEngine) StartSession() string`
+- `func (snapshotEngine) SetSystemPrompt(string)`
+- `func (snapshotEngine) SetMaxLoops(int)`
+- `func (snapshotEngine) ChatStream(context.Context, string, func(string)) (string, error)`
+- `func (snapshotEngine) ClearHistory()`
+- `func (snapshotEngine) History() []contract.EngineMessage`
+- `func (snapshotEngine) ReplaceHistory(string, []contract.EngineMessage) error`
+- `func (snapshotEngine) TraceText() string`
+- `func (snapshotEngine) TokenCount() string`
+- `func (snapshotEngine) AppendHistory(contract.EngineMessage)`
+- `func (snapshotEngine) NodeSessionConversation(string) ([]contract.EngineMessage, bool)`
+- `func (snapshotEngine) NodeContextSnapshot(string) (*dto.ContextSnapshot, bool)`
+- `func (snapshotEngine) NodeToolResult(string, string) (string, bool)`
+- `func (snapshotEngine) NodeWorktreeInfoFor(string) (dto.NodeWorktreeInfo, bool)`
+- `func (snapshotEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)`
+- `func (snapshotEngine) SubagentLiveHistoryPage(string, int, int) dto.SubagentLiveHistoryPage`
+- `func (snapshotEngine) SubAgentTree() []dto.SubAgentTreeNode`
+- `func (snapshotPort) Preview(content string, limit int) (string, bool)`
+- `func (snapshotPort) Touch(order []string, sessionID string) []string`
+- `func (snapshotPort) Forget(order []string, sessionID string) []string`
+- `func (snapshotPort) Prune(order []string, loaded func(string) bool, unitIDs []string) []string`
+- `func (snapshotPort) Budget(legacyLimit, protectedCount, window int) int`
+- `func (snapshotPort) InputIndexSummaryLimit() int`
+- `func (snapshotPort) BuildInputIndex([]protocol.Message, []string, int, func(protocol.Message) string) []protocol.SessionInputIndexRow`
+- `func (snapshotPort) WaitCatalogRefresh(context.Context, applicationsession.CatalogRefresher) error`
+- `func (snapshotPort) Evict(applicationsession.EvictionDeps)`
+- `func (snapshotPort) Archive(applicationsession.ArchiveUseCaseDeps, string) error`
+- `func TestEvictionSnapshotsDoNotAliasOrderBackingArray(t *testing.T)`

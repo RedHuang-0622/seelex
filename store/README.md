@@ -66,11 +66,11 @@ JSON v8 会话路径、guide、module head 信封/checksum 与模块锁身份由
 只保留各领域的数据文件重建策略。
 本包以 import 别名 `storeroot` 使用它（`Settings` / 哨兵错误 / 数据根锁读函数一律写限定名）。
 2026-10-17（P8 §5.2）删掉了过渡期的 `root_aliases.go`（已删除）：那批保形别名只为"搬迁期不动调用点"存在，
-外部只有 `wiring/bootstrap` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
+外部只有 `boot` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
 这些机制（同一判据只许有一处实现）。
 
 主要调用方：`application/assembly/session_runtime`（持久化与会话三读）、`session`
-（fork 的显式项目作用域读写）、`wiring/adapters`（DTO ↔ 存储映射）与
+（fork 的显式项目作用域读写）、`internal/host`（DTO ↔ 存储映射）与
 `gui`/`headless`（目录与元数据读面）。
 
 ## 分卷 README（根包按文件前缀）
@@ -104,7 +104,7 @@ tool result/blob/media 与搜索索引 owner；[`session/README.md`](session/REA
 
 ```mermaid
 flowchart TB
-    CALLER["调用方<br/>application/assembly · session · wiring/adapters"] --> ROUTER["store.Router"]
+    CALLER["调用方<br/>application/assembly · session · internal/host"] --> ROUTER["store.Router"]
 
     subgraph LAYOUT["JSON v8 分区布局"]
         P["先按 project_id 分区"]

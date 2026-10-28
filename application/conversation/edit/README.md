@@ -43,3 +43,74 @@ go test ./application/... -count=1
 `owner_behavior_external_test.go` 使用 `package edit_test`，从外部验证 Registry、
 Validator、Resolver、Process、Rollback 和 Annotation；assembly 只保留跨组件编辑并
 fork 的集成用例。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### annotation.go
+
+- `func NewAnnotation(deps AnnotationDeps) *AnnotationApplication` — NewAnnotation constructs the annotation application.
+- `func (application *AnnotationApplication) Annotate(sessionID string, messages []model.Message, running bool) []model.Message` — Annotate backfills EventSeq and the single disabled reason.
+
+### application.go
+
+- `func NewEditApplication(deps EditApplicationDeps) *EditApplication` — NewEditApplication constructs the edit/fork application.
+- `func (application *EditApplication) EditUserMessageAndFork( ctx context.Context, parentID string, request model.EditUserMessageForkRequest, ) (model.EditUserMessageForkResult, error)` — EditUserMessageAndFork atomically forks a child and submits edited text.
+
+### owner_behavior_external_test.go
+
+- `func (locker *editTestLocker) Lock()`
+- `func (locker *editTestLocker) Unlock()`
+- `func TestOperationRegistryDeduplicatesMatchingRequest(t *testing.T)`
+- `func TestOperationRegistryRejectsReusedIDWithDifferentRequest(t *testing.T)`
+- `func TestOperationRegistryExpiresSuccessfulOperations(t *testing.T)`
+- `func TestOperationRegistryDropsFailedOperation(t *testing.T)`
+- `func TestOperationRegistryWaiterSeesCompletedResult(t *testing.T)`
+- `func TestValidatorRejectsNonCurrentParent(t *testing.T)`
+- `func TestValidatorRejectsBusyAndQueuedParent(t *testing.T)`
+- `func TestValidatorRejectsRevisionWindowAndCompression(t *testing.T)`
+- `func TestValidatorAcceptsEditableCurrentWindow(t *testing.T)`
+- `func TestTargetResolverRejectsMissingStore(t *testing.T)`
+- `func TestTargetResolverComputesRevisionAndParagraphCut(t *testing.T)`
+- `func TestTargetResolverRejectsIneligibleTargets(t *testing.T)`
+- `func TestTargetResolverWrapsLoadFailure(t *testing.T)`
+- `func TestRollbackReturnsCauseWhenBothActionsSucceed(t *testing.T)`
+- `func TestRollbackCombinesChildAndParentFailures(t *testing.T)`
+- `func TestProcessStopsBeforeValidateWhenResolveFails(t *testing.T)`
+- `func TestProcessStopsBeforeForkWhenValidateFails(t *testing.T)`
+- `func TestProcessForksUnderTransitionAndStartsChild(t *testing.T)`
+- `func TestProcessRollsBackWhenChildResumeFails(t *testing.T)`
+- `func TestProcessRollsBackWhenSubmitFails(t *testing.T)`
+- `func TestAnnotationBackfillsSeqAndMarksEditable(t *testing.T)`
+- `func TestAnnotationExplainsDisabledReasons(t *testing.T)`
+
+### process.go
+
+- `func NewProcess(deps ProcessDeps) *ProcessApplication` — NewProcess constructs the edit/fork process.
+- `func (application *ProcessApplication) Run(ctx context.Context, parentID string, request protocol.EditUserMessageForkRequest) (protocol.EditUserMessageForkResult, error)` — Run resolves, validates, forks, resumes, submits and rolls back on failure.
+
+### registry.go
+
+- `func (operation *Operation) Done() <-chan struct` — Done closes when the operation completes.
+- `func (operation *Operation) Outcome() (model.EditUserMessageForkResult, error)` — Outcome returns the completed result and error. Callers must first wait for
+- `func (operation *Operation) CompletedAt() time.Time` — CompletedAt returns the successful completion time.
+- `func NewOperationRegistry(ttl time.Duration, now func() time.Time) *OperationRegistry` — NewOperationRegistry constructs the idempotency registry.
+- `func (registry *OperationRegistry) Begin(parentID string, request model.EditUserMessageForkRequest) (*Operation, bool, error)` — Begin creates or reuses an operation.
+- `func (registry *OperationRegistry) Finish(operation *Operation, result model.EditUserMessageForkResult, err error)` — Finish publishes one operation outcome.
+
+### resolver.go
+
+- `func NewTargetResolver(deps TargetResolverDeps) *TargetResolver` — NewTargetResolver constructs the target resolver.
+- `func (resolver *TargetResolver) Resolve(parentID string, targetSeq uint64) (protocol.TranscriptEvent, uint64, uint64, error)` — Resolve returns target, fork cut and parent revision.
+
+### rollback.go
+
+- `func NewRollback(deps RollbackDeps) *RollbackApplication` — NewRollback constructs the rollback application.
+- `func (application *RollbackApplication) Rollback(parentID, childID string, cause error) error` — Rollback removes child and restores parent while preserving cause.
+
+### validator.go
+
+- `func NewValidator(deps ValidatorDeps) *Validator` — NewValidator constructs the edit validator.
+- `func (validator *Validator) Validate(parentID string, parentRevision, expectedRevision, targetSeq uint64) error` — Validate checks current-session, running, queue, revision, window and floor.

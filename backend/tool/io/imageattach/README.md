@@ -103,3 +103,36 @@ sequenceDiagram
 go test ./backend/tool/io/imageattach -count=1
 go test ./seelebridge/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### registry.go
+
+- `func NewRegistry() *Registry` — NewRegistry 构造一个空队列。
+- `func (r *Registry) Add(sessionID string, attachment Attachment)` — Add 把一张待随图挂到指定会话。
+- `func (r *Registry) Take(sessionID string) []Attachment` — Take 取出并清空该会话的待随图；没有待随图时返回 nil。
+- `func (r *Registry) Len(sessionID string) int` — Len 返回该会话待随图数量（诊断与断言用）。
+
+### wrapper.go
+
+- `func (w *Wrapper) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error)` — Complete 实现 agent.Completer。
+- `func (w *Wrapper) CompleteStream( ctx context.Context, messages []types.Message, tools []types.Tool, onChunk func(string), ) (string, string, []types.ToolCall, error)` — CompleteStream 实现 agent.StreamCompleter。
+- `func (w *Wrapper) CompleteStreamEvents( ctx context.Context, messages []types.Message, tools []types.Tool, onEvent func(types.StreamEvent), ) (string, string, []types.ToolCall, error)` — CompleteStreamEvents 实现 agent.StreamEventCompleter。
+- `func (w *Wrapper) sessionID(ctx context.Context) string` — sessionID 解析会话 ID。
+- `func (w *Wrapper) prepare(ctx context.Context, messages []types.Message) ([]types.Message, error)` — prepare 在原始消息之后补一条带图的 user 消息；没有待随图时原样返回。
+- `func (w *Wrapper) resolve(ctx context.Context, attachment Attachment) (types.FilePart, error)` — resolve 取图片本体：优先内存里的字节，否则按 ref 加载。
+- `func attachmentLabel(attachment Attachment) string` — attachmentLabel 给出人可读的来源标签。
+
+### wrapper_test.go
+
+- `func (c *recordingCompleter) Complete(_ context.Context, messages []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *recordingStreamCompleter) CompleteStream( _ context.Context, messages []types.Message, _ []types.Tool, onChunk func(string), ) (string, string, []types.ToolCall, error)`
+- `func pngAttachment(label string) Attachment`
+- `func TestRegistryTakeIsOnceAndSessionScoped(t *testing.T)`
+- `func TestWrapperAttachesPendingImageExactlyOnce(t *testing.T)`
+- `func TestWrapperLoadsImageByRef(t *testing.T)`
+- `func TestWrapperDropsUnresolvableAttachmentWithoutBreakingRequest(t *testing.T)`
+- `func TestWrapperStreamPaths(t *testing.T)`

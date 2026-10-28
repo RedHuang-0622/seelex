@@ -142,4 +142,3 @@ node --test gui/frontend/dist/account-window.test.mjs  # 两端同源
 - `func TestSetterWithoutStoreStillApplies(t *testing.T)` — TestSetterWithoutStoreStillApplies：宿主没装落盘口 ⇒ 只本次运行有效，不算失败。
 - `func TestSetterNeedsRuntimePort(t *testing.T)` — TestSetterNeedsRuntimePort：宿主没实现窄可选能力面时给出明确错误，而不是静默无效；
 - `func TestAccountContextWindowPresetsAreUsable(t *testing.T)` — TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
-

@@ -139,4 +139,3 @@ go test ./application/assembly -run Approval -count=1
 - `func TestResolveAllRacesSingleResolveWithoutDoubleCompletion(t *testing.T)`
 - `func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T)`
 - `func TestApprovalSessionAttributionAndPendingQueries(t *testing.T)`
-

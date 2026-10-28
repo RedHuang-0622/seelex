@@ -41,7 +41,7 @@ AP-061 把 Admin 账号窗口收拢到同一组件：nil 守卫、可选 Runtime
 统一前端适配器已退场。本包只通过 `ComponentsFor(service)`
 提供一份**分组**只读快照（`Components` 只有字段，持 concrete owner 指针），
 不再保存账号、角色、Workspace 与输入查询的公开转发方法。
-GUI、TUI、headless 与 console 各自声明消费方窄接口，由 `wiring/bootstrap`
+GUI、TUI、headless 与 console 各自声明消费方窄接口，由 `boot`
 把组件快照中的 owner 指针逐字段注入。能力有无由装配表决定，缺 owner 即装配错误；
 不存在运行时能力探测或统一转发层。
 

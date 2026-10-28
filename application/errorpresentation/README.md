@@ -100,20 +100,24 @@ go test ./e2e/ -count=1
 
 ### codes.go
 
-- `func Wrap(err error, code string) error` — Wrap 给错误附加结构化上下文（seeleerrors.Wrap 语义）。
-- `func StructuredCode(err error) string` — StructuredCode 返回错误链上的结构化错误码（seeleerrors.From）；无结构化错误时返回空串。
-- `func ClassifyStructured(err error) (Presented, bool)` — ClassifyStructured 按结构化定位字段（Function/Step/Path）推断分类。
-- `func persistenceFailurePresentation() Presented` — 会话持久化的呈现文本（"不要假定进度已经保存"）。
-- `func reactBudgetPresentation() Presented` — 执行预算耗尽（未形成收尾）的呈现文本。
-- `func resultRefUnavailablePresentation() Presented` — read_tool_result 结果引用不可读的呈现文本。
-- `func contextExhaustedPresentation() Presented` — 上下文耗尽的呈现文本（已保存进度、可"继续"）。
-- `func unclassifiedPresentation() Presented` — 兜底呈现文本（`unclassified=true`）。
+- `func Wrap(err error, code string) error` — Wrap 给错误附加结构化上下文（seeleerrors.Wrap 语义）：
+- `func StructuredCode(err error) string` — StructuredCode 返回错误链上的结构化错误码（seeleerrors.From）；
+- `func ClassifyStructured(err error) (Presented, bool)` — ClassifyStructured 按结构化定位字段（Function/Step/Path）推断分类
+- `func persistenceFailurePresentation() Presented`
+- `func reactBudgetPresentation() Presented`
+- `func resultRefUnavailablePresentation() Presented` — resultRefUnavailablePresentation 是 read_tool_result 结果引用不可读的
+- `func contextExhaustedPresentation() Presented`
+- `func unclassifiedPresentation() Presented`
 
 ### presentation.go
 
-- `type Presented struct` — 用户可见的稳定呈现形态（模块/方法/摘要/下一步 + 兜底标记）。
-- `func (p Presented) String() string` — 四段拼接（`【模块：…｜方法：…】`）。
-- `func Classify(err error) Presented` — 错误分类的**唯一判据**（顺序即优先级）。
-- `func IsUnclassified(err error) bool` — 是否落到兜底分类。
-- `func PresentToolError(toolName string, err error) string` — 工具错误出口的呈现文本。
-- `func safeToolName(name string) string` — 工具名兜底（空 → `unknown`）。
+- `func (presentation Presented) String() string`
+- `func IsUnclassified(err error) bool` — IsUnclassified 判定错误是否落到兜底分类（调用方据此决定是否用原始正文）。
+- `func Classify(err error) Presented` — Classify 把错误分类成用户可见的呈现文本。判据顺序即优先级：
+- `func PresentToolError(toolName string, err error) string` — PresentToolError 把工具错误呈现为 provider 可见文本（工具错误唯一出口）。
+- `func safeToolName(name string) string`
+
+### presentation_test.go
+
+- `func TestPresentedClassificationIdentifiesSourceWithoutProviderDetails(t *testing.T)`
+- `func TestClassifyStructuredErrorsByCode(t *testing.T)`

@@ -91,10 +91,50 @@ go test ./test/ -run 'SafeFlagDefaults|ParseFrontendMode|ParsePermissionMode|Plu
 
 ## 文件与函数索引
 
-| 文件 | 主要函数 |
-|---|---|
-| `flags.go` | `BindFlags`：注册并返回启动参数。 |
-| `modes.go` | `ParseFrontendMode`、`ParsePermissionMode`：归一化并校验模式。 |
-| `paths.go` | `RuntimeLimitsPath`、`AccountsPath`、`RuntimeConfigChain`、`GUIAppearancePath`、`EnsureConfigFile`、`PromptDirChain`、`PromptDirChainAt`、`ResolvePromptDir`、`ResolvePromptDirAt`、`ResolveAutoGetJobsDir`、`ResolveToolDir`、`ResolvePythonCommand`、`ResolveStorePath`。 |
-| `plugins.go` | `PluginRootChain`、`PluginRoots`、`DedupRoots`、`RequirePlugins`、`PluginRootReport`、`LogPluginRoots`、`ResolveCuratedRead`、`CuratedAssemblyJudge`、`SplitPaths`。 |
-| `deepseek_key.go` | `DeepSeekSearchKey`、`deepSeekSearchKeyFrom`、`accountRoleOrder`、`accountIsDeepSeek`。 |
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### deepseek_key.go
+
+- `func DeepSeekSearchKey() string` — DeepSeekSearchKey 返回账号档里第一把 DeepSeek 密钥；取不到返回空串。
+- `func deepSeekSearchKeyFrom(path string) string` — deepSeekSearchKeyFrom 从指定账号档取 DeepSeek 密钥（测试经此注入路径）。
+- `func accountRoleOrder(roles map[string][]accountEntry) []string` — accountRoleOrder 返回角色名的确定顺序：偏好角色在前，其余按字典序。
+- `func accountIsDeepSeek(account accountEntry, defaultsDeepSeek bool) bool` — accountIsDeepSeek 报告一条账号是不是 DeepSeek。
+
+### flags.go
+
+- `func BindFlags(fs *flag.FlagSet) *Flags` — BindFlags 把启动参数注册到 fs 并返回读写句柄；flag 名、默认值与说明文案是
+
+### modes.go
+
+- `func ParseFrontendMode(value string) (string, error)`
+- `func ParsePermissionMode(value string) (string, error)` — ParsePermissionMode 解析 -permission 标志为**权限档位 id**（manual/edit/auto/
+
+### paths.go
+
+- `func RuntimeLimitsPath(storePath string) string` — RuntimeLimitsPath 把「运行时上限覆盖层」的落点绑到数据根：数据根来自 `-store`
+- `func AccountsPath() string` — AccountsPath 返回 accounts.yaml 的路径。
+- `func RuntimeConfigChain(name string) (candidates []string, seedRoot string)` — RuntimeConfigChain 返回配置文件在责任链上的候选（按优先级）与允许初始化的落盘根：
+- `func GUIAppearancePath() string` — GUIAppearancePath 用同一套配置责任链给出 **GUI 外观设置**（当前皮肤 + 窗口材质）的
+- `func EnsureConfigFile(name string, pack bootseed.Pack) string` — EnsureConfigFile 按责任链给出配置文件路径（口径见 internal/bootseed）：
+- `func PromptDirChain() (candidates []string, seedRoot string)` — PromptDirChain 返回提示词资产目录在责任链上的候选与落盘根（口径同
+- `func PromptDirChainAt(exePath string) (candidates []string, seedRoot string)` — PromptDirChainAt 是 PromptDirChain 的可测内核（可执行文件路径由调用方给，
+- `func ResolvePromptDir() string` — ResolvePromptDir 按责任链给出**提示词资产目录**并返回它（调用方拿它设
+- `func ResolvePromptDirAt(candidates []string, seedRoot string) string` — ResolvePromptDirAt 是 ResolvePromptDir 的可测内核（候选链与落盘根由调用方给）。
+- `func ResolveAutoGetJobsDir() (string, bool)` — ResolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录（责任链 + 缺失即初始化，
+- `func ResolveToolDir(relative, exeDir string, pack bootseed.Pack) (string, bool)` — ResolveToolDir 是 ResolveAutoGetJobsDir 的可测内核（exeDir 由调用方给，测试才好
+- `func ResolvePythonCommand() string` — ResolvePythonCommand 探测可用的 python 解释器（python → py；找不到时返回空）。
+- `func ResolveStorePath(basePath string) string` — ResolveStorePath 确保多实例不冲突：检测 .lock 文件中的 PID，
+- `func tryAcquireLock(lockFile string) bool` — tryAcquireLock 尝试创建锁文件并写入当前 PID。返回 true 表示获取成功。
+
+### plugins.go
+
+- `func PluginRootChain(flagValue, envValue, exePath string) []string` — PluginRootChain 返回 Plugin 根在责任链上的候选（按优先级、去重保序）：
+- `func PluginRoots(flagValue string) []string` — PluginRoots 用真实环境（旗标 / SEELEX_PLUGINS / 可执行文件位置）解析责任链。
+- `func DedupRoots(roots []string) []string` — DedupRoots 去空、去重（保序）。Windows 上路径大小写不敏感，同一份目录可能以两种
+- `func RequirePlugins(roots []string, loaded []plugin.Plugin) error` — RequirePlugins 把"零插件"从静默降级变成一次显式失败。
+- `func PluginRootReport(roots []string, loaded []plugin.Plugin) string` — PluginRootReport 生成"插件到底从哪来"的**一条读数**：责任链上每个根各供上了几个
+- `func LogPluginRoots(roots []string, loaded []plugin.Plugin) string` — LogPluginRoots 把根读数写成启动期一行终端日志。**它不再是唯一出口**：同一条读数由
+- `func ResolveCuratedRead(roots []string, loaded []plugin.Plugin) plugin.CuratedRead` — ResolveCuratedRead 从**已解析的插件根**（责任链，多根 first-wins）读一次精选目录。
+- `func CuratedAssemblyJudge(read plugin.CuratedRead) func(name string, installed []string) error` — CuratedAssemblyJudge 把精选目录读数包成装配面的判决函数（"未定义的名字怎么判/怎么说"）。
+- `func SplitPaths(value string) []string`

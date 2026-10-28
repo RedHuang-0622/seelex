@@ -437,3 +437,693 @@ go test ./gui -run TestRealAPISessionForkLiveProbe -v -count=1 -timeout 30m
 ## 事件与关闭生命周期
 
 桌面宿主在启动时调用 `Bridge.Start`，在关闭时调用 `Bridge.Stop`；前者先发送 `seelex:ready` 快照，再将 Application Event 原样转发为 `seelex:event`。关闭运行中的会话会先进入 graceful drain，最长等待 5 秒；超时表示工具、审批或 Provider 未收敛，关闭协调器会取消全部运行中会话并等待取消收尾后退出，避免窗口无限处于拒绝关闭状态、也避免在后台会话数据落盘前强行退出。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### appearance.go
+
+- `func normalizeWindowTreatment(value string) string`
+- `func readWindowAppearance(path string) windowAppearance` — readWindowAppearance 读外观设置。路径为空 / 文件不存在 / 内容损坏一律回落到默认
+- `func writeWindowAppearance(path string, appearance windowAppearance) error`
+- `func windowWantsTranslucency(path string) bool` — windowWantsTranslucency 就是 run_wails 启动期读的那一行：这份外观设置要不要把
+
+### appearance_test.go
+
+- `func TestReadWindowAppearanceFallsBackToOpaque(t *testing.T)`
+- `func TestWindowAppearanceRoundTripsTranslucency(t *testing.T)`
+- `func TestBridgeSetWindowAppearanceNormalizesTreatment(t *testing.T)` — SetWindowAppearance 是前端唯一入口：它必须把**未知材质词**归一成默认，而不是原样
+- `func TestBridgeSetWindowAppearanceWithoutPathIsNoop(t *testing.T)` — 宿主没给落盘路径（浏览器预览 / 未接线）：写是 no-op，读回不透明，都不报错。
+
+### assets_overlay.go
+
+- `func frontendAssets() (fs.FS, error)` — frontendAssets 返回前端资源根：内嵌核心 + 可选的外部 vendor 目录。
+- `func locateFrontendVendor() string` — locateFrontendVendor 按发行目录、显式环境变量、开发仓库祖先目录查找
+- `func (overlay frontendOverlayFS) Open(name string) (fs.File, error)`
+- `func (overlay frontendOverlayFS) ReadDir(name string) ([]fs.DirEntry, error)`
+- `func (overlay frontendOverlayFS) ReadFile(name string) ([]byte, error)`
+- `func (overlay frontendOverlayFS) Stat(name string) (fs.FileInfo, error)`
+- `func isVendorAsset(name string) bool`
+
+### assets_overlay_test.go
+
+- `func TestFrontendOverlayPrefersExternalVendor(t *testing.T)` — TestFrontendOverlayPrefersExternalVendor 钉住瘦身后的资源边界：
+- `func TestLocateFrontendVendorHonorsPackagedLayout(t *testing.T)` — TestLocateFrontendVendorHonorsPackagedLayout 验证发行目录布局：
+
+### bridge.go
+
+- `func NewBridge(deps Dependencies, options Options) (*Bridge, error)` — NewBridge 按装配表构造桥面。
+- `func discoverProject(root string) ProjectInfo`
+- `func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter)` — Start begins relaying the initial snapshot and subsequent Application events
+- `func (bridge *Bridge) nextRelayGeneration() uint64` — nextRelayGeneration 分配一个新的 relay 代际序号（调用方不需要持有 mu）。
+- `func (bridge *Bridge) relayIsCurrent(gen uint64) bool` — relayIsCurrent 报告指定代际是否仍是当前 relay（未被更新的 resubscribe
+- `func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter, subscription application.Subscription, gen uint64)` — startRelay 启动一个订阅的转发 goroutine（relay 生命周期随 bridge.ctx
+- `func (bridge *Bridge) subscribeViewLocked() application.Subscription` — subscribeViewLocked 按**显式当前视图 sid** 订阅事件流（G2：订阅键含
+- `func (bridge *Bridge) subscribedIDLocked() string` — subscribedIDLocked 返回当前订阅的会话键（无订阅时为空串）。
+- `func (bridge *Bridge) resubscribe()` — resubscribe 在视图会话切换后重建事件订阅（G2：切换即重订阅，新订阅从
+- `func (bridge *Bridge) syncSubscriptionToView()` — syncSubscriptionToView 把事件订阅键对齐到应用的权威视图会话。应用可能在
+- `func (bridge *Bridge) Stop()` — Stop cancels the event relay and waits until its goroutine has exited. It is
+- `func (bridge *Bridge) AckEvents(seq uint64)` — AckEvents 是渲染层的应用回执（C4）：seq 是它已经应用过的最后一个
+- `func (bridge *Bridge) ReplayEvents(sinceSeq uint64) application.ReplayResult` — ReplayEvents 供渲染层在 delivery_seq 跳号时主动增量补取（C4）：返回窗口内
+- `func (bridge *Bridge) armResend()` — armResend 武装一次"等回执"的重推：同一时刻至多一个待触发定时器，
+- `func (bridge *Bridge) catchUpRenderer()` — catchUpRenderer 比较渲染层回执水位与本订阅的投递水位：落后就把重放窗口里的
+- `func (bridge *Bridge) stopResendLocked()`
+- `func (bridge *Bridge) requestContext() context.Context`
+- `func (bridge *Bridge) Info() AppInfo`
+- `func (bridge *Bridge) settleCatalog()` — settleCatalog 在会改变会话目录的命令返回前等一轮目录刷新，使前端紧接着
+- `func (bridge *Bridge) Snapshot() application.Snapshot`
+- `func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)` — SubagentSessionDetail 返回子代理节点详情（会话记录 + 上下文快照 +
+- `func (bridge *Bridge) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。
+- `func (bridge *Bridge) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 更新工作表格任务状态（参数透传；业务校验在
+- `func (bridge *Bridge) Submit(text string) error`
+- `func (bridge *Bridge) BeginNewSession() error`
+- `func (bridge *Bridge) ResumeSession(sessionID string) error`
+- `func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error)` — ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
+- `func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)` — EditUserMessageAndFork 是最小 GUI 写面：一次 RPC 内完成编辑源消息的分叉与
+- `func (bridge *Bridge) CancelChat(requestID string) bool` — CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，
+- `func (bridge *Bridge) SubmitToSession(sessionID, text string) error` — SubmitToSession 向指定会话提交输入（会话级保护 API；与视图会话无关）。
+- `func (bridge *Bridge) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 调换目标会话排队输入的顺序（队列条目的 ↑/↓ 操作）。
+- `func (bridge *Bridge) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 撤回目标会话的一条排队输入，返回其展示原文（渲染层把
+- `func (bridge *Bridge) ActivateSession(sessionID string) error` — ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。
+- `func (bridge *Bridge) SnapshotOf(sessionID string) (application.SessionSnapshot, error)` — SnapshotOf 返回指定会话的权威会话快照（G3：SessionSnapshot，进程级目录
+- `func (bridge *Bridge) ListSessions() []application.SessionInfo` — ListSessions 返回权威会话目录（C1 冷读宿主面；与会话树同一数据源）。
+- `func (bridge *Bridge) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — SessionInputIndex 返回指定会话的全量用户输入索引（对话区右侧索引数据源：
+- `func (bridge *Bridge) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]application.TranscriptEvent, error)` — GetSessionTranscript 按 Seq 区间读取会话事件日志（C1；未驻留会话同样
+- `func (bridge *Bridge) SubscribeSession(sessionID string, buffer int) (application.Subscription, error)` — SubscribeSession 返回按会话过滤的事件订阅（M1：chat 生命周期事件携带
+- `func (bridge *Bridge) ResolveInteraction(id, optionID string) error`
+- `func (bridge *Bridge) SelectAccount(name string) error`
+- `func (bridge *Bridge) SwitchEffort(level string) error`
+- `func (bridge *Bridge) SetReasoningEffort(effort string) error` — SetReasoningEffort 下发"想多深"（composer 底部「推理强度」拉条）。
+- `func (bridge *Bridge) SetLoopLimit(limit int) error` — SetLoopLimit 下发"跑多少轮"（composer 底部「循环次数」拉条）。
+- `func (bridge *Bridge) SetSessionReleaseWindow(window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」（设置弹窗 →
+- `func (bridge *Bridge) SessionReleaseWindow() int` — SessionReleaseWindow 读当前生效的会话驻留窗口（弹窗打开时读一次；与
+- `func (bridge *Bridge) SetAccountWindow(name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置 → 账号）。window <= 0 = 清掉该账号
+- `func (bridge *Bridge) AccountWindowPresets() []int` — AccountWindowPresets 返回界面挡位（token，升序）——**后端下发**，前端不自己写死
+- `func (bridge *Bridge) AccountRoles() []string` — AccountRoles 返回角色卡下账户新增/编辑的角色词表。
+- `func (bridge *Bridge) AddAccount(draft application.AccountDraft) (application.AccountAddResult, error)` — AddAccount 在角色卡下新增账号：写账号档 + 热注册进运行时。
+- `func (bridge *Bridge) AccountDetails(name string) (application.AccountDetails, error)` — AccountDetails 读取编辑账户窗口需要的非秘密字段（密钥永不回传）。
+- `func (bridge *Bridge) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error)` — UpdateAccount 原位更新账户；api_key 留空保留原密钥。
+- `func (bridge *Bridge) DeleteAccount(name string) (application.AccountDetails, error)` — DeleteAccount 删除账户并返回被删条目的非秘密回执。
+- `func (bridge *Bridge) AccountBalance(name string) (application.AccountBalance, error)` — AccountBalance 查一个账号此刻的余额（角色卡账户行）。
+- `func (bridge *Bridge) SwitchPlugin(name string) error`
+- `func (bridge *Bridge) LoadMoreHistory(limit int) error`
+- `func (bridge *Bridge) LoadLatestHistory() error`
+- `func (bridge *Bridge) SetWindowAppearance(skin, treatment string) error` — SetWindowAppearance 落盘"当前皮肤 + 由它派生的窗口材质"。前端在换肤回流时调用
+- `func (bridge *Bridge) Suggestions(input string) []application.Suggestion`
+- `func (bridge *Bridge) DeleteSession(sessionID string) error`
+- `func (bridge *Bridge) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话（C2）：转发 application 门控，成功后等目录
+- `func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string, sortOrder int) error` — SetSessionMeta 写会话展示元数据（置顶/别名/排序位）。参数保持扁平供 renderer
+- `func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error`
+- `func (bridge *Bridge) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — CreateWorkspaces 批量登记项目（不绑定当前会话）；前端在确认 temp list 后一次提交。
+- `func (bridge *Bridge) BindWorkspace(workspaceID string) error`
+- `func (bridge *Bridge) UnbindWorkspace()`
+- `func (bridge *Bridge) SetFullAccess(on bool) bool` — SetFullAccess 切换全权模式并返回**真正生效的值**：前端据此渲染开关，
+- `func (bridge *Bridge) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回**真正
+- `func (bridge *Bridge) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)` — WorkspaceEnvironments 读指定项目的环境表与默认环境名。
+- `func (bridge *Bridge) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)` — SetWorkspaceEnvironment 写一个项目环境（口令三态；Delete=true 则删除）。
+- `func (bridge *Bridge) DeleteWorkspaceEnvironment(projectID, name string) error` — DeleteWorkspaceEnvironment 删除一个项目环境（连同它的口令）。
+- `func (bridge *Bridge) SetDefaultWorkspaceEnvironment(projectID, name string) error` — SetDefaultWorkspaceEnvironment 指定项目默认环境（空串 = 取消默认）。
+- `func (bridge *Bridge) SessionSSHState() (model.SessionSSHInfo, error)` — SessionSSHState 读当前视图会话的固定工作环境。
+- `func (bridge *Bridge) SetSessionSSHEnv(projectID, env string) (model.SessionSSHInfo, error)` — SetSessionSSHEnv 首次固定当前视图会话的工作环境。绑定后不可修改或清空；
+- `func (bridge *Bridge) SetSessionSSHAllowed(envs []string) (model.SessionSSHInfo, error)` — SetSessionSSHAllowed 是旧会话放权状态的兼容写面；新流程以固定环境为准。
+- `func (bridge *Bridge) PermissionVector() ([]string, error)` — PermissionVector 读当前视图会话自持角色的**生效**权限向量：登记优先，缺失按五级
+- `func (bridge *Bridge) PermissionRoles() ([]dto.PermissionRoleInfo, error)` — PermissionRoles 列出权限面板的「按角色」行：角色名 + 名下账号 + 该角色的默认向量。
+- `func (bridge *Bridge) RoleDefaultVector(role string) (dto.PermissionRoleInfo, error)` — RoleDefaultVector 读一个角色的默认向量（explicit=false 时 Vector 是链路解析结果）。
+- `func (bridge *Bridge) SetRoleDefaultVector(role string, tags []string) (dto.PermissionRoleInfo, error)` — SetRoleDefaultVector 写一个角色的默认向量，并返回**落盘后读回**的那一行。
+- `func (bridge *Bridge) SetRoleAccount(role, account string) (dto.PermissionRoleInfo, error)` — SetRoleAccount 设置某个角色优先使用的账号，并返回落盘后读回的整行。
+- `func (bridge *Bridge) SetRoleInheritance(role string, inherit bool) (dto.PermissionRoleInfo, error)` — SetRoleInheritance 切换 subagent / teammate 是否继承 mainagent 的默认权限。
+- `func (bridge *Bridge) SetRoleSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error)` — SetRoleSSHUserSpaces 写角色在远端项目根之外的路径允许范围。
+- `func (bridge *Bridge) SetRoleSessionSSHUserSpaces(role string, paths []string) (dto.PermissionRoleInfo, error)` — SetRoleSessionSSHUserSpaces 写当前会话中单个 agent role 的 SSH 路径覆盖。
+- `func (bridge *Bridge) SetRoleSessionPermission(role string, tags []string) (dto.PermissionRoleInfo, error)` — SetRoleSessionPermission 写本会话里某个 agent role 的显式权限覆盖。
+- `func permissionRoleGroups(accounts []model.AccountInfo) ([]string, map[string][]model.AccountInfo)` — permissionRoleGroups 把账号列表按角色归并：返回角色顺序（按账号出现顺序，稳定）
+- `func permissionRoleInfoFor(settings RoleSettings, sessionID, role string, accounts []model.AccountInfo) (dto.PermissionRoleInfo, error)` — permissionRoleInfoFor 组装权限面板的一行：账号名 + 展示用供应商/模型 + 生效默认向量。
+- `func (bridge *Bridge) SetPermissionVector(tags []string) ([]string, error)` — SetPermissionVector 提交当前视图会话自持角色的**整组**权限标签（不是增删单格：
+- `func (bridge *Bridge) SetDefaultPlugin(name string) error` — SetDefaultPlugin 设"这个会话默认装载的 plugin"。
+- `func (bridge *Bridge) ScheduleTask(spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)`
+- `func (bridge *Bridge) UpdateScheduledTask(id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（同一份 spec 形状；任务 ID 是操作键，
+- `func (bridge *Bridge) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
+- `func (bridge *Bridge) roleSessionTarget(sessionID string) string` — roleSessionTarget 解析目标会话：显式 ID 优先，空值取当前视图会话。
+- `func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)` — AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」/ 团队看板
+- `func (bridge *Bridge) TeammateSessionLive(roleSessionID string) (dto.TeammateSessionLiveView, error)` — TeammateSessionLive 读取**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
+- `func (bridge *Bridge) TeammateSessionLivePage(roleSessionID string, offset, limit int) (dto.TeammateSessionLiveView, error)` — TeammateSessionLivePage 是同一份读数的**分页读法**（有界窗口 + 分页）：前端"翻页"用
+- `func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit int, paginated bool) (dto.TeammateSessionLiveView, error)` — teammateSessionLive 是上面两个读法的共同实现（同一份参数归一：只读、不写任何状态）。
+- `func (bridge *Bridge) WorkItemExecution(mainSessionID, itemID string, offset, limit int) (dto.WorkItemExecutionView, error)` — WorkItemExecution is the single server read for WorkItem details and the
+- `func (bridge *Bridge) TeammateInspection(mainSessionID, role string) (dto.TeammateInspectionView, error)` — TeammateInspection returns prompt, plugin, limit, and permission details.
+- `func (bridge *Bridge) ConversationView(ref dto.ConversationSessionRef, offset, limit int) (dto.SessionRecordPage, error)`
+- `func (bridge *Bridge) ConversationChat(ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error)`
+- `func (bridge *Bridge) RecoverConversation(ref dto.ConversationSessionRef) (dto.SessionRecovery, error)`
+- `func (bridge *Bridge) SearchHistory(query string, limit int) (application.SearchResult, error)` — ── Agent Team 装配面已退场（2026-10-12 J-1a）
+- `func (bridge *Bridge) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 转发工作树目录列表（参数与业务校验在 application 层）。
+- `func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 转发工作区文件统计。
+- `func (bridge *Bridge) WorkspaceGitRepos() (dto.GitReposResult, error)` — WorkspaceGitRepos 转发「工作区内 git 仓库发现」（仓库标签栏数据源；扫描边界、
+- `func (bridge *Bridge) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 转发指定仓库的 git 提交记录（repo 相对工作区根，"." = 工作
+- `func (bridge *Bridge) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 转发指定仓库的未提交改动（repo 口径同 WorkspaceGitLog；暂存/
+- `func (bridge *Bridge) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 转发指定仓库某个提交的改动文件清单（提交记录「点开
+- `func (bridge *Bridge) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 转发指定仓库"某文件在某个提交时的内容"读取
+- `func (bridge *Bridge) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限
+- `func (bridge *Bridge) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 转发工作树文件写入（「文件详情」面板的编辑保存）：用户
+- `func (bridge *Bridge) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error)` — ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
+- `func (bridge *Bridge) PerfStats() application.PerfStats` — PerfStats 返回性能追踪钩子的后端数据面（无内容指标：快照载荷体积/
+- `func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard` — ToolRecordBoard 返回工具记录看板（会话级读数：当前视图会话自己的累计）。
+- `func (bridge *Bridge) SetToolRecordEnabled(enabled bool) (bool, error)` — SetToolRecordEnabled 开关工具记录计数（设置里那一个开关；返回生效值）。
+- `func (bridge *Bridge) PromptLayers() []application.PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图数据源）。
+
+### bridge_events_test.go
+
+- `func (fake *replayAwareFakeApplication) SubscribeSessionWithReplay( sessionID string, buffer, replayWindow int, ) (application.Subscription, error)`
+- `func (fake *replayAwareFakeApplication) deps() Dependencies` — deps 把变体自己绑进 ViewEvents 端口：重放窗口这条路只有它实现。
+- `func newAppliedRenderer(dropSeq uint64) *appliedRenderer`
+- `func (renderer *appliedRenderer) emit(name string, payload any)`
+- `func (renderer *appliedRenderer) count(seq uint64) int`
+- `func (renderer *appliedRenderer) kindCount(kind application.EventKind) int`
+- `func (renderer *appliedRenderer) awaitCount(t *testing.T, seq uint64, want int)` — awaitCount 等待某个 delivery_seq 至少被应用 want 次。
+- `func (renderer *appliedRenderer) awaitKind(t *testing.T, kind application.EventKind, want int)` — awaitKind 等待某个事件类型至少到达 want 次。
+- `func (renderer *appliedRenderer) pollUntil(ready func() bool) error`
+- `func awaitWatermark(t *testing.T, subscription application.Subscription, atLeast uint64)` — awaitWatermark 等待 hub 给本订阅分配到 at least 序号（作为发布的同步点）。
+- `func startReplayBridge(t *testing.T, app *replayAwareFakeApplication, renderer *appliedRenderer) *Bridge`
+- `func TestBridgeResendsEventsTheRendererHasNotAcked(t *testing.T)` — TestBridgeResendsEventsTheRendererHasNotAcked 是 C4 的主场景：Go→WebView 丢了
+- `func TestBridgeFallsBackToResyncWhenWindowEvicted(t *testing.T)` — TestBridgeFallsBackToResyncWhenWindowEvicted 覆盖补不齐的分支：落后事件已滑出
+- `func TestBridgeRelayGenerationSupersedesStaleRelay(t *testing.T)` — TestBridgeRelayGenerationSupersedesStaleRelay 验证 resubscribe 换代语义：
+- `func TestBridgeReplayEventsRequiresRunningRelay(t *testing.T)` — TestBridgeReplayEventsRequiresRunningRelay 确认未启动时补取显式不可用：
+
+### bridge_input_index_test.go
+
+- `func (stub *stubInputIndexApplication) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)`
+- `func (stub *stubInputIndexApplication) deps() Dependencies`
+- `func TestBridgeSessionInputIndexForwards(t *testing.T)` — TestBridgeSessionInputIndexForwards SessionInputIndex 只转发一次，
+- `func TestBridgeSessionInputIndexUnavailableIsExplicit(t *testing.T)` — TestBridgeSessionInputIndexUnavailableIsExplicit 未装配该面时返回可展示错误
+- `func TestBridgeSessionInputIndexSurfacesApplicationError(t *testing.T)` — TestBridgeSessionInputIndexSurfacesApplicationError application 层错误
+
+### bridge_message_edit_test.go
+
+- `func (*stubSessionCatalog) ListSessions() []application.SessionInfo`
+- `func (*stubSessionCatalog) SnapshotOf(string) (application.SessionSnapshot, error)`
+- `func (*stubSessionCatalog) GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error)`
+- `func (*stubSessionCatalog) SessionInputIndex(string) (model.SessionInputIndex, error)`
+- `func (*stubSessionCatalog) WaitCatalogRefresh(context.Context) error`
+- `func (stub *stubMessageEditForkApplication) EditUserMessageAndFork(_ context.Context, parentID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)`
+- `func TestBridgeForwardsEditUserMessageAndFork(t *testing.T)`
+- `func TestBridgeEditUserMessageAndForkUnavailableIsExplicit(t *testing.T)`
+
+### bridge_session_test.go
+
+- `func (fake *sessionAwareFakeApplication) SubmitToSession(_ context.Context, sessionID, text string) error`
+- `func (fake *sessionAwareFakeApplication) Resume(sessionID string) error`
+- `func (fake *sessionAwareFakeApplication) ForkLatest(sessionID string) (string, error)`
+- `func (fake *sessionAwareFakeApplication) Begin() error`
+- `func (fake *sessionAwareFakeApplication) SnapshotOf(sessionID string) (application.SessionSnapshot, error)`
+- `func (fake *sessionAwareFakeApplication) SubscribeSession(sessionID string, buffer int) (application.Subscription, error)`
+- `func (fake *sessionAwareFakeApplication) SubscribeSessionWithReplay(string, int, int) (application.Subscription, error)` — SubscribeSessionWithReplay 刻意返回错误：本替身模拟"只有无窗口会话订阅"的宿主，
+- `func (fake *sessionAwareFakeApplication) deps() Dependencies` — deps 把变体自己绑进它驱动的逐 owner 端口。
+- `func (fake *sessionAwareFakeApplication) subscriptionKeys() []string` — subscriptionKeys 返回订阅键的快照：中继 goroutine 会并发追加
+- `func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T)`
+- `func TestBridgeRelaySubscribesToViewOnce(t *testing.T)` — TestBridgeRelaySubscribesToViewOnce 验证订阅键含显式当前视图 sid（G2）：
+- `func TestBridgeRelaysCompactionProgressToRenderer(t *testing.T)` — TestBridgeRelaysCompactionProgressToRenderer 钉住 GUI 这一段中继不吞门禁进度。
+
+### bridge_test.go
+
+- `func (fake *recordingCancelApplication) CancelChat(requestID string) bool`
+- `func newFakeApplication() *fakeApplication`
+- `func (fake *fakeApplication) Snapshot() application.Snapshot`
+- `func (*fakeApplication) BeginGracefulShutdown()`
+- `func (*fakeApplication) WaitForIdle(context.Context) error`
+- `func (fake *fakeApplication) Subscribe(buffer int) application.Subscription`
+- `func (fake *fakeApplication) Submit(_ context.Context, text string) error`
+- `func (fake *fakeApplication) BeginNewSession() error`
+- `func (fake *fakeApplication) ResumeSession(sessionID string) error`
+- `func (fake *fakeApplication) ForkSessionLatest(sessionID string) (string, error)`
+- `func (fake *fakeApplication) CancelChat(requestID string) bool`
+- `func (fake *fakeApplication) ResolveInteraction(_ context.Context, id, optionID string) error`
+- `func (fake *fakeApplication) Resolve(ctx context.Context, id, optionID string) error`
+- `func (fake *fakeApplication) SelectAccount(_ context.Context, name string) error`
+- `func (fake *fakeApplication) SwitchEffort(level string) error`
+- `func (fake *fakeApplication) SetReasoningEffort(effort string) error`
+- `func (fake *fakeApplication) SetLoopLimit(limit int) error`
+- `func (fake *fakeApplication) SetSessionReleaseWindow(window int) (int, error)`
+- `func (fake *fakeApplication) SessionReleaseWindow() int`
+- `func (fake *fakeApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 模仿后端语义：0 = 清掉该账号的覆盖，返回**生效值**。
+- `func (fake *fakeApplication) AddAccount(_ context.Context, draft application.AccountDraft) (application.AccountAddResult, error)` — AddAccount 记录被转发的草稿，回执由测试摆。
+- `func (fake *fakeApplication) AccountDetails(name string) (application.AccountDetails, error)`
+- `func (fake *fakeApplication) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error)`
+- `func (fake *fakeApplication) DeleteAccount(name string) (application.AccountDetails, error)`
+- `func (fake *fakeApplication) AccountBalance(_ context.Context, name string) (application.AccountBalance, error)` — AccountBalance 记录被查询的账号名，读数由测试摆。
+- `func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error`
+- `func (fake *fakeApplication) LoadMoreHistory(limit int) error`
+- `func (fake *fakeApplication) LoadLatestHistory() error`
+- `func (fake *fakeApplication) Suggestions(input string) []application.Suggestion`
+- `func (fake *fakeApplication) DeleteSession(sessionID string) error`
+- `func (fake *fakeApplication) ArchiveSession(sessionID string) error`
+- `func (fake *fakeApplication) ListSessions() []application.SessionInfo`
+- `func (fake *fakeApplication) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]application.TranscriptEvent, error)`
+- `func (fake *fakeApplication) SetSessionMeta(sessionID string, meta application.SessionMeta) error`
+- `func (fake *fakeApplication) WaitCatalogRefresh(ctx context.Context) error` — WaitCatalogRefresh 记录 Bridge 的目录收敛等待；catalogGate 非空时阻塞到该
+- `func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) error`
+- `func (fake *fakeApplication) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)`
+- `func (fake *fakeApplication) BindWorkspace(workspaceID string) error`
+- `func (fake *fakeApplication) UnbindWorkspace()`
+- `func (fake *fakeApplication) SetFullAccess(on bool) bool`
+- `func (fake *fakeApplication) SetPermissionTier(tier string) (string, error)`
+- `func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error)`
+- `func (fake *fakeApplication) ScheduleTask(_ context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (fake *fakeApplication) UpdateScheduledTask(_ context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (fake *fakeApplication) CancelScheduledTask(id string) error`
+- `func (fake *fakeApplication) ClearSubagentTree() error`
+- `func (fake *fakeApplication) UpdateWorkItemStatus(id, status string) error`
+- `func (fake *fakeApplication) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error)`
+- `func (fake *fakeApplication) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)`
+- `func (fake *fakeApplication) WorkspaceFileCount() (dto.TreeCount, error)`
+- `func (fake *fakeApplication) WorkspaceGitRepos() (dto.GitReposResult, error)`
+- `func (fake *fakeApplication) WorkspaceGitLog(repo string, limit int) (dto.GitLogResult, error)`
+- `func (fake *fakeApplication) WorkspaceChanges(repo string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (fake *fakeApplication) WorkspaceGitCommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (fake *fakeApplication) WorkspaceGitCommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fakeApplication) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fakeApplication) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)`
+- `func (fake *fakeApplication) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (application.ToolResultPage, error)`
+- `func (fake *fakeApplication) PerfStats() application.PerfStats`
+- `func (fake *fakeApplication) PromptLayers() []application.PromptLayer`
+- `func (fake *fakeApplication) Layers() []application.PromptLayer`
+- `func (fake *fakeApplication) Begin() error`
+- `func (fake *fakeApplication) Resume(sessionID string) error`
+- `func (fake *fakeApplication) ForkLatest(sessionID string) (string, error)`
+- `func (fake *fakeApplication) Delete(sessionID string) error`
+- `func (fake *fakeApplication) Archive(sessionID string) error`
+- `func (fake *fakeApplication) SubmitToSession(_ context.Context, sessionID, text string) error`
+- `func (fake *fakeApplication) AnyChatRunning() bool`
+- `func (*fakeApplication) CancelAllChats()`
+- `func (fake *fakeApplication) SnapshotOf(sessionID string) (application.SessionSnapshot, error)`
+- `func (*fakeApplication) SessionInputIndex(string) (model.SessionInputIndex, error)`
+- `func (*fakeApplication) ReorderQueuedInput(string, int, int) error`
+- `func (*fakeApplication) RecallQueuedInput(string, int) (string, error)`
+- `func (*fakeApplication) View(context.Context, dto.ConversationSessionRef, dto.ConversationViewRequest) (dto.SessionRecordPage, error)`
+- `func (*fakeApplication) Chat(context.Context, dto.ConversationSessionRef, dto.ConversationChatRequest) (dto.ChatReceipt, error)`
+- `func (*fakeApplication) Recover(context.Context, dto.ConversationSessionRef) (dto.SessionRecovery, error)`
+- `func (*fakeApplication) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error)`
+- `func (fake *fakeApplication) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (*fakeApplication) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
+- `func (*fakeApplication) DeleteWorkspaceEnvironment(string, string) error`
+- `func (*fakeApplication) SetDefaultWorkspaceEnvironment(string, string) error`
+- `func (fake *fakeApplication) Tree(relPath string, depth int) (dto.TreeListing, error)`
+- `func (fake *fakeApplication) FileCount() (dto.TreeCount, error)`
+- `func (fake *fakeApplication) FileContent(relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fakeApplication) WriteFile(relPath, content string) (dto.FileWriteResult, error)`
+- `func (fake *fakeApplication) GitLog(repo string, limit int) (dto.GitLogResult, error)`
+- `func (fake *fakeApplication) Changes(repo string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (fake *fakeApplication) CommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (fake *fakeApplication) CommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fakeApplication) WorkItemExecution(context.Context, string, string, dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)`
+- `func (*fakeApplication) TeammateInspection(context.Context, string, string) (dto.TeammateInspectionView, error)`
+- `func (*fakeApplication) SessionLive(sessionID string) dto.TeammateSessionLiveView`
+- `func (*fakeApplication) SessionPage(sessionID string, offset, limit int) dto.TeammateSessionLiveView`
+- `func (fake *fakeApplication) Detail(nodeID string) (*application.SubagentDetail, error)`
+- `func (*fakeApplication) ClearTree() error`
+- `func (*fakeApplication) Board() application.ToolRecordBoard`
+- `func (*fakeApplication) Enabled() bool`
+- `func (*fakeApplication) SetEnabled(enabled bool) (bool, error)`
+- `func (*fakeApplication) State(string) (model.SessionSSHInfo, error)`
+- `func (*fakeApplication) SetAllowed(string, []string) (model.SessionSSHInfo, error)`
+- `func (*fakeApplication) SetEnv(string, string, string) (model.SessionSSHInfo, error)`
+- `func TestNewBridgeRequiresApplication(t *testing.T)`
+- `func TestBridgeDiscoversProjectSources(t *testing.T)`
+- `func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T)`
+- `func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T)`
+- `func TestBridgeForwardsOtherCommands(t *testing.T)`
+- `func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T)`
+- `func TestBridgeCreateWorkspacesForwardsBatch(t *testing.T)`
+- `func TestBridgeWorkspaceFileCountForwards(t *testing.T)`
+- `func TestBridgeWorkspaceGitReposForwards(t *testing.T)`
+- `func TestBridgeWorkspaceGitLogForwardsRepoAndLimit(t *testing.T)`
+- `func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T)`
+- `func TestBridgeWorkspaceGitCommitDetailForwardsHash(t *testing.T)`
+- `func TestBridgeWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T)`
+- `func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T)`
+- `func TestBridgeWorkspaceWriteFileForwardsPathAndContent(t *testing.T)`
+- `func TestEmbeddedFilePreviewEditWiring(t *testing.T)` — TestEmbeddedFilePreviewEditWiring：「文件详情」面板的编辑面必须在嵌入前端里
+- `func TestEmbeddedGitCommitDrilldownWiring(t *testing.T)` — TestEmbeddedGitCommitDrilldownWiring：提交记录的两次下钻必须在嵌入前端里真的
+- `func TestBridgeForwardsScheduledTaskCommands(t *testing.T)`
+- `func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testing.T)`
+- `func TestBridgeCancelChatForwardsOnce(t *testing.T)` — TestBridgeCancelChatForwardsOnce：取消对象的归属判断在 application 层
+- `func TestBridgeArchiveSessionForwardsOnce(t *testing.T)` — TestBridgeArchiveSessionForwardsOnce C2：ArchiveSession 只转发一次到
+- `func TestBridgeSessionReadAPIsForwardOnce(t *testing.T)` — TestBridgeSessionReadAPIsForwardOnce C1：冷读宿主面（ListSessions /
+- `func (app *serialResumeApp) Resume(sessionID string) error`
+- `func TestBridgeSwitchCommandsSerialize(t *testing.T)` — TestBridgeSwitchCommandsSerialize 忙时高频事件下并发点击多个会话时，切换
+- `func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T)` — TestBridgeSettlesSessionCatalogBeforeReturning 会改变会话目录的命令必须在
+- `func (fake *closeFakeApplication) CancelChat(requestID string) bool`
+- `func (fake *closeFakeApplication) CancelAllChats()`
+- `func newCloseFakeApplication(running bool) *closeFakeApplication`
+- `func (fake *closeFakeApplication) BeginGracefulShutdown()`
+- `func (fake *closeFakeApplication) WaitForIdle(ctx context.Context) error`
+- `func newActivityCloseFakeApplication(viewRunning, anyRunning bool) *activityCloseFakeApplication`
+- `func (fake *activityCloseFakeApplication) AnyChatRunning() bool`
+- `func (fake *activityCloseFakeApplication) CancelAllChats()` — CancelAllChats 模拟取消全部运行中会话：取消后各 runChat 收尾并把进程
+- `func TestCloseCoordinatorWaitsForRunningChat(t *testing.T)`
+- `func TestCloseCoordinatorWaitsForBackgroundRunningChat(t *testing.T)` — TestCloseCoordinatorWaitsForBackgroundRunningChat G0c 回归：视图会话空闲
+- `func TestCloseCoordinatorAllowsIdleClose(t *testing.T)`
+- `func TestCloseCoordinatorCancelsStalledChatAndQuits(t *testing.T)`
+- `func TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout(t *testing.T)` — TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout G0c 超时路径：
+- `func TestBridgeRelaysApplicationEvents(t *testing.T)`
+- `func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T)`
+- `func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T)`
+- `func TestEmbeddedFrontendExists(t *testing.T)`
+- `func TestEmbeddedWorkbenchInlineSummary(t *testing.T)` — TestEmbeddedWorkbenchInlineSummary：工作台不再用按钮 + 弹窗查看表格；
+- `func TestEmbeddedScheduledToggleInline(t *testing.T)` — TestEmbeddedScheduledToggleInline：新建定时任务弹窗的「创建后立即启用」开关与文案
+- `func TestEmbeddedScheduledFormPromptOnly(t *testing.T)` — TestEmbeddedScheduledFormPromptOnly：中栏定时任务编辑器只做提示词任务。
+- `func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T)` — TestEmbeddedScheduledFormCarriesWorkspacePicker：中栏编辑器要能选工作区。
+- `func TestEmbeddedScheduledEditEntryWired(t *testing.T)` — TestEmbeddedScheduledEditEntryWired：定时任务面板要有**编辑**入口，且提交时
+- `func TestEmbeddedScheduledPayloadDelegatedToView(t *testing.T)` — TestEmbeddedScheduledPayloadDelegatedToView：弹窗载荷形状只有一处事实
+- `func TestScheduledTaskRunAtWireContract(t *testing.T)` — TestScheduledTaskRunAtWireContract：把"空串会让整次调用进不去 Go"这件事钉在
+- `func TestEmbeddedScheduledToggleHasOwnSkin(t *testing.T)` — TestEmbeddedScheduledToggleHasOwnSkin：勾选框要有自己的皮。
+- `func TestEmbeddedKnobSliderHitAreaOverlayOnRail(t *testing.T)` — TestEmbeddedKnobSliderHitAreaOverlayOnRail：composer 两条运行参数拉条的隐形 range
+- `func TestEmbeddedLoopLimitBounds(t *testing.T)` — TestEmbeddedLoopLimitBounds：循环次数的三个数字必须在同一条链上——
+- `func cssRuleBody(source, selector string) string` — cssRuleBody 取出 `selector { ... }` 里花括号内的声明块（第一个选择器匹配处）。
+- `func cssDeclaration(body, property string) string` — cssDeclaration 取出声明块里某条属性的值。
+- `func cssTrackCount(value string) int` — cssTrackCount 数出 grid-template-columns 的轨道条数：`minmax(0, 1fr)` 这类函数里
+- `func elementInner(html, id string) (string, bool)` — elementInner 取出 id 对应元素的内部 HTML（不含自身的开闭标签）。
+- `func directChildCount(inner string) int` — directChildCount 数出一段 HTML 里**直接子元素**的个数（不计文本与自闭合标签）。
+- `func TestEmbeddedLeftPanelScrollerChain(t *testing.T)` — TestEmbeddedLeftPanelScrollerChain：左栏保留两条纵向滚轮——会话列表与每个展开的
+- `func TestEmbeddedQueueSingleLineRows(t *testing.T)` — TestEmbeddedQueueSingleLineRows：消息队列的每条是一行（用户口径：形状照 Qoder 的
+- `func TestEmbeddedChatQueueCardStack(t *testing.T)` — TestEmbeddedChatQueueCardStack：聊天框与消息队列是同一套卡片语言（用户口径：
+- `func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent`
+- `func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T)`
+- `func TestBridgeForwardsForkSession(t *testing.T)`
+- `func TestBridgeForwardsPermissionTier(t *testing.T)` — TestBridgeForwardsPermissionTier：权限档位切换必须原样转发到 application 并
+
+### bridge_view_drift_test.go
+
+- `func TestBridgeSelfHealsSubscriptionAfterAsyncViewRollback(t *testing.T)`
+- `func TestBridgeSameSessionRetryAfterRollbackHealsSubscription(t *testing.T)` — TestBridgeSameSessionRetryAfterRollbackHealsSubscription 复现二次伤害路径：
+
+### dependencies_test.go
+
+- `func frontendDependencies(service *assembly.Service) Dependencies` — frontendDependencies 把一条真实流水线的 owner 绑成 GUI 依赖表，供打穿真实实现
+- `func (fake *fakeApplication) deps() Dependencies` — deps 装配本记录器提供的全部端口。某个用例要驱动变体替身时，在自己的类型上
+- `func (fake fakeAccounts) AddAccount(ctx context.Context, draft application.AccountDraft) (application.AccountAddResult, error)`
+- `func (fake fakeAccounts) AccountDetails(name string) (application.AccountDetails, error)`
+- `func (fake fakeAccounts) UpdateAccount(update application.AccountUpdate) (application.AccountDetails, error)`
+- `func (fake fakeAccounts) DeleteAccount(name string) (application.AccountDetails, error)`
+- `func (fake fakeAccounts) AccountBalance(ctx context.Context, name string) (application.AccountBalance, error)`
+- `func (fake fakeAccounts) SelectAccount(ctx context.Context, name string) error`
+- `func (fake fakeAccounts) SetAccountWindow(ctx context.Context, name string, window int) (int, error)`
+- `func (fake fakeSwitches) SetFullAccess(on bool) bool`
+- `func (fake fakeSwitches) SetPermissionTier(tier string) (string, error)`
+- `func (fake fakeSwitches) SwitchEffort(level string) error`
+- `func (fake fakeSwitches) SetReasoningEffort(effort string) error`
+- `func (fake fakeSwitches) SetLoopLimit(limit int) error`
+- `func (fake fakeSwitches) SetSessionReleaseWindow(window int) (int, error)`
+- `func (fake fakeSwitches) SessionReleaseWindow() int`
+- `func (fake fakeSwitches) SwitchPlugin(ctx context.Context, name string) error`
+- `func (fake *fakeRoleSettings) RolePermissionVector(_, _ string) ([]string, error)`
+- `func (fake *fakeRoleSettings) SetRolePermissionVector(_, _ string, _ []string) error`
+- `func (fake *fakeRoleSettings) RoleDefaultVector(_, _ string) ([]string, bool, error)`
+- `func (fake *fakeRoleSettings) SetRoleDefaultVector(_, _ string, _ []string) error`
+- `func (fake *fakeRoleSettings) RoleAccount(_, _ string) (string, bool, error)`
+- `func (fake *fakeRoleSettings) SetRoleAccount(_, _, account string) error`
+- `func (fake *fakeRoleSettings) RoleInheritMainAgent(_, _ string) (bool, error)`
+- `func (fake *fakeRoleSettings) SetRoleInheritMainAgent(_, _ string, inherit bool) error`
+- `func (fake *fakeRoleSettings) RoleSSHUserSpaces(_, _ string) ([]string, error)`
+- `func (fake *fakeRoleSettings) RoleDefaultSSHUserSpaces(_, _ string) ([]string, error)`
+- `func (fake *fakeRoleSettings) SetRoleSSHUserSpaces(_, _ string, paths []string) error`
+- `func (fake *fakeRoleSettings) SetRoleSessionSSHUserSpaces(_, _ string, paths []string) error`
+- `func (fake fakeCompletion) Suggestions(value string) []application.Suggestion`
+- `func (fake fakeHistory) LoadMoreHistory(limit int) error`
+- `func (fake fakeHistory) LoadLatestHistory() error`
+- `func (fake fakeReferences) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error)`
+- `func (fake fakeViewSnapshot) Snapshot() application.Snapshot`
+- `func (fake fakeViewEvents) Subscribe(buffer int) application.Subscription`
+- `func (fake fakeViewEvents) SubscribeSession(_ string, buffer int) (application.Subscription, error)` — SubscribeSession 转发到记录器的全量订阅：基础记录器不区分会话路由（路由判据
+- `func (fake fakeViewEvents) SubscribeSessionWithReplay(string, int, int) (application.Subscription, error)`
+
+### dialogs_gui.go
+
+- `func (bridge *Bridge) PickDirectory() (string, error)` — PickDirectory 打开原生目录选择对话框，返回所选路径。
+
+### dialogs_stub.go
+
+- `func (bridge *Bridge) PickDirectory() (string, error)` — PickDirectory stub：非 GUI 构建不支持原生对话框。
+
+### fork_live_probe_test.go
+
+- `func TestRealAPIForkLiveProbe(t *testing.T)`
+- `func forkLiveRepoRoot(t *testing.T) string`
+- `func forkLiveFreePort(t *testing.T) string`
+- `func forkLiveEnvPath(name, fallback string) string`
+- `func forkLiveEnvInt(name string, fallback int) int`
+- `func forkLiveSpawn(t *testing.T, target, repoRoot, storeDir, port, pprofAddr string) *forkLiveProc`
+- `func (p *forkLiveProc) stop()`
+- `func (p *forkLiveProc) waitHealthy(ctx context.Context, t *testing.T, deadline time.Time)`
+- `func (p *forkLiveProc) rpc(ctx context.Context, method string, args ...any) (json.RawMessage, error)`
+- `func (p *forkLiveProc) snapshot(ctx context.Context) (model.Snapshot, error)`
+- `func forkLiveRows(items []model.WorkItem) []forkLiveRowState`
+- `func forkLiveTree(nodes []dto.SubAgentTreeNode) []forkLiveTreeNode`
+- `func forkLiveCompact(rows []forkLiveRowState, tree []forkLiveTreeNode) string`
+- `func forkLiveShortAssignee(assignee string) string`
+- `func forkLiveStatusCounts(rows []forkLiveRowState) map[string]int`
+- `func forkLiveTreeCounts(nodes []forkLiveTreeNode) map[string]int`
+- `func forkLiveForkTool(messages []model.Message) *model.ToolCall`
+- `func forkLiveStderrWarnings(stderr string) []string`
+- `func forkLiveAssertOutcome(t *testing.T, rows []forkLiveRowState, tree []forkLiveTreeNode, n int)`
+- `func forkLiveDumpReport(t *testing.T, repoRoot string, report forkLiveReport)`
+- `func forkLiveDumpGoroutines(t *testing.T, pprofAddr, repoRoot, suffix string)`
+
+### goal_board_wiring_test.go
+
+- `func TestEmbeddedGoalBoardWiring(t *testing.T)` — TestEmbeddedGoalBoardWiring：「目标」子页的面板必须在嵌入前端里真的接起来。
+
+### headless_goal_test.go
+
+- `func (fake *fakeGoal) BeginFor(_ context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)`
+- `func (fake *fakeGoal) UpdateFor(_ context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)`
+- `func (fake *fakeGoal) DoneFor(_ context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)`
+- `func (fake *fakeGoal) StatusFor(sessionID string) (goaldomain.StatusView, error)`
+- `func (fake *fakeGoal) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
+- `func TestHeadlessGoalChainReplication(t *testing.T)` — TestHeadlessGoalChainReplication 复刻验收 goal 治理的 gui headless 链路：
+- `func remarshal(value any, destination any) error`
+
+### headless_permission_test.go
+
+- `func TestHeadlessSetPermissionTierDispatch(t *testing.T)`
+
+### headless_ports_test.go
+
+- `func (fake *fakeSubmission) Submit(_ context.Context, text string) error`
+- `func (fake *fakeDraft) Begin() error`
+- `func (fake *fakeResume) Resume(sessionID string) error`
+- `func (fake *fakeTurn) CancelChat(requestID string) bool`
+- `func (fake *fakeTurn) WaitForIdle(ctx context.Context) error`
+- `func (fake *fakeEvents) Subscribe(buffer int) application.Subscription`
+- `func (fake *fakeSnapshot) Snapshot() application.Snapshot`
+- `func (fake *fakeHistoryPager) LoadMoreHistory(limit int) error`
+- `func (fake *fakeHistoryPager) LoadLatestHistory() error`
+- `func (fake *fakeCatalog) ListSessions() []application.SessionInfo`
+- `func (fake *fakeCatalog) SnapshotOf(string) (application.SessionSnapshot, error)` — SnapshotOf 未被任何 headless 用例驱动（目录读数面由 session/query 自己的用例覆盖），
+- `func (fake *fakeCatalog) WaitCatalogRefresh(ctx context.Context) error`
+- `func (fake *fakePerf) PerfStats() application.PerfStats`
+- `func (fake *fakePolicy) SetPermissionTier(tier string) (string, error)`
+- `func newHeadlessTestOwners() *headlessTestOwners`
+
+### headless_role_test.go
+
+- `func newFakeRoleStore() *fakeRoleStore`
+- `func (app *fakeRoleStore) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (app *fakeRoleStore) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
+- `func (app *fakeRoleStore) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
+- `func (app *fakeRoleStore) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
+- `func (app *fakeRoleStore) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error`
+- `func (app *fakeRoleStore) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)`
+- `func (app *fakeRoleStore) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
+- `func (app *fakeRoleStore) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
+- `func (app *fakeRoleStore) SetLifecycleOrder(sessionID, policy string, roles []string) error`
+- `func (app *fakeRoleStore) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error`
+- `func (app *fakeRoleStore) ListRoleSessions(mainSessionID string) ([]string, error)`
+- `func (app *fakeRoleStore) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (app *fakeRoleStore) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (app *fakeRoleStore) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func TestHeadlessRoleRPC(t *testing.T)`
+
+### headless_subagent_test.go
+
+- `func (app *fakeSubagents) ListRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)`
+- `func (app *fakeSubagents) ResumeInterrupted(_ context.Context, sessionID string) (dto.SubagentResumeReport, error)`
+- `func (app *fakeSubagents) Fork(_ context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)`
+- `func (app *fakeSubagents) Resume(_ context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)`
+- `func TestHeadlessSubagentRPC(t *testing.T)`
+
+### headless_test.go
+
+- `func newHeadlessTestServer(t *testing.T, deps headless.Dependencies) string` — newHeadlessTestServer 在回环监听器上起控制面，接收的是测试装配表交出的
+- `func headlessRPC(t *testing.T, base, method string, args ...any) headless.Response`
+- `func TestHeadlessHealthAndRPC(t *testing.T)` — TestHeadlessHealthAndRPC 验证 headless 冒烟接口的命令面：方法映射到
+- `func TestHeadlessEventsStream(t *testing.T)` — TestHeadlessEventsStream 验证 /events 以 SSE 推送会话事件（公开元数据面）。
+- `func TestHeadlessWaitRPC(t *testing.T)` — TestHeadlessWaitRPC 验证异步等待口（WaitIdle / WaitCatalogRefresh）：
+- `func TestHeadlessPagingCommands(t *testing.T)` — TestHeadlessPagingCommands 覆盖历史分页命令面：LoadMoreHistory(limit=0 =
+
+### permission_roles_test.go
+
+- `func TestPermissionRoleGroupsUseExplicitAccountRole(t *testing.T)`
+- `func TestBridgeSetRoleAccountRejectsCrossRoleAccount(t *testing.T)`
+- `func TestBridgeSessionSSHPathsReturnSessionScope(t *testing.T)`
+
+### review_request_bridge_test.go
+
+- `func TestBridgeSnapshotCarriesReviewRequest(t *testing.T)` — TestBridgeSnapshotCarriesReviewRequest 是 J-2 的 **GUI 面 bridge 断言**：待审阅
+
+### role_live_probe_test.go
+
+- `func TestRealAPIRoleSessionLiveProbe(t *testing.T)`
+- `func roleLiveSessionID(t *testing.T, ctx context.Context, proc *forkLiveProc) string`
+- `func roleLiveSnapshot(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
+- `func roleLiveDraftRows(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
+- `func roleLiveWire(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (dto.RoleWireSnapshot, error)`
+- `func roleLiveAssertFloorAndRoleRows(t *testing.T, snapshot dto.RoleSnapshot)`
+- `func roleLiveDumpMutex(t *testing.T, pprofAddr, repoRoot string)`
+- `func roleLiveDumpProfile(t *testing.T, pprofAddr, repoRoot, profile string)`
+
+### run_stub.go
+
+- `func Available() bool`
+- `func Run(Dependencies, Options) error` — Run reports how to enable the desktop frontend in non-GUI builds.
+
+### run_wails.go
+
+- `func Available() bool`
+- `func Run(deps Dependencies, config Options) error`
+
+### session_fork_live_probe_test.go
+
+- `func TestRealAPISessionForkLiveProbe(t *testing.T)`
+- `func sessionForkLiveConversation(t *testing.T, ctx context.Context, proc *forkLiveProc) string`
+
+### shutdown.go
+
+- `func newCloseCoordinator(turn TurnControl, quit func()) *closeCoordinator`
+- `func newCloseCoordinatorWithTimeout(turn TurnControl, quit func(), timeout time.Duration) *closeCoordinator`
+- `func (coordinator *closeCoordinator) BeforeClose() bool` — BeforeClose returns true when the native window close must be prevented.
+- `func (coordinator *closeCoordinator) hasActiveChat() bool` — hasActiveChat 报告是否存在任一会话的运行中回合。AnyChatRunning 读取每个
+- `func (coordinator *closeCoordinator) finishWhenIdle()`
+- `func (coordinator *closeCoordinator) cancelActiveChats()` — cancelActiveChats 取消全部运行中会话（视图会话与后台会话）。
+- `func (coordinator *closeCoordinator) completeClose()`
+
+### startup_warning_test.go
+
+- `func TestGUIStartupWarningsAreNonBlocking(t *testing.T)` — TestGUIStartupWarningsAreNonBlocking：账号档异常不能让旧会话“看起来打不开”。
+
+### subagent_live_probe_test.go
+
+- `func TestRealAPISubagentResumeLiveProbe(t *testing.T)`
+- `func subagentLiveWaitActive(ctx context.Context, proc *forkLiveProc, sessionID string, deadline time.Time, forkDone <-chan error) (dto.SubagentRecoveryView, error)` — subagentLiveWaitActive 轮询 subagent.list，等待出现未终结的残留记录。
+- `func subagentLiveWaitConverged(ctx context.Context, proc *forkLiveProc, sessionID string, budget time.Duration) (bool, error)` — subagentLiveWaitConverged 轮询直到表格里不再有残留单元。
+- `func subagentLiveList(ctx context.Context, proc *forkLiveProc, sessionID string) ([]dto.SubagentRecoveryView, error)`
+- `func subagentLiveRecover(ctx context.Context, proc *forkLiveProc, sessionID string) (dto.SubagentResumeReport, error)`
+- `func subagentLiveRequestLogLines(path string) int` — subagentLiveRequestLogLines 返回请求日志行数（不解析正文，避免泄漏会话内容）。
+- `func subagentLiveWriteReport(t *testing.T, repoRoot string, report map[string]any)`
+- `func subagentLiveClearStaleLock(storeDir string)` — subagentLiveClearStaleLock 清理被硬中断进程遗留的数据根锁，等价于运维
+
+### subagent_route_smoke_test.go
+
+- `func TestHeadlessSubagentRouteSmoke(t *testing.T)`
+
+### team_board_wiring_test.go
+
+- `func TestEmbeddedTeamBoardWiring(t *testing.T)` — TestEmbeddedTeamBoardWiring：团队看板必须在嵌入前端里真的接起来（契约
+- `func TestEmbeddedBoardArchiveVisibilityWiring(t *testing.T)` — TestEmbeddedBoardArchiveVisibilityWiring 是**存档可见面**的接线守卫（设计契约
+
+### terminal_bridge.go
+
+- `func (bridge *Bridge) TerminalOpen(options TerminalOpenOptions) (TerminalSession, error)` — TerminalOpen 打开一个新终端（下栏面板的「+」）并返回会话元数据。
+- `func (bridge *Bridge) TerminalWrite(id, data string) error` — TerminalWrite 把用户输入写入终端；data 是 base64 编码的原始字节（与输出
+- `func (bridge *Bridge) TerminalResize(id string, cols, rows int) error` — TerminalResize 按前端 fit 后的真实尺寸调整终端。
+- `func (bridge *Bridge) TerminalClose(id string) error` — TerminalClose 结束并回收一个终端。
+- `func (bridge *Bridge) TerminalList() []TerminalSession` — TerminalList 返回当前终端会话（前端重连/重绘时的权威来源）。
+- `func (bridge *Bridge) terminalManager() *terminal.Manager` — terminalManager 惰性创建进程级终端管理器（首次使用时创建；事件经
+- `func (bridge *Bridge) emitTerminalEvent(event terminal.Event)` — emitTerminalEvent 把终端事件投递给渲染层（未就绪时丢弃：终端是用户显式
+- `func (bridge *Bridge) terminalDir() string` — terminalDir 给出新终端的工作目录：当前会话绑定的工作区根优先，未绑定时回退
+- `func (bridge *Bridge) closeTerminals()` — closeTerminals 结束全部终端（宿主退出路径）。未创建过管理器时零开销。
+
+### tool_full_chain_test.go
+
+- `func (engine *guiChainEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *guiChainEngine) History() []application.EngineMessage`
+- `func (engine *guiChainEngine) ClearHistory()`
+- `func (*guiChainEngine) ReplaceHistory(string, []application.EngineMessage) error`
+- `func (engine *guiChainEngine) SessionID() string`
+- `func (engine *guiChainEngine) StartSession() string`
+- `func (engine *guiChainEngine) ActivateSession(sessionID string) error`
+- `func (*guiChainEngine) SetSystemPrompt(string)`
+- `func (*guiChainEngine) SetMaxLoops(int)`
+- `func (*guiChainEngine) TraceText() string`
+- `func (*guiChainEngine) TokenCount() string`
+- `func (*guiChainEngine) AppendHistory(contract.EngineMessage)`
+- `func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode`
+- `func (*guiChainRuntime) Model() string`
+- `func (*guiChainRuntime) Provider() string`
+- `func (*guiChainRuntime) Accounts() []application.AccountInfo`
+- `func (*guiChainRuntime) SelectAccount(string) bool`
+- `func (*guiChainRuntime) VisibleTools(context.Context) []application.Tool`
+- `func (*guiChainRuntime) ActivePlugin() string`
+- `func (runtime *guiChainRuntime) FullAccess() bool`
+- `func (runtime *guiChainRuntime) SetFullAccess(on bool)`
+- `func (runtime *guiChainRuntime) SetFullAccessFor(sessionID string, on bool)`
+- `func (*guiChainRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection)`
+- `func (*guiChainRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)`
+- `func (runtime *guiChainRuntime) PermissionTier() string`
+- `func (runtime *guiChainRuntime) SetPermissionTierFor(sessionID, tier string) error`
+- `func (*guiChainRuntime) DrainSubagentContexts() []string`
+- `func (*guiChainRuntime) SetSubagentPolicy(dto.SubagentPolicy)`
+- `func (*guiChainRuntime) SetSubagentPolicyFor(string, dto.SubagentPolicy)`
+- `func (*guiChainRuntime) BindProjectRoot(string) error`
+- `func (*guiChainRuntime) UnbindProjectRoot()`
+- `func (*guiChainRuntime) BindProjectRootFor(string, string) error`
+- `func (*guiChainRuntime) UnbindProjectRootFor(string)`
+- `func (*guiChainRuntime) SetCurrentTaskBatch(string, string)`
+- `func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem`
+- `func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error`
+- `func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord`
+- `func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord`
+- `func (*guiChainRuntime) ReleaseSessionAsync(string) int`
+- `func (*guiChainRuntime) AsyncPendingFor(string) int`
+- `func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord`
+- `func (*guiChainRuntime) AsyncRunEvents() <-chan struct`
+- `func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error)`
+- `func (*guiChainRuntime) TaskAddFor(string, dto.TaskSpec) (dto.TaskRecord, bool, error)`
+- `func (*guiChainRuntime) ResolveTaskByKey(string) (dto.TaskRecord, bool, error)`
+- `func (*guiChainRuntime) ResolveTaskByKeyFor(string, string) (dto.TaskRecord, bool, error)`
+- `func (*guiChainRuntime) TaskSetStatus(string, dto.TaskStatus, string) (dto.TaskRecord, error)`
+- `func (*guiChainRuntime) TaskSetStatusFor(string, string, dto.TaskStatus, string) (dto.TaskRecord, error)`
+- `func (*guiChainRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, error)`
+- `func (*guiChainRuntime) TaskChangedChannel() <-chan dto.TaskRecord`
+- `func (*guiChainRuntime) SubagentTreeEvents() <-chan struct`
+- `func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool)`
+- `func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord)`
+- `func (*guiChainRuntime) SetSessionWorkspace(string, string)`
+- `func (*guiChainRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo`
+- `func (*guiChainRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus`
+- `func (*guiChainRuntime) ScheduleTask(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (*guiChainRuntime) UpdateScheduledTask(context.Context, string, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (*guiChainRuntime) CancelScheduledTask(string) error`
+- `func (*guiChainRuntime) ClearSubagentTree() error`
+- `func (*guiChainRuntime) RestoreSubagentAnchors(string) error`
+- `func (*guiChainRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error)`
+- `func (*guiChainRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error)`
+- `func (*guiChainRuntime) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error)`
+- `func (*guiChainRuntime) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error)`
+- `func (*guiChainRuntime) SetSubagentParentRepairer(func(string) error)`
+- `func (*guiChainRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)`
+- `func (*guiChainPlugins) All() []application.PluginInfo`
+- `func (*guiChainPlugins) Activate(context.Context, string) error`
+- `func (*guiChainPlugins) Deactivate(context.Context) error`
+- `func (*guiChainPlugins) Current() (application.PluginInfo, bool)`
+- `func (*guiChainSkills) All() []application.SkillInfo`
+- `func (*guiChainSkills) Get(string) (application.SkillInfo, bool)`
+- `func (*guiChainSessions) SaveCurrent(string) error`
+- `func (*guiChainSessions) Delete(string) error`
+- `func (*guiChainSessions) List() []application.SessionInfo`
+- `func (*guiChainSessions) LoadHistory(string) ([]application.EngineMessage, error)`
+- `func (*guiChainSessions) LoadHistoryRange(string, int, int) ([]application.EngineMessage, int, error)`
+- `func (*guiChainSessions) SetWorkspace(string)`
+- `func (*guiChainSessions) Workspace() string`
+- `func guiChainExternalPorts(runtime contract.RuntimePort) assembly.ExternalPorts` — guiChainExternalPorts 是 gui 测试包自己的端口表：生产装配表在 boot，而 boot
+- `func newGUIChainApplication(t *testing.T) (*assembly.Service, Dependencies, application.ApprovalBroker)` — newGUIChainApplication 返回一条真实流水线、按同一份 owner 绑好的 GUI 依赖表
+- `func TestGUIBackendPortRelaysToolCompletion(t *testing.T)`
+- `func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T)`

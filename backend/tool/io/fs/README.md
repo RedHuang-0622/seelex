@@ -43,3 +43,22 @@ flowchart LR
 ```text
 go test ./backend/tool/io/fs -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### filesystem_actor.go
+
+- `func NewFileSystemActor() FileSystem` — NewFileSystemActor 构造文件系统 actor（写路径分片串行化）。
+- `func (a *fileSystemActor) Read(path string) ([]byte, error)`
+- `func (a *fileSystemActor) Write(path string, content []byte) error`
+- `func (a *fileSystemActor) Edit(path, oldString, newString string) (int, error)`
+- `func (a *fileSystemActor) lockFor(path string) *sync.Mutex` — lockFor 返回路径的写锁（按需创建）。
+
+### filesystem_actor_test.go
+
+- `func TestFileSystemActorSerializesSamePathWrites(t *testing.T)` — TestFileSystemActorSerializesSamePathWrites 验证同路径写互斥：N 个并发
+- `func TestFileSystemActorParallelDifferentPaths(t *testing.T)` — TestFileSystemActorParallelDifferentPaths 验证不同路径并行（无全局锁阻塞）。
+- `func TestFileSystemActorEditRejectsMissingOldString(t *testing.T)` — TestFileSystemActorEditRejectsMissingOldString 验证 old_string 缺失报错。

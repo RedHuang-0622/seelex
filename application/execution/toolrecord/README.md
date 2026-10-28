@@ -79,3 +79,104 @@ type Deps struct {
 go test ./application/execution/toolrecord -count=1
 go test ./application/assembly -run 'ToolRecord|ToolCommand|RoleTool|SubagentTool' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### accumulator.go
+
+- `func NewAccumulator() *Accumulator` — NewAccumulator constructs an empty in-memory tool ledger.
+- `func (accumulator *Accumulator) Record(tool string, ok bool, reason string)` — Record adds one tool call. Successful calls count too so the board has a
+- `func (accumulator *Accumulator) Stats() []dto.ToolRecordStat` — Stats returns a deterministic snapshot ordered by total calls descending,
+- `func (accumulator *Accumulator) Stat(tool string) (dto.ToolRecordStat, bool)` — Stat returns one tool's current totals.
+- `func (accumulator *Accumulator) Totals() (int, int, int)` — Totals returns total, success and failure counts.
+- `func (accumulator *Accumulator) Snapshot() (dto.ToolRecordSnapshot, bool)` — Snapshot returns a full persisted-shape snapshot and clears dirty.
+- `func (accumulator *Accumulator) Load(snapshot dto.ToolRecordSnapshot)` — Load merges a persisted snapshot monotonically. It is used when a cold
+- `func (accumulator *Accumulator) Merge(stats []dto.ToolRecordStat)` — Merge adds one leaf-stage delta. It deliberately differs from Load: Merge
+- `func normalizeReason(reason string) string`
+- `func bumpReason(reasons []dto.ToolRecordReason, reason string) []dto.ToolRecordReason`
+- `func addReason(reasons []dto.ToolRecordReason, reason string, count int) []dto.ToolRecordReason`
+- `func mergeReasons(current, incoming []dto.ToolRecordReason) []dto.ToolRecordReason`
+- `func cloneStat(stat dto.ToolRecordStat) dto.ToolRecordStat`
+
+### accumulator_test.go
+
+- `func TestAccumulatorCountsBothOutcomes(t *testing.T)`
+- `func TestAccumulatorSnapshotHonoursDirtyGate(t *testing.T)`
+- `func TestAccumulatorLoadOnlyGrows(t *testing.T)`
+- `func TestAccumulatorNormalizesReasonVocabulary(t *testing.T)`
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs an empty ledger.
+- `func (application *Application) SetEnabled(enabled bool) (bool, error)` — SetEnabled persists the user setting before changing the live value.
+- `func (application *Application) ApplyEnabled(enabled bool)` — ApplyEnabled changes only the in-memory assembly value.
+- `func (application *Application) Enabled() bool` — Enabled reports the current live switch.
+- `func (application *Application) SetSnapshotStore(store contract.ToolRecordSnapshotStore)` — SetSnapshotStore injects or replaces the session snapshot port.
+- `func (application *Application) Flush(sessionID string)` — Flush drains leaf stages, applies the writable-session gate and writes one
+- `func (application *Application) FlushAll()` — FlushAll flushes every session already present in the in-memory ledger.
+- `func (application *Application) Board() dto.ToolRecordBoard` — Board returns the current-view session projection.
+- `func (application *Application) RecordCommandOutcome(sessionID, tool string, exitCode int)` — RecordCommandOutcome records the command-exit-code success criterion.
+- `func (application *Application) RecordOutcome(sessionID, tool string, failed bool, errorText string)` — RecordOutcome records one completed main-agent or command outcome in memory.
+- `func (application *Application) StageUnitOutcome(sessionID, unitID, tool string, failed bool, errorText string)` — StageUnitOutcome accumulates a leaf result in the execution unit's local stage.
+- `func (application *Application) CommitUnit(sessionID, unitID string, seq uint64, stats []dto.ToolRecordStat)` — CommitUnit is the single idempotent leaf-to-session commit entry.
+- `func (application *Application) CloseUnit(sessionID, unitID string)` — CloseUnit synchronously commits one unit's pending stage.
+- `func (application *Application) CloseRoleUnit(mainSessionID, roleSessionID string)` — CloseRoleUnit 收口一个角色回合：主会话是记账归属，角色会话决定单元键。
+- `func (application *Application) ReleaseSession(sessionID string)` — ReleaseSession reclaims all in-memory ledger state for a released session.
+- `func (application *Application) SessionView(sessionID string) SessionView` — SessionView snapshots one session without mutating lazy-load state.
+- `func (application *Application) Diagnostics() Diagnostics` — Diagnostics returns dropped-reading and stage counts.
+- `func (application *Application) NoteDropped(reason string)` — NoteDropped records a visibly-dropped reading without fabricating an owner.
+- `func SubagentUnitID(nodeID, eventID string) string` — SubagentUnitID derives the stable execution-unit key.
+- `func RoleUnitID(roleSessionID, eventID string) string` — RoleUnitID derives the stable role execution-unit key.
+- `func CountsStatus(status dto.ToolEventStatus) bool` — CountsStatus reports whether a tool frame is a terminal result frame.
+- `func Failed(status dto.ToolEventStatus) bool` — Failed is the single typed-status failure predicate.
+- `func Reason(text string) string` — Reason maps a raw failure text to the shared reason vocabulary.
+- `func ErrorText(err error) string` — ErrorText returns the original error text, never the presentation wrapper.
+- `func TerminalSubagentStatus(status dto.SubAgentNodeStatus) bool` — TerminalSubagentStatus reports whether a subagent node must close its stage.
+- `func (application *Application) accumulator(sessionID string) *Accumulator`
+- `func (application *Application) findAccumulator(sessionID string) *Accumulator`
+- `func (application *Application) markLoaded(sessionID string) bool`
+- `func (application *Application) load(sessionID string)`
+- `func (application *Application) noteFlushError(err error)`
+- `func (application *Application) stage(key unitKey, tool string, ok bool, reason string)`
+- `func (application *Application) take(key unitKey) (uint64, []dto.ToolRecordStat)`
+- `func (application *Application) acceptSeq(key unitKey, seq uint64) bool`
+- `func (application *Application) drainSession(sessionID string)`
+- `func (application *Application) noteDropped(reason string)`
+- `func containsAny(haystack string, needles ...string) bool`
+
+### application_test.go
+
+- `func (store *fakeStore) SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error`
+- `func (store *fakeStore) LoadToolRecordSnapshot(string) (dto.ToolRecordSnapshot, bool, error)`
+- `func TestSetEnabledPersistsBeforeChangingMemory(t *testing.T)`
+- `func TestRecordOutcomeCountsSuccessFailureAndReasons(t *testing.T)`
+- `func TestFlushDrainsStagesAndIsDirtyGated(t *testing.T)`
+- `func TestFlushFailureAndBoardLazyLoad(t *testing.T)`
+- `func TestOwnerDropsSeqIdempotencyAndRelease(t *testing.T)`
+- `func TestDisabledRecordsAndStagesNothing(t *testing.T)`
+- `func TestUnitIDAndStatusHelpers(t *testing.T)`
+
+### host.go
+
+- `func (application *Application) StageStatus(ownerSessionID, unitID, name, status, errorText string)` — StageStatus parses and records one teammate tool result frame.
+- `func (application *Application) StageSubagentEvent(ownerSessionID string, event dto.SubagentToolEvent)` — StageSubagentEvent records one terminal subagent tool result frame.
+- `func (application *Application) CloseSubagentUnit(ownerSessionID, nodeID string)` — CloseSubagentUnit commits one stable subagent unit key.
+- `func (application *Application) CloseTerminalSubagents(nodes []dto.SubAgentTreeNode)` — CloseTerminalSubagents commits every terminal subagent node's staged reading.
+
+### stage.go
+
+- `func NewStage(unitID, sessionID string) *Stage` — NewStage constructs an execution-unit staging area.
+- `func (stage *Stage) UnitID() string` — UnitID returns the stable execution-unit key.
+- `func (stage *Stage) SessionID() string` — SessionID returns the owner session captured by the execution context.
+- `func (stage *Stage) Record(tool string, ok bool, reason string)` — Record accumulates one completed tool call in the local stage.
+- `func (stage *Stage) TakeForCommit() (uint64, []dto.ToolRecordStat)` — TakeForCommit synchronously returns this window's delta and clears the
+
+### stage_test.go
+
+- `func TestStageAccumulatesLocallyAndTakesSynchronously(t *testing.T)`
+- `func TestStageMergesIntoAccumulatorByAddition(t *testing.T)`
+- `func TestStageBoundsToolNamesWithoutLosingCounts(t *testing.T)`
+- `func TestStageIgnoresEmptyIdentity(t *testing.T)`

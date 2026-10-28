@@ -14,7 +14,7 @@
 - `backend/tool/registry`（执行门 `PermissionGate` 的类解析、可见性、工具面与注册表；
   判据搬走后它只调用 `policy.*`）；
 - `seelebridge` 根包与 `main.go`（装配期的配置表、壳类别、子代理/员工权限派生）；
-- `wiring/adapters`、`application/*`（员工权限装配、工具声明的读面）。
+- `internal/host`、`application/*`（员工权限装配、工具声明的读面）。
 
 ## 职责与非职责
 
@@ -181,4 +181,3 @@ go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 - `func VectorForGroups(bits map[string]uint8) []string` — VectorForGroups 是 TagsForGroups 的语义别名（读起来更像"给这份格位一条向量"）。
 - `func NormalizeVectorTag(raw string) (string, bool)` — NormalizeVectorTag 把单个标签规整成规范形态（小写、去空白、保留单个 `!`）。
 - `func EmployeeGroupsForClass(class SubjectClass) map[string]uint8` — EmployeeGroupsForClass 把员工主体类（emp_ro / emp_rw）折成默认逐组位。
-

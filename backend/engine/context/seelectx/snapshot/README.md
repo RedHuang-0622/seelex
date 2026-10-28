@@ -40,3 +40,23 @@ Snapshot 是数据对象，不读取 Engine 或执行压缩。字段新增需同
 ```text
 go test ./seelexctx/snapshot -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### snapshot_test.go
+
+- `func TestFormat_Full(t *testing.T)`
+- `func TestFormat_Empty(t *testing.T)`
+- `func TestFormat_WithEscape(t *testing.T)`
+- `func TestBuilderChain(t *testing.T)`
+- `func TestValidate_OK(t *testing.T)`
+- `func TestValidate_Nil(t *testing.T)`
+- `func TestValidate_NoGoal(t *testing.T)`
+- `func TestValidate_GoalFromParent(t *testing.T)`
+- `func TestValidationError(t *testing.T)`
+- `func TestTruncate(t *testing.T)`
+- `func TestSetParentGoal(t *testing.T)`
+- `func TestSetParentGoalNoEscape(t *testing.T)`

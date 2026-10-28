@@ -37,9 +37,10 @@ README 只描述当前代码，不把规划写成既成事实；未来能力必�
   函数）的**签名 + 首行摘要**；无 doc 注释的函数只列签名，不臆造说明。
 - 摘要的唯一事实源是**源码 doc 注释**；索引由脚本从注释提取，改注释后重跑
   即可刷新，杜绝文档与代码两处漂移。
-- 仓库生成器：`scripts/gen_core_readme_index.py`（覆盖 `application/core`
-  根包分卷与叶子包）。其它包的 README 可复用同一提取逻辑（doc 首行 + 签名），
-  保持格式一致。
+- 仓库生成器：`scripts/gen_core_readme_index.py`（覆盖当前 Application、Backend、
+  Kernel、Middle、Contract、Store、Boot、前端与测试树，以及 `application/assembly`、
+  `store`、`test` 的分卷包）。新增顶层包树时必须同步 `SETTLED_TREES`，不得保留
+  已删除目录。
 - 索引条目语言统一中文；doc 注释首行缺中文时，先补齐中文注释再生成。
 
 ## 4. 按前缀分卷（仅根/大包）

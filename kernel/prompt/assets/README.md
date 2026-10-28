@@ -121,3 +121,42 @@ not claim more than that implementation enforces.
 go test ./kernel/prompt/assets ./application/prompt ./application/assembly -count=1
 go build ./...
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### override_test.go
+
+- `func TestSetDirOverridesAndFallsBack(t *testing.T)` — TestSetDirOverridesAndFallsBack 锁定外部覆盖层的三条口径：
+- `func TestDefaultFilesCoverEveryRenderedAsset(t *testing.T)` — TestDefaultFilesCoverEveryRenderedAsset 钉住"落盘清单 = 渲染清单"：
+
+### planact_harness.go
+
+- `func PlanActHarnessCases() []PlanActHarnessCase` — PlanActHarnessCases documents positive and negative completion scenarios
+- `func ValidatePlanActHarness() error` — ValidatePlanActHarness returns an actionable failure when prompt edits drop
+- `func containsPromptClause(prompt, clause string) bool`
+
+### promptassets.go
+
+- `func SetDir(path string)` — SetDir 设置外部覆盖目录（config/prompt）。空串 = 全部走内嵌。
+- `func Dir() string` — Dir 返回当前外部覆盖目录（"" = 全内嵌）。
+- `func DefaultFS() fs.FS` — DefaultFS 返回内嵌默认提示词的只读资源集，**根就是提示词目录本身**
+- `func DefaultFiles() []string` — DefaultFiles 返回内嵌默认提示词的相对路径清单（用 / 分隔，已排序）。
+- `func DirOf(entryPath string) string` — DirOf 从"入口文件的绝对路径"反推提示词资产根目录（= SetDir 的入参）。
+- `func SystemIdentity() string`
+- `func SystemInstructions() string`
+- `func Effort() string` — Effort 返回**统一的那一份** effort 工作纪律。
+- `func SubagentCharter(data SubagentData) string` — SubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
+- `func Validate() error` — Validate loads every production prompt and executes each template once.
+- `func read(name string) string`
+- `func render(name string, data any) string`
+- `func readAsset(name string) (string, error)`
+- `func readOverride(name string) (string, bool)` — readOverride 按外部覆盖目录解析资产：name 形如 assets/system/identity.md，
+- `func renderAsset(name string, data any) (string, error)`
+
+### promptassets_test.go
+
+- `func TestSystemAssetsContainEvidenceAndAuthorityRules(t *testing.T)`
+- `func TestPromptCompletionHarness(t *testing.T)`

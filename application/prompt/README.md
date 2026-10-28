@@ -117,3 +117,86 @@ system 前缀、历史或压缩。
 go test ./application/prompt -count=1
 go test ./application/assembly -run 'Effort|Skill' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### coordinator.go
+
+- `func NewCoordinator(deps CoordinatorDeps) *Coordinator` — NewCoordinator constructs the one Engine-owned prompt coordinator.
+- `func ValidateAssets() error` — ValidateAssets validates the resolved embedded-or-overridden prompt set.
+
+### coordinator_test.go
+
+- `func TestCoordinatorIsEngineIdentity(t *testing.T)`
+
+### effort.go
+
+- `func ReasoningEffortFor(level string) string` — ReasoningEffortFor returns the thinking-strength value for an effort level.
+- `func MaxLoops(level string) int` — MaxLoops returns the engine loop limit for an effort level.
+- `func ReActBudgetFor(level string) ReActBudget` — ReActBudgetFor returns an immutable execution budget for an effort level.
+- `func SubagentPolicyFor(level string) dto.SubagentPolicy` — SubagentPolicyFor returns the plan constraints for an effort level.
+- `func ValidEffortLevels() []string` — ValidEffortLevels 返回所有有效 effort 等级。
+- `func (m *EffortManager) SubagentPolicy() dto.SubagentPolicy` — SubagentPolicy returns the constraints for the manager's current effort level.
+- `func NewEffortManager(ps *PromptStack, eng interface { SetMaxLoops(int) SetSystemPrompt(string) }) *EffortManager` — NewEffortManager 创建 Effort 管理器。
+- `func (m *EffortManager) Apply(level string) error` — Apply 切换 effort 等级并更新 effort prompt 层与 MaxLoops。
+- `func (m *EffortManager) applyLocked(level string) error`
+- `func (m *EffortManager) Current() string` — Current 返回当前 effort 等级。
+- `func (m *EffortManager) Cycle() (string, error)` — Cycle 循环切换到下一个 effort 等级。
+
+### effort_forward_test.go
+
+- `func TestEffortEntryPointsForwardToPolicy(t *testing.T)` — TestEffortEntryPointsForwardToPolicy 是跨实现一致性用例：prompt 侧的三个既有
+
+### environment.go
+
+- `func EnvironmentTraceBlockFor(deps EnvironmentTraceDeps, sessionID string) string` — EnvironmentTraceBlockFor renders one session's provider-only environment
+- `func RenderEnvironmentTraceBlock(projectRoot, defaultEnv, currentEnv string, environments []protocol.WorkspaceEnvironmentInfo) string` — RenderEnvironmentTraceBlock is the pure rendering surface.
+- `func environmentAddress(item protocol.WorkspaceEnvironmentInfo, projectRoot string) string`
+- `func environmentSingleLine(value string) string`
+
+### environment_test.go
+
+- `func TestRenderEnvironmentTraceBlockUsesStableOrderAndMarks(t *testing.T)`
+
+### stack.go
+
+- `func NewPromptStack() *PromptStack` — NewPromptStack 创建空栈。
+- `func (ps *PromptStack) Push(kind, name, text string)` — Push 压入一层。同名 layer（kind+name 相同）会被覆盖更新。
+- `func (ps *PromptStack) Pop(name string) bool` — Pop 按 name 删除一层。返回是否找到并删除。
+- `func (ps *PromptStack) PopKind(kind string) string` — PopKind 删除最后一个指定 kind 的层，返回其 name。
+- `func (ps *PromptStack) ClearKind(kind string)` — ClearKind 删除所有指定 kind 的层。
+- `func (ps *PromptStack) Reset(baseText string)` — Reset 清空所有层，设置 base 层。
+- `func (ps *PromptStack) Render() string` — Render 将所有层渲染为完整 system prompt。
+- `func renderLayer(l PromptLayer, text string) string` — renderLayer 把一层包成 XML 段；kind 不在受限词表内（如自定义层）时退回原文，
+- `func promptTagName(value string) string` — promptTagName 把层标识归一化成安全的 XML 标签名（只留 a-z0-9_-；大写折成
+- `func systemPromptPriority(kind string) int`
+- `func (ps *PromptStack) Has(kind string) bool` — Has 检查是否存在指定 kind 的层。
+- `func (ps *PromptStack) Layers() []PromptLayer` — Layers 返回当前所有层的副本（用于 TUI 显示）。
+- `func (ps *PromptStack) Count() int` — Count 返回层数。
+- `func (ps *PromptStack) remove(kind, name string)`
+- `func (ps *PromptStack) Describe() string` — Describe 返回人类可读的栈摘要（用于状态栏等）。
+
+### stack_test.go
+
+- `func TestPromptStack_PushAndRender(t *testing.T)`
+- `func TestPromptStack_RenderUsesFixedSystemOrder(t *testing.T)`
+- `func TestPromptStack_Pop(t *testing.T)`
+- `func TestPromptStack_PopKind(t *testing.T)`
+- `func TestPromptStack_Reset(t *testing.T)`
+- `func TestPromptStack_ClearKind(t *testing.T)`
+- `func TestPromptStack_Describe(t *testing.T)`
+- `func TestPromptStack_Empty(t *testing.T)`
+- `func TestEffortApply_ValidLevels(t *testing.T)`
+- `func TestEffortApply_InvalidLevel(t *testing.T)`
+- `func TestEffortApply_UpdatesPromptStack(t *testing.T)`
+- `func TestEffortApply_SetsMaxLoops(t *testing.T)`
+- `func TestReActBudgetByEffort(t *testing.T)`
+- `func TestSubagentPolicyForByEffort(t *testing.T)`
+- `func (m *mockEngine) SetMaxLoops(n int)`
+- `func (m *mockEngine) SetSystemPrompt(p string)`
+- `func contains(s, substr string) bool`
+- `func containsStr(s, substr string) bool`
+- `func hasLayer(layers []PromptLayer, kind, name string) bool`

@@ -6,7 +6,7 @@
 把活体工作表格 / 团队计划映射成投影行（`store.ProjectBoardRow`），并在工具完成段按
 一张触发表**标脏**、由唯一 flush goroutine 落进两个白名单文件。主要调用方是
 `application/assembly`（经 `application/execution` 的 identity alias 持有取数口与订阅口）
-与 `wiring/registry`（装配门
+与 `boot`（装配门
 `ProjectBoardSinkFor`，以及 `project_board_read` 工具的注册面——它直接用本包的
 `ReadProjectBoard` 与 `ProjectBoardRead*` 常量）。
 
@@ -127,17 +127,17 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 
 ### projection.go
 
-- `func BuildProjectBoardRows( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, evidenceChars int, ) []store.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
-- `func projectBoardRow( scope store.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) store.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
+- `func BuildProjectBoardRows( scope dto.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, evidenceChars int, ) []dto.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
+- `func projectBoardRow( scope dto.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) dto.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
 - `func projectBoardWorkPayload(item model.WorkItem, evidenceChars int) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
 - `func projectBoardMilestonePayload(milestone dto.TeamworkMilestone, state dto.TeamworkState, evidenceChars int) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
 - `func projectBoardMilestoneStatus(milestone dto.TeamworkMilestone, state dto.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
 - `func projectBoardMilestoneItemPayload(milestoneID string, item dto.TeamworkWorkItem, evidenceChars int) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
 - `func projectBoardTeamState(plan *dto.TeamworkPlan, state *dto.TeamworkState) dto.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
 - `func projectBoardPutText(payload map[string]any, key, value string)` — projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
-- `func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
-- `func projectBoardRowsForFile( scope store.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, file string, evidenceChars int, ) []store.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
-- `func projectBoardRowsFingerprint(rows []store.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
+- `func projectBoardBlocks(rows []dto.ProjectBoardRow) (work, teamwork []dto.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
+- `func projectBoardRowsForFile( scope dto.ProjectBoardScope, seq uint64, at int64, workItems []model.WorkItem, teamPlan *dto.TeamworkPlan, teamState *dto.TeamworkState, file string, evidenceChars int, ) []dto.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
+- `func projectBoardRowsFingerprint(rows []dto.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
 - `func ProjectBoardHookModes() []string` — ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
 - `func TriggerFor(hookMode string) ProjectBoardTrigger` — TriggerFor 由档名编译出触发面：off / todo_list（= 空串，默认档）/ task_complete /
 - `func (t ProjectBoardTrigger) Matches(name string) bool` — Matches 报告这次工具完成是否落在触发面上。空工具名恒不命中（没有名字就不是一次工具完成）。
@@ -154,7 +154,7 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 
 - `func ReadProjectBoard( reader ProjectBoardReader, request ProjectBoardReadRequest, defaultProjectRoot, defaultSession string, ) (ProjectBoardReadResult, error)` — ReadProjectBoard 按请求取数：**只取数与校验边界**，不渲染、不判定任何语义。
 - `func projectBoardReadFiles(file string) ([]string, error)` — projectBoardReadFiles 把 file 入参归一化成白名单文件名清单（空 = 两份都读）。
-- `func sortProjectBoardRows(rows []store.ProjectBoardRow)` — sortProjectBoardRows 按 (Kind, Key, Scope.Session) 稳定排序：
+- `func sortProjectBoardRows(rows []dto.ProjectBoardRow)` — sortProjectBoardRows 按 (Kind, Key, Scope.Session) 稳定排序：
 
 ### read_test.go
 
@@ -175,8 +175,8 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 - `func (s *ProjectBoardSyncer) run()` — run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
 - `func (s *ProjectBoardSyncer) flushDirty()` — flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
 - `func (s *ProjectBoardSyncer) flushSession(sessionID string)` — flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
-- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope store.ProjectBoardScope, file string, at int64, items []model.WorkItem, plan *dto.TeamworkPlan, state *dto.TeamworkState, evidenceChars int, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
-- `func projectBoardRemovedRow(scope store.ProjectBoardScope, seq uint64, at int64, kind, key string) store.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
+- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope dto.ProjectBoardScope, file string, at int64, items []model.WorkItem, plan *dto.TeamworkPlan, state *dto.TeamworkState, evidenceChars int, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
+- `func projectBoardRemovedRow(scope dto.ProjectBoardScope, seq uint64, at int64, kind, key string) dto.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
 - `func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState)` — remember 更新落盘记账。
 - `func (s *ProjectBoardSyncer) Close()` — Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
 
@@ -208,4 +208,3 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 ### trigger_test.go
 
 - `func TestProjectBoardHookModeVocabularyMatchesTable(t *testing.T)`
-

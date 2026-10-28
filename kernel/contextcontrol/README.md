@@ -46,4 +46,3 @@ Application 通过 [`application/window`](../../application/window/README.md)
 - `func TestDefaultWindowPolicyUsesConfigRatioAndBounds(t *testing.T)`
 - `func TestDefaultWindowConfigDecidedDefaults(t *testing.T)`
 - `func TestLoadWindowConfigParsesSection(t *testing.T)`
-

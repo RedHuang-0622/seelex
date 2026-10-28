@@ -74,3 +74,26 @@ flowchart LR
 ```text
 go test ./seelexctx/tokens -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### tokens.go
+
+- `func Count(text string) int` — Count 估算单段文本的 token 数；空串返回 0。结果确定、无外部依赖。
+- `func isCJKRune(r rune) bool` — isCJKRune 判断是否为中日韩统一表意/假名/谚文。
+- `func CountMessage(message types.Message) int` — CountMessage 估算单条协议消息的 token（含 role 与结构开销，与
+- `func CountHistory(messages []types.Message) int` — CountHistory 估算整段历史消息的 token 数。
+
+### tokens_test.go
+
+- `func TestCount_Empty(t *testing.T)`
+- `func TestCount_ASCII(t *testing.T)`
+- `func TestCount_CJK(t *testing.T)`
+- `func TestCount_Mixed(t *testing.T)`
+- `func TestCount_Symbols(t *testing.T)`
+- `func TestCount_NonASCIILetterConservative(t *testing.T)`
+- `func TestCountMessage(t *testing.T)`
+- `func TestCountHistory(t *testing.T)`

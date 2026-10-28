@@ -98,6 +98,7 @@ go test ./internal/config -count=1
 - `func leadingSpaces(line string) int`
 - `func verifyInsertedAccount(updated []byte, before Config, role model.AccountRole, entry pendingAccount) (string, error)` — verifyInsertedAccount 用真实加载器复核插入结果，并返回新账号的名字。
 - `func accountSpecByName(specs []model.AccountSpec, name string) *model.AccountSpec`
+- `func nextAccountName(specs []model.AccountSpec, role model.AccountRole) string`
 - `func accountRecordFromSpec(spec model.AccountSpec) AccountRecord`
 - `func splitAccountLines(raw []byte) ([]string, string, bool)`
 - `func joinAccountLines(lines []string, eol string, trailing bool) []byte`
@@ -169,4 +170,3 @@ go test ./internal/config -count=1
 - `func TestLoadTolerantInvalidYAMLReturnsFallbackAndWarning(t *testing.T)` — TestLoadTolerantInvalidYAMLReturnsFallbackAndWarning 与真实事故同构：
 - `func TestLoadTolerantNoRolesReturnsFallbackAndWarning(t *testing.T)`
 - `func TestLoadTolerantMissingFileFallsBackWithoutWarning(t *testing.T)`
-

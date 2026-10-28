@@ -93,44 +93,86 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `board_reader.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type BoardReader interface` — WorkItem 消费的团队看板与 teammate live 只读投影。
+### completion.go
 
-### `project_board.go`
+- `func NewCompletion(deps CompletionDeps) *CompletionApplication` — NewCompletion constructs the background-completion application.
+- `func (application *CompletionApplication) TriggerAsyncCompletions(triggered map[string]struct{}) int` — TriggerAsyncCompletions scans asynchronous jobs once and returns the number
+- `func (application *CompletionApplication) TriggerTeamworkJobCompletions(triggered map[string]struct{}) int` — TriggerTeamworkJobCompletions scans teammate jobs once and returns the number
+- `func (application *CompletionApplication) asyncCompletionPrompt(record dto.AsyncRunRecord) string`
+- `func (application *CompletionApplication) teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string`
+- `func (application *CompletionApplication) evidenceChars() int`
+- `func asyncPromptKind(kind string) string`
 
-- `func NewProjectBoard(deps ProjectBoardDeps) *ProjectBoardApplication` — 构造项目看板读应用。
-- `func (application *ProjectBoardApplication) WorkTableRowsFor(sessionID string) []model.WorkItem` — 返回会话活体 WorkTable。
-- `func (application *ProjectBoardApplication) ProjectRootFor(sessionID string) string` — 读取会话绑定项目根。
-- `func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *dto.TeamworkPlan` — 读取可选团队计划。
-- `func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *dto.TeamworkState` — 从计划提取运行态。
+### completion_test.go
 
-### `work_item.go`
+- `func TestCompletionTriggersIdleAsyncJobOnce(t *testing.T)`
+- `func TestCompletionKeepsBusyAsyncJobPending(t *testing.T)`
+- `func TestCompletionPrunesRemovedAsyncHandles(t *testing.T)`
+- `func TestCompletionTriggersTeamworkJobWithNamespacedKey(t *testing.T)`
+- `func TestCompletionIgnoresNonTerminalAndOrphanJobs(t *testing.T)`
 
-- `func NewWorkItem(deps WorkItemDeps) *WorkItemApplication` — 构造 WorkItem/teammate 应用。
-- `func (application *WorkItemApplication) WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)` — 读取 WorkItem 执行视图。
-- `func (application *WorkItemApplication) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)` — 读取 teammate 安全详情。
-- `func (application *WorkItemApplication) BoardView(sessionID string) *dto.TeamworkBoardView` — 读取团队看板。
-- `func (application *WorkItemApplication) SessionLive(sessionID string) dto.TeammateSessionLiveView` — 读取 teammate 实时页。
-- `func (application *WorkItemApplication) SessionPage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — 读取分页实时页。
-- `func (application *WorkItemApplication) UpdateWorkItemStatus(id, status string) error` — 仅修改 todo 状态并刷新投影。
+### project_board.go
 
-### `subagent.go`
+- `func NewProjectBoard(deps ProjectBoardDeps) *ProjectBoardApplication` — NewProjectBoard constructs the project-board read application.
+- `func (application *ProjectBoardApplication) WorkTableRowsFor(sessionID string) []model.WorkItem` — WorkTableRowsFor returns one session's live worktable projection.
+- `func (application *ProjectBoardApplication) ProjectRootFor(sessionID string) string` — ProjectRootFor returns the bound workspace root for the session.
+- `func (application *ProjectBoardApplication) ProjectBoardTeamPlanFor(sessionID string) *dto.TeamworkPlan` — ProjectBoardTeamPlanFor returns the optional teamwork plan for the session.
+- `func (application *ProjectBoardApplication) ProjectBoardTeamStateFor(sessionID string) *dto.TeamworkState` — ProjectBoardTeamStateFor extracts the run state from the authoritative plan.
 
-- `func NewSubagent(deps SubagentDeps) *SubagentApplication` — 构造子代理应用。
-- `func (application *SubagentApplication) ListRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)` — 列出可恢复子代理。
-- `func (application *SubagentApplication) ResumeInterrupted(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)` — 恢复全部中断单元。
-- `func (application *SubagentApplication) Resume(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)` — 恢复单个子代理。
-- `func (application *SubagentApplication) Fork(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)` — 派发子代理。
-- `func (application *SubagentApplication) Detail(nodeID string) (*model.SubagentDetail, error)` — 读取子代理详情。
-- `func (application *SubagentApplication) ClearTree() error` — 清空并刷新子代理树。
+### project_board_test.go
 
-### `completion.go`
+- `func TestProjectBoardApplicationTrimsInputsAndBuildsLiveRows(t *testing.T)`
+- `func TestProjectBoardTeamStateUsesPlanOnly(t *testing.T)`
 
-- `func NewCompletion(deps CompletionDeps) *CompletionApplication` — 构造后台完成触发应用。
-- `func (application *CompletionApplication) TriggerAsyncCompletions(triggered map[string]struct{}) int` — 扫描异步作业终态并唤醒空闲会话。
-- `func (application *CompletionApplication) TriggerTeamworkJobCompletions(triggered map[string]struct{}) int` — 扫描 teammate 作业终态并唤醒空闲会话。
+### role_activity.go
 
-### `project_board_test.go`
+- `func NewRoleActivity(deps RoleActivityDeps) *RoleActivityApplication`
+- `func (application *RoleActivityApplication) Handle(activity dto.RoleToolActivity)`
 
-测试文件按仓库 README 规范不展开函数索引。
+### role_activity_test.go
+
+- `func TestRoleActivityApplicationRoutesStagesAndPublishes(t *testing.T)`
+
+### subagent.go
+
+- `func NewSubagent(deps SubagentDeps) *SubagentApplication` — NewSubagent constructs the subagent application.
+- `func (application *SubagentApplication) ListRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)` — ListRecovery lists interrupted subagent recovery entries.
+- `func (application *SubagentApplication) ResumeInterrupted(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)` — ResumeInterrupted resumes all interrupted subagents for one session.
+- `func (application *SubagentApplication) Resume(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)` — Resume resumes one subagent.
+- `func (application *SubagentApplication) Fork(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)` — Fork creates child subagents from fork specifications.
+- `func (application *SubagentApplication) Detail(nodeID string) (*model.SubagentDetail, error)` — Detail reads one subagent detail projection.
+- `func (application *SubagentApplication) ClearTree() error` — ClearTree clears the Runtime subagent tree and refreshes the projection.
+
+### subagent_test.go
+
+- `func (runtime *subagentRuntimeStub) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error)`
+- `func (runtime *subagentRuntimeStub) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error)`
+- `func (runtime *subagentRuntimeStub) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error)`
+- `func (runtime *subagentRuntimeStub) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error)`
+- `func (runtime *subagentRuntimeStub) ClearSubagentTree() error`
+- `func TestSubagentApplicationDelegatesRuntimeUseCases(t *testing.T)`
+- `func TestSubagentApplicationPreservesRuntimeUnavailable(t *testing.T)`
+
+### work_item.go
+
+- `func NewWorkItem(deps WorkItemDeps) *WorkItemApplication` — NewWorkItem constructs the execution read application.
+- `func (application *WorkItemApplication) WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)` — WorkItemExecution reads one WorkItem execution view.
+- `func (application *WorkItemApplication) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)` — TeammateInspection reads one teammate inspection view.
+- `func (application *WorkItemApplication) BoardView(sessionID string) *dto.TeamworkBoardView` — BoardView returns the team board projection.
+- `func (application *WorkItemApplication) SessionLive(sessionID string) dto.TeammateSessionLiveView` — SessionLive returns a teammate's live session view.
+- `func (application *WorkItemApplication) SessionPage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — SessionPage returns a bounded teammate live-session page.
+- `func (application *WorkItemApplication) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus updates the only manually mutable WorkItem kind: todo.
+- `func parseWorkItemID(id string) (kind string, index int, err error)`
+
+### work_item_test.go
+
+- `func (runtime *workItemRuntimeStub) WorkItemExecution(context.Context, string, string, dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)`
+- `func (runtime *workItemRuntimeStub) TeammateInspection(context.Context, string, string) (dto.TeammateInspectionView, error)`
+- `func (runtime *workItemRuntimeStub) SetTodoStatus(index int, status dto.TodoItemStatus) error`
+- `func TestWorkItemApplicationDelegatesExecutionReads(t *testing.T)`
+- `func TestWorkItemApplicationOnlyMutatesTodos(t *testing.T)`
+- `func TestWorkItemApplicationPreservesMissingCapabilities(t *testing.T)`
+- `func TestParseWorkItemID(t *testing.T)`

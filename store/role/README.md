@@ -94,6 +94,88 @@ go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### draft.go
+
+- `func draftLock(path string) *sync.Mutex`
+- `func DraftPath(roleRoot, roleName string) string` — DraftPath 返回 `<roleRoot>/draft/<roleName>.jsonl`。
+- `func AppendDraft(roleRoot, roleName, roleSessionID string, rows []DraftRow) error` — AppendDraft 追加未同步 role draft。每个角色独立锁，互不阻塞。
+- `func ReadDraft(roleRoot, roleName string) ([]DraftRow, error)` — ReadDraft 读该角色的未同步 draft。文件不存在 = 没有待同步行（不是错误）；
+- `func DeleteDraft(roleRoot, roleName string) error` — DeleteDraft 删除该角色的 draft 文件（= 已发布，没有待同步行）。
+- `func SortDraftRows(rows []DraftRow, order []string) []DraftRow` — SortDraftRows 按 round_id → role 顺序 → unit_seq 稳定排序。这是 sequencer 的
+- `func DraftCommitID(roleName, roleSessionID string, rows []DraftRow) string` — DraftCommitID 推导这批 draft 的确定性提交身份。
+- `func RowsToEvents(rows []DraftRow) []protocol.TranscriptEvent` — RowsToEvents 把 draft 行转成待发布的事件行：补齐角色归属、round/unit 与
+- `func SyncDraft(roleRoot, roleName, roleSessionID string, order []string, port SessionPort) (SyncResult, error)` — SyncDraft 是 sequencer 的存储侧同步入口：读该角色 draft → 排序 → 幂等判定 →
+
+### draft_test.go
+
+- `func draftFixture(t *testing.T) (string, []DraftRow)` — draftFixture 提供一个独立角色根目录与一批可复用的草稿行。
+- `func TestDraftPathIsUnchanged(t *testing.T)` — TestDraftPathIsUnchanged 钉住零数据迁移：草稿仍在 <roleRoot>/draft/<roleName>.jsonl。
+- `func TestAppendReadRoundTripKeepsFields(t *testing.T)` — TestAppendReadRoundTripKeepsFields：写入再读回必须逐字段相等，且磁盘行的 JSON
+- `func TestAppendFillsMissingOwnership(t *testing.T)` — TestAppendFillsMissingOwnership：空归属必须由参数补齐，已有归属绝不覆盖。
+- `func TestAppendRequiresRoleNameAndToleratesEmpty(t *testing.T)` — TestAppendRequiresRoleNameAndToleratesEmpty：空 role 名是调用错误；空行集是空操作。
+- `func TestReadDraftMissingFileIsEmpty(t *testing.T)` — TestReadDraftMissingFileIsEmpty：文件不存在 = 没有待同步行，不是错误。
+- `func TestReadDraftSkipsTruncatedTailAndBadLines(t *testing.T)` — TestReadDraftSkipsTruncatedTailAndBadLines：末尾无换行的半行是崩溃残尾，只读完整行；
+- `func TestAppendTruncatesCrashTailThenAppends(t *testing.T)` — TestAppendTruncatesCrashTailThenAppends：残尾先被截断，再追加新行——既不丢已完整
+- `func TestConcurrentAppendKeepsEveryRow(t *testing.T)` — TestConcurrentAppendKeepsEveryRow：同角色并发追加必须一行不丢、一行不重。
+- `func TestSortDraftRowsOrder(t *testing.T)` — TestSortDraftRowsOrder：round → 顺序表内排名 → 未上表角色名 → unit_seq，且入参不被改。
+- `func TestDraftCommitIDIgnoresOrderAndFollowsContent(t *testing.T)` — TestDraftCommitIDIgnoresOrderAndFollowsContent：身份对行序不敏感，对内容敏感。
+- `func TestRowsToEventsFillsOwnershipAndKind(t *testing.T)` — TestRowsToEventsFillsOwnershipAndKind：draft 行转事件时必须补齐归属/round/unit 与
+- `func (port *fakeSessionPort) MessageHead() (storesession.MessageHead, error)`
+- `func (port *fakeSessionPort) CommitSync( commitID string, rows []protocol.TranscriptEvent, floor *storesession.Floor, ) (storesession.MessageHead, error)`
+- `func TestSyncDraftEmptyDraftIsNoop(t *testing.T)` — TestSyncDraftEmptyDraftIsNoop：没有待同步行时零结果、零端口调用。
+- `func TestSyncDraftPublishesAndDeletesDraft(t *testing.T)` — TestSyncDraftPublishesAndDeletesDraft：端口成功后草稿删除，计数与 head 读数透传。
+- `func TestSyncDraftKeepsDraftWhenCommitFails(t *testing.T)` — TestSyncDraftKeepsDraftWhenCommitFails：端口失败 → 返回错误且草稿**仍在**
+- `func TestSyncDraftHeadErrorKeepsDraft(t *testing.T)` — TestSyncDraftHeadErrorKeepsDraft：幂等判定读 head 失败也不得动草稿。
+- `func TestSyncDraftAlreadySyncedOnlyCleansDraft(t *testing.T)` — TestSyncDraftAlreadySyncedOnlyCleansDraft：head 已带同一 commit_id（半同步窗口）→
+- `func TestDeleteDraftRemovesFile(t *testing.T)` — TestDeleteDraftRemovesFile：删除后读面回到空集。
+
+### permission.go
+
+- `func NewPermissionStore(layout ProjectLayoutPort) *PermissionStore` — NewPermissionStore 构造会话级角色权限登记存储。
+- `func (store *PermissionStore) Vectors(projectID, sessionID string) (map[string][]string, error)` — Vectors 返回该会话下**所有**已登记角色的权限向量（一次读盘，会话加载点用）。
+- `func (store *PermissionStore) Vector(projectID, sessionID, role string) ([]string, bool, error)` — Vector 读单个角色的权限向量；第二个返回值报告"是否显式登记过"（false 即从未
+- `func (store *PermissionStore) Put(projectID, sessionID, role string, vector []string) (RolePermissionRecord, error)` — Put 写入（或覆盖）一个角色的权限向量，返回落盘后的记录。
+- `func (store *PermissionStore) Drop(projectID, sessionID, role string) error` — Drop 删除单个角色的登记（= 下一次加载重新按链路解析）。
+- `func (store *PermissionStore) DropSession(projectID, sessionID string) error` — DropSession 清掉一个会话的全部角色登记（会话删除时用；不做任何"保留最近一条"
+- `func (store *PermissionStore) Defaults(projectID string) (map[string][]string, error)` — Defaults 返回项目下**所有**角色级默认向量（键 = 角色名）。
+- `func (store *PermissionStore) Default(projectID, role string) ([]string, bool, error)` — Default 读单个角色的默认向量；第二个返回值报告"是否显式定过默认"。
+- `func (store *PermissionStore) RoleAccount(projectID, role string) (string, bool, error)` — RoleAccount 读取角色默认使用的账号名；第二个返回值报告是否显式设置过。
+- `func (store *PermissionStore) SetRoleAccount(projectID, role, account string) error` — SetRoleAccount 设置角色默认账号。账号与权限默认共用同一条记录，
+- `func (store *PermissionStore) RoleInheritance(projectID, role string) (bool, bool, error)` — RoleInheritance 读角色是否继承 mainagent 的默认权限。第二个返回值报告是否显式
+- `func (store *PermissionStore) SetRoleInheritance(projectID, role string, inherit bool) error` — SetRoleInheritance 设置角色默认权限是否继承 mainagent；不影响会话显式登记。
+- `func (store *PermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error)` — RoleSSHUserSpaces 读取 SSH 能力可访问的远端路径前缀。
+- `func (store *PermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error` — SetRoleSSHUserSpaces 写 SSH 路径前缀。空切片表示显式不放行任何路径；
+- `func (store *PermissionStore) RoleEffectiveSSHUserSpaces(projectID, sessionID, role string) ([]string, error)` — RoleEffectiveSSHUserSpaces 返回某会话中角色生效的 SSH 路径白名单：
+- `func (store *PermissionStore) SetRoleSessionSSHUserSpaces(projectID, sessionID, role string, paths []string) error` — SetRoleSessionSSHUserSpaces 写入某会话中单个角色的 SSH 路径覆盖。
+- `func (store *PermissionStore) PutDefault(projectID, role string, vector []string) (RolePermissionRecord, error)` — PutDefault 写入一个角色的默认向量（空集 = 该角色默认什么都不给，不删记录）。
+- `func (store *PermissionStore) DropDefault(projectID, role string) error` — DropDefault 删除一个角色的默认向量（= 该角色回到链路解析）。
+- `func (store *PermissionStore) sessionKeys(projectID, sessionID string) []permissionKey` — sessionKeys 枚举该会话当前已建格的坐标（索引读锁内复制）。
+- `func (store *PermissionStore) entry(key permissionKey) *permissionEntry` — entry 取（必要时建）一个登记格；索引只在 indexMu 下改。
+- `func (store *PermissionStore) loadEntry(entry *permissionEntry, projectID, sessionID, role string) error` — loadEntry 把该角色从盘上装进登记格（已装过则直接返回）。
+- `func (store *PermissionStore) snapshot(projectID string) (permissionFile, error)` — snapshot 读一份项目文件的副本（文件锁内读，读完即放锁）。
+- `func (store *PermissionStore) mutate(projectID string, apply func(*permissionFile)) error` — mutate 在项目文件锁内做一次"读-改-写"（一个项目一份文件，跨角色共用一把文件锁
+- `func (store *PermissionStore) fileLock(projectID string) *sync.Mutex` — fileLock 按项目取落盘锁（不同项目可并发）。
+- `func readPermissionFile(directory string) (permissionFile, error)` — readPermissionFile 读项目级角色权限文件；缺文件 = 空登记（不是错误）。
+- `func writePermissionFile(directory string, file permissionFile) error` — writePermissionFile 原子写项目级角色权限文件（文件 0600，目录 0700）。
+- `func normalizedRoleVector(vector []string) []string` — normalizedRoleVector 归一一份向量：去空白、丢空项、保序去重，且**永不返回 nil**
+
+### permission_test.go
+
+- `func newFakeLayout(t *testing.T) *fakeLayout`
+- `func (layout *fakeLayout) dir(projectID string) string` — dir 复刻实现里的项目目录解析（projectID → 目录），供断言直接读盘用。
+- `func (layout *fakeLayout) WithProjectDir(projectID string, fn func(dir string) error) error`
+- `func (layout *fakeLayout) permissionPath(projectID string) string` — permissionPath 返回该项目的权限文件物理路径。
+- `func TestPermissionPutVectorRoundTrip(t *testing.T)` — TestPermissionPutVectorRoundTrip：Put 后 Vector 命中，Drop 后回到"从未定过"。
+- `func TestExplicitEmptyVectorDiffersFromUnset(t *testing.T)` — TestExplicitEmptyVectorDiffersFromUnset：显式空集是"什么都不给"，与"没定过"必须分得开，
+- `func TestPermissionFileShapeAndMode(t *testing.T)` — TestPermissionFileShapeAndMode：文件名、版本、目录/文件权限与原子写后的 JSON 形状。
+- `func TestCorruptPermissionFileReadsEmptyThenRewrites(t *testing.T)` — TestCorruptPermissionFileReadsEmptyThenRewrites：坏文件按空登记读（收紧方向），
+- `func TestRoleDefaultsRoundTrip(t *testing.T)` — TestRoleDefaultsRoundTrip：角色级默认向量的写入/读取/删除与三态纪律。
+- `func TestRoleAccountInheritanceAndUserSpaces(t *testing.T)` — TestRoleAccountInheritanceAndUserSpaces：账号 / 继承 / SSH 路径三类默认共用一条记录，
+- `func TestRoleEffectiveSSHUserSpacesPrefersSession(t *testing.T)` — TestRoleEffectiveSSHUserSpacesPrefersSession：会话级覆盖优先于项目级角色默认。
+- `func TestDropSessionClearsOnlyThatSession(t *testing.T)` — TestDropSessionClearsOnlyThatSession：会话删除只清自己的登记。
+- `func TestConcurrentPutDifferentRolesKeepsAll(t *testing.T)` — TestConcurrentPutDifferentRolesKeepsAll：同一个项目文件被多个角色并发写，
+- `func TestValidationErrorsAndUnassembledStore(t *testing.T)` — TestValidationErrorsAndUnassembledStore：参数校验与未装配端口的显式失败。
+
 ### registry.go
 
 - `func New(layout *storelayout.Layout) *Store` — New 构造角色注册表持久化面。
@@ -120,3 +202,19 @@ go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate' -count=1
 - `func TestReadCorruptRegistryFailsLoudly(t *testing.T)` — TestReadCorruptRegistryFailsLoudly：文件损坏必须报错，不返回半份配置。
 - `func TestReadColdStartAndLegacySchemaZero(t *testing.T)` — TestReadColdStartAndLegacySchemaZero：换实例仍可读，schema 缺省按当前版本理解。
 - `func TestConcurrentWritesStayWhole(t *testing.T)` — TestConcurrentWritesStayWhole：同一路径的整份替换互相串行，最终文件必须是一份完整配置。
+
+### session_path.go
+
+- `func SessionRoot(mainRoot, roleName, roleSessionID string) string` — SessionRoot 返回角色会话子树的物理根。main 直接使用主会话根；tl 使用
+- `func SessionCommitID(roleName, roleSessionID string) string` — SessionCommitID 是角色会话创建时的提交身份。
+- `func BackupCommitID(roleName, roleSessionID string, rows []protocol.TranscriptEvent) string` — BackupCommitID 是角色备份 append 的提交身份。
+- `func JoinPayload(mainSessionID, roleName, roleSessionID string, joinSeq uint64) []byte` — JoinPayload 是 role_session 结构化事件的负载（字段名逐字保持）。
+
+### session_path_test.go
+
+- `func TestSessionRootMainReusesMainRoot(t *testing.T)` — TestSessionRootMainReusesMainRoot 钉住"main 角色就是主会话本身"：不建第二份子树。
+- `func TestSessionRootPrefixByRole(t *testing.T)` — TestSessionRootPrefixByRole 钉住目录名前缀：tl → goal_<hash>，其它 → role_<hash>。
+- `func TestSessionRootHashSuffixMatchesRootHash(t *testing.T)` — TestSessionRootHashSuffixMatchesRootHash 钉住 hash 判据同源：不得在本包复制一份哈希。
+- `func TestSessionCommitIDIsStable(t *testing.T)` — TestSessionCommitIDIsStable 钉住角色会话创建身份的字符串形态（旧盘上已存在）。
+- `func TestBackupCommitIDFollowsRows(t *testing.T)` — TestBackupCommitIDFollowsRows 钉住备份身份：同一批行稳定、内容变了就变。
+- `func TestJoinPayloadKeepsFieldNames(t *testing.T)` — TestJoinPayloadKeepsFieldNames 钉住 role_session 结构化事件的负载 wire（四个键逐字保持）。

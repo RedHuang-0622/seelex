@@ -6,11 +6,6 @@
 
 覆盖：`media*.go`、`search_index*.go`、`tool_record*.go`、`schedule_events*.go`；未归属文件由覆盖自检拦下。
 
-M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索索引的唯一实现位于
-[`artifact/README.md`](artifact/README.md)。M10 起，工具记录快照唯一实现位于
-[`record/README.md`](record/README.md)。本卷 `media.go` / `search_index.go` /
-`tool_record.go` 只保留兼容 alias 与尚未迁移的 Router 薄适配。
-
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -18,30 +13,27 @@ M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索�
 
 ### media.go
 
-- `func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error)` — WriteMediaWorkspace 在显式项目作用域下写入一条媒体资产（截屏/看图类工具
-- `func (router *Router) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error)` — ReadMediaWorkspace 在显式项目作用域下按 `media:<hash>` 读回媒体资产
-- `func MediaRefHash(ref string) string` — MediaRefHash 归一化 ref 为内容 hash；非 `media:` 引用返回空串。
-- `func ReferencedMediaHashes(results []ToolResult) map[string]bool` — ReferencedMediaHashes 从工具结果里收集被引用的媒体 hash（GC 的 referenced 集）。
-- `func (repository *jsonRepository) WriteMedia(_ context.Context, key Key, item MediaItem) (MediaRef, error)` — WriteMedia 落盘一条媒体资产并返回引用；内容相同则复用已有文件（幂等）。
-- `func (repository *jsonRepository) ReadMedia(_ context.Context, key Key, ref string) (MediaRef, []byte, error)` — ReadMedia 读取媒体元数据与二进制原文。
-- `func (repository *jsonRepository) ListMedia(_ context.Context, key Key) ([]MediaRef, error)` — ListMedia 列出会话内全部媒体资产（按创建时间、hash 稳定排序）。
-- `func (repository *jsonRepository) CollectMedia(_ context.Context, key Key, referenced map[string]bool, dryRun bool) ([]string, error)` — CollectMedia 删除无引用的媒体目录（referenced 来自 ReferencedMediaHashes）；
-- `func (store *storeEngine) mediaLimits() (maxItemBytes, quotaBytes, maxItems, maxLongSide int)` — mediaLimits 取 §11 覆盖链解析后的媒体限额。
-- `func (store *storeEngine) mediaRoot(key Key) string` — mediaRoot 是会话媒体分区根目录（与 big_tool_result 平级、配额独立）。
-- `func (store *storeEngine) mediaItemDir(key Key, digest string) string` — mediaItemDir 是单条媒体的内容寻址目录。
-- `func (store *storeEngine) mediaItemMetaPath(key Key, digest string) string` — mediaItemMetaPath 是单条媒体的索引文件。
-- `func mediaHash(data []byte) string` — mediaHash 是媒体内容寻址摘要：完整 sha256 十六进制（目录名兼作去重键）。
-- `func sanitizeMediaName(name, digest string) string` — sanitizeMediaName 保留原文件名，仅剥离目录与文件系统非法字符；
-- `func isReservedWindowsName(name string) bool` — isReservedWindowsName 判断 Windows 保留设备名（CON/PRN/AUX/NUL/COM1..9/LPT1..9）。
-- `func (store *storeEngine) writeMediaLocked(key Key, item MediaItem) (MediaRef, error)` — writeMediaLocked 在已持锁的前提下落盘媒体（调用方负责加锁）。
-- `func (store *storeEngine) readMediaLocked(key Key, ref string) (MediaRef, []byte, error)` — readMediaLocked 在已持锁的前提下读取媒体元数据与原文。
-- `func (store *storeEngine) readMediaMetaFile(key Key, digest string) (MediaRef, error)` — readMediaMetaFile 读单条媒体索引；缺失视为「未落盘」。
-- `func (store *storeEngine) writeMediaMetaFile(key Key, item MediaRef) error` — writeMediaMetaFile 写单条媒体索引（原子替换）。
-- `func (store *storeEngine) listMediaItems(key Key) ([]MediaRef, error)` — listMediaItems 枚举会话媒体（目录为事实来源，索引缺失条目跳过而非报错）。
-- `func (store *storeEngine) mediaUsageBytes(key Key) (int, error)` — mediaUsageBytes 统计媒体分区实际占用（配额按真实字节计）。
-- `func (store *storeEngine) publishMediaIndexLocked(key Key) error` — publishMediaIndexLocked 发布 metadata/media.json（会话级媒体索引 head，可重建）。
-- `func (store *storeEngine) mediaGarbageCollectLocked(key Key, referenced map[string]bool, dryRun bool) ([]string, error)` — mediaGarbageCollectLocked 删除无引用的媒体目录，返回被删除的 hash 列表。
-- `func containsString(values []string, target string) bool` — containsString 判断切片是否已含目标值。
+- `func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error)`
+- `func (router *Router) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error)`
+- `func MediaRefHash(ref string) string`
+- `func ReferencedMediaHashes(results []ToolResult) map[string]bool`
+- `func (repository *jsonRepository) WriteMedia(_ context.Context, key Key, item MediaItem) (MediaRef, error)`
+- `func (repository *jsonRepository) ReadMedia(_ context.Context, key Key, ref string) (MediaRef, []byte, error)`
+- `func (repository *jsonRepository) ListMedia(_ context.Context, key Key) ([]MediaRef, error)`
+- `func (repository *jsonRepository) CollectMedia(_ context.Context, key Key, referenced map[string]bool, dryRun bool) ([]string, error)`
+- `func (store *storeEngine) mediaLimits() (maxItemBytes, quotaBytes, maxItems, maxLongSide int)`
+- `func (store *storeEngine) mediaRoot(key Key) string`
+- `func (store *storeEngine) mediaItemDir(key Key, digest string) string`
+- `func (store *storeEngine) mediaItemMetaPath(key Key, digest string) string`
+- `func mediaHash(data []byte) string`
+- `func sanitizeMediaName(name, digest string) string`
+- `func isReservedWindowsName(name string) bool`
+- `func (store *storeEngine) writeMediaLocked(key Key, item MediaItem) (MediaRef, error)`
+- `func (store *storeEngine) readMediaLocked(key Key, ref string) (MediaRef, []byte, error)`
+- `func (store *storeEngine) listMediaItems(key Key) ([]MediaRef, error)`
+- `func (store *storeEngine) publishMediaIndexLocked(key Key) error`
+- `func (store *storeEngine) mediaGarbageCollectLocked(key Key, referenced map[string]bool, dryRun bool) ([]string, error)`
+- `func containsString(values []string, target string) bool`
 
 ### media_router_test.go
 
@@ -74,24 +66,8 @@ M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索�
 ### search_index.go
 
 - `func (store *storeEngine) searchIndexPath(key Key) string`
-- `func (store *storeEngine) rebuildSearchIndex(key Key) error` — rebuildSearchIndex 从 message 全量重建索引（可重建断言）；LRU 已删前缀
-- `func appendHit(hits []searchHit, fromSeq, toSeq uint64, snippet string) []searchHit`
-- `func appendSummaryHit(hits []searchHit, fromSeq, toSeq uint64) []searchHit`
-- `func tokenize(text string) []string` — tokenize 把中文/英文内容切成关键词 token（长度 ≥ 2；中文按单字滑窗
-- `func isTokenRune(r rune) bool`
-- `func isCJK(r rune) bool`
-- `func (store *storeEngine) searchQuery(key Key, query string) ([]searchHit, error)` — searchQuery 模糊检索本会话（允许落后：索引为上次重建快照；缺失时先
-- `func sortSearchHits(hits []searchHit)`
-
-### tool_record.go
-
-- `const ToolRecordFile` — 指向 `store/record.File` 的兼容别名；I/O 与残尾判据不回流。
-
-### record/store.go
-
-- `func New(layout *storelayout.Layout) *Store`
-- `func (s *Store) Append(ctx, key, payload any) error`
-- `func (s *Store) Read(ctx, key) (json.RawMessage, bool, error)`
+- `func (store *storeEngine) rebuildSearchIndex(key Key) error`
+- `func (store *storeEngine) searchQuery(key Key, query string) ([]searchHit, error)`
 
 ### tool_record_test.go
 

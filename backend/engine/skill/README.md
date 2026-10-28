@@ -101,22 +101,71 @@ go test ./application/assembly/ -run ActivateSkill -count=1   # 门面级集成�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### skill.go
+### activate.go
 
-- `type Skill struct` — 技能模型（名字 / 描述 / 正文 / 资源根）。
-- `func (s Skill) ResourcePath(relative string) (string, error)` — 资源路径的安全解析（留在技能目录内）。
-- `type Registry struct` — 线程安全的技能注册表（manual + loader，按 Plugin 作用域隔离）。
-- `func NewRegistry() *Registry` / `func (r *Registry) Register(s Skill)` / `func (r *Registry) Remove(name string)` / `func (r *Registry) Get(name string) (Skill, bool)` / `func (r *Registry) All() []Skill` — 注册表的建/增/删/查/列举。
-- `func (r *Registry) AddLoader(loader *Loader) error` / `func (r *Registry) Reload() error` / `func (r *Registry) SetPluginSkills(pluginName string, skills []Skill)` / `func (r *Registry) ClearPluginSkills(pluginName string)` / `func (r *Registry) ActivatePlugin(pluginName string)` / `func (r *Registry) ActivatePluginSkills(pluginName string) error` — Plugin 作用域的装载与激活。
+- `func NewActivator(deps ActivateDeps) *Activator` — NewActivator 建落点。
+- `func (a *Activator) Activate(name string) (model.SkillInfo, error)` — Activate 把当前插件的一个技能激活进当前会话的 skill 层。
+
+### activate_test.go
+
+- `func (lookup fakeLookup) Get(name string) (model.SkillInfo, bool)`
+- `func TestActivateRejectsBadNamesWithoutApplying(t *testing.T)` — TestActivateRejectsBadNamesWithoutApplying：空名 / 不可激活（goal）/ 未知技能都在落地之前拒绝，
+- `func TestActivateNormalizesNameAndApplies(t *testing.T)` — TestActivateNormalizesNameAndApplies：命中时名字先 trim，落地动作恰好一次，并回传技能信息。
+- `func TestActivateWithoutRegistry(t *testing.T)` — TestActivateWithoutRegistry：技能表未装配时给明确错误（不是静默无效）。
 
 ### loader.go
 
-- `type Loader struct` — 多 root 的技能加载器（目录格式优先于 legacy flat-file）。
-- 其余函数见源码 doc 注释（多 root 查找、create/delete、plugin-dir load）。
+- `func NewLoader(dirs ...string) *Loader`
+- `func (l *Loader) PrimaryDir() string`
+- `func (l *Loader) LoadAll() ([]Skill, error)`
+- `func (l *Loader) Load(name string) (*Skill, error)`
+- `func (l *Loader) Create(name, description, prompt string) error`
+- `func (l *Loader) Delete(name string) error`
+- `func (l *Loader) primaryDirLocked() string`
+- `func loadRoot(root string, seen map[string]Skill) error`
+- `func loadRootFiltered(root string, seen map[string]Skill, includeLegacy bool) error`
+- `func LoadPluginDir(dir string) ([]Skill, error)` — LoadPluginDir loads skill directories from a plugin root (no legacy flat files).
+- `func readSkill(name, path, root string, legacy bool) (Skill, error)`
+- `func validateName(name string) error`
+- `func childPath(root, name string) (string, error)`
+- `func buildMarkdown(name, description, prompt string) string`
+- `func extractDescription(content, fallback string) string`
 
-### activate.go
+### loader_test.go
 
-- `type SkillLookup interface` — "按名查技能"的窄读口（结构满足 `contract.SkillPort` 的 `Get`）。
-- `type ActivateDeps struct` — 激活落点的宿主面（技能表 + 落地动作）。
-- `type Activator struct` / `func NewActivator(deps ActivateDeps) *Activator` — 落点本体（无状态）。
-- `func (a *Activator) Activate(name string) (model.SkillInfo, error)` — 名字校验 → 命中查询 → 落地；被拒的名字不触发落地。
+- `func TestLoaderDirectorySkillWithResource(t *testing.T)`
+- `func TestLoaderDirectoryBeatsLegacy(t *testing.T)`
+- `func TestLoaderReadsAndDeletesLegacySkill(t *testing.T)`
+- `func TestLoaderRootPriority(t *testing.T)`
+- `func TestCreateDeleteCompletesAndUsesDirectoryFormat(t *testing.T)`
+- `func TestRejectsUnsafeNamesAndResources(t *testing.T)`
+- `func TestLoaderErrors(t *testing.T)`
+- `func mustMkdir(t *testing.T, path string)`
+- `func mustWrite(t *testing.T, path, content string)`
+
+### registry_test.go
+
+- `func TestRegistryPluginSkillsOverrideGlobal(t *testing.T)`
+- `func TestRegistryReloadPreservesManualSkills(t *testing.T)`
+- `func TestRegistryLoadedAndPluginLifecycle(t *testing.T)`
+
+### skill.go
+
+- `func (s Skill) ResourcePath(relative string) (string, error)` — ResourcePath resolves a skill-relative resource without allowing root escape.
+- `func NewRegistry() *Registry`
+- `func (r *Registry) Register(s Skill)`
+- `func (r *Registry) Remove(name string)`
+- `func (r *Registry) Get(name string) (Skill, bool)`
+- `func (r *Registry) All() []Skill`
+- `func (r *Registry) AddLoader(loader *Loader) error`
+- `func (r *Registry) Reload() error`
+- `func (r *Registry) SetPluginSkills(pluginName string, skills []Skill)`
+- `func (r *Registry) ClearPluginSkills(pluginName string)`
+- `func (r *Registry) ActivatePlugin(pluginName string)`
+- `func (r *Registry) ActivatePluginSkills(pluginName string) error`
+- `func (r *Registry) DeactivatePlugin()`
+- `func (r *Registry) DeactivatePluginSkills() error`
+- `func (r *Registry) PublishPluginSkills(pluginName string, skills []Skill) error`
+- `func (r *Registry) Count() int`
+- `func (r *Registry) PluginSkillsFor(names []string) []Skill` — PluginSkillsFor 返回**指定插件集合**的技能（按 name 排序；未发布的插件名跳过，
+- `func sortedSkills(skills map[string]Skill) []Skill`

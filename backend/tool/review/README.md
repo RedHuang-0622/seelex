@@ -6,7 +6,7 @@
 逐份过 workspace 域裁决 → 记为会话作用域的可重放请求 → 回契约收据。
 
 主要调用方：`application/assembly`（门面实现 `ShowFilesPort`，把 workspace 读面、召唤 ID、会话归属
-与视图写面经 `Host` 装配进来）与 `wiring/registry`（直接调用本包唯一注册 helper
+与视图写面经 `Host` 装配进来）与 `boot`（直接调用本包唯一注册 helper
 `RegisterShowFilesTool`）。旧 `backend/engine/assemble.RegisterReviewFilesTool` 仅保留 D1 一行转发。
 
 落点沿革：2026-10-16 随 M5-R-tool-review **接收者转移**从 `application/review`
@@ -69,7 +69,7 @@
 ## 扩展方式
 
 - 新增跳过原因：先加进 `contract/dto` 词表，再在 `ClassifyReadError` 的 switch 里加一条（判据一处）。
-- 新增工具入口：注册侧（`wiring/registry`）只把 Runtime 接到 `RegisterShowFilesTool`，不要在注册侧另写工具形状或裁决。
+- 新增工具入口：注册侧（`boot`）只把 Runtime 接到 `RegisterShowFilesTool`，不要在注册侧另写工具形状或裁决。
 
 ## Review 指南
 
@@ -93,23 +93,51 @@ go test ./backend/engine/assemble/ -run Review -count=1   # 工具注册面（�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### registration_test.go
+
+- `func (probe *registrationProbe) RegisterTool( name, description string, schema map[string]interface{}, handler func(context.Context, string) (string, error), )`
+- `func (port *registrationPort) RequestFileReview(_ context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)`
+- `func TestRegisterShowFilesToolUsesTheCanonicalShapeOnce(t *testing.T)`
+
 ### review.go
 
-- `const ProbeLimit int64` — 裁决一份待审阅文件时实际读回的上限（64 KiB；只用于探测）。
-- `type Host interface` — 落点需要的宿主面（workspace 读面、召唤 ID、会话归属、视图写面、快照发布）。
-- `type Requests struct` — 落点本体（无状态）。
-- `func NewRequests(host Host) *Requests` — 建落点。
-- `func (r *Requests) Request(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — 沙盒边界的唯一裁决点：逐份裁决 → 写会话作用域请求 → 回收据。
-- `func (r *Requests) Clear(sessionID string)` — 清空指定会话的待审阅请求（工作区切换/解绑的失效面）。
-- `func NormalizeKey(path string) string` — 同批次去重用的路径键（分隔符归一）。
-- `func ClassifyReadError(err error) string` — 把 workspace 域的读取拒绝归到契约词表里的原因格。
+- `func NewRequests(host Host) *Requests` — NewRequests 建落点。
+- `func (r *Requests) Request(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — Request 把一次「请 GUI 打开这些待审阅文件」的批处理召唤落成**会话作用域的可重放请求**，
+- `func (r *Requests) Clear(sessionID string)` — Clear 清空指定会话的待审阅请求（工作区切换/解绑的失效面；sessionID 为空时按视图会话）。
+- `func NormalizeKey(path string) string` — NormalizeKey 归一化用于"同批次去重"的路径键（分隔符归一；不做路径语义解析——
+- `func ClassifyReadError(err error) string` — ClassifyReadError 把 workspace 域的读取拒绝归到契约词表里的原因格。
+
+### review_test.go
+
+- `func TestClassifyReadError(t *testing.T)`
+- `func TestNormalizeKey(t *testing.T)`
+- `func (port *fakeWorkspaceFile) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (port *fakeWorkspaceFile) GitCommitFileContent(string, string, string, int64) (dto.FileContent, error)`
+- `func newFakeHost(port *fakeWorkspaceFile) *fakeHost`
+- `func (host *fakeHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
+- `func (host *fakeHost) NextRequestID() string`
+- `func (host *fakeHost) SessionIDFromContext(context.Context) string`
+- `func (host *fakeHost) ViewSessionID() string`
+- `func (host *fakeHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
+- `func (host *fakeHost) ClearReviewRequest(sessionID string)`
+- `func (host *fakeHost) PublishSnapshotChanged(sessionID string, revision uint64)`
+- `func TestRequestWritesHostOnlyWhenSomethingPassed(t *testing.T)` — TestRequestWritesHostOnlyWhenSomethingPassed：全被跳过 → 不写宿主、不发布；
+- `func TestRequestKeepsHostUntouchedWhenAllSkipped(t *testing.T)`
+- `func TestRequestWithoutSessionDoesNotPublish(t *testing.T)`
+- `func TestRequestFallsBackToViewSession(t *testing.T)` — TestRequestFallsBackToViewSession：ctx 里没有会话时按视图会话归属。
+- `func TestRequestWorkspaceFailureBubbles(t *testing.T)` — TestRequestWorkspaceFailureBubbles：workspace 解析失败要显式冒泡（带 show_files 前缀）。
+- `func TestClearUsesViewSessionWhenBlank(t *testing.T)` — TestClearUsesViewSessionWhenBlank：Clear 的 sessionID 为空时按视图会话；空视图会话是 no-op。
 
 ### show_files.go
 
-- `type ToolRegistrar interface` — show_files 注册需要的窄工具面（由 Runtime 结构满足）。
-- `type ShowFilesPort interface` — 待审阅请求的落点端口（由 Application 实现）。
-- `type ShowFilesReceipt struct` — 模型面回执（requested / opened / skipped / request_id）。
-- `func ShowFilesDescription() string` — 工具描述与批处理上限说明。
-- `func ShowFilesSchema() map[string]interface` — 工具入参 schema。
-- `func RegisterShowFilesTool(registrar ToolRegistrar, port ShowFilesPort)` — 工具形状与 handler 的唯一注册实现。
-- `func ShowFilesHandler(port ShowFilesPort) func(context.Context, string) (string, error)` — 形状校验后把清单交给落点。
+- `func ShowFilesDescription() string` — ShowFilesDescription 是工具描述（模型面；上限用契约常量拼进去）。
+- `func ShowFilesSchema() map[string]interface` — ShowFilesSchema 是工具入参的 JSON schema（一份文件一个对象；`files` 数组带上限）。
+- `func RegisterShowFilesTool(registrar ToolRegistrar, port ShowFilesPort)` — RegisterShowFilesTool 是 show_files 的唯一注册实现：把本域已有的名字、描述、schema
+- `func ShowFilesHandler(port ShowFilesPort) func(ctx context.Context, argsJSON string) (string, error)` — ShowFilesHandler 是工具处理函数：只做两件事——形状校验（非空 / 上限）与把清单交给落点。
+
+### show_files_test.go
+
+- `func (port *stubPort) RequestFileReview(_ context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)`
+- `func TestShowFilesSchemaCarriesBatchCap(t *testing.T)`
+- `func TestShowFilesHandlerValidatesBeforeReachingPort(t *testing.T)`
+- `func TestShowFilesHandlerReturnsReceiptAndPropagatesPortError(t *testing.T)`

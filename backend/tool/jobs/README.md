@@ -10,7 +10,7 @@
 [`backend/tool/registry`](../registry/README.md)（`Router.AsyncRuns()`）。本包只读、只搬运。
 
 主要调用方：`backend/engine/assemble` 的 `SetTeamworkBackend`（装事件流并登记停机顺序）与
-`Runtime.AsyncRunsSnapshot` / `Runtime.AsyncRunEvents`（薄转发）；经 `wiring/adapters` 与
+`Runtime.AsyncRunsSnapshot` / `Runtime.AsyncRunEvents`（薄转发）；经 `internal/host` 与
 `application/assembly` 到工作表格与请求尾部打点块。
 
 物理位置：2026-10-17 按 [plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.6
@@ -111,19 +111,30 @@ go test ./backend/engine/assemble/ -run 'JobsEvent|Async' -count=1   # 宿主接
 
 ### event_stream.go
 
-- `const EventSource string` — 作业生命周期事件在统一事件库里的稳定 Source 标识（`seelex.jobs`）。
-- `const MainAgentID string` — 主会话在事件定位里的稳定标识（`seelex-main`）。
-- `type EventStream struct` — 把作业生命周期投影成会话事件流的读侧投影器。
-- `type SnapshotReader interface` — 事件投影需要的唯一一格框架读数（`seelejobs.Manager` 的读面）。
-- `func NewEventStream(reader SnapshotReader, persister func() func(context.Context, frameworkevent.Event) error, signals <-chan struct{}) *EventStream` — 构造事件流（reader 为 nil 时返回 nil）。
-- `func (stream *EventStream) Start()` — 起投影协程（幂等；nil 接收者安全）。
-- `func (stream *EventStream) Close()` — 停止投影协程（幂等；没起过协程就直接返回）。
-- `func (stream *EventStream) loop()` — 订阅变更信号口，每次被唤醒投影一次增量。
-- `func (stream *EventStream) drain()` — 把"自上次投影以来新出现的状态"追加到各会话的事件库。
-- `func (stream *EventStream) append(record seelejobs.Record)` — 把一条作业读数的当下状态投影为一个会话级事实事件。
-- `func eventStatus(state seelejobs.State) frameworkevent.Status` — 把作业状态映射为框架事件状态。
+- `func NewEventStream(reader SnapshotReader, persister func() func(context.Context, frameworkevent.Event) error, signals <-chan struct{}) *EventStream` — NewEventStream 构造事件流；persister 是**延迟读取**的持久化钩子取用器——装配顺序上
+- `func (stream *EventStream) Start()` — Start 起投影协程（幂等；nil 接收者安全）。
+- `func (stream *EventStream) Close()` — Close 停止投影协程（幂等；nil 接收者安全）。
+- `func (stream *EventStream) loop()` — loop 订阅变更信号口，每次被唤醒投影一次增量。
+- `func (stream *EventStream) drain()` — drain 把"自上次投影以来新出现的状态"追加到各会话的事件库。
+- `func (stream *EventStream) append(record seelejobs.Record)` — append 把一条作业读数的当下状态投影为一个会话级事实事件。
+- `func eventStatus(state seelejobs.State) frameworkevent.Status` — eventStatus 把作业状态映射为框架事件状态。
+
+### event_stream_test.go
+
+- `func TestNewEventStreamWithoutManagerIsNil(t *testing.T)` — TestNewEventStreamWithoutManagerIsNil 钉住缺装配的语义：没有作业表就没有事件流，
+- `func TestEventStreamProjectsOnlyStateChanges(t *testing.T)` — TestEventStreamProjectsOnlyStateChanges 钉住"投影是状态变化、不是逐帧回放"：
+- `func TestEventStatusMapping(t *testing.T)` — TestEventStatusMapping 钉住四种作业状态到框架事件状态的映射（含默认支路）。
+- `func TestEventStreamStartCloseIsIdempotent(t *testing.T)` — TestEventStreamStartCloseIsIdempotent 钉住生命周期的幂等与可终止：
+- `func (reader *stubReader) set(records []seelejobs.Record)`
+- `func (reader *stubReader) Snapshot(seelejobs.Scope) []seelejobs.Record`
+- `func sessionIDOf(event frameworkevent.Event) string` — sessionIDOf 从事件的 agent.runtime 定位读会话归属（测试内的局部读法；生产侧的判据
 
 ### projection.go
 
-- `func ProjectAsyncRuns(infos []registry.AsyncRunInfo) []dto.AsyncRunRecord` — 把后台执行表的探针读数投影为 DTO，按派发顺序。
-- `func recordFrom(info registry.AsyncRunInfo) dto.AsyncRunRecord` — 搬运探针读数到 DTO（漏搬一列由用例钉住）。
+- `func ProjectAsyncRuns(infos []registry.AsyncRunInfo) []dto.AsyncRunRecord` — ProjectAsyncRuns 把后台执行表的探针读数投影为 DTO，按派发顺序。
+- `func recordFrom(info registry.AsyncRunInfo) dto.AsyncRunRecord` — recordFrom 搬运探针读数到 DTO。单独成函数是为了让"漏搬一列"能被用例钉住
+
+### projection_test.go
+
+- `func TestRecordMappingCarriesEveryColumn(t *testing.T)` — TestRecordMappingCarriesEveryColumn 钉住"探针读数每一列都真的到了 Application 侧"。
+- `func TestProjectAsyncRunsEmptyIsNil(t *testing.T)` — TestProjectAsyncRunsEmptyIsNil 钉住空表归一：没有行时返回 nil（而不是空切片），

@@ -78,10 +78,6 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func (c *Coordinator) setEngineSystemPrompt(sessionID, promptText string)` — setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的
 - `func (c *Coordinator) activeSessionID() string` — activeSessionID 返回当前活跃会话（快照归属会话）。
 
-### validation.go
-
-- `func ValidateAssets() error` — 校验解析后的内嵌/外部覆盖提示词资产；Application 不直接依赖 assets 子包。
-
 ### environment_section_test.go
 
 - `func TestEnvironmentSectionIsInjectedAndStable(t *testing.T)` — TestEnvironmentSectionIsInjectedAndStable：**执行面的环境事实**（这台机器上 bash 工具落到
@@ -92,6 +88,22 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func (environmentPluginStub) Activate(context.Context, string) error`
 - `func (environmentPluginStub) Deactivate(context.Context) error`
 - `func (environmentPluginStub) Current() (model.PluginInfo, bool)`
+
+### role_prompt_optimize.go
+
+- `func NewRolePromptOptimizer(deps RolePromptOptimizerDeps) *RolePromptOptimizer` — NewRolePromptOptimizer 装配优化器（装配点是组合根的 `Runtime.OptimizeRolePrompt`）。
+- `func (optimizer *RolePromptOptimizer) Optimize(ctx context.Context, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)` — Optimize 跑一次有界改写回合，返回候选提示词与改动理由。
+- `func parseRolePromptOptimization(raw string) (string, []string, error)` — parseRolePromptOptimization 从模型输出里抽出 JSON 对象并校验：optimized 必填，
+- `func nonEmptyOr(value, fallback string) string` — nonEmptyOr 取第一个非空值（空白视为空）。
+- `func truncatePromptRunes(value string, max int) string` — truncatePromptRunes 把原文压到 max 个 rune 并加省略号（只用于错误文案的原文摘录）。
+
+### role_prompt_optimize_test.go
+
+- `func TestParseRolePromptOptimization(t *testing.T)` — TestParseRolePromptOptimization：优化回合的 JSON 解析容忍围栏/前后噪声，缺
+- `func TestOptimizeRolePromptRoundTripsContext(t *testing.T)` — TestOptimizeRolePromptRoundTripsContext 钉住这一回合的编排：元指令固定（不可被登记提示词
+- `func TestOptimizeRolePromptDefaultsAndGuards(t *testing.T)` — TestOptimizeRolePromptDefaultsAndGuards：缺省项有兜底（未命名 / agent / 未装配），
+- `func TestOptimizeRolePromptWrapsRoundFailure(t *testing.T)` — TestOptimizeRolePromptWrapsRoundFailure：回合失败要包一层"提示词优化回合失败"
+- `func TestOptimizeRolePromptTrimsNoteLength(t *testing.T)` — TestOptimizeRolePromptTrimsNoteLength：每条理由截到 60 rune（有界回执），且不因为
 
 ### skill_catalog.go
 
@@ -119,3 +131,6 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func TestCoordinatorEmptyCatalogOmitsSection(t *testing.T)` — TestCoordinatorEmptyCatalogOmitsSection：插件无技能 → 目录段整体不出现，
 - `func TestRenderSkillCatalogHintUsesInjectedSigil(t *testing.T)` — TestRenderSkillCatalogHintUsesInjectedSigil：激活纪律句里的用户入口前缀来自
 
+### validation.go
+
+- `func ValidateAssets() error` — ValidateAssets validates the resolved embedded-or-overridden prompt set.

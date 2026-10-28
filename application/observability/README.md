@@ -59,3 +59,34 @@
 go test ./application/observability -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### diagnostics.go
+
+- `func RenderDiag(snapshot model.Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
+
+### diagnostics_test.go
+
+- `func TestRenderDiagReadsRuntimeReadings(t *testing.T)`
+- `func TestRenderDiagWithoutRuntimeSections(t *testing.T)`
+
+### metrics.go
+
+- `func PerfStats(snapshot model.Snapshot, historyWindow int, toolRefs []model.ToolResultRef) model.PerfStats` — PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
+
+### metrics_test.go
+
+- `func TestPerfStatsCountsConversationAndArchive(t *testing.T)`
+
+### perf.go
+
+- `func NewPerfApplication(deps PerfDeps) *PerfApplication` — NewPerfApplication constructs the performance metrics application.
+- `func (application *PerfApplication) PerfStats() model.PerfStats` — PerfStats returns content-free performance metrics for the GUI poller.
+
+### perf_test.go
+
+- `func TestPerfStatsHoldsReadLockOnlyAroundInputs(t *testing.T)`

@@ -25,7 +25,7 @@
 `handleToolCompleteObserved` / 会话恢复路径）。
 
 外部端口：`application/assembly` 已不再 import 本包，而是依赖
-`application/session.ResidencyPort`；唯一 adapter 在 `wiring/adapters`。
+`application/session.ResidencyPort`；唯一 adapter 在 `internal/host`。
 本包仍是 preview、Order/Budget、input index、eviction 与 archive 判据的唯一实现。
 
 落点沿革：2026-10-16 随 M5-R6-residency-preview **接收者转移**从
@@ -160,44 +160,96 @@ go test ./application/assembly/ -run 'Content|LRU|Resident|Release|Evict' -count
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### preview.go
-
-- `func Preview(content string, limit int) (string, bool)` — 把超限内容截断为快照预览（UTF-8 边界安全，含按 rune 计数的省略说明）。
-
-### order.go
-
-- `type Order []string` — "最近使用序"（索引 0 = 最近使用；空 ID 视为无效）。
-- `func (o Order) Touch(id string) Order` — 移到序首（重复则先去重再前置）；返回新切片，不改原序。
-- `func (o Order) Forget(id string) Order` — 移出序，其余相对顺序不变。
-- `func PruneOrder(order Order, loaded func(sessionID string) bool, unitIDs []string) Order` — 收敛使用序：去重、丢弃已不再持有正文的会话、按单元表顺序收养。
-- `func Budget(legacyLimit, protectedCount, window int) int` — 释放额度：分层上限 − 受保护数，或统一窗口。
-
-### catalog.go
-
-- `type CatalogRefresher interface` — 请求一次目录刷新的窄口（结构满足会话协调器的同名方法）。
-- `func WaitCatalogRefresh(ctx context.Context, refresher CatalogRefresher) error` — 等一轮覆盖本次请求的目录刷新；ctx 超时返回 `ctx.Err()`（不是失败）。
-
-### inputindex.go
-
-- `const InputIndexSummaryLimit = 60` — 刻度摘要的字符上限（rune）。
-- `func SummarizeInputText(text string, limit int) (string, int)` — 空白折叠 + rune 截断（省略号），返回摘要与原文 rune 数。
-- `func AlignLoadedInputTexts(texts, loaded []string) (int, int)` — 把已加载窗口对齐到全量序列（最长整段命中 → 退让到更短前缀 → 不命中 0/0）。
-- `func BuildInputIndex(conversation []model.Message, loaded []string, limit int, userText func(model.Message) string) []model.SessionInputIndexRow` — 从完整可见会话构建索引（只保留宿主谓词判定的用户输入行，命中段标 Loaded）。
-
 ### archive.go
 
-- `var ErrArchiveNotFound` — 目标会话不存在或 record 缺失/版本不兼容（宿主侧名字 `ErrSessionNotFoundArchive`）。
-- `var ErrArchiveGateUnassembled` — 门控某轴拒绝但宿主没带该轴错误值（装配缺陷，不静默放行）。
-- `type ArchiveGate struct` — 归档门控的读数（关闭 / 排空 / 忙 / 恢复中）与对应轴上原样返回的宿主错误值。
-- `type ArchiveStore struct` — 归档用例的存储面（读 record / flush / 写归档状态 / 按项目刷新目录）。
-- `type ArchiveEngine struct` — 归档用例的引擎面（驻留标记 / 引擎是否真有该会话 / unload / 摘驻留序）。
-- `type ArchiveDeps struct` — 归档用例的宿主能力面（门控读数回调 + 存储面 + 引擎面 + 后台命令释放面）。
 - `func (gate ArchiveGate) Reject() error` — Reject 按迁移前的**原次序**判决门控（关闭 → 排空 → 忙 / 恢复中），返回 nil 即放行。
 - `func gateError(err error) error` — gateError 把"该轴拒绝"翻译成一个错误：宿主没带错误值即装配缺陷。
 - `func Archive(deps ArchiveDeps, sessionID string) error` — Archive 归档指定会话：门控通过后把 record.Status 写为 archived，驻留会话先 flush 并释放引擎 bundle。
 
+### archive_test.go
+
+- `func newArchiveFake() *archiveFake`
+- `func (fake *archiveFake) deps() ArchiveDeps`
+- `func (fake *archiveFake) archive() error`
+- `func wantCalls(t *testing.T, fake *archiveFake, want ...string)`
+- `func TestArchiveRejectsGateAxesInOrder(t *testing.T)` — TestArchiveRejectsGateAxesInOrder 钉住门控的原次序：关闭 → 排空 → 忙 / 恢复中；
+- `func TestArchiveGateRejectsWithoutAssembledError(t *testing.T)` — TestArchiveGateRejectsWithoutAssembledError 钉住装配缺陷的口径：某轴拒绝却没带
+- `func TestArchiveTrimsAndRejectsEmptySessionID(t *testing.T)` — TestArchiveTrimsAndRejectsEmptySessionID 钉住空 ID 文案与"空 ID 不读宿主状态"：
+- `func TestArchiveSessionIDIsTrimmed(t *testing.T)` — TestArchiveSessionIDIsTrimmed 钉住 trim 口径：带空白的 ID 用去掉空白后的身份
+- `func TestArchiveLoadFailureIsWrapped(t *testing.T)` — TestArchiveLoadFailureIsWrapped 钉住读面失败的文案与"失败即停"。
+- `func TestArchiveMissingOrMismatchedRecordIsNotFound(t *testing.T)` — TestArchiveMissingOrMismatchedRecordIsNotFound 钉住"record 缺失"与"record ID 不符"
+- `func TestArchiveAlreadyArchivedIsIdempotent(t *testing.T)` — TestArchiveAlreadyArchivedIsIdempotent 钉住幂等：record 已是 archived 时返回 nil，
+- `func TestArchiveResidentOrderIsFlushUnloadForgetThenMark(t *testing.T)` — TestArchiveResidentOrderIsFlushUnloadForgetThenMark 钉住驻留会话的次序：
+- `func TestArchiveSkipsEngineUnlessResidentAndLoaded(t *testing.T)` — TestArchiveSkipsEngineUnlessResidentAndLoaded 钉住引擎面的两个前置：单元没有驻留
+- `func TestArchiveFailuresStopTheChain(t *testing.T)` — TestArchiveFailuresStopTheChain 钉住三条写/释放失败的文案与"失败即停"：
+
+### catalog.go
+
+- `func WaitCatalogRefresh(ctx context.Context, refresher CatalogRefresher) error` — WaitCatalogRefresh 等一轮"覆盖了本次请求"的目录刷新，使紧随其后的 Snapshot()/SnapshotOf()
+
+### catalog_test.go
+
+- `func (refresher *fakeRefresher) RequestCatalogRefresh() <-chan struct`
+- `func TestWaitCatalogRefreshReturnsWhenRefreshCompletes(t *testing.T)` — TestWaitCatalogRefreshReturnsWhenRefreshCompletes：刷新回执关闭即返回 nil（恰好请求一次）。
+- `func TestWaitCatalogRefreshTimeoutIsNotFailure(t *testing.T)` — TestWaitCatalogRefreshTimeoutIsNotFailure：ctx 超时返回 ctx.Err()（不是"失败"），
+
 ### eviction.go
 
-- `type EvictionSnapshot struct` — 一次超限收敛的读数（使用序 / 触发会话 / 占用本层集合 / 受保护集合 / 分层上限与统一窗口）。
-- `type EvictionDeps struct` — 超限收敛的宿主面（取一次自洽读数 + 卸载一个会话 + 记录一次失败）。
-- `func EvictUntilWithinLimit(deps EvictionDeps)` — 反复卸载最旧且可卸载的会话，直到占用本层的会话数进入额度；无候选即容忍超限，失败即停（正文层与引擎层共用）。
+- `func EvictUntilWithinLimit(deps EvictionDeps)` — EvictUntilWithinLimit 反复卸载"最旧且可卸载"的会话，直到占用本层的会话数进入额度；
+
+### eviction_test.go
+
+- `func newFakeLayer(order []string, occupied, protected []string, protect string, legacyLimit, window int) *fakeLayer`
+- `func (fake *fakeLayer) snapshot() EvictionSnapshot`
+- `func (fake *fakeLayer) evict(sessionID string) error`
+- `func (fake *fakeLayer) deps() EvictionDeps`
+- `func TestEvictUntilWithinLimitWindowBudgetEvictsOldestFirst(t *testing.T)` — 统一窗口口径（默认）：受保护集之外只留 window 个，最旧端先走。
+- `func TestEvictUntilWithinLimitProtectedNeitherCountedNorChosen(t *testing.T)` — 受保护集**既不计数也不参与挑选**：窗口只约束"受保护集之外还能留几个"，
+- `func TestEvictUntilWithinLimitLegacyLimitMinusProtected(t *testing.T)` — 分层口径（legacyLimit > 0）：额度 = 该层总上限 − 受保护数。
+- `func TestEvictUntilWithinLimitSkipsSessionsWithoutContent(t *testing.T)` — 本已不占用本层内存的会话既不进候选也不计数（分层上限与统一窗口都不该被它们占位）。
+- `func TestEvictUntilWithinLimitSkipsEmptyIDs(t *testing.T)` — 空 ID 一律跳过（使用序里可能残留空槽）。
+- `func TestEvictUntilWithinLimitToleratesOverLimitWithoutCandidates(t *testing.T)` — 没有候选（全受保护）⇒ 容忍超限，一个都不动。
+- `func TestEvictUntilWithinLimitStopsOnEvictFailure(t *testing.T)` — 卸载失败立即停：报一次错、不再挑下一个（数据留在内存，下一轮再试）。
+- `func TestEvictUntilWithinLimitNoOpWhenWithinBudget(t *testing.T)` — 额度已经满足（候选数 <= 额度）时不取动作：一次取数即返回。
+- `func TestEvictUntilWithinLimitWithoutDepsIsSafe(t *testing.T)` — 装配缺陷（缺 Snapshot 或 Evict）不许 panic：静默返回，由装配期测试兜住。
+
+### inputindex.go
+
+- `func SummarizeInputText(text string, limit int) (string, int)` — SummarizeInputText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
+- `func AlignLoadedInputTexts(texts, loaded []string) (int, int)` — AlignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：先求最长前缀的**连续整段命中**
+- `func BuildInputIndex(conversation []model.Message, loaded []string, limit int, userText func(model.Message) string) []model.SessionInputIndexRow` — BuildInputIndex 从完整可见会话构建全量用户输入索引（纯函数）：
+
+### inputindex_test.go
+
+- `func TestSummarizeInputText(t *testing.T)`
+- `func TestAlignLoadedInputTexts(t *testing.T)` — TestAlignLoadedInputTexts 对齐算法：尾部窗口整段命中；最新一条输入尚未进入索引时退一步用更短前缀；
+- `func TestBuildInputIndexMarksLoadedSection(t *testing.T)` — TestBuildInputIndexMarksLoadedSection 纯函数口径：只有命中已加载段的输入被标成 Loaded，
+
+### order.go
+
+- `func (o Order) Touch(id string) Order` — Touch 把 ID 移到序首（已在序里则先去重再前置）。
+- `func (o Order) Forget(id string) Order` — Forget 把 ID 移出序，其余相对顺序不变。
+- `func PruneOrder(order Order, loaded func(sessionID string) bool, unitIDs []string) Order` — PruneOrder 收敛使用序：去重、丢弃**已不再持有正文**的会话，并把"持有正文但不在序里"的会话
+- `func Budget(legacyLimit, protectedCount, window int) int` — Budget 计算"这一层还能留几个会话"的额度：
+
+### order_test.go
+
+- `func TestOrderTouchMovesToFrontAndDedupes(t *testing.T)`
+- `func TestOrderTouchDoesNotMutateUnderlying(t *testing.T)`
+- `func TestOrderForgetKeepsRelativeOrder(t *testing.T)`
+- `func TestBudgetFollowsWindowOrLegacyLimit(t *testing.T)`
+
+### preview.go
+
+- `func Preview(content string, limit int) (string, bool)` — Preview 把超限内容截断为快照预览：取前 limit 字节（按 UTF-8 rune 边界安全切割，
+
+### preview_test.go
+
+- `func TestPreviewTruncates(t *testing.T)`
+- `func TestPreviewKeepsUTF8BoundaryAndCountsRunes(t *testing.T)` — TestPreviewKeepsUTF8BoundaryAndCountsRunes：截断点必须落在 rune 起点；
+- `func TestPreviewWithoutLimitPassesThrough(t *testing.T)` — TestPreviewWithoutLimitPassesThrough：limit <= 0 = 不截断（宿主负责给正数预算）。
+
+### prune_test.go
+
+- `func TestPruneOrderDropsUnloadedDedupesAndAdopts(t *testing.T)`
+- `func TestPruneOrderEmptyInputs(t *testing.T)`

@@ -81,4 +81,3 @@ go test ./backend/engine/input -count=1
 - `func (route skillRoute) Dispatch(ctx context.Context, input string) error`
 - `func (conversationRoute) Matches(string) bool`
 - `func (route conversationRoute) Dispatch(ctx context.Context, input string) error`
-

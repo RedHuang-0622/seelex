@@ -215,4 +215,3 @@ go test ./e2e/scenario -count=1
 - `func (*ScriptedEngine) SubAgentTree() []dto.SubAgentTreeNode`
 - `func (engine *ScriptedEngine) Remaining() int`
 - `func (engine *ScriptedEngine) toolExecutor() ToolExecutor`
-

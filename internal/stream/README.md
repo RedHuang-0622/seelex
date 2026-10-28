@@ -82,4 +82,3 @@ go test ./internal/stream -count=1
 - `func pinnedTo(id string) bridge.AccountRequestSelector`
 - `func TestStreamingCompleterFailsOverOnQuotaRejection(t *testing.T)` — TestStreamingCompleterFailsOverOnQuotaRejection 钉住「第一志愿没额度 → 第二志愿」：
 - `func TestStreamingCompleterDoesNotFailOverOnTransportError(t *testing.T)` — TestStreamingCompleterDoesNotFailOverOnTransportError 钉住换号的**边界**：
-

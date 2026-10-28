@@ -94,3 +94,104 @@ go test ./application/assembly -run Role -count=1
 go test ./application/... -count=1
 go test -race ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func NewRoleApplication(deps Deps) *RoleApplication` — NewRoleApplication constructs the role policy application.
+- `func (application *RoleApplication) RoleDefaultVector(sessionID, role string) ([]string, bool, error)` — RoleDefaultVector reads a role's explicit default vector.
+- `func (application *RoleApplication) SetRoleDefaultVector(sessionID, role string, vector []string) error` — SetRoleDefaultVector validates and writes a role's default vector without
+- `func (application *RoleApplication) RoleAccount(sessionID, role string) (string, bool, error)` — RoleAccount reads a role's explicit default account.
+- `func (application *RoleApplication) SetRoleAccount(sessionID, role, account string) error` — SetRoleAccount applies a role account to the runtime before persisting it
+- `func (application *RoleApplication) RestoreRoleAccounts(sessionID string) error` — RestoreRoleAccounts applies all explicitly stored role accounts to the
+- `func (application *RoleApplication) RoleInheritMainAgent(sessionID, role string) (bool, error)` — RoleInheritMainAgent reports whether a role inherits mainagent settings.
+- `func (application *RoleApplication) SetRoleInheritMainAgent(sessionID, role string, inherit bool) error` — SetRoleInheritMainAgent updates inheritance for subagent or teammate only.
+- `func (application *RoleApplication) RoleSSHUserSpaces(sessionID, role string) ([]string, error)` — RoleSSHUserSpaces reads the effective SSH path scope for a role. Inherited
+- `func (application *RoleApplication) RoleDefaultSSHUserSpaces(sessionID, role string) ([]string, error)` — RoleDefaultSSHUserSpaces reads a role's cross-session default SSH paths.
+- `func (application *RoleApplication) SetRoleSSHUserSpaces(sessionID, role string, paths []string) error` — SetRoleSSHUserSpaces writes normalized default SSH paths for a role.
+- `func (application *RoleApplication) SetRoleSessionSSHUserSpaces(sessionID, role string, paths []string) error` — SetRoleSessionSSHUserSpaces writes a normalized session-local SSH path
+- `func (application *RoleApplication) RestoreRolePermissions(sessionID string, roles []string) (map[string]dto.RoleSettings, error)` — RestoreRolePermissions restores effective settings for the requested roles:
+- `func (application *RoleApplication) RolePermissionVector(sessionID, role string) ([]string, error)` — RolePermissionVector reads one effective permission vector.
+- `func (application *RoleApplication) SetRolePermissionVector(sessionID, role string, vector []string) error` — SetRolePermissionVector validates and writes a session-local role vector.
+- `func (application *RoleApplication) resolveRoleSettings( sessionID, role string, storedVector []string, stored bool, resolveLayerMetadata bool, ) dto.RoleSettings`
+- `func (application *RoleApplication) roleDefaults() RoleDefaultsPort`
+- `func (application *RoleApplication) runtime() contract.AccountRoleSelectionPort`
+- `func (application *RoleApplication) registry() PermissionRegistryPort`
+- `func (application *RoleApplication) layers() PermissionLayerPort`
+- `func normalizeRemoteUserSpaces(paths []string) ([]string, error)`
+
+### application_test.go
+
+- `func TestRoleApplicationPrefersExplicitStoredVector(t *testing.T)`
+- `func TestRoleApplicationFallsBackOnlyWhenUnregistered(t *testing.T)`
+- `func TestRoleApplicationRollsBackRuntimeAccountOnPersistenceFailure(t *testing.T)`
+- `func TestRoleApplicationInheritanceAndRemoteUserSpaces(t *testing.T)`
+- `func TestRoleApplicationFailsLoudlyWithoutRegistry(t *testing.T)`
+- `func (fake *roleDefaultsFake) RoleDefault(string, string) ([]string, bool, error)`
+- `func (fake *roleDefaultsFake) SetRoleDefault(string, string, []string) error`
+- `func (fake *roleDefaultsFake) RoleAccount(sessionID, role string) (string, bool, error)`
+- `func (fake *roleDefaultsFake) SetRoleAccount(sessionID, role, account string) error`
+- `func (fake *roleDefaultsFake) RoleInheritance(sessionID, role string) (bool, bool, error)`
+- `func (fake *roleDefaultsFake) SetRoleInheritance(string, string, bool) error`
+- `func (fake *roleDefaultsFake) RoleSSHUserSpaces(_, role string) ([]string, error)`
+- `func (fake *roleDefaultsFake) RoleDefaultSSHUserSpaces(string, string) ([]string, error)`
+- `func (fake *roleDefaultsFake) SetRoleSSHUserSpaces(_, _ string, paths []string) error`
+- `func (fake *roleDefaultsFake) SetRoleSessionSSHUserSpaces(_, _ string, paths []string) error`
+- `func (fake *permissionRegistryFake) RolePermissionVectors(string) (map[string][]string, error)`
+- `func (fake *permissionRegistryFake) RolePermissionVector(_ string, role string) ([]string, bool, error)`
+- `func (fake *permissionRegistryFake) SetRolePermissionVector(string, string, []string) error`
+- `func (fake permissionLayersFake) RolePermissionLayers(string, string) dto.RoleSettingsLayers`
+- `func (fake *runtimeAccountFake) SetRoleAccount(role, account string) error`
+
+### limits_facade.go
+
+- `func Apply(l Limits)`
+- `func Get() Limits`
+- `func ValidateSessionReleaseWindow(window int) error`
+- `func SetSessionReleaseWindow(window int)`
+- `func ApplySessionReleaseWindow(window int) (int, error)` — ApplySessionReleaseWindow validates first, then changes the process limit.
+- `func NewKnobs(host KnobsHost) *Knobs`
+
+### limits_facade_test.go
+
+- `func TestLimitsFacadeTypesAreBackendIdentity(t *testing.T)`
+- `func TestApplySessionReleaseWindowValidatesBeforeMutation(t *testing.T)`
+
+### skill_activation_boundary_test.go
+
+- `func TestCoreDoesNotImportSkillActivator(t *testing.T)`
+- `func policyRepositoryRoot(t *testing.T) string`
+
+### switch.go
+
+- `func NewSwitch(deps SwitchDeps) *SwitchApplication` — NewSwitch constructs the policy switching application.
+- `func (application *SwitchApplication) ActivateSkill(name string) (model.SkillInfo, error)` — ActivateSkill activates one Skill.
+- `func (application *SwitchApplication) SetReasoningEffort(effort string) error` — SetReasoningEffort changes the reasoning effort.
+- `func (application *SwitchApplication) SetLoopLimit(limit int) error` — SetLoopLimit changes the loop limit.
+- `func (application *SwitchApplication) SetSessionReleaseWindow(window int) (int, error)` — SetSessionReleaseWindow changes the session release window.
+- `func (application *SwitchApplication) SessionReleaseWindow() int` — SessionReleaseWindow reads the session release window.
+- `func (application *SwitchApplication) SetFullAccess(on bool) bool` — SetFullAccess maps full-access state to the permission tier.
+- `func (application *SwitchApplication) SetPermissionTier(tier string) (string, error)` — SetPermissionTier persists and applies one permission tier.
+- `func (application *SwitchApplication) SwitchEffort(level string) error` — SwitchEffort applies a selected or cycled effort level.
+- `func (application *SwitchApplication) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin activates/deactivates one process plugin and rebuilds history.
+
+### switch_external_test.go
+
+- `func TestPolicyApplicationDelegatesPolicyOperations(t *testing.T)`
+- `func TestPolicyApplicationFullAccessError(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierFullPath(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierStopsOnPersistAndRuntimeErrors(t *testing.T)`
+- `func TestPolicyApplicationSetPermissionTierDoesNotResolveNonFull(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortRunsFullPath(t *testing.T)`
+- `func TestPolicyApplicationSwitchEffortStopsOnIdleCycleAndApplyErrors(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginActivatesAndRebuilds(t *testing.T)`
+- `func TestPolicyApplicationSwitchPluginOffAndErrors(t *testing.T)`
+- `func boolWord(value bool) string`
+
+### tier_facade_test.go
+
+- `func TestTierFacadeTypesAreBackendIdentity(t *testing.T)`

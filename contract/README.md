@@ -9,7 +9,7 @@
 M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包名、导出面与 JSON 形状均未变化，
 调用方只改 import 路径。
 
-主要调用方：`application/assembly`（只依赖端口）、`wiring/adapters`、`backend/engine/assemble/`、
+主要调用方：`application/assembly`（只依赖端口）、`internal/host`、`backend/engine/assemble/`、
 `backend/engine/plugin/`、`backend/engine/skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
 
 子包边界：
@@ -48,7 +48,7 @@ flowchart TB
         RUNTIME["backend/engine/assemble.Runtime"]
         PLUGIN["plugin.Manager"]
         SKILL["skill.Registry"]
-        SESSION["session.Manager / wiring/adapters"]
+        SESSION["session.Manager / internal/host"]
         WS["workspace.Repo"]
     end
 
@@ -109,9 +109,9 @@ flowchart LR
 | `SkillPort` | Skill 查询 | `skill.Registry` 适配器 |
 | `SessionPort` | 会话保存、读取、分页、删除和 active workspace | `session.Manager` 适配器 |
 | `WorkspacePort` | 项目 CRUD、session binding、Git remote | `workspace.Repo` 适配器 |
-| `ErrorPresentationPort` | Chat/Tool 错误的稳定呈现与结构化包装 | `wiring/adapters` 转发 `middle/view/errors` |
-| `CommandRegistryPort` / `InputDispatcher` | 命令注册与规范化输入分派 | `wiring/adapters` 转发 `backend/engine/input` |
-| `RoleSessionsPort` | 角色会话、draft、wire 与定时插话 | `wiring/adapters` 转发 `backend/multiagent/team` |
+| `ErrorPresentationPort` | Chat/Tool 错误的稳定呈现与结构化包装 | `internal/host` 转发 `middle/view/errors` |
+| `CommandRegistryPort` / `InputDispatcher` | 命令注册与规范化输入分派 | `internal/host` 转发 `backend/engine/input` |
+| `RoleSessionsPort` | 角色会话、draft、wire 与定时插话 | `internal/host` 转发 `backend/multiagent/team` |
 
 `Dependencies` 是 `assembly.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
 
@@ -119,7 +119,7 @@ flowchart LR
 
 | 接口 | 责任 | 典型实现 |
 |---|---|---|
-| `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `wiring/adapters.SessionPort`（同时实现 `SessionPort`） |
+| `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `internal/host.SessionPort`（同时实现 `SessionPort`） |
 | `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
 | `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `backend/engine/assemble` 的 `Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
 
@@ -128,7 +128,7 @@ flowchart LR
 未装配时显式返回“不可用”，不静默退化、不新增旁路。签名只用
 `contract/dto` 的纯 DTO（`dto.RoleRow` / `dto.RoleDraftRow` /
 `dto.RoleSnapshot` / `dto.RoleWireSnapshot` / `dto.ScheduleEventPayload`），
-存储实现类型 `store.*` 只允许出现在 `wiring/adapters` 的映射函数里
+存储实现类型 `store.*` 只允许出现在 `internal/host` 的映射函数里
 （S27 收口；回归见 `e2e/dto_boundary_test.go`）。
 
 ## 扩展规则
@@ -215,4 +215,4 @@ go test ./contract -run 'TestBM00' -count=1
 
 - `func TestBM005RuntimeAssemblyProductionFilesAreClassified(t *testing.T)`
 - `func TestBM005DomainPackagesDoNotImportRuntimeAssembly(t *testing.T)`
-- `func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T)`
+- `func TestBM005ReviewFilesRegistrationIsOwnedByBoot(t *testing.T)`

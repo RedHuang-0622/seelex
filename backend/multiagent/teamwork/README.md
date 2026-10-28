@@ -259,9 +259,9 @@ go test ./backend/multiagent/... -count=1
 
 ### board_archive.go
 
-- `func NextBoardMeta(ctx context.Context, repository store.BoardRepository, key store.Key, plan store.TeamworkPlan, payload json.RawMessage, now time.Time) (store.TeamBoardMeta, bool, error)` — NextBoardMeta 按生命周期规则推进存档元数据（§5），并报告"是否需要写盘"（§7）。
-- `func ReadBoardArchive(repository store.BoardRepository, key store.Key) *dto.TeamworkBoardView` — ReadBoardArchive 读存档并还原成看板投影（§6 重启恢复）。
-- `func SealBoard(ctx context.Context, repository store.BoardRepository, key store.Key, payload json.RawMessage, now time.Time) error` — SealBoard 把一版**在册的**看板存档显式收口；payload 非空时顺带刷新快照内容。
+- `func NextBoardMeta(ctx context.Context, repository BoardRepository, key dto.SessionKey, plan dto.TeamworkPlan, payload json.RawMessage, now time.Time) (dto.TeamBoardMeta, bool, error)` — NextBoardMeta 按生命周期规则推进存档元数据（§5），并报告"是否需要写盘"（§7）。
+- `func ReadBoardArchive(repository BoardRepository, key dto.SessionKey) *dto.TeamworkBoardView` — ReadBoardArchive 读存档并还原成看板投影（§6 重启恢复）。
+- `func SealBoard(ctx context.Context, repository BoardRepository, key dto.SessionKey, payload json.RawMessage, now time.Time) error` — SealBoard 把一版**在册的**看板存档显式收口；payload 非空时顺带刷新快照内容。
 - `func BoardFingerprint(payload []byte) string` — BoardFingerprint 是存档载荷的指纹（§7 节流判据）：同一份载荷 → 同一个值。
 
 ### board_archive_test.go
@@ -552,23 +552,23 @@ go test ./backend/multiagent/... -count=1
 
 ### output_store.go
 
-- `func NewOutputStore(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *OutputStore` — NewOutputStore 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
+- `func NewOutputStore(st planStoreRepository, keyFor func(sessionID string) (dto.SessionKey, bool)) *OutputStore` — NewOutputStore 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
 - `func (o *OutputStore) JobOutputPath(ctx context.Context, role string) (string, error)` — JobOutputPath 分配一次派发的输出文件路径（调用方把它同时交给执行体与
 - `func (o *OutputStore) WriteJobOutput(path, text string) error` — WriteJobOutput 把一轮正文写进产品自有输出文件。它是执行体写正文的**唯一入口**。
 - `func (o *OutputStore) ClearJobOutputs(ctx context.Context) error` — ClearJobOutputs 清掉当前会话那一批作业输出文件（整队收口调用）。
 - `func (o *OutputStore) LatestJobOutputPath(ctx context.Context, role string) (string, bool, error)` — LatestJobOutputPath 按**角色名**定位该角色最近一份产品自有正文（`<role>-<n>.log` 里 n
-- `func (o *OutputStore) resolve(ctx context.Context) (store.Key, string, error)` — resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
+- `func (o *OutputStore) resolve(ctx context.Context) (dto.SessionKey, string, error)` — resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
 - `func safeRoleFileName(role string) string` — safeRoleFileName 把角色名折成安全的文件名片段：角色名进路径，就必须先过这一关
 
 ### output_store_test.go
 
-- `func (s *fakeTeamworkStore) WriteTeamworkPlan(context.Context, store.Key, store.TeamworkPlan, int) error`
-- `func (s *fakeTeamworkStore) ReadTeamworkPlan(context.Context, store.Key) (store.TeamworkPlan, error)`
-- `func (s *fakeTeamworkStore) AppendTeamworkEvent(context.Context, store.Key, store.TeamworkEvent) error`
-- `func (s *fakeTeamworkStore) ReadTeamworkEvents(context.Context, store.Key) ([]store.TeamworkEvent, error)`
-- `func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, store.Key) (string, error)`
-- `func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, store.Key, store.TeamworkBinding) error`
-- `func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, store.Key) ([]store.TeamworkBinding, error)`
+- `func (s *fakeTeamworkStore) WritePlan(dto.SessionKey, workstore.Plan, int) error`
+- `func (s *fakeTeamworkStore) ReadPlan(dto.SessionKey) (workstore.Plan, error)`
+- `func (s *fakeTeamworkStore) AppendEvent(dto.SessionKey, workstore.Event) error`
+- `func (s *fakeTeamworkStore) ReadEvents(dto.SessionKey) ([]workstore.Event, error)`
+- `func (s *fakeTeamworkStore) JobOutputDir(dto.SessionKey) (string, error)`
+- `func (s *fakeTeamworkStore) AppendBinding(dto.SessionKey, workstore.Binding) error`
+- `func (s *fakeTeamworkStore) ReadBindings(dto.SessionKey) ([]workstore.Binding, error)`
 - `func newOutputStoreFixture(t *testing.T) (*OutputStore, string, context.Context)`
 - `func TestOutputStoreAllocatesDistinctPathsPerDispatch(t *testing.T)`
 - `func TestOutputStoreSanitizesRoleName(t *testing.T)`
@@ -632,13 +632,13 @@ go test ./backend/multiagent/... -count=1
 
 ### store.go
 
-- `func NewPlanStore(repository store.TeamworkRepository) PlanStore` — NewPlanStore 把 store.TeamworkRepository 适配成 PlanStore。
-- `func (s planStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error`
-- `func (s planStore) ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error)`
-- `func (s planStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error`
-- `func (s planStore) ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error)`
-- `func (s planStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
-- `func (s planStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)`
+- `func NewPlanStore(repository planStoreRepository) PlanStore`
+- `func (s planStore) WritePlan(_ context.Context, key dto.SessionKey, plan workstore.Plan, maxTeammates int) error`
+- `func (s planStore) ReadPlan(_ context.Context, key dto.SessionKey) (workstore.Plan, error)`
+- `func (s planStore) AppendEvent(_ context.Context, key dto.SessionKey, event workstore.Event) error`
+- `func (s planStore) ReadEvents(_ context.Context, key dto.SessionKey) ([]workstore.Event, error)`
+- `func (s planStore) AppendBinding(_ context.Context, key dto.SessionKey, binding workstore.Binding) error`
+- `func (s planStore) ReadBindings(_ context.Context, key dto.SessionKey) ([]workstore.Binding, error)`
 
 ### target_hardening_test.go
 
@@ -886,4 +886,3 @@ go test ./backend/multiagent/... -count=1
 - `func TestJobRecordCeilingOnlyRaisesAboveFrameworkDefault(t *testing.T)` — TestJobRecordCeilingOnlyRaisesAboveFrameworkDefault：记录槽上限**只抬不降**——
 - `func TestTurnLimitPrefersRequested(t *testing.T)` — TestTurnLimitPrefersRequested：成员级 max_turns 给了正数就照用，否则回退宿主给的默认。
 - `func TestRoundInputCarriesMilestoneAndGoal(t *testing.T)` — TestRoundInputCarriesMilestoneAndGoal：回合输入正文带里程碑标签与正文；没有正文时如实说明
-

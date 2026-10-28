@@ -5,7 +5,7 @@
 `kernel/goal/` 是**目标栈与收口审计**的领域实现：一个会话可以压入多层
 目标（嵌套目标压栈、下层转 paused），主代理用 `goal_begin/goal_update/goal_done`
 推进与收口。主要调用方：`application/assembly` 的 goal 协调器（按会话持有一份
-`Controller`）、`wiring/registry`（goal 工具注册）与 TUI/GUI 的目标看板。
+`Controller`）、`boot`（goal 工具注册）与 TUI/GUI 的目标看板。
 
 **TL/ADVISOR 评审环已删除（2026-10-17 用户裁决）**：不再有 b 回合、终态 gate、
 TL 指令队列或评审过程投影；团队编排由 `backend/multiagent/teamwork` 承担。goal
@@ -91,7 +91,7 @@ go test ./application/assembly/ -run Goal -count=1
 
 - `func GoalGovernanceViewFromBoardArchive(archive store.GoalBoardMeta) (dto.GoalGovernanceView, bool)` — GoalGovernanceViewFromBoardArchive converts a persisted goal board into the
 - `func goalBoardHistoryViews(entries []store.GoalBoardHistory) []dto.GoalHistoryView`
-- `func goalBoardProgressViews(items []store.GoalProgress) []dto.GoalProgressView`
+- `func goalBoardProgressViews(items []dto.BoardGoalProgress) []dto.GoalProgressView`
 - `func isTerminalAuditKind(kind string) bool` — isTerminalAuditKind 报告审计条目是否 goal 终态（收口账本的派生来源）。
 - `func (s *ContextStateStore) auditLedger() []store.GoalAuditEntry` — auditLedger 返回本会话的 goal 审计账本（未装配会话存储 → nil）。
 - `func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*GoalRecord) error` — refreshGoalBoard 组装并（按指纹节流后）写入 goal 看板存档。
@@ -110,8 +110,8 @@ go test ./application/assembly/ -run Goal -count=1
 
 ### board_archive_test.go
 
-- `func newBoardArchiveRouter(t *testing.T) *store.Router` — newBoardArchiveRouter 建一个临时会话存储（看板存档落在会话目录的 metadata 下）。
-- `func newBoardArchiveStore(t *testing.T, router *store.Router, sessionID string) ( *ContextStateStore, store.SessionBoards, *store.SessionContextStore, )` — newBoardArchiveStore 装配"会话存储 + 看板存档面"的 goal 域适配器。
+- `func newBoardArchiveRouter(t *testing.T) (*store.Router, *storeboard.SessionStore)` — newBoardArchiveRouter 建一个临时会话存储（看板存档落在会话目录的 metadata 下）。
+- `func newBoardArchiveStore(t *testing.T, router *store.Router, boardStore *storeboard.SessionStore, sessionID string) ( *ContextStateStore, store.SessionBoards, *store.SessionContextStore, )` — newBoardArchiveStore 装配"会话存储 + 看板存档面"的 goal 域适配器。
 - `func readBoardArchive(t *testing.T, boards store.SessionBoards) store.GoalBoardMeta` — readBoardArchive 读回看板存档（读取失败直接失败：这些用例都先写过）。
 - `func historyFor(meta store.GoalBoardMeta, goalID string) int` — historyFor 返回账本里某个 goal 的条目条数（"不会重复进 history"的判据）。
 - `func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T)` — TestGoalBoardArchiveSeparatesActiveFrameFromHistory 验证 active/history 分离：
@@ -224,4 +224,3 @@ go test ./application/assembly/ -run Goal -count=1
 - `func NewJSONFileStore(path string) *JSONFileStore` — NewJSONFileStore 构造文件存储（父目录需存在；测试用 t.TempDir()）。
 - `func (s *JSONFileStore) Load(_ context.Context) ([]*GoalRecord, error)` — Load 实现 Store；文件不存在视为空栈。
 - `func (s *JSONFileStore) Save(_ context.Context, records []*GoalRecord) error` — Save 实现 Store（原子写：同目录 temp + rename）。
-

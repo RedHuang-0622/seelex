@@ -182,6 +182,7 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 - `func (c *Coordinator) LoadSessionCompactionRecords(location Location, sessionID string) ([]model.ContextCompaction, bool, error)` — LoadSessionCompactionRecords 读取该会话的持久压缩记录（可选能力：未装配该
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
+- `func (c *Coordinator) LoadSessionResumeRecord(location Location, sessionID string) (model.SessionRecord, int, bool, error)` — LoadSessionResumeRecord 是冷加载的 record 读面：存储支持 compact 指针时
 - `func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error` — MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
 - `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口：token 预算由装配端口
 - `func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
@@ -282,8 +283,6 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 - `func reachableToolResultRefs(events []store.Event, record model.SessionRecord, frames []store.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
 - `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string, forkedFrom json.RawMessage) ([]byte, []store.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
-- `func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame`
-- `func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
 
 ### fork_test.go
 
@@ -334,6 +333,7 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 - `func (c *Coordinator) PendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — PendingMessageTail 探测目标会话的草稿尾部（只读；ok=false = 能力未装配）。
 - `func (c *Coordinator) RecoverPendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — RecoverPendingMessageTail 显式恢复草稿尾部：基座一致才推进发布点，
 - `func (c *Coordinator) DiscardPendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — DiscardPendingMessageTail 显式丢弃草稿尾部（清理未提交行）。
+- `func (c *Coordinator) AppendDraftSnapshot(location Location, sessionID string, events []model.TranscriptEvent) (int, bool, error)` — AppendDraftSnapshot 在会话单写者内追加 draft 后缀，避免与回合收尾快照并发。
 
 ### queue_wire.go
 
@@ -342,7 +342,7 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 - `func (c *Coordinator) QueueMarkConsumedInput(location Location, sessionID, turnID string) error` — QueueMarkConsumedInput 提升批次为下一轮时标记消费。
 - `func (c *Coordinator) QueueConfirmConsumedInput(location Location, sessionID, turnID string) error` — QueueConfirmConsumedInput 该轮快照已发布 → 消费项出队。
 - `func (c *Coordinator) QueueFailConsumedInput(location Location, sessionID, turnID string) error` — QueueFailConsumedInput 该轮未发布（失败）→ 消费项内容回草稿。
-- `func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]store.QueueItem, bool, error)` — QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
+- `func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]dto.QueueItem, bool, error)` — QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
 
 ### scope.go
 
@@ -374,12 +374,6 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 - `func TestSessionWriterParallelAcrossSessions(t *testing.T)` — TestSessionWriterParallelAcrossSessions 不同会话的写点并行（不是全局单写者）：
 - `func TestReaderNotBlockedBySessionWriter(t *testing.T)` — TestReaderNotBlockedBySessionWriter 写者持锁期间读路径正常返回（C2：读侧不
 - `func TestSessionWriterClosedDegradesToNoop(t *testing.T)` — TestSessionWriterClosedDegradesToNoop 关闭后写点退化为"直接执行"而不是卡死
-
-### storage.go（2026-10 删除）
-
-会话存储不再有运行期配置面：会话域那条可选能力端口（存储设置面的三个方法）
-与 `Coordinator` 上对应的三个转发方法一并移除——jsonl + json 是唯一形态，
-落点与参数在装配期定死。
 
 ### transcript_range.go
 
@@ -429,4 +423,3 @@ context 的 `forked_from` 原始 JSON，重启后仍能恢复血缘；store 不�
 
 - `func (c *Coordinator) AssembleWireHistoryWorkspace(location Location, sessionID string, budget, k int) ([]contract.EngineMessage, bool, error)` — AssembleWireHistoryWorkspace 通过 Core.Deps.Sessions 的可选能力执行 R2
 - `func (c *Coordinator) LifecycleRecover(location Location, sessionID string) (int, bool, error)` — LifecycleRecover 重启后恢复 lifecycle 队列（发送未确认项回 queued；
-

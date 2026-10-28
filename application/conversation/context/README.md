@@ -50,3 +50,73 @@ go test ./application/conversation/context -count=1
 go test ./application/assembly -run 'CompactContext' -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs the context-compaction application.
+- `func CompactionReasonLabel(reason string) string` — CompactionReasonLabel renders a user-readable compaction reason.
+- `func FailureReasonLabel(failure string) string` — FailureReasonLabel renders a known failure literal while preserving numeric
+- `func CompactionRecordNote(result Result) string` — CompactionRecordNote renders a recorded compaction receipt.
+- `func CompactionGateChecklist(gates []GateTiming) string` — CompactionGateChecklist renders one line of gate timings.
+- `func CompactionGateDuration(milliseconds int) string` — CompactionGateDuration renders zero as "<1ms".
+- `func CompactionRangeLabel(result Result) string` — CompactionRangeLabel renders recorded message/event boundaries.
+- `func (application *Application) CompactContextNow(ctx context.Context) (Result, error)` — CompactContextNow compacts the current execution session.
+- `func (application *Application) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler handles the compact_context model tool.
+- `func gates(values []context_runtime.CompactionGateTiming) []GateTiming`
+- `func newResult(outcome context_runtime.CompactResult) Result`
+
+### compaction_gate.go
+
+- `func NewCompactionGate(deps CompactionGateDeps) *CompactionGate` — NewCompactionGate constructs the per-session compaction gate.
+- `func (gate *CompactionGate) IsCompactingLocked(sessionID string) bool` — IsCompactingLocked reports whether a session has a compaction round.
+- `func (gate *CompactionGate) signalLocked()`
+- `func (gate *CompactionGate) SignalLocked() <-chan struct` — SignalLocked returns the current compaction-change signal.
+- `func (gate *CompactionGate) Acquire(ctx context.Context, sessionID string) error` — Acquire blocks until this session owns its single compaction round.
+- `func (gate *CompactionGate) Release(sessionID string)` — Release closes one compaction round and wakes waiters.
+- `func (gate *CompactionGate) Await(ctx context.Context, sessionID string) error` — Await waits until the session has no compaction round.
+- `func (gate *CompactionGate) DeferSubmitAfterCompaction(ctx context.Context, sessionID, text string)` — DeferSubmitAfterCompaction replays one input after the session's current
+
+### compaction_gate_test.go
+
+- `func TestCompactionGateSerializesOneSession(t *testing.T)`
+- `func TestCompactionGateAcquireHonorsContext(t *testing.T)`
+
+### engine_facade.go
+
+- `func NewEngineCoordinator(deps EngineDeps) *EngineCoordinator`
+- `func NewEngineHistoryCoordinator(core *state.Core) *EngineHistoryCoordinator`
+- `func IsProviderOnlyHistoryContent(content string) bool`
+- `func IsTaskContextCheckpoint(content string) bool`
+- `func IsActiveSkillContent(content string) bool`
+- `func IsOversizedToolResult(content string, limit int) bool`
+- `func OversizedToolResultWarning(name, resultRef string) string`
+- `func ContentReferenceWarning(resultRef string) string`
+- `func RetainedSystemOnly(history []contract.EngineMessage) []contract.EngineMessage`
+
+### engine_facade_test.go
+
+- `func TestEngineFacadeTypesAreBackendIdentity(t *testing.T)`
+
+### recovery.go
+
+- `func NewRecovery(deps RecoveryDeps) *RecoveryApplication` — NewRecovery constructs the provider recovery application.
+- `func (application *RecoveryApplication) sessionID(ctx context.Context) string`
+- `func (application *RecoveryApplication) RecoverProviderContext(err error, originalRequest string) error` — RecoverProviderContext recovers only provider context-exhaustion failures.
+- `func (application *RecoveryApplication) RecoverProviderFailure(err error, originalRequest string) (bool, error)` — RecoverProviderFailure is the active-session compatibility wrapper.
+- `func (application *RecoveryApplication) RecoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error)` — RecoverProviderFailureFor replaces an unusable transcript with a bounded,
+- `func (application *RecoveryApplication) RetryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error` — RetryContextRecovery gives one rejected request a bounded recovery turn.
+- `func RetryableAfterRecovery(err error) bool` — RetryableAfterRecovery reports whether a failed request is safe to replay.
+- `func NonEmptyProviderInput(input string) string` — NonEmptyProviderInput supplies the provider-safe fallback for an empty user
+- `func providerRecoveryDetails(kind contract.ProviderFailureKind) (prefix, heading, summary string)`
+- `func (application *RecoveryApplication) RemoveProviderContextRecovery() error` — RemoveProviderContextRecovery removes recovery/control envelopes from the
+- `func (application *RecoveryApplication) RemoveProviderContextRecoveryFor(sessionID string) error` — RemoveProviderContextRecoveryFor removes recovery/control envelopes from one
+
+### recovery_test.go
+
+- `func TestRetryableAfterRecoveryOnlyAcceptsPreExecutionRejections(t *testing.T)`
+- `func TestNonEmptyProviderInputKeepsRequestOrSuppliesRecoveryNote(t *testing.T)`

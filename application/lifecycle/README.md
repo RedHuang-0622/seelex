@@ -5,7 +5,7 @@
 `application/lifecycle` 承载 graceful drain、取消、幂等 Shutdown 和 fatal lifecycle
 fault guard。它不拥有 SessionUnit、Engine、Runtime 或 EventHub。
 
-主要调用方：`application/assembly` 的兼容 Service 与 wiring/headless 关闭路径。
+主要调用方：`application/assembly` 的兼容 Service 与 headless 关闭路径。
 
 ## 职责
 
@@ -62,3 +62,32 @@ go test ./application/lifecycle/... -count=1
 go test ./application/... -count=1
 go test -race ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs a lifecycle application.
+- `func (application *Application) BeginGracefulShutdown()` — BeginGracefulShutdown stops accepting new input while allowing accepted work to finish.
+- `func (application *Application) WaitForIdle(ctx context.Context) error` — WaitForIdle waits until the host reports idle or the context is canceled.
+- `func (application *Application) AnyChatRunning() bool` — AnyChatRunning reports whether any session still owns a running turn.
+- `func (application *Application) CancelAllChats()` — CancelAllChats cancels every running session.
+- `func (application *Application) CancelChat(requestID string) bool` — CancelChat cancels the current turn, treating requestID as advisory.
+- `func (application *Application) Shutdown()` — Shutdown performs the fixed, idempotent cleanup sequence.
+
+### application_test.go
+
+- `func TestWaitForIdleReturnsWhenIdle(t *testing.T)`
+- `func TestWaitForIdleHonorsContext(t *testing.T)`
+- `func TestShutdownRunsFixedSequenceOnce(t *testing.T)`
+- `func TestFaultGuardDegradesOnceThenPanics(t *testing.T)`
+
+### fault_guard.go
+
+- `func NewFaultGuard(deps FaultGuardDeps) *FaultGuardApplication` — NewFaultGuard constructs a fault guard application.
+- `func (application *FaultGuardApplication) DegradeAndRequestExit(reason string)` — DegradeAndRequestExit enters degraded state and performs cleanup once.
+- `func (application *FaultGuardApplication) HandleLifecycleFault(recovered any)` — HandleLifecycleFault degrades and then rethrows the original panic value.
+- `func logPanicReason(recovered any) string`

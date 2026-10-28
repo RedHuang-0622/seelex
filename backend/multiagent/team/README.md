@@ -83,7 +83,7 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 ## 依赖方向
 
 - 允许：本包 → `contract/dto`（纯 DTO）。
-- 禁止：本包 → `store`、`wiring/adapters`、`gui`；也禁止反向依赖（存储与界面不得
+- 禁止：本包 → `store`、`internal/host`、`gui`；也禁止反向依赖（存储与界面不得
   import 本包）。存储形态只在适配器里出现。
 
 ## Review 指南
@@ -257,7 +257,7 @@ sequenceDiagram
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/assembly/goal_work_summary.go`、`backend/multiagent/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/assembly/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
-| `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `store/team_registry.go`（`ReadMessageFloorWorkspace`）、`wiring/adapters/agentteam_ports.go`（`ReadFloorRole`） |
+| `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `store/team_registry.go`（`ReadMessageFloorWorkspace`）、`internal/host/agentteam_ports.go`（`ReadFloorRole`） |
 | 团队库（可复用团队模板） | **已接线**：**全局** `<root>/team/library.json`（整份替换型），条目 = 角色配置集 + 顺序策略；装配 = 条目 → `TeamSpec` → 既有工厂（建角色会话 + 写会话 registry + 写 lifecycle 顺序） | `store/team_global.go`、本包 `library.go`（均已删除，见顶部退场时间线）、`application/assembly/agentteam_service.go`（`AgentTeamSaveTeam`/`AgentTeamMaterializeTeam`） |
 | 全局母本（员工库 + 默认顺序） | **已接线**：`<root>/team/employees.json`（员工名册）与 `<root>/team/order.json`（默认顺序）是全局母本；会话在编员工表 + lifecycle 顺序是它的**深拷贝副本**，会话内入职/改序只改副本；只有「确认·普及搭配到全局」把副本回写母本 | `store/team_global.go`、本包 `global.go`（均已删除，见顶部退场时间线）、`application/assembly/agentteam_service.go`（`AgentTeamGlobalConfig`/`AgentTeamPublishToGlobal`） |
 | 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `backend/engine/assemble/runtime_role_prompt.go`（`SetRolePromptProvider`）、`backend/engine/assemble/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
@@ -313,7 +313,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 
 - `Port` 是唯一外部依赖面：`EnsureRoleSession`、`ReadLifecycleOrder`、
   `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/assembly` 的
-  `agentTeamAdapter`（把 `wiring/adapters.SessionPort` 的 DTO 形态转成工厂输入）。
+  `agentTeamAdapter`（把 `internal/host.SessionPort` 的 DTO 形态转成工厂输入）。
 - `FloorPort`（可选）是运行态读面：`ReadFloorRole` 读主会话 `message head.floor`。
   未实现的宿主（旧端口/测试桩）不填充 `TeamView.FloorRole`，也不报错——可选而不是
   塞进 `Port`，是为了不给每个装配桩加编译期义务。读失败只进 `DesignNotice`。
@@ -351,7 +351,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 ## 退场前：依赖方向
 
 - 允许：本包 → `contract/dto`（纯 DTO）。
-- 禁止：本包 → `store`、`wiring/adapters`、`gui`；也禁止反向依赖
+- 禁止：本包 → `store`、`internal/host`、`gui`；也禁止反向依赖
   （存储与界面不得 import 本包）。存储形态只在适配器里出现。
 
 ## 退场前：并发、存储、安全或错误语义
@@ -391,7 +391,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 gofmt -l .
 go build ./...
 go build -tags "gui,desktop,production" ./...
-go vet ./backend/multiagent/team ./store ./gui ./wiring/adapters
+go vet ./backend/multiagent/team ./store ./gui ./internal/host
 go test ./backend/multiagent/team ./store ./gui -count=1
 go test -race ./backend/multiagent/team -count=1
 ```
@@ -416,7 +416,7 @@ go test -race ./backend/multiagent/team -count=1
 
 - `func ResolvePluginAssembly(explicit, roleOwn []string) []string` — ResolvePluginAssembly 解析"这一轮装配哪些插件"：显式声明替换集合 → 角色自带 → 空集（不覆盖）。
 - `func NormalizePluginNames(names []string) []string` — NormalizePluginNames 去首尾空白、丢弃空项、保序去重；清完为空 = nil（"没装配"
-- `func ValidateMemberPlugins(members []store.TeamworkMember, limit int, defined func(string) bool) error` — ValidateMemberPlugins 是编排入口的两道**显式拒绝**（外加语法规整）：
+- `func ValidateMemberPlugins(members []dto.TeamworkMember, limit int, defined func(string) bool) error` — ValidateMemberPlugins 是编排入口的两道**显式拒绝**（外加语法规整）：
 - `func (j PluginFaceJudgement) Visible(name string) bool` — Visible 是"这个工具名在本装配面下可见吗"——**读数**用的那一半。
 - `func (j PluginFaceJudgement) Face(tools []types.Tool) []types.Tool` — Face 是"这份工具面收窄之后是什么"——**运行面**用的那一半。
 - `func (j PluginFaceJudgement) FaultNote(declared []string) string` — FaultNote 把失灵写成一句可回执的话（回执/日志"说清"这件事，而不是让 leader 从一个
@@ -430,7 +430,7 @@ go test -race ./backend/multiagent/team -count=1
 
 ### plugin_reject.go
 
-- `func RejectUnassembledPlugins(members []store.TeamworkMember, deps UnassembledPluginDeps) error` — RejectUnassembledPlugins 逐成员判"未定义的插件名是什么"：pending 候选（路线图）必须点名上游来源，
+- `func RejectUnassembledPlugins(members []dto.TeamworkMember, deps UnassembledPluginDeps) error` — RejectUnassembledPlugins 逐成员判"未定义的插件名是什么"：pending 候选（路线图）必须点名上游来源，
 
 ### plugin_reject_test.go
 
@@ -455,44 +455,6 @@ go test -race ./backend/multiagent/team -count=1
 - `func TestDefaultRoleTurnPromptFramesTheRole(t *testing.T)` — TestDefaultRoleTurnPromptFramesTheRole：未登记提示词时的最小角色框架——点名角色名、
 - `func TestComposeWorkerSystemPromptKeepsTheOrder(t *testing.T)` — TestComposeWorkerSystemPromptKeepsTheOrder：worker 回合系统提示的三段顺序是判据——
 
-### roles.go
-
-- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — RolePort 返回角色会话端口。
-- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — SchedulePort 返回定时插话端口。
-- `func (r RoleSessions) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
-- `func (r RoleSessions) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
-- `func (r RoleSessions) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
-- `func (r RoleSessions) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
-- `func (r RoleSessions) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error`
-- `func (r RoleSessions) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)`
-- `func (r RoleSessions) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
-- `func (r RoleSessions) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
-- `func (r RoleSessions) SetLifecycleOrder(sessionID, policy string, roles []string) error`
-- `func (r RoleSessions) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error`
-- `func (r RoleSessions) ListRoleSessions(mainSessionID string) ([]string, error)`
-- `func (r RoleSessions) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error`
-- `func (r RoleSessions) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error`
-- `func (r RoleSessions) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
-
-### roles_test.go
-
-- `func (port *fakeRolePort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
-- `func (port *fakeRolePort) AppendRoleDraft(string, string, string, []dto.RoleDraftRow) error`
-- `func (port *fakeRolePort) ReadRoleDraft(string, string, string) ([]dto.RoleDraftRow, error)`
-- `func (port *fakeRolePort) SyncRoleDraft(string, string, string, []string) (dto.RoleDraftSyncResult, error)`
-- `func (port *fakeRolePort) AppendRoleSessionRows(string, string, string, []dto.RoleRow) error`
-- `func (port *fakeRolePort) ReadRoleSessionRows(string, string, string) ([]dto.RoleRow, error)`
-- `func (port *fakeRolePort) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error)`
-- `func (port *fakeRolePort) AssembleRoleWire(string, string, string, int, int) (dto.RoleWireSnapshot, error)`
-- `func (port *fakeRolePort) SetLifecycleOrder(string, string, []string) error`
-- `func (port *fakeRolePort) SetRoleLifecycle(string, string, string, uint64, *dto.CompactFrameRef) error`
-- `func (port *fakeRolePort) ListRoleSessions(string) ([]string, error)`
-- `func (port *fakeSchedulePort) ScheduleRegister(string, dto.ScheduleEventPayload) error`
-- `func (port *fakeSchedulePort) ScheduleCancel(string, dto.ScheduleEventPayload) error`
-- `func (port *fakeSchedulePort) ScheduleFire(sessionID string, _ dto.ScheduleEventPayload) error`
-- `func TestRoleSessionsPortErrors(t *testing.T)` — TestRoleSessionsPortErrors：三种"没有可用端口"的情形各自给固定文案（判据只此一份）。
-- `func TestRoleSessionsForwards(t *testing.T)` — TestRoleSessionsForwards：解析成功后原样转发（角色面与定时面各一条）。
-
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
@@ -507,4 +469,3 @@ go test -race ./backend/multiagent/team -count=1
 ### spec_plugins_test.go
 
 - `func TestNormalizeRoleNormalizesPlugins(t *testing.T)` — TestNormalizeRoleNormalizesPlugins 钉住写入侧的**语法**口径（与编排侧共用
-

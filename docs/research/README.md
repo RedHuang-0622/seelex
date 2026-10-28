@@ -35,4 +35,5 @@
 | [`codex-claude-goal-harness-2026-09.md`](codex-claude-goal-harness-2026-09.md) | Codex / Claude 的 goal：harness 层如何承载（2026-09） |
 | [`goal-context-governance-2026-09.md`](goal-context-governance-2026-09.md) | Goal 上下文治理：业界做法调研（2026-09） |
 | [`2026-10-19-deepseek-search-fetch-api.md`](2026-10-19-deepseek-search-fetch-api.md) | DeepSeek 官方 Search & Fetch API（2026-10-17 上线）：端点/字段/算子/计费/QPS/错误逐条核对，与博查现状对照，以及 web_search 内置适配器 `type: deepseek` 的落点与刻意未做的部分 |
+| [`2026-10-28-coding-agent-peer-evaluation.md`](2026-10-28-coding-agent-peer-evaluation.md) | 2026-10 Seelex、Codex、Claude Code、Cursor、Copilot、Devin、Qoder、OpenHands、Aider、Antigravity CLI 的同级路线、强弱、适用场景与当前 Codex agent 评价 |
 | [`websearch-provider-design-research-2026-08.md`](websearch-provider-design-research-2026-08.md) | websearch 通用接入设计模式调研（2026-08） |

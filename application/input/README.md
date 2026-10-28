@@ -76,3 +76,42 @@ GUI 的 `Submitter` / `Completion` 消费方端口、TUI/headless/console 自己
 go test ./application/input ./application/assembly -run 'Suggestions|Sigil' -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### completion_policy_test.go
+
+- `func TestUnknownCommandNoticeUsesInputOwnedCatalog(t *testing.T)`
+- `func TestSigilMigrationHintUsesInputOwnedCatalog(t *testing.T)`
+
+### submission.go
+
+- `func NewSubmission(deps SubmissionDeps) *SubmissionApplication`
+- `func (application *SubmissionApplication) Submit(ctx context.Context, text string) error`
+
+### submission_test.go
+
+- `func TestSubmissionApplicationPreservesLifecycleAndDispatch(t *testing.T)`
+
+### suggestions.go
+
+- `func New(deps Deps) *Application` — New constructs the input suggestion application.
+- `func Sigils() []string` — Sigils returns a copy of the authoritative sigil order.
+- `func Parse(value string) (trigger, prefix string, ok bool)` — Parse splits an input sigil from its candidate prefix.
+- `func HasSigilPrefix(value string) bool` — HasSigilPrefix reports whether input starts with an authoritative sigil.
+- `func SigilOf(value string) string` — SigilOf returns the leading sigil, or an empty string for ordinary input.
+- `func (application *Application) Suggestions(value string) []Suggestion` — Suggestions combines candidates from the domain directories, filters by the
+- `func (application *Application) SigilMigrationHint(used, name string) string` — SigilMigrationHint explains the correct sigil when a name exists in another
+- `func (application *Application) UnknownCommandNotice(name string) string` — UnknownCommandNotice reports an unknown command and adds only applicable,
+- `func (application *Application) commandCounterpart(name string) string` — commandCounterpart finds the closest registered command. Prefix and
+- `func editDistanceAtMost(a, b string, limit int) bool` — editDistanceAtMost is the bounded Levenshtein check used only for command
+
+### suggestions_test.go
+
+- `func TestSuggestionsCombineAndSortDomains(t *testing.T)`
+- `func TestSuggestionsRejectArgumentsAndUnknownSigils(t *testing.T)`
+- `func TestParsePreservesSigilOrder(t *testing.T)`
+- `func TestSuggestionsExcludeModelSideToolsFromExecutablePanel(t *testing.T)`

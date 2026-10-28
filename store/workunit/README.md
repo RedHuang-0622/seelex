@@ -35,3 +35,33 @@ Application、Middle、Backend 或其它 store 领域实现。
 go test ./store/workunit -count=1
 go test ./store -run 'NodeSession|Subagent|UnitRecord' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### store.go
+
+- `func New(sessionRoot string) *Store` — New 构造记录存储。sessionRoot 是**主会话**的存储目录（记录按主会话索引）。
+- `func (s *Store) Write(record Record) error` — Write 写入（覆盖）一条记录：补默认值 → 建目录 → 编码 → 原子替换。
+- `func (s *Store) Read(mainSessionID, nodeSessionID string) (Record, error)` — Read 读取一条记录。文件不存在返回 `ErrNotFound` 包装（带点名的那种子会话 ID）；
+- `func (s *Store) List() ([]Record, error)` — List 从主会话索引列举全部记录（按 NodeID 排序）。
+- `func (s *Store) Delete(mainSessionID, nodeSessionID string) error` — Delete 删除一条记录。文件或目录不存在 = 已经离场（幂等，不是错误）。
+- `func (s *Store) MarkTerminal(mainSessionID string, record Record) error` — MarkTerminal 就地记录一条 node 记录的终端状态。
+- `func FileName(mainSessionID, nodeSessionID string) string` — FileName 生成 `<mainSessionID>-<nodeSessionID>.json` 文件名
+- `func NewWriter(recorder Recorder) *Writer` — NewWriter 以既有存储为末端起一条链。
+- `func (w *Writer) With(links ...Link) *Writer` — With 派生一条**在外面再包一环**的链（本链不动）：新的一环先跑，之后才走本链原有的环。
+- `func (w *Writer) Save(projectID, mainSessionID string, record Record) error` — Save 走完整条链再落盘（链上每一环只看得到自己这一层的事实）。
+- `func (w *Writer) Store() Recorder` — Store 返回链的末端存储：**读面**（列举/读取/删除/项目作用域）仍走它，本类型只管
+
+### store_test.go
+
+- `func TestStoreRoundTripAndPhysicalPath(t *testing.T)`
+- `func TestStoreMissingListDeleteAndTerminal(t *testing.T)`
+- `func (r *recordingRecorder) Save(_, _ string, record Record) error`
+- `func (*recordingRecorder) ProjectID() string`
+- `func (*recordingRecorder) Load(string, string, string) (Record, error)`
+- `func (*recordingRecorder) List(string, string) ([]Record, error)`
+- `func (*recordingRecorder) Delete(string, string, string) error`
+- `func TestWriterChainOnlyFillsOwnFacts(t *testing.T)`

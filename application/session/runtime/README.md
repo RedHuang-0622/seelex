@@ -58,7 +58,39 @@ go test ./application/assembly -run 'Session|Cold|Fork|History|Reference|Chat' -
 
 ## 文件与函数索引
 
-### `facade.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type Coordinator/Deps/Location/Session*Port = sessionruntime.*` — Engine Session 的同身份 alias。
-- `func NewCoordinator/SessionTitle/RecordResumeHistory/CloneSessionPlanStack(...)` — 逐项转发 Engine helper。
+### facade.go
+
+- `func NewCoordinator(deps Deps) *Coordinator`
+- `func SessionTitle(input string) string`
+- `func SessionTitleFromHistory(history []contract.EngineMessage, displayUserInput func(string) string) string`
+- `func WorkspaceID(workspace *model.WorkspaceInfo) string`
+- `func RecordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
+- `func CloneSessionPlanStack(stack []model.SessionPlanFrame) []model.SessionPlanFrame`
+
+### facade_test.go
+
+- `func TestSessionRuntimeTypesAreBackendIdentity(t *testing.T)`
+
+### session_switch_ab_test.go
+
+- `func newLockRegistry(interval time.Duration) *lockRegistry`
+- `func (registry *lockRegistry) busyWork(stop <-chan struct{})`
+- `func (registry *lockRegistry) switchTo(sessionID string) time.Duration`
+- `func (registry *lockRegistry) applied() int`
+- `func (registry *lockRegistry) validate() bool`
+- `func newActorRegistry(interval time.Duration) *actorRegistry`
+- `func (registry *actorRegistry) loop()`
+- `func (registry *actorRegistry) busyWork(stop <-chan struct{})`
+- `func (registry *actorRegistry) switchTo(sessionID string) time.Duration`
+- `func (registry *actorRegistry) applied() int`
+- `func (registry *actorRegistry) validate() bool`
+- `func (registry *actorRegistry) close()`
+- `func appendMirrorWork(log *[]int, value int)` — appendMirrorWork 追加一条“镜像工作”日志并裁剪（模拟忙写/切换的固定临界
+- `func mirrorMonotonic(log []int) bool`
+- `func runABRound(t *testing.T, registry abSwitchRegistry, name string) (time.Duration, time.Duration, int)` — runABRound 在 rate-limited 忙负载下并发发起 switches，返回一次轮次的
+- `func median(values []time.Duration) time.Duration`
+- `func runABCompare(t *testing.T, registry abSwitchRegistry, name string)` — runABCompare 跑多次轮次并汇总两个维度：
+- `func TestSessionSwitchABLockVsActor(t *testing.T)` — TestSessionSwitchABLockVsActor 对比锁串行（A）与 actor 模型（B）在忙会话

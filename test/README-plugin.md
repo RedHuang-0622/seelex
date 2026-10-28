@@ -35,7 +35,7 @@
 - `func TestResolveCuratedReadReadsFromResolvedRootsAndJudges(t *testing.T)`
 - `func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T)` — TestResolveCuratedReadMissIsExplicitButNotAStartupWarning 钉住 2026-10-05 重排后的口径：
 - `func TestResolveCuratedReadToleratesLocalPluginDrift(t *testing.T)` — TestResolveCuratedReadToleratesLocalPluginDrift 钉住"使用者自己改插件不该被自己的 app 警告"：
-- `func installedNames(plugins []plugin.Plugin) []string` — installedNames 把加载出来的插件渲染成名字清单（与 config.ResolveCuratedRead 内部同一口径）。
+- `func installedNames(plugins []plugin.Plugin) []string` — installedNames 把加载出来的插件渲染成名字清单（与 startup.ResolveCuratedRead 内部同一口径）。
 - `func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T)` — TestPluginRootReadingIsSharedAndReachesTheUIFace 钉住 B 的两半：
 - `func curatedFixtureYAML(installed ...string) string`
 - `func curatedFixtureYAMLWithRoadmap(installed []string, roadmap string) string` — curatedFixtureYAMLWithRoadmap 生成一份**合法**的精选目录：entries 与 installed 一一对应，

@@ -131,4 +131,3 @@ go build ./...
 - `func TestSearchEngineSeedCarriesNoCredential(t *testing.T)` — TestSearchEngineSeedCarriesNoCredential 钉住一条安全性质：search_engine.yaml
 - `func TestEmbeddedPacksAreAllReadable(t *testing.T)` — TestEmbeddedPacksAreAllReadable：每个默认数据包里的每一份都要能读出来、且非空。
 - `func TestAutoGetJobsSkeletonShipsDotEnvExample(t *testing.T)`
-

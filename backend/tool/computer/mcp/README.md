@@ -88,3 +88,42 @@ sequenceDiagram
 go test ./backend/tool/computer/... -count=1
 go build ./...
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### main.go
+
+- `func textResult(format string, args ...any) toolResult`
+- `func errorResult(err error) toolResult`
+- `func (r *regionArg) rect() *computer.Rect`
+- `func describeScrollTargets(targets []computer.ScrollTarget, limit int) string` — describeScrollTargets 把可滚动面板渲染成给宿主模型看的文本清单。
+- `func scrollTargetLabel(target computer.ScrollTarget) string` — scrollTargetLabel 给面板一个可读标签：UIA 名字缺失时退回类名，再缺就只说"未命名"。
+- `func describeScrollAxis(_ string, axis computer.ScrollAxis) string`
+- `func scrollStateSummary(after, before computer.ScrollTarget, hadBefore bool) string` — scrollStateSummary 在 scroll 结果后追加「滚到哪个面板、滚前滚后位置」。
+- `func shotDir() string`
+- `func captureAndEncode(region *computer.Rect, maxWidth int, savePath string, inline bool, cursor *computer.Point) ([]toolContent, error)` — captureAndEncode 截屏、落盘并生成 MCP 内容块。
+- `func inlineImage(flag *bool) bool`
+- `func main()`
+- `func writeResponse(writer *bufio.Writer, resp rpcResponse)`
+- `func handle(req rpcRequest) rpcResponse`
+- `func callTool(params json.RawMessage) (toolResult, error)`
+- `func describeScreenState() string` — describeScreenState 汇总「当前页面状态」里除画面之外的部分：虚拟桌面、光标、
+- `func actionResult(summary string, withScreenshot bool, maxWidth int) (toolResult, error)`
+- `func buttonName(button string) string`
+- `func maxInt(a, b int) int`
+- `func obj(properties map[string]any, required ...string) map[string]any`
+- `func toolDefinitions() []toolDef`
+
+### main_test.go
+
+- `func newTempPNG(t *testing.T, dir, name string, width, height int) string` — newTempPNG 在临时目录写一张 PNG，返回路径。
+- `func callViewImage(t *testing.T, arguments map[string]any) (toolResult, error)` — callViewImage 以 MCP 参数形状调用 view_image。
+- `func TestViewImageToolReturnsInlineImage(t *testing.T)`
+- `func TestViewImageToolHonoursMaxWidthAndInlineFlag(t *testing.T)`
+- `func TestViewImageToolReportsInvalidPath(t *testing.T)`
+- `func TestToolDefinitionsExposeViewTools(t *testing.T)`
+- `func TestDescribeScrollTargetsRendersPanels(t *testing.T)` — TestDescribeScrollTargetsRendersPanels 覆盖面板清单的文本渲染：名字缺失时
+- `func TestDescribeScreenStateIsSelfDescribing(t *testing.T)`

@@ -124,4 +124,3 @@ wg 样板。锁/ticker 驱动的串行化组件（如 `scheduler.State`、`fs` �
 - `func TestActorCloseIsIdempotent(t *testing.T)` — TestActorCloseIsIdempotent 验证 Close 幂等且 Wait 在 Close 后返回。
 - `func TestActorTrySendFullNonBlocking(t *testing.T)` — TestActorTrySendFullNonBlocking 验证通道满时 TrySend 立即返回 false。
 - `func TestActorConcurrentSenders(t *testing.T)` — TestActorConcurrentSenders 验证并发投递安全（多生产者单消费者）。
-

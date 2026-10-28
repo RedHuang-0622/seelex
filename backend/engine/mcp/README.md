@@ -84,3 +84,50 @@ provider.Attach → 工具重挂载 → 注册表可见。
 
 `go test ./seelebridge/... -run 'MCP|Breaker'`；根包
 `mcp_provider_test.go`/`mcp_integration_test.go` 覆盖。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### mcp.go
+
+- `func NewManager(stack *mcpstack.MCPStack, registry RegistryPort) *Manager` — NewManager 构造 MCP 管理器。stack 记录 breaker 事件；registry 重挂载工具。
+- `func (m *Manager) Provider() *frameworkmcp.Provider` — Provider 返回 MCP 工具提供者（tools/mcp，实现 tools.ToolProvider），懒创建。
+- `func (m *Manager) BreakerEvents() <-chan frameworkmcp.BreakerEvent` — BreakerEvents returns a read-only channel of breaker events.
+- `func (m *Manager) Attach(ctx context.Context, cfg Server) error` — Attach connects and registers a new MCP server.
+- `func (m *Manager) isClosed() bool`
+- `func (m *Manager) Close()` — Close 关闭 MCP 管理器：停掉熔断事件监听（close(ch) 使 ListenBreaker
+- `func (m *Manager) AttachServer( ctx context.Context, name, transport, command string, args, env []string, url string, ) error` — AttachServer 是 plugin 域使用的展开入参版 Attach。
+- `func (m *Manager) RegisterLazy(name string, cfg Server) error` — RegisterLazy 登记 MCP 服务器配置但不连接（冷启动：启动路径零 MCP 进程）。
+- `func (m *Manager) LazyNames() []string` — LazyNames 返回已登记但尚未连接的 MCP 服务器名（按字典序）。
+- `func (m *Manager) Load(ctx context.Context, name string) (int, error)` — Load 按需连接已登记的 MCP 服务器（冷启动加载点）：
+- `func (m *Manager) Detach(name string) error` — Detach 断开并注销 MCP 服务器。
+- `func (m *Manager) Refresh(ctx context.Context, name string) error` — Refresh 刷新指定 MCP 服务器的工具列表。
+- `func (m *Manager) Names() []string` — Names 返回已连接 MCP 服务器名（按字典序）。
+- `func (m *Manager) IsAlive(name string) bool` — IsAlive 轻量 ping 检查 MCP 服务器是否存活。
+- `func (m *Manager) Status(name string) (alive bool, toolsCount int, err error)` — Status 返回 MCP 服务器健康状态（alive + tool count + error）。
+- `func (m *Manager) RefreshTools()` — RefreshTools 重新挂载 MCP provider 到注册表，重建可见工具快照（幂等）。
+- `func (m *Manager) refreshTools(provider *frameworkmcp.Provider)` — refreshTools 重新挂载 MCP provider 到注册表，重建可见工具快照。
+- `func (m *Manager) setNotes(name string, notes []string)` — setNotes 记录一个 server 的工具描述注记。空白注记不写（也**不覆盖**已有
+- `func (m *Manager) notesSnapshot() map[string][]string` — notesSnapshot 取一份注记副本（注册时用；返回 nil 表示无注记）。
+- `func ToFramework(cfg Server) (frameworkmcp.ServerConfig, error)` — ToFramework 把 Seelex 的传输中立配置转换为框架 ServerConfig（校验契约）。
+
+### notes.go
+
+- `func (p *notesProvider) ProviderName() string`
+- `func (p *notesProvider) Tools() []tools.ToolEntry`
+- `func (p *notesProvider) notesFor(entryName string, attached []string) []string` — notesFor 按 entry 名找回它所属 server 的注记。
+- `func appendNotes(description string, notes []string) string` — appendNotes 把注记折在描述末尾（空段分隔），空白注记跳过。
+
+### notes_test.go
+
+- `func (p *fakeProvider) ProviderName() string`
+- `func (p *fakeProvider) ServerNames() []string`
+- `func (p *fakeProvider) Tools() []tools.ToolEntry`
+- `func entry(name, description string) tools.ToolEntry`
+- `func TestNotesProviderAppendsServerNotes(t *testing.T)`
+- `func TestNotesProviderPassthroughWithoutNotes(t *testing.T)` — 没有注记时必须是纯透传：描述、provider 名、条目数都不许被动。
+- `func TestNotesProviderScopesNotesPerServer(t *testing.T)` — 多 server：框架给 entry 名加 `server__` 前缀，注记只落在自己那个 server 上。
+- `func TestAppendNotesSkipsBlankAndFoldsMultiple(t *testing.T)` — 空白注记折叠掉：多行 folded scalar 带来的缩进/换行不该出现在描述里。
+- `func TestSetNotesKeepsRegisteredNotesOnLaterAttach(t *testing.T)`

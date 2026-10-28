@@ -50,8 +50,43 @@ go test ./kernel/rolesessions -count=1
 
 ## 文件与函数索引
 
-- `type RoleSessions struct` — 聚合角色会话与调度端口的窄门面。
-- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — 解析角色会话端口。
-- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — 解析调度端口。
-- `func (r RoleSessions) CreateRoleSession(...)` — 转发创建角色会话。
-- `func (r RoleSessions) ScheduleRegister(...)` — 转发注册定时事件。
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### roles.go
+
+- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — RolePort 返回角色会话端口。
+- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — SchedulePort 返回定时插话端口。
+- `func (r RoleSessions) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (r RoleSessions) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
+- `func (r RoleSessions) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
+- `func (r RoleSessions) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
+- `func (r RoleSessions) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error`
+- `func (r RoleSessions) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)`
+- `func (r RoleSessions) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
+- `func (r RoleSessions) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
+- `func (r RoleSessions) SetLifecycleOrder(sessionID, policy string, roles []string) error`
+- `func (r RoleSessions) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error`
+- `func (r RoleSessions) ListRoleSessions(mainSessionID string) ([]string, error)`
+- `func (r RoleSessions) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (r RoleSessions) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (r RoleSessions) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
+
+### roles_test.go
+
+- `func (port *fakeRolePort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (port *fakeRolePort) AppendRoleDraft(string, string, string, []dto.RoleDraftRow) error`
+- `func (port *fakeRolePort) ReadRoleDraft(string, string, string) ([]dto.RoleDraftRow, error)`
+- `func (port *fakeRolePort) SyncRoleDraft(string, string, string, []string) (dto.RoleDraftSyncResult, error)`
+- `func (port *fakeRolePort) AppendRoleSessionRows(string, string, string, []dto.RoleRow) error`
+- `func (port *fakeRolePort) ReadRoleSessionRows(string, string, string) ([]dto.RoleRow, error)`
+- `func (port *fakeRolePort) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error)`
+- `func (port *fakeRolePort) AssembleRoleWire(string, string, string, int, int) (dto.RoleWireSnapshot, error)`
+- `func (port *fakeRolePort) SetLifecycleOrder(string, string, []string) error`
+- `func (port *fakeRolePort) SetRoleLifecycle(string, string, string, uint64, *dto.CompactFrameRef) error`
+- `func (port *fakeRolePort) ListRoleSessions(string) ([]string, error)`
+- `func (port *fakeSchedulePort) ScheduleRegister(string, dto.ScheduleEventPayload) error`
+- `func (port *fakeSchedulePort) ScheduleCancel(string, dto.ScheduleEventPayload) error`
+- `func (port *fakeSchedulePort) ScheduleFire(sessionID string, _ dto.ScheduleEventPayload) error`
+- `func TestRoleSessionsPortErrors(t *testing.T)` — TestRoleSessionsPortErrors：三种"没有可用端口"的情形各自给固定文案（判据只此一份）。
+- `func TestRoleSessionsForwards(t *testing.T)` — TestRoleSessionsForwards：解析成功后原样转发（角色面与定时面各一条）。

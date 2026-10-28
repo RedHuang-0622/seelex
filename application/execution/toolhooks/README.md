@@ -87,3 +87,36 @@ type Deps struct {
 go test ./application/execution/toolhooks -count=1
 go test ./application/assembly -run 'ToolHook|HandleTool|IterationComplete' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### bridge.go
+
+- `func New() *Bridge` — New constructs a tool-hook bridge.
+- `func (bridge *Bridge) Bind(deps Deps)` — Bind replaces the bridge callbacks.
+- `func (bridge *Bridge) SetDiagnosticObserver(observer DiagnosticObserver)` — SetDiagnosticObserver installs optional hook diagnostics.
+- `func (bridge *Bridge) observeDiagnostic(event DiagnosticEvent)`
+- `func (bridge *Bridge) Hooks() *session.LoopHooks` — Hooks returns the Seele loop hooks.
+- `func (bridge *Bridge) beginTool(info session.ToolCallInfo) (Deps, string)`
+- `func (bridge *Bridge) completeTool(info session.ToolCallInfo) (Deps, string)`
+- `func (bridge *Bridge) nextToolIDLocked() string`
+- `func toolKey(info session.ToolCallInfo) string`
+
+### bridge_test.go
+
+- `func TestBridgePairsConcurrentToolCallsByFIFO(t *testing.T)`
+- `func TestBridgeIterationGatePreservesQueuedAndHistorySemantics(t *testing.T)`
+- `func TestBridgeDiagnosticObserverIsBestEffort(t *testing.T)`
+
+### projection.go
+
+- `func NewProjection(deps ProjectionDeps) *ProjectionApplication` — NewProjection constructs the tool projection application.
+- `func (application *ProjectionApplication) Start(ctx context.Context, name, id, arguments string)` — Start projects one running tool call.
+- `func (application *ProjectionApplication) Complete( ctx context.Context, name, id, arguments, result string, toolErr error, duration time.Duration, observe func(string), )` — Complete projects one finished tool call and its post-lock side effects.
+
+### projection_test.go
+
+- `func TestProjectionStartOwnsSessionFallbackAndPublicationOrder(t *testing.T)`

@@ -11,7 +11,7 @@
 1. 仓库根是 `package main`（入口），Go 不允许别的包 import 它——用例散在根目录只能贴着
    入口长，既不能被单独点名，也无法在"入口换成第二个 main（不同 build 变体）"时复用；
 2. M5 之后入口只剩 48 行装配调用，用例统一由本包承载，通过
-   `wiring/{config,registry,bootstrap}` 的公开 API 摆现场——这正是"启动项分包"的验收面：
+   `internal/startup`、`boot`、`internal/host` 的公开 API 摆现场——这正是"启动项分包"的验收面：
    用例不需要 `main` 就能装出完整产品。
 
 主要调用方：开发者与 CI（`go test ./test/`）。本包不被任何生产代码依赖。
@@ -31,16 +31,16 @@ build tag 或环境变量开关）。
 | 文件 | 职责 |
 |---|---|
 | `doc.go` | 包说明（本包的定位与运行方式）。 |
-| `main_test.go` | `launchFlags`（与入口同一份 `wiring/config.BindFlags`）+ `TestMain`（把工作目录切到仓库根）。 |
+| `main_test.go` | `launchFlags`（与入口同一份 `internal/startup.BindFlags`）+ `TestMain`（把工作目录切到仓库根）。 |
 | `*_test.go` | 57 个集成用例文件（M5-S4 从仓库根整体搬入，断言逐条未改）。 |
 | `README.md` | 本文件。 |
 
 ## 核心实现
 
-- **摆现场的唯一句柄**：`launchFlags`（`wiring/config.BindFlags(flag.CommandLine)`）。用例改
+- **摆现场的唯一句柄**：`launchFlags`（`internal/startup.BindFlags(flag.CommandLine)`）。用例改
   `launchFlags.StorePath` / `PluginsPaths` 等字段把产品指到临时目录，与搬迁前改包级
   `*storePath` 的语义逐字相同。
-- **full-chain 基座**：`tool_full_chain_test.go` 的 harness 按**与 `wiring/bootstrap` 同序**
+- **full-chain 基座**：`tool_full_chain_test.go` 的 harness 按**与 `boot` 同序**
   装配（M5-S3 之后用 `bootstrap.Init*` 逐段复用），并在注释里点名顺序约束（例如
   `SetTeamworkBackend` 必须先于 `InitApplication`）。
 - **源码文本门禁**：少数用例读生产源码文本断言"只有一处实现"（插件根解析、根读数生成、
@@ -48,23 +48,23 @@ build tag 或环境变量开关）。
 
 ## 数据流
 
-用例 → `launchFlags` / 临时目录夹具 → `wiring/bootstrap` 或各模块公开 API → 断言。
+用例 → `launchFlags` / 临时目录夹具 → `boot` 或各模块公开 API → 断言。
 真 API 族（`-tags manualsmoke` 等）由环境变量与 build tag 双重开关控制，默认集合里全部
 skip，不会因为缺账号而红。
 
 ## 依赖方向
 
-允许：任何生产包的**公开 API**（`wiring/*`、`application/*`、`backend/*`、`store/*`、
+允许：任何生产包的**公开 API**（`boot and internal/startup and internal/host`、`application/*`、`backend/*`、`store/*`、
 `internal/testutil`…）与标准库。
 
 禁止：本包被生产代码 import（`test` 只被 `go test` 使用）；在用例里复制装配顺序——
-应当调用 `wiring/bootstrap` 的 `Init*`。
+应当调用 `boot` 的 `Init*`。
 
 ## 并发、存储与错误语义
 
 - **CWD 口径（重要，且是刻意保留的偏差）**：`TestMain` 在运行前把工作目录切到**仓库根**，
   因为搬进来的用例按仓库相对路径读夹具（`gui/icons/`、`scripts/`、`.claude/`、`plugins/`、
-  `wiring/**` 的源码文本）。不切目录就得逐条改路径，那属于重写用例而不是搬迁；切目录让
+  `boot/** and internal/**` 的源码文本）。不切目录就得逐条改路径，那属于重写用例而不是搬迁；切目录让
   搬迁前的语义逐字保持。用例内部仍可用 `t.Chdir` 切到临时目录。
 - 用例之间共享**进程级**状态（`launchFlags`、`runtimeLimits` 类的包级值、`promptassets` 目录）：
   因此涉及这些状态的用例不要 `t.Parallel()`；已有用例按原样保留并行标记。
@@ -73,7 +73,7 @@ skip，不会因为缺账号而红。
 ## 扩展方式
 
 新增仓库级集成用例：放进本包，摆现场用 `launchFlags` + `t.TempDir()`；需要"与生产同序装配"
-就用 `wiring/bootstrap` 的 `Init*`（不要自己拼一遍），并在注释里写清顺序约束。
+就用 `boot` 的 `Init*`（不要自己拼一遍），并在注释里写清顺序约束。
 需要真 API 的用例加 build tag（`manualsmoke` / `asynclive` / `compactlive` / `computerlive` /
 `manualsmoke2`）并自查环境变量。
 

@@ -6,10 +6,6 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 
 覆盖：`message_rows*.go`、`structural_events*.go`、`event_store*.go`、`event_range*.go`、`paragraphs*.go`、`wire_assembler*.go`、`big_tool_result*.go`、`provider_wire*.go`；未归属文件由覆盖自检拦下。
 
-M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
-[`artifact/README.md`](artifact/README.md) 唯一实现；本卷的 `big_tool_result.go`
-只保留兼容 alias 与 `storeEngine` 薄转发。
-
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -17,14 +13,14 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 
 ### big_tool_result.go
 
-- `func (store *storeEngine) blobLimits() (softChars int, hardBytes int, quotaBytes int)` — 三条限额（软截断 / 硬报错 / 会话配额）取自 §11 settings，不在此硬编码。
+- `func (store *storeEngine) blobLimits() (softChars int, hardBytes int, quotaBytes int)`
 - `func (store *storeEngine) blobDir(key Key) string`
 - `func (store *storeEngine) blobPath(key Key, hash string) string`
-- `func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob, error)` — writeBlob 写超大工具输出（主会话键）。返回 blob（Content 为截断后正文；
-- `func (store *storeEngine) readBlob(key Key, hash string) (string, error)` — readBlob 读取 blob 正文（返回截断后内容）。
-- `func (store *storeEngine) listBlobHashes(key Key) ([]string, error)` — listBlobHashes 枚举会话 blob（GC 引用扫描基础）。
-- `func (store *storeEngine) blobGarbageCollect(key Key, referenced map[string]bool, dryRun bool) ([]string, error)` — blobGarbageCollect 删除无引用 blob（referenced 跨主会话与子代理消息）。
-- `func blobRefOf(ref string) string` — blobRefOf 归一化 result_ref 为 blob hash。
+- `func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob, error)`
+- `func (store *storeEngine) readBlob(key Key, hash string) (string, error)`
+- `func (store *storeEngine) listBlobHashes(key Key) ([]string, error)`
+- `func (store *storeEngine) blobGarbageCollect(key Key, referenced map[string]bool, dryRun bool) ([]string, error)`
+- `func blobRefOf(ref string) string`
 
 ### event_range.go
 
@@ -40,7 +36,7 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 ### event_store.go
 
 - `func NewEventStore(router *Router) *EventStore` — NewEventStore 创建会话级执行事实事件库（惰性追加，不预读）。
-- `func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
+- `func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（boot 装配点：从
 - `func (store *EventStore) projectFor(sessionID string) string`
 - `func (store *EventStore) Append(ctx context.Context, event frameworkevent.Event) error` — Append 实现 frameworkevent.Sink：按事件 Location（agent.runtime →
 - `func (store *EventStore) Load(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)` — Load 读取会话级事件库（按 Seq 排序，追加顺序）。
@@ -61,6 +57,7 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 
 ### message_rows.go
 
+- `func publishMessageHead(store *storeEngine, key Key, commitID string, head messageHead, updatedAt time.Time) (string, error)`
 - `func fileSize(path string) int64` — fileSize 返回文件字节数（不存在/出错返回 0）。
 - `func shardTailTrust(path string, info shardInfo) bool`
 - `func (store *storeEngine) trustedTailFor(key Key, head messageHead) *shardInfo` — trustedTailFor 返回提交路径可信任的末分片索引（不可信返回 nil）：
@@ -93,6 +90,7 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 - `func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event, trusted *shardInfo) ([]shardInfo, error)` — writeShardRowsLocked 是唯一的分片写入器：把 delta 顺序写进**物理末分片**
 - `func (store *storeEngine) physicalLastShardLocked(key Key) (string, error)` — physicalLastShardLocked 返回物理末尾分片文件名（from_seq 最大的分片；无分片
 - `func readMessageRowsFileAt(path string) ([]Event, error)`
+- `func readMessageRowsFileAtOffset(path string, offset int64) ([]Event, error)` — readMessageRowsFileAtOffset 从 JSONL 分片的指定字节偏移读取到文件尾。
 - `func appendMessageRowsFile(path string, rows []Event) error` — appendMessageRowsFile 追加完整 JSONL 行（先截崩溃残尾；再 sync）。
 - `func appendMessageRowsFileEx(path string, rows []Event) (appended []byte, preSize int64, truncated bool, err error)` — appendMessageRowsFileEx 是 appendMessageRowsFile 的"带细节"版本：除追加外还
 - `func appendRowsAndDigest(path string, rows []Event, trustedTail bool) (string, error)` — appendRowsAndDigest 追加 rows 到分片并返回追加后**整文件**的 sha256（head
@@ -144,6 +142,7 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 
 ### structural_events.go
 
+- `func publishEventHead(store *storeEngine, key Key, commitID string, head eventHeadRecord, updatedAt time.Time) (string, error)`
 - `func (store *storeEngine) structuralEventDir(key Key) string`
 - `func (store *storeEngine) structuralEventShardPath(key Key, fromID, toID uint64) string`
 - `func emptyEventHead(key Key) eventHeadRecord`
@@ -180,19 +179,13 @@ M3 起，`big_tool_result` 的文本限额、内容寻址与 GC 由
 
 ### wire_assembler.go
 
-- `func (params wireParams) normalized() wireParams`
+- `func normalizeWireParams(params wireParams) wireParams`
 - `func applyWireBudget(settings storeroot.Settings, base wireParams) wireParams` — applyWireBudget 把 §5.2 的 wire 装配预算落到一次装配请求，返回装配实际使用的
 - `func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wireParams) (wireResult, error)` — assembleWire 构造 wire 消息序列（R2 主入口）。
-- `func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult` — assembleWireRows 是 wire 装配的纯函数核心：给定最新帧（可空）与尾行，
-- `func (state *wireState) emit(message wireMessage, cost int)`
-- `func unitCost(row Event) int` — unitCost 估算一条 wire 消息的字符成本（TokenCount 缺失时 len/4 近似）。
-- `func (state *wireState) consumeRow(row Event)`
-- `func (state *wireState) budgetWouldExceed(cost int, boundaryComplete bool) bool` — budgetWouldExceed 判断添加 cost 是否会超软预算；boundaryComplete 表示
-- `func (state *wireState) closePendingBeforeUser()` — closePendingBeforeUser 在 user 边界修复仍未完成的工具轮（不跳后续 user）。
-- `func (state *wireState) closeTail()` — closeTail 处理流尾：未完成工具轮保留 open + 修复占位。
-- `func (state *wireState) attachAttempts(cache *attemptCache)` — attachAttempts 在尝试缓存锚点行后拼接最近 K 条尝试（锚点行必须在 wire 中）。
-- `func roleForAttempt(role string) string`
-- `func wireDigest(messages []wireMessage) string` — wireDigest 计算 wire 序列版本摘要（前缀稳定性比较基础）。
-- `func wirePrefixEqual(left, right []wireMessage) bool` — wirePrefixEqual 判断两次 wire 输出的持久前缀逐字节一致：比较去掉
+- `func (provider rootWireAttemptProvider) RecentForAnchor(anchorSeq uint64, k int) []storecontext.WireAttempt`
+- `func contextWireRows(rows []Event) []storecontext.WireRow`
+- `func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult`
+- `func wireDigest(messages []wireMessage) string`
+- `func wirePrefixEqual(left, right []wireMessage) bool`
 - `func (cache *attemptCache) recentForAllAnchors(anchorSeq uint64, k int) []attempt` — recentForAllAnchors 归并 AttemptCache.RecentFor 的辅助（按 op 归组取最近
 - `func (cache *attemptCache) snapshot() []attempt`

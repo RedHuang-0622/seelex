@@ -2,18 +2,9 @@
 
 ## 生态位
 
-项目看板投影、会话看板元数据、项目知识与项目记录的根包分卷。M1 起，追加、折叠、
-压实、路径校验、按路径锁和 `BOARD.md` 渲染的唯一实现位于
-[`board/README.md`](board/README.md)；根包 `project_board_compat.go` 只保留同身份
-alias 与单层 Router 转发。
+项目看板投影：行文件、会话分目录、项目知识记录与渲染件
 
-M10 起，goal/team 会话看板存档的形状位于 `contract/dto/session_board.go`，校验与
-head 发布位于 `board/session.go`。生产装配通过 typed `store.Stores.Boards` 注入，
-不再调用 `Router.BoardsFor*`；根 `board.go` 只保留兼容 alias。
-
-覆盖：`board*.go`、`project_board_compat*.go`、`project_known*.go`、
-`project_record*.go`；`project_board.go` / `project_board_markdown.go` 已在 M1
-迁出根包。
+覆盖：`board*.go`、`project_board*.go`、`project_known*.go`、`project_record*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -22,19 +13,8 @@ head 发布位于 `board/session.go`。生产装配通过 typed `store.Stores.Bo
 
 ### board.go
 
-- `func ValidateGoalBoardMeta(meta GoalBoardMeta) error` — ValidateGoalBoardMeta 校验 goal 看板存档。
-- `func ValidateTeamBoardMeta(meta TeamBoardMeta) error` — ValidateTeamBoardMeta 校验团队看板存档。
-
-### board/session.go
-
-- `func NewSessionStore(layout *storelayout.Layout) *SessionStore`
-- `func (s *SessionStore) Bind(key dto.SessionKey) *BoundStore`
-- `func (s *SessionStore) WriteGoalBoard(ctx, key, meta) error`
-- `func (s *SessionStore) ReadGoalBoard(ctx, key) (dto.GoalBoardMeta, error)`
-- `func (s *SessionStore) WriteTeamBoard(ctx, key, meta) error`
-- `func (s *SessionStore) ReadTeamBoard(ctx, key) (dto.TeamBoardMeta, error)`
-- `func ValidateGoalBoardMeta(meta dto.GoalBoardMeta) error`
-- `func ValidateTeamBoardMeta(meta dto.TeamBoardMeta) error`
+- `func ValidateGoalBoardMeta(meta GoalBoardMeta) error`
+- `func ValidateTeamBoardMeta(meta TeamBoardMeta) error`
 
 ### board_test.go
 
@@ -54,28 +34,30 @@ head 发布位于 `board/session.go`。生产装配通过 typed `store.Stores.Bo
 
 ### project_board_compat.go
 
-- `const ProjectBoardSchema` / `ProjectBoardMaxRows` / `ProjectBoardWorkFile` / `ProjectBoardTeamworkFile` / `ProjectBoardMarkdownFile` — 同身份常量 alias，事实源在 `contract/dto`。
-- `type ProjectBoardScope` / `ProjectBoardRow` / `ProjectBoardReadOptions` — 同身份 DTO alias。
-- `func ProjectBoardKinds() []string` — 转发 `store/board.Kinds`。
-- `func FoldProjectBoardRows(rows []ProjectBoardRow, logf func(string, ...any)) []ProjectBoardRow` — 转发 `store/board.Fold`。
-- `func ProjectBoardDir(projectRoot string) string` / `ProjectBoardSessionDir(projectRoot, sessionID string) string` — 转发看板路径派生。
-- `func ProjectBoardMarkdown(rows []ProjectBoardRow) []byte` — 转发 `store/board.Markdown`。
-- `func (router *Router) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error)` — 单层转发 `store/board.Append`。
-- `func (router *Router) ReadProjectBoardRows(projectRoot, sessionID, file string) ([]ProjectBoardRow, error)` — 单层转发 `store/board.ReadRows`。
-- `func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)` — 单层转发 `store/board.Watermark`。
-- `func (router *Router) ReadProjectBoard(projectRoot string, opts ProjectBoardReadOptions) ([]ProjectBoardRow, bool, error)` — 单层转发 `store/board.Read`。
-- `func (router *Router) ReclaimProjectBoard(_ /*projectID*/, sessionID string) error` — 解析注入的项目根后转发 `store/board.Reclaim`。
-- `func (router *Router) ReadProjectBoardMarkdown(projectRoot string) ([]byte, error)` — 单层转发 `store/board.ReadMarkdown`。
+- `func ProjectBoardKinds() []string`
+- `func FoldProjectBoardRows(rows []ProjectBoardRow, logf func(string, ...any)) []ProjectBoardRow`
+- `func ProjectBoardDir(projectRoot string) string`
+- `func ProjectBoardSessionDir(projectRoot, sessionID string) string`
+- `func ProjectBoardMarkdown(rows []ProjectBoardRow) []byte`
+- `func validateProjectRoot(projectRoot string) error`
+- `func projectBoardLock(path string) *sync.Mutex`
+- `func (router *Router) SetProjectBoardRootFor(resolve func(sessionID string) string)`
+- `func (router *Router) projectBoardRootOf(sessionID string) string`
+- `func (router *Router) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error)`
+- `func (router *Router) ReadProjectBoardRows(projectRoot, sessionID, file string) ([]ProjectBoardRow, error)`
+- `func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)`
+- `func (router *Router) ReadProjectBoard(projectRoot string, opts ProjectBoardReadOptions) ([]ProjectBoardRow, bool, error)`
+- `func (router *Router) ReclaimProjectBoard(_ /*projectID*/, sessionID string) error`
+- `func (router *Router) ReadProjectBoardMarkdown(projectRoot string) ([]byte, error)`
 
 ### project_board_compat_test.go
 
-- `func TestProjectBoardRouterCompatibilityForwardsToBoardOwner(t *testing.T)` — 验证根 Router 薄转发仍能写读投影与人读件。
-- `func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *testing.T)` — 验证回收注入根且看板锁不与任何模块锁别名。
+- `func TestProjectBoardRouterCompatibilityForwardsToBoardOwner(t *testing.T)`
+- `func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *testing.T)`
 
 ### project_known.go
 
 - `func ProjectKnownMarkdown(record ProjectRecord) []byte` — ProjectKnownMarkdown 把 `ProjectRecord` 渲染成人读 markdown。
-- 文本清洗已迁到 `store/internal/textsanitize`（`KnownText` / `RepoRelativePath`），本文件不再保留第二份正则或路径判据。
 - `func projectKnownPath(projectRoot string) string` — projectKnownPath 返回项目摘要渲染件的物理路径：
 - `func writeProjectKnown(projectRoot string, data []byte) error` — writeProjectKnown 落一份渲染件（空内容不落盘；同路径独立锁 + 原子发布）。
 - `func readProjectKnown(projectRoot string) ([]byte, error)` — readProjectKnown 读回渲染件（不存在 → `fs.ErrNotExist`；空文件 → 显式报错）。

@@ -193,6 +193,61 @@ limit 截断，并有真实 git 仓库的集成用例（改动/暂存/删除/重
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### connection.go
+
+- `func (e SSHEndpoint) Empty() bool` — Empty 报告端点是否为空（空端点 = 该项目没有配 SSH）。
+- `func (g GitAccess) Empty() bool` — Empty 报告 git 访问配置是否为空。
+- `func newSecretStore(indexPath string) *secretStore`
+- `func (s *secretStore) loadLocked() error` — loadLocked 首次访问时读盘；文件不存在视为空库（首次使用是常态）。
+- `func (s *secretStore) saveLocked() error` — saveLocked 原子落盘（同目录临时文件 + rename），权限 0600。
+- `func (s *secretStore) put(kind, workspaceID string, plain string, clear bool) error` — put 写入/清除某一类口令（clear=true 时删除该项）。
+- `func (s *secretStore) get(kind, workspaceID string) (string, error)` — get 取出某一类口令明文（仅运行时消费面调用）。
+- `func (s *secretStore) has(kind, workspaceID string) bool` — has 报告是否存有该项口令。
+- `func (s *secretStore) dropAll(workspaceID string) error` — dropAll 删除某工作区的全部口令（删项目时调用，避免孤儿密文留在盘上）。
+- `func (r *Repo) Connection(id string) (Connection, error)` — Connection 返回某工作区的连接配置（秘密只以布尔出现）。
+- `func (r *Repo) SetConnection(id string, update ConnectionUpdate) (Connection, error)` — SetConnection 写入某工作区的连接配置，并返回权威读回值。
+- `func (r *Repo) SSHPassword(id string) (string, error)` — SSHPassword 返回 SSH 口令明文（**仅供运行时消费**，不得进 DTO/日志/快照）。
+- `func (r *Repo) GitPassword(id string) (string, error)` — GitPassword 返回 git 口令/令牌明文（**仅供运行时消费**）。
+- `func normalizeEndpoint(endpoint SSHEndpoint) (SSHEndpoint, error)` — normalizeEndpoint 归一 SSH 端点：trim、默认端口 22、端口范围校验。
+- `func normalizeRemoteRoot(raw string) (string, error)` — normalizeRemoteRoot 归一远端工作目录：trim、POSIX 归一、必须是对端绝对路径。
+
+### connection_remote_root_test.go
+
+- `func TestConnectionRemoteRootRoundTrip(t *testing.T)` — TestConnectionRemoteRootRoundTrip：远端工作目录能写进索引、能读回，且被 POSIX 归一。
+- `func TestConnectionRemoteRootRejectsRelative(t *testing.T)` — TestConnectionRemoteRootRejectsRelative：相对路径**直接拒**，不替人猜一个根。
+
+### connection_test.go
+
+- `func newTestRepo(t *testing.T) (*Repo, string, string)` — newTestRepo 建一个落盘到临时目录的 Repo，返回它和索引/密文两个路径。
+- `func seedWorkspace(t *testing.T, repo *Repo) string` — seedWorkspace 造一个真实存在的项目目录并登记，返回工作区 ID。
+- `func TestSetConnectionKeepsPasswordOutOfIndex(t *testing.T)`
+- `func TestConnectionPasswordTriState(t *testing.T)`
+- `func TestSetConnectionValidation(t *testing.T)`
+- `func TestDeleteDropsSecrets(t *testing.T)`
+- `func TestConnectionSurvivesReload(t *testing.T)` — TestConnectionSurvivesReload 证明重启后连接配置还在（索引 + 密文档都要读回）。
+
+### environments.go
+
+- `func environmentSecretKey(workspaceID, name string) string` — environmentSecretKey 是逐环境口令在密文库里的键。
+- `func normalizeEnvironmentName(name string) (string, error)` — normalizeEnvironmentName 归一环境名：trim + 允许字符集 + 长度上限。
+- `func (r *Repo) Environments(id string) ([]EnvironmentInfo, string, error)` — Environments 返回某工作区的环境表（按名字升序的读面）与默认环境名。
+- `func (r *Repo) Environment(id, name string) (Environment, bool, error)` — Environment 读单个环境（含运行时用的端点；口令另走 EnvironmentPassword）。
+- `func (r *Repo) SetEnvironment(id, name string, environment Environment, password *string) (EnvironmentInfo, error)` — SetEnvironment 写入（或覆盖）一个环境，单参数口令三态与 SetConnection 同款：
+- `func (r *Repo) DeleteEnvironment(id, name string) error` — DeleteEnvironment 删除一个环境（连同它的口令）。
+- `func (r *Repo) SetDefaultEnvironment(id, name string) error` — SetDefaultEnvironment 指定默认环境（必须在表里；空串 = 取消默认）。
+- `func (r *Repo) EnvironmentPassword(id, name string) (string, error)` — EnvironmentPassword 返回某环境的口令明文（**仅供运行时消费**，不进 DTO/日志/快照）。
+- `func (r *Repo) environmentInfo(id, name string) (EnvironmentInfo, error)` — environmentInfo 组装单个环境的读面（调用方已持有 / 未持有锁都安全：走 RLock）。
+
+### environments_test.go
+
+- `func newEnvironmentRepo(t *testing.T) (*Repo, string)` — environments_test.go 钉住项目侧多环境表的口径：
+- `func TestEnvironmentTableKeepsPasswordsPerEnvironment(t *testing.T)`
+- `func TestEnvironmentDefaultValidation(t *testing.T)`
+- `func TestEnvironmentEmptyEndpointPersistsAsLocal(t *testing.T)`
+- `func TestEnvironmentNameValidation(t *testing.T)`
+- `func TestLocalEnvironmentRejectsSSHPasswordAndSurvivesReload(t *testing.T)`
+- `func contains(haystack, needle string) bool`
+
 ### gitchanges.go
 
 - `func (r *Repo) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)` — GitChanges 返回工作区 root 内未提交的改动（含暂存/未暂存/未跟踪/冲突）。
@@ -297,6 +352,35 @@ limit 截断，并有真实 git 仓库的集成用例（改动/暂存/删除/重
 - `func runGitRead(argv []string, timeout time.Duration, timeoutMessage string) ([]byte, string)` — runGitRead 跑一次只读 git 命令。成功返回 stdout 原始字节；失败返回
 - `func resolveGitRoot(root, label string) (string, error)` — resolveGitRoot 校验 git 查询的 root：非空、绝对化、且确实是一个目录。
 
+### gitrepos.go
+
+- `func clampRepoLimit(limit int) int` — clampRepoLimit 把调用方给的仓库条目上限收敛到实现口径：<=0 用默认值，
+- `func (r *Repo) GitRepos(root string, limit int) (dto.GitReposResult, error)` — GitRepos 扫描 root 内的 git 仓库（BFS、有界、只读）。
+- `func sortGitRepos(repos []dto.GitRepoRef)` — sortGitRepos 排序：Primary 优先，其余按 Rel 字典序（读数确定、标签位置稳定）。
+- `func hasGitEntry(dir string) bool` — hasGitEntry 报告 dir 内是否有 `.git` 条目（目录或文件形态都算）。
+- `func hasGitEntryIn(entries []os.DirEntry) bool` — hasGitEntryIn 在已读出的目录条目里找 `.git`（省一次 stat）。
+- `func gitAncestorToplevel(root string) string` — gitAncestorToplevel 探测 root 所属的仓库根（root 自己是仓库时就是它自己）。
+- `func gitRepoBranch(dir string) string` — gitRepoBranch 读仓库当前分支：直接读 `.git/HEAD`（不跑子进程，避免为标签栏
+- `func readGitDirFile(gitFile, repoDir string) (string, bool)` — readGitDirFile 解析 `.git` 文件形态（首行 `gitdir: <path>`），相对路径以
+- `func parseGitHeadRef(raw string) string` — parseGitHeadRef 把 HEAD 内容解析成分支名：`ref: refs/heads/<name>` → `<name>`；
+
+### gitrepos_test.go
+
+- `func writeFakeRepo(t *testing.T, dir, branch string)` — writeFakeRepo 造一个"看起来像仓库"的目录：`.git` 目录 + HEAD（不跑 git：
+- `func requireGit(t *testing.T)` — requireGit 在没有 git 的环境里跳过依赖真实 git 的用例。
+- `func runGitIn(t *testing.T, dir string, args ...string)` — runGitIn 在 dir 里跑一条 git 命令（测试夹具用；失败即 Fatal）。
+- `func relsOf(repos []dto.GitRepoRef) []string` — relsOf 取仓库清单的相对路径序列（断言顺序用）。
+- `func TestGitReposRootIsRepo(t *testing.T)` — 案例 1：根自己是仓库 → 恰好 1 条，Rel="."、Primary、分支可读。
+- `func TestGitReposSiblingReposNoPrimary(t *testing.T)` — 案例 2：根不是仓库、a/ 与 b/ 各是仓库 → 2 条、字典序、无 Primary。
+- `func TestGitReposNestedRepoInnerVisible(t *testing.T)` — 案例 3：仓库里套仓库 → 内层也出现（不因外层是仓库就停止下钻）。
+- `func TestGitReposGitFileFormRecognized(t *testing.T)` — 案例 4：`.git` 是**文件**（worktree/子模块形态）也识别，分支按 gitdir 跟随读到。
+- `func TestGitReposIgnoredAndHiddenDirsPruned(t *testing.T)` — 案例 5：忽略目录（node_modules/.venv/dist/tmp）与隐藏目录里的假仓库不出现。
+- `func TestGitReposDepthLimitTruncates(t *testing.T)` — 案例 6：深度超限 → 深过上限的仓库不出现，且 Truncated=true 如实上报。
+- `func TestGitReposLimitClampedAndTruncated(t *testing.T)` — 案例 7：条目上限钳制与截断——limit 生效、触顶报 Truncated；limit 入参按
+- `func TestGitReposEmptyRootReportsErrorWithoutPanic(t *testing.T)` — 案例 8：空根 → 带 Error 文案的空结果，不报 Go error、不 panic。
+- `func TestGitReposAncestorPrimary(t *testing.T)` — 案例 9（补充）：根不是仓库但落在祖先仓库里 → 合成一条 Rel="." Primary 记录
+- `func TestGitReposDetachedHeadLeavesBranchEmpty(t *testing.T)` — 案例 10（补充）：分离头指针读不到分支名时不阻塞列表（Branch 留空）。
+
 ### readfile.go
 
 - `func (r *Repo) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)` — ReadFile 读取根内 relPath 文件的前 limit 字节（GUI 文件预览数据源）。
@@ -315,6 +399,16 @@ limit 截断，并有真实 git 仓库的集成用例（改动/暂存/删除/重
 - `func TestReadFileRejectsSensitiveAndIgnoredPaths(t *testing.T)`
 - `func TestReadFileDetectsBinary(t *testing.T)`
 - `func TestReadFileMissingRoot(t *testing.T)`
+
+### seal_other.go
+
+- `func sealSecret(plain string) (string, error)` — sealSecret 把明文口令编成可落盘的串（非加密，见文件头）。
+- `func openSecret(sealed string) (string, error)` — openSecret 解出明文。
+
+### seal_windows.go
+
+- `func sealSecret(plain string) (string, error)` — sealSecret 把明文口令封成可落盘的密文串。
+- `func openSecret(sealed string) (string, error)` — openSecret 解开密文串。
 
 ### symlink_root_test.go
 
@@ -393,4 +487,3 @@ limit 截断，并有真实 git 仓库的集成用例（改动/暂存/删除/重
 - `func TestWriteFileRejectsBinaryTargets(t *testing.T)`
 - `func TestWriteFileRejectsOversizeContent(t *testing.T)`
 - `func TestWriteFileMissingRoot(t *testing.T)`
-

@@ -50,7 +50,7 @@ func (m *SessionManager) Workspace() string {
 	return ""
 }
 
-// InjectSaveLoad 注入保存/加载回调（由 wiring/bootstrap 装配时传入）。
+// InjectSaveLoad 注入保存/加载回调（由 boot 装配时传入）。
 func (m *SessionManager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

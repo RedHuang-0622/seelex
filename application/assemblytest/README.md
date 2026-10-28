@@ -53,3 +53,13 @@
 go test ./application/assemblytest -count=1
 go test ./application/... -skip TestApplicationCompatibilitySurfaceIsRetired -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### public_api_test.go
+
+- `func TestPublicConstructorRejectsMissingDependencies(t *testing.T)`
+- `func TestComponentsForNilReturnsEmptyGraph(t *testing.T)`

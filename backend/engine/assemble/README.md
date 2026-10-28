@@ -37,13 +37,13 @@
 | P21-compaction-stack | **域方法随类型走**第一片：装配层压缩推帧接收侧（`PushCompactionFrame` / `ReadbackCompactionSummary` / `CompactionSummaryAvailable` + 两个帧降级助手 + 两个请求/回执类型）连同**判据**一起下沉 | [`backend/engine/context`](../../../kernel/context/README.md) 的 `CompactionStack`（`compaction_stack.go`）；本包只剩一行薄转发 + 同身份别名，公开方法名与签名逐字不变 |
 | P21-live-dispatch | **域方法随类型走**第二片：子代理第一视角实时流分发器（`live*` 字段组 + 广播循环 + 事件源接线 + 窗口归一化 + 分页读法 + 三个事件投影）连同**判据**一起下沉 | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `LiveDispatcher`（`live_dispatch.go`）；本包 `runtime_live.go` 只剩一行薄转发 + 同值常量别名，公开方法名与签名逐字不变 |
 | P21-served-route | **域方法随类型走**第三片：路由事实注册表（`servedRoutes` + `routingNoticeMu` + `routingNoticeSeen` 三个字段与四条判据：哪些原因覆盖、只有主链路才记、读即清、unpinned 摘要去重）下沉；顺带收敛一处**同形状两份实现**（`internal/stream.RoutingNotice` 与 `dto.RoutingNotice` 字段逐一相同，现为同身份别名） | [`backend/engine/account`](../../engine/account/README.md) 的 `ServedRouteRegistry`（`served_route.go`）；本包 `runtime_account.go` 只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发，公开面逐字不变 |
-| P21-review-files / BM-005 | **域方法随类型走**第四片：`show_files` 的**工具形状**（名字 / 描述 / JSON schema / 参数校验 / 返回值回执）搬进域包；BM-005 又把唯一注册 helper 收回域包 | [`backend/tool/review`](../../tool/review/README.md) 的 `show_files.go`（`RegisterShowFilesTool` + `ToolRegistrar`）；生产注册由 `wiring/registry` 直接调用，本包 `review_files.go` 只剩 D1 一行转发 + `ReviewFilesPort` 同身份别名，计划 BM-007 删除 |
+| P21-review-files / BM-005 | **域方法随类型走**第四片：`show_files` 的**工具形状**（名字 / 描述 / JSON schema / 参数校验 / 返回值回执）搬进域包；BM-005 又把唯一注册 helper 收回域包 | [`backend/tool/review`](../../tool/review/README.md) 的 `show_files.go`（`RegisterShowFilesTool` + `ToolRegistrar`）；生产注册由 `boot` 直接调用，本包 `review_files.go` 只剩 D1 一行转发 + `ReviewFilesPort` 同身份别名，计划 BM-007 删除 |
 | P21-subagent-session | **域方法随类型走**第五片：子代理**独立会话工厂**（显式 ID 建会话 + 重名拒绝 + 组件模板补齐 Hooks/SessionID/ModelName/History + 注册进 registry）搬进域包 | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `SessionFactory`（`session_factory.go`）；本包 `runtime_subagent_session.go` 只剩一行薄转发，公开方法名与签名逐字不变 |
 | P21-unified-events | **域方法随类型走**第六片：B 类脱敏摘要日志（`SummaryLog` + 摘要→框架事件转换）与统一事件查询（`UnifiedEventReader` / `UnifiedEventView` / 两个读法 / `UnifiedEventTopic` 话题映射 / `filterUnifiedEvents` 过滤）连同**判据**一起下沉 | [`backend/engine/obs`](../../engine/obs/README.md) 的 `unified_events.go`；本包 `events_unified.go` 只剩同身份别名（调用方与用例零改动）+ 两个公开读法的薄转发，宿主读数仍只有两格（`HistoryRouter` 与 tracer 的查询闭包） |
 | P21-account-windows | **域方法随类型走**第七片：每账号上下文窗口覆盖层的**状态**（互斥量 + 表）与三条判据（入口过滤、改一格/清一格、**生效窗口的优先级**）下沉；顺带删掉装配层唯一读法 `Runtime.accountWindow`（域包 `For` 是唯一一份） | [`backend/engine/account`](../../engine/account/README.md) 的 `WindowOverlay`（`window_overlay.go`）；本包 `runtime_account.go` 只剩 `SetAccountWindow` / `AccountWindows` / `ContextWindowFor` 三个薄转发（公开签名逐字不变），宿主读数以 `account.WindowDeps` 注入（`limits.context_window` + 账号档自报两条函数值） |
 | P21-event-correlation | **域方法随类型走**第八片：双轨事件的关联面（`correlateMainSessionID` 与两轨关联说明）整文件下沉；**同时把"从事件读会话归属"这条判据收敛成唯一一份**——装配层 `eventSessionID` 与 `backend/tool/plan` 的 `sessionIDFromLocations` 都是 `store.sessionIDFromEvent` 的逐字副本，现统一为 `store.SessionIDFromEvent` / `store.SessionIDFromLocations`（含 obs 话题映射里的内联循环） | [`backend/engine/obs`](../../engine/obs/README.md) 的 `event_correlation.go`（`CorrelateMainSessionID`）+ [`store`](../../../store/README.md) 的 `SessionIDFromEvent` / `SessionIDFromLocations`（唯一判据处）；本包事件关联文件已删除，`runtime_subagent.go` 的 `SetEventPersister` 改为调用域包一行 |
 | P21-jobs-domain | **域方法随类型走**第九片：异步作业域的两面整文件下沉——作业生命周期事件流（`jobsEventStream` + 状态记忆 + 状态映射 + 时间基序号）与后台执行表投影（`AsyncRunsSnapshot` 的逐列搬运）；端口取窄（事件流只吃 `Snapshot(Scope)` 一格；投影只吃 `[]registry.AsyncRunInfo`） | 新建 [`backend/tool/jobs`](../../tool/jobs/README.md)（`event_stream.go` / `projection.go`，plan §2.6 的目标落点）；本包容纳事件流的那个文件（`jobs_events`）**整份删除**、`runtime_async.go` 只剩两个薄转发，`currentEventPersister` 移到 `runtime_subagent.go`（与 `SetEventPersister` 同处），装配点 `SetTeamworkBackend` 改为 `tooljobs.NewEventStream(...)`。**顺带修掉一处停机隐患**：`Close` 在"从未 Start"时不再等一个永不关闭的 `done`（装配中途失败会让停机钉死） |
-| P21-project-board | **域方法随类型走**第十片：项目看板的两面下沉——按需读取面（`ReadProjectBoard` + 白名单归一 + 稳定排序 + 边界报错，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 键完整性 / 读失败与空计划同解）；端口取两格函数值 | [`kernel/board`](../../../kernel/board/README.md) 的 `read.go` / `teamwork_plan.go`（plan §2.4 的目标落点）；本包按需读取面那个文件（`runtime_project_board_read`）**整份删除**、`runtime_project_board.go` 只剩方法转发 + `teamworkKeyFor` / `readTeamworkPlan` 两格宿主读数 + **直接**钉 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`（依赖方向允许本层引用该接口名）；工具注册点 `wiring/registry/registry.go` 的 5 处引用改指域包。域级用例随实现搬进域包（`read_test.go` 断言逐字 + 5 条新的 `teamwork_plan_test.go`），宿主级用例（`runtime_project_board_test.go`，真 Runtime + 真存储）留在本包 |
+| P21-project-board | **域方法随类型走**第十片：项目看板的两面下沉——按需读取面（`ReadProjectBoard` + 白名单归一 + 稳定排序 + 边界报错，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 键完整性 / 读失败与空计划同解）；端口取两格函数值 | [`kernel/board`](../../../kernel/board/README.md) 的 `read.go` / `teamwork_plan.go`（plan §2.4 的目标落点）；本包按需读取面那个文件（`runtime_project_board_read`）**整份删除**、`runtime_project_board.go` 只剩方法转发 + `teamworkKeyFor` / `readTeamworkPlan` 两格宿主读数 + **直接**钉 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`（依赖方向允许本层引用该接口名）；工具注册点 `boot/registry.go` 的 5 处引用改指域包。域级用例随实现搬进域包（`read_test.go` 断言逐字 + 5 条新的 `teamwork_plan_test.go`），宿主级用例（`runtime_project_board_test.go`，真 Runtime + 真存储）留在本包 |
 | P21-teammate-live | **域方法随类型走**第十一片：**当前 teammate 会话**的实时只读投影（默认页 + 分页读法 + 唯一一份裁剪/分页判据 + 只留 user/assistant 的投影判据 + 两个上限常量）整文件下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `teammate_live.go`（plan §2.7 的目标落点）；本包 `runtime_teammate_session_live.go` 只剩两个公开方法的一行转发 + 同值常量别名 + **一格宿主读数** `teammateLiveDeps`/`teammateLiveSession`（角色回合执行面句柄：角色名 / 是否在飞 / 引擎历史）。域级用例随实现搬进域包（`teammate_live_test.go`，含原纯函数用例的断言），宿主级用例（两个 `runtime_teammate_session_live*_test.go`，真 Runtime + 真角色回合）留在本包 |
 | P21-goal-tl（已随 TL 删除） | **域方法随类型走**第十二片：ADVISOR(TL) 真实评估器整文件下沉（提示词四段与输出契约追加、工具边界与实际执行面同源判定、只读权限口径、裁决解析与域校验） | [`kernel/goal`](../../../kernel/goal/README.md) 的 `advisor_evaluator.go`（plan §2.5：`seelebridge` 的 runtime_goal_tl → goal 域"搬 + 反向依赖改端口"）；本包 `runtime_goal_tl.go` 只剩 `GoalTLEvaluator` + **三格宿主读数**（`completeAdvisorOnce` 无工具兜底 / `rolePromptFor` 提示词读面 / `advisorRound` 把 `goal.AdvisorRoundRequest` 翻成 `roleRoundSpec`——**唯一**一处翻译）。两条域级用例随实现搬进域包，另补 7 条（两条执行面同源、只读口径与 FreshContext、ErrTLDisabled 与 ErrBadDirective 的区分、宽松解析、安全截断）。顺带把装配层两个零散字符串助手（`stringPtr` / `truncateRunes`）抽到新文件 `strings.go`：它们不止 goal 用，原来挂在被搬走的文件尾部 |（已删除）
 | P21-subagent-conclusion | **域方法随类型走**第十三片：子代理最终结论的**两向投影**与接管判据下沉——结论事件形状（时间基序号 / done-failed 映射 / 定位挂主会话）、从事件库读回结论记录（跳过外族与坏条目）、"记录的主人已不在本进程才按崩溃口径接管" | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `conclusion.go`（plan §2.7 的目标落点）；本包 `runtime_subagent_recovery.go` 的 `persistSubagentConclusion` / `loadSubagentConclusions` 仍持签名（下一片 `runtime_subagent_resume.go` 也在用），但正文只剩"交给谁落盘 / 从哪读"的接线。域级 4 条新用例（形状、**正反两向互为逆**的往返、跳过外族坏条目、接管判据）；宿主级用例 `runtime_subagent_recovery_test.go` 一行未改（只把 Source 常量换成域包的导出名） |
@@ -55,7 +55,7 @@
 | P21-teamwork-board-view | **域方法随类型走**第十九片：团队看板的**投影判据**下沉——五份行的搬运、人的状态两值折算、当前会话三段优先、卡点渲染（走编排面同一处判据）、句柄过期提示位、下发与存档同一条路径 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `board_view.go`（plan §2.7 把 runtime_teamwork 列为该域目标）；本包 `runtime_teamwork_board.go` 只剩**宿主面**（文件读缓存 + 失效点 + 装配读数），投影处改走**同身份别名**（既有调用点与用例零改动）。域级 8 条新用例 |
 | P21-teamwork-tool-shapes | **域方法随类型走**第二十片：leader 编排工具的**形状面**（12 组名字 / 描述 / schema）整份下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `tool_shapes.go`（plan §2.7，与 `backend/tool/review` 的 `show_files` 同款形状）；本包 `runtime_teamwork_schema` **删除**，`registerTeamworkTools` 改成 `teamwork.Team<X>ToolName` + 描述/schema 各一行（工具名常量跨包引用，工具面门禁按声明包名解析）。既有 schema 用例随实现搬进域包，断言逐字 |
 | P21-teamwork-context-view | **域方法随类型走**第二十一片：`team_context` 读面的**投影与判据**下沉——成员行组装、最新作业行选取、按需取正文（非消费 `Peek`）、行不在册时按角色名回读残边、正文预算与 UTF-8 安全裁剪 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `context_view.go`（plan §2.7）；本包 `runtime_teamwork_context.go` 只剩**宿主面**（读面三格读数 `teamworkReadScope`、输出面取值、参数解析与 handler 接线），`readOutputHead` 实现搬进域包（`ReadOutputHead`）并在本层留函数值别名。域级 5 条新用例；既有读面用例经同身份别名零改动 |
-| P21-teamwork-output-store | **域方法随类型走**第二十二片：产品自有作业输出面（`TeamworkJobOutputs` 的分配 / 写入 / 清理 / 回读与角色名安全化）整份下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `output_store.go`（`OutputStore`，plan §2.7）；本包 `runtime_teamwork_output` **删除**，组合根（`wiring/bootstrap`）与 headless 端到端用例改调 `teamwork.NewOutputStore`，宿主级接线用例（`writeWorkerOutput` 经产品面 + 清目录后迟到写丢弃）留本包。域级用例随实现搬入 |
+| P21-teamwork-output-store | **域方法随类型走**第二十二片：产品自有作业输出面（`TeamworkJobOutputs` 的分配 / 写入 / 清理 / 回读与角色名安全化）整份下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `output_store.go`（`OutputStore`，plan §2.7）；本包 `runtime_teamwork_output` **删除**，组合根（`boot`）与 headless 端到端用例改调 `teamwork.NewOutputStore`，宿主级接线用例（`writeWorkerOutput` 经产品面 + 清目录后迟到写丢弃）留本包。域级用例随实现搬入 |
 | P21-teamwork-board-archive | **域方法随类型走**第二十三片：看板**存档生命周期与封板判据**下沉——无档新开一版 / 换版本先关旧后开新 / 同版本推进 seq / 指纹节流 / 只恢复 active / 封板幂等 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `board_archive.go`（plan §2.7）；本包两个文件（`runtime_teamwork_board_archive.go` / `runtime_teamwork_board_close.go`）只剩**宿主面**（什么时候读、读哪些、失败了记一行日志、收口路径与 `BoardCloser` 接线），判据处走同身份别名（`nextTeamBoardMeta` / `boardFingerprint` / `sealTeamBoard` 是函数值别名，`readTeamBoardArchive` 是方法转发）。域级 4 条新用例 |
 | P21-teamwork-job-projection | **域方法随类型走**第二十四片：作业完成投影（逐列搬运 + 框架状态词 → 契约枚举的**唯一**折算处）下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `job_projection.go`（plan §2.7）；本包 `runtime_teamwork_jobs.go` 只剩宿主面（作业表读数 `teamworkJobManager`、信号口 `TeamworkJobEvents`、公开投影方法一行转发），判据处走同身份别名（`teamworkJobCompletionFrom` / `asyncStateFromJobs` 是函数值别名）。域级 3 条新用例；既有投影用例一行未改 |
 | P21-teamwork-scene-index | **域方法随类型走**第二十五片：团队现场**名单判据**与**指派名的反向换算**下沉——计划 + 账本原始行 → nodeID 名单（去重保序、未释放才认领）、`seelex/<nodeID>` 去前缀 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `scene.go`（plan §2.7；P21-26 顺带把"一条命名只有一域"补齐：正向拼装本来就在域包）；本包 `runtime_teamwork_scene.go` 只剩**宿主面**（读计划与账本两份持久事实 + 逐个 `Adopt` 认领），`workItemNodeID` 改成同身份别名（`teamSceneEntry` 是类型别名）；`runtime_teamwork_items.go` 因此删掉一份去前缀实现。域级 3 条新用例 |
@@ -433,3 +433,1684 @@ content never enters engine history, the visible conversation, or storage.
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在
 `runtime_subagent_resume_test.go`，账号池/流式租约在 `runtime_account_test.go`/
 `internal/stream/stream_test.go`，流式端到端在 `stream_integration_test.go`。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### agent_node_test.go
+
+- `func TestNodeBudgetPrefersNodeInput(t *testing.T)` — TestNodeBudgetPrefersNodeInput 验证节点级 budget 优先于 limits 默认值：
+- `func TestNodeSkillBlocksInjected(t *testing.T)` — TestNodeSkillBlocksInjected 验证装配 skill 目录 actor 后，节点 PromptBlocks
+- `func TestNodeCharterBlock(t *testing.T)` — TestNodeCharterBlock 验证子代理章程结构化提示词：Role/Context/Task/
+- `func TestSubAgentSeesFullToolSurface(t *testing.T)` — TestSubAgentSeesFullToolSurface 验证子代理可见完整工具面（skill/MCP 等
+
+### agent_node_uncommitted_test.go
+
+- `func (c *worktreeLeftoverCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func TestSubagentUncommittedWorktreeKeepsResult(t *testing.T)` — TestSubagentUncommittedWorktreeKeepsResult 红灯复现：子代理 Chat 成功但
+
+### assembly_chain_real_partition_test.go
+
+- `func TestAssemblyChainRealPartitionHardwareNarrowsToolFaceAndAddsSkills(t *testing.T)`
+- `func TestAssemblyChainRealPartitionImpeccableKeepsToolFaceAddsOneSkill(t *testing.T)`
+- `func TestAssemblyChainRealPartitionEmptyMeansDefaultBaseline(t *testing.T)`
+- `func TestAssemblyChainRealPartitionReceiptMatchesShippedPartition(t *testing.T)`
+- `func newRealPartitionFixture(t testing.TB) *realPartitionFixture` — newRealPartitionFixture 把**发行根的真划分**装进一个测试 Runtime：加载器（与生产同一条
+- `func (f *realPartitionFixture) newProbe(id string) *assemblyChainProbe`
+- `func (f *realPartitionFixture) runRound(t *testing.T, probe *assemblyChainProbe, role string, plugins []string, prompt string) assemblyChainSnapshot` — runRound 跑一个真划分下的角色回合（装配集合经 roleRoundSpec 走生产透传链）。
+- `func realPartitionHostFace(t testing.TB, runtime *Runtime) []string` — realPartitionHostFace 是"不装配时 teammate 拿到的面"——宿主全局激活插件（启动基线
+- `func realRegistryFace(t testing.TB, runtime *Runtime) []string` — realRegistryFace 用生产那条收口算"真机全量工具里哪些过得了宿主面"（回执读数的对照：
+- `func realRegistryTools(runtime *Runtime) []types.Tool` — realRegistryTools 把运行期全量工具投影成可见性策略消费的 types.Tool（名字即全部输入）。
+- `func realPartitionTools() []types.Tool`
+- `func realPartitionCtx(sessionID string) context.Context` — realPartitionCtx 给 team_plan 一个带会话键的 ctx（teamPlanHandler 按它取计划作用域）。
+- `func assemblyChainContains(names []string, want string) bool`
+
+### assembly_chain_test.go
+
+- `func TestAssemblyChainTeammateSeesOwnPluginsToolsAndSkills(t *testing.T)` — TestAssemblyChainTeammateSeesOwnPluginsToolsAndSkills 是第 1 组：装配**生效**。
+- `func TestAssemblyChainConcurrentTeammatesDoNotCrossTalk(t *testing.T)` — TestAssemblyChainConcurrentTeammatesDoNotCrossTalk 是第 2 组：**不串味**。
+- `func TestAssemblyChainEmptySetIsByteIdenticalToToday(t *testing.T)` — TestAssemblyChainEmptySetIsByteIdenticalToToday 是第 3 组：**回归**（plugins 缺省/为空）。
+- `func TestAssemblyChainPendingPluginCannotBeAssembled(t *testing.T)` — TestAssemblyChainPendingPluginCannotBeAssembled 是第 4 组的第三种拒绝：**路线图上的名字**。
+- `func TestAssemblyChainRejectionsSpellOutTheReason(t *testing.T)` — TestAssemblyChainRejectionsSpellOutTheReason 是第 4 组：三条显式拒绝各自说清理由。
+- `func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T)` — TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow 是第 5 组：**闸门读数**。
+- `func newAssemblyChainProbe(runtime *Runtime, id string) *assemblyChainProbe`
+- `func (p *assemblyChainProbe) SessionID() string`
+- `func (p *assemblyChainProbe) SetSystemPrompt(prompt string)`
+- `func (p *assemblyChainProbe) SetMaxLoops(int)`
+- `func (p *assemblyChainProbe) ClearHistory()`
+- `func (p *assemblyChainProbe) History() []types.Message`
+- `func (p *assemblyChainProbe) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func (p *assemblyChainProbe) snapshot() assemblyChainSnapshot`
+- `func (s assemblyChainSnapshot) lastPrompt() string`
+- `func assemblyChainEngineFactory(engines map[string]roleEngine) func(string) (roleEngine, error)` — assemblyChainEngineFactory 按会话号发引擎；工厂会被并发调用（两个回合同时开会话）。
+- `func newAssemblyChainRuntime(t testing.TB) *Runtime` — newAssemblyChainRuntime 是装配链路的基座：宿主全局激活 cad，另有 docs / ops 两个只
+- `func assemblyChainTools() []types.Tool`
+- `func assemblyChainNames(tools []types.Tool) []string`
+- `func assemblyChainSameStrings(got, want []string) bool`
+- `func assemblyChainWantError(t *testing.T, name string, err error, want ...string)` — assemblyChainWantError 断言错误文案（不是只看 err != nil）：拒绝了什么、为什么、
+- `func assemblyChainPlanStore(t *testing.T, runtime *Runtime, sessionID, argsJSON string) assemblyChainPlanResult` — assemblyChainPlanStore 调一次 team_plan 并回报：错误，以及"这次调用是否**没有**留下计划"。
+- `func assemblyChainCuratedEntry(name string) plugin.CuratedEntry`
+
+### attachment_live_smoke_test.go
+
+- `func TestAttachmentShapeLiveSmoke(t *testing.T)`
+- `func solidPNG(width, height int, fill color.RGBA) ([]byte, error)` — solidPNG 合成一张纯色 PNG：内容已知、判据可判，避免把「截图恰好糊了」算成模型失明。
+- `func postChatCompletions(spec model.AccountSpec, messages []types.Message, maxTokens int) (int, string, string, string, error)` — postChatCompletions 用 Seele 自己的消息形状组请求：messages 逐个走
+- `func postAnthropicDocument(spec model.AccountSpec, mediaType string, payload []byte, question string) (int, string, string, string, error)` — postAnthropicDocument 发射与 Seele Anthropic 策略一致的 document block
+- `func postJSON(url string, headers map[string]string, envelope any) ([]byte, int, string, error)` — postJSON 返回 (响应体, HTTP 状态, 错误体, 传输错误)：4xx/5xx 不算传输错误，
+- `func uploadImage(spec model.AccountSpec, filename, mime string, payload []byte) (string, string, error)` — uploadImage 走 Files API 上传一张图片：purpose 只能是 user_data（其余取值实测被拒）。
+- `func deleteFile(spec model.AccountSpec, fileID string) (int, string, error)` — deleteFile 清理上传件：探针不该在别人的账号里留垃圾。
+- `func postAnthropicImage(spec model.AccountSpec, mediaType string, payload []byte, question string) (int, string, string, string, error)` — postAnthropicImage 走 /anthropic 的 image 块（source.type=base64 + media_type）。
+
+### cold_restore_compaction_context_probe_test.go
+
+- `func restoreProbeReply() string` — restoreProbeReply 是确定性 completer 给出的"厚摘要"（小节骨架 + 可辨识正文）。
+- `func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixture` — restoreProbeBoot 在同一份 root 上装配 Runtime（重启前 / 重启后各一次）。
+- `func (fixture *restoreProbeFixture) calls() int`
+- `func roundMessages(n, answerChars int) []types.Message` — roundMessages 造 n 个完整协议单元（user + 大 assistant，答复里带判据串）。同一批
+- `func modelVisibleCompactBlock(record store.SessionContextRecord) string` — modelVisibleCompactBlock 返回重启后**模型真能看到**的压缩上下文块正文
+- `func dumpProbeReport(t *testing.T, text string)`
+- `func pointer(value string) *string`
+- `func TestRestoreProbeModelSeesNoPriorContent(t *testing.T)`
+- `func clipMiddle(value string, limit int) string` — clipMiddle 把过长正文折成"头 + 尾"，让日志可读（探针现场已另有完整落盘）。
+
+### custom_role_live_probe_test.go
+
+- `func TestCustomRoleLiveProbe(t *testing.T)` — TestCustomRoleLiveProbe 是 provider role 能力实验（默认跳过）：
+- `func customRoleProbeLoggedRoles(path string) ([][]string, error)`
+
+### docker_test.go
+
+- `func requireDockerRecoveryEnv(t *testing.T)` — requireDockerRecoveryEnv 跳过依赖 daemon 状态的恢复测试：测试前提是
+- `func fakeDockerCLI(t *testing.T, dir string) string` — fakeDockerCLI 写一个假 docker 脚本：首次 info 报 daemon-down（匹配恢复
+- `func TestScopedBashDockerRecoveryRetries(t *testing.T)` — TestScopedBashDockerRecoveryRetries 端到端：bash 命令失败且匹配
+- `func TestScopedBashDockerRecoveryFailsWithHint(t *testing.T)` — TestScopedBashDockerRecoveryFailsWithHint 恢复后重跑仍失败 → 附带恢复
+- `func TestScopedBashDockerRecoveryDisabled(t *testing.T)` — TestScopedBashDockerRecoveryDisabled 配置关闭自动恢复 → 原样返回失败。
+
+### engine_port_session_tag_test.go
+
+- `func (engine *captureReactorEngine) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func (*captureReactorEngine) History() []types.Message`
+- `func (*captureReactorEngine) ClearHistory()`
+- `func (engine *captureReactorEngine) SessionID() string`
+- `func (*captureReactorEngine) SetSystemPrompt(string)`
+- `func (*captureReactorEngine) SetMaxLoops(int)`
+- `func (*captureReactorEngine) AppendHistory(types.Message)`
+- `func TestEnginePortInjectsTelemetrySessionID(t *testing.T)` — TestEnginePortInjectsTelemetrySessionID（G1/M8 回归）：EnginePort 的会话
+- `func emitTaggedLLMUsage(t *testing.T, hook frameworktelemetry.Hook, sessionID string, input, output int)` — emitTaggedLLMUsage 经完整生产链（LifecycleHook + SessionTagHook）产生一次
+- `func TestSessionTokenCountUsesSessionTaggedEvents(t *testing.T)` — TestSessionTokenCountUsesSessionTaggedEvents（INV-T1/T2 生产面）：公共
+
+### events_unified.go
+
+- `func NewSummaryLog() *SummaryLog` — NewSummaryLog 创建摘要统一日志（域包实现）。
+- `func (r *Runtime) unifiedEvents() *obs.UnifiedEvents` — unifiedEvents 装配一次查询的域句柄：Router 与 Live 都在调用时取读数，
+- `func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error)` — UnifiedEvents 按 sessionID/nodeID 查询统一事件视图（域包 `UnifiedEvents.Query`）。
+- `func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error)` — UnifiedEventsRange 按 Seq 区间查询统一事件视图（域包 `UnifiedEvents.QueryRange`）。
+
+### events_unified_test.go
+
+- `func TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts(t *testing.T)` — TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts 验证统一事件库的
+- `func TestUnifiedEventsRequiresRouter(t *testing.T)` — TestUnifiedEventsRequiresRouter 验证未装配 store Router 时统一查询返回可读错误
+
+### fork_besteffort_test.go
+
+- `func (c *goalFailingCompleter) Complete(ctx context.Context, messages []types.Message, _ []types.Tool) (types.Message, error)`
+- `func TestForkSubagentsBestEffortKeepsSiblingAlive(t *testing.T)` — TestForkSubagentsBestEffortKeepsSiblingAlive 验证一个子代理失败时，同批兄弟
+
+### fork_concurrency_repro_test.go
+
+- `func newCountingBlockingCompleter() *countingBlockingCompleter`
+- `func (c *countingBlockingCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *countingBlockingCompleter) peakInFlight() int`
+- `func TestForkManySubagentsSharedAccountQueued(t *testing.T)` — TestForkManySubagentsSharedAccountQueued reproduces the user scenario: all
+- `func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T)` — TestForkManySubagentsSharedAccountDeadlockProbe blocks subagents on a single
+
+### fork_concurrency_test.go
+
+- `func newBlockingNodeCompleter() *blockingNodeCompleter`
+- `func (c *blockingNodeCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T)` — TestForkSubagentsExceedsConcurrencyLimitQueued 远超并发上限的 mock：
+- `func TestTaskRegistryHighConcurrencyBurst(t *testing.T)` — TestTaskRegistryHighConcurrencyBurst 注册表 mailbox 高并发突发：
+
+### fork_hash_judgment_test.go
+
+- `func normalizeForkProduct(product string) string` — normalizeForkProduct 是产物规范化：**只**去首尾空白（作业正文末尾带一个换行，
+- `func forkProductDigest(product string) string` — forkProductDigest 是规范化产物的 sha256 摘要（十六进制）。
+- `func forkProductEdges(product string) (string, string)` — forkProductEdges 取规范化产物的首尾片段（失败信息里定位差异用；各留 80 字节，
+- `func forkProductBaseTruncated(base string) bool` — forkProductBaseTruncated 判断基准面是不是被产品侧上限截断的产物。
+- `func forkProductMatches(base, fetched string) (matched bool, capped bool)` — forkProductMatches 是产物对照的**唯一判据**：取回正文与基准规范化后逐字节等价（sha256 相等）。
+- `func forkProductDiff(want, got string) string` — forkProductDiff 渲染两侧产物的可比读数：长度 + 首尾片段，并在"基准面自身是截断产物"时
+- `func forkScriptedProduct(taskID string) string` — forkScriptedProduct 把"某个子代理的身份"折成一条脚本化产物：同一身份恒等、不同身份
+- `func (c *scriptedProductCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *scriptedProductCompleter) seenServed() []string`
+- `func TestForkProductTruncatedBaseComparesPrefix(t *testing.T)` — TestForkProductTruncatedBaseComparesPrefix 钉住判据的**截断分支**（真机产物常长于产品侧
+- `func TestForkProductHashJudgmentDeterministic(t *testing.T)` — TestForkProductHashJudgmentDeterministic 是 fork 取回的**确定性对照**用例：
+
+### fork_job_helpers_test.go
+
+- `func newAsyncTestRuntime(t testing.TB) *Runtime` — newAsyncTestRuntime 造一个打开了作业面（含子代理作业）的测试 Runtime。
+- `func newAsyncTestRuntimeWithSubagents(t testing.TB) *Runtime` — newAsyncTestRuntimeWithSubagents 同上，但账号池带两个子代理账号（并行分支各占一个）。
+- `func forkDispatch(t *testing.T, runtime *Runtime, args string) (forkReceipt, error)` — forkDispatch 派发一批子代理，返回受理回执（句柄表）。
+- `func forkRun(t *testing.T, runtime *Runtime, args string) forkBatch` — forkRun 走一遍完整的三段：派发（作业化）→ 等全部子代理作业终态 → 逐个取回增量。
+- `func forkAndWait(t *testing.T, runtime *Runtime, args string) string` — forkAndWait 是最常用的形态：只需要子代理的输出正文。
+- `func forkWaitTerminal(t *testing.T, runtime *Runtime, handles []string)` — forkWaitTerminal 等到给定句柄全部不在 running（终态由执行体判定，这里只观察）。
+- `func forkWaitTerminalFor(t *testing.T, runtime *Runtime, handles []string, budget time.Duration)` — forkWaitTerminalFor 是 forkWaitTerminal 的显式预算形态（真实 API 冒烟用更宽的窗口）。
+- `func forkStateOf(t *testing.T, runtime *Runtime, handle string) string` — forkStateOf 读一条作业的当前状态（只读，不消费输出）。句柄已销项时返回空串。
+- `func forkFetch(t *testing.T, runtime *Runtime, handle string) string` — forkFetch 取回一个子代理作业的增量（消费式）。
+
+### fork_live_smoke_test.go
+
+- `func TestForkSubagentsLiveSmoke(t *testing.T)` — TestForkSubagentsLiveSmoke 真实 API 冒烟（非默认运行）：
+
+### fork_smoke_test.go
+
+- `func (c *scopeRecordingCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *scopeRecordingCompleter) seenTaskIDs() []string`
+- `func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T)` — TestForkSubagentsSmokeTimeAndFileSummary 双子代理冒烟：一个输出时间、一个
+- `func containsParticipant(participants []string, want string) bool`
+- `func (c *capturingCompleter) Complete(ctx context.Context, messages []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *capturingCompleter) snapshot() ([]types.Message, string)`
+- `func TestSubagentTaskDeliveryCallbackInput(t *testing.T)` — TestSubagentTaskDeliveryCallbackInput 回调注入冒烟：fork 一个子代理，用
+- `func (f *failingCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error)`
+- `func TestForkSubagentsFailurePropagationSmoke(t *testing.T)` — TestForkSubagentsFailurePropagationSmoke 报错路径：子代理失败必须**显式**呈现
+- `func TestForkSummaryKeeps2000ChineseRunes(t *testing.T)` — TestForkSummaryKeeps2000ChineseRunes 汇总窗口按“字”计数：2000 汉字结论
+- `func TestForkSummaryReportsTruncatedSize(t *testing.T)` — TestForkSummaryReportsTruncatedSize 超窗截断时汇总节点附上完整输出字数：
+
+### fork_tool_test.go
+
+- `func TestForkSubagentsEndToEnd(t *testing.T)` — TestForkSubagentsEndToEnd 验证 fork 全链路：两个并行子代理（确定性
+- `func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T)` — TestForkSubagentsReuseStoredOutputSavesTokens 验证结果复用短路：既有 task
+- `func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T)` — TestForkSubagentsRetryRunsWhenNoStoredOutput 验证无已保存输出时的重试路径：
+- `func TestForkSubagentsValidation(t *testing.T)` — TestForkSubagentsValidation 验证护栏：空列表 / 重复 id / 缺 goal / 超数量上限。
+- `func TestForkInFlightTracksRunningSubagentJobs(t *testing.T)` — TestForkInFlightTracksRunningSubagentJobs 钉住 fork 门控的**作业侧事实**：
+- `func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T)` — TestForkSummaryNodeConcatenatesPredecessors 验证 summary 节点拼接
+- `func TestForkSummaryLinesCompact(t *testing.T)`
+- `func multiLine(n int) string` — multiLine 生成 n 行 l1..ln 文本。
+
+### glob_guard_test.go
+
+- `func TestGlobSkipsHeavyDirs(t *testing.T)` — TestGlobSkipsHeavyDirs 验证 glob 遍历跳过重目录（node_modules/dist 等）
+
+### image_live_smoke_test.go
+
+- `func TestEngineImageLiveSmoke(t *testing.T)`
+- `func askWithImage(t *testing.T, specs []model.AccountSpec, question string, pngBytes []byte, width, height int) string` — askWithImage 用引擎侧消息模型（types.Message.Images）向真实 provider 提问，
+- `func syntheticStripes(fills []color.RGBA) ([]byte, int, int)` — syntheticStripes 生成一条等宽色带图，返回 PNG 字节与尺寸。
+- `func assertColorOrder(t *testing.T, reply string, palette []struct { label string words []string fill color.RGBA })` — assertColorOrder 断言回答里四个颜色词的出现顺序与出题顺序一致。
+- `func mentionsTitle(reply, title string) bool` — mentionsTitle 判断回答是否提到窗口标题：先整体匹配，再退化到最长前缀片段。
+
+### imageattach_live_smoke_test.go
+
+- `func TestImageAttachLiveSmoke(t *testing.T)`
+- `func askThroughWrapper( t *testing.T, specs []model.AccountSpec, registry *imageattach.Registry, loader func(context.Context, string) (types.FilePart, error), question string, ) string` — askThroughWrapper 用 imageattach.Wrapper 包装真实账号客户端提问，返回首个成功回答。
+- `func (c *countingCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error)`
+
+### jobs_events_test.go
+
+- `func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T)` — TestJobsEventStreamProjectsLifecycleIntoSessionLog 钉住任务 0 的回退口径：
+
+### limits_live_smoke_test.go
+
+- `func TestSeelexLimitsLiveSmoke(t *testing.T)`
+
+### mcp_integration_test.go
+
+- `func TestBreakerEventsChannel(t *testing.T)`
+- `func TestMCPStackInitialized(t *testing.T)`
+- `func TestListenBreakerIntegration(t *testing.T)`
+- `func TestMCPStackSnapshotProvider(t *testing.T)`
+- `func TestAttachMCPStackCreated(t *testing.T)`
+- `func TestMCPStackConcurrent(t *testing.T)`
+- `func TestMCPStackPersistence(t *testing.T)`
+- `func TestMCPStackMultiServer(t *testing.T)`
+- `func TestBreakerEventsReadonly(t *testing.T)`
+
+### mcp_provider_test.go
+
+- `func TestMCPFakeProviderState(t *testing.T)` — TestMCPFakeProviderState 验证 MCP 以 tools.ToolProvider 形态接入注册表后的
+- `func TestMCPRuntimeLifecycleState(t *testing.T)` — TestMCPRuntimeLifecycleState 验证 seelebridge 侧的 MCP 生命周期状态：
+- `func TestMCPLazyRegistrationDoesNotConnect(t *testing.T)` — TestMCPLazyRegistrationDoesNotConnect 验证冷启动契约：登记配置不连接、
+- `func TestMCPProviderNameRegistered(t *testing.T)` — TestMCPProviderNameRegistered 验证 MCP provider 以固定名称 "mcp" 实现
+
+### merge_back_concurrency_test.go
+
+- `func TestMergeBackParallelSubagentsNoRace(t *testing.T)` — TestMergeBackParallelSubagentsNoRace 验证两个并行子代理完成时各自
+- `func TestMergeBackIntoParentAccumulates(t *testing.T)` — TestMergeBackIntoParentAccumulates 单测验证 B 修复：mergeBackIntoParent
+- `func TestMergeBackMailboxOverflowPreserved(t *testing.T)` — TestMergeBackMailboxOverflowPreserved 验证 A 修复：channel 满时 merge-back
+- `func TestMergeBackOverflowUnderParallelForks(t *testing.T)` — TestMergeBackOverflowUnderParallelForks 端到端验证 A+B：超过 mailbox 容量的
+- `func TestMergeBackMailboxNeverBlocksProducerRetained(t *testing.T)` — 确保 mailbox 满时生产者不会阻塞（原有保证），供并发回归基线。
+- `func TestMergeBackSkippedOnTimeout(t *testing.T)` — TestMergeBackSkippedOnTimeout 复现用户猜想：长时间静置 → 触发超时 →
+- `func (c *failingNodeCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error)`
+
+### node_assistant_live_test.go
+
+- `func TestSubscribeSubagentLiveReceivesAssistantDelta(t *testing.T)` — TestSubscribeSubagentLiveReceivesAssistantDelta G7：assistant 正文增量经
+
+### node_first_person_live_smoke_test.go
+
+- `func TestNodeFirstPersonLiveSmoke(t *testing.T)` — TestNodeFirstPersonLiveSmoke 真实 API 冒烟（非默认运行）：
+- `func livePreview(value string) string` — livePreview 文本的有界单行预览（换行折叠，≤120 字符）。
+- `func mustIndentJSON(t *testing.T, value any) string`
+
+### node_scope_test.go
+
+- `func TestSceneScopeContextRoundTrip(t *testing.T)`
+- `func TestSceneScopeVisibilityFiltersSubagentTools(t *testing.T)`
+- `func TestSceneScopeHiddenToolDispatchRejected(t *testing.T)` — TestSceneScopeHiddenToolDispatchRejected 验证 Dispatch 侧复核同一策略：
+- `func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T)`
+- `func TestSceneScopeAssemblerInheritsStableContextBlocks(t *testing.T)` — TestSceneScopeAssemblerInheritsStableContextBlocks 验证子代理会话继承主代理
+
+### node_test_helpers_test.go
+
+- `func newTestRouter(t testing.TB) *store.Router` — newTestRouter 创建 JSON 后端测试 Router（事件库落盘目标）。
+- `func newScriptedNodeCompleter(reply string) *scriptedNodeCompleter`
+- `func (c *scriptedNodeCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error)`
+- `func newTestRuntimeWithSubagents(t testing.TB) *Runtime` — newTestRuntimeWithSubagents 构造带两个子代理账号的测试 Runtime。
+- `func injectScriptedCompleters(t *testing.T, runtime *Runtime, completers map[string]agent.Completer)` — injectScriptedCompleters 用确定性 completer 替换账号池（不发起网络调用）。
+- `func cloneMessages(messages []types.Message) []types.Message`
+- `func cloneTools(tools []types.Tool) []types.Tool`
+- `func joinMessageContents(messages []types.Message) string`
+- `func toolNamesFromTypes(tools []types.Tool) []string`
+- `func containsName(names []string, want string) bool`
+
+### node_tool_result_test.go
+
+- `func TestNodeToolResultArchiverPrefixAndReadback(t *testing.T)` — TestNodeToolResultArchiverPrefixAndReadback 验证 P1 桥：节点会话的工具
+- `func TestNodeToolResultNilSafety(t *testing.T)`
+
+### replay_live_broken_chain_probe_test.go
+
+- `func TestReplayProbeBrokenToolChainShape(t *testing.T)`
+
+### replay_live_shape_probe_test.go
+
+- `func probeText(text string) *string`
+- `func probeHistory(targetTokens int, leadingSystem string) []types.Message` — probeHistory 造一段约 targetTokens 的历史（按英文 4 字符/token 计）。
+- `func TestReplayProbeShape(t *testing.T)`
+- `func probeEnvPath(key, fallback string) string`
+
+### review_files.go
+
+- `func RegisterReviewFilesTool(runtime *Runtime, port ReviewFilesPort)` — RegisterReviewFilesTool 把 show_files 注册进 Runtime 工具面（形状见域包）。
+
+### review_files_test.go
+
+- `func (port *fakeReviewFilesPort) RequestFileReview(_ context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)`
+- `func dispatchShowFiles(t *testing.T, port ReviewFilesPort, args string) (string, error)`
+- `func TestShowFilesBatchCapIsAnExplicitError(t *testing.T)` — TestShowFilesBatchCapIsAnExplicitError：一次调用 = 一次批处理召唤，超限**显式
+- `func TestShowFilesAtCapReachesPort(t *testing.T)` — TestShowFilesAtCapReachesPort：恰好 10 份是允许的（上限是闭区间）。
+- `func TestShowFilesRejectsEmptyList(t *testing.T)` — TestShowFilesRejectsEmptyList：空清单是形状错误（"一次调用 = 一次批处理召唤"）。
+- `func TestShowFilesReceiptReportsRequestedOpenedAndSkipped(t *testing.T)` — TestShowFilesReceiptReportsRequestedOpenedAndSkipped：返回值必须回契约（工具结果
+- `func TestShowFilesPropagatesPortError(t *testing.T)` — TestShowFilesPropagatesPortError：落点失败原样上抛（例如工作区未绑定），不吞成
+
+### role_host_session.go
+
+- `func HostSessionForToolCall(ctx context.Context) string` — HostSessionForToolCall 返回「这次工具调用在为哪个宿主会话干活」：员工做工回合
+
+### role_host_session_test.go
+
+- `func TestHostSessionForToolCall(t *testing.T)` — TestHostSessionForToolCall 钉住「员工做工回合里，工具 handler 能按构造拿到宿主
+
+### runtime.go
+
+- `func (r *Runtime) MainSessionID() string` — MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
+- `func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver)` — SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
+- `func NewRuntime(cfg RuntimeConfig) (*Runtime, error)`
+- `func (r *Runtime) Agent() *agent.Agent` — Agent returns the framework object used by session assembly.
+- `func (r *Runtime) Session() *session.Session` — Session 返回当前主会话（尚未创建时返回 nil）。
+- `func (r *Runtime) NewMainSession(hooks *session.LoopHooks) (*session.Session, error)` — NewMainSession 按新装配模型（session.NewSession）构造主会话。
+- `func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error)` — NewMainSessionWithID keeps the framework Session identity aligned with the
+- `func (r *Runtime) AttachHistoryRouter(router *store.Router)` — AttachHistoryRouter installs the provider-history plane independently from
+- `func (r *Runtime) HistoryRouter() *store.Router` — HistoryRouter 返回会话存储路由（装配后只读；未装配 nil）。
+- `func (r *Runtime) SessionProjectID(sessionID string) string` — SessionProjectID 解析会话绑定的项目 id（未绑定 = ""）。
+- `func (r *Runtime) wrapImageAttachments()` — wrapImageAttachments 把待随图包装挂到最靠近 provider 的一层。
+- `func (r *Runtime) PrepareMainSessionHistory(sessionID string, messages []types.Message) bool` — PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
+- `func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error)`
+- `func (r *Runtime) sessionWorkspaceFor(sessionID string) func() string` — sessionWorkspaceFor 返回按会话 workspace 的解析闭包（framework
+- `func (r *Runtime) Shutdown()`
+- `func (r *Runtime) SetBashDiagnosticObserver(observer toolreg.BashDiagnosticObserver)` — SetBashDiagnosticObserver installs an optional, best-effort diagnostic
+- `func (r *Runtime) Model() string`
+- `func (r *Runtime) StartupWarnings() []string` — StartupWarnings 返回启动期非致命配置警告（如 accounts.yaml 解析失败、
+- `func (r *Runtime) Tracer() *telemetry.MemoryTracer` — Tracer 返回遥测内存追踪器（trace 视图查询源，见 seelebridge/trace.go）。
+- `func (r *Runtime) SessionTracer() *seeletelemetry.SessionTracer` — SessionTracer 返回会话过滤的 trace 查询面（M1 INV-T2：查询只含该会话
+- `func (r *Runtime) CurrentSession() *session.Session` — CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。
+- `func (r *Runtime) ContextWindow() int` — ContextWindow returns the effective context window of the selected account
+- `func (r *Runtime) MaxOutputTokens() int` — MaxOutputTokens returns the configured maximum output for one model call.
+- `func (r *Runtime) BindProjectRoot(rootPath string) error` — BindProjectRoot makes the supplied project the only root used by Seelex
+- `func (r *Runtime) BindProjectRootFor(sessionID, rootPath string) error` — BindProjectRootFor 绑定指定会话自己的工具路径根（sessionID 为空 = 进程默认）。
+- `func (r *Runtime) UnbindProjectRootFor(sessionID string)` — UnbindProjectRootFor 清空指定会话的工具路径根（会话解绑工作区/归档时）。
+- `func (r *Runtime) PerSessionExecution() bool` — PerSessionExecution 声明宿主是否具备"逐会话执行"的全部前置条件。当前
+- `func (r *Runtime) ForkBegin(sessionID string)` — ForkBegin 标记某会话进入 fork_subagents 执行（可嵌套，计数 +1）。
+- `func (r *Runtime) ForkEnd(sessionID string)` — ForkEnd 结束某会话的一次 fork 执行（计数 -1）。
+- `func (r *Runtime) ForkInFlight(sessionID string) bool` — ForkInFlight 报告指定会话当前是否有 fork_subagents 正在执行。
+- `func (r *Runtime) UnbindProjectRoot()` — UnbindProjectRoot makes filesystem and shell tools fail closed until a
+- `func summarizeTools(tools []types.Tool) []Tool`
+- `func (p runtimeBudgetProvider) ContextTokens() int`
+- `func (p runtimeBudgetProvider) MaxOutputTokens() int`
+- `func (s runtimeCompactStacks) CompactStackSnapshot() []store.CompactFrame`
+- `func (s runtimeCompactStacks) PushCompact(frame store.CompactFrame) error`
+
+### runtime_account.go
+
+- `func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest` — accountSelector 是主链路共享的账号选择器闭包（委托 account.Manager.Selector）。
+- `func (r *Runtime) assembleCompleters() error` — assembleCompleters 构造同步与流式 completer，两者共享同一个账号选择器闭包。
+- `func (r *Runtime) observeRoutingNotice(notice stream.RoutingNotice)` — observeRoutingNotice 是流式 completer 的路由事实观察者（租约路径上同步调用，必须非阻塞）。
+- `func (r *Runtime) TakeServedRoute(sessionID string) (dto.ServedRoute, bool)` — TakeServedRoute 取出（并清掉）该会话最近一次请求的实际承接路由（读即清；见域包判据）。
+- `func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error)` — bridgeAccountCompleter 构造同步 Completer（每次 Complete 恰好一次租赁）。
+- `func (r *Runtime) Accounts() []Account` — Accounts 返回账号池条目的路由摘要（按名称排序）。
+- `func (r *Runtime) SetRoleAccount(role, account string) error` — SetRoleAccount 把角色默认账号推入运行时账号路由；刷新后由角色回合按
+- `func (r *Runtime) RegisterAccount(spec model.AccountSpec, limits config.AccountLimits) error` — RegisterAccount 把一个新账号注册进运行时（界面「手动添加账号」的落点）：
+- `func (r *Runtime) ReplaceAccount(spec model.AccountSpec, limits config.AccountLimits) error` — ReplaceAccount 用更新后的规格热替换同一账号。池条目先退租再重新注册；
+- `func (r *Runtime) UnregisterAccount(name string) error` — UnregisterAccount 从运行时退租并移除账号；正在承流时池会拒绝，文件层由适配器
+- `func (r *Runtime) AccountBalance(ctx context.Context, name string) (account.Balance, error)` — AccountBalance 查询指定账号此刻的余额。
+- `func (r *Runtime) Provider() string` — Provider 返回当前 provider 过滤；未过滤时回退默认账号。
+- `func (r *Runtime) SelectAccount(name string) bool` — SelectAccount 切换主链路选中账号；未知账号返回 false。
+- `func (r *Runtime) SetSessionReasoningEffort(effort string) int` — SetSessionReasoningEffort 实现 contract.ReasoningEffortPort（窄可选
+- `func (r *Runtime) SetProvider(provider string)` — SetProvider 切换 provider 过滤（非空时清除固定账号）。
+- `func (r *Runtime) setSelectedAccount(name string)` — setSelectedAccount 设置选中账号（plan 分支冻结路径用）。
+- `func (r *Runtime) accountSpecList() []model.AccountSpec` — accountSpecList 返回账号规格列表（委托 account.Manager）。
+- `func (r *Runtime) currentAccountLimits() config.AccountLimits` — currentAccountLimits 返回当前账号限额（委托 account.Manager）。
+- `func (r *Runtime) SetAccountWindow(name string, window int)` — SetAccountWindow 改一个账号的窗口覆盖（window <= 0 = 清掉这一格，回落到全局值）。
+- `func (r *Runtime) AccountWindows() map[string]int` — AccountWindows 返回一份拷贝（诊断与落盘对账用；调用方改不动运行时的表）。
+- `func (r *Runtime) ContextWindowFor(name string) int` — ContextWindowFor 返回指定账号**生效**的上下文窗口（优先级判据在域包）。
+
+### runtime_account_hot_add_test.go
+
+- `func newHotAddRuntime(t *testing.T) *Runtime` — newHotAddRuntime 摆一个只有一条 agent 账号的真实运行时。
+- `func TestRegisterAccountHotAddsIntoPoolAndManager(t *testing.T)` — TestRegisterAccountHotAddsIntoPoolAndManager：注册之后账号列表里能看到它（池），
+- `func TestAccountBalanceUsesCredentialFromAccountsFile(t *testing.T)` — TestAccountBalanceUsesCredentialFromAccountsFile：完整一跳——账号档里的 base_url 与
+- `func TestAccountBalanceRejectsUnknownAccount(t *testing.T)` — TestAccountBalanceRejectsUnknownAccount：余额按名字查，未知名字要报错——绝不能
+- `func TestAccountBalanceDispatchesToAccountDomain(t *testing.T)` — TestAccountBalanceDispatchesToAccountDomain：已知账号要走到账号域的探测（这里用
+- `func TestRegisterAccountRefusesWhenPoolWouldReject(t *testing.T)` — TestRegisterAccountRefusesWhenPoolWouldReject：池层拒绝（重名）时管理器不该先认领
+- `func TestReplaceAndUnregisterAccountStayInPoolAndManager(t *testing.T)`
+
+### runtime_account_test.go
+
+- `func TestAccountLimitsHonorDefaultsAndAccountOverrides(t *testing.T)`
+- `func TestAccountLimitsRejectUnsafeValues(t *testing.T)`
+- `func TestMissingAccountsUsesEnvironmentCredential(t *testing.T)`
+- `func TestResolveAccountForBranchIsStableAndRoleScoped(t *testing.T)`
+- `func TestRuntimeAccountsToolsAndPlugins(t *testing.T)`
+- `func TestRuntimeExposesSelectedAccountLimits(t *testing.T)`
+- `func TestRuntimeContextWindowOverrideFromLimits(t *testing.T)` — TestRuntimeContextWindowOverrideFromLimits 钉住「窗口可以配在 seelex.yaml」这条
+- `func TestRuntimeAccountWindowPriority(t *testing.T)` — TestRuntimeAccountWindowPriority 钉住「每账号上下文窗口」（设置 → 账号）的优先级
+- `func TestRuntimeLoadsGroupedAccountRoles(t *testing.T)`
+- `func TestRuntimeToleratesEmptyAccountsWithWarning(t *testing.T)`
+- `func TestRuntimeToleratesLegacyAccountsListWithWarning(t *testing.T)`
+
+### runtime_agent_conversation.go
+
+- `func (r *Runtime) ViewAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationViewRequest) (dto.SessionRecordPage, error)` — ViewAgentConversation implements the execution-side half of the unified
+- `func (r *Runtime) RecoverAgentConversation(ctx context.Context, ref dto.ConversationSessionRef) (dto.SessionRecovery, error)` — RecoverAgentConversation reports the shared recovery state without changing
+- `func (r *Runtime) ChatAgentConversation(ctx context.Context, ref dto.ConversationSessionRef, request dto.ConversationChatRequest) (dto.ChatReceipt, error)` — ChatAgentConversation sends one user turn to the exact subagent/teammate
+- `func (r *Runtime) agentConversationRecords(ctx context.Context, ref dto.ConversationSessionRef) ([]dto.ConversationRecord, string, dto.SessionRecoveryState, error)`
+- `func (r *Runtime) teammateConversationRecords(ctx context.Context, ref dto.ConversationSessionRef) ([]dto.ConversationRecord, string, dto.SessionRecoveryState, error)`
+- `func (r *Runtime) subagentConversationRecords(ref dto.ConversationSessionRef) ([]dto.ConversationRecord, string, dto.SessionRecoveryState, error)`
+- `func (r *Runtime) teammateConversationTarget(ctx context.Context, ref dto.ConversationSessionRef) (store.TeamworkWorkItem, error)`
+- `func (r *Runtime) chatTeammateConversation(ctx context.Context, ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error)`
+- `func (r *Runtime) chatSubagentConversation(ctx context.Context, ref dto.ConversationSessionRef, message string) (string, error)`
+- `func (r *Runtime) loadSubagentRecord(mainSessionID, nodeID string) (store.NodeSessionRecord, bool)`
+- `func conversationRecordsFromHistory(history []types.Message) []dto.ConversationRecord`
+- `func ensureSystemRecord(records []dto.ConversationRecord, prompt string) []dto.ConversationRecord`
+- `func prependRecoveryNote(records []dto.ConversationRecord, record store.NodeSessionRecord, kind workunit.Kind) []dto.ConversationRecord`
+
+### runtime_async.go
+
+- `func (r *Runtime) AsyncRunsSnapshot() []dto.AsyncRunRecord` — AsyncRunsSnapshot 返回后台执行表的探针读数，按派发顺序。
+- `func (r *Runtime) AsyncRunEvents() <-chan struct` — AsyncRunEvents 返回后台执行表的变化信号口（core 的第四个生命周期消费者用它）。
+
+### runtime_async_test.go
+
+- `func TestAsyncPortsAreNilSafeBeforeAssembly(t *testing.T)` — Runtime 还没装配出工具路由（或整个 Runtime 为空）时，投影口必须回"没有行/没有信号"，
+
+### runtime_bundle.go
+
+- `func (r *Runtime) bundleFor(sessionID string) *sessionBundle` — bundleFor 返回 sessionID 对应的 bundle（不存在时新建并登记），并把
+- `func (r *Runtime) activeBundle() *sessionBundle` — activeBundle 返回当前激活会话的 bundle（不存在返回 nil）。只读面
+
+### runtime_bundle_read_lock_test.go
+
+- `func TestSessionReadPathDoesNotTakeWriteLock(t *testing.T)` — TestSessionReadPathDoesNotTakeWriteLock 钉住 §2.14：Session()/CurrentSession()
+
+### runtime_compaction_chapter_boundary_repro_test.go
+
+- `func TestReproCompactionReadbackSummaryIsChapter2NotWholeFrame(t *testing.T)` — 复现「压缩成功，帧却是空骨架」。
+- `func TestReproPrecomputedLocalSummaryMustNotBeRelabelledReplay(t *testing.T)` — 复现同一边界的第二半（2026-10-04 口径更新后拆成两段）：
+
+### runtime_compaction_index.go
+
+- `func (r *Runtime) compactionStackHandle() *context_runtime.CompactionStack` — compactionStack 返回压缩推帧接收侧的域句柄（装配点在 Runtime 构造器里，
+- `func (r *Runtime) CompactionSummaryAvailable() bool` — CompactionSummaryAvailable 报告装配层压缩这次能不能拿到模型生成的读后感
+- `func (r *Runtime) ReadbackCompactionSummary( ctx context.Context, sessionID string, request CompactionFrameRequest, ) (CompactionFrameReceipt, error)` — ReadbackCompactionSummary 在压缩之前试一次前缀重放厚摘要（域包 `CompactionStack.Readback`）。
+- `func (r *Runtime) PushCompactionFrame( ctx context.Context, sessionID string, request CompactionFrameRequest, ) (CompactionFrameReceipt, error)` — PushCompactionFrame 生成一帧并压入该会话的压缩栈（域包 `CompactionStack.Push`）。
+
+### runtime_compaction_readback_gate_repro_test.go
+
+- `func (c *readbackGateCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error)`
+- `func (c *readbackGateCompleter) recorded() (calls int, sawDeadline bool)`
+- `func TestPushCompactionFrameWithEmptyReadbackRefusesStackFrame(t *testing.T)` — TestPushCompactionFrameWithEmptyReadbackRefusesStackFrame：读后感为空/失败 →
+- `func TestReadbackCompactionSummaryReturnsReadbackFailure(t *testing.T)` — TestReadbackCompactionSummaryReturnsReadbackFailure：读数闸同口径——LLM 读后感
+- `func TestPushCompactionFrameReadbackHasNoDeadline(t *testing.T)` — TestPushCompactionFrameReadbackHasNoDeadline：成功臂的时间限制钉子——读后感
+
+### runtime_compaction_switch_test.go
+
+- `func newCompactionSwitchFixture(t *testing.T, enabled bool) *compactionSwitchFixture` — newCompactionSwitchFixture 装配两臂共用的生产接线。enabled 只动
+- `func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.Completer) *compactionSwitchFixture` — newCompactionSwitchFixtureWith 是上面那条接线的参数化版本：只换 completer。
+- `func (fixture *compactionSwitchFixture) push(t *testing.T) CompactionFrameReceipt` — push 走生产推帧入口：溢出区原文 + "上一次真实请求"的历史字节。
+- `func (fixture *compactionSwitchFixture) stackTop(t *testing.T) store.CompactFrame` — stackTop 返回推帧后的栈顶帧（推帧没落栈直接失败：摘要来源只有进了栈才算数）。
+- `func TestCompactionSummarySwitchClosedKeepsLocalCompact(t *testing.T)` — TestCompactionSummarySwitchClosedKeepsLocalCompact：关臂 = "关就是关"的全部含义——
+- `func hasLocalCompactEvidence(frame store.CompactFrame, code string) bool`
+- `func TestCompactionSummarySwitchOpenReplayFailureRefusesStackFrame(t *testing.T)` — TestCompactionSummarySwitchOpenReplayFailureRefusesStackFrame：开臂 + 重放调用失败
+- `func TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame(t *testing.T)` — TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame：开臂——摘要器非 nil、
+- `func TestShippedCompactionSummarySwitchShipsOpen(t *testing.T)` — TestShippedCompactionSummarySwitchShipsOpen：出厂配置"打开"这一事实本身也要有牙。
+- `func compactionSwitchOverflow() []types.Message` — compactionSwitchOverflow 是被折出保留窗口的协议单元原文（user + assistant 一个完整
+- `func compactionSwitchReplayHistory() []types.Message` — compactionSwitchReplayHistory 是"上一次真实请求"的历史字节：前缀重放要求它与产出该
+- `func (c *scriptedNodeCompleter) recorded() ([][]types.Message, [][]types.Tool)` — recorded 返回确定性 completer 收到的全部请求（消息与可见工具的成对快照）。
+
+### runtime_compaction_unbound_test.go
+
+- `func TestUnboundSessionContextStoreFailsCompactionPush(t *testing.T)` — TestUnboundSessionContextStoreFailsCompactionPush 钉住"未绑定"这一状态在装配层
+
+### runtime_computer.go
+
+- `func (r *Runtime) registerComputerTools()` — registerComputerTools 注册 computer use 工具族（见 RegisterBuiltins）。
+- `func computerUseEnabled() bool` — computerUseEnabled 解析 SEELEX_COMPUTER_USE（缺省开）。
+
+### runtime_computer_test.go
+
+- `func TestComputerUseEnabledParsing(t *testing.T)`
+- `func TestRegisterBuiltinsRegistersComputerTools(t *testing.T)` — TestRegisterBuiltinsRegistersComputerTools 验证正式接入点：支持桌面的平台
+- `func (stubCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error)`
+- `func TestWrapImageAttachmentsWiresMediaLoader(t *testing.T)` — TestWrapImageAttachmentsWiresMediaLoader 验证装配位置与接线：装配链把
+
+### runtime_context.go
+
+- `func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore, boards ...*storeboard.BoundStore)` — AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
+- `func (r *Runtime) SetProjectKnowledgeProvider(provider func() *store.ProjectRecord)` — SetProjectKnowledgeProvider 注入项目级模块语义提供者（ProjectKnowledge
+- `func (r *Runtime) compactorInstance() *compactor.Compactor` — compactorInstance 返回跨会话快照压缩器（构造一次，会话间复用）。
+- `func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot` — compressionSnapshot 跨会话快照压缩输入：当前节点/会话的父证据快照
+- `func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, tailStartUnit int) error` — coverHistoryGap 把滑动窗口与压缩内容之间的真空区轮次压缩为合并帧
+- `func (r *Runtime) mainContextComponents() session.ContextComponents` — mainContextComponents 构造主会话的 ContextComponents（plan.md §3.1 步骤 4）。
+- `func (r *Runtime) nodeContextComponents() session.ContextComponents` — nodeContextComponents 构造节点子代理会话的 ContextComponents
+- `func (r *Runtime) nodeController() seelectx.ContextController` — nodeController 构造节点子代理会话的上下文控制器：压缩栈与主会话隔离
+- `func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelectx.PromptBlock` — relatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
+- `func (r *Runtime) resolvePlaceholder(name string) (string, error)` — resolvePlaceholder 解析 {{name}} 占位符（当前无内置变量，未知占位符
+- `func (r *Runtime) seelexAssembler() seelectx.RequestAssembler` — seelexAssembler 构造 seelex 装配器：栈块（now using = 栈顶）来自
+- `func (r *Runtime) seelexCompressor() seelectx.Compressor` — seelexCompressor 构造压缩器：短历史快速路径 + QuickChat 结构化 checkpoint
+- `func (r *Runtime) seelexController() seelectx.ContextController` — seelexController 构造控制器：回合内不压缩对话，只做超大工具结果的兜底归档。
+- `func (r *Runtime) replayInputTokens() int` — replayInputTokens 返回分片重放的片预算（模型输入侧）：取账号上下文窗口减去
+- `func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer` — compactionSummarizer 按开关构造前缀重放厚摘要器（limits.context_compaction_summary）。
+- `func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummarizer, string)` — compactionSummarizerWithNote 是上面那一跳的唯一实现：除了摘要器，还给出
+- `func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG` — MainCompactionDAG 返回**装配层压缩**（application/assembly/context_runtime，回合
+- `func (r *Runtime) sessionContextStore() *store.SessionContextStore` — sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。
+- `func (r *Runtime) stackBlocks() []seelectx.PromptBlock` — stackBlocks 渲染会话级全部使用栈块（稳定前缀 skill/compact + 动态尾部
+- `func (r *Runtime) prefixStacks() []seelectx.PromptBlock` — prefixStacks 渲染稳定前缀栈块（skill/compact，now using = 栈顶；未绑定
+- `func (r *Runtime) tailStacks() []seelectx.PromptBlock` — tailStacks 渲染动态尾部栈块（plan/task，now using = 栈顶；未绑定存储 →
+- `func (r *Runtime) windowPolicy() seelexctx.WindowPolicy` — windowPolicy 返回当前窗口策略（NewRuntime 时按配置构造）。
+- `func (r *Runtime) windowTailBudget() (tokenBudget, maxUnits int)` — windowTailBudget 推导主会话 DurableHistory 的读尾预算（判据在域包：窗口 → 读尾的
+
+### runtime_deps.go
+
+- `func (r *Runtime) ApplyDeps(deps RuntimeDeps)` — ApplyDeps 一次注入 Runtime 启动期装配（幂等；调用方保证在并发应用工作
+
+### runtime_history.go
+
+- `func (r *Runtime) SearchHistory(ctx context.Context, query string, limit int) (search.Result, error)` — SearchHistory 在会话压缩栈（语义索引）上检索历史聊天记录（GUI 历史检索
+
+### runtime_live.go
+
+- `func (r *Runtime) subagentLiveWindowSize() int` — subagentLiveWindowSize 归一化实时回放窗口上限（判据在域包：0 → 默认 512；< 下限 → 下限）。
+- `func (r *Runtime) startLiveDispatcher()` — startLiveDispatcher 启动实时流分发器（幂等）。
+- `func (r *Runtime) stopLiveDispatcher()` — stopLiveDispatcher 停止实时流分发（幂等；Shutdown 调用）。
+- `func (r *Runtime) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（域包 `LiveDispatcher.Subscribe`）。
+- `func (r *Runtime) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage` — SubagentLiveHistoryPage 读回实时回放的一页（域包 `LiveDispatcher.HistoryPage`）。
+- `func (r *Runtime) broadcastLive(event dto.SubagentLiveEvent)` — broadcastLive 把一条事件写进窗口并投递（域包 `LiveDispatcher.Broadcast`）。
+- `func (r *Runtime) recordNodeAssistant(nodeID, delta string)` — recordNodeAssistant 投递子代理 assistant 正文增量（域包 `LiveDispatcher.RecordAssistant`：
+
+### runtime_live_page_test.go
+
+- `func newLiveWindowRuntime(t *testing.T, window int) *Runtime` — newLiveWindowRuntime 造一个显式配置回放窗口的 Runtime（账号用临时文件，不碰真账号）。
+- `func TestSubagentLiveWindowSizeNormalizes(t *testing.T)` — TestSubagentLiveWindowSizeNormalizes 钉住窗口上限的归一（0 → 默认 512；<50 → 50）：
+- `func TestSubagentLiveHistoryPageReadsWholeWindow(t *testing.T)` — TestSubagentLiveHistoryPageReadsWholeWindow 在**窗口=50** 的运行时下逐页读：
+
+### runtime_mcp.go
+
+- `func (r *Runtime) BreakerEvents() <-chan frameworkmcp.BreakerEvent` — BreakerEvents returns a read-only channel of breaker events.
+- `func (r *Runtime) AttachMCP(ctx context.Context, cfg MCPServer) error` — AttachMCP connects and registers a new MCP server.
+- `func (r *Runtime) AttachMCPServer( ctx context.Context, name, transport, command string, args, env []string, url string, ) error` — AttachMCPServer 是 plugin 域使用的展开入参版 AttachMCP。
+- `func (r *Runtime) RegisterLazyMCP(name string, cfg MCPServer) error` — RegisterLazyMCP 登记 MCP 服务器配置但不连接（冷启动：启动路径零 MCP 进程）。
+- `func (r *Runtime) LazyMCPServerNames() []string` — LazyMCPServerNames 返回已登记但尚未连接的 MCP 服务器名（按字典序）。
+- `func (r *Runtime) LoadMCP(ctx context.Context, name string) (int, error)` — LoadMCP 按需连接已登记的 MCP 服务器（冷启动加载点）。
+- `func (r *Runtime) DetachMCP(name string) error` — DetachMCP 断开并注销 MCP 服务器。
+- `func (r *Runtime) RefreshMCP(ctx context.Context, name string) error` — RefreshMCP 刷新指定 MCP 服务器的工具列表。
+- `func (r *Runtime) MCPServerNames() []string` — MCPServerNames 返回已连接 MCP 服务器名（按字典序）。
+- `func (r *Runtime) IsMCPAlive(name string) bool` — IsMCPAlive 轻量 ping 检查 MCP 服务器是否存活（2s 超时）。
+- `func (r *Runtime) MCPServerStatus(name string) (alive bool, tools int, err error)` — MCPServerStatus 返回 MCP 服务器健康状态（alive + tool count + error）。
+
+### runtime_node.go
+
+- `func (r *Runtime) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI"清空"按钮入口）。
+- `func (r *Runtime) SubagentTreeEvents() <-chan struct` — SubagentTreeEvents 返回子代理树生命周期信号 channel（CSP 消费者）。
+- `func (r *Runtime) SubAgentTree() []dto.SubAgentTreeNode` — SubAgentTree 返回子代理树的只读投影（根 = 主代理）。
+- `func (r *Runtime) SetSubagentToolCallback(callback func(SubagentToolObservation))` — SetSubagentToolCallback 注入子代理工具活动观察者（委托 session.ToolEventState）。
+- `func (r *Runtime) subagentOwnerSession(nodeID string) (string, bool)` — subagentOwnerSession 返回节点归属的主会话（执行上下文绑定值；空 = 没有归属）。
+- `func (r *Runtime) noteSubagentOwner(nodeID, mainSessionID string)` — noteSubagentOwner 记住节点归属的主会话（注册时调用；空 owner 也记——"没有归属"
+- `func (r *Runtime) forgetSubagentOwner(nodeID string)` — forgetSubagentOwner 在节点注销时删掉它的归属登记（节点没了，身份也就不必留着）。
+- `func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool)` — NodeSessionConversation 返回节点子代理的会话记录：运行中 → 子会话
+- `func (r *Runtime) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)` — NodeContextSnapshot 返回节点子代理的结构化上下文快照（详情弹窗"上下文"标签）。
+- `func (r *Runtime) SetSkillRegistry(registry *skill.Registry)` — SetSkillRegistry 装配子代理 skill 目录 actor（skill.Registry 自带锁；
+- `func (r *Runtime) NodeToolResult(nodeID, ref string) (string, bool)` — NodeToolResult 读回节点子代理的工具结果原始内容（ref 必须带
+- `func (r *Runtime) NodeWorktreeInfoFor(nodeID string) (NodeWorktreeInfo, bool)` — NodeWorktreeInfoFor 返回节点 worktree 现场信息（无现场 → false）。
+- `func (r *Runtime) NodeStageLogs(nodeID string) []model.NodeStageLog` — NodeStageLogs 返回 node 第一视角分阶段上下文日志（同一 subagent 会话的
+- `func (r *Runtime) NodeStageEvents() <-chan model.NodeStageLog` — NodeStageEvents 返回第一视角阶段日志的实时推送通道（即时输出面）：
+- `func (r *Runtime) NodeFirstPersonView(nodeID string) *model.NodeFirstPersonView` — NodeFirstPersonView 返回 node 第一视角完整载荷：查看时间（ProbedAt）+
+- `func (r *Runtime) NodeSemanticResult(nodeID string) *model.NodeSemanticResult` — NodeSemanticResult 返回 node 的预定义语义结果（只读；对象结构由 seelex
+- `func (r *Runtime) DrainSubagentSemanticResults() []*model.NodeSemanticResult` — DrainSubagentSemanticResults 取空子代理语义结果队列（消息队列消费面：
+
+### runtime_plugin.go
+
+- `func (r *Runtime) DefinePlugin(name, description string, include, exclude []string) error` — DefinePlugin 定义或替换一个插件的可见性快照。
+- `func (r *Runtime) UndefinePlugin(name string)` — UndefinePlugin 删除插件定义；若其为当前激活插件则一并停用。
+- `func (r *Runtime) ActivatePlugin(name string) error` — ActivatePlugin 激活插件（未定义返回显式错误）。
+- `func (r *Runtime) DeactivatePlugin()` — DeactivatePlugin 停用当前插件。
+- `func (r *Runtime) ActivePlugin() string` — ActivePlugin 返回当前激活插件名。
+- `func (r *Runtime) SetPluginUnassembledReason(fn func(name string, installed []string) error)` — SetPluginUnassembledReason 注入"未定义插件名怎么判 / 怎么说"的判决函数（产品侧在
+- `func (r *Runtime) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 返回把"这一轮装配哪些插件"带进执行 ctx 的派生 ctx。
+
+### runtime_plugin_capabilities.go
+
+- `func (r *Runtime) SetPluginCapabilitiesProvider(provider func(names []string) []dto.PluginCapabilityView)` — SetPluginCapabilitiesProvider installs the safe plugin-detail projection.
+- `func (r *Runtime) pluginCapabilityViews(names []string) []dto.PluginCapabilityView`
+
+### runtime_project_board.go
+
+- `func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)` — TeamworkPlanFor 实现 `board.TeamworkPlanSource`：返回该会话的 teamwork 计划。
+- `func (r *Runtime) readTeamworkPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error)` — readTeamworkPlan 读当前装配的 teamwork 后端的计划读口（未装配 ⇒ 报错，与"读失败"同解）。
+
+### runtime_project_board_test.go
+
+- `func TestTeamworkPlanForRequiresBackendAndScope(t *testing.T)`
+- `func TestTeamworkPlanForReturnsStoredPlan(t *testing.T)`
+- `func TestTeamworkPlanForRejectsHalfKey(t *testing.T)` — TestTeamworkPlanForRejectsHalfKey：KeyFor 给出半截键 ⇒ false，不当"有键"用。
+- `func TestTeamworkPlanForNilRuntimeIsFalse(t *testing.T)`
+
+### runtime_reasoning_effort_test.go
+
+- `func reasoningEffortOfAccount(t testing.TB, runtime *Runtime, name string) string` — reasoningEffortOfAccount 读回账号池里某个账号当前**实际**会发到 wire 的思考强度
+- `func TestRuntimeSetSessionReasoningEffortOnlyMovesSessionAccounts(t *testing.T)` — TestRuntimeSetSessionReasoningEffortOnlyMovesSessionAccounts 钉住 Runtime 侧下发口
+
+### runtime_role_face_test.go
+
+- `func (a *faceProbeAgent) LLM() types.ChatCompleter`
+- `func (a *faceProbeAgent) VisibleTools(context.Context) []types.Tool`
+- `func (a *faceProbeAgent) Dispatch(_ context.Context, name, _ string) (string, error)`
+- `func visibleNamesOf(agent session.Agent, ctx context.Context) []string`
+- `func TestTeammateToolFaceHidesForkSubagents(t *testing.T)`
+- `func TestTeammateToolFaceRefusesForkDispatch(t *testing.T)`
+- `func TestTeammateToolFaceKeepsNil(t *testing.T)` — TestTeammateToolFaceKeepsNil：未装配 agent 时收窄层不把 nil 包成非 nil 空壳
+- `func TestRoleEngineUsesTeammateToolFace(t *testing.T)` — TestRoleEngineUsesTeammateToolFace 是装配点钉子：newRoleEngine 必须把 r.agt 经
+
+### runtime_role_plugins.go
+
+- `func (r *Runtime) SetRolePluginsProvider(provider func(roleName string) []string)` — SetRolePluginsProvider 注入"角色自带的插件装配"读面（RoleSpec.Plugins）；传 nil
+- `func (r *Runtime) rolePluginsFor(roleName string) []string` — rolePluginsFor 读某个角色自带的插件装配（未注入读面/未登记 = 空集）。
+- `func (r *Runtime) rolePluginAssembly(spec roleRoundSpec) []string` — rolePluginAssembly 解析"这一轮装配哪些插件"：显式声明替换集合 → 角色自带 →
+- `func (r *Runtime) maxPluginsPerTeammate() int`
+- `func (r *Runtime) pluginFaceJudgement(names []string) pluginFaceJudgement` — pluginFaceJudgement 解析"这一轮的装配集合"该按哪份定义收窄——**唯一的装配面判据**
+- `func (r *Runtime) skillRegistryFor() *skill.Registry` — skillRegistryFor 取已装配的 skill 目录 actor（未装配 = nil，降级不注入目录）。
+- `func (r *Runtime) roleSkillCatalog(plugins []string) string` — roleSkillCatalog 渲染装配集合的技能目录段（纯 name + description；正文永不进
+- `func skillInfosOf(skills []skill.Skill) []model.SkillInfo` — skillInfosOf 把 skill 包的类型投影成目录段消费的只读模型（Name/Description 是
+- `func (r *Runtime) assemblyViews(members []store.TeamworkMember) []rolePluginAssemblyView` — assemblyViews 生成逐成员的装配读数（回执用；members 为空时返回空切片）。
+- `func (r *Runtime) pluginsCatalogYellow(tokensEst int) (bool, string)` — pluginsCatalogYellow 判黄牌：目录段 token 估算超过 6k，或占当前账号上下文窗口
+- `func appendSkillCatalog(prompt, catalog string) string` — appendSkillCatalog 把目录段接到 system prompt 末尾（空目录段 = 原样返回：字节
+
+### runtime_role_plugins_fault_test.go
+
+- `func TestAssemblyReadingMatchesRuntimeFaceForInheritedMember(t *testing.T)` — TestAssemblyReadingMatchesRuntimeFaceForInheritedMember 钉住 C 的前半：**没声明装配**
+- `func TestAssemblyReadingAgreesWithRuntimeAfterPluginRevoked(t *testing.T)` — TestAssemblyReadingAgreesWithRuntimeAfterPluginRevoked 钉住 C 的后半 + ③：
+- `func TestDuplicatePluginDeclarationIsRejectedNotMerged(t *testing.T)` — TestDuplicatePluginDeclarationIsRejectedNotMerged 钉住 D：重复声明的唯一生效口径是
+- `func newPluginChainProbe(runtime *Runtime) *pluginChainProbe`
+- `func (p *pluginChainProbe) SessionID() string`
+- `func (p *pluginChainProbe) SetSystemPrompt(string)`
+- `func (p *pluginChainProbe) SetMaxLoops(int)`
+- `func (p *pluginChainProbe) ClearHistory()`
+- `func (p *pluginChainProbe) History() []types.Message`
+- `func (p *pluginChainProbe) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func (p *pluginChainProbe) nextRound(t *testing.T) pluginChainRound` — nextRound 等这一轮真的跑起来（作业是后台跑的：受理即返回，不等待）。
+- `func TestDispatchChainCarriesPluginsFromPlanToWorkerContext(t *testing.T)` — TestDispatchChainCarriesPluginsFromPlanToWorkerContext 是 G：从 `team_plan` 一路断到
+- `func TestDispatchReceiptReportsFaultedFaceAfterRevoke(t *testing.T)` — TestDispatchReceiptReportsFaultedFaceAfterRevoke 是 C ③ 的**端到端**版本：先把插件
+
+### runtime_role_plugins_test.go
+
+- `func pluginFaceToolsOf(names ...string) []types.Tool`
+- `func pluginFaceNamesOf(built []types.Tool) []string`
+- `func pluginFaceSameNames(got, want []string) bool`
+- `func newPluginAssemblyRuntime(t *testing.T) *Runtime` — newPluginAssemblyRuntime 是装配探针基座：两个插件定义 + 四个工具名。
+- `func TestPluginAssemblyEmptySetMatchesHostFace(t *testing.T)` — TestPluginAssemblyEmptySetMatchesHostFace 是**回归断言**（契约 4）：空集时新收口必须
+- `func TestPluginAssemblyIsolatedPerTurnContext(t *testing.T)` — TestPluginAssemblyIsolatedPerTurnContext：同一进程里两个 teammate 装不同插件不得串
+- `func TestPluginAssemblyUndefinedNameFailsClosed(t *testing.T)` — TestPluginAssemblyUndefinedNameFailsClosed：声明过的插件之后被撤销 ⇒ 显式失灵
+- `func TestRoleSkillCatalogAndAssemblyReadings(t *testing.T)` — TestRoleSkillCatalogAndAssemblyReadings：目录段按装配集合取（name+description），
+- `func TestRolePluginAssemblyPrefersExplicitOverRoleDefault(t *testing.T)` — TestRolePluginAssemblyPrefersExplicitOverRoleDefault：集合口径是"显式声明替换 →
+- `func TestValidateMemberPluginsRejectsUnknownAndOverCap(t *testing.T)` — TestValidateMemberPluginsRejectsUnknownAndOverCap：编排入口的两道显式拒绝（未知
+- `func (e *pluginRoundProbeEngine) SessionID() string`
+- `func (e *pluginRoundProbeEngine) SetSystemPrompt(prompt string)`
+- `func (e *pluginRoundProbeEngine) SetMaxLoops(int)`
+- `func (e *pluginRoundProbeEngine) ClearHistory()`
+- `func (e *pluginRoundProbeEngine) History() []types.Message`
+- `func (e *pluginRoundProbeEngine) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func TestRunRoleRoundAssemblesPlugins(t *testing.T)` — TestRunRoleRoundAssemblesPlugins：装配真的落到角色回合上——集合进本轮 ctx（工具面
+
+### runtime_role_prompt.go
+
+- `func (r *Runtime) SetRolePromptProvider(provider func(roleName string) string)` — SetRolePromptProvider 注入"已装配提示词"读面；传 nil 取消注入（回退内置）。
+- `func (r *Runtime) rolePromptFor(roleName string) string` — rolePromptFor 读某个角色登记的提示词；未注入读面或未登记时返回空串
+- `func (r *Runtime) OptimizeRolePrompt(ctx context.Context, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)` — OptimizeRolePrompt 实现 contract.RolePromptPort：一次有界 LLM 回合，把员工提示词
+- `func (r *Runtime) completePromptOptimizeRound(ctx context.Context, systemPrompt, userContent string) (string, error)` — completePromptOptimizeRound 是"一次无工具回合"那一格宿主读数（未装配 completer ⇒
+
+### runtime_role_prompt_matrix_test.go
+
+- `func promptMatrixCases() []promptMatrixCase` — promptMatrixCases 是交付的那张表本体（顺序 = 空集 → 1 → 2 → 3 个插件，都在上限内）。
+- `func TestRoleRoundPromptIsResetIdempotentlyAcrossRounds(t *testing.T)` — TestRoleRoundPromptIsResetIdempotentlyAcrossRounds 是补证 E 的主用例：同一张表、
+- `func assertPromptMatrixCase(t *testing.T, runtime *Runtime, tc promptMatrixCase, base, catalog string, snap promptMatrixSnapshot)` — assertPromptMatrixCase 是这张表**唯一**的断言函数：空集与非空集都走它，差别只在
+- `func newPromptMatrixRuntime(t *testing.T) *Runtime` — newPromptMatrixRuntime：宿主全局激活 cad；docs / ops 只有按会话装配才拿得到；
+- `func newPromptMatrixProbe(runtime *Runtime, id string) *promptMatrixProbe`
+- `func (p *promptMatrixProbe) SessionID() string`
+- `func (p *promptMatrixProbe) SetSystemPrompt(prompt string)`
+- `func (p *promptMatrixProbe) SetMaxLoops(int)`
+- `func (p *promptMatrixProbe) ClearHistory()`
+- `func (p *promptMatrixProbe) History() []types.Message`
+- `func (p *promptMatrixProbe) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func (p *promptMatrixProbe) snapshot() promptMatrixSnapshot`
+- `func (s promptMatrixSnapshot) lastPrompt() string`
+- `func promptMatrixEngineFactory(engines map[string]roleEngine) func(string) (roleEngine, error)` — promptMatrixEngineFactory 按会话号发引擎（工厂每个用例重建一次，句柄表随之新建）。
+- `func promptMatrixSameStrings(got, want []string) bool`
+
+### runtime_role_prompt_test.go
+
+- `func TestRolePromptProviderDefaultsToEmpty(t *testing.T)` — TestRolePromptProviderDefaultsToEmpty：未注入读面时 rolePromptFor 返回空串
+
+### runtime_role_tool_test.go
+
+- `func TestRoleLoopHooksReportTeammateToolActivity(t *testing.T)`
+- `func TestRoleLoopHooksTruncateAndReportErrors(t *testing.T)`
+- `func (e errProbe) Error() string`
+- `func TestRoleLoopHooksStaySilentWithoutWorkScope(t *testing.T)`
+- `func TestWorkerRoundCarriesWorkScopeIntoTheRound(t *testing.T)`
+- `func TestRoleWorkScopeIsPerRound(t *testing.T)` — TestRoleWorkScopeIsPerRound 钉住"身份是按轮的事实"：同一条钩子（同一个 Runtime）在
+
+### runtime_role_turn.go
+
+- `func (h *roleSessionHandle) inFlight() bool` — inFlight 报告这一轮**此刻**是否还在跑（不阻塞：闸门被占着 = 有回合在飞）。
+- `func (h *roleSessionHandle) setSystemPrompt(prompt string)`
+- `func (h *roleSessionHandle) effectiveSystemPrompt() string`
+- `func withRoleRoundInFlight(ctx context.Context, roleSessionID string) context.Context`
+- `func roleRoundInFlightFromContext(ctx context.Context) string`
+- `func withRoleToolFailureRun(ctx context.Context, run *roleToolFailureRun) context.Context`
+- `func roleToolFailureRunFrom(ctx context.Context) (*roleToolFailureRun, bool)`
+- `func (r *Runtime) SetRoleEngineFactory(factory func(sessionID string) (roleEngine, error))` — SetRoleEngineFactory 注入角色会话引擎的构造器（nil = 回退默认的框架 Session）。
+- `func (r *Runtime) roleTurnState() *roleTurnState` — roleTurnState 返回（必要时创建）角色回合状态。
+- `func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string, error)` — runRoleRound 是角色回合的公共执行原语：一轮角色回合的**顺序即语义**。
+- `func (r *Runtime) roleSessionFor(spec roleRoundSpec) (*roleSessionHandle, error)` — roleSessionFor 取（必要时开）角色会话的引擎，并在**开的那一刻**把这个角色的权限
+- `func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error)` — newRoleEngine 造一个角色会话的引擎：优先用注入的构造器（测试/严格隔离面），
+- `func (r *Runtime) newRoleEngineWithHistory(sessionID, systemPrompt string, resumeHistory []types.Message) (roleEngine, error)`
+- `func (r *Runtime) roleLoopHooks() *session.LoopHooks` — roleLoopHooks 返回角色回合的 ReAct 钩子集合：把工具调用与返回送到**按本轮身份选定的**
+- `func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCallInfo)` — reportRoleToolStart 报告员工回合的一次工具调用开始（非员工回合 = 零成本 no-op）。
+- `func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolCallInfo)` — reportRoleToolComplete 报告员工回合的一次工具调用收口（成功/出错都在这一条上）。
+- `func (r *Runtime) snapshotRoleWorkItemTranscript(ctx context.Context)` — snapshotRoleWorkItemTranscript 在显式工具边界补一次 WorkItem transcript 快照。
+- `func (r *Runtime) publishRoleToolActivity(activity dto.RoleToolActivity)` — publishRoleToolActivity 把一条员工工具活动交给观察者（未订阅 = 丢弃，不排队、不落盘）。
+- `func (r *Runtime) SetRoleToolCallback(callback func(dto.RoleToolActivity))` — SetRoleToolCallback 注入**员工回合**工具活动的观察者（nil = 取消订阅）。
+- `func (r *Runtime) SetRoleTurnEndCallback(callback func(mainSessionID, roleSessionID string))` — SetRoleTurnEndCallback 注入**员工回合收口**的观察者（nil = 取消订阅）。
+- `func (r *Runtime) publishRoleTurnEnd(mainSessionID, roleSessionID string)` — publishRoleTurnEnd 通知"这一轮员工回合收口了"（未订阅 = 丢弃，不排队、不落盘）。
+- `func (r *Runtime) roleTurnSystemPrompt(roleName string) string` — roleTurnSystemPrompt 组装员工回合的系统提示：**已登记的员工提示词优先**
+- `func (r *Runtime) bindRoleProjectRoot(mainSessionID, roleSessionID string)` — bindRoleProjectRoot 把角色会话的工具路径根对齐到主会话的项目根：角色读的
+- `func (r *Runtime) ReleaseRoleSessions()` — ReleaseRoleSessions 释放全部角色会话（进程收尾 / 会话清理）。角色会话是**派生
+- `func (r *Runtime) RoleSessionIDs() []string` — RoleSessionIDs 返回当前已打开的角色会话号（排序无关，巡检/诊断面）。
+- `func teammateToolFace(inner session.Agent) session.Agent` — teammateToolFace 把框架 Agent 包成 teammate 工具面。inner 为 nil 时原样返回 nil，
+- `func (a *teammateAgent) LLM() types.ChatCompleter`
+- `func (a *teammateAgent) VisibleTools(ctx context.Context) []types.Tool`
+- `func (a *teammateAgent) Dispatch(ctx context.Context, name, argsJSON string) (string, error)`
+
+### runtime_role_turn_maxloops_test.go
+
+- `func TestRoleSessionHonoursDeclaredMaxLoops(t *testing.T)` — TestRoleSessionHonoursDeclaredMaxLoops：一个 teammate **自己声明的**回合上限真的
+- `func TestWorkerTurnLimitPrefersDeclaredAndFallsBackToConstant(t *testing.T)` — TestWorkerTurnLimitPrefersDeclaredAndFallsBackToConstant：没声明回合上限的 teammate
+
+### runtime_role_turn_stream_test.go
+
+- `func TestRunRoleRoundForwardsOnDelta(t *testing.T)` — TestRunRoleRoundForwardsOnDelta：装上 OnDelta 时逐段转发，返回值仍是完整回答。
+- `func TestRunRoleRoundWithoutOnDelta(t *testing.T)` — TestRunRoleRoundWithoutOnDelta：没有观察面时（员工回合/未装配 GUI）回合照旧。
+
+### runtime_role_turn_test.go
+
+- `func (engine *fakeRoleEngine) SessionID() string`
+- `func (engine *fakeRoleEngine) SetSystemPrompt(prompt string)`
+- `func (engine *fakeRoleEngine) History() []types.Message` — ClearHistory 是 FreshContext 回合的隔离手段（评审回合每轮前清历史）。
+- `func (engine *fakeRoleEngine) ClearHistory()`
+- `func (engine *fakeRoleEngine) clearCount() int` — clearCount 返回被要求清历史的次数。
+- `func (engine *fakeRoleEngine) SetMaxLoops(n int)`
+- `func (engine *fakeRoleEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *fakeRoleEngine) snapshot() (prompt string, maxLoops, calls int, ctxs []context.Context)`
+- `func newRoleTurnRuntime(t *testing.T) (*Runtime, *fakeRoleEngine, *int)` — newRoleTurnRuntime 造一个装了假引擎工厂的 Runtime，权限面按生产默认配置装配。
+- `func (r *Runtime) employeeSpec(mainSession, role, roleSession, policy, input string) roleRoundSpec` — employeeSpec 组装一轮"员工回合"的执行面入参：系统提示按角色登记取、本轮正文
+- `func employeeRoundInput(roleName, input string) string` — employeeRoundInput 组装员工这一轮的工作正文（与 worker 的 round_input 同口径）。
+- `func TestRoleTurnRunsOnRoleSessionAndAssignsEmployeePermission(t *testing.T)` — TestRoleTurnRunsOnRoleSessionAndAssignsEmployeePermission 钉住"开角色会话的同时
+- `func TestRoleTurnContextYieldsEmployeeToolFace(t *testing.T)` — TestRoleTurnContextYieldsEmployeeToolFace 钉住"按构造授权"：角色回合的 ctx 一
+- `func TestRoleTurnReusesRoleSessionAcrossTurns(t *testing.T)` — TestRoleTurnReusesRoleSessionAcrossTurns：同一角色会话复用同一个引擎（员工有
+- `func TestRoleTurnPropagatesEngineError(t *testing.T)` — TestRoleTurnPropagatesEngineError：执行面出错必须向上抛。吞成"没产出"会让治理
+- `func TestRoleTurnRejectsMissingIdentity(t *testing.T)` — TestRoleTurnRejectsMissingIdentity：角色名与角色会话是权限落地的锚点，缺一不跑。
+- `func TestRoleTurnInheritedPolicyAssignsNothing(t *testing.T)` — TestRoleTurnInheritedPolicyAssignsNothing：空/full 口径是"继承宿主默认"，
+- `func TestReleaseRoleSessionsDropsEngines(t *testing.T)` — TestReleaseRoleSessionsDropsEngines：角色会话是派生执行面，释放后重开即正确
+- `func TestRoleRoundRejectsReentrantDriveOnSameSession(t *testing.T)` — TestRoleRoundRejectsReentrantDriveOnSameSession 钉住回合闸门**不可重入**且被拦成
+- `func TestRoleRoundAllowsSequentialRoundsOnSameSession(t *testing.T)` — TestRoleRoundAllowsSequentialRoundsOnSameSession 是上一条的**反向护栏**：在飞标记
+- `func TestRoleEngineDefaultKeepsRoleSessionIdentity(t *testing.T)` — TestRoleEngineDefaultKeepsRoleSessionIdentity：默认引擎（未注入构造器）必须用
+- `func TestTeamMemberInstancesAreSessionScoped(t *testing.T)` — TestTeamMemberInstancesAreSessionScoped（用例 2「团队会话粒度」，修前 RED）：
+
+### runtime_role_user_spaces.go
+
+- `func (r *Runtime) SetRoleUserSpacesProvider(provider func(sessionID, role string) []string)` — SetRoleUserSpacesProvider 注入“角色在远端用户空间允许访问的路径”读面。
+- `func (r *Runtime) roleUserSpacesFor(sessionID, role string) []string`
+
+### runtime_routing_notice_test.go
+
+- `func TestRoutingNoticeObserverRecordsServedRouteAndSummary(t *testing.T)`
+- `func TestRoutingNoticeObserverOverwritesRouteWithFinalAttempt(t *testing.T)`
+- `func TestRoutingNoticeObserverSkipsNodeAndProcessLevelRequests(t *testing.T)`
+- `func TestRoutingNoticeObserverDedupesUnpinnedSummaryPerSessionAndAccount(t *testing.T)`
+
+### runtime_schedule.go
+
+- `func (r *Runtime) RestoreScheduledTasks() (int, int, error)` — RestoreScheduledTasks 从全局 JSONL 读回定时任务定义（冷启动重建）：返回
+- `func (r *Runtime) RegisterScheduledCommand(command ScheduledCommand) error` — RegisterScheduledCommand 登记白名单命令（重复键拒绝；main 装配调用）。
+- `func (r *Runtime) ScheduledCommands() []ScheduledCommandInfo` — ScheduledCommands 返回白名单命令展示信息（GUI 新建弹窗数据源）。
+- `func (r *Runtime) ScheduleTask(ctx context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验入参；返回创建后的快照）。
+- `func (r *Runtime) UpdateScheduledTask(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)` — UpdateScheduledTask 用一份新定义覆盖既有定时/周期任务（编辑入口；校验与创建
+- `func (r *Runtime) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
+- `func (r *Runtime) ScheduledTasksSnapshot() []ScheduledTaskStatus` — ScheduledTasksSnapshot 返回定时/周期任务只读快照（application 快照投影数据源）。
+- `func (r *Runtime) SetScheduledPromptExecutor(executor ScheduledPromptExecutor)` — SetScheduledPromptExecutor 注入提示词任务执行器（nil = 禁用 prompt 任务）。
+- `func (r *Runtime) SetSchedulerObserver(observer func())` — SetSchedulerObserver 注入调度器状态变化通知（main 接 application 投影发布）。
+
+### runtime_session.go
+
+- `func (b *sessionBindings) sessionID() string`
+- `func (b *sessionBindings) setSessionID(id string)`
+- `func (b *sessionBindings) setMainHistory(history *store.DurableHistory)`
+- `func (b *sessionBindings) prepareMainSessionHistory(sessionID string, messages []types.Message) bool`
+- `func (b *sessionBindings) attachContextStore(st *store.SessionContextStore, boards *storeboard.BoundStore)`
+- `func (b *sessionBindings) contextStore() *store.SessionContextStore`
+- `func (b *sessionBindings) boardStore() *storeboard.BoundStore`
+- `func (r *Runtime) SessionContextStoreFor(sessionID string) *store.SessionContextStore` — SessionContextStoreFor 返回指定会话的 SessionContextStore（goal 第五栈
+- `func (r *Runtime) SessionBoardsFor(sessionID string) *storeboard.BoundStore` — SessionBoardsFor returns the session-bound board archive injected by the
+- `func (r *Runtime) getTurnArchiver() seelexctx.TurnArchiver` — getTurnArchiver 返回全局轮次归档器（跨会话共享；nil = 未注入）。
+- `func (r *Runtime) setProjectKnowledge(provider func() *store.ProjectRecord)` — setProjectKnowledge 设置全局项目级模块语义提供者（ProjectKnowledge
+- `func (r *Runtime) projectBlock() *seelectx.PromptBlock` — projectBlock 渲染项目级模块语义块（ProjectKnowledge，会话前预读缓存；
+- `func (r *Runtime) enqueueSubagentContext(content string)` — enqueueSubagentContext is the subagent-to-main merge-back write. It is
+- `func (r *Runtime) DrainSubagentContexts() []string` — DrainSubagentContexts returns all currently queued merge-back messages. It
+- `func (r *Runtime) subagentContextDropped() int64` — subagentContextDropped 返回 merge-back 队列溢出计数（诊断面）。
+- `func (r *Runtime) mergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot` — mergeBackIntoParent 把子代理快照合并进 Runtime 持有的父证据，并把合并
+
+### runtime_session_release.go
+
+- `func (r *Runtime) ReleaseSessionBundle(sessionID string) bool` — ReleaseSessionBundle 释放一个会话的桥侧内存占用：移出 bundles 注册表并清掉
+- `func (r *Runtime) takeSessionBundle(sessionID string) bool` — takeSessionBundle 在注册表锁内做"活跃别名 / 在册"两项检查并移出本体：这两步必须原子
+- `func (r *Runtime) dropSessionResidue(sessionID string)` — dropSessionResidue 清掉同会话的 per-会话残格（调用方已把会话移出 bundles）。
+
+### runtime_session_release_test.go
+
+- `func hasBundle(runtime *Runtime, sessionID string) bool` — hasBundle 读桥侧注册表里有没有该会话本体（包内用例直读，不为此export一个
+- `func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T)` — TestReleaseSessionBundleDropsBundleAndResidue：桥侧会话本体释放面——移出
+
+### runtime_session_test.go
+
+- `func TestRuntimeMainSessionIDTracksCurrentSession(t *testing.T)` — TestRuntimeMainSessionIDTracksCurrentSession 验证 MainSessionID 跟踪
+- `func TestRuntimeNewMainSessionWithIDKeepsDurableResumeIdentity(t *testing.T)`
+- `func TestRuntimeSessionBundlesArePerSession(t *testing.T)` — TestRuntimeSessionBundlesArePerSession 验证会话槽化（决策契约 §1/§2）：
+
+### runtime_subagent.go
+
+- `func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error)` — SetEventPersister 安装执行事实持久化钩子（事件库的事实轨）。
+- `func (r *Runtime) currentEventPersister() func(context.Context, frameworkevent.Event) error` — currentEventPersister 返回装配期注入的事实持久化钩子（可能为 nil = 宿主
+- `func (r *Runtime) SetSubagentPolicy(policy dto.SubagentPolicy)` — SetSubagentPolicy 写入子代理执行策略默认槽（effort 档位决定 fork 数量/并发
+- `func (r *Runtime) SetSubagentPolicyFor(sessionID string, policy dto.SubagentPolicy)` — SetSubagentPolicyFor 按会话写入子代理执行策略槽（会话 effort 同步入口；
+- `func (r *Runtime) currentSubagentPolicy(ctx context.Context) dto.SubagentPolicy` — currentSubagentPolicy 返回执行 ctx 所属会话的策略；未建槽时回退默认槽。
+- `func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (string, error)` — agentDispatch 统一工具分发入口（agent.DirectDispatch 语义等价）。
+- `func (r *Runtime) beginNodeWorktree(scope dto.SceneScope, nodeID string) *worktree.NodeWorktree` — beginNodeWorktree 为节点创建 worktree（降级返回 nil；语义见
+- `func (r *Runtime) currentAgentFactory() frameworknode.AgentFactory` — currentAgentFactory 返回当前子代理工厂（AgentNode 的读取器）。
+- `func (r *Runtime) currentNodeSceneScope(sceneID string) dto.SceneScope` — currentNodeSceneScope 解析节点执行作用域。Plan 执行器退役后，节点只有
+- `func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error` — finishNodeWorktree 收尾：变基仓库 → 提交判定 → 合并 → 清理。
+- `func (r *Runtime) forkDeps() fork.Deps` — forkDeps 把 Runtime 能力面注入 fork 域（Deps 全部为闭包，域内不依赖根包）。
+- `func (r *Runtime) runForkSubagent(ctx context.Context, id, goal, taskID string, maxLoops int) (string, error)` — runForkSubagent 直接执行一条 fork 子代理：按一份 spec 起一个子代理会话并
+- `func (a subagentJobsAdapter) Add(spec fork.SubagentJobSpec, cancel context.CancelFunc) (string, error)` — Add 登记一条子代理作业并挂取消口。
+- `func (a subagentJobsAdapter) Note(handle, text string)` — Note 追加子代理的已产出内容（kill 后仍可 fetch）。
+- `func (a subagentJobsAdapter) Complete(handle string, state dto.AsyncState)` — Complete 合成终态（运行体系被动 done）。
+- `func (a subagentJobsAdapter) router() *toolreg.Router` — router 延迟解析工具路由：fork 域在 NewRuntime 构造期就拿到这个端口（那时
+- `func (r *Runtime) subagentJobs() fork.SubagentJobs` — subagentJobs 返回子代理作业端口（延迟解析）。
+- `func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (string, error)` — forkSubagentsHandler 是 fork_subagents 的执行入口（委托 fork.Tool.Handle）。
+- `func (r *Runtime) nodeDeps() seenode.Deps` — nodeDeps 把 Runtime 能力面注入 node 域（Deps 全部为闭包，域内不依赖根包）。
+- `func (r *Runtime) nodeSessionComponents() session.SessionComponents` — nodeSessionComponents 构造子代理会话的公共组件（bridge.WithSessionComponents
+- `func (r *Runtime) nodeSessionID(systemPrompt string) string` — nodeSessionID 派生节点会话 ID（判据在 node 域：以系统提示为种子的稳定 hash）。
+- `func (r *Runtime) registerForkTool()` — registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
+- `func (r *Runtime) releaseNodeWorktree(nodeID string)` — releaseNodeWorktree 在节点结束时从注册表移除（成功路径已清理；失败路径
+
+### runtime_subagent_concurrency_test.go
+
+- `func TestSubagentRouteConcurrencyNarrowsThePolicy(t *testing.T)` — TestSubagentRouteConcurrencyNarrowsThePolicy 钉住 limits.concurrency.subagent：
+
+### runtime_subagent_recovery.go
+
+- `func (r *Runtime) AttachSubSessionStore(st *store.NodeSessionStore)` — AttachSubSessionStore 装配子代理会话记录持久化（Router 就绪后注入）：
+- `func (r *Runtime) sessionProjectIDFor(sessionID string) string` — sessionProjectIDFor 返回会话绑定的项目 ID（无绑定 = 默认项目 ""）。角色/
+- `func (r *Runtime) persistSubagentConclusion(mainSessionID string, record store.NodeSessionRecord)` — persistSubagentConclusion 把子代理最终结论写入主会话事件库
+- `func (r *Runtime) RestoreSubagentAnchors(sessionID string) error` — RestoreSubagentAnchors 从持久化重建目标会话的恢复锚点。**按记录快照里的身份分派策略**
+- `func (r *Runtime) recordBelongsToCurrentMain(record store.NodeSessionRecord) bool` — recordBelongsToCurrentMain 判定一条持久化子代理记录是否属于**当前活着的**
+- `func loadSubagentConclusions(ctx context.Context, router *store.Router, projectID, sessionID string) ([]store.NodeSessionRecord, error)` — loadSubagentConclusions 从主会话事件库读取子代理最终结论事件。
+
+### runtime_subagent_recovery_test.go
+
+- `func (recoveryTestCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error)`
+- `func (recoveryTestCompleter) CompleteStream(context.Context, []types.Message, []types.Tool, func(string)) (string, string, []types.ToolCall, error)`
+- `func (recoveryTestCompleter) CompleteStreamEvents(context.Context, []types.Message, []types.Tool, func(types.StreamEvent)) (string, string, []types.ToolCall, error)`
+- `func (a recoveryTestAgent) VisibleTools(context.Context) []types.Tool`
+- `func (a recoveryTestAgent) Dispatch(context.Context, string, string) (string, error)`
+- `func (a recoveryTestAgent) LLM() types.ChatCompleter`
+- `func TestSubagentConclusionFollowsMainAndAnchorsRebuild(t *testing.T)` — TestSubagentConclusionFollowsMainAndAnchorsRebuild 验证生命周期闭环：
+- `func findTreeNode(nodes []dto.SubAgentTreeNode, id string) *dto.SubAgentTreeNode`
+
+### runtime_subagent_resume.go
+
+- `func (r *Runtime) SetSubagentParentRepairer(fn func(sessionID string) error)` — SetSubagentParentRepairer 注入父侧历史补齐钩子（缺失的子代理结果 →
+- `func (r *Runtime) SubagentResumeNote(nodeID string) string` — SubagentResumeNote 返回节点当前的恢复说明（node 装配 PromptBlocks 时读取；
+- `func (r *Runtime) setSubagentResumeNote(nodeID, note string)`
+- `func (r *Runtime) clearSubagentResumeNote(nodeID string)`
+- `func (r *Runtime) setSubagentRedispatchHook(fn func(ctx context.Context, nodeID, goal string) (string, error))` — setSubagentRedispatchHook 覆盖同键重跑的传输实现（nil = 默认
+- `func (r *Runtime) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)` — ListSubagentRecovery 列出目标主会话下残留的子代理单元及其恢复态
+- `func (r *Runtime) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)` — ResumeInterruptedSubagents 冷恢复续跑目标会话下所有未完成子代理：
+- `func (r *Runtime) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)` — ResumeSubagent 定点续跑单个子代理（幂等键 = 节点 ID；失败可重试）。
+- `func (r *Runtime) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)` — ForkSubagents 直接派发一批子代理（自动化/冒烟入口）。
+- `func resumeNoteRole(steps []resume.Step) string` — resumeNoteRole 报告实际注入过的恢复说明 role（未注入 → 空串）。
+- `func (r *Runtime) newSubagentResumePort(sessionID string) (*subagentResumePort, error)` — newSubagentResumePort 组装一次恢复所需的适配器（每次调用独立，不共享
+- `func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error)` — Locate 定位残留子代理单元：残留记录 + 父级结论事件。
+- `func nodeStateOfRecord(wire string) dto.SubAgentNodeStatus` — ── 记录那一格的终态词表（字面量只有一份，在对外契约里）────────────────────
+- `func (p *subagentResumePort) RepairParent(ctx context.Context, _ resume.Unit) error` — RepairParent 补齐父侧历史：缺失的子代理结果 → provider-only tool 占位。
+- `func (p *subagentResumePort) RestoreScene(_ context.Context, unit resume.Unit) (resume.Scene, error)` — RestoreScene 重建被执行单元自己的现场：目标/已知进展/工作树。
+- `func (p *subagentResumePort) InjectNote(_ context.Context, unit resume.Unit, scene resume.Scene) error` — InjectNote 生成并以 system 注入恢复说明：只进被执行单元自己的上下文
+- `func (p *subagentResumePort) Reexecute(ctx context.Context, unit resume.Unit, _ resume.Scene) (resume.Outcome, error)` — Reexecute 以同一幂等键（节点 ID = fork 子代理 id）重新派发：
+- `func (p *subagentResumePort) Converge(ctx context.Context, unit resume.Unit, outcome resume.Outcome) error` — Converge 收敛：清除恢复说明；已有结论的残留记录幂等删除（结论唯一）。
+- `func (p *subagentResumePort) ensureConclusion(ctx context.Context, unit resume.Unit) error` — ensureConclusion 保证残留单元的结论已跟随父级（结论唯一）。
+- `func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionID string) (map[string]struct{}, error)` — subagentConclusionSet 读取父级事件库里的子代理结论（幂等键集合）。
+- `func truncateSubagentResumePreview(value string) string` — truncateSubagentResumePreview 截断摘要（报告/恢复说明用）——转调契约那**唯一一份**预览
+
+### runtime_subagent_resume_test.go
+
+- `func newResumeTestFixture(t *testing.T) *resumeTestFixture`
+- `func (fixture *resumeTestFixture) save(t *testing.T, record store.NodeSessionRecord)`
+- `func TestSubagentResumeRestartsInterruptedUnit(t *testing.T)` — TestSubagentResumeRestartsInterruptedUnit（T-A-01/T-A-04）：残留 running
+- `func TestSubagentResumeSkipsTerminalResidual(t *testing.T)` — TestSubagentResumeSkipsTerminalResidual（T-A-02）：done 记录（结论丢失的
+- `func TestSubagentResumeSingleNodeFailureKeepsRecordRetryable(t *testing.T)` — TestSubagentResumeSingleNodeFailureKeepsRecordRetryable：定点重跑失败必须
+- `func mainHistoryLen(t *testing.T, router *store.Router, sessionID string) int` — mainHistoryLen 读取主会话持久化历史长度（断言恢复链路不污染 main）。
+
+### runtime_subagent_session.go
+
+- `func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error)` — NewSubagentSessionWithID 创建独立子代理会话单元（域包 `SessionFactory.NewWithID`）。
+- `func (r *Runtime) SubagentSessionCount() int` — SubagentSessionCount 返回当前注册的子代理会话数（监控/测试）。
+
+### runtime_subagent_session_test.go
+
+- `func TestSubagentCreatesOwnSession(t *testing.T)` — TestSubagentCreatesOwnSession（UC7）：plan 节点 = 独立 SubagentSession——
+- `func TestSubagentReclaimAndMergeBack(t *testing.T)` — TestSubagentReclaimAndMergeBack（UC8）：子代理结束经 Unregister 回收
+- `func TestRuntimeShutdownConcurrentWithSubagentSessions(t *testing.T)` — TestRuntimeShutdownConcurrentWithSubagentSessions（R5 子代理面）：注册多个
+
+### runtime_task.go
+
+- `func (r *Runtime) ledger() *task_context.Ledger` — ledger 返回台账域句柄：nil 接收者与"未装配"都返回 nil 句柄，判据由域自己给
+- `func (r *Runtime) TaskSnapshot() []dto.TaskRecord` — TaskSnapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）。
+- `func (r *Runtime) TaskSnapshotFor(sessionID string) []dto.TaskRecord` — TaskSnapshotFor 返回指定会话的 task 注册表快照（会话级读面：持久化落盘
+- `func (r *Runtime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — TaskAdd 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
+- `func (r *Runtime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — TaskAddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写自身
+- `func (r *Runtime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error)` — ResolveTaskByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
+- `func (r *Runtime) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error)` — ResolveTaskByKeyFor 按归属会话查 task。
+- `func (r *Runtime) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)` — TaskSetStatus 更新 task 状态（生命周期打点）。
+- `func (r *Runtime) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)` — TaskSetStatusFor 按归属会话更新 task 状态。
+- `func (r *Runtime) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error)` — TaskAttachParticipant 记录参与节点（并行执行证明）。
+- `func (r *Runtime) TaskAppendTrace(id string, point dto.TaskTracePoint) (dto.TaskRecord, error)` — TaskAppendTrace 追加任务生命周期 trace 点。
+- `func (r *Runtime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)` — SwitchSessionTasks 会话切换：保存旧会话注册表快照到其 scope 分区，装载
+- `func (r *Runtime) TaskChangedChannel() <-chan dto.TaskRecord` — TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递）。
+- `func (r *Runtime) SetCurrentTaskBatch(sessionID, batchID string)` — SetCurrentTaskBatch 设置会话级默认批次（application startChat 按会话调用；
+- `func (r *Runtime) CurrentTaskBatchFor(sessionID string) string` — CurrentTaskBatchFor 返回指定会话的默认批次（TaskAdd 盖章辅助；空 = 未启动）。
+- `func (r *Runtime) TodoSnapshot() []dto.TodoItem` — TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；主代理
+- `func (r *Runtime) SetTodoStatus(index int, status dto.TodoItemStatus) error` — SetTodoStatus 设置指定待办项的三态（GUI 工作表格人工状态更新入口；
+- `func (r *Runtime) TodoSnapshotFor(sessionID string) []dto.TodoItem` — TodoSnapshotFor 按归属会话读清单（工具族按调用会话取数）。
+- `func (r *Runtime) ReplaceTodoFor(sessionID string, items []dto.TodoItem) error` — ReplaceTodoFor 按归属会话整体替换清单（todo_init）。
+- `func (r *Runtime) AppendTodoFor(sessionID string, item dto.TodoItem, limit int) error` — AppendTodoFor 按归属会话追加清单项（todo_add；上限与注册表同一口径）。
+- `func (r *Runtime) SetTodoStatusFor(sessionID string, index int, status task.TaskStatus) (dto.TaskRecord, error)` — SetTodoStatusFor 按归属会话设置清单项三态（todo_done）。
+- `func (r *Runtime) SetSessionWorkspace(sessionID, workspaceID string)` — SetSessionWorkspace 记录会话绑定的 workspace ID（application 在恢复/
+- `func (r *Runtime) RegisterTaskTerminalTools(handler task.TaskTerminalHandler)` — RegisterTaskTerminalTools 把终态工具 provider 注册进工具注册表（幂等）。
+
+### runtime_team_message_test.go
+
+- `func TestTeamMessageIsRegisteredAndRequiresAWorkItem(t *testing.T)` — TestTeamMessageIsRegisteredAndRequiresAWorkItem 钉住工具壳：team_message 与
+- `func (e *blockingConversationEngine) SessionID() string`
+- `func (e *blockingConversationEngine) SetSystemPrompt(string)`
+- `func (e *blockingConversationEngine) SetMaxLoops(int)`
+- `func (e *blockingConversationEngine) ClearHistory()`
+- `func (e *blockingConversationEngine) History() []types.Message`
+- `func (e *blockingConversationEngine) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error)`
+- `func TestTeamMessageTimeoutReturnsJobHandleWithoutCancellingChat(t *testing.T)` — TestTeamMessageTimeoutReturnsJobHandleWithoutCancellingChat 钉住有界等待：
+
+### runtime_teammate_inspection.go
+
+- `func (r *Runtime) TeammateInspection(ctx context.Context, mainSessionID, role string) (dto.TeammateInspectionView, error)` — TeammateInspection aggregates safe read-only facts for the teammate detail
+- `func (r *Runtime) roleSessionHandleFor(sessionID string) *roleSessionHandle`
+- `func (r *Runtime) inspectPluginCapabilities(member store.TeamworkMember, role string) []dto.PluginCapabilityView`
+- `func (r *Runtime) inspectPermissionVector(role string, member store.TeamworkMember, groups map[string]uint8, plugins []dto.PluginCapabilityView) dto.PermissionVectorView`
+- `func decodePermissionAbilities(bits uint8) []string`
+
+### runtime_teammate_session_live.go
+
+- `func (r *Runtime) TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLive 实现 contract.TeammateSessionProjection：**默认页**（域包一行转发）。
+- `func (r *Runtime) TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePage 是同一份读数的**分页读法**（域包一行转发；判据在域包）。
+- `func (r *Runtime) teammateLiveDeps() teamwork.TeammateLiveDeps` — teammateLiveDeps 把"当前角色回合执行面"接成域包要的一格读数（nil Runtime ⇒ 空端口，
+- `func (r *Runtime) teammateLiveSession(sessionID string) (teamwork.TeammateLiveSession, bool)` — teammateLiveSession 读该会话的执行面句柄（没有 / 没有引擎 ⇒ ok = false）。
+
+### runtime_teammate_session_live_page_test.go
+
+- `func TestTeammateSessionLivePageCoversSessionByPages(t *testing.T)` — TestTeammateSessionLivePageCoversSessionByPages 多轮之后逐页读：
+
+### runtime_teammate_session_live_test.go
+
+- `func TestTeammateSessionLiveReadsCurrentRound(t *testing.T)`
+- `func TestTeammateSessionLiveReportsMissingExecutionFace(t *testing.T)`
+
+### runtime_teamwork.go
+
+- `func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error` — SetTeamworkBackend 注入 teamwork 持久面（组合根在装配期调用一次）。
+- `func (r *Runtime) teamworkEnabled() bool` — teamworkEnabled 报告 leader 编排是否已装配（工具注册的前置条件）。
+- `func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, error)` — coordinatorFor 取（必要时建）当前会话的 Coordinator。
+- `func (r *Runtime) coordinatorForKey(key dto.SessionKey) (*teamwork.Coordinator, error)` — coordinatorForKey 取（必要时建）某个会话作用域键对应的 Coordinator。
+- `func teamworkJobLimit(maxJobs int) int` — teamworkJobLimit 把"未配置"折成域内出厂值。role 数与 job 数不相乘、
+- `func (r *Runtime) registerTeamworkTools()` — registerTeamworkTools 注册 leader 编排面（RegisterBuiltins 内调用；未装配 backend
+- `func (r *Runtime) afterTeamworkMutation(ctx context.Context)` — afterTeamworkMutation 是"团队计划变过一次"之后的固定两步：失效看板缓存 + 推进存档
+- `func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string, error)`
+- `func (r *Runtime) dispatchAssemblyReading(ctx context.Context, coordinator *teamwork.Coordinator, role string) *rolePluginAssemblyView` — dispatchAssemblyReading 给**派发回执**补一条装配读数（与运行面同一判据：见
+- `func dispatchItemRole(ctx context.Context, coordinator *teamwork.Coordinator, itemID string) string` — dispatchItemRole 在计划里按工作项 id 找它的执行角色（派发回执的读数要按**这个工作项**
+- `func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (string, error)`
+- `func (r *Runtime) teamWorkHandler(ctx context.Context, argsJSON string) (string, error)` — teamWorkHandler 给一个里程碑**排活**（分里程碑排活：依赖未完成的里程碑会被拒）。
+- `func (r *Runtime) teamItemHandler(ctx context.Context, argsJSON string) (string, error)` — teamItemHandler 调整一条**尚未开始**的工作项。
+- `func (r *Runtime) teamAcceptHandler(ctx context.Context, argsJSON string) (string, error)` — teamAcceptHandler 是 leader 的**验收通过**：工作项 → done，并结束这件事的执行隔离。
+- `func (r *Runtime) teamFailHandler(ctx context.Context, argsJSON string) (string, error)` — teamFailHandler 判定一件工作不通过（现场与记忆都留着，可重派）。
+- `func (r *Runtime) teamRecoverHandler(ctx context.Context, _ string) (string, error)` — teamRecoverHandler 做中断恢复（额度中断 / 重启）：读回计划与绑定，把"句柄已作废、
+- `func (r *Runtime) teamItemsHandler(ctx context.Context, _ string) (string, error)` — teamItemsHandler 读回全部工作项（甘特图的数据面）。
+- `func (r *Runtime) teamMessageHandler(ctx context.Context, argsJSON string) (string, error)` — teamMessageHandler 把一轮 teammate 对话交给统一的 AgentConversationPort。
+- `func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string, error)`
+- `func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (string, error)`
+- `func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error)` — teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套收口四步（作业回收、
+- `func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest, sink jobs.Sink) error` — RunWorker 实现 teamwork.WorkerRunner：在角色会话里跑一轮有界回合。
+- `func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec` — workerRoleRoundSpec 组装一个 teammate 作业回合的执行面入参。
+- `func (r *Runtime) writeWorkerOutput(path, text string) error` — writeWorkerOutput 把本轮正文写进**产品自有**的输出文件（jobs.Spec.OutputPath 形态）。
+- `func (r *Runtime) teamworkJobOutputs() teamwork.JobOutputs` — teamworkJobOutputs 取当前装配的产品作业输出面（未装配 = nil）。
+- `func writeWorkerOutputFile(path, text string) error` — writeWorkerOutputFile 是未装配产品输出面时的直接落盘（带落点却未装配 = 组装矛盾，
+- `func (r *Runtime) bindWorkerProjectRoot(mainSessionID, roleSessionID, worktreeName string)` — bindWorkerProjectRoot 把角色会话的工具根绑到它这一轮该看到的工作区：有 worktree
+- `func (r *Runtime) ReleaseWorkspace(ctx context.Context, role string) error` — ReleaseWorkspace 实现 teamwork.WorkspaceReleaser：释放一个 teammate 的**角色级**
+- `func (r *Runtime) ResetSession(ctx context.Context, roleSessionID string) error` — ResetSession 实现 teamwork.SessionResetter：清一个角色会话的**记录内容**
+- `func jsonReceipt(value map[string]any) (string, error)`
+
+### runtime_teamwork_board.go
+
+- `func (r *Runtime) teamBoardAssemblies(plan store.TeamworkPlan) []dto.PluginAssemblyView` — teamBoardAssemblies 算一次下发/存档需要的逐成员装配读数。
+- `func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：返回某会话的团队看板
+- `func (r *Runtime) invalidateTeamworkBoard()` — invalidateTeamworkBoard 丢弃看板缓存（team_* 工具成功返回后调用）。
+
+### runtime_teamwork_board_archive.go
+
+- `func (r *Runtime) archiveTeamBoard(ctx context.Context)` — archiveTeamBoard 在 team_* 动作成功后刷新团队看板存档（best-effort）。
+- `func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key store.Key) *dto.TeamworkBoardView` — readTeamBoardArchive 读存档并还原成看板投影（判据在域包）。
+
+### runtime_teamwork_board_archive_test.go
+
+- `func (m *memBoardStore) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error`
+- `func (m *memBoardStore) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error)`
+- `func (m *memBoardStore) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error`
+- `func (m *memBoardStore) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error)`
+- `func (m *memBoardStore) snapshot() []store.TeamBoardMeta`
+- `func (m *memBoardStore) latest(key store.Key) (store.TeamBoardMeta, bool)`
+- `func archiveBackend(plans *memPlanStore, boards *memBoardStore, sessionID string) TeamworkBackend` — archiveBackend 装配一份带存档面的 backend（计划面用内存桩）。
+- `func boardPlanArgs(teamID string, version int) string` — boardPlanArgs 造一份最小合法计划（一个里程碑 + 一个在编角色；阶段口径已退场）。
+- `func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T)`
+- `func TestTeamBoardArchiveThrottlesIdenticalPayload(t *testing.T)`
+- `func TestTeamworkBoardSnapshotRecoversFromArchive(t *testing.T)`
+- `func TestTeamworkBoardSnapshotNilWhenArchiveClosed(t *testing.T)`
+- `func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T)`
+- `func TestEveryTeamworkMutationHandlerRefreshesBoardArchive(t *testing.T)` — TestEveryTeamworkMutationHandlerRefreshesBoardArchive 是接线守卫（设计契约 §10 第 5 条）：
+- `func teamworkHandlerBody(source, name string) (string, bool)` — teamworkHandlerBody 截出一个 handler 的函数体（到下一个顶层 func 为止）。
+
+### runtime_teamwork_board_assembly_test.go
+
+- `func boardAssemblyRuntime(t *testing.T) (*Runtime, *memPlanStore)` — boardAssemblyRuntime 是这块看板的基座：宿主全局激活 cad（`cad_*`），另有两个只能按
+- `func boardAssemblyPlan(t *testing.T, runtime *Runtime) string` — boardAssemblyPlan 立一支三成员的团队：exec 装 docs / pm 不装（空集）/ writer 装 ops。
+- `func boardToolsWithPrefix(runtime *Runtime, prefix string) int` — boardToolsWithPrefix 从**全量工具面**里数出某个插件 include 前缀下的工具数：它是本
+- `func boardMemberByRole(t *testing.T, members []dto.TeamworkMemberView, role string) dto.TeamworkMemberView`
+- `func TestTeamworkBoardCarriesMemberAssemblyReadings(t *testing.T)` — TestTeamworkBoardCarriesMemberAssemblyReadings 是主用例：三态可区分 + 与计划声明一致。
+- `func TestTeamworkBoardAssemblyFaultIsVisible(t *testing.T)` — TestTeamworkBoardAssemblyFaultIsVisible 钉"失灵 ≠ 没装配"：声明过的插件被撤掉之后，
+- `func TestTeamworkBoardAssemblySharesOneShapeWithReceipt(t *testing.T)` — TestTeamworkBoardAssemblySharesOneShapeWithReceipt 是**同一形状**的回归断言：
+- `func TestTeamBoardArchiveCarriesSameAssemblyReadings(t *testing.T)` — TestTeamBoardArchiveCarriesSameAssemblyReadings 钉**存档**那一侧也带读数：存档与下发
+- `func boardSameStrings(got, want []string) bool`
+
+### runtime_teamwork_board_close.go
+
+- `func (r *Runtime) CloseTeamBoard(ctx context.Context) error` — CloseTeamBoard 实现 teamwork.BoardCloser：把当前会话的团队看板存档封板
+- `func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager jobs.Manager, key store.Key, plan store.TeamworkPlan, now time.Time, assemblies []dto.PluginAssemblyView) error` — sealClosedTeamBoard 封板**已收口**团队的那一版存档，并把收口时的最终投影写进去。
+
+### runtime_teamwork_board_closed_test.go
+
+- `func TestTeamworkBoardSnapshotRetiresClosedPlan(t *testing.T)`
+
+### runtime_teamwork_board_test.go
+
+- `func newCountingPlanStore() *countingPlanStore`
+- `func (s *countingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, max int) error`
+- `func (s *countingPlanStore) ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error)`
+- `func (s *countingPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error`
+- `func (s *countingPlanStore) ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error)`
+- `func (s *countingPlanStore) reads() (int, int)`
+- `func (s *countingPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
+- `func (s *countingPlanStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)`
+- `func countingBackend(st *countingPlanStore, sessionID string) TeamworkBackend`
+- `func boardPlanFixture() store.TeamworkPlan`
+- `func TestTeamworkBoardSnapshotNilWithoutBackend(t *testing.T)`
+- `func TestTeamworkBoardSnapshotNilWithoutPlan(t *testing.T)`
+- `func TestTeamworkBoardSnapshotProjectsPlan(t *testing.T)`
+- `func TestTeamworkBoardSnapshotMarksStaleHandleProjection(t *testing.T)`
+- `func TestTeamworkBoardSnapshotCachesFileReads(t *testing.T)`
+- `func TestSettleWorkItemInvalidatesBoardCache(t *testing.T)` — TestSettleWorkItemInvalidatesBoardCache 钉住「自动尾插」这条**非工具**写路径也让看板缓存失效。
+- `func boardWorkItemStatus(board *dto.TeamworkBoardView, id string) string` — boardWorkItemStatus 取看板里某个工作项的状态（空串 = 投影里没有这一条）。
+- `func TestTeamworkBoardCarriesWorkItemsAndTeammateQueue(t *testing.T)` — TestTeamworkBoardCarriesWorkItemsAndTeammateQueue 钉住 Work Item 口径的看板搬运
+- `func TestTeamworkBoardCarriesMemberCurrentSession(t *testing.T)` — TestTeamworkBoardCarriesMemberCurrentSession 钉住 teammate 段的**当前会话**归属
+- `func TestTeamworkBoardSnapshotCapsAuditWindow(t *testing.T)`
+- `func TestTeamworkBoardSnapshotNegativeCache(t *testing.T)`
+- `func TestTeamworkBoardSnapshotPortsRoleFromSubject(t *testing.T)`
+- `func BenchmarkTeamworkBoardSnapshot(b *testing.B)` — BenchmarkTeamworkBoardSnapshot 是采集路径的**量级证据**（契约 §4）：
+
+### runtime_teamwork_close_test.go
+
+- `func (m *memBoardRepo) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error`
+- `func (m *memBoardRepo) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error)`
+- `func (m *memBoardRepo) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error`
+- `func (m *memBoardRepo) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error)`
+- `func (m *memBoardRepo) board(key store.Key) (store.TeamBoardMeta, bool)`
+- `func TestTeamCloseToolRegistered(t *testing.T)`
+- `func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T)`
+
+### runtime_teamwork_context.go
+
+- `func (r *Runtime) teamworkContextHandler(ctx context.Context, argsJSON string) (string, error)` — teamworkContextHandler 读回成员工作上下文（只读，不改任何事实）。
+- `func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, store.Key, error)` — teamworkReadScope 解析"读面"需要的三件：后端、作业表、作用域键。
+- `func teamworkMemberOutputsFor(backend *TeamworkBackend) teamworkMemberOutputs` — teamworkMemberOutputsFor 取读面用的最小输出面：只有装配了产品自有输出面才谈得上回读
+
+### runtime_teamwork_context_test.go
+
+- `func (f *fakeMemberJobs) Snapshot(jobs.Scope) []jobs.Record`
+- `func (f *fakeMemberJobs) Observe(handle jobs.Handle) (jobs.Record, bool)`
+- `func (f *fakeMemberJobs) Peek(_ context.Context, handle jobs.Handle, _ jobs.FetchBudget) (string, jobs.Record, error)`
+- `func runningWorker(handle jobs.Handle, seq int, subject string, bytes int64) jobs.Record`
+- `func TestTeamworkContextNoBodyByDefault(t *testing.T)`
+- `func TestTeamworkContextBounded(t *testing.T)`
+- `func TestTeamworkContextRolesFilterAndClosedFlag(t *testing.T)`
+- `func TestTeamContextToolReportsIdleMembers(t *testing.T)`
+- `func (f *fakeMemberOutputs) LatestJobOutputPath(_ context.Context, role string) (string, bool, error)`
+- `func TestTeamworkContextReadsEvictedBodyFromProductFile(t *testing.T)` — TestTeamworkContextReadsEvictedBodyFromProductFile 钉住 prune 残边（devlog §4.2）：
+- `func teamworkSubjectForTest(role string) string` — teamworkSubjectForTest 直接借用生产口径（写死 "emp_" 就是第二处定义）。
+
+### runtime_teamwork_curated.go
+
+- `func (r *Runtime) rejectUnassembledMemberPlugins(members []store.TeamworkMember) error` — rejectUnassembledMemberPlugins 逐成员判"未定义的插件名是什么"（判据在域包）。
+
+### runtime_teamwork_curated_test.go
+
+- `func curatedRuntimeRead(t *testing.T) plugin.CuratedRead` — curatedRuntimeRead 造一份**运行期会见到**的精选目录读数：entries 三个已装插件、
+- `func newCuratedRuntime(t *testing.T, read plugin.CuratedRead) *Runtime` — newCuratedRuntime 造装配链路的基座（cad/docs/ops 三个已定义插件）并注入真判决函数，
+- `func TestTeamPlanRejectsPendingPluginWithSource(t *testing.T)` — TestTeamPlanRejectsPendingPluginWithSource 钉住 A 的主句：pending（路线图）名字进
+- `func TestTeamPlanRejectsUnknownPluginAgainstBothLists(t *testing.T)` — TestTeamPlanRejectsUnknownPluginAgainstBothLists 钉住"谁都不认识"的那一句：
+- `func TestTeamPlanRejectsWhenCuratedCatalogIsUnreadable(t *testing.T)` — TestTeamPlanRejectsWhenCuratedCatalogIsUnreadable 钉住"读不到不得静默当空目录"：
+- `func TestTeamPlanKeepsInstalledPluginsOnTheOldPath(t *testing.T)` — TestTeamPlanKeepsInstalledPluginsOnTheOldPath 钉住回归：已装插件**不问判决函数**、
+- `func TestTeamPlanWithoutCuratedJudgeKeepsTheOldMessage(t *testing.T)` — TestTeamPlanWithoutCuratedJudgeKeepsTheOldMessage 钉住"未注入 = 原口径"：
+- `func TestTeamPlanGrammarOutranksCuratedSemantics(t *testing.T)` — TestTeamPlanGrammarOutranksCuratedSemantics 钉住分层：超上限是**语法**层的话，
+- `func errCuratedMissing() error`
+- `func (curatedMissingError) Error() string`
+
+### runtime_teamwork_items.go
+
+- `func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerRequest, runErr error) error` — SettleWorkItem 实现 teamwork.ItemSettler：worker 一轮跑完之后**自动**做尾插
+- `func (r *Runtime) BindWorkspace(_ context.Context, binding teamwork.WorkspaceBinding) (teamwork.WorkspaceBinding, error)` — BindWorkspace 实现 teamwork.Workspaces：为这件事建（或复用）一个 git worktree。
+- `func (e *WorkspaceCreateError) Error() string`
+- `func (e *WorkspaceCreateError) Unwrap() error`
+- `func strictTeamWorkspaceError(binding teamwork.WorkspaceBinding, code string, err error) error`
+- `func (r *Runtime) MergeWorkspace(ctx context.Context, binding teamwork.WorkspaceBinding) error` — MergeWorkspace 实现 teamwork.Workspaces：把这件事的改动并回主工作区。
+- `func (r *Runtime) ReleaseWorkspaceItem(_ context.Context, binding teamwork.WorkspaceBinding) error` — ReleaseWorkspaceItem 实现 teamwork.Workspaces：释放这件事的现场（验收通过 /
+- `func (r *Runtime) EnqueueTeammateMessage(ctx context.Context, message teamwork.TeammateMessage) error` — EnqueueTeammateMessage 实现 teamwork.TeammateQueue：把尾插消息记进 teammate 的
+- `func (r *Runtime) workspaceRootFor(sessionID string) string` — workspaceRootFor 返回某宿主会话的项目根（无 = 空串）。
+- `func (r *Runtime) coordinatorForSession(sessionID string) (*teamwork.Coordinator, error)` — coordinatorForSession 按**主会话号**取（必要时建）该会话的协调器。
+
+### runtime_teamwork_items_test.go
+
+- `func teammateSceneBinding(mainSessionID, role string) teamwork.WorkspaceBinding` — teammateSceneBinding 造一份 teammate 级（角色级）现场绑定：指派名 `seelex/<role>`，
+- `func localBranchExists(t *testing.T, repo, branch string) bool` — localBranchExists 报告本地是否还有某个分支（现场释放的另一半：分支要一并删掉）。
+- `func TestReleaseWorkspaceReleasesTeammateScene(t *testing.T)` — TestReleaseWorkspaceReleasesTeammateScene —— ② 角色级现场（老口径派发建出来的
+- `func TestReleaseWorkspaceRefusesDirtyTeammateScene(t *testing.T)` — TestReleaseWorkspaceRefusesDirtyTeammateScene —— ③ 现场有未提交改动时释放必须
+
+### runtime_teamwork_jobs.go
+
+- `func (r *Runtime) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions 实现在册 teammate 作业的只读投影。
+- `func (r *Runtime) TeamworkJobEvents() <-chan struct` — TeamworkJobEvents 返回 teammate 作业表的变化信号口（扇出后的订阅通道）。
+- `func (r *Runtime) teamworkJobManager() jobs.Manager` — teamworkJobManager 取当前装配的作业表（未装配 = nil）。
+
+### runtime_teamwork_jobs_test.go
+
+- `func TestTeamworkJobSignalsFanOutToEverySubscriber(t *testing.T)` — TestTeamworkJobSignalsFanOutToEverySubscriber：上游 jobs.Manager.Events() 是容量 1 的
+- `func TestTeamworkJobSignalsCloseIsIdempotentAndSafeBeforeStart(t *testing.T)` — TestTeamworkJobSignalsCloseIsIdempotentAndSafeBeforeStart：未 start 过就 close 不得
+- `func TestTeamworkJobCompletionsProjectsRecords(t *testing.T)`
+- `func TestTeamworkJobCompletionsNilWithoutBackend(t *testing.T)` — TestTeamworkJobCompletionsNilWithoutBackend：未装配 teamwork 时两个成员都退场——
+- `func waitTeammateRecord(t *testing.T, r *Runtime, handle string) dto.TeamworkJobCompletionRecord` — waitTeammateRecord 轮询到该句柄的 teammate 作业读数（测试里用真实时钟，只等短窗口）。
+
+### runtime_teamwork_output_test.go
+
+- `func TestWriteWorkerOutputRoutesThroughProductFaceAndDropsAfterClear(t *testing.T)` — TestWriteWorkerOutputRoutesThroughProductFaceAndDropsAfterClear 钉住 Runtime 侧的接线：
+- `func (s *outputStoreDirStub) WritePlan(dto.SessionKey, workstore.Plan, int) error`
+- `func (s *outputStoreDirStub) ReadPlan(dto.SessionKey) (workstore.Plan, error)`
+- `func (s *outputStoreDirStub) AppendEvent(dto.SessionKey, workstore.Event) error`
+- `func (s *outputStoreDirStub) ReadEvents(dto.SessionKey) ([]workstore.Event, error)`
+- `func (s *outputStoreDirStub) JobOutputDir(dto.SessionKey) (string, error)`
+- `func (s *outputStoreDirStub) AppendBinding(dto.SessionKey, workstore.Binding) error`
+- `func (s *outputStoreDirStub) ReadBindings(dto.SessionKey) ([]workstore.Binding, error)`
+
+### runtime_teamwork_scene.go
+
+- `func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry` — teamSceneIndex 返回本会话团队现场的名单与归属（判据在域包；这里只读两份持久事实）。
+- `func (r *Runtime) teamSceneNodeIDs(sessionID string) []string` — teamSceneNodeIDs 返回本会话团队现场的全部 nodeID（判据在域包；这里一行转发）。
+- `func (r *Runtime) adoptTeamworkScenes(sessionID string) int` — adoptTeamworkScenes 把本会话团队现场里**磁盘上还有**的那些认领回注册表，返回认领
+
+### runtime_teamwork_scene_test.go
+
+- `func sceneTestTeamPlan() store.TeamworkPlan` — sceneTestTeamPlan 造一份含两个现场的计划：teammate 级（member.Worktree）与
+- `func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T)` — TestRestoreAnchorsAdoptsTeamScenesBeforePrune —— F4 ①（宿主级）：
+- `func TestTeamSceneNodeIDsReadsPlanAndRawLedgerRows(t *testing.T)` — TestTeamSceneNodeIDsReadsPlanAndRawLedgerRows 钉住认领名单的两个来源与两条规则：
+
+### runtime_teamwork_scope.go
+
+- `func (r *Runtime) resolveTeamworkScope(sessionID string) (*TeamworkBackend, jobs.Manager, store.Key, error)` — resolveTeamworkScope 解析当前团队面的三格读数：后端、作业表、作用域键。
+- `func (r *Runtime) teamworkKeyFor(sessionID string) (store.Key, bool)` — teamworkKeyFor 是 resolveTeamworkScope 的 ok 形态（未装配 / 认不出 / 半截键 ⇒ false）。
+
+### runtime_teamwork_scope_test.go
+
+- `func teamworkScopeFixture() *TeamworkBackend`
+- `func TestResolveTeamworkScopeJudgment(t *testing.T)`
+- `func TestTeamworkKeyJudgmentMatchesBoardDomain(t *testing.T)` — TestTeamworkKeyJudgmentMatchesBoardDomain 是跨实现一致性用例：同一份 KeyFor 输入同时走
+
+### runtime_teamwork_strict_workspace_test.go
+
+- `func TestBindWorkspaceDoesNotFallBackToMain(t *testing.T)` — TestBindWorkspaceDoesNotFallBackToMain 钉住 teammate 路径：worktree 创建失败
+
+### runtime_teamwork_test.go
+
+- `func (m *memPlanStore) WritePlan(_ context.Context, key store.Key, plan store.TeamworkPlan, _ int) error`
+- `func (m *memPlanStore) ReadPlan(_ context.Context, key store.Key) (store.TeamworkPlan, error)`
+- `func (m *memPlanStore) AppendEvent(_ context.Context, key store.Key, event store.TeamworkEvent) error`
+- `func (m *memPlanStore) ReadEvents(_ context.Context, key store.Key) ([]store.TeamworkEvent, error)`
+- `func (m *memPlanStore) AppendBinding(_ context.Context, key store.Key, binding store.TeamworkBinding) error`
+- `func (m *memPlanStore) ReadBindings(_ context.Context, key store.Key) ([]store.TeamworkBinding, error)`
+- `func teamworkTestBackend(st *memPlanStore, sessionID string) TeamworkBackend`
+- `func TestTeamworkToolsRegisteredOnlyWithBackend(t *testing.T)`
+- `func TestTeamworkPlanHandlerPersistsPlan(t *testing.T)`
+- `func TestTeamworkDispatchRefusesUnenrolledRole(t *testing.T)`
+- `func TestTeamworkToolsNeedSessionScope(t *testing.T)`
+
+### runtime_teamwork_work_item_progress_test.go
+
+- `func workItemProgressFixture() store.TeamworkPlan` — workItemProgressFixture 造一份"某件工作正在跑"的计划：工作项自带它自己的会话号与现场。
+- `func TestTeamworkBoardReadsWorkItemProgressDetail(t *testing.T)` — TestTeamworkBoardReadsWorkItemProgressDetail 钉住：teammate 某件工作的进度详情
+- `func boardWorkItemBySession(board *dto.TeamworkBoardView, sessionID string) (dto.TeamworkWorkItemView, bool)` — boardWorkItemBySession 在投影里按**会话号**找那件工作（"每 Session 进度详情"的定位口径）。
+- `func boardMilestoneName(board *dto.TeamworkBoardView, milestoneID string) string` — boardMilestoneName 把里程碑 id 解析成名字（空串 = 投影里没有这个里程碑）。
+
+### runtime_test.go
+
+- `func TestRuntimeShutdownIdempotentAndRegistered(t *testing.T)` — TestRuntimeShutdownIdempotentAndRegistered 验证生命周期链：NewRuntime 已登记
+
+### runtime_test_helpers_test.go
+
+- `func newTestRuntime(t testing.TB) *Runtime`
+
+### runtime_tolerant_test.go
+
+- `func TestNewRuntimeToleratesInvalidAccountsConfig(t *testing.T)` — TestNewRuntimeToleratesInvalidAccountsConfig 保证 accounts.yaml 损坏时
+
+### runtime_tool_failure_test.go
+
+- `func TestRoleToolHookCancelsAtWorkItemFailureThreshold(t *testing.T)`
+- `func TestWorkerRoundSpecKeepsSystemPromptAndWorkItemScope(t *testing.T)`
+
+### runtime_tools.go
+
+- `func (a mcpRegistryAdapter) Unregister(name string) error`
+- `func (a mcpRegistryAdapter) Register(provider frameworktools.ToolProvider) error`
+- `func (r *Runtime) SetPermissionConfig(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler)` — SetPermissionConfig 安装权限门控：Mode + Groups + Subjects + Rules + ApprovalHandler。
+- `func (r *Runtime) SetRoleSessionPolicyResolver(resolver func(sessionID string) (string, bool))` — SetRoleSessionPolicyResolver 注入"角色会话（员工）→ ToolsPolicy"的读面：权限门据此
+- `func (r *Runtime) SetRolePermissionVectorResolver(resolver func(sessionID, role string) ([]string, bool, error))` — SetRolePermissionVectorResolver 注入 (会话, 角色) → **生效权限向量**的读面：
+- `func (r *Runtime) SetRoleSessionOwnerResolver(resolver func(sessionID string) (string, bool))` — SetRoleSessionOwnerResolver 注入"角色会话（员工/评审者）→ 宿主主会话"的读面：
+- `func (r *Runtime) AssignEmployeePermissions(roles []dto.RoleSpec) error` — AssignEmployeePermissions 实现 contract.EmployeePermissionPort：在**装配期**把
+- `func (r *Runtime) EmployeePermissions() []toolreg.EmployeePermission` — EmployeePermissions 读回装配期分配过的员工权限（巡检/诊断面）。
+- `func (r *Runtime) bashDiagnosticMiddleware() frameworktools.Middleware` — bashDiagnosticMiddleware marks entry to and exit from the framework tool
+- `func (r *Runtime) ensureDockerForRuntime(ctx context.Context) error` — ensureDockerForRuntime 是 tools 域的接线面：按 limits 配置执行自动恢复
+- `func (r *Runtime) observeBash(event toolreg.BashDiagnosticEvent)` — observeBash 投递 scoped bash 诊断事件（工具调用不可被诊断改变；观察者
+- `func (r *Runtime) registerProjectScopedTools()` — registerProjectScopedTools overrides the Seele builtin filesystem tools
+- `func (r *Runtime) ReleaseSessionAsync(sessionID string) int` — ReleaseSessionAsync 杀掉某会话名下所有在途后台命令（会话删除/归档时由 core 调用）。
+- `func (r *Runtime) AsyncPendingFor(sessionID string) int` — AsyncPendingFor 报告某会话还在跑的后台命令数。core 的"无进展预算"用它把
+- `func (r *Runtime) registerTaskTools()` — registerTaskTools 注册主动任务工具 taskadd（同上委托）。
+- `func (r *Runtime) registerTodoTools()` — registerTodoTools 注册 todolist 工具族（委托 task.Tools；RegisterBuiltins 内调用）。
+- `func (r *Runtime) scopedToolsDeps() toolreg.Deps` — scopedToolsDeps 把 Runtime 能力面注入 tools 域（Deps 全部为闭包）。
+- `func (r *Runtime) taskToolsDeps() task.Deps` — taskToolsDeps 把 Runtime 能力面注入 task 工具族（Deps 全部为闭包）。
+- `func (r *Runtime) AllTools() []Tool`
+- `func (r *Runtime) FullAccess() bool`
+- `func (r *Runtime) RegisterBuiltins()`
+- `func (r *Runtime) RegisterTool( name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error), )`
+- `func (r *Runtime) ToolMetas() map[string]frameworktools.ToolMeta` — ToolMetas 返回**已装配内联工具面**每个工具的簇属声明（名字 → ToolMeta）。
+- `func (r *Runtime) UndeclaredTools() []string` — UndeclaredTools 返回**没有簇属声明**的工具名（K-0 判据：seelex 自己的静态工具面
+- `func (r *Runtime) SetFullAccess(on bool)`
+- `func (r *Runtime) SetFullAccessFor(sessionID string, on bool)` — SetFullAccessFor 按会话设置全权模式（G4 归属面）：执行门的全权短路按
+- `func (r *Runtime) FullAccessFor(sessionID string) bool` — FullAccessFor 返回指定会话生效的全权模式（探针/诊断面；与 middleware
+- `func (r *Runtime) PermissionTier() string` — PermissionTier 返回进程级默认权限档位（装配/诊断面）。
+- `func (r *Runtime) SetPermissionTierFor(sessionID, tier string) error` — SetPermissionTierFor 按会话设置权限档位（G4 归属面）：执行门按工具调度 ctx
+- `func (r *Runtime) VisibleTools(ctx context.Context) []Tool`
+
+### runtime_tools_test.go
+
+- `func TestFrameworkMCPValidation(t *testing.T)`
+- `func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T)`
+- `func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T)`
+- `func hasSuitableBash() bool` — hasSuitableBash 报告是否存在可供 bash 工具使用的 POSIX bash（固定 Git 路径
+
+### runtime_transport.go
+
+- `func (r *Runtime) sessionWorkspaceID(sessionID string) string` — sessionWorkspaceID 返回会话绑定的工作区 ID（未绑定 = ""，即"没有项目归属"）。
+- `func (r *Runtime) transportSelector() frameworktools.MetaMiddleware` — transportSelector 装配传输中间件（**两段共用一份**；见 registry 的 transport_decision.go）。
+- `func transportEnabled() bool` — transportEnabled 报告这台宿主是否具备 SSH 执行能力（装配级开关）。
+- `func (r *Runtime) sshEndpointForProject(projectID string) (toolreg.SSHEndpoint, bool, error)` — sshEndpointForProject 读项目连接配置里的 SSH 端点（口令永远读不到，也不需要）。
+- `func (r *Runtime) transportEnvironmentForEnv(projectID, env string) (toolreg.TransportEnvironment, bool, error)` — transportEnvironmentForEnv 按会话固定环境名读项目环境表里的执行面。
+- `func (r *Runtime) SetSessionSSHEnvResolver(resolver func(sessionID, projectID string) string)` — SetSessionSSHEnvResolver 注入"会话当前环境"读面（装配期调用一次；nil = 没有缺省）。
+- `func (r *Runtime) sessionSSHEnvFor(sessionID string) string` — sessionSSHEnvFor 读会话当前限定的环境名（空 = 没有缺省）。
+- `func (r *Runtime) SetWorkspaceEnvironmentPort(port contract.WorkspaceEnvironmentPort)` — SetWorkspaceEnvironmentPort 注入项目连接/环境表读面（装配期调用一次）。
+- `func (r *Runtime) workspaceEnvironmentPort() contract.WorkspaceEnvironmentPort` — workspaceEnvironmentPort 读注入的环境表读面（nil = 未装配）。
+- `func (r *Runtime) workspaceConnectionPort() contract.WorkspaceConnectionPort` — workspaceConnectionPort 读注入的连接读面（同一份端口的窄视图）。
+- `func sshEndpoint(connection model.WorkspaceConnection) (toolreg.SSHEndpoint, bool, error)` — sshEndpoint 把连接配置折成选择器要的窄形状。
+- `func proberVerdict(prober *seelessh.Prober) func(context.Context, string, toolreg.SSHEndpoint) (toolreg.TransportProbeVerdict, bool)` — proberVerdict 把探针缓存的读面接到选择器（未探 = ok=false，选择器不替人探）。
+- `func probeNow(prober *seelessh.Prober) func(context.Context, string, toolreg.SSHEndpoint) toolreg.TransportProbeVerdict` — probeNow 是"显式指名者付的探测费"。
+- `func probeVerdict(result seelessh.ProbeResult) toolreg.TransportProbeVerdict` — probeVerdict 把探针结论翻成选择器词表（分类词表只有 ssh 包一份）。
+- `func dialSSH(_ context.Context, projectID string, endpoint toolreg.SSHEndpoint) (toolreg.Transport, error)` — dialSSH 是建连面：只在探针通过之后被调用。
+- `func sshSpecFor(projectID string, endpoint toolreg.SSHEndpoint) seelessh.Spec` — sshSpecFor 由端点折出一次连接的 Spec。
+
+### runtime_transport_remote_root_test.go
+
+- `func TestSSHEndpointCarriesRemoteRoot(t *testing.T)`
+
+### runtime_unit_record_identity_test.go
+
+- `func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *store.NodeSessionStore)) (repo, scenePath string, router *store.Router, nodeStore *store.NodeSessionStore)` — teamUnitRecordFixture 搭出"旧进程落一条 teammate 单元记录 + 建出现场"的现场。
+- `func restartOverScene(t *testing.T, repo string) *Runtime` — restartOverScene 在同一份存储上起一个新 Runtime（现场注册表是内存态，重启即空）。
+- `func teammateSubagentTreeNodes(r *Runtime) []string` — teammateSubagentTreeNodes 返回子代理树上当前的全部节点 id（工作表格的 phantom 行就从这里长出来：
+- `func TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode(t *testing.T)` — TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode —— ① 上面那段背景的直接用例。
+- `func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T)` — TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene —— ② 加固前的老记录。
+
+### runtime_unit_recovery.go
+
+- `func (s subagentRecovery) Kind() workunit.Kind`
+- `func (s subagentRecovery) Restore(records []store.NodeSessionRecord)`
+- `func (t teamUnitRecovery) Kind() workunit.Kind`
+- `func (t teamUnitRecovery) Restore(records []store.NodeSessionRecord)`
+- `func (r *Runtime) unitRecoveryStrategies(sessionID string) []unitRecoveryStrategy` — unitRecoveryStrategies 返回本会话的恢复策略。顺序固定（子代理在前、teammate 在后）：
+- `func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessionRecord)` — restoreUnitRecords 是恢复链的分派点（装配侧接线）：读团队现场名单 → 交契约包按身份切开 →
+
+### runtime_visibility.go
+
+- `func (r *Runtime) SetRuntimeVisibilityProjection(projection RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection publishes a value copy from Application. It
+- `func (r *Runtime) SetParentEvidenceProjection(projection ParentEvidenceProjection)` — SetParentEvidenceProjection turns the application projection into a
+
+### runtime_workitem_execution.go
+
+- `func (r *Runtime) WorkItemExecution(ctx context.Context, mainSessionID, itemID string, page dto.ConversationViewRequest) (dto.WorkItemExecutionView, error)` — WorkItemExecution is the one backend adapter used by both WorkItem details
+- `func workItemProgressView(progress workunit.Progress) dto.WorkItemProgressView`
+
+### runtime_workitem_execution_test.go
+
+- `func (e *conversationEngine) SessionID() string`
+- `func (e *conversationEngine) SetSystemPrompt(string)`
+- `func (e *conversationEngine) SetMaxLoops(int)`
+- `func (e *conversationEngine) ClearHistory()`
+- `func (e *conversationEngine) History() []types.Message`
+- `func (e *conversationEngine) ChatStream(context.Context, string, func(string)) (string, error)`
+- `func textMessage(role, text string) types.Message`
+- `func TestWorkItemExecutionIsTheSingleProgressAndTranscriptRead(t *testing.T)` — TestWorkItemExecutionIsTheSingleProgressAndTranscriptRead 钉住 WorkItem 详情与
+- `func ptrText(value string) *string`
+
+### ssh_env_endpoint_test.go
+
+- `func (port *fakeEnvironmentPort) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (port *fakeEnvironmentPort) SetWorkspaceEnvironment(string, string, model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
+- `func (port *fakeEnvironmentPort) DeleteWorkspaceEnvironment(string, string) error`
+- `func (port *fakeEnvironmentPort) SetDefaultWorkspaceEnvironment(string, string) error`
+- `func TestTransportEnvironmentForEnvResolvesNamedEnvironment(t *testing.T)`
+- `func TestTransportEnvironmentForEnvSkipsTableWhenEnvEmpty(t *testing.T)`
+- `func TestTransportEnvironmentForEnvWithoutPortIsNotConfigured(t *testing.T)`
+
+### stage_preview_judgment_test.go
+
+- `func wantClipPreview(text string) string` — wantClipPreview 是**测试自己**的那份期望（不调用生产实现）：同一份正文按 rune 裁到契约
+- `func (c *stageCapture) RecordStage(_ string, log model.NodeStageLog)`
+- `func hookStagePreview(t *testing.T, text string) model.NodeStageLog` — hookStagePreview 用**真正的生产者**（阶段钩子，子代理写侧）产出一条打点。
+- `func TestStagePreviewBoundIsOneAcrossProducers(t *testing.T)` — TestStagePreviewBoundIsOneAcrossProducers：同一份超长预览，两条链落盘后解出的打点必须
+- `func TestResumeNotePreviewNeverSplitsARune(t *testing.T)` — TestResumeNotePreviewNeverSplitsARune：恢复说明里那条"之前做到哪"的预览，同样受**同一份**
+- `func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T)` — TestSubagentStatusVocabularyAgreesWithTheWire：**记录里的状态词**与**对外契约的状态词**
+- `func TestResumeNoteContainerIsOneAndKeepsCallSiteSemantics(t *testing.T)` — TestResumeNoteContainerIsOneAndKeepsCallSiteSemantics：恢复说明的**容器只有一份**，而
+
+### stream_integration_test.go
+
+- `func TestRuntimeMainSessionStreamsThroughSharedSelector(t *testing.T)` — TestRuntimeMainSessionStreamsThroughSharedSelector 验证主会话装配后
+
+### strings.go
+
+- `func stringPtr(value string) *string` — stringPtr 返回字符串的指针（`types.Message.Content` 是 `*string`）。
+- `func truncateRunes(value string, max int) string` — truncateRunes 把一段原文压到 max 个 rune 并加省略号（错误文案里的原文摘录用）。
+
+### subagent_audit_test.go
+
+- `func TestSubAgentMailboxOverflowPreservesMessages(t *testing.T)` — TestSubAgentMailboxOverflowPreservesMessages 验证 A 修复：merge-back 队列
+- `func TestSubAgentStartupEndToEnd(t *testing.T)` — TestSubAgentStartupEndToEnd 验证子代理完整启动路径：
+- `func TestSubAgentParallelBranches(t *testing.T)` — TestSubAgentParallelBranches 验证两个 agent 节点并行执行
+- `func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.Completer) accountpool.Account[agent.Completer]`
+- `func TestSubAgentMergeBackRegistersResultWithoutMailbox(t *testing.T)` — TestSubAgentMergeBackRegistersResultWithoutMailbox 验证 2026-09-08 改造：
+
+### subagent_events_test.go
+
+- `func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T)`
+- `func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T)`
+
+### subagent_job_contract_test.go
+
+- `func TestForkSubagentsAsyncRunsAsJobs(t *testing.T)` — 子代理作业契约（打点 L-5）的端到端判据：**模型侧**能把一批子代理当作业派发，
+
+### subagent_main_id_drift_repro_test.go
+
+- `func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T)` — 复现（用户报告）：子代理判定有问题 —— "在会话 id 还是 draft 开头的时候诞生的
+- `func newSessionKeyFixture(t *testing.T, storageDir, mainSessionID string) *sessionKeyFixture`
+- `func (fixture *sessionKeyFixture) shutdown()`
+
+### subagent_record_state_boundary_test.go
+
+- `func TestNodeStateOfRecordKeepsUnknownNonTerminal(t *testing.T)` — subagent_record_state_boundary_test.go — **落盘那一格**的未知词取舍。
+
+### subagent_tool_owner_test.go
+
+- `func TestSubagentToolObservationCarriesExecutionContextOwner(t *testing.T)` — TestSubagentToolObservationCarriesExecutionContextOwner：节点注册时随执行 ctx 绑定的
+- `func TestRoleTurnEndCallbackCarriesOwnerAndRole(t *testing.T)` — TestRoleTurnEndCallbackCarriesOwnerAndRole：员工回合收口的通知要带上
+
+### subagent_tree_test.go
+
+- `func TestSubAgentTreeRegisterForkProjection(t *testing.T)` — TestSubAgentTreeRegisterForkProjection 验证 fork 注册 parent/child 链并
+- `func TestSubAgentTreeContextProjection(t *testing.T)` — TestSubAgentTreeContextProjection 验证紧凑上下文挂在树节点上：
+- `func TestSubAgentTreeLifecycleTransitions(t *testing.T)` — TestSubAgentTreeLifecycleTransitions 验证节点终态：成功 → done 有界保留
+- `func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T)` — TestRestoredCrashLeftoversMarkedInterrupted（INV-G9/G4 stale）：进程中断
+- `func TestRegisterForkTagsOwningMainSession(t *testing.T)` — TestRegisterForkTagsOwningMainSession 钉住**归属主会话**的标注：fork 注册按
+- `func TestSubAgentTreeClearRemovesEverything(t *testing.T)` — TestSubAgentTreeClearRemovesEverything 清空入口：整树（含失败节点与
+- `func TestSubAgentTreeNestedFork(t *testing.T)` — TestSubAgentTreeNestedFork 验证嵌套 fork：子代理再 fork → 三层树，
+- `func TestSubAgentTreeEmptyAndOrphan(t *testing.T)` — TestSubAgentTreeEmptyAndOrphan 验证空树返回 nil；孤儿节点（父已不在
+- `func TestForkSubagentsRecordsTree(t *testing.T)` — TestForkSubagentsRecordsTree 验证 fork 全链路：两个并行子代理跑完后树
+- `func TestSubAgentTreeEventsChannelNotifiesOnForkLifecycle(t *testing.T)` — TestSubAgentTreeEventsChannelNotifiesOnForkLifecycle 验证被动触发（CSP）：
+- `func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T)` — TestSubAgentTreeRetainsBoundedDoneNodes 验证 done 节点有界保留：
+- `func countSubagentTreeNodes(t *testing.T, runtime *Runtime) int`
+- `func treeNode(t *testing.T, runtime *Runtime, id string) dto.SubAgentTreeNode` — treeNode 从投影树中按 id 查找节点；未找到返回零值节点。
+- `func TestLiveRunningSubagentSurvivesSessionSwitchRestore(t *testing.T)` — TestLiveRunningSubagentSurvivesSessionSwitchRestore 复现「一切换会话子代理就
+- `func TestRestoreSkipsRecordsOfAnotherMainSession(t *testing.T)` — TestRestoreSkipsRecordsOfAnotherMainSession 钉住归属过滤：运行期
+- `func TestSubagentLiveOwnerTracksRegisteredSession(t *testing.T)` — TestSubagentLiveOwnerTracksRegisteredSession 钉住 LiveOwner 的判据：节点注册
+
+### system_position_live_probe_test.go
+
+- `func TestSystemPositionLiveProbe(t *testing.T)` — TestSystemPositionLiveProbe 是 provider 对 system 位置能力的真实实验：
+
+### task_add_session_scope_test.go
+
+- `func TestTaskAddToolWritesToCallingSessionScope(t *testing.T)` — ── taskadd 的会话归属（2026-09-29 与子代理树同一批收口）──────────────────
+- `func TestTodoToolsWriteToCallingSessionScope(t *testing.T)` — TestTodoToolsWriteToCallingSessionScope 钉住清单工具族（todo_init/add/done/
+
+### task_partition_test.go
+
+- `func TestTaskAddForRoutesToOwningSessionPartition(t *testing.T)` — TestTaskAddForRoutesToOwningSessionPartition 验证 task 写按归属会话路由 +
+
+### teamwork_job_namer.go
+
+- `func (teamworkJobNamer) Name(spec jobs.Spec, seq int) jobs.Handle` — Name 实现 jobs.Namer。
+
+### teamwork_job_namer_test.go
+
+- `func TestTeamworkJobNamerMintsNamespaceHandle(t *testing.T)` — TestTeamworkJobNamerMintsNamespaceHandle：命名器给出的句柄必须带团队表的 token，
+- `func TestTeamworkJobNamerIsNotSharedWithTheToolTable(t *testing.T)` — TestTeamworkJobNamerIsNotSharedWithTheToolTable：团队句柄与后台工具作业的句柄必须落在
+
+### teamwork_job_signals.go
+
+- `func newTeamworkJobSignals() *teamworkJobSignals`
+- `func (h *teamworkJobSignals) subscribe() <-chan struct` — subscribe 登记一个新订阅者（容量 1；广播时通道已满就跳过这一次）。
+- `func (h *teamworkJobSignals) start(upstream <-chan struct{})` — start 起扇出协程（幂等；upstream 为 nil 时不起——没有作业面就没有信号）。
+- `func (h *teamworkJobSignals) broadcast()` — broadcast 把一次信号派给所有订阅者（非阻塞：满了就是"已经有一次待读"，够用）。
+- `func (h *teamworkJobSignals) close()` — close 停扇出协程（幂等）。未 start 过时直接返回——不能等一个不会关闭的 done。
+- `func (h *teamworkJobSignals) stopOnce()`
+
+### teamwork_release_idempotent_test.go
+
+- `func workItemBinding(mainSessionID, role, itemID string) teamwork.WorkspaceBinding` — workItemBinding 造一条 Work Item 口径的工作区绑定（与 coordinator 派发时的派生一致）。
+- `func TestReleaseWorkspaceItemNormalReleasesScene(t *testing.T)` — TestReleaseWorkspaceItemNormalReleasesScene —— ① 正常路径：工作区还在，释放步骤照常
+- `func TestReleaseWorkspaceItemIdempotentWhenBindingAlreadyReclaimed(t *testing.T)` — TestReleaseWorkspaceItemIdempotentWhenBindingAlreadyReclaimed —— ② 绑定已被上游回收
+- `func TestMergeWorkspaceReleasesRegistryAfterSuccessfulSettle(t *testing.T)` — TestMergeWorkspaceReleasesRegistryAfterSuccessfulSettle —— 钉住根因那一处配对：
+
+### todo_tool_test.go
+
+- `func TestTodoListLifecycle(t *testing.T)` — TestTodoListLifecycle 验证 init → add → done → status 全链路与全部完成提示。
+- `func TestTodoListValidation(t *testing.T)` — TestTodoListValidation 验证护栏：超上限、越界索引、空项。
+- `func TestTodoSnapshot(t *testing.T)` — TestTodoSnapshot 验证快照投影（GUI 待办面板数据源）：
+
+### tool_meta_declaration_test.go
+
+- `func TestBuiltinToolsDeclareGroupsAndMetas(t *testing.T)` — 打点 K-0 的**运行时读面**验收：装配后的注册表里，每个 seelex 注册的工具都
+
+### trace_test.go
+
+- `func TestNewTracerAndLifecycleHookWireLLMIntentEffect(t *testing.T)`
+- `func TestSessionLifecycleEventsLLMAndToolIntentEffect(t *testing.T)` — TestSessionLifecycleEventsLLMAndToolIntentEffect 验证主会话经
+- `func dumpLifecycleEvents(view telemetry.ViewModel) string` — dumpLifecycleEvents 把一个 telemetry 视图压成可读的事件清单（顺序敏感：它正是
+- `func TestRuntimeTracerSurvivesSessionRecreation(t *testing.T)` — TestRuntimeTracerSurvivesSessionRecreation 验证同一 Runtime 的 tracer
+
+### visibility_test.go
+
+- `func registerNamedTool(t *testing.T, r *Runtime, name string)` — 注册一个普通产品工具，供可见性断言使用。
+- `func TestPluginSwitchFiltersVisibleTools(t *testing.T)` — TestPluginSwitchFiltersVisibleTools 验证插件切换后 VisibleTools 按当前插件的
+- `func TestPluginExcludeFiltersVisibleTools(t *testing.T)` — TestPluginExcludeFiltersVisibleTools 验证 exclude 快照：被排除的工具不可见，
+- `func TestHiddenToolDispatchRejected(t *testing.T)` — TestHiddenToolDispatchRejected 验证 Registry Dispatch 侧复核同一可见性策略：
+- `func toolNames(tools []Tool) []string`
+- `func equalNames(got []string, want ...string) bool`
+
+### wi_worktree_root_binding_test.go
+
+- `func TestWorkItemWorktreeIsBoundAsTeammateRoot(t *testing.T)`
+
+### worker_discipline_prompt_test.go
+
+- `func TestWorkerSystemPromptCarriesTheWorkItemDiscipline(t *testing.T)` — TestWorkerSystemPromptCarriesTheWorkItemDiscipline：teammate 的**收尾纪律**必须落在它自己的
+
+### worktable_global_scope_test.go
+
+- `func TestWorkTableGlobalScopeRepro(t *testing.T)` — ── 红灯复现：工作表格的内容是「项目/全局」粒度，不是会话粒度 ──────────
+- `func TestWorkTableGlobalReadKeepsSessionReadScoped(t *testing.T)` — 会话级读面仍按会话取数（持久化/上下文打点用），全局读面不改变它：
+
+### worktable_ledger_identity_test.go
+
+- `func TestWorkTableLedgerRowIDsUniqueAcrossSessions(t *testing.T)` — ── 残留风险红灯：跨会话台账的行身份必须**进程内唯一** ────────────────
+- `func TestWorkTableLedgerNeverReusesRestoredRowID(t *testing.T)` — 装载（会话切换/磁盘恢复）进来的记录占用的号，不得被后续新条目重发——
+
+### worktable_session_axis_test.go
+
+- `func TestTaskSnapshotTagsOwningSession(t *testing.T)` — ── 会话筛选轴的数据面：全局台账每行必须能判定归属会话 ────────────────
+
+### worktree_chain_live_test.go
+
+- `func (f *liveSceneFrames) record(nodeID string, repo string, fileName string)`
+- `func (f *liveSceneFrames) snapshot() (registered, fileInScene, fileInMain bool, path string, samples int)`
+- `func liveSubagentAccountsPath() string`
+- `func TestLiveSubagentWorktreeChain(t *testing.T)` — TestLiveSubagentWorktreeChain 端到端验一条链：派发 → 现场 → 现场上真干活 →
+- `func firstLine(text string) string`
+
+### worktree_test.go
+
+- `func setupGitRepo(t *testing.T) string` — setupGitRepo 构造临时 git 仓库（含一个初始提交），返回仓库根。
+- `func TestWorktreeLifecycleCreateAndClean(t *testing.T)` — TestWorktreeLifecycleCreateAndClean 验证：subagent 节点开 worktree →
+- `func TestWorktreeDirtyUncommittedPreserved(t *testing.T)` — TestWorktreeDirtyUncommittedPreserved 验证设计 §风险表的承诺：子代理在
+- `func TestWorktreeCleanWithNoChanges(t *testing.T)` — TestWorktreeCleanWithNoChanges 无提交且工作区干净 → 仍走原清理路径。
+- `func TestWorktreeConflictFilesListsUnmerged(t *testing.T)` — TestWorktreeConflictFilesListsUnmerged 冲突后能列出冲突文件（诊断面）。
+- `func TestWorktreeDegradeOutsideGit(t *testing.T)` — TestWorktreeDegradeOutsideGit 验证非 git 仓库降级共享工作区。
+
+### workunit_assembly.go
+
+- `func newHostPorts(r *Runtime) *hostPorts` — newHostPorts 把宿主接成端口（构造式注入，不读全局）。
+- `func newLifecycleHost(r *Runtime) workunit.Lifecycle` — newLifecycleHost 是**装配点**：把同一个适配器接成三格传进生命周期实现（契约包的 `Host`）。
+- `func (p *hostPorts) Owned(ctx context.Context, sessionPath string, own workunit.Ownership) bool` — Owned 实现"是不是归团队托管"：归属读数里给了 TeamID 就是；只给了工作项 id 时，按它去
+- `func (p *hostPorts) Settled(ctx context.Context, sessionPath, itemID string) (bool, error)` — Settled 实现"计划里这一件事是否已经收过尾"（重入判据的编排侧一半）。
+- `func (p *hostPorts) SettleUnit(ctx context.Context, sessionPath string, own workunit.Ownership, resultErr, mergeErr error) (workunit.Outcome, error)` — SettleUnit 交回收尾结论：编排面那一份分类在 `SettleWorkItemWith` 里，本方法只转发。
+- `func (p *hostPorts) ReclaimUnit(ctx context.Context, sessionPath, role string) error` — ReclaimUnit 回收一个 teammate 单元：收口四步的前三步（作业 → 现场 → 会话内容）只有那一份实现。
+- `func (p *hostPorts) RecoverUnits(ctx context.Context, sessionPath string) (workunit.Resume, error)` — RecoverUnits 重启回灌本会话的团队单元（认领现场 → 账本读数 → 会话回灌 → 注入恢复说明）。
+- `func (p *hostPorts) BeginScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Scene, error)` — BeginScene 建（或复用）一份现场。
+- `func (p *hostPorts) MergeScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error` — MergeScene 把这一份现场的改动合回主工作区一次：team 托管的走编排面的合并，其余走现场面。
+- `func (p *hostPorts) ReleaseScene(nodeID string)` — ReleaseScene 拆掉没有团队归属的那一份现场（幂等）。
+- `func (p *hostPorts) AdoptScenes(ctx context.Context, sessionPath string) error` — AdoptScenes 认领本会话在册的现场（重启回灌；**必须在 Prune 之前**，顺序是判据的一部分）。
+- `func (p *hostPorts) SceneRegistered(nodeID string) bool` — SceneRegistered 报告这一份现场是否还在册（读数，不动现场）。
+- `func (p *hostPorts) Status(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (string, bool, error)` — Status 读回本单元那一份记录的 status（会话记录面的一格读数；折算走 `ProgressOf` 那一份）。
+- `func (p *hostPorts) Readout(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Resume, error)` — Readout 按会话路径读回该会话的全部单元记录，并折成回灌读数：
+- `func (p *hostPorts) SaveRecord(ctx context.Context, own workunit.Ownership, nodeID, sessionPath, status, summary, stage string)` — SaveRecord 落一条本单元的记录（**团队托管**那一层的写面；子代理的记录由节点会话面自己写）。
+- `func (p *hostPorts) SettleRecord(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string, outcome workunit.Outcome)` — SettleRecord 把收尾分类落成记录终态。
+- `func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error` — Clear 清掉本单元的记录：
+- `func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, store.Key, bool)` — unitReader 组装本层的记录读面：**作用域解析仍只有 `sessionScope` 一处**，而
+- `func (p *hostPorts) sessionScope(ctx context.Context, own workunit.Ownership, sessionPath string) (store.Key, bool)` — sessionScope 解析本层的会话账本作用域（**唯一一处解析**）：团队归属的单元记在团队账本
+- `func recordKeyFor(own workunit.Ownership, nodeID string) teamUnitRecordKey` — recordKeyFor 把归属读数折成记录身份（现场 nodeID + 角色会话 + 这一轮的目标）：
+- `func workerRequest(sessionPath string, own workunit.Ownership) teamwork.WorkerRequest` — workerRequest 把归属读数折成编排那条路认识的载荷（它只读 WorkItemID 与归属，因此不需要
+- `func (r *Runtime) beginNodeUnit(scope dto.SceneScope, nodeID string) *worktree.NodeWorktree` — beginNodeUnit 驱动 subagent 层工作单元的 Begin（现场的唯一建法仍在生命周期实现里）。
+- `func (r *Runtime) finishNodeUnit(ctx context.Context, nodeID string, _ *worktree.NodeWorktree) error` — finishNodeUnit 驱动 subagent 层工作单元的 Finish：合并只做一次（调用方没有合并结果）、
+- `func resolvedSceneScope(ctx context.Context, nodeID string) dto.SceneScope` — resolvedSceneScope 取当前节点作用域的读数（ctx 上有节点作用域时用它，否则按子代理角色
+- `func (r *Runtime) nodeWorktreeFor(nodeID string) *worktree.NodeWorktree` — nodeWorktreeFor 返回节点在册的现场（无管理器/无现场 → nil）。
+
+### workunit_chain_test.go
+
+- `func (u chainStubReadings) Kind() workunit.Kind`
+- `func (u chainStubReadings) ID() string`
+- `func (u chainStubReadings) SessionPath() string`
+- `func (u chainStubReadings) Policy() workunit.FinishPolicy`
+- `func (u chainStubReadings) Owns() workunit.Ownership`
+- `func (l *chainStubLifecycle) Begin(context.Context, workunit.Unit) (workunit.Scene, error)`
+- `func (l *chainStubLifecycle) Finish(context.Context, workunit.Unit, workunit.Result, error) (workunit.Outcome, error)`
+- `func (l *chainStubLifecycle) Reclaim(context.Context, workunit.Unit) error`
+- `func (l *chainStubLifecycle) Recover(context.Context, workunit.Unit) (workunit.Resume, error)`
+- `func (l *chainStubLifecycle) AlreadySettled(context.Context, workunit.Unit) (bool, error)`
+- `func (l *chainStubLifecycle) Notice(workunit.Outcome) string`
+- `func chainPolicyOf(t *testing.T, unit workunit.Unit) workunit.FinishPolicy` — chainPolicyOf 取一个 Unit 声明的收尾策略。策略是**契约的一部分**（`Unit.Policy()`），
+- `func chainClassifyRows() []chainClassifyRow`
+- `func TestChainOneFinishScriptForBothLayers(t *testing.T)` — TestChainOneFinishScriptForBothLayers 是跨层主用例：**同一份输入表**分别喂给 subagent 层
+- `func TestChainFinishPolicyIsTheOnlyLayerDifference(t *testing.T)` — TestChainFinishPolicyIsTheOnlyLayerDifference 钉住"层间差异只在策略上"：同一份 Finish 之后，
+- `func TestChainTwoRealLayersDeclareTheirPolicy(t *testing.T)` — TestChainTwoRealLayersDeclareTheirPolicy 用**两个真实读数**（零值、只读声明）核对上一条：
+- `func TestChainEveryLayerCoversEveryOutcome(t *testing.T)` — TestChainEveryLayerCoversEveryOutcome 钉住"契约加了分类，两层都得接"：teammate 层的记录
+- `func TestChainRecoveryNoteIsOneFamily(t *testing.T)` — TestChainRecoveryNoteIsOneFamily 钉住"恢复说明只有一族"：任何一层、任何 kind 的说明都以
+- `func TestChainInFlightVocabularyHasOneSource(t *testing.T)` — TestChainInFlightVocabularyHasOneSource 钉住"在跑词表只有一份"（判中断的依据）：teammate
+
+### workunit_node.go
+
+- `func (u nodeUnitReadings) Kind() workunit.Kind` — Kind 报告这一层：subagent（恒定读数：本注册点只服务这一层）。
+- `func (u nodeUnitReadings) ID() string` — ID 是本单元现场的身份：本层就是节点 id。
+- `func (u nodeUnitReadings) SessionPath() string` — SessionPath 是本层的会话路径 = 主会话号（账本键的解析在父里）。
+- `func (u nodeUnitReadings) Policy() workunit.FinishPolicy` — Policy 是本层的收尾策略：subagent 的现场是临时的（收尾即回收）。
+- `func (u nodeUnitReadings) Owns() workunit.Ownership` — Owns 是归属读数：subagent 单元没有团队归属（TeamID / ItemID 留空），只有角色。
+- `func (r *Runtime) newNodeWorkUnit(mainSessionID, nodeID string, scope dto.SceneScope) *nodeWorkUnit` — newNodeWorkUnit 组装 subagent 层的注册点：父实现 + 本层读数（依赖构造式注入）。
+- `func (u *nodeWorkUnit) FinishPolicy() workunit.FinishPolicy` — FinishPolicy 是本层声明的收尾策略读数（转发给读数；恒定的常量，因此 nil 接收者也能回答）。
+- `func (u *nodeWorkUnit) Begin(ctx context.Context) (workunit.Scene, error)` — Begin 建现场：唯一实现在父里。
+- `func (u *nodeWorkUnit) Finish(ctx context.Context, result workunit.Result, mergeErr error) (workunit.Outcome, error)` — Finish 收尾这一轮（分类 + 合并 + 回执；不拆现场）：唯一实现在父里。落定之后按策略
+- `func (u *nodeWorkUnit) Reclaim(ctx context.Context) error` — Reclaim 拆这一份（拆现场 + 清会话记录；幂等）：唯一实现在父里。
+- `func (u *nodeWorkUnit) Recover(ctx context.Context) (workunit.Resume, error)` — Recover 重启回灌（会话级读回 + 认领现场 + 中断读数）：唯一实现在父里。
+
+### workunit_node_test.go
+
+- `func (a nodeFinishFakeAgent) Chat(context.Context, string) (string, error)`
+- `func (f nodeFinishFakeFactory) NewAgent(string) frameworknode.Agent`
+- `func (e nodeFinishEffect) outcome() workunit.OutcomeKind` — outcome 从节点可见效果反推契约分类：判死看 error，落定看现场是否释放，
+- `func runNodeFinish(t *testing.T, runErr, finishErr error) nodeFinishEffect` — runNodeFinish 用假 Deps 驱动一次 AgentNode.Run：现场与收尾都走注入的回调，
+- `func TestNodeFinishClassificationIsOneTable(t *testing.T)` — TestNodeFinishClassificationIsOneTable：同一输入 → 契约 OutcomeKind 与
+- `func TestRecoveryNoteIsOneFamilyAcrossLayers(t *testing.T)` — TestRecoveryNoteIsOneFamilyAcrossLayers：subagent 的前缀/role 不是自造的第二份，
+- `func TestNodeWorkUnitSinglePath(t *testing.T)` — TestNodeWorkUnitSinglePath：subagent 层的注册点只做"注册 + 转发"——本用例让这条路
+
+### workunit_single_path_test.go
+
+- `func TestLifecycleOneImplementationAcrossLayers(t *testing.T)` — TestLifecycleOneImplementationAcrossLayers：两个注册点，一份结论（含重入）。
+
+### workunit_team.go
+
+- `func (u teamUnitReadings) Kind() workunit.Kind` — Kind 报告这一层：teammate（恒定读数：本注册点只服务这一层）。
+- `func (u teamUnitReadings) ID() string` — ID 是本单元现场的身份（`<role>-<itemID>` / `<role>`，换算只有 teamUnitNodeID 一处）。
+- `func (u teamUnitReadings) SessionPath() string` — SessionPath 是本层的会话路径 = 归属主会话号（账本键由父按团队归属解析到团队账本）。
+- `func (u teamUnitReadings) Policy() workunit.FinishPolicy` — Policy 是本层的收尾策略：teammate 归 team_close（Finish 之后不动现场与会话）。
+- `func (u teamUnitReadings) Owns() workunit.Ownership` — Owns 是归属读数：把 `teamwork.WorkerRequest` 折成契约自己的小结构——折算只有这一处，
+- `func newTeamUnit(r *Runtime, mainSessionID, role string, scene workunit.Scene, request teamwork.WorkerRequest) (*teamUnit, error)` — newTeamUnit 组装 teammate 层的注册点：父实现 + 本层读数。缺装配（runtime / 主会话 /
+- `func (u *teamUnit) FinishPolicy() workunit.FinishPolicy` — FinishPolicy 是本层声明的收尾策略读数（转发给读数；恒定的常量）。
+- `func (u *teamUnit) Begin(ctx context.Context) (workunit.Scene, error)` — Begin 建（或复用）这个单元的现场：唯一实现在父里。
+- `func (u *teamUnit) Finish(ctx context.Context, result workunit.Result, mergeErr error) (workunit.Outcome, error)` — Finish 收尾这一轮：唯一实现在父里（重入、只合一次、分类、策略都在那边）。
+- `func (u *teamUnit) Reclaim(ctx context.Context) error` — Reclaim 拆掉这个单元自己这一份：唯一实现在父里。
+- `func (u *teamUnit) Recover(ctx context.Context) (workunit.Resume, error)` — Recover 重启回灌（会话级：按会话路径读回整支团队的单元）：唯一实现在父里。
+
+### workunit_team_records.go
+
+- `func (r *Runtime) teamUnitLedger() workunit.SessionLedger` — teamUnitLedger 取契约要的会话存储端口：**结构上**就是既有的
+- `func (r *Runtime) teamUnitScope(sessionID string) (store.Key, bool)` — teamUnitScope 返回本会话的**存储作用域**（项目 + 会话）：与团队计划 / 绑定账本同一个
+- `func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey, status, summary, stage string)` — saveTeamUnitRecord 落一条 teammate 单元的会话记录（整条写；端口只有 Save/List，
+- `func (r *Runtime) teamUnitRecordWriter(key teamUnitRecordKey) *store.NodeSessionRecordWriter` — teamUnitRecordWriter 返回 teammate 那一层的记录写入链：**子代理那条链外面再包一环**
+- `func (r *Runtime) teamUnitWorktreeRecord(nodeID string) store.NodeWorktreeRecord` — teamUnitWorktreeRecord 从 worktree 注册表取现场（**四栏全取**）。没有现场（降级共享主工作区）
+- `func (r *Runtime) markTeamUnitRunning(mainSessionID string, key teamUnitRecordKey)` — markTeamUnitRunning 落"这一轮开始了、现场在哪"（运行期落盘：崩溃/重启后回灌的依据）。
+- `func (r *Runtime) recordTeamUnitRoundOutput(mainSessionID string, key teamUnitRecordKey, output string)` — recordTeamUnitRoundOutput 把这一轮的产出预览补进记录（记录回答"跑到哪"：中断之后
+- `func (r *Runtime) saveTeamUnitTranscript(mainSessionID string, key teamUnitRecordKey)` — saveTeamUnitTranscript 把当前 WorkItem Session 的工作历史写回既有单元记录，
+- `func (r *Runtime) teamUnitResumeHistory(mainSessionID, roleSessionID string) []types.Message` — teamUnitResumeHistory 返回冷恢复要注入下一轮的历史。现场角色会话仍在本进程时
+- `func (r *Runtime) settleTeamUnitRecord(mainSessionID string, key teamUnitRecordKey, outcome workunit.Outcome)` — settleTeamUnitRecord 把尾插的收尾分类写成记录的终态。分类本身就是写进计划的那一份
+- `func (r *Runtime) clearTeamUnitRecord(mainSessionID, roleSessionID string)` — clearTeamUnitRecord 清掉一个角色会话的单元记录（这个单元被回收时随会话内容一起清：
+- `func (r *Runtime) clearTeamUnitRecords(sessionID string) int` — clearTeamUnitRecords 清掉本会话团队的**全部**单元记录（整队收口的落点：收口之后
+- `func (r *Runtime) setTeamResumeNote(roleSessionID, note string)` — setTeamResumeNote 记下该角色会话下一次装配要带的恢复说明。
+- `func (r *Runtime) consumeTeamResumeNote(roleSessionID string) string` — consumeTeamResumeNote 取走该角色会话的恢复说明并**清掉**（一次装配读完即消：恢复
+- `func (r *Runtime) clearTeamResumeNote(roleSessionID string)` — clearTeamResumeNote 丢掉该角色会话还没被读走的恢复说明（收口清会话内容时用：会话内容
+- `func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (TeamRecovery, error)` — RecoverTeamworkUnits 重启回灌本会话的 teammate 单元（契约 `Lifecycle.Recover` 的落点）：
+- `func (r *Runtime) teamUnitReader(sessionID string, index []teamSceneEntry) *workunit.UnitReader` — teamUnitReader 组装 teammate 侧的读面（`workunit.UnitReader`）：作用域解析仍只有
+- `func (r *Runtime) teamUnitSurfaceAlive(entry teamSceneEntry, roleSessionID string, alive map[string]bool) bool` — teamUnitSurfaceAlive 报告这个单元在本进程里还有没有**执行面**：
+- `func (r *Runtime) roleSessionLive(roleSessionID string) bool` — roleSessionLive 报告一个角色会话在本进程里是否还活着。
+
+### workunit_team_records_history_test.go
+
+- `func TestTeamUnitRecordPersistsItsOwnTranscript(t *testing.T)` — TestTeamUnitRecordPersistsItsOwnTranscript 钉住 WorkItem 冷恢复的数据源：
+
+### workunit_team_test.go
+
+- `func (f *fakeTeamSpaces) BindWorkspace(_ context.Context, binding teamwork.WorkspaceBinding) (teamwork.WorkspaceBinding, error)`
+- `func (f *fakeTeamSpaces) MergeWorkspace(_ context.Context, binding teamwork.WorkspaceBinding) error`
+- `func (f *fakeTeamSpaces) ReleaseWorkspaceItem(_ context.Context, binding teamwork.WorkspaceBinding) error`
+- `func (f *fakeTeamReleaser) ReleaseWorkspace(_ context.Context, role string) error`
+- `func (f *fakeTeamSessions) ResetSession(_ context.Context, roleSessionID string) error`
+- `func (f *fakeTeamQueue) EnqueueTeammateMessage(_ context.Context, message teamwork.TeammateMessage) error`
+- `func newSettleFixture(t *testing.T, mergeErr error) (*teamwork.Coordinator, *memPlanStore, *fakeTeamSpaces, *fakeTeamQueue)` — newSettleFixture 造一支"一件事正在跑、只等尾插"的团队（合并由 fake 决定）。
+- `func TestTeamSettleClassifiesWithTheSharedClassifier(t *testing.T)` — TestTeamSettleClassifiesWithTheSharedClassifier 钉住收尾分类的**唯一来源**与逐条映射。
+- `func TestTeamCloseGateKeepsUnmergedScenes(t *testing.T)` — TestTeamCloseGateKeepsUnmergedScenes 钉住闸门**没有反向放松**：分类改成"不判死"之后，
+- `func teamHostPlan() store.TeamworkPlan` — teamHostPlan 是本文件宿主用例的团队计划：exec 的 wi-1 在跑、test_case 的 wi-2 待验收。
+- `func newTeamHostFixture(t *testing.T, plan store.TeamworkPlan, bindings []store.TeamworkBinding) *teamHostFixture`
+- `func teamHostBindings() []store.TeamworkBinding`
+- `func saveTeamRecord(t *testing.T, st *store.NodeSessionStore, record store.NodeSessionRecord)` — saveTeamRecord 落一条 teammate 单元的会话记录（形状 = store.NodeSessionRecord）。
+- `func teamRecords(t *testing.T, st *store.NodeSessionStore) []store.NodeSessionRecord` — teamRecords 读回本会话的全部节点记录（含子代理的，调用方自己筛 NodeID）。
+- `func TestTeamUnitRecoverMarksInterruptedAndInjectsTheNoteOnce(t *testing.T)` — TestTeamUnitRecoverMarksInterruptedAndInjectsTheNoteOnce ①：
+- `func TestTeamUnitRecordsCarryTheSceneAndProgress(t *testing.T)` — TestTeamUnitRecordsCarryTheSceneAndProgress 钉住**记录里存了什么**：契约的形状
+- `func TestWorkerRoundPersistsTheUnitRecord(t *testing.T)` — TestWorkerRoundPersistsTheUnitRecord 端到端：派发（屏障 / 依赖 / 一 Work Item 一套现场都过
+- `func waitTeamUnitRecordStatus(t *testing.T, fixture *teamHostFixture, nodeID, want string)` — waitTeamUnitRecordStatus 等到某个单元的记录落到目标状态（异步作业；超时即失败）。
+- `func singleTeamRecord(t *testing.T, st *store.NodeSessionStore, nodeID string) store.NodeSessionRecord` — singleTeamRecord 取某 nodeID 的单元记录（不存在即失败）。
+- `func TestTeamCloseClearsTheUnitRecords(t *testing.T)` — TestTeamCloseClearsTheUnitRecords ②：整队收口之后，单元的会话记录被清——再回灌时
+- `func TestTeamUnitFinishPolicyKeepsTheScene(t *testing.T)` — TestTeamUnitFinishPolicyKeepsTheScene ④：AtTeamClose 的 Finish **不拆现场**——

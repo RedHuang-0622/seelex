@@ -119,19 +119,19 @@ node --test gui/frontend/dist/protocol.test.mjs gui/frontend/dist/client-state.t
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### model.go（兼容转发）
+### model.go
 
-- `func ExplicitCompactionOrigin(origin string) bool` — ExplicitCompactionOrigin 报告该来源是否为显式要求（用户 /compact 或模型
-- `func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string` — CompactionRangeLabel 把压缩区间（消息号 + transcript 事件序号）渲染成一句
-- `func messageRangeLabel(from, to string) string` — messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
-- `func CloneWorkItems(items []WorkItem) []WorkItem` — CloneWorkItems 返回工作表格行的深拷贝（并发读者安全；供快照克隆与事件发布）。
-- `func CloneSnapshot(snapshot Snapshot) Snapshot` — CloneSnapshot returns an independent copy suitable for concurrent readers.
-- `func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef` — CloneSessionForkRef 返回会话血缘的独立副本。
-- `func CloneRuntimeState(runtime RuntimeState) RuntimeState` — CloneRuntimeState returns an independent copy of mutable runtime slices.
-- `func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView` — CloneTeamworkBoardView 深拷贝团队看板投影：切片**与元素内嵌的切片**都要独立。
-- `func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch` — CloneWorkTableBatches 深拷贝批次头（Counts map 必须独立，避免并发读者
-- `func cloneSubAgentTree(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode` — cloneSubAgentTree 深拷贝子代理树投影（快照克隆不改旧快照的契约）。
-- `func clonePlanNodes(nodes []PlanNode) []PlanNode`
+- `func ExplicitCompactionOrigin(origin string) bool`
+- `func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string`
+- `func CloneWorkItems(items []WorkItem) []WorkItem`
+- `func CloneSnapshot(snapshot Snapshot) Snapshot`
+- `func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef`
+- `func CloneRuntimeState(runtime RuntimeState) RuntimeState`
+- `func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView`
+- `func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch`
+- `func ToolCallStatusOfRecord(word string) dto.ToolEventStatus`
+- `func NewVisibleOutputStream(requestID string) *VisibleOutputStream`
+- `func StripThoughtBlocks(value string) string`
 
 ### teamwork_board_clone_test.go
 
@@ -144,14 +144,8 @@ node --test gui/frontend/dist/protocol.test.mjs gui/frontend/dist/client-state.t
 - `func TestCloneRuntimeStateDeepCopiesMemberAssembly(t *testing.T)`
 - `func TestCloneTeamworkBoardViewKeepsNilAssembly(t *testing.T)` — TestCloneTeamworkBoardViewKeepsNilAssembly 钉降温路径：没有读数（nil）的成员行克隆后
 
-### toolcall_status_record.go
-
-- `func ToolCallStatusOfRecord(word string) dto.ToolEventStatus` — ToolCallStatusOfRecord 是"工具调用视图词"这一格在**记录/边界那一侧**的唯一转换点：
-- `func (c *ToolCall) UnmarshalJSON(data []byte) error` — UnmarshalJSON 是这一格的落盘读法：`status` 按**词**读，经 ToolCallStatusOfRecord 折一次；
-
 ### toolcall_status_record_test.go
 
 - `func TestToolCallStatusIsTheToolEventCell(t *testing.T)` — TestToolCallStatusIsTheToolEventCell 是本格的类型化判据：字段本身就是那一格
 - `func TestToolCallStatusRecordFold(t *testing.T)` — TestToolCallStatusRecordFold 钉住落盘那一侧（`model.ToolCall` 同时是存档/事件 wire 的形状）：
 - `func BenchmarkToolCallRecordDecode(b *testing.B)` — BenchmarkToolCallRecordDecode 量一下"落盘读回多折一次"的代价量级：
-

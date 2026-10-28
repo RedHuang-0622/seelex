@@ -125,3 +125,20 @@ go test ./store ./kernel/board ./wiring/registry ./e2e -count=1
 - `func payloadTextList(payload map[string]any, key string) []string`
 - `func cell(value string) string`
 
+### session.go
+
+- `func NewSessionStore(layout *storelayout.Layout) *SessionStore`
+- `func (s *SessionStore) Bind(key dto.SessionKey) *BoundStore`
+- `func scopeOf(key dto.SessionKey) storelayout.Scope`
+- `func (s *SessionStore) WriteGoalBoard(_ context.Context, key dto.SessionKey, meta dto.GoalBoardMeta) error`
+- `func (s *SessionStore) ReadGoalBoard(_ context.Context, key dto.SessionKey) (dto.GoalBoardMeta, error)`
+- `func (s *SessionStore) WriteTeamBoard(_ context.Context, key dto.SessionKey, meta dto.TeamBoardMeta) error`
+- `func (s *SessionStore) ReadTeamBoard(_ context.Context, key dto.SessionKey) (dto.TeamBoardMeta, error)`
+- `func (b *BoundStore) WriteGoalBoard(ctx context.Context, meta dto.GoalBoardMeta) error`
+- `func (b *BoundStore) ReadGoalBoard(ctx context.Context) (dto.GoalBoardMeta, error)`
+- `func (b *BoundStore) WriteTeamBoard(ctx context.Context, meta dto.TeamBoardMeta) error`
+- `func (b *BoundStore) ReadTeamBoard(ctx context.Context) (dto.TeamBoardMeta, error)`
+- `func ValidateGoalBoardMeta(meta dto.GoalBoardMeta) error`
+- `func ValidateTeamBoardMeta(meta dto.TeamBoardMeta) error`
+- `func validateBoardLifecycle(lifecycle dto.BoardLifecycle, kind string) error`
+- `func readOptional[T any](layout *storelayout.Layout, scope storelayout.Scope, module storelayout.ModuleID) (T, error)`

@@ -1,0 +1,126 @@
+digraph seelex_architecture {
+  graph [rankdir=LR, fontname="Arial", compound=true, newrank=true];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10];
+  edge [fontname="Arial", fontsize=9];
+
+  subgraph cluster_frontend {
+    label="Frontends";
+    color="#D9EAF7";
+    style="filled";
+    gui [label="gui"];
+    tui [label="tui"];
+    headless [label="headless"];
+    console [label="console"];
+  }
+
+  subgraph cluster_entry {
+    label="Entry / Composition";
+    color="#E8F1DD";
+    style="filled";
+    main [label="main.go"];
+    startup [label="internal/startup"];
+    boot [label="boot"];
+    host [label="internal/host"];
+  }
+
+  subgraph cluster_application {
+    label="Application";
+    color="#FFF2CC";
+    style="filled";
+    app [label="application domains"];
+    assembly [label="application/assembly"];
+  }
+
+  subgraph cluster_middle {
+    label="Middle";
+    color="#FCE4D6";
+    style="filled";
+    protocol [label="middle/protocol"];
+    residency [label="middle/residency"];
+    history [label="middle/switch/history"];
+  }
+
+  subgraph cluster_backend {
+    label="Backend";
+    color="#E2F0D9";
+    style="filled";
+    engine [label="engine/assemble\nand engine domains"];
+    tools [label="tool registry\nand tools"];
+    multiagent [label="multiagent\nand workunit"];
+    limit [label="limit"];
+  }
+
+  subgraph cluster_kernel {
+    label="Kernel";
+    color="#EDE7F6";
+    style="filled";
+    state [label="kernel/state"];
+    kdomain [label="session task context\nevent goal prompt board"];
+  }
+
+  subgraph cluster_foundation {
+    label="Foundation";
+    color="#F2F2F2";
+    style="filled";
+    contract [label="contract / dto / protocol"];
+    store [label="store\ndata root single writer"];
+    seele [label="Seele v0.3.6"];
+  }
+
+  subgraph cluster_future {
+    label="Planned execution plane";
+    color="#DDEBF7";
+    style="dashed,filled";
+    execnode [label="Exec Node\nplanned"];
+    dot [label="SeelexDot\nplanned"];
+    telemetry [label="Telemetry exporter\nplanned"];
+  }
+
+  gui -> app;
+  tui -> app;
+  headless -> app;
+  console -> app;
+
+  main -> startup;
+  main -> boot;
+  boot -> app;
+  boot -> backend;
+  boot -> host;
+  boot -> store;
+  host -> engine;
+  host -> store;
+
+  app -> contract;
+  app -> kdomain;
+  assembly -> engine;
+  assembly -> state;
+
+  protocol -> contract;
+  residency -> protocol;
+  history -> protocol;
+
+  engine -> seele;
+  engine -> kdomain;
+  engine -> contract;
+  tools -> limit;
+  tools -> kdomain;
+  multiagent -> kdomain;
+  limit -> contract;
+
+  state -> contract;
+  kdomain -> contract;
+  store -> contract;
+  store -> seele;
+
+  boot -> execnode [style=dashed, label="S2/S3"];
+  execnode -> seele [style=dashed];
+  boot -> dot [style=dashed, label="S4"];
+  dot -> seele [style=dashed];
+  boot -> telemetry [style=dashed, label="S0"];
+  execnode -> telemetry [style=dashed];
+  dot -> telemetry [style=dashed];
+
+  edge [style=dotted, color="#777777"];
+  execnode -> store [label="forbidden shared write"];
+  dot -> store [label="each node has own data root"];
+}

@@ -395,3 +395,432 @@ go test ./backend/tool/computer/... -count=1
 滚轮真实生效同样在真机上验过（临时探针，非随仓库提交）：对 Qoder 的 `消息列表`
 面板中心注入一格 `delta=+120`，回读 100.439% → 97.251%；再注入 `delta=-120`
 精确回到 100.439%，面板 class/rect 全程一致——滚轮注入与滚前/滚后回读都对得上。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### click.go
+
+- `func runClickSequence(inject injectMouse, down, up uint32, x, y uintptr, clicks int, interval time.Duration, sleep func(time.Duration)) error` — runClickSequence 按 clicks 次「按下 + 释放」发送点击，并把释放与按下绑成
+- `func scrollNotches(delta int) []int` — scrollNotches 把一次滚轮请求拆成「一格一格」的增量序列（含不足一格的余数）。
+
+### click_test.go
+
+- `func TestRunClickSequencePairsDownWithUp(t *testing.T)`
+- `func TestRunClickSequenceReleasesAfterFailedDown(t *testing.T)`
+- `func TestRunClickSequenceReportsFailedUp(t *testing.T)`
+- `func TestRunClickSequenceTreatsZeroClicksAsOne(t *testing.T)`
+
+### computer.go
+
+- `func (r Rect) Contains(x, y int) bool` — Contains 判断虚拟桌面坐标点是否落在矩形内。
+- `func (r Rect) Center() Point` — Center 返回矩形中心点。
+- `func (r Rect) String() string` — String 便于日志与工具输出。
+- `func clipRect(rect, bounds Rect) Rect` — clipRect 把 rect 与 bounds 求交（用于把越界的截图/窗口区域收进屏幕内）。
+- `func Sleep(ms int)` — Sleep 等待指定毫秒数，供 GUI 稳定期使用。
+
+### darwin_core.go
+
+- `func darwinBind(handle uintptr, name string, target any) bool` — darwinBind 把一个符号绑到函数变量上；符号不存在返回 false（而不是 panic）——
+- `func darwinLoad() error` — darwinLoad 打开框架并绑定符号（进程内一次，失败结果缓存）。
+- `func darwinOpenFrameworks() error`
+- `func darwinRequiredSymbol(name string) bool` — darwinRequiredSymbol 报告某个符号是"缺了就不能用"，还是"缺了降级即可"。
+- `func darwinProbe() error` — darwinProbe 报告当前进程能否用 macOS 的 CoreGraphics 桌面能力。
+- `func darwinCFString(value string) uintptr` — darwinCFString 造一个 UTF-8 的 CFString 作为字典键；调用方负责 CFRelease。
+- `func darwinCFStringValue(ref uintptr) string` — darwinCFStringValue 把 CFString 读回 Go 字符串（失败返回空）。
+- `func darwinCFNumber(ref uintptr) (int64, bool)` — darwinCFNumber 从 CFNumber 读一个整数值。
+- `func darwinCFBool(ref uintptr) (bool, bool)` — darwinCFBool 从 CFBoolean 读一个布尔值。
+- `func darwinDictionaryValue(dict uintptr, key string) uintptr` — darwinDictionaryValue 按已知字符串键取字典里的值（键由本文件临时造 CFString）。
+
+### desktop_probe_linux_test.go
+
+- `func TestLinuxClickReleasesMouseButton(t *testing.T)` — 桌面探针默认跳过：它会在真实桌面上移动一次指针并点一下（会夺走一次点击，
+- `func leftButtonDown() (bool, error)` — leftButtonDown 报告左键当前是否按下（QueryPointer 的按键掩码）。
+
+### desktop_probe_test.go
+
+- `func TestClickReleasesMouseButton(t *testing.T)` — 桌面探针默认跳过：它会在真实桌面上点一下鼠标（会夺走一次点击，也可能
+- `func leftButtonDown() (bool, error)` — leftButtonDown 报告左键当前是否物理按下。
+
+### facade.go
+
+- `func Current() Desktop` — Current 返回当前平台的 Desktop 实现。路由在编译期由 build tag 决定
+- `func Prepare() error` — Prepare 见 Desktop.Prepare。
+- `func Supported() bool` — Supported 报告当前平台是否有可用的桌面 computer use。装配层据此决定是否
+- `func ScrollTargetsSupported() bool` — ScrollTargetsSupported 报告当前实现能否只读回答可滚动面板的状态。
+- `func VirtualScreen() (Rect, error)` — VirtualScreen 返回虚拟桌面（多显示器并集）矩形。
+- `func CaptureShot(opts ScreenshotOptions) (Capture, error)` — CaptureShot 抓屏并按选项缩放。
+- `func SavePNG(path string, opts ScreenshotOptions) (Capture, error)` — SavePNG 抓屏并写入 PNG 文件。
+- `func CursorPosition() (Point, error)` — CursorPosition 返回当前光标位置（虚拟桌面坐标）。
+- `func MoveMouse(p Point) error` — MoveMouse 把光标移动到指定坐标。
+- `func Click(p Point, opts ClickOptions) error` — Click 移动光标到指定坐标并点击。
+- `func Drag(from, to Point, duration time.Duration) error` — Drag 按住左键从 from 拖到 to 再释放。
+- `func Scroll(p Point, delta int) error` — Scroll 在指定坐标滚动滚轮，delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
+- `func TypeText(text string) error` — TypeText 以字面文本方式注入输入（支持 CJK 与 emoji）。
+- `func PressKeys(combo string, times int) error` — PressKeys 按下组合键（形如 ctrl+shift+t）。
+- `func ListWindows() ([]Window, error)` — ListWindows 枚举顶层窗口。
+- `func ForegroundWindow() (Window, error)` — ForegroundWindow 返回当前前台窗口。
+- `func FocusWindow(match string) (Window, error)` — FocusWindow 按标题子串查找窗口并置前。
+- `func ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error)` — ListScrollTargets 枚举窗口里可用滚轮操作的面板。
+- `func ScrollStateAtPoint(p Point, timeout time.Duration) (ScrollTarget, bool, error)` — ScrollStateAtPoint 回读落点处的可滚动面板状态。
+
+### image.go
+
+- `func ScaleNearest(src *image.RGBA, maxWidth int) (*image.RGBA, float64)` — ScaleNearest 以最近邻方式把图像缩放到指定最大宽度；宽度不足时原样返回。
+
+### input_darwin.go
+
+- `func darwinMouseButtonFor(name string) (darwinMouseButton, error)` — darwinMouseButtonFor 把工具层的按键名映射成 CGEvent 的按键三元组。
+- `func darwinPostMouse(eventType uint32, point Point, button uint32) error` — darwinPostMouse 注入一次鼠标事件（失败只能报告"构造失败"：CGEventPost 无返回，
+- `func darwinWarpPointer(point Point) error` — darwinWarpPointer 把指针移动到指定坐标，并保持指针与鼠标设备关联
+- `func (darwinDesktop) MoveMouse(point Point) error` — MoveMouse 把指针移动到指定坐标。
+- `func (d darwinDesktop) Click(point Point, opts ClickOptions) error` — Click 把指针移动到指定坐标并点击（按下与释放成对，失败也先补释放）。
+- `func (d darwinDesktop) Drag(from, to Point, duration time.Duration) error` — Drag 按住左键从 from 拖到 to 再释放（中途失败也必须释放）。
+- `func (d darwinDesktop) Scroll(point Point, delta int) error` — Scroll 在指定坐标滚动滚轮：delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
+- `func darwinPostUnicode(units []uint16) error` — darwinPostUnicode 以「虚拟键 0 + Unicode 字符串」注入一个 UTF-16 单元序列。
+- `func (darwinDesktop) TypeText(text string) error` — TypeText 逐字注入文本（支持中文与 emoji）。
+- `func darwinModifierFlags(modifiers []uint16) (uint64, error)` — darwinModifierFlags 把 keys.go 解析出的修饰键虚拟码折成 CGEventFlags。
+- `func darwinVirtualKeyToCode(vk uint16) (uint16, bool)` — darwinVirtualKeyToCode 把虚拟键码映射成 macOS 虚拟键码。
+- `func darwinPostKey(code uint16, flags uint64, down bool) error` — darwinPostKey 注入一次带修饰标志的按键。
+- `func (darwinDesktop) PressKeys(combo string, times int) error` — PressKeys 按下组合键，times 为重复次数（0 视为 1）。
+
+### input_linux.go
+
+- `func (x11Desktop) MoveMouse(point Point) error` — MoveMouse 把指针移动到指定坐标。
+- `func (d x11Desktop) Click(point Point, opts ClickOptions) error` — Click 把指针移动到指定坐标并点击（按下与释放成对，失败也先补释放）。
+- `func (d x11Desktop) Drag(from, to Point, duration time.Duration) error` — Drag 按住左键从 from 拖到 to 再释放（中途失败也必须释放）。
+- `func (d x11Desktop) Scroll(point Point, delta int) error` — Scroll 在指定坐标滚动滚轮：delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
+- `func x11ButtonCode(button string) (byte, error)` — x11ButtonCode 把工具层的按键名映射成 X11 键号。
+- `func virtualKeyToKeysym(vk uint16) (uint32, bool)` — virtualKeyToKeysym 把 keys.go 解析出的虚拟键码映射成 X 键码。
+- `func (m *x11Keymap) lookup(keysym uint32) (x11Keyslot, bool)`
+- `func (s *x11Session) keymap() (*x11Keymap, error)` — keymap 读取并缓存键盘映射。只索引前两档（未按 Shift / 按下 Shift）：
+- `func (s *x11Session) tapKey(keycode xproto.Keycode, shift bool) error` — tapKey 按下并释放一个键码；需要 Shift 档时先按下左 Shift，再逆序释放。
+- `func (x11Desktop) TypeText(text string) error` — TypeText 逐字注入文本（支持中文与 emoji）。
+- `func (s *x11Session) remapKeycode(keycode xproto.Keycode, keysym uint32)` — remapKeycode 把一个键码映射成给定键码（keysym=0 表示还原为空闲）。
+- `func keysymForRune(char rune) uint32` — keysymForRune 把 rune 映射成 X 键码：ASCII 与 Latin-1 用码点本身，
+- `func (x11Desktop) PressKeys(combo string, times int) error` — PressKeys 按下组合键，times 为重复次数（0 视为 1）。
+
+### input_windows.go
+
+- `func wrapProc(name string, err error) error`
+- `func (win32Desktop) CursorPosition() (Point, error)` — CursorPosition 返回当前光标位置（虚拟桌面坐标）。
+- `func (win32Desktop) MoveMouse(p Point) error` — MoveMouse 把光标移动到指定坐标。
+- `func setCursor(p Point) error`
+- `func (d win32Desktop) absolutePoint(p Point) (uintptr, uintptr)` — absolutePoint 把虚拟桌面坐标归一化为 0..65535，供 MOUSEEVENTF_ABSOLUTE 使用。
+- `func mouseButtonFlags(button string) (down, up uint32, err error)`
+- `func mouseInputEvent(flags uint32, x, y uintptr, data uint32) input` — mouseInputEvent 构造一次绝对坐标的鼠标输入事件（虚拟桌面坐标系）。
+- `func sendMouse(flags uint32, x, y uintptr, data uint32) error` — sendMouse 注入一次鼠标事件。走 SendInput 而不是 mouse_event：SendInput
+- `func (d win32Desktop) Click(p Point, opts ClickOptions) error` — Click 把光标移动到指定坐标并点击（按下与释放成对，失败也先补释放）。
+- `func (d win32Desktop) Drag(from, to Point, duration time.Duration) error` — Drag 按住左键从 from 拖到 to，用于框选、拖拽窗口等。中途失败也必须释放，
+- `func (d win32Desktop) Scroll(p Point, delta int) error` — Scroll 在指定坐标滚动滚轮，delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
+- `func sendInputs(inputs []input) error`
+- `func keyInput(vk uint16, up bool) input`
+- `func unicodeInput(unit uint16, up bool) input`
+- `func (win32Desktop) TypeText(text string) error` — TypeText 以 Unicode 方式输入文本（支持中文与 emoji）。
+- `func (win32Desktop) PressKeys(combo string, times int) error` — PressKeys 按下组合键，times 为重复次数（0 视为 1）。
+
+### keys.go
+
+- `func init()`
+- `func ParseKeyCombo(combo string) (KeyCombo, error)` — ParseKeyCombo 解析形如 "ctrl+shift+t"、"alt+f4"、"enter" 的按键组合。
+- `func modifierKey(token string) (uint16, bool)`
+- `func singleKey(token string) (uint16, bool)`
+
+### platform_darwin.go
+
+- `func (darwinDesktop) Capabilities() Capabilities` — Capabilities 报告 macOS 的桌面能力：CoreGraphics 提供了完整的截图 / 输入 /
+- `func (darwinDesktop) Prepare() error` — Prepare 建立框架绑定并检查「屏幕录制」授权。
+
+### platform_linux.go
+
+- `func (x11Desktop) Capabilities() Capabilities` — Capabilities 报告 Linux 的桌面能力：能连上 X11（且具备 XTEST）就有一套
+- `func (x11Desktop) Prepare() error` — Prepare 建立（并缓存）一次 X11 连接；失败原因原样返回，装配层据此不注册
+
+### platform_unsupported.go
+
+- `func (unsupportedDesktop) Capabilities() Capabilities` — Capabilities 报告本平台没有任何桌面能力。
+- `func (unsupportedDesktop) Prepare() error` — Prepare 无需准备。
+- `func (unsupportedDesktop) VirtualScreen() (Rect, error)` — VirtualScreen 返回 ErrUnsupported。
+- `func (unsupportedDesktop) CaptureShot(ScreenshotOptions) (Capture, error)` — CaptureShot 返回 ErrUnsupported。
+- `func (unsupportedDesktop) SavePNG(string, ScreenshotOptions) (Capture, error)` — SavePNG 返回 ErrUnsupported。
+- `func (unsupportedDesktop) CursorPosition() (Point, error)` — CursorPosition 返回 ErrUnsupported。
+- `func (unsupportedDesktop) MoveMouse(Point) error` — MoveMouse 返回 ErrUnsupported。
+- `func (unsupportedDesktop) Click(Point, ClickOptions) error` — Click 返回 ErrUnsupported。
+- `func (unsupportedDesktop) Drag(Point, Point, time.Duration) error` — Drag 返回 ErrUnsupported。
+- `func (unsupportedDesktop) Scroll(Point, int) error` — Scroll 返回 ErrUnsupported。
+- `func (unsupportedDesktop) TypeText(string) error` — TypeText 返回 ErrUnsupported。
+- `func (unsupportedDesktop) PressKeys(string, int) error` — PressKeys 返回 ErrUnsupported。
+- `func (unsupportedDesktop) ListWindows() ([]Window, error)` — ListWindows 返回 ErrUnsupported。
+- `func (unsupportedDesktop) ForegroundWindow() (Window, error)` — ForegroundWindow 返回 ErrUnsupported。
+- `func (unsupportedDesktop) FocusWindow(string) (Window, error)` — FocusWindow 返回 ErrUnsupported。
+- `func (unsupportedDesktop) ListScrollTargets(ScrollTargetOptions) ([]ScrollTarget, error)` — ListScrollTargets 返回 ErrUnsupported（控件树是 Windows/macOS 才有的栈，
+- `func (unsupportedDesktop) ScrollStateAtPoint(Point, time.Duration) (ScrollTarget, bool, error)` — ScrollStateAtPoint 返回 ErrUnsupported。
+
+### platform_windows.go
+
+- `func (win32Desktop) Capabilities() Capabilities` — Capabilities 报告 Windows 的桌面能力：原生截图/输入/窗口枚举，加上
+
+### screen_darwin.go
+
+- `func darwinActiveDisplays() ([]uint32, error)` — darwinActiveDisplays 枚举在线显示器（返回 displayID 列表）。
+- `func (darwinDesktop) VirtualScreen() (Rect, error)` — VirtualScreen 返回全部在线显示器的并集矩形（CoreGraphics 全局坐标，单位：点）。
+- `func darwinUnionBounds(displays []uint32) (Rect, bool)` — darwinUnionBounds 求显示器边界的并集。
+- `func (darwinDesktop) CursorPosition() (Point, error)` — CursorPosition 返回当前指针位置（CoreGraphics 全局坐标，单位：点）。
+- `func (d darwinDesktop) CaptureShot(opts ScreenshotOptions) (Capture, error)` — CaptureShot 抓取屏幕（或指定区域）并按选项缩放。
+- `func (d darwinDesktop) SavePNG(path string, opts ScreenshotOptions) (Capture, error)` — SavePNG 抓屏并写入 PNG 文件，返回实际截取区域与缩放系数。
+- `func darwinCaptureRegion(region Rect) (*image.RGBA, error)` — darwinCaptureRegion 抓取一块"点空间"区域：逐显示器取像素图，再按 backing
+- `func darwinBlitDisplay(out *image.RGBA, region, display Rect, source *image.RGBA)` — darwinBlitDisplay 把一块显示器的像素图按 backing scale 采样进输出图。
+- `func darwinImageToRGBA(imageRef uintptr) (*image.RGBA, error)` — darwinImageToRGBA 把一张 CGImage 解码成 RGBA。
+
+### screen_linux.go
+
+- `func (x11Desktop) VirtualScreen() (Rect, error)` — VirtualScreen 返回 X11 根窗口的矩形（左上是 0,0）。多显示器在 X 里通常合成
+- `func (x11Desktop) CursorPosition() (Point, error)` — CursorPosition 返回当前指针位置（根窗口坐标）。
+- `func (d x11Desktop) CaptureShot(opts ScreenshotOptions) (Capture, error)` — CaptureShot 抓取屏幕（或指定区域）并按选项缩放。
+- `func (d x11Desktop) SavePNG(path string, opts ScreenshotOptions) (Capture, error)` — SavePNG 抓屏并写入 PNG 文件，返回实际截取区域与缩放系数。
+- `func captureRegion(region Rect) (*image.RGBA, error)` — captureRegion 用 XGetImage 抓根窗口（或其中一块）的像素。
+- `func decodeZPixmap(s *x11Session, data []byte, width, height int) (*image.RGBA, error)` — decodeZPixmap 把 XGetImage 的原始 ZPixmap 数据解码成 RGBA：先按 PixmapFormats
+- `func rawPixel(order binary.ByteOrder, pixel []byte) uint32` — rawPixel 把 1/2/3/4 字节的像素按服务器字节序拼成 32 位值。
+- `func channel(value, mask uint32) uint8` — channel 按掩码取出一个通道并扩展到 8 位。
+
+### screen_windows.go
+
+- `func (win32Desktop) Prepare() error` — Prepare 把当前进程设置为 Per-Monitor V2 DPI 感知。截图与鼠标坐标都以物理
+- `func (win32Desktop) VirtualScreen() (Rect, error)` — VirtualScreen 返回多显示器并集组成的虚拟桌面矩形。
+- `func captureRegion(region Rect) (*image.RGBA, error)` — captureRegion 用 GDI BitBlt 抓取指定区域的像素。
+- `func (d win32Desktop) CaptureShot(opts ScreenshotOptions) (Capture, error)` — CaptureShot 抓取屏幕并按选项缩放。
+- `func (d win32Desktop) SavePNG(path string, opts ScreenshotOptions) (Capture, error)` — SavePNG 抓屏并写入 PNG 文件，返回实际截取区域与缩放系数。
+
+### scrolltarget.go
+
+- `func (a ScrollAxis) Known() bool` — Known 报告该轴是否带回了可用的位置数值。
+- `func (a ScrollAxis) AtStart() bool` — AtStart 报告该轴是否停在起始端（纵向 = 页面顶部 / 横向 = 最左）。
+- `func (a ScrollAxis) AtEnd() bool` — AtEnd 报告该轴是否停在末端（纵向 = 页面底部 / 横向 = 最右）。
+- `func (t ScrollTarget) Scrollable() bool` — Scrollable 报告该面板是否至少有一条轴可以滚动。
+- `func (t ScrollTarget) Area() int` — Area 返回面板面积（像素），用于"外层面板在前"的排序与最内层命中判定。
+- `func (t ScrollTarget) Center() Point` — Center 返回面板中心点：滚轮要落在面板内部，中心是最稳的落点。
+- `func (t ScrollTarget) Contains(p Point) bool` — Contains 报告点是否落在面板矩形内。
+- `func NormalizeScrollTargets(targets []ScrollTarget, limit int) []ScrollTarget` — NormalizeScrollTargets 过滤无效面板（零/负面积、两轴都不可滚动）、按面积降序
+- `func PickScrollTargetAtPoint(targets []ScrollTarget, p Point) (ScrollTarget, bool)` — PickScrollTargetAtPoint 返回包含该点、面积最小的可滚动面板：滚轮作用于指针
+- `func LargestVerticalScrollTarget(targets []ScrollTarget) (ScrollTarget, bool)` — LargestVerticalScrollTarget 返回面积最大的纵向可滚动面板：调用方只给了窗口、
+
+### scrolltarget_darwin.go
+
+- `func (darwinDesktop) ListScrollTargets(ScrollTargetOptions) ([]ScrollTarget, error)` — ListScrollTargets 返回 ErrUnsupported。
+- `func (darwinDesktop) ScrollStateAtPoint(Point, time.Duration) (ScrollTarget, bool, error)` — ScrollStateAtPoint 返回 ErrUnsupported。
+
+### scrolltarget_linux.go
+
+- `func (x11Desktop) ListScrollTargets(ScrollTargetOptions) ([]ScrollTarget, error)` — ListScrollTargets 在 X11 上返回 ErrUnsupported。
+- `func (x11Desktop) ScrollStateAtPoint(Point, time.Duration) (ScrollTarget, bool, error)` — ScrollStateAtPoint 在 X11 上返回 ErrUnsupported。
+
+### scrolltarget_test.go
+
+- `func TestScrollAxisStateDerivations(t *testing.T)`
+- `func TestNormalizeScrollTargetsFiltersSortsAndLimits(t *testing.T)`
+- `func TestPickScrollTargetAtPointPrefersInnermost(t *testing.T)`
+- `func TestLargestVerticalScrollTarget(t *testing.T)`
+- `func TestScrollNotchesSplitPerWheelDelta(t *testing.T)`
+- `func namesOf(targets []ScrollTarget) []string`
+
+### scrolltargets_desktop_probe_test.go
+
+- `func TestDesktopProbeScrollTargets(t *testing.T)` — ── 真机桌面探针：可滚动面板识别 ─────────────────────────────
+- `func probeWindow(t *testing.T) (Window, error)`
+
+### tools.go
+
+- `func defaultPrimitives(desktop Desktop) primitives` — defaultPrimitives 把平台抽象面（Desktop）的方法绑成工具层的注入面：上层只
+- `func NewTools(deps Deps) *Tools` — NewTools 构造工具族；缺省上限与时间源在此补齐。
+- `func (t *Tools) Register()` — Register 注册整个工具族（注册面缺失时静默返回：装配层负责显式装配）。
+- `func decodeArgs(argsJSON string, target any) error` — decodeArgs 解析工具入参；空串视为「无参数」（全零值）。
+- `func encodeResult(payload any) (string, error)` — encodeResult 把工具结果编码为紧凑 JSON（模型可读，字段名稳定）。
+- `func clampInt(value, minimum, maximum int) int`
+- `func newRectJSON(rect Rect) rectJSON`
+- `func newPointJSON(point Point) pointJSON`
+- `func newWindowJSON(win Window) windowJSON`
+- `func (t *Tools) storeScreenshot(ctx context.Context, name string, data []byte, width, height int, scale float64) (StoredMedia, error)` — storeScreenshot 把 PNG 落进会话媒体分区：没有落点就显式失败，不做无引用的
+
+### tools_desktop_probe_test.go
+
+- `func TestScreenshotThroughRealDesktop(t *testing.T)` — TestScreenshotThroughRealDesktop 是默认跳过的真机冒烟：SEELEX_COMPUTER_DESKTOP_PROBE=1
+
+### tools_input.go
+
+- `func (t *Tools) click(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) move(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) drag(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) scroll(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) typeText(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) keys(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) wait(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) resolveTarget(x, y *int, window string) (Point, *Window, error)` — resolveTarget 解析输入动作的目标坐标：显式 x/y 优先；只有 window 时先聚焦
+- `func (t *Tools) resolveScrollPoint(x, y *int, window *Window) (Point, error)` — resolveScrollPoint 解析滚轮落点，优先级：显式 x/y > 目标窗口里最大的可滚动
+
+### tools_schema.go
+
+- `func objectSchema(properties map[string]any, required ...string) map[string]any`
+- `func integerSchema(description string, minimum, maximum int) map[string]any`
+- `func pointProperties() map[string]any`
+- `func regionSchema() map[string]any`
+- `func screenshotSchema() map[string]any`
+- `func windowsSchema() map[string]any`
+- `func focusSchema() map[string]any`
+- `func scrollTargetsSchema() map[string]any`
+- `func clickSchema() map[string]any`
+- `func moveSchema() map[string]any`
+- `func dragSchema() map[string]any`
+- `func scrollSchema() map[string]any`
+- `func typeSchema() map[string]any`
+- `func keysSchema() map[string]any`
+- `func waitSchema() map[string]any`
+
+### tools_scroll.go
+
+- `func newScrollAxisJSON(axis ScrollAxis) scrollAxisJSON`
+- `func newScrollTargetJSON(index int, target ScrollTarget) scrollTargetJSON`
+- `func (t *Tools) scrollTargets(_ context.Context, argsJSON string) (string, error)` — scrollTargets 是 computer_scroll_targets 的实现：只读枚举窗口里的可滚动面板。
+- `func (t *Tools) resolveScrollWindow(match string) (*Window, error)` — resolveScrollWindow 找出查询/滚动目标窗口：给了 match 就按标题子串匹配
+- `func (t *Tools) largestScrollTarget(handle uintptr) (ScrollTarget, bool)` — largestScrollTarget 选窗口里面积最大的纵向可滚动面板；查不到返回 false，
+- `func (t *Tools) scrollPanelAt(point Point) (ScrollTarget, bool)` — scrollPanelAt 读"这一点上的滚轮会滚到哪个面板"。取不到（没有面板 / UIA 不可用）
+- `func scrollPanelResult(after ScrollTarget, before ScrollTarget, hadBefore bool) scrollPanelJSON` — scrollPanelResult 组合滚前/滚后两块观测，生成动作结果里的 panel 字段。
+- `func attachScrollDelta(axis *scrollAxisJSON, before, after ScrollAxis)`
+- `func scrollNote(panel *scrollPanelJSON, unavailable []string) string` — scrollNote 用一句人话总结滚轮结果：模型据此决定"继续滚 / 到头了 / 换个面板"。
+- `func formatPercent(value *float64) string`
+
+### tools_scroll_test.go
+
+- `func scrollTargetFixture(name string, x, y, width, height int, scrollable bool, percent float64) ScrollTarget`
+- `func TestScrollTargetsListsPanelsOfMatchedWindow(t *testing.T)`
+- `func TestScrollTargetsDefaultsToForegroundWindowAndExplainsEmptyResult(t *testing.T)`
+- `func TestScrollTargetsUnknownWindowAndPrimitiveFailure(t *testing.T)`
+- `func TestScrollReportsPanelBeforeAfter(t *testing.T)`
+- `func TestScrollMarksUnavailableWhenPanelUnknown(t *testing.T)`
+- `func TestScrollWithWindowTargetsLargestPanel(t *testing.T)`
+
+### tools_test.go
+
+- `func newHarness(t *testing.T) *harness`
+- `func newHarnessWithCaps(t *testing.T, caps *Capabilities) *harness` — newHarnessWithCaps 用指定能力声明构造工具族：caps 为 nil 表示全能力
+- `func (r *recorder) primitives() primitives`
+- `func (h *harness) call(t *testing.T, name, argsJSON string) string`
+- `func (h *harness) callErr(t *testing.T, name, argsJSON string) error`
+- `func (h *harness) toolNames() []string`
+- `func TestRegisterExposesWholeComputerToolFamily(t *testing.T)`
+- `func TestRegisterSkipsToolsThePlatformCannotAnswer(t *testing.T)` — TestRegisterSkipsToolsThePlatformCannotAnswer 验证「工具按能力声明暴露」：
+- `func TestScreenshotStoresMediaAndAttachesToNextRequest(t *testing.T)`
+- `func TestScreenshotClampsWidthAndRejectsBadRegion(t *testing.T)`
+- `func TestScreenshotFailsLoudWithoutMediaOrAttach(t *testing.T)`
+- `func TestWindowsFiltersLimitsAndDegrades(t *testing.T)`
+- `func TestFocusDelegatesMatch(t *testing.T)`
+- `func TestClickResolvesCoordinatesAndValidates(t *testing.T)`
+- `func TestInputToolsValidateAndDelegate(t *testing.T)`
+
+### tools_view.go
+
+- `func (r *regionArg) rect() *Rect`
+- `func (t *Tools) screenshot(ctx context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) windows(_ context.Context, argsJSON string) (string, error)`
+- `func (t *Tools) focus(_ context.Context, argsJSON string) (string, error)`
+
+### uia_windows.go
+
+- `func boolVariant(value bool) comVariant`
+- `func hresultError(action string, hr uintptr) error`
+- `func comCall(object unsafe.Pointer, index int, args ...uintptr) uintptr` — comCall 调用 COM 接口的第 index 个 vtable 槽位（IUnknown 占 0-2）。
+- `func comRelease(object unsafe.Pointer)` — comRelease 释放一个 COM 接口指针（IUnknown::Release，槽位 2）。
+- `func withUIAutomation(fn func(automation unsafe.Pointer) error) error` — withUIAutomation 在锁定的 OS 线程上建立一次 COM 会话并创建 IUIAutomation。
+- `func withUIATimeout(timeout time.Duration, query func() error) error` — withUIATimeout 给一次 UIA 查询加超时：UIA 是跨进程调用，目标进程卡住时调用方
+- `func (win32Desktop) ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error)` — ListScrollTargets 枚举一个窗口里可以滚轮操作的面板，供模型判断"屏幕外的
+- `func (win32Desktop) ScrollStateAtPoint(p Point, timeout time.Duration) (ScrollTarget, bool, error)` — ScrollStateAtPoint 报告"这一点上的滚轮会滚到哪个面板"，以及该面板当前的滚动
+- `func listScrollTargetsOnce(opts ScrollTargetOptions) ([]ScrollTarget, error)`
+- `func scrollStateAtPointOnce(p Point) (ScrollTarget, bool, error)`
+- `func findScrollTargets(automation, root unsafe.Pointer, includeOffscreen bool) ([]ScrollTarget, error)` — findScrollTargets 找出窗口子树里的可滚动面板。
+- `func fastScrollTargets(automation, root unsafe.Pointer, includeOffscreen bool) []ScrollTarget` — fastScrollTargets 走属性条件 FindAll：UIA 只返回带 ScrollPattern 的元素。
+- `func hasMainPanel(targets []ScrollTarget, windowRect Rect) bool` — hasMainPanel 报告候选里是否已经有"够大"的面板：窗口矩形不可知（面积 0）时只
+- `func mergeScrollTargets(primary, secondary []ScrollTarget) []ScrollTarget` — mergeScrollTargets 合并快路径与遍历两批结果，按矩形+控件类型去重（同一块面板
+- `func walkScrollTargetsBounded(automation, root unsafe.Pointer, includeOffscreen bool) ([]ScrollTarget, error)` — walkScrollTargetsBounded 跑一次有界 raw view 遍历，返回收集到的面板。
+- `func (w *scrollTargetWalk) exhausted() bool`
+- `func walkScrollTargets(walker, element unsafe.Pointer, depth int, state *scrollTargetWalk, includeOffscreen bool)` — walkScrollTargets 深度优先遍历子树，收集带 ScrollPattern 的元素。
+- `func readScrollTargetArray(array unsafe.Pointer, includeOffscreen bool, minArea int) []ScrollTarget` — readScrollTargetArray 逐元素读取面板信息；读到上限即停（网页里的滚动容器
+- `func readScrollTargetElement(element unsafe.Pointer, includeOffscreen bool, minArea int) (ScrollTarget, bool)` — readScrollTargetElement 把一个 UIA 元素读成滚动面板：没有 ScrollPattern、
+- `func uiaPatternAvailableCondition(automation unsafe.Pointer, propertyID uintptr) (unsafe.Pointer, error)`
+- `func uiaTrueCondition(automation unsafe.Pointer) (unsafe.Pointer, error)`
+- `func uiaRawViewWalker(automation unsafe.Pointer) (unsafe.Pointer, error)`
+- `func uiaElementFromHandle(automation unsafe.Pointer, handle uintptr) (unsafe.Pointer, error)`
+- `func uiaElementFromPoint(automation unsafe.Pointer, p Point) (unsafe.Pointer, error)`
+- `func uiaFindAll(root unsafe.Pointer, scope uintptr, condition unsafe.Pointer) (unsafe.Pointer, error)`
+- `func uiaParentElement(walker, element unsafe.Pointer) (unsafe.Pointer, error)`
+- `func uiaWalkerStep(walker, element unsafe.Pointer, slot int) (unsafe.Pointer, error)` — uiaWalkerStep 调用 TreeWalker 的子/兄弟遍历（slot 取 slotWalkerFirstChild 等）。
+- `func uiaArrayLength(array unsafe.Pointer) int`
+- `func uiaArrayElement(array unsafe.Pointer, index int) (unsafe.Pointer, error)`
+- `func readScrollAxis(pattern unsafe.Pointer, scrollableSlot, percentSlot, viewSizeSlot int) ScrollAxis` — readScrollAxis 读一条轴的状态：不可滚动的轴不给位置数值（百分点是"内容里的
+- `func uiaScrollPattern(element unsafe.Pointer) (unsafe.Pointer, error)`
+- `func uiaElementRect(element unsafe.Pointer) (Rect, bool)`
+- `func uiaElementOffscreen(element unsafe.Pointer) bool`
+- `func uiaElementString(element unsafe.Pointer, slot int) string` — uiaElementString 读一个 BSTR 属性，读完立刻 SysFreeString（UIA 把字符串所有权
+- `func uiaBool(object unsafe.Pointer, slot int) bool`
+- `func uiaDouble(object unsafe.Pointer, slot int) (float64, bool)`
+
+### view.go
+
+- `func ViewImageFile(opts ViewImageOptions) (ViewedImage, error)` — ViewImageFile 读取一张本地图片，必要时降采样，返回可直接下发的字节与元数据。
+- `func decodeImage(data []byte) (string, image.Image, error)` — decodeImage 解码图片并归一化 MIME 类型；解码器由标准库注册表提供。
+- `func toRGBA(src image.Image) *image.RGBA` — toRGBA 把任意解码结果转成 RGBA，供最近邻缩放使用。
+
+### view_test.go
+
+- `func writeTempPNG(t *testing.T, dir, name string, width, height int) (string, []byte)` — writeTempPNG 在临时目录写一张 w×h 的 PNG，返回路径与文件原文。
+- `func TestViewImageFileKeepsOriginalBytes(t *testing.T)`
+- `func TestViewImageFileDownsamplesWithoutRewritingSource(t *testing.T)`
+- `func TestViewImageFileSkipsScaleWhenNarrowEnough(t *testing.T)`
+- `func TestViewImageFileErrors(t *testing.T)`
+
+### window_darwin.go
+
+- `func darwinListWindowRecords() ([]darwinWindowRecord, error)` — darwinListWindowRecords 枚举屏幕上的普通顶层窗口（layer 0）。
+- `func darwinReadWindowRecord(dict uintptr) darwinWindowRecord` — darwinReadWindowRecord 从一个窗口信息字典里读字段。
+- `func (darwinDesktop) ListWindows() ([]Window, error)` — ListWindows 枚举有标题的顶层窗口。
+- `func (darwinDesktop) ForegroundWindow() (Window, error)` — ForegroundWindow 返回当前前台窗口。
+- `func (d darwinDesktop) FocusWindow(match string) (Window, error)` — FocusWindow 按标题子串（大小写不敏感）查找窗口并置于前台。
+- `func darwinRaiseWindow(pid int32, title string) error` — darwinRaiseWindow 用 Accessibility API 把目标应用的匹配窗口置前。
+- `func darwinAXCopy(element uintptr, attribute string) (uintptr, error)` — darwinAXCopy 按属性名取一个 AX 值（返回的是调用方拥有的 CFTypeRef）。
+
+### window_linux.go
+
+- `func (s *x11Session) describeWindow(window xproto.Window) Window` — describeWindow 读一个顶层窗口的标题、矩形与状态。
+- `func (s *x11Session) windowTitle(window xproto.Window) string` — windowTitle 取窗口标题：优先 _NET_WM_NAME（UTF-8），退回 WM_NAME。
+- `func (s *x11Session) windowRect(window xproto.Window) (Rect, bool)` — windowRect 用 GetGeometry + TranslateCoordinates 得到窗口在根窗口坐标系里的
+- `func (s *x11Session) clientWindows() ([]xproto.Window, error)` — clientWindows 列出顶层客户端窗口：优先 EWMH 的 _NET_CLIENT_LIST；没有窗口
+- `func (x11Desktop) ListWindows() ([]Window, error)` — ListWindows 枚举有标题的顶层窗口（与 Windows 侧同语义：标题为空的不列出，
+- `func (x11Desktop) ForegroundWindow() (Window, error)` — ForegroundWindow 返回当前前台窗口（EWMH 的 _NET_ACTIVE_WINDOW）。
+- `func (s *x11Session) activeWindow() (xproto.Window, error)`
+- `func (d x11Desktop) FocusWindow(match string) (Window, error)` — FocusWindow 按标题子串（大小写不敏感）查找可见窗口并置于前台。
+- `func (s *x11Session) activateWindow(window xproto.Window) error` — activateWindow 用 EWMH 的 _NET_ACTIVE_WINDOW 客户端消息请窗口管理器激活窗口
+
+### window_windows.go
+
+- `func windowTitle(handle uintptr) string`
+- `func windowRect(handle uintptr) (Rect, bool)`
+- `func describeWindow(handle uintptr) Window`
+- `func (win32Desktop) ListWindows() ([]Window, error)` — ListWindows 枚举有标题的顶层窗口。
+- `func (win32Desktop) ForegroundWindow() (Window, error)` — ForegroundWindow 返回当前前台窗口。
+- `func (d win32Desktop) FocusWindow(match string) (Window, error)` — FocusWindow 按标题子串（大小写不敏感）查找窗口并置于前台。
+
+### x11_linux.go
+
+- `func x11Use(op func(*x11Session) error) error` — x11Use 在互斥下执行 op；连接惰性建立，连接级故障后丢弃会话以便下次重连。
+- `func x11Probe() error` — x11Probe 尝试建立一次连接（成功后缓存在会话里），失败原因原样返回。
+- `func x11ConnectionBroken(err error) bool` — x11ConnectionBroken 判断错误是否意味着连接已经不可用：协议错误（BadWindow
+- `func x11Open() (*x11Session, error)`
+- `func rootPixelFormat(setup *xproto.SetupInfo, screen xproto.ScreenInfo) (xproto.Format, xproto.VisualInfo)` — rootPixelFormat 找出根窗口深度的 ZPixmap 格式与对应 visual（通道掩码）。
+- `func (s *x11Session) atom(name string) (xproto.Atom, error)` — atom 取（并缓存）一个 X11 原子。
+- `func (s *x11Session) property(window xproto.Window, atom xproto.Atom, length uint32) (xproto.Atom, byte, []byte, error)` — property 读一个属性，返回类型原子、format 与原始值；属性不存在时返回
+- `func (s *x11Session) propertyOf(window xproto.Window, name string, length uint32) ([]byte, error)` — propertyOf 按属性名读原始值；属性不存在时返回 nil。
+- `func (s *x11Session) atomList(value []byte) []uint32` — atomList 把 format=32 的属性值解码成 id 列表（按服务器字节序）。
+- `func (s *x11Session) atomListOf(window xproto.Window, name string, length uint32) ([]uint32, error)` — atomListOf 读窗口上某个属性的 32 位 id 列表（属性不存在返回 nil）。
+- `func (s *x11Session) fakeKey(eventType byte, keycode byte) error` — fakeKey / fakeMotion / fakeButton 是输入注入的唯一出口，全部走 checked 请求：
+- `func (s *x11Session) fakeMotion(point Point) error`
+- `func (s *x11Session) fakeButton(eventType byte, button byte, point Point) error`

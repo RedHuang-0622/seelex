@@ -56,4 +56,3 @@ revision 保持「锁内 bump → 锁外 Publish」。
 ### state.go
 
 - `func New(deps contract.Dependencies) *Core` — New 构造共享状态内核。deps 必须是装配根已补齐默认值后的依赖集合；
-

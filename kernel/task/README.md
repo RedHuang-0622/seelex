@@ -302,7 +302,7 @@ go test ./kernel/task -count=1
 - `func NewLedger(host LedgerHost) *Ledger` — NewLedger 构造台账域。宿主是提供实时注册表读写面的实现（生产装配点是
 - `func (l *Ledger) Snapshot() []dto.TaskRecord` — Snapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）：
 - `func (l *Ledger) snapshotAll() []dto.TaskRecord` — snapshotAll 合并实时注册表与所有会话分区（跨会话身份去重：有幂等键
-- `func ledgerIdentity(record dto.TaskRecord) string` — ledgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
+- `func LedgerIdentity(record dto.TaskRecord) string` — LedgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
 - `func (l *Ledger) SnapshotFor(sessionID string) []dto.TaskRecord` — SnapshotFor 返回指定会话的 task 注册表快照（会话级读面：持久化落盘
 - `func (l *Ledger) Add(spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — Add 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
 - `func (l *Ledger) AddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — AddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写自身
@@ -362,7 +362,7 @@ go test ./kernel/task -count=1
 
 - `func (c *Coordinator) PlanProjectionFor(sessionID string, fromStack func() *model.PlanState) *model.PlanState` — PlanProjectionFor 返回指定**后台**会话的 plan 显示投影的只读深拷贝
 - `func (c *Coordinator) DropPlanProjection(sessionID string)` — DropPlanProjection 释放指定后台会话的 plan 投影缓存（unload/删除路径）。
-- `func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState)` — SeedPlanProjection 把会话 plan 基线写入投影缓存（历史 Plan 投影/resume/
+- `func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState)` — SeedPlanProjection 把会话 plan 基线写入投影缓存（plan_load/resume/
 - `func (c *Coordinator) EnsurePlanProjection(sessionID string, plan *model.PlanState)` — EnsurePlanProjection 仅在投影缺失时写入基线（迁移期测试/直设 Snapshot
 - `func (c *Coordinator) CheckPlanNodeProjection(sessionID, nodeID, output string) (bool, bool)` — CheckPlanNodeProjection 把指定会话投影中的节点打点为 completed（task_
 - `func (c *Coordinator) CompletePlanProjection(sessionID string)` — CompletePlanProjection 把指定会话投影整体标记为 completed（task_complete
@@ -480,7 +480,7 @@ go test ./kernel/task -count=1
 - `func findReasoningCandidate(candidates []reasoningCandidate, event *model.TranscriptEvent) *reasoningCandidate`
 - `func removeReasoningCandidate(candidates []reasoningCandidate, target *reasoningCandidate) []reasoningCandidate`
 - `func normalizeReasoningContent(content string) string`
-- `func (c *Coordinator) AttributeToolNarrationLocked(sessionID string, call model.TranscriptToolCall, streamed string) bool` — AttributeToolNarrationLocked 把"wire 上被丢弃的迭代说明正文"归位到**产生它
+- `func (c *Coordinator) AttributeToolNarrationLocked(sessionID string, call model.TranscriptToolCall, streamed string) bool` — AttributeToolNarrationLocked 把迭代说明正文归位到**产生它的那一次迭代**的
 - `func (c *Coordinator) _AttributeToolNarration(sessionID string, call model.TranscriptToolCall, streamed string) bool`
 - `func (c *Coordinator) matchingPendingCallIDLocked(st *sessionTaskRuntime, call model.TranscriptToolCall) string` — matchingPendingCallIDLocked 返回本轮宣告里与该工具调用匹配的**框架真实调用
 - `func emptyToolCallEventIndex(events []model.TranscriptEvent, callID string) int` — emptyToolCallEventIndex 返回承载指定工具调用、且正文为空的 assistant 事件
@@ -556,6 +556,10 @@ go test ./kernel/task -count=1
 - `func (c *Coordinator) _ToolResultRefByCallID(callID string) string`
 - `func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string`
 - `func (c *Coordinator) _ToolResultRefByCallIDFor(sessionID, callID string) string`
+- `func (c *Coordinator) HasToolResultRef(resultRef string) bool` — HasToolResultRef 报告活跃会话内存归档里是否存在该引用。
+- `func (c *Coordinator) _HasToolResultRef(resultRef string) bool`
+- `func (c *Coordinator) HasToolResultRefFor(sessionID, resultRef string) bool` — HasToolResultRefFor 是 HasToolResultRef 的指定会话版本。
+- `func (c *Coordinator) _HasToolResultRefFor(sessionID, resultRef string) bool`
 - `func (c *Coordinator) CurrentRequestIDFor(sessionID string) string`
 - `func (c *Coordinator) _CurrentRequestIDFor(sessionID string) string`
 - `func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState` — TaskStateFor 返回指定会话当前任务的可见状态（会话归档用；后台会话收尾
@@ -577,7 +581,7 @@ go test ./kernel/task -count=1
 - `func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time)` — SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
 - `func (c *Coordinator) _SyncActivePlanFrameLockedFor(sessionID string, now time.Time)`
 - `func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time)`
-- `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把历史 plan_load 参数追加为活跃会话新的激活帧（调用方
+- `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
 - `func (c *Coordinator) _PushLoadedPlanLocked(arguments string, now time.Time)`
 - `func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)` — RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具
 - `func (c *Coordinator) _RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)`
@@ -688,4 +692,3 @@ go test ./kernel/task -count=1
 ### turn_status_record.go
 
 - `func TurnStatusOfRecord(wire string) dto.TurnStatus` — TurnStatusOfRecord 把存档里的回合状态词读回枚举（导出：跨包读方与用例读同一处口径）。
-

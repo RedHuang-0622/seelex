@@ -74,14 +74,32 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type WindowAssembler interface` — 历史窗口装配的消费方端口（六方法，仅纯消息值）。
-- `func (page Page) ReachesPublishedTail() bool` — 判断页是否到达持久化发布尾。
-- `func New(deps Deps) *Application` — 构造历史分页应用。
-- `func (application *Application) LoadMoreHistory(limit int) error` — 前置更早一页。
-- `func (application *Application) LoadLatestHistory() error` — 回到最新窗口。
+### application.go
 
-### `application_test.go`
+- `func (page Page) ReachesPublishedTail() bool` — ReachesPublishedTail reports whether this page reached the unfiltered
+- `func New(deps Deps) *Application` — New constructs the conversation-history application.
+- `func (application *Application) LoadMoreHistory(limit int) error` — LoadMoreHistory prepends an earlier bounded page to the visible window.
+- `func (application *Application) LoadLatestHistory() error` — LoadLatestHistory returns the visible session to the latest page.
 
-测试文件按仓库 README 规范不展开函数索引。
+### application_test.go
+
+- `func (stubWindowAssembler) ReplaceTail(pageRows, _ []model.Message, _, _, _ int) ([]model.Message, int)`
+- `func (stubWindowAssembler) Prepend(pageRows, _ []model.Message, start, _ int) ([]model.Message, int)`
+- `func (stubWindowAssembler) DurableRows(messages []model.Message) []model.Message`
+- `func (stubWindowAssembler) IndexOfSameRow([]model.Message, model.Message) int`
+- `func (stubWindowAssembler) ContainsSameRow([]model.Message, model.Message) bool`
+- `func (stubWindowAssembler) HasRowIdentity(model.Message) bool`
+- `func TestLoadMoreHistoryPrependsEarlierPageOutsideViewLock(t *testing.T)`
+- `func TestLoadMoreHistoryStopsAtBeginning(t *testing.T)`
+- `func TestLoadLatestHistoryUsesMemoryTailShortCircuit(t *testing.T)`
+- `func TestLoadLatestHistoryLoadsAndReplacesTail(t *testing.T)`
+- `func TestPageReachesPublishedTail(t *testing.T)`
+- `func TestHistoryErrorsPropagate(t *testing.T)`
+
+### history_window_boundary_test.go
+
+- `func TestCoreDoesNotImportHistoryWindowPackage(t *testing.T)`
+- `func historyRepositoryRoot(t *testing.T) string`

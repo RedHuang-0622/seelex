@@ -21,4 +21,4 @@
 
 ### permission_employee_panel_test.go
 
-- `func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T)` — TestEmployeeEscalationLandsInOwnerSessionPanel 走真实组合根桥接（bootstrap.NewPermissionBridge）
+- `func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T)` — TestEmployeeEscalationLandsInOwnerSessionPanel 走真实组合根桥接（boot.NewPermissionBridge）

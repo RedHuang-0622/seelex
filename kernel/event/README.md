@@ -196,20 +196,6 @@ node --test gui/frontend/dist/event-chain.test.mjs
 - `func (subscriber *eventSubscriber) deliveredWatermark() uint64` — deliveredWatermark 返回已分配的最大 delivery_seq（0 = 尚未投递任何事件）。
 - `func (subscriber *eventSubscriber) close()`
 
-### hub_replay_test.go
-
-- `func TestReplaySubscriptionKeepsOverflowReplayable(t *testing.T)` — TestReplaySubscriptionKeepsOverflowReplayable 覆盖 C4 的核心改变：开启重放
-- `func TestReplayWindowEvictionRequiresFullResync(t *testing.T)` — TestReplayWindowEvictionRequiresFullResync 钉住窗口上限：落后超过窗口时
-- `func TestReplayWindowRespectsDeliveryFilter(t *testing.T)` — TestReplayWindowRespectsDeliveryFilter 确认补取与投递同一套归属口径：被过滤
-- `func TestReplaySubscriptionSurvivesClose(t *testing.T)` — TestReplaySubscriptionSurvivesClose 确认关闭后的订阅不会给出可用窗口：
-
-### hub_test.go
-
-- `func TestSubscribeSessionDropsForeignEventsAtDelivery(t *testing.T)` — TestSubscribeSessionDropsForeignEventsAtDelivery 验证会话级订阅在投递端
-- `func TestFilteredSubscriptionDeliverySeqIsContiguous(t *testing.T)` — TestFilteredSubscriptionDeliverySeqIsContiguous 验证过滤后的投递序号连续：
-- `func TestOverflowResyncIsDeliveredGlobally(t *testing.T)` — TestOverflowResyncIsDeliveredGlobally 验证缓冲溢出的 resync 一定可达：它必须
-- `func TestSubscribeFilteredFollowsLivePredicate(t *testing.T)` — TestSubscribeFilteredFollowsLivePredicate 验证谓词在每次投递时求值：视图
-
 ### hub_whitelist_test.go
 
 - `func TestKindWhitelistClassification(t *testing.T)` — TestKindWhitelistClassification（G2/M2）：白名单之外的 kind 都是会话类；

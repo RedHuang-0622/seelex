@@ -41,7 +41,7 @@ func NewEventStore(router *Router) *EventStore {
 	return &EventStore{router: router}
 }
 
-// SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
+// SetWorkspaceResolver 注入会话绑定项目解析器（boot 装配点：从
 // workspace.Repo.SessionWorkspace 读绑定）。未注入时回退 active scope。
 func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string) {
 	if store == nil {

@@ -93,25 +93,26 @@ go test ./store/... ./backend/multiagent/teamwork/... ./test/ -count=1
 ### store.go
 
 - `func New(layout *storelayout.Layout) *Store` — New 构造 teamwork 持久化面。
-- `func (s *Store) Dir(scope storelayout.Scope) string` — Dir 返回 teamwork 数据目录（不创建）。
-- `func (s *Store) EventPath(scope storelayout.Scope) string` — EventPath 返回审计流水路径。
-- `func (s *Store) BindingPath(scope storelayout.Scope) string` — BindingPath 返回绑定账本路径。
-- `func (s *Store) JobsDir(scope storelayout.Scope) string` — JobsDir 返回作业输出目录（不创建）。
-- `func (s *Store) WritePlan(scope storelayout.Scope, plan Plan, maxTeammates int) error` — WritePlan 整份替换计划 head。maxTeammates <= 0 = 只做结构性校验。
-- `func (s *Store) ReadPlan(scope storelayout.Scope) (Plan, error)` — ReadPlan 读回计划。**缺失 = 空计划**（还没声明过团队），不是错误。
-- `func (s *Store) AppendEvent(scope storelayout.Scope, event Event) error` — AppendEvent 追加一条审计事件（只追加、不重写）。
-- `func (s *Store) ReadEvents(scope storelayout.Scope) ([]Event, error)` — ReadEvents 读回全部审计事件（文件顺序 = 发生顺序）。
-- `func (s *Store) AppendBinding(scope storelayout.Scope, binding Binding) error` — AppendBinding 追加一行 Work Item 绑定事实（只追加、不重写）。
-- `func (s *Store) ReadBindings(scope storelayout.Scope) ([]Binding, error)` — ReadBindings 读回全部绑定事实（文件顺序 = 发生顺序）。
-- `func (s *Store) JobOutputDir(scope storelayout.Scope) (string, error)` — JobOutputDir 返回（并确保存在）teammate 作业输出目录。
-- `func (s *Store) appendLine(scope storelayout.Scope, path string, line []byte, label string) error` — appendLine 是两条追加流水的**唯一**物理实现：确保 guide → 模块锁 → 建目录 →
+- `func (s *Store) Dir(scope dto.SessionKey) string` — Dir 返回 teamwork 数据目录（不创建）。
+- `func (s *Store) EventPath(scope dto.SessionKey) string` — EventPath 返回审计流水路径。
+- `func (s *Store) BindingPath(scope dto.SessionKey) string` — BindingPath 返回绑定账本路径。
+- `func (s *Store) JobsDir(scope dto.SessionKey) string` — JobsDir 返回作业输出目录（不创建）。
+- `func (s *Store) WritePlan(scope dto.SessionKey, plan Plan, maxTeammates int) error` — WritePlan 整份替换计划 head。maxTeammates <= 0 = 只做结构性校验。
+- `func (s *Store) ReadPlan(scope dto.SessionKey) (Plan, error)` — ReadPlan 读回计划。**缺失 = 空计划**（还没声明过团队），不是错误。
+- `func (s *Store) AppendEvent(scope dto.SessionKey, event Event) error` — AppendEvent 追加一条审计事件（只追加、不重写）。
+- `func (s *Store) ReadEvents(scope dto.SessionKey) ([]Event, error)` — ReadEvents 读回全部审计事件（文件顺序 = 发生顺序）。
+- `func (s *Store) AppendBinding(scope dto.SessionKey, binding Binding) error` — AppendBinding 追加一行 Work Item 绑定事实（只追加、不重写）。
+- `func (s *Store) ReadBindings(scope dto.SessionKey) ([]Binding, error)` — ReadBindings 读回全部绑定事实（文件顺序 = 发生顺序）。
+- `func (s *Store) JobOutputDir(scope dto.SessionKey) (string, error)` — JobOutputDir 返回（并确保存在）teammate 作业输出目录。
+- `func (s *Store) appendLine(scope dto.SessionKey, path string, line []byte, label string) error` — appendLine 是两条追加流水的**唯一**物理实现：确保 guide → 模块锁 → 建目录 →
+- `func layoutScope(key dto.SessionKey) storelayout.Scope`
 - `func readRows[T any](path, label string) ([]T, error)` — readRows 是两条追加流水的**唯一**读取实现：缺失 = 空切片；跳过崩溃残尾。
 - `func decodePayload[T any](head storelayout.Head) (T, error)` — decodePayload 解模块 head 的 payload（与根 storeEngine 的通用解码同一文案）。
 
 ### store_test.go
 
-- `func teamworkStoreFixture(t *testing.T) (*Store, *storelayout.Layout, storelayout.Scope)`
-- `func coldStore(t *testing.T, layout *storelayout.Layout, scope storelayout.Scope) *Store` — coldStore 用**同一个数据根**新建 layout + Store：冷读证明读面不依赖内存态。
+- `func teamworkStoreFixture(t *testing.T) (*Store, *storelayout.Layout, dto.SessionKey)`
+- `func coldStore(t *testing.T, layout *storelayout.Layout, scope dto.SessionKey) *Store` — coldStore 用**同一个数据根**新建 layout + Store：冷读证明读面不依赖内存态。
 - `func validPlan(teamID string) Plan`
 - `func TestStorePhysicalPathsAreUnchanged(t *testing.T)` — TestStorePhysicalPathsAreUnchanged 钉住"零数据迁移"：计划 head 仍是
 - `func TestWritePlanReplacesWholePayload(t *testing.T)` — TestWritePlanReplacesWholePayload：计划是 head 整份替换——第二次写入必须让第一份

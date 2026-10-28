@@ -57,4 +57,3 @@ go test ./middle/protocol/event ./kernel/event -count=1
 - `func TestFilteredSubscriptionDeliverySeqIsContiguous(t *testing.T)` — TestFilteredSubscriptionDeliverySeqIsContiguous 验证过滤后的投递序号连续：
 - `func TestOverflowResyncIsDeliveredGlobally(t *testing.T)` — TestOverflowResyncIsDeliveredGlobally 验证缓冲溢出的 resync 一定可达：它必须
 - `func TestSubscribeFilteredFollowsLivePredicate(t *testing.T)` — TestSubscribeFilteredFollowsLivePredicate 验证谓词在每次投递时求值：视图
-

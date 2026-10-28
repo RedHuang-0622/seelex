@@ -34,6 +34,25 @@
 - `func TestStackChannelActiveWholeReplacement(t *testing.T)` — TestStackChannelActiveWholeReplacement 对应 T-STK-13（§2.0 通道类型表 +
 - `func TestQueueFileWholeReplacement(t *testing.T)` — TestQueueFileWholeReplacement 对应 T-STK-14（§2.0 通道类型表）：队列
 
+### cold_read_fixture_test.go
+
+- `func coldReadKey() Key`
+- `func coldReadProjectDirName() string` — coldReadProjectDirName 复刻项目目录的派生规则，供测试定位 fixture。
+- `func TestColdReadFixture(t *testing.T)` — TestColdReadFixture 是 M0 的主判据：已提交的磁盘数据必须能被当前代码读回。
+- `func TestColdReadFixtureRegenerate(t *testing.T)` — TestColdReadFixtureRegenerate 重建 testdata 里的冷读 fixture。
+- `func seedColdReadSession(t *testing.T, root string)` — seedColdReadSession 用当前写入口生成一份覆盖全部通道的代表性会话。
+- `func coldReadCopyTree(t *testing.T, src, dst string)` — coldReadCopyTree 把 fixture 复制到目标目录（保留相对路径，不保留时间戳）。
+- `func coldReadCompactJSON(t *testing.T, raw []byte) string` — coldReadCompactJSON 归一化 JSON 文本，用于比较存储层原样保留的 payload。
+
+### commit_write_order_test.go
+
+- `func openWriteOrderRepository(t *testing.T) (*jsonRepository, string)` — openWriteOrderRepository 打开一个临时数据根的仓储（含数据根锁）。
+- `func seedSessionRoot(t *testing.T, repository *jsonRepository, key Key) string` — seedSessionRoot 预建会话目录，用来在会话目录里放“毒化”路径。
+- `func writeOrderVisibleRows(t *testing.T, repository *jsonRepository, key Key) int` — writeOrderVisibleRows 返回消息 head 当前发布的可见行数。
+- `func TestCommitWritesArtifactBeforeMessage(t *testing.T)` — TestCommitWritesArtifactBeforeMessage 钉写序第一段：artifact → refs → message。
+- `func TestCommitPublishesMessageBeforeCompactionFailure(t *testing.T)` — TestCommitPublishesMessageBeforeCompactionFailure 钉写序第二段与半失败语义：
+- `func TestCommitRetryWithExplicitSeqIsIdempotent(t *testing.T)` — TestCommitRetryWithExplicitSeqIsIdempotent 钉“同一次提交重试”的幂等边界。
+
 ### complete_units_recovery_test.go
 
 - `func interruptedEventTurn(withSuffixText, atTail bool) []Event` — interruptedEventTurn 构造残缺工具链事件流（同 task_context 探针语义）：
@@ -69,6 +88,8 @@
 
 ### draft_append_test.go
 
+- `func TestAppendMessageDraftWorkspaceKeepsPublishedPoint(t *testing.T)` — TestAppendMessageDraftWorkspaceKeepsPublishedPoint 覆盖运行期周期快照的
+- `func TestDraftSnapshotReusesTailPointer(t *testing.T)` — TestDraftSnapshotReusesTailPointer 钉住周期快照的双指针写侧：
 - `func draftRowsOf(t *testing.T, store *storeEngine, key Key) []Event`
 - `func physicalRows(t *testing.T, store *storeEngine, key Key, shard string) []Event`
 - `func TestDraftAppendInvisibleUntilPublished(t *testing.T)` — TestDraftAppendInvisibleUntilPublished 草稿 append 不进读者可见范围。
@@ -77,6 +98,11 @@
 - `func TestDiscardDraftTailKeepsPublishPointAndRows(t *testing.T)` — TestDiscardDraftTailKeepsPublishPointAndRows 丢弃 = 显式入口：发布点不动、
 - `func TestDraftAppendRollsShardBeyondPublishedIndex(t *testing.T)` — TestDraftAppendRollsShardBeyondPublishedIndex 草稿 append 触发的分片滚动
 - `func TestNormalCommitReapsDraftTail(t *testing.T)` — TestNormalCommitReapsDraftTail 普通提交会 reap 掉草稿尾（崩溃残尾语义）。
+
+### draft_snapshot_bench_test.go
+
+- `func BenchmarkDraftSnapshotAppend(b *testing.B)` — BenchmarkDraftSnapshotAppend 对照周期快照复用末分片指针前后的成本。
+- `func benchmarkDraftSnapshotAppend(b *testing.B, resetCache bool)`
 
 ### ensure_indexed_test.go
 
@@ -120,6 +146,19 @@
 
 - `func TestProbeForkEventConstantCommitID(t *testing.T)`
 
+### god_type_ratchet_test.go
+
+- `func TestGodTypeMethodSurfaceOnlyShrinks(t *testing.T)` — TestGodTypeMethodSurfaceOnlyShrinks 是 ratchet 主判据。
+- `func TestGodTypeMethodScannerSeesAdditionsAndSkipsTests(t *testing.T)` — TestGodTypeMethodScannerSeesAdditionsAndSkipsTests 证明门禁确实会“咬”。
+- `func godTypeMethodDrift(want, got []string) (added, removed []string)` — godTypeMethodDrift 返回基线有而实际没有（removed）、实际有而基线没有（added）的方法。
+- `func readGodTypeMethodBaseline(t *testing.T) map[string][]string` — readGodTypeMethodBaseline 读取基线并要求每个列表有序去重（手工编辑最容易留下的脏数据）。
+- `func scanGodTypeMethods(t *testing.T, dir string) map[string][]string` — scanGodTypeMethods 返回四个 God 类型在本包生产文件里声明的方法名（各自有序）。
+- `func scanGodTypeDeclarations(t *testing.T, dir string) map[string]bool` — scanGodTypeDeclarations 返回本包生产文件里声明过的类型名集合。
+- `func godTypeReceiverName(expression ast.Expr) string` — godTypeReceiverName 从接收者类型表达式里取出类型名（兼容 `T` 与 `*T`）。
+- `func godTypeSourceFiles(t *testing.T, dir string) []string` — godTypeSourceFiles 返回目录下的生产 .go 文件（非递归、排除测试文件）。
+- `func containsGodType(name string) bool`
+- `func storePackageDir(t *testing.T) string` — storePackageDir 返回本测试文件所在目录（= store 包根）。
+
 ### head_publish_probe_test.go
 
 - `func probeExclusiveOpen(path string) error` — probeExclusiveOpen 以 share mode 0 打开文件；返回 nil 表示此刻无人持柄。
@@ -158,6 +197,7 @@
 - `func TestWireAssemblyOpenUnitRepairNoSuffixDrop(t *testing.T)` — TestWireAssemblyOpenUnitRepairNoSuffixDrop 对应 T-R2-07：流尾残缺工具轮保留 open
 - `func TestWireAssemblyOpenRepairThenNextUser(t *testing.T)` — TestWireAssemblyOpenRepairThenNextUser 对应 T-R2-08：缺失结果后有后续 user →
 - `func TestWireAssemblyBudgetStopsAtUnitBoundary(t *testing.T)` — TestWireAssemblyBudgetStopsAtUnitBoundary 对应 T-R2-09：预算极小 → 停在完整单元
+- `func TestResumeRecordUsesCompactPointerAndKeepsContextDigest(t *testing.T)` — TestResumeRecordUsesCompactPointerAndKeepsContextDigest 覆盖冷加载的压缩
 - `func TestWireAssemblyEventMissingNoEffect(t *testing.T)` — TestWireAssemblyEventMissingNoEffect 对应 T-R2-10：删除 event.json 条目（短窗口
 - `func TestWireAssemblyLRUDeletedRegionOnlyFrameAndTail(t *testing.T)` — TestWireAssemblyLRUDeletedRegionOnlyFrameAndTail 对应 T-R2-11：LRU 已删旧区后 R2
 - `func TestResumeTailInterruptedAnchorTail(t *testing.T)` — TestResumeTailInterruptedAnchorTail 对应 T-R3-01：interrupted 锚 msg95，后续
@@ -166,6 +206,15 @@
 - `func TestResumeTailRestartCacheEmptyR2OK(t *testing.T)` — TestResumeTailRestartCacheEmptyR2OK 对应 T-R3-04：重启后尝试缓存为空，恢复后
 - `func rawJSON(value string) []byte`
 - `func wirePrefixStrip(messages []wireMessage) []wireMessage`
+
+### layout_golden_test.go
+
+- `func layoutGoldenHash16(value string) string` — layoutGoldenHash16 复刻落盘目录名的派生规则：sha256 前 8 字节的小写 hex。
+- `func layoutGoldenSHA256(data []byte) string` — layoutGoldenSHA256 是内容寻址段（media）的派生规则。
+- `func layoutGoldenRelativePaths(t *testing.T, sessionRoot string) []string` — layoutGoldenRelativePaths 返回会话根下的全部相对路径（目录与文件），已排序。
+- `func layoutGoldenHeadKeys(t *testing.T, sessionRoot, module string) []string` — layoutGoldenHeadKeys 读取一个模块 head，返回稳定的顶层 key 集合。
+- `func TestSessionLayoutGolden(t *testing.T)` — TestSessionLayoutGolden 钉住一次"全模块都写过"的会话的物理布局。
+- `func layoutGoldenMissing(a, b []string) []string` — layoutGoldenMissing 返回 a 中有、b 中没有的元素（用于失败信息）。
 
 ### lock_hotspot_probe_test.go
 
@@ -178,6 +227,26 @@
 - `func signalFirstPublishedRead(t *testing.T) <-chan struct` — signalFirstPublishedRead 把"读者已走到解码边界"变成确定性前提：返回的
 - `func TestProbeNoHistoryCacheWritten(t *testing.T)` — TestProbeNoHistoryCacheWritten 断言 v8 JSON 布局的完整提交不再产生
 - `func TestCommitNotBlockedByFullHistoryRead(t *testing.T)` — TestCommitNotBlockedByFullHistoryRead 断言"提交不被一次全量历史读长时间挡住"。
+
+### m10_test_compat_test.go
+
+- `func Boards(repository Repository) (BoardRepository, bool)`
+- `func Teamwork(repository Repository) (TeamworkRepository, bool)`
+- `func MediaStoreOf(repository Repository) (MediaStore, bool)`
+- `func (router *Router) BoardsFor() (BoardRepository, bool)`
+- `func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error)`
+- `func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error)`
+- `func (repository *jsonRepository) ReadGoalBoard(ctx context.Context, key Key) (GoalBoardMeta, error)`
+- `func (repository *jsonRepository) ReadTeamBoard(ctx context.Context, key Key) (TeamBoardMeta, error)`
+- `func (repository *jsonRepository) ReadToolRecordSnapshot(ctx context.Context, key Key) (json.RawMessage, bool, error)`
+- `func (repository *jsonRepository) WriteGoalBoard(ctx context.Context, key Key, meta GoalBoardMeta) error`
+- `func (repository *jsonRepository) WriteTeamBoard(ctx context.Context, key Key, meta TeamBoardMeta) error`
+- `func (repository *jsonRepository) WriteTeamworkPlan(ctx context.Context, key Key, plan TeamworkPlan, maxTeammates int) error`
+- `func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error`
+- `func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error`
+- `func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error)`
+- `func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error)`
+- `func (repository *jsonRepository) AppendToolRecordSnapshot(ctx context.Context, key Key, payload any) error`
 
 ### message_read_lock_test.go
 
@@ -221,9 +290,24 @@
 - `func TestRetiredChannelsAbsentAfterFullCommit(t *testing.T)` — TestRetiredChannelsAbsentAfterFullCommit 对应 T-DP-01/T-DP-02/T-DP-03
 - `func dirNames(t *testing.T, root string) []string`
 
+### role_account_test.go
+
+- `func TestRoleAccountPersistsWithPermissionDefault(t *testing.T)`
+- `func TestRoleInheritanceAndUserSpacesShareRecordWithoutErasingVector(t *testing.T)`
+- `func TestPermissionVectorUpdatePreservesRoleRecordFields(t *testing.T)`
+- `func TestSessionSSHPathsOverrideDefaultAndSurviveVectorUpdate(t *testing.T)`
+
 ### role_snapshot_teammate_repro_test.go
 
 - `func TestRoleSnapshotForTeammateCarriesMainRowsWithNoOwnRows(t *testing.T)`
+
+### session_cold_load_bench_test.go
+
+- `func newSessionColdLoadBenchFixture(b *testing.B, rows, rowBytes, compactAt int) *sessionColdLoadBenchFixture` — newSessionColdLoadBenchFixture 在临时目录写入合成会话；构造成本不计入
+- `func sessionColdLoadBenchRow(index, rowBytes int) Event` — sessionColdLoadBenchRow 生成可预测的 user/assistant 交替行。内容长度覆盖
+- `func BenchmarkSessionColdLoad(b *testing.B)` — BenchmarkSessionColdLoad 测量冷恢复会穿过的主要存储读面：
+- `func benchmarkSessionColdLoadOperation( b *testing.B, fixture *sessionColdLoadBenchFixture, operation func(*sessionColdLoadBenchFixture) error, )` — benchmarkSessionColdLoadOperation 执行单一读面并报告每次操作的整分片解码
+- `func runSessionColdLoadReads(fixture *sessionColdLoadBenchFixture, includeHistory bool) error` — runSessionColdLoadReads 复刻应用冷加载的并行磁盘读，并在收口后执行 wire
 
 ### session_title_test.go
 

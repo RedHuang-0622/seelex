@@ -60,7 +60,13 @@ go test ./application/assembly -run 'Event|Subscribe|Snapshot' -count=1
 
 ## 文件与函数索引
 
-### `facade.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type EventKind/Event/Hub/Subscription/... = kernelevent.*` — 共享事件协议的同身份 alias。
-- `func NewEventHub() *EventHub` — 构造 kernel 的唯一事件投递实现。
+### facade.go
+
+- `func NewEventHub() *EventHub` — NewEventHub constructs the shared protocol event hub.
+
+### facade_test.go
+
+- `func TestEventTypesAreKernelIdentity(t *testing.T)`

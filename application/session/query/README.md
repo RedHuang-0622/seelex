@@ -87,39 +87,73 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func New(deps Deps) *Application` — 构造只读 Session 查询应用。
-- `func (application *Application) ListSessions() []model.SessionInfo` — 组合权威会话目录。
-- `func (application *Application) ProjectRootFor(sessionID string) string` — 从会话绑定读取项目根。
-- `func (application *Application) SessionMeta(sessionID string) (model.SessionMeta, error)` — 读取会话展示元数据。
-- `func (application *Application) WaitCatalogRefresh(ctx context.Context) error` — 等待目录刷新。
-- `func (application *Application) SnapshotOf(sessionID string) (model.SessionSnapshot, error)` — 读取会话快照。
-- `func (application *Application) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)` — 读取 transcript 区间。
-- `func (application *Application) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — 读取用户输入索引。
+### application.go
 
-### `application_test.go`
+- `func New(deps Deps) *Application` — New constructs the read-only session query application.
+- `func (application *Application) ListSessions() []model.SessionInfo` — ListSessions returns the authoritative session directory. The shared read
+- `func (application *Application) ProjectRootFor(sessionID string) string` — ProjectRootFor reads a session's workspace binding root without falling back
+- `func (application *Application) SessionMeta(sessionID string) (model.SessionMeta, error)` — SessionMeta reads authoritative session display metadata.
+- `func (application *Application) WaitCatalogRefresh(ctx context.Context) error` — WaitCatalogRefresh waits for the catalog worker without taking ViewMu.
+- `func (application *Application) SnapshotOf(sessionID string) (model.SessionSnapshot, error)` — SnapshotOf reads one authoritative session snapshot.
+- `func (application *Application) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)` — GetSessionTranscript reads an authoritative transcript range.
+- `func (application *Application) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — SessionInputIndex reads the bounded full user-input index.
 
-测试文件按仓库 README 规范不展开函数索引。
+### application_test.go
 
-### `input_index.go`
+- `func (workspace queryWorkspace) Create(string, string, string) (model.WorkspaceInfo, error)`
+- `func (workspace queryWorkspace) Get(string) (model.WorkspaceInfo, error)`
+- `func (workspace queryWorkspace) List() []model.WorkspaceInfo`
+- `func (workspace queryWorkspace) Delete(string) error`
+- `func (workspace queryWorkspace) BindSession(string, string)`
+- `func (workspace queryWorkspace) UnbindSession(string)`
+- `func (workspace queryWorkspace) SessionWorkspace(sessionID string) (model.WorkspaceInfo, bool)`
+- `func (workspace queryWorkspace) AllBindings() map[string]string`
+- `func (workspace queryWorkspace) DetectGitRemote(string) string`
+- `func TestListSessionsKeepsReadLockAndComposesRows(t *testing.T)`
+- `func TestProjectRootForUsesBindingOnly(t *testing.T)`
+- `func TestDurableReadsDelegate(t *testing.T)`
+- `func TestWaitCatalogRefreshDelegatesWithoutState(t *testing.T)`
 
-- `func NewInputIndex(deps InputIndexDeps) *InputIndexApplication` — 构造只读全量输入索引应用。
-- `func (application *InputIndexApplication) Read(sessionID string) (model.SessionInputIndex, error)` — 组合 durable 全量输入、record 降级和已加载窗口。
+### input_index.go
 
-### `input_index_test.go`
+- `func NewInputIndex(deps InputIndexDeps) *InputIndexApplication` — NewInputIndex constructs the read-only input index application.
+- `func (application *InputIndexApplication) Read(sessionID string) (model.SessionInputIndex, error)` — Read returns the bounded index for every user input in the session while
+- `func (application *InputIndexApplication) readConversation(location session_runtime.Location, sessionID string) ([]model.Message, int, error)` — readConversation prefers durable message rows and falls back to the record's
+- `func (application *InputIndexApplication) readLoadedWindow(sessionID string, total int) (model.SessionInputWindow, []string)` — readLoadedWindow takes only the shared read lock around in-memory view facts.
 
-测试文件按仓库 README 规范不展开函数索引。
+### input_index_test.go
 
-### `runtime.go`
+- `func TestInputIndexApplicationComposesFullConversationAndLoadedWindow(t *testing.T)`
+- `func TestInputIndexApplicationFallsBackToRecord(t *testing.T)`
+- `func TestInputIndexApplicationRequiresSessionID(t *testing.T)`
 
-- `func SessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime` — 提取会话专属运行字段并深拷贝。
-- `func CloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceView` — 克隆 Goal 收口账本。
+### resident_snapshot.go
 
-### `snapshot_read.go`
+- `func BuildResidentSnapshot(input ResidentSnapshotInput) model.SessionSnapshot` — BuildResidentSnapshot assembles a detached resident session snapshot.
 
-- `func ReadSnapshot(sessionID string, deps SnapshotReadDeps) (model.SessionSnapshot, error)` — 按驻留、内容 LRU 和冷读条件选择 Snapshot 来源。
+### resident_snapshot_test.go
 
-### `resident_snapshot.go`
+- `func TestBuildResidentSnapshotDetachesAndEnriches(t *testing.T)`
 
-- `func BuildResidentSnapshot(input ResidentSnapshotInput) model.SessionSnapshot` — 从不可变 View/Task/WorkTable 输入组装驻留快照。
+### runtime.go
+
+- `func SessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime` — SessionRuntimeOf extracts session-owned runtime facts from the full runtime.
+- `func CloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceView` — CloneGoalGovernanceView detaches the mutable governance history slice.
+
+### runtime_test.go
+
+- `func TestSessionRuntimeOfSelectsAndDetachesSessionFields(t *testing.T)`
+- `func TestCloneGoalGovernanceViewKeepsNil(t *testing.T)`
+
+### snapshot_read.go
+
+- `func ReadSnapshot(sessionID string, deps SnapshotReadDeps) (model.SessionSnapshot, error)` — ReadSnapshot chooses the cold persisted baseline or the resident assembly
+
+### snapshot_read_test.go
+
+- `func TestReadSnapshotChoosesColdAndResidentPaths(t *testing.T)`
+- `func TestReadSnapshotFallsBackWhenColdContentReadFails(t *testing.T)`
+- `func TestReadSnapshotRejectsEmptyID(t *testing.T)`

@@ -21,7 +21,7 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 ## 项目概览
 
-Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Assembly、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](backend/engine/assemble/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
+Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。上游兼容与能力装配集中在 [`backend/engine/assemble`](backend/engine/assemble/README.md)，产品领域按 Application、Backend、Kernel、Middle、Contract 与 Store 分层演进。
 
 主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型通过 <code>fork_subagents</code> 派发独立子代理；每条子代理拥有独立 Session、SceneScope、PromptBlocks、账号路由和 token budget，完成后把 findings、decisions 与 progress 结构化 merge-back 回父会话。团队级编排走 <code>teamwork</code>；分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>），派发只回受理回执，产出按句柄消费式取回。WorkPlan DAG 与 <code>plan_*</code> 工具面已退役，历史 Plan 仅作只读展示。
 
@@ -237,29 +237,34 @@ flowchart LR
 ### 分层结构速览（字符画）
 
 ~~~text
-┌────────────────────────── Clients ──────────────────────────┐
-│ TUI (Bubble Tea) · GUI (Wails/WebView) · headless · backend │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Snapshot / Event / Action
-┌──────────────────────────────▼──────────────────────────────┐
-│ application/                                                │
-│ Chat · Task · Plan · Goal · AgentTeam · Worktable           │
-│ Approval · Session · Workspace · Resume                     │
-└───────────────┬──────────────────────────┬──────────────────┘
-                │                          │
-┌───────────────▼────────────┐  ┌──────────▼──────────────────┐
-│ assemble/                  │  │ context/seelectx/           │
-│ Runtime · Tools · Plan     │  │ Assemble · Compact · DAG    │
-│ Account · MCP · Security    │  │ Memory · Search · Merge     │
-└───────────────┬────────────┘  └──────────┬──────────────────┘
-                │                          │
-┌───────────────▼──────────────────────────▼──────────────────┐
-│ Seele runtime                                               │
-│ agent · session · tools · workplan · accountpool · mcp      │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────── Frontends ──────────────────────────────┐
+│ TUI (Bubble Tea) · GUI (Wails/WebView) · headless · backend console    │
+└─────────────────────────────────┬──────────────────────────────────────┘
+                                  │ Snapshot / Event / Action
+┌─────────────────────────────────▼──────────────────────────────────────┐
+│ application/                                                           │
+│ Conversation · Session · Execution · Goal · Policy · Workspace         │
+│ Assembly: cross-domain transaction order, state ownership, publication │
+└───────────────┬───────────────────────────────┬────────────────────────┘
+                │ contract ports / DTO          │ kernel state + policy
+┌───────────────▼───────────────┐ ┌─────────────▼────────────────────────┐
+│ backend/                      │ │ middle/                              │
+│ engine · tool · multiagent    │ │ protocol · residency · switch/history│
+│ limit · workunit              │ │ view/sessionaccess                   │
+└───────────────┬───────────────┘ └─────────────┬────────────────────────┘
+                │                               │
+┌───────────────▼───────────────────────────────▼────────────────────────┐
+│ kernel/ · contract/ · store/                                           │
+│ state · session · task · context · worktable · event · prompt · board  │
+└─────────────────────────────────┬──────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────▼──────────────────────────────────────┐
+│ Seele runtime                                                          │
+│ agent · session · tools · workplan · accountpool · mcp · telemetry     │
+└────────────────────────────────────────────────────────────────────────┘
 
-Supporting modules:
-backend/engine/plugin · backend/engine/skill · store/ · workspace/ · session/ · backend/engine/mcp/mcpstack
+Composition root: main.go → internal/startup → boot → internal/host
+Execution sink: CLI/TUI/GUI/headless/console
 ~~~
 
 ### Seelex 与 Seele 的边界
@@ -269,7 +274,7 @@ backend/engine/plugin · backend/engine/skill · store/ · workspace/ · session
 | Seele | Agent/Session 原语、ReAct 执行、工具注册与分发、WorkPlan 内核、账号租约、事件和遥测 |
 | Seelex | 工程任务语义、Plan 产品 DSL、项目作用域工具、上下文策略、Plugin/Skill/MCP 编排、持久化和前端 |
 
-Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <code>go.mod</code>，无 <code>replace</code>）。版本链：v0.3.1 = Linux 式权限模型（主体 × 路由组 × rwx + sudo 与中间件判定）与 <code>session.InLoop</code> 环内历史把手；v0.3.2（2026-09-28）= 方案 B，用「回合闸门 + 短临界区工作状态」替换 InLoop 把手（<code>History</code> 永不阻塞，回合内写历史经检查点排队，宿主侧不再持有环内把手）；v0.3.3（2026-10-03）= 异步作业根能力（作业契约 + Manager + <code>jobs_manage</code>）；v0.3.4（2026-10-08）= <code>reasoning_effort</code> 真正写进请求体（openai/anthropic 两个 strategy）且运行期可切换。2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B、2026-10-05 <code>reasoning_effort</code> 四次联调期的本地 <code>replace</code> 均已移除。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
+Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.6</code>（见 <code>go.mod</code>，无 <code>replace</code>）。v0.3.1–v0.3.4 的权限模型、回合闸门、异步作业和 <code>reasoning_effort</code> 演进已进入上游主线；v0.3.6 是当前实际编译与测试基线。历史版本细节只用于追溯，版本升级应通过 <code>internal/startup</code>、<code>backend/engine/assemble</code> 及跨实现一致性用例验证。
 
 ## 数据流与机制图
 
@@ -294,11 +299,12 @@ Seelex 保留 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
 
 - <code>contract</code> 与 <code>contract/dto</code> 定义跨层契约与数据传输对象。
 - 前端（TUI / GUI / headless / backend 控制台）只依赖 Application 的 Snapshot 与 Event，不直接调用 Seele Engine、存储或 Plugin Manager。
-- 应用层与领域层消费 Seele 原语，装配层（<code>wiring/</code> + <code>backend/engine/assemble/</code>）负责把具体实现注入端口。
+- 应用层与领域层消费端口，唯一组合根是 <code>boot</code>；<code>internal/host</code> 提供端口到 Runtime/Store/Engine 的宿主适配，
+  <code>backend/engine/assemble</code> 保留 Seele 兼容与能力装配。
 
 但**集中式防腐层已经解散**：早期把上游类型变化全部挡在单一适配包内的做法，随着领域机制变多，演化成一个“什么都知道一点”的中转层——判据写在适配层、领域包只持数据结构、同一判据出现两份实现。项目随后逐片执行“域方法随类型走”，把每个机制的状态与**判据**一起迁回它所属的领域包（<code>engine/*</code>、<code>tool/*</code>、<code>multiagent/*</code>、<code>limit/policy</code>），装配层只保留拓扑装配与逆序关机。
 
-**这条取舍的代价是显式的**：应用层现在直接消费上游类型（<code>application/assembly</code> 252 个 Go 文件中有 222 个直接引用 Seele 包），一旦上游发生破坏性变更，影响面会扩散到多个领域包，而不是被收在一个包里。项目接受这个代价，因为在当前阶段“自身机制复杂”比“上游不稳定”更主要；若上游重新变得不稳定，应重新引入隔离层或加上导入白名单检查。详见 <code>backend/engine/assemble/README.md</code> 的迁移表与 <code>docs/2026-10-15-architecture-reshape/</code>。
+**这条取舍的代价是显式的**：上游类型经域包和宿主端口扩散后，Seele 的破坏性变更会影响多个领域包，而不是被一个万能适配器收口。当前结构以结构预算和导入白名单防止 Application 反向依赖 Backend/Store/Middle；若上游重新变得不稳定，应扩大兼容适配面，而不是把业务判据搬回组合根。详见 <code>backend/engine/assemble/README.md</code> 与 <code>docs/2026-10-15-architecture-reshape/</code>。
 
 ### 2. Application Snapshot 是权威状态，Event 只负责增量同步
 
@@ -655,8 +661,8 @@ permission:
 
 | 目录 | 职责 |
 |---|---|
-| [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | **装配面（staging，拆解中）**：拓扑装配与逆序关机；原集中式防腐层的内容已按域下沉到 <code>engine/*</code>、<code>tool/*</code>、<code>multiagent/*</code>、<code>limit/policy</code> |
+| [<code>application/</code>](application/README.md) | 应用层：Conversation、Session、Execution、Goal、Policy、Workspace、跨域 assembly 与 Snapshot/Event |
+| [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | Seele 兼容与能力装配：拓扑、账号租约、工具面、MCP/Plugin 和 runtime 生命周期；业务判据继续下沉到所属域 |
 | [<code>backend/engine/context/seelectx/</code>](backend/engine/context/seelectx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back（M5-R7 迁出仓库根 `seelexctx/`，包名不变） |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>application/session/state/</code>](application/session/state/README.md) | SessionUnit、Domain、Chat/Queue/View 与 DeepCopy（Go 包名 `sessionstate`） |
@@ -785,6 +791,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - [开题报告（研究文档）](docs/research/2026-09-14-seelex-thesis-proposal-v3.md)
 - [性能测试报表（历史基线，2026-08-05）](docs/test/REPORT-perf-latest.md)
 - [性能测试报表（更早构建基线）](docs/test/REPORT-perf-baseline.md)
+- [服务边界、性能观测与 SeelexDot 接口规划（2026-10-28）](docs/2026-10-28-service-split-performance-dot/README.md)
 
 模块 README 是各章节的入口，全部以「生态位」开头，并按模块性质配有架构图、用例图、时序图或数据流图：
 
@@ -807,7 +814,7 @@ README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭�
 项目当前仍主要由原作者维护；欢迎提交可复现 Issue、设计审查或 Pull Request，但仓库不会把自动化提交包装成外部贡献。开始修改前，请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[行为准则](CODE_OF_CONDUCT.md)、[AGENTS.md](AGENTS.md) 和目标模块的 README，并保持以下约束：
 
 - 前端只消费 Application DTO/Event，不复制业务状态机。
-- 上游 Seele 能力优先通过 <code>backend/engine/assemble/</code> 适配。
+- 上游 Seele 能力优先通过 <code>backend/engine/assemble/</code> 适配，宿主端口经 <code>internal/host</code> 连接。
 - 新增工具必须经过 ProjectScope、权限和可见性边界。
 - 行为变化应同时更新测试和对应模块文档。
 - 不提交账号文件、API key、DSN、token 或本机绝对路径。

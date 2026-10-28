@@ -69,12 +69,28 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func New(deps Deps) *Application` — 构造审阅请求应用。
-- `func (application *Application) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — 生成并投影文件审阅请求。
-- `func (application *Application) ClearReviewRequest(sessionID string)` — 清空会话审阅请求。
+### application.go
 
-### `application_test.go`
+- `func New(deps Deps) *Application` — New constructs the file-review application.
+- `func (application *Application) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview asks the GUI to open a bounded set of files.
+- `func (application *Application) ClearReviewRequest(sessionID string)` — ClearReviewRequest clears one session's current request projection.
+- `func (application *Application) processor() RequestProcessor`
+- `func (host reviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
+- `func (host reviewHost) NextRequestID() string`
+- `func (host reviewHost) SessionIDFromContext(ctx context.Context) string`
+- `func (host reviewHost) ViewSessionID() string`
+- `func (host reviewHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
+- `func (host reviewHost) ClearReviewRequest(sessionID string)`
+- `func (host reviewHost) PublishSnapshotChanged(sessionID string, revision uint64)`
 
-测试文件按仓库 README 规范不展开函数索引。
+### application_test.go
+
+- `func testProcessorFactory(host Host) RequestProcessor`
+- `func (reviewFilePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (reviewFilePort) GitCommitFileContent(string, string, string, int64) (dto.FileContent, error)`
+- `func TestReviewApplicationPromotesAcceptedRequest(t *testing.T)`
+- `func TestReviewApplicationClearUsesViewSessionFallback(t *testing.T)`
+- `func TestReviewApplicationRequestIDIsUnique(t *testing.T)`

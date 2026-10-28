@@ -115,7 +115,7 @@ func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionI
 	return record, nil
 }
 
-// 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
+// 下面三个方法补齐 SessionRecordPort（生产 internal/host.SessionPort 同时
 // 实现该面；缺一个方法就不会被当成 record 端口，冷加载会退化到旧的
 // provider 历史路径）。
 func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record model.SessionRecord) error {

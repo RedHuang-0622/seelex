@@ -66,7 +66,41 @@ go test ./application/assembly -run 'Task|Plan|Tool|History|Session' -count=1
 
 ## 文件与函数索引
 
-### `facade.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `type Coordinator/Deps/ChatEndSummary/... = taskcontext.*` — Task Context 的同身份 alias。
-- `func ActivePlanFromStack/TranscriptTailHistory/LedgerIdentity/...(...)` — 逐项转发 Engine helper。
+### facade.go
+
+- `func ActivePlanFrame(stack []model.SessionPlanFrame, activeID string) *model.SessionPlanFrame`
+- `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState`
+- `func SessionIDFromContext(ctx context.Context) string`
+- `func WithSessionID(ctx context.Context, sessionID string) context.Context`
+- `func NewCoordinator(deps Deps) *Coordinator`
+- `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage`
+- `func LedgerIdentity(record dto.TaskRecord) string`
+- `func RetainedFromForCompactions(events []model.TranscriptEvent, compactions []model.ContextCompaction) int`
+- `func ContextBudgetFor(runtime any) ContextBudget`
+
+### facade_test.go
+
+- `func TestTaskContextTypesAreBackendIdentity(t *testing.T)`
+
+### plan_projection.go
+
+- `func NewPlanProjection(deps PlanProjectionDeps) *PlanProjectionApplication` — NewPlanProjection constructs the Plan projection application.
+- `func (application *PlanProjectionApplication) PlanLocked(sessionID string) *model.PlanState` — PlanLocked returns the current view plan or the backend projection for a
+- `func (application *PlanProjectionApplication) MirrorLocked(sessionID string)` — MirrorLocked refreshes the active snapshot plan, seeding the projection when
+- `func (application *PlanProjectionApplication) MirrorWithFallbackLocked( sessionID string, fallback func() *model.PlanState, )` — MirrorWithFallbackLocked is MirrorLocked with a path-specific baseline.
+
+### plan_projection_test.go
+
+- `func TestPlanProjectionApplicationUsesCurrentSnapshotOrBackendProjection(t *testing.T)`
+
+### terminal_handler.go
+
+- `func NewTerminalHandler(deps TerminalHandlerDeps) *TerminalHandlerApplication`
+- `func (application *TerminalHandlerApplication) Handler(kind string) func(context.Context, string) (string, error)` — Handler preserves the former core closure order: seed the active view Plan,
+
+### terminal_handler_test.go
+
+- `func TestTerminalHandlerPreservesProjectionOrder(t *testing.T)`

@@ -159,31 +159,100 @@ go test ./middle/switch/... ./store/workspace/ -count=1
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_core_readme_index.py`（本包不在已定案树自动发现内，
-> 新增/改名函数时按同款格式手工同步）。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### workspace.go
 
-- `type Projection struct` — 工作区清单与会话 → 工作区绑定的窄投影面。
-- `type ViewState struct` — 工作区用例在视图过渡锁内读取的视图事实快照。
-- `type ViewPort interface` — 应用视图的窄投影写面（锁、Apply*、发布与目录刷新）。
-- `type Sessions interface` — 会话目录/绑定的窄写面（写作用域 + 保存当前会话）。
-- `type Runtime interface` — 工作区绑定涉及的运行时窄端口（项目根、会话工作区、任务账、子代理树）。
-- `type Engine interface` — 工作区切换涉及的引擎窄端口（历史、新建会话、system prompt）。
-- `type Deps struct` — 工作区用例的装配入参（四组窄面 + 单点函数值）。
-- `type UseCase struct` — 工作区用例的唯一编排点（无状态）。
-- `func New(deps Deps) *UseCase` — 装配工作区用例。
-- `func (usecase *UseCase) CreateWorkspace(name, rootPath, gitRemote string) error` — 建工作区（空 remote 探测 origin）并立即绑定。
-- `func (usecase *UseCase) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — 批量登记项目且不绑定当前视图。
-- `func (usecase *UseCase) BindWorkspace(workspaceID string) error` — 把已存在的工作区绑定到当前视图会话/草稿。
-- `func (usecase *UseCase) UnbindWorkspace()` — 解绑当前视图会话/草稿的工作区。
-- `func (usecase *UseCase) Projection() Projection` — 在视图锁外收集工作区清单与会话绑定。
-- `func (usecase *UseCase) Tree(relPath string, depth int) (dto.TreeListing, error)` — 列出当前工作区某目录的子条目。
-- `func (usecase *UseCase) FileCount() (dto.TreeCount, error)` — 统计当前工作区文件/目录数。
-- `func (usecase *UseCase) GitLog(limit int) (dto.GitLogResult, error)` — 返回当前工作区最近 limit 条提交。
-- `func (usecase *UseCase) Changes(limit int) (dto.WorkspaceChangesResult, error)` — 返回当前工作区未提交改动。
-- `func (usecase *UseCase) GitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — 返回某个提交改了哪些文件。
-- `func (usecase *UseCase) FileContent(relPath string, limit int64) (dto.FileContent, error)` — 读取当前工作区某文件的前 limit 字节。
-- `func (usecase *UseCase) GitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — 读取某文件在某个提交时的内容。
-- `func (usecase *UseCase) WriteFile(relPath, content string) (dto.FileWriteResult, error)` — 覆盖当前工作区某文件的全部内容。
-- `func (usecase *UseCase) FilePort() (contract.WorkspaceFilePort, string, error)` — 解析当前工作区 root 与可选文件端口。
+- `func New(deps Deps) *UseCase` — New 装配工作区用例。
+- `func (usecase *UseCase) CreateWorkspace(name, rootPath, gitRemote string) error` — CreateWorkspace 建工作区（空 gitRemote 时探测 origin），成功后立即绑定到当前视图。
+- `func (usecase *UseCase) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — CreateWorkspaces 批量登记项目，不绑定当前视图；调用方创建后再按 ID 绑定。
+- `func (usecase *UseCase) SetConnection(id string, change model.WorkspaceConnectionChange) (model.WorkspaceConnection, error)` — SetConnection 写项目级连接配置（SSH 端点 / git 访问），返回权威读回值。
+- `func (usecase *UseCase) Connection(id string) (model.WorkspaceConnection, error)` — Connection 读项目级连接配置（口令只以布尔出现）。
+- `func (usecase *UseCase) connectionPort() (contract.WorkspaceConnectionPort, error)` — connectionPort 解析连接配置的窄可选端口（存储没实现就显式报错，不静默降级）。
+- `func connectionChangeForCreate(request dto.WorkspaceCreateRequest) (model.WorkspaceConnectionChange, bool)` — connectionChangeForCreate 把新建请求里的连接字段翻成写面变更。
+- `func applyConnectionToResult(entry *dto.WorkspaceCreateResult, conn model.WorkspaceConnection)` — applyConnectionToResult 把读回值填进新建结果（只填摘要与布尔）。
+- `func (usecase *UseCase) createWorkspace(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)`
+- `func normalizeWorkspaceCreateRequests(requests []dto.WorkspaceCreateRequest) ([]dto.WorkspaceCreateRequest, error)`
+- `func workspaceRootKey(rootPath string) string`
+- `func (usecase *UseCase) BindWorkspace(workspaceID string) error` — BindWorkspace 把已存在的工作区绑定到当前视图会话/草稿。
+- `func (usecase *UseCase) bindInfo(info model.WorkspaceInfo) error` — bindInfo 是「绑定一个工作区」的唯一编排：
+- `func (usecase *UseCase) UnbindWorkspace()` — UnbindWorkspace 解绑当前视图会话/草稿的工作区。
+- `func (usecase *UseCase) publish(revision uint64)` — publish 在视图过渡锁内完成投影后统一做三件锁外动作（与迁移前同序）。
+- `func (usecase *UseCase) prompt() string`
+- `func (usecase *UseCase) Projection() Projection` — Projection 在视图锁之外收集工作区清单与会话绑定（可能含磁盘索引读）。
+- `func (usecase *UseCase) Tree(relPath string, depth int) (dto.TreeListing, error)` — Tree 列出当前工作区某目录的子条目（root 只来自宿主视图）。
+- `func (usecase *UseCase) FileCount() (dto.TreeCount, error)` — FileCount 统计当前工作区文件/目录数。
+- `func (usecase *UseCase) GitLog(limit int) (dto.GitLogResult, error)` — GitLog 返回当前工作区最近 limit 条提交（只读元数据）。
+- `func (usecase *UseCase) Changes(limit int) (dto.WorkspaceChangesResult, error)` — Changes 返回当前工作区未提交改动（只读元数据）。
+- `func (usecase *UseCase) GitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — GitCommitDetail 返回当前工作区某提交改了哪些文件（只读元数据）。
+- `func (usecase *UseCase) FileContent(relPath string, limit int64) (dto.FileContent, error)` — FileContent 读取当前工作区某文件的前 limit 字节（只读受控字节）。
+- `func (usecase *UseCase) GitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — GitCommitFileContent 读取某文件在某个提交时的内容（git 对象库，不是磁盘）。
+- `func (usecase *UseCase) WriteFile(relPath, content string) (dto.FileWriteResult, error)` — WriteFile 覆盖当前工作区某文件的全部内容（GUI 文件详情面板的保存面）。
+- `func (usecase *UseCase) FilePort() (contract.WorkspaceFilePort, string, error)` — FilePort 解析当前工作区 root 与可选文件端口；预览读取、提交内文件内容与
+- `func (usecase *UseCase) treePort() (contract.WorkspaceTreePort, string, error)`
+- `func (usecase *UseCase) WorkspaceRootPort() (contract.WorkspacePort, string, error)` — WorkspaceRootPort 解析「当前视图绑定的工作区根」与后端本身（锁内快照拷贝、
+- `func (usecase *UseCase) workspaceRootPort(missingPortMessage string) (contract.WorkspacePort, string, error)` — workspaceRootPort 解析「当前视图绑定的工作区根」与后端本身（锁内快照拷贝，
+
+### workspace_test.go
+
+- `func newFakeStore(infos ...model.WorkspaceInfo) *fakeStore`
+- `func (store *fakeStore) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)`
+- `func (store *fakeStore) Get(id string) (model.WorkspaceInfo, error)`
+- `func (store *fakeStore) List() []model.WorkspaceInfo`
+- `func (store *fakeStore) Delete(string) error`
+- `func (store *fakeStore) BindSession(sessionID, workspaceID string)`
+- `func (store *fakeStore) UnbindSession(sessionID string)`
+- `func (store *fakeStore) SessionWorkspace(sessionID string) (model.WorkspaceInfo, bool)`
+- `func (store *fakeStore) AllBindings() map[string]string`
+- `func (store *fakeStore) DetectGitRemote(rootPath string) string`
+- `func (store *fakeTreeStore) ListTree(root, relPath string, depth int) (dto.TreeListing, error)`
+- `func (store *fakeTreeStore) CountFiles(root string) (dto.TreeCount, error)`
+- `func (store *fakeTreeStore) GitLog(root string, limit int) (dto.GitLogResult, error)`
+- `func (store *fakeTreeStore) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (store *fakeTreeStore) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (store *fakeFileStore) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (store *fakeFileStore) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)`
+- `func (store *fakeFileStore) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error)`
+- `func (view *fakeView) LockTransition() func()`
+- `func (view *fakeView) State() ViewState`
+- `func (view *fakeView) ApplyDraftBinding(info model.WorkspaceInfo, projection Projection) uint64`
+- `func (view *fakeView) ApplyBinding(info model.WorkspaceInfo, projection Projection, freshSessionID, notice string) uint64`
+- `func (view *fakeView) ApplyUnbind(sessionID string, projection Projection) uint64`
+- `func (view *fakeView) PublishSnapshotChanged(revision uint64)`
+- `func (view *fakeView) RequestCatalogRefresh()`
+- `func (view *fakeView) ClearReviewRequest()`
+- `func (sessions *fakeSessions) SetWorkspace(workspaceID string)`
+- `func (sessions *fakeSessions) SaveCurrent(sessionID string) error`
+- `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
+- `func (runtime *fakeRuntime) UnbindProjectRoot()`
+- `func (runtime *fakeRuntime) UnbindProjectRootFor(sessionID string)`
+- `func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string)`
+- `func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord`
+- `func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
+- `func (runtime *fakeRuntime) ClearSubagentTree() error`
+- `func (engine *fakeEngine) History() []contract.EngineMessage`
+- `func (engine *fakeEngine) StartSession() string`
+- `func (engine *fakeEngine) SetSystemPrompt(prompt string)`
+- `func (engine *fakeEngine) ActivateSession(sessionID string) error`
+- `func newHarness(state ViewState, store *fakeStore) *harness`
+- `func TestCreateWorkspaceValidatesAndDetectsRemote(t *testing.T)`
+- `func TestCreateWorkspaceKeepsExplicitRemote(t *testing.T)`
+- `func TestCreateWorkspacesCreatesAllWithoutBinding(t *testing.T)`
+- `func TestCreateWorkspacesRejectsDuplicateRootsBeforeCreating(t *testing.T)`
+- `func TestCreateWorkspacesRejectsExistingRootBeforeCreating(t *testing.T)`
+- `func TestBindWorkspaceDraftKeepsBindingInView(t *testing.T)`
+- `func TestBindWorkspaceStartsFreshSessionAcrossProjects(t *testing.T)`
+- `func TestBindWorkspaceReusesSessionWhenProjectUnchanged(t *testing.T)`
+- `func TestBindWorkspaceWithoutHistoryKeepsSession(t *testing.T)`
+- `func TestBindWorkspaceRejectsRunningChat(t *testing.T)`
+- `func TestBindWorkspaceFallsBackToEngineSession(t *testing.T)`
+- `func TestUnbindWorkspaceClearsSessionAndView(t *testing.T)`
+- `func TestUnbindWorkspaceLeavesDraftBindingToView(t *testing.T)`
+- `func TestWorkspaceQueriesForwardCurrentRootAndCapabilities(t *testing.T)`
+- `func TestWorkspaceFileQueriesForwardCurrentRoot(t *testing.T)`
+- `func TestWorkspaceQueriesRequireBoundRoot(t *testing.T)`
+- `func TestWorkspaceQueriesReportMissingCapabilities(t *testing.T)`
+- `func TestProjectionCopiesStoreState(t *testing.T)`
+- `func TestProjectionWithoutStoreIsEmpty(t *testing.T)`
+- `func newFileUsecase(h *harness, store *fakeFileStore) *UseCase` — newFileUsecase 复制 harness 的宿主面，换一个实现文件端口的 store。
+- `func newStoreUsecase(h *harness, store contract.WorkspacePort) *UseCase` — newStoreUsecase 复制 harness 的宿主面，换一个实现可选端口的 store。

@@ -78,4 +78,3 @@ go test ./store/schedule -count=1
 
 - `func TestFileStoreDropsTornTail(t *testing.T)` — TestFileStoreDropsTornTail 钉住 append-only 的崩溃恢复语义：没有收尾换行的
 - `func TestFileStoreMissingFileIsEmpty(t *testing.T)` — TestFileStoreMissingFileIsEmpty 钉住"没有文件 = 空任务集"，而不是错误：
-

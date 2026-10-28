@@ -292,6 +292,23 @@ go test ./application/assembly/context_runtime -count=1
 - `func TestCompactionPushSerializesWithinSession(t *testing.T)` — TestCompactionPushSerializesWithinSession：同会话的两条推帧不得重叠。
 - `func TestCompactionPushDoesNotSerializeAcrossSessions(t *testing.T)` — TestCompactionPushDoesNotSerializeAcrossSessions：锁必须按会话键取——
 
+### compaction_stack.go
+
+- `func NewCompactionStack(deps CompactionStackDeps) *CompactionStack` — NewCompactionStack 装配一例（装配点是组合根：`assemble.Runtime` 的构造器）。
+- `func frameSummaryNote(frame store.CompactFrame) string` — frameSummaryNote 从帧证据里读出降级原因（ref 前缀 `compact-local:` 的那条，由
+- `func frameLocalDegrade(frame store.CompactFrame) (code, note string)` — frameLocalDegrade 从帧证据里读出降级码与原因（ref `compact-local:<code>` 的
+- `func (stack *CompactionStack) SummaryAvailable() bool` — SummaryAvailable 报告装配层压缩这次能不能拿到**模型生成的读后感**
+- `func (stack *CompactionStack) Readback( ctx context.Context, _ string, request CompactionFrameRequest, ) (CompactionFrameReceipt, error)` — Readback 在压缩**之前**试一次前缀重放厚摘要，把「这次到底有没有模型读后感」从结构
+- `func (stack *CompactionStack) Push( ctx context.Context, sessionID string, request CompactionFrameRequest, ) (CompactionFrameReceipt, error)` — Push 生成一帧并压入该会话的压缩栈，返回回执。
+
+### compaction_stack_test.go
+
+- `func TestFrameLocalDegradeReadsCodeAndNote(t *testing.T)`
+- `func TestFrameLocalDegradeWithoutEvidenceKeepsSilence(t *testing.T)`
+- `func TestCompactionStackSummaryAvailableFollowsSummarizer(t *testing.T)`
+- `func TestCompactionStackWithoutStoreReportsUnbound(t *testing.T)` — TestCompactionStackWithoutStoreReportsUnbound：未绑定上下文存储时，推帧/读数都必须
+- `func (stubSummarizer) Summarize(context.Context, seelexctx.ReplayRequest) (seelexctx.ReplayResult, error)`
+
 ### coordinator.go
 
 - `func IsActiveSkillContent(content string) bool` — IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only
@@ -312,7 +329,9 @@ go test ./application/assembly/context_runtime -count=1
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
 - `func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string` — compactionOrigin 判定一轮压缩的来源：自动路径（软/硬阈值、自主压缩）记 auto，
+- `func compactionSoftLine(budget task_context.ContextBudget) int` — compactionSoftLine 返回自动压缩的**有效性判据线**：limits.context_soft_percent ×
 - `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error)`
+- `func composeRequestTail(currentInput, workTable, environment string) string` — composeRequestTail 是动态请求尾块的唯一组装点：
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, windowed bool, maxUnits int, ) ([]contract.EngineMessage, int, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, maxUnits int, ) ([]contract.EngineMessage, int, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token，
 - `func (c *Coordinator) transcriptUnitTokens(unit []model.TranscriptEvent) int` — transcriptUnitTokens 按请求装配同款估算器给一个协议单元计价。保留窗口
@@ -345,7 +364,6 @@ go test ./application/assembly/context_runtime -count=1
 - `func (c *Coordinator) setEngineSystemPrompt(sessionID, prompt string)` — setEngineSystemPrompt 设置指定会话引擎 system prompt（会话路由引擎用
 - `func (c *Coordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (c *Coordinator) clearEngineHistory(sessionID string)` — clearEngineHistory 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
-- `func (c *Coordinator) appendEngineHistory(sessionID string, msg types.Message)` — appendEngineHistory 追加消息到指定会话引擎历史（会话路由引擎用
 
 ### history.go
 
@@ -383,12 +401,13 @@ go test ./application/assembly/context_runtime -count=1
 
 ### history_test.go
 
-- `func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T)`
+- `func TestRepairEmptyHistoryContentPreservesToolCallAssistantContent(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
 - `func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T)` — TestAutonomousCompactionMessageIsBoundedAndDynamicTail：自主压缩帧带协议
 - `func TestCompactionFrameNeverReentersCompactionInput(t *testing.T)` — TestCompactionFrameNeverReentersCompactionInput：帧是**终态**——一次压缩产生的帧绝不
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
+- `func TestBudgetFinalizationMarkerIsDynamicTail(t *testing.T)` — TestBudgetFinalizationMarkerIsDynamicTail：预算收尾输入是每轮重建的控制行，
 
 ### layout.go
 
@@ -419,6 +438,11 @@ go test ./application/assembly/context_runtime -count=1
 - `func TestHasConversationBodyTable(t *testing.T)` — TestHasConversationBodyTable 钉住"引擎历史里有没有对话正文"这组形状。
 - `func TestReplayMaterialForFallbackTable(t *testing.T)` — TestReplayMaterialForFallbackTable：素材选择的两条事实——有正文时**逐字**用
 
+### request_tail_test.go
+
+- `func TestComposeRequestTailKeepsEnvironmentAfterInput(t *testing.T)`
+- `func TestComposeRequestTailOmitsEmptyBlocks(t *testing.T)`
+
 ### session_history.go
 
 - `func (c *Coordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory 读指定会话的引擎历史（会话路由端口优先）。
@@ -441,3 +465,21 @@ go test ./application/assembly/context_runtime -count=1
 - `func (port *recordingSessionPort) locations() []string`
 - `func listed(router *store.Router, projectID, sessionID string) bool` — listed 报告项目目录枚举（左侧栏的数据源口径）里是否列出了该会话。
 
+### wiring.go
+
+- `func ReplayInputTokens(configuredTokens, contextWindow int) int` — ReplayInputTokens 返回分片重放的片预算（模型输入侧）：取账号上下文窗口减去
+- `func NewCompactionSummarizer(completer agent.Completer, enabled bool) (seelexctx.PrefixReplaySummarizer, string)` — NewCompactionSummarizer 按开关构造前缀重放厚摘要器（limits.context_compaction_summary）。
+- `func WindowTailBudget(contextWindow int, policy seelexctx.WindowPolicy) (tokenBudget, maxUnits int)` — WindowTailBudget 推导主会话 DurableHistory 的读尾预算（D1，plan.md §9）。
+- `func CoverHistoryGap(ctx context.Context, deps GapCoverageDeps) error` — CoverHistoryGap 把滑动窗口与压缩内容之间的真空区轮次压缩为合并帧
+- `func RelatedMemoryBlocks(frames []store.CompactFrame, query string) []seelectx.PromptBlock` — RelatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
+
+### wiring_test.go
+
+- `func TestReplayInputTokensPrefersConfiguredKnob(t *testing.T)` — TestReplayInputTokensPrefersConfiguredKnob 钉住旋钮的**零值语义**：未配置
+- `func TestNewCompactionSummarizerReportsWhyMissing(t *testing.T)` — TestNewCompactionSummarizerReportsWhyMissing 钉住三条 nil 出口**各带一条理由**：
+- `func (p *stubWindowPolicy) WindowRounds(_ context.Context, info seelexctx.ProviderContextInfo) (int, error)`
+- `func TestWindowTailBudgetFallsBackToDefaultRounds(t *testing.T)` — TestWindowTailBudgetFallsBackToDefaultRounds：读尾预算的两维——tokenBudget 取窗口，
+- `func (s *stubCompactStacks) CompactStackSnapshot() []store.CompactFrame`
+- `func (s *stubCompactStacks) PushCompact(frame store.CompactFrame) error`
+- `func TestCoverHistoryGapSkipsWithoutBaseline(t *testing.T)` — TestCoverHistoryGapSkipsWithoutBaseline 钉住这条判据：**没有压缩基线就不补真空区**
+- `func TestRelatedMemoryBlocksSelection(t *testing.T)` — TestRelatedMemoryBlocksSelection 钉住选取判据：无记录/空查询/无命中都不注入

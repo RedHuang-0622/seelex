@@ -7,7 +7,7 @@
 owner 用例并观察全量事件流。它是 `-frontend headless` 的入口，也是 GUI 进程内
 （`SEELEX_HEADLESS_PORT` 设置时）的冒烟/量测接口。
 
-主要调用方：`wiring/bootstrap`（独立 headless 模式与 GUI 进程内启动）。
+主要调用方：`boot`（独立 headless 模式与 GUI 进程内启动）。
 
 ## 职责与非职责
 
@@ -47,7 +47,7 @@ owner 用例并观察全量事件流。它是 `-frontend headless` 的入口，�
 ## 依赖方向
 
 `headless → application（Snapshot / Subscription / PerfStats 等 DTO 类型）
-+ contract/dto + kernel/goal（goal 请求形状）`。owner 由 `wiring/bootstrap` 的装配表
++ contract/dto + kernel/goal（goal 请求形状）`。owner 由 `boot` 的装配表
 注入，本包不 import `gui`、`application/assembly`、`store` 或引擎实现包。
 goal 请求形状的契约化（P3）完成后，这里应改为只 import `contract`。
 
@@ -61,7 +61,7 @@ goal 请求形状的契约化（P3）完成后，这里应改为只 import `cont
 
 新增 RPC：在 `dispatch` 表加一行，落到已有 owner 端口的方法；需要新能力面时，
 在 `dependencies.go` 按 owner 声明端口与 `Dependencies` 字段，并在装配表
-`wiring/bootstrap/frontend_ports.go` 补一行交出该 owner 指针。RPC 线上名字一经发布
+`boot/frontend_ports.go` 补一行交出该 owner 指针。RPC 线上名字一经发布
 就是对外契约，只增不改；不在本包新造状态或第二份判据。
 
 ## Review 指南
@@ -109,4 +109,3 @@ owner 就填 `headless.Dependencies` 的哪几个字段（没有用例驱动的�
 ### headless_subagent.go
 
 - `func (server *Server) dispatchSubagent(method string, args []json.RawMessage) (any, error)`
-

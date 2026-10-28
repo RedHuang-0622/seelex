@@ -103,6 +103,10 @@ go test ./application/assembly/ -run 'WorkTable|WorkItem|MergeTaskRecords|Teamwo
 
 - `func TruncateWorkEvidence(value string, limit int) string` — evidence.go — 证据文本的**唯一截断实现**（工作表格行投影、项目看板行投影、
 
+### fuzz_projection_test.go
+
+- `func FuzzBuildWorkTable(f *testing.F)`
+
 ### projection.go
 
 - `func BuildWorkTable(plan *model.PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord, limits Limits) []model.WorkItem` — BuildWorkTable 组装工作表格行：注册表 task → model.WorkItem；plan 行额外合并
@@ -122,11 +126,21 @@ go test ./application/assembly/ -run 'WorkTable|WorkItem|MergeTaskRecords|Teamwo
 - `func ClonePlanForSync(plan *model.PlanState) *model.PlanState`
 - `func CloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode`
 
+### projection_ab_test.go
+
+- `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
+- `func heavyTestPlan(nodes int) *model.PlanState`
+- `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
+
 ### projection_test.go
 
 - `func TestMergeTaskRecordsUsesInjectedIdentity(t *testing.T)` — 身份判据是**注入**的：本包不存在自己的同口径实现（AGENTS §8.3 的同一判据一处）。
 - `func TestMergeTaskRecordsSkipsRecordsWithoutIdentity(t *testing.T)` — 注入判据返回空串 = 该行没有身份：不进合并（防御性分支，宿主判据不会返回空串）。
 - `func TestMergeTaskRecordsReturnsPrimaryWhenSecondaryEmpty(t *testing.T)` — secondary 为空时原样返回 primary（早返回口径与迁移前一致，不复制切片）。
+
+### subagent_status_test.go
+
+- `func TestTaskStatusForSubagentInterrupted(t *testing.T)` — TestTaskStatusForSubagentInterrupted（G4 stale）：崩溃遗留节点经树恢复为
 
 ### worktable_publisher.go
 

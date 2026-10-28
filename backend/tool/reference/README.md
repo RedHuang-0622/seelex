@@ -84,6 +84,14 @@ go test ./application/assembly/ -run 'ToolResult' -count=1   # 门面级集成�
 
 ### reference.go
 
-- `func NodeResultRef(ref string) (string, bool)` — 解析 `node:<nodeID>:...` 前缀的子代理结果引用。
-- `func BuildPage(result model.StoredToolResult, offset, limit int, contains string) model.ToolResultPage` — 计算一页（过滤 → 分页 → UTF-8 对齐）。
-- `func EncodePage(result model.StoredToolResult, offset, limit int, contains string) (string, error)` — 模型面 JSON 编码；越界 offset 显式报错。
+- `func NodeResultRef(ref string) (string, bool)` — NodeResultRef 解析 `node:<nodeID>:...` 前缀的子代理结果引用；非节点引用 → false。
+- `func BuildPage(result model.StoredToolResult, offset, limit int, contains string) model.ToolResultPage` — BuildPage 计算工具结果的一页（contains 过滤 → offset/limit 分页 → UTF-8 边界对齐）。
+- `func EncodePage(result model.StoredToolResult, offset, limit int, contains string) (string, error)` — EncodePage 是模型面 read_tool_result 的 JSON 编码（保留既有载荷形状；
+
+### reference_test.go
+
+- `func TestNodeResultRefParser(t *testing.T)`
+- `func TestEncodePageNodeContent(t *testing.T)`
+- `func TestBuildPageAlignsUTF8Boundaries(t *testing.T)` — TestBuildPageAlignsUTF8Boundaries：分页边界必须落在 rune 起点（否则前端与模型会看到半个汉字）。
+- `func TestBuildPageContainsFiltersLines(t *testing.T)` — TestBuildPageContainsFiltersLines：contains 过滤按行保留匹配行，分页在过滤后的内容上算。
+- `func TestEncodePageMakesProgressAcrossUTF8Boundaries(t *testing.T)` — TestEncodePageMakesProgressAcrossUTF8Boundaries：模型面一次只取 1 字节时，

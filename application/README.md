@@ -2,20 +2,20 @@
 
 ## 生态位
 
-`application` 是 Seelex 的稳定应用层门面，处在「前端 / 组合根」与「运行时适配」之间，承担两件事：
+`application` 是 Seelex 的应用层，处在「前端 / 组合根」与「运行时适配」之间，承担两件事：
 
-1. **用例编排**：把底层能力组合成聊天、命令、会话、项目、审批、Plan、Goal、AgentTeam、Worktable 与运行时切换。
+1. **用例编排**：把底层能力组合成 Conversation、Session、Execution、Goal、Policy、Workspace 与运行时切换。
 2. **权威状态**：所有用户可见事实以 `model.Snapshot` 为准，变更以 `event.Hub` 增量发布，多个前端消费同一份事实。
 
-主要调用方：根目录 composition root（`main.go`）、`tui/`、`gui/` 与测试 harness（`e2e/`）。它们只依赖本门面与 `model`/`contract`，不直接驱动 Seele Engine、Plugin Manager 或存储实现。
+主要调用方：`boot` composition root、`tui/`、`gui/`、`headless/`、`console/` 与测试 harness。前端只依赖本包中消费方自己的 owner 接口、`contract` 与协议 DTO，不直接驱动 Seele Engine、Plugin Manager 或存储实现。
 
 ## 职责与非职责
 
-- 做：用例编排、跨域事务顺序、权威状态与事件投影、DTO 与协议版本、前端可消费的目录型投影。
-- 不做：不实现 Agent 循环（归 Seele）、不实现存储原子写（归 `store`）、不实现工具路由与权限判定（归 `seelebridge`）、不渲染 UI（归 `tui`/`gui`）。
+- 做：用例编排、跨域事务顺序、权威状态与事件投影、前端可消费的目录型投影。
+- 不做：不实现 Agent 循环（归 Seele 与 `backend/engine`）、不实现存储原子写（归 `store`）、不实现工具路由与权限判定（归 `backend/tool` 与 `backend/limit`）、不渲染 UI（归各前端）。
 - 不做：**不持有构造函数**。`New` / `NewEventHub` / `NewApprovalBroker` / `NewToolHookBridge` /
-  `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
-  [`boot/`](../boot/README.md)：前端不得自造引擎，构造只发生在组合根。
+  `NewPromptStack` / `NewEffortManager` / `WebSearch` 已迁出：构造只发生在
+  [`boot`](../boot/README.md)，宿主适配位于 [`internal/host`](../internal/host/README.md)。
 
 ## 前端消费方依赖
 
@@ -23,7 +23,7 @@
 可变的业务入口由领域 owner 直接拥有，组合根从 `assembly.Components` 读取 owner 指针：
 
 - GUI、TUI、headless、console 与 e2e scenario 在各自包内声明实际消费的窄接口；
-- `wiring/bootstrap` 把 owner 逐字段注入这些依赖，绑定语句本身就是编译期结构断言；
+- `boot` 把 owner 逐字段注入这些依赖，绑定语句本身就是编译期结构断言；
 - 单个消费方接口不超过 20 个方法，不按 UI 页面重新拼接万能接口；
 - `assembly.Components` 只含分组 owner 指针，不含方法、函数闭包、业务判据或锁；
 - 前端不直接 import `application/assembly`、Backend、Middle 或 Store 实现。
@@ -725,8 +725,8 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 [`kernel/limit/`](../kernel/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
 同一处）；
 `application/search` 已于 2026-08-22 迁至 `backend/tool/search/`（后端能力归位）；
-`application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口（薄转发）已于
-2026-10-16 随组合根迁移；当前入口见 [`boot/`](../boot/README.md)，其终局是 `backend/tool/websearch`（M4）。
+`application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口属于
+[`backend/tool/websearch`](../backend/tool/websearch/README.md)。
 
 ### 门面再导出的 DTO（M1-C）
 
@@ -742,8 +742,8 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 [`contract/dto/scheduler.go`](../contract/dto/scheduler.go)，`seelebridge` 的同名符号只是遗留别名
 （plan §2.10 列入删除），因此 `gui/bridge.go` 直接改用 `dto.ScheduledTaskSpec` /
 `dto.ScheduledTaskStatus`——即「改用上游类型」，而不是再造一层门面别名。
-后端适配器（`application/adapters`）同步迁至 `wiring/adapters/`，只依赖
-`contract` 层，不再反向依赖本门面。
+后端与存储映射由 [`internal/host`](../internal/host/README.md) 承担，只依赖
+`contract` 和消费方端口，不反向依赖本门面。
 
 `application.go` 通过类型别名和薄转发保持外部 API 稳定，调用方不需要依赖内部子包。
 
@@ -752,52 +752,63 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 ```mermaid
 flowchart TB
     subgraph FE["前端"]
-        TUI["tui/"]
-        GUI["gui/"]
+        TUI["tui"]
+        GUI["gui"]
         HL["headless"]
-        CONSOLE["backend 控制台"]
+        CONSOLE["console"]
     end
 
-    ROOT["main.go 组合根"]
-    FAC["application 门面<br/>application.go 别名 + 薄转发"]
+    ROOT["main.go"]
+    BOOT["boot composition root"]
+    FAC["application identity facade"]
 
-    subgraph CORE["application/assembly"]
-        SVC["Service 用例门面"]
-        DOM["域协调器<br/>kernel/session"]
-        LEAF["叶子包<br/>goal · agentteam · resume"]
-        MIDV["middle/view<br/>state · subagent · worktable（M5-R4 迁出）"]
-        ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
-        VIEW["backend/engine/input<br/>input_router · context_control"]
+    subgraph APP["application owners"]
+        CONV["conversation"]
+        SESS["session and view state"]
+        EXEC["execution"]
+        GOAL["goal"]
+        POLICY["policy"]
+        WORK["workspace"]
+        ASM["assembly cross-domain order"]
     end
 
-    subgraph SIDE["同级子包 / 顶层契约"]
-        MODEL["model：Snapshot DTO"]
-        EVENT["event：EventHub"]
-        APPROVAL["approval：异步审批"]
-        CONTRACT["顶层 contract + contract/dto：端口与纯数据契约"]
-        PROMPT["prompt：PromptStack + Effort"]
+    subgraph BASE["base"]
+        CONTRACT["contract and protocol DTO"]
+        KERNEL["kernel state and domain policy"]
+        HOST["internal/host adapters"]
+        BACKEND["backend engine tool multiagent limit"]
+        STORE["store data root"]
     end
 
-    PORTS["端口实现<br/>seelebridge · store · workspace · plugin"]
+    EVENT["kernel/event Hub"]
     SEELE["Seele runtime"]
 
     TUI --> FAC
     GUI --> FAC
     HL --> FAC
     CONSOLE --> FAC
-    ROOT --> FAC
-    FAC --> SVC
-    SVC --> ST
-    SVC --> DOM
-    SVC --> LEAF
-    SVC --> VIEW
-    SVC --> MODEL
-    SVC --> EVENT
-    SVC --> APPROVAL
-    SVC --> CONTRACT
-    SVC --> PROMPT
-    CONTRACT --> PORTS
-    PORTS --> SEELE
+    ROOT --> BOOT
+    BOOT --> FAC
+    BOOT --> ASM
+    BOOT --> HOST
+    FAC --> CONV
+    FAC --> SESS
+    FAC --> EXEC
+    FAC --> GOAL
+    FAC --> POLICY
+    FAC --> WORK
+    ASM --> CONV
+    ASM --> SESS
+    ASM --> EXEC
+    ASM --> GOAL
+    ASM --> POLICY
+    ASM --> WORK
+    APP --> CONTRACT
+    APP --> KERNEL
+    APP --> EVENT
+    HOST --> BACKEND
+    HOST --> STORE
+    BACKEND --> SEELE
     EVENT --> TUI
     EVENT --> GUI
 ```
@@ -815,12 +826,12 @@ flowchart LR
     UC3(["BeginNewSession / ResumeSession / ForkSessionLatest"])
     UC4(["BindWorkspace 绑定项目 root"])
     UC5(["命令、Skill 与输入前缀分流"])
-    UC6(["Plan / Goal / AgentTeam / Worktable 用例"])
+    UC6(["Execution / Goal / Teamwork / Worktable 用例"])
     UC7(["读取 Snapshot、订阅 Event 增量"])
-    UC8(["wiring.New 装配与端口校验"])
+    UC8(["boot.Run 装配与端口校验"])
     UC9(["切换 Plugin / Skill / MCP 能力面"])
 
-    SYS["application.Service"]
+    SYS["application domain owners"]
 
     DEV --> UC1
     DEV --> UC2
@@ -848,23 +859,24 @@ flowchart LR
 sequenceDiagram
     autonumber
     participant H as 组合根 / 测试 harness
-    participant A as wiring.New
+    participant A as boot.Run
     participant F as GUI / TUI
-    participant S as assembly.Service
+    participant S as application owner
+    participant ASM as application/assembly
     participant P as 端口实现
     participant E as kernel/event.Hub
 
-    H->>A: New(Dependencies)
-    A->>A: 校验必需端口 + 嵌入 prompt assets
-    A-->>H: *assembly.Service 或 error
+    H->>A: Run(Flags)
+    A->>A: 构造 Runtime Store host 与 assembly
+    A-->>H: App 或 error
 
-    F->>S: Snapshot()
+    F->>S: SnapshotOf 或 Snapshot
     S-->>F: 权威 Snapshot
-    F->>S: Subscribe(buffer)
+    F->>S: SubscribeSession
     S->>E: 注册订阅
 
     F->>S: Submit / BindWorkspace / ResolveInteraction
-    S->>S: 跨域事务编排（TransitionLock，不持有网络与 LLM 调用）
+    ASM->>ASM: 跨域事务编排与锁序
     S->>P: 经 Ports 调用 Engine / Runtime / Store / Workspace
     P-->>S: 副作用结果
     S->>S: 更新权威状态（revision 与 seq 递增）
@@ -877,10 +889,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["用例<br/>assembly.Service"]
-    USE --> TX["跨域事务编排"]
-    TX --> DOM["域协调器<br/>kernel/session"]
-    DOM --> PORT["Ports<br/>Engine / Runtime / Store / Workspace"]
+    ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["application owner"]
+    USE --> TX["assembly cross-domain order"]
+    TX --> DOM["kernel/session and domain state"]
+    DOM --> PORT["contract ports"]
     PORT --> RESULT["副作用结果"]
     RESULT --> SNAP["权威 Snapshot 更新"]
     SNAP --> EV["EventHub 增量发布"]
@@ -891,28 +903,28 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    FE["TUI / GUI / root adapters"] --> FAC["application facade"]
-    FAC --> CORE["application/assembly"]
-    CORE --> SIDE["contract + model + event + approval + prompt"]
-    IMPL["root adapters / seelebridge / store"] -.->|实现端口| SIDE
+    FE["TUI / GUI / headless / console"] --> FAC["application facade"]
+    FAC --> CORE["application domain owners"]
+    CORE --> SIDE["contract / protocol / kernel"]
+    IMPL["internal/host / backend / store"] -.->|实现端口| SIDE
 ```
 
 接口定义在消费方 `contract/`，实现放在根目录适配器或基础设施模块。禁止 `application` 反向依赖 `gui`、`tui` 或 composition root。
 
 ## 核心运行流
 
-1. 组合根调用 `wiring.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*assembly.Service, error)`；构造失败不会终止进程。
+1. `boot.Run` 构造 Runtime、Store、宿主适配与 Application assembly，并校验必需端口；构造失败按逆序清理。
 2. 前端调用 `Submit`、`ResolveInteraction`、`BindWorkspace` 等用例。
-3. Service 更新权威 Snapshot，并通过 EventHub 发布增量事件。
+3. Application owner 更新权威 Snapshot，并通过 EventHub 发布增量事件。
 4. TUI/GUI 先读取 Snapshot，再应用连续 Event；出现序列缺口时重新同步 Snapshot。
-5. 外部副作用只通过 Ports 进入 Engine、Runtime、Session Store 和 Workspace Repo。
+5. 外部副作用只通过 contract ports 进入 Engine、Runtime、Session Store 和 Workspace Repo。
 
 ## Review 指南
 
 - 新业务状态应进入 `model.Snapshot` 或明确的内部状态，而不是只存在于某个前端。
 - DTO 变更必须检查 GUI reducer、TUI rendering、clone helper 和协议测试。
 - 不要把 Seele 深层类型泄漏给前端；在 adapter 边界转换。
-- Service 的锁不能包住网络、LLM、数据库或长时间工具调用。
+- Application/assembly 的锁不能包住网络、LLM、数据库或长时间工具调用。
 - session/project 操作必须以 ID 为键，显示名称允许重复。
 
 ## 测试
@@ -923,4 +935,346 @@ go test ./application/... -race -count=1   # 需要 CGO/C toolchain
 go test ./e2e/ -run 'Facade' -count=1      # 五组窄接口的 4 条机械断言（M5-R10a）
 ```
 
-集成入口主要位于 `assembly/service_test.go`、`assembly/command_registry_test.go` 和 `wiring/adapters/adapters_test.go`。
+集成入口主要位于 `application/assembly/integration/`、`application/assembly/architecture/`、
+`application/assemblytest/` 与 `internal/host/`。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### api_contract_test.go
+
+- `func TestInboundAPIsDoNotImportConcreteImplementationPackages(t *testing.T)`
+
+### application.go
+
+- `func HasSigilPrefix(input string) bool` — HasSigilPrefix 报告输入是否以前缀开头（TUI suggMode / 前端内联建议共用）。
+- `func SigilOf(input string) string` — SigilOf 返回输入的首字符前缀；不可解析时返回空串。
+- `func ValidEffortLevels() []string` — ValidEffortLevels 返回合法的推理档位名（门面 E 组：无状态纯函数）。
+- `func AccountWindowPresets() []int` — AccountWindowPresets 返回"每账号上下文窗口"的界面挡位（token，升序）。
+- `func AccountRoles() []string` — AccountRoles 返回可手动添加的账号角色名（界面「设置 → 账户 → 添加」的角色下拉）。
+- `func RenderDiag(snapshot Snapshot) string` — RenderDiag 构建诊断文本，供 `/diag` 命令使用（门面 E 组：无状态纯函数）。
+
+### application_wide_dependency_budget_test.go
+
+- `func TestApplicationWideConcreteDependencyBudget(t *testing.T)`
+- `func concreteDependenciesUnder(t *testing.T, root string) []string`
+- `func isConcreteApplicationDependency(path string) bool`
+
+### approval_boundary_test.go
+
+- `func TestCoreDoesNotImportApprovalImplementation(t *testing.T)`
+
+### architecture_budget_allowlist_test.go
+
+- `func TestAssemblyInternalDependencyAllowListHasNoStaleEntries(t *testing.T)` — TestAssemblyInternalDependencyAllowListHasNoStaleEntries 钉住允许清单与实测直接依赖
+
+### architecture_budget_test.go
+
+- `func TestApplicationArchitectureBudget(t *testing.T)`
+- `func sourceApplicationDir(t *testing.T) string`
+- `func readJSON(t *testing.T, path string, target any)`
+- `func readLines(t *testing.T, path string) []string`
+- `func exportedServiceMethods() []string`
+- `func directInternalDependencies(t *testing.T, packageDir string) []string`
+- `func isApplicationInternalDependency(path string) bool`
+- `func productionSize(t *testing.T, packageDir string) (files, lines int)`
+- `func testSize(t *testing.T, packageDir string) (files, lines int)`
+- `func allTestSize(t *testing.T, packageDir string) (files, lines int)`
+- `func serviceComponentFieldCount(t *testing.T, packageDir string) int`
+- `func capabilityAssertionLocations(t *testing.T, packageDir string) []string` — capabilityAssertionLocations 列出 application/assembly 生产代码里的全部类型断言
+- `func sourceLineCount(raw []byte) int`
+- `func TestQueryImplementationsAvoidSharedWriteLockAndServiceField(t *testing.T)`
+
+### assemble_contract_boundary_test.go
+
+- `func TestCoreDoesNotImportAssembleForDtoOrContextRead(t *testing.T)`
+
+### board_facade_boundary_test.go
+
+- `func TestApplicationDoesNotImportMiddleBoardPackage(t *testing.T)`
+
+### chat_turn_pipeline_package_test.go
+
+- `func TestChatTurnPipelineComponentsAreExtractedFromCore(t *testing.T)`
+
+### compat_retirement_test.go
+
+- `func isNonSourceDir(name string) bool` — isNonSourceDir 判断目录名是否属于扫描盲区。
+- `func TestApplicationCompatibilitySurfaceIsRetired(t *testing.T)` — TestApplicationCompatibilitySurfaceIsRetired is the ratchet for the final
+- `func retiredCompatibilityTypeNames() []string` — retiredCompatibilityTypeNames 从禁止字面量清单推导需要在 Go 源码里禁止的类型标识符：
+- `func isGoIdentifier(name string) bool` — isGoIdentifier 判断片段能否作为 Go 类型名出现在声明中。
+- `func splitDocumentLines(raw []byte) []string` — splitDocumentLines 统一 CRLF 并按行切分，使报告的行号与 rg 的口径一致。
+- `func carriesHistoricalRecordMarker(lines []string) bool` — carriesHistoricalRecordMarker 只认「文档开头横幅区」里的过期标记：从第 1 行起逐行看，
+- `func assertHistoricalRecordMarkers(t *testing.T, root string)` — assertHistoricalRecordMarkers 校验登记的每份历史文档确实带着过期标记，并点名失去标记
+- `func walkMarkdownDocuments(t *testing.T, root string, visit func(relative string, lines []string)) int` — walkMarkdownDocuments 是仓库 Markdown 扫描的唯一遍历实现：跳过 nonSourceDirectories、
+- `func nonSourceDirectoryList() string` — nonSourceDirectoryList 按字典序输出扫描盲区目录名，供日志与报告使用。
+- `func retiredCompatibilityDocOffenders(t *testing.T, root string) []string` — retiredCompatibilityDocOffenders 扫描 root 下所有 Markdown，返回引用了禁止字面量、
+- `func unregisteredHistoricalMarkedDocuments(t *testing.T, root string) []string` — unregisteredHistoricalMarkedDocuments 是标记豁免的反向判据：过期标记不是自签豁免，
+- `func TestRetiredCompatibilityDocScanHonoursHistoricalMarker(t *testing.T)` — TestRetiredCompatibilityDocScanHonoursHistoricalMarker 是文档判据的非空性证据：
+- `func TestAssemblyHasNoTestOnlyForwardingFixtures(t *testing.T)` — TestAssemblyHasNoTestOnlyForwardingFixtures prevents deleted production
+- `func scanFrontendTestConstructors(t *testing.T, dir string) []string` — scanFrontendTestConstructors 是「测试专用 *Frontend 转发构造器」判据的唯一实现：
+- `func returnsFrontendPointer(results *ast.FieldList) bool` — returnsFrontendPointer 判断结果列表里是否有旧前端指针类型。
+- `func frontendTestConstructorRegistry() map[string]frontendTestConstructorRegistration` — frontendTestConstructorRegistry 把登记表建成查表结构。
+- `func unregisteredFrontendTestConstructors(found []string) []string` — unregisteredFrontendTestConstructors 返回找到了但没登记的构造器：这就是「新增第二个
+- `func staleFrontendTestConstructorRegistrations(found []string) []string` — staleFrontendTestConstructorRegistrations 返回登记了却已经找不到声明的条目：
+- `func TestAssemblyFrontendTestConstructorRatchet(t *testing.T)` — TestAssemblyFrontendTestConstructorRatchet 是上面那条形状判据的驱动：判据实现只有
+
+### compressed_turn_archiver_boundary_test.go
+
+- `func TestCompressedTurnArchiverLivesInReferenceApplication(t *testing.T)`
+
+### context_compaction_package_test.go
+
+- `func TestContextCompactionApplicationIsExtractedFromCore(t *testing.T)`
+
+### context_window_boundary_test.go
+
+- `func TestCoreDoesNotImportContextWindowMath(t *testing.T)`
+
+### contextcontrol_boundary_test.go
+
+- `func TestApplicationDoesNotImportBackendContextControl(t *testing.T)`
+
+### conversation_extraction_boundary_test.go
+
+- `func TestConversationProjectionOwnersAreExtracted(t *testing.T)`
+
+### conversation_history_package_test.go
+
+- `func TestConversationHistoryApplicationIsExtractedFromCore(t *testing.T)` — TestConversationHistoryApplicationIsExtractedFromCore pins the history-window
+
+### conversation_queue_package_test.go
+
+- `func TestConversationQueueApplicationIsExtractedFromCore(t *testing.T)`
+
+### core_retirement_test.go
+
+- `func TestApplicationCoreDirectoryIsRetired(t *testing.T)` — TestApplicationCoreDirectoryIsRetired pins the final Application
+- `func TestNoGoPackageImportsRetiredApplicationCore(t *testing.T)` — TestNoGoPackageImportsRetiredApplicationCore prevents a compatibility import
+
+### edit_fork_package_test.go
+
+- `func TestEditForkApplicationsAreExtractedFromCore(t *testing.T)`
+
+### edit_fork_store_boundary_test.go
+
+- `func TestEditForkProductionFilesUseProtocolEvents(t *testing.T)`
+- `func TestQueueRecoveryCoreUsesContractDTO(t *testing.T)`
+
+### engine_context_boundary_test.go
+
+- `func TestCoreDoesNotImportEngineContextPackage(t *testing.T)`
+
+### engine_session_boundary_test.go
+
+- `func TestCoreDoesNotImportEngineSessionPackage(t *testing.T)`
+
+### error_presentation_boundary_test.go
+
+- `func TestApplicationDoesNotImportViewErrorPresentation(t *testing.T)`
+
+### event_boundary_test.go
+
+- `func TestCoreUsesApplicationEventFacade(t *testing.T)`
+
+### event_owner_test.go
+
+- `func TestApplicationEventRuntimeUsesNeutralKernelOwner(t *testing.T)`
+
+### execution_apps_package_test.go
+
+- `func TestExecutionApplicationsAreExtractedFromCore(t *testing.T)`
+
+### forwarding_boundary_test.go
+
+- `func TestServiceHasNoCompatibilityForwarders(t *testing.T)` — TestServiceHasNoCompatibilityForwarders proves the compatibility surface has
+- `func TestCoreHasNoPackageFunctionForwarders(t *testing.T)` — TestCoreHasNoPackageFunctionForwarders keeps the direct-dependency cleanup
+- `func TestCoreDoesNotOwnInputFacade(t *testing.T)` — TestCoreDoesNotOwnInputFacade keeps the sigil helpers in their lexical
+- `func TestCoreDoesNotOwnInputVocabulary(t *testing.T)` — TestCoreDoesNotOwnInputVocabulary keeps input constants and Suggestion type
+- `func isSingleForwardStatement(body *ast.BlockStmt) bool`
+- `func isServiceReceiver(function *ast.FuncDecl) bool`
+- `func isGoFile(name string) bool`
+- `func isTestGoFile(name string) bool`
+
+### goal_contract_boundary_test.go
+
+- `func TestCoreDoesNotImportGoalDomain(t *testing.T)`
+- `func TestGoalApplicationDoesNotImportStore(t *testing.T)`
+- `func TestApplicationProductionDoesNotImportStore(t *testing.T)`
+
+### goal_package_test.go
+
+- `func TestGoalApplicationIsExtractedFromCore(t *testing.T)`
+
+### input_boundary_test.go
+
+- `func TestCoreDoesNotImportInputRouterImplementation(t *testing.T)`
+
+### input_package_test.go
+
+- `func TestInputApplicationIsExtractedFromCore(t *testing.T)` — TestInputApplicationIsExtractedFromCore freezes the input suggestion package
+- `func inputTestApplicationDir(t *testing.T) string`
+
+### limit_facade_boundary_test.go
+
+- `func TestCoreDoesNotImportLimitBasePackage(t *testing.T)`
+
+### owner_extraction_paths_test.go
+
+- `func TestExtractedOwnersUseCanonicalPackages(t *testing.T)`
+
+### owner_import_boundaries_test.go
+
+- `func TestAssemblyOwnersDoNotImportStore(t *testing.T)`
+- `func TestProjectBoardReadDoesNotImportStore(t *testing.T)`
+- `func assertDoesNotImport(t *testing.T, path, forbidden string)`
+
+### package_boundaries_test.go
+
+- `func TestExtractedApplicationPackagesDoNotImportCore(t *testing.T)` — TestExtractedApplicationPackagesDoNotImportCore 是全领域包的共同反向依赖
+- `func packageBoundaryApplicationDir(t *testing.T) string`
+
+### policy_switch_package_test.go
+
+- `func TestPolicySwitchApplicationIsExtractedFromCore(t *testing.T)`
+
+### project_board_package_test.go
+
+- `func TestProjectBoardQueryIsExtractedFromCore(t *testing.T)` — TestProjectBoardQueryIsExtractedFromCore pins project-board read ownership.
+
+### prompt_assets_boundary_test.go
+
+- `func TestCoreDoesNotImportPromptAssetsPackage(t *testing.T)`
+
+### prompt_coordinator_boundary_test.go
+
+- `func TestCoreDoesNotImportEnginePromptCoordinator(t *testing.T)`
+
+### protocol_model_boundary_test.go
+
+- `func TestCoreUsesContractProtocolModel(t *testing.T)`
+
+### reference_package_test.go
+
+- `func TestReferenceApplicationIsExtractedFromCore(t *testing.T)` — TestReferenceApplicationIsExtractedFromCore freezes the package boundary for
+- `func TestCompressedTurnApplicationIsExtractedFromCore(t *testing.T)` — TestCompressedTurnApplicationIsExtractedFromCore pins the second reference
+- `func referenceTestApplicationDir(t *testing.T) string`
+
+### review_package_test.go
+
+- `func TestReviewApplicationIsExtractedFromCore(t *testing.T)`
+
+### runtime_package_test.go
+
+- `func TestRuntimeApplicationIsExtractedFromCore(t *testing.T)`
+
+### scheduler_package_test.go
+
+- `func TestSchedulerApplicationsAreExtractedFromCore(t *testing.T)`
+
+### service_method_retirement_test.go
+
+- `func TestRetiredServiceMethodsAreNotPublic(t *testing.T)`
+
+### session_aggregate_boundary_test.go
+
+- `func TestSessionAggregateLivesInApplicationSession(t *testing.T)`
+- `func assertDirectoryHasNoGoFiles(t *testing.T, dir string)`
+- `func assertTreeDoesNotImport(t *testing.T, root, forbidden string)`
+
+### session_cold_package_test.go
+
+- `func TestSessionColdRestoreComponentsAreExtractedFromCore(t *testing.T)`
+
+### session_operations_package_test.go
+
+- `func TestSessionLifecycleOperationsAreExtractedFromCore(t *testing.T)`
+
+### session_query_package_test.go
+
+- `func TestSessionQueryApplicationIsExtractedFromCore(t *testing.T)` — TestSessionQueryApplicationIsExtractedFromCore freezes the read-only session
+
+### session_scope_package_test.go
+
+- `func TestSessionScopeRuntimeProjectionIsExtractedFromCore(t *testing.T)`
+
+### subagent_contract_boundary_test.go
+
+- `func TestCoreDoesNotImportSubagentDomainForDto(t *testing.T)`
+
+### subagent_view_boundary_test.go
+
+- `func TestApplicationDoesNotImportMiddleSubagentView(t *testing.T)`
+
+### switch_policy_boundary_test.go
+
+- `func TestApplicationDoesNotImportMiddleSwitchPolicy(t *testing.T)`
+
+### task_context_boundary_test.go
+
+- `func TestCoreDoesNotImportEngineTaskContext(t *testing.T)`
+
+### team_contract_boundary_test.go
+
+- `func TestCoreDoesNotImportTeamRoleSessionsImplementation(t *testing.T)`
+
+### teamwork_contract_boundary_test.go
+
+- `func TestCoreDoesNotImportTeamworkBoardReader(t *testing.T)`
+
+### teamwork_plan_dto_test.go
+
+- `func TestTeamworkPlanUsesContractIdentity(t *testing.T)`
+- `func TestApplicationExecutionHasNoTeamworkPlanAlias(t *testing.T)`
+
+### tier_facade_boundary_test.go
+
+- `func TestCoreDoesNotImportLimitTier(t *testing.T)`
+
+### tool_hooks_package_test.go
+
+- `func TestToolHookBridgeIsExtractedFromCore(t *testing.T)`
+- `func fileHasFunc(file *ast.File, name string) bool`
+
+### tool_record_package_test.go
+
+- `func TestToolRecordApplicationIsExtractedFromCore(t *testing.T)`
+- `func TestToolRecordOwnsItsInMemoryLedger(t *testing.T)`
+- `func fileDeclares(file *ast.File, name string) bool`
+
+### turn_runner_package_test.go
+
+- `func TestChatTurnRunnerIsExtractedFromCore(t *testing.T)`
+- `func findFunc(file *ast.File, name string) *ast.FuncDecl`
+
+### view_read_model_boundary_test.go
+
+- `func TestCoreDoesNotImportMiddleViewReadModels(t *testing.T)`
+
+### view_state_boundary_test.go
+
+- `func TestCoreDoesNotImportMiddleViewState(t *testing.T)`
+
+### work_table_package_test.go
+
+- `func TestWorkTablePublisherIsExtractedFromCore(t *testing.T)`
+- `func structHasField(file *ast.File, name string) bool`
+- `func fileCallsSelector(file *ast.File, name string) bool`
+
+### work_table_runtime_extraction_test.go
+
+- `func TestWorkTableRuntimeLivesInExecutionTable(t *testing.T)` — TestWorkTableRuntimeLivesInExecutionTable keeps the WorkTable host state,
+
+### workspace_package_test.go
+
+- `func TestWorkspaceApplicationIsExtractedFromCore(t *testing.T)` — TestWorkspaceApplicationIsExtractedFromCore freezes the workspace package
+
+### workspace_switch_boundary_test.go
+
+- `func TestApplicationDoesNotImportMiddleSwitchWorkspace(t *testing.T)`
+
+### worktable_facade_boundary_test.go
+
+- `func TestApplicationDoesNotImportMiddleWorkTable(t *testing.T)`

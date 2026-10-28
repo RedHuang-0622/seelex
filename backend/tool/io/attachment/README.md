@@ -67,3 +67,25 @@ flowchart LR
 go test ./backend/tool/io/attachment -count=1
 go test ./seelebridge/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### inline.go
+
+- `func PlanFor(files []types.FilePart) Plan` — PlanFor 按 FileKind 分流：图片原样保留，文档走文本内联或诊断。
+- `func (p Plan) TextSuffix() string` — TextSuffix 返回可直接拼到提问后面的内联文本（没有内联内容时为空串）。
+- `func inlineDocument(file types.FilePart) (string, string)` — inlineDocument 把一个文档附件降级成内联文本；返回空文本时 note 说明为什么没发。
+- `func mimeOf(file types.FilePart) string` — mimeOf 取附件的 MIME：没写就按内容嗅探，避免「没填 MIME」被当成不可内联。
+- `func inlineType(mime string) bool` — inlineType 判断该 MIME 能不能安全地当文本读：text/* 一律可以，
+- `func displayName(name string) string` — displayName 保证诊断与内联标注里的文件名不会把标注本身弄坏。
+
+### inline_test.go
+
+- `func doc(name, mime string, data []byte) types.FilePart`
+- `func TestPlanForSeparatesImageAndDocument(t *testing.T)`
+- `func TestPlanForInlineDecision(t *testing.T)`
+- `func TestInlineKeepsAttachmentBodyReadable(t *testing.T)`
+- `func TestPlanForEmptyInput(t *testing.T)`

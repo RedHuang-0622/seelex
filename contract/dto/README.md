@@ -83,10 +83,10 @@ flowchart LR
     PROJ --> SNAP["middle/protocol/model.Snapshot"]
     SNAP --> FE["GUI / TUI 渲染"]
     FE -->|写操作经端口回传| DOMAIN
-    STORE["store 落地类型"] -->|wiring/adapters 映射| DTO
+    STORE["store 落地类型"] -->|internal/host 映射| DTO
 ```
 
-存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `wiring/adapters`
+存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `internal/host`
 里出现，由适配器做 DTO ↔ 存储映射；`application/assembly` 与前端只认本包类型。
 
 ## 并发、存储与错误语义
@@ -289,6 +289,10 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func ParseScheduleRunStatus(text string) (ScheduleRunStatus, bool)` — ParseScheduleRunStatus 把对外词读回枚举；第二个返回值报告认不认得。
 - `func (s ScheduleRunStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "ok" 这样的词。
 - `func (s *ScheduleRunStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### session_board.go
+
+- `func (l BoardLifecycle) Closed() bool`
 
 ### session_status.go
 

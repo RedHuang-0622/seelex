@@ -102,18 +102,21 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 view 域协调器。
 - `func (c *Coordinator) SnapshotView() model.Snapshot` — SnapshotView 返回权威快照深拷贝。
 - `func (c *Coordinator) Subscribe(buffer int) event.Subscription` — Subscribe 订阅事件流。
+- `func (c *Coordinator) SubscribeSession(sessionID string, buffer int) (event.Subscription, error)` — SubscribeSession returns events owned by sessionID, or by the current view
+- `func (c *Coordinator) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (event.Subscription, error)` — SubscribeSessionWithReplay has the same ownership filter as SubscribeSession
+- `func (c *Coordinator) sessionEventFilter(sessionID string) func(event.Event) bool`
 - `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集当前视图会话的 runtime
 - `func (c *Coordinator) viewSessionID() string` — viewSessionID 返回当前视图指针会话（装配注入的 Domain.ActiveID；未注入
 - `func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection` — CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
 - `func (c *Coordinator) fullAccessFor(sessionID string) bool` — fullAccessFor 返回指定会话生效的全权模式（G4：会话选择优先；未选择时
 - `func (c *Coordinator) permissionTierFor(sessionID string) string` — permissionTierFor 返回指定会话生效的权限档位（G4：会话选择优先；未选择时
-- `func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics` — replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
 - `func (c *Coordinator) tokenCountFor(sessionID string) string` — tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；
 - `func (c *Coordinator) activeSkillIDsFor(sessionID string) []string` — activeSkillIDsFor 返回指定会话的任务激活 skill ID（per-session 端口
 - `func (c *Coordinator) goalSkillActiveFor(sessionID string) bool` — goalSkillActiveFor 返回指定会话的 goal skill 激活判定。
 - `func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection)` — ApplyRuntimeProjectionLocked 应用 runtime 投影到当前活跃会话（保留 Plan/
 - `func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projection RuntimeStateProjection)` — ApplyRuntimeProjectionForLocked 应用 runtime 投影到指定会话（G1）：
 - `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
+- `func (c *Coordinator) AppendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — AppendMessageWithOriginLocked appends one attributed message to the current
 - `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
 - `func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段
 - `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
@@ -138,6 +141,61 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func durableConversationCount(messages []model.Message) int`
 - `func BoundConversationTail(messages []model.Message, window int) []model.Message` — BoundConversationTail 保留尾部窗口（system 与普通消息分列计数）。
 - `func BoundConversationHead(messages []model.Message, window int) []model.Message` — BoundConversationHead 保留头部窗口（分页加载前置用）。
+- `func TaskScope(sessionID, viewSessionID string) string` — TaskScope 是「读哪个会话的任务注册表」的唯一判据（看板读面与打点块同源）：
 - `func (c *Coordinator) BumpLocked() uint64` — BumpLocked 递增快照修订号。
 - `func (c *Coordinator) AddNotice(notice string)` — AddNotice 追加一条系统通知并发布事件。
 - `func (c *Coordinator) ResetConversation(notice string)` — ResetConversation 清空可见会话并注入 CLI 标识与通知。
+
+### frontend_snapshot.go
+
+- `func NewSnapshotApplication(view *Coordinator, deps SnapshotDeps) *SnapshotApplication`
+- `func (application *SnapshotApplication) BindToolResultBudget(budget *ToolResultBudgetApplication)` — BindToolResultBudget installs the visible tool-result boundary owner.
+- `func (application *SnapshotApplication) ToolResultBudget() *ToolResultBudgetApplication` — ToolResultBudget returns the visible tool-result boundary owner.
+- `func (application *SnapshotApplication) Snapshot() protocol.Snapshot` — Snapshot returns a deep-copied projection with session status, the retained
+
+### frontend_snapshot_test.go
+
+- `func TestFrontendSnapshotProjectsDraftRowsAndHostEnrichment(t *testing.T)`
+
+### session_runtime.go
+
+- `func (c *Coordinator) ProjectDraftWorkspaceLocked(snapshot *protocol.Snapshot)` — ProjectDraftWorkspaceLocked injects the active draft's workspace binding
+- `func (c *Coordinator) WithLiveSessionRowsLocked(rows []protocol.SessionInfo) []protocol.SessionInfo` — WithLiveSessionRowsLocked appends running/queued/awaiting sessions that are
+- `func (c *Coordinator) EnrichDirectoryRowsLocked(rows []protocol.SessionInfo) []protocol.SessionInfo` — EnrichDirectoryRowsLocked overlays session status, approval count and
+- `func (c *Coordinator) SessionStatusLocked(sessionID string) protocol.SessionStatus` — SessionStatusLocked returns the visible status of one session.
+- `func (c *Coordinator) IsRestoringLocked(sessionID string) bool` — IsRestoringLocked reports whether a session is in the cold-restore shell.
+- `func (c *Coordinator) SetRestoringLocked(sessionID string)` — SetRestoringLocked marks a session as entering cold restore.
+- `func (c *Coordinator) ClearRestoringLocked(sessionID string)` — ClearRestoringLocked removes the restore shell and wakes waiters.
+- `func (c *Coordinator) signalRestoreLocked()`
+- `func (c *Coordinator) RestoreSignalLocked() <-chan struct` — RestoreSignalLocked returns the current restore-change signal.
+- `func (c *Coordinator) nextViewEpochLocked() uint64`
+- `func (c *Coordinator) NextViewEpochLocked() uint64` — NextViewEpochLocked advances the view activation clock.
+- `func (c *Coordinator) MarkSessionViewIntentLocked(sessionID string) uint64` — MarkSessionViewIntentLocked records a new per-session activation intent.
+- `func (c *Coordinator) MarkSessionViewIntent(sessionID string)` — MarkSessionViewIntent records activation intent while taking the view lock.
+- `func (c *Coordinator) SessionViewIntentLocked(sessionID string) uint64` — SessionViewIntentLocked returns the latest activation intent for a session.
+- `func (c *Coordinator) RefreshRuntimeProjectionForSession(sessionID string)` — RefreshRuntimeProjectionForSession samples outside the lock and applies the
+- `func (c *Coordinator) AppendAssistantPlaceholderAfterToolLocked(sessionID string) *protocol.Message` — AppendAssistantPlaceholderAfterToolLocked appends one empty assistant row
+- `func (c *Coordinator) SessionViewEmptyLocked(sessionID string) bool` — SessionViewEmptyLocked reports whether a session has no visible messages.
+- `func (c *Coordinator) RecordReadFileForSessionLocked(sessionID, arguments string)` — RecordReadFileForSessionLocked records/refreshes one read-file reference.
+
+### session_runtime_test.go
+
+- `func (sessionRuntimeTasks) ActiveSkillIDs() []string`
+- `func (sessionRuntimeTasks) GoalSkillActive() bool`
+- `func (sessionRuntimeTasks) RoleRoundFor(string) uint64`
+- `func TestSessionViewRuntimeOwnsRestoringAndViewIntent(t *testing.T)`
+
+### subscribe_test.go
+
+- `func TestCoordinatorSubscribeSessionRoutesByViewOwnership(t *testing.T)`
+- `func TestCoordinatorSubscribeSessionWithReplayUsesExplicitScope(t *testing.T)`
+
+### tool_result_budget.go
+
+- `func NewToolResultBudget(deps ToolResultBudgetDeps) *ToolResultBudgetApplication` — NewToolResultBudget constructs the tool-result budget application.
+- `func (application *ToolResultBudgetApplication) Bound( name, content string, ) (visible string, resultRef string, truncated bool, totalChars int)` — Bound returns the visible preview and optional durable result reference. The
+
+### tool_result_budget_test.go
+
+- `func TestToolResultBudgetUsesPreviewDecisionAsSingleJudgement(t *testing.T)`
+- `func TestToolResultBudgetCountsRunes(t *testing.T)`

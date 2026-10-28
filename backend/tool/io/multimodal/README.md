@@ -107,3 +107,39 @@ go test ./backend/tool/io/multimodal/ -run TestLiveMultimodalImageSmoke -count=1
 真机冒烟的断言刻意选择「文字提示里没有答案」的颜色词：模型答出 `red`/`blue` 只能来自
 真正送达的图片字节；链路任一段静默丢图都会失败。已观测通过（2026-09-13，
 `deepseek-v4-flash`：`finish=stop`、`content="red blue"`、`prompt_tokens=249`）。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### client.go
+
+- `func (answer Answer) FinalText() string` — FinalText 返回可用于断言的完整回答：部分 provider（如 DeepSeek 思考模式）
+- `func (config Config) endpoint() (string, error)` — endpoint 归一化 chat/completions 地址（兼容带或不带 /v1 的 base_url）。
+- `func CompleteWithImages(ctx context.Context, config Config, prompt string, images []ImageSource) (Answer, error)` — CompleteWithImages 发起一次带图同步请求并返回模型回答。
+- `func errorSnippet(body []byte) string` — errorSnippet 截断错误正文用于诊断；响应正文可能很长，但绝不含请求凭据。
+
+### content.go
+
+- `func LoadImage(ctx context.Context, st MediaReader, key dto.SessionKey, ref string) (ImageSource, error)`
+- `func ImageDataURL(mimeType string, data []byte) string` — ImageDataURL 编码 data URL：`data:<mime>;base64,<payload>`。
+- `func BuildParts(text string, images []ImageSource) ([]Part, error)` — BuildParts 把提示文本与图片编码成 content parts；图片顺序即展示顺序。
+- `func BuildMessage(text string, images []ImageSource) (Message, error)` — BuildMessage 装配一条带图 user 消息。
+- `func RequestBody(model string, message Message, maxTokens int, temperature float64) map[string]any` — RequestBody 返回 wire 请求体所需的字段（供客户端与测试复用同一编码）。
+
+### content_test.go
+
+- `func testImage() ImageSource`
+- `func TestBuildPartsShapes(t *testing.T)` — TestBuildPartsShapes 锁定 wire 形状：文本在前、图片为 image_url data URL。
+- `func TestAnswerFinalTextFallsBackToReasoning(t *testing.T)` — TestAnswerFinalTextFallsBackToReasoning 锁定真机踩到的差异：思考模式下
+- `func TestConfigEndpoint(t *testing.T)` — TestConfigEndpoint 覆盖 base_url 归一化（带 /v1、带尾斜杠、已含路径）。
+- `func TestCompleteWithImagesPostsParts(t *testing.T)` — TestCompleteWithImagesPostsParts 用假服务端校验请求体、鉴权头与响应解析。
+- `func TestCompleteWithImagesFailsExplicitly(t *testing.T)` — TestCompleteWithImagesFailsExplicitly 覆盖三类失败必须显式报错，不得返回空回答。
+
+### live_smoke_test.go
+
+- `func (reader routerMediaReader) ReadMedia(ctx context.Context, key dto.SessionKey, ref string) (store.MediaRef, []byte, error)`
+- `func TestLiveMultimodalImageSmoke(t *testing.T)` — TestLiveMultimodalImageSmoke 是真机多模态冒烟（opt-in）：
+- `func findStoredFile(t *testing.T, root, fileName string) (string, string)` — findStoredFile 在数据根里定位落盘文件，返回绝对路径与其父目录名（应为内容 hash）。
+- `func liveSplitPNG(t *testing.T, width, height int) []byte` — liveSplitPNG 生成左红右蓝的 PNG（纯色块，任何视觉模型都能判色）。

@@ -141,4 +141,3 @@ go test ./backend/multiagent/resume -count=1
 - `func TestExecuteRequiresPort(t *testing.T)`
 - `func TestExecuteLocateErrorIsBlocking(t *testing.T)`
 - `func joinSteps(steps []Step) string`
-

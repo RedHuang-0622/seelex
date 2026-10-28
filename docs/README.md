@@ -119,3 +119,4 @@
 | [`2026-10-19-three-defect-fixes/README.md`](2026-10-19-three-defect-fixes/README.md) | 三方向缺陷修复方案（多仓库 git 发现与切换 / HTML 沙箱渲染缓冲 / 工具记录阶梯提交与会话隔离）：现状证据、设计、边界测试矩阵与里程碑编排 |
 | [`2026-10-21-deepseek-output-boundary-cache/README.md`](2026-10-21-deepseek-output-boundary-cache/README.md) | DeepSeek 模型输出缓存边界修复：工具轮 assistant content 与 reasoning/tool_calls 一起原样回放，消除每次工具调用只命中 user-input unit 的缺口；含红绿验证、删除清单与 Seele 发版要求 |
 | [`2026-10-15-product-direction-doc-review/README.md`](2026-10-15-product-direction-doc-review/README.md) | 产品方向文档梳理（仅文档证据）：Seelex/SeelexDot/SeelexBoss 定位、能力→模块→文件追踪表、冲突与待裁决问题、方向建议与文档治理清单 |
+| [`2026-10-28-service-split-performance-dot/README.md`](2026-10-28-service-split-performance-dot/README.md) | 当前服务边界与性能热点快照、S0–S5 开发规划、Exec Node 与 SeelexDot 的窄端口/MCP 契约（**规划，未实施**） |

@@ -76,3 +76,30 @@ backend Router 或 GUI/TUI。新增命令必须由真实入口使用，不得制
 go test ./application/input/command -count=1
 go test ./application/assembly -run 'Command|Suggestions' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### command.go
+
+- `func New(registry Registry, deps Deps) *Application` — New constructs a builtin command application.
+- `func (application *Application) Register() error` — Register installs help, clear, model, history, trace, sessions, diag and exit.
+- `func (application *Application) RegisterMutations() error` — RegisterMutations installs compact, session, plugin, effort and permission commands.
+- `func (application *Application) register(commands []contract.Command) error`
+- `func (application *Application) commands() []contract.Command`
+- `func (application *Application) mutationCommands() []contract.Command`
+- `func (command commandFunc) Name() string`
+- `func (command commandFunc) Description() string`
+- `func (command commandFunc) Execute(ctx context.Context, args []string) (contract.CommandResult, error)`
+
+### command_test.go
+
+- `func newFakeRegistry() *fakeRegistry`
+- `func (registry *fakeRegistry) Register(command contract.Command) error`
+- `func (registry *fakeRegistry) All() []contract.Command`
+- `func (err *duplicateCommandError) Error() string`
+- `func TestRegisterBuiltinsAndExecuteReadOnlyCommands(t *testing.T)`
+- `func TestRegisterStopsOnDuplicate(t *testing.T)`
+- `func TestMutationCommandsKeepSessionAndPolicyBoundaries(t *testing.T)`

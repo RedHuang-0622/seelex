@@ -353,7 +353,7 @@ func adaptSessionMetaFromStore(meta store.SessionDisplayMeta) model.SessionMeta 
 	return model.SessionMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
 }
 
-// SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点）。
+// SetWorkspaceResolver 注入会话绑定项目解析器（boot 装配点）。
 func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) string) {
 	if port == nil {
 		return
@@ -361,7 +361,7 @@ func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) st
 	port.workspaceResolver = resolver
 }
 
-// SetProjectSource 注入已知项目列表（wiring/bootstrap 装配点）。
+// SetProjectSource 注入已知项目列表（boot 装配点）。
 func (port *SessionPort) SetProjectSource(source func() []string) {
 	if port == nil {
 		return

@@ -133,4 +133,3 @@ go test ./store -run 'Context|Checkpoint|Wire' -count=1
 - `func TestAssembleWireRowsRepairsOpenTailAndStopsAtUnitBoundary(t *testing.T)`
 - `func TestAssembleWireRowsMarksOpenTail(t *testing.T)`
 - `func TestWireDigestAndPrefixIgnoreAttempts(t *testing.T)`
-

@@ -8,7 +8,7 @@
 主要调用方是 `store`：它以 import 别名 `storeroot` 使用本包，`Settings` / 哨兵错误 /
 数据根锁读函数一律写限定名（类型身份与错误值身份都不变）。2026-10-17（P8 §5.2）删掉了
 过渡期的 `store/root_aliases.go`（已删除）——那批保形别名只为"搬迁期不动调用点"而存在。
-除 `store` 与 `wiring/bootstrap` 外没有其它调用方。
+除 `store` 与 `boot` 外没有其它调用方。
 
 来源：M3-S2 按 [`plan.md`](../../docs/2026-10-15-architecture-reshape/plan.md) §2.9
 （底座 · store → `store/root/`）从 `store` 抽出，属**物理归位**：
@@ -232,4 +232,3 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 - `func ValidateSettings(config Settings) error` — ValidateSettings 校验配置覆盖（非法值显式拒绝）。
 - `func (settings Settings) ShardRows() int` — ShardRows 返回 message/event 分片行数（已解析，恒 > 0）。
 - `func (settings Settings) WireBudget() (int, int, int)` — WireBudget 返回 (budget, softTokens, targetTokens)（§5.2）。
-

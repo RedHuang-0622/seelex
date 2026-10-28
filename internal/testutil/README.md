@@ -84,4 +84,3 @@ func (e *myTestEngine) History() []contract.EngineMessage { return e.history }
 ### reporoot.go
 
 - `func RepoRoot() string` — RepoRoot 返回仓库根目录：从当前工作目录（测试运行时 = 该测试包目录）向上找
-

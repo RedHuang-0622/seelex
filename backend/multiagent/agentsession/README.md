@@ -81,4 +81,3 @@ go test ./backend/multiagent/agentsession ./backend/multiagent/subagent -count=1
 - `func (a captureAgent) Dispatch(context.Context, string, string) (string, error)`
 - `func (a captureAgent) LLM() types.ChatCompleter`
 - `func TestFactorySeedsColdSessionWithInterruptedSnapshot(t *testing.T)`
-

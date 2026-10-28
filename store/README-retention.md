@@ -75,7 +75,6 @@
 
 ### pending_tail.go
 
-- `func (report PendingTailReport) RowCount() int` — RowCount 返回草稿尾部行数（不含已发布行）。
 - `func (store *storeEngine) messageShardFilesLocked(key Key) ([]string, error)` — messageShardFilesLocked 列出 message 目录下的分片文件，按文件名解析出的
 - `func (store *storeEngine) pendingTailLocked(key Key, head messageHead) ([]Event, []string, bool, error)` — pendingTailLocked 读出「seq > head.LastSeq」的全部物理行（调用方持
 - `func classifyPendingTail(head messageHead, rows []Event, duplicate bool) (string, string)` — classifyPendingTail 判定草稿尾部的可恢复性（基座校验）。
@@ -89,6 +88,7 @@
 - `func (store *storeEngine) publishPendingTailLocked(key Key, head messageHead, rows []Event) error` — publishPendingTailLocked 重建分片索引并把草稿尾部提升为已发布，然后原子
 - `func (store *storeEngine) discardPendingTail(key Key) (PendingTailReport, error)` — discardPendingTail 显式清理草稿尾部（与提交路径 reap 的清理口径一致），
 - `func (repository *jsonRepository) pendingTailWorkspace(key Key) (PendingTailReport, bool, error)`
+- `func (repository *jsonRepository) appendDraftRowsWorkspace(key Key, rows []Event) ([]Event, bool, error)` — appendDraftRowsWorkspace 追加运行期草稿后缀，但不推进 message head。
 - `func (repository *jsonRepository) recoverPendingTailWorkspace(key Key) (PendingTailReport, bool, error)`
 - `func (repository *jsonRepository) discardPendingTailWorkspace(key Key) (PendingTailReport, bool, error)`
 
@@ -97,6 +97,7 @@
 - `func appendPendingTail(t *testing.T, store *storeEngine, key Key, shardName string, rows []Event)` — appendPendingTail 用生产续号函数算出未发布增量，再直接追加到指定分片
 - `func appendRawPendingTail(t *testing.T, store *storeEngine, key Key, shardName string, rows []Event)` — appendRawPendingTail 原样写盘（保留调用方给的显式 seq，用于构造基座断裂）。
 - `func lastShardName(t *testing.T, store *storeEngine, key Key) string`
+- `func TestPendingTailProbeDecodesOnlyCandidateTail(t *testing.T)` — TestPendingTailProbeDecodesOnlyCandidateTail 钉住冷加载探测的读放大边界：
 - `func TestPendingTailCleanAfterNormalCommit(t *testing.T)` — TestPendingTailCleanAfterNormalCommit 正常提交后没有草稿尾部。
 - `func TestPendingTailRecoversRowsBeyondPublishedPoint(t *testing.T)` — TestPendingTailRecoversRowsBeyondPublishedPoint 覆盖 L2 主路径：已 append
 - `func TestPendingTailRecoversExtraShardFile(t *testing.T)` — TestPendingTailRecoversExtraShardFile 分片滚动后崩溃：head 未索引的分片

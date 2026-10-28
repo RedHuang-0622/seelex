@@ -47,7 +47,7 @@
 ## 依赖方向
 
 允许依赖 `kernel/goal` 的 Goal 领域接口与 `contract/dto`。禁止依赖
-`store`、`application/assembly`、GUI/TUI；Store 适配只在 `wiring/adapters` 装配。
+`store`、`application/assembly`、GUI/TUI；Store 适配只在 `internal/host` 装配。
 
 ## 并发与错误
 
@@ -78,23 +78,67 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func New(deps Deps) *Application` — 构造 Goal 应用。
-- `func (application *Application) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — 读取 Goal 治理视图。
-- `func (application *Application) BeginFor(...)` — 开始 Goal。
-- `func (application *Application) UpdateFor(...)` — 更新 Goal。
-- `func (application *Application) DoneFor(...)` — 完成或中止 Goal。
-- `func (application *Application) StatusFor(sessionID string) (goaldomain.StatusView, error)` — 读取 Goal 状态。
+### application.go
 
-### `application_test.go`
+- `func New(deps Deps) *Application` — New constructs the Goal application.
+- `func (application *Application) coordinatorFor(sessionID string) (CoordinatorPort, error)`
+- `func (application *Application) GovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GovernanceViewFor returns the session's goal governance projection.
+- `func (application *Application) BeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — BeginFor begins a session goal.
+- `func (application *Application) UpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — UpdateFor updates a session goal.
+- `func (application *Application) DoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — DoneFor finishes or aborts a session goal.
+- `func (application *Application) StatusFor(sessionID string) (goaldomain.StatusView, error)` — StatusFor returns the session goal status.
+- `func (application *Application) BeginHandler(ctx context.Context, argsJSON string) (string, error)` — BeginHandler adapts the goal_begin model tool.
+- `func (application *Application) UpdateHandler(ctx context.Context, argsJSON string) (string, error)` — UpdateHandler adapts the goal_update model tool.
+- `func (application *Application) DoneHandler(ctx context.Context, argsJSON string) (string, error)` — DoneHandler adapts the goal_done model tool.
+- `func (application *Application) StatusHandler(ctx context.Context, _ string) (string, error)` — StatusHandler adapts the goal_status model tool.
+- `func (application *Application) writeSessionID(ctx context.Context) string`
+- `func (application *Application) readSessionID(ctx context.Context) string`
+- `func marshalResult(value any) (string, error)`
 
-测试文件按仓库 README 规范不展开函数索引。
+### application_test.go
 
-### `coordinator.go`
+- `func (coordinator *coordinatorFake) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView`
+- `func (coordinator *coordinatorFake) Begin(context.Context, string, goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)`
+- `func (coordinator *coordinatorFake) Update(context.Context, string, goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)`
+- `func (coordinator *coordinatorFake) FinishDirect(context.Context, string, goaldomain.FinishRequest, bool) (*goaldomain.GoalRecord, error)`
+- `func (coordinator *coordinatorFake) StatusFor(string) goaldomain.StatusView`
+- `func TestGoalApplicationRoutesAndRefreshesOnSuccess(t *testing.T)`
+- `func TestGoalHandlersRejectMalformedInput(t *testing.T)`
+- `func TestGoalApplicationDoesNotRefreshOnErrors(t *testing.T)`
+- `func TestGoalApplicationRequiresCoordinatorAndSession(t *testing.T)`
 
-- `func NewCoordinator(deps CoordinatorDeps) *Coordinator` — 构造按会话缓存 Goal Controller 的协调器。
-- `func (g *Coordinator) ForgetSession(sessionID string)` — 释放一个会话的 Goal bundle。
-- `func (g *Coordinator) Begin/Update/FinishDirect/StatusFor(...)` — 按会话路由 Goal 状态机。
-- `func (g *Coordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — 组装活体或存档恢复的治理视图。
-- `func StackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — 把活动 Goal 栈投影为逐帧只读视图。
+### board_archive_read_test.go
+
+- `func boardRouterForArchive(t *testing.T) (*store.Router, *storeboard.SessionStore)` — boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
+- `func boardDepsFor(router *store.Router, boardStore *storeboard.SessionStore) CoordinatorDeps` — boardDepsFor mirrors the Wiring adapter without making the production Goal
+- `func writeBoardArchiveFor(t *testing.T, boardStore *storeboard.SessionStore, sessionID string, meta store.GoalBoardMeta)` — writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
+- `func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T)` — TestGoalGovernanceViewRecoversBoardFromArchive 验证兜底读：本次进程还没碰过该
+- `func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T)` — TestGoalGovernanceViewRetiresBoardOnClosedArchive 验证"看板退场"：存档 state=closed
+- `func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T)` — TestGoalGovernanceViewCarriesHistoryLedgerWhileLive 验证账本与活动栈**正交**：
+- `func TestGoalGovernanceViewWithoutArchiveStaysHidden(t *testing.T)` — TestGoalGovernanceViewWithoutArchiveStaysHidden 验证未装配/无存档时的降级：
+
+### coordinator.go
+
+- `func NewCoordinator(deps CoordinatorDeps) *Coordinator` — NewCoordinator constructs the session goal coordinator.
+- `func (g *Coordinator) ForgetSession(sessionID string)` — ForgetSession 释放一个会话的 goal 运行时（会话释放面调用）：丢掉按会话缓存
+- `func (g *Coordinator) bundleFor(sessionID string) *sessionRuntime` — bundleFor 返回（需要时创建）指定会话的 goal bundle。
+- `func (g *Coordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — Begin 注册并压栈（会话路由）。
+- `func (g *Coordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — Update 更新栈顶（会话路由）。
+- `func (g *Coordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — FinishDirect 直接落终态收口（goal_done 的领域动作）：把栈顶 goal 标
+- `func (g *Coordinator) StatusFor(sessionID string) goaldomain.StatusView` — StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
+- `func StackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — StackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
+- `func (g *Coordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil）。
+- `func (g *Coordinator) readGoalBoardArchive(sessionID string) (dto.GoalGovernanceView, bool)` — readGoalBoardArchive 读取该会话的看板存档（缺失/损坏 → false）。
+
+### done_test.go
+
+- `func TestGoalDoneFinishesDirectly(t *testing.T)`
+
+### stack_view_test.go
+
+- `func TestGoalStackFramesProjectsEveryFrame(t *testing.T)`
+- `func TestGoalStackFramesCarriesDetailFields(t *testing.T)` — TestGoalStackFramesCarriesDetailFields 钉住"点开看详情"需要的字段不缺：
+- `func TestGoalStackFramesEmptyAndNilRecords(t *testing.T)`

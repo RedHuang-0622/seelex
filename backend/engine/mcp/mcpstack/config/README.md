@@ -18,7 +18,7 @@
 flowchart LR
     YAML["config/mcp.yaml 的 mcp_servers 列表"] --> LOAD["mcpstack/config：解析与校验"]
     LOAD --> CFG["MCP 服务器配置（传输中立）"]
-    CFG --> MAIN["wiring/registry：转换为 backend/engine/mcp.Server"]
+    CFG --> MAIN["boot：转换为 backend/engine/mcp.Server"]
     MAIN --> LAZY["RegisterLazyMCP<br/>冷启动只登记，不建连接"]
     LAZY --> MGR["backend/engine/mcp.Manager"]
     NOTE["方向：本包不依赖运行时<br/>由装配侧单向调用"] -.-> CFG
@@ -29,3 +29,23 @@ flowchart LR
 ```text
 go test ./backend/engine/mcp/mcpstack/config -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### mcpconfig.go
+
+- `func Load(path string) []MCPServerConfig` — Load 从独立的 mcp.yaml 读取 mcp_servers 列表；文件缺失或解析失败返回 nil。
+
+### mcpconfig_test.go
+
+- `func TestLoadMCPServersConfig_NoFile(t *testing.T)`
+- `func TestLoadMCPServersConfig_InvalidYAML(t *testing.T)`
+- `func TestLoadMCPServersConfig_EmptyServers(t *testing.T)`
+- `func TestLoadMCPServersConfig_FiltersEmptyNames(t *testing.T)`
+- `func TestLoadMCPServersConfig_FullConfig(t *testing.T)`
+- `func TestLoadMCPServersConfig_NoMCPServersSection(t *testing.T)`
+- `func TestLoadMCPServersConfig_ToolNotes(t *testing.T)`
+- `func TestRegisterMCPServers_EmptyServers(t *testing.T)`

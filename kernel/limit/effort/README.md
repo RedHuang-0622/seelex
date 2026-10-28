@@ -84,4 +84,3 @@ go test ./application/prompt/ -count=1
 
 - `func TestReasoningEffortForMapsLevelsToWireVocabulary(t *testing.T)` — TestReasoningEffortForMapsLevelsToWireVocabulary 钉住"档位 → provider 词表"的
 - `func TestEffortProfilesCarryReasoningEffort(t *testing.T)` — TestEffortProfilesCarryReasoningEffort 钉住"每一档都必须有思考强度"：
-

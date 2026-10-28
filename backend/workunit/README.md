@@ -376,4 +376,3 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 - `func TestSessionLedgerIsSatisfiedByExistingStore(t *testing.T)` — TestSessionLedgerIsSatisfiedByExistingStore：契约要复用**既有**存储，不是再写一份。
 - `func TestResumeNoticeStatesFactsAndNextStep(t *testing.T)` — TestResumeNoticeStatesFactsAndNextStep：恢复说明三层一份：事实在前、动作在后、有界、不编造。
 - `func TestResumeEmptyReadsAsNoop(t *testing.T)` — TestResumeEmptyReadsAsNoop：没有存储/没有残留时的读数必须干净（不是错误、也不是"有事"）。
-

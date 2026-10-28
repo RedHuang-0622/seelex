@@ -54,47 +54,111 @@ go test ./application/... -count=1
 
 ## 文件与函数索引
 
-### `read.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func NewRead(deps ReadDeps) *ReadApplication` — 构造冷读取应用。
-- `func (application *ReadApplication) Read(sessionID string) (ReadResult, error)` — 并行读取 record/transcript 并回退 history。
+### activation.go
 
-### `history.go`
+- `func NewActivation(deps ActivationDeps) *ActivationApplication` — NewActivation constructs the cold activation application.
+- `func (application *ActivationApplication) PrepareLocked( sessionID string, epoch uint64, snapshot *model.Snapshot, history []contract.EngineMessage, record model.SessionRecord, hasRecord bool, storedTier string, ) ActivationResult` — PrepareLocked applies epoch, active, tier and title decisions.
 
-- `func NewHistory(deps HistoryDeps) *HistoryApplication` — 构造 history 装配应用。
-- `func (application *HistoryApplication) Assemble(sessionID string, loaded ReadResult) (HistoryResult, error)` — 重建 transcript 与 provider history。
+### activation_external_test.go
 
-### `restore.go`
+- `func TestSessionColdActivationPreparesActiveSession(t *testing.T)`
+- `func TestSessionColdActivationKeepsViewWhenEpochOrTargetChanged(t *testing.T)`
 
-- `func NewRestore(deps RestoreDeps) *RestoreApplication` — 构造 Engine 恢复应用。
-- `func (application *RestoreApplication) Restore(...)` — 恢复 Engine、queue 和 system prompt。
+### commit.go
 
-### `workspace.go`
+- `func NewCommit(deps CommitDeps) *CommitApplication` — NewCommit constructs the cold-commit application.
+- `func (application *CommitApplication) CommitLocked( sessionID string, mayActivate bool, workspaceAvailable bool, record model.SessionRecord, unit *sessioncase.SessionUnit, currentWorkspace *model.WorkspaceInfo, workspaceProjection switchworkspace.Projection, pendingTailNotice string, snapshot *model.Snapshot, ) CommitResult` — CommitLocked applies pending tail, chat, plan, workspace and revision.
 
-- `func NewWorkspace(deps WorkspaceDeps) *WorkspaceApplication` — 构造冷 workspace 应用。
-- `func (application *WorkspaceApplication) Bind(...)` — 应用项目根、binding 与解绑规则。
+### commit_external_test.go
 
-### `activation.go`
+- `func TestSessionColdCommitActivePath(t *testing.T)`
+- `func TestSessionColdCommitNonActiveDoesNotTouchSharedFacts(t *testing.T)`
 
-- `func NewActivation(deps ActivationDeps) *ActivationApplication` — 构造锁内激活应用。
-- `func (application *ActivationApplication) PrepareLocked(...) ActivationResult` — 应用 epoch、active、tier 与 title。
+### history.go
 
-### `task.go`
+- `func NewHistory(deps HistoryDeps) *HistoryApplication` — NewHistory constructs the cold-history application.
+- `func (application *HistoryApplication) Assemble(sessionID string, loaded ReadResult) (HistoryResult, error)` — Assemble reconstructs transcript and provider history for a stored session.
 
-- `func NewTask(deps TaskDeps) *TaskApplication` — 构造冷 Task 恢复应用。
-- `func (application *TaskApplication) RestoreLocked(...)` — 恢复 plan/task/checkpoint/compaction。
+### history_external_test.go
 
-### `view.go`
+- `func TestSessionColdHistoryUsesLegacyHistoryWithoutRecord(t *testing.T)`
+- `func TestSessionColdHistoryRebuildsTranscriptAndPrefersWireHistory(t *testing.T)`
+- `func TestSessionColdHistoryFallsBackToRecordAndResumeHistory(t *testing.T)`
+- `func TestSessionColdHistoryUsesFinalResumeFallback(t *testing.T)`
+- `func TestSessionColdHistoryWrapsWireError(t *testing.T)`
 
-- `func NewView(deps ViewDeps) *ViewApplication` — 构造冷 View 安装应用。
-- `func (application *ViewApplication) InstallLocked(...)` — 安装 record 或 legacy 可见窗口。
+### publish.go
 
-### `commit.go`
+- `func NewPublish(deps PublishDeps) *PublishApplication` — NewPublish constructs the cold-publish application.
+- `func (application *PublishApplication) Publish( sessionID string, location session_runtime.Location, record model.SessionRecord, mayActivate bool, revision uint64, systemPrompt string, ) error` — Publish attaches context and publishes runtime/snapshot state.
 
-- `func NewCommit(deps CommitDeps) *CommitApplication` — 构造锁内 commit 应用。
-- `func (application *CommitApplication) CommitLocked(...) CommitResult` — 提交 pending-tail、ChatState、Plan、workspace 与 revision。
+### publish_external_test.go
 
-### `publish.go`
+- `func TestSessionColdPublishActivatesRuntimeAndLRU(t *testing.T)`
+- `func TestSessionColdPublishNonActiveStillAttachesAndTouches(t *testing.T)`
+- `func TestSessionColdPublishStopsOnContextError(t *testing.T)`
 
-- `func NewPublish(deps PublishDeps) *PublishApplication` — 构造锁外发布应用。
-- `func (application *PublishApplication) Publish(...)` — 挂接 context、发布 runtime/snapshot 并收敛 LRU。
+### read.go
+
+- `func NewRead(deps ReadDeps) *ReadApplication` — NewRead constructs the cold-read application.
+- `func (application *ReadApplication) Read(sessionID string) (ReadResult, error)` — Read loads record and transcript concurrently, then history when needed.
+
+### read_external_test.go
+
+- `func TestSessionColdReadReturnsRecordAndTranscript(t *testing.T)`
+- `func TestSessionColdReadFallsBackToLegacyHistory(t *testing.T)`
+- `func TestSessionColdReadErrorPrecedence(t *testing.T)`
+- `func TestSessionColdReadIgnoresLegacyErrorsWhenRecordExists(t *testing.T)`
+
+### read_workspace_external_test.go
+
+- `func TestReadUsesRecordAndTranscriptAndSkipsLegacyHistory(t *testing.T)`
+- `func TestWorkspaceApplicationUnbindsOnlyWithoutWorkspace(t *testing.T)`
+
+### restore.go
+
+- `func NewRestore(deps RestoreDeps) *RestoreApplication` — NewRestore constructs the cold restore application.
+- `func (application *RestoreApplication) Restore(sessionID string, location session_runtime.Location, history []contract.EngineMessage) error` — Restore resumes or replaces engine history, recovers the queue and writes the
+
+### restore_external_test.go
+
+- `func TestSessionColdRestoreResumesEngineAndQueue(t *testing.T)`
+- `func TestSessionColdRestoreFallsBackToReplaceHistory(t *testing.T)`
+- `func TestSessionColdRestoreStopsOnEngineAndQueueErrors(t *testing.T)`
+
+### task.go
+
+- `func NewTask(deps TaskDeps) *TaskApplication` — NewTask constructs the cold-task application.
+- `func (application *TaskApplication) RestoreLocked( sessionID string, location session_runtime.Location, record model.SessionRecord, transcript []model.TranscriptEvent, transcriptRenumbered bool, hasRecord bool, )` — RestoreLocked restores task state under the view lock.
+
+### task_external_test.go
+
+- `func TestSessionColdTaskRestoresCompactionsAndRetainedWindow(t *testing.T)`
+- `func TestSessionColdTaskLoadsCompactionsFromNewStore(t *testing.T)`
+- `func TestSessionColdTaskResetsWithoutRecord(t *testing.T)`
+
+### view.go
+
+- `func NewView(deps ViewDeps) *ViewApplication` — NewView constructs the cold-view application.
+- `func (application *ViewApplication) InstallLocked( sessionID string, location session_runtime.Location, record model.SessionRecord, hasRecord bool, visibleHistory []contract.EngineMessage, historyTotal int, total int, offset int, window int, mayActivate bool, snapshot *model.Snapshot, )` — InstallLocked installs record/legacy visible history under the view lock.
+
+### view_external_test.go
+
+- `func TestSessionColdViewInstallsRecordWindowAndActiveFacts(t *testing.T)`
+- `func TestSessionColdViewKeepsNewerVisibleConversation(t *testing.T)`
+- `func TestSessionColdViewAppendsLegacyAndFixesPaging(t *testing.T)`
+
+### workspace.go
+
+- `func NewWorkspace(deps WorkspaceDeps) *WorkspaceApplication` — NewWorkspace constructs the cold-workspace application.
+- `func (application *WorkspaceApplication) Bind(sessionID, workspaceID string, current *model.WorkspaceInfo)` — Bind restores the project root, session binding or unbind state.
+
+### workspace_external_test.go
+
+- `func TestSessionColdWorkspaceBindsExistingWorkspace(t *testing.T)`
+- `func TestSessionColdWorkspaceSkipsGlobalRootWhileChatRuns(t *testing.T)`
+- `func TestSessionColdWorkspaceUnbindsOnlyTrulyUnboundSession(t *testing.T)`
+- `func TestSessionColdWorkspaceDoesNotUnbindMissingWorkspaceMetadata(t *testing.T)`

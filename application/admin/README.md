@@ -93,22 +93,77 @@ go vet ./application/admin
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func NewAccountApplication(deps AccountDeps) *AccountApplication` — 构造账号管理应用。
-- `func (application *AccountApplication) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)` — 转发账号新增。
-- `func (application *AccountApplication) AccountDetails(name string) (dto.AccountDetails, error)` — 读取账号非秘密字段。
-- `func (application *AccountApplication) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)` — 原位更新账号。
-- `func (application *AccountApplication) DeleteAccount(name string) (dto.AccountDetails, error)` — 删除账号。
-- `func (application *AccountApplication) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — 查询账号余额。
-- `func (application *AccountApplication) SelectAccount(_ context.Context, name string) error` — 切换运行账号并发布投影。
-- `func (application *AccountApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — 修改逐账号上下文窗口。
+### account_window_boundary_test.go
 
-### `application_test.go`
+- `func TestCoreDoesNotImportAccountWindowImplementation(t *testing.T)`
+- `func adminRepositoryRoot(t *testing.T) string`
 
-测试文件按仓库 README 规范不展开函数索引。
+### application.go
 
-### `runtime.go`
+- `func NewAccountApplication(deps AccountDeps) *AccountApplication` — NewAccountApplication constructs an account application from consumer-owned
+- `func (application *AccountApplication) AddAccount(_ context.Context, draft dto.AccountDraft) (dto.AccountAddResult, error)` — AddAccount forwards a validated account draft to the account admin host.
+- `func (application *AccountApplication) AccountDetails(name string) (dto.AccountDetails, error)` — AccountDetails reads non-secret fields for one account.
+- `func (application *AccountApplication) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)` — UpdateAccount updates one account in place.
+- `func (application *AccountApplication) DeleteAccount(name string) (dto.AccountDetails, error)` — DeleteAccount deletes one account and returns its non-secret receipt.
+- `func (application *AccountApplication) AccountBalance(ctx context.Context, name string) (dto.AccountBalance, error)` — AccountBalance probes an account through the optional balance host port.
+- `func (application *AccountApplication) SelectAccount(_ context.Context, name string) error` — SelectAccount switches the runtime account, then republishes the projected
+- `func (application *AccountApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow applies a per-account context window through the host's
+- `func (application *AccountApplication) accountAdmin(action string) (contract.AccountAdminPort, error)`
 
-- `func NewRuntime(deps RuntimeDeps) *RuntimeApplication` — 构造 runtime 投影应用。
-- `func (application *RuntimeApplication) Refresh()` — 刷新 runtime 投影并发布增量。
+### application_test.go
+
+- `func (fake *fakeAccountAdmin) AddAccount(draft dto.AccountDraft) (dto.AccountAddResult, error)`
+- `func (fake *fakeAccountAdmin) AccountDetails(name string) (dto.AccountDetails, error)`
+- `func (fake *fakeAccountAdmin) UpdateAccount(update dto.AccountUpdate) (dto.AccountDetails, error)`
+- `func (fake *fakeAccountAdmin) DeleteAccount(name string) (dto.AccountDetails, error)`
+- `func (fake *fakeBalance) AccountBalance(context.Context, string) (dto.AccountBalance, error)`
+- `func (fake *projectionFake) Collect(context.Context) view_state.RuntimeStateProjection`
+- `func (fake *projectionFake) LockView()`
+- `func (fake *projectionFake) SetRuntimeAccount(name string)`
+- `func (fake *projectionFake) ApplyRuntimeProjectionLocked(view_state.RuntimeStateProjection)`
+- `func (fake *projectionFake) BumpLocked() uint64`
+- `func (fake *projectionFake) UnlockView()`
+- `func (fake *projectionFake) CurrentViewSessionID() string`
+- `func (fake *projectionFake) RuntimeSnapshot() model.RuntimeState`
+- `func (fake *projectionFake) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
+- `func (fake *projectionFake) AddNotice(message string)`
+- `func TestAccountApplicationDelegatesAccountOperations(t *testing.T)`
+- `func TestAccountApplicationPreservesUnavailableErrors(t *testing.T)`
+- `func TestAccountApplicationPropagatesHostErrors(t *testing.T)`
+- `func TestAccountApplicationSelectAccountOrder(t *testing.T)`
+- `func TestAccountApplicationSelectAccountStopsWhenUnavailable(t *testing.T)`
+- `func TestAccountApplicationSetAccountWindowDelegates(t *testing.T)`
+- `func TestAccountApplicationSetAccountWindowPreservesUnavailableErrors(t *testing.T)`
+
+### projection.go
+
+- `func RuntimeVisibility(goalSkillActive bool, governance *dto.GoalGovernanceView) dto.RuntimeVisibilityProjection` — RuntimeVisibility 构造「可见性投影」（goal 技能门控 + 当前会话的 goal 治理
+- `func ParentEvidence(sessionID string, messages []model.Message, conversationCount int) dto.ParentEvidenceProjection` — ParentEvidence 构造「父证据投影」：会话 ID、最近一条可见用户目标正文、
+- `func LatestVisibleUserGoal(messages []model.Message) string` — LatestVisibleUserGoal 返回最后一条**可见**用户输入正文作为"父会话在做什么"的
+- `func truncateRuntimeProjectionGoal(content string) string`
+
+### projection_test.go
+
+- `func TestLatestVisibleUserGoal(t *testing.T)`
+- `func TestRuntimeProjectionConstructors(t *testing.T)`
+
+### runtime.go
+
+- `func NewRuntime(deps RuntimeDeps) *RuntimeApplication` — NewRuntime constructs the runtime projection application.
+- `func (application *RuntimeApplication) Refresh()` — Refresh collects outside the lock, applies inside it, then publishes after
+
+### runtime_test.go
+
+- `func (fake *runtimeProjectionFake) CollectProjection(context.Context) view_state.RuntimeStateProjection`
+- `func (fake *runtimeProjectionFake) LockView()`
+- `func (fake *runtimeProjectionFake) ApplyRuntimeProjectionLocked(view_state.RuntimeStateProjection)`
+- `func (fake *runtimeProjectionFake) BumpLocked() uint64`
+- `func (fake *runtimeProjectionFake) UnlockView()`
+- `func (fake *runtimeProjectionFake) CurrentViewSessionID() string`
+- `func (fake *runtimeProjectionFake) RuntimeSnapshot() model.RuntimeState`
+- `func (fake *runtimeProjectionFake) PublishRuntimeChanged(revision uint64, sessionID string, runtime model.RuntimeState)`
+- `func (fake *runtimeProjectionFake) PublishTaskDeltas()`
+- `func TestRuntimeApplicationRefreshOrder(t *testing.T)`

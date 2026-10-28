@@ -127,7 +127,7 @@ Application/Middle identity facade。
 ```text
 go test ./kernel/sessionpolicy -count=1
 go test ./application/assembly/ -run 'SessionMeta|Meta' -count=1   # 门面级：断言端口 + 转发
-go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实现
+go test ./internal/host/ -run SessionSetting -count=1        # 存储端口实现
 go test ./application/workspace/switch ./application/assembly -run 'Workspace|BindWorkspace' -count=1
 ```
 
@@ -136,64 +136,56 @@ go test ./application/workspace/switch ./application/assembly -run 'Workspace|Bi
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### meta.go
+### async.go
 
-- `type MetaStore interface` — 会话展示元数据的读写口（结构满足 `session.SessionMetaPort`）。
-- `type MetaDeps struct` — 宿主面：`Store`（nil = 未装配）+ `Wake`（nil = 不唤醒）。
-- `var ErrMetaUnsupported` — 未装配元数据存储（目录枚举不受影响，元数据恒为零值）。
-- `func SetMeta(deps MetaDeps, sessionID string, meta model.SessionMeta) error` — 写元数据并唤醒目录刷新（失败路径不唤醒）。
-- `func ReadMeta(deps MetaDeps, sessionID string) (model.SessionMeta, error)` — 读元数据。
+- `func AsyncCompletionTriggers(state dto.AsyncState) bool` — AsyncCompletionTriggers 是触发口径认的两个终态：**转调契约的词表**（`dto.AsyncState*`，字面量只有
+- `func TeamworkJobCompletions(runtime any) []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
+- `func TeamworkJobEvents(runtime any) <-chan struct` — TeamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里等于"这条链不存在"）。
 
-### release.go
+### async_test.go
 
-- `type BusyState struct` — "会话是否正忙"的四个读数（待审批 / 运行中 / 排队输入 / 在飞请求）。
-- `func Busy(state BusyState) bool` — 四个读数任一非零即忙（零值 = 不忙，同 `sessionBusy(nil)` 口径）。
-- `type ProtectedInput struct` — 受保护集判据的输入（会话 ID + 视图会话 ID + 恢复态 + 忙态）。
-- `func Protected(input ProtectedInput) bool` — 是否属于受保护集（绝不释放）；空会话 ID 亦判为受保护。
+- `func TestAsyncCompletionTriggersVocabulary(t *testing.T)`
+- `func (fake *fakeTeamworkJobs) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord`
+- `func (fake *fakeTeamworkJobs) TeamworkJobEvents() <-chan struct`
+- `func TestTeamworkJobPortReads(t *testing.T)`
 
-### pendingtail.go
+### bundle_release.go
 
-- `type PendingTailDeps struct` — 草稿尾决策的宿主面（`Running` / `Probe` / `Recover` 三个窄口）。
-- `func RecoverPendingTail(deps PendingTailDeps, sessionID string) string` — 冷加载时探测/恢复草稿尾，返回要补进可见会话的 system 提示（"" = 静默）。
+- `func ReleaseBundle(sessionID string, deps BundleReleaseDeps) bool` — ReleaseBundle 释放一个会话的桥侧内存占用：返回是否真的释放。
 
-### queue.go
+### bundle_release_test.go
 
-- `var ErrQueueNotRunning` / `ErrQueueSessionNotFound` / `ErrQueueIndexOutOfRange` — 队列编辑的三个哨兵（宿主侧保留同值别名）。
-- `type QueueGateErrors struct` — 门禁要原样返回的宿主错误值（`Closed` / `Draining`）。
-- `func QueueEditGate(closed, draining bool, errs QueueGateErrors) error` — 关闭优先于排空的队列编辑门禁；缺错误值即 `ErrQueueGateUnassembled`。
-- `func QueueTargetSession(sessionID, viewSessionID string) string` — 解析目标会话（空 = 视图会话）。
-- `func QueueTargetError(sessionID, viewSessionID string, known, running bool) error` — 目标会话可否编辑（未知 → SessionNotFound；未运行 → NotRunning；都带会话 ID）。
-- `func ReorderIndexError(from, to int) error` / `func RecallIndexError(index int) error` — 两个越界文案构造器。
+- `func (d *recordingReleaseDeps) deps() BundleReleaseDeps`
+- `func TestReleaseBundleRefusesWhileBusy(t *testing.T)` — TestReleaseBundleRefusesWhileBusy 钉住三种拒绝情形里的两种"还在忙"：fork 在飞、还有在途
+- `func TestReleaseBundleRefusesWhenTakeFails(t *testing.T)` — TestReleaseBundleRefusesWhenTakeFails 钉住第三种拒绝情形与幂等：活跃别名 / 不在册都由宿主
+- `func TestReleaseBundleHappyPath(t *testing.T)` — TestReleaseBundleHappyPath：移出成功后才清残格，且会话号先归一（首尾空白 trim）。
+- `func TestReleaseBundleEmptyAndMissingDeps(t *testing.T)` — TestReleaseBundleEmptyAndMissingDeps：空会话号（错的输入）⇒ false，且不碰读数；
 
-### unload.go
+### draft.go
 
-- `type UnloadGate struct` — 卸载门控读数（`Restoring` / `Running`）与宿主忙碌错误值。
-- `func (gate UnloadGate) Reject() error` — 恢复中或运行中一律拒绝（缺错误值即 `ErrUnloadGateUnassembled`）。
-- `type UnloadDeps struct` — 宿主面：门控取数、是否视图会话、持久化、释放、视图收口、发布、目录刷新。
-- `func Unload(deps UnloadDeps, sessionID string) error` — 卸载用例的判据与次序（空 ID → 门控 → 非活跃先持久化 → 释放 → 活跃收口视图 → 发布 → 刷新）。
+- `func NewDraftSessionID(now time.Time, seq uint64) string` — NewDraftSessionID 生成早分配的会话 ID：`<前缀>-<UnixNano>-<序号>`。
+- `func (target DraftTarget) Matches(sessionID string) bool` — Matches 预判显式提交目标 targetID 是否就是那份尚未物化的草稿：廉价闸门，避免每次后台提交
+- `func (target DraftTarget) InView(sessionID string) bool` — InView 报告「视图仍停在这份草稿上」——物化前的**锁内复判**，也是它与 Matches 的判据差别：
+
+### draft_test.go
+
+- `func TestDraftConstantsArePersistentKeys(t *testing.T)` — TestDraftConstantsArePersistentKeys 钉住两个会被"顺手改掉"的常量：显示名影响前端第一眼，
+- `func TestNewDraftSessionID(t *testing.T)` — TestNewDraftSessionID 口径：`<前缀>-<UnixNano>-<序号>`；同 tick 靠序号去重，序号相同则时间戳区分。
+- `func TestDraftTargetMatches(t *testing.T)` — TestDraftTargetMatches 是廉价闸门的两来源真值表：槽命中或视图命中即算命中，都不命中不算。
+- `func TestDraftTargetInView(t *testing.T)` — TestDraftTargetInView 是物化闸门的真值表：视图必须停在草稿上；槽为空（还没物化过）仍算本次。
 
 ### fork.go
 
-- `type ForkGate struct` — fork 门控读数（关闭/排空/父会话在跑）与三条宿主错误值。
-- `func (gate ForkGate) Reject() error` — 关 → 排空 → 在跑的次序判决；缺错误值即 `ErrForkGateUnassembled`。
-- `func MaxTranscriptEventSeq(events []model.TranscriptEvent) uint64` — 事件流最大 Seq（子会话序号基线对齐用）。
-- `func DeepCopyRecord(record model.SessionRecord, clonePlanStack func([]model.SessionPlanFrame) []model.SessionPlanFrame) model.SessionRecord` — fork 深拷贝判据（消息/Tool 指针/四个派生切片深拷贝；PlanStack 用注入的克隆器）。
+- `func (gate ForkGate) Reject() error` — Reject 按迁移前的**原次序**判决门控（关闭 → 排空 → 父会话在跑），返回 nil 即放行。
+- `func forkGateError(err error) error`
+- `func MaxTranscriptEventSeq(events []model.TranscriptEvent) uint64` — MaxTranscriptEventSeq 返回事件流中的最大 Seq（空流返回 0）。子会话内存 transcript 的序号基线
+- `func DeepCopyRecord(record model.SessionRecord, clonePlanStack func([]model.SessionPlanFrame) []model.SessionPlanFrame) model.SessionRecord` — DeepCopyRecord 深拷贝 fork 子会话 record：Conversation 消息（含 Tool 引用）、Tasks、Checkpoints、
 
-### async.go
+### fork_test.go
 
-- `const TeamworkTriggeredPrefix = "teamwork:"` — 幂等账的按表键前缀（表身份优先于字面量）。
-- `func AsyncCompletionTriggers(state dto.AsyncState) bool` — 触发口径认的两个终态（done / failed 触发；killed / running 不触发）。
-- `func TeamworkJobCompletions(runtime any) []dto.TeamworkJobCompletionRecord` / `func TeamworkJobEvents(runtime any) <-chan struct{}` — teammate 作业表的窄可选端口读取（未装配 = nil）。
-
-> 未搬的部分（登记）：两条**用户行正文**（`asyncCompletionPrompt` / `teamworkCompletionPrompt`）与
-> "kind → 展示词"的词表仍留在宿主——那张词表正被另一个在途切片搬去 `middle/view/worktable`
-> （`worktable.PromptKind` 尚未提交），等它落地后再搬，避免制造第二份词表。
-
-### releasewindow.go
-
-- `type ReleaseWindowDeps struct` — 宿主面：`Validate`（limit 域取值判据）、`Persist`（nil = 没装配落盘口）、`Apply`（改进程级值并返回生效值）、`Current`（当前读数）。
-- `func SetReleaseWindow(deps ReleaseWindowDeps, window int) (int, error)` — 先校验 → 再落盘（失败文案 `保存会话驻留窗口失败: %w`）→ 最后改内存；返回真正生效的值。
-- `func ReleaseWindow(deps ReleaseWindowDeps) int` — 当前生效的窗口（设置弹窗打开时读一次；不挂进快照）。
+- `func TestForkGateOrderAndUnassembled(t *testing.T)`
+- `func TestMaxTranscriptEventSeq(t *testing.T)`
+- `func TestDeepCopyRecordBreaksParentChildAliasing(t *testing.T)`
 
 ### interaction.go
 
@@ -211,3 +203,80 @@ go test ./application/workspace/switch ./application/assembly -run 'Workspace|Bi
 - `func TestBuildSessionInteraction(t *testing.T)` — TestBuildSessionInteraction 标签回退与描述格式；ShortID 端口只在名称缺失时被调用。
 - `func TestBuildSessionInteractionWithoutShortIDPort(t *testing.T)` — TestBuildSessionInteractionWithoutShortIDPort 没装端口时不得 panic（名称缺失就留空标签）。
 - `func TestBuildAccountInteraction(t *testing.T)` — TestBuildAccountInteraction 停用标记、`provider model` 去尾空与空账号池。
+
+### meta.go
+
+- `func SetMeta(deps MetaDeps, sessionID string, meta model.SessionMeta) error` — SetMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
+- `func ReadMeta(deps MetaDeps, sessionID string) (model.SessionMeta, error)` — ReadMeta 读取单个会话的展示元数据（未装配元数据存储时返回 ErrMetaUnsupported）。
+
+### meta_test.go
+
+- `func (store *fakeMetaStore) SetSessionMeta(sessionID string, meta model.SessionMeta) error`
+- `func (store *fakeMetaStore) SessionMeta(sessionID string) (model.SessionMeta, error)`
+- `func TestSetMetaValidatesAndWakesOnlyOnSuccess(t *testing.T)` — TestSetMetaValidatesAndWakesOnlyOnSuccess：空会话 ID 与未装配存储都不写盘、不唤醒；
+- `func TestSetMetaPropagatesStoreFailure(t *testing.T)` — TestSetMetaPropagatesStoreFailure：写盘失败要冒泡且**不**唤醒（否则会推一轮没变化的目录）。
+- `func TestReadMeta(t *testing.T)` — TestReadMeta：零值清除语义由存储侧表达（这里只钉转发与两种失败路径）。
+
+### pendingtail.go
+
+- `func RecoverPendingTail(deps PendingTailDeps, sessionID string) string` — RecoverPendingTail 在会话冷加载时探测/恢复草稿尾，返回**要补进可见会话的 system 提示**
+
+### pendingtail_test.go
+
+- `func probeDeps(report dto.PendingMessageTailReport) PendingTailDeps`
+- `func TestRecoverPendingTailSkipsRunningSession(t *testing.T)`
+- `func TestRecoverPendingTailSilentForCleanAndUnknown(t *testing.T)`
+- `func TestRecoverPendingTailRecoversAndReportsRows(t *testing.T)`
+- `func TestRecoverPendingTailReportsGapWithoutTouchingDisk(t *testing.T)`
+- `func TestRecoverPendingTailReportsProbeAndRecoverFailures(t *testing.T)`
+
+### queue.go
+
+- `func QueueEditGate(closed, draining bool, errs QueueGateErrors) error` — QueueEditGate 是队列编辑的关闭/排空门禁（与 Submit 同口径）：nil = 放行。
+- `func QueueTargetSession(sessionID, viewSessionID string) string` — QueueTargetSession 解析队列编辑的目标会话 ID：空 = 当前视图会话（草稿会话亦由视图 ID 归属）。
+- `func QueueTargetError(sessionID, viewSessionID string, known, running bool) error` — QueueTargetError 判定目标会话是否可编辑（调用方在视图锁内解析出 `known` / `running`）：
+- `func ReorderIndexError(from, to int) error` — ReorderIndexError 是调换下标越界的错误（文案逐字保留迁移前的 `%w: from=%d to=%d`）。
+- `func RecallIndexError(index int) error` — RecallIndexError 是撤回下标越界的错误（文案逐字保留迁移前的 `%w: index=%d`）。
+
+### queue_test.go
+
+- `func TestQueueEditGateOrderAndUnassembled(t *testing.T)`
+- `func TestQueueTargetSession(t *testing.T)`
+- `func TestQueueTargetError(t *testing.T)`
+- `func TestQueueIndexErrorsKeepTextAndIdentity(t *testing.T)`
+
+### release.go
+
+- `func Busy(state BusyState) bool` — Busy 报告会话是否正忙：待审批、运行中、排队输入、在飞请求都算忙。
+- `func Protected(input ProtectedInput) bool` — Protected 报告目标会话是否属于**受保护集**（绝不释放）：当前视图会话、待审批会话、
+
+### release_test.go
+
+- `func TestBusyFollowsFourAxes(t *testing.T)`
+- `func TestProtectedCoversViewRestoringAndBusy(t *testing.T)`
+- `func TestProtectedEmptyViewSessionIsNotSpecial(t *testing.T)` — TestProtectedEmptyViewSessionIsNotSpecial：视图会话 ID 为空时不该把任意会话都判成视图会话。
+
+### releasewindow.go
+
+- `func SetReleaseWindow(deps ReleaseWindowDeps, window int) (int, error)` — SetReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**的值。
+- `func ReleaseWindow(deps ReleaseWindowDeps) int` — ReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
+
+### releasewindow_test.go
+
+- `func (rec *releaseWindowRecorder) deps(withPersist bool) ReleaseWindowDeps`
+- `func TestSetReleaseWindowOrderAndFailureStops(t *testing.T)`
+- `func TestSetReleaseWindowWithoutPersistStillApplies(t *testing.T)`
+- `func TestReleaseWindowReadsCurrent(t *testing.T)`
+
+### unload.go
+
+- `func (gate UnloadGate) Reject() error` — Reject 判定是否拒绝卸载：恢复中或运行中一律拒绝（返回宿主的忙碌错误）。
+- `func Unload(deps UnloadDeps, sessionID string) error` — Unload 卸载指定会话：运行中/恢复中的会话拒绝；非活跃会话先持久化再释放；活跃会话释放后收口视图单例。
+
+### unload_test.go
+
+- `func (rec *unloadRecorder) deps() UnloadDeps`
+- `func TestUnloadRejectsEmptyIDAndBusyGate(t *testing.T)`
+- `func TestUnloadNonActivePersistsThenReleases(t *testing.T)`
+- `func TestUnloadActiveSkipsPersistAndRenewsView(t *testing.T)`
+- `func TestUnloadFailuresStopTheChain(t *testing.T)`

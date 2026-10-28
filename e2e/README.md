@@ -180,8 +180,61 @@ go test . -run '^TestGUI' -count=1
 
 - `func TestStoreDependencyClosureHasNoSeelexUpwardDependency(t *testing.T)` — TestStoreDependencyClosureHasNoSeelexUpwardDependency 钉 I6 的主判据。
 - `func TestStoreTestFilesImportNothingUpward(t *testing.T)` — TestStoreTestFilesImportNothingUpward 钉 I6 的第二半：**测试文件也不许向上**。
+- `func TestStoreBoundaryEnumeratesEveryStorePackage(t *testing.T)` — TestStoreBoundaryEnumeratesEveryStorePackage 证明门禁覆盖的是"枚举出来的全部包"，
+- `func resolveStoreBoundaryScopes(t *testing.T) []storeBoundaryScope` — resolveStoreBoundaryScopes 枚举 `./store/...` 的每个包并与登记表合并。
 - `func (scope storeBoundaryScope) patternPath() string` — patternPath 把 `./store/root` 这样的匹配式还原成可比较的包路径。
 - `func seelexLayerOf(dependency string) string` — seelexLayerOf 返回依赖所属的顶层板块名，只用于报错文案。
+
+### store_ddd_artifact_gate_test.go
+
+- `func TestStoreDDDMArtifactOwnershipGate(t *testing.T)` — TestStoreDDDMArtifactOwnershipGate 是 M3 的结构门禁：Blob/media/search 的
+
+### store_ddd_board_gate_test.go
+
+- `func TestStoreDDDMBoardOwnershipGate(t *testing.T)` — TestStoreDDDMBoardOwnershipGate 是 M1 的红灯门禁：项目看板实现必须先落到
+
+### store_ddd_commit_gate_test.go
+
+- `func TestStoreDDDMCommitOwnershipGate(t *testing.T)` — TestStoreDDDMCommitOwnershipGate 是 M4 的结构门槛：跨聚合写序由
+
+### store_ddd_context_gate_test.go
+
+- `func TestStoreDDDMContextOwnershipGate(t *testing.T)` — TestStoreDDDMContextOwnershipGate is the first M7 slice gate.
+- `func TestStoreDDDMCompactStackReadFaceGate(t *testing.T)` — TestStoreDDDMCompactStackReadFaceGate pins the M7 read-face split: consumers
+- `func TestStoreDDDMPromptStackReadFaceGate(t *testing.T)` — TestStoreDDDMPromptStackReadFaceGate pins the prompt/local-compaction
+- `func TestStoreDDDMContextForkOwnershipGate(t *testing.T)` — TestStoreDDDMContextForkOwnershipGate pins context JSON rewriting in the
+
+### store_ddd_layout_gate_test.go
+
+- `func TestStoreDDDMLayoutOwnershipGate(t *testing.T)` — TestStoreDDDMLayoutOwnershipGate 是 M2 的结构红灯：路径、head 信封与模块锁
+
+### store_ddd_m10_facade_gate_test.go
+
+- `func TestStoreDDDM10FacadeGate(t *testing.T)` — TestStoreDDDM10FacadeGate locks the M10 endpoint: capability-discovery exits
+- `func readRootImportAllowlist(t *testing.T, path string) map[string]struct`
+- `func scanPackageMethods(t *testing.T, dir string) map[string]struct`
+- `func scanPackageFunctions(t *testing.T, dir string) map[string]struct`
+- `func productionGoFiles(t *testing.T, dir string) []string`
+- `func directRootStoreImports(t *testing.T, repo string, tests bool) []string`
+- `func repositoryRoot(t *testing.T) string`
+- `func readText(t *testing.T, path string) string`
+- `func assertSourceExcludes(t *testing.T, path string, forbidden ...string)`
+
+### store_ddd_role_workunit_ownership_gate_test.go
+
+- `func TestStoreDDDM9RoleWorkUnitOwnershipGate(t *testing.T)` — TestStoreDDDM9RoleWorkUnitOwnershipGate 是 M9 的所有权门禁。
+
+### store_ddd_session_gate_test.go
+
+- `func TestStoreDDDMSessionOwnershipGate(t *testing.T)` — TestStoreDDDMSessionOwnershipGate is the first M5 slice gate: shard naming and
+
+### store_ddd_teamwork_gate_test.go
+
+- `func TestStoreDDDMTeamworkModelOwnershipGate(t *testing.T)` — TestStoreDDDMTeamworkModelOwnershipGate is the first M8 slice gate.
+
+### store_ddd_teamwork_io_ownership_gate_test.go
+
+- `func TestStoreDDDMTeamworkIOOwnershipGate(t *testing.T)` — TestStoreDDDMTeamworkIOOwnershipGate 是 M8 的所有权门禁：teamwork 的 plan 整份
 
 ### subagent_status_vocabulary_gate_test.go
 
@@ -230,4 +283,3 @@ go test . -run '^TestGUI' -count=1
 - `func (h *lifecycleHost) broken(u workunit.Unit)`
 - `func (h *lifecycleHost) clean(u workunit.Unit)` — 注释里可以照常讨论 teamwork.WorkerRequest 与 kind == 这类东西（AST 扫描不看注释）。
 - `func TestWorkunitGateLocatorCatchesMissingMarkers(t *testing.T)` — TestWorkunitGateLocatorCatchesMissingMarkers 是**定位器**的阴性对照：门禁改成"按包名 + 标记
-

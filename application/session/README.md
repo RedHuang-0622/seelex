@@ -99,7 +99,7 @@ Runtime 或存储的既有唯一实现。
 
 允许依赖 `contract/dto`、`contract/protocol`、本包的 `state` / `viewstate` 与
 注入的窄端口。
-residency 判据经 `ResidencyPort` 注入，由 `wiring/adapters.NewResidencyPort`
+residency 判据经 `ResidencyPort` 注入，由 `internal/host.NewResidencyPort`
 提供 Middle 实现；本包不 import `middle/residency`。
 Fork lineage 只消费会话上下文 JSON 中的 `forked_from` 字段，不 import `store`。
 禁止依赖 `application/assembly`、backend 具体实现或 Middle 可变会话状态。
@@ -138,60 +138,275 @@ go test -race ./application/... -count=1
 
 ## 文件与函数索引
 
-### `lifecycle.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func NewLifecycle(deps LifecycleDeps) *LifecycleApplication` — 构造 Session unload 应用。
-- `func (application *LifecycleApplication) Unload(sessionID string) error` — 持久化并释放一个会话。
+### archive.go
 
-### `residency.go`
+- `func NewArchive(deps ArchiveDeps) *ArchiveApplication` — NewArchive constructs the archive application.
+- `func (application *ArchiveApplication) Archive(sessionID string) error` — Archive archives a session while preserving the middle-layer decision path.
 
-- `type ResidencyPort interface` — preview、LRU 序、输入索引、驱逐与归档的消费方端口。
-- `type EvictionSnapshot struct` / `EvictionDeps` — 两层 LRU 的应用读数与动作。
-- `type ArchiveGate` / `ArchiveStore` / `ArchiveEngine` / `ArchiveUseCaseDeps` — 归档用例的纯值 deps。
+### attach.go
 
-### `archive.go`
+- `func NewAttach(deps AttachDeps) *AttachApplication` — NewAttach constructs the session attach use case.
+- `func (application *AttachApplication) Attach(sessionID string, snapshot *model.Snapshot) (uint64, error)` — Attach points the current snapshot at one resident session. The caller does
+- `func (application *AttachApplication) commitLocked( sessionID, storedTier string, workspace *model.WorkspaceInfo, hasWorkspace bool, workspaceProjection switchworkspace.Projection, hasWorkspaceProjection bool, snapshot *model.Snapshot, )`
 
-- `func NewArchive(deps ArchiveDeps) *ArchiveApplication` — 构造 Session archive 应用。
-- `func (application *ArchiveApplication) Archive(sessionID string) error` — 归档会话并卸载驻留资源。
+### attach_test.go
 
-### `delete.go`
+- `func (lock *attachTestLock) Lock()`
+- `func (lock *attachTestLock) Unlock()`
+- `func (port *attachTestPreparation) EnsureContent(string) error`
+- `func (port *attachTestPreparation) TargetRunning(string) bool`
+- `func (port *attachTestPreparation) Workspace(string) (*model.WorkspaceInfo, bool)`
+- `func (port *attachTestPreparation) BindProjectRootIfSafe(string, string) bool`
+- `func (port *attachTestPreparation) SetWorkspaceWriteScope(string)`
+- `func (port *attachTestPreparation) SetRuntimeWorkspace(string, string)`
+- `func (port *attachTestPreparation) SwitchTasks(string)`
+- `func (port *attachTestPreparation) RestoreSubagentAnchors(string)`
+- `func (port *attachTestPreparation) WorkspaceProjection() (switchworkspace.Projection, bool)`
+- `func (port *attachTestPreparation) StoredPermissionTier(string) string`
+- `func (port *attachTestCommit) SessionTitle(string) string`
+- `func (port *attachTestCommit) SetActive(string)`
+- `func (port *attachTestCommit) Unit(string) *sessioncase.SessionUnit`
+- `func (port *attachTestCommit) ApplyStoredPermissionTier(string, string)`
+- `func (port *attachTestCommit) SetSessionChat(string, model.ChatState)`
+- `func (port *attachTestCommit) MirrorActiveView()`
+- `func (port *attachTestCommit) VisibleTask(string) *model.TaskState`
+- `func (port *attachTestCommit) ActivePlan(string) *model.PlanState`
+- `func (port *attachTestCommit) MirrorPlan(string, *model.PlanState)`
+- `func (port *attachTestCommit) MirrorApprovals(string)`
+- `func (port *attachTestCommit) ApplyWorkspace(*model.WorkspaceInfo, switchworkspace.Projection)`
+- `func (port *attachTestCommit) SystemPrompt() string`
+- `func (port *attachTestCommit) PromptRoutesBySession() bool`
+- `func (port *attachTestCommit) BumpRevision() uint64`
+- `func (port *attachTestPublish) WriteSessionPrompt(string)`
+- `func (port *attachTestPublish) WriteGlobalPrompt(string)`
+- `func (port *attachTestPublish) RefreshRuntime(string)`
+- `func (port *attachTestPublish) PublishSnapshot(string, uint64)`
+- `func (port *attachTestPublish) PublishRuntimeProjections()`
+- `func (port *attachTestPublish) RefreshCatalog()`
+- `func (port *attachTestPublish) TouchResident(string)`
+- `func (port *attachTestPublish) TouchContent(string)`
+- `func TestSessionAttachCommitsOneCurrentSessionProjection(t *testing.T)`
+- `func TestSessionAttachSkipsPromptWritesForRunningTarget(t *testing.T)`
+- `func joinAttachCalls(calls []string) string`
 
-- `func NewDelete(deps DeleteDeps) *DeleteApplication` — 构造 Session delete 应用。
-- `func (application *DeleteApplication) Delete(sessionID string) error` — 删除记录并释放全部进程内资源。
+### delete.go
 
-### `draft_submission.go`
+- `func NewDelete(deps DeleteDeps) *DeleteApplication` — NewDelete constructs the session delete application.
+- `func (application *DeleteApplication) Delete(sessionID string) error` — Delete removes a session record and releases all process-local resources.
 
-- `func NewDraftSubmission(deps DraftSubmissionDeps) *DraftSubmissionApplication` — 构造草稿提交应用。
-- `func (application *DraftSubmissionApplication) Materialize(sessionID, firstInput string) error` — 在视图归属复判后物化草稿。
+### draft_entry.go
 
-### `draft_entry.go`
+- `func NewDraftEntry(deps DraftEntryDeps) *DraftEntryApplication` — NewDraftEntry constructs the draft-entry application.
+- `func (application *DraftEntryApplication) Begin() error` — Begin switches the current view into a new draft shell.
 
-- `func NewDraftEntry(deps DraftEntryDeps) *DraftEntryApplication` — 构造草稿入口应用。
-- `func (application *DraftEntryApplication) Begin() error` — 保存旧会话并进入新草稿壳。
+### draft_entry_behavior_external_test.go
 
-### `draft_materialization.go`
+- `func TestSessionDraftEntryRejectsClosedAndDraining(t *testing.T)`
+- `func TestSessionDraftEntryIsIdempotentForDraft(t *testing.T)`
+- `func TestSessionDraftEntryStopsWhenIdleSessionSaveFails(t *testing.T)`
+- `func TestSessionDraftEntryPreservesRunningSessionAndPublishesDraft(t *testing.T)`
 
-- `func NewDraftMaterialization(deps DraftMaterializationDeps) *DraftMaterializationApplication` — 构造首请求物化应用。
-- `func (application *DraftMaterializationApplication) Materialize(firstQuestion string) error` — 绑定 workspace、打开引擎并提交第一个真实会话。
+### draft_entry_test.go
 
-### `resume.go`
+- `func TestDraftEntryOrdersIdleSessionCleanup(t *testing.T)`
+- `func TestDraftEntrySkipsPersistenceForRunningSession(t *testing.T)`
+- `func joinCalls(calls []string) string`
 
-- `func NewResume(deps ResumeDeps) *ResumeApplication` — 构造会话恢复应用。
-- `func (application *ResumeApplication) Resume(sessionID string) error` — 选择 hot、restoring 或 cold 分支。
+### draft_materialization.go
 
-### `restore_recovery.go`
+- `func NewDraftMaterialization(deps DraftMaterializationDeps) *DraftMaterializationApplication` — NewDraftMaterialization constructs the draft materialization application.
+- `func (application *DraftMaterializationApplication) Materialize(firstQuestion string) error` — Materialize turns the current draft into a real session on first input.
 
-- `func NewRestoreRecovery(deps RestoreRecoveryDeps) *RestoreRecoveryApplication` — 构造冷恢复失败回退应用。
-- `func (application *RestoreRecoveryApplication) Handle(...)` — 回退前一会话或重置草稿。
-- `func NewRestoreDraftReset(deps RestoreDraftResetDeps) *RestoreDraftResetApplication` — 构造 fresh draft reset。
-- `func (application *RestoreDraftResetApplication) Reset()` — 安装 fresh draft shell 并发布。
+### draft_materialization_external_test.go
 
-### `fork_lineage.go`
+- `func TestDraftMaterializationSkipsNonDraft(t *testing.T)`
+- `func TestDraftMaterializationRequiresPreassignedID(t *testing.T)`
+- `func TestDraftMaterializationStopsWhenWorkspaceBindFails(t *testing.T)`
+- `func TestDraftMaterializationOrdersFirstInput(t *testing.T)`
 
-- `func NewForkLineage(deps ForkLineageDeps) *ForkLineageApplication` — 构造 fork lineage 读取应用。
-- `func (application *ForkLineageApplication) Load(...)` — 解码并校验 fork 引用。
+### draft_submission.go
 
-### `restoring_shell.go`
+- `func NewDraftSubmission(deps DraftSubmissionDeps) *DraftSubmissionApplication` — NewDraftSubmission constructs the draft-submit application.
+- `func (application *DraftSubmissionApplication) Materialize(sessionID, firstInput string) error` — Materialize performs a cheap target check, rechecks ownership under the view
 
-- `func NewRestoringShell(deps RestoringShellDeps) *RestoringShellApplication` — 构造 restoring shell 应用。
-- `func (application *RestoringShellApplication) PointLocked(...)` — 投影 restoring 空壳并 bump revision。
+### draft_submission_external_test.go
+
+- `func (locker *recordingLocker) Lock()`
+- `func (locker *recordingLocker) Unlock()`
+- `func TestDraftSubmissionSkipsLoadedTarget(t *testing.T)`
+- `func TestDraftSubmissionRejectsStaleDraftView(t *testing.T)`
+- `func TestDraftSubmissionTrimsAfterViewCheck(t *testing.T)`
+
+### fork.go
+
+- `func NewFork(deps ForkDeps) *ForkApplication`
+- `func (application *ForkApplication) Fork(parentID string, request protocol.ForkRequest) (string, error)`
+- `func (application *ForkApplication) ForkLatest(parentID string) (string, error)`
+
+### fork_lineage.go
+
+- `func NewForkLineage(deps ForkLineageDeps) *ForkLineageApplication` — NewForkLineage constructs the fork-lineage application.
+- `func (application *ForkLineageApplication) Load(location session_runtime.Location, sessionID string) *model.SessionForkRef` — Load returns validated fork lineage or nil for missing/corrupt data.
+
+### fork_lineage_external_test.go
+
+- `func TestForkLineageReadsOnlyNarrowPayloadProjection(t *testing.T)`
+- `func TestForkLineageReturnsNilWhenPayloadUnavailable(t *testing.T)`
+- `func TestForkLineageRejectsInvalidRecords(t *testing.T)`
+- `func TestForkLineageDecodesValidReference(t *testing.T)`
+- `func mustLineagePayload(t *testing.T, record store.SessionContextRecord) []byte`
+- `func mustJSON(t *testing.T, value any) []byte`
+
+### fork_test.go
+
+- `func TestForkApplicationCreatesAndSwitchesSession(t *testing.T)`
+- `func TestForkApplicationReturnsChildWhenSwitchFails(t *testing.T)`
+
+### interaction.go
+
+- `func NewInteraction(deps InteractionDeps) *InteractionApplication`
+- `func (application *InteractionApplication) Resolve(ctx context.Context, id, optionID string) error`
+
+### interaction_observer.go
+
+- `func NewInteractionObserver(deps InteractionObserverDeps) *InteractionObserverApplication` — NewInteractionObserver constructs the approval interaction observer.
+- `func (application *InteractionObserverApplication) Observe( sessionID, requestID string, interaction *model.Interaction, )` — Observe records an opened or closed broker interaction by session.
+- `func (application *InteractionObserverApplication) MirrorLocked(sessionID string)` — MirrorLocked projects the first pending approval for one session. The caller
+- `func (application *InteractionObserverApplication) unit(sessionID string) ApprovalUnit`
+
+### interaction_observer_test.go
+
+- `func (lock *interactionObserverLock) Lock()`
+- `func (lock *interactionObserverLock) Unlock()`
+- `func (unit *interactionObserverUnit) AddApproval(id string)`
+- `func (unit *interactionObserverUnit) RemoveApproval(id string)`
+- `func TestInteractionObserverKeepsBackgroundApprovalOutOfViewSlot(t *testing.T)`
+- `func joinObserverCalls(calls []string) string`
+
+### interaction_test.go
+
+- `func TestInteractionApplicationResolvesViewAndBackgroundApprovals(t *testing.T)`
+- `func TestInteractionApplicationSessionFailureNotifiesAndCloses(t *testing.T)`
+
+### lifecycle.go
+
+- `func NewLifecycle(deps LifecycleDeps) *LifecycleApplication` — NewLifecycle constructs the session lifecycle application.
+- `func (application *LifecycleApplication) Unload(sessionID string) error` — Unload persists a non-view session, releases its memory and renews the view
+
+### meta.go
+
+- `func NewMetaApplication(deps MetaDeps) *MetaApplication` — NewMetaApplication constructs the metadata application.
+- `func (application *MetaApplication) SetSessionMeta(sessionID string, meta model.SessionMeta) error` — SetSessionMeta writes display metadata and wakes the catalog through MetaDeps.
+- `func (application *MetaApplication) SessionMeta(sessionID string) (model.SessionMeta, error)` — SessionMeta reads display metadata through the injected read port.
+
+### meta_test.go
+
+- `func TestMetaApplicationDelegatesRead(t *testing.T)`
+- `func TestNilMetaApplicationPreservesUnsupportedReadSemantics(t *testing.T)`
+
+### operations_test.go
+
+- `func TestDeleteApplicationOrdersRecordReleaseAndPublication(t *testing.T)`
+- `func TestDeleteApplicationStopsOnRecordError(t *testing.T)`
+- `func TestDeleteApplicationAppliesWorkspaceProjection(t *testing.T)`
+
+### orchestration_test.go
+
+- `func TestResumeApplicationBranches(t *testing.T)`
+- `func TestRestoreRecoveryFallsBackToDraft(t *testing.T)`
+
+### release.go
+
+- `func NewReleaseApplication(deps ReleaseDeps) *ReleaseApplication` — NewReleaseApplication constructs the release application.
+- `func (application *ReleaseApplication) Release(sessionID string, mode ReleaseMode) error` — Release releases one session's in-memory state in the fixed order required
+- `func (application *ReleaseApplication) Reconcile()` — Reconcile runs both release layers after ownership or activity changes.
+
+### release_test.go
+
+- `func TestReleasePreservesOrderingAndIgnoresProtectedIdleSession(t *testing.T)`
+- `func TestReleaseFullOrdering(t *testing.T)`
+- `func TestReleaseStopsOnPersistError(t *testing.T)`
+
+### residency_boundary_test.go
+
+- `func TestCoreDoesNotImportResidencyPackage(t *testing.T)`
+- `func sessionRepositoryRoot(t *testing.T) string`
+
+### restore_draft_reset_external_test.go
+
+- `func TestSessionRestoreDraftResetPublishesDraftShell(t *testing.T)`
+
+### restore_recovery.go
+
+- `func NewRestoreRecovery(deps RestoreRecoveryDeps) *RestoreRecoveryApplication` — NewRestoreRecovery constructs the restore recovery application.
+- `func (application *RestoreRecoveryApplication) Handle(sessionID, previousID string, epoch uint64, _ error)` — Handle restores the previous session or resets to a draft when possible.
+- `func NewRestoreDraftReset(deps RestoreDraftResetDeps) *RestoreDraftResetApplication` — NewRestoreDraftReset constructs the restore draft reset application.
+- `func (application *RestoreDraftResetApplication) Reset()` — Reset creates or reuses the draft slot and installs its shell.
+
+### restore_recovery_external_test.go
+
+- `func TestSessionRestoreRecoveryClearsRestoringAndIgnoresStaleView(t *testing.T)`
+- `func TestSessionRestoreRecoveryIgnoresSupersededEpoch(t *testing.T)`
+- `func TestSessionRestoreRecoveryFallsBackToPreviousSession(t *testing.T)`
+- `func TestSessionRestoreRecoveryResetsDraftWhenNoFallbackExists(t *testing.T)`
+
+### restoring_shell.go
+
+- `func NewRestoringShell(deps RestoringShellDeps) *RestoringShellApplication` — NewRestoringShell constructs the restoring-shell application.
+- `func (application *RestoringShellApplication) PointLocked( sessionID string, unit *sessioncase.SessionUnit, snapshot *model.Snapshot, ) uint64` — PointLocked points the snapshot at a restoring session shell. The caller
+
+### restoring_shell_external_test.go
+
+- `func TestSessionRestoringShellClearsAllSessionFacts(t *testing.T)`
+
+### resume.go
+
+- `func NewResume(deps ResumeDeps) *ResumeApplication` — NewResume constructs the session resume application.
+- `func (application *ResumeApplication) Resume(sessionID string) error` — Resume selects hot, restoring or cold loading for a session.
+
+### resume_component_external_test.go
+
+- `func TestSessionResumeRequiresSessionID(t *testing.T)`
+- `func TestSessionResumeRestoringShellKeepsExistingLoad(t *testing.T)`
+- `func TestSessionResumeRestoringSettledFallsBackToHotAttach(t *testing.T)`
+- `func TestSessionResumeHotTargetMarksIntentBeforeAttach(t *testing.T)`
+- `func TestSessionResumeColdTargetRunsBackgroundWhileChatBusy(t *testing.T)`
+- `func TestSessionResumeColdFailureRunsRecovery(t *testing.T)`
+
+### ssh.go
+
+- `func NewSSHApplication(deps SSHDeps) *SSHApplication` — NewSSHApplication constructs the session SSH application.
+- `func (application *SSHApplication) State(sessionID string) (model.SessionSSHInfo, error)` — State reads the current SSH state for a session.
+- `func (application *SSHApplication) ProjectEnvironments(sessionID string) ([]model.WorkspaceEnvironmentInfo, string, error)` — ProjectEnvironments reads the environment table for the session's bound
+- `func (application *SSHApplication) SetAllowed(sessionID string, envs []string) (model.SessionSSHInfo, error)` — SetAllowed replaces the session's allowed environment set after checking
+- `func (application *SSHApplication) SetEnv(sessionID, projectID, env string) (model.SessionSSHInfo, error)` — SetEnv fixes a session's environment once. Repeating the same value is
+- `func (application *SSHApplication) projectEnvironments(sessionID string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (application *SSHApplication) projectEnvironmentsFor(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (application *SSHApplication) sessions() SessionSSHPort`
+- `func (application *SSHApplication) workspace() WorkspacePort`
+- `func ValidateAllowedEnvs(known map[string]struct{}, envs []string) ([]string, error)` — ValidateAllowedEnvs checks that a requested environment set is a subset of
+
+### ssh_test.go
+
+- `func (sessions *sshTestSessions) SessionSSHState(string) (model.SessionSSHInfo, error)`
+- `func (sessions *sshTestSessions) SetSessionSSHState(_ string, state model.SessionSSHInfo) error`
+- `func (workspace *sshTestWorkspace) SessionWorkspace(string) (model.WorkspaceInfo, bool)`
+- `func (workspace *sshTestWorkspace) WorkspaceEnvironments(string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func TestValidateAllowedEnvsRejectsNamesOutsideProject(t *testing.T)`
+- `func TestSetEnvFixesEnvironmentOnce(t *testing.T)`
+- `func TestSetAllowed(t *testing.T)`
+- `func TestSSHApplicationUnavailable(t *testing.T)`
+- `func TestSSHApplicationRejectsMissingEnvironment(t *testing.T)`
+
+### submit.go
+
+- `func NewSubmit(deps SubmitDeps) *SubmitApplication`
+- `func (application *SubmitApplication) SubmitToSession(ctx context.Context, sessionID, text string) error`
+
+### submit_test.go
+
+- `func TestSubmitApplicationMaterializesAndRoutesExplicitSession(t *testing.T)`
+- `func TestSubmitApplicationStopsOnMaterializeFailure(t *testing.T)`

@@ -59,4 +59,3 @@ go test ./internal/jsonobj -count=1
 ### jsonobj_test.go
 
 - `func TestDecodeJSONObjectLenient(t *testing.T)` — TestDecodeJSONObjectLenient 钉住"只修语法、不改语义"的容错边界。
-

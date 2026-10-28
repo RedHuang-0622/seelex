@@ -61,3 +61,77 @@ storage work before closing admission and draining accepted messages. Every
 `Storage.Append` and `Storage.ReadRange` call receives a bounded context.
 `SnapshotContext` also observes caller cancellation, so a full mailbox cannot
 cause an unbounded spin.
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### actor.go
+
+- `func (p LifecyclePolicy) String() string`
+- `func NewContextActor[T any](policy LifecyclePolicy, store Storage[T], options Options) *ContextActor[T]` — NewContextActor 构造上下文 actor：启动消息循环（actor goroutine）。
+- `func (a *ContextActor[T]) run()` — run 是唯一状态持有者：串行消费 mailbox（无锁闭包状态）。
+- `func (a *ContextActor[T]) handle(req request[T])` — handle 分发消息（actor goroutine 内）。
+- `func (a *ContextActor[T]) handleAppend(req request[T])` — handleAppend 写路径：按策略决定驻留 vs 落库。
+- `func (a *ContextActor[T]) handleLoadWindow(req request[T])` — handleLoadWindow 读路径（① 前端 select / ③ 递 LLM）：
+- `func (a *ContextActor[T]) handleSnapshot(req request[T])` — handleSnapshot 返回当前常驻区与总数（审计/测试）。
+- `func (a *ContextActor[T]) replyErr(req request[T], err error)` — replyErr 回传错误（不中断 actor 循环）。
+- `func (a *ContextActor[T]) operationContext() (context.Context, context.CancelFunc)`
+- `func (a *ContextActor[T]) appendToStore(items []T) error`
+- `func (a *ContextActor[T]) Append(items []T) error` — Append 写路径：追加上下文（② 后端写操作）。非阻塞投递；mailbox 满时
+- `func (a *ContextActor[T]) LoadWindow(ctx context.Context, offset, limit int) ([]T, int, error)` — LoadWindow 读路径（① 前端 select / ③ 递 LLM）：按窗口读，返回
+- `func (a *ContextActor[T]) Snapshot() ([]T, int)` — Snapshot 返回常驻区拷贝与总数（测试/审计；非生产热路径）。
+- `func (a *ContextActor[T]) SnapshotContext(ctx context.Context) ([]T, int, error)` — SnapshotContext is a bounded snapshot request. It never spins when the
+- `func (a *ContextActor[T]) Enqueue(req request[T]) error` — Enqueue 投递消息（非阻塞；满则返回 ErrMailboxFull 并计入丢弃计数；
+- `func (a *ContextActor[T]) CloseContext(ctx context.Context) error` — CloseContext first cancels in-flight Storage work, then closes admission and
+- `func (a *ContextActor[T]) Close()` — Close is the compatibility shutdown API. Use CloseContext when the caller
+- `func (a *ContextActor[T]) Dropped() int` — Dropped 返回背压丢弃计数（审计）。
+
+### mock_bench_test.go
+
+- `func newCancellableBlockingStorage[T any]() *cancellableBlockingStorage[T]`
+- `func (store *cancellableBlockingStorage[T]) Append(ctx context.Context, _ []T) error`
+- `func (*cancellableBlockingStorage[T]) ReadRange(context.Context, int, int) ([]T, int, error)`
+- `func (*cancellableBlockingStorage[T]) Count() int`
+- `func TestActorConcurrentAppendOrdering(t *testing.T)` — TestActorConcurrentAppendOrdering 并发写保序：100 goroutines × 200 items
+- `func TestActorLoadWindowBoundaries(t *testing.T)` — TestActorLoadWindowBoundaries 窗口边界：空存储 / 越界 offset / limit=0 /
+- `func TestActorWindowedPolicyOverflow(t *testing.T)` — TestActorWindowedPolicyOverflow 窗口策略溢出：驻留窗口外的条数落库，
+- `func TestActorBackpressureMailboxFull(t *testing.T)` — TestActorBackpressureMailboxFull 背压：mailbox 容量 1，满时 Append 返回
+- `func TestPipelineBatchFlushCount(t *testing.T)` — TestPipelineBatchFlushCount 批量落库：10k chunks 经管道聚合，
+- `func TestPipelineIntervalFlush(t *testing.T)` — TestPipelineIntervalFlush 时间间隔 flush：低流量也按时落库（不滞留）。
+- `func TestActorCancelAfterClose(t *testing.T)` — TestActorCancelAfterClose 取消：Close 后 Enqueue 报错（actor 已停）。
+- `func TestActorCloseCancelsBlockingStoreAndBoundsSnapshot(t *testing.T)`
+- `func TestPipelineCloseCancelsBlockingStore(t *testing.T)`
+- `func TestActorSnapshotAfterCloseReturnsFinalState(t *testing.T)`
+- `func TestPipelineFlushTracksOnlyPipelineCommits(t *testing.T)`
+- `func TestActorConcurrentUseAndClose(t *testing.T)` — TestActorConcurrentUseAndClose verifies that every request accepted before
+- `func TestPipelineConcurrentPushAndClose(t *testing.T)` — TestPipelineConcurrentPushAndClose verifies the Push/Close lifecycle gate:
+- `func measureHeap() uint64` — measureHeap 返回 GC 后的堆分配（稳定基线：多次 GC + 取最小值，
+- `func TestPolicyMemoryComparison(t *testing.T)` — TestPolicyMemoryComparison 四策略内存对比（非 happy path 核心交付）：
+- `func TestPolicyMemoryComparisonFullRetainGrows(t *testing.T)` — TestPolicyMemoryComparisonFullRetainGrows 全量常驻确认增长（对照基准有效）：
+
+### pipeline.go
+
+- `func fmtError(message string) error`
+- `func NewBatchPipeline[T any](store Storage[T], options PipelineOptions) *BatchPipeline[T]`
+- `func (p *BatchPipeline[T]) run()`
+- `func (p *BatchPipeline[T]) operationContext() (context.Context, context.CancelFunc)`
+- `func (p *BatchPipeline[T]) flushBuffer(buffer *[]T) error`
+- `func (p *BatchPipeline[T]) Push(item T) error` — Push transfers ownership without blocking. A full producer mailbox is an
+- `func (p *BatchPipeline[T]) FlushContext(ctx context.Context) error` — FlushContext waits only for chunks accepted before it captured target. The
+- `func (p *BatchPipeline[T]) Flush() error`
+- `func (p *BatchPipeline[T]) CloseContext(ctx context.Context) error` — CloseContext first cancels in-flight Storage work, then closes admission and
+- `func (p *BatchPipeline[T]) Close() error`
+- `func (p *BatchPipeline[T]) Stats() PipelineStats`
+
+### storage.go
+
+- `func newMemoryStorage[T any]() *memoryStorage[T]`
+- `func (s *memoryStorage[T]) Append(_ context.Context, items []T) error`
+- `func (s *memoryStorage[T]) ReadRange(_ context.Context, offset, limit int) ([]T, int, error)`
+- `func (s *memoryStorage[T]) Count() int`
+- `func newDiscardStorage[T any]() *discardStorage[T]`
+- `func (s *discardStorage[T]) Append(_ context.Context, items []T) error`
+- `func (s *discardStorage[T]) ReadRange(_ context.Context, offset, limit int) ([]T, int, error)`
+- `func (s *discardStorage[T]) Count() int`

@@ -47,3 +47,37 @@ go test ./application/admin/scheduler -count=1
 go test ./application/assembly -run 'Scheduler|Scheduled' -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func NewScheduler(deps SchedulerDeps) *SchedulerApplication` — NewScheduler constructs the scheduled-task application.
+- `func WithRunDefaults(spec dto.ScheduledTaskSpec) dto.ScheduledTaskSpec` — WithRunDefaults fills undeclared run parameters with the unique default
+- `func RunParams(effort string, loopLimit int) (string, int)` — RunParams returns declared run parameters or their default values.
+- `func ValidateRunParams(spec dto.ScheduledTaskSpec) error` — ValidateRunParams validates effort and loop limit.
+- `func (application *SchedulerApplication) ScheduleTask(ctx context.Context, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)` — ScheduleTask creates one scheduled task after defaulting and validation.
+- `func (application *SchedulerApplication) UpdateScheduledTask(ctx context.Context, id string, spec dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)` — UpdateScheduledTask replaces one task after the same validation sequence as
+- `func (application *SchedulerApplication) CancelScheduledTask(id string) error` — CancelScheduledTask removes one scheduled task and refreshes projection.
+- `func (application *SchedulerApplication) validateWorkspace(workspaceID string) error`
+- `func (application *SchedulerApplication) validatePlugins(plugins []string) error`
+
+### run.go
+
+- `func NewRun(deps RunDeps) *RunApplication` — NewRun constructs the scheduled-run application.
+- `func (application *RunApplication) AssembleScheduledRun(ctx context.Context, sessionID string, task dto.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun applies permission tier, run parameters and plugins to a
+
+### scheduler_test.go
+
+- `func TestSchedulerValidatesBeforeRuntime(t *testing.T)`
+- `func TestRunDefaultsFillMissingParameters(t *testing.T)`
+- `func TestRunAssemblyAppliesSessionContextBeforePlugins(t *testing.T)`
+- `func TestScheduledSessionPublishesBeforeSubmit(t *testing.T)`
+
+### session.go
+
+- `func NewSession(deps SessionDeps) *SessionApplication` — NewSession constructs the scheduled-session application.
+- `func (application *SessionApplication) StartScheduledSession(ctx context.Context, task dto.ScheduledTaskSpec) (string, error)` — StartScheduledSession creates a background session, applies run assembly and

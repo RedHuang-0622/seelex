@@ -24,3 +24,16 @@
 ```text
 go test ./store/record ./store -run ToolRecord -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### store.go
+
+- `func New(layout *storelayout.Layout) *Store`
+- `func (s *Store) Append(_ context.Context, key dto.SessionKey, payload any) error`
+- `func (s *Store) Read(_ context.Context, key dto.SessionKey) (json.RawMessage, bool, error)`
+- `func (s *Store) path(key dto.SessionKey) string`
+- `func scopeOf(key dto.SessionKey) storelayout.Scope`

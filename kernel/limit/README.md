@@ -297,4 +297,3 @@ go list -deps ./kernel/limit
 ### view_limits.go
 
 - `func (limits Limits) ViewLimits() dto.ViewLimits` — ViewLimits 把完整运行时上限投影为中间层只读视图需要的窄契约。
-

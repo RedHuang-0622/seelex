@@ -84,3 +84,38 @@ fork 批次的节点彼此独立（各自 worktree、各自账号、各自 goal�
 ```text
 go test ./seelebridge -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### bind_subagent_task_test.go
+
+- `func TestBindSubagentTaskIdempotent(t *testing.T)` — TestBindSubagentTaskIdempotent 验证 B6 装配件：相同 goal 的子代理绑定同一
+- `func TestBindSubagentTaskRoutesByOwningSession(t *testing.T)` — TestBindSubagentTaskRoutesByOwningSession 钉住归属会话被**一路带到写入口**：
+
+### per_subagent_params_test.go
+
+- `func TestForkToolHandleRejectsSubagentLoopsAboveProcessCeiling(t *testing.T)` — TestForkToolHandleRejectsSubagentLoopsAboveProcessCeiling：同一条判据在工具入口
+- `func TestSubagentsContractDescriptionMentionsPerSubagentLoops(t *testing.T)` — TestSubagentsContractDescriptionMentionsPerSubagentLoops：工具描述是**给模型看的
+
+### summary.go
+
+- `func NewSummaryNode(spec codec.NodeSpec[seenode.SeelexNodeInput]) *SummaryNode` — NewSummaryNode 构造 fork summary 节点。
+- `func (n *SummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error)`
+- `func ResultSummaryLines(output string) (summary string, fullRunes int, truncated bool)` — ResultSummaryLines 提取子代理输出的有界摘要（rune 计数）；返回摘要、
+
+### tool.go
+
+- `func NewTool(deps Deps) *Tool` — NewTool 构造 fork 工具（deps 全部为闭包，域内不依赖根包）。
+- `func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error)` — Handle 是 fork_subagents 的执行入口。
+- `func (t *Tool) dispatchJobs(ctx context.Context, input Input, taskBindings map[string]string, timeout time.Duration) (string, error)` — dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回
+- `func (t *Tool) dispatchReusedJobs(ctx context.Context, input Input, taskBindings map[string]string, summaries map[string]string) (string, error)` — dispatchReusedJobs 把"结果复用"的批次也作业化：作业照样登记（回执形状与真跑一批
+- `func acceptanceReceipt(receipts []map[string]string, hint string) (string, error)` — acceptanceReceipt 渲染作业化派发的受理回执：这是本次工具调用的**全部返回**
+- `func (t *Tool) reusableForkSummaries(sessionID string, specs []SubagentSpec) (map[string]string, bool)` — reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的
+- `func (t *Tool) bindSubagentTask(sessionID string, spec SubagentSpec) string` — bindSubagentTask 解析/创建子代理 task 并返回 task_id（幂等：相同 goal
+
+### types_test.go
+
+- `func TestInputTimeoutSecDecodes(t *testing.T)` — TestInputTimeoutSecDecodes 验证 fork 请求可按任务分配总超时

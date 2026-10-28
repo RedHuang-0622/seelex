@@ -800,7 +800,7 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 端口形状在 S27 之后来自 `contract`：`contract.RoleSessionPort`
 与 `contract.SchedulePort`（可选能力，装配期用类型断言发现），签名只用
 `contract/dto` 纯 DTO，本包与 `headless` 不再出现
-`store.*` 类型；DTO ↔ 存储映射是 `wiring/adapters.SessionPort` 的
+`store.*` 类型；DTO ↔ 存储映射是 `internal/host.SessionPort` 的
 职责。边界回归见 `e2e/dto_boundary_test.go`。
 
 ## 角色设置与权限向量恢复
@@ -815,7 +815,7 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 
 登记能力与五层来源都是会话端口上的**可选**能力（`rolePermissionPort` /
 `rolePermissionLayerPort`，类型断言发现；生产装配在
-`wiring/adapters/role_permission_port.go`）。未装配时显式返回
+`internal/host/role_permission_port.go`）。未装配时显式返回
 `ErrRolePermissionsUnavailable`，不静默给空权限。会话加载处
 （`service_assembler.go`）对会话自持角色（权责表 root 主体）调一次恢复：作用是让装配
 缺口与坏配置在加载时暴露、并把该会话的登记格热起来；CLI/headless 一类未装配登记能力的

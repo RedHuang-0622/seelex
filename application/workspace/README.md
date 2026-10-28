@@ -81,20 +81,73 @@ go vet ./application/workspace
 
 ## 文件与函数索引
 
-### `application.go`
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func New(deps Deps) *Application` — 从消费方端口构造 Workspace Application。
-- `func (application *Application) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)` — 读取项目环境表。
-- `func (application *Application) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)` — 写入项目环境。
-- `func (application *Application) DeleteWorkspaceEnvironment(projectID, name string) error` — 删除项目环境。
-- `func (application *Application) SetDefaultWorkspaceEnvironment(projectID, name string) error` — 设置项目默认环境。
-- `func (application *Application) WorkspaceGitRepos() (dto.GitReposResult, error)` — 发现工作区内 Git 仓库。
-- `func (application *Application) GitLog(repo string, limit int) (dto.GitLogResult, error)` — 读取指定仓库提交历史。
-- `func (application *Application) Changes(repo string, limit int) (dto.WorkspaceChangesResult, error)` — 读取指定仓库未提交改动。
-- `func (application *Application) CommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)` — 读取提交文件清单。
-- `func (application *Application) CommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)` — 读取提交内文件内容。
-- `func (application *Application) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — 批量登记并发布工作区投影。
+### application.go
 
-### `application_test.go`
+- `func New(deps Deps) *Application` — New constructs the workspace application from consumer-defined ports.
+- `func (application *Application) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)` — WorkspaceEnvironments reads one project's environment table and default name.
+- `func (application *Application) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)` — SetWorkspaceEnvironment writes one project environment.
+- `func (application *Application) DeleteWorkspaceEnvironment(projectID, name string) error` — DeleteWorkspaceEnvironment removes one project environment and its secret.
+- `func (application *Application) SetDefaultWorkspaceEnvironment(projectID, name string) error` — SetDefaultWorkspaceEnvironment selects or clears a project's default
+- `func (application *Application) WorkspaceGitRepos() (dto.GitReposResult, error)` — WorkspaceGitRepos discovers git repositories under the active workspace root.
+- `func (application *Application) GitLog(repo string, limit int) (dto.GitLogResult, error)` — GitLog reads recent commits from one repository inside the workspace.
+- `func (application *Application) Changes(repo string, limit int) (dto.WorkspaceChangesResult, error)` — Changes reads uncommitted changes from one repository inside the workspace.
+- `func (application *Application) CommitDetail(repo, hash string, limit int) (dto.GitCommitDetail, error)` — CommitDetail reads the file-change summary for one commit.
+- `func (application *Application) CommitFileContent(repo, hash, relPath string, limit int64) (dto.FileContent, error)` — CommitFileContent reads one file from a commit's git object data.
+- `func (application *Application) CreateWorkspaces(requests []dto.WorkspaceCreateRequest) (dto.WorkspaceCreateBatchResult, error)` — CreateWorkspaces registers projects without changing the current session
+- `func (application *Application) environmentPort(projectID string) (contract.WorkspaceEnvironmentPort, string, error)`
+- `func (application *Application) workspaceRoot() (contract.WorkspacePort, string, error)`
+- `func (application *Application) workspaceRepoPort(repo string) (contract.WorkspacePort, string, error)`
+- `func workspaceTreePort(port contract.WorkspacePort) (contract.WorkspaceTreePort, error)`
+- `func resolveRepo(root, repo string) (string, error)` — resolveRepo converts a client repository path into an absolute repository
+- `func withinRoot(root, candidate string) bool`
 
-测试文件按仓库 README 规范不展开函数索引。
+### application_test.go
+
+- `func (workspace *fakeWorkspace) Create(string, string, string) (model.WorkspaceInfo, error)`
+- `func (workspace *fakeWorkspace) Get(string) (model.WorkspaceInfo, error)`
+- `func (workspace *fakeWorkspace) List() []model.WorkspaceInfo`
+- `func (workspace *fakeWorkspace) Delete(string) error`
+- `func (workspace *fakeWorkspace) BindSession(string, string)`
+- `func (workspace *fakeWorkspace) UnbindSession(string)`
+- `func (workspace *fakeWorkspace) SessionWorkspace(string) (model.WorkspaceInfo, bool)`
+- `func (workspace *fakeWorkspace) AllBindings() map[string]string`
+- `func (workspace *fakeWorkspace) DetectGitRemote(string) string`
+- `func (workspace *fakeWorkspace) WorkspaceEnvironments(projectID string) ([]model.WorkspaceEnvironmentInfo, string, error)`
+- `func (workspace *fakeWorkspace) SetWorkspaceEnvironment(projectID, name string, change model.WorkspaceEnvironmentChange) (model.WorkspaceEnvironmentInfo, error)`
+- `func (workspace *fakeWorkspace) DeleteWorkspaceEnvironment(projectID, name string) error`
+- `func (workspace *fakeWorkspace) SetDefaultWorkspaceEnvironment(projectID, name string) error`
+- `func (workspace *fakeWorkspace) GitRepos(root string, limit int) (dto.GitReposResult, error)`
+- `func (workspace *fakeWorkspace) ListTree(string, string, int) (dto.TreeListing, error)`
+- `func (workspace *fakeWorkspace) CountFiles(string) (dto.TreeCount, error)`
+- `func (workspace *fakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error)`
+- `func (workspace *fakeWorkspace) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (workspace *fakeWorkspace) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)`
+- `func (workspace *fakeWorkspace) ReadFile(string, string, int64) (dto.FileContent, error)`
+- `func (workspace *fakeWorkspace) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)`
+- `func (workspaceBasePort) Create(string, string, string) (model.WorkspaceInfo, error)`
+- `func (workspaceBasePort) Get(string) (model.WorkspaceInfo, error)`
+- `func (workspaceBasePort) List() []model.WorkspaceInfo`
+- `func (workspaceBasePort) Delete(string) error`
+- `func (workspaceBasePort) BindSession(string, string)`
+- `func (workspaceBasePort) UnbindSession(string)`
+- `func (workspaceBasePort) SessionWorkspace(string) (model.WorkspaceInfo, bool)`
+- `func (workspaceBasePort) AllBindings() map[string]string`
+- `func (workspaceBasePort) DetectGitRemote(string) string`
+- `func (fake *projectionFake) Projection() switchworkspace.Projection`
+- `func (fake *projectionFake) LockView()`
+- `func (fake *projectionFake) ApplyWorkspaceProjectionLocked(switchworkspace.Projection)`
+- `func (fake *projectionFake) BumpLocked() uint64`
+- `func (fake *projectionFake) UnlockView()`
+- `func (fake *projectionFake) CurrentViewSessionID() string`
+- `func (fake *projectionFake) PublishSnapshotChanged(revision uint64, sessionID string)`
+- `func TestEnvironmentUseCasesTrimIDsAndDelegate(t *testing.T)`
+- `func TestEnvironmentUseCasesPreserveMissingPortErrors(t *testing.T)`
+- `func TestGitQueriesResolveRepoInsideWorkspace(t *testing.T)`
+- `func TestGitQueriesRejectEscapes(t *testing.T)`
+- `func TestGitQueriesRejectSymlinkEscapeWhenSupported(t *testing.T)`
+- `func TestWorkspaceGitReposDegradesAndForwardsRoot(t *testing.T)`
+- `func TestCreateWorkspacesAppliesProjectionAfterSuccess(t *testing.T)`
+- `func TestCreateWorkspacesStopsOnCreateError(t *testing.T)`

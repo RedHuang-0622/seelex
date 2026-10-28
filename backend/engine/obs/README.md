@@ -5,7 +5,7 @@
 `backend/engine/obs` 是**引擎侧的观测面**：把"这一轮发出去的请求长什么样"与"这个会话用了多少
 token"变成可查询的读数，并保管**统一事件库**（A 类事实与 B 类脱敏摘要同库的查询面）。主要调用方
 是装配器（`backend/engine/assemble` 的 Runtime 在 `agent.NewWithComponents` 之前包一层）与
-`wiring/adapters`（会话入口注入 telemetry 归属键）。
+`internal/host`（会话入口注入 telemetry 归属键）。
 
 物理位置：2026-10-16 按
 [plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.5 从
@@ -35,7 +35,7 @@ Runtime 装配（assemble）
   └─ 若 SEELEX_REQUEST_LOG 非空：OpenRequestLogger(path)
        ├─ NewRequestLogCompleter(inner)       ← 同步调用：先 record 再转调原 Completer
        └─ NewRequestLogStreamCompleter(inner)  ← 流式调用：同上
-会话入口（wiring/adapters）
+会话入口（internal/host）
   └─ WithTelemetrySessionID(ctx, sessionID) → 引擎侧按会话记账
   └─ SessionTokenCount(tracer, sessionID)   → 读该会话的 token 合计
 A 类事实（plan/节点执行，Source=workplan.runner / seelex.subagent）─┐
@@ -108,3 +108,71 @@ Router 与 Live 两格）；不要为读法在装配层复制判据。
 ```text
 go test ./backend/engine/obs -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### event_correlation.go
+
+- `func CorrelateMainSessionID( mainSessionID func() string, next func(context.Context, frameworkevent.Event) error, ) func(context.Context, frameworkevent.Event) error` — CorrelateMainSessionID 包装持久化钩子：事件缺失 session_id 关联时补上当前主会话
+
+### event_correlation_test.go
+
+- `func TestCorrelateMainSessionIDFillsMissingSession(t *testing.T)` — TestCorrelateMainSessionIDFillsMissingSession 验证短期事件桥：持久化前为
+- `func TestCorrelateMainSessionIDSkipsEmptyMainSession(t *testing.T)` — TestCorrelateMainSessionIDSkipsEmptyMainSession 验证主会话未就绪时保持
+- `func TestCorrelateMainSessionIDReturnsDownstreamUnchanged(t *testing.T)` — TestCorrelateMainSessionIDReturnsDownstreamUnchanged 验证"没有可补的东西就不包装"：
+- `func TestSessionIDProjectionIsSingleImplementation(t *testing.T)` — TestSessionIDProjectionIsSingleImplementation 是**跨实现一致性**用例：同一份输入
+
+### request_log.go
+
+- `func OpenRequestLogger(path string) (*RequestLogger, error)`
+- `func (l *RequestLogger) record(ctx context.Context, messages []types.Message, tools []types.Tool)`
+- `func (l *RequestLogger) Close() error`
+- `func digestRequestMessage(message types.Message) requestMessageDigest` — digestRequestMessage 生成与存储侧同源的消息指纹：role + 归一化正文 +
+- `func normalizeWireContent(content string) string` — normalizeWireContent 把 provider 恢复注记与内部控制标记还原为空内容，
+- `func NewRequestLogCompleter(inner agent.Completer, log *RequestLogger) *RequestLogCompleter` — NewRequestLogCompleter 包装一个同步 Completer：每轮先记一次请求画像，再转调原实现。
+- `func (c *RequestLogCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error)`
+- `func NewRequestLogStreamCompleter(inner agent.StreamCompleter, log *RequestLogger) *RequestLogStreamCompleter` — NewRequestLogStreamCompleter 包装一个流式 Completer（同上，记录点在所有 provider 调用之前）。
+- `func (c *RequestLogStreamCompleter) CompleteStream( ctx context.Context, messages []types.Message, tools []types.Tool, onChunk func(string), ) (string, string, []types.ToolCall, error)`
+
+### request_log_test.go
+
+- `func (recordingFakeCompleter) CompleteStream( _ context.Context, _ []types.Message, _ []types.Tool, _ func(string), ) (string, string, []types.ToolCall, error)`
+- `func TestRequestLoggerRecordsOrderedDigests(t *testing.T)` — TestRequestLoggerRecordsOrderedDigests：SEELEX_REQUEST_LOG 门控的中间件
+- `func strPtr(value string) *string`
+
+### session_telemetry.go
+
+- `func WithTelemetrySessionID(ctx context.Context, sessionID string) context.Context` — WithTelemetrySessionID 把会话 ID 注入 ctx（G1/M8 会话入口接线）。
+- `func SessionTokenCount(tracer *frameworktelemetry.MemoryTracer, sessionID string) int` — SessionTokenCount 返回指定会话的 LLM usage token 总数（INV-T2 查询面）：
+- `func telemetryAttributeInt(attributes frameworktelemetry.Attributes, key string) int` — telemetryAttributeInt 把 telemetry attribute 的常见数值形态还原为 int
+
+### unified_events.go
+
+- `func NewSummaryLog() *SummaryLog` — NewSummaryLog 创建摘要统一日志。
+- `func (log *SummaryLog) RecordSummary(event seeletelemetry.SummaryEvent)` — RecordSummary 实现 seeletelemetry.SummaryRecorder（best-effort，void）。
+- `func (log *SummaryLog) Append(ctx context.Context, event seeletelemetry.SummaryEvent) error` — Append 追加摘要到内存日志并调用可选持久化钩子（与 A 类事实同库）。
+- `func (log *SummaryLog) Summaries() []seeletelemetry.SummaryEvent` — Summaries 返回内存日志的只读快照（进程存活时的实时摘要）。
+- `func (log *SummaryLog) SetPersister(fn func(context.Context, frameworkevent.Event) error)` — SetPersister 安装摘要持久化钩子（与 A 类事实同一 store 事件库）。
+- `func summaryEventToFrameworkEvent(event seeletelemetry.SummaryEvent) frameworkevent.Event` — summaryEventToFrameworkEvent 把脱敏摘要转换为统一事件库的框架事件形态。
+- `func NewUnifiedEvents(deps UnifiedEventsDeps) *UnifiedEvents` — NewUnifiedEvents 装配一例（装配点是组合根；也可按调用临时装配，语义相同）。
+- `func (events *UnifiedEvents) Query(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error)` — Query 按 sessionID/nodeID 查询统一事件视图（A 类事实 + B 类摘要 + B 类实时遥测）。
+- `func (events *UnifiedEvents) QueryRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error)` — QueryRange 按 Seq 区间查询统一事件视图（事实轨 LoadRange + 实时轨合并）。
+- `func (events *UnifiedEvents) router() *store.Router` — router 取本次查询的事件库路由（deps 未装配或 Router 未接线 → nil）。
+- `func (reader *UnifiedEventReader) Query(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error)` — Query 按 sessionID/nodeID 返回统一事件视图。
+- `func (reader *UnifiedEventReader) QueryRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error)` — QueryRange 按 Seq 区间返回统一事件视图（G7 收口：事实轨从"整段 Load"演进
+- `func (reader *UnifiedEventReader) query( ctx context.Context, sessionID, nodeID string, limit int, load func(context.Context, string) ([]frameworkevent.Event, error), ) (UnifiedEventView, error)`
+- `func UnifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool)` — UnifiedEventTopic 把框架执行事实事件映射为 middle/protocol/event 桥接的
+- `func filterUnifiedEvents(events []frameworkevent.Event, nodeID string, limit int) []frameworkevent.Event` — filterUnifiedEvents 按 nodeID 过滤并按 limit 截断（不修改入参切片）。
+
+### unified_events_test.go
+
+- `func TestSummaryEventToFrameworkEvent(t *testing.T)` — P21-6：这些是**包内白盒用例**（原来在 `backend/engine/assemble` 同名文件里）。
+- `func TestSummaryLogAppendAndPersister(t *testing.T)`
+- `func TestSummaryLogRecordSummaryBestEffort(t *testing.T)`
+- `func TestUnifiedEventReaderQueryFiltersByNodeAndLimit(t *testing.T)`
+- `func TestUnifiedEventReaderUnavailable(t *testing.T)`
+- `func TestUnifiedEventReaderQueryRange(t *testing.T)` — TestUnifiedEventReaderQueryRange G7：事实轨按 Seq 区间读回（不再整段
+- `func TestUnifiedEventTopicMapping(t *testing.T)` — TestUnifiedEventTopicMapping 钉住 seelebridge→middle/protocol/event 桥的

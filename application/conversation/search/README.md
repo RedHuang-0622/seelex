@@ -60,3 +60,21 @@
 go test ./application/conversation/search -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### application.go
+
+- `func New(deps Deps) *Application` — New constructs the application from its consumer-defined dependencies.
+- `func (application *Application) SearchHistory(ctx context.Context, query string, limit int) (dto.SearchResult, error)` — SearchHistory returns the authoritative runtime result for a non-empty query.
+- `func (application *Application) SearchHistoryHandler(argsJSON string) (string, error)` — SearchHistoryHandler adapts the search_history model tool to SearchHistory.
+
+### application_test.go
+
+- `func TestSearchHistoryRejectsEmptyQuery(t *testing.T)`
+- `func TestSearchHistoryPreservesQueryAndLimit(t *testing.T)`
+- `func TestSearchHistoryHandlerUsesSameApplicationPath(t *testing.T)`
+- `func TestSearchHistoryHandlerWrapsRuntimeFailure(t *testing.T)`

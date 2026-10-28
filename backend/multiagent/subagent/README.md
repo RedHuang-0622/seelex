@@ -398,4 +398,3 @@ go build ./...
 ### tool_events_test.go
 
 - `func TestToolEventStateMultiObserver(t *testing.T)` — TestToolEventStateMultiObserver 验证工具事件多观察者：
-

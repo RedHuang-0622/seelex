@@ -4,7 +4,7 @@
 
 团队计划/工作项、角色会话与节点会话记账
 
-覆盖：`teamwork*.go`、`team_registry*.go`、`role_session*.go`、`role_permission*.go`、`node_session_store*.go`、`unit_record_writer*.go`；未归属文件由覆盖自检拦下。
+覆盖：`teamwork*.go`、`team_registry*.go`、`role_session*.go`、`node_session_store*.go`、`unit_record_writer*.go` + 显式名单（见生成器 `STORE_VOLUMES`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -19,11 +19,6 @@
 - `func (store *NodeSessionStore) Load(projectID, mainSessionID, subSessionID string) (NodeSessionRecord, error)` — Load 读取一条子代理会话记录；不存在返回 ErrNodeSessionNotFound。
 - `func (store *NodeSessionStore) List(projectID, mainSessionID string) ([]NodeSessionRecord, error)` — List 从主会话索引列举全部子代理会话记录（按 NodeID 排序）。
 - `func (store *NodeSessionStore) Delete(projectID, mainSessionID, subSessionID string) error` — Delete 删除一条子代理会话记录。
-- `func (repository *jsonRepository) WriteNodeSession(_ context.Context, key Key, record NodeSessionRecord) error`
-- `func (repository *jsonRepository) ReadNodeSession(_ context.Context, key Key, subSessionID string) (NodeSessionRecord, error)`
-- `func (repository *jsonRepository) ListNodeSessions(_ context.Context, key Key) ([]NodeSessionRecord, error)`
-- `func (repository *jsonRepository) DeleteNodeSession(_ context.Context, key Key, subSessionID string) error`
-- `func nodeSessionFileName(mainSessionID, subSessionID string) string` — nodeSessionFileName 生成 `<mainSessionID>-<subSessionID>.json` 文件名
 
 ### node_session_store_test.go
 
@@ -36,65 +31,35 @@
 ### role_permission.go
 
 - `func NewRolePermissionStore(router *Router) *RolePermissionStore` — NewRolePermissionStore 构造会话级角色权限登记存储。
-- `func (store *RolePermissionStore) Vectors(projectID, sessionID string) (map[string][]string, error)` — Vectors 返回该会话下**所有**已登记角色的权限向量（一次读盘，会话加载点用）。
-- `func (store *RolePermissionStore) Vector(projectID, sessionID, role string) ([]string, bool, error)` — Vector 读单个角色的权限向量（第二返回值报告"是否登记过"）。
-- `func (store *RolePermissionStore) Put(projectID, sessionID, role string, vector []string) (RolePermissionRecord, error)` — Put 写入一个角色的权限向量（空集合法 = 显式不给任何能力）。
-- `func (store *RolePermissionStore) Drop(projectID, sessionID, role string) error` — Drop 删除一条登记（与"显式空集"是两件事）。
-- `func (store *RolePermissionStore) DropSession(projectID, sessionID string) error` — DropSession 删除该会话下的全部登记。
-- `func (store *RolePermissionStore) RoleAccount(projectID, role string) (string, bool, error)` — RoleAccount 读取角色默认账号。
-- `func (store *RolePermissionStore) SetRoleAccount(projectID, role, account string) error` — SetRoleAccount 与权限默认共用一条角色记录，写入账号不擦权限向量。
-- `func (store *RolePermissionStore) RoleInheritance(projectID, role string) (bool, bool, error)` — 读取显式继承开关并报告是否存在。
-- `func (store *RolePermissionStore) SetRoleInheritance(projectID, role string, inherit bool) error` — 写入 subagent / teammate 的 mainagent 继承开关。
-- `func (store *RolePermissionStore) RoleSSHUserSpaces(projectID, role string) ([]string, error)` — 读取角色自己的 SSH 路径白名单。
-- `func (store *RolePermissionStore) SetRoleSSHUserSpaces(projectID, role string, paths []string) error` — 与角色默认权限共用记录写入 `ssh` 能力下的路径白名单。
-- `func (store *RolePermissionStore) RoleEffectiveSSHUserSpaces(projectID, sessionID, role string) ([]string, error)` — 读取会话覆盖优先、角色默认兜底的 SSH 路径白名单。
-- `func (store *RolePermissionStore) SetRoleSessionSSHUserSpaces(projectID, sessionID, role string, paths []string) error` — 写入当前会话中该 agent role 的 SSH 路径覆盖。
-- `func (store *RolePermissionStore) sessionKeys(projectID, sessionID string) []rolePermissionKey` — sessionKeys 返回该会话在索引里的全部登记格坐标。
-- `func (store *RolePermissionStore) entry(key rolePermissionKey) *rolePermissionEntry` — entry 取（或建）一个角色登记格（只增不删）。
-- `func (store *RolePermissionStore) loadEntry(entry *rolePermissionEntry, projectID, sessionID, role string) error` — loadEntry 首次访问时从盘上装载该登记格（调用方持条目锁）。
-- `func (store *RolePermissionStore) snapshot(projectID string) (rolePermissionFile, error)` — snapshot 读一次项目级登记文件（不存在 = 空表）。
-- `func (store *RolePermissionStore) mutate(projectID string, apply func(*rolePermissionFile)) error` — mutate 在项目文件锁下做一次读改写（锁序：条目锁 → 文件锁）。
-- `func (store *RolePermissionStore) fileLock(projectID string) *sync.Mutex` — fileLock 取该项目的落盘互斥（sync.Map: projectID -> *sync.Mutex）。
-- `func (repository *jsonRepository) readRolePermissionLayout(projectID string) (rolePermissionFile, error)`
-- `func (repository *jsonRepository) writeRolePermissionLayout(projectID string, file rolePermissionFile) error`
-- `func (repository *jsonRepository) rolePermissionPath(projectID string) string` — rolePermissionPath 返回项目级角色权限文件的物理路径。
-- `func normalizedRoleVector(vector []string) []string` — normalizedRoleVector 返回独立副本（空集落盘必须是 `[]` 而不是 null）。
+- `func (layout rolePermissionLayout) WithProjectDir(projectID string, fn func(dir string) error) error`
 
 ### role_permission_test.go
 
 - `func openRolePermissionRouter(t *testing.T) *Router`
 - `func rolePermissionFileOnDisk(t *testing.T, router *Router) string` — rolePermissionFileOnDisk 找项目级角色权限文件（项目目录名带 hash 前缀）。
-- `func TestRolePermissionStoreRoundTrip(t *testing.T)` — 键是 (sessionID, role)，换一个 store 实例也能读回来。
-- `func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T)` — 三态纪律：空向量是"显式不给任何能力"，与"没这条记录"分得开。
-- `func TestRolePermissionDropScopes(t *testing.T)` — Drop / DropSession 的作用域（单角色 vs 整会话）。
-- `func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T)` — 并发：不同角色同时写不丢更新。
-- `func TestRolePermissionRejectsEmptyCoordinates(t *testing.T)` — 空会话/空角色显式报错（不写一格无坐标的登记）。
-- `func TestRolePermissionStoreWithoutRouter(t *testing.T)` — 未装配 Router 时读退化为空登记、写显式失败。
+- `func TestRolePermissionStoreRoundTrip(t *testing.T)`
+- `func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T)`
+- `func TestRolePermissionDropScopes(t *testing.T)`
+- `func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T)` — TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates 是本文件的核心并发用例：
+- `func TestRolePermissionRejectsEmptyCoordinates(t *testing.T)`
+- `func TestRolePermissionStoreWithoutRouter(t *testing.T)` — TestRolePermissionStoreWithoutRouter 钉住"没装配存储就别假装成功"。
 
 ### role_session.go
 
-- `func roleDraftLock(path string) *sync.Mutex`
-- `func (store *storeEngine) roleSessionRoot(mainKey Key, roleName, roleSessionID string) string` — roleSessionRoot 返回角色会话子树的物理根。main 直接使用主会话根；tl 使用
-- `func (store *storeEngine) roleStore(mainKey Key, roleName, roleSessionID string) (*storeEngine, Key)` — roleStore 返回指定角色会话的引擎与 key。main 复用当前引擎；非 main 以角色
-- `func (store *storeEngine) createRoleSession(mainKey Key, roleName, roleSessionID string, joinSeq uint64) (*storeEngine, Key, error)` — createRoleSession 创建非 main 角色会话（message/event/metadata 同构空现场），
-- `func roleSessionCommitID(roleName, roleSessionID string) string`
-- `func roleDraftPath(roleStore *storeEngine, key Key, roleName string) string`
-- `func appendRoleDraft(roleStore *storeEngine, key Key, roleName string, rows []RoleDraftRow) error` — appendRoleDraft 追加未同步 role draft。每个角色独立锁，互不阻塞。
-- `func readRoleDraft(roleStore *storeEngine, key Key, roleName string) ([]RoleDraftRow, error)`
-- `func deleteRoleDraft(roleStore *storeEngine, key Key, roleName string) error`
-- `func sortRoleDraftRows(rows []RoleDraftRow, order []string) []RoleDraftRow` — sortRoleDraftRows 按 round_id → role 顺序 → unit_seq 稳定排序。这是
-- `func roleDraftCommitID(roleName, roleSessionID string, rows []RoleDraftRow) string`
-- `func roleDraftRowsToEvents(rows []RoleDraftRow) []Event`
-- `func (store *storeEngine) syncRoleDraft(mainKey Key, roleName, roleSessionID string, order []string) (RoleDraftSyncResult, error)` — syncRoleDraft 是 sequencer 的存储侧同步入口：读该角色 draft → 排序 → 幂等
-- `func (store *storeEngine) readRoleSessionRows(mainKey Key, roleName, roleSessionID string) ([]Event, error)` — readRoleSessionRows 读取角色会话备份行（冷恢复/审计用）。main 角色读主会话。
-- `func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID string) (RoleSnapshot, error)` — readRoleSnapshot 汇总角色会话观察面（只读）。
-- `func (store *storeEngine) assembleRoleWire(mainKey Key, roleName, roleSessionID string, budget, k int) (RoleWireSnapshot, error)` — assembleRoleWire 构造角色可见 wire：main compact_ref + seq > 切点的 main 行
+- `func roleSessionEngine(store *storeEngine, mainKey Key, roleName, roleSessionID string) (*storeEngine, Key)` — roleSessionEngine 返回角色会话的引擎与 key：main 复用当前引擎；非 main 以
+- `func roleSessionRoot(store *storeEngine, mainKey Key, roleName, roleSessionID string) string` — roleSessionRoot 返回角色会话子树的物理根（路径规则唯一实现在 store/role）。
+- `func (port mainSessionPort) MessageHead() (storesession.MessageHead, error)`
+- `func (port mainSessionPort) CommitSync(commitID string, rows []Event, floor *storesession.Floor) (storesession.MessageHead, error)`
+- `func syncRoleDraft(store *storeEngine, mainKey Key, roleName, roleSessionID string, order []string) (RoleDraftSyncResult, error)` — syncRoleDraft 是 sequencer 的存储侧同步入口：读该角色 draft → 排序 → 幂等
+- `func createRoleSession(store *storeEngine, mainKey Key, roleName, roleSessionID string, joinSeq uint64) (*storeEngine, Key, error)` — createRoleSession 创建非 main 角色会话（message/event/metadata 同构空现场），
+- `func readRoleSessionRows(store *storeEngine, mainKey Key, roleName, roleSessionID string) ([]Event, error)` — readRoleSessionRows 读取角色会话备份行（冷恢复/审计用）。main 角色读主会话。
+- `func readRoleSnapshot(store *storeEngine, mainKey Key, roleName, roleSessionID string) (RoleSnapshot, error)` — readRoleSnapshot 汇总角色会话观察面（只读）。
+- `func assembleRoleWire(store *storeEngine, mainKey Key, roleName, roleSessionID string, budget, k int) (RoleWireSnapshot, error)` — assembleRoleWire 构造角色可见 wire：main compact_ref + seq > 切点的 main 行
 - `func roleWireMessages(messages []wireMessage) []RoleWireMessage`
 - `func cloneCompactRef(ref *CompactRef) *CompactRef`
 - `func cloneFloor(floor *Floor) *Floor`
 - `func roleSnapshotWarnings(snapshot RoleSnapshot) []string`
-- `func (store *storeEngine) appendRoleSessionRows(mainKey Key, roleName, roleSessionID string, rows []Event) error` — appendRoleSessionRows 向角色会话写备份行。main 角色写主会话 message；非 main
-- `func roleBackupCommitID(roleName, roleSessionID string, rows []Event) string`
+- `func appendRoleSessionRows(store *storeEngine, mainKey Key, roleName, roleSessionID string, rows []Event) error` — appendRoleSessionRows 向角色会话写备份行。main 角色写主会话 message；非 main
 
 ### role_session_router.go
 
@@ -140,7 +105,7 @@
 
 ### team_registry_test.go
 
-- `func TestTeamRegistryRoundTripAndIsolation(t *testing.T)` — TestTeamRegistryRoundTripAndIsolation：角色注册表整份替换落到
+- `func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T)` — TestTeamRegistryOwnerRoundTripAndIsolation：角色注册表整份替换落到
 - `func TestTeamRegistryRejectsUnknownSchema(t *testing.T)` — TestTeamRegistryRejectsUnknownSchema：schema 版本不认识时显式报错，不静默降级。
 - `func TestReadLifecycleOrderToleratesMissingHead(t *testing.T)` — TestReadLifecycleOrderToleratesMissingHead 是 Agent Team 面板报错的回归：
 - `func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T)` — TestReadMessageFloorWorkspaceToleratesUnstartedSession：没有 message head 的会话
@@ -155,13 +120,9 @@
 - `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool`
 - `func TeamworkBindings(rows []TeamworkBinding) map[string]TeamworkBinding`
 
-M10 起，计划/审计/绑定与作业输出目录的唯一 I/O 在
-[`teamwork/README.md`](teamwork/README.md)。组合根通过 `store.Stores.Teamwork` 把
-具体实现注入消费方 `teamwork.planStoreRepository`；根包不再提供
-`Router.TeamworkFor` 或 `jsonRepository` 领域方法。
+### teamwork_accessor_test.go
 
-`teamwork_items.go` 已在 M10 删除；唯一实现和字段身份均在 `store/teamwork` 与
-`contract/dto`。
+- `func TestTeamworkAccessorNarrowsRepository(t *testing.T)`
 
 ### teamwork_items_test.go
 
@@ -198,10 +159,7 @@ M10 起，计划/审计/绑定与作业输出目录的唯一 I/O 在
 
 ### unit_record_writer.go
 
-- `func NewNodeSessionRecordWriter(store *NodeSessionStore) *NodeSessionRecordWriter` — NewNodeSessionRecordWriter 以既有存储为末端起一条链。
-- `func (w *NodeSessionRecordWriter) With(links ...NodeSessionRecordLink) *NodeSessionRecordWriter` — With 派生一条**在外面再包一环**的链（本链不动）：新的一环先跑，之后才走本链原有的环。
-- `func (w *NodeSessionRecordWriter) Save(projectID, mainSessionID string, record NodeSessionRecord) error` — Save 走完整条链再落盘（链上每一环只看得到自己这一层的事实）。
-- `func (w *NodeSessionRecordWriter) Store() *NodeSessionStore` — Store 返回链的末端存储：**读面**（列举/读取/删除/项目作用域）仍走它，本类型只管
+- `func NewNodeSessionRecordWriter(recorder workunit.Recorder) *NodeSessionRecordWriter` — NewNodeSessionRecordWriter 以既有存储为末端起一条链。
 
 ### unit_record_writer_test.go
 

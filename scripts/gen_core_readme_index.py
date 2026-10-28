@@ -9,7 +9,7 @@
 
 * 单 README 包（`## 生态位` + 索引）：`SETTLED_TREES` 下按目录自动发现；
 * 分卷包（根/大包，文件数 > 15，按文件前缀分卷）：`application/assembly`、`test/`、`store/`；
-* 树外已登记包：`kernel/state`、`middle/protocol/{model,event}`、`middle/view{,/board,/boardtest}`。
+* 树外已登记包：当前已收口的零散包由 `EXTRA_PACKAGES` 显式登记。
 
 脚本名保持不变：仓库既有 README 的「刷新方式」行都指向
 `python scripts/gen_core_readme_index.py`（该格式已冻结，改名会让全仓 README 漂移）。
@@ -49,27 +49,29 @@ SECTION_NOTE = (
 
 # 单 README 包：按树自动发现（搬迁中/收口中的树刻意不在列）。
 SETTLED_TREES = (
+    "application",
+    "backend/engine",
+    "backend/tool",
+    "boot",
     "contract",
     "console",
     "e2e",
+    "gui",
     "headless",
-    "wiring",
+    "kernel",
+    "middle",
     "store",
     "internal",
+    "test",
+    "tui",
     "backend/workunit",
     "backend/limit",
     "backend/multiagent",
 )
 
-# 树外已登记包（历史遗留的基座包；索引一直由本脚本负责）。
-EXTRA_PACKAGES = (
-    "kernel/state",
-    "middle/protocol/model",
-    "middle/protocol/event",
-    "middle/view",
-    "middle/view/board",
-    "middle/view/board/boardtest",
-)
+# 当前所有 Go 包目录都已包含在 SETTLED_TREES 或分卷包中；保留显式例外口，
+# 但不得再登记不存在的历史路径。
+EXTRA_PACKAGES = ()
 
 # 「搬迁中/收口中」的延后树在 2026-10-17 已全部清空：M5 的搬迁与收口片入库后工作树静默，
 # 原先登记的 52 个延后包（`application/assembly`、`backend/{engine,tool}`、`middle`）由本脚本
@@ -182,7 +184,7 @@ STORE_VOLUMES = (
     VolumeSpec("media", "媒体分区、检索索引与派生通道（工具记录、定时任务事件）", ("media", "search_index", "tool_record", "schedule_events")),
     # P8 §5.2/§5.3（2026-10-17）：`root_aliases`（保形别名）与 `legacy_storage`（僵尸 shard 存储）
     # 两个前缀已随兼容面/僵尸面清理删除，本卷覆盖随之收缩。
-    VolumeSpec("storage", "存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树与历史迁移", ("json_layout", "module_heads", "fork_store", "router_storage")),
+    VolumeSpec("storage", "存储引擎底座：数据根、存储装配、提交写序、JSON v8 布局、模块 head 发布与 fork 子树", ("json_layout", "module_heads", "fork_store", "router_storage", "commit_writer", "stores")),
     VolumeSpec("misc", "跨卷用例与基础回归（会话状态/锁、head 发布与自愈、并发与读放大探针）", (), (), fallback=True),
 )
 

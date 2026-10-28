@@ -46,3 +46,34 @@ checksum 算法、锁粒度和原子发布方式必须逐字保持。模块 ID �
 ```text
 go test ./store/internal/layout ./store/... -run 'Head|Lock|Atomic|Pending|Guide' -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### layout.go
+
+- `func New(root string) *Layout` — New constructs a layout rooted at the session JSON data root.
+- `func (l *Layout) SessionRoot(scope Scope) string` — SessionRoot returns project-<hash>/session-<hash> beneath the data root.
+- `func (l *Layout) MetadataDir(scope Scope) string` — MetadataDir returns the session metadata directory.
+- `func (l *Layout) ModulePath(scope Scope, module ModuleID) string` — ModulePath returns metadata/<module>.json.
+- `func (l *Layout) GuidePath(scope Scope) string` — GuidePath returns metadata/guide.json.
+- `func IsSessionDir(sessionRoot string) bool` — IsSessionDir reports whether a directory contains the JSON v8 guide.
+- `func (l *Layout) Lock(scope Scope, module ModuleID) *sync.Mutex` — Lock returns one stable mutex for a session/module pair. Distinct module IDs
+- `func (l *Layout) guideLock(scope Scope) *sync.Mutex`
+- `func (l *Layout) EnsureGuide(scope Scope) (Guide, error)` — EnsureGuide idempotently creates or reads the session guide.
+- `func Checksum(head Head) (string, error)` — Checksum returns the checksum of the envelope excluding its checksum field.
+- `func PayloadCommitID(module ModuleID, payload any) string` — PayloadCommitID derives a deterministic commit id from a module head payload.
+- `func (l *Layout) Commit(scope Scope, module ModuleID, commitID string, payload any, updatedAt time.Time) error` — Commit is the whole-replacement write of one module head: ensure the guide,
+- `func (l *Layout) Publish(scope Scope, module ModuleID, commitID string, payload any, updatedAt time.Time) (string, error)` — Publish atomically writes a module head.
+- `func (l *Layout) ReadHead(scope Scope, module ModuleID) (Head, error)` — ReadHead reads and validates one module head.
+- `func (l *Layout) ReadLenientHead(scope Scope, module ModuleID) (Head, bool)` — ReadLenientHead reads only enough of the envelope to recover repair metadata.
+- `func (l *Layout) ReadWithHeal( scope Scope, module ModuleID, lockHeld bool, lock func() *sync.Mutex, beforeRetry func(), repair func(error) error, ) (Head, error)` — ReadWithHeal performs the bounded invalid-head recovery sequence:
+- `func IsNotExist(err error) bool` — IsNotExist reports the shared missing-state classification.
+
+### layout_test.go
+
+- `func TestPathsGuideHeadAndLocks(t *testing.T)`
+- `func TestReadWithHealRunsDomainRepairAfterBoundedRetry(t *testing.T)`
+- `func hash16(value string) string`

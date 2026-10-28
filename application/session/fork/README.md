@@ -52,3 +52,26 @@ go test ./application/session/fork -count=1
 go test ./application/assembly -run Fork -count=1
 go test ./application/... -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### fork_runtime.go
+
+- `func (service *Runtime) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
+
+### runtime.go
+
+- `func NewRuntime(deps RuntimeDeps) *Runtime` — NewRuntime constructs the Session fork runtime.
+- `func (runtime *Runtime) closed() bool`
+- `func (runtime *Runtime) draining() bool`
+- `func (runtime *Runtime) perSessionExecution() bool`
+- `func (runtime *Runtime) newGeneratedSessionID(prefix string) string`
+- `func (runtime *Runtime) setWorkspaceWriteScope(workspaceID string)`
+- `func (runtime *Runtime) ForkSessionLocked(parentID string, request protocol.ForkRequest) (string, error)` — ForkSessionLocked performs one durable Session fork while the caller holds
+
+### runtime_test.go
+
+- `func TestRuntimeLifecycleCallbacks(t *testing.T)`

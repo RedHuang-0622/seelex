@@ -127,3 +127,72 @@ sequenceDiagram
 go test ./seelebridge/... -count=1
 go build ./...
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### agent_node.go
+
+- `func NewAgentNode(spec codec.NodeSpec[SeelexNodeInput], deps Deps) *AgentNode` — NewAgentNode 构造子代理节点包装。scope/blocks 经闭包延迟解析，使执行前
+- `func (n *AgentNode) Input() SeelexNodeInput` — Input 返回节点输入（测试/诊断读取面）。
+- `func (n *AgentNode) Scope() func() dto.SceneScope` — Scope 返回节点作用域解析器（测试/诊断读取面）。
+- `func (n *AgentNode) Blocks() func() []seelectx.PromptBlock` — Blocks 返回节点 PromptBlocks 解析器（测试/诊断读取面）。
+- `func (n *AgentNode) traceSource() provider.TraceSource` — traceSource 返回遥测追踪源（子代理 Findings/Decisions 提取）。
+- `func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error)` — Run 注入节点作用域与节点级 PromptBlocks 后委托节点 Session 执行。
+- `func withWorktreeUnmergedNotice(result string, finishErr error) string` — withWorktreeUnmergedNotice 在节点产出末尾附加「未合并」警告。节点结论照常
+- `func withWorktreeMergeBlockedNotice(result string, finishErr error) string` — withWorktreeMergeBlockedNotice 在节点产出末尾附加「合并被主工作区挡住」的警告。
+- `func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, goal, status, output string)` — mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
+- `func truncateNodePreview(value string, max int) string`
+- `func nodeStatusForErr(err error) string` — nodeStatusForErr 给出节点结论对应的**节点状态词**（引契约，不写字面量）。
+- `func SceneScopeFor(deps Deps, nodeID string) dto.SceneScope` — SceneScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
+- `func WithNodePromptBlocks(ctx context.Context, blocks []seelectx.PromptBlock) context.Context` — WithNodePromptBlocks 把节点级 PromptBlocks（目标 + 父证据 + 预算）注入 ctx。
+- `func NodePromptBlocksFromContext(ctx context.Context) []seelectx.PromptBlock` — NodePromptBlocksFromContext 读取 ctx 中的节点级 PromptBlocks（拷贝）。
+- `func NodeSubagentCharter(input SeelexNodeInput, budget NodeBudgetInfo, evidence *snapshot.ContextSnapshot) string` — NodeSubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
+- `func MatchNodeSkills(input string, skills []skill.Skill) []skill.Skill` — MatchNodeSkills 按节点目标匹配 skill：skill 名称（含分词：code-impl →
+
+### coordinator.go
+
+- `func NewCoordinator(deps CoordinatorDeps) *Coordinator` — NewCoordinator 构造节点协调器。
+- `func (c *Coordinator) Close()` — Close 清理节点协调器状态（started 去重表），幂等；节点本身无 goroutine，
+- `func (c *Coordinator) RegisterSession(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)` — RegisterSession 注册运行中的子代理会话（详情查询数据面）。
+- `func (c *Coordinator) UnregisterSession(nodeID string)` — UnregisterSession 结束注册并保留最后快照（节点结束后详情仍可看）。
+- `func (c *Coordinator) CompleteSubagentNode(nodeID, summary string, err error)` — CompleteSubagentNode 写入 fork 子代理树节点终态，并同步 task 注册表
+- `func (c *Coordinator) Conversation(nodeID string) ([]types.Message, bool)` — Conversation 返回节点子代理的会话记录：运行中 → 子会话 History（实时）；
+- `func (c *Coordinator) ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)` — ContextSnapshot 返回节点子代理的结构化上下文快照（详情弹窗"上下文"标签）。
+- `func (c *Coordinator) ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver` — ToolResultArchiverFor 返回节点专属工具结果归档器（惰性创建；同一节点跨
+- `func (c *Coordinator) ToolResult(nodeID, ref string) (string, bool)` — ToolResult 读回节点子代理的工具结果原始内容（ref 必须带 node:<nodeID>: 前缀）。
+- `func (c *Coordinator) RecordStage(nodeID string, log model.NodeStageLog)` — RecordStage 记录 node 第一视角阶段日志（见 session.SubagentSessions.RecordStage）。
+- `func (c *Coordinator) StageLogs(nodeID string) []model.NodeStageLog` — StageLogs 返回 node 第一视角阶段日志（同一 subagent 的多阶段认证面）。
+- `func (c *Coordinator) StageEvents() <-chan model.NodeStageLog` — StageEvents 返回第一视角阶段日志实时推送通道（即时输出面）。
+- `func (c *Coordinator) RecordResult(nodeID string, result *model.NodeSemanticResult)` — RecordResult 登记 node 预定义语义结果并投入语义结果队列。
+- `func (c *Coordinator) SemanticResult(nodeID string) *model.NodeSemanticResult` — SemanticResult 返回 node 最近一次语义结果。
+- `func (c *Coordinator) DrainSemanticResults() []*model.NodeSemanticResult` — DrainSemanticResults 取空语义结果队列（消息队列消费面）。
+- `func (c *Coordinator) ParentEvidence() *snapshot.ContextSnapshot` — ParentEvidence 返回 Runtime 持有的父证据快照（子代理可读）。
+- `func (c *Coordinator) SetSkills(registry *skill.Registry)` — SetSkills 装配子代理 skill 目录 actor（skill.Registry 自带锁；传 nil 关闭
+- `func (c *Coordinator) Budget(input SeelexNodeInput) NodeBudgetInfo` — Budget 返回节点子代理的迭代轮数预算：优先节点输入参数（plan_load 节点
+- `func (c *Coordinator) GoalSkillActive() bool` — GoalSkillActive 读取 Runtime 持有的不可变可见性投影。
+- `func (c *Coordinator) PromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock` — PromptBlocks 构建节点级 PromptBlock：子代理章程（Claude Code 风格结构化
+- `func (c *Coordinator) resumeNote(nodeID string) string` — resumeNote 读取节点中断恢复说明（未接线/非恢复轮次 → 空串）。
+- `func (c *Coordinator) Assembler() seelectx.RequestAssembler` — Assembler 返回节点子代理会话的 RequestAssembler：把 AgentNode 注入 ctx 的
+- `func (c *Coordinator) skillBlocks(input SeelexNodeInput) []seelectx.PromptBlock` — skillBlocks 构建子代理 skill 块：
+- `func (c *Coordinator) MarkStarted(nodeID string)` — MarkStarted 节点首次组装请求（真正开始执行，SSE 流开启）→ queued 转
+- `func (c *Coordinator) NoteProgress(nodeID string, messageCount int)` — NoteProgress 上报节点本轮装配的工作历史条数（调用点在节点自己的请求
+- `func (c *Coordinator) inheritedBlocks() []seelectx.PromptBlock` — inheritedBlocks 返回子代理会话继承的主代理稳定上下文块：
+- `func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error)` — Assemble 实现 seelectx.RequestAssembler。
+- `func splitSystemBlocks(blocks []seelectx.PromptBlock) (systemBlocks, rest []seelectx.PromptBlock)` — splitSystemBlocks 把 system 块拆到最前（provider/缓存前缀约定），其余
+- `func stringPtr(value string) *string` — stringPtr 返回字符串指针（PromptBlock 内容载体）。
+
+### coordinator_tool_protocol_test.go
+
+- `func TestScopeAssemblerSanitizesWorkingHistoryToolProtocol(t *testing.T)` — TestScopeAssemblerSanitizesWorkingHistoryToolProtocol 孤儿 tool 结果（没有
+- `func TestScopeAssemblerLeavesLegalHistoryUntouched(t *testing.T)` — TestScopeAssemblerLeavesLegalHistoryUntouched 合法协议的历史逐字不动
+
+### session_id.go
+
+- `func NodeSessionID(systemPrompt string) string` — NodeSessionID 派生节点会话 ID：以系统提示（节点目标）为种子做稳定哈希；
+
+### tool_result.go
+
+- `func (a ToolResultArchiver) Store(ctx context.Context, callID, tool, raw string) (string, error)` — Store 实现 seelexctx.ToolResultArchiver（幂等由底层归档器保证）。

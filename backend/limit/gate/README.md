@@ -158,4 +158,3 @@ go test ./backend/limit/gate -count=1
 - `func TestScrubEnvironmentRemovesCredentials(t *testing.T)` — TestScrubEnvironmentRemovesCredentials 验证凭据环境变量清洗：
 - `func TestSandboxPrepareScrubsEnvAndSetsRoot(t *testing.T)` — TestSandboxPrepareScrubsEnvAndSetsRoot 验证 native sandbox Prepare：
 - `func TestIsSensitiveEnvName(t *testing.T)` — TestIsSensitiveEnvName 验证敏感名判定覆盖常见凭据模式。
-

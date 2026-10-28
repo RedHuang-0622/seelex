@@ -112,8 +112,10 @@ go test ./application/execution/subagentview -count=1
 
 ### coordinator.go
 
-- `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 subagent_view 协调器。
-- `func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
+- `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 subagentview 协调器。
+- `func (c *Coordinator) HandleSubagentToolEvent(e dto.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
+- `func (c *Coordinator) HandleSubagentToolEventFor(ownerSessionID string, e dto.SubagentToolEvent)` — HandleSubagentToolEventFor 是带归属的那条入口（生产路径）。
+- `func (c *Coordinator) CloseToolRecordUnit(ownerSessionID, nodeID string)` — CloseToolRecordUnit 是**节点收口**：把它这一轮的读数一次性提交给主会话累计
 - `func (c *Coordinator) upsertSubagentToolEvent(node *model.PlanNode, e model.SubagentToolEvent)`
 - `func (c *Coordinator) truncateSubagentEvidence(value string) string`
 - `func FindPlanNodeByID(nodes []model.PlanNode, nodeID string) *model.PlanNode` — FindPlanNodeByID 递归查找 Plan 节点（含子节点）。
@@ -124,11 +126,19 @@ go test ./application/execution/subagentview -count=1
 - `func nodeStatusFromTaskStatus(status string) model.NodeStatus` — nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → NodeUnknown）。
 - `func findSubagentTreeNode(nodes []dto.SubAgentTreeNode, nodeID string) *dto.SubAgentTreeNode` — findSubagentTreeNode 在子代理树投影中递归查找节点。
 - `func (c *Coordinator) nodeWorktreeInfo(nodeID string) *model.SubagentWorktreeInfo`
-- `func (c *Coordinator) adaptSubagentContext(snap *snapshot.ContextSnapshot) *model.SubagentContext`
+- `func (c *Coordinator) adaptSubagentContext(snap *dto.ContextSnapshot) *model.SubagentContext`
 - `func isRunningSubagentStatus(status model.NodeStatus) bool`
-- `func (c *Coordinator) adaptSubagentConversation(messages []types.Message) []model.Message`
+- `func (c *Coordinator) adaptSubagentConversation(messages []contract.EngineMessage) []model.Message`
+
+### record_attribution_test.go
+
+- `func (probe *readingProbe) record(ownerSessionID string, event dto.SubagentToolEvent)`
+- `func newProbedCoordinator(t *testing.T, probe *readingProbe) *Coordinator`
+- `func TestSubagentReadingUsesOwnerFromExecutionContext(t *testing.T)`
+- `func TestSubagentReadingHappensBeforePlanProjectionEarlyReturn(t *testing.T)`
+- `func TestSubagentReadingCompatEntryCarriesNoOwner(t *testing.T)`
+- `func TestSubagentCommitEntersByOwnerAndNode(t *testing.T)`
 
 ### tool_call_status_word_test.go
 
 - `func TestSubagentConversationSpeaksTheToolCallCellWords(t *testing.T)` — TestSubagentConversationSpeaksTheToolCallCellWords 钉住"工具调用视图词"这一格的取值面：
-

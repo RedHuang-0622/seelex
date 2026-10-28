@@ -144,7 +144,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
   那份把前一轮整个丢掉。区别是现在**所有**调用方都走阻塞领轮——没有谁持着"对方要用的锁"，等待只
   会排队。
 
-**有牙证明**（`wiring/adapters/engine_port_history_test.go`，真实 Session）：
+**有牙证明**（`internal/host/engine_port_history_test.go`，真实 Session）：
 `TestReplaceHistoryInsideTurnTakesEffectInSameTurn`（同回合下一次请求已带压缩帧；终态历史 =
 帧 + 在飞 assistant + tool 结果 + 收尾 assistant）、`TestReplaceHistoryDropsInFlightTailIsRefused`
 （丢在飞尾部被拒且不动历史）、`TestReplaceHistoryOutsideTurnAppliesImmediately`（锁外立即落地）；

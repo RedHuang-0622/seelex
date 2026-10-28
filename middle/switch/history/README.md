@@ -91,22 +91,45 @@ go test ./application/assembly/ -run 'History|Pagination|ColdRestore|LoadMore' -
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### page.go
-
-- `func ReplaceTail(pageRows, memoryRows []model.Message, memoryStart, memoryTotal, window int) ([]model.Message, int)` — 组装尾部窗口（页为底 + 按行身份接回热尾）。
-- `func Prepend(pageRows, memoryRows []model.Message, memoryStart, window int) ([]model.Message, int)` — 组装"加载更早"窗口（接缝之前的行前置）。
-- `func DurableRows(messages []model.Message) []model.Message` — 取出参与历史游标的行（system 不占下标）。
-- `func HasRowIdentity(message model.Message) bool` — 一行是否带得出身份（空行无法对位）。
-- `func SameByContent(left, right model.Message) bool` — 按「角色 + 正文 + 思考」对位（空占位不参与；工具行按调用 ID）。
-- `func IndexOfSameRow(rows []model.Message, want model.Message) int` — 同身份行的下标（先按 ID，再退回内容）。
-- `func ContainsSameRow(rows []model.Message, want model.Message) bool` — 是否含同身份行。
-
 ### assembler.go
 
-- `type Assembler struct` — 实现 `application/history.WindowAssembler` 的无状态转发器。
-- `func (Assembler) ReplaceTail(...)` — 转发 `ReplaceTail`。
-- `func (Assembler) Prepend(...)` — 转发 `Prepend`。
-- `func (Assembler) DurableRows(...)` — 转发 `DurableRows`。
-- `func (Assembler) IndexOfSameRow(...)` — 转发 `IndexOfSameRow`。
-- `func (Assembler) ContainsSameRow(...)` — 转发 `ContainsSameRow`。
-- `func (Assembler) HasRowIdentity(...)` — 转发 `HasRowIdentity`。
+- `func (Assembler) ReplaceTail(pageRows, memoryRows []model.Message, memoryStart, memoryTotal, window int) ([]model.Message, int)` — ReplaceTail 转发现有 ReplaceTail 实现。
+- `func (Assembler) Prepend(pageRows, memoryRows []model.Message, memoryStart, window int) ([]model.Message, int)` — Prepend 转发现有 Prepend 实现。
+- `func (Assembler) DurableRows(messages []model.Message) []model.Message` — DurableRows 转发现有 DurableRows 实现。
+- `func (Assembler) IndexOfSameRow(rows []model.Message, want model.Message) int` — IndexOfSameRow 转发现有行身份对位实现。
+- `func (Assembler) ContainsSameRow(rows []model.Message, want model.Message) bool` — ContainsSameRow 转发现有同身份行判据。
+- `func (Assembler) HasRowIdentity(message model.Message) bool` — HasRowIdentity 转发现有行身份有效性判据。
+
+### assembler_test.go
+
+- `func TestAssemblerMatchesOriginalWindowFunctions(t *testing.T)`
+- `func TestAssemblerKeepsWindowOnUnmatchedSeamAndIgnoresEmptyPlaceholders(t *testing.T)`
+
+### boundary_test.go
+
+- `func TestHistoryDoesNotImportViewState(t *testing.T)`
+
+### page.go
+
+- `func ReplaceTail(pageRows, memoryRows []model.Message, memoryStart, memoryTotal, window int) ([]model.Message, int)` — ReplaceTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存窗口里发布点之后的那段
+- `func Prepend(pageRows, memoryRows []model.Message, memoryStart, window int) ([]model.Message, int)` — Prepend 组装「加载更早」的窗口：页里接缝（窗口首行）之前的可见行前置到窗口头部，窗口整体后退
+- `func DurableRows(messages []model.Message) []model.Message` — DurableRows 取出可见窗口里参与历史游标的行（system 引导行不占 durable 下标空间，
+- `func HasRowIdentity(message model.Message) bool` — HasRowIdentity 报告一行是否带得出身份（空行无法对位）。
+- `func SameByContent(left, right model.Message) bool` — SameByContent 按「角色 + 正文 + 思考」对位（没有稳定消息 ID 的行只能这样认）；空行（占位 assistant、
+- `func IndexOfSameRow(rows []model.Message, want model.Message) int` — IndexOfSameRow 返回 rows 里第一条与 want 同身份的行下标（-1 = 没找到）。先按消息 ID 认
+- `func ContainsSameRow(rows []model.Message, want model.Message) bool` — ContainsSameRow 报告 rows 里有没有与 want 同身份的行。
+- `func lastRow(rows []model.Message) model.Message` — lastRow 返回最后一行（空序列返回零值行：与任何行都不是同一条）。
+
+### page_test.go
+
+- `func row(id, role, content string) model.Message`
+- `func ids(rows []model.Message) []string`
+- `func equalIDs(left, right []string) bool`
+- `func TestReplaceTailJoinsHotTailByRowIdentity(t *testing.T)`
+- `func TestReplaceTailWithoutSeamUsesVisibleTotal(t *testing.T)`
+- `func TestReplaceTailEmptyVisibleKeepsWindow(t *testing.T)`
+- `func TestPrependUsesWindowFirstRowAsSeam(t *testing.T)`
+- `func TestPrependWithoutSeamStaysPut(t *testing.T)`
+- `func TestPrependIntoEmptyWindowTakesPageTail(t *testing.T)`
+- `func TestRowIdentityMatching(t *testing.T)`
+- `func TestDurableRowsSkipsSystem(t *testing.T)`

@@ -50,3 +50,33 @@ flowchart LR
 ```text
 go test ./seelexctx/merger -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### merger.go
+
+- `func NewMerger() *Merger`
+- `func (m *Merger) MergeBack(parent, child *snapshot.ContextSnapshot) error` — MergeBack 将子代理快照合并到父代理快照。不修改原始切片。
+- `func copyDecisions(src []snapshot.Decision) []snapshot.Decision`
+- `func copyStrings(src []string) []string`
+
+### merger_test.go
+
+- `func TestMergeBack_NilParent(t *testing.T)`
+- `func TestMergeBack_NilChild(t *testing.T)`
+- `func TestMergeBack_FindingsAppend(t *testing.T)`
+- `func TestMergeBack_DecisionsAppend(t *testing.T)`
+- `func TestMergeBack_ProgressReplace(t *testing.T)`
+- `func TestMergeBack_ProgressKeep(t *testing.T)`
+- `func TestMergeBack_PendingReplace(t *testing.T)`
+- `func TestMergeBack_TokenSum(t *testing.T)`
+- `func TestMergeBack_MessageCountSum(t *testing.T)`
+- `func TestMergeBack_EscapeReplace(t *testing.T)`
+- `func TestMergeBack_ConstraintsDedup(t *testing.T)`
+- `func TestMergeBack_CopyOnWrite(t *testing.T)`
+- `func TestMergeBack_Alternatives(t *testing.T)`
+- `func TestMergeBack_GoalInheritedWhenParentEmpty(t *testing.T)`
+- `func TestMergeBack_GoalKeptWhenParentSet(t *testing.T)`

@@ -59,4 +59,3 @@ CGO_ENABLED=0 GOOS=darwin go build ./internal/winhide
 ### winhide_windows.go
 
 - `func Apply(cmd *exec.Cmd)` — Apply 隐藏子进程控制台窗口（Windows）；其它平台无副作用。
-

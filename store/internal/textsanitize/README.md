@@ -37,5 +37,5 @@ go test ./store/... -run 'ProjectKnown|ProjectBoard' -count=1
 
 ### sanitize.go
 
-- `func KnownText(value string) string` — 剔除机器本地工作区 ID 与绝对路径，供可提交派生文本复用。
-- `func RepoRelativePath(value string) (string, bool)` — 校验并归一化仓库相对路径，拒绝绝对路径、工作区 ID 与 `..` 逃逸。
+- `func KnownText(value string) string` — KnownText removes machine-local workspace IDs and absolute paths from prose.
+- `func RepoRelativePath(value string) (string, bool)` — RepoRelativePath validates and normalizes a repository-relative path.

@@ -89,26 +89,30 @@ go test ./backend/engine/assemble/... ./backend/tool/computer/... -count=1
 
 ## 文件与函数索引
 
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
 ### media.go
 
-| 函数 | 签名 | 摘要 |
-|---|---|---|
-| `New` | `func New(host Host) *SessionMedia` | 构造媒体面（待随图队列由本包自建） |
-| `Attach` | `func (m *SessionMedia) Attach(ctx context.Context, attachment imageattach.Attachment)` | 把一张画面挂进下一次请求随图队列 |
-| `PendingCount` | `func (m *SessionMedia) PendingCount(ctx context.Context) int` | 返回当前会话还有多少张待随图 |
-| `StoreMedia` | `func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.MediaAsset) (bridgecomputer.StoredMedia, error)` | 把截图落进执行会话自己的媒体分区 |
-| `AttachPending` | `func (m *SessionMedia) AttachPending(ctx context.Context, image bridgecomputer.PendingImage) error` | 工具侧入队入口：缺会话上下文改为显式报错 |
-| `LoadMedia` | `func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePart, error)` | 按 `media:<hash>` 从执行会话的媒体分区读回图片 |
-| `ProjectIDFor` | `func (m *SessionMedia) ProjectIDFor(ctx context.Context, sessionID string) string` | 解析媒体资产的归属项目（会话绑定 → 节点工作区 → 默认） |
-| `Wrap` | `func (m *SessionMedia) Wrap(next agent.Completer, streamer agent.StreamCompleter) (agent.Completer, agent.StreamCompleter)` | 把待随图包装挂到给定的一对 Completer 上并返回 |
-| `historyRouter` | `func (m *SessionMedia) historyRouter() *store.Router` | 本包内部对宿主路由的取值口（宿主缺席返回 nil） |
+- `func New(host Host) *SessionMedia` — New 构造媒体面。pending 队列由本包自建：它是进程内的一次性状态，没有第二个
+- `func (m *SessionMedia) Attach(ctx context.Context, attachment imageattach.Attachment)` — Attach 把一张画面挂进「下一次模型请求随图」队列。
+- `func (m *SessionMedia) PendingCount(ctx context.Context) int` — PendingCount 返回当前会话还有多少张待随图（诊断与断言用）。
+- `func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.MediaAsset) (bridgecomputer.StoredMedia, error)` — StoreMedia 把截图落进**执行会话自己**的媒体分区（截屏工具经
+- `func (m *SessionMedia) AttachPending(ctx context.Context, image bridgecomputer.PendingImage) error` — AttachPending 把刚刚看到的画面挂进「下一次模型请求随图」队列
+- `func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePart, error)` — LoadMedia 按 `media:<hash>` 从执行会话的媒体分区读回图片：imageattach
+- `func (m *SessionMedia) ProjectIDFor(ctx context.Context, sessionID string) string` — ProjectIDFor 解析媒体资产的归属项目（store 的 projectID 与
+- `func (m *SessionMedia) Wrap(next agent.Completer, streamer agent.StreamCompleter) (agent.Completer, agent.StreamCompleter)` — Wrap 把待随图包装挂到给定的一对 Completer 上，**返回**挂好的一对。
+- `func (m *SessionMedia) historyRouter() *store.Router` — historyRouter 是本包内部对 Host 的取值口：宿主未装配（nil）时返回 nil。
 
 ### media_test.go
 
-| 测试 | 钉住什么 |
-|---|---|
-| `TestStoreSessionMediaWritesIntoExecutingSessionPartition` | 落在执行会话分区、ref 不跨会话、节点作用域归属、缺会话报错（随 M4-J2b 从 assemble 原样搬来） |
-| `TestMediaProjectIDForResolution` | 归属三级解析（含无宿主回落默认项目） |
-| `TestAttachSessionImageQueuesForExecutingSession` | 入队到执行会话、附件载体形状、不泄漏到别的会话 |
-| `TestWrapKeepsStreamChain` | 包装保留 Stream/StreamEvents 链、返回同一个包装、未装配不造包装 |
-| `TestNilMediaIsInert` | 零值上的四格行为（空操作 / 显式错误，不 panic） |
+- `func (h *stubHost) HistoryRouter() *store.Router`
+- `func (h *stubHost) SessionProjectID(sessionID string) string`
+- `func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T)` — TestStoreSessionMediaWritesIntoExecutingSessionPartition 验证截图落在**执行
+- `func TestMediaProjectIDForResolution(t *testing.T)` — TestMediaProjectIDForResolution 验证媒体归属项目的三级解析：执行会话自己的
+- `func TestAttachSessionImageQueuesForExecutingSession(t *testing.T)` — TestAttachSessionImageQueuesForExecutingSession 验证画面随图：入队到执行会话，
+- `func (streamEventStub) CompleteStream( context.Context, []types.Message, []types.Tool, func(string), ) (string, string, []types.ToolCall, error)`
+- `func (stubCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error)`
+- `func (streamEventStub) CompleteStreamEvents( context.Context, []types.Message, []types.Tool, func(types.StreamEvent), ) (string, string, []types.ToolCall, error)`
+- `func TestWrapKeepsStreamChain(t *testing.T)` — TestWrapKeepsStreamChain 验证包装的链式接线：非 nil 的 streamer 进 wrapper.Stream
+- `func TestNilMediaIsInert(t *testing.T)` — TestNilMediaIsInert 验证未装配（零值）时四格读写都是空操作/显式错误，不 panic。

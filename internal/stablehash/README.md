@@ -77,4 +77,3 @@ go test ./internal/stablehash/
 
 - `func TestFNV1a32KnownVectors(t *testing.T)` — 已知向量钉住算法：这些值变了，node 会话号/账号绑定/权限主体名都会失配。
 - `func TestFNV1a64KnownVectors(t *testing.T)`
-

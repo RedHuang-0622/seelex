@@ -125,4 +125,3 @@ go test ./store/... ./backend/tool/... ./e2e/... -count=1
 - `func isTokenRune(r rune) bool`
 - `func isCJK(r rune) bool`
 - `func sortSearchHits(hits []SearchHit)`
-

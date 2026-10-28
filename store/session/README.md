@@ -41,6 +41,16 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### event_kind.go
+
+- `func EventKindOf(event protocol.TranscriptEvent) string` — EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
+
+### event_kind_test.go
+
+- `func TestEventKindOfExplicitWins(t *testing.T)` — TestEventKindOfExplicitWins 钉住"显式类别优先"：Kind 非空时不得被 Role 回退判定覆盖。
+- `func TestEventKindOfFallback(t *testing.T)` — TestEventKindOfFallback 钉住旧数据（Kind 为空）的回退判据：
+- `func TestEventKindStringsAreStable(t *testing.T)` — TestEventKindStringsAreStable 钉住字面值：词表住在 contract/protocol，判据不得自己造串。
+
 ### session.go
 
 - `func (report PendingTailReport) RowCount() int` — RowCount returns the number of unpublished rows.
@@ -99,4 +109,3 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func AppendStructuralEvents(path string, rows []StructuralEvent) (int64, error)` — AppendStructuralEvents writes EVENT rows and returns the resulting byte size.
 - `func ListMessageShardFiles(dir string) ([]string, error)` — ListMessageShardFiles returns valid message shards ordered by FromSeq.
 - `func DraftBaseSeq(messageDir string, headSeq uint64) (uint64, error)` — DraftBaseSeq returns the physical last row seq under a message directory.
-

@@ -210,23 +210,89 @@ go test ./backend/engine/schedule/... -count=1
 
 ## 文件与函数索引
 
-- `schedule.go`
-  - `type State struct`：定时任务的 actor 资源（自带锁，读写即消息进出；存储经 `contract.ScheduledTaskPersistence` 注入）。
-  - `func NewState() *State`：构造调度器状态（base ctx 用于停机时取消运行中任务）。
-  - `func NewStateWithStore(store contract.ScheduledTaskPersistence) *State`：构造带全局 JSONL 任务定义的调度器状态。
-  - `func (s *State) Start()`：惰启动 ticker 循环（首次创建任务时调用；重复调用幂等）。
-  - `func (s *State) Schedule(ctx context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：校验入参并创建任务（创建后立即排期；observer 通知投影）。
-  - `func (s *State) Update(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：用一份新定义覆盖既有任务（ID 不变、运行账目保留、下次运行重算）。
-  - `func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error)`：校验并归一创建/编辑入参（含装配：档位空落 full、插件经 dto.NormalizePlugins），是"什么算一个合法任务定义"的唯一一份实现。
-  - `func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time)`：把归一后的定义写进任务本体与状态快照（创建、编辑、冷启动重建共用）。
-  - `func scheduledPermissionTier(raw string) (string, error)`：归一任务声明的权限档位（空 = 默认 full access，未识别显式拒绝）。
-  - `func (s *State) CancelTask(id string) error`：取消并移除任务（运行中的执行不受影响，写墓碑行）。
-  - `func (s *State) Restore() (int, int, error)`：从全局 JSONL 读回任务定义（冷启动重建），返回（恢复数, 跳过数）。
-  - `func (s *State) Snapshot() []ScheduledTaskStatus`：返回任务只读快照（按 ID 排序）。
-  - `func (s *State) SetPromptExecutor(executor PromptExecutor)`：注入提示词任务执行器（nil = 禁用 prompt 任务）。
-  - `func (s *State) SetObserver(observer func())`：注入状态变化通知（main 接 application 快照投影发布）。
-  - `func (s *State) Stop()`：优雅停机：停 ticker、取消 base ctx（终止运行中任务），等待运行 goroutine 退出。
-  - `func NewFileStore(path string) *FileStore`：构造全局 JSONL 任务定义存储。
-  - `func (store *FileStore) Path() string`：返回落盘路径（空 = 未配置，调度器此时不持久化）。
-  - `func (store *FileStore) Append(record ScheduledTaskRecord) error`：追加一行变更（O_APPEND 写一整行，失败即本次变更不成立）。
-  - `func (store *FileStore) Load() ([]ScheduledTaskRecord, error)`：读回当前任务集（丢弃墓碑、读不动的行与未收尾残尾）。
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### global_jsonl_test.go
+
+- `func TestScheduledTaskDefinitionLivesInOneGlobalJSONL(t *testing.T)` — TestScheduledTaskDefinitionLivesInOneGlobalJSONL 钉住"全局粒度"这件事本身：
+- `func TestScheduledTaskCancelWritesTombstone(t *testing.T)` — TestScheduledTaskCancelWritesTombstone 钉住取消：写一行墓碑，重启后这条任务
+- `func TestScheduledTaskUpdatePersistsAsNewRowWithSameID(t *testing.T)` — TestScheduledTaskUpdatePersistsAsNewRowWithSameID 钉住编辑的持久化形状：同一 ID
+- `func TestScheduledTaskAssemblySurvivesRestart(t *testing.T)` — TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
+- `func TestScheduledTaskRestoreSkipsWhatCannotRun(t *testing.T)` — TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
+- `func TestScheduledTaskRestoreSkipsPromptTasksWithoutExecutor(t *testing.T)` — TestScheduledTaskRestoreSkipsPromptTasksWithoutExecutor 钉住"执行器未装配 =
+
+### schedule.go
+
+- `func NewState() *State` — NewState 构造调度器状态（base ctx 用于停机时取消运行中任务）。
+- `func NewStateWithStore(store contract.ScheduledTaskPersistence) *State` — NewStateWithStore 构造带全局 JSONL 任务定义的调度器状态（store 为 nil =
+- `func (s *State) Start()` — Start 惰启动 ticker 循环（首次创建任务时调用；重复调用幂等）。
+- `func (s *State) loop()`
+- `func (s *State) tick(now time.Time)` — tick 找出到期任务，逐个独立 goroutine 执行（长任务不阻塞调度循环；
+- `func (s *State) executeTask(t *task)` — executeTask 执行一次任务并回写状态（下次运行 = 本次开始时间 + 周期，
+- `func (s *State) runCommand(t *task) (string, error)` — runCommand 执行白名单命令：argv 直传（不经 shell），cwd 固定，
+- `func (s *State) runPrompt(t *task) (string, string, error)` — runPrompt 调用注入的执行器触发一次 agent 会话（扩展点）：执行器按
+- `func (s *State) RegisterCommand(command ScheduledCommand) error` — RegisterCommand 登记白名单命令（重复键拒绝）。
+- `func (s *State) CommandInfos() []ScheduledCommandInfo` — CommandInfos 返回白名单命令展示信息（GUI 新建弹窗数据源）。
+- `func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)` — Schedule 校验入参并创建任务（创建后立即排期；observer 通知投影）。
+- `func (s *State) Update(_ context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)` — Update 用一份新定义覆盖既有任务（编辑入口）。
+- `func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error)` — normalizeSpec 校验并归一创建/编辑入参，是"什么算一个合法任务定义"的**唯一**
+- `func scheduledPermissionTier(raw string) (string, error)` — scheduledPermissionTier 归一任务声明的权限档位：空 = **默认 full access**。
+- `func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time)` — applyDefinition 把归一后的定义写进任务本体与它的状态快照（创建、编辑、冷启动
+- `func (s *State) CancelTask(id string) error` — CancelTask 取消并移除任务（运行中的执行不受影响，完成回写丢弃）。
+- `func (s *State) Restore() (int, int, error)` — Restore 从全局 JSONL 读回任务定义（冷启动重建），返回（恢复数, 跳过数）。
+- `func (s *State) restoreRecord(record dto.ScheduledTaskRecord, now time.Time) (bool, error)` — restoreRecord 把一行持久化定义还原成内存任务；返回 false = 这条不适用
+- `func (s *State) persistRecord(record dto.ScheduledTaskRecord) error` — persistRecord 把一行记录写进全局 JSONL（store 未装配时是空操作）。写失败
+- `func (s *State) persistDefinition(t *task, deleted bool) error` — persistDefinition 把一条任务定义（含启用状态）写进全局 JSONL；deleted=true
+- `func (s *State) Snapshot() []ScheduledTaskStatus` — Snapshot 返回任务只读快照（按 ID 排序）。
+- `func (s *State) SetPromptExecutor(executor PromptExecutor)` — SetPromptExecutor 注入周期提示词任务执行器（nil = 禁用 prompt 任务）。
+- `func (s *State) SetObserver(observer func())` — SetObserver 注入状态变化通知（main 接 application 快照投影发布）。
+- `func (s *State) observe()` — observe 在锁外调用 observer（状态变化 → application 投影 → runtime.changed）。
+- `func (s *State) Stop()` — Stop 优雅停机：停 ticker、取消 base ctx（终止运行中任务），
+- `func (t *task) statusSnapshot() ScheduledTaskStatus` — statusSnapshot 返回任务状态只读拷贝。
+- `func validatePeriod(spec ScheduledTaskSpec) error` — validatePeriod 校验周期单位/数值与锚点（空单位 = 秒级 Interval 路径）。
+- `func (a startAnchor) hasClock() bool`
+- `func parseStartAnchor(spec ScheduledTaskSpec) (startAnchor, error)` — parseStartAnchor 解析周期锚点：空 StartClock = 以创建时刻为锚点（合法），
+- `func canonicalStartClock(spec ScheduledTaskSpec) string` — canonicalStartClock 把锚点归一成 "HH:MM"（未给锚点 = 空串）。
+- `func effectiveInterval(spec ScheduledTaskSpec) time.Duration` — effectiveInterval 返回用于最小周期校验与状态展示的等价秒级周期
+- `func nextScheduledAt(now time.Time, spec ScheduledTaskSpec) time.Time` — nextScheduledAt 计算任务下一次运行时间（严格晚于 now）。
+- `func advanceToAnchor(now, candidate time.Time, step func(time.Time) time.Time) time.Time` — advanceToAnchor 从候选时刻按步进找到第一个严格晚于 now 的时刻。
+- `func anchorOnDay(day time.Time, anchor startAnchor) time.Time` — anchorOnDay 返回 day 那一天（本地时区）的锚点墙钟时刻。
+- `func isoWeekday(at time.Time) int` — isoWeekday 返回 ISO 星期（1 = 周一 … 7 = 周日）。
+- `func addCalendarMonths(now time.Time, months int) time.Time` — addCalendarMonths 按日历月推进并钳制月末日期（如 1-31 加 1 月 → 2-28/29）。
+- `func lastDayOfMonth(year int, month time.Month) int`
+- `func (t *task) appendLog(now time.Time, line string)` — appendLog 追加运行日志尾部（有界环保留）。
+- `func (t *task) appendLogLocked(now time.Time, line string)`
+- `func tailText(text string, maxRunes int) string` — tailText 截取字符串尾部（结果/错误展示用，超长从尾部保留）。
+
+### schedule_test.go
+
+- `func TestScheduledCommandHelperProcess(t *testing.T)` — TestScheduledCommandHelperProcess 是白名单命令测试的子进程入口：
+- `func newSchedulerTestState(t *testing.T) *State`
+- `func newSchedulerTestStateWithStore(t *testing.T, store contract.ScheduledTaskPersistence) *State` — newSchedulerTestStateWithStore 是持久化用例的夹具：同样的 tick 下调 +
+- `func okPromptExecutor(message string) PromptExecutor` — okPromptExecutor 是"总是成功"的提示词执行器桩（落点会话号由调用方给）。
+- `func helperCommand(t *testing.T, dir string) ScheduledCommand` — helperCommand 构造指向测试二进制的白名单命令（子进程入口见
+- `func waitForStatus(t *testing.T, state *State, id string, want func(ScheduledTaskStatus) bool) ScheduledTaskStatus`
+- `func TestScheduledTaskValidation(t *testing.T)`
+- `func TestScheduledPeriodValidationAndStatus(t *testing.T)`
+- `func TestScheduledOneShotTaskRunsOnceThenDisables(t *testing.T)`
+- `func TestScheduledOneShotValidation(t *testing.T)`
+- `func TestCalendarMonthClamping(t *testing.T)`
+- `func TestNextScheduledAtPeriods(t *testing.T)`
+- `func TestScheduledCommandTaskRunsAndRecordsResult(t *testing.T)`
+- `func TestScheduledCommandFailureExit(t *testing.T)`
+- `func TestScheduledTaskSkipsWhileRunning(t *testing.T)`
+- `func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T)`
+- `func TestScheduledPromptTaskErrorPropagates(t *testing.T)`
+- `func TestScheduledTaskUpdateReplacesDefinition(t *testing.T)` — TestScheduledTaskUpdateReplacesDefinition 钉住编辑语义：ID 不变、定义整体替换
+- `func TestScheduledTaskUpdateSharesCreateValidation(t *testing.T)` — TestScheduledTaskUpdateSharesCreateValidation 钉住"编辑与创建同一份判据"：
+- `func TestScheduledTaskAssemblyDefaultsAndValidation(t *testing.T)` — TestScheduledTaskAssemblyDefaultsAndValidation 钉住任务的**装配**口径：
+- `func repeatNames(n int) []string` — repeatNames 造 n 个互不相同的插件名（上限用例用）。
+- `func TestScheduledTaskCancelRemovesTask(t *testing.T)`
+- `func TestScheduledTaskDisabledDoesNotRun(t *testing.T)`
+- `func TestSchedulerShutdownStopsExecution(t *testing.T)`
+- `func containsText(haystack, needle string) bool`
+- `func TestNextScheduledAtAnchoredPeriods(t *testing.T)` — TestNextScheduledAtAnchoredPeriods 是锚点排期的表驱动钉子。
+- `func TestScheduledAnchorContractValidation(t *testing.T)` — TestScheduledAnchorContractValidation 钉住锚点与周期单位的搭配：
+- `func TestScheduledAnchoredTaskCarriesAnchor(t *testing.T)` — TestScheduledAnchoredTaskCarriesAnchor 钉住锚点真的进了状态快照：面板要按
+- `func TestScheduledTaskRunParamsNormalization(t *testing.T)` — TestScheduledTaskRunParamsNormalization 钉住"执行参数"（思考强度 / 循环次数）在

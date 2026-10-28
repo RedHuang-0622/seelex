@@ -117,16 +117,102 @@ go build -tags "gui,desktop,production" ./...
 
 ## 文件与函数索引
 
-| 文件 | 主要函数 |
-|---|---|
-| `app.go` | `Run`：装配完整实例；`App.Serve`：启动前端；`App.Shutdown`：执行逆序幂等清理；`App.fail`：失败回收。 |
-| `application.go` | `InitSessionManager`：接 Store 与 Engine；`InitApplication`：构造 Application assembly。 |
-| `engine_plugins.go` | `InitSkillSystem`：创建技能注册表；`InitPluginSystem`：加载插件并生成根读数；`ActivateDefaultPlugin`：激活默认插件。 |
-| `permission.go` | `SetupPermissionGate`：装配权限中间件；`MergePermissionConfig`：合并规则；`LoadPermissionConfig`：读取配置；`NewPermissionBridge`：连接审批。 |
-| `runtime.go` | `initRuntime`、`guardMultiProcess`、`InitStore`、`InitWorkspaceRepo`、`InitEngine`、`sessionKeyFor`。 |
-| `service_ports.go` | `ServicePorts`：构造 Application 的外部窄端口组。 |
-| `tools.go` | `RegisterProductTools`、`RegisterContextReadTools`、`RegisterProjectBoardReadTool`、`RegisterProjectRefreshTool`、`RegisterScheduledTaskCapability`、`RegisterTaskTerminalTools`、`RegisterReviewFilesTool`、`RegisterMCPServers`、`RegisterMCPLoadTool`、`RegisterTimeTool`、`RegisterPluginSwitchTools`、`RegisterPluginSelfTools`、`RegisterAskApprove`、`RegisterGoalTools`、`RegisterSkillActivateTool`、`ProjectBoardSinkFor`。 |
-| `frontend.go` | `StartFrontend`：按已校验模式启动 TUI/GUI/headless/backend。 |
-| `frontend_tui.go` | `InitTUI`、`StartTUI`、`tuiDependencies` 与无 GUI 构建下的占位实现。 |
-| `frontend_gui.go` | GUI 可用性、依赖与启动适配。 |
-| `frontend_ports.go` | headless 与控制台前端的依赖装配。 |
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### app.go
+
+- `func (a *App) addCleanup(fn func())` — addCleanup 登记一个关机动作。顺序语义与 `defer` 一致：逆序执行。
+- `func (a *App) Shutdown()` — Shutdown 按装配逆序释放全部部件（幂等：重复调用只会跑一次清理）。
+- `func (a *App) close()` — close 执行清理栈；backend 诊断输出**最后**关（它的 defer 最先注册）。
+- `func (a *App) fail(err error) error` — fail 是 Run 的错误返回姿态：先按已登记的清理栈收拾干净，再把原错误交给入口。
+- `func (a *App) Serve() error` — Serve 跑前端（tui/gui/headless/backend）——前端形态是入口选择，装配与它无关。
+- `func Run(opts Options) (*App, error)` — Run 装配一台完整的 Seelex。返回的 App 必须在 Serve 之后 Shutdown。
+
+### application.go
+
+- `func InitSessionManager(router *store.Router, eng *host.EnginePort) *host.SessionManager`
+- `func InitApplication( eng *host.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *host.SessionManager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval application.ApprovalBroker, boards *storeboard.SessionStore, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
+
+### engine_plugins.go
+
+- `func InitSkillSystem() *skill.Registry`
+- `func InitPluginSystem( runtime *assemble.Runtime, skills *skill.Registry, // pluginsPaths 是 `-plugins` 的原始值（责任链的链首）；环境变量与可执行文件 // 位置由 startup.PluginRoots 自己解析。 pluginsPaths string, ) (*plugin.Manager, PluginStartup, error)`
+- `func ActivateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) error`
+
+### frontend.go
+
+- `func StartFrontend(flags *startup.Flags, app *application.Service, backendOutput io.Writer, startupWarning string, version string) error` — StartFrontend 按 `-frontend` 选择形态，并把装配表交出的 owner 直接给该形态。
+
+### frontend_gui.go
+
+- `func guiAvailable() bool`
+- `func guiDependencies(components assembly.Components) gui.Dependencies` — guiDependencies 是桌面宿主的装配表：一行一个端口，右值是拥有该用例的组件指针。
+- `func startGUI(service *application.Service, startupWarning, version string) error` — startGUI 拥有 GUI 形态的构造与关闭顺序：headless 冒烟控制面（只在
+- `func startTUI(*application.Service) error` — GUI 产物专注桌面形态；TUI 使用不带 gui 标签的独立二进制。
+
+### frontend_ports.go
+
+- `func headlessDependencies(components assembly.Components) headless.Dependencies`
+- `func consoleDependencies(components assembly.Components) console.Dependencies`
+
+### frontend_tui.go
+
+- `func guiAvailable() bool`
+- `func startGUI(*application.Service, string, string) error`
+- `func tuiDependencies(components assembly.Components) tui.Dependencies` — tuiDependencies 是 TUI 的装配表：一行一个端口，右值是拥有该用例的组件指针。
+- `func InitTUI(service *application.Service) tui.Model`
+- `func startTUI(service *application.Service) error`
+- `func StartTUI(model tui.Model) error`
+
+### permission.go
+
+- `func SetupPermissionGate(runtime permissionRuntime, approval application.ApprovalBroker, mode string) error` — SetupPermissionGate 根据 -permission 标志安装权限门控与起始档位。
+- `func MergePermissionConfig(base, override toolspermission.PermissionConfig) toolspermission.PermissionConfig` — MergePermissionConfig 把 seele.yaml 的 permission 段叠加到默认权责配置上：只覆盖
+- `func DefaultManualRules() []toolspermission.PermissionRule` — DefaultManualRules 是 manual 模式的默认白名单（seele.yaml 未配置规则时回退）。
+- `func LoadPermissionConfig(path string) (toolspermission.PermissionConfig, error)` — LoadPermissionConfig 读取 seele.yaml 的 permission 段（权限专用文件）：rules /
+- `func NewPermissionBridge(broker application.ApprovalBroker) toolspermission.ApprovalHandler` — NewPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
+
+### runtime.go
+
+- `func initRuntime(storePath string) (*assemble.Runtime, error)` — initRuntime 装配 Runtime：配置责任链 → limits（含数据根覆盖层）→ 账号池。
+- `func guardMultiProcess(storePath string) error`
+- `func InitStore(storePath string) (*Store, error)`
+- `func sessionStorageLimits() storeroot.Settings` — sessionStorageLimits 把 seelex.yaml limits.session_storage 映射成存储覆盖层
+- `func InitWorkspaceRepo(storePath string) (*workspace.Repo, error)`
+- `func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error)` — InitEngine 按新装配模型创建主会话（session.NewSession）。
+- `func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, recorder commandOutcomeRecorder) toolreg.BashDiagnosticObserver` — toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
+- `func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (store.Key, bool)` — sessionKeyFor 把会话 ID 解析成存储作用域键（项目 + 会话）：**按会话自己的项目绑定**解析，
+- `func (st sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error`
+- `func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error)`
+- `func (st sessionToolRecordStore) key(sessionID string) (store.Key, bool)`
+
+### service_ports.go
+
+- `func ServicePorts(runtime contract.RuntimePort) assembly.ExternalPorts`
+
+### tools.go
+
+- `func argsOnly(handler func(argsJSON string) (string, error)) func(context.Context, string) (string, error)` — argsOnly 把 owner 的 handler 提升到注册面要求的 func(context.Context, string) 形状。
+- `func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service)`
+- `func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st board.ProjectBoardReader, app *application.Service)` — RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
+- `func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service)`
+- `func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor` — ScheduledPromptExecutor 是定时提示词任务的执行器。落点与装配都从任务定义读
+- `func RegisterScheduledTaskCapability(runtime *assemble.Runtime)` — RegisterScheduledTaskCapability 装配定时周期任务白名单命令：
+- `func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service)` — RegisterTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
+- `func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval application.ApprovalBroker, skills *skill.Registry)`
+- `func safePluginCapabilities(plugins *plugin.Manager, names []string) []dto.PluginCapabilityView`
+- `func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service)` — RegisterReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
+- `func RegisterMCPServers(runtime *assemble.Runtime, mcpPath string)` — RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
+- `func RegisterMCPLoadTool(runtime *assemble.Runtime)` — RegisterMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
+- `func RegisterTimeTool(runtime *assemble.Runtime)`
+- `func RegisterPluginSwitchTools( runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, )`
+- `func RegisterPluginSelfTools(runtime *assemble.Runtime, plugins *plugin.Manager)` — RegisterPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
+- `func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager)`
+- `func RegisterAskApprove(runtime *assemble.Runtime, approval application.ApprovalBroker)`
+- `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st board.ProjectBoardStore, workTableRows func(sessionID string) []model.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, evidenceChars func() int, ) (board.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
+- `func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error)`
+- `func RegisterGoalTools(runtime *assemble.Runtime, handlers goalToolHandlers)`
+- `func RegisterSkillActivateTool(runtime *assemble.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error))` — RegisterSkillActivateTool 注册模型侧的技能激活工具（Codex 式 "调用 skill"
+- `func projectBoardReadRows(rows []dto.ProjectBoardRow) []map[string]interface` — projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
+- `func projectBoardHookMode(hook string) (string, error)` — projectBoardHookMode 归一化并校验项目看板的触发面取值。

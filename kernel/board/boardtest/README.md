@@ -62,10 +62,10 @@ go test ./middle/view/board/... -count=1
 
 - `func WaitForWrites(t *testing.T, st *Store, file string, want int)`
 - `func Settle(idle time.Duration)` — settleBoard 等过若干倍静默窗：用来证明"没有第 N 次落盘"（消极断言需要时间）。
-- `func MarshalRows(t *testing.T, rows []store.ProjectBoardRow) string`
-- `func RowByKey(rows []store.ProjectBoardRow, key string) (store.ProjectBoardRow, bool)`
-- `func PayloadText(row store.ProjectBoardRow, key string) string`
-- `func Keys(rows []store.ProjectBoardRow) []string` — boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
+- `func MarshalRows(t *testing.T, rows []dto.ProjectBoardRow) string`
+- `func RowByKey(rows []dto.ProjectBoardRow, key string) (dto.ProjectBoardRow, bool)`
+- `func PayloadText(row dto.ProjectBoardRow, key string) string`
+- `func Keys(rows []dto.ProjectBoardRow) []string` — boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
 - `func TodoItem(id, text, status string) model.WorkItem`
 - `func TaskItem(id, text, status string) model.WorkItem`
 - `func NewLiveRows(items ...model.WorkItem) *LiveRows`
@@ -79,13 +79,12 @@ go test ./middle/view/board/... -count=1
 
 - `func NewStore() *Store`
 - `func boardStoreKey(projectRoot, sessionID, file string) string` — boardStoreKey 是内存替身的文件键：落点是**按会话分目录**的一份文件
-- `func (st *Store) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)`
+- `func (st *Store) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []dto.ProjectBoardRow) (uint64, error)`
 - `func (st *Store) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)`
 - `func (st *Store) Watermark(projectRoot, sessionID, file string) uint64`
 - `func (st *Store) WriteCount(file string) int`
-- `func (st *Store) LastWrite(file string) []store.ProjectBoardRow`
-- `func (st *Store) Raw(projectRoot, sessionID, file string) []store.ProjectBoardRow` — raw 是**某会话某文件**的原始行（未折叠；I6 断言"空集合不建文件"用它）。
-- `func (st *Store) Folded(projectRoot, sessionID, file string) []store.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
+- `func (st *Store) LastWrite(file string) []dto.ProjectBoardRow`
+- `func (st *Store) Raw(projectRoot, sessionID, file string) []dto.ProjectBoardRow` — raw 是**某会话某文件**的原始行（未折叠；I6 断言"空集合不建文件"用它）。
+- `func (st *Store) Folded(projectRoot, sessionID, file string) []dto.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
 - `func (st *Store) DropFile(projectRoot, sessionID, file string)`
-- `func (st *FlakyStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)`
-
+- `func (st *FlakyStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []dto.ProjectBoardRow) (uint64, error)`
