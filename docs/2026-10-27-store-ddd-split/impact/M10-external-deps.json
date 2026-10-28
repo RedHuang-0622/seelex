@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "1ca61d8c00ad0cabdd3481a77b3338fb5640f0f1",
+    "base_commit": "a6f7d5ad89b31cdda20c1c3284c544f2e6ad3eee",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -24,6 +24,24 @@
     }
   ],
   "files": [
+    {
+      "path": "application/assembly/session_fork_store_regression_test.go",
+      "package": "github.com/RedHuang-0622/seelex/application/assembly",
+      "side": "test",
+      "sha256": "6ae612205ad3b29aa5f5f1e4ec8b4515e22258641719815892ca04e0c4ef0fb2",
+      "pre_sha256": "6ae612205ad3b29aa5f5f1e4ec8b4515e22258641719815892ca04e0c4ef0fb2",
+      "post_sha256": "620304eea4ce69c9b9c76fbe11a2a5ebc06fc31f3f81357ceaa171148756c734",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/application/assembly"
+      ]
+    },
     {
       "path": "application/goal/board_archive_read_test.go",
       "package": "github.com/RedHuang-0622/seelex/application/goal",
@@ -313,6 +331,96 @@
       ]
     },
     {
+      "path": "docs/2026-10-27-store-ddd-split/compat-ledger.md",
+      "package": "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split",
+      "side": "production",
+      "sha256": null,
+      "pre_sha256": null,
+      "post_sha256": "c4171d0a451a63c7519b3578927017bc55737d56b8dd347a3e74b57bccc95524",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split"
+      ]
+    },
+    {
+      "path": "docs/arch/session-board-metadata-lifecycle.md",
+      "package": "github.com/RedHuang-0622/seelex/docs/arch",
+      "side": "production",
+      "sha256": "b31911edce05d6c7de1d78816c44b3b8f4bf5f3c2bf13be84e91508213f3c04c",
+      "pre_sha256": "b31911edce05d6c7de1d78816c44b3b8f4bf5f3c2bf13be84e91508213f3c04c",
+      "post_sha256": "d540f699f4cf72429c3c9119155d712a22149710998931b905032f8d66e28b99",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/docs/arch"
+      ]
+    },
+    {
+      "path": "docs/arch/teamwork-leader-worker-architecture.md",
+      "package": "github.com/RedHuang-0622/seelex/docs/arch",
+      "side": "production",
+      "sha256": "de93b5159f316e17f227a1c123c8c8c71e267ff151ab6f6db7474bfc2199efcf",
+      "pre_sha256": "de93b5159f316e17f227a1c123c8c8c71e267ff151ab6f6db7474bfc2199efcf",
+      "post_sha256": "3205cce0f4f35146869c5717218a649c3e73c77c1e861ce57f19b0861f9b791a",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/docs/arch"
+      ]
+    },
+    {
+      "path": "e2e/facade_boundary_test.go",
+      "package": "github.com/RedHuang-0622/seelex/e2e",
+      "side": "test",
+      "sha256": "22d6e7fdf254a7f96cdeb7074aee0c9e8f1b37fd482f0586444eb226794e4d76",
+      "pre_sha256": "22d6e7fdf254a7f96cdeb7074aee0c9e8f1b37fd482f0586444eb226794e4d76",
+      "post_sha256": "4cf17e588cf8e262dad12d4e05f7042decf96afc4274af824fc0393b8ccfca1b",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/e2e"
+      ]
+    },
+    {
+      "path": "e2e/store_ddd_teamwork_io_ownership_gate_test.go",
+      "package": "github.com/RedHuang-0622/seelex/e2e",
+      "side": "test",
+      "sha256": "311b4f4ecce67f4581b95b2eb79b7612e510204461ddf0ee89409b5fb17035b6",
+      "pre_sha256": "311b4f4ecce67f4581b95b2eb79b7612e510204461ddf0ee89409b5fb17035b6",
+      "post_sha256": "4d6634a627cead5a1465388c3de61c5feddecabe6e84f4d2648abb3b50ba5c2c",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/e2e"
+      ]
+    },
+    {
       "path": "kernel/goal/board_archive.go",
       "package": "github.com/RedHuang-0622/seelex/kernel/goal",
       "side": "production",
@@ -346,6 +454,78 @@
       ],
       "verify_packages": [
         "github.com/RedHuang-0622/seelex/kernel/goal"
+      ]
+    },
+    {
+      "path": "store/README-board.md",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "12751dc8e0562bfbd6da26b0cd9c2fc0498f2cb1c9a906778b85c1e9caa19bfe",
+      "pre_sha256": "12751dc8e0562bfbd6da26b0cd9c2fc0498f2cb1c9a906778b85c1e9caa19bfe",
+      "post_sha256": "8d2d862db2f4bb939760e7fe08bef137bcfa4977ebfc23ac703cd4869762fa09",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/README-media.md",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "78b278ac377cf7cb82260428b02143dd1acc9d197e9ffb281c45ea3cc5751520",
+      "pre_sha256": "78b278ac377cf7cb82260428b02143dd1acc9d197e9ffb281c45ea3cc5751520",
+      "post_sha256": "b615ce799ef17d9971f139a7bf3fb5fe61c6517190ef07fcfe0426e1587f27d3",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/README-team.md",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "ec6e24e1d1e503affbd2c61811bed6c4c956243c24fbcb35cb47edb9073a4f73",
+      "pre_sha256": "ec6e24e1d1e503affbd2c61811bed6c4c956243c24fbcb35cb47edb9073a4f73",
+      "post_sha256": "bd26dff50dd3b4d31a0d10c59f6555f7adfd3ca70833a858639a18a6e21b8e17",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
+      ]
+    },
+    {
+      "path": "store/README.md",
+      "package": "github.com/RedHuang-0622/seelex/store",
+      "side": "production",
+      "sha256": "d760b6d379d5d317c75dbeb22c9194e9528971cea647128f923ccf4957ed616b",
+      "pre_sha256": "d760b6d379d5d317c75dbeb22c9194e9528971cea647128f923ccf4957ed616b",
+      "post_sha256": "cce4f15ad74c677c9fa5f25cab8ad26b355cb7437b3211673c2cfd719aa1b9ff",
+      "depends_on": [],
+      "depended_on_by": [],
+      "operations": [
+        {
+          "kind": "apply_reviewed_patch"
+        }
+      ],
+      "verify_packages": [
+        "github.com/RedHuang-0622/seelex/store"
       ]
     },
     {
@@ -390,7 +570,7 @@
       "side": "production",
       "sha256": null,
       "pre_sha256": null,
-      "post_sha256": "fbf9df9c5069dedec3a7565e6ce1919914d5771c1054c38ab3d00bc98d90087f",
+      "post_sha256": "f048f94baba2f522dfb2c32c925d3c5649a30e7b943584aea88817725a9070d6",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
@@ -926,9 +1106,9 @@
     }
   ],
   "summary": {
-    "production_files": 32,
-    "test_files": 18,
-    "packages": 15,
+    "production_files": 39,
+    "test_files": 21,
+    "packages": 19,
     "direct_edges": 0,
     "reverse_edges": 0
   }
