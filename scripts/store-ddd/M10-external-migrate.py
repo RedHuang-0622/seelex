@@ -128,7 +128,8 @@ def materialize_patch(path: Path) -> tuple[Path, Path | None]:
     if path.suffix != ".b64":
         return path, None
     try:
-        payload = base64.b64decode(path.read_bytes(), validate=True)
+        encoded = b"".join(path.read_bytes().split())
+        payload = base64.b64decode(encoded, validate=True)
     except (OSError, ValueError) as exc:
         fail(f"decode patch: {exc}")
     handle = tempfile.NamedTemporaryFile(prefix="seelex-store-ddd-M10-", suffix=".patch", delete=False)
