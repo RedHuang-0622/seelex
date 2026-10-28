@@ -119,7 +119,7 @@ func TestModuleReadmesMermaidBlocksAreStructurallyValid(t *testing.T) {
 	blocks := 0
 	files := 0
 	skipped := map[string]bool{
-		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		".git": true, ".tmp": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
 		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
 		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README
@@ -301,7 +301,7 @@ func TestRepositoryModulesHaveReadmes(t *testing.T) {
 func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
 	root := repoRoot()
 	skipped := map[string]bool{
-		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		".git": true, ".tmp": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
 		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
 		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README
