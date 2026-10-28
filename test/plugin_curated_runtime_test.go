@@ -198,15 +198,14 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 		t.Fatalf("first-wins 下读数只能报链首那份的来源：%q", report)
 	}
 
-	// 第二半：这条读数在 UI 面上的落点（装配段的启动通知通路）。装配段在
-	// boot/engine_plugins.go（根读数由同一文件的 InitPluginSystem 生成）。
-	source, err := os.ReadFile(filepath.Join("boot", "engine_plugins.go"))
+	// 第二半：根读数由 boot/engine_plugins.go 生成，启动通知落点在 boot/app.go。
+	source, err := os.ReadFile(filepath.Join("boot", "app.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(source)
 	if !strings.Contains(text, "pluginStartup.RootReading") {
-		t.Fatal("装配段没有把根读数带出 InitPluginSystem（它进不了 UI 面，就只能是终端日志）")
+		t.Fatal("boot/app.go 没有消费 InitPluginSystem 的根读数（它进不了 UI 面，就只能是终端日志）")
 	}
 	if !strings.Contains(text, `components.Session.View.AddNotice("插件: " + pluginStartup.RootReading)`) {
 		t.Fatal("根读数必须进 UI 面（通知 owner view_state.Coordinator 的 AddNotice）——只写 log.Printf 的话，GUI 里根本看不到")

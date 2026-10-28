@@ -133,7 +133,7 @@ func TestPluginRootChainIsTheOnlySourceOfLoaderRoots(t *testing.T) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "dist", "tmp", "vendor", "node_modules", ".gocache", "_scratch", "local":
+			case ".git", ".tmp", "dist", "tmp", "vendor", "node_modules", ".gocache", "_scratch", "local":
 				return filepath.SkipDir
 			}
 			return nil

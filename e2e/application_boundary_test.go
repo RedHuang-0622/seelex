@@ -32,6 +32,7 @@ func TestTUIStaysOnApplicationBoundary(t *testing.T) {
 			}
 			if path == "github.com/RedHuang-0622/seelex/contract" ||
 				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/contract/") ||
+				path == "github.com/RedHuang-0622/seelex/application" ||
 				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/application/") ||
 				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/tui/") {
 				continue

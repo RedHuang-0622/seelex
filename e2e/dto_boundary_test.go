@@ -46,9 +46,9 @@ func TestRoleSessionPortsDoNotLeakStorageTypes(t *testing.T) {
 	}
 
 	// 反向断言：适配器确实承担了映射职责（收口不是"删掉依赖"，而是"依赖换位置"）。
-	adapterImports := fileImports(t, filepath.Join(root, "wiring", "adapters", "session_workspace_ports.go"))
+	adapterImports := fileImports(t, filepath.Join(root, "internal", "host", "session_workspace_ports.go"))
 	if _, ok := adapterImports[storageImport]; !ok {
-		t.Errorf("wiring/adapters/session_workspace_ports.go 必须承载 DTO ↔ 存储映射")
+		t.Errorf("internal/host/session_workspace_ports.go 必须承载 DTO ↔ 存储映射")
 	}
 }
 
