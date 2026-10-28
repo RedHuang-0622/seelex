@@ -1,11 +1,13 @@
 # Store DDD Qoder 交接包
 
-状态快照：M0–M7 已完成，M8 纯模型/校验/folding checkpoint 已提交为
-`af2bbaab`。本 worktree 从该 checkpoint 开始，下一步继续 M8 I/O 与 team registry。
+状态快照：M0–M9 已完成。M9 里程碑 commit 为
+`9ac3f929 refactor(store-ddd): complete M9 role and workunit split`。
+当前下一步为 M10 Facade 清零。
 
-权威 Qoder 顺序提示词见
-[`qoder-remaining-work.md`](qoder-remaining-work.md)。M8→M11 必须在这个
-worktree 顺序执行，不得从同一 commit 并行开四个分支。
+当前可直接交给 Qoder 的 M10 交接见
+[`qoder-current-handoff.md`](qoder-current-handoff.md)。后续总规划提示词见
+[`qoder-remaining-work.md`](qoder-remaining-work.md)。仍需在这个 worktree
+顺序执行，不得并行开多个里程碑分支。
 
 截至 2026-10-28 01:55，M7 正式验收测试、四条 ownership gate、普通/tagged build
 与全仓 vet 均 PASS。外部 consumer 批次已从 `8fbae4e8` 完成 dry-run、apply、
