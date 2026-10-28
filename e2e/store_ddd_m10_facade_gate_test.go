@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -50,6 +51,12 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 		t.Errorf("生产代码直接 import 根 store 的文件数 %d 超过 M10 上限 80：\n%s",
 			len(productionImports), strings.Join(productionImports, "\n"))
 	}
+	allowed := readRootImportAllowlist(t, filepath.Join(repo, "store", "testdata", "m10_root_store_import_allowlist.json"))
+	for _, relative := range productionImports {
+		if _, ok := allowed[relative]; !ok {
+			t.Errorf("生产文件 %s 新增了根 store import：M10 import ratchet 只许收缩", relative)
+		}
+	}
 
 	for _, relative := range []string{
 		"wiring/bootstrap/bootstrap.go",
@@ -65,6 +72,21 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 			}
 		}
 	}
+}
+
+func readRootImportAllowlist(t *testing.T, path string) map[string]struct{} {
+	t.Helper()
+	var manifest struct {
+		ProductionFiles []string `json:"production_files"`
+	}
+	if err := json.Unmarshal([]byte(readText(t, path)), &manifest); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	allowed := make(map[string]struct{}, len(manifest.ProductionFiles))
+	for _, file := range manifest.ProductionFiles {
+		allowed[file] = struct{}{}
+	}
+	return allowed
 }
 
 func scanPackageMethods(t *testing.T, dir string) map[string]struct{} {
