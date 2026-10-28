@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
+	storerecord "github.com/RedHuang-0622/seelex/store/record"
 	storerole "github.com/RedHuang-0622/seelex/store/role"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
@@ -102,6 +104,8 @@ type storeEngine struct {
 	layout    *storelayout.Layout
 	artifacts *storeartifact.Store
 	contexts  *storecontext.Store
+	boards    *storeboard.SessionStore
+	records   *storerecord.Store
 	// teamwork / roles 是共享同一个 layout 的领域持久化面：组合根只装配它们，
 	// 具体读写与判据留在各自领域包（M8 起根包不再持有这两份实现）。
 	teamwork *storeteamwork.Store
@@ -158,6 +162,8 @@ func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 	store := newSubsessionEngine(root, settings)
 	store.artifacts = storeartifact.New(store.layout, store.settings)
 	store.contexts = storecontext.New(store.layout)
+	store.boards = storeboard.NewSessionStore(store.layout)
+	store.records = storerecord.New(store.layout)
 	store.teamwork = storeteamwork.New(store.layout)
 	store.roles = storerole.New(store.layout)
 	return store

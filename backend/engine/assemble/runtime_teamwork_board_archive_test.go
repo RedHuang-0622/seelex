@@ -254,19 +254,13 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	// "重启"验收：存档真的落进存储后端（metadata/board_team.json），换一个
 	// Runtime 实例（活体计划面为空）冷读仍在——存档不在 Runtime 的内存里。
 	root := t.TempDir()
-	router, err := store.NewRouter(root)
+	stores, err := store.OpenStores(root)
 	if err != nil {
-		t.Fatalf("NewRouter: %v", err)
+		t.Fatalf("OpenStores: %v", err)
 	}
-	t.Cleanup(func() { _ = router.Close() })
-	plans, ok := router.TeamworkFor()
-	if !ok {
-		t.Fatal("JSON 后端应提供 teamwork 读/写面")
-	}
-	boards, ok := router.BoardsFor()
-	if !ok {
-		t.Fatal("JSON 后端应提供团队看板存档面（BoardsFor）")
-	}
+	t.Cleanup(func() { _ = stores.Close() })
+	plans := stores.Teamwork
+	boards := stores.Boards
 
 	first := newTestRuntime(t)
 	planStore := seeteamwork.NewPlanStore(plans)

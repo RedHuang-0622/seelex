@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // UnassembledPluginDeps 是这一跳需要的三格宿主读数。
@@ -38,7 +37,7 @@ type UnassembledPluginDeps struct {
 // 谁都不认识必须说清两边都不在，精选目录没读到必须出声（不得静默当空目录）。
 //
 // **在写入任何计划之前**调用，因此被拒的计划不会落盘。
-func RejectUnassembledPlugins(members []store.TeamworkMember, deps UnassembledPluginDeps) error {
+func RejectUnassembledPlugins(members []dto.TeamworkMember, deps UnassembledPluginDeps) error {
 	if deps.UnassembledReason == nil {
 		return nil
 	}

@@ -20,8 +20,12 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
+
+type BoardRepository interface {
+	ReadTeamBoard(context.Context, dto.SessionKey) (dto.TeamBoardMeta, error)
+	WriteTeamBoard(context.Context, dto.SessionKey, dto.TeamBoardMeta) error
+}
 
 // NextBoardMeta 按生命周期规则推进存档元数据（§5），并报告"是否需要写盘"（§7）。
 //
@@ -32,10 +36,10 @@ import (
 //   - 已有 active 且版本相同 → 只 seq+1 与 updated_at（opened_at 不动）。
 //
 // 指纹不变（且版本相同）时返回 write=false：载荷不变不写盘。
-func NextBoardMeta(ctx context.Context, repository store.BoardRepository, key store.Key, plan store.TeamworkPlan, payload json.RawMessage, now time.Time) (store.TeamBoardMeta, bool, error) {
-	meta := store.TeamBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			Kind: store.BoardKindTeam, State: store.BoardStateActive,
+func NextBoardMeta(ctx context.Context, repository BoardRepository, key dto.SessionKey, plan dto.TeamworkPlan, payload json.RawMessage, now time.Time) (dto.TeamBoardMeta, bool, error) {
+	meta := dto.TeamBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindTeam, State: dto.BoardStateActive,
 			Seq: 1, OpenedAt: now.Unix(), UpdatedAt: now.Unix(), Fingerprint: BoardFingerprint(payload),
 		},
 		TeamID: plan.TeamID, Version: plan.Version, Snapshot: payload,
@@ -46,20 +50,20 @@ func NextBoardMeta(ctx context.Context, repository store.BoardRepository, key st
 		// 覆盖写也是唯一的自愈路径（存档没有独立数据文件可重建）。
 		return meta, true, nil
 	}
-	if existing.State != store.BoardStateActive {
+	if existing.State != dto.BoardStateActive {
 		return meta, true, nil // 已退场的那一版不再续命：新开一版。
 	}
 	if existing.Version == plan.Version && existing.Fingerprint == meta.Fingerprint {
-		return store.TeamBoardMeta{}, false, nil // §7 节流。
+		return dto.TeamBoardMeta{}, false, nil // §7 节流。
 	}
 	if existing.Version != plan.Version {
 		closed := existing
-		closed.State = store.BoardStateClosed
+		closed.State = dto.BoardStateClosed
 		closed.ClosedAt = now.Unix()
-		closed.ClosedReason = store.BoardCloseTeamReplan
+		closed.ClosedReason = dto.BoardCloseTeamReplan
 		closed.UpdatedAt = now.Unix()
 		if err := repository.WriteTeamBoard(ctx, key, closed); err != nil {
-			return store.TeamBoardMeta{}, false, err
+			return dto.TeamBoardMeta{}, false, err
 		}
 		return meta, true, nil // 新版本：opened_at/seq=1（meta 已就位）。
 	}
@@ -76,12 +80,12 @@ func NextBoardMeta(ctx context.Context, repository store.BoardRepository, key st
 //
 // 恢复出的看板 Recovered=true，且 Stale=true：存档里的作业行来自上一个进程，
 // jobs 句柄只在内存（jobs I-4），恢复出来的句柄一律视为过期。
-func ReadBoardArchive(repository store.BoardRepository, key store.Key) *dto.TeamworkBoardView {
+func ReadBoardArchive(repository BoardRepository, key dto.SessionKey) *dto.TeamworkBoardView {
 	if repository == nil {
 		return nil
 	}
 	meta, err := repository.ReadTeamBoard(context.Background(), key)
-	if err != nil || meta.State != store.BoardStateActive || len(meta.Snapshot) == 0 {
+	if err != nil || meta.State != dto.BoardStateActive || len(meta.Snapshot) == 0 {
 		return nil
 	}
 	var view dto.TeamworkBoardView
@@ -100,7 +104,7 @@ func ReadBoardArchive(repository store.BoardRepository, key store.Key) *dto.Team
 //
 // 幂等：已 closed / 无存档（没写过，或上一次收口已把它退场）都原样返回——封板是
 // "把在册的那一版关掉"，没有在册的一版就没有可关的东西（不是失败）。
-func SealBoard(ctx context.Context, repository store.BoardRepository, key store.Key, payload json.RawMessage, now time.Time) error {
+func SealBoard(ctx context.Context, repository BoardRepository, key dto.SessionKey, payload json.RawMessage, now time.Time) error {
 	if repository == nil {
 		return nil
 	}
@@ -117,9 +121,9 @@ func SealBoard(ctx context.Context, repository store.BoardRepository, key store.
 	if len(payload) > 0 {
 		existing.Snapshot = payload
 	}
-	existing.State = store.BoardStateClosed
+	existing.State = dto.BoardStateClosed
 	existing.ClosedAt = now.Unix()
-	existing.ClosedReason = store.BoardCloseTeamClose
+	existing.ClosedReason = dto.BoardCloseTeamClose
 	existing.UpdatedAt = now.Unix()
 	return repository.WriteTeamBoard(ctx, key, existing)
 }

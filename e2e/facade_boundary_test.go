@@ -174,7 +174,10 @@ const (
 // Store DDD M5 首片：`store/session` 承接分片命名与 pending-tail 分类；
 // 上限抬到 119。
 // Store DDD M7：`store/context` 承接 context/checkpoint 存储机制；上限抬到 120。
-const facadeClosureAllowListMax = 120
+// Store DDD M10：`role` / `teamwork` / `workunit` / `record` 已由 typed Stores
+// 组合根持有；根兼容包仍 import 这些具体 owner，因此门面闭包新增四个叶子域包，
+// 上限按“一条进”的既有规则抬到 124。四包均不反向 import 根 store 或上层。
+const facadeClosureAllowListMax = 124
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -364,6 +367,11 @@ var facadeClosureAllowList = []string{
 	// M1：项目看板追加/折叠/压实/路径锁/Markdown 的领域 owner。自身只依赖
 	// contract/dto、store/root、textsanitize 与标准库。
 	"github.com/RedHuang-0622/seelex/store/board",
+	// M10 typed Stores：各领域 owner 由组合根装配，消费者持有窄端口。
+	"github.com/RedHuang-0622/seelex/store/record",
+	"github.com/RedHuang-0622/seelex/store/role",
+	"github.com/RedHuang-0622/seelex/store/teamwork",
+	"github.com/RedHuang-0622/seelex/store/workunit",
 	// 项目摘要与看板 Markdown 共用的清洗叶子，只有标准库依赖。
 	"github.com/RedHuang-0622/seelex/store/internal/textsanitize",
 	// 会话路径、guide、head 信封/checksum 与模块锁身份的唯一机制实现。

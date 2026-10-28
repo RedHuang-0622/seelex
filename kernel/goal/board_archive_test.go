@@ -13,27 +13,29 @@ import (
 	"io/fs"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 // boardArchiveCtx 是本文件的测试上下文（不借用其它测试文件的包级变量）。
 var boardArchiveCtx = context.Background()
 
 // newBoardArchiveRouter 建一个临时会话存储（看板存档落在会话目录的 metadata 下）。
-func newBoardArchiveRouter(t *testing.T) *store.Router {
+func newBoardArchiveRouter(t *testing.T) (*store.Router, *storeboard.SessionStore) {
 	t.Helper()
 	root := t.TempDir()
-	router, err := store.NewRouter(root)
+	stores, err := store.OpenStores(root)
 	if err != nil {
-		t.Fatalf("new session router: %v", err)
+		t.Fatalf("open stores: %v", err)
 	}
-	t.Cleanup(func() { _ = router.Close() })
-	return router
+	t.Cleanup(func() { _ = stores.Close() })
+	return stores.Router, stores.Boards
 }
 
 // newBoardArchiveStore 装配"会话存储 + 看板存档面"的 goal 域适配器。
 // 第二个返回值是存档取用面（断言用），第三个是会话存储（冷读用）。
-func newBoardArchiveStore(t *testing.T, router *store.Router, sessionID string) (
+func newBoardArchiveStore(t *testing.T, router *store.Router, boardStore *storeboard.SessionStore, sessionID string) (
 	*ContextStateStore, store.SessionBoards, *store.SessionContextStore,
 ) {
 	t.Helper()
@@ -41,10 +43,7 @@ func newBoardArchiveStore(t *testing.T, router *store.Router, sessionID string) 
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context %q: %v", sessionID, err)
 	}
-	boards, ok := router.BoardsForSession(sessionID)
-	if !ok {
-		t.Fatal("看板存档取用面未装配（BoardsForSession 返回 false）")
-	}
+	boards := boardStore.Bind(dto.SessionKey{SessionID: sessionID})
 	return NewContextStateStore(session, boards), boards, session
 }
 
@@ -75,8 +74,8 @@ func historyFor(meta store.GoalBoardMeta, goalID string) int {
 //   - history 只在收口（finish/abort）时追加，且带审计条目的 Status/At/Reason；
 //   - 生命周期：首次 open 置 seq=1/opened_at，此后每次变化 seq+1、opened_at 不动。
 func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
-	router := newBoardArchiveRouter(t)
-	st, boards, _ := newBoardArchiveStore(t, router, "session-board-split")
+	router, boardStore := newBoardArchiveRouter(t)
+	st, boards, _ := newBoardArchiveStore(t, router, boardStore, "session-board-split")
 	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{
@@ -165,8 +164,8 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 // 再触发多次刷新（Save + 终态审计刷新 + 后续目标变更）都不会给同一个 goal 追加
 // 第二条，也不会回改既有条目的字段。
 func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T) {
-	router := newBoardArchiveRouter(t)
-	st, boards, _ := newBoardArchiveStore(t, router, "session-board-append")
+	router, boardStore := newBoardArchiveRouter(t)
+	st, boards, _ := newBoardArchiveStore(t, router, boardStore, "session-board-append")
 	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "第一轮"}); err != nil {
@@ -209,8 +208,8 @@ func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T) {
 // 适配器实例（模拟重启）冷读，收口账本仍在——它不依赖进程内的
 // goal.Controller.History，也不靠活栈（活栈里收口目标已经消失）。
 func TestGoalBoardArchiveSurvivesColdRead(t *testing.T) {
-	router := newBoardArchiveRouter(t)
-	st, _, _ := newBoardArchiveStore(t, router, "session-board-cold")
+	router, boardStore := newBoardArchiveRouter(t)
+	st, _, _ := newBoardArchiveStore(t, router, boardStore, "session-board-cold")
 	controller := NewController(Options{Depth: 1, Store: st, Audit: st})
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "冷读目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
@@ -225,7 +224,7 @@ func TestGoalBoardArchiveSurvivesColdRead(t *testing.T) {
 	}
 
 	// 冷读：全新实例 + 全新适配器（模拟进程重启后重新打开同一会话目录）。
-	warmStore, warmBoards, warmSession := newBoardArchiveStore(t, router, "session-board-cold")
+	warmStore, warmBoards, warmSession := newBoardArchiveStore(t, router, boardStore, "session-board-cold")
 	meta := readBoardArchive(t, warmBoards)
 	if len(meta.History) != 1 || meta.History[0].GoalID != "g-1" {
 		t.Fatalf("冷读后收口账本应仍在: %+v", meta.History)
@@ -278,7 +277,7 @@ func (r *failingBoardRepository) ReadTeamBoard(context.Context) (store.TeamBoard
 //     收口的目标复活成活目标（假的活目标比没有看板更糟）；
 //   - 两个方向都不改变**栈的保存语义**：栈照常落盘（这里 close 后活栈为空）。
 func TestGoalBoardArchiveWriteFailurePolicy(t *testing.T) {
-	router := newBoardArchiveRouter(t)
+	router, _ := newBoardArchiveRouter(t)
 	session := store.NewSessionContextStore(router, "session-board-failure")
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
@@ -334,7 +333,7 @@ func (r *stubBoardRepository) ReadTeamBoard(context.Context) (store.TeamBoardMet
 // 明令禁止的读法（口径 §1）。存档只是下游扇出：写它、读它合并账本，都不回灌
 // Controller，也不影响 Status/栈/审计。
 func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T) {
-	router := newBoardArchiveRouter(t)
+	router, _ := newBoardArchiveRouter(t)
 	session := store.NewSessionContextStore(router, "session-board-hostile")
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
@@ -385,8 +384,8 @@ func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T) {
 // （去掉 seq/updated_at 后）不变就不写盘——seq/updated_at 都不前进；内容真的变了
 // 才写。
 func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T) {
-	router := newBoardArchiveRouter(t)
-	st, boards, _ := newBoardArchiveStore(t, router, "session-board-throttle")
+	router, boardStore := newBoardArchiveRouter(t)
+	st, boards, _ := newBoardArchiveStore(t, router, boardStore, "session-board-throttle")
 	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "节流目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
@@ -424,7 +423,7 @@ func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T) {
 }
 
 func TestGoalGovernanceViewFromBoardArchiveSeparatesRecoveredAndClosed(t *testing.T) {
-	progress := []store.GoalProgress{
+	progress := []dto.BoardGoalProgress{
 		{At: 1, Kind: "milestone", Content: "one"},
 		{At: 2, Kind: "milestone", Content: "two"},
 		{At: 3, Kind: "milestone", Content: "three"},

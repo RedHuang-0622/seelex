@@ -29,7 +29,7 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 | M7 | Context | 已完成 | 见 §2.11，含外部批次重放与回滚演练 |
 | M8 | Teamwork | 已完成 | 见 §2.12 |
 | M9 | Role/WorkUnit | 已完成 | 见 §2.13 |
-| M10 | Facade 清零 | 未开始 | — |
+| M10 | Facade 清零 | 已完成 | 见 §2.14 |
 | M11 | 全仓验收 | 未开始 | — |
 
 ## 2. M0：基线门禁（已完成）
@@ -888,6 +888,87 @@ go vet ./...
 - 路径零迁移：`subagents/`、role draft、`role-permissions.json`、角色会话
   `goal_*` / `role_*` 目录名逐字不变。
 - JSON tag、schema、floor/head 发布顺序与冷恢复语义不变；未触碰用户数据。
+
+## 2.14 M10：Facade 清零（已完成）
+
+### 2.14.1 已完成切片
+
+- 新增 typed `store.Stores`：一次打开数据根，显式持有 Router、Artifact、Context、
+  Board、Teamwork、Role 与 ToolRecord owner；bootstrap 只注入具体 owner 或窄端口。
+- 删除 `Router.BoardsFor`、`BoardsForSession`、`TeamworkFor`、`ToolRecordFor`
+  与自由函数 `Boards`、`Teamwork`、`ToolRecord`、`MediaStoreOf`。
+- goal/team 会话看板形状下沉 `contract/dto/session_board.go`；校验、module ID、
+  head 发布与缺失读语义唯一实现迁入 `store/board/session.go`。
+- 工具记录 JSONL 追加、最后完整快照、残尾/坏行读取唯一实现迁入
+  `store/record/store.go`；根 `tool_record.go` 只留 `ToolRecordFile` alias。
+- `backend/multiagent/teamwork` 直接消费 `store/teamwork.Store` 的窄接口；
+  `teamwork_items.go` 根转发文件删除。
+- goal 看板绑定改由 Runtime 持有会话级 `board.BoundStore`，wiring adapter 不再
+  回头调用 Router 做能力探测。
+- 新增 M10 Facade Gate、God 方法 ratchet 收紧与 79 文件根 import allowlist。
+
+### 2.14.2 红测与外部批次
+
+首次失败：
+
+```text
+go test ./e2e -run '^TestStoreDDDM10FacadeGate$' -count=1
+FAIL: 4 个能力发现方法、4 个自由函数仍在；board/record/stores owner 缺失；
+      根 tool_record.go 仍有 I/O；根 store 生产 importer=85（上限 80）
+```
+
+外部批次：
+
+- checkpoint：`f49f4ec791957d8e581d3f3874580511c84848c1`
+- manifest：`impact/M10-external-deps.{json,md}`
+- replay branch：`codex/store-ddd-M10-replay`
+- script：`scripts/store-ddd/M10-external-migrate.py`
+- patch：`scripts/store-ddd/M10-external.patch.b64`
+- 61 个目标 dry-run/apply 通过；隔离 worktree `go build ./...` 与结构门禁通过。
+- rollback 后 replay 工作树零差异；main/replay 规范化内容 parity = ok。
+- 最终 apply journal：`%TEMP%\seelex-store-ddd-M10-43bfjp6f\journal.json`
+
+### 2.14.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `Router.BoardsFor*`、根 `BoardRepository` 能力发现 | `store.Stores.Boards` + `store/board.SessionStore.Bind` |
+| `store/board.go` 的 goal/team 存档校验与 I/O | `store/board/session.go` + `contract/dto/session_board.go` |
+| `Router.TeamworkFor`、根 `TeamworkRepository` 适配 | `store/teamwork.Store` + 消费方 `planStoreRepository` |
+| `store/teamwork_items.go` | `store/teamwork/model.go` / `store.go`；文件删除 |
+| `Router.ToolRecordFor`、根 `jsonRepository` 工具记录 I/O | `store/record/store.go` + bootstrap `toolRecordStore` 窄端口 |
+| `MediaStoreOf` | 消费方 `multimodal.MediaReader` / 装配期直接注入 |
+| 根 God receiver 的 4 个 Board、7 个 Teamwork、2 个 ToolRecord 领域方法 | 各领域 owner；根只留同身份 alias |
+
+### 2.14.4 结构指标
+
+| 类型 | M9 | M10 |
+|---|---:|---:|
+| `Router` | 130 | 126 |
+| `jsonRepository` | 83 | 70 |
+| `storeEngine` | 162 | 161 |
+| `SessionGranularStore` | 46 | 46 |
+
+- 根 `store` 生产 importer：85 文件 / 19 包 → 79 文件 / 17 包；逐文件 allowlist
+  ratchet 只许收缩。
+- `store/board`、`store/record`、`store/teamwork` 均不 import 根 `store`。
+- wiring 不再执行能力探测；`Store` 只是装配期 typed owner bundle。
+
+### 2.14.5 数据兼容与验证
+
+- 路径、JSON tag、schema、head、watermark、teamwork 文件布局零变化。
+- 未读写、迁移或清理用户数据；全部测试使用 `t.TempDir()`。
+- M10 门禁与全量验证通过：
+
+```text
+go build ./...
+go test ./application/... ./middle/... ./backend/... ./store/... ./wiring/... ./e2e/... -count=1
+go vet ./...
+gofmt -l .
+git diff --check
+```
+
+本里程碑最终本地 commit SHA 由交接报告记录；不 push。
 
 ## 3. 未决风险
 

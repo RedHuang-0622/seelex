@@ -17,6 +17,13 @@ into provider history. 会话存储只有**一种形态**（jsonl + json v8）�
 `project-*/session-meta.json`。SQLite/PostgreSQL/Redis 后端实现已退役（R1），
 新后端须按 `Repository`/`stackJournal` 接口重写。
 
+**M10 装配边界**：`store.OpenStores` 一次打开数据根并返回 typed `Stores`
+（Router、Artifact、Context、Board、Teamwork、Role、ToolRecord）。组合根只把具体
+owner 或消费方窄端口注入调用方；`BoardsFor*`、`TeamworkFor`、`ToolRecordFor` 与
+`MediaStoreOf` 的运行期能力发现已删除。仍直接 import 根 `store` 的 79 个生产文件
+是 M10 登记下来的兼容面，由 `e2e/TestStoreDDDM10FacadeGate` 的 allowlist ratchet
+钉住，只许收缩。
+
 派生规则（`derivedConversationMessages`）与运行期可见投影同形，逐行保序：
 有正文或思考的行派生成一条消息（`content` 与 `reasoning_content` 分开携带）、
 行内**每个** `tool_call` 派生成一条 `role=tool` 调用消息（保留 `arguments`）、
@@ -208,8 +215,9 @@ head 文件的"缺失"要按**业务状态**读，而不是当 IO 错误上抛�
 行完整快照（快照是整份的，回退不丢上一批之前的读数）。为什么不做"每次工具调用 append
 一行"：工具调用是回合内高频事件，逐次落盘会让磁盘一直忙（2026-10-15 用户口径）——
 批次点由应用层给（真相源提交时刻，见 `application/assembly` 的 `FlushToolRecord`）。
-接口：`Router.ToolRecordFor()` → `AppendToolRecordSnapshot` / `ReadToolRecordSnapshot`
-（与 `TeamworkFor()` 同一手法：有就有、没有就是没装配）。
+唯一实现：`store/record.Store.Append` / `Read`。组合根通过
+`store.Stores.ToolRecords` 注入 bootstrap 的窄端口；M10 起不再从 `Router`
+探测 `ToolRecordFor`。
 
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
@@ -835,11 +843,9 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 - 引用形如 `media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列。
 - 工具结果通过 `ToolResult.Multimodal []MediaRef`（JSON `multimodal`）挂引用；
   记录本身不复制字节。
-- 读写接缝：`Router.WriteMediaWorkspace` / `Router.ReadMediaWorkspace` 在**显式
-  项目作用域**下落盘与读回（不改 Router 的活跃写作用域），后台/并行会话各写
-  自己的 (项目, 会话) 分片；后端不支持媒体分区时返回 `ErrMediaUnsupported`
-  （`MediaStoreOf` 显式判空，不做静默降级）。截屏工具（`seelebridge`）是首个
-  调用方。
+- 读写接缝：兼容面保留 `Router.WriteMediaWorkspace` /
+  `Router.ReadMediaWorkspace`；M10 起消费方定义自己的只读端口，不再调用
+  `MediaStoreOf` 做运行期能力发现。截屏工具（`seelebridge`）是首个调用方。
 
 ### 阈值刻意分轴
 
@@ -872,7 +878,7 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 
 - `media.go`：`MediaItem`（写入请求）、`MediaRef`（引用与元数据）、`MediaStore`
   能力接口（`WriteMedia`/`ReadMedia`/`ListMedia`/`CollectMedia`）。
-- `MediaStoreOf(repository)`：媒体是可选能力，不进 `Repository` 主契约，调用方显式取用。
+- 媒体读面由消费方定义窄端口；`Repository` 主契约不聚合媒体能力。
 - `ReferencedMediaHashes(results []ToolResult)`：从工具结果收集引用集，供 GC 使用。
 - 尺寸校验使用调用方提供的 `Width/Height`（存储层不解码图片），因此“先降采样再写”
   是调用方责任，例如截屏原语的 `MaxWidth` + `ScaleNearest`。

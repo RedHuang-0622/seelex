@@ -210,7 +210,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, AccountsPath, projectRo
 // 永不触发，"做完自动返回"那条链于是**静默不存在**。组合根的顺序是
 // store → SetTeamworkBackend → wiring.New（wiring/bootstrap），测试基座必须同序装配，
 // 否则冒烟会把"装配顺序错了"误报成"链子是坏的"。
-type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error
+type fullChainBackendInstaller func(st *bootstrap.Store, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error
 
 // newFullChainHarnessWithLimits 是同一套装配，只多交出 limits 段：A/B 两臂要求
 // 除 limits.async_exec.enabled 外逐字段相同，开关是唯一变量。
@@ -246,15 +246,15 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	// 收尾顺序是契约，但**不在这里注册**：`t.Cleanup` 是 LIFO，而"先停应用 → 有界等静默
 	// → 停运行时 → 关仓库"必须整段有序，所以它合成一处、注册在应用建好之后（见本函数
 	// 末尾那条 cleanup）。这里只做装配。
-	runtimeBridge.AttachHistoryRouter(st)
+	runtimeBridge.AttachHistoryRouter(st.Router)
 	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
 	// （wiring/bootstrap，紧跟 AttachHistoryRouter）。测试基座缺这一句时
 	// `Runtime.teamUnitLedger()` 是 nil，`saveTeamUnitRecord` 直接 return——
 	// **记录一律不落盘，恢复链在基座上读的是一个空集**，而所有走 harness 的用例
 	// 都跑在这个装配上（2026-10-06 实测：teammate 端到端用例的"单元记录在册"
 	// 断言在补上这一句之前恒为空集，冒烟因为读的是**计划**而不是记录，一直没发现）。
-	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st))
-	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
+	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st.Router))
+	runtimeBridge.SetEventPersister(store.NewEventStore(st.Router).Append)
 
 	skills := bootstrap.InitSkillSystem()
 	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
@@ -296,11 +296,12 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 		appEngine,
 		runtimeBridge,
 		plugins,
-		bootstrap.InitSessionManager(st, appEngine),
+		bootstrap.InitSessionManager(st.Router, appEngine),
 		skills,
 		workspaces,
 		events,
 		approval,
+		st.Boards,
 		launchFlags.StorePath,
 	)
 	if err != nil {
@@ -342,7 +343,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	return fullChainHarness{
 		app: app, components: components,
 		events: events, runtime: runtimeBridge, approval: approval,
-		st: st, workspaces: workspaces,
+		st: st.Router, workspaces: workspaces,
 	}
 }
 

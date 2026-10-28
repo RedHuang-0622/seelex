@@ -231,11 +231,10 @@
 
 ### 落点
 
-- **存储面**：`store/module_heads.go` 新增 `moduleBoardGoal` / `moduleBoardTeam` + 两把独立锁
-  （`mutexFor` 各一 case）；`store/board.go`（新）：`BoardLifecycle` / `GoalBoardActive` /
-  `GoalBoardHistory` / `GoalBoardMeta`（active/history 分离）/ `TeamBoardMeta`（视图快照原样搬运）+
-  `ValidateGoalBoardMeta` / `ValidateTeamBoardMeta` + `BoardRepository`（带 Key 的机械面）与
-  `BoardsForSession`（Key 烘焙进实现，领域侧只知道 sessionID）。
+- **存储面（M10 现状）**：跨层形状在 `contract/dto/session_board.go`；校验与
+  `moduleBoardGoal` / `moduleBoardTeam` 的 head 发布唯一实现位于
+  `store/board/session.go`。组合根持有 typed `store.Stores.Boards`，goal 域接收
+  会话绑定的 `BoundStore`；运行期 `BoardsForSession` 能力探测已删除。
 - **goal 写侧**：`backend/multiagent/goal/board_archive.go`（新）：`refreshGoalBoard`（Save 的唯一必经点）
   + `refreshBoardAfterAudit`（终态审计落账后，权威 Status/At/Reason）+ `planGoalBoard`（生命周期推进
   + 指纹节流）+ `mergeBoardHistory`（并集去重、只追加、id 复用让位）+ `closedInfo` / `activeFrame`；

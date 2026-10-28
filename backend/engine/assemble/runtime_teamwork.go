@@ -48,13 +48,13 @@ type TeamworkBackend struct {
 	// Boards 是团队看板**存档**的读/写面（生产实现 = store 的
 	// moduleBoardTeam，取用面 Router.BoardsFor）。可选：未注入 = 不刷新存档、
 	// 读侧也无从恢复——"有就有、没有就是没装配"。
-	Boards store.BoardRepository
+	Boards teamwork.BoardRepository
 	// JobOutputs 是 teammate 作业输出文件的产品面（S5 / §4.7 输出归属；生产实现 =
 	// NewTeamworkJobOutputs）。可选：未注入 = Spec.OutputPath 留空，框架自建输出文件
 	// 并按框架语义在销项 / 驱逐 / Close 时删除。
 	JobOutputs teamwork.JobOutputs
 	// KeyFor 把会话 ID 解析成存储作用域键（project_id + session_id）。
-	KeyFor func(sessionID string) (store.Key, bool)
+	KeyFor func(sessionID string) (dto.SessionKey, bool)
 	// MaxTeammates 是产品级 role 数上限（兼容旧名）。
 	MaxTeammates int
 	// MaxJobs 是团队 active worker job 的硬上限（独立于 role 数）。
@@ -113,7 +113,7 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	r.teamworkMu.Lock()
 	r.teamworkBackend = &backend
 	r.teamworkJobs = manager
-	r.teamworkCoords = map[store.Key]*teamwork.Coordinator{}
+	r.teamworkCoords = map[dto.SessionKey]*teamwork.Coordinator{}
 	r.teamworkJobSignals = signals
 	r.teamworkJobEvents = appJobEvents
 	r.lifecycle = append(r.lifecycle, func() { _ = manager.Close(context.Background()) })
@@ -163,7 +163,7 @@ func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, er
 }
 
 // coordinatorForKey 取（必要时建）某个会话作用域键对应的 Coordinator。
-func (r *Runtime) coordinatorForKey(key store.Key) (*teamwork.Coordinator, error) {
+func (r *Runtime) coordinatorForKey(key dto.SessionKey) (*teamwork.Coordinator, error) {
 	r.teamworkMu.Lock()
 	defer r.teamworkMu.Unlock()
 	backend, manager := r.teamworkBackend, r.teamworkJobs
@@ -195,7 +195,7 @@ func (r *Runtime) coordinatorForKey(key store.Key) (*teamwork.Coordinator, error
 		return nil, err
 	}
 	if r.teamworkCoords == nil {
-		r.teamworkCoords = map[store.Key]*teamwork.Coordinator{}
+		r.teamworkCoords = map[dto.SessionKey]*teamwork.Coordinator{}
 	}
 	r.teamworkCoords[key] = coordinator
 	return coordinator, nil

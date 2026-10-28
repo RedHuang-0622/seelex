@@ -34,15 +34,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // OutputStore 实现 teamwork.JobOutputs：把"分配 / 写入 / 清理 / 回读" teammate
 // 作业输出文件落在会话存储的 teamwork 模块目录上。
 type OutputStore struct {
-	st     store.TeamworkRepository
-	keyFor func(sessionID string) (store.Key, bool)
+	st     planStoreRepository
+	keyFor func(sessionID string) (dto.SessionKey, bool)
 
 	// mu 同时守着 seq（序号）与 live（在册落点），**并且跨文件 I/O 持有**：WriteJobOutput
 	// 与 ClearJobOutputs 因此串行——收口清目录不会与"被取消回合的最后一次写"并发（S5 残边）。
@@ -56,7 +56,7 @@ type OutputStore struct {
 
 // NewOutputStore 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
 // 不把它交给 teamwork 编排面（缺失 = 交回框架自建，不是降级成半残实现）。
-func NewOutputStore(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *OutputStore {
+func NewOutputStore(st planStoreRepository, keyFor func(sessionID string) (dto.SessionKey, bool)) *OutputStore {
 	if st == nil || keyFor == nil {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (o *OutputStore) JobOutputPath(ctx context.Context, role string) (string, e
 	if err != nil {
 		return "", err
 	}
-	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.JobOutputDir(key)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +143,7 @@ func (o *OutputStore) ClearJobOutputs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.JobOutputDir(key)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (o *OutputStore) LatestJobOutputPath(ctx context.Context, role string) (str
 	if err != nil {
 		return "", false, err
 	}
-	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.JobOutputDir(key)
 	if err != nil {
 		return "", false, err
 	}
@@ -215,17 +215,17 @@ func (o *OutputStore) LatestJobOutputPath(ctx context.Context, role string) (str
 
 // resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
 // （telemetry 的 SessionIDFromContext），不引入第二套"当前会话"判据。
-func (o *OutputStore) resolve(ctx context.Context) (store.Key, string, error) {
+func (o *OutputStore) resolve(ctx context.Context) (dto.SessionKey, string, error) {
 	if o == nil || o.st == nil || o.keyFor == nil {
-		return store.Key{}, "", errors.New("teamwork: 作业输出面未装配")
+		return dto.SessionKey{}, "", errors.New("teamwork: 作业输出面未装配")
 	}
 	sessionID := strings.TrimSpace(telemetry.SessionIDFromContext(ctx))
 	if sessionID == "" {
-		return store.Key{}, "", errors.New("teamwork: 当前调用没有会话归属")
+		return dto.SessionKey{}, "", errors.New("teamwork: 当前调用没有会话归属")
 	}
 	key, ok := o.keyFor(sessionID)
 	if !ok || strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return store.Key{}, "", fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
+		return dto.SessionKey{}, "", fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
 	}
 	return key, sessionID, nil
 }

@@ -99,7 +99,7 @@ func goalBoardHistoryViews(entries []store.GoalBoardHistory) []dto.GoalHistoryVi
 	return views
 }
 
-func goalBoardProgressViews(items []store.GoalProgress) []dto.GoalProgressView {
+func goalBoardProgressViews(items []dto.BoardGoalProgress) []dto.GoalProgressView {
 	if len(items) == 0 {
 		return nil
 	}
@@ -364,7 +364,7 @@ func activeFrame(records []*GoalRecord) *store.GoalBoardActive {
 			UpdatedAt:  record.UpdatedAt,
 		}
 		for _, item := range record.Progress {
-			frame.Progress = append(frame.Progress, store.GoalProgress{
+			frame.Progress = append(frame.Progress, dto.BoardGoalProgress{
 				At: item.At, Kind: string(item.Kind), Content: item.Content,
 			})
 		}

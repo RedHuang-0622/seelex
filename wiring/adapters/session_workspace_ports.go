@@ -19,6 +19,7 @@ import (
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
@@ -279,6 +280,8 @@ type SessionPort struct {
 	// Meta 是项目级会话展示元数据存取（wiring/bootstrap 装配）。它是指针：SessionPort
 	// 会被值拷贝进 Dependencies，共享同一个实例才共用其读改写串行化。
 	Meta *store.SessionMetaStore
+	// Boards is the session-board owner injected by the composition root.
+	Boards *storeboard.SessionStore
 }
 
 // SetSessionMeta 实现 session.SessionMetaPort：写单个会话的展示元数据到其归属
@@ -389,11 +392,16 @@ func (port SessionPort) granular() *store.SessionGranularStore {
 // 的壳目录）。
 func (port SessionPort) AttachSessionContext(workspaceID, sessionID string) error {
 	st := store.NewSessionContextStore(port.Manager.Router(), sessionID)
-	st.SetWorkspaceResolver(port.sessionContextWorkspace(workspaceID, sessionID))
+	resolveWorkspace := port.sessionContextWorkspace(workspaceID, sessionID)
+	st.SetWorkspaceResolver(resolveWorkspace)
 	if err := st.Load(context.Background()); err != nil {
 		return fmt.Errorf("load session context %q: %w", sessionID, err)
 	}
-	port.Runtime.AttachSessionContextStore(st)
+	var boards *storeboard.BoundStore
+	if port.Boards != nil {
+		boards = port.Boards.Bind(dto.SessionKey{ProjectID: resolveWorkspace(), SessionID: sessionID})
+	}
+	port.Runtime.AttachSessionContextStore(st, boards)
 	return nil
 }
 

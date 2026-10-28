@@ -13,10 +13,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
 )
+
+type routerMediaReader struct {
+	router *store.Router
+}
+
+func (reader routerMediaReader) ReadMedia(ctx context.Context, key dto.SessionKey, ref string) (store.MediaRef, []byte, error) {
+	return reader.router.ReadMediaWorkspace(ctx, key.ProjectID, key.SessionID, ref)
+}
 
 // TestLiveMultimodalImageSmoke 是真机多模态冒烟（opt-in）：
 //
@@ -54,33 +63,28 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 
 	// 1) 会话媒体分区：真落盘、真读回（不绕过存储层直接喂内存字节）。
 	storePath := t.TempDir()
-	repository, err := store.Open(ctx, store.Config{
-		Path: storePath,
-	})
+	stores, err := store.OpenStores(storePath)
 	if err != nil {
-		t.Fatalf("open session store: %v", err)
+		t.Fatalf("open stores: %v", err)
 	}
-	t.Cleanup(func() { _ = repository.Close() })
-	media, ok := store.MediaStoreOf(repository)
-	if !ok {
-		t.Fatal("session store does not expose the media partition")
-	}
-	key := store.Key{ProjectID: "p-live-multimodal", SessionID: "s-live-multimodal"}
+	t.Cleanup(func() { _ = stores.Close() })
+	media := routerMediaReader{router: stores.Router}
+	key := dto.SessionKey{ProjectID: "p-live-multimodal", SessionID: "s-live-multimodal"}
 	pngBytes := liveSplitPNG(t, 128, 128)
 	name := "prompt-smoke-" + time.Now().UTC().Format("20060102-150405.000") + ".png"
-	item, err := media.WriteMedia(ctx, key, store.MediaItem{
+	item, err := stores.Router.WriteMediaWorkspace(ctx, key.ProjectID, key.SessionID, store.MediaItem{
 		Name: name, MimeType: "image/png", Kind: "screenshot",
 		Data: pngBytes, Width: 128, Height: 128, Scale: 1,
 	})
 	if err != nil {
 		t.Fatalf("WriteMedia: %v", err)
 	}
-	listed, err := media.ListMedia(ctx, key)
-	if err != nil || len(listed) != 1 {
-		t.Fatalf("ListMedia = %+v err=%v", listed, err)
+	readMeta, readData, err := stores.Router.ReadMediaWorkspace(ctx, key.ProjectID, key.SessionID, item.Ref)
+	if err != nil || !bytes.Equal(readData, pngBytes) {
+		t.Fatalf("ReadMedia = %d bytes err=%v", len(readData), err)
 	}
-	if listed[0].Name != name {
-		t.Fatalf("stored name = %q, want original name %q", listed[0].Name, name)
+	if readMeta.Name != name {
+		t.Fatalf("stored name = %q, want original name %q", readMeta.Name, name)
 	}
 	onDisk, parent := findStoredFile(t, storePath, name)
 	hash := strings.TrimPrefix(item.Ref, store.MediaRefPrefix)

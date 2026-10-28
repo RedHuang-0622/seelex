@@ -18,7 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
 // ErrImageInvalid 表示图片缺少 MIME 类型或字节。
@@ -56,7 +57,11 @@ type Message struct {
 }
 
 // LoadImage 从会话媒体分区读出一条媒体资产，装配成可下发图片。
-func LoadImage(ctx context.Context, st store.MediaStore, key store.Key, ref string) (ImageSource, error) {
+type MediaReader interface {
+	ReadMedia(context.Context, dto.SessionKey, string) (storeartifact.MediaRef, []byte, error)
+}
+
+func LoadImage(ctx context.Context, st MediaReader, key dto.SessionKey, ref string) (ImageSource, error) {
 	meta, data, err := st.ReadMedia(ctx, key, ref)
 	if err != nil {
 		return ImageSource{}, err
@@ -79,7 +84,7 @@ func BuildParts(text string, images []ImageSource) ([]Part, error) {
 		if strings.TrimSpace(image.MimeType) == "" || len(image.Data) == 0 {
 			return nil, fmt.Errorf("%w (index %d)", ErrImageInvalid, index)
 		}
-		if image.Ref != "" && store.MediaRefHash(image.Ref) == "" {
+		if image.Ref != "" && storeartifact.MediaRefHash(image.Ref) == "" {
 			return nil, fmt.Errorf("multimodal: image ref %q is not a session media ref", image.Ref)
 		}
 		parts = append(parts, Part{

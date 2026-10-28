@@ -51,6 +51,9 @@ func TestStoreDDDMTeamworkIOOwnershipGate(t *testing.T) {
 	for _, name := range []string{"teamwork.go", "teamwork_items.go", "team_registry.go"} {
 		body, err := os.ReadFile(filepath.Join(root, "store", name))
 		if err != nil {
+			if os.IsNotExist(err) && name == "teamwork_items.go" {
+				continue // M10 retired the remaining binding adapter file.
+			}
 			t.Fatalf("读取根 store/%s：%v", name, err)
 		}
 		text := string(body)
@@ -61,23 +64,14 @@ func TestStoreDDDMTeamworkIOOwnershipGate(t *testing.T) {
 		}
 	}
 
-	// 3) 根包必须只剩单层转发（而不是把实现删掉后没人调用）。
+	// 3) M10 删除运行期能力发现与数据转发后，根包只保留同身份 alias。
 	teamworkForward, err := os.ReadFile(filepath.Join(root, "store", "teamwork.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, call := range []string{".WritePlan(", ".ReadPlan(", ".AppendEvent(", ".ReadEvents(", ".JobOutputDir("} {
-		if !strings.Contains(string(teamworkForward), call) {
-			t.Errorf("根 store/teamwork.go 缺少向 store/teamwork 的单层转发 %q", call)
-		}
-	}
-	itemsForward, err := os.ReadFile(filepath.Join(root, "store", "teamwork_items.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, call := range []string{".AppendBinding(", ".ReadBindings("} {
-		if !strings.Contains(string(itemsForward), call) {
-			t.Errorf("根 store/teamwork_items.go 缺少向 store/teamwork 的单层转发 %q", call)
+	for _, removed := range []string{".WritePlan(", ".ReadPlan(", ".JobOutputDir(", "Router.TeamworkFor"} {
+		if strings.Contains(string(teamworkForward), removed) {
+			t.Errorf("根 store/teamwork.go 仍在转发/探测已迁出的能力 %q", removed)
 		}
 	}
 

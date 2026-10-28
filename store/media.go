@@ -37,11 +37,6 @@ type MediaStore interface {
 	CollectMedia(context.Context, Key, map[string]bool, bool) ([]string, error)
 }
 
-func MediaStoreOf(repository Repository) (MediaStore, bool) {
-	store, ok := repository.(MediaStore)
-	return store, ok
-}
-
 func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error) {
 	if router == nil {
 		return MediaRef{}, ErrMediaUnsupported
@@ -51,7 +46,7 @@ func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessio
 	}
 	var ref MediaRef
 	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		store, ok := MediaStoreOf(repository)
+		store, ok := repository.(MediaStore)
 		if !ok {
 			return ErrMediaUnsupported
 		}
@@ -77,7 +72,7 @@ func (router *Router) ReadMediaWorkspace(ctx context.Context, projectID, session
 		data []byte
 	)
 	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		store, ok := MediaStoreOf(repository)
+		store, ok := repository.(MediaStore)
 		if !ok {
 			return ErrMediaUnsupported
 		}

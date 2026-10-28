@@ -122,12 +122,12 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	stores, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = st.Close() })
-	return harness, sessionA, sessionB, wsX, wsY, st
+	t.Cleanup(func() { _ = stores.Close() })
+	return harness, sessionA, sessionB, wsX, wsY, stores.Router
 }
 
 // TC-A4-01/02：A 的 record 落在自身 workspace X；Y 下无 A 键；Router 写作用域

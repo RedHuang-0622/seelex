@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
@@ -52,43 +53,49 @@ func New(layout *storelayout.Layout) *Store {
 }
 
 // Dir 返回 teamwork 数据目录（不创建）。
-func (s *Store) Dir(scope storelayout.Scope) string {
-	return filepath.Join(s.layout.SessionRoot(scope), DirName)
+func (s *Store) Dir(scope dto.SessionKey) string {
+	return filepath.Join(s.layout.SessionRoot(layoutScope(scope)), DirName)
 }
 
 // EventPath 返回审计流水路径。
-func (s *Store) EventPath(scope storelayout.Scope) string {
+func (s *Store) EventPath(scope dto.SessionKey) string {
 	return filepath.Join(s.Dir(scope), EventFile)
 }
 
 // BindingPath 返回绑定账本路径。
-func (s *Store) BindingPath(scope storelayout.Scope) string {
+func (s *Store) BindingPath(scope dto.SessionKey) string {
 	return filepath.Join(s.Dir(scope), BindingFile)
 }
 
 // JobsDir 返回作业输出目录（不创建）。
-func (s *Store) JobsDir(scope storelayout.Scope) string {
+func (s *Store) JobsDir(scope dto.SessionKey) string {
 	return filepath.Join(s.Dir(scope), JobsDirName)
 }
 
 // WritePlan 整份替换计划 head。maxTeammates <= 0 = 只做结构性校验。
-func (s *Store) WritePlan(scope storelayout.Scope, plan Plan, maxTeammates int) error {
+func (s *Store) WritePlan(scope dto.SessionKey, plan Plan, maxTeammates int) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
 	if err := ValidatePlan(plan, maxTeammates); err != nil {
 		return err
 	}
-	return s.layout.Commit(scope, ModuleID, "", plan, time.Now().UTC())
+	return s.layout.Commit(layoutScope(scope), ModuleID, "", plan, time.Now().UTC())
 }
 
 // ReadPlan 读回计划。**缺失 = 空计划**（还没声明过团队），不是错误。
 //
 // 走与其它模块 head 相同的自愈读：首次不匹配重读一次，持续失败才在模块锁内重试
 // （计划没有独立数据文件，没有可重建的 payload——repair 为空）。
-func (s *Store) ReadPlan(scope storelayout.Scope) (Plan, error) {
+func (s *Store) ReadPlan(scope dto.SessionKey) (Plan, error) {
+	if err := scope.Validate(); err != nil {
+		return Plan{}, err
+	}
 	head, err := s.layout.ReadWithHeal(
-		scope,
+		layoutScope(scope),
 		ModuleID,
 		false,
-		func() *sync.Mutex { return s.layout.Lock(scope, ModuleID) },
+		func() *sync.Mutex { return s.layout.Lock(layoutScope(scope), ModuleID) },
 		nil,
 		nil,
 	)
@@ -102,7 +109,10 @@ func (s *Store) ReadPlan(scope storelayout.Scope) (Plan, error) {
 }
 
 // AppendEvent 追加一条审计事件（只追加、不重写）。
-func (s *Store) AppendEvent(scope storelayout.Scope, event Event) error {
+func (s *Store) AppendEvent(scope dto.SessionKey, event Event) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(event.Kind) == "" {
 		return errors.New("teamwork: event.kind is required")
 	}
@@ -117,12 +127,18 @@ func (s *Store) AppendEvent(scope storelayout.Scope, event Event) error {
 }
 
 // ReadEvents 读回全部审计事件（文件顺序 = 发生顺序）。
-func (s *Store) ReadEvents(scope storelayout.Scope) ([]Event, error) {
+func (s *Store) ReadEvents(scope dto.SessionKey) ([]Event, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	return readRows[Event](s.EventPath(scope), "audit")
 }
 
 // AppendBinding 追加一行 Work Item 绑定事实（只追加、不重写）。
-func (s *Store) AppendBinding(scope storelayout.Scope, binding Binding) error {
+func (s *Store) AppendBinding(scope dto.SessionKey, binding Binding) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(binding.WorkItem) == "" {
 		return errors.New("teamwork: binding.work_item is required")
 	}
@@ -137,7 +153,10 @@ func (s *Store) AppendBinding(scope storelayout.Scope, binding Binding) error {
 }
 
 // ReadBindings 读回全部绑定事实（文件顺序 = 发生顺序）。
-func (s *Store) ReadBindings(scope storelayout.Scope) ([]Binding, error) {
+func (s *Store) ReadBindings(scope dto.SessionKey) ([]Binding, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	return readRows[Binding](s.BindingPath(scope), "binding")
 }
 
@@ -145,7 +164,10 @@ func (s *Store) ReadBindings(scope storelayout.Scope) ([]Binding, error) {
 //
 // 目录在会话目录内，跟着会话一起被清理；文件名与生命周期归调用方（存储层不决定
 // "哪一轮的输出该留着"）。
-func (s *Store) JobOutputDir(scope storelayout.Scope) (string, error) {
+func (s *Store) JobOutputDir(scope dto.SessionKey) (string, error) {
+	if err := scope.Validate(); err != nil {
+		return "", err
+	}
 	dir := s.JobsDir(scope)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("teamwork: create job output dir: %w", err)
@@ -155,11 +177,11 @@ func (s *Store) JobOutputDir(scope storelayout.Scope) (string, error) {
 
 // appendLine 是两条追加流水的**唯一**物理实现：确保 guide → 模块锁 → 建目录 →
 // O_APPEND 单次写一行。label 只用于错误文案（audit log / binding log）。
-func (s *Store) appendLine(scope storelayout.Scope, path string, line []byte, label string) error {
-	if _, err := s.layout.EnsureGuide(scope); err != nil {
+func (s *Store) appendLine(scope dto.SessionKey, path string, line []byte, label string) error {
+	if _, err := s.layout.EnsureGuide(layoutScope(scope)); err != nil {
 		return err
 	}
-	lock := s.layout.Lock(scope, ModuleID)
+	lock := s.layout.Lock(layoutScope(scope), ModuleID)
 	lock.Lock()
 	defer lock.Unlock()
 	if err := os.MkdirAll(s.Dir(scope), 0o700); err != nil {
@@ -174,6 +196,10 @@ func (s *Store) appendLine(scope storelayout.Scope, path string, line []byte, la
 		return fmt.Errorf("teamwork: append %s: %w", label, err)
 	}
 	return nil
+}
+
+func layoutScope(key dto.SessionKey) storelayout.Scope {
+	return storelayout.Scope{ProjectID: key.ProjectID, SessionID: key.SessionID}
 }
 
 // readRows 是两条追加流水的**唯一**读取实现：缺失 = 空切片；跳过崩溃残尾。

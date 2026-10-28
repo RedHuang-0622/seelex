@@ -13,21 +13,22 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 )
 
-func teamworkStoreFixture(t *testing.T) (*Store, *storelayout.Layout, storelayout.Scope) {
+func teamworkStoreFixture(t *testing.T) (*Store, *storelayout.Layout, dto.SessionKey) {
 	t.Helper()
 	layout := storelayout.New(t.TempDir())
-	scope := storelayout.Scope{ProjectID: "project-teamwork", SessionID: "session-teamwork"}
+	scope := dto.SessionKey{ProjectID: "project-teamwork", SessionID: "session-teamwork"}
 	return New(layout), layout, scope
 }
 
 // coldStore 用**同一个数据根**新建 layout + Store：冷读证明读面不依赖内存态。
 // SessionRoot 固定是 `<dataRoot>/project-<hash>/session-<hash>`，上溯两级即数据根。
-func coldStore(t *testing.T, layout *storelayout.Layout, scope storelayout.Scope) *Store {
+func coldStore(t *testing.T, layout *storelayout.Layout, scope dto.SessionKey) *Store {
 	t.Helper()
-	dataRoot := filepath.Dir(filepath.Dir(layout.SessionRoot(scope)))
+	dataRoot := filepath.Dir(filepath.Dir(layout.SessionRoot(layoutScope(scope))))
 	return New(storelayout.New(dataRoot))
 }
 
@@ -47,9 +48,9 @@ func validPlan(teamID string) Plan {
 // metadata/teamwork.json，两条流水与 jobs 目录仍在 <sessionRoot>/teamwork 下。
 func TestStorePhysicalPathsAreUnchanged(t *testing.T) {
 	store, layout, scope := teamworkStoreFixture(t)
-	sessionRoot := layout.SessionRoot(scope)
+	sessionRoot := layout.SessionRoot(layoutScope(scope))
 
-	if got, want := layout.ModulePath(scope, ModuleID), filepath.Join(sessionRoot, "metadata", "teamwork.json"); got != want {
+	if got, want := layout.ModulePath(layoutScope(scope), ModuleID), filepath.Join(sessionRoot, "metadata", "teamwork.json"); got != want {
 		t.Fatalf("计划 head 路径变了：got %q want %q", got, want)
 	}
 	if ModuleID != "teamwork" {
@@ -80,7 +81,7 @@ func TestWritePlanReplacesWholePayload(t *testing.T) {
 	if err := store.WritePlan(scope, validPlan("team-a"), 6); err != nil {
 		t.Fatalf("第一次写计划：%v", err)
 	}
-	raw, err := os.ReadFile(layout.ModulePath(scope, ModuleID))
+	raw, err := os.ReadFile(layout.ModulePath(layoutScope(scope), ModuleID))
 	if err != nil {
 		t.Fatalf("读计划 head：%v", err)
 	}
@@ -93,7 +94,7 @@ func TestWritePlanReplacesWholePayload(t *testing.T) {
 	if err := store.WritePlan(scope, second, 6); err != nil {
 		t.Fatalf("第二次写计划：%v", err)
 	}
-	raw, err = os.ReadFile(layout.ModulePath(scope, ModuleID))
+	raw, err = os.ReadFile(layout.ModulePath(layoutScope(scope), ModuleID))
 	if err != nil {
 		t.Fatalf("读计划 head：%v", err)
 	}
@@ -129,7 +130,7 @@ func TestWritePlanValidatesBeforeWriting(t *testing.T) {
 	if err := store.WritePlan(scope, broken, 6); err == nil {
 		t.Fatal("version=0 的计划必须被拒绝")
 	}
-	if _, err := os.Stat(layout.ModulePath(scope, ModuleID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(layout.ModulePath(layoutScope(scope), ModuleID)); !os.IsNotExist(err) {
 		t.Fatalf("校验失败不得落盘：%v", err)
 	}
 }

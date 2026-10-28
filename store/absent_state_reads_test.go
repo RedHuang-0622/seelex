@@ -27,19 +27,19 @@ func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
 
 	// ── ① 空值档：零值 + nil ────────────────────────────────────────────
 	t.Run("空值档", func(t *testing.T) {
-		if plan, err := repository.ReadTeamworkPlan(ctx, key); err != nil || !TeamworkPlanIsEmpty(plan) {
+		if plan, err := repository.layout.teamwork.ReadPlan(key); err != nil || !TeamworkPlanIsEmpty(plan) {
 			t.Fatalf("ReadTeamworkPlan = (%+v, %v)，want 空计划 + nil", plan, err)
 		}
-		if events, err := repository.ReadTeamworkEvents(ctx, key); err != nil || len(events) != 0 {
+		if events, err := repository.layout.teamwork.ReadEvents(key); err != nil || len(events) != 0 {
 			t.Fatalf("ReadTeamworkEvents = (%v, %v)，want 空集 + nil", events, err)
 		}
-		if meta, err := repository.ReadGoalBoard(ctx, key); err != nil || meta.Seq != 0 {
+		if meta, err := repository.layout.boards.ReadGoalBoard(ctx, key); err != nil || meta.Seq != 0 {
 			t.Fatalf("ReadGoalBoard = (%+v, %v)，want 零值 + nil", meta, err)
 		}
-		if meta, err := repository.ReadTeamBoard(ctx, key); err != nil || meta.TeamID != "" {
+		if meta, err := repository.layout.boards.ReadTeamBoard(ctx, key); err != nil || meta.TeamID != "" {
 			t.Fatalf("ReadTeamBoard = (%+v, %v)，want 零值 + nil", meta, err)
 		}
-		if snapshot, ok, err := repository.ReadToolRecordSnapshot(ctx, key); err != nil || ok || snapshot != nil {
+		if snapshot, ok, err := repository.layout.records.Read(ctx, key); err != nil || ok || snapshot != nil {
 			t.Fatalf("ReadToolRecordSnapshot = (%q, %v, %v)，want (nil, false, nil)", snapshot, ok, err)
 		}
 		if records, err := workunit.New(repository.sessionDir(key)).List(); err != nil || len(records) != 0 {

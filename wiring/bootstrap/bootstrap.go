@@ -44,7 +44,7 @@ type Options struct {
 type App struct {
 	Application *application.Service
 	Runtime     *assemble.Runtime
-	Store       *store.Router
+	Store       *Store
 
 	Flags          *config.Flags
 	Frontend       string
@@ -156,15 +156,15 @@ func Run(opts Options) (*App, error) {
 	}
 	boot.addCleanup(func() { _ = st.Close() })
 	console.LogStageIf(backendTrace, "startup.store.ready")
-	runtime.AttachHistoryRouter(st)
+	runtime.AttachHistoryRouter(st.Router)
 	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）。
-	runtime.AttachSubSessionStore(store.NewNodeSessionStore(st))
+	runtime.AttachSubSessionStore(store.NewNodeSessionStore(st.Router))
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
 	// 双轨事件（slice 8）：执行事实 → store 事件库（事实轨），
 	// EventHub 继续前端快照（快照轨）。Sink 失败经 ErrorHandler 隔离，
 	// 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
-	eventStore := store.NewEventStore(st)
+	eventStore := store.NewEventStore(st.Router)
 	if err := SetupPermissionGate(runtime, approval, flags.PermissionMode); err != nil {
 		return nil, boot.fail(fmt.Errorf("权限模式无效: %w", err))
 	}
@@ -208,7 +208,7 @@ func Run(opts Options) (*App, error) {
 		// 等于把"驱逐"做成空操作，见 docs/2026-10-14-memory-cpu-accumulation/。
 		ReleaseSessionBundle: runtime.ReleaseSessionBundle,
 	})
-	sessionManager := InitSessionManager(st, appEngine)
+	sessionManager := InitSessionManager(st.Router, appEngine)
 	wsRepo, err := InitWorkspaceRepo(flags.StorePath)
 	if err != nil {
 		return nil, boot.fail(err)
@@ -223,20 +223,20 @@ func Run(opts Options) (*App, error) {
 	})
 	// teamwork 编排面：leader 的六件套工具 + jobs_manage。计划/审计落 moduleTeamwork
 	// （JSON 后端）；作用域键由"会话 → 所属项目"解析，与执行事实事件库同源。
-	if repo, ok := st.TeamworkFor(); ok {
+	if st.Teamwork != nil {
 		// 看板存档面（会话粒度元数据 + 重启快照恢复）：与计划/审计同一个 JSON 后端，
 		// 落 metadata/board_team.json。非 JSON 后端不实现它 → nil，读侧无从恢复，
 		// 活体投影照常工作。
-		boardRepo, _ := st.BoardsFor()
+		boardRepo := st.Boards
 		// 作用域键解析只有一份（sessionKeyFor，见文件尾部）：团队作业与工具记录
 		// 都用它，免得两处各写一遍"会话 → (项目, 会话)"的解析。
 		keyFor := func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) }
 		if err := runtime.SetTeamworkBackend(assemble.TeamworkBackend{
-			Store:  seeteamwork.NewPlanStore(repo),
+			Store:  seeteamwork.NewPlanStore(st.Teamwork),
 			Boards: boardRepo,
 			// 作业输出归产品（S5）：正文落会话的 teamwork/jobs，销项 / 驱逐 / Close
 			// 都不由框架删，整队收口（team_close）时才清——"正文活到 close"。
-			JobOutputs:                 seeteamwork.NewOutputStore(repo, keyFor),
+			JobOutputs:                 seeteamwork.NewOutputStore(st.Teamwork, keyFor),
 			KeyFor:                     keyFor,
 			MaxTeammates:               runtimeLimits.Team.MaxTeammates,
 			MaxJobs:                    runtimeLimits.Team.MaxJobs,
@@ -250,7 +250,7 @@ func Run(opts Options) (*App, error) {
 			return nil, boot.fail(fmt.Errorf("装配 teamwork 编排面失败: %w", err))
 		}
 	}
-	app, err := InitApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval, flags.StorePath)
+	app, err := InitApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval, st.Boards, flags.StorePath)
 	if err != nil {
 		return nil, boot.fail(err)
 	}
@@ -326,14 +326,14 @@ func Run(opts Options) (*App, error) {
 	registry.RegisterContextReadTools(runtime, app)
 	// J-2：agent 请求 GUI 打开待审阅文件（一次批处理召唤，上限 10 份）。
 	registry.RegisterReviewFilesTool(runtime, app)
-	registry.RegisterProjectRefreshTool(runtime, st, app)
+	registry.RegisterProjectRefreshTool(runtime, st.Router, app)
 	registry.RegisterScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
 	// 项目看板（可选能力，M3 装配门）：装配期**一次**交接——开关关 ⇒ 不注入订阅口
 	// （工具完成段判空后什么都不做，一个文件都不写）；开 ⇒ 唯一写盘路径挂上。
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := registry.ProjectBoardSinkFor(
-		runtimeLimits.ProjectBoard, st,
+		runtimeLimits.ProjectBoard, st.Router,
 		components.Execution.ProjectBoard.WorkTableRowsFor, components.Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		components.Execution.ProjectBoard.ProjectBoardTeamStateFor, components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
@@ -347,7 +347,7 @@ func Run(opts Options) (*App, error) {
 	// **批次**（真相源提交时刻统一更新一次，见 assembly.FlushToolRecord）——不做"每次工具调用
 	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
 	components.Execution.ToolRecords.SetSnapshotStore(sessionToolRecordStore{
-		router:     st,
+		records:    st.ToolRecords,
 		resolveKey: func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
 	})
 	// 计数开关：默认**开**（先收数据），界面上改过的值落在数据根 runtime-limits.json 的
@@ -365,7 +365,7 @@ func Run(opts Options) (*App, error) {
 	components.Execution.ToolRecords.ApplyEnabled(toolRecordEnabled)
 	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
 	// 所以在这里把解析器交给 Router 一次（见 store.SetProjectBoardRootFor）。
-	st.SetProjectBoardRootFor(func(sessionID string) string {
+	st.Router.SetProjectBoardRootFor(func(sessionID string) string {
 		if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
 			return strings.TrimSpace(workspace.RootPath)
 		}
@@ -373,7 +373,7 @@ func Run(opts Options) (*App, error) {
 	})
 	// 读取面：**只在这一档注册**（关 ⇒ 工具根本不存在 = 零读取面，而不是"注册了但报错"）。
 	if runtimeLimits.ProjectBoard.Enabled {
-		registry.RegisterProjectBoardReadTool(runtime, st, app)
+		registry.RegisterProjectBoardReadTool(runtime, st.Router, app)
 	}
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
@@ -414,7 +414,7 @@ func Run(opts Options) (*App, error) {
 			},
 		},
 		ProjectKnowledge: func() *store.ProjectRecord {
-			record, readErr := st.LoadProjectRecord(st.Workspace())
+			record, readErr := st.Router.LoadProjectRecord(st.Router.Workspace())
 			if readErr != nil {
 				return nil
 			}

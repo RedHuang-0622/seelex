@@ -7,6 +7,10 @@
 [`board/README.md`](board/README.md)；根包 `project_board_compat.go` 只保留同身份
 alias 与单层 Router 转发。
 
+M10 起，goal/team 会话看板存档的形状位于 `contract/dto/session_board.go`，校验与
+head 发布位于 `board/session.go`。生产装配通过 typed `store.Stores.Boards` 注入，
+不再调用 `Router.BoardsFor*`；根 `board.go` 只保留兼容 alias。
+
 覆盖：`board*.go`、`project_board_compat*.go`、`project_known*.go`、
 `project_record*.go`；`project_board.go` / `project_board_markdown.go` 已在 M1
 迁出根包。
@@ -18,21 +22,19 @@ alias 与单层 Router 转发。
 
 ### board.go
 
-- `func (l BoardLifecycle) Closed() bool` — Closed 报告这块看板是否已关闭。
-- `func Boards(repository Repository) (BoardRepository, bool)` — Boards 把 Repository 收窄到看板存档面（JSON 后端实现它；其他后端返回 false）。
-- `func (router *Router) BoardsFor() (BoardRepository, bool)` — BoardsFor 返回**当前活跃后端**的看板存档读/写面。
-- `func (router *Router) BoardsForSession(sessionID string) (SessionBoards, bool)` — BoardsForSession 返回绑定到某会话的看板存档面（Key = Router 当前写作用域 +
-- `func (b sessionBoards) WriteGoalBoard(ctx context.Context, meta GoalBoardMeta) error`
-- `func (b sessionBoards) ReadGoalBoard(ctx context.Context) (GoalBoardMeta, error)`
-- `func (b sessionBoards) WriteTeamBoard(ctx context.Context, meta TeamBoardMeta) error`
-- `func (b sessionBoards) ReadTeamBoard(ctx context.Context) (TeamBoardMeta, error)`
 - `func ValidateGoalBoardMeta(meta GoalBoardMeta) error` — ValidateGoalBoardMeta 校验 goal 看板存档。
 - `func ValidateTeamBoardMeta(meta TeamBoardMeta) error` — ValidateTeamBoardMeta 校验团队看板存档。
-- `func validateBoardLifecycle(lifecycle BoardLifecycle, kind string) error` — validateBoardLifecycle 校验两块看板共用的生命周期头。
-- `func (repository *jsonRepository) WriteGoalBoard(_ context.Context, key Key, meta GoalBoardMeta) error` — WriteGoalBoard 写入（整份替换）goal 看板存档。
-- `func (repository *jsonRepository) ReadGoalBoard(_ context.Context, key Key) (GoalBoardMeta, error)` — ReadGoalBoard 读回 goal 看板存档。缺失 = 这个会话还没有存档（正常状态）：
-- `func (repository *jsonRepository) WriteTeamBoard(_ context.Context, key Key, meta TeamBoardMeta) error` — WriteTeamBoard 写入（整份替换）团队看板存档。
-- `func (repository *jsonRepository) ReadTeamBoard(_ context.Context, key Key) (TeamBoardMeta, error)` — ReadTeamBoard 读回团队看板存档。缺失 = 还没有存档：返回**零值 + nil**
+
+### board/session.go
+
+- `func NewSessionStore(layout *storelayout.Layout) *SessionStore`
+- `func (s *SessionStore) Bind(key dto.SessionKey) *BoundStore`
+- `func (s *SessionStore) WriteGoalBoard(ctx, key, meta) error`
+- `func (s *SessionStore) ReadGoalBoard(ctx, key) (dto.GoalBoardMeta, error)`
+- `func (s *SessionStore) WriteTeamBoard(ctx, key, meta) error`
+- `func (s *SessionStore) ReadTeamBoard(ctx, key) (dto.TeamBoardMeta, error)`
+- `func ValidateGoalBoardMeta(meta dto.GoalBoardMeta) error`
+- `func ValidateTeamBoardMeta(meta dto.TeamBoardMeta) error`
 
 ### board_test.go
 

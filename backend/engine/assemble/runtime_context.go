@@ -13,14 +13,19 @@ import (
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 // AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
 // 会话恢复流程接线时由调用方注入（router + sessionID 就绪后）。
-func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore) {
+func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore, boards ...*storeboard.BoundStore) {
 	if bundle := r.activeBundle(); bundle != nil {
 		bundle.mu.Lock()
-		bundle.binding.attachContextStore(st)
+		var boardStore *storeboard.BoundStore
+		if len(boards) > 0 {
+			boardStore = boards[0]
+		}
+		bundle.binding.attachContextStore(st, boardStore)
 		bundle.mu.Unlock()
 	}
 }

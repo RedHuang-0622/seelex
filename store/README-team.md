@@ -149,27 +149,19 @@
 
 ### teamwork.go
 
-- `func TeamworkPlanIsEmpty(plan TeamworkPlan) bool` — 报告"这份计划还没声明过团队"（team_plan 一次都没写过）；唯一实现位于 `contract/dto`。
-- `func Teamwork(repository Repository) (TeamworkRepository, bool)` — Teamwork 把 Repository 收窄到 teamwork 面。JSON 后端实现它；其他后端返回 false。
-- `func (router *Router) TeamworkFor() (TeamworkRepository, bool)` — TeamworkFor 返回**当前活跃后端**的 teamwork 读/写面（JSON 后端实现它；其他后端
-- `func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error` — ValidateTeamworkPlan 校验一份计划（M2 的第二道关口）。
-- `func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, plan TeamworkPlan, maxTeammates int) error` — WriteTeamworkPlan 写入（整份替换）一份计划。maxTeammates <= 0 = 只做结构性校验。
-- `func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error)` — ReadTeamworkPlan 读回计划。**缺失 = 空计划（还没 team_plan 声明过团队），不是错误**。
-- `func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error` — AppendTeamworkEvent 追加一条审计事件（只追加、不重写）。
-- `func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error)` — ReadTeamworkEvents 读回全部审计事件（按文件顺序 = 发生顺序）。
-- `func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error)` — TeamworkJobOutputDir 返回（并确保存在）teammate 作业输出文件所在的产品自有目录。
+- `func TeamworkPlanIsEmpty(plan TeamworkPlan) bool`
+- `func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error`
+- `func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string`
+- `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool`
+- `func TeamworkBindings(rows []TeamworkBinding) map[string]TeamworkBinding`
 
-### teamwork_accessor_test.go
+M10 起，计划/审计/绑定与作业输出目录的唯一 I/O 在
+[`teamwork/README.md`](teamwork/README.md)。组合根通过 `store.Stores.Teamwork` 把
+具体实现注入消费方 `teamwork.planStoreRepository`；根包不再提供
+`Router.TeamworkFor` 或 `jsonRepository` 领域方法。
 
-- `func TestTeamworkAccessorNarrowsRepository(t *testing.T)`
-
-### teamwork_items.go
-
-- `func TeamworkWorkItemStatusOrPending(item TeamworkWorkItem) string` — 把空状态读成 pending；唯一实现位于 `contract/dto`。
-- `func TeamworkWorkItemTerminal(item TeamworkWorkItem) bool` — 报告工作项是否已经有 done/failed 结论；唯一实现位于 `contract/dto`。
-- `func TeamworkBindings(rows []TeamworkBinding) map[string]TeamworkBinding` — TeamworkBindings 把绑定流水折成"每个 Work Item 当前的绑定"。
-- `func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error` — AppendTeamworkBinding 追加一行绑定事实（只追加、不重写；崩溃残尾由读侧跳过）。
-- `func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error)` — ReadTeamworkBindings 读回全部绑定事实（按文件顺序 = 发生顺序）。
+`teamwork_items.go` 已在 M10 删除；唯一实现和字段身份均在 `store/teamwork` 与
+`contract/dto`。
 
 ### teamwork_items_test.go
 

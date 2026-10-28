@@ -15,29 +15,30 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 // boardArchiveReadCtx 是本文件的测试上下文（不借用其它测试文件的包级变量）。
 var boardArchiveReadCtx = context.Background()
 
 // boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
-func boardRouterForArchive(t *testing.T) *store.Router {
+func boardRouterForArchive(t *testing.T) (*store.Router, *storeboard.SessionStore) {
 	t.Helper()
 	root := t.TempDir()
-	router, err := store.NewRouter(root)
+	stores, err := store.OpenStores(root)
 	if err != nil {
-		t.Fatalf("new session router: %v", err)
+		t.Fatalf("open stores: %v", err)
 	}
-	t.Cleanup(func() { _ = router.Close() })
-	return router
+	t.Cleanup(func() { _ = stores.Close() })
+	return stores.Router, stores.Boards
 }
 
 // boardDepsFor mirrors the Wiring adapter without making the production Goal
 // package import Store: one session-scoped goal store plus its board readback.
-func boardDepsFor(router *store.Router) CoordinatorDeps {
+func boardDepsFor(router *store.Router, boardStore *storeboard.SessionStore) CoordinatorDeps {
 	adapterFor := func(sessionID string) *goaldomain.ContextStateStore {
 		session := store.NewSessionContextStore(router, sessionID)
-		boards, _ := router.BoardsForSession(sessionID)
+		boards := boardStore.Bind(dto.SessionKey{SessionID: sessionID})
 		return goaldomain.NewContextStateStore(session, boards)
 	}
 	return CoordinatorDeps{
@@ -56,12 +57,9 @@ func boardDepsFor(router *store.Router) CoordinatorDeps {
 }
 
 // writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
-func writeBoardArchiveFor(t *testing.T, router *store.Router, sessionID string, meta store.GoalBoardMeta) {
+func writeBoardArchiveFor(t *testing.T, boardStore *storeboard.SessionStore, sessionID string, meta store.GoalBoardMeta) {
 	t.Helper()
-	boards, ok := router.BoardsForSession(sessionID)
-	if !ok {
-		t.Fatal("看板存档取用面未装配（BoardsForSession 返回 false）")
-	}
+	boards := boardStore.Bind(dto.SessionKey{SessionID: sessionID})
 	// board_kind 是存档的必填头（ValidateGoalBoardMeta）：用例只关心各自那条
 	// 语义，统一在这里补齐，免得每处字面量都抄一遍。
 	meta.Kind = store.BoardKindGoal
@@ -74,10 +72,10 @@ func writeBoardArchiveFor(t *testing.T, router *store.Router, sessionID string, 
 // 会话的 goal（没有 bundle）、活体栈为空，而存档里 state=active —— 此时必须按
 // 存档的当前帧把看板重建出来，并标 Recovered=true（"这一帧来自快照"）。
 func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
-	router := boardRouterForArchive(t)
+	router, boardStore := boardRouterForArchive(t)
 	sessionID := "session-board-recover"
 	now := time.Now().UTC()
-	writeBoardArchiveFor(t, router, sessionID, store.GoalBoardMeta{
+	writeBoardArchiveFor(t, boardStore, sessionID, store.GoalBoardMeta{
 		BoardLifecycle: store.BoardLifecycle{
 			State: store.BoardStateActive, Seq: 2,
 			OpenedAt: now.Add(-time.Hour).Unix(), UpdatedAt: now.Unix(),
@@ -85,13 +83,13 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 		Active: &store.GoalBoardActive{
 			GoalID: "g-1", Title: "上一轮还在跑的目标", Status: "active",
 			Acceptance: []string{"go test 全绿"},
-			Progress: []store.GoalProgress{
+			Progress: []dto.BoardGoalProgress{
 				{At: now.Unix(), Kind: "milestone", Content: "已接线"},
 			},
 		},
 	})
 
-	coordinator := NewCoordinator(boardDepsFor(router))
+	coordinator := NewCoordinator(boardDepsFor(router, boardStore))
 	view := coordinator.GoalGovernanceViewFor(sessionID)
 	if view == nil {
 		t.Fatal("存档里 state=active 时不应退回 nil：看板要能被重建出来")
@@ -117,10 +115,10 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 // 时不得把上一轮的帧带回看板（Active 保持 false，活动栈不得有帧），但收口账本
 // （History）该下发。
 func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
-	router := boardRouterForArchive(t)
+	router, boardStore := boardRouterForArchive(t)
 	sessionID := "session-board-closed"
 	closedAt := time.Now().UTC()
-	writeBoardArchiveFor(t, router, sessionID, store.GoalBoardMeta{
+	writeBoardArchiveFor(t, boardStore, sessionID, store.GoalBoardMeta{
 		BoardLifecycle: store.BoardLifecycle{
 			State: store.BoardStateClosed, Seq: 3,
 			ClosedAt: closedAt.Unix(), ClosedReason: "goal.finish",
@@ -131,7 +129,7 @@ func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
 		}},
 	})
 
-	coordinator := NewCoordinator(boardDepsFor(router))
+	coordinator := NewCoordinator(boardDepsFor(router, boardStore))
 	// 让该会话有活体 bundle（活体栈为空），走"活体栈为空 → 读存档"这条分支。
 	coordinator.bundleFor(sessionID)
 	view := coordinator.GoalGovernanceViewFor(sessionID)
@@ -154,7 +152,7 @@ func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
 // 活体可用时 history 照样下发（它不是兜底专属），但已收口目标不得混进 Stack，
 // 也不得冒充 active 那一帧。
 func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
-	router := boardRouterForArchive(t)
+	router, boardStore := boardRouterForArchive(t)
 	sessionID := "session-board-ledger"
 	// 先用 goal 域的写侧把"收口一轮 + 再开一轮"这条真实路径跑出来（存档与账本
 	// 都走生产代码，不在测试里手搓现场）。
@@ -162,10 +160,7 @@ func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
 	if err := session.Load(boardArchiveReadCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
 	}
-	boards, ok := router.BoardsForSession(sessionID)
-	if !ok {
-		t.Fatal("看板存档取用面未装配")
-	}
+	boards := boardStore.Bind(dto.SessionKey{SessionID: sessionID})
 	adapter := goaldomain.NewContextStateStore(session, boards)
 	controller := goaldomain.NewController(goaldomain.Options{
 		Depth: 2, Store: adapter, Audit: adapter,
@@ -180,7 +175,7 @@ func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T) {
 		t.Fatalf("begin second: %v", err)
 	}
 
-	coordinator := NewCoordinator(boardDepsFor(router))
+	coordinator := NewCoordinator(boardDepsFor(router, boardStore))
 	// bundle 的 Reload 从活栈通道恢复第二轮目标（活体栈可用）。
 	coordinator.bundleFor(sessionID)
 	view := coordinator.GoalGovernanceViewFor(sessionID)
@@ -211,8 +206,8 @@ func TestGoalGovernanceViewWithoutArchiveStaysHidden(t *testing.T) {
 	if view := coordinator.GoalGovernanceViewFor("session-board-none"); view != nil {
 		t.Fatalf("未装配存档面时不应产生治理视图: %+v", view)
 	}
-	router := boardRouterForArchive(t)
-	withRouter := NewCoordinator(boardDepsFor(router))
+	router, boardStore := boardRouterForArchive(t)
+	withRouter := NewCoordinator(boardDepsFor(router, boardStore))
 	if view := withRouter.GoalGovernanceViewFor("session-board-no-archive"); view != nil {
 		t.Fatalf("有存档面但还没有存档时不应产生治理视图: %+v", view)
 	}

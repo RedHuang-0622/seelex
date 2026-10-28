@@ -44,6 +44,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
@@ -64,6 +65,13 @@ func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionC
 		return nil
 	}
 	return port.Runtime.SessionContextStoreFor(sessionID)
+}
+
+func (port RuntimePort) SessionBoardsFor(sessionID string) *storeboard.BoundStore {
+	if port.Runtime == nil {
+		return nil
+	}
+	return port.Runtime.SessionBoardsFor(sessionID)
 }
 
 // SetAccountWindow 实现 contract.AccountWindowPort：界面「设置 → 账号」设的窗口经这里

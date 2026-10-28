@@ -7,29 +7,33 @@ import (
 
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 type goalProviderFake struct {
 	session *store.SessionContextStore
+	boards  *storeboard.BoundStore
 }
 
 func (fake goalProviderFake) SessionContextStoreFor(string) *store.SessionContextStore {
 	return fake.session
 }
 
+func (fake goalProviderFake) SessionBoardsFor(string) *storeboard.BoundStore {
+	return fake.boards
+}
+
 func TestGoalCoordinatorBridgesSessionStoreAndBoardArchive(t *testing.T) {
-	router, err := store.NewRouter(t.TempDir())
+	stores, err := store.OpenStores(t.TempDir())
 	if err != nil {
-		t.Fatalf("new router: %v", err)
+		t.Fatalf("open stores: %v", err)
 	}
-	t.Cleanup(func() { _ = router.Close() })
+	t.Cleanup(func() { _ = stores.Close() })
+	router := stores.Router
 
 	sessionID := "session-goal-adapter"
 	session := store.NewSessionContextStore(router, sessionID)
-	boards, ok := router.BoardsForSession(sessionID)
-	if !ok {
-		t.Fatal("goal board archive is not available")
-	}
+	boards := stores.Boards.Bind(store.Key{SessionID: sessionID})
 	if err := boards.WriteGoalBoard(context.Background(), store.GoalBoardMeta{
 		BoardLifecycle: store.BoardLifecycle{
 			Kind: store.BoardKindGoal, State: store.BoardStateActive, Seq: 1,
@@ -40,7 +44,7 @@ func TestGoalCoordinatorBridgesSessionStoreAndBoardArchive(t *testing.T) {
 		t.Fatalf("write goal board: %v", err)
 	}
 
-	coordinator := newGoalCoordinator(goalProviderFake{session: session})
+	coordinator := newGoalCoordinator(goalProviderFake{session: session, boards: boards})
 	view := coordinator.GoalGovernanceViewFor(sessionID)
 	if view == nil || !view.Active || !view.Recovered || view.GoalID != "g-archived" {
 		t.Fatalf("recovered goal view = %+v", view)

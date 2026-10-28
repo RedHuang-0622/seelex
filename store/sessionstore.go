@@ -210,20 +210,11 @@ type Router struct {
 }
 
 func NewRouter(defaultPath string, limits ...storeroot.Settings) (*Router, error) {
-	// §11 覆盖链：默认值 ← config/seelex.yaml limits.session_storage ← 调用方显式覆盖。
-	// 装配只有这一条路径：没有第二份落盘配置，也没有运行期重配置入口。
-	config := Config{SessionStorage: storeroot.ResolveSettings(limits...)}
-	config, err := config.Normalize(defaultPath)
+	stores, err := OpenStores(defaultPath, limits...)
 	if err != nil {
 		return nil, err
 	}
-	repository, err := Open(context.Background(), config)
-	if err != nil {
-		return nil, err
-	}
-	router := &Router{repository: repository}
-	router.opsCond = sync.NewCond(&router.opsMu)
-	return router, nil
+	return stores.Router, nil
 }
 
 func (router *Router) SetWorkspace(projectID string) {

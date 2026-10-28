@@ -7,9 +7,9 @@
 覆盖：`media*.go`、`search_index*.go`、`tool_record*.go`、`schedule_events*.go`；未归属文件由覆盖自检拦下。
 
 M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索索引的唯一实现位于
-[`artifact/README.md`](artifact/README.md)。本卷 `media.go` / `search_index.go`
-只保留类型与错误 alias、`MediaStore` 能力面、Router/Repository 适配，以及既有包内
-测试所需的薄路径转发。
+[`artifact/README.md`](artifact/README.md)。M10 起，工具记录快照唯一实现位于
+[`record/README.md`](record/README.md)。本卷 `media.go` / `search_index.go` /
+`tool_record.go` 只保留兼容 alias 与尚未迁移的 Router 薄适配。
 
 ## 文件与函数索引
 
@@ -18,7 +18,6 @@ M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索�
 
 ### media.go
 
-- `func MediaStoreOf(repository Repository) (MediaStore, bool)` — MediaStoreOf 从 Repository 取媒体分区能力；后端不支持时返回 false。
 - `func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error)` — WriteMediaWorkspace 在显式项目作用域下写入一条媒体资产（截屏/看图类工具
 - `func (router *Router) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error)` — ReadMediaWorkspace 在显式项目作用域下按 `media:<hash>` 读回媒体资产
 - `func MediaRefHash(ref string) string` — MediaRefHash 归一化 ref 为内容 hash；非 `media:` 引用返回空串。
@@ -86,11 +85,13 @@ M3 起，内容寻址 blob、immutable tool-result、媒体配额/GC 与搜索�
 
 ### tool_record.go
 
-- `func ToolRecord(repository Repository) (ToolRecordRepository, bool)` — ToolRecord 把 Repository 收窄到工具记录面（与 Teamwork 同一手法：有就有、没有就是没装配）。
-- `func (router *Router) ToolRecordFor() (ToolRecordRepository, bool)` — ToolRecordFor 返回**当前活跃后端**的工具记录读/写面（JSON 后端实现它；其他后端 false）。
-- `func (store *storeEngine) toolRecordPath(key Key) string` — toolRecordPath 返回该会话的工具记录文件路径。
-- `func (repository *jsonRepository) AppendToolRecordSnapshot(_ context.Context, key Key, payload any) error` — AppendToolRecordSnapshot 追加一行整份读数。
-- `func (repository *jsonRepository) ReadToolRecordSnapshot(_ context.Context, key Key) (json.RawMessage, bool, error)` — ReadToolRecordSnapshot 读回最后一行整份读数。
+- `const ToolRecordFile` — 指向 `store/record.File` 的兼容别名；I/O 与残尾判据不回流。
+
+### record/store.go
+
+- `func New(layout *storelayout.Layout) *Store`
+- `func (s *Store) Append(ctx, key, payload any) error`
+- `func (s *Store) Read(ctx, key) (json.RawMessage, bool, error)`
 
 ### tool_record_test.go
 

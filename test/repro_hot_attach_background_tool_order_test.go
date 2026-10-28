@@ -63,8 +63,8 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	runtimeBridge.AttachHistoryRouter(st)
-	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
+	runtimeBridge.AttachHistoryRouter(st.Router)
+	runtimeBridge.SetEventPersister(store.NewEventStore(st.Router).Append)
 
 	skills := bootstrap.InitSkillSystem()
 	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
@@ -97,11 +97,12 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 		appEngine,
 		runtimeBridge,
 		plugins,
-		bootstrap.InitSessionManager(st, appEngine),
+		bootstrap.InitSessionManager(st.Router, appEngine),
 		skills,
 		workspaces,
 		events,
 		approval,
+		st.Boards,
 		launchFlags.StorePath,
 	)
 	if err != nil {

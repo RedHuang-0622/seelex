@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	workstore "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // output_store_test.go — （P21-23 随实现从 backend/engine/assemble/runtime_teamwork_output_test.go
@@ -24,34 +25,34 @@ type fakeTeamworkStore struct {
 	dir string
 }
 
-func (s *fakeTeamworkStore) WriteTeamworkPlan(context.Context, store.Key, store.TeamworkPlan, int) error {
+func (s *fakeTeamworkStore) WritePlan(dto.SessionKey, workstore.Plan, int) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkPlan(context.Context, store.Key) (store.TeamworkPlan, error) {
-	return store.TeamworkPlan{}, nil
+func (s *fakeTeamworkStore) ReadPlan(dto.SessionKey) (workstore.Plan, error) {
+	return workstore.Plan{}, nil
 }
 
-func (s *fakeTeamworkStore) AppendTeamworkEvent(context.Context, store.Key, store.TeamworkEvent) error {
+func (s *fakeTeamworkStore) AppendEvent(dto.SessionKey, workstore.Event) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkEvents(context.Context, store.Key) ([]store.TeamworkEvent, error) {
+func (s *fakeTeamworkStore) ReadEvents(dto.SessionKey) ([]workstore.Event, error) {
 	return nil, nil
 }
 
-func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, store.Key) (string, error) {
+func (s *fakeTeamworkStore) JobOutputDir(dto.SessionKey) (string, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return "", err
 	}
 	return s.dir, nil
 }
 
-func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, store.Key, store.TeamworkBinding) error {
+func (s *fakeTeamworkStore) AppendBinding(dto.SessionKey, workstore.Binding) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, store.Key) ([]store.TeamworkBinding, error) {
+func (s *fakeTeamworkStore) ReadBindings(dto.SessionKey) ([]workstore.Binding, error) {
 	return nil, nil
 }
 
@@ -59,8 +60,8 @@ func newOutputStoreFixture(t *testing.T) (*OutputStore, string, context.Context)
 	t.Helper()
 	dir := t.TempDir()
 	st := &fakeTeamworkStore{dir: dir}
-	outputs := NewOutputStore(st, func(sessionID string) (store.Key, bool) {
-		return store.Key{ProjectID: "project", SessionID: sessionID}, true
+	outputs := NewOutputStore(st, func(sessionID string) (dto.SessionKey, bool) {
+		return dto.SessionKey{ProjectID: "project", SessionID: sessionID}, true
 	})
 	if outputs == nil {
 		t.Fatal("NewOutputStore 在给了 store 与 keyFor 时不该返回 nil")

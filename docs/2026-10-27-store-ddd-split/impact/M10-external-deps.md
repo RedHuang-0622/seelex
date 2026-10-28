@@ -10,7 +10,9 @@
 - base：M9 完成后的交接 commit `d192dab7`
 - 迁移脚本：`scripts/store-ddd/M10-external-migrate.py`
 - 可重放补丁：`scripts/store-ddd/M10-external.patch.b64`
-- checkpoint：创建后回填
+- checkpoint：`f49f4ec791957d8e581d3f3874580511c84848c1`
+- replay branch：`codex/store-ddd-M10-replay`
+- apply journal：`%TEMP%\seelex-store-ddd-M10-43bfjp6f\journal.json`
 
 ## 结构变化
 
@@ -53,4 +55,6 @@ git diff --check
 - 路径、JSON tag、head/watermark、schema 与用户数据零迁移。
 - 外部批次可用 `scripts/store-ddd/M10-external-migrate.py --dry-run` 预检。
 - apply 写系统临时目录 journal；失败自动恢复；`--rollback <journal>` 按文件哈希恢复。
+- 本批次已验证 61 个目标 dry-run/apply，隔离 worktree `go build ./...` 与结构门禁通过；
+  rollback 后工作树零差异，main/replay 规范化内容 parity 为 ok。
 - 代码回滚不触碰 `.seelex`、`config/`、`dist/` 或会话 fixture。

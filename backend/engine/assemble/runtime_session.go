@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 // 主会话与子代理 merge-back 的会话侧内部方法。公开会话端口见 ports.go。
@@ -20,6 +21,7 @@ import (
 type sessionBindings struct {
 	mu          sync.RWMutex
 	ctxStore    *store.SessionContextStore
+	boards      *storeboard.BoundStore
 	mainHistory *store.DurableHistory
 
 	mainSessionMu sync.RWMutex
@@ -55,9 +57,10 @@ func (b *sessionBindings) prepareMainSessionHistory(sessionID string, messages [
 	return true
 }
 
-func (b *sessionBindings) attachContextStore(st *store.SessionContextStore) {
+func (b *sessionBindings) attachContextStore(st *store.SessionContextStore, boards *storeboard.BoundStore) {
 	b.mu.Lock()
 	b.ctxStore = st
+	b.boards = boards
 	b.mu.Unlock()
 }
 
@@ -65,6 +68,12 @@ func (b *sessionBindings) contextStore() *store.SessionContextStore {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.ctxStore
+}
+
+func (b *sessionBindings) boardStore() *storeboard.BoundStore {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.boards
 }
 
 // SessionContextStoreFor 返回指定会话的 SessionContextStore（goal 第五栈
@@ -80,6 +89,21 @@ func (r *Runtime) SessionContextStoreFor(sessionID string) *store.SessionContext
 		return nil
 	}
 	return bundle.binding.contextStore()
+}
+
+// SessionBoardsFor returns the session-bound board archive injected by the
+// composition root.
+func (r *Runtime) SessionBoardsFor(sessionID string) *storeboard.BoundStore {
+	if r == nil || sessionID == "" {
+		return nil
+	}
+	r.bundlesMu.RLock()
+	bundle := r.bundles[sessionID]
+	r.bundlesMu.RUnlock()
+	if bundle == nil {
+		return nil
+	}
+	return bundle.binding.boardStore()
 }
 
 // getTurnArchiver 返回全局轮次归档器（跨会话共享；nil = 未注入）。

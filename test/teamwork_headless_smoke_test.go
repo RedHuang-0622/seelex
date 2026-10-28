@@ -30,6 +30,7 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -413,12 +414,12 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	var planStoreForProbe seeteamwork.PlanStore
 	var keyForForProbe func(string) (store.Key, bool)
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, tempDir, 60*time.Second, true, limits,
-		func(st *store.Router, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
-			repo, ok := st.TeamworkFor()
-			if !ok {
+		func(st *bootstrap.Store, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
+			repo := st.Teamwork
+			if repo == nil {
 				t.Fatal("真实 JSON 后端应提供 teamwork 读/写面")
 			}
-			boards, _ := st.BoardsFor()
+			boards := st.Boards
 			keyFor := func(sessionID string) (store.Key, bool) {
 				workspace, exists := workspaces.SessionWorkspace(sessionID)
 				if !exists || strings.TrimSpace(workspace.ID) == "" {

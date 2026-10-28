@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	storerecord "github.com/RedHuang-0622/seelex/store/record"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring/config"
@@ -106,15 +107,19 @@ func guardMultiProcess(storePath string) error {
 	return nil
 }
 
-func InitStore(storePath string) (*store.Router, error) {
+type Store struct {
+	*store.Stores
+}
+
+func InitStore(storePath string) (*Store, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(storePath)
 	store.ApplyLimits(runtimeLimits.SummaryChars)
-	router, err := store.NewRouter(baseDir, sessionStorageLimits())
+	stores, err := store.OpenStores(baseDir, sessionStorageLimits())
 	if err != nil {
 		return nil, fmt.Errorf("初始化嵌套存储失败: %w", err)
 	}
-	return router, nil
+	return &Store{Stores: stores}, nil
 }
 
 // sessionStorageLimits 把 seelex.yaml limits.session_storage 映射成存储覆盖层
@@ -221,32 +226,37 @@ func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (store.Key, boo
 // 让会话提交失败（错误由调用方按 LastError 的同一口径处理，这里选择"静默跳过"是因为
 // 键解析失败通常意味着会话还没绑项目——那时也还没有可写的位置）。
 type sessionToolRecordStore struct {
-	router     *store.Router
+	records    toolRecordStore
 	resolveKey func(sessionID string) (store.Key, bool)
 }
 
+// toolRecordStore is the consumer-owned narrow API. *store/record.Store
+// structurally satisfies it through the composition root.
+type toolRecordStore interface {
+	Append(context.Context, store.Key, any) error
+	Read(context.Context, store.Key) (json.RawMessage, bool, error)
+}
+
 func (st sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error {
-	repository, ok := st.repository()
-	if !ok {
+	if st.records == nil {
 		return nil
 	}
 	key, ok := st.key(sessionID)
 	if !ok {
 		return nil
 	}
-	return repository.AppendToolRecordSnapshot(context.Background(), key, snapshot)
+	return st.records.Append(context.Background(), key, snapshot)
 }
 
 func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error) {
-	repository, ok := st.repository()
-	if !ok {
+	if st.records == nil {
 		return application.ToolRecordSnapshot{}, false, nil
 	}
 	key, ok := st.key(sessionID)
 	if !ok {
 		return application.ToolRecordSnapshot{}, false, nil
 	}
-	raw, found, err := repository.ReadToolRecordSnapshot(context.Background(), key)
+	raw, found, err := st.records.Read(context.Background(), key)
 	if err != nil || !found {
 		return application.ToolRecordSnapshot{}, false, err
 	}
@@ -257,16 +267,11 @@ func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (appli
 	return snapshot, true, nil
 }
 
-func (st sessionToolRecordStore) repository() (store.ToolRecordRepository, bool) {
-	if st.router == nil {
-		return nil, false
-	}
-	return st.router.ToolRecordFor()
-}
-
 func (st sessionToolRecordStore) key(sessionID string) (store.Key, bool) {
 	if st.resolveKey == nil {
 		return store.Key{}, false
 	}
 	return st.resolveKey(sessionID)
 }
+
+var _ toolRecordStore = (*storerecord.Store)(nil)

@@ -24,7 +24,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ResolvePluginAssembly 解析"这一轮装配哪些插件"：显式声明替换集合 → 角色自带 → 空集（不覆盖）。
@@ -76,7 +75,7 @@ func NormalizePluginNames(names []string) []string {
 //  4. 重复：显式拒绝，不静默合并——与"未知名"同口径。
 //
 // 抽成函数是为了可测：它只依赖"上限"与"名字是否存在"两个事实，不需要整个 coordinator / 存储面在场。
-func ValidateMemberPlugins(members []store.TeamworkMember, limit int, defined func(string) bool) error {
+func ValidateMemberPlugins(members []dto.TeamworkMember, limit int, defined func(string) bool) error {
 	for index := range members {
 		plugins, err := dto.NormalizePlugins(members[index].Plugins, limit)
 		if err != nil {

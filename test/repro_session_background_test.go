@@ -108,7 +108,7 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return &backgroundScenario{harness: harness, provider: provider, sessionA: sessionA, sessionB: sessionB, st: st}
+	return &backgroundScenario{harness: harness, provider: provider, sessionA: sessionA, sessionB: sessionB, st: st.Router}
 }
 
 // loadStoredRecord 读取 workspace 下会话的持久化 record。
@@ -326,7 +326,7 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	deadlineA := time.Now().Add(20 * time.Second)
 	for {
-		record, ok := loadStoredRecord(t, st, "", sessionA)
+		record, ok := loadStoredRecord(t, st.Router, "", sessionA)
 		if ok {
 			joined := strings.Join(recordConversationTexts(record), "\n")
 			if strings.Contains(joined, "long task A") {
@@ -456,7 +456,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	deadlineA := time.Now().Add(20 * time.Second)
 	for {
-		record, ok := loadStoredRecord(t, st, "", sessionA)
+		record, ok := loadStoredRecord(t, st.Router, "", sessionA)
 		if ok {
 			joined := strings.Join(recordConversationTexts(record), "\n")
 			if strings.Contains(joined, "long task A") {
@@ -473,7 +473,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	if snapshot.Session.ID != sessionC || !snapshot.Chat.Running {
 		t.Fatalf("C execution affected by A completion: %+v", snapshot.Chat)
 	}
-	record, ok := loadStoredRecord(t, st, "", sessionA)
+	record, ok := loadStoredRecord(t, st.Router, "", sessionA)
 	if !ok {
 		t.Fatalf("A record missing")
 	}

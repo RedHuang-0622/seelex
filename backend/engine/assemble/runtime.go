@@ -256,7 +256,7 @@ type Runtime struct {
 	teamworkMu      sync.Mutex
 	teamworkBackend *TeamworkBackend
 	teamworkJobs    jobs.Manager
-	teamworkCoords  map[store.Key]*teamwork.Coordinator
+	teamworkCoords  map[dto.SessionKey]*teamwork.Coordinator
 	// teamworkJobSignals / teamworkJobEvents 是 teammate 作业信号口的一次扇出与
 	// application 侧那条订阅（见 teamwork_job_signals.go）：上游 jobs.Manager.Events()
 	// 是单接收者通道，而"事件投影"与"终态触发回合"两个读侧动作都要跟着它走。

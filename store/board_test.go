@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func sampleGoalBoard() GoalBoardMeta {
 			GoalID: "g-7", Title: "团队看板接线", Status: "active",
 			Statement:  "把看板接进活体 GUI",
 			Acceptance: []string{"面板出现", "TUI 同源"},
-			Progress:   []GoalProgress{{At: 1100, Kind: "result", Content: "接线完成"}},
+			Progress:   []dto.BoardGoalProgress{{At: 1100, Kind: "result", Content: "接线完成"}},
 			CreatedAt:  1000, UpdatedAt: 1200,
 		},
 		History: []GoalBoardHistory{
@@ -71,10 +72,10 @@ func sampleTeamBoard(t *testing.T) TeamBoardMeta {
 func TestGoalBoardRoundTrip(t *testing.T) {
 	repository, key := boardFixture(t)
 	meta := sampleGoalBoard()
-	if err := repository.WriteGoalBoard(context.Background(), key, meta); err != nil {
+	if err := repository.layout.boards.WriteGoalBoard(context.Background(), key, meta); err != nil {
 		t.Fatalf("WriteGoalBoard: %v", err)
 	}
-	loaded, err := repository.ReadGoalBoard(context.Background(), key)
+	loaded, err := repository.layout.boards.ReadGoalBoard(context.Background(), key)
 	if err != nil {
 		t.Fatalf("ReadGoalBoard: %v", err)
 	}
@@ -93,10 +94,10 @@ func TestGoalBoardRoundTrip(t *testing.T) {
 func TestTeamBoardRoundTrip(t *testing.T) {
 	repository, key := boardFixture(t)
 	meta := sampleTeamBoard(t)
-	if err := repository.WriteTeamBoard(context.Background(), key, meta); err != nil {
+	if err := repository.layout.boards.WriteTeamBoard(context.Background(), key, meta); err != nil {
 		t.Fatalf("WriteTeamBoard: %v", err)
 	}
-	loaded, err := repository.ReadTeamBoard(context.Background(), key)
+	loaded, err := repository.layout.boards.ReadTeamBoard(context.Background(), key)
 	if err != nil {
 		t.Fatalf("ReadTeamBoard: %v", err)
 	}
@@ -123,10 +124,10 @@ func TestTeamBoardRoundTrip(t *testing.T) {
 // （不是 IO 错误；口径见 docs/arch/absent-state-reads.md）。
 func TestBoardReadMissingIsEmptyNotError(t *testing.T) {
 	repository, key := boardFixture(t)
-	if meta, err := repository.ReadGoalBoard(context.Background(), key); err != nil || meta.Seq != 0 {
+	if meta, err := repository.layout.boards.ReadGoalBoard(context.Background(), key); err != nil || meta.Seq != 0 {
 		t.Fatalf("空 goal 看板 = (%+v, %v)，want 零值 + nil", meta, err)
 	}
-	if meta, err := repository.ReadTeamBoard(context.Background(), key); err != nil || meta.TeamID != "" || len(meta.Snapshot) != 0 {
+	if meta, err := repository.layout.boards.ReadTeamBoard(context.Background(), key); err != nil || meta.TeamID != "" || len(meta.Snapshot) != 0 {
 		t.Fatalf("空团队看板 = (%+v, %v)，want 零值 + nil", meta, err)
 	}
 }
@@ -171,10 +172,10 @@ func TestBoardArchiveSurvivesReopen(t *testing.T) {
 // 不与彼此的领域模块共用文件。
 func TestBoardModulesAreSeparateFiles(t *testing.T) {
 	repository, key := boardFixture(t)
-	if err := repository.WriteGoalBoard(context.Background(), key, sampleGoalBoard()); err != nil {
+	if err := repository.layout.boards.WriteGoalBoard(context.Background(), key, sampleGoalBoard()); err != nil {
 		t.Fatalf("WriteGoalBoard: %v", err)
 	}
-	if err := repository.WriteTeamBoard(context.Background(), key, sampleTeamBoard(t)); err != nil {
+	if err := repository.layout.boards.WriteTeamBoard(context.Background(), key, sampleTeamBoard(t)); err != nil {
 		t.Fatalf("WriteTeamBoard: %v", err)
 	}
 	layout := repository.layout
@@ -205,11 +206,11 @@ func TestGoalBoardRejectsSameGoalInActiveAndHistory(t *testing.T) {
 	repository, key := boardFixture(t)
 	meta := sampleGoalBoard()
 	meta.History[0].GoalID = "g-7" // 与 Active 撞 id
-	err := repository.WriteGoalBoard(context.Background(), key, meta)
+	err := repository.layout.boards.WriteGoalBoard(context.Background(), key, meta)
 	if err == nil {
 		t.Fatal("同一个 goal 同时出现在 active 与 history，写入竟然通过了")
 	}
-	if meta, readErr := repository.ReadGoalBoard(context.Background(), key); readErr != nil || meta.Seq != 0 {
+	if meta, readErr := repository.layout.boards.ReadGoalBoard(context.Background(), key); readErr != nil || meta.Seq != 0 {
 		t.Fatalf("校验失败却落了盘：%+v（err=%v）", meta, readErr)
 	}
 }
@@ -239,7 +240,7 @@ func TestGoalBoardRejectsMalformedLifecycle(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			meta := sampleGoalBoard()
 			testCase.mutate(&meta)
-			if err := repository.WriteGoalBoard(context.Background(), key, meta); err == nil {
+			if err := repository.layout.boards.WriteGoalBoard(context.Background(), key, meta); err == nil {
 				t.Fatalf("%s：非法存档竟然通过了", testCase.name)
 			}
 		})
@@ -251,7 +252,7 @@ func TestTeamBoardRejectsActiveWithoutSnapshot(t *testing.T) {
 	repository, key := boardFixture(t)
 	meta := sampleTeamBoard(t)
 	meta.Snapshot = nil
-	if err := repository.WriteTeamBoard(context.Background(), key, meta); err == nil {
+	if err := repository.layout.boards.WriteTeamBoard(context.Background(), key, meta); err == nil {
 		t.Fatal("没有快照的在册团队看板竟然通过了")
 	}
 }
@@ -266,10 +267,10 @@ func TestBoardClosedKeepsClosedFacts(t *testing.T) {
 	meta.Seq = 4
 	meta.ClosedAt = 5000
 	meta.ClosedReason = BoardCloseGoalFinish
-	if err := repository.WriteGoalBoard(context.Background(), key, meta); err != nil {
+	if err := repository.layout.boards.WriteGoalBoard(context.Background(), key, meta); err != nil {
 		t.Fatalf("WriteGoalBoard(closed): %v", err)
 	}
-	loaded, err := repository.ReadGoalBoard(context.Background(), key)
+	loaded, err := repository.layout.boards.ReadGoalBoard(context.Background(), key)
 	if err != nil {
 		t.Fatalf("ReadGoalBoard: %v", err)
 	}

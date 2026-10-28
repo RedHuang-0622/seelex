@@ -15,20 +15,20 @@ func TestToolRecordSnapshotIsSessionScopedAndLastLineWins(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
 
-	if _, found, err := repository.ReadToolRecordSnapshot(ctx, key); err != nil || found {
+	if _, found, err := repository.layout.records.Read(ctx, key); err != nil || found {
 		t.Fatalf("还没写过时必须返回 found=false 且不报错：found=%v err=%v", found, err)
 	}
 
 	first := map[string]any{"at": "2026-10-15T10:00:00Z", "tools": []any{map[string]any{"tool": "bash", "success": 1}}}
 	second := map[string]any{"at": "2026-10-15T10:05:00Z", "tools": []any{map[string]any{"tool": "bash", "success": 3, "failure": 1}}}
-	if err := repository.AppendToolRecordSnapshot(ctx, key, first); err != nil {
+	if err := repository.layout.records.Append(ctx, key, first); err != nil {
 		t.Fatalf("AppendToolRecordSnapshot: %v", err)
 	}
-	if err := repository.AppendToolRecordSnapshot(ctx, key, second); err != nil {
+	if err := repository.layout.records.Append(ctx, key, second); err != nil {
 		t.Fatalf("AppendToolRecordSnapshot: %v", err)
 	}
 
-	raw, found, err := repository.ReadToolRecordSnapshot(ctx, key)
+	raw, found, err := repository.layout.records.Read(ctx, key)
 	if err != nil || !found {
 		t.Fatalf("读回失败：found=%v err=%v", found, err)
 	}
@@ -48,7 +48,7 @@ func TestToolRecordSnapshotIsSessionScopedAndLastLineWins(t *testing.T) {
 	// 按会话隔离：同项目另一个会话读不到这份读数。
 	other := key
 	other.SessionID = key.SessionID + "-other"
-	if _, found, err := repository.ReadToolRecordSnapshot(ctx, other); err != nil || found {
+	if _, found, err := repository.layout.records.Read(ctx, other); err != nil || found {
 		t.Fatalf("另一个会话不该看到这份读数：found=%v err=%v", found, err)
 	}
 }
@@ -57,7 +57,7 @@ func TestToolRecordSnapshotIsSessionScopedAndLastLineWins(t *testing.T) {
 func TestToolRecordSnapshotSkipsCrashTail(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
-	if err := repository.AppendToolRecordSnapshot(ctx, key, map[string]any{"at": "ok-1"}); err != nil {
+	if err := repository.layout.records.Append(ctx, key, map[string]any{"at": "ok-1"}); err != nil {
 		t.Fatalf("AppendToolRecordSnapshot: %v", err)
 	}
 	path := filepath.Join(repository.layout.sessionRoot(key), ToolRecordFile)
@@ -72,7 +72,7 @@ func TestToolRecordSnapshotSkipsCrashTail(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	raw, found, err := repository.ReadToolRecordSnapshot(ctx, key)
+	raw, found, err := repository.layout.records.Read(ctx, key)
 	if err != nil || !found {
 		t.Fatalf("残尾不该让整份读数消失：found=%v err=%v", found, err)
 	}
