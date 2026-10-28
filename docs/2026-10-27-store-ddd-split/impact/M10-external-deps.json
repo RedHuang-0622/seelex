@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "4b425aae3b872832ad1f404732bf19f762abc304",
+    "base_commit": "3a7ad1fc88304270291f97435af0d1e794efd3ca",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -642,7 +642,7 @@
       "side": "production",
       "sha256": "b715a9040820c2452bb62e7cc1b4f1bcbf697bbd70eb0002ba59c657b51f792b",
       "pre_sha256": "b715a9040820c2452bb62e7cc1b4f1bcbf697bbd70eb0002ba59c657b51f792b",
-      "post_sha256": "5209d2dcb0eda930c9300e56f8b44b85f0b96fbe8c635b5f400742c57c27938c",
+      "post_sha256": "af6b7ff5e34dfd73d96f5f06d9ee9199ea40621613335b194fdac5a6c83c6e26",
       "depends_on": [],
       "depended_on_by": [],
       "operations": [
